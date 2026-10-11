@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const yaml = require('js-yaml');
 const http = require('http');
+const babel = require('@babel/core');
 
 class DomainGraphAnalyzer {
   constructor(rootDir) {
@@ -483,6 +484,1883 @@ class DomainGraphAnalyzer {
 
   generateHTML(graphData) {
     const graphDataJson = JSON.stringify(graphData).replace(/<\/script>/g, '<\\/script>');
+    const jsxSource = `
+      import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { createRoot } from 'react-dom/client';
+import ReactFlowComponent, {
+  ReactFlowProvider,
+  Background,
+  BackgroundVariant,
+  Controls,
+  MiniMap,
+  Handle,
+  Position,
+  MarkerType,
+  useNodesState,
+  useEdgesState,
+  useReactFlow
+} from 'reactflow';
+import dagre from 'dagre';
+
+// --- Data ---
+const GRAPH_DATA = JSON.parse(document.getElementById('graph-data').textContent);
+
+// --- Constants ---
+const NODE_WIDTH = 220;
+const NODE_HEIGHT = 60;
+const EDGE_COLOR = '#10b981';
+
+// --- Dagre layout ---
+function layoutGraph(nodes, edges) {
+  const g = new dagre.graphlib.Graph();
+  g.setDefaultEdgeLabel(() => ({}));
+  g.setGraph({
+    rankdir: 'LR',
+    nodesep: 30,
+    ranksep: 100,
+    edgesep: 20,
+    marginx: 40,
+    marginy: 40,
+    ranker: 'network-simplex'
+  });
+  nodes.forEach(n => g.setNode(n.id, { width: NODE_WIDTH, height: NODE_HEIGHT }));
+  edges.forEach(e => g.setEdge(e.source, e.target));
+  dagre.layout(g);
+  return nodes.map(n => {
+    const pos = g.node(n.id);
+    return {
+      ...n,
+      position: { x: pos.x - NODE_WIDTH / 2, y: pos.y - NODE_HEIGHT / 2 },
+      targetPosition: 'left',
+      sourcePosition: 'right'
+    };
+  });
+}
+
+// --- Convert to ReactFlow format ---
+function toReactFlow(graphData) {
+  const nodes = graphData.nodes.map(n => {
+    const domainId = n.domainId || n.id.replace(/^(domain_|missing_|broken_)/, '');
+    return {
+      id: n.id,
+      type: 'domainNode',
+      data: {
+        domainId,
+        label: n.label,
+        nodeType: n.group,
+        filePath: n.filePath,
+        tooltipHtml: n.title,
+        fqidRefs: n.fqidRefs || [],
+        version: n.version,
+        entitiesCount: n.entitiesCount,
+        name: n.name || n.label || '',
+        description: n.description || '',
+        author: n.author || '',
+        tags: Array.isArray(n.tags) ? n.tags : []
+      },
+      position: { x: 0, y: 0 }
+    };
+  });
+
+  const edges = graphData.edges.map(e => {
+    const isLinkage = e.kind === 'linkage';
+    const isFqid = e.kind === 'fqid';
+  
+    const base = {
+      id: e.id,
+      source: e.from,
+      target: e.to,
+      label: e.label,
+      data: {
+        tooltipHtml: e.title,
+        fqidRefs: e.fqidRefs || [],
+        linkData: e.linkData || null,
+        fullLabel: e.fullLabel || e.label || e.id,
+        kind: e.kind,
+        // Новые поля:
+        side1Domain: e.side1Domain || null,
+        side2Domain: e.side2Domain || null,
+        side1Raw: e.side1Raw || null,
+        side2Raw: e.side2Raw || null
+      }
+    };
+  
+    if (isLinkage) {
+      return {
+        ...base,
+        type: 'smoothstep',
+        markerEnd: { type: MarkerType.ArrowClosed, color: '#818cf8', width: 16, height: 16 },
+        style: { stroke: '#818cf8', strokeWidth: 2.5, strokeDasharray: '6 4' },
+        labelStyle: { fill: '#c7d2fe', fontSize: 10, fontWeight: 600 },
+        labelBgStyle: { fill: '#1e1b4b', fillOpacity: 0.95 },
+        labelBgPadding: [5, 3],
+        labelBgBorderRadius: 4
+      };
+    }
+  
+    return {
+      ...base,
+      type: 'smoothstep',
+      markerEnd: { type: MarkerType.ArrowClosed, color: '#10b981', width: 12, height: 12 },
+      style: { stroke: '#10b981', strokeWidth: 1.2, opacity: 0.7 },
+      labelStyle: { fill: '#a7f3d0', fontSize: 9, fontWeight: 400 },
+      labelBgStyle: { fill: '#052e2b', fillOpacity: 0.9 },
+      labelBgPadding: [3, 2],
+      labelBgBorderRadius: 3
+    };
+  });
+
+  return { nodes: layoutGraph(nodes, edges), edges };
+}
+
+// --- Filter helpers ---
+function matchesNamespace(domainId, filterPattern) {
+  if (!filterPattern || filterPattern.trim() === '') return true;
+
+  // Разбиваем по запятой, точке с запятой или пробелу
+  const tokens = filterPattern
+    .replace(/[,;]/g, ' ')
+    .split(' ')
+    .filter(p => p.length > 0)
+    .map(p => p.toLowerCase());
+
+  if (tokens.length === 0) return true;
+
+  const id = domainId.toLowerCase();
+
+  // Разделяем на включающие и исключающие маски
+  const include = tokens.filter(t => !t.startsWith('!'));
+  const exclude = tokens.filter(t => t.startsWith('!')).map(t => t.slice(1)).filter(t => t.length > 0);
+
+  // Исключающие имеют приоритет: если домен подходит под исключение — отбрасываем
+  for (const ex of exclude) {
+    if (simplePatternMatch(id, ex)) return false;
+  }
+
+  // Если нет ни одной включающей маски, но есть исключающие — показываем всё, кроме исключённого
+  if (include.length === 0) return true;
+
+  // Иначе домен должен матчиться хотя бы одной включающей маской
+  return include.some(inc => simplePatternMatch(id, inc));
+}
+
+function simplePatternMatch(domainId, pattern) {
+  if (pattern.indexOf('*') !== -1) {
+    const parts = pattern.split('*');
+    if (parts[0]) {
+      const prefix = parts[0];
+      const prefixNoDot = prefix.endsWith('.') ? prefix.slice(0, -1) : prefix;
+      if (domainId.indexOf(prefix) !== 0 && domainId !== prefixNoDot) return false;
+    }
+    if (parts[parts.length - 1]) {
+      const last = parts[parts.length - 1];
+      if (domainId.lastIndexOf(last) !== domainId.length - last.length) return false;
+    }
+    let pos = parts[0] ? parts[0].length : 0;
+    for (let i = 1; i < parts.length - 1; i++) {
+      if (!parts[i]) continue;
+      const found = domainId.indexOf(parts[i], pos);
+      if (found === -1) return false;
+      pos = found + parts[i].length;
+    }
+    return true;
+  }
+  return domainId === pattern || domainId.indexOf(pattern + '.') === 0;
+}
+
+// --- Custom node ---
+function DomainNode({ data, selected }) {
+  const cls = 'rf-node rf-node--' + data.nodeType + (selected ? ' rf-node--selected' : '') + (data.dimmed ? ' rf-node--dimmed' : '');
+  const icon = data.nodeType === 'domain' ? '●' : data.nodeType === 'missing' ? '▲' : '✕';
+  return (
+    <React.Fragment>
+      <Handle type="target" position={Position.Left} className="rf-handle" />
+      <div className={cls}>
+        <div className="rf-node__icon">{icon}</div>
+        <div className="rf-node__content">
+          <div className="rf-node__id" title={data.domainId}>{data.domainId}</div>
+          {data.label && data.label !== data.domainId && (
+            <div className="rf-node__name" title={data.label}>{data.label}</div>
+          )}
+        </div>
+      </div>
+      <Handle type="source" position={Position.Right} className="rf-handle" />
+    </React.Fragment>
+  );
+}
+
+const nodeTypes = { domainNode: DomainNode };
+
+// --- Editor Panel ---
+function EditorPanel({ open, filePath, editorRef, onClose }) {
+  const [monacoReady, setMonacoReady] = useState(false);
+  useEffect(() => {
+    if (typeof window.require === 'undefined') return;
+    window.require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.34.0/min/vs' } });
+    window.require(['vs/editor/editor.main'], () => {
+      if (!editorRef.current) {
+        editorRef.current = window.monaco.editor.create(document.getElementById('monaco-container'), {
+          value: '',
+          language: 'yaml',
+          theme: 'vs-dark',
+          readOnly: true,
+          automaticLayout: true,
+          fontSize: 13,
+          minimap: { enabled: false },
+          scrollBeyondLastLine: false,
+          fontFamily: 'JetBrains Mono, SF Mono, Monaco, monospace'
+        });
+      }
+      setMonacoReady(true);
+    });
+  }, []);
+
+  const handleClose = () => onClose();
+
+  return (
+    <div className={'editor-panel' + (open ? ' open' : '')}>
+      <div className="editor-panel__header">
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="editor-panel__title">📄 Просмотр файла</div>
+          <div className="editor-panel__path" title={filePath}>{filePath}</div>
+        </div>
+        <button className="btn btn--icon" onClick={handleClose} title="Закрыть">✕</button>
+      </div>
+      <div className="editor-panel__body">
+        <div id="monaco-container" style={{ width: '100%', height: '100%' }}></div>
+      </div>
+    </div>
+  );
+}
+
+function Popover({ trigger, children, align = 'left', width = 320 }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    };
+    const onEsc = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onEsc, true);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onEsc, true);
+    };
+  }, [open]);
+
+  return (
+    <div className="popover-wrap" ref={wrapRef}>
+      <div className="popover-trigger" onClick={() => setOpen(o => !o)}>
+        {trigger(open)}
+      </div>
+      {open && (
+        <div className={'popover popover--' + align} style={{ width }}>
+          {typeof children === 'function' ? children(() => setOpen(false)) : children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FilterMenu({ filters, setFilters, counts, namespaceFilter, setNamespaceFilter, close }) {
+  const allActive = filters.domain && filters.missing && filters.broken && filters.linkage && filters.fqid;
+  const setAll = (val) => setFilters(f => ({
+    ...f, domain: val, missing: val, broken: val, linkage: val, fqid: val
+  }));
+
+  return (
+    <div className="menu">
+      <div className="menu__header">
+        <span>Фильтры</span>
+        <button
+          className="menu__action"
+          onClick={() => { setAll(true); setNamespaceFilter(''); }}
+          title="Показать всё"
+        >
+          Сбросить
+        </button>
+      </div>
+
+      <div className="menu__section">
+        <div className="menu__label">Тип узлов</div>
+        {[
+          { key: 'domain', label: 'Domain', color: 'var(--success)' },
+          { key: 'missing', label: 'Missing', color: 'var(--warning)' },
+          { key: 'broken', label: 'Broken', color: 'var(--danger)' }
+        ].map(it => (
+          <label key={it.key} className="menu__checkbox">
+            <input
+              type="checkbox"
+              checked={!!filters[it.key]}
+              onChange={() => setFilters(f => ({ ...f, [it.key]: !f[it.key] }))}
+            />
+            <span className="menu__check" />
+            <span className="menu__dot" style={{ background: it.color }}></span>
+            <span className="menu__text">{it.label}</span>
+            <span className="menu__count">{counts[it.key]}</span>
+          </label>
+        ))}
+      </div>
+
+      <div className="menu__section">
+        <div className="menu__label">Тип связей</div>
+        {[
+          { key: 'linkage', label: 'Linkage', color: '#818cf8' },
+          { key: 'fqid', label: 'FQID', color: '#10b981' }
+        ].map(it => (
+          <label key={it.key} className="menu__checkbox">
+            <input
+              type="checkbox"
+              checked={!!filters[it.key]}
+              onChange={() => setFilters(f => ({ ...f, [it.key]: !f[it.key] }))}
+            />
+            <span className="menu__check" />
+            <span className="menu__dot" style={{ background: it.color }}></span>
+            <span className="menu__text">{it.label}</span>
+            <span className="menu__count">{counts[it.key]}</span>
+          </label>
+        ))}
+      </div>
+
+      <div className="menu__section">
+        <div className="menu__label">Namespace</div>
+        <input
+          className="menu__input"
+          type="text"
+          placeholder="sgrc.risk.*, !test.*"
+          value={namespaceFilter}
+          onChange={e => setNamespaceFilter(e.target.value)}
+        />
+        <div className="menu__hint">
+          Несколько масок через <b>,</b> <b>;</b> или пробел.<br />
+          <b>!</b> в начале — исключить.<br />
+          <b>*</b> — любое количество символов.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AnalysisMenu({
+  cycleHighlight, handleFindCycles,
+  isolatedOnly, setIsolatedOnly,
+  nsMode, setNsMode,
+  close
+}) {
+  return (
+    <div className="menu">
+      <button
+        className={'menu__item' + (cycleHighlight ? ' menu__item--active' : '')}
+        onClick={() => { handleFindCycles(); close(); }}
+      >
+        <span className="menu__icon">🔁</span>
+        <span className="menu__text">
+          Найти циклы
+          {cycleHighlight && <span className="menu__badge">{cycleHighlight.sccCount}</span>}
+        </span>
+      </button>
+      <button
+        className={'menu__item' + (isolatedOnly ? ' menu__item--active' : '')}
+        onClick={() => { setIsolatedOnly(v => !v); close(); }}
+      >
+        <span className="menu__icon">◯</span>
+        <span className="menu__text">Только изолированные</span>
+      </button>
+      <div className="menu__divider" />
+      <button
+        className={'menu__item' + (nsMode ? ' menu__item--active' : '')}
+        onClick={() => { setNsMode(v => !v); close(); }}
+      >
+        <span className="menu__icon">🗂</span>
+        <span className="menu__text">Агрегация по семействам</span>
+      </button>
+    </div>
+  );
+}
+
+function DataMenu({ handleExportJSON, snapshotInputRef, handleSnapshotUpload, diffMode, setDiffMode, close }) {
+  return (
+    <div className="menu">
+      <button className="menu__item" onClick={() => { handleExportJSON(); close(); }}>
+        <span className="menu__icon">💾</span>
+        <span className="menu__text">Экспорт графа в JSON</span>
+      </button>
+      <label className="menu__item">
+        <span className="menu__icon">⇄</span>
+        <span className="menu__text">Загрузить снимок для diff</span>
+        <input
+          ref={snapshotInputRef}
+          type="file"
+          accept="application/json"
+          style={{ display: 'none' }}
+          onChange={(e) => { handleSnapshotUpload(e); close(); }}
+        />
+      </label>
+      {diffMode && (
+        <button className="menu__item menu__item--danger" onClick={() => { setDiffMode(null); close(); }}>
+          <span className="menu__icon">✕</span>
+          <span className="menu__text">Сбросить diff</span>
+        </button>
+      )}
+    </div>
+  );
+}
+
+// --- Tooltip ---
+function HoverTooltip({ tooltip }) {
+  if (!tooltip) return null;
+  const { html, x, y } = tooltip;
+  return (
+    <div
+      className="tooltip"
+      style={{ left: x, top: y }}
+      onMouseEnter={() => { window.__tooltipHovered = true; }}
+      onMouseLeave={() => {
+        window.__tooltipHovered = false;
+        // Скрываем тултип через общий колбэк
+        if (window.__hideTooltip) window.__hideTooltip();
+      }}
+    >
+      <div dangerouslySetInnerHTML={{ __html: html }} />
+    </div>
+  );
+}
+
+// --- Main App ---
+function App() {
+  const initial = useMemo(() => toReactFlow(GRAPH_DATA), []);
+  const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
+  const [filters, setFilters] = useState({ domain: true, broken: true, missing: true, linkage: true, fqid: true });
+  const [namespaceFilter, setNamespaceFilter] = useState('');
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorPath, setEditorPath] = useState('');
+  const [tooltip, setTooltip] = useState(null);
+  const [selectedNodeId, setSelectedNodeId] = useState(null);
+  const hideTimer = useRef(null);
+  const tooltipHovered = useRef(false);
+  const editorRef = useRef(null);
+  const wrapperRef = useRef(null);
+  const rfInstance = useRef(null);
+  const hoverTimeout = useRef(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchIndex, setSearchIndex] = useState(0);
+  const searchInputRef = useRef(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  
+  
+  
+  const [cycleHighlight, setCycleHighlight] = useState(null); // { nodeIds:Set, edgeIds:Set, sccCount }
+  const [isolatedOnly, setIsolatedOnly] = useState(false);
+  const [nsMode, setNsMode] = useState(false);         // режим агрегации по неймспейсам
+  const [diffMode, setDiffMode] = useState(null);      // { addedEdges, addedNodes, removedEdges, removedNodes }
+  const snapshotInputRef = useRef(null);
+  
+  
+  const activeFiltersCount = useMemo(() => {
+    let c = 0;
+    if (!filters.domain) c++;
+    if (!filters.missing) c++;
+    if (!filters.broken) c++;
+    if (!filters.linkage) c++;
+    if (!filters.fqid) c++;
+    if (namespaceFilter.trim()) c++;
+    if (isolatedOnly) c++;
+    return c;
+  }, [filters, namespaceFilter, isolatedOnly]);
+  
+  useEffect(() => {
+    setSelectedNodeId(null);
+    setCycleHighlight(null);
+    const t = setTimeout(() => rfInstance.current?.fitView({ duration: 500, padding: 0.2 }), 100);
+    return () => clearTimeout(t);
+  }, [nsMode]);
+  
+  const handleFindCycles = useCallback(() => {
+  if (cycleHighlight) {
+    setCycleHighlight(null);
+    return;
+  }
+  const { sccs, cycleNodes, cycleEdges } = findCycles(nodes, edges);
+  if (cycleNodes.size === 0) {
+    alert('Циклы не найдены ✅');
+    return;
+  }
+  setCycleHighlight({
+    nodeIds: cycleNodes,
+    edgeIds: cycleEdges,
+    sccCount: sccs.length
+  });
+  setSelectedNodeId(null);
+  setTimeout(() => rfInstance.current?.fitView({ duration: 500, padding: 0.25 }), 50);
+}, [nodes, edges, cycleHighlight]);
+
+const handleSnapshotUpload = useCallback((e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      const snap = JSON.parse(ev.target.result);
+      const snapEdgeIds = new Set(snap.edges.map(x => x.id));
+      const snapNodeIds = new Set(snap.nodes.map(x => x.id));
+      const curEdgeIds = new Set(edges.map(x => x.id));
+      const curNodeIds = new Set(nodes.map(x => x.id));
+
+      const addedEdges = new Set();
+      const removedEdges = new Set();
+      const addedNodes = new Set();
+      const removedNodes = new Set();
+
+      curEdgeIds.forEach(id => { if (!snapEdgeIds.has(id)) addedEdges.add(id); });
+      snapEdgeIds.forEach(id => { if (!curEdgeIds.has(id)) removedEdges.add(id); });
+      curNodeIds.forEach(id => { if (!snapNodeIds.has(id)) addedNodes.add(id); });
+      snapNodeIds.forEach(id => { if (!curNodeIds.has(id)) removedNodes.add(id); });
+
+      const totals = {
+        addedEdges: addedEdges.size,
+        removedEdges: removedEdges.size,
+        addedNodes: addedNodes.size,
+        removedNodes: removedNodes.size
+      };
+
+      setDiffMode({ addedEdges, removedEdges, addedNodes, removedNodes, snapshot: snap, totals });
+
+      // Предупреждение при больших расхождениях
+      const totalChanges = totals.addedEdges + totals.removedEdges + totals.addedNodes + totals.removedNodes;
+
+      console.log('[diff] totals:', totals, 'snapshot scope:', snap.scope || 'unknown');
+    } catch (err) {
+      alert('Ошибка чтения снимка: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+}, [nodes, edges]);
+
+
+  
+  const tooltipHtmlCache = useRef(new Map());
+const getNodeTooltipHtml = useCallback((node) => {
+  const key = node.id;
+  if (tooltipHtmlCache.current.has(key)) return tooltipHtmlCache.current.get(key);
+  const html = buildTooltipHtml(
+    node.data.domainId,
+    node.data.label,
+    node.data.nodeType,
+    node.data.filePath,
+    node.data.version,
+    node.data.entitiesCount,
+    node.data.fqidRefs
+  );
+  tooltipHtmlCache.current.set(key, html);
+  return html;
+}, []);
+  
+  // Счётчики для чипов фильтра
+const counts = useMemo(() => ({
+  domain: nodes.filter(n => n.data.nodeType === 'domain').length,
+  missing: nodes.filter(n => n.data.nodeType === 'missing').length,
+  broken: nodes.filter(n => n.data.nodeType === 'broken').length,
+  linkage: edges.filter(e => e.data?.kind === 'linkage').length,
+  fqid: edges.filter(e => e.data?.kind === 'fqid').length
+}), [nodes, edges]);
+
+// Топ-5 доменов по числу связей (входящих + исходящих)
+const topConnected = useMemo(() => {
+  const degree = new Map();
+  nodes.forEach(n => degree.set(n.id, 0));
+  edges.forEach(e => {
+    if (degree.has(e.source)) degree.set(e.source, degree.get(e.source) + 1);
+    if (degree.has(e.target)) degree.set(e.target, degree.get(e.target) + 1);
+  });
+  return nodes
+    .map(n => ({ node: n, degree: degree.get(n.id) || 0 }))
+    .filter(x => x.degree > 0)
+    .sort((a, b) => b.degree - a.degree)
+    .slice(0, 5);
+}, [nodes, edges]);
+
+// Топ-5 доменов по исходящим FQID-ссылкам
+const topRefs = useMemo(() => {
+  return nodes
+    .map(n => ({ node: n, count: (n.data.fqidRefs || []).length }))
+    .filter(x => x.count > 0)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5);
+}, [nodes]);
+
+// Разбивка по неймспейсам (первые 2 сегмента id)
+const namespaces = useMemo(() => {
+  const map = new Map();
+  nodes.forEach(n => {
+    if (n.data.nodeType !== 'domain') return;
+    const parts = n.data.domainId.split('.');
+    const ns = parts.slice(0, 2).join('.');
+    map.set(ns, (map.get(ns) || 0) + 1);
+  });
+  return Array.from(map.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6);
+}, [nodes]);
+
+// Облако тегов
+const tagCloud = useMemo(() => {
+  const map = new Map();
+  nodes.forEach(n => {
+    (n.data.tags || []).forEach(t => {
+      const key = String(t);
+      map.set(key, (map.get(key) || 0) + 1);
+    });
+  });
+  return Array.from(map.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 14);
+}, [nodes]);
+
+// Изолированные домены (без связей)
+const isolatedCount = useMemo(() => {
+  const connected = new Set();
+  edges.forEach(e => { connected.add(e.source); connected.add(e.target); });
+  return nodes.filter(n => n.data.nodeType === 'domain' && !connected.has(n.id)).length;
+}, [nodes, edges]);
+
+// Общее число FQID-ссылок
+const totalFqidRefs = useMemo(
+  () => nodes.reduce((sum, n) => sum + (n.data.fqidRefs?.length || 0), 0),
+  [nodes]
+);
+  
+  const domainToNodeId = useMemo(() => {
+    const map = new Map();
+    nodes.forEach(n => {
+      const d = (n.data.domainId || '').toLowerCase();
+      if (d) map.set(d, n.id);
+    });
+    return map;
+  }, [nodes]);
+
+  // --- Filters ---
+  // Производные данные: если включён ns-режим — агрегация, иначе оригинал
+  const display = useMemo(() => {
+    if (!nsMode) return { nodes, edges };
+    const agg = aggregateByNamespace(nodes, edges);
+    return agg;
+  }, [nodes, edges, nsMode]);
+  
+  const displayNodes = display.nodes;
+  const displayEdges = display.edges;
+  
+  // Базовая фильтрация (тип + namespace)
+  const filteredNodes = useMemo(() => {
+    const connected = new Set();
+    displayEdges.forEach(e => { connected.add(e.source); connected.add(e.target); });
+  
+    return displayNodes.filter(n => {
+      const t = n.data.nodeType;
+      // в ns-режиме все узлы имеют nodeType='domain' — фильтры Broken/Missing не влияют
+      if (t === 'domain' && !filters.domain) return false;
+      if (t === 'broken' && !filters.broken) return false;
+      if (t === 'missing' && !filters.missing) return false;
+      if (namespaceFilter && !matchesNamespace(n.data.domainId, namespaceFilter)) return false;
+      if (isolatedOnly && (t !== 'domain' || connected.has(n.id))) return false;
+      return true;
+    });
+  }, [displayNodes, displayEdges, filters, namespaceFilter, isolatedOnly]);
+  
+  const filteredEdges = useMemo(() => {
+    const ids = new Set(filteredNodes.map(n => n.id));
+    return displayEdges.filter(e => {
+      if (!ids.has(e.source) || !ids.has(e.target)) return false;
+      const kind = e.data?.kind;
+      if (kind === 'linkage' && !filters.linkage) return false;
+      if (kind === 'fqid' && !filters.fqid) return false;
+      return true;
+    });
+  }, [displayEdges, filteredNodes, filters.linkage, filters.fqid]);
+
+  // Множества для подсветки
+  const { highlightedNodeIds, highlightedEdgeIds, highlightColor } = useMemo(() => {
+    if (cycleHighlight) {
+      return {
+        highlightedNodeIds: cycleHighlight.nodeIds,
+        highlightedEdgeIds: cycleHighlight.edgeIds,
+        highlightColor: '#f97316'
+      };
+    }
+    if (!selectedNodeId) return { highlightedNodeIds: null, highlightedEdgeIds: null, highlightColor: '#fbbf24' };
+    const nodeIds = new Set([selectedNodeId]);
+    const edgeIds = new Set();
+    filteredEdges.forEach(e => {
+      if (e.source === selectedNodeId || e.target === selectedNodeId) {
+        edgeIds.add(e.id);
+        nodeIds.add(e.source);
+        nodeIds.add(e.target);
+      }
+    });
+    return { highlightedNodeIds: nodeIds, highlightedEdgeIds: edgeIds, highlightColor: '#fbbf24' };
+  }, [selectedNodeId, cycleHighlight, filteredEdges]);
+    
+  const searchResults = useMemo(() => {
+  const q = searchQuery.trim().toLowerCase();
+  if (!q) return [];
+
+  return nodes
+    .map(n => {
+      const d = n.data || {};
+      const id = (d.domainId || '').toLowerCase();
+      const name = (d.name || '').toLowerCase();
+      const description = (d.description || '').toLowerCase();
+      const tags = Array.isArray(d.tags) ? d.tags.map(t => String(t).toLowerCase()) : [];
+
+      const matches = [];
+      if (id.includes(q)) matches.push({ field: 'id', value: d.domainId });
+      if (name.includes(q)) matches.push({ field: 'name', value: d.name });
+      if (description.includes(q)) matches.push({ field: 'description', value: d.description });
+      tags.forEach(tag => {
+        if (tag.includes(q)) matches.push({ field: 'tags', value: tag });
+      });
+
+      return matches.length > 0 ? { node: n, matches } : null;
+    })
+    .filter(Boolean)
+    // Сортировка: сначала совпадения по id, потом по name, потом остальные
+    .sort((a, b) => {
+      const rank = (r) => {
+        const fields = r.matches.map(m => m.field);
+        if (fields.includes('id')) return 0;
+        if (fields.includes('name')) return 1;
+        if (fields.includes('tags')) return 2;
+        return 3;
+      };
+      return rank(a) - rank(b);
+    })
+    .slice(0, 100);
+}, [searchQuery, nodes]);
+  
+  useEffect(() => { setSearchIndex(0); }, [searchQuery]);
+  
+  const gotoDomainByDomainId = useCallback((domainId) => {
+  if (!domainId) return;
+  const nodeId = domainToNodeId.get(domainId.toLowerCase());
+  if (!nodeId) return;
+  const node = nodes.find(n => n.id === nodeId);
+  if (!node || !rfInstance.current) return;
+  const cx = node.position.x + NODE_WIDTH / 2;
+  const cy = node.position.y + NODE_HEIGHT / 2;
+  const zoom = Math.max(rfInstance.current.getZoom(), 1.2);
+  rfInstance.current.setCenter(cx, cy, { zoom, duration: 500 });
+  setSelectedNodeId(nodeId);
+}, [domainToNodeId, nodes]);
+
+const openSearch = useCallback(() => {
+  setSearchQuery('');
+  setSearchIndex(0);
+  setSearchOpen(true);
+  setTimeout(() => searchInputRef.current?.focus(), 50);
+}, []);
+
+const closeSearch = useCallback(() => {
+  setSearchOpen(false);
+}, []);
+
+const handleSearchKeyDown = useCallback((e) => {
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    closeSearch();
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    setSearchIndex(i => Math.min(i + 1, Math.max(searchResults.length - 1, 0)));
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    setSearchIndex(i => Math.max(i - 1, 0));
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    const target = searchResults.length === 1
+      ? searchResults[0]
+      : searchResults[searchIndex];
+    if (target) {
+      gotoDomainByDomainId(target.node.data.domainId);
+      closeSearch();
+    }
+  }
+}, [searchResults, searchIndex, gotoDomainByDomainId, closeSearch]);
+
+useEffect(() => {
+  const handler = (e) => {
+    // Shift+Tab — toggle поиска
+    if (e.shiftKey && e.key === 'Tab') {
+      e.preventDefault();
+      e.stopPropagation();
+      if (searchOpen) {
+        closeSearch();
+      } else {
+        openSearch();
+      }
+      return;
+    }
+    // Ctrl/Cmd+K — альтернативный шорткат (на всякий случай)
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+      e.preventDefault();
+      openSearch();
+    }
+  };
+  window.addEventListener('keydown', handler, true);
+  return () => window.removeEventListener('keydown', handler, true);
+}, [searchOpen, openSearch, closeSearch]);
+
+// Финальные узлы с учётом подсветки
+  const visibleNodes = useMemo(() => {
+    if (!highlightedNodeIds && !diffMode) return filteredNodes;
+    return filteredNodes.map(n => {
+      const dimmed = highlightedNodeIds ? !highlightedNodeIds.has(n.id) : false;
+      const isAdded = diffMode?.addedNodes?.has(n.id);
+      let opacity = dimmed ? 0.15 : 1;
+      let outline = null;
+      if (isAdded) { opacity = 1; outline = '2px solid #22c55e'; }
+      return {
+        ...n,
+        style: { opacity, transition: 'opacity 0.2s', ...(outline ? { outline, borderRadius: 10 } : {}) },
+        data: { ...n.data, dimmed }
+      };
+    });
+  }, [filteredNodes, highlightedNodeIds, diffMode]);
+
+  // Финальные рёбра с учётом подсветки
+  const visibleEdges = useMemo(() => {
+    if (!highlightedEdgeIds && !diffMode) return filteredEdges;
+    return filteredEdges.map(e => {
+      const hl = highlightedEdgeIds ? highlightedEdgeIds.has(e.id) : false;
+      const baseColor = e.data?.kind === 'linkage' ? '#818cf8'
+        : e.data?.kind === 'fqid' ? '#10b981' : '#818cf8';
+      let stroke = baseColor;
+      let opacity = highlightedEdgeIds ? (hl ? 1 : 0.08) : 0.85;
+      let strokeWidth = hl ? (e.data?.kind === 'linkage' ? 3 : 2) : e.style?.strokeWidth || 1.5;
+      let animated = hl;
+  
+      // Diff-подсветка: added = зелёный, removed = красный пунктир
+      if (diffMode) {
+        if (diffMode.addedEdges.has(e.id)) { stroke = '#22c55e'; opacity = 1; strokeWidth = 3; animated = true; }
+        else if (diffMode.removedEdges.has(e.id)) { stroke = '#ef4444'; opacity = 1; strokeWidth = 3; }
+      }
+  
+      return {
+        ...e,
+        animated,
+        style: { ...e.style, stroke, opacity, strokeWidth },
+        markerEnd: { ...e.markerEnd, color: stroke }
+      };
+    });
+  }, [filteredEdges, highlightedEdgeIds, highlightColor, diffMode]);
+  
+  const handleExportJSON = useCallback(() => {
+  const data = {
+    exportedAt: new Date().toISOString(),
+    stats: { nodes: nodes.length, edges: edges.length },
+    nodes: nodes.map(n => ({
+      id: n.id,
+      domainId: n.data.domainId,
+      label: n.data.label,
+      nodeType: n.data.nodeType,
+      filePath: n.data.filePath,
+      description: n.data.description,
+      tags: n.data.tags
+    })),
+    edges: edges.map(e => ({
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      label: e.label,
+      kind: e.data?.kind,
+      fullLabel: e.data?.fullLabel,
+      refCount: e.data?.refCount
+    }))
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'domain-graph-' + new Date().toISOString().slice(0, 19).replace(/[:.]/g, '-') + '.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}, [nodes, edges]);
+
+  const showTooltipFor = useCallback((html, event) => {
+    clearTimeout(hideTimer.current);
+    const x = event.clientX + 16;
+    const y = event.clientY + 16;
+    setTooltip({ html, x, y });
+  }, []);
+
+  const scheduleHideTooltip = useCallback(() => {
+    clearTimeout(hideTimer.current);
+    hideTimer.current = setTimeout(() => {
+      if (!window.__tooltipHovered) setTooltip(null);
+    }, 250);
+  }, []);
+  
+  // --- Handlers ---
+ const handleNodeClick = useCallback((event, node) => {
+    // Переключаем выделение
+    setSelectedNodeId(prev => prev === node.id ? null : node.id);
+  }, []);
+
+  const handleNodeMouseEnter = useCallback((event, node) => {
+    clearTimeout(hideTimer.current);
+    hideTimer.current = setTimeout(() => {
+      const html = getNodeTooltipHtml(node);
+      showTooltipFor(html, event);
+    }, 120);
+  }, [showTooltipFor]);
+
+  const handleNodeMouseLeave = useCallback(() => {
+    scheduleHideTooltip();
+  }, [scheduleHideTooltip]);
+
+  const handleEdgeMouseEnter = useCallback((event, edge) => {
+    clearTimeout(hideTimer.current);
+    hideTimer.current = setTimeout(() => {
+      const refs = edge.data?.fqidRefs || [];
+      const html = buildEdgeTooltipHtml(edge, refs);
+      showTooltipFor(html, event);
+    }, 120);
+  }, [showTooltipFor]);
+
+  const handleEdgeMouseLeave = useCallback(() => {
+    scheduleHideTooltip();
+  }, [scheduleHideTooltip]);
+
+  const handleOpenFqidRef = useCallback((filePath, fqid) => {
+    if (!filePath) return;
+    setEditorPath(filePath);
+    setEditorOpen(true);
+    fetch('/file?path=' + encodeURIComponent(filePath))
+      .then(r => r.ok ? r.text() : Promise.reject('File not found'))
+      .then(content => {
+        if (editorRef.current) {
+          editorRef.current.setValue(content);
+          if (fqid) {
+            setTimeout(() => {
+              const NEWLINE = String.fromCharCode(10);
+              const lines = content.split(NEWLINE);
+              for (let i = 0; i < lines.length; i++) {
+                if (lines[i].includes(fqid)) {
+                  editorRef.current.revealLineInCenter(i + 1);
+                  editorRef.current.setSelection({
+                    startLineNumber: i + 1, startColumn: 1,
+                    endLineNumber: i + 1, endColumn: lines[i].length + 1
+                  });
+                  break;
+                }
+              }
+            }, 100);
+          }
+        }
+      })
+      .catch(() => {
+        if (editorRef.current) editorRef.current.setValue('// Не удалось загрузить файл');
+      });
+    setTooltip(null);
+  }, []);
+    
+  const handlePaneDoubleClick = useCallback((event) => {
+    if (!rfInstance.current) return;
+    const { screenToFlowPosition, setCenter, getZoom } = rfInstance.current;
+    const pos = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+    const z = getZoom();
+    setCenter(pos.x, pos.y, { zoom: Math.min(z * 1.8, 5), duration: 400 });
+  }, []);
+
+  const handlePaneClick = useCallback(() => {
+    setTooltip(null);
+  }, []);
+
+  // --- Toolbar actions ---
+  const savePng = useCallback(() => {
+    const rf = document.querySelector('.react-flow__viewport');
+    if (!rf) return;
+    const svg = document.querySelector('.react-flow__edges')?.ownerSVGElement?.parentElement;
+    // Используем html-to-image через canvas (упрощенный вариант через прокси)
+    // Просто сохраняем через canvas ReactFlow
+    const canvas = document.querySelector('.react-flow__pane')?.parentElement?.querySelector('canvas');
+    // ReactFlow рисует SVG поверх. Используем ручное преобразование:
+    alert('Функция экспорта в PNG доступна через встроенную кнопку ReactFlow. Используйте скриншот.');
+  }, []);
+
+  const resetLayout = useCallback(() => {
+    const layouted = layoutGraph(
+      nodes.map(n => ({ ...n, position: { x: 0, y: 0 } })),
+      edges
+    );
+    setNodes(layouted);
+    setTimeout(() => rfInstance.current?.fitView({ duration: 500, padding: 0.2 }), 50);
+  }, [nodes, edges, setNodes]);
+
+  const fitView = useCallback(() => {
+    rfInstance.current?.fitView({ duration: 500, padding: 0.2 });
+  }, []);
+  
+  // Позиционирование тултипа в пределах окна
+  useEffect(() => {
+    if (!tooltip) return;
+    const el = document.querySelector('.tooltip');
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    let x = tooltip.x;
+    let y = tooltip.y;
+    const margin = 8;
+    if (x + rect.width > window.innerWidth - margin) {
+      x = Math.max(margin, window.innerWidth - rect.width - margin);
+    }
+    if (y + rect.height > window.innerHeight - margin) {
+      y = Math.max(margin, window.innerHeight - rect.height - margin);
+    }
+    if (x !== tooltip.x || y !== tooltip.y) {
+      setTooltip(t => t ? { ...t, x, y } : null);
+    }
+  }, [tooltip]);
+  
+  useEffect(() => {
+  const handler = (e) => {
+    // Открыть файл
+    const openBtn = e.target.closest('.js-open-file');
+    if (openBtn) {
+      e.stopPropagation();
+      e.preventDefault();
+      const file = openBtn.getAttribute('data-file');
+      const fqid = openBtn.getAttribute('data-fqid');
+      handleOpenFqidRef(file, fqid);
+      return;
+    }
+
+    // Перейти к домену
+    const gotoBtn = e.target.closest('.js-goto-domain');
+    if (gotoBtn) {
+      e.stopPropagation();
+      e.preventDefault();
+      const domainId = gotoBtn.getAttribute('data-domain');
+      if (!domainId) return;
+
+      const nodeId = domainToNodeId.get(domainId.toLowerCase());
+      if (!nodeId) {
+        console.warn('Node not found for domain:', domainId);
+        return;
+      }
+      const node = nodes.find(n => n.id === nodeId);
+      if (!node) return;
+
+      // Центрируем камеру на узле
+      if (rfInstance.current) {
+        const nodeW = NODE_WIDTH;
+        const nodeH = NODE_HEIGHT;
+        const cx = node.position.x + nodeW / 2;
+        const cy = node.position.y + nodeH / 2;
+        const zoom = Math.max(rfInstance.current.getZoom(), 1.2);
+        rfInstance.current.setCenter(cx, cy, { zoom, duration: 500 });
+      }
+
+      // Выделяем узел и подсвечиваем его связи
+      setSelectedNodeId(nodeId);
+
+      // Скрываем тултип
+      setTooltip(null);
+      window.__tooltipHovered = false;
+      return;
+    }
+  };
+
+  document.addEventListener('click', handler, true);
+  return () => document.removeEventListener('click', handler, true);
+}, [handleOpenFqidRef, domainToNodeId, nodes]);
+  
+  useEffect(() => {
+    window.__hideTooltip = () => {
+      // Мягкое скрытие с задержкой
+      clearTimeout(hideTimer.current);
+      hideTimer.current = setTimeout(() => {
+        if (!window.__tooltipHovered) setTooltip(null);
+      }, 100);
+    };
+    return () => { delete window.__hideTooltip; };
+  }, []);
+
+  // Stats
+  const stats = GRAPH_DATA.stats;
+  const domainCount = GRAPH_DATA.domainCount;
+  const linkCount = GRAPH_DATA.linkCount;
+  const missingCount = GRAPH_DATA.missingCount;
+  const brokenCount = GRAPH_DATA.brokenCount;
+  
+  const onNodesChangeFiltered = useCallback((changes) => {
+    const meaningful = changes.filter(c => c.type !== 'dimensions');
+    if (meaningful.length === 0) return;
+    onNodesChange(meaningful);
+  }, [onNodesChange]);
+
+  return (
+    <div className="app">
+      <aside className={'sidebar' + (sidebarCollapsed ? ' sidebar--collapsed' : '')}>
+          {sidebarCollapsed ? (
+            <button
+              className="sidebar__expand"
+              onClick={() => setSidebarCollapsed(false)}
+              title="Развернуть панель"
+            >
+              ›
+            </button>
+          ) : (
+            <>
+              <div className="sidebar__header">
+                <div className="sidebar__logo">🌐</div>
+                <div style={{ flex: 1 }}>
+                  <div className="sidebar__title">Domain Graph</div>
+                  <div className="sidebar__subtitle">Analyzer</div>
+                </div>
+                <button
+                  className="sidebar__collapse"
+                  onClick={() => setSidebarCollapsed(true)}
+                  title="Свернуть панель"
+                >
+                  ‹
+                </button>
+              </div>
+        
+              <div className="sidebar__body">
+                {/* --- Основные метрики --- */}
+                <div className="section">
+                  <div className="section__title">Обзор</div>
+                  <div className="stats-grid">
+                    <div className="stat-card stat-card--accent">
+                      <div className="stat-card__value">{nodes.length}</div>
+                      <div className="stat-card__label">Всего узлов</div>
+                    </div>
+                    <div className="stat-card stat-card--success">
+                      <div className="stat-card__value">{edges.length}</div>
+                      <div className="stat-card__label">Связей</div>
+                    </div>
+                    <div className="stat-card stat-card--warning">
+                      <div className="stat-card__value">{counts.missing}</div>
+                      <div className="stat-card__label">Missing</div>
+                    </div>
+                    <div className="stat-card stat-card--danger">
+                      <div className="stat-card__value">{counts.broken}</div>
+                      <div className="stat-card__label">Broken</div>
+                    </div>
+                  </div>
+                </div>
+        
+                {/* --- Метрики связности --- */}
+                <div className="section">
+                  <div className="section__title">Связность</div>
+                  <div className="mini-stats">
+                    <div className="mini-stat">
+                      <span className="mini-stat__label">Домены</span>
+                      <span className="mini-stat__value">{counts.domain}</span>
+                    </div>
+                    <div className="mini-stat">
+                      <span className="mini-stat__label">Изолированы</span>
+                      <span className="mini-stat__value">{isolatedCount}</span>
+                    </div>
+                    <div className="mini-stat">
+                      <span className="mini-stat__label">Linkage</span>
+                      <span className="mini-stat__value">{counts.linkage}</span>
+                    </div>
+                    <div className="mini-stat">
+                      <span className="mini-stat__label">FQID-рёбра</span>
+                      <span className="mini-stat__value">{counts.fqid}</span>
+                    </div>
+                    <div className="mini-stat" style={{ gridColumn: 'span 2' }}>
+                      <span className="mini-stat__label">Всего FQID-ссылок</span>
+                      <span className="mini-stat__value">{totalFqidRefs}</span>
+                    </div>
+                  </div>
+                </div>
+        
+                {/* --- Топ по связям --- */}
+                {topConnected.length > 0 && (
+                  <div className="section">
+                    <div className="section__title">Топ по связям</div>
+                    <div className="rank-list">
+                      {topConnected.map((item, i) => (
+                        <button
+                          key={item.node.id}
+                          className="rank-item"
+                          onClick={() => gotoDomainByDomainId(item.node.data.domainId)}
+                          title={item.node.data.domainId}
+                        >
+                          <span className="rank-item__num">{i + 1}</span>
+                          <span className="rank-item__label">{item.node.data.domainId}</span>
+                          <span className="rank-item__value">{item.degree}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+        
+                {/* --- Топ по исходящим ссылкам --- */}
+                {topRefs.length > 0 && (
+                  <div className="section">
+                    <div className="section__title">Топ по исходящим FQID</div>
+                    <div className="rank-list">
+                      {topRefs.map((item, i) => (
+                        <button
+                          key={item.node.id}
+                          className="rank-item"
+                          onClick={() => gotoDomainByDomainId(item.node.data.domainId)}
+                          title={item.node.data.domainId}
+                        >
+                          <span className="rank-item__num">{i + 1}</span>
+                          <span className="rank-item__label">{item.node.data.domainId}</span>
+                          <span className="rank-item__value">{item.count}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+        
+                {/* --- Неймспейсы --- */}
+                {namespaces.length > 0 && (
+                  <div className="section">
+                    <div className="section__title">Неймспейсы</div>
+                    <div className="bar-list">
+                      {namespaces.map(([ns, count]) => {
+                        const max = namespaces[0][1];
+                        const pct = (count / max) * 100;
+                        return (
+                          <button
+                            key={ns}
+                            className="bar-item"
+                            onClick={() => setNamespaceFilter(ns)}
+                            title={'Показать только ' + ns + '.*'}
+                          >
+                            <span className="bar-item__label">{ns}</span>
+                            <span className="bar-item__value">{count}</span>
+                            <span className="bar-item__track">
+                              <span className="bar-item__fill" style={{ width: pct + '%' }}></span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+        
+                {/* --- Облако тегов --- */}
+                {tagCloud.length > 0 && (
+                  <div className="section">
+                    <div className="section__title">Теги</div>
+                    <div className="tag-cloud">
+                      {tagCloud.map(([tag, count]) => (
+                        <button
+                          key={tag}
+                          className="tag"
+                          onClick={() => setSearchQuery(tag) || openSearch()}
+                          title={tag + ' (' + count + ')'}
+                        >
+                          {tag}
+                          <span className="tag__count">{count}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+        
+                {/* --- Легенда --- */}
+                <div className="section">
+                  <div className="section__title">Легенда</div>
+                  <div className="toggle-list">
+                    <div className="legend-row">
+                      <span className="legend-dot" style={{ background: 'var(--success)' }}></span>
+                      Domain — корректный
+                    </div>
+                    <div className="legend-row">
+                      <span className="legend-dot" style={{ background: 'var(--warning)' }}></span>
+                      Missing — несуществующий
+                    </div>
+                    <div className="legend-row">
+                      <span className="legend-dot" style={{ background: 'var(--danger)' }}></span>
+                      Broken — ошибка YAML
+                    </div>
+                    <div className="legend-row">
+                      <span className="legend-line" style={{ background: '#818cf8' }}></span>
+                      Linkage — явная связь
+                    </div>
+                    <div className="legend-row">
+                      <span className="legend-line" style={{ background: '#10b981' }}></span>
+                      FQID — неявная ссылка
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </aside>
+
+      <main className="main">
+        <div className="toolbar">
+  <div className="toolbar__group">
+    <button className="btn btn--icon" onClick={fitView} title="Вписать в экран">⛶</button>
+    <button className="btn btn--icon" onClick={resetLayout} title="Переуложить">⟳</button>
+  </div>
+
+  <button className="btn" onClick={openSearch} title="Поиск (Shift+Tab)">
+    <span className="btn__icon">🔍</span>
+    Поиск
+    <kbd className="btn-kbd">⇧ Tab</kbd>
+  </button>
+
+  <Popover
+    width={300}
+    trigger={(open) => (
+      <button className={'btn' + (open ? ' btn--active' : '')}>
+        <span className="btn__icon">⚙️</span>
+        Фильтры
+        {activeFiltersCount > 0 && <span className="btn__badge">{activeFiltersCount}</span>}
+      </button>
+    )}
+  >
+    {() => (
+      <FilterMenu
+        filters={filters}
+        setFilters={setFilters}
+        counts={counts}
+        namespaceFilter={namespaceFilter}
+        setNamespaceFilter={setNamespaceFilter}
+      />
+    )}
+  </Popover>
+
+  <Popover
+    width={280}
+    trigger={(open) => (
+      <button className={'btn' + (open || cycleHighlight || isolatedOnly || nsMode ? ' btn--active' : '')}>
+        <span className="btn__icon">📊</span>
+        Анализ
+      </button>
+    )}
+  >
+    {(close) => (
+      <AnalysisMenu
+        cycleHighlight={cycleHighlight}
+        handleFindCycles={handleFindCycles}
+        isolatedOnly={isolatedOnly}
+        setIsolatedOnly={setIsolatedOnly}
+        nsMode={nsMode}
+        setNsMode={setNsMode}
+        close={close}
+      />
+    )}
+  </Popover>
+
+  <Popover
+    width={260}
+    trigger={(open) => (
+      <button className={'btn' + (open || diffMode ? ' btn--active' : '')}>
+        <span className="btn__icon">💾</span>
+        Данные
+      </button>
+    )}
+  >
+    {(close) => (
+      <DataMenu
+        handleExportJSON={handleExportJSON}
+        snapshotInputRef={snapshotInputRef}
+        handleSnapshotUpload={handleSnapshotUpload}
+        diffMode={diffMode}
+        setDiffMode={setDiffMode}
+        close={close}
+      />
+    )}
+  </Popover>
+
+  {diffMode && (
+    <div className="diff-legend">
+      <span className="diff-legend__item" title="Добавлено">
+        <span className="diff-legend__dot" style={{ background: '#22c55e' }}></span>
+        +{diffMode.addedNodes.size}n / +{diffMode.addedEdges.size}e
+      </span>
+      <span className="diff-legend__item" title="Удалено">
+        <span className="diff-legend__dot" style={{ background: '#ef4444' }}></span>
+        −{diffMode.removedNodes.size}n / −{diffMode.removedEdges.size}e
+      </span>
+      <button className="diff-legend__close" onClick={() => setDiffMode(null)} title="Сбросить">✕</button>
+    </div>
+  )}
+
+  <div className="toolbar__spacer"></div>
+
+  <div className="toolbar__stats">
+    {visibleNodes.length} / {nodes.length} узлов · {visibleEdges.length} / {edges.length} связей
+  </div>
+</div>
+        <div className="graph-container" ref={wrapperRef}>
+          <ReactFlowProvider>
+            <ReactFlowInner
+              nodes={visibleNodes}
+              edges={visibleEdges}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onNodeClick={handleNodeClick}
+              onNodeMouseEnter={handleNodeMouseEnter}
+              onNodeMouseLeave={handleNodeMouseLeave}
+              onEdgeMouseEnter={handleEdgeMouseEnter}
+              onEdgeMouseLeave={handleEdgeMouseLeave}
+              onPaneDoubleClick={handlePaneDoubleClick}
+              onPaneClick={handlePaneClick}
+              setRfInstance={(inst) => { rfInstance.current = inst; }}
+              nsMode={nsMode}
+              readOnly={nsMode}
+              onNodesChange={onNodesChangeFiltered}
+            />
+          </ReactFlowProvider>
+
+          {visibleNodes.length === 0 && (
+            <div className="empty-state">
+              <div className="empty-state__title">Ничего не найдено</div>
+              <div className="empty-state__text">Попробуйте изменить фильтры</div>
+            </div>
+          )}
+
+          <EditorPanel
+            open={editorOpen}
+            filePath={editorPath}
+            editorRef={editorRef}
+            onClose={() => setEditorOpen(false)}
+          />
+        </div>
+      </main>
+
+      <HoverTooltip tooltip={tooltip} onOpenFile={handleOpenFqidRef} />
+      
+      {searchOpen && (
+  <div className="search-overlay" onMouseDown={closeSearch}>
+    <div className="search-modal" onMouseDown={e => e.stopPropagation()}>
+      <div className="search-modal__input-wrap">
+        <span className="search-modal__icon">🔍</span>
+        <input
+          ref={searchInputRef}
+          className="search-modal__input"
+          type="text"
+          placeholder="Поиск домена по id, имени, описанию или тегам"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          onKeyDown={handleSearchKeyDown}
+        />
+        <kbd className="search-modal__kbd">Esc</kbd>
+      </div>
+      <div className="search-modal__results">
+        {searchQuery.trim() === '' ? (
+          <div className="search-modal__hint">Введите запрос для поиска</div>
+        ) : searchResults.length === 0 ? (
+          <div className="search-modal__hint">Ничего не найдено</div>
+        ) : (
+            searchResults.map((item, i) => {
+              const n = item.node;
+              const matchedFields = new Set(item.matches.map(m => m.field));
+              return (
+                <div
+                  key={n.id}
+                  className={'search-result' + (i === searchIndex ? ' active' : '')}
+                  onMouseEnter={() => setSearchIndex(i)}
+                  onClick={() => {
+                    gotoDomainByDomainId(n.data.domainId);
+                    closeSearch();
+                  }}
+                >
+                  <span className={'search-result__dot search-result__dot--' + n.data.nodeType}></span>
+                  <div className="search-result__content">
+                    <div className="search-result__id">
+                      <HighlightedText text={n.data.domainId} query={searchQuery} />
+                      {matchedFields.has('id') && <span className="search-result__badge">id</span>}
+                    </div>
+                    {n.data.name && n.data.name !== n.data.domainId && (
+                      <div className="search-result__label">
+                        <HighlightedText text={n.data.name} query={searchQuery} />
+                        {matchedFields.has('name') && <span className="search-result__badge">name</span>}
+                      </div>
+                    )}
+                    {n.data.description && (
+                      <div className="search-result__desc">
+                        <HighlightedText text={n.data.description} query={searchQuery} />
+                        {matchedFields.has('description') && <span className="search-result__badge">description</span>}
+                      </div>
+                    )}
+                    {Array.isArray(n.data.tags) && n.data.tags.length > 0 && (
+                      <div className="search-result__tags">
+                        {n.data.tags.map((tag, ti) => (
+                          <span key={ti} className="search-result__tag">
+                            <HighlightedText text={tag} query={searchQuery} />
+                          </span>
+                        ))}
+                        {matchedFields.has('tags') && <span className="search-result__badge">tags</span>}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+      </div>
+      <div className="search-modal__footer">
+        <span><kbd>↑</kbd><kbd>↓</kbd> навигация</span>
+        <span><kbd>Enter</kbd> выбрать</span>
+        <span><kbd>Esc</kbd> закрыть</span>
+      </div>
+    </div>
+  </div>
+)}
+    </div>
+  );
+}
+
+// --- Inner ReactFlow component with instance access ---
+const ReactFlowInner = React.memo(function ReactFlowInner(props) {
+  const rf = useReactFlow();
+  const { setRfInstance } = props;
+  useEffect(() => {
+    setRfInstance(rf);
+  }, [rf, setRfInstance]);
+
+  return (
+    <ReactFlowComponent
+      defaultEdgeOptions={{
+        type: 'smoothstep',
+        labelStyle: { fill: '#e2e8f0', fontSize: 10, fontWeight: 500 },
+        labelBgStyle: { fill: '#0d1424', fillOpacity: 0.95 },
+        labelBgPadding: [4, 2],
+        labelBgBorderRadius: 4
+      }}
+      nodes={props.nodes}
+      edges={props.edges}
+      onNodesChange={props.readOnly ? () => {} : props.onNodesChange}
+      onEdgesChange={props.readOnly ? () => {} : props.onEdgesChange}
+      nodeTypes={nodeTypes}
+      onNodeClick={props.onNodeClick}
+      onNodeMouseEnter={props.onNodeMouseEnter}
+      onNodeMouseLeave={props.onNodeMouseLeave}
+      onEdgeMouseEnter={props.onEdgeMouseEnter}
+      onEdgeMouseLeave={props.onEdgeMouseLeave}
+      onPaneDoubleClick={props.onPaneDoubleClick}
+      onPaneClick={props.onPaneClick}
+      fitView
+      fitViewOptions={{ padding: 0.2 }}
+      minZoom={0.1}
+      maxZoom={4}
+      proOptions={{ hideAttribution: true }}
+      nodesDraggable={!props.readOnly}
+      nodesConnectable={false}
+      elementsSelectable
+      onlyRenderVisibleElements
+      elevateEdgesOnSelect={false}
+      selectNodesOnDrag={false}
+      panOnDrag={true}
+      zoomOnScroll={true}
+      preventScrolling={true}
+      defaultEdgeOptions={{ type: 'smoothstep' }}
+    >
+      <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#1e293b" />
+      <Controls position="bottom-left" />
+      <MiniMap
+        position="bottom-right"
+        nodeColor={(n) => {
+          const t = n.data?.nodeType;
+          if (t === 'missing') return '#f59e0b';
+          if (t === 'broken') return '#ef4444';
+          return '#10b981';
+        }}
+        maskColor="rgba(10,14,26,0.7)"
+        style={{ width: 180, height: 130 }}
+      />
+    </ReactFlowComponent>
+  );
+}, (prev, next) => {
+  return prev.nodes === next.nodes
+    && prev.edges === next.edges
+    && prev.onNodeClick === next.onNodeClick
+    && prev.onNodeMouseEnter === next.onNodeMouseEnter
+    && prev.onNodeMouseLeave === next.onNodeMouseLeave
+    && prev.onEdgeMouseEnter === next.onEdgeMouseEnter
+    && prev.onEdgeMouseLeave === next.onEdgeMouseLeave
+    && prev.onPaneDoubleClick === next.onPaneDoubleClick
+    && prev.onPaneClick === next.onPaneClick;
+});
+
+// --- Tooltip HTML builders ---
+function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// --- Tarjan SCC для поиска циклов ---
+function findCycles(nodes, edges) {
+  const adjacency = new Map();
+  nodes.forEach(n => adjacency.set(n.id, []));
+  edges.forEach(e => {
+    if (adjacency.has(e.source)) adjacency.get(e.source).push(e.target);
+  });
+
+  let index = 0;
+  const stack = [];
+  const onStack = new Set();
+  const indices = new Map();
+  const lowlinks = new Map();
+  const sccs = [];
+
+  function strongconnect(v) {
+    indices.set(v, index);
+    lowlinks.set(v, index);
+    index++;
+    stack.push(v);
+    onStack.add(v);
+
+    for (const to of (adjacency.get(v) || [])) {
+      if (!adjacency.has(to)) continue;
+      if (!indices.has(to)) {
+        strongconnect(to);
+        lowlinks.set(v, Math.min(lowlinks.get(v), lowlinks.get(to)));
+      } else if (onStack.has(to)) {
+        lowlinks.set(v, Math.min(lowlinks.get(v), indices.get(to)));
+      }
+    }
+
+    if (lowlinks.get(v) === indices.get(v)) {
+      const scc = [];
+      let w;
+      do { w = stack.pop(); onStack.delete(w); scc.push(w); } while (w !== v);
+      if (scc.length > 1) sccs.push(scc);
+    }
+  }
+
+  for (const n of nodes) if (!indices.has(n.id)) strongconnect(n.id);
+
+  const nodeToScc = new Map();
+  sccs.forEach((scc, i) => scc.forEach(n => nodeToScc.set(n, i)));
+
+  const cycleNodes = new Set();
+  sccs.forEach(scc => scc.forEach(n => cycleNodes.add(n)));
+
+  const cycleEdges = new Set();
+  edges.forEach(e => {
+    const s = nodeToScc.get(e.source);
+    const t = nodeToScc.get(e.target);
+    if (s !== undefined && s === t) cycleEdges.add(e.id);
+  });
+
+  return { sccs, cycleNodes, cycleEdges };
+}
+
+// --- Агрегация по неймспейсам (первые 2 сегмента id) ---
+function aggregateByNamespace(nodes, edges) {
+  const getNs = (domainId) => {
+    const parts = (domainId || '').split('.');
+    return parts.slice(0, 2).join('.') || domainId;
+  };
+
+  const nodeToNs = new Map();
+  const nsCount = new Map();
+  nodes.forEach(n => {
+    const ns = getNs(n.data.domainId);
+    nodeToNs.set(n.id, ns);
+    nsCount.set(ns, (nsCount.get(ns) || 0) + 1);
+  });
+
+  const newNodes = Array.from(nsCount.entries()).map(([ns, count]) => ({
+    id: 'ns_' + ns,
+    type: 'domainNode',
+    data: {
+      domainId: ns,
+      label: ns,
+      nodeType: 'domain',
+      isNamespace: true,
+      childCount: count
+    },
+    position: { x: 0, y: 0 }
+  }));
+
+  const edgeAgg = new Map();
+  edges.forEach(e => {
+    const fromNs = nodeToNs.get(e.source);
+    const toNs = nodeToNs.get(e.target);
+    if (!fromNs || !toNs || fromNs === toNs) return;
+    const key = fromNs + '__' + toNs;
+    if (!edgeAgg.has(key)) {
+      edgeAgg.set(key, {
+        id: 'ns_edge_' + fromNs + '__' + toNs,
+        source: 'ns_' + fromNs,
+        target: 'ns_' + toNs,
+        count: 0,
+        kinds: new Set()
+      });
+    }
+    const a = edgeAgg.get(key);
+    a.count++;
+    if (e.data?.kind) a.kinds.add(e.data.kind);
+  });
+
+  const newEdges = Array.from(edgeAgg.values()).map(a => ({
+    id: a.id,
+    source: a.source,
+    target: a.target,
+    type: 'default',
+    label: String(a.count),
+    data: { isAggregated: true, count: a.count, kinds: Array.from(a.kinds), kind: 'aggregated' },
+    markerEnd: { type: MarkerType.ArrowClosed, color: '#818cf8', width: 14, height: 14 },
+    style: { stroke: '#818cf8', strokeWidth: Math.min(1 + a.count / 6, 4), opacity: 0.85 }
+  }));
+
+  // ← ключевая строка: раскладываем через dagre
+  return { nodes: layoutGraph(newNodes, newEdges), edges: newEdges };
+}
+
+function HighlightedText({ text, query }) {
+  if (text === null || text === undefined) return null;
+  const str = String(text);
+  const q = (query || '').trim();
+  if (!q) return str;
+
+  const lower = str.toLowerCase();
+  const qLower = q.toLowerCase();
+  const parts = [];
+  let pos = 0;
+  let idx = lower.indexOf(qLower, pos);
+  let key = 0;
+
+  while (idx !== -1) {
+    if (idx > pos) parts.push(str.slice(pos, idx));
+    parts.push(
+      React.createElement('mark', { key: 'm' + key++, className: 'search-hl' },
+        str.slice(idx, idx + q.length))
+    );
+    pos = idx + q.length;
+    idx = lower.indexOf(qLower, pos);
+  }
+  if (pos < str.length) parts.push(str.slice(pos));
+
+  return React.createElement(React.Fragment, null, ...parts);
+}
+
+function buildEdgeTooltipHtml(edge, refs, onOpenFile) {
+  const fullLabel = edge.data?.fullLabel || edge.label || edge.id;
+  const link = edge.data?.linkData || {};
+  const nameFrom = link.nameFrom || {};
+
+  // Название стороны — nameFrom.side1/side2, fallback — сам FQID
+  const side1Text = nameFrom.side1 || link.sourceEntity || null;
+  const side2Text = nameFrom.side2 || link.targetEntity || null;
+
+  // Домены сторон уже посчитаны на бэкенде
+  const side1Domain = edge.data?.side1Domain || null;
+  const side2Domain = edge.data?.side2Domain || null;
+
+  function renderSide(labelText, text, domain) {
+    if (!text) return '';
+    const clickable = !!domain;
+    let h = '<div class="tooltip__row"><span class="tooltip__label">' + labelText + '</span>';
+    if (clickable) {
+      h += '<span class="tooltip__value js-goto-domain" '
+        + 'data-domain="' + escapeHtml(domain) + '" '
+        + 'style="cursor:pointer;color:var(--accent-hover);text-decoration:underline dotted">'
+        + escapeHtml(text)
+        + ' <span style="font-size:10px;color:var(--text-500)">→ ' + escapeHtml(domain) + '</span>'
+        + '</span>';
+    } else {
+      h += '<span class="tooltip__value" style="color:var(--text-400)">' + escapeHtml(text) + '</span>';
+    }
+    h += '</div>';
+    return h;
+  }
+
+  let html = '<div class="tooltip__header">Связь: ' + escapeHtml(fullLabel) + '</div>';
+  html += '<div class="tooltip__body">';
+
+  html += renderSide('Сторона 1:', side1Text, side1Domain);
+  html += renderSide('Сторона 2:', side2Text, side2Domain);
+
+  if (side1Text || side2Text) {
+    html += '<div style="height:1px;background:var(--border);margin:10px 0"></div>';
+  }
+
+  if (link.type) {
+    html += '<div class="tooltip__row"><span class="tooltip__label">Тип:</span><span class="tooltip__value">' + escapeHtml(link.type) + '</span></div>';
+  }
+
+  if (refs && refs.length > 0) {
+    html += '<div class="tooltip__label" style="margin-top:8px;margin-bottom:8px">FQID ссылки (' + refs.length + '):</div>';
+    refs.forEach(function(ref) {
+      html += '<div class="tooltip__ref">';
+      html += '<div class="tooltip__fqid js-goto-domain" '
+        + 'data-domain="' + escapeHtml(ref.targetDomainId || '') + '" '
+        + 'style="cursor:pointer">'
+        + escapeHtml(ref.fullFQID)
+        + '</div>';
+      html += '<div class="tooltip__path">' + escapeHtml(ref.propertyPath) + '</div>';
+      html += '<button class="tooltip__btn js-open-file" data-file="' + escapeHtml(ref.filePath || '') + '" data-fqid="' + escapeHtml(ref.fullFQID || '') + '">📂 Открыть</button>';
+      html += '</div>';
+    });
+  }
+
+  html += '</div>';
+  return html;
+}
+
+function buildTooltipHtml(domainId, label, nodeType, filePath, version, entitiesCount, fqidRefs, onOpenFile) {
+  const typeLabel = nodeType === 'domain' ? 'Корректный домен'
+    : nodeType === 'missing' ? 'Несуществующий домен'
+    : 'Битый YAML';
+  const typeColor = nodeType === 'domain' ? '#10b981'
+    : nodeType === 'missing' ? '#f59e0b' : '#ef4444';
+
+  let html = '<div class="tooltip__header" style="color:' + typeColor + '">' + escapeHtml(typeLabel) + '</div>';
+  html += '<div class="tooltip__body">';
+  html += '<div class="tooltip__row"><span class="tooltip__label">ID:</span><span class="tooltip__value">' + escapeHtml(domainId) + '</span></div>';
+  if (label && label !== domainId) {
+    html += '<div class="tooltip__row"><span class="tooltip__label">Название:</span><span class="tooltip__value">' + escapeHtml(label) + '</span></div>';
+  }
+  if (version) {
+    html += '<div class="tooltip__row"><span class="tooltip__label">Версия:</span><span class="tooltip__value">' + escapeHtml(version) + '</span></div>';
+  }
+  if (entitiesCount !== undefined && entitiesCount !== null) {
+    html += '<div class="tooltip__row"><span class="tooltip__label">Entities:</span><span class="tooltip__value">' + entitiesCount + '</span></div>';
+  }
+  if (filePath) {
+    html += '<div class="tooltip__row"><span class="tooltip__label">Файл:</span><span class="tooltip__value" style="font-size:11px">' + escapeHtml(filePath) + '</span></div>';
+    html += '<div style="margin-top:10px"><button class="tooltip__btn js-open-file" data-file="' + escapeHtml(filePath) + '">📂 Открыть файл</button></div>';
+  }
+
+  if (fqidRefs && fqidRefs.length > 0) {
+    html += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">';
+    html += '<div class="tooltip__label" style="margin-bottom:8px">FQID ссылки (' + fqidRefs.length + '):</div>';
+    fqidRefs.forEach(function(ref) {
+      html += '<div class="tooltip__ref">';
+      html += '<div class="tooltip__fqid js-goto-domain" '
+        + 'data-domain="' + escapeHtml(ref.targetDomainId || '') + '" '
+        + 'style="cursor:pointer">'
+        + escapeHtml(ref.fullFQID)
+        + '</div>';
+      html += '<div class="tooltip__path">' + escapeHtml(ref.propertyPath) + '</div>';
+      html += '<button class="tooltip__btn js-open-file" data-file="' + escapeHtml(ref.filePath || '') + '" data-fqid="' + escapeHtml(ref.fullFQID || '') + '">📂 Открыть</button>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+// --- Mount ---
+const root = createRoot(document.getElementById('root'));
+root.render(<App />);
+    `;
+
+    const { code } = babel.transformSync(jsxSource, {
+      presets: [['@babel/preset-react', { runtime: 'classic' }]],
+      filename: 'app.jsx',
+      compact: false
+    });
 
     return `<!DOCTYPE html>
 <html lang="ru">
@@ -1417,6 +3295,227 @@ body {
 .legend-line {
   width: 16px; height: 2px; flex-shrink: 0; border-radius: 1px;
 }
+.btn--active {
+  background: var(--accent);
+  color: white;
+}
+.btn--active:hover { background: var(--accent-hover); }
+
+.diff-legend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  background: var(--bg-800);
+  border: 1px solid var(--border-hover);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text-300);
+}
+.diff-legend__item { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
+.diff-legend__dot { width: 8px; height: 8px; border-radius: 50%; }
+.diff-legend__close {
+  background: transparent;
+  border: none;
+  color: var(--text-500);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.diff-legend__close:hover { background: var(--bg-700); color: var(--text-200); }
+.diff-legend__scope {
+  font-size: 10px;
+  color: var(--text-500);
+  padding: 2px 6px;
+  background: var(--bg-700);
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+}
+/* --- Popover --- */
+.popover-wrap { position: relative; display: inline-block; }
+.popover-trigger { display: inline-block; }
+
+.popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  background: var(--bg-800);
+  border: 1px solid var(--border-hover);
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+  z-index: 200;
+  animation: popoverIn 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+}
+.popover--left { left: 0; }
+.popover--right { right: 0; }
+@keyframes popoverIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.btn__icon { font-size: 14px; margin-right: 6px; }
+.btn__badge {
+  margin-left: 6px;
+  padding: 1px 6px;
+  background: var(--accent);
+  color: white;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+/* --- Menu --- */
+.menu { padding: 6px; }
+.menu__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-500);
+}
+.menu__action {
+  background: transparent;
+  border: none;
+  color: var(--accent-hover);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: inherit;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.menu__action:hover { background: var(--bg-700); }
+
+.menu__section { padding: 6px 4px; }
+.menu__label {
+  padding: 4px 10px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-500);
+}
+
+.menu__checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-200);
+  transition: background 0.1s;
+}
+.menu__checkbox:hover { background: var(--bg-700); }
+.menu__checkbox input { display: none; }
+.menu__check {
+  width: 16px; height: 16px;
+  border-radius: 4px;
+  border: 1.5px solid var(--border-hover);
+  background: var(--bg-750);
+  position: relative;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+.menu__checkbox input:checked + .menu__check {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.menu__checkbox input:checked + .menu__check::after {
+  content: '';
+  position: absolute;
+  left: 4px; top: 1px;
+  width: 5px; height: 9px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.menu__dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.menu__text { flex: 1; }
+.menu__count {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-500);
+  padding: 1px 6px;
+  background: var(--bg-750);
+  border-radius: 8px;
+}
+
+.menu__input {
+  width: 100%;
+  margin: 4px 10px;
+  width: calc(100% - 20px);
+  padding: 8px 10px;
+  background: var(--bg-750);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-100);
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.menu__input:focus { border-color: var(--accent); }
+.menu__hint {
+  padding: 6px 10px 4px;
+  font-size: 11px;
+  color: var(--text-500);
+  line-height: 1.6;
+}
+.menu__hint b {
+  color: var(--accent-hover);
+  background: var(--bg-700);
+  padding: 0 4px;
+  border-radius: 3px;
+  font-weight: 700;
+}
+
+.menu__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-200);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s;
+}
+.menu__item:hover { background: var(--bg-700); }
+.menu__item--active {
+  background: rgba(99,102,241,0.15);
+  color: var(--accent-hover);
+}
+.menu__item--active:hover { background: rgba(99,102,241,0.25); }
+.menu__item--danger { color: var(--danger); }
+.menu__item--danger:hover { background: rgba(239,68,68,0.15); }
+.menu__icon { font-size: 14px; width: 18px; text-align: center; }
+.menu__badge {
+  margin-left: 8px;
+  padding: 1px 6px;
+  background: var(--accent);
+  color: white;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+}
+.menu__divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 8px;
+}
 </style>
 </head>
 <body>
@@ -1434,1379 +3533,8 @@ body {
   }
 }
 </script>
-<script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.34.0/min/vs/loader.min.js"></script>
-<script type="text/babel" data-type="module" data-presets="react">
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { createRoot } from 'react-dom/client';
-import ReactFlowComponent, {
-  ReactFlowProvider,
-  Background,
-  BackgroundVariant,
-  Controls,
-  MiniMap,
-  Handle,
-  Position,
-  MarkerType,
-  useNodesState,
-  useEdgesState,
-  useReactFlow
-} from 'reactflow';
-import dagre from 'dagre';
-
-// --- Data ---
-const GRAPH_DATA = JSON.parse(document.getElementById('graph-data').textContent);
-
-// --- Constants ---
-const NODE_WIDTH = 220;
-const NODE_HEIGHT = 60;
-const EDGE_COLOR = '#10b981';
-
-// --- Dagre layout ---
-function layoutGraph(nodes, edges) {
-  const g = new dagre.graphlib.Graph();
-  g.setDefaultEdgeLabel(() => ({}));
-  g.setGraph({
-    rankdir: 'LR',
-    nodesep: 30,
-    ranksep: 100,
-    edgesep: 20,
-    marginx: 40,
-    marginy: 40,
-    ranker: 'network-simplex'
-  });
-  nodes.forEach(n => g.setNode(n.id, { width: NODE_WIDTH, height: NODE_HEIGHT }));
-  edges.forEach(e => g.setEdge(e.source, e.target));
-  dagre.layout(g);
-  return nodes.map(n => {
-    const pos = g.node(n.id);
-    return {
-      ...n,
-      position: { x: pos.x - NODE_WIDTH / 2, y: pos.y - NODE_HEIGHT / 2 },
-      targetPosition: 'left',
-      sourcePosition: 'right'
-    };
-  });
-}
-
-// --- Convert to ReactFlow format ---
-function toReactFlow(graphData) {
-  const nodes = graphData.nodes.map(n => {
-    const domainId = n.domainId || n.id.replace(/^(domain_|missing_|broken_)/, '');
-    return {
-      id: n.id,
-      type: 'domainNode',
-      data: {
-        domainId,
-        label: n.label,
-        nodeType: n.group,
-        filePath: n.filePath,
-        tooltipHtml: n.title,
-        fqidRefs: n.fqidRefs || [],
-        version: n.version,
-        entitiesCount: n.entitiesCount,
-        name: n.name || n.label || '',
-        description: n.description || '',
-        author: n.author || '',
-        tags: Array.isArray(n.tags) ? n.tags : []
-      },
-      position: { x: 0, y: 0 }
-    };
-  });
-
-  const edges = graphData.edges.map(e => {
-    const isLinkage = e.kind === 'linkage';
-    const isFqid = e.kind === 'fqid';
-  
-    const base = {
-      id: e.id,
-      source: e.from,
-      target: e.to,
-      label: e.label,
-      data: {
-        tooltipHtml: e.title,
-        fqidRefs: e.fqidRefs || [],
-        linkData: e.linkData || null,
-        fullLabel: e.fullLabel || e.label || e.id,
-        kind: e.kind,
-        // Новые поля:
-        side1Domain: e.side1Domain || null,
-        side2Domain: e.side2Domain || null,
-        side1Raw: e.side1Raw || null,
-        side2Raw: e.side2Raw || null
-      }
-    };
-  
-    if (isLinkage) {
-      return {
-        ...base,
-        type: 'smoothstep',
-        markerEnd: { type: MarkerType.ArrowClosed, color: '#818cf8', width: 16, height: 16 },
-        style: { stroke: '#818cf8', strokeWidth: 2.5, strokeDasharray: '6 4' },
-        labelStyle: { fill: '#c7d2fe', fontSize: 10, fontWeight: 600 },
-        labelBgStyle: { fill: '#1e1b4b', fillOpacity: 0.95 },
-        labelBgPadding: [5, 3],
-        labelBgBorderRadius: 4
-      };
-    }
-  
-    return {
-      ...base,
-      type: 'smoothstep',
-      markerEnd: { type: MarkerType.ArrowClosed, color: '#10b981', width: 12, height: 12 },
-      style: { stroke: '#10b981', strokeWidth: 1.2, opacity: 0.7 },
-      labelStyle: { fill: '#a7f3d0', fontSize: 9, fontWeight: 400 },
-      labelBgStyle: { fill: '#052e2b', fillOpacity: 0.9 },
-      labelBgPadding: [3, 2],
-      labelBgBorderRadius: 3
-    };
-  });
-
-  return { nodes: layoutGraph(nodes, edges), edges };
-}
-
-// --- Filter helpers ---
-function matchesNamespace(domainId, filterPattern) {
-  if (!filterPattern || filterPattern.trim() === '') return true;
-
-  // Разбиваем по запятой, точке с запятой или пробелу
-  const tokens = filterPattern
-    .replace(/[,;]/g, ' ')
-    .split(' ')
-    .filter(p => p.length > 0)
-    .map(p => p.toLowerCase());
-
-  if (tokens.length === 0) return true;
-
-  const id = domainId.toLowerCase();
-
-  // Разделяем на включающие и исключающие маски
-  const include = tokens.filter(t => !t.startsWith('!'));
-  const exclude = tokens.filter(t => t.startsWith('!')).map(t => t.slice(1)).filter(t => t.length > 0);
-
-  // Исключающие имеют приоритет: если домен подходит под исключение — отбрасываем
-  for (const ex of exclude) {
-    if (simplePatternMatch(id, ex)) return false;
-  }
-
-  // Если нет ни одной включающей маски, но есть исключающие — показываем всё, кроме исключённого
-  if (include.length === 0) return true;
-
-  // Иначе домен должен матчиться хотя бы одной включающей маской
-  return include.some(inc => simplePatternMatch(id, inc));
-}
-
-function simplePatternMatch(domainId, pattern) {
-  if (pattern.indexOf('*') !== -1) {
-    const parts = pattern.split('*');
-    if (parts[0] && domainId.indexOf(parts[0]) !== 0) return false;
-    if (parts[parts.length - 1]) {
-      const last = parts[parts.length - 1];
-      if (domainId.lastIndexOf(last) !== domainId.length - last.length) return false;
-    }
-    let pos = parts[0] ? parts[0].length : 0;
-    for (let i = 1; i < parts.length - 1; i++) {
-      if (!parts[i]) continue;
-      const found = domainId.indexOf(parts[i], pos);
-      if (found === -1) return false;
-      pos = found + parts[i].length;
-    }
-    return true;
-  }
-  return domainId === pattern || domainId.indexOf(pattern + '.') === 0;
-}
-
-// --- Custom node ---
-function DomainNode({ data, selected }) {
-  const cls = 'rf-node rf-node--' + data.nodeType + (selected ? ' rf-node--selected' : '') + (data.dimmed ? ' rf-node--dimmed' : '');
-  const icon = data.nodeType === 'domain' ? '●' : data.nodeType === 'missing' ? '▲' : '✕';
-  return (
-    <React.Fragment>
-      <Handle type="target" position={Position.Left} className="rf-handle" />
-      <div className={cls}>
-        <div className="rf-node__icon">{icon}</div>
-        <div className="rf-node__content">
-          <div className="rf-node__id" title={data.domainId}>{data.domainId}</div>
-          {data.label && data.label !== data.domainId && (
-            <div className="rf-node__name" title={data.label}>{data.label}</div>
-          )}
-        </div>
-      </div>
-      <Handle type="source" position={Position.Right} className="rf-handle" />
-    </React.Fragment>
-  );
-}
-
-const nodeTypes = { domainNode: DomainNode };
-
-// --- Editor Panel ---
-function EditorPanel({ open, filePath, editorRef, onClose }) {
-  const [monacoReady, setMonacoReady] = useState(false);
-  useEffect(() => {
-    if (typeof window.require === 'undefined') return;
-    window.require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.34.0/min/vs' } });
-    window.require(['vs/editor/editor.main'], () => {
-      if (!editorRef.current) {
-        editorRef.current = window.monaco.editor.create(document.getElementById('monaco-container'), {
-          value: '',
-          language: 'yaml',
-          theme: 'vs-dark',
-          readOnly: true,
-          automaticLayout: true,
-          fontSize: 13,
-          minimap: { enabled: false },
-          scrollBeyondLastLine: false,
-          fontFamily: 'JetBrains Mono, SF Mono, Monaco, monospace'
-        });
-      }
-      setMonacoReady(true);
-    });
-  }, []);
-
-  const handleClose = () => onClose();
-
-  return (
-    <div className={'editor-panel' + (open ? ' open' : '')}>
-      <div className="editor-panel__header">
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="editor-panel__title">📄 Просмотр файла</div>
-          <div className="editor-panel__path" title={filePath}>{filePath}</div>
-        </div>
-        <button className="btn btn--icon" onClick={handleClose} title="Закрыть">✕</button>
-      </div>
-      <div className="editor-panel__body">
-        <div id="monaco-container" style={{ width: '100%', height: '100%' }}></div>
-      </div>
-    </div>
-  );
-}
-
-// --- Tooltip ---
-function HoverTooltip({ tooltip }) {
-  if (!tooltip) return null;
-  const { html, x, y } = tooltip;
-  return (
-    <div
-      className="tooltip"
-      style={{ left: x, top: y }}
-      onMouseEnter={() => { window.__tooltipHovered = true; }}
-      onMouseLeave={() => {
-        window.__tooltipHovered = false;
-        // Скрываем тултип через общий колбэк
-        if (window.__hideTooltip) window.__hideTooltip();
-      }}
-    >
-      <div dangerouslySetInnerHTML={{ __html: html }} />
-    </div>
-  );
-}
-
-// --- Main App ---
-function App() {
-  const initial = useMemo(() => toReactFlow(GRAPH_DATA), []);
-  const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
-  const [filters, setFilters] = useState({ domain: true, broken: true, missing: true, linkage: true, fqid: true });
-  const [namespaceFilter, setNamespaceFilter] = useState('');
-  const [editorOpen, setEditorOpen] = useState(false);
-  const [editorPath, setEditorPath] = useState('');
-  const [tooltip, setTooltip] = useState(null);
-  const [selectedNodeId, setSelectedNodeId] = useState(null);
-  const hideTimer = useRef(null);
-  const tooltipHovered = useRef(false);
-  const editorRef = useRef(null);
-  const wrapperRef = useRef(null);
-  const rfInstance = useRef(null);
-  const hoverTimeout = useRef(null);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchIndex, setSearchIndex] = useState(0);
-  const searchInputRef = useRef(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  
-  // Счётчики для чипов фильтра
-const counts = useMemo(() => ({
-  domain: nodes.filter(n => n.data.nodeType === 'domain').length,
-  missing: nodes.filter(n => n.data.nodeType === 'missing').length,
-  broken: nodes.filter(n => n.data.nodeType === 'broken').length,
-  linkage: edges.filter(e => e.data?.kind === 'linkage').length,
-  fqid: edges.filter(e => e.data?.kind === 'fqid').length
-}), [nodes, edges]);
-
-// Топ-5 доменов по числу связей (входящих + исходящих)
-const topConnected = useMemo(() => {
-  const degree = new Map();
-  nodes.forEach(n => degree.set(n.id, 0));
-  edges.forEach(e => {
-    if (degree.has(e.source)) degree.set(e.source, degree.get(e.source) + 1);
-    if (degree.has(e.target)) degree.set(e.target, degree.get(e.target) + 1);
-  });
-  return nodes
-    .map(n => ({ node: n, degree: degree.get(n.id) || 0 }))
-    .filter(x => x.degree > 0)
-    .sort((a, b) => b.degree - a.degree)
-    .slice(0, 5);
-}, [nodes, edges]);
-
-// Топ-5 доменов по исходящим FQID-ссылкам
-const topRefs = useMemo(() => {
-  return nodes
-    .map(n => ({ node: n, count: (n.data.fqidRefs || []).length }))
-    .filter(x => x.count > 0)
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 5);
-}, [nodes]);
-
-// Разбивка по неймспейсам (первые 2 сегмента id)
-const namespaces = useMemo(() => {
-  const map = new Map();
-  nodes.forEach(n => {
-    if (n.data.nodeType !== 'domain') return;
-    const parts = n.data.domainId.split('.');
-    const ns = parts.slice(0, 2).join('.');
-    map.set(ns, (map.get(ns) || 0) + 1);
-  });
-  return Array.from(map.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 6);
-}, [nodes]);
-
-// Облако тегов
-const tagCloud = useMemo(() => {
-  const map = new Map();
-  nodes.forEach(n => {
-    (n.data.tags || []).forEach(t => {
-      const key = String(t);
-      map.set(key, (map.get(key) || 0) + 1);
-    });
-  });
-  return Array.from(map.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 14);
-}, [nodes]);
-
-// Изолированные домены (без связей)
-const isolatedCount = useMemo(() => {
-  const connected = new Set();
-  edges.forEach(e => { connected.add(e.source); connected.add(e.target); });
-  return nodes.filter(n => n.data.nodeType === 'domain' && !connected.has(n.id)).length;
-}, [nodes, edges]);
-
-// Общее число FQID-ссылок
-const totalFqidRefs = useMemo(
-  () => nodes.reduce((sum, n) => sum + (n.data.fqidRefs?.length || 0), 0),
-  [nodes]
-);
-  
-  const domainToNodeId = useMemo(() => {
-    const map = new Map();
-    nodes.forEach(n => {
-      const d = (n.data.domainId || '').toLowerCase();
-      if (d) map.set(d, n.id);
-    });
-    return map;
-  }, [nodes]);
-
-  // --- Filters ---
-    // Базовая фильтрация (тип + namespace)
-  const filteredNodes = useMemo(() => {
-    return nodes.filter(n => {
-      const t = n.data.nodeType;
-      if (t === 'domain' && !filters.domain) return false;
-      if (t === 'broken' && !filters.broken) return false;
-      if (t === 'missing' && !filters.missing) return false;
-      if (namespaceFilter && !matchesNamespace(n.data.domainId, namespaceFilter)) return false;
-      return true;
-    });
-  }, [nodes, filters, namespaceFilter]);
-
-  const filteredEdges = useMemo(() => {
-  const ids = new Set(filteredNodes.map(n => n.id));
-  return edges.filter(e => {
-    if (!ids.has(e.source) || !ids.has(e.target)) return false;
-    const kind = e.data?.kind;
-    if (kind === 'linkage' && !filters.linkage) return false;
-    if (kind === 'fqid' && !filters.fqid) return false;
-    return true;
-  });
-}, [edges, filteredNodes, filters.linkage, filters.fqid]);
-
-  // Множества для подсветки
-  const { highlightedNodeIds, highlightedEdgeIds } = useMemo(() => {
-    if (!selectedNodeId) return { highlightedNodeIds: null, highlightedEdgeIds: null };
-    const nodeIds = new Set([selectedNodeId]);
-    const edgeIds = new Set();
-    filteredEdges.forEach(e => {
-      if (e.source === selectedNodeId || e.target === selectedNodeId) {
-        edgeIds.add(e.id);
-        nodeIds.add(e.source);
-        nodeIds.add(e.target);
-      }
-    });
-    return { highlightedNodeIds: nodeIds, highlightedEdgeIds: edgeIds };
-  }, [selectedNodeId, filteredEdges]);
-
-  // Финальные узлы с учётом подсветки
-  const visibleNodes = useMemo(() => {
-    if (!highlightedNodeIds) return filteredNodes;
-    return filteredNodes.map(n => {
-      const dimmed = !highlightedNodeIds.has(n.id);
-      return {
-        ...n,
-        style: { opacity: dimmed ? 0.15 : 1, transition: 'opacity 0.2s' },
-        data: { ...n.data, dimmed }
-      };
-    });
-  }, [filteredNodes, highlightedNodeIds]);
-  
-  const searchResults = useMemo(() => {
-  const q = searchQuery.trim().toLowerCase();
-  if (!q) return [];
-
-  return nodes
-    .map(n => {
-      const d = n.data || {};
-      const id = (d.domainId || '').toLowerCase();
-      const name = (d.name || '').toLowerCase();
-      const description = (d.description || '').toLowerCase();
-      const tags = Array.isArray(d.tags) ? d.tags.map(t => String(t).toLowerCase()) : [];
-
-      const matches = [];
-      if (id.includes(q)) matches.push({ field: 'id', value: d.domainId });
-      if (name.includes(q)) matches.push({ field: 'name', value: d.name });
-      if (description.includes(q)) matches.push({ field: 'description', value: d.description });
-      tags.forEach(tag => {
-        if (tag.includes(q)) matches.push({ field: 'tags', value: tag });
-      });
-
-      return matches.length > 0 ? { node: n, matches } : null;
-    })
-    .filter(Boolean)
-    // Сортировка: сначала совпадения по id, потом по name, потом остальные
-    .sort((a, b) => {
-      const rank = (r) => {
-        const fields = r.matches.map(m => m.field);
-        if (fields.includes('id')) return 0;
-        if (fields.includes('name')) return 1;
-        if (fields.includes('tags')) return 2;
-        return 3;
-      };
-      return rank(a) - rank(b);
-    })
-    .slice(0, 100);
-}, [searchQuery, nodes]);
-  
-  useEffect(() => { setSearchIndex(0); }, [searchQuery]);
-  
-  const gotoDomainByDomainId = useCallback((domainId) => {
-  if (!domainId) return;
-  const nodeId = domainToNodeId.get(domainId.toLowerCase());
-  if (!nodeId) return;
-  const node = nodes.find(n => n.id === nodeId);
-  if (!node || !rfInstance.current) return;
-  const cx = node.position.x + NODE_WIDTH / 2;
-  const cy = node.position.y + NODE_HEIGHT / 2;
-  const zoom = Math.max(rfInstance.current.getZoom(), 1.2);
-  rfInstance.current.setCenter(cx, cy, { zoom, duration: 500 });
-  setSelectedNodeId(nodeId);
-}, [domainToNodeId, nodes]);
-
-const openSearch = useCallback(() => {
-  setSearchQuery('');
-  setSearchIndex(0);
-  setSearchOpen(true);
-  setTimeout(() => searchInputRef.current?.focus(), 50);
-}, []);
-
-const closeSearch = useCallback(() => {
-  setSearchOpen(false);
-}, []);
-
-const handleSearchKeyDown = useCallback((e) => {
-  if (e.key === 'Escape') {
-    e.preventDefault();
-    closeSearch();
-  } else if (e.key === 'ArrowDown') {
-    e.preventDefault();
-    setSearchIndex(i => Math.min(i + 1, Math.max(searchResults.length - 1, 0)));
-  } else if (e.key === 'ArrowUp') {
-    e.preventDefault();
-    setSearchIndex(i => Math.max(i - 1, 0));
-  } else if (e.key === 'Enter') {
-    e.preventDefault();
-    const target = searchResults.length === 1
-      ? searchResults[0]
-      : searchResults[searchIndex];
-    if (target) {
-      gotoDomainByDomainId(target.node.data.domainId);
-      closeSearch();
-    }
-  }
-}, [searchResults, searchIndex, gotoDomainByDomainId, closeSearch]);
-
-useEffect(() => {
-  const handler = (e) => {
-    // Shift+Tab — toggle поиска
-    if (e.shiftKey && e.key === 'Tab') {
-      e.preventDefault();
-      e.stopPropagation();
-      if (searchOpen) {
-        closeSearch();
-      } else {
-        openSearch();
-      }
-      return;
-    }
-    // Ctrl/Cmd+K — альтернативный шорткат (на всякий случай)
-    if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
-      e.preventDefault();
-      openSearch();
-    }
-  };
-  window.addEventListener('keydown', handler, true);
-  return () => window.removeEventListener('keydown', handler, true);
-}, [searchOpen, openSearch, closeSearch]);
-
-  // Финальные рёбра с учётом подсветки
-  const visibleEdges = useMemo(() => {
-    if (!highlightedEdgeIds) {
-      return filteredEdges.map(e => ({
-        ...e,
-        style: { ...e.style, opacity: 0.85, strokeWidth: 1.5 }
-      }));
-    }
-    return filteredEdges.map(e => {
-      const hl = highlightedEdgeIds.has(e.id);
-      const baseColor = e.data?.kind === 'linkage' ? '#818cf8' : '#10b981';
-      const strokeWidth = e.data?.kind === 'linkage' ? 3 : 2;
-      return {
-        ...e,
-        animated: hl,
-        style: {
-          ...e.style,
-          opacity: hl ? 1 : 0.08,
-          strokeWidth: hl ? strokeWidth : e.style.strokeWidth,
-          stroke: hl ? '#fbbf24' : baseColor
-        },
-        markerEnd: {
-          ...e.markerEnd,
-          color: hl ? '#fbbf24' : baseColor
-        }
-      };
-    });
-  }, [filteredEdges, highlightedEdgeIds]);
-
-  const showTooltipFor = useCallback((html, event) => {
-    clearTimeout(hideTimer.current);
-    const x = event.clientX + 16;
-    const y = event.clientY + 16;
-    setTooltip({ html, x, y });
-  }, []);
-
-  const scheduleHideTooltip = useCallback(() => {
-    clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(() => {
-      if (!window.__tooltipHovered) setTooltip(null);
-    }, 250);
-  }, []);
-  
-  // --- Handlers ---
- const handleNodeClick = useCallback((event, node) => {
-    // Переключаем выделение
-    setSelectedNodeId(prev => prev === node.id ? null : node.id);
-  }, []);
-
-  const handleNodeMouseEnter = useCallback((event, node) => {
-    clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(() => {
-      const html = buildTooltipHtml(
-        node.data.domainId,
-        node.data.label,
-        node.data.nodeType,
-        node.data.filePath,
-        node.data.version,
-        node.data.entitiesCount,
-        node.data.fqidRefs
-      );
-      showTooltipFor(html, event);
-    }, 120);
-  }, [showTooltipFor]);
-
-  const handleNodeMouseLeave = useCallback(() => {
-    scheduleHideTooltip();
-  }, [scheduleHideTooltip]);
-
-  const handleEdgeMouseEnter = useCallback((event, edge) => {
-    clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(() => {
-      const refs = edge.data?.fqidRefs || [];
-      const html = buildEdgeTooltipHtml(edge, refs);
-      showTooltipFor(html, event);
-    }, 120);
-  }, [showTooltipFor]);
-
-  const handleEdgeMouseLeave = useCallback(() => {
-    scheduleHideTooltip();
-  }, [scheduleHideTooltip]);
-
-  const handleOpenFqidRef = useCallback((filePath, fqid) => {
-    if (!filePath) return;
-    setEditorPath(filePath);
-    setEditorOpen(true);
-    fetch('/file?path=' + encodeURIComponent(filePath))
-      .then(r => r.ok ? r.text() : Promise.reject('File not found'))
-      .then(content => {
-        if (editorRef.current) {
-          editorRef.current.setValue(content);
-          if (fqid) {
-            setTimeout(() => {
-              const NEWLINE = String.fromCharCode(10);
-              const lines = content.split(NEWLINE);
-              for (let i = 0; i < lines.length; i++) {
-                if (lines[i].includes(fqid)) {
-                  editorRef.current.revealLineInCenter(i + 1);
-                  editorRef.current.setSelection({
-                    startLineNumber: i + 1, startColumn: 1,
-                    endLineNumber: i + 1, endColumn: lines[i].length + 1
-                  });
-                  break;
-                }
-              }
-            }, 100);
-          }
-        }
-      })
-      .catch(() => {
-        if (editorRef.current) editorRef.current.setValue('// Не удалось загрузить файл');
-      });
-    setTooltip(null);
-  }, []);
-    
-  const handlePaneDoubleClick = useCallback((event) => {
-    if (!rfInstance.current) return;
-    const { screenToFlowPosition, setCenter, getZoom } = rfInstance.current;
-    const pos = screenToFlowPosition({ x: event.clientX, y: event.clientY });
-    const z = getZoom();
-    setCenter(pos.x, pos.y, { zoom: Math.min(z * 1.8, 5), duration: 400 });
-  }, []);
-
-  const handlePaneClick = useCallback(() => {
-    setTooltip(null);
-  }, []);
-
-  // --- Toolbar actions ---
-  const savePng = useCallback(() => {
-    const rf = document.querySelector('.react-flow__viewport');
-    if (!rf) return;
-    const svg = document.querySelector('.react-flow__edges')?.ownerSVGElement?.parentElement;
-    // Используем html-to-image через canvas (упрощенный вариант через прокси)
-    // Просто сохраняем через canvas ReactFlow
-    const canvas = document.querySelector('.react-flow__pane')?.parentElement?.querySelector('canvas');
-    // ReactFlow рисует SVG поверх. Используем ручное преобразование:
-    alert('Функция экспорта в PNG доступна через встроенную кнопку ReactFlow. Используйте скриншот.');
-  }, []);
-
-  const resetLayout = useCallback(() => {
-    const layouted = layoutGraph(
-      nodes.map(n => ({ ...n, position: { x: 0, y: 0 } })),
-      edges
-    );
-    setNodes(layouted);
-    setTimeout(() => rfInstance.current?.fitView({ duration: 500, padding: 0.2 }), 50);
-  }, [nodes, edges, setNodes]);
-
-  const fitView = useCallback(() => {
-    rfInstance.current?.fitView({ duration: 500, padding: 0.2 });
-  }, []);
-  
-  // Позиционирование тултипа в пределах окна
-  useEffect(() => {
-    if (!tooltip) return;
-    const el = document.querySelector('.tooltip');
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    let x = tooltip.x;
-    let y = tooltip.y;
-    const margin = 8;
-    if (x + rect.width > window.innerWidth - margin) {
-      x = Math.max(margin, window.innerWidth - rect.width - margin);
-    }
-    if (y + rect.height > window.innerHeight - margin) {
-      y = Math.max(margin, window.innerHeight - rect.height - margin);
-    }
-    if (x !== tooltip.x || y !== tooltip.y) {
-      setTooltip(t => t ? { ...t, x, y } : null);
-    }
-  }, [tooltip]);
-  
-  useEffect(() => {
-  const handler = (e) => {
-    // Открыть файл
-    const openBtn = e.target.closest('.js-open-file');
-    if (openBtn) {
-      e.stopPropagation();
-      e.preventDefault();
-      const file = openBtn.getAttribute('data-file');
-      const fqid = openBtn.getAttribute('data-fqid');
-      handleOpenFqidRef(file, fqid);
-      return;
-    }
-
-    // Перейти к домену
-    const gotoBtn = e.target.closest('.js-goto-domain');
-    if (gotoBtn) {
-      e.stopPropagation();
-      e.preventDefault();
-      const domainId = gotoBtn.getAttribute('data-domain');
-      if (!domainId) return;
-
-      const nodeId = domainToNodeId.get(domainId.toLowerCase());
-      if (!nodeId) {
-        console.warn('Node not found for domain:', domainId);
-        return;
-      }
-      const node = nodes.find(n => n.id === nodeId);
-      if (!node) return;
-
-      // Центрируем камеру на узле
-      if (rfInstance.current) {
-        const nodeW = NODE_WIDTH;
-        const nodeH = NODE_HEIGHT;
-        const cx = node.position.x + nodeW / 2;
-        const cy = node.position.y + nodeH / 2;
-        const zoom = Math.max(rfInstance.current.getZoom(), 1.2);
-        rfInstance.current.setCenter(cx, cy, { zoom, duration: 500 });
-      }
-
-      // Выделяем узел и подсвечиваем его связи
-      setSelectedNodeId(nodeId);
-
-      // Скрываем тултип
-      setTooltip(null);
-      window.__tooltipHovered = false;
-      return;
-    }
-  };
-
-  document.addEventListener('click', handler, true);
-  return () => document.removeEventListener('click', handler, true);
-}, [handleOpenFqidRef, domainToNodeId, nodes]);
-  
-  useEffect(() => {
-    window.__hideTooltip = () => {
-      // Мягкое скрытие с задержкой
-      clearTimeout(hideTimer.current);
-      hideTimer.current = setTimeout(() => {
-        if (!window.__tooltipHovered) setTooltip(null);
-      }, 100);
-    };
-    return () => { delete window.__hideTooltip; };
-  }, []);
-
-  // Stats
-  const stats = GRAPH_DATA.stats;
-  const domainCount = GRAPH_DATA.domainCount;
-  const linkCount = GRAPH_DATA.linkCount;
-  const missingCount = GRAPH_DATA.missingCount;
-  const brokenCount = GRAPH_DATA.brokenCount;
-
-  return (
-    <div className="app">
-      <aside className={'sidebar' + (sidebarCollapsed ? ' sidebar--collapsed' : '')}>
-          {sidebarCollapsed ? (
-            <button
-              className="sidebar__expand"
-              onClick={() => setSidebarCollapsed(false)}
-              title="Развернуть панель"
-            >
-              ›
-            </button>
-          ) : (
-            <>
-              <div className="sidebar__header">
-                <div className="sidebar__logo">🌐</div>
-                <div style={{ flex: 1 }}>
-                  <div className="sidebar__title">Domain Graph</div>
-                  <div className="sidebar__subtitle">Analyzer</div>
-                </div>
-                <button
-                  className="sidebar__collapse"
-                  onClick={() => setSidebarCollapsed(true)}
-                  title="Свернуть панель"
-                >
-                  ‹
-                </button>
-              </div>
-        
-              <div className="sidebar__body">
-                {/* --- Основные метрики --- */}
-                <div className="section">
-                  <div className="section__title">Обзор</div>
-                  <div className="stats-grid">
-                    <div className="stat-card stat-card--accent">
-                      <div className="stat-card__value">{nodes.length}</div>
-                      <div className="stat-card__label">Всего узлов</div>
-                    </div>
-                    <div className="stat-card stat-card--success">
-                      <div className="stat-card__value">{edges.length}</div>
-                      <div className="stat-card__label">Связей</div>
-                    </div>
-                    <div className="stat-card stat-card--warning">
-                      <div className="stat-card__value">{counts.missing}</div>
-                      <div className="stat-card__label">Missing</div>
-                    </div>
-                    <div className="stat-card stat-card--danger">
-                      <div className="stat-card__value">{counts.broken}</div>
-                      <div className="stat-card__label">Broken</div>
-                    </div>
-                  </div>
-                </div>
-        
-                {/* --- Метрики связности --- */}
-                <div className="section">
-                  <div className="section__title">Связность</div>
-                  <div className="mini-stats">
-                    <div className="mini-stat">
-                      <span className="mini-stat__label">Домены</span>
-                      <span className="mini-stat__value">{counts.domain}</span>
-                    </div>
-                    <div className="mini-stat">
-                      <span className="mini-stat__label">Изолированы</span>
-                      <span className="mini-stat__value">{isolatedCount}</span>
-                    </div>
-                    <div className="mini-stat">
-                      <span className="mini-stat__label">Linkage</span>
-                      <span className="mini-stat__value">{counts.linkage}</span>
-                    </div>
-                    <div className="mini-stat">
-                      <span className="mini-stat__label">FQID-рёбра</span>
-                      <span className="mini-stat__value">{counts.fqid}</span>
-                    </div>
-                    <div className="mini-stat" style={{ gridColumn: 'span 2' }}>
-                      <span className="mini-stat__label">Всего FQID-ссылок</span>
-                      <span className="mini-stat__value">{totalFqidRefs}</span>
-                    </div>
-                  </div>
-                </div>
-        
-                {/* --- Топ по связям --- */}
-                {topConnected.length > 0 && (
-                  <div className="section">
-                    <div className="section__title">Топ по связям</div>
-                    <div className="rank-list">
-                      {topConnected.map((item, i) => (
-                        <button
-                          key={item.node.id}
-                          className="rank-item"
-                          onClick={() => gotoDomainByDomainId(item.node.data.domainId)}
-                          title={item.node.data.domainId}
-                        >
-                          <span className="rank-item__num">{i + 1}</span>
-                          <span className="rank-item__label">{item.node.data.domainId}</span>
-                          <span className="rank-item__value">{item.degree}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-        
-                {/* --- Топ по исходящим ссылкам --- */}
-                {topRefs.length > 0 && (
-                  <div className="section">
-                    <div className="section__title">Топ по исходящим FQID</div>
-                    <div className="rank-list">
-                      {topRefs.map((item, i) => (
-                        <button
-                          key={item.node.id}
-                          className="rank-item"
-                          onClick={() => gotoDomainByDomainId(item.node.data.domainId)}
-                          title={item.node.data.domainId}
-                        >
-                          <span className="rank-item__num">{i + 1}</span>
-                          <span className="rank-item__label">{item.node.data.domainId}</span>
-                          <span className="rank-item__value">{item.count}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-        
-                {/* --- Неймспейсы --- */}
-                {namespaces.length > 0 && (
-                  <div className="section">
-                    <div className="section__title">Неймспейсы</div>
-                    <div className="bar-list">
-                      {namespaces.map(([ns, count]) => {
-                        const max = namespaces[0][1];
-                        const pct = (count / max) * 100;
-                        return (
-                          <button
-                            key={ns}
-                            className="bar-item"
-                            onClick={() => setNamespaceFilter(ns + '.*')}
-                            title={'Показать только ' + ns + '.*'}
-                          >
-                            <span className="bar-item__label">{ns}</span>
-                            <span className="bar-item__value">{count}</span>
-                            <span className="bar-item__track">
-                              <span className="bar-item__fill" style={{ width: pct + '%' }}></span>
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-        
-                {/* --- Облако тегов --- */}
-                {tagCloud.length > 0 && (
-                  <div className="section">
-                    <div className="section__title">Теги</div>
-                    <div className="tag-cloud">
-                      {tagCloud.map(([tag, count]) => (
-                        <button
-                          key={tag}
-                          className="tag"
-                          onClick={() => setSearchQuery(tag) || openSearch()}
-                          title={tag + ' (' + count + ')'}
-                        >
-                          {tag}
-                          <span className="tag__count">{count}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-        
-                {/* --- Легенда --- */}
-                <div className="section">
-                  <div className="section__title">Легенда</div>
-                  <div className="toggle-list">
-                    <div className="legend-row">
-                      <span className="legend-dot" style={{ background: 'var(--success)' }}></span>
-                      Domain — корректный
-                    </div>
-                    <div className="legend-row">
-                      <span className="legend-dot" style={{ background: 'var(--warning)' }}></span>
-                      Missing — несуществующий
-                    </div>
-                    <div className="legend-row">
-                      <span className="legend-dot" style={{ background: 'var(--danger)' }}></span>
-                      Broken — ошибка YAML
-                    </div>
-                    <div className="legend-row">
-                      <span className="legend-line" style={{ background: '#818cf8' }}></span>
-                      Linkage — явная связь
-                    </div>
-                    <div className="legend-row">
-                      <span className="legend-line" style={{ background: '#10b981' }}></span>
-                      FQID — неявная ссылка
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
-        </aside>
-
-      <main className="main">
-        <div className="toolbar">
-          <div className="toolbar__group">
-            <button className="btn btn--icon" onClick={fitView} title="Вписать в экран">⛶</button>
-            <button className="btn btn--icon" onClick={resetLayout} title="Переуложить">⟳</button>
-          </div>
-        
-          <button className="btn" onClick={openSearch} title="Поиск домена (Shift+Tab)" style={{ gap: 8 }}>
-            🔍 Поиск
-            <kbd className="btn-kbd">⇧ Tab</kbd>
-          </button>
-        
-          <div className="toolbar__chips">
-            {[
-              { key: 'domain', label: 'Domain', color: 'var(--success)' },
-              { key: 'missing', label: 'Missing', color: 'var(--warning)' },
-              { key: 'broken', label: 'Broken', color: 'var(--danger)' },
-              { key: 'linkage', label: 'Linkage', color: '#818cf8' },
-              { key: 'fqid', label: 'FQID', color: '#10b981' }
-            ].map(item => (
-              <button
-                key={item.key}
-                className={'chip' + (filters[item.key] ? ' chip--active' : '')}
-                onClick={() => setFilters(f => ({ ...f, [item.key]: !f[item.key] }))}
-                title={item.label + ': ' + counts[item.key]}
-              >
-                <span className="chip__dot" style={{ background: item.color }}></span>
-                <span className="chip__label">{item.label}</span>
-                <span className="chip__count">{counts[item.key]}</span>
-              </button>
-            ))}
-          </div>
-        
-          <div className="toolbar__filter">
-            <span className="toolbar__filter-icon">🔎</span>
-            <input
-              className="toolbar__filter-input"
-              type="text"
-              placeholder="sgrc.risk.*, !test.*"
-              value={namespaceFilter}
-              onChange={e => setNamespaceFilter(e.target.value)}
-            />
-            {namespaceFilter && (
-              <button className="toolbar__filter-clear" onClick={() => setNamespaceFilter('')} title="Очистить">✕</button>
-            )}
-            <div className="toolbar__filter-help">
-              <span className="toolbar__filter-help-icon">?</span>
-              <div className="toolbar__filter-tooltip">
-                <div className="toolbar__filter-tooltip-title">Синтаксис фильтра</div>
-                <div className="toolbar__filter-tooltip-row">
-                  <code>sgrc.risk.*</code>
-                  <span>показать домены из неймспейса</span>
-                </div>
-                <div className="toolbar__filter-tooltip-row">
-                  <code>users.*, sgrc.*</code>
-                  <span>несколько масок через <b>,</b> <b>;</b> или пробел</span>
-                </div>
-                <div className="toolbar__filter-tooltip-row">
-                  <code>!test.*</code>
-                  <span>исключить домены из неймспейса</span>
-                </div>
-                <div className="toolbar__filter-tooltip-row">
-                  <code>sgrc.*, !sgrc.legacy.*</code>
-                  <span>комбинировать включение и исключение</span>
-                </div>
-                <div className="toolbar__filter-tooltip-row">
-                  <code>*</code>
-                  <span>любое количество символов</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        
-          <div className="toolbar__spacer"></div>
-        
-          <div className="toolbar__stats">
-            {visibleNodes.length} / {nodes.length} узлов · {visibleEdges.length} / {edges.length} связей
-          </div>
-        </div>
-        <div className="graph-container" ref={wrapperRef}>
-          <ReactFlowProvider>
-            <ReactFlowInner
-              nodes={visibleNodes}
-              edges={visibleEdges}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onNodeClick={handleNodeClick}
-              onNodeMouseEnter={handleNodeMouseEnter}
-              onNodeMouseLeave={handleNodeMouseLeave}
-              onEdgeMouseEnter={handleEdgeMouseEnter}
-              onEdgeMouseLeave={handleEdgeMouseLeave}
-              onPaneDoubleClick={handlePaneDoubleClick}
-              onPaneClick={handlePaneClick}
-              setRfInstance={(inst) => { rfInstance.current = inst; }}
-            />
-          </ReactFlowProvider>
-
-          {visibleNodes.length === 0 && (
-            <div className="empty-state">
-              <div className="empty-state__title">Ничего не найдено</div>
-              <div className="empty-state__text">Попробуйте изменить фильтры</div>
-            </div>
-          )}
-
-          <EditorPanel
-            open={editorOpen}
-            filePath={editorPath}
-            editorRef={editorRef}
-            onClose={() => setEditorOpen(false)}
-          />
-        </div>
-      </main>
-
-      <HoverTooltip tooltip={tooltip} onOpenFile={handleOpenFqidRef} />
-      
-      {searchOpen && (
-  <div className="search-overlay" onMouseDown={closeSearch}>
-    <div className="search-modal" onMouseDown={e => e.stopPropagation()}>
-      <div className="search-modal__input-wrap">
-        <span className="search-modal__icon">🔍</span>
-        <input
-          ref={searchInputRef}
-          className="search-modal__input"
-          type="text"
-          placeholder="Поиск домена по id, имени, описанию или тегам"
-          value={searchQuery}
-          onChange={e => setSearchQuery(e.target.value)}
-          onKeyDown={handleSearchKeyDown}
-        />
-        <kbd className="search-modal__kbd">Esc</kbd>
-      </div>
-      <div className="search-modal__results">
-        {searchQuery.trim() === '' ? (
-          <div className="search-modal__hint">Введите запрос для поиска</div>
-        ) : searchResults.length === 0 ? (
-          <div className="search-modal__hint">Ничего не найдено</div>
-        ) : (
-            searchResults.map((item, i) => {
-              const n = item.node;
-              const matchedFields = new Set(item.matches.map(m => m.field));
-              return (
-                <div
-                  key={n.id}
-                  className={'search-result' + (i === searchIndex ? ' active' : '')}
-                  onMouseEnter={() => setSearchIndex(i)}
-                  onClick={() => {
-                    gotoDomainByDomainId(n.data.domainId);
-                    closeSearch();
-                  }}
-                >
-                  <span className={'search-result__dot search-result__dot--' + n.data.nodeType}></span>
-                  <div className="search-result__content">
-                    <div className="search-result__id">
-                      <HighlightedText text={n.data.domainId} query={searchQuery} />
-                      {matchedFields.has('id') && <span className="search-result__badge">id</span>}
-                    </div>
-                    {n.data.name && n.data.name !== n.data.domainId && (
-                      <div className="search-result__label">
-                        <HighlightedText text={n.data.name} query={searchQuery} />
-                        {matchedFields.has('name') && <span className="search-result__badge">name</span>}
-                      </div>
-                    )}
-                    {n.data.description && (
-                      <div className="search-result__desc">
-                        <HighlightedText text={n.data.description} query={searchQuery} />
-                        {matchedFields.has('description') && <span className="search-result__badge">description</span>}
-                      </div>
-                    )}
-                    {Array.isArray(n.data.tags) && n.data.tags.length > 0 && (
-                      <div className="search-result__tags">
-                        {n.data.tags.map((tag, ti) => (
-                          <span key={ti} className="search-result__tag">
-                            <HighlightedText text={tag} query={searchQuery} />
-                          </span>
-                        ))}
-                        {matchedFields.has('tags') && <span className="search-result__badge">tags</span>}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })
-          )}
-      </div>
-      <div className="search-modal__footer">
-        <span><kbd>↑</kbd><kbd>↓</kbd> навигация</span>
-        <span><kbd>Enter</kbd> выбрать</span>
-        <span><kbd>Esc</kbd> закрыть</span>
-      </div>
-    </div>
-  </div>
-)}
-    </div>
-  );
-}
-
-// --- Inner ReactFlow component with instance access ---
-function ReactFlowInner(props) {
-  const rf = useReactFlow();
-  const { setRfInstance } = props;
-  useEffect(() => {
-    setRfInstance(rf);
-  }, [rf, setRfInstance]);
-
-  return (
-    <ReactFlowComponent
-      defaultEdgeOptions={{
-        type: 'smoothstep',
-        labelStyle: { fill: '#e2e8f0', fontSize: 10, fontWeight: 500 },
-        labelBgStyle: { fill: '#0d1424', fillOpacity: 0.95 },
-        labelBgPadding: [4, 2],
-        labelBgBorderRadius: 4
-      }}
-      nodes={props.nodes}
-      edges={props.edges}
-      onNodesChange={props.onNodesChange}
-      onEdgesChange={props.onEdgesChange}
-      nodeTypes={nodeTypes}
-      onNodeClick={props.onNodeClick}
-      onNodeMouseEnter={props.onNodeMouseEnter}
-      onNodeMouseLeave={props.onNodeMouseLeave}
-      onEdgeMouseEnter={props.onEdgeMouseEnter}
-      onEdgeMouseLeave={props.onEdgeMouseLeave}
-      onPaneDoubleClick={props.onPaneDoubleClick}
-      onPaneClick={props.onPaneClick}
-      fitView
-      fitViewOptions={{ padding: 0.2 }}
-      minZoom={0.1}
-      maxZoom={4}
-      proOptions={{ hideAttribution: true }}
-      nodesDraggable
-      nodesConnectable={false}
-      elementsSelectable
-      onlyRenderVisibleElements
-      defaultEdgeOptions={{ type: 'smoothstep' }}
-    >
-      <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#1e293b" />
-      <Controls position="bottom-left" />
-      <MiniMap
-        position="bottom-right"
-        nodeColor={(n) => {
-          const t = n.data?.nodeType;
-          if (t === 'missing') return '#f59e0b';
-          if (t === 'broken') return '#ef4444';
-          return '#10b981';
-        }}
-        maskColor="rgba(10,14,26,0.7)"
-        style={{ width: 180, height: 130 }}
-      />
-    </ReactFlowComponent>
-  );
-}
-
-// --- Tooltip HTML builders ---
-function escapeHtml(s) {
-  if (s === null || s === undefined) return '';
-  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
-
-function HighlightedText({ text, query }) {
-  if (text === null || text === undefined) return null;
-  const str = String(text);
-  const q = (query || '').trim();
-  if (!q) return str;
-
-  const lower = str.toLowerCase();
-  const qLower = q.toLowerCase();
-  const parts = [];
-  let pos = 0;
-  let idx = lower.indexOf(qLower, pos);
-  let key = 0;
-
-  while (idx !== -1) {
-    if (idx > pos) parts.push(str.slice(pos, idx));
-    parts.push(
-      React.createElement('mark', { key: 'm' + key++, className: 'search-hl' },
-        str.slice(idx, idx + q.length))
-    );
-    pos = idx + q.length;
-    idx = lower.indexOf(qLower, pos);
-  }
-  if (pos < str.length) parts.push(str.slice(pos));
-
-  return React.createElement(React.Fragment, null, ...parts);
-}
-
-function buildEdgeTooltipHtml(edge, refs, onOpenFile) {
-  const fullLabel = edge.data?.fullLabel || edge.label || edge.id;
-  const link = edge.data?.linkData || {};
-  const nameFrom = link.nameFrom || {};
-
-  // Название стороны — nameFrom.side1/side2, fallback — сам FQID
-  const side1Text = nameFrom.side1 || link.sourceEntity || null;
-  const side2Text = nameFrom.side2 || link.targetEntity || null;
-
-  // Домены сторон уже посчитаны на бэкенде
-  const side1Domain = edge.data?.side1Domain || null;
-  const side2Domain = edge.data?.side2Domain || null;
-
-  function renderSide(labelText, text, domain) {
-    if (!text) return '';
-    const clickable = !!domain;
-    let h = '<div class="tooltip__row"><span class="tooltip__label">' + labelText + '</span>';
-    if (clickable) {
-      h += '<span class="tooltip__value js-goto-domain" '
-        + 'data-domain="' + escapeHtml(domain) + '" '
-        + 'style="cursor:pointer;color:var(--accent-hover);text-decoration:underline dotted">'
-        + escapeHtml(text)
-        + ' <span style="font-size:10px;color:var(--text-500)">→ ' + escapeHtml(domain) + '</span>'
-        + '</span>';
-    } else {
-      h += '<span class="tooltip__value" style="color:var(--text-400)">' + escapeHtml(text) + '</span>';
-    }
-    h += '</div>';
-    return h;
-  }
-
-  let html = '<div class="tooltip__header">Связь: ' + escapeHtml(fullLabel) + '</div>';
-  html += '<div class="tooltip__body">';
-
-  html += renderSide('Сторона 1:', side1Text, side1Domain);
-  html += renderSide('Сторона 2:', side2Text, side2Domain);
-
-  if (side1Text || side2Text) {
-    html += '<div style="height:1px;background:var(--border);margin:10px 0"></div>';
-  }
-
-  if (link.type) {
-    html += '<div class="tooltip__row"><span class="tooltip__label">Тип:</span><span class="tooltip__value">' + escapeHtml(link.type) + '</span></div>';
-  }
-
-  if (refs && refs.length > 0) {
-    html += '<div class="tooltip__label" style="margin-top:8px;margin-bottom:8px">FQID ссылки (' + refs.length + '):</div>';
-    refs.forEach(function(ref) {
-      html += '<div class="tooltip__ref">';
-      html += '<div class="tooltip__fqid js-goto-domain" '
-        + 'data-domain="' + escapeHtml(ref.targetDomainId || '') + '" '
-        + 'style="cursor:pointer">'
-        + escapeHtml(ref.fullFQID)
-        + '</div>';
-      html += '<div class="tooltip__path">' + escapeHtml(ref.propertyPath) + '</div>';
-      html += '<button class="tooltip__btn js-open-file" data-file="' + escapeHtml(ref.filePath || '') + '" data-fqid="' + escapeHtml(ref.fullFQID || '') + '">📂 Открыть</button>';
-      html += '</div>';
-    });
-  }
-
-  html += '</div>';
-  return html;
-}
-
-function buildTooltipHtml(domainId, label, nodeType, filePath, version, entitiesCount, fqidRefs, onOpenFile) {
-  const typeLabel = nodeType === 'domain' ? 'Корректный домен'
-    : nodeType === 'missing' ? 'Несуществующий домен'
-    : 'Битый YAML';
-  const typeColor = nodeType === 'domain' ? '#10b981'
-    : nodeType === 'missing' ? '#f59e0b' : '#ef4444';
-
-  let html = '<div class="tooltip__header" style="color:' + typeColor + '">' + escapeHtml(typeLabel) + '</div>';
-  html += '<div class="tooltip__body">';
-  html += '<div class="tooltip__row"><span class="tooltip__label">ID:</span><span class="tooltip__value">' + escapeHtml(domainId) + '</span></div>';
-  if (label && label !== domainId) {
-    html += '<div class="tooltip__row"><span class="tooltip__label">Название:</span><span class="tooltip__value">' + escapeHtml(label) + '</span></div>';
-  }
-  if (version) {
-    html += '<div class="tooltip__row"><span class="tooltip__label">Версия:</span><span class="tooltip__value">' + escapeHtml(version) + '</span></div>';
-  }
-  if (entitiesCount !== undefined && entitiesCount !== null) {
-    html += '<div class="tooltip__row"><span class="tooltip__label">Entities:</span><span class="tooltip__value">' + entitiesCount + '</span></div>';
-  }
-  if (filePath) {
-    html += '<div class="tooltip__row"><span class="tooltip__label">Файл:</span><span class="tooltip__value" style="font-size:11px">' + escapeHtml(filePath) + '</span></div>';
-    html += '<div style="margin-top:10px"><button class="tooltip__btn js-open-file" data-file="' + escapeHtml(filePath) + '">📂 Открыть файл</button></div>';
-  }
-
-  if (fqidRefs && fqidRefs.length > 0) {
-    html += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">';
-    html += '<div class="tooltip__label" style="margin-bottom:8px">FQID ссылки (' + fqidRefs.length + '):</div>';
-    fqidRefs.forEach(function(ref) {
-      html += '<div class="tooltip__ref">';
-      html += '<div class="tooltip__fqid js-goto-domain" '
-        + 'data-domain="' + escapeHtml(ref.targetDomainId || '') + '" '
-        + 'style="cursor:pointer">'
-        + escapeHtml(ref.fullFQID)
-        + '</div>';
-      html += '<div class="tooltip__path">' + escapeHtml(ref.propertyPath) + '</div>';
-      html += '<button class="tooltip__btn js-open-file" data-file="' + escapeHtml(ref.filePath || '') + '" data-fqid="' + escapeHtml(ref.fullFQID || '') + '">📂 Открыть</button>';
-      html += '</div>';
-    });
-    html += '</div>';
-  }
-  html += '</div>';
-  return html;
-}
-
-// --- Mount ---
-const root = createRoot(document.getElementById('root'));
-root.render(<App />);
-</script>
+<script type="module">${code}</script>
 </body>
 </html>`;
   }
