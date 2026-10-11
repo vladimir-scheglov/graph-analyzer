@@ -1,0 +1,12 @@
+{
+  "name": "domain-graph-analyzer",
+  "version": "1.0.0",
+  "description": "Analyze inter-domain relationships from .ro YAML files",
+  "main": "graph-analyzer.js",
+  "scripts": {
+    "start": "node graph-analyzer.js"
+  },
+  "dependencies": {
+    "js-yaml": "^4.3.2"
+  }
+}
