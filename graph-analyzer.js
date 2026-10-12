@@ -859,6 +859,16 @@ class DomainGraphAnalyzer {
       if (req.url === '/') {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(this.generateHTML(graphData, refreshCommand));
+      } else if (req.url === '/user-guide') {
+        try {
+          const guidePath = path.join(__dirname, 'USER_GUIDE.md');
+          const content = fs.readFileSync(guidePath, 'utf8');
+          res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8' });
+          res.end(content);
+        } catch (e) {
+          res.writeHead(404);
+          res.end('# Справка недоступна\n\nФайл `USER_GUIDE.md` не найден рядом с `graph-analyzer.js`.');
+        }
       } else if (req.url.startsWith('/file')) {
         this.handleFileRequest(req, res);
       } else {
@@ -942,6 +952,12 @@ class DomainGraphAnalyzer {
   --graph-bg: #f8fafc;
   --graph-dots: #cbd5e1;
 }
+[data-theme="light"] .help-modal { background: #ffffff; }
+[data-theme="light"] .help-modal__header { background: #f8fafc; }
+[data-theme="light"] .help-content code { background: #f1f5f9; color: #4338ca; }
+[data-theme="light"] .help-content pre { background: #f8fafc; }
+[data-theme="light"] .help-content th { background: #f8fafc; }
+[data-theme="light"] .help-content tr:nth-child(even) td { background: #f8fafc; }
 [data-theme="light"] body {
   background: #f1f5f9;
 }
@@ -1443,6 +1459,194 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Robo
   font-size: 13px;
 }
 .toast__close:hover { background: var(--bg-700); color: var(--text-200); }
+.help-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 14, 26, 0.75);
+  backdrop-filter: blur(6px);
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  animation: searchFadeIn 0.2s ease;
+}
+.help-modal {
+  width: 900px;
+  max-width: 90vw;
+  max-height: 85vh;
+  background: var(--bg-850);
+  border: 1px solid var(--border-hover);
+  border-radius: 14px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: searchSlideDown 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.help-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-800);
+}
+.help-modal__title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-100);
+  letter-spacing: -0.3px;
+}
+.help-modal__close {
+  background: transparent;
+  border: none;
+  color: var(--text-400);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 6px;
+  transition: all 0.15s;
+}
+.help-modal__close:hover {
+  background: var(--bg-700);
+  color: var(--text-100);
+}
+.help-modal__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px 32px;
+  scroll-behavior: smooth;
+}
+.help-modal__body::-webkit-scrollbar { width: 8px; }
+.help-modal__body::-webkit-scrollbar-thumb { background: var(--bg-600); border-radius: 4px; }
+.help-modal__loading {
+  text-align: center;
+  color: var(--text-500);
+  padding: 60px;
+}
+
+/* Markdown content */
+.help-content {
+  color: var(--text-200);
+  font-size: 14px;
+  line-height: 1.65;
+  max-width: 100%;
+}
+.help-content h1 {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text-100);
+  margin: 0 0 16px 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.help-content h2 {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-100);
+  margin: 32px 0 12px 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.help-content h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-100);
+  margin: 24px 0 10px 0;
+}
+.help-content h4 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent-hover);
+  margin: 20px 0 8px 0;
+}
+.help-content p { margin: 10px 0; }
+.help-content strong { color: var(--text-100); font-weight: 600; }
+.help-content em { color: var(--text-300); }
+
+.help-content a {
+  color: var(--accent-hover);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.15s;
+}
+.help-content a:hover { border-bottom-color: var(--accent-hover); }
+
+.help-content ul,
+.help-content ol {
+  margin: 10px 0;
+  padding-left: 24px;
+}
+.help-content li { margin: 5px 0; }
+
+.help-content code {
+  font-family: 'JetBrains Mono', 'SF Mono', monospace;
+  font-size: 12.5px;
+  padding: 2px 6px;
+  background: var(--bg-700);
+  border-radius: 4px;
+  color: var(--accent-hover);
+  word-break: break-word;
+}
+
+.help-content pre {
+  background: var(--bg-800);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  overflow-x: auto;
+  margin: 14px 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.help-content pre::-webkit-scrollbar { height: 8px; }
+.help-content pre::-webkit-scrollbar-thumb { background: var(--bg-600); border-radius: 4px; }
+.help-content pre code {
+  background: transparent;
+  padding: 0;
+  color: var(--text-200);
+  font-size: inherit;
+}
+
+.help-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 14px 0;
+  font-size: 13px;
+}
+.help-content th,
+.help-content td {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.help-content th {
+  background: var(--bg-800);
+  font-weight: 600;
+  color: var(--text-100);
+}
+.help-content tr:nth-child(even) td {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.help-content blockquote {
+  margin: 14px 0;
+  padding: 8px 16px;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--text-300);
+  border-radius: 0 6px 6px 0;
+}
+.help-content blockquote p { margin: 4px 0; }
+
+.help-content hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 24px 0;
+}
 </style>
 </head>
 <body>
@@ -3008,6 +3212,61 @@ function RulesMenu(props) {
   );
 }
 
+function HelpModal(props) {
+  var open = props.open;
+  var onClose = props.onClose;
+  var [content, setContent] = useState('');
+  var [loading, setLoading] = useState(false);
+  var bodyRef = useRef(null);
+
+  useEffect(function() {
+    if (!open || content) return;
+    setLoading(true);
+    Promise.all([
+      fetch('/user-guide').then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.text();
+      }),
+      import('https://esm.sh/marked@12.0.2')
+    ])
+      .then(function(results) {
+        var md = results[0];
+        var markedMod = results[1];
+        var parse = markedMod.marked ? markedMod.marked.parse : (markedMod.parse || null);
+        if (!parse) throw new Error('marked.parse не найден');
+        var html = parse(md);
+        setContent(html);
+        setLoading(false);
+      })
+      .catch(function(err) {
+        setContent('<p style="color:var(--danger)">Ошибка загрузки справки: ' + err.message + '</p>');
+        setLoading(false);
+      });
+  }, [open, content]);
+
+  useEffect(function() {
+    if (!open) return;
+    var onEsc = function(e) { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onEsc, true);
+    return function() { document.removeEventListener('keydown', onEsc, true); };
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return React.createElement('div', { className: 'help-overlay', onMouseDown: onClose },
+    React.createElement('div', { className: 'help-modal', onMouseDown: function(e) { e.stopPropagation(); } },
+      React.createElement('div', { className: 'help-modal__header' },
+        React.createElement('div', { className: 'help-modal__title' }, '📖 Руководство пользователя'),
+        React.createElement('button', { className: 'help-modal__close', onClick: onClose, title: 'Закрыть (Esc)' }, '✕')
+      ),
+      React.createElement('div', { className: 'help-modal__body', ref: bodyRef },
+        loading ? React.createElement('div', { className: 'help-modal__loading' }, 'Загрузка...') :
+        React.createElement('div', { className: 'help-content', dangerouslySetInnerHTML: { __html: content } })
+      )
+    )
+  );
+}
+
 // ============ APP ============
 function App() {
   // Theme
@@ -3080,6 +3339,7 @@ function App() {
   
   var [showViolationsOnly, setShowViolationsOnly] = useState(false);
   var [rulesHighlighted, setRulesHighlighted] = useState(true);
+  var [helpOpen, setHelpOpen] = useState(false);
   
   useEffect(function() {
     try {
@@ -3864,6 +4124,11 @@ function App() {
       else if ((e.key === 'b' || e.key === 'B') && selectedNodeId) { toggleBookmark(selectedNodeId); }
       else if (e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); navBack(); return; }
       else if (e.altKey && e.key === 'ArrowRight') { e.preventDefault(); navForward(); return; }
+      else if ((e.key === '?' || e.key === 'F1') && !e.target.matches('input, textarea')) {
+        e.preventDefault();
+        setHelpOpen(true);
+        return;
+      }
     };
     window.addEventListener('keydown', handler, true);
     return function() { window.removeEventListener('keydown', handler, true); };
@@ -4179,6 +4444,11 @@ function App() {
             close: close
           });
         }),
+        React.createElement('button', {
+          className: 'btn btn--icon',
+          onClick: function() { setHelpOpen(true); },
+          title: 'Руководство пользователя'
+        }, '📖'),
         pathSel.length > 0 && React.createElement('button', {
           className: 'btn btn--active',
           onClick: handleRunPath,
@@ -4288,6 +4558,10 @@ function App() {
       results: searchResults, index: searchIndex, setIndex: setSearchIndex,
       onSelect: function(domainId) { gotoDomainByDomainId(domainId); closeSearch(); },
       onClose: closeSearch, inputRef: searchInputRef
+    }),
+    React.createElement(HelpModal, {
+      open: helpOpen,
+      onClose: function() { setHelpOpen(false); }
     }),
     React.createElement(ContextMenu, { menu: contextMenu, onClose: function() { setContextMenu(null); }, onAction: handleContextAction }),
     toastVisible && REMOTE_INFO && REMOTE_INFO.fromCache && React.createElement(Toast, {
