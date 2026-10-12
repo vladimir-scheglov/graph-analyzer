@@ -1402,7 +1402,6 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Robo
 .rf-node__content { flex: 1; min-width: 0; }
 .rf-node__id { font-size: 12px; font-weight: 600; color: var(--text-100); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rf-node__name { font-size: 10px; color: var(--text-500); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
-.rf-node__health { position: absolute; top: 4px; right: 6px; font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 4px; }
 .rf-handle { width: 6px !important; height: 6px !important; background: var(--bg-600) !important; border: 1.5px solid var(--bg-850) !important; }
 /* Compact node */
 .rf-compact { width: 100%; height: 100%; border-radius: 50%; border: 2px solid; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; transition: all 0.15s; cursor: pointer; }
@@ -2377,6 +2376,219 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Robo
   background: var(--accent-soft);
   color: var(--accent-hover);
 }
+.graph-container.hide-labels .react-flow__edge-text,
+.graph-container.hide-labels .react-flow__edge-textbg {
+  opacity: 0 !important;
+  transition: opacity 0.2s;
+}
+/* Performance mode — упрощаем визуал при большом числе рёбер */
+
+.graph-container.perf-mode .rf-node {
+  box-shadow: none !important;
+  transition: none !important;
+  border-width: 1px !important;
+}
+.graph-container.perf-mode .rf-node:hover {
+  transform: none !important;
+  box-shadow: none !important;
+}
+.graph-container.perf-mode .rf-node__icon {
+  display: none;
+}
+.graph-container.perf-mode .rf-node__name {
+  display: none;
+}
+.graph-container.perf-mode .rf-node {
+  box-shadow: none !important;
+  transition: none !important;
+}
+.graph-container.perf-mode .rf-node__id {
+  font-size: 11px;
+}
+
+.graph-container.perf-mode .react-flow__edge-path {
+  stroke-width: 1 !important;
+}
+
+.graph-container.perf-mode .rf-handle {
+  width: 4px !important;
+  height: 4px !important;
+}
+
+.graph-container.perf-mode .react-flow__edge:hover .react-flow__edge-path {
+  stroke-width: 1.5 !important;
+}
+/* Строка с ID + health */
+.rf-node__id-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  width: 100%;
+}
+
+.rf-node__id {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* Невалидный домен — красное волнистое подчёркивание */
+.rf-node__id--invalid {
+  color: #fca5a5;
+  padding-bottom: 3px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='40' height='4'><path d='M0 3 Q 5 0, 10 3 T 20 3 T 30 3 T 40 3' stroke='%23ef4444' stroke-width='1.4' fill='none'/></svg>");
+  background-repeat: repeat-x;
+  background-position: 0 100%;
+  background-size: 20px 4px;
+}
+[data-theme="light"] .rf-node__id--invalid {
+  color: #b91c1c;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='40' height='4'><path d='M0 3 Q 5 0, 10 3 T 20 3 T 30 3 T 40 3' stroke='%23dc2626' stroke-width='1.4' fill='none'/></svg>");
+}
+
+/* Health score как тег */
+.rf-node__health {
+  flex-shrink: 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 6px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.rf-node__health--good {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+.rf-node__health--mid {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+}
+.rf-node__health--bad {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+[data-theme="light"] .rf-node__health--good { background: rgba(5, 150, 105, 0.12); color: #047857; }
+[data-theme="light"] .rf-node__health--mid { background: rgba(217, 119, 6, 0.12); color: #b45309; }
+[data-theme="light"] .rf-node__health--bad { background: rgba(185, 28, 28, 0.12); color: #b91c1c; }
+.tooltip__validation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tooltip__validation-item {
+  padding: 8px 10px;
+  background: var(--bg-750);
+  border-radius: 6px;
+  border-left: 2px solid var(--border);
+  font-size: 12px;
+}
+
+.tooltip__validation-severity {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+.tooltip__validation-severity--error { color: var(--danger); }
+.tooltip__validation-severity--warning { color: var(--warning); }
+.tooltip__validation-severity--info { color: var(--accent-hover); }
+
+.tooltip__validation-message {
+  color: var(--text-200);
+  line-height: 1.4;
+}
+
+.tooltip__validation-label {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-500);
+  font-family: 'JetBrains Mono', monospace;
+}
+.tooltip__validation-span {
+  color: var(--accent-hover);
+}
+.rf-node__issues {
+  flex-shrink: 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  line-height: 1.5;
+}
+[data-theme="light"] .rf-node__issues {
+  background: rgba(185, 28, 28, 0.12);
+  color: #b91c1c;
+}
+.tooltip__validation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 4px;
+  margin-right: -4px;
+  margin-top: 8px;
+}
+.tooltip__validation-list::-webkit-scrollbar { width: 6px; }
+.tooltip__validation-list::-webkit-scrollbar-thumb {
+  background: var(--bg-600);
+  border-radius: 3px;
+}
+
+.tooltip__validation-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 4px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+  text-align: left;
+}
+.tooltip__validation-toggle:hover {
+  background: var(--bg-750);
+}
+.tooltip__validation-arrow {
+  font-size: 11px;
+  color: var(--text-500);
+  width: 12px;
+  display: inline-block;
+  transition: transform 0.15s;
+}
+.tooltip__validation-title {
+  flex: 1;
+  font-weight: 600;
+}
+.tooltip__validation-count {
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--danger);
+  font-size: 10px;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+}
+[data-theme="light"] .tooltip__validation-count {
+  background: rgba(185, 28, 28, 0.12);
+  color: #b91c1c;
+}
 </style>
 </head>
 <body>
@@ -2416,7 +2628,7 @@ function dagreLayout(nodes, edges, rankdir) {
   rankdir = rankdir || 'LR';
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(function() { return {}; });
-  g.setGraph({ rankdir: rankdir, nodesep: 30, ranksep: 100, edgesep: 20, marginx: 40, marginy: 40 });
+  g.setGraph({ rankdir: rankdir, nodesep: 20, ranksep: 60, edgesep: 10, marginx: 20, marginy: 20 });
   nodes.forEach(function(n) {
     var isCompact = n.data && n.data.__compact;
     g.setNode(n.id, {
@@ -3096,7 +3308,7 @@ function mergeBidirectional(edges) {
 }
 
 // ============ TOOLTIP BUILDERS ============
-function buildTooltipHtml(domainId, label, nodeType, filePath, version, entitiesCount, fqidRefs, health, description, tags) {
+function buildTooltipHtml(domainId, label, nodeType, filePath, version, entitiesCount, fqidRefs, health, description, tags, validation) {
   var typeLabel = nodeType === 'domain' ? 'Корректный домен' : nodeType === 'missing' ? 'Несуществующий домен' : 'Битый YAML';
   var typeColor = nodeType === 'domain' ? '#10b981' : nodeType === 'missing' ? '#f59e0b' : '#ef4444';
   var html = '<div class="tooltip__header" style="color:' + typeColor + '">' + escapeHtml(typeLabel) + '</div>';
@@ -3111,6 +3323,45 @@ function buildTooltipHtml(domainId, label, nodeType, filePath, version, entities
   if (filePath) {
     html += '<div class="tooltip__row"><span class="tooltip__label">Файл:</span><span class="tooltip__value" style="font-size:11px">' + escapeHtml(filePath) + '</span></div>';
     html += '<div style="margin-top:10px"><button class="tooltip__btn js-open-file" data-file="' + escapeHtml(filePath) + '">📂 Открыть файл</button></div>';
+  }
+  // --- Валидация ---
+  if (validation) {
+    html += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">';
+  
+    if (validation.status === 'invalid') {
+      var diagCount = validation.diagnostics ? validation.diagnostics.length : 0;
+      html += '<button class="tooltip__validation-toggle js-toggle-validation" type="button">'
+        + '<span class="tooltip__validation-arrow">▸</span>'
+        + '<span class="tooltip__validation-title" style="color:var(--danger)">❌ Невалиден</span>'
+        + '<span class="tooltip__validation-count">' + diagCount + '</span>'
+        + '</button>';
+  
+      if (diagCount > 0) {
+        html += '<div class="tooltip__validation-list" style="display:none">';
+        validation.diagnostics.forEach(function(d, i) {
+          var sev = (d.severity || '').toString().toUpperCase();
+          var sevClass = sev === 'ERROR' ? 'error' : sev === 'WARNING' ? 'warning' : 'info';
+          html += '<div class="tooltip__validation-item">';
+          html += '<div class="tooltip__validation-severity tooltip__validation-severity--' + sevClass + '">' + escapeHtml(sev) + '</div>';
+          html += '<div class="tooltip__validation-message">' + escapeHtml(d.message || '') + '</div>';
+          if (d.labels && d.labels.length > 0) {
+            d.labels.forEach(function(lb) {
+              html += '<div class="tooltip__validation-label">'
+                + escapeHtml(lb.message || '')
+                + (lb.span ? '<span class="tooltip__validation-span"> [' + lb.span.start + '–' + lb.span.end + ']</span>' : '')
+                + '</div>';
+            });
+          }
+          html += '</div>';
+        });
+        html += '</div>';
+      }
+    } else if (validation.status === 'error') {
+      html += '<div class="tooltip__label" style="margin-bottom:6px;color:var(--warning)">⚠️ Ошибка валидации</div>';
+      html += '<div class="tooltip__validation-message">' + escapeHtml(validation.error || '') + '</div>';
+    }
+  
+    html += '</div>';
   }
   if (fqidRefs && fqidRefs.length > 0) {
     html += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">';
@@ -3176,54 +3427,62 @@ function buildEdgeTooltipHtml(edge, refs) {
 function DomainNode(props) {
   var data = props.data;
   var selected = props.selected;
+
   if (data.__compact) {
     var compactCls = 'rf-compact rf-compact--' + data.nodeType + (selected ? ' rf-compact--selected' : '');
     var initial = (data.domainId || '?').charAt(0).toUpperCase();
-    var compactStyle = data.__heatColor ? { background: data.__heatColor, borderColor: data.__heatColor, color: '#ffffff' } : {};
     return React.createElement(React.Fragment, null,
       React.createElement(Handle, { type: 'target', position: Position.Left, className: 'rf-handle' }),
-      React.createElement('div', { className: compactCls, style: compactStyle, title: data.domainId }, initial),
+      React.createElement('div', { className: compactCls, title: data.domainId }, initial),
       React.createElement(Handle, { type: 'source', position: Position.Right, className: 'rf-handle' })
     );
   }
+
   var cls = 'rf-node rf-node--' + data.nodeType;
   if (selected) cls += ' rf-node--selected';
   if (data.dimmed) cls += ' rf-node--dimmed';
   if (data.__inPath) cls += ' rf-node--path';
   if (data.__isPathEndpoint) cls += ' rf-node--path-endpoint';
   var icon = data.nodeType === 'domain' ? '●' : data.nodeType === 'missing' ? '▲' : '✕';
+
+  // Health — теперь это тег справа от ID, а не абсолютно позиционированный бейдж
   var healthBadge = null;
   if (data.health != null && data.nodeType === 'domain') {
-    var hc = data.health >= 80 ? 'health-good' : data.health >= 50 ? 'health-mid' : 'health-bad';
-    healthBadge = React.createElement('span', { className: 'details__badge details__badge--' + hc, style: { position: 'absolute', top: 4, right: 6, fontSize: 9, padding: '1px 5px' } }, data.health);
+    var hc = data.health >= 80 ? 'good' : data.health >= 50 ? 'mid' : 'bad';
+    healthBadge = React.createElement('span', {
+      className: 'rf-node__health rf-node__health--' + hc,
+      title: 'Health score: ' + data.health + '/100'
+    }, data.health);
   }
-  var nodeStyle = {};
-  if (data.__heatColor) {
-    nodeStyle.background = data.__heatColor;
-    nodeStyle.borderColor = data.__heatColor;
-    nodeStyle.color = '#ffffff';
+  
+  var validationBadge = null;
+  if (data.__validationStatus === 'invalid' && data.__validationCount > 0) {
+    validationBadge = React.createElement('span', {
+      className: 'rf-node__issues',
+      title: 'Валидация: ' + data.__validationCount + ' проблем',
+    }, '⚠' + data.__validationCount);
   }
+
   return React.createElement(React.Fragment, null,
     React.createElement(Handle, { type: 'target', position: Position.Left, className: 'rf-handle' }),
-    React.createElement('div', { className: cls, style: nodeStyle },
+    React.createElement('div', { className: cls },
       React.createElement('div', { className: 'rf-node__icon' }, icon),
       React.createElement('div', { className: 'rf-node__content' },
-        React.createElement('div', { className: 'rf-node__id', title: data.domainId }, data.domainId),
-        data.label && data.label !== data.domainId && React.createElement('div', { className: 'rf-node__name', title: data.label }, data.label)
-      ),
-      healthBadge
+        React.createElement('div', { className: 'rf-node__id-row' },
+          React.createElement('span', {
+            className: 'rf-node__id' + (data.__invalid ? ' rf-node__id--invalid' : ''),
+            title: data.domainId + (data.__invalid ? ' — невалиден' : '')
+          }, data.domainId),
+          healthBadge,
+          validationBadge
+        ),
+        data.label && data.label !== data.domainId && React.createElement('div', {
+          className: 'rf-node__name',
+          title: data.label
+        }, data.label)
+      )
     ),
-    React.createElement(Handle, { type: 'source', position: Position.Right, className: 'rf-handle' }),
-    data.__bookmarked && React.createElement('span', {
-      style: { position: 'absolute', top: 4, left: 8, fontSize: 12, color: '#fbbf24' }
-    }, '★'),
-    data.__topoLevel != null && React.createElement('span', {
-      className: 'topo-badge',
-      title: 'Уровень установки: ' + data.__topoLevel
-    }, 'L' + data.__topoLevel),
-    data.__invalid && React.createElement('span', {
-      style: { position: 'absolute', top: 4, left: 8, fontSize: 12, color: '#fbbf24' }
-    }, '❌'),
+    React.createElement(Handle, { type: 'source', position: Position.Right, className: 'rf-handle' })
   );
 }
 
@@ -4103,6 +4362,31 @@ function HoverTooltip(props) {
 var ReactFlowInner = React.memo(function(props) {
   var rf = useReactFlow();
   useEffect(function() { props.setRfInstance(rf); }, [rf]);
+  var zoomClass = useStore(function(s) {
+  return s.transform[2] < 0.5 ? 'hide' : 'show';
+});
+
+useEffect(function() {
+  var el = document.querySelector('.graph-container');
+  if (!el) return;
+  el.classList.toggle('hide-labels', zoomClass === 'hide');
+}, [zoomClass]);
+
+useEffect(function() {
+  var el = document.querySelector('.graph-container');
+  if (!el) return;
+  el.classList.toggle('perf-mode', !!props.perfMode);
+}, [props.perfMode]);
+var defaultEdgeOptions = useMemo(function() {
+  return {
+    type: props.perfMode ? 'default' : 'smoothstep',
+    animated: false,
+    labelStyle: { fill: '#e2e8f0', fontSize: 10, fontWeight: 500 },
+    labelBgStyle: { fill: '#0d1424', fillOpacity: 0.95 },
+    labelBgPadding: [4, 2],
+    labelBgBorderRadius: 4
+  };
+}, [props.perfMode]);
   return React.createElement(ReactFlow, {
     nodes: props.nodes,
     edges: props.edges,
@@ -4128,7 +4412,7 @@ var ReactFlowInner = React.memo(function(props) {
     nodesConnectable: false,
     elementsSelectable: true,
     onlyRenderVisibleElements: true,
-    defaultEdgeOptions: { type: 'smoothstep' }
+    defaultEdgeOptions: defaultEdgeOptions
   },
     React.createElement(Background, { variant: BackgroundVariant.Dots, gap: 20, size: 1, color: 'var(--graph-dots)' }),
     React.createElement(Controls, { position: 'bottom-left' }),
@@ -5205,6 +5489,10 @@ function App() {
   });
   var [onlyInvalid, setOnlyInvalid] = useState(false);
   
+  useEffect(function() {
+    tooltipCache.current.clear();
+  }, [nodes, validationResults]);
+  
   
   useEffect(function() {
     fetch('/api/validation-results').then(function(r) {
@@ -5472,27 +5760,23 @@ function App() {
 
   var visibleNodes = useMemo(function() {
     var pathEndpoints = pathResult ? new Set([pathResult.nodes[0], pathResult.nodes[pathResult.nodes.length - 1]]) : null;
+    var hasChanges = highlight || compact || topoLevelMap || (validationResults && validationResults.size > 0) ||
+      (bookmarks && bookmarks.size > 0) || (hiddenNodeIds && hiddenNodeIds.size > 0) || diffMode || selectedNodeId;
+  
+    // Быстрый путь: без активных режимов возвращаем filteredNodes как есть
+    if (!hasChanges) return filteredNodes;
+  
     return filteredNodes.map(function(n) {
       var dimmed = highlight ? !highlight.nodes.has(n.id) : false;
       var inPath = highlight && highlight.type === 'path' && highlight.nodes.has(n.id);
       var isPathEndpoint = pathEndpoints && pathEndpoints.has(n.id);
       var isAdded = diffMode && diffMode.addedNodes && diffMode.addedNodes.has(n.id);
       var health = healthMap.get(n.id);
-      var hm = null;
-      if (heatmapValues) {
-        var val = heatmapValues.map.get(n.id) || 0;
-        var scheme = heatmapValues.scheme;
-        hm = heatColor(val, heatmapValues.min, heatmapValues.max, scheme);
-      }
+      var topoLvl = topoLevelMap ? topoLevelMap.get(n.data.domainId) : null;
       var validation = validationResults ? validationResults.get(n.data.domainId) : null;
       var isInvalid = validation && validation.status === 'invalid';
-      var extraStyle = {};
-      if (isInvalid) {
-        extraStyle.outline = '2px solid #ef4444';
-        extraStyle.outlineOffset = '2px';
-        extraStyle.borderRadius = '12px';
-      }
-      var topoLvl = topoLevelMap ? topoLevelMap.get(n.data.domainId) : null;
+      var isBookmarked = bookmarks ? bookmarks.has(n.id) : false;
+  
       return Object.assign({}, n, {
         style: { opacity: dimmed ? 0.12 : 1, transition: 'opacity 0.2s' },
         data: Object.assign({}, n.data, {
@@ -5501,17 +5785,24 @@ function App() {
           __compact: compact,
           __inPath: inPath,
           __isPathEndpoint: isPathEndpoint,
-          __heatColor: hm,
-          __bookmarked: bookmarks.has(n.id),
+          __topoLevel: topoLvl,
           __invalid: isInvalid,
-          __topoLevel: topoLvl
+          __bookmarked: isBookmarked,
+          __validationStatus: validation ? validation.status : null,
+          __validationCount: validation && validation.diagnostics ? validation.diagnostics.length : 0,
         }),
         selected: n.id === selectedNodeId
       });
     });
-  }, [filteredNodes, highlight, compact, pathResult, diffMode, healthMap, selectedNodeId, heatmapValues, bookmarks, validationResults, topoLevelMap]);
+  }, [filteredNodes, highlight, compact, pathResult, diffMode, healthMap, selectedNodeId, topoLevelMap, validationResults, bookmarks, hiddenNodeIds]);
 
  var visibleEdges = useMemo(function() {
+  var hasHighlight = highlight || diffMode || selectedEdgeId ||
+    (rulesHighlighted && violationsByEdge && violationsByEdge.size > 0);
+
+  // Быстрый путь: если нет активных подсветок — возвращаем исходный массив
+  if (!hasHighlight) return filteredEdges;
+
   return filteredEdges.map(function(e) {
     var isSelected = e.id === selectedEdgeId;
     var hl = highlight && highlight.edges.has(e.id);
@@ -5523,20 +5814,17 @@ function App() {
     var strokeWidth = (e.style && e.style.strokeWidth) || 1.5;
     var animated = false;
 
-    // 1) Подсветка выделения / фокуса / пути / циклов
     if (highlight) {
       opacity = hl ? 1 : 0.06;
       strokeWidth = hl ? ((e.data && e.data.kind === 'linkage') ? 3 : 2) : strokeWidth;
       animated = hl && highlight.type === 'path';
     }
 
-    // 2) Diff
     if (diffMode) {
       if (diffMode.addedEdges && diffMode.addedEdges.has(e.id)) { stroke = DIFF_ADDED; opacity = 1; strokeWidth = 3; animated = true; }
       else if (diffMode.removedEdges && diffMode.removedEdges.has(e.id)) { stroke = DIFF_REMOVED; opacity = 1; strokeWidth = 3; }
     }
 
-    // 3) Правила (имеют приоритет над остальным, кроме selected)
     if (rulesHighlighted && violationsByEdge && violationsByEdge.has(e.id)) {
       var v = violationsByEdge.get(e.id);
       var hasForbid = v.some(function(x) { return x.severity === 'forbid'; });
@@ -5546,7 +5834,6 @@ function App() {
       animated = true;
     }
 
-    // 4) Выбранное ребро — жёлтый поверх всего
     if (isSelected) {
       stroke = '#fbbf24';
       opacity = 1;
@@ -5566,6 +5853,23 @@ function App() {
     });
   });
 }, [filteredEdges, highlight, diffMode, rulesHighlighted, violationsByEdge, selectedEdgeId]);
+ 
+ var perfMode = useMemo(function() {
+  return filteredEdges.length > 250;
+}, [filteredEdges.length]);
+
+var displayEdges = useMemo(function() {
+  // В performance mode или при отключённых подписях — не передаём label,
+  // чтобы ReactFlow не создавал <text>/<textbg> элементы
+  var hideLabels = perfMode || !showEdgeLabels;
+  if (!hideLabels) return visibleEdges;
+  return visibleEdges.map(function(e) {
+    if (!e.label) return e;
+    var copy = Object.assign({}, e);
+    delete copy.label;
+    return copy;
+  });
+}, [visibleEdges, perfMode, showEdgeLabels]);
  
  var allDomainsList = useMemo(function() {
   return nodes.filter(function(n) { return n.data.nodeType === 'domain'; })
@@ -5976,23 +6280,28 @@ var bookmarkedDomainsList = useMemo(function() {
   }, [tooltip]);
 
   var handleNodeMouseEnter = useCallback(function(event, node) {
-    if (!tooltipsEnabled) return;
-    if (pathSel.length > 0 || pathMode) return;
-    clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(function() {
-      var key = node.id;
-      var html = tooltipCache.current.get(key);
-      if (!html) {
-        html = buildTooltipHtml(
-          node.data.domainId, node.data.label, node.data.nodeType, node.data.filePath,
-          node.data.version, node.data.entitiesCount, node.data.fqidRefs,
-          healthMap.get(node.id), node.data.description, node.data.tags
-        );
-        tooltipCache.current.set(key, html);
-      }
-      showTooltipFor(html, event);
-    }, 120);
-  }, [showTooltipFor, healthMap, pathSel.length, pathMode, tooltipsEnabled]);
+  if (!tooltipsEnabled) return;
+  if (pathSel.length > 0 || pathMode) return;
+  var curZoom = rfInstance.current ? rfInstance.current.getZoom() : 1;
+  if (curZoom < 0.5) return;
+
+  clearTimeout(hideTimer.current);
+  hideTimer.current = setTimeout(function() {
+    var key = node.id;
+    var html = tooltipCache.current.get(key);
+    if (!html) {
+      var validation = validationResults ? validationResults.get(node.data.domainId) : null;
+      html = buildTooltipHtml(
+        node.data.domainId, node.data.label, node.data.nodeType, node.data.filePath,
+        node.data.version, node.data.entitiesCount, node.data.fqidRefs,
+        healthMap.get(node.id), node.data.description, node.data.tags,
+        validation                              
+      );
+      tooltipCache.current.set(key, html);
+    }
+    showTooltipFor(html, event);
+  }, 120);
+}, [showTooltipFor, healthMap, pathSel.length, pathMode, tooltipsEnabled, validationResults]);
   
   var handleEdgeMouseEnter = useCallback(function(event, edge) {
     if (!tooltipsEnabled) return;
@@ -6007,6 +6316,19 @@ var bookmarkedDomainsList = useMemo(function() {
   // ---- Global click delegation (tooltip buttons, goto-domain) ----
   useEffect(function() {
     var handler = function(e) {
+      var toggleBtn = e.target.closest('.js-toggle-validation');
+      if (toggleBtn) {
+        e.stopPropagation();
+        e.preventDefault();
+        var list = toggleBtn.nextElementSibling;
+        if (list && list.classList.contains('tooltip__validation-list')) {
+          var isOpen = list.style.display !== 'none';
+          list.style.display = isOpen ? 'none' : 'block';
+          var arrow = toggleBtn.querySelector('.tooltip__validation-arrow');
+          if (arrow) arrow.textContent = isOpen ? '▸' : '▾';
+        }
+        return;
+      }
       var openBtn = e.target.closest('.js-open-file');
       if (openBtn) {
         e.stopPropagation(); e.preventDefault();
@@ -6569,7 +6891,7 @@ var bookmarkedDomainsList = useMemo(function() {
         React.createElement(ReactFlowProvider, null,
           React.createElement(ReactFlowInner, {
             nodes: visibleNodes,
-            edges: visibleEdges,
+            edges: displayEdges,
             onNodesChange: onNodesChange,
             onEdgesChange: onEdgesChange,
             onEdgeClick: handleEdgeClick,
@@ -6583,7 +6905,8 @@ var bookmarkedDomainsList = useMemo(function() {
             onPaneClick: handlePaneClick,
             onPaneContextMenu: handlePaneContextMenu,
             setRfInstance: function(rf) { rfInstance.current = rf; },
-            readOnly: nsMode
+            readOnly: nsMode,
+            perfMode: perfMode,
           }),
           showGroups && React.createElement(GroupsOverlay, { nodes: visibleNodes, enabled: showGroups })
         ),
