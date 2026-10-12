@@ -2226,6 +2226,157 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Robo
 [data-theme="light"] .topo-cyclic__header--broken {
   color: #b45309;
 }
+.search-modal--palette { width: 680px; }
+
+.palette-section { margin-bottom: 8px; }
+.palette-section__title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-500);
+  padding: 8px 12px 4px;
+}
+
+.palette-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.1s;
+  font-size: 13px;
+  color: var(--text-200);
+}
+.palette-item:hover,
+.palette-item.active {
+  background: var(--bg-700);
+}
+.palette-item.active {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.palette-item__icon {
+  width: 22px;
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.palette-item__label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.palette-item--command .palette-item__label {
+  font-weight: 500;
+}
+.palette-item__content { flex: 1; min-width: 0; }
+.palette-item__hotkey {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  background: var(--bg-800);
+  border: 1px solid var(--border-hover);
+  border-radius: 4px;
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-400);
+  font-weight: 600;
+}
+.palette-item.active .palette-item__hotkey {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  border-color: var(--accent);
+}
+
+/* Hotkeys modal */
+.hotkeys-modal { width: 620px; }
+.hotkeys-body {
+  padding: 20px 32px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+.hotkeys-body::-webkit-scrollbar { width: 8px; }
+.hotkeys-body::-webkit-scrollbar-thumb { background: var(--bg-600); border-radius: 4px; }
+
+.hotkeys-group { margin-bottom: 24px; }
+.hotkeys-group__title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-500);
+  margin-bottom: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.hotkeys-group__items {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+.hotkey-row {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+  font-size: 13px;
+}
+.hotkey-row__keys {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.hotkey-key {
+  display: inline-block;
+  padding: 3px 8px;
+  background: var(--bg-700);
+  border: 1px solid var(--border-hover);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  font-family: 'JetBrains Mono', 'SF Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-100);
+  min-width: 24px;
+  text-align: center;
+}
+.hotkey-plus {
+  color: var(--text-500);
+  font-size: 10px;
+  font-weight: 700;
+}
+.hotkey-row__label {
+  color: var(--text-300);
+  font-size: 13px;
+}
+.hotkeys-footer {
+  padding: 12px 32px 20px;
+  font-size: 12px;
+  color: var(--text-500);
+  border-top: 1px solid var(--border);
+  text-align: center;
+  font-style: italic;
+  flex-shrink: 0;
+}
+
+[data-theme="light"] .hotkey-key {
+  background: #f8fafc;
+  color: #0f172a;
+}
+[data-theme="light"] .palette-item__hotkey {
+  background: #f8fafc;
+}
+[data-theme="light"] .palette-item.active .palette-item__hotkey {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+}
 </style>
 </head>
 <body>
@@ -3750,60 +3901,139 @@ function SearchModal(props) {
   var open = props.open;
   var query = props.query, setQuery = props.setQuery;
   var results = props.results, index = props.index, setIndex = props.setIndex;
+  var commands = props.commands || [];
   var onSelect = props.onSelect, onClose = props.onClose;
   var inputRef = props.inputRef;
+
+  var filteredCommands = useMemo(function() {
+    var q = query.trim().toLowerCase();
+    if (!q) return commands;
+    return commands.filter(function(c) {
+      var hay = (c.label + ' ' + (c.keywords || '') + ' ' + (c.section || '')).toLowerCase();
+      return hay.indexOf(q) !== -1;
+    });
+  }, [query, commands]);
+
+  // Единый индекс: сначала команды, потом домены
+  var totalItems = filteredCommands.length + results.length;
+  var safeIndex = Math.min(index, Math.max(totalItems - 1, 0));
+
+  // Сгруппировать команды по секциям для отображения
+  var commandsBySection = useMemo(function() {
+    var map = new Map();
+    filteredCommands.forEach(function(c) {
+      var s = c.section || 'Прочее';
+      if (!map.has(s)) map.set(s, []);
+      map.get(s).push(c);
+    });
+    return Array.from(map.entries());
+  }, [filteredCommands]);
+
   if (!open) return null;
+
   var onKey = function(e) {
     if (e.key === 'Escape') { e.preventDefault(); onClose(); }
-    else if (e.key === 'ArrowDown') { e.preventDefault(); setIndex(Math.min(index + 1, Math.max(results.length - 1, 0))); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); setIndex(Math.max(index - 1, 0)); }
-    else if (e.key === 'Enter') { e.preventDefault(); var t = results.length === 1 ? results[0] : results[index]; if (t) onSelect(t.node.data.domainId); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); setIndex(Math.min(safeIndex + 1, Math.max(totalItems - 1, 0))); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setIndex(Math.max(safeIndex - 1, 0)); }
+    else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (totalItems === 0) return;
+      if (safeIndex < filteredCommands.length) {
+        // Команда
+        var cmd = filteredCommands[safeIndex];
+        onClose();
+        setTimeout(function() { cmd.run(); }, 50);
+      } else {
+        // Домен
+        var domainItem = results[safeIndex - filteredCommands.length];
+        if (domainItem) onSelect(domainItem.node.data.domainId);
+      }
+    }
   };
+
+  var cmdIdx = 0;
+  var domainStartIdx = filteredCommands.length;
+
   return React.createElement('div', { className: 'search-overlay', onMouseDown: onClose },
-    React.createElement('div', { className: 'search-modal', onMouseDown: function(e) { e.stopPropagation(); } },
+    React.createElement('div', { className: 'search-modal search-modal--palette', onMouseDown: function(e) { e.stopPropagation(); } },
+
       React.createElement('div', { className: 'search-modal__input-wrap' },
-        React.createElement('span', { className: 'search-modal__icon' }, '🔍'),
-        React.createElement('input', { ref: inputRef, className: 'search-modal__input', type: 'text', placeholder: 'Поиск: id, name, description, tags', value: query, onChange: function(e) { setQuery(e.target.value); }, onKeyDown: onKey }),
+        React.createElement('span', { className: 'search-modal__icon' }, '⌘'),
+        React.createElement('input', {
+          ref: inputRef,
+          className: 'search-modal__input',
+          type: 'text',
+          placeholder: 'Команда или домен...',
+          value: query,
+          onChange: function(e) { setQuery(e.target.value); },
+          onKeyDown: onKey
+        }),
         React.createElement('kbd', { className: 'search-modal__kbd' }, 'Esc')
       ),
+
       React.createElement('div', { className: 'search-modal__results' },
-        query.trim() === '' ? React.createElement('div', { className: 'search-modal__hint' }, 'Введите запрос') :
-        results.length === 0 ? React.createElement('div', { className: 'search-modal__hint' }, 'Ничего не найдено') :
-        results.map(function(item, i) {
-          var n = item.node;
-          var matched = new Set(item.matches.map(function(m) { return m.field; }));
-          return React.createElement('div', {
-            key: n.id,
-            className: 'search-result' + (i === index ? ' active' : ''),
-            onMouseEnter: function() { setIndex(i); },
-            onClick: function() { onSelect(n.data.domainId); }
-          },
-            React.createElement('span', { className: 'search-result__dot search-result__dot--' + n.data.nodeType }),
-            React.createElement('div', { className: 'search-result__content' },
-              React.createElement('div', { className: 'search-result__id' },
-                React.createElement(HighlightedText, { text: n.data.domainId, query: query }),
-                matched.has('id') && React.createElement('span', { className: 'search-result__badge' }, 'id')
-              ),
-              n.data.name && n.data.name !== n.data.domainId && React.createElement('div', { className: 'search-result__label' },
-                React.createElement(HighlightedText, { text: n.data.name, query: query }),
-                matched.has('name') && React.createElement('span', { className: 'search-result__badge' }, 'name')
-              ),
-              n.data.description && React.createElement('div', { className: 'search-result__desc' },
-                React.createElement(HighlightedText, { text: n.data.description, query: query }),
-                matched.has('description') && React.createElement('span', { className: 'search-result__badge' }, 'description')
-              ),
-              Array.isArray(n.data.tags) && n.data.tags.length > 0 && React.createElement('div', { className: 'search-result__tags' },
-                n.data.tags.slice(0, 5).map(function(tag, ti) {
-                  return React.createElement('span', { key: ti, className: 'search-result__tag' },
-                    React.createElement(HighlightedText, { text: tag, query: query })
-                  );
-                }),
-                matched.has('tags') && React.createElement('span', { className: 'search-result__badge' }, 'tags')
-              )
-            )
+
+        // Команды
+        filteredCommands.length > 0 && commandsBySection.map(function(entry) {
+          var section = entry[0];
+          var cmds = entry[1];
+          return React.createElement('div', { key: 'sec-' + section, className: 'palette-section' },
+            React.createElement('div', { className: 'palette-section__title' }, section),
+            cmds.map(function(cmd) {
+              var itemIdx = cmdIdx++;
+              var isActive = itemIdx === safeIndex;
+              return React.createElement('div', {
+                key: 'cmd-' + itemIdx,
+                className: 'palette-item palette-item--command' + (isActive ? ' active' : ''),
+                onMouseEnter: function() { setIndex(itemIdx); },
+                onClick: function() { onClose(); setTimeout(function() { cmd.run(); }, 50); }
+              },
+                React.createElement('span', { className: 'palette-item__icon' }, cmd.icon || '•'),
+                React.createElement('span', { className: 'palette-item__label' }, cmd.label),
+                cmd.hotkey && React.createElement('kbd', { className: 'palette-item__hotkey' }, cmd.hotkey)
+              );
+            })
           );
-        })
+        }),
+
+        // Домены
+        results.length > 0 && React.createElement('div', { className: 'palette-section' },
+          React.createElement('div', { className: 'palette-section__title' }, 'Домены (' + results.length + ')'),
+          results.slice(0, 50).map(function(item, i) {
+            var itemIdx = domainStartIdx + i;
+            var isActive = itemIdx === safeIndex;
+            var n = item.node;
+            var matched = new Set(item.matches.map(function(m) { return m.field; }));
+            return React.createElement('div', {
+              key: 'dom-' + i,
+              className: 'palette-item' + (isActive ? ' active' : ''),
+              onMouseEnter: function() { setIndex(itemIdx); },
+              onClick: function() { onSelect(n.data.domainId); }
+            },
+              React.createElement('span', { className: 'palette-item__icon' },
+                React.createElement('span', { className: 'search-result__dot search-result__dot--' + n.data.nodeType })
+              ),
+              React.createElement('div', { className: 'palette-item__content' },
+                React.createElement('div', { className: 'search-result__id' },
+                  React.createElement(HighlightedText, { text: n.data.domainId, query: query }),
+                  matched.has('id') && React.createElement('span', { className: 'search-result__badge' }, 'id')
+                ),
+                n.data.name && n.data.name !== n.data.domainId && React.createElement('div', { className: 'search-result__label' },
+                  React.createElement(HighlightedText, { text: n.data.name, query: query }),
+                  matched.has('name') && React.createElement('span', { className: 'search-result__badge' }, 'name')
+                )
+              )
+            );
+          })
+        ),
+
+        // Пусто
+        query.trim() === '' && filteredCommands.length === 0 && results.length === 0 &&
+          React.createElement('div', { className: 'search-modal__hint' }, 'Начните вводить команду или имя домена'),
+        query.trim() !== '' && filteredCommands.length === 0 && results.length === 0 &&
+          React.createElement('div', { className: 'search-modal__hint' }, 'Ничего не найдено')
       ),
+
       React.createElement('div', { className: 'search-modal__footer' },
         React.createElement('span', null, React.createElement('kbd', null, '↑'), React.createElement('kbd', null, '↓'), ' навигация'),
         React.createElement('span', null, React.createElement('kbd', null, 'Enter'), ' выбрать'),
@@ -4728,6 +4958,105 @@ function generateValidationMarkdown(stats, cancelled, logs) {
   return lines.join('\\n');
 }
 
+
+function HotkeysModal(props) {
+  var open = props.open;
+  var onClose = props.onClose;
+
+  useEffect(function() {
+    if (!open) return;
+    var onEsc = function(e) { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onEsc, true);
+    return function() { document.removeEventListener('keydown', onEsc, true); };
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  var groups = [
+    {
+      title: 'Общее',
+      items: [
+        { keys: ['Shift', 'Tab'], label: 'Открыть командную палитру' },
+        { keys: ['Ctrl', 'K'], label: 'Открыть командную палитру (альтернатива)', alt: true },
+        { keys: ['F1'], label: 'Руководство пользователя' },
+        { keys: ['?'], label: 'Это окно с хоткеями' },
+        { keys: ['Esc'], label: 'Снять выделение / закрыть' }
+      ]
+    },
+    {
+      title: 'Навигация',
+      items: [
+        { keys: ['F'], label: 'Вписать граф в экран' },
+        { keys: ['Alt', '←'], label: 'Назад по истории' },
+        { keys: ['Alt', '→'], label: 'Вперёд по истории' },
+        { keys: ['Ctrl', 'клик'], label: 'Мультивыбор узлов' }
+      ]
+    },
+    {
+      title: 'Анализ',
+      items: [
+        { keys: ['C'], label: 'Найти циклы' },
+        { keys: ['I'], label: 'Только изолированные' },
+        { keys: ['S'], label: 'Агрегация по семействам' },
+        { keys: ['P'], label: 'Найти путь между двумя узлами' },
+        { keys: ['B'], label: 'Добавить в закладки' }
+      ]
+    },
+    {
+      title: 'Вид',
+      items: [
+        { keys: ['T'], label: 'Скрыть/показать тултипы' }
+      ]
+    },
+    {
+      title: 'Мышью',
+      items: [
+        { keys: ['Двойной клик'], label: 'Включить/выключить фокус на узле' },
+        { keys: ['Правая кнопка'], label: 'Контекстное меню узла' },
+        { keys: ['Клик по связи'], label: 'Детали связи в панели' },
+        { keys: ['Клик по пустому месту'], label: 'Снять все выделения' }
+      ]
+    },
+  ];
+
+  return React.createElement('div', { className: 'help-overlay', onMouseDown: onClose },
+    React.createElement('div', { className: 'help-modal hotkeys-modal', onMouseDown: function(e) { e.stopPropagation(); } },
+
+      React.createElement('div', { className: 'help-modal__header' },
+        React.createElement('div', { className: 'help-modal__title' }, '⌨️ Горячие клавиши'),
+        React.createElement('button', { className: 'help-modal__close', onClick: onClose }, '✕')
+      ),
+
+      React.createElement('div', { className: 'hotkeys-body' },
+        groups.map(function(g) {
+          return React.createElement('div', { key: g.title, className: 'hotkeys-group' },
+            React.createElement('div', { className: 'hotkeys-group__title' }, g.title),
+            React.createElement('div', { className: 'hotkeys-group__items' },
+              g.items.map(function(item, i) {
+                return React.createElement('div', { key: i, className: 'hotkey-row' },
+                  React.createElement('div', { className: 'hotkey-row__keys' },
+                    item.keys.map(function(k, ki) {
+                      return React.createElement(React.Fragment, { key: ki },
+                        ki > 0 && React.createElement('span', { className: 'hotkey-plus' }, '+'),
+                        React.createElement('kbd', { className: 'hotkey-key' }, k)
+                      );
+                    })
+                  ),
+                  React.createElement('div', { className: 'hotkey-row__label' }, item.label)
+                );
+              })
+            )
+          );
+        })
+      ),
+
+      React.createElement('div', { className: 'hotkeys-footer' },
+        'Все горячие клавиши работают, когда фокус не в поле ввода.'
+      )
+    )
+  );
+}
+
 function HelpModal(props) {
   var open = props.open;
   var onClose = props.onClose;
@@ -4847,6 +5176,8 @@ function App() {
   
   var [topoOpen, setTopoOpen] = useState(false);
   var [topoLevelMap, setTopoLevelMap] = useState(null);
+  
+  var [hotkeysOpen, setHotkeysOpen] = useState(false);
   
   var [validationAvailable, setValidationAvailable] = useState(false);
   useEffect(function() {
@@ -5721,10 +6052,19 @@ var bookmarkedDomainsList = useMemo(function() {
         setHelpOpen(true);
         return;
       }
+      else if ((e.key === '?' || e.key === 'F1') && !e.target.matches('input, textarea')) {
+        e.preventDefault();
+        if (e.key === 'F1') setHelpOpen(true);
+        else setHotkeysOpen(true);
+        return;
+      }
+      else if ((e.key === 't' || e.key === 'T') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        setTooltipsEnabled(function(v) { return !v; });
+      }
     };
     window.addEventListener('keydown', handler, true);
     return function() { window.removeEventListener('keydown', handler, true); };
-  }, [searchOpen, openSearch, closeSearch, handleFindCycles, handleRunPath, navBack, navForward]);
+  }, [searchOpen, openSearch, closeSearch, handleFindCycles, handleRunPath, navBack, navForward, tooltipsEnabled]);
 
   // ---- Layout on change ----
   useEffect(function() {
@@ -5877,10 +6217,109 @@ var bookmarkedDomainsList = useMemo(function() {
       color: 'green',
       onClear: function() { setTopoLevelMap(null); }
     });
-  }
-
-  return modes;
-}, [topoLevelMap, cycleHighlight, focusNode, focusDepth, pathResult, pathSel, hiddenNodeIds, onlyInvalid, bookmarksOnly, nsMode, diffMode, ruleViolations, rulesHighlighted, tooltipsEnabled]);
+    }
+  
+    return modes;
+  }, [topoLevelMap, cycleHighlight, focusNode, focusDepth, pathResult, pathSel, hiddenNodeIds, onlyInvalid, bookmarksOnly, nsMode, diffMode, ruleViolations, rulesHighlighted, tooltipsEnabled]);
+ 
+ 
+ var commands = useMemo(function() {
+    return [
+      // Навигация
+      { section: 'Навигация', icon: '⛶', label: 'Вписать в экран', hotkey: 'F', keywords: 'fit zoom',
+        run: function() { rfInstance.current && rfInstance.current.fitView({ duration: 500 }); } },
+      { section: 'Навигация', icon: '⟳', label: 'Переуложить граф', keywords: 'relayout',
+        run: function() { setNodes(runLayout(nodes, edges, layoutType)); setTimeout(function() { rfInstance.current && rfInstance.current.fitView({ duration: 500 }); }, 100); } },
+      { section: 'Навигация', icon: '←', label: 'Назад по истории', hotkey: 'Alt+←', keywords: 'back',
+        run: navBack },
+      { section: 'Навигация', icon: '→', label: 'Вперёд по истории', hotkey: 'Alt+→', keywords: 'forward',
+        run: navForward },
+  
+      // Раскладка
+      { section: 'Раскладка', icon: '📐', label: 'Горизонтальная (LR)', keywords: 'layout dagre horizontal',
+        run: function() { setLayoutType('LR'); } },
+      { section: 'Раскладка', icon: '📐', label: 'Вертикальная (TB)', keywords: 'layout vertical',
+        run: function() { setLayoutType('TB'); } },
+      { section: 'Раскладка', icon: '📐', label: 'Force-directed', keywords: 'layout force physics',
+        run: function() { setLayoutType('force'); } },
+      { section: 'Раскладка', icon: '📐', label: 'Круговая', keywords: 'layout circular circle',
+        run: function() { setLayoutType('circular'); } },
+  
+      // Вид
+      { section: 'Вид', icon: theme === 'dark' ? '☀️' : '🌙', label: 'Переключить тему', keywords: 'theme dark light',
+        run: function() { setTheme(theme === 'dark' ? 'light' : 'dark'); } },
+      { section: 'Вид', icon: '⚫', label: compact ? 'Выключить компактный режим' : 'Включить компактный режим', keywords: 'compact small',
+        run: function() { setCompact(!compact); } },
+      { section: 'Вид', icon: '🗂', label: showGroups ? 'Скрыть группировку' : 'Показать группировку', keywords: 'groups boxes',
+        run: function() { setShowGroups(!showGroups); } },
+      { section: 'Вид', icon: '⇄', label: bidirectional ? 'Разъединить A↔B' : 'Объединять A↔B', keywords: 'bidirectional merge',
+        run: function() { setBidirectional(!bidirectional); } },
+      { section: 'Вид', icon: '🏷', label: showEdgeLabels ? 'Скрыть подписи связей' : 'Показать подписи связей', keywords: 'labels edges',
+        run: function() { setShowEdgeLabels(!showEdgeLabels); } },
+      { section: 'Вид', icon: tooltipsEnabled ? '🚫' : '💬', label: tooltipsEnabled ? 'Скрыть тултипы' : 'Показать тултипы', hotkey: 'T', keywords: 'tooltip hover',
+        run: function() { setTooltipsEnabled(!tooltipsEnabled); } },
+  
+      // Heatmap
+      { section: 'Heatmap', icon: '🔥', label: heatmap === 'health' ? 'Выключить heatmap' : 'Heatmap: Health score', keywords: 'heatmap health',
+        run: function() { setHeatmap(heatmap === 'health' ? 'none' : 'health'); } },
+      { section: 'Heatmap', icon: '🔥', label: heatmap === 'degree' ? 'Выключить heatmap' : 'Heatmap: Количество связей', keywords: 'heatmap degree',
+        run: function() { setHeatmap(heatmap === 'degree' ? 'none' : 'degree'); } },
+      { section: 'Heatmap', icon: '🔥', label: heatmap === 'entities' ? 'Выключить heatmap' : 'Heatmap: Entities', keywords: 'heatmap entities',
+        run: function() { setHeatmap(heatmap === 'entities' ? 'none' : 'entities'); } },
+      { section: 'Heatmap', icon: '🔥', label: heatmap === 'fqid' ? 'Выключить heatmap' : 'Heatmap: FQID-ссылки', keywords: 'heatmap fqid refs',
+        run: function() { setHeatmap(heatmap === 'fqid' ? 'none' : 'fqid'); } },
+  
+      // Анализ
+      { section: 'Анализ', icon: '🔁', label: 'Найти циклы', hotkey: 'C', keywords: 'cycles scc loop',
+        run: handleFindCycles },
+      { section: 'Анализ', icon: '◯', label: isolatedOnly ? 'Показать все домены' : 'Только изолированные', hotkey: 'I', keywords: 'isolated orphans',
+        run: function() { setIsolatedOnly(!isolatedOnly); } },
+      { section: 'Анализ', icon: '🗂', label: nsMode ? 'Выключить агрегацию' : 'Агрегация по семействам', hotkey: 'S', keywords: 'namespace aggregate family',
+        run: function() { setNsMode(!nsMode); } },
+      { section: 'Анализ', icon: '📦', label: 'Порядок установки (топосорт)', keywords: 'topo install order',
+        run: function() { setTopoOpen(true); } },
+      { section: 'Анализ', icon: '🎯', label: focusNode ? 'Сбросить фокус' : 'Фокус на выделенном', keywords: 'focus',
+        run: function() { if (focusNode) setFocusNode(null); else if (selectedNodeId) setFocusNode(selectedNodeId); } },
+      { section: 'Анализ', icon: '🛤️', label: 'Найти путь между двумя узлами', hotkey: 'P', keywords: 'path find',
+        run: handleRunPath },
+  
+      // Фильтры
+      { section: 'Фильтры', icon: '★', label: bookmarksOnly ? 'Показать все домены' : 'Только избранные', keywords: 'bookmarks favorites',
+        run: function() { setBookmarksOnly(!bookmarksOnly); } },
+      { section: 'Фильтры', icon: '❌', label: onlyInvalid ? 'Показать все домены' : 'Только невалидные', keywords: 'invalid errors validation',
+        run: function() { setOnlyInvalid(!onlyInvalid); } },
+      { section: 'Фильтры', icon: '🗑', label: 'Сбросить все фильтры', keywords: 'reset filters clear',
+        run: function() {
+          setFilters({ domain: true, broken: true, missing: true, linkage: true, fqid: true });
+          setNamespaceFilter('');
+          setBookmarksOnly(false);
+          setOnlyInvalid(false);
+          setIsolatedOnly(false);
+          setHiddenNodeIds(new Set());
+        } },
+  
+      // Данные
+      { section: 'Данные', icon: '💾', label: 'Экспорт графа в JSON', keywords: 'export json download',
+        run: handleExportJSON },
+      { section: 'Данные', icon: '📝', label: 'Отчёт в Markdown', keywords: 'export markdown report',
+        run: handleExportMarkdown },
+      { section: 'Данные', icon: '🖼️', label: 'Экспорт графа в PNG', keywords: 'export png image',
+        run: handleExportPNG },
+      validationAvailable && { section: 'Данные', icon: '🔍', label: 'Массовая валидация доменов', keywords: 'validate check',
+        run: function() { setValidationOpen(true); } },
+  
+      // Справка
+      { section: 'Справка', icon: '📖', label: 'Руководство пользователя', hotkey: 'F1', keywords: 'guide help docs',
+        run: function() { setHelpOpen(true); } },
+      { section: 'Справка', icon: '⌨️', label: 'Список горячих клавиш', keywords: 'hotkeys shortcuts',
+        run: function() { setHotkeysOpen(true); } }
+    ].filter(Boolean);
+  }, [
+    theme, compact, showGroups, bidirectional, showEdgeLabels, tooltipsEnabled, heatmap,
+    isolatedOnly, nsMode, focusNode, selectedNodeId, bookmarksOnly, onlyInvalid, validationAvailable,
+    nodes, edges, layoutType, navBack, navForward,
+    handleFindCycles, handleRunPath, handleExportJSON, handleExportMarkdown, handleExportPNG
+  ]);
 
   return React.createElement('div', { className: 'app' },
     React.createElement('aside', { className: 'sidebar' + (sidebarCollapsed ? ' sidebar--collapsed' : '') },
@@ -6111,6 +6550,12 @@ var bookmarkedDomainsList = useMemo(function() {
       
         React.createElement('button', {
           className: 'btn btn--icon',
+          onClick: function() { setHotkeysOpen(true); },
+          title: 'Горячие клавиши (?)'
+        }, '⌨️'),
+
+        React.createElement('button', {
+          className: 'btn btn--icon',
           onClick: function() { setHelpOpen(true); },
           title: 'Руководство пользователя (F1)'
         }, '📖'),
@@ -6173,13 +6618,17 @@ var bookmarkedDomainsList = useMemo(function() {
     React.createElement(HoverTooltip, { tooltip: tooltip, onHide: scheduleHide }),
     React.createElement(SearchModal, {
       open: searchOpen, query: searchQuery, setQuery: setSearchQuery,
-      results: searchResults, index: searchIndex, setIndex: setSearchIndex,
+      results: searchResults,  commands: commands, index: searchIndex, setIndex: setSearchIndex,
       onSelect: function(domainId) { gotoDomainByDomainId(domainId); closeSearch(); },
       onClose: closeSearch, inputRef: searchInputRef
     }),
     React.createElement(HelpModal, {
       open: helpOpen,
       onClose: function() { setHelpOpen(false); }
+    }),
+    React.createElement(HotkeysModal, {
+      open: hotkeysOpen,
+      onClose: function() { setHotkeysOpen(false); }
     }),
     React.createElement(ValidationModal, {
       open: validationOpen,
