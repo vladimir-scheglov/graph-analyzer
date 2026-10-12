@@ -2169,6 +2169,63 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Robo
 
 .active-mode--green { background: rgba(16,185,129,0.12); border-color: #10b981; color: #34d399; }
 [data-theme="light"] .active-mode--green { background: rgba(16,185,129,0.15); color: #047857; }
+.topo-domain--broken {
+  background: rgba(245, 158, 11, 0.06);
+  border-left: 2px solid var(--warning);
+  padding-left: 8px;
+  border-radius: 4px;
+}
+
+.topo-broken-badge {
+  margin-left: 8px;
+  padding: 1px 6px;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  color: var(--warning);
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: help;
+}
+
+.topo-cyclic__header--broken {
+  background: rgba(245, 158, 11, 0.08);
+  color: var(--warning);
+}
+
+.topo-broken-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.topo-broken-item__meta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  padding: 1px 6px;
+  background: var(--bg-700);
+  color: var(--text-500);
+  border-radius: 4px;
+}
+
+.topo-broken-item__deps {
+  font-size: 11px;
+  color: var(--warning);
+  cursor: help;
+}
+
+[data-theme="light"] .topo-domain--broken {
+  background: rgba(217, 119, 6, 0.08);
+  border-left-color: #d97706;
+}
+[data-theme="light"] .topo-broken-badge {
+  background: rgba(217, 119, 6, 0.12);
+  color: #b45309;
+}
+[data-theme="light"] .topo-cyclic__header--broken {
+  color: #b45309;
+}
 </style>
 </head>
 <body>
@@ -2426,30 +2483,75 @@ function buildDependencyGraph(nodes, edges, options) {
   return { deps: deps, domainIds: domainIds, nodeById: nodeById };
 }
 
-function topologicalSort(depGraph) {
+function topologicalSort(depGraph, options) {
+  var opts = options || {};
+  var autoBreak = !!opts.autoBreakCycles;
+
   var deps = depGraph.deps;
   var remaining = new Set(depGraph.domainIds);
   var levels = [];
+  var broken = [];  // { id, level, reason }
 
   while (remaining.size > 0) {
     var level = [];
+    var ready = [];
+
     remaining.forEach(function(id) {
-      var ready = true;
+      var ready_flag = true;
       var depsSet = deps.get(id);
       if (depsSet) {
         depsSet.forEach(function(dep) {
-          if (remaining.has(dep)) ready = false;
+          if (remaining.has(dep)) ready_flag = false;
         });
       }
-      if (ready) level.push(id);
+      if (ready_flag) ready.push(id);
     });
-    if (level.length === 0) break;
-    level.forEach(function(id) { remaining.delete(id); });
-    levels.push(level.sort());
+
+    if (ready.length === 0) {
+      if (!autoBreak) break;
+
+      // Автоматический разрыв цикла:
+      // выбираем узел с наименьшим количеством зависимостей внутри remaining
+      var best = null;
+      var bestCount = Infinity;
+      remaining.forEach(function(id) {
+        var cnt = 0;
+        var s = deps.get(id);
+        if (s) s.forEach(function(dep) { if (remaining.has(dep)) cnt++; });
+        if (cnt < bestCount) { bestCount = cnt; best = id; }
+      });
+
+      if (best == null) break;
+
+      // Разрываем все его внутренние зависимости
+      var brokenDeps = [];
+      var s = deps.get(best);
+      if (s) {
+        s.forEach(function(dep) {
+          if (remaining.has(dep)) brokenDeps.push(dep);
+        });
+        brokenDeps.forEach(function(dep) { s.delete(dep); });
+      }
+
+      broken.push({ id: best, level: levels.length + 1, brokenDeps: brokenDeps });
+      remaining.delete(best);
+      level.push(best);
+
+      // Продолжаем — после разрыва может освободиться ещё кто-то в этом же уровне
+      continue;
+    }
+
+    ready.forEach(function(id) { remaining.delete(id); });
+    levels.push(ready.sort());
   }
 
   var cyclic = Array.from(remaining).sort();
-  return { levels: levels, cyclic: cyclic, criticalPath: levels.length };
+  return {
+    levels: levels,
+    cyclic: cyclic,
+    criticalPath: levels.length,
+    broken: broken
+  };
 }
 
 function findCycles(nodes, edges) {
@@ -3933,6 +4035,7 @@ function TopoSortModal(props) {
   var [result, setResult] = useState(null);
   var [expandedLevels, setExpandedLevels] = useState(function() { return new Set(); });
   var [expandedDeps, setExpandedDeps] = useState(function() { return new Set(); });
+  var [autoBreak, setAutoBreak] = useState(false);
 
   useEffect(function() {
     if (!open) {
@@ -3973,7 +4076,7 @@ function TopoSortModal(props) {
       restrictTo: restrictTo
     });
 
-    var sorted = topologicalSort(depGraph);
+    var sorted = topologicalSort(depGraph, { autoBreakCycles: autoBreak });
 
     // Карта уровней
     var levelMap = new Map();
@@ -3984,6 +4087,7 @@ function TopoSortModal(props) {
     setResult({
       levels: sorted.levels,
       cyclic: sorted.cyclic,
+      broken: sorted.broken || [],
       criticalPath: sorted.criticalPath,
       levelMap: levelMap,
       stats: {
@@ -3994,7 +4098,7 @@ function TopoSortModal(props) {
         excluded: excludedIds.size
       }
     });
-  }, [scope, includeFqid, includeLinkage, missingAsSatisfied, excludePattern, allNodes, allEdges, allDomains, visibleDomains, bookmarkedDomains]);
+  }, [autoBreak, scope, includeFqid, includeLinkage, missingAsSatisfied, excludePattern, allNodes, allEdges, allDomains, visibleDomains, bookmarkedDomains]);
 
   var exportJSON = useCallback(function() {
     if (!result) return;
@@ -4005,7 +4109,8 @@ function TopoSortModal(props) {
       criticalPath: result.criticalPath,
       stats: result.stats,
       levels: result.levels,
-      cyclic: result.cyclic
+      cyclic: result.cyclic,
+      broken: result.broken,
     };
     downloadFile(JSON.stringify(data, null, 2), 'topo-sort-' + new Date().toISOString().slice(0,19).replace(/[:.]/g,'-') + '.json', 'application/json');
   }, [result, scope, includeFqid, includeLinkage, missingAsSatisfied, excludePattern]);
@@ -4034,6 +4139,17 @@ function TopoSortModal(props) {
       level.forEach(function(id) { lines.push('- \`' + id + '\`'); });
       lines.push('');
     });
+    if (result.broken && result.broken.length > 0) {
+      lines.push('## 🔗 Разорванные циклы (' + result.broken.length + ')');
+      lines.push('');
+      lines.push('Эти домены были размещены автоматически, но зависимости внутри цикла пришлось разорвать:');
+      lines.push('');
+      result.broken.forEach(function(b) {
+        lines.push('- \`' + b.id + '\` (уровень ' + b.level + ')' + (b.brokenDeps.length > 0 ? ' — разорвано связей: ' + b.brokenDeps.length : ''));
+        b.brokenDeps.forEach(function(d) { lines.push('  - \`' + d + '\`'); });
+      });
+      lines.push('');
+    }
     if (result.cyclic.length > 0) {
       lines.push('## ⚠️ Требуют ручного вмешательства — циклические (' + result.cyclic.length + ')');
       lines.push('');
@@ -4108,6 +4224,15 @@ function TopoSortModal(props) {
             React.createElement('span', { className: 'menu__check' }),
             React.createElement('span', { className: 'menu__text' }, 'Missing-домены считать установленными')
           ),
+          React.createElement('label', { className: 'menu__checkbox' },
+            React.createElement('input', { type: 'checkbox', checked: autoBreak, onChange: function() { setAutoBreak(!autoBreak); } }),
+            React.createElement('span', { className: 'menu__check' }),
+            React.createElement('span', { className: 'menu__text' }, 'Автоматически разрывать циклы')
+          ),
+          React.createElement('div', { className: 'menu__hint' }, autoBreak
+            ? 'Домены с циклом будут размещены в порядке, а разорванные связи — помечены.'
+            : 'Домены с циклом попадут в отдельный блок «Требуют ручного вмешательства».'
+          ),
 
           React.createElement('div', { className: 'validation-scope__label', style: { marginTop: 16 } }, 'Исключить домены по маске'),
           React.createElement('input', {
@@ -4129,22 +4254,46 @@ function TopoSortModal(props) {
         result && React.createElement('div', { className: 'topo-result' },
 
           // Циклические блоки в начале
-          result.cyclic.length > 0 && React.createElement('div', { className: 'topo-cyclic' },
-            React.createElement('div', { className: 'topo-cyclic__header' },
-              React.createElement('span', { className: 'topo-cyclic__icon' }, '⚠️'),
-              React.createElement('span', null, 'Требуют ручного вмешательства — цикл (' + result.cyclic.length + ')')
+          (result.cyclic.length > 0 || result.broken.length > 0) && React.createElement('div', { className: 'topo-cyclic' },
+
+            result.cyclic.length > 0 && React.createElement(React.Fragment, null,
+              React.createElement('div', { className: 'topo-cyclic__header' },
+                React.createElement('span', { className: 'topo-cyclic__icon' }, '⚠️'),
+                React.createElement('span', null, 'Требуют ручного вмешательства — цикл (' + result.cyclic.length + ')')
+              ),
+              React.createElement('div', { className: 'topo-cyclic__body' },
+                result.cyclic.map(function(id) {
+                  return React.createElement('a', {
+                    key: id,
+                    className: 'validation-log__domain',
+                    onClick: function() { onGotoDomain(id); onClose(); }
+                  }, id);
+                })
+              )
             ),
-            React.createElement('div', { className: 'topo-cyclic__body' },
-              result.cyclic.map(function(id) {
-                return React.createElement('a', {
-                  key: id,
-                  className: 'validation-log__domain',
-                  onClick: function() { onGotoDomain(id); onClose(); }
-                }, id);
-              })
+          
+            result.cyclic.length === 0 && result.broken.length > 0 && React.createElement(React.Fragment, null,
+              React.createElement('div', { className: 'topo-cyclic__header topo-cyclic__header--broken' },
+                React.createElement('span', { className: 'topo-cyclic__icon' }, '🔗'),
+                React.createElement('span', null, 'Циклы разорваны автоматически (' + result.broken.length + ')')
+              ),
+              React.createElement('div', { className: 'topo-cyclic__body' },
+                result.broken.map(function(b) {
+                  return React.createElement('div', { key: b.id, className: 'topo-broken-item' },
+                    React.createElement('a', {
+                      className: 'validation-log__domain',
+                      onClick: function() { onGotoDomain(b.id); onClose(); }
+                    }, b.id),
+                    React.createElement('span', { className: 'topo-broken-item__meta' }, 'L' + b.level),
+                    b.brokenDeps.length > 0 && React.createElement('span', {
+                      className: 'topo-broken-item__deps',
+                      title: 'Разорваны связи с: ' + b.brokenDeps.join(', ')
+                    }, '↯' + b.brokenDeps.length)
+                  );
+                })
+              )
             )
           ),
-
           // Уровни
           result.levels.map(function(level, idx) {
             var isOpen = expandedLevels.has(idx);
@@ -4155,11 +4304,12 @@ function TopoSortModal(props) {
                 React.createElement('span', { className: 'topo-level__title' }, 'Уровень ' + (idx + 1)),
                 React.createElement('span', { className: 'topo-level__count' }, level.length + ' домен' + (level.length === 1 ? '' : (level.length < 5 ? 'а' : 'ов')))
               ),
-              isOpen && React.createElement('div', { className: 'topo-level__body' },
+              isOpen && React.createElement('div', { className: 'topo-level__body'  },
                 level.map(function(id) {
                   var isDepsOpen = expandedDeps.has(id);
                   var deps = result.levelMap ? findDeps(id, result, allEdges, allNodes) : [];
-                  return React.createElement('div', { key: id, className: 'topo-domain' },
+                  var brokenInfo = result.broken.find(function(b) { return b.id === id; });
+                  return React.createElement('div', { key: id, className: 'topo-domain' + (brokenInfo ? ' topo-domain--broken' : '') },
                     React.createElement('div', { className: 'topo-domain__head' },
                       deps.length > 0 && React.createElement('span', {
                         className: 'validation-log__chevron',
@@ -4170,7 +4320,11 @@ function TopoSortModal(props) {
                       React.createElement('a', {
                         className: 'validation-log__domain',
                         onClick: function() { onGotoDomain(id); onClose(); }
-                      }, id)
+                      }, id),
+                      brokenInfo && React.createElement('span', {
+                        className: 'topo-broken-badge',
+                        title: 'Цикл разорван автоматически. Отрезаны связи: ' + brokenInfo.brokenDeps.join(', ')
+                      }, '⚠️ цикл разорван')
                     ),
                     isDepsOpen && React.createElement('div', { className: 'topo-domain__deps' },
                       deps.map(function(dep) {
@@ -4197,6 +4351,7 @@ function TopoSortModal(props) {
           React.createElement('span', { className: 'validation-stat' }, '📦 ' + result.stats.total),
           React.createElement('span', { className: 'validation-stat validation-stat--ok' }, '📊 ' + result.stats.levels + ' уровней'),
           React.createElement('span', { className: 'validation-stat validation-stat--warn' }, '⏱ ' + result.stats.criticalPath + ' шагов'),
+          result.stats.brokenCount > 0 && React.createElement('span', { className: 'validation-stat validation-stat--warn' }, '🔗 ' + result.stats.brokenCount + ' разорвано'),
           result.stats.cyclic > 0 && React.createElement('span', { className: 'validation-stat validation-stat--err' }, '⚠️ ' + result.stats.cyclic + ' цикл.')
         ),
         React.createElement('div', { className: 'validation-footer__actions' },
