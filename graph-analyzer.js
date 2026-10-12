@@ -481,2022 +481,188 @@ class DomainGraphAnalyzer {
       res.end(content);
     } catch (e) { res.writeHead(404); res.end('Not found'); }
   }
-
   generateHTML(graphData) {
     const graphDataJson = JSON.stringify(graphData).replace(/<\/script>/g, '<\\/script>');
-    const jsxSource = `
-      import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { createRoot } from 'react-dom/client';
-import ReactFlowComponent, {
-  ReactFlowProvider,
-  Background,
-  BackgroundVariant,
-  Controls,
-  MiniMap,
-  Handle,
-  Position,
-  MarkerType,
-  useNodesState,
-  useEdgesState,
-  useReactFlow
-} from 'reactflow';
-import dagre from 'dagre';
-
-// --- Data ---
-const GRAPH_DATA = JSON.parse(document.getElementById('graph-data').textContent);
-
-// --- Constants ---
-const NODE_WIDTH = 220;
-const NODE_HEIGHT = 60;
-const EDGE_COLOR = '#10b981';
-
-// --- Dagre layout ---
-function layoutGraph(nodes, edges) {
-  const g = new dagre.graphlib.Graph();
-  g.setDefaultEdgeLabel(() => ({}));
-  g.setGraph({
-    rankdir: 'LR',
-    nodesep: 30,
-    ranksep: 100,
-    edgesep: 20,
-    marginx: 40,
-    marginy: 40,
-    ranker: 'network-simplex'
-  });
-  nodes.forEach(n => g.setNode(n.id, { width: NODE_WIDTH, height: NODE_HEIGHT }));
-  edges.forEach(e => g.setEdge(e.source, e.target));
-  dagre.layout(g);
-  return nodes.map(n => {
-    const pos = g.node(n.id);
-    return {
-      ...n,
-      position: { x: pos.x - NODE_WIDTH / 2, y: pos.y - NODE_HEIGHT / 2 },
-      targetPosition: 'left',
-      sourcePosition: 'right'
-    };
-  });
-}
-
-// --- Convert to ReactFlow format ---
-function toReactFlow(graphData) {
-  const nodes = graphData.nodes.map(n => {
-    const domainId = n.domainId || n.id.replace(/^(domain_|missing_|broken_)/, '');
-    return {
-      id: n.id,
-      type: 'domainNode',
-      data: {
-        domainId,
-        label: n.label,
-        nodeType: n.group,
-        filePath: n.filePath,
-        tooltipHtml: n.title,
-        fqidRefs: n.fqidRefs || [],
-        version: n.version,
-        entitiesCount: n.entitiesCount,
-        name: n.name || n.label || '',
-        description: n.description || '',
-        author: n.author || '',
-        tags: Array.isArray(n.tags) ? n.tags : []
-      },
-      position: { x: 0, y: 0 }
-    };
-  });
-
-  const edges = graphData.edges.map(e => {
-    const isLinkage = e.kind === 'linkage';
-    const isFqid = e.kind === 'fqid';
-  
-    const base = {
-      id: e.id,
-      source: e.from,
-      target: e.to,
-      label: e.label,
-      data: {
-        tooltipHtml: e.title,
-        fqidRefs: e.fqidRefs || [],
-        linkData: e.linkData || null,
-        fullLabel: e.fullLabel || e.label || e.id,
-        kind: e.kind,
-        // Новые поля:
-        side1Domain: e.side1Domain || null,
-        side2Domain: e.side2Domain || null,
-        side1Raw: e.side1Raw || null,
-        side2Raw: e.side2Raw || null
-      }
-    };
-  
-    if (isLinkage) {
-      return {
-        ...base,
-        type: 'smoothstep',
-        markerEnd: { type: MarkerType.ArrowClosed, color: '#818cf8', width: 16, height: 16 },
-        style: { stroke: '#818cf8', strokeWidth: 2.5, strokeDasharray: '6 4' },
-        labelStyle: { fill: '#c7d2fe', fontSize: 10, fontWeight: 600 },
-        labelBgStyle: { fill: '#1e1b4b', fillOpacity: 0.95 },
-        labelBgPadding: [5, 3],
-        labelBgBorderRadius: 4
-      };
-    }
-  
-    return {
-      ...base,
-      type: 'smoothstep',
-      markerEnd: { type: MarkerType.ArrowClosed, color: '#10b981', width: 12, height: 12 },
-      style: { stroke: '#10b981', strokeWidth: 1.2, opacity: 0.7 },
-      labelStyle: { fill: '#a7f3d0', fontSize: 9, fontWeight: 400 },
-      labelBgStyle: { fill: '#052e2b', fillOpacity: 0.9 },
-      labelBgPadding: [3, 2],
-      labelBgBorderRadius: 3
-    };
-  });
-
-  return { nodes: layoutGraph(nodes, edges), edges };
-}
-
-// --- Filter helpers ---
-function matchesNamespace(domainId, filterPattern) {
-  if (!filterPattern || filterPattern.trim() === '') return true;
-
-  // Разбиваем по запятой, точке с запятой или пробелу
-  const tokens = filterPattern
-    .replace(/[,;]/g, ' ')
-    .split(' ')
-    .filter(p => p.length > 0)
-    .map(p => p.toLowerCase());
-
-  if (tokens.length === 0) return true;
-
-  const id = domainId.toLowerCase();
-
-  // Разделяем на включающие и исключающие маски
-  const include = tokens.filter(t => !t.startsWith('!'));
-  const exclude = tokens.filter(t => t.startsWith('!')).map(t => t.slice(1)).filter(t => t.length > 0);
-
-  // Исключающие имеют приоритет: если домен подходит под исключение — отбрасываем
-  for (const ex of exclude) {
-    if (simplePatternMatch(id, ex)) return false;
-  }
-
-  // Если нет ни одной включающей маски, но есть исключающие — показываем всё, кроме исключённого
-  if (include.length === 0) return true;
-
-  // Иначе домен должен матчиться хотя бы одной включающей маской
-  return include.some(inc => simplePatternMatch(id, inc));
-}
-
-function simplePatternMatch(domainId, pattern) {
-  if (pattern.indexOf('*') !== -1) {
-    const parts = pattern.split('*');
-    if (parts[0]) {
-      const prefix = parts[0];
-      const prefixNoDot = prefix.endsWith('.') ? prefix.slice(0, -1) : prefix;
-      if (domainId.indexOf(prefix) !== 0 && domainId !== prefixNoDot) return false;
-    }
-    if (parts[parts.length - 1]) {
-      const last = parts[parts.length - 1];
-      if (domainId.lastIndexOf(last) !== domainId.length - last.length) return false;
-    }
-    let pos = parts[0] ? parts[0].length : 0;
-    for (let i = 1; i < parts.length - 1; i++) {
-      if (!parts[i]) continue;
-      const found = domainId.indexOf(parts[i], pos);
-      if (found === -1) return false;
-      pos = found + parts[i].length;
-    }
-    return true;
-  }
-  return domainId === pattern || domainId.indexOf(pattern + '.') === 0;
-}
-
-// --- Custom node ---
-function DomainNode({ data, selected }) {
-  const cls = 'rf-node rf-node--' + data.nodeType + (selected ? ' rf-node--selected' : '') + (data.dimmed ? ' rf-node--dimmed' : '');
-  const icon = data.nodeType === 'domain' ? '●' : data.nodeType === 'missing' ? '▲' : '✕';
-  return (
-    <React.Fragment>
-      <Handle type="target" position={Position.Left} className="rf-handle" />
-      <div className={cls}>
-        <div className="rf-node__icon">{icon}</div>
-        <div className="rf-node__content">
-          <div className="rf-node__id" title={data.domainId}>{data.domainId}</div>
-          {data.label && data.label !== data.domainId && (
-            <div className="rf-node__name" title={data.label}>{data.label}</div>
-          )}
-        </div>
-      </div>
-      <Handle type="source" position={Position.Right} className="rf-handle" />
-    </React.Fragment>
-  );
-}
-
-const nodeTypes = { domainNode: DomainNode };
-
-// --- Editor Panel ---
-function EditorPanel({ open, filePath, editorRef, onClose }) {
-  const [monacoReady, setMonacoReady] = useState(false);
-  useEffect(() => {
-    if (typeof window.require === 'undefined') return;
-    window.require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.34.0/min/vs' } });
-    window.require(['vs/editor/editor.main'], () => {
-      if (!editorRef.current) {
-        editorRef.current = window.monaco.editor.create(document.getElementById('monaco-container'), {
-          value: '',
-          language: 'yaml',
-          theme: 'vs-dark',
-          readOnly: true,
-          automaticLayout: true,
-          fontSize: 13,
-          minimap: { enabled: false },
-          scrollBeyondLastLine: false,
-          fontFamily: 'JetBrains Mono, SF Mono, Monaco, monospace'
-        });
-      }
-      setMonacoReady(true);
-    });
-  }, []);
-
-  const handleClose = () => onClose();
-
-  return (
-    <div className={'editor-panel' + (open ? ' open' : '')}>
-      <div className="editor-panel__header">
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="editor-panel__title">📄 Просмотр файла</div>
-          <div className="editor-panel__path" title={filePath}>{filePath}</div>
-        </div>
-        <button className="btn btn--icon" onClick={handleClose} title="Закрыть">✕</button>
-      </div>
-      <div className="editor-panel__body">
-        <div id="monaco-container" style={{ width: '100%', height: '100%' }}></div>
-      </div>
-    </div>
-  );
-}
-
-function Popover({ trigger, children, align = 'left', width = 320 }) {
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
-    };
-    const onEsc = (e) => { if (e.key === 'Escape') setOpen(false); };
-    document.addEventListener('mousedown', onDoc);
-    document.addEventListener('keydown', onEsc, true);
-    return () => {
-      document.removeEventListener('mousedown', onDoc);
-      document.removeEventListener('keydown', onEsc, true);
-    };
-  }, [open]);
-
-  return (
-    <div className="popover-wrap" ref={wrapRef}>
-      <div className="popover-trigger" onClick={() => setOpen(o => !o)}>
-        {trigger(open)}
-      </div>
-      {open && (
-        <div className={'popover popover--' + align} style={{ width }}>
-          {typeof children === 'function' ? children(() => setOpen(false)) : children}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function FilterMenu({ filters, setFilters, counts, namespaceFilter, setNamespaceFilter, close }) {
-  const allActive = filters.domain && filters.missing && filters.broken && filters.linkage && filters.fqid;
-  const setAll = (val) => setFilters(f => ({
-    ...f, domain: val, missing: val, broken: val, linkage: val, fqid: val
-  }));
-
-  return (
-    <div className="menu">
-      <div className="menu__header">
-        <span>Фильтры</span>
-        <button
-          className="menu__action"
-          onClick={() => { setAll(true); setNamespaceFilter(''); }}
-          title="Показать всё"
-        >
-          Сбросить
-        </button>
-      </div>
-
-      <div className="menu__section">
-        <div className="menu__label">Тип узлов</div>
-        {[
-          { key: 'domain', label: 'Domain', color: 'var(--success)' },
-          { key: 'missing', label: 'Missing', color: 'var(--warning)' },
-          { key: 'broken', label: 'Broken', color: 'var(--danger)' }
-        ].map(it => (
-          <label key={it.key} className="menu__checkbox">
-            <input
-              type="checkbox"
-              checked={!!filters[it.key]}
-              onChange={() => setFilters(f => ({ ...f, [it.key]: !f[it.key] }))}
-            />
-            <span className="menu__check" />
-            <span className="menu__dot" style={{ background: it.color }}></span>
-            <span className="menu__text">{it.label}</span>
-            <span className="menu__count">{counts[it.key]}</span>
-          </label>
-        ))}
-      </div>
-
-      <div className="menu__section">
-        <div className="menu__label">Тип связей</div>
-        {[
-          { key: 'linkage', label: 'Linkage', color: '#818cf8' },
-          { key: 'fqid', label: 'FQID', color: '#10b981' }
-        ].map(it => (
-          <label key={it.key} className="menu__checkbox">
-            <input
-              type="checkbox"
-              checked={!!filters[it.key]}
-              onChange={() => setFilters(f => ({ ...f, [it.key]: !f[it.key] }))}
-            />
-            <span className="menu__check" />
-            <span className="menu__dot" style={{ background: it.color }}></span>
-            <span className="menu__text">{it.label}</span>
-            <span className="menu__count">{counts[it.key]}</span>
-          </label>
-        ))}
-      </div>
-
-      <div className="menu__section">
-        <div className="menu__label">Namespace</div>
-        <input
-          className="menu__input"
-          type="text"
-          placeholder="sgrc.risk.*, !test.*"
-          value={namespaceFilter}
-          onChange={e => setNamespaceFilter(e.target.value)}
-        />
-        <div className="menu__hint">
-          Несколько масок через <b>,</b> <b>;</b> или пробел.<br />
-          <b>!</b> в начале — исключить.<br />
-          <b>*</b> — любое количество символов.
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AnalysisMenu({
-  cycleHighlight, handleFindCycles,
-  isolatedOnly, setIsolatedOnly,
-  nsMode, setNsMode,
-  close
-}) {
-  return (
-    <div className="menu">
-      <button
-        className={'menu__item' + (cycleHighlight ? ' menu__item--active' : '')}
-        onClick={() => { handleFindCycles(); close(); }}
-      >
-        <span className="menu__icon">🔁</span>
-        <span className="menu__text">
-          Найти циклы
-          {cycleHighlight && <span className="menu__badge">{cycleHighlight.sccCount}</span>}
-        </span>
-      </button>
-      <button
-        className={'menu__item' + (isolatedOnly ? ' menu__item--active' : '')}
-        onClick={() => { setIsolatedOnly(v => !v); close(); }}
-      >
-        <span className="menu__icon">◯</span>
-        <span className="menu__text">Только изолированные</span>
-      </button>
-      <div className="menu__divider" />
-      <button
-        className={'menu__item' + (nsMode ? ' menu__item--active' : '')}
-        onClick={() => { setNsMode(v => !v); close(); }}
-      >
-        <span className="menu__icon">🗂</span>
-        <span className="menu__text">Агрегация по семействам</span>
-      </button>
-    </div>
-  );
-}
-
-function DataMenu({ handleExportJSON, snapshotInputRef, handleSnapshotUpload, diffMode, setDiffMode, close }) {
-  return (
-    <div className="menu">
-      <button className="menu__item" onClick={() => { handleExportJSON(); close(); }}>
-        <span className="menu__icon">💾</span>
-        <span className="menu__text">Экспорт графа в JSON</span>
-      </button>
-      <label className="menu__item">
-        <span className="menu__icon">⇄</span>
-        <span className="menu__text">Загрузить снимок для diff</span>
-        <input
-          ref={snapshotInputRef}
-          type="file"
-          accept="application/json"
-          style={{ display: 'none' }}
-          onChange={(e) => { handleSnapshotUpload(e); close(); }}
-        />
-      </label>
-      {diffMode && (
-        <button className="menu__item menu__item--danger" onClick={() => { setDiffMode(null); close(); }}>
-          <span className="menu__icon">✕</span>
-          <span className="menu__text">Сбросить diff</span>
-        </button>
-      )}
-    </div>
-  );
-}
-
-// --- Tooltip ---
-function HoverTooltip({ tooltip }) {
-  if (!tooltip) return null;
-  const { html, x, y } = tooltip;
-  return (
-    <div
-      className="tooltip"
-      style={{ left: x, top: y }}
-      onMouseEnter={() => { window.__tooltipHovered = true; }}
-      onMouseLeave={() => {
-        window.__tooltipHovered = false;
-        // Скрываем тултип через общий колбэк
-        if (window.__hideTooltip) window.__hideTooltip();
-      }}
-    >
-      <div dangerouslySetInnerHTML={{ __html: html }} />
-    </div>
-  );
-}
-
-// --- Main App ---
-function App() {
-  const initial = useMemo(() => toReactFlow(GRAPH_DATA), []);
-  const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
-  const [filters, setFilters] = useState({ domain: true, broken: true, missing: true, linkage: true, fqid: true });
-  const [namespaceFilter, setNamespaceFilter] = useState('');
-  const [editorOpen, setEditorOpen] = useState(false);
-  const [editorPath, setEditorPath] = useState('');
-  const [tooltip, setTooltip] = useState(null);
-  const [selectedNodeId, setSelectedNodeId] = useState(null);
-  const hideTimer = useRef(null);
-  const tooltipHovered = useRef(false);
-  const editorRef = useRef(null);
-  const wrapperRef = useRef(null);
-  const rfInstance = useRef(null);
-  const hoverTimeout = useRef(null);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchIndex, setSearchIndex] = useState(0);
-  const searchInputRef = useRef(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  
-  
-  
-  const [cycleHighlight, setCycleHighlight] = useState(null); // { nodeIds:Set, edgeIds:Set, sccCount }
-  const [isolatedOnly, setIsolatedOnly] = useState(false);
-  const [nsMode, setNsMode] = useState(false);         // режим агрегации по неймспейсам
-  const [diffMode, setDiffMode] = useState(null);      // { addedEdges, addedNodes, removedEdges, removedNodes }
-  const snapshotInputRef = useRef(null);
-  
-  
-  const activeFiltersCount = useMemo(() => {
-    let c = 0;
-    if (!filters.domain) c++;
-    if (!filters.missing) c++;
-    if (!filters.broken) c++;
-    if (!filters.linkage) c++;
-    if (!filters.fqid) c++;
-    if (namespaceFilter.trim()) c++;
-    if (isolatedOnly) c++;
-    return c;
-  }, [filters, namespaceFilter, isolatedOnly]);
-  
-  useEffect(() => {
-    setSelectedNodeId(null);
-    setCycleHighlight(null);
-    const t = setTimeout(() => rfInstance.current?.fitView({ duration: 500, padding: 0.2 }), 100);
-    return () => clearTimeout(t);
-  }, [nsMode]);
-  
-  const handleFindCycles = useCallback(() => {
-  if (cycleHighlight) {
-    setCycleHighlight(null);
-    return;
-  }
-  const { sccs, cycleNodes, cycleEdges } = findCycles(nodes, edges);
-  if (cycleNodes.size === 0) {
-    alert('Циклы не найдены ✅');
-    return;
-  }
-  setCycleHighlight({
-    nodeIds: cycleNodes,
-    edgeIds: cycleEdges,
-    sccCount: sccs.length
-  });
-  setSelectedNodeId(null);
-  setTimeout(() => rfInstance.current?.fitView({ duration: 500, padding: 0.25 }), 50);
-}, [nodes, edges, cycleHighlight]);
-
-const handleSnapshotUpload = useCallback((e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (ev) => {
-    try {
-      const snap = JSON.parse(ev.target.result);
-      const snapEdgeIds = new Set(snap.edges.map(x => x.id));
-      const snapNodeIds = new Set(snap.nodes.map(x => x.id));
-      const curEdgeIds = new Set(edges.map(x => x.id));
-      const curNodeIds = new Set(nodes.map(x => x.id));
-
-      const addedEdges = new Set();
-      const removedEdges = new Set();
-      const addedNodes = new Set();
-      const removedNodes = new Set();
-
-      curEdgeIds.forEach(id => { if (!snapEdgeIds.has(id)) addedEdges.add(id); });
-      snapEdgeIds.forEach(id => { if (!curEdgeIds.has(id)) removedEdges.add(id); });
-      curNodeIds.forEach(id => { if (!snapNodeIds.has(id)) addedNodes.add(id); });
-      snapNodeIds.forEach(id => { if (!curNodeIds.has(id)) removedNodes.add(id); });
-
-      const totals = {
-        addedEdges: addedEdges.size,
-        removedEdges: removedEdges.size,
-        addedNodes: addedNodes.size,
-        removedNodes: removedNodes.size
-      };
-
-      setDiffMode({ addedEdges, removedEdges, addedNodes, removedNodes, snapshot: snap, totals });
-
-      // Предупреждение при больших расхождениях
-      const totalChanges = totals.addedEdges + totals.removedEdges + totals.addedNodes + totals.removedNodes;
-
-      console.log('[diff] totals:', totals, 'snapshot scope:', snap.scope || 'unknown');
-    } catch (err) {
-      alert('Ошибка чтения снимка: ' + err.message);
-    }
-  };
-  reader.readAsText(file);
-  e.target.value = '';
-}, [nodes, edges]);
-
-
-  
-  const tooltipHtmlCache = useRef(new Map());
-const getNodeTooltipHtml = useCallback((node) => {
-  const key = node.id;
-  if (tooltipHtmlCache.current.has(key)) return tooltipHtmlCache.current.get(key);
-  const html = buildTooltipHtml(
-    node.data.domainId,
-    node.data.label,
-    node.data.nodeType,
-    node.data.filePath,
-    node.data.version,
-    node.data.entitiesCount,
-    node.data.fqidRefs
-  );
-  tooltipHtmlCache.current.set(key, html);
-  return html;
-}, []);
-  
-  // Счётчики для чипов фильтра
-const counts = useMemo(() => ({
-  domain: nodes.filter(n => n.data.nodeType === 'domain').length,
-  missing: nodes.filter(n => n.data.nodeType === 'missing').length,
-  broken: nodes.filter(n => n.data.nodeType === 'broken').length,
-  linkage: edges.filter(e => e.data?.kind === 'linkage').length,
-  fqid: edges.filter(e => e.data?.kind === 'fqid').length
-}), [nodes, edges]);
-
-// Топ-5 доменов по числу связей (входящих + исходящих)
-const topConnected = useMemo(() => {
-  const degree = new Map();
-  nodes.forEach(n => degree.set(n.id, 0));
-  edges.forEach(e => {
-    if (degree.has(e.source)) degree.set(e.source, degree.get(e.source) + 1);
-    if (degree.has(e.target)) degree.set(e.target, degree.get(e.target) + 1);
-  });
-  return nodes
-    .map(n => ({ node: n, degree: degree.get(n.id) || 0 }))
-    .filter(x => x.degree > 0)
-    .sort((a, b) => b.degree - a.degree)
-    .slice(0, 5);
-}, [nodes, edges]);
-
-// Топ-5 доменов по исходящим FQID-ссылкам
-const topRefs = useMemo(() => {
-  return nodes
-    .map(n => ({ node: n, count: (n.data.fqidRefs || []).length }))
-    .filter(x => x.count > 0)
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 5);
-}, [nodes]);
-
-// Разбивка по неймспейсам (первые 2 сегмента id)
-const namespaces = useMemo(() => {
-  const map = new Map();
-  nodes.forEach(n => {
-    if (n.data.nodeType !== 'domain') return;
-    const parts = n.data.domainId.split('.');
-    const ns = parts.slice(0, 2).join('.');
-    map.set(ns, (map.get(ns) || 0) + 1);
-  });
-  return Array.from(map.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 6);
-}, [nodes]);
-
-// Облако тегов
-const tagCloud = useMemo(() => {
-  const map = new Map();
-  nodes.forEach(n => {
-    (n.data.tags || []).forEach(t => {
-      const key = String(t);
-      map.set(key, (map.get(key) || 0) + 1);
-    });
-  });
-  return Array.from(map.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 14);
-}, [nodes]);
-
-// Изолированные домены (без связей)
-const isolatedCount = useMemo(() => {
-  const connected = new Set();
-  edges.forEach(e => { connected.add(e.source); connected.add(e.target); });
-  return nodes.filter(n => n.data.nodeType === 'domain' && !connected.has(n.id)).length;
-}, [nodes, edges]);
-
-// Общее число FQID-ссылок
-const totalFqidRefs = useMemo(
-  () => nodes.reduce((sum, n) => sum + (n.data.fqidRefs?.length || 0), 0),
-  [nodes]
-);
-  
-  const domainToNodeId = useMemo(() => {
-    const map = new Map();
-    nodes.forEach(n => {
-      const d = (n.data.domainId || '').toLowerCase();
-      if (d) map.set(d, n.id);
-    });
-    return map;
-  }, [nodes]);
-
-  // --- Filters ---
-  // Производные данные: если включён ns-режим — агрегация, иначе оригинал
-  const display = useMemo(() => {
-    if (!nsMode) return { nodes, edges };
-    const agg = aggregateByNamespace(nodes, edges);
-    return agg;
-  }, [nodes, edges, nsMode]);
-  
-  const displayNodes = display.nodes;
-  const displayEdges = display.edges;
-  
-  // Базовая фильтрация (тип + namespace)
-  const filteredNodes = useMemo(() => {
-    const connected = new Set();
-    displayEdges.forEach(e => { connected.add(e.source); connected.add(e.target); });
-  
-    return displayNodes.filter(n => {
-      const t = n.data.nodeType;
-      // в ns-режиме все узлы имеют nodeType='domain' — фильтры Broken/Missing не влияют
-      if (t === 'domain' && !filters.domain) return false;
-      if (t === 'broken' && !filters.broken) return false;
-      if (t === 'missing' && !filters.missing) return false;
-      if (namespaceFilter && !matchesNamespace(n.data.domainId, namespaceFilter)) return false;
-      if (isolatedOnly && (t !== 'domain' || connected.has(n.id))) return false;
-      return true;
-    });
-  }, [displayNodes, displayEdges, filters, namespaceFilter, isolatedOnly]);
-  
-  const filteredEdges = useMemo(() => {
-    const ids = new Set(filteredNodes.map(n => n.id));
-    return displayEdges.filter(e => {
-      if (!ids.has(e.source) || !ids.has(e.target)) return false;
-      const kind = e.data?.kind;
-      if (kind === 'linkage' && !filters.linkage) return false;
-      if (kind === 'fqid' && !filters.fqid) return false;
-      return true;
-    });
-  }, [displayEdges, filteredNodes, filters.linkage, filters.fqid]);
-
-  // Множества для подсветки
-  const { highlightedNodeIds, highlightedEdgeIds, highlightColor } = useMemo(() => {
-    if (cycleHighlight) {
-      return {
-        highlightedNodeIds: cycleHighlight.nodeIds,
-        highlightedEdgeIds: cycleHighlight.edgeIds,
-        highlightColor: '#f97316'
-      };
-    }
-    if (!selectedNodeId) return { highlightedNodeIds: null, highlightedEdgeIds: null, highlightColor: '#fbbf24' };
-    const nodeIds = new Set([selectedNodeId]);
-    const edgeIds = new Set();
-    filteredEdges.forEach(e => {
-      if (e.source === selectedNodeId || e.target === selectedNodeId) {
-        edgeIds.add(e.id);
-        nodeIds.add(e.source);
-        nodeIds.add(e.target);
-      }
-    });
-    return { highlightedNodeIds: nodeIds, highlightedEdgeIds: edgeIds, highlightColor: '#fbbf24' };
-  }, [selectedNodeId, cycleHighlight, filteredEdges]);
-    
-  const searchResults = useMemo(() => {
-  const q = searchQuery.trim().toLowerCase();
-  if (!q) return [];
-
-  return nodes
-    .map(n => {
-      const d = n.data || {};
-      const id = (d.domainId || '').toLowerCase();
-      const name = (d.name || '').toLowerCase();
-      const description = (d.description || '').toLowerCase();
-      const tags = Array.isArray(d.tags) ? d.tags.map(t => String(t).toLowerCase()) : [];
-
-      const matches = [];
-      if (id.includes(q)) matches.push({ field: 'id', value: d.domainId });
-      if (name.includes(q)) matches.push({ field: 'name', value: d.name });
-      if (description.includes(q)) matches.push({ field: 'description', value: d.description });
-      tags.forEach(tag => {
-        if (tag.includes(q)) matches.push({ field: 'tags', value: tag });
-      });
-
-      return matches.length > 0 ? { node: n, matches } : null;
-    })
-    .filter(Boolean)
-    // Сортировка: сначала совпадения по id, потом по name, потом остальные
-    .sort((a, b) => {
-      const rank = (r) => {
-        const fields = r.matches.map(m => m.field);
-        if (fields.includes('id')) return 0;
-        if (fields.includes('name')) return 1;
-        if (fields.includes('tags')) return 2;
-        return 3;
-      };
-      return rank(a) - rank(b);
-    })
-    .slice(0, 100);
-}, [searchQuery, nodes]);
-  
-  useEffect(() => { setSearchIndex(0); }, [searchQuery]);
-  
-  const gotoDomainByDomainId = useCallback((domainId) => {
-  if (!domainId) return;
-  const nodeId = domainToNodeId.get(domainId.toLowerCase());
-  if (!nodeId) return;
-  const node = nodes.find(n => n.id === nodeId);
-  if (!node || !rfInstance.current) return;
-  const cx = node.position.x + NODE_WIDTH / 2;
-  const cy = node.position.y + NODE_HEIGHT / 2;
-  const zoom = Math.max(rfInstance.current.getZoom(), 1.2);
-  rfInstance.current.setCenter(cx, cy, { zoom, duration: 500 });
-  setSelectedNodeId(nodeId);
-}, [domainToNodeId, nodes]);
-
-const openSearch = useCallback(() => {
-  setSearchQuery('');
-  setSearchIndex(0);
-  setSearchOpen(true);
-  setTimeout(() => searchInputRef.current?.focus(), 50);
-}, []);
-
-const closeSearch = useCallback(() => {
-  setSearchOpen(false);
-}, []);
-
-const handleSearchKeyDown = useCallback((e) => {
-  if (e.key === 'Escape') {
-    e.preventDefault();
-    closeSearch();
-  } else if (e.key === 'ArrowDown') {
-    e.preventDefault();
-    setSearchIndex(i => Math.min(i + 1, Math.max(searchResults.length - 1, 0)));
-  } else if (e.key === 'ArrowUp') {
-    e.preventDefault();
-    setSearchIndex(i => Math.max(i - 1, 0));
-  } else if (e.key === 'Enter') {
-    e.preventDefault();
-    const target = searchResults.length === 1
-      ? searchResults[0]
-      : searchResults[searchIndex];
-    if (target) {
-      gotoDomainByDomainId(target.node.data.domainId);
-      closeSearch();
-    }
-  }
-}, [searchResults, searchIndex, gotoDomainByDomainId, closeSearch]);
-
-useEffect(() => {
-  const handler = (e) => {
-    // Shift+Tab — toggle поиска
-    if (e.shiftKey && e.key === 'Tab') {
-      e.preventDefault();
-      e.stopPropagation();
-      if (searchOpen) {
-        closeSearch();
-      } else {
-        openSearch();
-      }
-      return;
-    }
-    // Ctrl/Cmd+K — альтернативный шорткат (на всякий случай)
-    if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
-      e.preventDefault();
-      openSearch();
-    }
-  };
-  window.addEventListener('keydown', handler, true);
-  return () => window.removeEventListener('keydown', handler, true);
-}, [searchOpen, openSearch, closeSearch]);
-
-// Финальные узлы с учётом подсветки
-  const visibleNodes = useMemo(() => {
-    if (!highlightedNodeIds && !diffMode) return filteredNodes;
-    return filteredNodes.map(n => {
-      const dimmed = highlightedNodeIds ? !highlightedNodeIds.has(n.id) : false;
-      const isAdded = diffMode?.addedNodes?.has(n.id);
-      let opacity = dimmed ? 0.15 : 1;
-      let outline = null;
-      if (isAdded) { opacity = 1; outline = '2px solid #22c55e'; }
-      return {
-        ...n,
-        style: { opacity, transition: 'opacity 0.2s', ...(outline ? { outline, borderRadius: 10 } : {}) },
-        data: { ...n.data, dimmed }
-      };
-    });
-  }, [filteredNodes, highlightedNodeIds, diffMode]);
-
-  // Финальные рёбра с учётом подсветки
-  const visibleEdges = useMemo(() => {
-    if (!highlightedEdgeIds && !diffMode) return filteredEdges;
-    return filteredEdges.map(e => {
-      const hl = highlightedEdgeIds ? highlightedEdgeIds.has(e.id) : false;
-      const baseColor = e.data?.kind === 'linkage' ? '#818cf8'
-        : e.data?.kind === 'fqid' ? '#10b981' : '#818cf8';
-      let stroke = baseColor;
-      let opacity = highlightedEdgeIds ? (hl ? 1 : 0.08) : 0.85;
-      let strokeWidth = hl ? (e.data?.kind === 'linkage' ? 3 : 2) : e.style?.strokeWidth || 1.5;
-      let animated = hl;
-  
-      // Diff-подсветка: added = зелёный, removed = красный пунктир
-      if (diffMode) {
-        if (diffMode.addedEdges.has(e.id)) { stroke = '#22c55e'; opacity = 1; strokeWidth = 3; animated = true; }
-        else if (diffMode.removedEdges.has(e.id)) { stroke = '#ef4444'; opacity = 1; strokeWidth = 3; }
-      }
-  
-      return {
-        ...e,
-        animated,
-        style: { ...e.style, stroke, opacity, strokeWidth },
-        markerEnd: { ...e.markerEnd, color: stroke }
-      };
-    });
-  }, [filteredEdges, highlightedEdgeIds, highlightColor, diffMode]);
-  
-  const handleExportJSON = useCallback(() => {
-  const data = {
-    exportedAt: new Date().toISOString(),
-    stats: { nodes: nodes.length, edges: edges.length },
-    nodes: nodes.map(n => ({
-      id: n.id,
-      domainId: n.data.domainId,
-      label: n.data.label,
-      nodeType: n.data.nodeType,
-      filePath: n.data.filePath,
-      description: n.data.description,
-      tags: n.data.tags
-    })),
-    edges: edges.map(e => ({
-      id: e.id,
-      source: e.source,
-      target: e.target,
-      label: e.label,
-      kind: e.data?.kind,
-      fullLabel: e.data?.fullLabel,
-      refCount: e.data?.refCount
-    }))
-  };
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'domain-graph-' + new Date().toISOString().slice(0, 19).replace(/[:.]/g, '-') + '.json';
-  a.click();
-  URL.revokeObjectURL(url);
-}, [nodes, edges]);
-
-  const showTooltipFor = useCallback((html, event) => {
-    clearTimeout(hideTimer.current);
-    const x = event.clientX + 16;
-    const y = event.clientY + 16;
-    setTooltip({ html, x, y });
-  }, []);
-
-  const scheduleHideTooltip = useCallback(() => {
-    clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(() => {
-      if (!window.__tooltipHovered) setTooltip(null);
-    }, 250);
-  }, []);
-  
-  // --- Handlers ---
- const handleNodeClick = useCallback((event, node) => {
-    // Переключаем выделение
-    setSelectedNodeId(prev => prev === node.id ? null : node.id);
-  }, []);
-
-  const handleNodeMouseEnter = useCallback((event, node) => {
-    clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(() => {
-      const html = getNodeTooltipHtml(node);
-      showTooltipFor(html, event);
-    }, 120);
-  }, [showTooltipFor]);
-
-  const handleNodeMouseLeave = useCallback(() => {
-    scheduleHideTooltip();
-  }, [scheduleHideTooltip]);
-
-  const handleEdgeMouseEnter = useCallback((event, edge) => {
-    clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(() => {
-      const refs = edge.data?.fqidRefs || [];
-      const html = buildEdgeTooltipHtml(edge, refs);
-      showTooltipFor(html, event);
-    }, 120);
-  }, [showTooltipFor]);
-
-  const handleEdgeMouseLeave = useCallback(() => {
-    scheduleHideTooltip();
-  }, [scheduleHideTooltip]);
-
-  const handleOpenFqidRef = useCallback((filePath, fqid) => {
-    if (!filePath) return;
-    setEditorPath(filePath);
-    setEditorOpen(true);
-    fetch('/file?path=' + encodeURIComponent(filePath))
-      .then(r => r.ok ? r.text() : Promise.reject('File not found'))
-      .then(content => {
-        if (editorRef.current) {
-          editorRef.current.setValue(content);
-          if (fqid) {
-            setTimeout(() => {
-              const NEWLINE = String.fromCharCode(10);
-              const lines = content.split(NEWLINE);
-              for (let i = 0; i < lines.length; i++) {
-                if (lines[i].includes(fqid)) {
-                  editorRef.current.revealLineInCenter(i + 1);
-                  editorRef.current.setSelection({
-                    startLineNumber: i + 1, startColumn: 1,
-                    endLineNumber: i + 1, endColumn: lines[i].length + 1
-                  });
-                  break;
-                }
-              }
-            }, 100);
-          }
-        }
-      })
-      .catch(() => {
-        if (editorRef.current) editorRef.current.setValue('// Не удалось загрузить файл');
-      });
-    setTooltip(null);
-  }, []);
-    
-  const handlePaneDoubleClick = useCallback((event) => {
-    if (!rfInstance.current) return;
-    const { screenToFlowPosition, setCenter, getZoom } = rfInstance.current;
-    const pos = screenToFlowPosition({ x: event.clientX, y: event.clientY });
-    const z = getZoom();
-    setCenter(pos.x, pos.y, { zoom: Math.min(z * 1.8, 5), duration: 400 });
-  }, []);
-
-  const handlePaneClick = useCallback(() => {
-    setTooltip(null);
-  }, []);
-
-  // --- Toolbar actions ---
-  const savePng = useCallback(() => {
-    const rf = document.querySelector('.react-flow__viewport');
-    if (!rf) return;
-    const svg = document.querySelector('.react-flow__edges')?.ownerSVGElement?.parentElement;
-    // Используем html-to-image через canvas (упрощенный вариант через прокси)
-    // Просто сохраняем через canvas ReactFlow
-    const canvas = document.querySelector('.react-flow__pane')?.parentElement?.querySelector('canvas');
-    // ReactFlow рисует SVG поверх. Используем ручное преобразование:
-    alert('Функция экспорта в PNG доступна через встроенную кнопку ReactFlow. Используйте скриншот.');
-  }, []);
-
-  const resetLayout = useCallback(() => {
-    const layouted = layoutGraph(
-      nodes.map(n => ({ ...n, position: { x: 0, y: 0 } })),
-      edges
-    );
-    setNodes(layouted);
-    setTimeout(() => rfInstance.current?.fitView({ duration: 500, padding: 0.2 }), 50);
-  }, [nodes, edges, setNodes]);
-
-  const fitView = useCallback(() => {
-    rfInstance.current?.fitView({ duration: 500, padding: 0.2 });
-  }, []);
-  
-  // Позиционирование тултипа в пределах окна
-  useEffect(() => {
-    if (!tooltip) return;
-    const el = document.querySelector('.tooltip');
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    let x = tooltip.x;
-    let y = tooltip.y;
-    const margin = 8;
-    if (x + rect.width > window.innerWidth - margin) {
-      x = Math.max(margin, window.innerWidth - rect.width - margin);
-    }
-    if (y + rect.height > window.innerHeight - margin) {
-      y = Math.max(margin, window.innerHeight - rect.height - margin);
-    }
-    if (x !== tooltip.x || y !== tooltip.y) {
-      setTooltip(t => t ? { ...t, x, y } : null);
-    }
-  }, [tooltip]);
-  
-  useEffect(() => {
-  const handler = (e) => {
-    // Открыть файл
-    const openBtn = e.target.closest('.js-open-file');
-    if (openBtn) {
-      e.stopPropagation();
-      e.preventDefault();
-      const file = openBtn.getAttribute('data-file');
-      const fqid = openBtn.getAttribute('data-fqid');
-      handleOpenFqidRef(file, fqid);
-      return;
-    }
-
-    // Перейти к домену
-    const gotoBtn = e.target.closest('.js-goto-domain');
-    if (gotoBtn) {
-      e.stopPropagation();
-      e.preventDefault();
-      const domainId = gotoBtn.getAttribute('data-domain');
-      if (!domainId) return;
-
-      const nodeId = domainToNodeId.get(domainId.toLowerCase());
-      if (!nodeId) {
-        console.warn('Node not found for domain:', domainId);
-        return;
-      }
-      const node = nodes.find(n => n.id === nodeId);
-      if (!node) return;
-
-      // Центрируем камеру на узле
-      if (rfInstance.current) {
-        const nodeW = NODE_WIDTH;
-        const nodeH = NODE_HEIGHT;
-        const cx = node.position.x + nodeW / 2;
-        const cy = node.position.y + nodeH / 2;
-        const zoom = Math.max(rfInstance.current.getZoom(), 1.2);
-        rfInstance.current.setCenter(cx, cy, { zoom, duration: 500 });
-      }
-
-      // Выделяем узел и подсвечиваем его связи
-      setSelectedNodeId(nodeId);
-
-      // Скрываем тултип
-      setTooltip(null);
-      window.__tooltipHovered = false;
-      return;
-    }
-  };
-
-  document.addEventListener('click', handler, true);
-  return () => document.removeEventListener('click', handler, true);
-}, [handleOpenFqidRef, domainToNodeId, nodes]);
-  
-  useEffect(() => {
-    window.__hideTooltip = () => {
-      // Мягкое скрытие с задержкой
-      clearTimeout(hideTimer.current);
-      hideTimer.current = setTimeout(() => {
-        if (!window.__tooltipHovered) setTooltip(null);
-      }, 100);
-    };
-    return () => { delete window.__hideTooltip; };
-  }, []);
-
-  // Stats
-  const stats = GRAPH_DATA.stats;
-  const domainCount = GRAPH_DATA.domainCount;
-  const linkCount = GRAPH_DATA.linkCount;
-  const missingCount = GRAPH_DATA.missingCount;
-  const brokenCount = GRAPH_DATA.brokenCount;
-  
-  const onNodesChangeFiltered = useCallback((changes) => {
-    const meaningful = changes.filter(c => c.type !== 'dimensions');
-    if (meaningful.length === 0) return;
-    onNodesChange(meaningful);
-  }, [onNodesChange]);
-
-  return (
-    <div className="app">
-      <aside className={'sidebar' + (sidebarCollapsed ? ' sidebar--collapsed' : '')}>
-          {sidebarCollapsed ? (
-            <button
-              className="sidebar__expand"
-              onClick={() => setSidebarCollapsed(false)}
-              title="Развернуть панель"
-            >
-              ›
-            </button>
-          ) : (
-            <>
-              <div className="sidebar__header">
-                <div className="sidebar__logo">🌐</div>
-                <div style={{ flex: 1 }}>
-                  <div className="sidebar__title">Domain Graph</div>
-                  <div className="sidebar__subtitle">Analyzer</div>
-                </div>
-                <button
-                  className="sidebar__collapse"
-                  onClick={() => setSidebarCollapsed(true)}
-                  title="Свернуть панель"
-                >
-                  ‹
-                </button>
-              </div>
-        
-              <div className="sidebar__body">
-                {/* --- Основные метрики --- */}
-                <div className="section">
-                  <div className="section__title">Обзор</div>
-                  <div className="stats-grid">
-                    <div className="stat-card stat-card--accent">
-                      <div className="stat-card__value">{nodes.length}</div>
-                      <div className="stat-card__label">Всего узлов</div>
-                    </div>
-                    <div className="stat-card stat-card--success">
-                      <div className="stat-card__value">{edges.length}</div>
-                      <div className="stat-card__label">Связей</div>
-                    </div>
-                    <div className="stat-card stat-card--warning">
-                      <div className="stat-card__value">{counts.missing}</div>
-                      <div className="stat-card__label">Missing</div>
-                    </div>
-                    <div className="stat-card stat-card--danger">
-                      <div className="stat-card__value">{counts.broken}</div>
-                      <div className="stat-card__label">Broken</div>
-                    </div>
-                  </div>
-                </div>
-        
-                {/* --- Метрики связности --- */}
-                <div className="section">
-                  <div className="section__title">Связность</div>
-                  <div className="mini-stats">
-                    <div className="mini-stat">
-                      <span className="mini-stat__label">Домены</span>
-                      <span className="mini-stat__value">{counts.domain}</span>
-                    </div>
-                    <div className="mini-stat">
-                      <span className="mini-stat__label">Изолированы</span>
-                      <span className="mini-stat__value">{isolatedCount}</span>
-                    </div>
-                    <div className="mini-stat">
-                      <span className="mini-stat__label">Linkage</span>
-                      <span className="mini-stat__value">{counts.linkage}</span>
-                    </div>
-                    <div className="mini-stat">
-                      <span className="mini-stat__label">FQID-рёбра</span>
-                      <span className="mini-stat__value">{counts.fqid}</span>
-                    </div>
-                    <div className="mini-stat" style={{ gridColumn: 'span 2' }}>
-                      <span className="mini-stat__label">Всего FQID-ссылок</span>
-                      <span className="mini-stat__value">{totalFqidRefs}</span>
-                    </div>
-                  </div>
-                </div>
-        
-                {/* --- Топ по связям --- */}
-                {topConnected.length > 0 && (
-                  <div className="section">
-                    <div className="section__title">Топ по связям</div>
-                    <div className="rank-list">
-                      {topConnected.map((item, i) => (
-                        <button
-                          key={item.node.id}
-                          className="rank-item"
-                          onClick={() => gotoDomainByDomainId(item.node.data.domainId)}
-                          title={item.node.data.domainId}
-                        >
-                          <span className="rank-item__num">{i + 1}</span>
-                          <span className="rank-item__label">{item.node.data.domainId}</span>
-                          <span className="rank-item__value">{item.degree}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-        
-                {/* --- Топ по исходящим ссылкам --- */}
-                {topRefs.length > 0 && (
-                  <div className="section">
-                    <div className="section__title">Топ по исходящим FQID</div>
-                    <div className="rank-list">
-                      {topRefs.map((item, i) => (
-                        <button
-                          key={item.node.id}
-                          className="rank-item"
-                          onClick={() => gotoDomainByDomainId(item.node.data.domainId)}
-                          title={item.node.data.domainId}
-                        >
-                          <span className="rank-item__num">{i + 1}</span>
-                          <span className="rank-item__label">{item.node.data.domainId}</span>
-                          <span className="rank-item__value">{item.count}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-        
-                {/* --- Неймспейсы --- */}
-                {namespaces.length > 0 && (
-                  <div className="section">
-                    <div className="section__title">Неймспейсы</div>
-                    <div className="bar-list">
-                      {namespaces.map(([ns, count]) => {
-                        const max = namespaces[0][1];
-                        const pct = (count / max) * 100;
-                        return (
-                          <button
-                            key={ns}
-                            className="bar-item"
-                            onClick={() => setNamespaceFilter(ns)}
-                            title={'Показать только ' + ns + '.*'}
-                          >
-                            <span className="bar-item__label">{ns}</span>
-                            <span className="bar-item__value">{count}</span>
-                            <span className="bar-item__track">
-                              <span className="bar-item__fill" style={{ width: pct + '%' }}></span>
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-        
-                {/* --- Облако тегов --- */}
-                {tagCloud.length > 0 && (
-                  <div className="section">
-                    <div className="section__title">Теги</div>
-                    <div className="tag-cloud">
-                      {tagCloud.map(([tag, count]) => (
-                        <button
-                          key={tag}
-                          className="tag"
-                          onClick={() => setSearchQuery(tag) || openSearch()}
-                          title={tag + ' (' + count + ')'}
-                        >
-                          {tag}
-                          <span className="tag__count">{count}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-        
-                {/* --- Легенда --- */}
-                <div className="section">
-                  <div className="section__title">Легенда</div>
-                  <div className="toggle-list">
-                    <div className="legend-row">
-                      <span className="legend-dot" style={{ background: 'var(--success)' }}></span>
-                      Domain — корректный
-                    </div>
-                    <div className="legend-row">
-                      <span className="legend-dot" style={{ background: 'var(--warning)' }}></span>
-                      Missing — несуществующий
-                    </div>
-                    <div className="legend-row">
-                      <span className="legend-dot" style={{ background: 'var(--danger)' }}></span>
-                      Broken — ошибка YAML
-                    </div>
-                    <div className="legend-row">
-                      <span className="legend-line" style={{ background: '#818cf8' }}></span>
-                      Linkage — явная связь
-                    </div>
-                    <div className="legend-row">
-                      <span className="legend-line" style={{ background: '#10b981' }}></span>
-                      FQID — неявная ссылка
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
-        </aside>
-
-      <main className="main">
-        <div className="toolbar">
-  <div className="toolbar__group">
-    <button className="btn btn--icon" onClick={fitView} title="Вписать в экран">⛶</button>
-    <button className="btn btn--icon" onClick={resetLayout} title="Переуложить">⟳</button>
-  </div>
-
-  <button className="btn" onClick={openSearch} title="Поиск (Shift+Tab)">
-    <span className="btn__icon">🔍</span>
-    Поиск
-    <kbd className="btn-kbd">⇧ Tab</kbd>
-  </button>
-
-  <Popover
-    width={300}
-    trigger={(open) => (
-      <button className={'btn' + (open ? ' btn--active' : '')}>
-        <span className="btn__icon">⚙️</span>
-        Фильтры
-        {activeFiltersCount > 0 && <span className="btn__badge">{activeFiltersCount}</span>}
-      </button>
-    )}
-  >
-    {() => (
-      <FilterMenu
-        filters={filters}
-        setFilters={setFilters}
-        counts={counts}
-        namespaceFilter={namespaceFilter}
-        setNamespaceFilter={setNamespaceFilter}
-      />
-    )}
-  </Popover>
-
-  <Popover
-    width={280}
-    trigger={(open) => (
-      <button className={'btn' + (open || cycleHighlight || isolatedOnly || nsMode ? ' btn--active' : '')}>
-        <span className="btn__icon">📊</span>
-        Анализ
-      </button>
-    )}
-  >
-    {(close) => (
-      <AnalysisMenu
-        cycleHighlight={cycleHighlight}
-        handleFindCycles={handleFindCycles}
-        isolatedOnly={isolatedOnly}
-        setIsolatedOnly={setIsolatedOnly}
-        nsMode={nsMode}
-        setNsMode={setNsMode}
-        close={close}
-      />
-    )}
-  </Popover>
-
-  <Popover
-    width={260}
-    trigger={(open) => (
-      <button className={'btn' + (open || diffMode ? ' btn--active' : '')}>
-        <span className="btn__icon">💾</span>
-        Данные
-      </button>
-    )}
-  >
-    {(close) => (
-      <DataMenu
-        handleExportJSON={handleExportJSON}
-        snapshotInputRef={snapshotInputRef}
-        handleSnapshotUpload={handleSnapshotUpload}
-        diffMode={diffMode}
-        setDiffMode={setDiffMode}
-        close={close}
-      />
-    )}
-  </Popover>
-
-  {diffMode && (
-    <div className="diff-legend">
-      <span className="diff-legend__item" title="Добавлено">
-        <span className="diff-legend__dot" style={{ background: '#22c55e' }}></span>
-        +{diffMode.addedNodes.size}n / +{diffMode.addedEdges.size}e
-      </span>
-      <span className="diff-legend__item" title="Удалено">
-        <span className="diff-legend__dot" style={{ background: '#ef4444' }}></span>
-        −{diffMode.removedNodes.size}n / −{diffMode.removedEdges.size}e
-      </span>
-      <button className="diff-legend__close" onClick={() => setDiffMode(null)} title="Сбросить">✕</button>
-    </div>
-  )}
-
-  <div className="toolbar__spacer"></div>
-
-  <div className="toolbar__stats">
-    {visibleNodes.length} / {nodes.length} узлов · {visibleEdges.length} / {edges.length} связей
-  </div>
-</div>
-        <div className="graph-container" ref={wrapperRef}>
-          <ReactFlowProvider>
-            <ReactFlowInner
-              nodes={visibleNodes}
-              edges={visibleEdges}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onNodeClick={handleNodeClick}
-              onNodeMouseEnter={handleNodeMouseEnter}
-              onNodeMouseLeave={handleNodeMouseLeave}
-              onEdgeMouseEnter={handleEdgeMouseEnter}
-              onEdgeMouseLeave={handleEdgeMouseLeave}
-              onPaneDoubleClick={handlePaneDoubleClick}
-              onPaneClick={handlePaneClick}
-              setRfInstance={(inst) => { rfInstance.current = inst; }}
-              nsMode={nsMode}
-              readOnly={nsMode}
-              onNodesChange={onNodesChangeFiltered}
-            />
-          </ReactFlowProvider>
-
-          {visibleNodes.length === 0 && (
-            <div className="empty-state">
-              <div className="empty-state__title">Ничего не найдено</div>
-              <div className="empty-state__text">Попробуйте изменить фильтры</div>
-            </div>
-          )}
-
-          <EditorPanel
-            open={editorOpen}
-            filePath={editorPath}
-            editorRef={editorRef}
-            onClose={() => setEditorOpen(false)}
-          />
-        </div>
-      </main>
-
-      <HoverTooltip tooltip={tooltip} onOpenFile={handleOpenFqidRef} />
-      
-      {searchOpen && (
-  <div className="search-overlay" onMouseDown={closeSearch}>
-    <div className="search-modal" onMouseDown={e => e.stopPropagation()}>
-      <div className="search-modal__input-wrap">
-        <span className="search-modal__icon">🔍</span>
-        <input
-          ref={searchInputRef}
-          className="search-modal__input"
-          type="text"
-          placeholder="Поиск домена по id, имени, описанию или тегам"
-          value={searchQuery}
-          onChange={e => setSearchQuery(e.target.value)}
-          onKeyDown={handleSearchKeyDown}
-        />
-        <kbd className="search-modal__kbd">Esc</kbd>
-      </div>
-      <div className="search-modal__results">
-        {searchQuery.trim() === '' ? (
-          <div className="search-modal__hint">Введите запрос для поиска</div>
-        ) : searchResults.length === 0 ? (
-          <div className="search-modal__hint">Ничего не найдено</div>
-        ) : (
-            searchResults.map((item, i) => {
-              const n = item.node;
-              const matchedFields = new Set(item.matches.map(m => m.field));
-              return (
-                <div
-                  key={n.id}
-                  className={'search-result' + (i === searchIndex ? ' active' : '')}
-                  onMouseEnter={() => setSearchIndex(i)}
-                  onClick={() => {
-                    gotoDomainByDomainId(n.data.domainId);
-                    closeSearch();
-                  }}
-                >
-                  <span className={'search-result__dot search-result__dot--' + n.data.nodeType}></span>
-                  <div className="search-result__content">
-                    <div className="search-result__id">
-                      <HighlightedText text={n.data.domainId} query={searchQuery} />
-                      {matchedFields.has('id') && <span className="search-result__badge">id</span>}
-                    </div>
-                    {n.data.name && n.data.name !== n.data.domainId && (
-                      <div className="search-result__label">
-                        <HighlightedText text={n.data.name} query={searchQuery} />
-                        {matchedFields.has('name') && <span className="search-result__badge">name</span>}
-                      </div>
-                    )}
-                    {n.data.description && (
-                      <div className="search-result__desc">
-                        <HighlightedText text={n.data.description} query={searchQuery} />
-                        {matchedFields.has('description') && <span className="search-result__badge">description</span>}
-                      </div>
-                    )}
-                    {Array.isArray(n.data.tags) && n.data.tags.length > 0 && (
-                      <div className="search-result__tags">
-                        {n.data.tags.map((tag, ti) => (
-                          <span key={ti} className="search-result__tag">
-                            <HighlightedText text={tag} query={searchQuery} />
-                          </span>
-                        ))}
-                        {matchedFields.has('tags') && <span className="search-result__badge">tags</span>}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })
-          )}
-      </div>
-      <div className="search-modal__footer">
-        <span><kbd>↑</kbd><kbd>↓</kbd> навигация</span>
-        <span><kbd>Enter</kbd> выбрать</span>
-        <span><kbd>Esc</kbd> закрыть</span>
-      </div>
-    </div>
-  </div>
-)}
-    </div>
-  );
-}
-
-// --- Inner ReactFlow component with instance access ---
-const ReactFlowInner = React.memo(function ReactFlowInner(props) {
-  const rf = useReactFlow();
-  const { setRfInstance } = props;
-  useEffect(() => {
-    setRfInstance(rf);
-  }, [rf, setRfInstance]);
-
-  return (
-    <ReactFlowComponent
-      defaultEdgeOptions={{
-        type: 'smoothstep',
-        labelStyle: { fill: '#e2e8f0', fontSize: 10, fontWeight: 500 },
-        labelBgStyle: { fill: '#0d1424', fillOpacity: 0.95 },
-        labelBgPadding: [4, 2],
-        labelBgBorderRadius: 4
-      }}
-      nodes={props.nodes}
-      edges={props.edges}
-      onNodesChange={props.readOnly ? () => {} : props.onNodesChange}
-      onEdgesChange={props.readOnly ? () => {} : props.onEdgesChange}
-      nodeTypes={nodeTypes}
-      onNodeClick={props.onNodeClick}
-      onNodeMouseEnter={props.onNodeMouseEnter}
-      onNodeMouseLeave={props.onNodeMouseLeave}
-      onEdgeMouseEnter={props.onEdgeMouseEnter}
-      onEdgeMouseLeave={props.onEdgeMouseLeave}
-      onPaneDoubleClick={props.onPaneDoubleClick}
-      onPaneClick={props.onPaneClick}
-      fitView
-      fitViewOptions={{ padding: 0.2 }}
-      minZoom={0.1}
-      maxZoom={4}
-      proOptions={{ hideAttribution: true }}
-      nodesDraggable={!props.readOnly}
-      nodesConnectable={false}
-      elementsSelectable
-      onlyRenderVisibleElements
-      elevateEdgesOnSelect={false}
-      selectNodesOnDrag={false}
-      panOnDrag={true}
-      zoomOnScroll={true}
-      preventScrolling={true}
-      defaultEdgeOptions={{ type: 'smoothstep' }}
-    >
-      <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#1e293b" />
-      <Controls position="bottom-left" />
-      <MiniMap
-        position="bottom-right"
-        nodeColor={(n) => {
-          const t = n.data?.nodeType;
-          if (t === 'missing') return '#f59e0b';
-          if (t === 'broken') return '#ef4444';
-          return '#10b981';
-        }}
-        maskColor="rgba(10,14,26,0.7)"
-        style={{ width: 180, height: 130 }}
-      />
-    </ReactFlowComponent>
-  );
-}, (prev, next) => {
-  return prev.nodes === next.nodes
-    && prev.edges === next.edges
-    && prev.onNodeClick === next.onNodeClick
-    && prev.onNodeMouseEnter === next.onNodeMouseEnter
-    && prev.onNodeMouseLeave === next.onNodeMouseLeave
-    && prev.onEdgeMouseEnter === next.onEdgeMouseEnter
-    && prev.onEdgeMouseLeave === next.onEdgeMouseLeave
-    && prev.onPaneDoubleClick === next.onPaneDoubleClick
-    && prev.onPaneClick === next.onPaneClick;
-});
-
-// --- Tooltip HTML builders ---
-function escapeHtml(s) {
-  if (s === null || s === undefined) return '';
-  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
-
-// --- Tarjan SCC для поиска циклов ---
-function findCycles(nodes, edges) {
-  const adjacency = new Map();
-  nodes.forEach(n => adjacency.set(n.id, []));
-  edges.forEach(e => {
-    if (adjacency.has(e.source)) adjacency.get(e.source).push(e.target);
-  });
-
-  let index = 0;
-  const stack = [];
-  const onStack = new Set();
-  const indices = new Map();
-  const lowlinks = new Map();
-  const sccs = [];
-
-  function strongconnect(v) {
-    indices.set(v, index);
-    lowlinks.set(v, index);
-    index++;
-    stack.push(v);
-    onStack.add(v);
-
-    for (const to of (adjacency.get(v) || [])) {
-      if (!adjacency.has(to)) continue;
-      if (!indices.has(to)) {
-        strongconnect(to);
-        lowlinks.set(v, Math.min(lowlinks.get(v), lowlinks.get(to)));
-      } else if (onStack.has(to)) {
-        lowlinks.set(v, Math.min(lowlinks.get(v), indices.get(to)));
-      }
-    }
-
-    if (lowlinks.get(v) === indices.get(v)) {
-      const scc = [];
-      let w;
-      do { w = stack.pop(); onStack.delete(w); scc.push(w); } while (w !== v);
-      if (scc.length > 1) sccs.push(scc);
-    }
-  }
-
-  for (const n of nodes) if (!indices.has(n.id)) strongconnect(n.id);
-
-  const nodeToScc = new Map();
-  sccs.forEach((scc, i) => scc.forEach(n => nodeToScc.set(n, i)));
-
-  const cycleNodes = new Set();
-  sccs.forEach(scc => scc.forEach(n => cycleNodes.add(n)));
-
-  const cycleEdges = new Set();
-  edges.forEach(e => {
-    const s = nodeToScc.get(e.source);
-    const t = nodeToScc.get(e.target);
-    if (s !== undefined && s === t) cycleEdges.add(e.id);
-  });
-
-  return { sccs, cycleNodes, cycleEdges };
-}
-
-// --- Агрегация по неймспейсам (первые 2 сегмента id) ---
-function aggregateByNamespace(nodes, edges) {
-  const getNs = (domainId) => {
-    const parts = (domainId || '').split('.');
-    return parts.slice(0, 2).join('.') || domainId;
-  };
-
-  const nodeToNs = new Map();
-  const nsCount = new Map();
-  nodes.forEach(n => {
-    const ns = getNs(n.data.domainId);
-    nodeToNs.set(n.id, ns);
-    nsCount.set(ns, (nsCount.get(ns) || 0) + 1);
-  });
-
-  const newNodes = Array.from(nsCount.entries()).map(([ns, count]) => ({
-    id: 'ns_' + ns,
-    type: 'domainNode',
-    data: {
-      domainId: ns,
-      label: ns,
-      nodeType: 'domain',
-      isNamespace: true,
-      childCount: count
-    },
-    position: { x: 0, y: 0 }
-  }));
-
-  const edgeAgg = new Map();
-  edges.forEach(e => {
-    const fromNs = nodeToNs.get(e.source);
-    const toNs = nodeToNs.get(e.target);
-    if (!fromNs || !toNs || fromNs === toNs) return;
-    const key = fromNs + '__' + toNs;
-    if (!edgeAgg.has(key)) {
-      edgeAgg.set(key, {
-        id: 'ns_edge_' + fromNs + '__' + toNs,
-        source: 'ns_' + fromNs,
-        target: 'ns_' + toNs,
-        count: 0,
-        kinds: new Set()
-      });
-    }
-    const a = edgeAgg.get(key);
-    a.count++;
-    if (e.data?.kind) a.kinds.add(e.data.kind);
-  });
-
-  const newEdges = Array.from(edgeAgg.values()).map(a => ({
-    id: a.id,
-    source: a.source,
-    target: a.target,
-    type: 'default',
-    label: String(a.count),
-    data: { isAggregated: true, count: a.count, kinds: Array.from(a.kinds), kind: 'aggregated' },
-    markerEnd: { type: MarkerType.ArrowClosed, color: '#818cf8', width: 14, height: 14 },
-    style: { stroke: '#818cf8', strokeWidth: Math.min(1 + a.count / 6, 4), opacity: 0.85 }
-  }));
-
-  // ← ключевая строка: раскладываем через dagre
-  return { nodes: layoutGraph(newNodes, newEdges), edges: newEdges };
-}
-
-function HighlightedText({ text, query }) {
-  if (text === null || text === undefined) return null;
-  const str = String(text);
-  const q = (query || '').trim();
-  if (!q) return str;
-
-  const lower = str.toLowerCase();
-  const qLower = q.toLowerCase();
-  const parts = [];
-  let pos = 0;
-  let idx = lower.indexOf(qLower, pos);
-  let key = 0;
-
-  while (idx !== -1) {
-    if (idx > pos) parts.push(str.slice(pos, idx));
-    parts.push(
-      React.createElement('mark', { key: 'm' + key++, className: 'search-hl' },
-        str.slice(idx, idx + q.length))
-    );
-    pos = idx + q.length;
-    idx = lower.indexOf(qLower, pos);
-  }
-  if (pos < str.length) parts.push(str.slice(pos));
-
-  return React.createElement(React.Fragment, null, ...parts);
-}
-
-function buildEdgeTooltipHtml(edge, refs, onOpenFile) {
-  const fullLabel = edge.data?.fullLabel || edge.label || edge.id;
-  const link = edge.data?.linkData || {};
-  const nameFrom = link.nameFrom || {};
-
-  // Название стороны — nameFrom.side1/side2, fallback — сам FQID
-  const side1Text = nameFrom.side1 || link.sourceEntity || null;
-  const side2Text = nameFrom.side2 || link.targetEntity || null;
-
-  // Домены сторон уже посчитаны на бэкенде
-  const side1Domain = edge.data?.side1Domain || null;
-  const side2Domain = edge.data?.side2Domain || null;
-
-  function renderSide(labelText, text, domain) {
-    if (!text) return '';
-    const clickable = !!domain;
-    let h = '<div class="tooltip__row"><span class="tooltip__label">' + labelText + '</span>';
-    if (clickable) {
-      h += '<span class="tooltip__value js-goto-domain" '
-        + 'data-domain="' + escapeHtml(domain) + '" '
-        + 'style="cursor:pointer;color:var(--accent-hover);text-decoration:underline dotted">'
-        + escapeHtml(text)
-        + ' <span style="font-size:10px;color:var(--text-500)">→ ' + escapeHtml(domain) + '</span>'
-        + '</span>';
-    } else {
-      h += '<span class="tooltip__value" style="color:var(--text-400)">' + escapeHtml(text) + '</span>';
-    }
-    h += '</div>';
-    return h;
-  }
-
-  let html = '<div class="tooltip__header">Связь: ' + escapeHtml(fullLabel) + '</div>';
-  html += '<div class="tooltip__body">';
-
-  html += renderSide('Сторона 1:', side1Text, side1Domain);
-  html += renderSide('Сторона 2:', side2Text, side2Domain);
-
-  if (side1Text || side2Text) {
-    html += '<div style="height:1px;background:var(--border);margin:10px 0"></div>';
-  }
-
-  if (link.type) {
-    html += '<div class="tooltip__row"><span class="tooltip__label">Тип:</span><span class="tooltip__value">' + escapeHtml(link.type) + '</span></div>';
-  }
-
-  if (refs && refs.length > 0) {
-    html += '<div class="tooltip__label" style="margin-top:8px;margin-bottom:8px">FQID ссылки (' + refs.length + '):</div>';
-    refs.forEach(function(ref) {
-      html += '<div class="tooltip__ref">';
-      html += '<div class="tooltip__fqid js-goto-domain" '
-        + 'data-domain="' + escapeHtml(ref.targetDomainId || '') + '" '
-        + 'style="cursor:pointer">'
-        + escapeHtml(ref.fullFQID)
-        + '</div>';
-      html += '<div class="tooltip__path">' + escapeHtml(ref.propertyPath) + '</div>';
-      html += '<button class="tooltip__btn js-open-file" data-file="' + escapeHtml(ref.filePath || '') + '" data-fqid="' + escapeHtml(ref.fullFQID || '') + '">📂 Открыть</button>';
-      html += '</div>';
-    });
-  }
-
-  html += '</div>';
-  return html;
-}
-
-function buildTooltipHtml(domainId, label, nodeType, filePath, version, entitiesCount, fqidRefs, onOpenFile) {
-  const typeLabel = nodeType === 'domain' ? 'Корректный домен'
-    : nodeType === 'missing' ? 'Несуществующий домен'
-    : 'Битый YAML';
-  const typeColor = nodeType === 'domain' ? '#10b981'
-    : nodeType === 'missing' ? '#f59e0b' : '#ef4444';
-
-  let html = '<div class="tooltip__header" style="color:' + typeColor + '">' + escapeHtml(typeLabel) + '</div>';
-  html += '<div class="tooltip__body">';
-  html += '<div class="tooltip__row"><span class="tooltip__label">ID:</span><span class="tooltip__value">' + escapeHtml(domainId) + '</span></div>';
-  if (label && label !== domainId) {
-    html += '<div class="tooltip__row"><span class="tooltip__label">Название:</span><span class="tooltip__value">' + escapeHtml(label) + '</span></div>';
-  }
-  if (version) {
-    html += '<div class="tooltip__row"><span class="tooltip__label">Версия:</span><span class="tooltip__value">' + escapeHtml(version) + '</span></div>';
-  }
-  if (entitiesCount !== undefined && entitiesCount !== null) {
-    html += '<div class="tooltip__row"><span class="tooltip__label">Entities:</span><span class="tooltip__value">' + entitiesCount + '</span></div>';
-  }
-  if (filePath) {
-    html += '<div class="tooltip__row"><span class="tooltip__label">Файл:</span><span class="tooltip__value" style="font-size:11px">' + escapeHtml(filePath) + '</span></div>';
-    html += '<div style="margin-top:10px"><button class="tooltip__btn js-open-file" data-file="' + escapeHtml(filePath) + '">📂 Открыть файл</button></div>';
-  }
-
-  if (fqidRefs && fqidRefs.length > 0) {
-    html += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">';
-    html += '<div class="tooltip__label" style="margin-bottom:8px">FQID ссылки (' + fqidRefs.length + '):</div>';
-    fqidRefs.forEach(function(ref) {
-      html += '<div class="tooltip__ref">';
-      html += '<div class="tooltip__fqid js-goto-domain" '
-        + 'data-domain="' + escapeHtml(ref.targetDomainId || '') + '" '
-        + 'style="cursor:pointer">'
-        + escapeHtml(ref.fullFQID)
-        + '</div>';
-      html += '<div class="tooltip__path">' + escapeHtml(ref.propertyPath) + '</div>';
-      html += '<button class="tooltip__btn js-open-file" data-file="' + escapeHtml(ref.filePath || '') + '" data-fqid="' + escapeHtml(ref.fullFQID || '') + '">📂 Открыть</button>';
-      html += '</div>';
-    });
-    html += '</div>';
-  }
-  html += '</div>';
-  return html;
-}
-
-// --- Mount ---
-const root = createRoot(document.getElementById('root'));
-root.render(<App />);
-    `;
-
-    const { code } = babel.transformSync(jsxSource, {
-      presets: [['@babel/preset-react', { runtime: 'classic' }]],
-      filename: 'app.jsx',
-      compact: false
-    });
 
     return `<!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Domain Graph Analyzer</title>
-<link rel="stylesheet" href="https://unpkg.com/reactflow@11.11.4/dist/style.css" />
+<link rel="stylesheet" href="https://esm.sh/reactflow@11.11.4/dist/style.css" />
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.2.0",
+    "react-dom": "https://esm.sh/react-dom@18.2.0",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+    "reactflow": "https://esm.sh/reactflow@11.11.4?deps=react@18.2.0,react-dom@18.2.0",
+    "dagre": "https://esm.sh/dagre@0.8.5"
+  }
+}
+</script>
+<script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.34.0/min/vs/loader.min.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-:root {
-  --bg-900: #0a0e1a;
-  --bg-850: #0d1424;
-  --bg-800: #111827;
-  --bg-750: #1a2233;
-  --bg-700: #1e293b;
-  --bg-600: #293548;
-  --border: #1e293b;
-  --border-hover: #334155;
-  --text-100: #f1f5f9;
-  --text-200: #e2e8f0;
-  --text-400: #94a3b8;
+:root, [data-theme="dark"] {
+  --bg-900: #0a0e1a; --bg-850: #0d1424; --bg-800: #111827; --bg-750: #1a2233;
+  --bg-700: #1e293b; --bg-600: #293548; --border: #1e293b; --border-hover: #334155;
+  --text-100: #f1f5f9; --text-200: #e2e8f0; --text-400: #94a3b8; --text-500: #64748b;
+  --accent: #6366f1; --accent-hover: #818cf8; --accent-soft: rgba(99,102,241,0.15);
+  --success: #10b981; --warning: #f59e0b; --danger: #ef4444;
+  --graph-bg: #0a0e1a; --graph-dots: #1e293b;
+}
+[data-theme="light"] {
+  --bg-900: #ffffff;
+  --bg-850: #ffffff;
+  --bg-800: #ffffff;
+  --bg-750: #f8fafc;
+  --bg-700: #f1f5f9;
+  --bg-600: #e2e8f0;
+  --border: #e2e8f0;
+  --border-hover: #94a3b8;
+  --text-100: #0f172a;
+  --text-200: #1e293b;
+  --text-400: #475569;
   --text-500: #64748b;
-  --accent: #6366f1;
-  --accent-hover: #818cf8;
-  --success: #10b981;
-  --warning: #f59e0b;
-  --danger: #ef4444;
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  --accent-soft: rgba(79,70,229,0.10);
+  --success: #047857;
+  --warning: #b45309;
+  --danger: #b91c1c;
+  --graph-bg: #f8fafc;
+  --graph-dots: #cbd5e1;
 }
+[data-theme="light"] body {
+  background: #f1f5f9;
+}
+[data-theme="light"] .sidebar,
+[data-theme="light"] .toolbar,
+[data-theme="light"] .side-panel,
+[data-theme="light"] .side-panel__header,
+[data-theme="light"] .editor-panel__path {
+  background: #ffffff;
+}
+[data-theme="light"] .graph-container {
+  background: var(--graph-bg);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+[data-theme="light"] .rf-node {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  box-shadow: 0 1px 3px rgba(15,23,42,0.08);
+}
+[data-theme="light"] .rf-node:hover {
+  border-color: var(--accent);
+  box-shadow: 0 6px 20px rgba(15,23,42,0.12);
+}
+[data-theme="light"] .rf-node--domain .rf-node__icon { background: rgba(4,120,87,0.12); color: #047857; }
+[data-theme="light"] .rf-node--missing .rf-node__icon { background: rgba(180,83,9,0.12); color: #b45309; }
+[data-theme="light"] .rf-node--broken .rf-node__icon { background: rgba(185,28,28,0.12); color: #b91c1c; }
+[data-theme="light"] .rf-compact--domain { background: rgba(4,120,87,0.12); }
+[data-theme="light"] .rf-compact--missing { background: rgba(180,83,9,0.12); }
+[data-theme="light"] .rf-compact--broken { background: rgba(185,28,28,0.12); }
+[data-theme="light"] .stat-card,
+[data-theme="light"] .mini-stat,
+[data-theme="light"] .rank-item,
+[data-theme="light"] .menu__checkbox:hover,
+[data-theme="light"] .menu__item:hover {
+  background: #f8fafc;
+}
+[data-theme="light"] .stat-card {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 1px 2px rgba(15,23,42,0.04);
+}
+[data-theme="light"] .btn:hover {
+  background: #f1f5f9;
+}
+[data-theme="light"] .popover,
+[data-theme="light"] .ctx-menu,
+[data-theme="light"] .search-modal,
+[data-theme="light"] .tooltip {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  box-shadow: 0 16px 48px rgba(15,23,42,0.15);
+}
+[data-theme="light"] .tooltip__header,
+[data-theme="light"] .tooltip__ref {
+  background: #f8fafc;
+}
+[data-theme="light"] .tooltip__fqid { color: #4338ca; }
+[data-theme="light"] .react-flow__controls {
+  background: #ffffff !important;
+  border-color: #e2e8f0 !important;
+}
+[data-theme="light"] .react-flow__controls-button {
+  border-bottom-color: #e2e8f0 !important;
+  fill: #1e293b !important;
+}
+[data-theme="light"] .react-flow__controls-button svg { fill: #1e293b !important; }
+[data-theme="light"] .react-flow__controls-button:hover { background: #f1f5f9 !important; }
+[data-theme="light"] .react-flow__minimap { background: #ffffff !important; border-color: #e2e8f0; }
+[data-theme="light"] .react-flow__edge-text { fill: #475569; }
+[data-theme="light"] .react-flow__edge-textbg { fill: #ffffff; stroke: #e2e8f0; }
+[data-theme="light"] .search-hl { background: rgba(251,191,36,0.35); color: #78350f; }
+[data-theme="light"] .details__id { background: #f8fafc; }
+[data-theme="light"] .details__ref { background: #f8fafc; }
+[data-theme="light"] .diff-legend { background: #ffffff; }
+[data-theme="light"] .sidebar__header { background: linear-gradient(135deg, rgba(79,70,229,0.06), transparent); }
 html, body, #root { width: 100%; height: 100%; overflow: hidden; }
-body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: var(--bg-900);
-  color: var(--text-100);
-  font-size: 14px;
-  -webkit-font-smoothing: antialiased;
-}
+body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg-900); color: var(--text-100); font-size: 14px; -webkit-font-smoothing: antialiased; }
 .app { display: flex; width: 100vw; height: 100vh; }
 
 /* Sidebar */
-.sidebar {
-  width: 320px;
-  background: var(--bg-850);
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  flex-shrink: 0;
-}
-.sidebar__header {
-  padding: 20px;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  background: linear-gradient(135deg, rgba(99,102,241,0.1), transparent);
-}
-.sidebar__logo {
-  width: 40px; height: 40px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, var(--accent), #8b5cf6);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 20px;
-  box-shadow: 0 4px 12px rgba(99,102,241,0.4);
-}
+.sidebar { width: 320px; background: var(--bg-850); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; transition: width 0.25s cubic-bezier(0.4,0,0.2,1); }
+.sidebar--collapsed { width: 44px; min-width: 44px; }
+.sidebar__header { padding: 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; background: linear-gradient(135deg, var(--accent-soft), transparent); }
+.sidebar__logo { width: 40px; height: 40px; border-radius: 10px; background: linear-gradient(135deg, var(--accent), #8b5cf6); display: flex; align-items: center; justify-content: center; font-size: 20px; box-shadow: 0 4px 12px rgba(99,102,241,0.4); }
 .sidebar__title { font-size: 16px; font-weight: 700; letter-spacing: -0.3px; }
 .sidebar__subtitle { font-size: 11px; color: var(--text-500); text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
-.sidebar__body { flex: 1; overflow-y: auto; padding: 20px; }
+.sidebar__expand, .sidebar__collapse { background: transparent; border: none; color: var(--text-400); cursor: pointer; font-size: 16px; padding: 6px 8px; border-radius: 6px; transition: all 0.15s; font-family: inherit; }
+.sidebar__expand { width: 100%; height: 48px; font-size: 18px; }
+.sidebar__expand:hover, .sidebar__collapse:hover { background: var(--bg-700); color: var(--accent-hover); }
+.sidebar__body { flex: 1; overflow-y: auto; padding: 16px; }
 .sidebar__body::-webkit-scrollbar { width: 6px; }
 .sidebar__body::-webkit-scrollbar-thumb { background: var(--bg-600); border-radius: 3px; }
-
-.section { margin-bottom: 24px; }
-.section__title {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  color: var(--text-500);
-  margin-bottom: 12px;
-}
-
-.stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.stat-card {
-  background: var(--bg-800);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 14px;
-  transition: all 0.2s;
-}
-.stat-card:hover { border-color: var(--border-hover); transform: translateY(-1px); }
-.stat-card__value { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
-.stat-card__label { font-size: 11px; color: var(--text-500); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+.section { margin-bottom: 20px; }
+.section__title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--text-500); margin-bottom: 10px; }
+.stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.stat-card { background: var(--bg-800); border: 1px solid var(--border); border-radius: 10px; padding: 12px; transition: all 0.2s; }
+.stat-card:hover { border-color: var(--border-hover); }
+.stat-card__value { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; }
+.stat-card__label { font-size: 10px; color: var(--text-500); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
 .stat-card--success .stat-card__value { color: var(--success); }
 .stat-card--warning .stat-card__value { color: var(--warning); }
 .stat-card--danger .stat-card__value { color: var(--danger); }
 .stat-card--accent .stat-card__value { color: var(--accent-hover); }
-
-.toggle-list { display: flex; flex-direction: column; gap: 6px; }
-.toggle-btn {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: var(--bg-800);
-  border: 1px solid var(--border);
-  color: var(--text-400);
-  cursor: pointer;
-  font-size: 13px;
-  font-family: inherit;
-  text-align: left;
-  transition: all 0.2s;
-  width: 100%;
-}
-.toggle-btn:hover { border-color: var(--border-hover); color: var(--text-200); }
-.toggle-btn.active { background: var(--bg-700); border-color: var(--accent); color: var(--text-100); }
-.toggle-btn__dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-.toggle-btn__dot--domain { background: var(--success); }
-.toggle-btn__dot--missing { background: var(--warning); }
-.toggle-btn__dot--broken { background: var(--danger); }
-.toggle-btn__count { margin-left: auto; font-size: 11px; color: var(--text-500); }
-
-.input {
-  width: 100%;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: var(--bg-800);
-  border: 1px solid var(--border);
-  color: var(--text-100);
-  font-size: 13px;
-  font-family: inherit;
-  outline: none;
-  transition: all 0.2s;
-}
-.input::placeholder { color: var(--text-500); }
-.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,102,241,0.15); }
-.hint { font-size: 11px; color: var(--text-500); margin-top: 8px; line-height: 1.5; }
-.hint code { background: var(--bg-700); padding: 1px 5px; border-radius: 4px; font-size: 10px; color: var(--accent-hover); }
+.mini-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.mini-stat { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: var(--bg-800); border: 1px solid var(--border); border-radius: 6px; }
+.mini-stat__label { font-size: 11px; color: var(--text-500); }
+.mini-stat__value { font-size: 13px; font-weight: 700; color: var(--text-100); }
+.rank-list { display: flex; flex-direction: column; gap: 2px; }
+.rank-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: transparent; border: none; border-radius: 6px; cursor: pointer; font-family: inherit; color: var(--text-300); font-size: 12px; text-align: left; transition: background 0.15s; width: 100%; }
+.rank-item:hover { background: var(--bg-800); color: var(--text-100); }
+.rank-item__num { width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; background: var(--bg-700); border-radius: 4px; font-size: 10px; font-weight: 700; color: var(--text-500); flex-shrink: 0; }
+.rank-item__label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+.rank-item__value { font-size: 11px; font-weight: 700; color: var(--accent-hover); flex-shrink: 0; }
+.bar-list { display: flex; flex-direction: column; gap: 4px; }
+.bar-item { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; background: transparent; border: none; padding: 4px 0; cursor: pointer; font-family: inherit; text-align: left; color: var(--text-300); font-size: 12px; }
+.bar-item:hover { color: var(--accent-hover); }
+.bar-item__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+.bar-item__value { font-weight: 700; color: var(--text-400); font-size: 11px; }
+.bar-item__track { grid-column: 1 / -1; height: 3px; background: var(--bg-700); border-radius: 2px; overflow: hidden; }
+.bar-item__fill { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), #8b5cf6); border-radius: 2px; transition: width 0.3s; }
+.tag-cloud { display: flex; flex-wrap: wrap; gap: 5px; }
+.tag { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; background: var(--bg-800); border: 1px solid var(--border); border-radius: 12px; color: var(--text-400); font-size: 11px; font-family: inherit; cursor: pointer; transition: all 0.15s; }
+.tag:hover { background: var(--bg-700); border-color: var(--accent); color: var(--accent-hover); }
+.tag__count { font-size: 9px; padding: 0 4px; background: var(--bg-700); border-radius: 6px; color: var(--text-500); font-weight: 700; }
+.legend-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 12px; color: var(--text-400); }
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.legend-line { width: 16px; height: 2px; flex-shrink: 0; border-radius: 1px; }
 
 /* Main */
 .main { flex: 1; display: flex; flex-direction: column; position: relative; min-width: 0; }
@@ -2510,1031 +676,3080 @@ body {
   padding: 0 16px;
   z-index: 10;
   flex-shrink: 0;
+  overflow: visible;   /* было: overflow-x: auto */
 }
 .toolbar__group { display: flex; gap: 4px; background: var(--bg-800); border-radius: 8px; padding: 3px; border: 1px solid var(--border); }
-.toolbar__spacer { flex: 1; }
-.toolbar__title { font-weight: 600; font-size: 14px; color: var(--text-200); }
-.toolbar__stats { color: var(--text-500); font-size: 12px; }
-
-.btn {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 8px 14px;
-  border-radius: 7px;
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--text-200);
-  font-size: 13px;
-  font-family: inherit;
-  cursor: pointer;
-  transition: all 0.15s;
-  font-weight: 500;
-}
+.toolbar__spacer { flex: 1; min-width: 8px; }
+.toolbar__stats { color: var(--text-500); font-size: 12px; white-space: nowrap; }
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 7px; background: transparent; border: 1px solid transparent; color: var(--text-200); font-size: 13px; font-family: inherit; cursor: pointer; transition: all 0.15s; font-weight: 500; white-space: nowrap; }
 .btn:hover { background: var(--bg-700); color: var(--text-100); }
-.btn--primary { background: var(--accent); color: white; }
-.btn--primary:hover { background: var(--accent-hover); }
+.btn--active { background: var(--accent); color: white; }
+.btn--active:hover { background: var(--accent-hover); }
 .btn--icon { padding: 8px; }
+.btn__icon { font-size: 14px; }
+.btn__badge { margin-left: 6px; padding: 1px 6px; background: var(--accent); color: white; border-radius: 10px; font-size: 10px; font-weight: 700; }
+.btn--active .btn__badge { background: rgba(255,255,255,0.3); }
+.btn-kbd { display: inline-block; padding: 2px 6px; background: var(--bg-700); border: 1px solid var(--border-hover); border-radius: 4px; font-size: 10px; font-family: 'JetBrains Mono', monospace; color: var(--text-400); font-weight: 600; margin-left: 4px; }
 
-.graph-container { flex: 1; position: relative; background: var(--bg-900); }
+.graph-container { flex: 1; position: relative; background: var(--graph-bg); min-height: 0; }
 .react-flow__attribution { display: none; }
-
-/* ReactFlow customization */
-.react-flow__background { background: var(--bg-900); }
+.react-flow__background { background: var(--graph-bg) !important; }
 .react-flow__minimap { background: var(--bg-800) !important; border: 1px solid var(--border); border-radius: 8px; }
 .react-flow__minimap-mask { fill: rgba(99,102,241,0.15); }
-.react-flow__controls {
-  background: var(--bg-800) !important;
-  border: 1px solid var(--border) !important;
-  border-radius: 8px !important;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
-  overflow: hidden;
-}
-.react-flow__controls-button {
-  background: transparent !important;
-  border: none !important;
-  border-bottom: 1px solid var(--border) !important;
-  color: var(--text-200) !important;
-  fill: var(--text-200) !important;
-  transition: background 0.15s;
-}
-.react-flow__controls-button:last-child { border-bottom: none !important; }
+.react-flow__controls { background: var(--bg-800) !important; border: 1px solid var(--border) !important; border-radius: 8px !important; box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important; overflow: hidden; }
+.react-flow__controls-button { background: transparent !important; border: none !important; border-bottom: 1px solid var(--border) !important; color: var(--text-200) !important; fill: var(--text-200) !important; }
 .react-flow__controls-button:hover { background: var(--bg-700) !important; }
 .react-flow__controls-button svg { fill: var(--text-200) !important; }
 .react-flow__edge-path { stroke-width: 1.5; }
-.react-flow__edge.selected .react-flow__edge-path { stroke-width: 3; }
-.react-flow__edge-text {
-  fill: var(--text-200);
-  font-size: 10px;
-  font-family: inherit;
-  font-weight: 500;
-}
-.react-flow__edge-textbg {
-  fill: var(--bg-850) !important;
-  stroke: var(--border);
-  stroke-width: 1;
-}
-.react-flow__edge.selected .react-flow__edge-path { stroke: var(--accent-hover); }
-.react-flow__edge:hover .react-flow__edge-path { stroke: var(--accent-hover); }
+.react-flow__edge-text { fill: var(--text-400); font-size: 10px; font-family: inherit; opacity: 0; transition: opacity 0.15s; }
+.react-flow__edge-textbg { fill: var(--bg-850); stroke: var(--border); stroke-width: 1; opacity: 0; transition: opacity 0.15s; }
+.react-flow__edge:hover .react-flow__edge-text,
+.react-flow__edge:hover .react-flow__edge-textbg { opacity: 1; }
+.show-labels .react-flow__edge-text,
+.show-labels .react-flow__edge-textbg { opacity: 1; }
 
-/* Custom node */
-.rf-node {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  height: 100%;
-  padding: 10px 14px;
-  border-radius: 10px;
-  background: var(--bg-800);
-  border: 1.5px solid var(--border);
-  transition: all 0.2s;
-  cursor: pointer;
-  overflow: hidden;
-}
-.rf-node:hover {
-  border-color: var(--accent);
-  transform: translateY(-1px);
-  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-}
+/* Nodes */
+.rf-node { position: relative; display: flex; align-items: center; gap: 10px; width: 100%; height: 100%; padding: 10px 14px; border-radius: 10px; background: var(--bg-800); border: 1.5px solid var(--border); transition: all 0.2s; cursor: pointer; overflow: hidden; }
+.rf-node:hover { border-color: var(--accent); transform: translateY(-1px); box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
 .rf-node--domain { border-left: 3px solid var(--success); }
 .rf-node--missing { border-left: 3px solid var(--warning); }
 .rf-node--broken { border-left: 3px solid var(--danger); }
-.rf-node--selected { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,102,241,0.3); }
-.rf-node__icon {
-  width: 26px; height: 26px;
-  border-radius: 7px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 12px;
-  font-weight: 700;
-  flex-shrink: 0;
-}
+.rf-node--selected { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.rf-node--dimmed { opacity: 0.15; }
+.rf-node--path { border-color: #fbbf24 !important; box-shadow: 0 0 0 3px rgba(251,191,36,0.35) !important; }
+.rf-node--path-endpoint { border-color: #22c55e !important; box-shadow: 0 0 0 3px rgba(34,197,94,0.4) !important; }
+.rf-node__icon { width: 26px; height: 26px; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; }
 .rf-node--domain .rf-node__icon { background: rgba(16,185,129,0.15); color: var(--success); }
 .rf-node--missing .rf-node__icon { background: rgba(245,158,11,0.15); color: var(--warning); }
 .rf-node--broken .rf-node__icon { background: rgba(239,68,68,0.15); color: var(--danger); }
 .rf-node__content { flex: 1; min-width: 0; }
 .rf-node__id { font-size: 12px; font-weight: 600; color: var(--text-100); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rf-node__name { font-size: 10px; color: var(--text-500); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
-.rf-handle {
-  width: 6px !important; height: 6px !important;
-  background: var(--bg-600) !important;
-  border: 1.5px solid var(--bg-850) !important;
-}
+.rf-node__health { position: absolute; top: 4px; right: 6px; font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 4px; }
+.rf-handle { width: 6px !important; height: 6px !important; background: var(--bg-600) !important; border: 1.5px solid var(--bg-850) !important; }
+/* Compact node */
+.rf-compact { width: 100%; height: 100%; border-radius: 50%; border: 2px solid; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; transition: all 0.15s; cursor: pointer; }
+.rf-compact--domain { background: rgba(16,185,129,0.2); border-color: var(--success); color: var(--success); }
+.rf-compact--missing { background: rgba(245,158,11,0.2); border-color: var(--warning); color: var(--warning); }
+.rf-compact--broken { background: rgba(239,68,68,0.2); border-color: var(--danger); color: var(--danger); }
+.rf-compact--selected { box-shadow: 0 0 0 4px var(--accent-soft); }
 
-/* Editor panel */
-.editor-panel {
-  position: absolute;
-  right: 0; top: 0; bottom: 0;
-  width: 50%;
-  max-width: 800px;
-  background: var(--bg-850);
-  border-left: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  z-index: 20;
-  transform: translateX(100%);
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: -20px 0 40px rgba(0,0,0,0.4);
-}
-.editor-panel.open { transform: translateX(0); }
-.editor-panel__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--border);
-  gap: 12px;
-  background: var(--bg-800);
-  flex-shrink: 0;
-}
-.editor-panel__title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-200);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  flex: 1;
-}
-.editor-panel__path { font-size: 11px; color: var(--text-500); margin-top: 2px; }
-.editor-panel__body { flex: 1; min-height: 0; }
+/* Groups overlay */
+.groups-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+
+/* Panel (details + editor) */
+.side-panel { position: absolute; right: 0; top: 0; bottom: 0; width: 480px; max-width: 60vw; background: var(--bg-850); border-left: 1px solid var(--border); display: flex; flex-direction: column; z-index: 20; transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.4,0,0.2,1); box-shadow: -20px 0 40px rgba(0,0,0,0.3); }
+.side-panel.open { transform: translateX(0); }
+.side-panel__header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); gap: 12px; background: var(--bg-800); flex-shrink: 0; }
+.side-panel__tabs { display: flex; gap: 4px; }
+.side-panel__tab { padding: 6px 12px; border-radius: 6px; background: transparent; border: none; color: var(--text-500); font-size: 12px; font-family: inherit; cursor: pointer; font-weight: 500; transition: all 0.15s; }
+.side-panel__tab:hover { background: var(--bg-700); color: var(--text-200); }
+.side-panel__tab.active { background: var(--accent-soft); color: var(--accent-hover); }
+.side-panel__body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.details { padding: 16px; overflow-y: auto; flex: 1; }
+.details::-webkit-scrollbar { width: 6px; }
+.details::-webkit-scrollbar-thumb { background: var(--bg-600); border-radius: 3px; }
+.details__title { font-size: 16px; font-weight: 700; color: var(--text-100); margin-bottom: 4px; word-break: break-word; }
+.details__id { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--accent-hover); word-break: break-all; margin-bottom: 12px; padding: 6px 8px; background: var(--bg-800); border-radius: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.details__id-text { flex: 1; }
+.details__copy { background: transparent; border: none; color: var(--text-500); cursor: pointer; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+.details__copy:hover { background: var(--bg-700); color: var(--accent-hover); }
+.details__badges { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.details__badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+.details__badge--domain { background: rgba(16,185,129,0.15); color: var(--success); }
+.details__badge--missing { background: rgba(245,158,11,0.15); color: var(--warning); }
+.details__badge--broken { background: rgba(239,68,68,0.15); color: var(--danger); }
+.details__badge--health-good { background: rgba(16,185,129,0.15); color: var(--success); }
+.details__badge--health-mid { background: rgba(245,158,11,0.15); color: var(--warning); }
+.details__badge--health-bad { background: rgba(239,68,68,0.15); color: var(--danger); }
+.details__field { margin-bottom: 12px; }
+.details__field-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-500); font-weight: 700; margin-bottom: 4px; }
+.details__field-value { font-size: 13px; color: var(--text-200); line-height: 1.5; word-break: break-word; }
+.details__tags { display: flex; flex-wrap: wrap; gap: 5px; }
+.details__refs { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.details__ref { padding: 6px 8px; background: var(--bg-800); border-left: 2px solid var(--accent); border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-200); word-break: break-all; cursor: pointer; transition: all 0.15s; }
+.details__ref:hover { background: var(--bg-700); border-left-color: var(--accent-hover); }
+.details__ref-path { font-size: 10px; color: var(--text-500); margin-top: 2px; }
+.details__ref--missing { border-left-color: var(--warning); }
+.details__actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+
+/* Context menu */
+.ctx-menu { position: fixed; z-index: 500; background: var(--bg-800); border: 1px solid var(--border-hover); border-radius: 10px; box-shadow: 0 16px 48px rgba(0,0,0,0.5); padding: 6px; min-width: 200px; animation: popoverIn 0.12s ease; }
+.ctx-menu__item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 12px; background: transparent; border: none; border-radius: 6px; color: var(--text-200); font-size: 13px; font-family: inherit; cursor: pointer; text-align: left; transition: background 0.1s; }
+.ctx-menu__item:hover { background: var(--bg-700); }
+.ctx-menu__item--danger { color: var(--danger); }
+.ctx-menu__item--danger:hover { background: rgba(239,68,68,0.15); }
+.ctx-menu__icon { width: 18px; text-align: center; font-size: 14px; }
+.ctx-menu__divider { height: 1px; background: var(--border); margin: 4px 8px; }
+
+/* Popover (existing) */
+.popover-wrap { position: relative; display: inline-block; }
+.popover-trigger { display: inline-block; }
+.popover { position: absolute; top: calc(100% + 8px); background: var(--bg-800); border: 1px solid var(--border-hover); border-radius: 12px; box-shadow: 0 16px 48px rgba(0,0,0,0.5); animation: popoverIn 0.15s cubic-bezier(0.16,1,0.3,1); overflow: hidden; z-index: 1000; max-height: 80vh; overflow-y: auto;}
+.popover--left { left: 0; }
+.popover--right { right: 0; }
+@keyframes popoverIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Menu (existing) */
+.menu { padding: 6px; }
+.menu__header { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--text-500); }
+.menu__action { background: transparent; border: none; color: var(--accent-hover); font-size: 11px; cursor: pointer; padding: 2px 6px; border-radius: 4px; font-family: inherit; font-weight: 600; text-transform: none; letter-spacing: 0; }
+.menu__action:hover { background: var(--bg-700); }
+.menu__section { padding: 6px 4px; }
+.menu__label { padding: 4px 10px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--text-500); }
+.menu__checkbox { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--text-200); transition: background 0.1s; }
+.menu__checkbox:hover { background: var(--bg-700); }
+.menu__checkbox input { display: none; }
+.menu__check { width: 16px; height: 16px; border-radius: 4px; border: 1.5px solid var(--border-hover); background: var(--bg-750); position: relative; flex-shrink: 0; transition: all 0.15s; }
+.menu__checkbox input:checked + .menu__check { background: var(--accent); border-color: var(--accent); }
+.menu__checkbox input:checked + .menu__check::after { content: ''; position: absolute; left: 4px; top: 1px; width: 5px; height: 9px; border: solid white; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.menu__dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.menu__text { flex: 1; }
+.menu__count { font-size: 11px; font-weight: 700; color: var(--text-500); padding: 1px 6px; background: var(--bg-750); border-radius: 8px; }
+.menu__input { width: calc(100% - 20px); margin: 4px 10px; padding: 8px 10px; background: var(--bg-750); border: 1px solid var(--border); border-radius: 6px; color: var(--text-100); font-size: 12px; font-family: inherit; outline: none; }
+.menu__input:focus { border-color: var(--accent); }
+.menu__hint { padding: 6px 10px 4px; font-size: 11px; color: var(--text-500); line-height: 1.6; }
+.menu__hint b { color: var(--accent-hover); background: var(--bg-700); padding: 0 4px; border-radius: 3px; font-weight: 700; }
+.menu__item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; background: transparent; border: none; border-radius: 6px; color: var(--text-200); font-size: 13px; font-family: inherit; cursor: pointer; text-align: left; transition: background 0.1s; }
+.menu__item:hover { background: var(--bg-700); }
+.menu__item--active { background: var(--accent-soft); color: var(--accent-hover); }
+.menu__item--danger { color: var(--danger); }
+.menu__item--danger:hover { background: rgba(239,68,68,0.15); }
+.menu__icon { font-size: 14px; width: 18px; text-align: center; }
+.menu__divider { height: 1px; background: var(--border); margin: 4px 8px; }
+.menu__row { display: flex; align-items: center; gap: 8px; padding: 4px 10px; }
+.menu__slider { flex: 1; }
+
+/* Search modal (existing) */
+.search-overlay { position: fixed; inset: 0; background: rgba(10,14,26,0.7); backdrop-filter: blur(6px); z-index: 300; display: flex; align-items: flex-start; justify-content: center; padding-top: 12vh; animation: searchFadeIn 0.15s ease; }
+@keyframes searchFadeIn { from { opacity: 0; } to { opacity: 1; } }
+.search-modal { width: 580px; max-width: 90vw; background: var(--bg-800); border: 1px solid var(--border-hover); border-radius: 14px; box-shadow: 0 24px 80px rgba(0,0,0,0.6); overflow: hidden; display: flex; flex-direction: column; animation: searchSlideDown 0.2s cubic-bezier(0.16,1,0.3,1); }
+@keyframes searchSlideDown { from { opacity: 0; transform: translateY(-20px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+.search-modal__input-wrap { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.search-modal__icon { font-size: 16px; color: var(--text-500); }
+.search-modal__input { flex: 1; background: transparent; border: none; outline: none; color: var(--text-100); font-size: 15px; font-family: inherit; }
+.search-modal__input::placeholder { color: var(--text-500); }
+.search-modal__kbd, .search-modal__footer kbd { display: inline-block; padding: 2px 6px; background: var(--bg-700); border: 1px solid var(--border-hover); border-radius: 4px; font-size: 10px; font-family: 'JetBrains Mono', monospace; color: var(--text-400); font-weight: 600; }
+.search-modal__results { max-height: 50vh; overflow-y: auto; padding: 8px; }
+.search-modal__hint { padding: 24px; text-align: center; color: var(--text-500); font-size: 13px; }
+.search-result { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; cursor: pointer; transition: background 0.1s; }
+.search-result:hover, .search-result.active { background: var(--bg-700); }
+.search-result__dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.search-result__dot--domain { background: var(--success); }
+.search-result__dot--missing { background: var(--warning); }
+.search-result__dot--broken { background: var(--danger); }
+.search-result__content { flex: 1; min-width: 0; }
+.search-result__id { font-size: 13px; font-weight: 500; color: var(--text-100); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.search-result__label { font-size: 11px; color: var(--text-500); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.search-result__desc { font-size: 11px; color: var(--text-500); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-result__tags { display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
+.search-result__tag { display: inline-block; padding: 1px 6px; background: var(--bg-700); border: 1px solid var(--border); border-radius: 10px; font-size: 10px; color: var(--text-400); }
+.search-result__badge { display: inline-block; margin-left: 6px; padding: 1px 5px; background: var(--accent-soft); border-radius: 4px; font-size: 9px; color: var(--accent-hover); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+.search-hl { background: rgba(251,191,36,0.25); color: #fde68a; border-radius: 2px; padding: 0 1px; }
+.search-modal__footer { display: flex; gap: 16px; padding: 10px 16px; border-top: 1px solid var(--border); background: var(--bg-850); font-size: 11px; color: var(--text-500); }
+.search-modal__footer span { display: flex; align-items: center; gap: 4px; }
 
 /* Tooltip */
-.tooltip {
-  position: fixed;
-  z-index: 1000;
-  background: var(--bg-800);
-  border: 1px solid var(--border-hover);
-  border-radius: 10px;
-  box-shadow: 0 12px 40px rgba(0,0,0,0.6);
-  padding: 0;
-  max-width: 480px;
-  max-height: 500px;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  font-size: 12px;
-  color: var(--text-200);
-  pointer-events: auto;
-}
-.tooltip__header {
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--border);
-  font-weight: 600;
-  font-size: 13px;
-  color: var(--text-100);
-  background: var(--bg-750);
-  flex-shrink: 0;
-}
+.tooltip { position: fixed; z-index: 1000; background: var(--bg-800); border: 1px solid var(--border-hover); border-radius: 10px; box-shadow: 0 12px 40px rgba(0,0,0,0.6); padding: 0; max-width: 480px; max-height: 500px; overflow: hidden; display: flex; flex-direction: column; font-size: 12px; color: var(--text-200); pointer-events: auto; }
+.tooltip__header { padding: 12px 14px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 13px; color: var(--text-100); background: var(--bg-750); flex-shrink: 0; }
 .tooltip__body { padding: 12px 14px; overflow-y: auto; flex: 1; }
 .tooltip__body::-webkit-scrollbar { width: 6px; }
 .tooltip__body::-webkit-scrollbar-thumb { background: var(--bg-600); border-radius: 3px; }
 .tooltip__row { display: flex; gap: 8px; margin-bottom: 6px; font-size: 12px; }
 .tooltip__label { color: var(--text-500); min-width: 70px; }
 .tooltip__value { color: var(--text-200); word-break: break-all; }
-.tooltip__ref {
-  margin-bottom: 6px;
-  padding: 8px 10px;
-  background: var(--bg-750);
-  border-radius: 6px;
-  border-left: 2px solid var(--accent);
-}
-.tooltip__fqid { font-family: 'JetBrains Mono', 'SF Mono', monospace; font-size: 11px; color: var(--accent-hover); margin-bottom: 4px; word-break: break-all; }
+.tooltip__ref { margin-bottom: 6px; padding: 8px 10px; background: var(--bg-750); border-radius: 6px; border-left: 2px solid var(--accent); }
+.tooltip__fqid { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--accent-hover); margin-bottom: 4px; word-break: break-all; }
 .tooltip__path { font-size: 10px; color: var(--text-500); font-family: monospace; margin-bottom: 6px; word-break: break-all; }
-.tooltip__btn {
-  font-size: 10px;
-  padding: 4px 8px;
-  background: var(--bg-700);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-300);
-  cursor: pointer;
-  font-family: inherit;
-  transition: all 0.15s;
-}
+.tooltip__btn { font-size: 10px; padding: 4px 8px; background: var(--bg-700); border: 1px solid var(--border); border-radius: 4px; color: var(--text-300); cursor: pointer; font-family: inherit; transition: all 0.15s; }
 .tooltip__btn:hover { background: var(--accent); color: white; border-color: var(--accent); }
+.js-goto-domain { transition: color 0.15s, background 0.15s; border-radius: 3px; padding: 0 2px; }
+.js-goto-domain:hover { background: var(--accent-soft); color: var(--accent-hover) !important; }
+.tooltip__fqid.js-goto-domain:hover { text-decoration: underline; }
 
 .fqid-highlight { background: rgba(99,102,241,0.15); }
 .fqid-highlight-line { background: rgba(99,102,241,0.4); }
+.diff-legend { display: flex; align-items: center; gap: 10px; padding: 6px 10px; background: var(--bg-800); border: 1px solid var(--border-hover); border-radius: 8px; font-size: 12px; color: var(--text-300); }
+.diff-legend__item { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
+.diff-legend__dot { width: 8px; height: 8px; border-radius: 50%; }
+.diff-legend__close { background: transparent; border: none; color: var(--text-500); cursor: pointer; padding: 2px 6px; border-radius: 4px; }
+.diff-legend__close:hover { background: var(--bg-700); color: var(--text-200); }
+.diff-legend__scope { font-size: 10px; color: var(--text-500); padding: 2px 6px; background: var(--bg-700); border-radius: 4px; font-family: 'JetBrains Mono', monospace; }
 
-/* Empty state */
-.empty-state {
-  position: absolute;
-  top: 50%; left: 50%;
-  transform: translate(-50%, -50%);
-  text-align: center;
-  color: var(--text-500);
-  pointer-events: none;
-}
+.empty-state { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: var(--text-500); pointer-events: none; }
 .empty-state__title { font-size: 16px; color: var(--text-400); margin-bottom: 6px; }
 .empty-state__text { font-size: 13px; }
 
-/* Loading */
-.loading-overlay {
+#monaco-container { width: 100%; height: 100%; }
+.heat-legend {
   position: absolute;
-  inset: 0;
-  background: rgba(10,14,26,0.9);
-  backdrop-filter: blur(4px);
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-800);
+  border: 1px solid var(--border-hover);
+  border-radius: 10px;
+  padding: 10px 14px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.25);
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  z-index: 100;
-}
-.spinner {
-  width: 40px; height: 40px;
-  border: 3px solid var(--bg-700);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-.loading-overlay__text { color: var(--text-400); font-size: 13px; }
-.rf-node--dimmed { opacity: 0.4; }
-.js-goto-domain {
-  transition: color 0.15s, background 0.15s;
-  border-radius: 3px;
-  padding: 0 2px;
-}
-.js-goto-domain:hover {
-  background: rgba(99,102,241,0.15);
-  color: #c7d2fe !important;
-}
-.tooltip__fqid.js-goto-domain:hover {
-  text-decoration: underline;
-}
-/* --- Search modal --- */
-.search-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(10,14,26,0.7);
-  backdrop-filter: blur(6px);
-  z-index: 300;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 12vh;
-  animation: searchFadeIn 0.15s ease;
-}
-@keyframes searchFadeIn { from { opacity: 0; } to { opacity: 1; } }
-
-.search-modal {
-  width: 580px;
-  max-width: 90vw;
-  background: var(--bg-800);
-  border: 1px solid var(--border-hover);
-  border-radius: 14px;
-  box-shadow: 0 24px 80px rgba(0,0,0,0.6);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  animation: searchSlideDown 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-@keyframes searchSlideDown {
-  from { opacity: 0; transform: translateY(-20px) scale(0.98); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-.search-modal__input-wrap {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--border);
-}
-.search-modal__icon { font-size: 16px; color: var(--text-500); }
-.search-modal__input {
-  flex: 1;
-  background: transparent;
-  border: none;
-  outline: none;
-  color: var(--text-100);
-  font-size: 15px;
-  font-family: inherit;
-}
-.search-modal__input::placeholder { color: var(--text-500); }
-
-.search-modal__kbd,
-.btn-kbd,
-.search-modal__footer kbd {
-  display: inline-block;
-  padding: 2px 6px;
-  background: var(--bg-700);
-  border: 1px solid var(--border-hover);
-  border-radius: 4px;
-  font-size: 10px;
-  font-family: 'JetBrains Mono', monospace;
-  color: var(--text-400);
-  font-weight: 600;
-}
-.btn-kbd { margin-left: 4px; }
-
-.search-modal__results {
-  max-height: 50vh;
-  overflow-y: auto;
-  padding: 8px;
-}
-.search-modal__results::-webkit-scrollbar { width: 6px; }
-.search-modal__results::-webkit-scrollbar-thumb { background: var(--bg-600); border-radius: 3px; }
-
-.search-modal__hint {
-  padding: 24px;
-  text-align: center;
-  color: var(--text-500);
-  font-size: 13px;
-}
-
-.search-result {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 0.1s;
-}
-.search-result:hover,
-.search-result.active {
-  background: var(--bg-700);
-}
-.search-result__dot {
-  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
-}
-.search-result__dot--domain { background: var(--success); }
-.search-result__dot--missing { background: var(--warning); }
-.search-result__dot--broken { background: var(--danger); }
-.search-result__content { flex: 1; min-width: 0; }
-.search-result__id {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-100);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.search-result__label {
-  font-size: 11px;
-  color: var(--text-500);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-top: 2px;
-}
-
-.search-modal__footer {
-  display: flex;
-  gap: 16px;
-  padding: 10px 16px;
-  border-top: 1px solid var(--border);
-  background: var(--bg-850);
-  font-size: 11px;
-  color: var(--text-500);
-}
-.search-modal__footer span { display: flex; align-items: center; gap: 4px; }
-.search-result__desc {
-  font-size: 11px;
-  color: var(--text-500);
-  margin-top: 2px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.search-result__tags {
-  display: flex;
-  gap: 4px;
-  margin-top: 4px;
-  flex-wrap: wrap;
-}
-.search-result__tag {
-  display: inline-block;
-  padding: 1px 6px;
-  background: var(--bg-700);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  font-size: 10px;
-  color: var(--text-400);
-}
-.search-result__badge {
-  display: inline-block;
-  margin-left: 6px;
-  padding: 1px 5px;
-  background: rgba(99,102,241,0.2);
-  border: 1px solid rgba(99,102,241,0.4);
-  border-radius: 4px;
-  font-size: 9px;
-  color: var(--accent-hover);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  vertical-align: middle;
-}
-.search-hl {
-  background: rgba(251,191,36,0.25);
-  color: #fde68a;
-  border-radius: 2px;
-  padding: 0 1px;
-}
-.toolbar__filter {
-  display: flex;
-  align-items: center;
   gap: 6px;
-  background: var(--bg-800);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 4px 8px 4px 10px;
-  flex: 1;
-  max-width: 420px;
-  position: relative;
-  transition: border-color 0.15s;
+  z-index: 5;
+  min-width: 220px;
 }
-.toolbar__filter:focus-within {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(99,102,241,0.12);
-}
-.toolbar__filter-icon {
-  font-size: 12px;
-  color: var(--text-500);
-  flex-shrink: 0;
-}
-.toolbar__filter-input {
-  flex: 1;
-  background: transparent;
-  border: none;
-  outline: none;
-  color: var(--text-100);
-  font-size: 12px;
-  font-family: inherit;
-  min-width: 0;
-}
-.toolbar__filter-input::placeholder { color: var(--text-500); }
-
-.toolbar__filter-clear {
-  background: transparent;
-  border: none;
-  color: var(--text-500);
-  cursor: pointer;
-  font-size: 12px;
-  padding: 2px 4px;
+.heat-legend__title { font-size: 11px; font-weight: 700; color: var(--text-200); text-transform: uppercase; letter-spacing: 0.5px; }
+.heat-legend__bar {
+  height: 8px;
   border-radius: 4px;
-  transition: all 0.15s;
+  background: linear-gradient(90deg, #dc2626 0%, #f59e0b 50%, #10b981 100%);
 }
-.toolbar__filter-clear:hover { background: var(--bg-700); color: var(--text-200); }
-
-.toolbar__filter-help {
-  position: relative;
-  flex-shrink: 0;
-}
-.toolbar__filter-help-icon {
+.heat-legend__labels { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-500); font-family: 'JetBrains Mono', monospace; }
+.heat-legend__close { position: absolute; top: 6px; right: 6px; background: transparent; border: none; color: var(--text-500); cursor: pointer; padding: 2px 6px; border-radius: 4px; font-size: 11px; }
+.heat-legend__close:hover { background: var(--bg-700); color: var(--text-200); }
+.rule-item {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: var(--bg-700);
-  color: var(--text-400);
-  font-size: 11px;
-  font-weight: 700;
-  cursor: help;
-  user-select: none;
-  transition: all 0.15s;
-}
-.toolbar__filter-help:hover .toolbar__filter-help-icon {
-  background: var(--accent);
-  color: white;
-}
-
-.toolbar__filter-tooltip {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  width: 340px;
-  background: var(--bg-800);
-  border: 1px solid var(--border-hover);
-  border-radius: 10px;
-  box-shadow: 0 12px 40px rgba(0,0,0,0.5);
-  padding: 12px 14px;
-  font-size: 12px;
-  color: var(--text-200);
-  z-index: 100;
-  opacity: 0;
-  visibility: hidden;
-  transform: translateY(-4px);
-  transition: all 0.15s ease;
-  pointer-events: none;
-}
-.toolbar__filter-help:hover .toolbar__filter-tooltip {
-  opacity: 1;
-  visibility: visible;
-  transform: translateY(0);
-  pointer-events: auto;
-}
-.toolbar__filter-tooltip-title {
-  font-weight: 700;
-  font-size: 11px;
-  color: var(--text-500);
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  margin-bottom: 10px;
-}
-.toolbar__filter-tooltip-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--border);
-}
-.toolbar__filter-tooltip-row:last-child { border-bottom: none; }
-.toolbar__filter-tooltip-row code {
-  flex-shrink: 0;
-  min-width: 130px;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10.5px;
-  color: var(--accent-hover);
-  background: var(--bg-750);
-  padding: 2px 6px;
-  border-radius: 4px;
-  word-break: break-all;
-}
-.toolbar__filter-tooltip-row span {
-  font-size: 11px;
-  color: var(--text-400);
-  line-height: 1.5;
-}
-.toolbar__filter-tooltip-row b {
-  color: var(--text-200);
-  background: var(--bg-700);
-  padding: 0 4px;
-  border-radius: 3px;
-  font-weight: 600;
-}
-/* --- Toolbar chips --- */
-.toolbar__chips {
-  display: flex;
-  gap: 4px;
-  background: var(--bg-800);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 3px;
-}
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  color: var(--text-500);
-  font-size: 12px;
-  font-family: inherit;
-  cursor: pointer;
-  transition: all 0.15s;
-  font-weight: 500;
-}
-.chip:hover { background: var(--bg-700); color: var(--text-300); }
-.chip--active {
-  background: var(--bg-750);
-  border-color: var(--border-hover);
-  color: var(--text-100);
-}
-.chip__dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; opacity: 0.5; }
-.chip--active .chip__dot { opacity: 1; }
-.chip__count {
-  font-size: 10px;
-  font-weight: 700;
-  padding: 1px 5px;
-  background: var(--bg-700);
-  border-radius: 8px;
-  color: var(--text-400);
-}
-.chip--active .chip__count { background: rgba(99,102,241,0.2); color: var(--accent-hover); }
-
-/* --- Collapsible sidebar --- */
-.sidebar {
-  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.sidebar--collapsed {
-  width: 44px;
-  min-width: 44px;
-}
-.sidebar__expand,
-.sidebar__collapse {
-  background: transparent;
-  border: none;
-  color: var(--text-400);
-  cursor: pointer;
-  font-size: 16px;
-  padding: 6px 8px;
-  border-radius: 6px;
-  transition: all 0.15s;
-  font-family: inherit;
-}
-.sidebar__expand {
-  width: 100%;
-  height: 48px;
-  font-size: 18px;
-}
-.sidebar__expand:hover,
-.sidebar__collapse:hover {
-  background: var(--bg-700);
-  color: var(--accent-hover);
-}
-
-/* --- Mini-stats --- */
-.mini-stats {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-}
-.mini-stat {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 6px 10px;
-  background: var(--bg-800);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-}
-.mini-stat__label { font-size: 11px; color: var(--text-500); }
-.mini-stat__value { font-size: 13px; font-weight: 700; color: var(--text-100); }
-
-/* --- Rank list --- */
-.rank-list { display: flex; flex-direction: column; gap: 2px; }
-.rank-item {
-  display: flex;
-  align-items: center;
   gap: 8px;
-  padding: 6px 8px;
-  background: transparent;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-family: inherit;
-  color: var(--text-300);
-  font-size: 12px;
-  text-align: left;
-  transition: background 0.15s;
-  width: 100%;
-}
-.rank-item:hover { background: var(--bg-800); color: var(--text-100); }
-.rank-item__num {
-  width: 18px;
-  height: 18px;
-  display: flex;
   align-items: center;
-  justify-content: center;
-  background: var(--bg-700);
-  border-radius: 4px;
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--text-500);
-  flex-shrink: 0;
-}
-.rank-item__label {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-}
-.rank-item__value {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--accent-hover);
-  flex-shrink: 0;
-}
-
-/* --- Bar list (namespaces) --- */
-.bar-list { display: flex; flex-direction: column; gap: 4px; }
-.bar-item {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 4px 8px;
-  background: transparent;
-  border: none;
-  padding: 4px 0;
-  cursor: pointer;
-  font-family: inherit;
-  text-align: left;
-  color: var(--text-300);
-  font-size: 12px;
-  transition: color 0.15s;
-}
-.bar-item:hover { color: var(--accent-hover); }
-.bar-item__label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-}
-.bar-item__value { font-weight: 700; color: var(--text-400); font-size: 11px; }
-.bar-item__track {
-  grid-column: 1 / -1;
-  height: 3px;
-  background: var(--bg-700);
-  border-radius: 2px;
-  overflow: hidden;
-}
-.bar-item__fill {
-  display: block;
-  height: 100%;
-  background: linear-gradient(90deg, var(--accent), #8b5cf6);
-  border-radius: 2px;
-  transition: width 0.3s;
-}
-
-/* --- Tag cloud --- */
-.tag-cloud {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-}
-.tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 8px;
-  background: var(--bg-800);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  color: var(--text-400);
-  font-size: 11px;
-  font-family: inherit;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.tag:hover {
-  background: var(--bg-700);
-  border-color: var(--accent);
-  color: var(--accent-hover);
-}
-.tag__count {
-  font-size: 9px;
-  padding: 0 4px;
-  background: var(--bg-700);
-  border-radius: 6px;
-  color: var(--text-500);
-  font-weight: 700;
-}
-.tag:hover .tag__count { background: rgba(99,102,241,0.25); color: var(--accent-hover); }
-
-/* --- Legend rows --- */
-.legend-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 0;
-  font-size: 12px;
-  color: var(--text-400);
-}
-.legend-dot {
-  width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
-}
-.legend-line {
-  width: 16px; height: 2px; flex-shrink: 0; border-radius: 1px;
-}
-.btn--active {
-  background: var(--accent);
-  color: white;
-}
-.btn--active:hover { background: var(--accent-hover); }
-
-.diff-legend {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 10px;
-  background: var(--bg-800);
-  border: 1px solid var(--border-hover);
-  border-radius: 8px;
-  font-size: 12px;
-  color: var(--text-300);
-}
-.diff-legend__item { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
-.diff-legend__dot { width: 8px; height: 8px; border-radius: 50%; }
-.diff-legend__close {
-  background: transparent;
-  border: none;
-  color: var(--text-500);
-  cursor: pointer;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-.diff-legend__close:hover { background: var(--bg-700); color: var(--text-200); }
-.diff-legend__scope {
-  font-size: 10px;
-  color: var(--text-500);
-  padding: 2px 6px;
-  background: var(--bg-700);
-  border-radius: 4px;
-  font-family: 'JetBrains Mono', monospace;
-}
-/* --- Popover --- */
-.popover-wrap { position: relative; display: inline-block; }
-.popover-trigger { display: inline-block; }
-
-.popover {
-  position: absolute;
-  top: calc(100% + 8px);
-  background: var(--bg-800);
-  border: 1px solid var(--border-hover);
-  border-radius: 12px;
-  box-shadow: 0 16px 48px rgba(0,0,0,0.5);
-  z-index: 200;
-  animation: popoverIn 0.15s cubic-bezier(0.16, 1, 0.3, 1);
-  overflow: hidden;
-}
-.popover--left { left: 0; }
-.popover--right { right: 0; }
-@keyframes popoverIn {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.btn__icon { font-size: 14px; margin-right: 6px; }
-.btn__badge {
-  margin-left: 6px;
-  padding: 1px 6px;
-  background: var(--accent);
-  color: white;
-  border-radius: 10px;
-  font-size: 10px;
-  font-weight: 700;
-}
-
-/* --- Menu --- */
-.menu { padding: 6px; }
-.menu__header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 10px 6px;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  color: var(--text-500);
-}
-.menu__action {
-  background: transparent;
-  border: none;
-  color: var(--accent-hover);
-  font-size: 11px;
-  cursor: pointer;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-family: inherit;
-  font-weight: 600;
-  text-transform: none;
-  letter-spacing: 0;
-}
-.menu__action:hover { background: var(--bg-700); }
-
-.menu__section { padding: 6px 4px; }
-.menu__label {
-  padding: 4px 10px;
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  color: var(--text-500);
-}
-
-.menu__checkbox {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--text-200);
-  transition: background 0.1s;
-}
-.menu__checkbox:hover { background: var(--bg-700); }
-.menu__checkbox input { display: none; }
-.menu__check {
-  width: 16px; height: 16px;
-  border-radius: 4px;
-  border: 1.5px solid var(--border-hover);
-  background: var(--bg-750);
-  position: relative;
-  flex-shrink: 0;
-  transition: all 0.15s;
-}
-.menu__checkbox input:checked + .menu__check {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-.menu__checkbox input:checked + .menu__check::after {
-  content: '';
-  position: absolute;
-  left: 4px; top: 1px;
-  width: 5px; height: 9px;
-  border: solid white;
-  border-width: 0 2px 2px 0;
-  transform: rotate(45deg);
-}
-.menu__dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.menu__text { flex: 1; }
-.menu__count {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--text-500);
-  padding: 1px 6px;
-  background: var(--bg-750);
-  border-radius: 8px;
-}
-
-.menu__input {
-  width: 100%;
-  margin: 4px 10px;
-  width: calc(100% - 20px);
   padding: 8px 10px;
   background: var(--bg-750);
-  border: 1px solid var(--border);
   border-radius: 6px;
-  color: var(--text-100);
+  margin-bottom: 4px;
+}
+.rule-item__action {
+  width: 24px; height: 24px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.rule-item__action--forbid { background: rgba(220,38,38,0.15); }
+.rule-item__action--warn { background: rgba(245,158,11,0.15); }
+.rule-item__body { flex: 1; min-width: 0; }
+.rule-item__pattern {
+  font-family: 'JetBrains Mono', monospace;
   font-size: 12px;
-  font-family: inherit;
-  outline: none;
-  transition: border-color 0.15s;
+  color: var(--text-100);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.menu__input:focus { border-color: var(--accent); }
-.menu__hint {
-  padding: 6px 10px 4px;
-  font-size: 11px;
-  color: var(--text-500);
-  line-height: 1.6;
-}
-.menu__hint b {
-  color: var(--accent-hover);
-  background: var(--bg-700);
-  padding: 0 4px;
-  border-radius: 3px;
-  font-weight: 700;
-}
-
-.menu__item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 10px 12px;
+.rule-item__message { font-size: 11px; color: var(--text-500); margin-top: 2px; }
+.rule-item__remove {
   background: transparent;
   border: none;
-  border-radius: 6px;
-  color: var(--text-200);
-  font-size: 13px;
-  font-family: inherit;
+  color: var(--text-500);
   cursor: pointer;
-  text-align: left;
-  transition: background 0.1s;
+  padding: 2px 6px;
+  border-radius: 4px;
 }
-.menu__item:hover { background: var(--bg-700); }
-.menu__item--active {
-  background: rgba(99,102,241,0.15);
-  color: var(--accent-hover);
-}
-.menu__item--active:hover { background: rgba(99,102,241,0.25); }
-.menu__item--danger { color: var(--danger); }
-.menu__item--danger:hover { background: rgba(239,68,68,0.15); }
-.menu__icon { font-size: 14px; width: 18px; text-align: center; }
-.menu__badge {
-  margin-left: 8px;
-  padding: 1px 6px;
-  background: var(--accent);
-  color: white;
-  border-radius: 8px;
-  font-size: 10px;
-  font-weight: 700;
-}
-.menu__divider {
-  height: 1px;
-  background: var(--border);
-  margin: 4px 8px;
-}
+.rule-item__remove:hover { background: var(--bg-700); color: var(--danger); }
+.rule-form { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.rule-form .menu__input { width: 100%; margin: 0; }
 </style>
 </head>
 <body>
 <div id="root"></div>
 <script id="graph-data" type="application/json">${graphDataJson}</script>
-<link rel="stylesheet" href="https://esm.sh/reactflow@11.11.4/dist/style.css" />
-<script type="importmap">
-{
-  "imports": {
-    "react": "https://esm.sh/react@18.2.0",
-    "react-dom": "https://esm.sh/react-dom@18.2.0",
-    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-    "reactflow": "https://esm.sh/reactflow@11.11.4?deps=react@18.2.0,react-dom@18.2.0",
-    "dagre": "https://esm.sh/dagre@0.8.5"
-  }
+<script type="text/babel" data-type="module" data-presets="react">
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { createRoot } from 'react-dom/client';
+import ReactFlow, {
+  ReactFlowProvider, Background, BackgroundVariant, Controls, MiniMap,
+  Handle, Position, MarkerType, useNodesState, useEdgesState,
+  useReactFlow, useViewport, useStore
+} from 'reactflow';
+import dagre from 'dagre';
+
+const GRAPH_DATA = JSON.parse(document.getElementById('graph-data').textContent);
+const NODE_WIDTH = 220;
+const NODE_HEIGHT = 60;
+const NODE_COMPACT = 28;
+const EDGE_COLOR = '#10b981';
+const LINKAGE_COLOR = '#818cf8';
+const FQID_COLOR = '#10b981';
+const PATH_COLOR = '#fbbf24';
+const DIFF_ADDED = '#22c55e';
+const DIFF_REMOVED = '#ef4444';
+
+// ============ LAYOUTS ============
+function dagreLayout(nodes, edges, rankdir) {
+  rankdir = rankdir || 'LR';
+  const g = new dagre.graphlib.Graph();
+  g.setDefaultEdgeLabel(function() { return {}; });
+  g.setGraph({ rankdir: rankdir, nodesep: 30, ranksep: 100, edgesep: 20, marginx: 40, marginy: 40 });
+  nodes.forEach(function(n) {
+    var isCompact = n.data && n.data.__compact;
+    g.setNode(n.id, {
+      width: isCompact ? NODE_COMPACT : NODE_WIDTH,
+      height: isCompact ? NODE_COMPACT : NODE_HEIGHT
+    });
+  });
+  edges.forEach(function(e) { g.setEdge(e.source, e.target); });
+  dagre.layout(g);
+  return nodes.map(function(n) {
+    var pos = g.node(n.id);
+    var isCompact = n.data && n.data.__compact;
+    var w = isCompact ? NODE_COMPACT : NODE_WIDTH;
+    var h = isCompact ? NODE_COMPACT : NODE_HEIGHT;
+    return Object.assign({}, n, {
+      position: { x: pos.x - w / 2, y: pos.y - h / 2 },
+      targetPosition: rankdir === 'LR' ? 'left' : 'top',
+      sourcePosition: rankdir === 'LR' ? 'right' : 'bottom'
+    });
+  });
 }
+
+function circularLayout(nodes) {
+  var n = nodes.length;
+  var R = Math.max(350, n * 40);
+  return nodes.map(function(node, i) {
+    var angle = (i / n) * 2 * Math.PI - Math.PI / 2;
+    return Object.assign({}, node, {
+      position: {
+        x: Math.cos(angle) * R,
+        y: Math.sin(angle) * R
+      },
+      targetPosition: 'left',
+      sourcePosition: 'right'
+    });
+  });
+}
+
+function forceLayout(nodes, edges) {
+  var n = nodes.length;
+  var pos = nodes.map(function(_, i) {
+    var a = (i / n) * 2 * Math.PI;
+    return { x: Math.cos(a) * 400, y: Math.sin(a) * 400 };
+  });
+  var idx = new Map();
+  nodes.forEach(function(node, i) { idx.set(node.id, i); });
+  var links = edges.map(function(e) { return [idx.get(e.source), idx.get(e.target)]; })
+                    .filter(function(l) { return l[0] != null && l[1] != null; });
+  for (var iter = 0; iter < 250; iter++) {
+    var fx = new Array(n).fill(0);
+    var fy = new Array(n).fill(0);
+    for (var i = 0; i < n; i++) {
+      for (var j = i + 1; j < n; j++) {
+        var dx = pos[j].x - pos[i].x;
+        var dy = pos[j].y - pos[i].y;
+        var d2 = dx * dx + dy * dy + 0.01;
+        var d = Math.sqrt(d2);
+        var f = 8000 / d2;
+        fx[i] -= (dx / d) * f; fy[i] -= (dy / d) * f;
+        fx[j] += (dx / d) * f; fy[j] += (dy / d) * f;
+      }
+    }
+    for (var k = 0; k < links.length; k++) {
+      var a = links[k][0], b = links[k][1];
+      var ddx = pos[b].x - pos[a].x;
+      var ddy = pos[b].y - pos[a].y;
+      var dd = Math.sqrt(ddx * ddx + ddy * ddy) + 0.01;
+      var ff = (dd - 200) * 0.02;
+      fx[a] += (ddx / dd) * ff; fy[a] += (ddy / dd) * ff;
+      fx[b] -= (ddx / dd) * ff; fy[b] -= (ddy / dd) * ff;
+    }
+    var alpha = 1 - iter / 250;
+    for (var m = 0; m < n; m++) {
+      pos[m].x += fx[m] * alpha * 0.5;
+      pos[m].y += fy[m] * alpha * 0.5;
+    }
+  }
+  return nodes.map(function(node, i) {
+    return Object.assign({}, node, {
+      position: { x: pos[i].x, y: pos[i].y },
+      targetPosition: 'left',
+      sourcePosition: 'right'
+    });
+  });
+}
+
+function runLayout(nodes, edges, type) {
+  if (type === 'TB') return dagreLayout(nodes, edges, 'TB');
+  if (type === 'force') return forceLayout(nodes, edges);
+  if (type === 'circular') return circularLayout(nodes);
+  return dagreLayout(nodes, edges, 'LR');
+}
+
+// ============ UTILS ============
+function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/[&<>"']/g, function(c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+function HighlightedText(props) {
+  var text = props.text;
+  var query = props.query;
+  if (text === null || text === undefined) return null;
+  var str = String(text);
+  var q = (query || '').trim();
+  if (!q) return str;
+  var lower = str.toLowerCase();
+  var qLower = q.toLowerCase();
+  var parts = [];
+  var pos = 0;
+  var idx = lower.indexOf(qLower, pos);
+  var key = 0;
+  while (idx !== -1) {
+    if (idx > pos) parts.push(str.slice(pos, idx));
+    parts.push(React.createElement('mark', { key: 'm' + key++, className: 'search-hl' }, str.slice(idx, idx + q.length)));
+    pos = idx + q.length;
+    idx = lower.indexOf(qLower, pos);
+  }
+  if (pos < str.length) parts.push(str.slice(pos));
+  return React.createElement(React.Fragment, null, ...parts);
+}
+
+function matchesNamespace(domainId, filterPattern) {
+  if (!filterPattern || filterPattern.trim() === '') return true;
+  var tokens = filterPattern.replace(/[,;]/g, ' ').split(' ').filter(function(p) { return p.length > 0; }).map(function(p) { return p.toLowerCase(); });
+  if (tokens.length === 0) return true;
+  var id = domainId.toLowerCase();
+  var include = tokens.filter(function(t) { return t.charAt(0) !== '!'; });
+  var exclude = tokens.filter(function(t) { return t.charAt(0) === '!'; }).map(function(t) { return t.slice(1); }).filter(function(t) { return t.length > 0; });
+  for (var i = 0; i < exclude.length; i++) {
+    if (simplePatternMatch(id, exclude[i])) return false;
+  }
+  if (include.length === 0) return true;
+  for (var j = 0; j < include.length; j++) {
+    if (simplePatternMatch(id, include[j])) return true;
+  }
+  return false;
+}
+
+function simplePatternMatch(domainId, pattern) {
+  if (pattern.indexOf('*') !== -1) {
+    var parts = pattern.split('*');
+    if (parts[0]) {
+      var prefix = parts[0];
+      var prefixNoDot = prefix.charAt(prefix.length - 1) === '.' ? prefix.slice(0, -1) : prefix;
+      if (domainId.indexOf(prefix) !== 0 && domainId !== prefixNoDot) return false;
+    }
+    if (parts[parts.length - 1]) {
+      var last = parts[parts.length - 1];
+      if (domainId.lastIndexOf(last) !== domainId.length - last.length) return false;
+    }
+    var pos = parts[0] ? parts[0].length : 0;
+    for (var i = 1; i < parts.length - 1; i++) {
+      if (!parts[i]) continue;
+      var found = domainId.indexOf(parts[i], pos);
+      if (found === -1) return false;
+      pos = found + parts[i].length;
+    }
+    return true;
+  }
+  return domainId === pattern || domainId.indexOf(pattern + '.') === 0;
+}
+
+// ============ GRAPH ANALYSIS ============
+function findCycles(nodes, edges) {
+  var adjacency = new Map();
+  nodes.forEach(function(n) { adjacency.set(n.id, []); });
+  edges.forEach(function(e) { if (adjacency.has(e.source)) adjacency.get(e.source).push(e.target); });
+  var index = 0;
+  var stack = [];
+  var onStack = new Set();
+  var indices = new Map();
+  var lowlinks = new Map();
+  var sccs = [];
+  function strongconnect(v) {
+    indices.set(v, index);
+    lowlinks.set(v, index);
+    index++;
+    stack.push(v);
+    onStack.add(v);
+    var neighbors = adjacency.get(v) || [];
+    for (var i = 0; i < neighbors.length; i++) {
+      var to = neighbors[i];
+      if (!adjacency.has(to)) continue;
+      if (!indices.has(to)) {
+        strongconnect(to);
+        lowlinks.set(v, Math.min(lowlinks.get(v), lowlinks.get(to)));
+      } else if (onStack.has(to)) {
+        lowlinks.set(v, Math.min(lowlinks.get(v), indices.get(to)));
+      }
+    }
+    if (lowlinks.get(v) === indices.get(v)) {
+      var scc = [];
+      var w;
+      do { w = stack.pop(); onStack.delete(w); scc.push(w); } while (w !== v);
+      if (scc.length > 1) sccs.push(scc);
+    }
+  }
+  for (var i = 0; i < nodes.length; i++) {
+    if (!indices.has(nodes[i].id)) strongconnect(nodes[i].id);
+  }
+  var nodeToScc = new Map();
+  sccs.forEach(function(scc, i) { scc.forEach(function(n) { nodeToScc.set(n, i); }); });
+  var cycleNodes = new Set();
+  sccs.forEach(function(scc) { scc.forEach(function(n) { cycleNodes.add(n); }); });
+  var cycleEdges = new Set();
+  edges.forEach(function(e) {
+    var s = nodeToScc.get(e.source);
+    var t = nodeToScc.get(e.target);
+    if (s !== undefined && s === t) cycleEdges.add(e.id);
+  });
+  return { sccs: sccs, cycleNodes: cycleNodes, cycleEdges: cycleEdges };
+}
+
+function findPath(startId, endId, edges) {
+  if (!startId || !endId || startId === endId) return null;
+  var adjacency = new Map();
+  edges.forEach(function(e) {
+    if (!adjacency.has(e.source)) adjacency.set(e.source, []);
+    adjacency.get(e.source).push({ node: e.target, edge: e.id });
+  });
+  var visited = new Set([startId]);
+  var queue = [{ id: startId, path: [startId], edges: [] }];
+  while (queue.length > 0) {
+    var cur = queue.shift();
+    if (cur.id === endId) return { nodes: cur.path, edges: cur.edges };
+    var neighbors = adjacency.get(cur.id) || [];
+    for (var i = 0; i < neighbors.length; i++) {
+      var n = neighbors[i];
+      if (visited.has(n.node)) continue;
+      visited.add(n.node);
+      queue.push({ id: n.node, path: cur.path.concat([n.node]), edges: cur.edges.concat([n.edge]) });
+    }
+  }
+  return null;
+}
+
+function findReachable(startId, depth, edges) {
+  var inAdj = new Map();
+  var outAdj = new Map();
+  edges.forEach(function(e) {
+    if (!outAdj.has(e.source)) outAdj.set(e.source, []);
+    outAdj.get(e.source).push(e.target);
+    if (!inAdj.has(e.target)) inAdj.set(e.target, []);
+    inAdj.get(e.target).push(e.source);
+  });
+  var visited = new Set([startId]);
+  var queue = [{ id: startId, d: 0 }];
+  while (queue.length > 0) {
+    var cur = queue.shift();
+    if (cur.d >= depth) continue;
+    var neighbors = (outAdj.get(cur.id) || []).concat(inAdj.get(cur.id) || []);
+    for (var i = 0; i < neighbors.length; i++) {
+      var n = neighbors[i];
+      if (visited.has(n)) continue;
+      visited.add(n);
+      queue.push({ id: n, d: cur.d + 1 });
+    }
+  }
+  return visited;
+}
+
+function generateMarkdownReport(ctx) {
+  var nodes = ctx.nodes;
+  var edges = ctx.edges;
+  var cyclesInfo = ctx.cyclesInfo;
+  var healthMap = ctx.healthMap;
+  var namespaceFilter = ctx.namespaceFilter || '';
+  var filters = ctx.filters || {};
+
+  var now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+  var domainNodes = nodes.filter(function(n) { return n.data.nodeType === 'domain'; });
+  var missingNodes = nodes.filter(function(n) { return n.data.nodeType === 'missing'; });
+  var brokenNodes = nodes.filter(function(n) { return n.data.nodeType === 'broken'; });
+
+  var isolated = domainNodes.filter(function(n) {
+    return !edges.some(function(e) { return e.source === n.id || e.target === n.id; });
+  });
+
+  var allRefs = [];
+  domainNodes.forEach(function(n) {
+    (n.data.fqidRefs || []).forEach(function(r) {
+      var exists = nodes.some(function(x) {
+        return (x.data.domainId || '').toLowerCase() === (r.targetDomainId || '').toLowerCase();
+      });
+      if (!exists) allRefs.push({ from: n.data.domainId, ref: r });
+    });
+  });
+
+  var topConnected = domainNodes.map(function(n) {
+    var d = 0;
+    edges.forEach(function(e) { if (e.source === n.id) d++; if (e.target === n.id) d++; });
+    return { node: n, degree: d };
+  }).sort(function(a, b) { return b.degree - a.degree; }).slice(0, 10);
+
+  var worstHealth = domainNodes.map(function(n) {
+    return { node: n, health: healthMap.get(n.id) || 0 };
+  }).sort(function(a, b) { return a.health - b.health; }).slice(0, 10);
+
+  var nsMap = new Map();
+  domainNodes.forEach(function(n) {
+    var ns = n.data.domainId.split('.').slice(0, 2).join('.');
+    nsMap.set(ns, (nsMap.get(ns) || 0) + 1);
+  });
+  var nsList = Array.from(nsMap.entries()).sort(function(a, b) { return b[1] - a[1]; });
+
+  var lines = [];
+  lines.push('# Domain Graph Report');
+  lines.push('');
+  lines.push('_Сгенерировано: ' + now + '_');
+  lines.push('');
+  lines.push('## Сводка');
+  lines.push('');
+  lines.push('| Метрика | Значение |');
+  lines.push('| --- | ---: |');
+  lines.push('| Всего узлов | ' + nodes.length + ' |');
+  lines.push('| Домены | ' + domainNodes.length + ' |');
+  lines.push('| Missing | ' + missingNodes.length + ' |');
+  lines.push('| Broken | ' + brokenNodes.length + ' |');
+  lines.push('| Связей | ' + edges.length + ' |');
+  lines.push('| Циклических групп | ' + cyclesInfo.sccs.length + ' |');
+  lines.push('| Изолированных доменов | ' + isolated.length + ' |');
+  lines.push('| Битых FQID-ссылок | ' + allRefs.length + ' |');
+  lines.push('');
+
+  if (namespaceFilter) {
+    lines.push('> Фильтр по namespace: \`' + namespaceFilter + '\`');
+    lines.push('');
+  }
+
+  // Циклы
+  lines.push('## Циклические зависимости');
+  lines.push('');
+  if (cyclesInfo.sccs.length === 0) {
+    lines.push('_Циклов не обнаружено._');
+  } else {
+    lines.push('Найдено **' + cyclesInfo.sccs.length + '** циклических групп:');
+    lines.push('');
+    cyclesInfo.sccs.forEach(function(scc, i) {
+      var names = scc.map(function(id) {
+        var n = nodes.find(function(x) { return x.id === id; });
+        return n ? n.data.domainId : id;
+      });
+      lines.push((i + 1) + '. ' + names.join(' → ') + ' → ' + names[0]);
+    });
+  }
+  lines.push('');
+
+  // Топ по связям
+  lines.push('## Топ-10 по связям');
+  lines.push('');
+  lines.push('| # | Домен | Связей |');
+  lines.push('| ---: | --- | ---: |');
+  topConnected.forEach(function(item, i) {
+    lines.push('| ' + (i + 1) + ' | \`' + item.node.data.domainId + '\` | ' + item.degree + ' |');
+  });
+  lines.push('');
+
+  // Стена позора
+  lines.push('## Низкий health score');
+  lines.push('');
+  lines.push('| # | Домен | Health |');
+  lines.push('| ---: | --- | ---: |');
+  worstHealth.forEach(function(item, i) {
+    lines.push('| ' + (i + 1) + ' | \`' + item.node.data.domainId + '\` | ' + item.health + '/100 |');
+  });
+  lines.push('');
+
+  // Изолированные
+  if (isolated.length > 0) {
+    lines.push('## Изолированные домены');
+    lines.push('');
+    isolated.forEach(function(n) { lines.push('- \`' + n.data.domainId + '\`'); });
+    lines.push('');
+  }
+
+  // Битые FQID-ссылки
+  if (allRefs.length > 0) {
+    lines.push('## Битые FQID-ссылки');
+    lines.push('');
+    var byFrom = new Map();
+    allRefs.forEach(function(item) {
+      if (!byFrom.has(item.from)) byFrom.set(item.from, []);
+      byFrom.get(item.from).push(item.ref);
+    });
+    byFrom.forEach(function(refs, from) {
+      lines.push('### ' + from);
+      lines.push('');
+      refs.forEach(function(r) {
+        lines.push('- \`' + r.fullFQID + '\` — ' + r.propertyPath);
+      });
+      lines.push('');
+    });
+  }
+
+  // Неймспейсы
+  lines.push('## Распределение по неймспейсам');
+  lines.push('');
+  lines.push('| Неймспейс | Доменов |');
+  lines.push('| --- | ---: |');
+  nsList.forEach(function(entry) {
+    lines.push('| \`' + entry[0] + '\` | ' + entry[1] + ' |');
+  });
+  lines.push('');
+
+  lines.push('---');
+  lines.push('');
+  lines.push('_Отчёт сгенерирован Domain Graph Analyzer._');
+
+  return lines.join('\\n');
+}
+
+function heatColor(value, min, max, scheme) {
+  if (max === min) return scheme.mid;
+  var t = Math.max(0, Math.min(1, (value - min) / (max - min)));
+  // Интерполяция между тремя цветами: low → mid → high
+  var c1 = scheme.low, c2 = scheme.mid, c3 = scheme.high;
+  function hexToRgb(h) {
+    var r = parseInt(h.slice(1, 3), 16);
+    var g = parseInt(h.slice(3, 5), 16);
+    var b = parseInt(h.slice(5, 7), 16);
+    return [r, g, b];
+  }
+  function lerp(a, b, k) {
+    return [
+      Math.round(a[0] + (b[0] - a[0]) * k),
+      Math.round(a[1] + (b[1] - a[1]) * k),
+      Math.round(a[2] + (b[2] - a[2]) * k)
+    ];
+  }
+  var from, to, k;
+  if (t < 0.5) { from = hexToRgb(c1); to = hexToRgb(c2); k = t * 2; }
+  else { from = hexToRgb(c2); to = hexToRgb(c3); k = (t - 0.5) * 2; }
+  var rgb = lerp(from, to, k);
+  return 'rgb(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ')';
+}
+
+var HEATMAPS = {
+  health:   { label: 'Health',     low: '#dc2626', mid: '#f59e0b', high: '#10b981' },
+  degree:   { label: 'Связей',     low: '#334155', mid: '#3b82f6', high: '#10b981' },
+  entities: { label: 'Entities',   low: '#334155', mid: '#8b5cf6', high: '#ec4899' },
+  fqid:     { label: 'FQID-ссылок', low: '#334155', mid: '#0891b2', high: '#22d3ee' }
+};
+
+function computeHealth(node, edges, allNodes, cycleNodes, missingSet) {
+  if (node.data.nodeType === 'broken' || node.data.nodeType === 'missing') return 0;
+  var score = 100;
+  var connected = false;
+  var inEdges = 0, outEdges = 0;
+  edges.forEach(function(e) {
+    if (e.source === node.id) { connected = true; outEdges++; }
+    if (e.target === node.id) { connected = true; inEdges++; }
+  });
+  if (!connected) score -= 40;
+  if (cycleNodes && cycleNodes.has(node.id)) score -= 30;
+  var refs = node.data.fqidRefs || [];
+  var missingRefs = 0;
+  refs.forEach(function(r) {
+    if (!allNodes.some(function(n) { return (n.data.domainId || '').toLowerCase() === (r.targetDomainId || '').toLowerCase(); })) {
+      missingRefs++;
+    }
+  });
+  score -= Math.min(missingRefs * 3, 20);
+  return Math.max(0, Math.round(score));
+}
+
+function healthClass(score) {
+  if (score >= 80) return 'health-good';
+  if (score >= 50) return 'health-mid';
+  return 'health-bad';
+}
+
+// ============ AGGREGATE ============
+function aggregateByNamespace(nodes, edges) {
+  var getNs = function(domainId) {
+    var parts = (domainId || '').split('.');
+    return parts.slice(0, 2).join('.') || domainId;
+  };
+  var nodeToNs = new Map();
+  var nsCount = new Map();
+  nodes.forEach(function(n) {
+    var ns = getNs(n.data.domainId);
+    nodeToNs.set(n.id, ns);
+    nsCount.set(ns, (nsCount.get(ns) || 0) + 1);
+  });
+  var newNodes = Array.from(nsCount.entries()).map(function(entry) {
+    var ns = entry[0], count = entry[1];
+    return {
+      id: 'ns_' + ns,
+      type: 'domainNode',
+      data: { domainId: ns, label: ns, nodeType: 'domain', isNamespace: true, childCount: count },
+      position: { x: 0, y: 0 }
+    };
+  });
+  var edgeAgg = new Map();
+  edges.forEach(function(e) {
+    var fromNs = nodeToNs.get(e.source);
+    var toNs = nodeToNs.get(e.target);
+    if (!fromNs || !toNs || fromNs === toNs) return;
+    var key = fromNs + '__' + toNs;
+    if (!edgeAgg.has(key)) {
+      edgeAgg.set(key, { id: 'ns_edge_' + fromNs + '__' + toNs, source: 'ns_' + fromNs, target: 'ns_' + toNs, count: 0, kinds: new Set() });
+    }
+    var a = edgeAgg.get(key);
+    a.count++;
+    if (e.data && e.data.kind) a.kinds.add(e.data.kind);
+  });
+  var newEdges = Array.from(edgeAgg.values()).map(function(a) {
+    return {
+      id: a.id, source: a.source, target: a.target, type: 'smoothstep', label: String(a.count),
+      data: { isAggregated: true, count: a.count, kinds: Array.from(a.kinds), kind: 'aggregated' },
+      markerEnd: { type: MarkerType.ArrowClosed, color: LINKAGE_COLOR, width: 14, height: 14 },
+      style: { stroke: LINKAGE_COLOR, strokeWidth: Math.min(1 + a.count / 6, 4), opacity: 0.85 }
+    };
+  });
+  return { nodes: dagreLayout(newNodes, newEdges, 'LR'), edges: newEdges };
+}
+
+// ============ BIDIRECTIONAL MERGE ============
+function mergeBidirectional(edges) {
+  var pairMap = new Map();
+  edges.forEach(function(e) {
+    var key = [e.source, e.target].sort().join('__');
+    if (!pairMap.has(key)) pairMap.set(key, []);
+    pairMap.get(key).push(e);
+  });
+  var result = [];
+  var processed = new Set();
+  edges.forEach(function(e) {
+    if (processed.has(e.id)) return;
+    var key = [e.source, e.target].sort().join('__');
+    var group = pairMap.get(key);
+    if (group.length === 1) {
+      result.push(e);
+      processed.add(e.id);
+      return;
+    }
+    var forward = group.find(function(g) { return g.source === e.source && g.target === e.target; });
+    var backward = group.find(function(g) { return g.source === e.target && g.target === e.source; });
+    if (forward && backward) {
+      result.push(Object.assign({}, forward, {
+        id: forward.id + '__bi',
+        markerStart: { type: MarkerType.ArrowClosed, color: forward.markerEnd ? forward.markerEnd.color : LINKAGE_COLOR, width: 12, height: 12 },
+        data: Object.assign({}, forward.data, { isBidirectional: true, reverseEdgeId: backward.id })
+      }));
+      processed.add(forward.id);
+      processed.add(backward.id);
+    } else {
+      group.forEach(function(g) { result.push(g); processed.add(g.id); });
+    }
+  });
+  return result;
+}
+
+// ============ TOOLTIP BUILDERS ============
+function buildTooltipHtml(domainId, label, nodeType, filePath, version, entitiesCount, fqidRefs, health, description, tags) {
+  var typeLabel = nodeType === 'domain' ? 'Корректный домен' : nodeType === 'missing' ? 'Несуществующий домен' : 'Битый YAML';
+  var typeColor = nodeType === 'domain' ? '#10b981' : nodeType === 'missing' ? '#f59e0b' : '#ef4444';
+  var html = '<div class="tooltip__header" style="color:' + typeColor + '">' + escapeHtml(typeLabel) + '</div>';
+  html += '<div class="tooltip__body">';
+  html += '<div class="tooltip__row"><span class="tooltip__label">ID:</span><span class="tooltip__value">' + escapeHtml(domainId) + '</span></div>';
+  if (label && label !== domainId) html += '<div class="tooltip__row"><span class="tooltip__label">Название:</span><span class="tooltip__value">' + escapeHtml(label) + '</span></div>';
+  if (version) html += '<div class="tooltip__row"><span class="tooltip__label">Версия:</span><span class="tooltip__value">' + escapeHtml(version) + '</span></div>';
+  if (entitiesCount != null) html += '<div class="tooltip__row"><span class="tooltip__label">Entities:</span><span class="tooltip__value">' + entitiesCount + '</span></div>';
+  if (health != null) html += '<div class="tooltip__row"><span class="tooltip__label">Health:</span><span class="tooltip__value">' + health + '/100</span></div>';
+  if (description) html += '<div class="tooltip__row"><span class="tooltip__label">Описание:</span><span class="tooltip__value">' + escapeHtml(description) + '</span></div>';
+  if (tags && tags.length > 0) html += '<div class="tooltip__row"><span class="tooltip__label">Теги:</span><span class="tooltip__value">' + tags.map(escapeHtml).join(', ') + '</span></div>';
+  if (filePath) {
+    html += '<div class="tooltip__row"><span class="tooltip__label">Файл:</span><span class="tooltip__value" style="font-size:11px">' + escapeHtml(filePath) + '</span></div>';
+    html += '<div style="margin-top:10px"><button class="tooltip__btn js-open-file" data-file="' + escapeHtml(filePath) + '">📂 Открыть файл</button></div>';
+  }
+  if (fqidRefs && fqidRefs.length > 0) {
+    html += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)"><div class="tooltip__label" style="margin-bottom:8px">FQID ссылки (' + fqidRefs.length + '):</div>';
+    fqidRefs.slice(0, 20).forEach(function(ref) {
+      html += '<div class="tooltip__ref">';
+      html += '<div class="tooltip__fqid js-goto-domain" data-domain="' + escapeHtml(ref.targetDomainId || '') + '" style="cursor:pointer">' + escapeHtml(ref.fullFQID) + '</div>';
+      html += '<div class="tooltip__path">' + escapeHtml(ref.propertyPath) + '</div>';
+      html += '<button class="tooltip__btn js-open-file" data-file="' + escapeHtml(ref.filePath || '') + '" data-fqid="' + escapeHtml(ref.fullFQID || '') + '">📂 Открыть</button>';
+      html += '</div>';
+    });
+    if (fqidRefs.length > 20) html += '<div style="color:var(--text-500);font-size:11px">...и ещё ' + (fqidRefs.length - 20) + '</div>';
+    html += '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function buildEdgeTooltipHtml(edge, refs) {
+  var fullLabel = (edge.data && edge.data.fullLabel) || edge.label || edge.id;
+  var link = (edge.data && edge.data.linkData) || {};
+  var nameFrom = link.nameFrom || {};
+  var side1Text = nameFrom.side1 || link.sourceEntity || null;
+  var side2Text = nameFrom.side2 || link.targetEntity || null;
+  var side1Domain = edge.data && edge.data.side1Domain;
+  var side2Domain = edge.data && edge.data.side2Domain;
+  function renderSide(labelText, text, domain) {
+    if (!text) return '';
+    var clickable = !!domain;
+    var h = '<div class="tooltip__row"><span class="tooltip__label">' + labelText + '</span>';
+    if (clickable) {
+      h += '<span class="tooltip__value js-goto-domain" data-domain="' + escapeHtml(domain) + '" style="cursor:pointer;color:var(--accent-hover);text-decoration:underline dotted">' + escapeHtml(text) + ' <span style="font-size:10px;color:var(--text-500)">→ ' + escapeHtml(domain) + '</span></span>';
+    } else {
+      h += '<span class="tooltip__value" style="color:var(--text-400)">' + escapeHtml(text) + '</span>';
+    }
+    return h + '</div>';
+  }
+  var html = '<div class="tooltip__header">Связь: ' + escapeHtml(fullLabel) + '</div>';
+  html += '<div class="tooltip__body">';
+  if (edge.data && edge.data.isBidirectional) html += '<div style="font-size:11px;color:var(--accent-hover);margin-bottom:8px">⇄ двунаправленная связь</div>';
+  html += renderSide('Сторона 1:', side1Text, side1Domain);
+  html += renderSide('Сторона 2:', side2Text, side2Domain);
+  if (side1Text || side2Text) html += '<div style="height:1px;background:var(--border);margin:10px 0"></div>';
+  if (link.type) html += '<div class="tooltip__row"><span class="tooltip__label">Тип:</span><span class="tooltip__value">' + escapeHtml(link.type) + '</span></div>';
+  if (refs && refs.length > 0) {
+    html += '<div class="tooltip__label" style="margin-top:8px;margin-bottom:8px">FQID ссылки (' + refs.length + '):</div>';
+    refs.slice(0, 15).forEach(function(ref) {
+      html += '<div class="tooltip__ref">';
+      html += '<div class="tooltip__fqid js-goto-domain" data-domain="' + escapeHtml(ref.targetDomainId || '') + '" style="cursor:pointer">' + escapeHtml(ref.fullFQID) + '</div>';
+      html += '<div class="tooltip__path">' + escapeHtml(ref.propertyPath) + '</div>';
+      html += '<button class="tooltip__btn js-open-file" data-file="' + escapeHtml(ref.filePath || '') + '" data-fqid="' + escapeHtml(ref.fullFQID || '') + '">📂 Открыть</button>';
+      html += '</div>';
+    });
+  }
+  html += '</div>';
+  return html;
+}
+
+// ============ NODES ============
+function DomainNode(props) {
+  var data = props.data;
+  var selected = props.selected;
+  if (data.__compact) {
+    var compactCls = 'rf-compact rf-compact--' + data.nodeType + (selected ? ' rf-compact--selected' : '');
+    var initial = (data.domainId || '?').charAt(0).toUpperCase();
+    var compactStyle = data.__heatColor ? { background: data.__heatColor, borderColor: data.__heatColor, color: '#ffffff' } : {};
+    return React.createElement(React.Fragment, null,
+      React.createElement(Handle, { type: 'target', position: Position.Left, className: 'rf-handle' }),
+      React.createElement('div', { className: compactCls, style: compactStyle, title: data.domainId }, initial),
+      React.createElement(Handle, { type: 'source', position: Position.Right, className: 'rf-handle' })
+    );
+  }
+  var cls = 'rf-node rf-node--' + data.nodeType;
+  if (selected) cls += ' rf-node--selected';
+  if (data.dimmed) cls += ' rf-node--dimmed';
+  if (data.__inPath) cls += ' rf-node--path';
+  if (data.__isPathEndpoint) cls += ' rf-node--path-endpoint';
+  var icon = data.nodeType === 'domain' ? '●' : data.nodeType === 'missing' ? '▲' : '✕';
+  var healthBadge = null;
+  if (data.health != null && data.nodeType === 'domain') {
+    var hc = data.health >= 80 ? 'health-good' : data.health >= 50 ? 'health-mid' : 'health-bad';
+    healthBadge = React.createElement('span', { className: 'details__badge details__badge--' + hc, style: { position: 'absolute', top: 4, right: 6, fontSize: 9, padding: '1px 5px' } }, data.health);
+  }
+  var nodeStyle = {};
+  if (data.__heatColor) {
+    nodeStyle.background = data.__heatColor;
+    nodeStyle.borderColor = data.__heatColor;
+    nodeStyle.color = '#ffffff';
+  }
+  return React.createElement(React.Fragment, null,
+    React.createElement(Handle, { type: 'target', position: Position.Left, className: 'rf-handle' }),
+    React.createElement('div', { className: cls, style: nodeStyle },
+      React.createElement('div', { className: 'rf-node__icon' }, icon),
+      React.createElement('div', { className: 'rf-node__content' },
+        React.createElement('div', { className: 'rf-node__id', title: data.domainId }, data.domainId),
+        data.label && data.label !== data.domainId && React.createElement('div', { className: 'rf-node__name', title: data.label }, data.label)
+      ),
+      healthBadge
+    ),
+    React.createElement(Handle, { type: 'source', position: Position.Right, className: 'rf-handle' }),
+    data.__bookmarked && React.createElement('span', {
+      style: { position: 'absolute', top: 4, left: 8, fontSize: 12, color: '#fbbf24' }
+    }, '★')
+  );
+}
+
+var nodeTypes = { domainNode: DomainNode };
+
+// ============ POPOVER ============
+function Popover(props) {
+  var trigger = props.trigger;
+  var children = props.children;
+  var align = props.align || 'left';
+  var width = props.width || 320;
+  var state = useState(false);
+  var open = state[0], setOpen = state[1];
+  var wrapRef = useRef(null);
+  useEffect(function() {
+    if (!open) return;
+    var onDoc = function(e) { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    var onEsc = function(e) { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onEsc, true);
+    return function() { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onEsc, true); };
+  }, [open]);
+  return React.createElement('div', { className: 'popover-wrap', ref: wrapRef },
+    React.createElement('div', { className: 'popover-trigger', onClick: function() { setOpen(!open); } }, trigger(open)),
+    open && React.createElement('div', { className: 'popover popover--' + align, style: { width: width } },
+      typeof children === 'function' ? children(function() { setOpen(false); }) : children
+    )
+  );
+}
+
+// ============ CONTEXT MENU ============
+function ContextMenu(props) {
+  var menu = props.menu;
+  var onClose = props.onClose;
+  var onAction = props.onAction;
+  var ref = useRef(null);
+  useEffect(function() {
+    if (!menu) return;
+    var onDoc = function(e) { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+    var onEsc = function(e) { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onEsc, true);
+    return function() { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onEsc, true); };
+  }, [menu]);
+  if (!menu) return null;
+  var items = [
+    { icon: '🎯', label: 'Фокус (N шагов)', action: 'focus' },
+    { icon: '📊', label: 'Что зависит от него', action: 'dependents' },
+    { icon: '🛤️', label: 'Путь от...', action: 'path-from' },
+    { icon: '↪️', label: 'Путь до...', action: 'path-to' },
+    { type: 'divider' },
+    { icon: '📂', label: 'Открыть файл', action: 'open-file' },
+    { icon: '📋', label: 'Копировать ID', action: 'copy-id' },
+    { icon: '★', label: 'В закладки', action: 'bookmark' },
+    { icon: '👁️', label: 'Скрыть', action: 'hide', danger: true }
+  ];
+  return React.createElement('div', { className: 'ctx-menu', ref: ref, style: { left: menu.x, top: menu.y } },
+    items.map(function(it, i) {
+      if (it.type === 'divider') return React.createElement('div', { key: i, className: 'ctx-menu__divider' });
+      return React.createElement('button', {
+        key: i,
+        className: 'ctx-menu__item' + (it.danger ? ' ctx-menu__item--danger' : ''),
+        onClick: function() { onAction(it.action, menu.nodeId); onClose(); }
+      },
+        React.createElement('span', { className: 'ctx-menu__icon' }, it.icon),
+        React.createElement('span', null, it.label)
+      );
+    })
+  );
+}
+
+// ============ GROUPS OVERLAY ============
+function GroupsOverlay(props) {
+  var nodes = props.nodes;
+  var enabled = props.enabled;
+  var viewport = useViewport();
+  var groups = useMemo(function() {
+    if (!enabled) return [];
+    var map = new Map();
+    nodes.forEach(function(n) {
+      if (!n.data || (n.data.nodeType !== 'domain' && n.data.nodeType !== 'missing')) return;
+      var parts = (n.data.domainId || '').split('.');
+      var ns = parts.slice(0, 2).join('.');
+      if (!map.has(ns)) map.set(ns, []);
+      map.get(ns).push(n);
+    });
+    return Array.from(map.entries()).map(function(entry) {
+      var ns = entry[0], arr = entry[1];
+      var w = (arr[0].data && arr[0].data.__compact) ? NODE_COMPACT : NODE_WIDTH;
+      var h = (arr[0].data && arr[0].data.__compact) ? NODE_COMPACT : NODE_HEIGHT;
+      var xs = arr.map(function(n) { return n.position.x; });
+      var ys = arr.map(function(n) { return n.position.y; });
+      var minX = Math.min.apply(null, xs) - 30;
+      var minY = Math.min.apply(null, ys) - 40;
+      var maxX = Math.max.apply(null, xs) + w + 30;
+      var maxY = Math.max.apply(null, ys) + h + 30;
+      return { id: ns, label: ns, x: minX, y: minY, w: maxX - minX, h: maxY - minY, count: arr.length };
+    });
+  }, [nodes, enabled]);
+
+  if (!enabled) return null;
+  return React.createElement('svg', { className: 'groups-overlay' },
+    groups.map(function(g) {
+      var tx = g.x * viewport.zoom + viewport.x;
+      var ty = g.y * viewport.zoom + viewport.y;
+      return React.createElement('g', { key: g.id, transform: 'translate(' + tx + ',' + ty + ') scale(' + viewport.zoom + ')' },
+        React.createElement('rect', { width: g.w, height: g.h, rx: 12, fill: 'rgba(99,102,241,0.05)', stroke: 'rgba(99,102,241,0.35)', strokeDasharray: '6 4', strokeWidth: 1.5 }),
+        React.createElement('text', { x: 12, y: 22, fill: 'var(--accent-hover)', fontSize: 12, fontWeight: 700 }, g.label + ' · ' + g.count)
+      );
+    })
+  );
+}
+
+// ============ SIDE PANEL (details + editor) ============
+function SidePanel(props) {
+  var open = props.open;
+  var tab = props.tab;
+  var setTab = props.setTab;
+  var node = props.node;
+  var filePath = props.filePath;
+  var pendingFile = props.pendingFile;
+  var editorRef = props.editorRef;
+  var onClose = props.onClose;
+  var allNodes = props.allNodes;
+  var allEdges = props.allEdges;
+  var onGotoDomain = props.onGotoDomain;
+  var onOpenFile = props.onOpenFile;
+  var edge = props.edge;
+  var ruleViolations = props.ruleViolations;
+
+  var [monacoReady, setMonacoReady] = useState(false);
+  var monacoInitedRef = useRef(false);
+
+  // Инициализация Monaco — при первом открытии панели, а не только на вкладке «Файл»
+  useEffect(function() {
+    if (!open) return;
+    if (monacoInitedRef.current) return;
+    if (typeof window.require === 'undefined') return;
+    monacoInitedRef.current = true;
+    window.require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.34.0/min/vs' } });
+    window.require(['vs/editor/editor.main'], function() {
+      setMonacoReady(true);
+    });
+  }, [open]);
+
+  // Создание редактора, когда вкладка «Файл» активна и Monaco загружен
+  useEffect(function() {
+    if (!open || tab !== 'file' || !monacoReady) return;
+    if (editorRef.current) return;
+    var el = document.getElementById('monaco-container');
+    if (!el) return;
+    editorRef.current = window.monaco.editor.create(el, {
+      value: '',
+      language: 'yaml',
+      theme: 'vs-dark',
+      readOnly: true,
+      automaticLayout: true,
+      fontSize: 13,
+      minimap: { enabled: false },
+      scrollBeyondLastLine: false,
+      fontFamily: 'JetBrains Mono, SF Mono, Monaco, monospace'
+    });
+  }, [open, tab, monacoReady, pendingFile]);
+
+  // Применение контента при появлении нового pendingFile или когда редактор готов
+  useEffect(function() {
+    if (!open || tab !== 'file') return;
+    if (!editorRef.current) return;
+    if (!pendingFile) return;
+    editorRef.current.setValue(pendingFile.content);
+    if (pendingFile.fqid) {
+      setTimeout(function() {
+        var ed = editorRef.current;
+        if (!ed) return;
+        var NEWLINE = String.fromCharCode(10);
+        var lines = pendingFile.content.split(NEWLINE);
+        for (var i = 0; i < lines.length; i++) {
+          if (lines[i].indexOf(pendingFile.fqid) !== -1) {
+            ed.revealLineInCenter(i + 1);
+            ed.setSelection({
+              startLineNumber: i + 1, startColumn: 1,
+              endLineNumber: i + 1, endColumn: lines[i].length + 1
+            });
+            break;
+          }
+        }
+      }, 100);
+    }
+  }, [open, tab, pendingFile, monacoReady]);
+
+  if (!open) return null;
+
+  var detailsContent = null;
+  if (node) {
+    var incoming = allEdges.filter(function(e) { return e.target === node.id; });
+    var outgoing = allEdges.filter(function(e) { return e.source === node.id; });
+    var refs = node.data.fqidRefs || [];
+    var health = node.data.health;
+    var hc = health != null ? (health >= 80 ? 'health-good' : health >= 50 ? 'health-mid' : 'health-bad') : null;
+
+    detailsContent = React.createElement('div', { className: 'details' },
+      React.createElement('div', { className: 'details__title' }, node.data.label || node.data.domainId),
+      React.createElement('div', { className: 'details__id' },
+        React.createElement('span', { className: 'details__id-text' }, node.data.domainId),
+        React.createElement('button', { className: 'details__copy', onClick: function() { navigator.clipboard.writeText(node.data.domainId); }, title: 'Копировать' }, '📋')
+      ),
+      React.createElement('div', { className: 'details__badges' },
+        React.createElement('span', { className: 'details__badge details__badge--' + node.data.nodeType }, node.data.nodeType),
+        health != null && React.createElement('span', { className: 'details__badge details__badge--' + hc }, 'Health: ' + health + '/100'),
+        node.data.version && React.createElement('span', { className: 'details__badge' }, 'v' + node.data.version)
+      ),
+      node.data.description && React.createElement('div', { className: 'details__field' },
+        React.createElement('div', { className: 'details__field-label' }, 'Описание'),
+        React.createElement('div', { className: 'details__field-value' }, node.data.description)
+      ),
+      node.data.tags && node.data.tags.length > 0 && React.createElement('div', { className: 'details__field' },
+        React.createElement('div', { className: 'details__field-label' }, 'Теги'),
+        React.createElement('div', { className: 'details__tags' }, node.data.tags.map(function(t, i) { return React.createElement('span', { key: i, className: 'tag' }, t); }))
+      ),
+      node.data.filePath && React.createElement('div', { className: 'details__field' },
+        React.createElement('div', { className: 'details__field-label' }, 'Файл'),
+        React.createElement('div', { className: 'details__field-value', style: { fontSize: 11, fontFamily: 'monospace' } }, node.data.filePath)
+      ),
+      ruleViolations.length > 0 && React.createElement('div', { className: 'section' },
+        React.createElement('div', { className: 'section__title' }, 'Нарушения правил (' + ruleViolations.length + ')'),
+        React.createElement('div', { className: 'rank-list' },
+          ruleViolations.slice(0, 10).map(function(v, i) {
+            return React.createElement('div', {
+              key: i,
+              className: 'rank-item',
+              style: { cursor: 'pointer' },
+              onClick: function() { gotoDomainByDomainId(v.fromId); }
+            },
+              React.createElement('span', { className: 'rank-item__num' }, v.severity === 'forbid' ? '⛔' : '⚠️'),
+              React.createElement('span', { className: 'rank-item__label' }, v.fromId + ' → ' + v.toId)
+            );
+          })
+        )
+      ),
+      React.createElement('div', { className: 'details__field' },
+        React.createElement('div', { className: 'details__field-label' }, 'Исходящие FQID-ссылки (' + refs.length + ')'),
+        refs.length === 0 ? React.createElement('div', { className: 'details__field-value', style: { color: 'var(--text-500)' } }, '—') :
+          React.createElement('div', { className: 'details__refs' },
+            refs.slice(0, 50).map(function(r, i) {
+              var targetExists = allNodes.some(function(n) { return (n.data.domainId || '').toLowerCase() === (r.targetDomainId || '').toLowerCase(); });
+              return React.createElement('div', {
+                key: i,
+                className: 'details__ref' + (targetExists ? '' : ' details__ref--missing'),
+                onClick: function() { if (targetExists) onGotoDomain(r.targetDomainId); }
+              },
+                React.createElement('div', null, r.fullFQID),
+                React.createElement('div', { className: 'details__ref-path' }, r.propertyPath + (!targetExists ? ' · ⚠️ missing' : ''))
+              );
+            })
+          )
+      ),
+      incoming.length > 0 && React.createElement('div', { className: 'details__field' },
+        React.createElement('div', { className: 'details__field-label' }, 'Входящие связи (' + incoming.length + ')'),
+        React.createElement('div', { className: 'details__refs' },
+          incoming.slice(0, 30).map(function(e, i) {
+            var src = allNodes.find(function(n) { return n.id === e.source; });
+            return React.createElement('div', { key: i, className: 'details__ref', onClick: function() { if (src) onGotoDomain(src.data.domainId); } },
+              React.createElement('div', null, src ? src.data.domainId : e.source),
+              React.createElement('div', { className: 'details__ref-path' }, (e.data && e.data.kind) || '')
+            );
+          })
+        )
+      ),
+      outgoing.length > 0 && React.createElement('div', { className: 'details__field' },
+        React.createElement('div', { className: 'details__field-label' }, 'Исходящие связи (' + outgoing.length + ')'),
+        React.createElement('div', { className: 'details__refs' },
+          outgoing.slice(0, 30).map(function(e, i) {
+            var tgt = allNodes.find(function(n) { return n.id === e.target; });
+            return React.createElement('div', { key: i, className: 'details__ref', onClick: function() { if (tgt) onGotoDomain(tgt.data.domainId); } },
+              React.createElement('div', null, tgt ? tgt.data.domainId : e.target),
+              React.createElement('div', { className: 'details__ref-path' }, (e.data && e.data.kind) || '')
+            );
+          })
+        )
+      ),
+      React.createElement('div', { className: 'details__actions' },
+        node.data.filePath && React.createElement('button', { className: 'btn', onClick: function() { onOpenFile(node.data.filePath); } }, '📂 Открыть файл'),
+        node.data.nodeType === 'domain' && React.createElement('button', { className: 'btn', onClick: function() { onGotoDomain(node.data.domainId); } }, '🎯 Центрировать')
+      )
+    );
+  } else {
+    detailsContent = React.createElement('div', { className: 'details' }, React.createElement('div', { style: { color: 'var(--text-500)', textAlign: 'center', padding: 40 } }, 'Узел не выбран'));
+  }
+
+  var fileContent = null;
+  if (tab === 'file') {
+    fileContent = React.createElement('div', { style: { flex: 1, minHeight: 0, position: 'relative' } },
+      React.createElement('div', { id: 'monaco-container', style: { width: '100%', height: '100%' } }),
+      !pendingFile && React.createElement('div', {
+        style: {
+          position: 'absolute', inset: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: 'var(--text-500)', background: 'var(--bg-850)', fontSize: 13
+        }
+      }, 'Загрузка файла...')
+    );
+  }
+  
+  var edgeContent = null;
+  if (tab === 'edge') {
+    if (!edge) {
+      edgeContent = React.createElement('div', { className: 'details' }, React.createElement('div', { style: { color: 'var(--text-500)', textAlign: 'center', padding: 40 } }, 'Связь не выбрана'));
+    } else {
+      var link = (edge.data && edge.data.linkData) || {};
+      var refs = (edge.data && edge.data.fqidRefs) || [];
+      var srcNode = allNodes.find(function(n) { return n.id === edge.source; });
+      var tgtNode = allNodes.find(function(n) { return n.id === edge.target; });
+      edgeContent = React.createElement('div', { className: 'details' },
+        React.createElement('div', { className: 'details__title' }, (edge.data && edge.data.fullLabel) || edge.label || edge.id),
+        React.createElement('div', { className: 'details__id' },
+          React.createElement('span', { className: 'details__id-text' }, edge.id),
+          React.createElement('button', { className: 'details__copy', onClick: function() { navigator.clipboard.writeText(edge.id); }, title: 'Копировать ID' }, '📋')
+        ),
+        React.createElement('div', { className: 'details__badges' },
+          edge.data && edge.data.kind && React.createElement('span', { className: 'details__badge' }, edge.data.kind),
+          edge.data && edge.data.isBidirectional && React.createElement('span', { className: 'details__badge' }, '⇄ двунаправленная'),
+          link.type && React.createElement('span', { className: 'details__badge' }, link.type),
+          edge.data && edge.data.refCount && React.createElement('span', { className: 'details__badge' }, edge.data.refCount + ' refs')
+        ),
+        srcNode && React.createElement('div', { className: 'details__field' },
+          React.createElement('div', { className: 'details__field-label' }, 'Источник'),
+          React.createElement('div', { className: 'details__ref', onClick: function() { onGotoDomain(srcNode.data.domainId); } },
+            React.createElement('div', null, srcNode.data.domainId),
+            link.sourceEntity && React.createElement('div', { className: 'details__ref-path' }, link.sourceEntity)
+          )
+        ),
+        tgtNode && React.createElement('div', { className: 'details__field' },
+          React.createElement('div', { className: 'details__field-label' }, 'Цель'),
+          React.createElement('div', { className: 'details__ref', onClick: function() { onGotoDomain(tgtNode.data.domainId); } },
+            React.createElement('div', null, tgtNode.data.domainId),
+            link.targetEntity && React.createElement('div', { className: 'details__ref-path' }, link.targetEntity)
+          )
+        ),
+        link.nameFrom && (link.nameFrom.side1 || link.nameFrom.side2) && React.createElement('div', { className: 'details__field' },
+          React.createElement('div', { className: 'details__field-label' }, 'Стороны'),
+          link.nameFrom.side1 && React.createElement('div', { className: 'details__field-value' }, 'Сторона 1: ' + link.nameFrom.side1),
+          link.nameFrom.side2 && React.createElement('div', { className: 'details__field-value' }, 'Сторона 2: ' + link.nameFrom.side2)
+        ),
+        refs.length > 0 && React.createElement('div', { className: 'details__field' },
+          React.createElement('div', { className: 'details__field-label' }, 'FQID-ссылки (' + refs.length + ')'),
+          React.createElement('div', { className: 'details__refs' },
+            refs.map(function(r, i) {
+              return React.createElement('div', {
+                key: i,
+                className: 'details__ref',
+                onClick: function() { if (r.targetDomainId) onGotoDomain(r.targetDomainId); }
+              },
+                React.createElement('div', null, r.fullFQID),
+                React.createElement('div', { className: 'details__ref-path' }, r.propertyPath)
+              );
+            })
+          )
+        ),
+        React.createElement('div', { className: 'details__actions' },
+          srcNode && React.createElement('button', { className: 'btn', onClick: function() { onGotoDomain(srcNode.data.domainId); } }, '🎯 К источнику'),
+          tgtNode && React.createElement('button', { className: 'btn', onClick: function() { onGotoDomain(tgtNode.data.domainId); } }, '🎯 К цели')
+        )
+      );
+    }
+  }
+
+  return React.createElement('div', { className: 'side-panel open' },
+    React.createElement('div', { className: 'side-panel__header' },
+      React.createElement('div', { className: 'side-panel__tabs' },
+        React.createElement('button', { className: 'side-panel__tab' + (tab === 'details' ? ' active' : ''), onClick: function() { setTab('details'); } }, '📋 Детали'),
+        React.createElement('button', { className: 'side-panel__tab' + (tab === 'file' ? ' active' : ''), onClick: function() { setTab('file'); } }, '📄 Файл'),
+        React.createElement('button', { className: 'side-panel__tab' + (tab === 'edge' ? ' active' : ''), onClick: function() { setTab('edge'); } }, '🔗 Связь')
+      ),
+      React.createElement('button', { className: 'btn btn--icon', onClick: onClose, title: 'Закрыть' }, '✕')
+    ),
+    filePath && React.createElement('div', { className: 'editor-panel__path', style: { padding: '6px 16px', fontSize: 11, color: 'var(--text-500)', borderBottom: '1px solid var(--border)', background: 'var(--bg-800)', fontFamily: 'monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, filePath),
+    React.createElement('div', { className: 'side-panel__body' },
+      tab === 'details' ? detailsContent :
+      tab === 'edge' ? edgeContent :
+      fileContent
+    )
+  );
+}
+
+// ============ MENUS ============
+function FilterMenu(props) {
+  var filters = props.filters, setFilters = props.setFilters, counts = props.counts;
+  var namespaceFilter = props.namespaceFilter, setNamespaceFilter = props.setNamespaceFilter;
+  var setAll = function(val) { setFilters(function(f) { return Object.assign({}, f, { domain: val, missing: val, broken: val, linkage: val, fqid: val }); }); };
+  var rows = [
+    { key: 'domain', label: 'Domain', color: 'var(--success)' },
+    { key: 'missing', label: 'Missing', color: 'var(--warning)' },
+    { key: 'broken', label: 'Broken', color: 'var(--danger)' }
+  ];
+  var edgesRows = [
+    { key: 'linkage', label: 'Linkage', color: LINKAGE_COLOR },
+    { key: 'fqid', label: 'FQID', color: FQID_COLOR }
+  ];
+  return React.createElement('div', { className: 'menu' },
+    React.createElement('div', { className: 'menu__header' },
+      React.createElement('span', null, 'Фильтры'),
+      React.createElement('button', { className: 'menu__action', onClick: function() { setAll(true); setNamespaceFilter(''); } }, 'Сбросить')
+    ),
+    React.createElement('div', { className: 'menu__section' },
+      React.createElement('div', { className: 'menu__label' }, 'Тип узлов'),
+      rows.map(function(it) {
+        return React.createElement('label', { key: it.key, className: 'menu__checkbox' },
+          React.createElement('input', { type: 'checkbox', checked: !!filters[it.key], onChange: function() { setFilters(function(f) { return Object.assign({}, f, { [it.key]: !f[it.key] }); }); } }),
+          React.createElement('span', { className: 'menu__check' }),
+          React.createElement('span', { className: 'menu__dot', style: { background: it.color } }),
+          React.createElement('span', { className: 'menu__text' }, it.label),
+          React.createElement('span', { className: 'menu__count' }, counts[it.key])
+        );
+      })
+    ),
+    React.createElement('div', { className: 'menu__section' },
+      React.createElement('div', { className: 'menu__label' }, 'Тип связей'),
+      edgesRows.map(function(it) {
+        return React.createElement('label', { key: it.key, className: 'menu__checkbox' },
+          React.createElement('input', { type: 'checkbox', checked: !!filters[it.key], onChange: function() { setFilters(function(f) { return Object.assign({}, f, { [it.key]: !f[it.key] }); }); } }),
+          React.createElement('span', { className: 'menu__check' }),
+          React.createElement('span', { className: 'menu__dot', style: { background: it.color } }),
+          React.createElement('span', { className: 'menu__text' }, it.label),
+          React.createElement('span', { className: 'menu__count' }, counts[it.key])
+        );
+      })
+    ),
+    React.createElement('div', { className: 'menu__section' },
+      React.createElement('div', { className: 'menu__label' }, 'Namespace'),
+      React.createElement('input', { className: 'menu__input', type: 'text', placeholder: 'sgrc.risk.*, !test.*', value: namespaceFilter, onChange: function(e) { setNamespaceFilter(e.target.value); } }),
+      React.createElement('div', { className: 'menu__hint' }, 'Несколько масок через , ; или пробел. ', React.createElement('b', null, '!'), ' — исключить. ', React.createElement('b', null, '*'), ' — любой символ.')
+    )
+  );
+}
+
+function AnalysisMenu(props) {
+  var cycleHighlight = props.cycleHighlight, handleFindCycles = props.handleFindCycles;
+  var isolatedOnly = props.isolatedOnly, setIsolatedOnly = props.setIsolatedOnly;
+  var nsMode = props.nsMode, setNsMode = props.setNsMode;
+  var focusDepth = props.focusDepth, setFocusDepth = props.setFocusDepth;
+  var focusNode = props.focusNode;
+  var close = props.close;
+  var ruleViolations = props.ruleViolations;
+  var rules = props.rules;
+  var setRules = props.setRules;
+  var rulesHighlighted = props.rulesHighlighted;
+  var setRulesHighlighted = props.setRulesHighlighted;
+  var showViolationsOnly = props.showViolationsOnly;
+  var setShowViolationsOnly = props.setShowViolationsOnly;
+  
+  return React.createElement('div', { className: 'menu' },
+    React.createElement('button', { className: 'menu__item' + (cycleHighlight ? ' menu__item--active' : ''), onClick: function() { handleFindCycles(); close(); } },
+      React.createElement('span', { className: 'menu__icon' }, '🔁'),
+      React.createElement('span', { className: 'menu__text' }, 'Найти циклы'),
+      cycleHighlight && React.createElement('span', { className: 'menu__count' }, cycleHighlight.sccCount)
+    ),
+    React.createElement('button', { className: 'menu__item' + (isolatedOnly ? ' menu__item--active' : ''), onClick: function() { setIsolatedOnly(function(v) { return !v; }); close(); } },
+      React.createElement('span', { className: 'menu__icon' }, '◯'),
+      React.createElement('span', { className: 'menu__text' }, 'Только изолированные')
+    ),
+    React.createElement('button', { className: 'menu__item' + (nsMode ? ' menu__item--active' : ''), onClick: function() { setNsMode(function(v) { return !v; }); close(); } },
+      React.createElement('span', { className: 'menu__icon' }, '🗂'),
+      React.createElement('span', { className: 'menu__text' }, 'Агрегация по семействам')
+    ),
+    React.createElement('div', { className: 'menu__divider' }),
+    React.createElement('div', { className: 'menu__row' },
+      React.createElement('span', { style: { fontSize: 12, color: 'var(--text-400)' } }, 'Глубина фокуса:'),
+      React.createElement('input', { className: 'menu__slider', type: 'range', min: 1, max: 4, value: focusDepth, onChange: function(e) { setFocusDepth(parseInt(e.target.value)); } }),
+      React.createElement('span', { style: { fontSize: 12, fontWeight: 700, color: 'var(--accent-hover)', minWidth: 12 } }, focusDepth)
+    ),
+    focusNode && React.createElement('button', { className: 'menu__item menu__item--danger', onClick: function() { props.clearFocus(); close(); } },
+      React.createElement('span', { className: 'menu__icon' }, '✕'),
+      React.createElement('span', { className: 'menu__text' }, 'Сбросить фокус')
+    )
+  );
+}
+
+function ViewMenu(props) {
+  var layoutType = props.layoutType, setLayoutType = props.setLayoutType;
+  var compact = props.compact, setCompact = props.setCompact;
+  var showGroups = props.showGroups, setShowGroups = props.setShowGroups;
+  var bidirectional = props.bidirectional, setBidirectional = props.setBidirectional;
+  var showEdgeLabels = props.showEdgeLabels, setShowEdgeLabels = props.setShowEdgeLabels;
+  var theme = props.theme, setTheme = props.setTheme;
+  var close = props.close;
+  var layouts = [
+    { key: 'LR', label: 'Горизонтально (LR)' },
+    { key: 'TB', label: 'Вертикально (TB)' },
+    { key: 'force', label: 'Force-directed' },
+    { key: 'circular', label: 'Круговой' }
+  ];
+  return React.createElement('div', { className: 'menu' },
+    React.createElement('div', { className: 'menu__label' }, 'Раскладка'),
+    layouts.map(function(l) {
+      return React.createElement('button', { key: l.key, className: 'menu__item' + (layoutType === l.key ? ' menu__item--active' : ''), onClick: function() { setLayoutType(l.key); close(); } },
+        React.createElement('span', { className: 'menu__icon' }, layoutType === l.key ? '●' : '○'),
+        React.createElement('span', { className: 'menu__text' }, l.label)
+      );
+    }),
+    React.createElement('div', { className: 'menu__divider' }),
+    React.createElement('div', { className: 'menu__label' }, 'Heatmap'),
+    [
+      { key: 'none', label: 'Выключен' },
+      { key: 'health', label: 'Health score' },
+      { key: 'degree', label: 'Количество связей' },
+      { key: 'entities', label: 'Entities' },
+      { key: 'fqid', label: 'Исходящие FQID' }
+    ].map(function(h) {
+      return React.createElement('button', {
+        key: h.key,
+        className: 'menu__item' + (props.heatmap === h.key ? ' menu__item--active' : ''),
+        onClick: function() { props.setHeatmap(h.key); close(); }
+      },
+        React.createElement('span', { className: 'menu__icon' }, props.heatmap === h.key ? '●' : '○'),
+        React.createElement('span', { className: 'menu__text' }, h.label)
+      );
+    }),
+    React.createElement('div', { className: 'menu__divider' }),
+    React.createElement('div', { className: 'menu__label' }, 'Отображение'),
+    React.createElement('label', { className: 'menu__checkbox' },
+      React.createElement('input', { type: 'checkbox', checked: compact, onChange: function() { setCompact(!compact); } }),
+      React.createElement('span', { className: 'menu__check' }),
+      React.createElement('span', { className: 'menu__text' }, 'Компактный режим')
+    ),
+    React.createElement('label', { className: 'menu__checkbox' },
+      React.createElement('input', { type: 'checkbox', checked: showGroups, onChange: function() { setShowGroups(!showGroups); } }),
+      React.createElement('span', { className: 'menu__check' }),
+      React.createElement('span', { className: 'menu__text' }, 'Группировка в рамки')
+    ),
+    React.createElement('label', { className: 'menu__checkbox' },
+      React.createElement('input', { type: 'checkbox', checked: bidirectional, onChange: function() { setBidirectional(!bidirectional); } }),
+      React.createElement('span', { className: 'menu__check' }),
+      React.createElement('span', { className: 'menu__text' }, 'Объединять A↔B')
+    ),
+    React.createElement('label', { className: 'menu__checkbox' },
+      React.createElement('input', { type: 'checkbox', checked: showEdgeLabels, onChange: function() { setShowEdgeLabels(!showEdgeLabels); } }),
+      React.createElement('span', { className: 'menu__check' }),
+      React.createElement('span', { className: 'menu__text' }, 'Подписи связей')
+    ),
+    React.createElement('div', { className: 'menu__divider' }),
+    React.createElement('button', { className: 'menu__item', onClick: function() { setTheme(theme === 'dark' ? 'light' : 'dark'); close(); } },
+      React.createElement('span', { className: 'menu__icon' }, theme === 'dark' ? '☀️' : '🌙'),
+      React.createElement('span', { className: 'menu__text' }, theme === 'dark' ? 'Светлая тема' : 'Тёмная тема')
+    )
+  );
+}
+
+function DataMenu(props) {
+  var snapshotInputRef = props.snapshotInputRef, handleSnapshotUpload = props.handleSnapshotUpload;
+  var diffMode = props.diffMode, setDiffMode = props.setDiffMode;
+  var close = props.close;
+  return React.createElement('div', { className: 'menu' },
+    React.createElement('button', { className: 'menu__item', onClick: function() { props.handleExportPNG(); close(); } },
+      React.createElement('span', { className: 'menu__icon' }, '🖼️'),
+      React.createElement('span', { className: 'menu__text' }, 'Экспорт графа в PNG')
+    ),
+    React.createElement('button', { className: 'menu__item', onClick: function() { props.handleExportJSON(); close(); } },
+      React.createElement('span', { className: 'menu__icon' }, '💾'),
+      React.createElement('span', { className: 'menu__text' }, 'Экспорт в JSON')
+    ),
+    React.createElement('button', { className: 'menu__item', onClick: function() { props.handleExportMarkdown(); close(); } },
+        React.createElement('span', { className: 'menu__icon' }, '📝'),
+        React.createElement('span', { className: 'menu__text' }, 'Отчёт в Markdown')
+      ),
+    React.createElement('label', { className: 'menu__item' },
+      React.createElement('span', { className: 'menu__icon' }, '⇄'),
+      React.createElement('span', { className: 'menu__text' }, 'Загрузить снимок'),
+      React.createElement('input', { ref: snapshotInputRef, type: 'file', accept: 'application/json', style: { display: 'none' }, onChange: function(e) { handleSnapshotUpload(e); close(); } })
+    ),
+    diffMode && React.createElement('button', { className: 'menu__item menu__item--danger', onClick: function() { setDiffMode(null); close(); } },
+      React.createElement('span', { className: 'menu__icon' }, '✕'),
+      React.createElement('span', { className: 'menu__text' }, 'Сбросить diff')
+    )
+  );
+}
+
+// ============ SEARCH MODAL ============
+function SearchModal(props) {
+  var open = props.open;
+  var query = props.query, setQuery = props.setQuery;
+  var results = props.results, index = props.index, setIndex = props.setIndex;
+  var onSelect = props.onSelect, onClose = props.onClose;
+  var inputRef = props.inputRef;
+  if (!open) return null;
+  var onKey = function(e) {
+    if (e.key === 'Escape') { e.preventDefault(); onClose(); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); setIndex(Math.min(index + 1, Math.max(results.length - 1, 0))); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setIndex(Math.max(index - 1, 0)); }
+    else if (e.key === 'Enter') { e.preventDefault(); var t = results.length === 1 ? results[0] : results[index]; if (t) onSelect(t.node.data.domainId); }
+  };
+  return React.createElement('div', { className: 'search-overlay', onMouseDown: onClose },
+    React.createElement('div', { className: 'search-modal', onMouseDown: function(e) { e.stopPropagation(); } },
+      React.createElement('div', { className: 'search-modal__input-wrap' },
+        React.createElement('span', { className: 'search-modal__icon' }, '🔍'),
+        React.createElement('input', { ref: inputRef, className: 'search-modal__input', type: 'text', placeholder: 'Поиск: id, name, description, tags', value: query, onChange: function(e) { setQuery(e.target.value); }, onKeyDown: onKey }),
+        React.createElement('kbd', { className: 'search-modal__kbd' }, 'Esc')
+      ),
+      React.createElement('div', { className: 'search-modal__results' },
+        query.trim() === '' ? React.createElement('div', { className: 'search-modal__hint' }, 'Введите запрос') :
+        results.length === 0 ? React.createElement('div', { className: 'search-modal__hint' }, 'Ничего не найдено') :
+        results.map(function(item, i) {
+          var n = item.node;
+          var matched = new Set(item.matches.map(function(m) { return m.field; }));
+          return React.createElement('div', {
+            key: n.id,
+            className: 'search-result' + (i === index ? ' active' : ''),
+            onMouseEnter: function() { setIndex(i); },
+            onClick: function() { onSelect(n.data.domainId); }
+          },
+            React.createElement('span', { className: 'search-result__dot search-result__dot--' + n.data.nodeType }),
+            React.createElement('div', { className: 'search-result__content' },
+              React.createElement('div', { className: 'search-result__id' },
+                React.createElement(HighlightedText, { text: n.data.domainId, query: query }),
+                matched.has('id') && React.createElement('span', { className: 'search-result__badge' }, 'id')
+              ),
+              n.data.name && n.data.name !== n.data.domainId && React.createElement('div', { className: 'search-result__label' },
+                React.createElement(HighlightedText, { text: n.data.name, query: query }),
+                matched.has('name') && React.createElement('span', { className: 'search-result__badge' }, 'name')
+              ),
+              n.data.description && React.createElement('div', { className: 'search-result__desc' },
+                React.createElement(HighlightedText, { text: n.data.description, query: query }),
+                matched.has('description') && React.createElement('span', { className: 'search-result__badge' }, 'description')
+              ),
+              Array.isArray(n.data.tags) && n.data.tags.length > 0 && React.createElement('div', { className: 'search-result__tags' },
+                n.data.tags.slice(0, 5).map(function(tag, ti) {
+                  return React.createElement('span', { key: ti, className: 'search-result__tag' },
+                    React.createElement(HighlightedText, { text: tag, query: query })
+                  );
+                }),
+                matched.has('tags') && React.createElement('span', { className: 'search-result__badge' }, 'tags')
+              )
+            )
+          );
+        })
+      ),
+      React.createElement('div', { className: 'search-modal__footer' },
+        React.createElement('span', null, React.createElement('kbd', null, '↑'), React.createElement('kbd', null, '↓'), ' навигация'),
+        React.createElement('span', null, React.createElement('kbd', null, 'Enter'), ' выбрать'),
+        React.createElement('span', null, React.createElement('kbd', null, 'Esc'), ' закрыть')
+      )
+    )
+  );
+}
+
+// ============ TOOLTIP ============
+function HoverTooltip(props) {
+  var tooltip = props.tooltip;
+  var onHide = props.onHide;
+  if (!tooltip) return null;
+  var style = { left: tooltip.x, top: tooltip.y };
+  return React.createElement('div', {
+    className: 'tooltip',
+    style: style,
+    onMouseEnter: function() { window.__tooltipHovered = true; },
+    onMouseLeave: function() { window.__tooltipHovered = false; if (onHide) onHide(); }
+  },
+    React.createElement('div', { dangerouslySetInnerHTML: { __html: tooltip.html } })
+  );
+}
+
+// ============ INNER (ReactFlow wrapper) ============
+var ReactFlowInner = React.memo(function(props) {
+  var rf = useReactFlow();
+  useEffect(function() { props.setRfInstance(rf); }, [rf]);
+  return React.createElement(ReactFlow, {
+    nodes: props.nodes,
+    edges: props.edges,
+    onNodesChange: props.readOnly ? function() {} : props.onNodesChange,
+    onEdgesChange: props.readOnly ? function() {} : props.onEdgesChange,
+    onEdgeClick: props.onEdgeClick,
+    nodeTypes: nodeTypes,
+    onNodeClick: props.onNodeClick,
+    onNodeDoubleClick: props.onNodeDoubleClick,
+    onNodeContextMenu: props.onNodeContextMenu,
+    onNodeMouseEnter: props.onNodeMouseEnter,
+    onNodeMouseLeave: props.onNodeMouseLeave,
+    onEdgeMouseEnter: props.onEdgeMouseEnter,
+    onEdgeMouseLeave: props.onEdgeMouseLeave,
+    onPaneClick: props.onPaneClick,
+    onPaneContextMenu: props.onPaneContextMenu,
+    fitView: true,
+    fitViewOptions: { padding: 0.2 },
+    minZoom: 0.05,
+    maxZoom: 4,
+    proOptions: { hideAttribution: true },
+    nodesDraggable: !props.readOnly,
+    nodesConnectable: false,
+    elementsSelectable: true,
+    onlyRenderVisibleElements: true,
+    defaultEdgeOptions: { type: 'smoothstep' }
+  },
+    React.createElement(Background, { variant: BackgroundVariant.Dots, gap: 20, size: 1, color: 'var(--graph-dots)' }),
+    React.createElement(Controls, { position: 'bottom-left' }),
+    React.createElement(MiniMap, { position: 'bottom-right', nodeColor: function(n) { var t = n.data && n.data.nodeType; if (t === 'missing') return '#f59e0b'; if (t === 'broken') return '#ef4444'; return '#10b981'; }, maskColor: 'rgba(10,14,26,0.7)', style: { width: 180, height: 130 } })
+  );
+});
+
+function evaluateRules(edges, nodes, rules) {
+  if (!Array.isArray(edges) || !Array.isArray(nodes) || !Array.isArray(rules)) {
+    return [];
+  }
+  var violations = [];
+  var nodeById = new Map();
+  nodes.forEach(function(n) { nodeById.set(n.id, n); });
+  edges.forEach(function(e) {
+    var src = nodeById.get(e.source);
+    var tgt = nodeById.get(e.target);
+    if (!src || !tgt) return;
+    var fromId = (src.data.domainId || '').toLowerCase();
+    var toId = (tgt.data.domainId || '').toLowerCase();
+    rules.forEach(function(rule) {
+      if (!rule.from || !rule.to) return;
+      if (simplePatternMatch(fromId, rule.from.toLowerCase()) &&
+          simplePatternMatch(toId, rule.to.toLowerCase())) {
+        violations.push({
+          ruleId: rule.id,
+          rule: rule,
+          edgeId: e.id,
+          fromId: src.data.domainId,
+          toId: tgt.data.domainId,
+          severity: rule.action || 'warn'
+        });
+      }
+    });
+  });
+  return violations;
+}
+
+function RulesMenu(props) {
+  var rules = props.rules, setRules = props.setRules;
+  var violations = props.violations;
+  var rulesHighlighted = props.rulesHighlighted, setRulesHighlighted = props.setRulesHighlighted;
+  var showViolationsOnly = props.showViolationsOnly, setShowViolationsOnly = props.setShowViolationsOnly;
+  var close = props.close;
+  var [draft, setDraft] = useState({ from: '', to: '', action: 'warn', message: '' });
+
+  var addRule = function() {
+    if (!draft.from || !draft.to) return;
+    setRules(function(prev) {
+      var arr = Array.isArray(prev) ? prev : [];
+      return arr.concat([Object.assign({ id: 'r' + Date.now() }, draft)]);
+    });
+    setDraft({ from: '', to: '', action: 'warn', message: '' });
+  };
+  var removeRule = function(id) {
+    setRules(function(prev) {
+      return (Array.isArray(prev) ? prev : []).filter(function(r) { return r.id !== id; });
+    });
+  };
+  var toggleAction = function(id) {
+    setRules(function(prev) {
+      return (Array.isArray(prev) ? prev : []).map(function(r) {
+        if (r.id !== id) return r;
+        return Object.assign({}, r, { action: r.action === 'forbid' ? 'warn' : 'forbid' });
+      });
+    });
+  };
+
+  return React.createElement('div', { className: 'menu', style: { width: 380, padding: 12 } },
+    React.createElement('div', { className: 'menu__label' }, 'Правила зависимостей'),
+    rules.length === 0 && React.createElement('div', { style: { fontSize: 11, color: 'var(--text-500)', padding: '8px 10px' } }, 'Правила не заданы'),
+    rules.map(function(r) {
+      return React.createElement('div', { key: r.id, className: 'rule-item' },
+        React.createElement('button', {
+          className: 'rule-item__action rule-item__action--' + r.action,
+          onClick: function() { toggleAction(r.id); },
+          title: r.action === 'forbid' ? 'Запрещено' : 'Предупреждение'
+        }, r.action === 'forbid' ? '⛔' : '⚠️'),
+        React.createElement('div', { className: 'rule-item__body' },
+          React.createElement('div', { className: 'rule-item__pattern' }, r.from + ' → ' + r.to),
+          r.message && React.createElement('div', { className: 'rule-item__message' }, r.message)
+        ),
+        React.createElement('button', { className: 'rule-item__remove', onClick: function() { removeRule(r.id); } }, '✕')
+      );
+    }),
+    React.createElement('div', { className: 'rule-form' },
+      React.createElement('input', { className: 'menu__input', placeholder: 'from (ui.*)', value: draft.from, onChange: function(e) { setDraft(Object.assign({}, draft, { from: e.target.value })); } }),
+      React.createElement('input', { className: 'menu__input', placeholder: 'to (db.*)', value: draft.to, onChange: function(e) { setDraft(Object.assign({}, draft, { to: e.target.value })); } }),
+      React.createElement('input', { className: 'menu__input', placeholder: 'комментарий', value: draft.message, onChange: function(e) { setDraft(Object.assign({}, draft, { message: e.target.value })); } }),
+      React.createElement('div', { style: { display: 'flex', gap: 6, alignItems: 'center' } },
+        React.createElement('select', { className: 'menu__input', style: { flex: 1 }, value: draft.action, onChange: function(e) { setDraft(Object.assign({}, draft, { action: e.target.value })); } },
+          React.createElement('option', { value: 'warn' }, '⚠️ Warn'),
+          React.createElement('option', { value: 'forbid' }, '⛔ Forbid')
+        ),
+        React.createElement('button', { className: 'btn btn--primary', onClick: addRule }, 'Добавить')
+      )
+    ),
+    React.createElement('div', { className: 'menu__divider' }),
+    React.createElement('label', { className: 'menu__checkbox' },
+      React.createElement('input', { type: 'checkbox', checked: rulesHighlighted, onChange: function() { setRulesHighlighted(!rulesHighlighted); } }),
+      React.createElement('span', { className: 'menu__check' }),
+      React.createElement('span', { className: 'menu__text' }, 'Подсвечивать нарушения')
+    ),
+    React.createElement('label', { className: 'menu__checkbox' },
+      React.createElement('input', { type: 'checkbox', checked: showViolationsOnly, onChange: function() { setShowViolationsOnly(!showViolationsOnly); } }),
+      React.createElement('span', { className: 'menu__check' }),
+      React.createElement('span', { className: 'menu__text' }, 'Показать только нарушения')
+    ),
+    React.createElement('div', { style: { padding: '6px 10px', fontSize: 11, color: 'var(--text-500)' } },
+      violations.length === 0 ? 'Нарушений нет ✅' : 'Найдено: ' + violations.length
+    ),
+    React.createElement('div', { style: { padding: '4px 10px' } },
+      React.createElement('button', { className: 'menu__action', onClick: close }, 'Закрыть')
+    )
+  );
+}
+
+// ============ APP ============
+function App() {
+  // Theme
+  var themeState = useState(function() { return localStorage.getItem('dg-theme') || 'dark'; });
+  var theme = themeState[0], setTheme = themeState[1];
+  useEffect(function() { document.documentElement.setAttribute('data-theme', theme); localStorage.setItem('dg-theme', theme); }, [theme]);
+
+  // Filters
+  var [filters, setFilters] = useState({ domain: true, broken: true, missing: true, linkage: true, fqid: true });
+  var [namespaceFilter, setNamespaceFilter] = useState('');
+  var [isolatedOnly, setIsolatedOnly] = useState(false);
+  var [nsMode, setNsMode] = useState(false);
+
+  // View
+  var [layoutType, setLayoutType] = useState('LR');
+  var [compact, setCompact] = useState(false);
+  var [showGroups, setShowGroups] = useState(false);
+  var [bidirectional, setBidirectional] = useState(true);
+  var [showEdgeLabels, setShowEdgeLabels] = useState(false);
+
+  // Interaction
+  var [selectedNodeId, setSelectedNodeId] = useState(null);
+  var [focusNode, setFocusNode] = useState(null);
+  var [focusDepth, setFocusDepth] = useState(2);
+  var [pathSel, setPathSel] = useState([]);
+  var [pathResult, setPathResult] = useState(null);
+  var [contextMenu, setContextMenu] = useState(null);
+  var [cycleHighlight, setCycleHighlight] = useState(null);
+  var [diffMode, setDiffMode] = useState(null);
+
+  // Side panel
+  var [panelOpen, setPanelOpen] = useState(false);
+  var [panelTab, setPanelTab] = useState('details');
+  var [panelNodeId, setPanelNodeId] = useState(null);
+  var editorRef = useRef(null);
+
+  // Search
+  var [searchOpen, setSearchOpen] = useState(false);
+  var [searchQuery, setSearchQuery] = useState('');
+  var [searchIndex, setSearchIndex] = useState(0);
+  var searchInputRef = useRef(null);
+
+  // UI
+  var [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  var [tooltip, setTooltip] = useState(null);
+  var hideTimer = useRef(null);
+  var tooltipCache = useRef(new Map());
+  var rfInstance = useRef(null);
+  var snapshotInputRef = useRef(null);
+  
+  var [editorFilePath, setEditorFilePath] = useState('');
+  var [pendingFile, setPendingFile] = useState(null); // { content, fqid, ts }
+  var [hiddenNodeIds, setHiddenNodeIds] = useState(function() { return new Set(); });
+  
+  var [pathMode, setPathMode] = useState(null); // { kind: 'from' | 'to', anchorId }
+  var [tooltipsEnabled, setTooltipsEnabled] = useState(true);
+  var [selectedEdgeId, setSelectedEdgeId] = useState(null);
+  var [heatmap, setHeatmap] = useState('none'); // none | health | degree | entities | fqid
+
+  var [navHistory, setNavHistory] = useState([]);
+  var [navIndex, setNavIndex] = useState(-1);
+  var navigatingFromHistory = useRef(false);
+  
+  var [rules, setRules] = useState(function() {
+    try {
+      var raw = localStorage.getItem('dg-rules');
+      var parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) { return []; }
+  });
+  
+  var [showViolationsOnly, setShowViolationsOnly] = useState(false);
+  var [rulesHighlighted, setRulesHighlighted] = useState(true);
+  
+  useEffect(function() {
+    try {
+      var arr = Array.isArray(rules) ? rules : [];
+      localStorage.setItem('dg-rules', JSON.stringify(arr));
+    } catch (e) {}
+  }, [rules]);
+  
+  // Initial dat
+  useEffect(function() {
+    setSelectedNodeId(null); setFocusNode(null);
+    setPathResult(null); setPathSel([]);
+    setCycleHighlight(null); setHiddenNodeIds(new Set());
+    setPathMode(null);
+    setTimeout(function() { rfInstance.current && rfInstance.current.fitView({ duration: 500, padding: 0.2 }); }, 150);
+  }, [nsMode]);
+  
+  
+  var [bookmarks, setBookmarks] = useState(function() {
+    try {
+      var raw = localStorage.getItem('dg-bookmarks');
+      return raw ? new Set(JSON.parse(raw)) : new Set();
+    } catch (e) { return new Set(); }
+  });
+  
+  var [bookmarksOnly, setBookmarksOnly] = useState(false);
+  
+  useEffect(function() {
+    try { localStorage.setItem('dg-bookmarks', JSON.stringify(Array.from(bookmarks))); } catch (e) {}
+  }, [bookmarks]);
+  
+  var toggleBookmark = useCallback(function(nodeId) {
+    setBookmarks(function(prev) {
+      var s = new Set(prev);
+      if (s.has(nodeId)) s.delete(nodeId);
+      else s.add(nodeId);
+      return s;
+    });
+  }, []);
+  
+  useEffect(function() {
+    if (pathSel.length > 0 || pathMode) {
+      clearTimeout(hideTimer.current);
+      setTooltip(null);
+      window.__tooltipHovered = false;
+    }
+  }, [pathSel.length, pathMode]);
+  
+  useEffect(function() {
+    if (!tooltipsEnabled) {
+      clearTimeout(hideTimer.current);
+      setTooltip(null);
+      window.__tooltipHovered = false;
+    }
+  }, [tooltipsEnabled]);
+  
+  var initial = useMemo(function() {
+    var nodes = GRAPH_DATA.nodes.map(function(n) {
+      var domainId = n.domainId || n.id.replace(/^(domain_|missing_|broken_)/, '');
+      return {
+        id: n.id,
+        type: 'domainNode',
+        data: {
+          domainId: domainId,
+          label: n.label,
+          nodeType: n.group,
+          filePath: n.filePath,
+          tooltipHtml: n.title,
+          fqidRefs: n.fqidRefs || [],
+          version: n.version,
+          entitiesCount: n.entitiesCount,
+          name: n.name || n.label || '',
+          description: n.description || '',
+          author: n.author || '',
+          tags: Array.isArray(n.tags) ? n.tags : []
+        },
+        position: { x: 0, y: 0 }
+      };
+    });
+    var edges = GRAPH_DATA.edges.map(function(e) {
+      var isLinkage = e.kind === 'linkage';
+      return {
+        id: e.id,
+        source: e.from,
+        target: e.to,
+        type: 'smoothstep',
+        label: e.label,
+        data: {
+          tooltipHtml: e.title,
+          fqidRefs: e.fqidRefs || [],
+          linkData: e.linkData || null,
+          fullLabel: e.fullLabel || e.label || e.id,
+          kind: e.kind,
+          refCount: e.refCount,
+          side1Domain: e.side1Domain || null,
+          side2Domain: e.side2Domain || null
+        },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: isLinkage ? LINKAGE_COLOR : FQID_COLOR,
+          width: 14, height: 14
+        },
+        style: {
+          stroke: isLinkage ? LINKAGE_COLOR : FQID_COLOR,
+          strokeWidth: isLinkage ? 2 : 1.5,
+          opacity: 0.85
+        }
+      };
+    });
+    return { nodes: dagreLayout(nodes, edges, 'LR'), edges: edges };
+  }, []);
+
+  var [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
+  var [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
+
+  // ---- Derived: namespace aggregation ----
+  var display = useMemo(function() {
+    if (!nsMode) return { nodes: nodes, edges: edges };
+    return aggregateByNamespace(nodes, edges);
+  }, [nodes, edges, nsMode]);
+  var displayNodes = display.nodes;
+  var displayEdges = display.edges;
+  
+    var ruleViolations = useMemo(function() {
+    if (rules.length === 0) return [];
+    return evaluateRules(displayEdges, displayNodes, rules);
+  }, [displayEdges, displayNodes, rules]);
+  
+  var violationsByEdge = useMemo(function() {
+    var m = new Map();
+    ruleViolations.forEach(function(v) {
+      if (!m.has(v.edgeId)) m.set(v.edgeId, []);
+      m.get(v.edgeId).push(v);
+    });
+    return m;
+  }, [ruleViolations]);
+
+  // ---- Derived: cycle detection ----
+  var cyclesInfo = useMemo(function() { return findCycles(displayNodes, displayEdges); }, [displayNodes, displayEdges]);
+
+  // ---- Derived: health score ----
+  var healthMap = useMemo(function() {
+    var allNs = new Set();
+    displayNodes.forEach(function(n) { allNs.add(n.id); });
+    var map = new Map();
+    displayNodes.forEach(function(n) {
+      var h = computeHealth(n, displayEdges, displayNodes, cyclesInfo.cycleNodes, null);
+      map.set(n.id, h);
+    });
+    return map;
+  }, [displayNodes, displayEdges, cyclesInfo]);
+
+  // ---- Derived: bidirectional merge ----
+  var bidirectionalEdges = useMemo(function() {
+    if (!bidirectional) return displayEdges;
+    return mergeBidirectional(displayEdges);
+  }, [displayEdges, bidirectional]);
+
+  // ---- Filters ----
+  var connected = useMemo(function() {
+    var s = new Set();
+    displayEdges.forEach(function(e) { s.add(e.source); s.add(e.target); });
+    return s;
+  }, [displayEdges]);
+
+  var filteredNodes = useMemo(function() {
+    return displayNodes.filter(function(n) {
+      if (hiddenNodeIds.has(n.id)) return false;
+      if (bookmarksOnly && !bookmarks.has(n.id)) return false;
+      var t = n.data.nodeType;
+      if (t === 'domain' && !filters.domain) return false;
+      if (t === 'broken' && !filters.broken) return false;
+      if (t === 'missing' && !filters.missing) return false;
+      if (namespaceFilter && !matchesNamespace(n.data.domainId, namespaceFilter)) return false;
+      if (isolatedOnly && (t !== 'domain' || connected.has(n.id))) return false;
+      return true;
+    });
+  }, [displayNodes, filters, namespaceFilter, isolatedOnly, connected, hiddenNodeIds, bookmarks, bookmarksOnly]);
+
+  var filteredEdges = useMemo(function() {
+    var ids = new Set(filteredNodes.map(function(n) { return n.id; }));
+    return bidirectionalEdges.filter(function(e) {
+      if (!ids.has(e.source) || !ids.has(e.target)) return false;
+      if (showViolationsOnly && !violationsByEdge.has(e.id)) return false;
+      var kind = e.data && e.data.kind;
+      if (kind === 'linkage' && !filters.linkage) return false;
+      if (kind === 'fqid' && !filters.fqid) return false;
+      return true;
+    });
+  }, [bidirectionalEdges, filteredNodes, filters.linkage, filters.fqid, showViolationsOnly, violationsByEdge]);
+
+  // ---- Highlights ----
+  var highlight = useMemo(function() {
+    // Priority: path > cycle > focus > selected
+    if (pathResult) {
+      return { nodes: new Set(pathResult.nodes), edges: new Set(pathResult.edges), color: PATH_COLOR, type: 'path' };
+    }
+    if (cycleHighlight) {
+      return { nodes: cycleHighlight.nodeIds, edges: cycleHighlight.edgeIds, color: '#f97316', type: 'cycle' };
+    }
+    if (focusNode) {
+      var reachable = findReachable(focusNode, focusDepth, filteredEdges);
+      var focusEdges = new Set();
+      filteredEdges.forEach(function(e) {
+        if (reachable.has(e.source) && reachable.has(e.target)) focusEdges.add(e.id);
+      });
+      return { nodes: reachable, edges: focusEdges, color: '#22d3ee', type: 'focus' };
+    }
+    if (selectedNodeId) {
+      var nodeIds = new Set([selectedNodeId]);
+      var edgeIds = new Set();
+      filteredEdges.forEach(function(e) {
+        if (e.source === selectedNodeId || e.target === selectedNodeId) {
+          edgeIds.add(e.id);
+          nodeIds.add(e.source);
+          nodeIds.add(e.target);
+        }
+      });
+      return { nodes: nodeIds, edges: edgeIds, color: '#fbbf24', type: 'selected' };
+    }
+    return null;
+  }, [selectedNodeId, focusNode, focusDepth, cycleHighlight, pathResult, filteredEdges]);
+  
+  var heatmapValues = useMemo(function() {
+    if (heatmap === 'none') return null;
+    var map = new Map();
+    var values = [];
+    displayNodes.forEach(function(n) {
+      var v = 0;
+      if (heatmap === 'health') v = healthMap.get(n.id) != null ? healthMap.get(n.id) : 0;
+      else if (heatmap === 'degree') {
+        var d = 0;
+        displayEdges.forEach(function(e) { if (e.source === n.id) d++; if (e.target === n.id) d++; });
+        v = d;
+      }
+      else if (heatmap === 'entities') v = n.data.entitiesCount || 0;
+      else if (heatmap === 'fqid') v = (n.data.fqidRefs || []).length;
+      map.set(n.id, v);
+      values.push(v);
+    });
+    var min = Math.min.apply(null, values.length ? values : [0]);
+    var max = Math.max.apply(null, values.length ? values : [1]);
+    return { map: map, min: min, max: max, scheme: HEATMAPS[heatmap] };
+  }, [heatmap, displayNodes, displayEdges, healthMap]);
+
+  var visibleNodes = useMemo(function() {
+    var pathEndpoints = pathResult ? new Set([pathResult.nodes[0], pathResult.nodes[pathResult.nodes.length - 1]]) : null;
+    return filteredNodes.map(function(n) {
+      var dimmed = highlight ? !highlight.nodes.has(n.id) : false;
+      var inPath = highlight && highlight.type === 'path' && highlight.nodes.has(n.id);
+      var isPathEndpoint = pathEndpoints && pathEndpoints.has(n.id);
+      var isAdded = diffMode && diffMode.addedNodes && diffMode.addedNodes.has(n.id);
+      var health = healthMap.get(n.id);
+      var hm = null;
+      if (heatmapValues) {
+        var val = heatmapValues.map.get(n.id) || 0;
+        var scheme = heatmapValues.scheme;
+        hm = heatColor(val, heatmapValues.min, heatmapValues.max, scheme);
+      }
+      return Object.assign({}, n, {
+        style: { opacity: dimmed ? 0.12 : 1, transition: 'opacity 0.2s' },
+        data: Object.assign({}, n.data, {
+          dimmed: dimmed,
+          health: health,
+          __compact: compact,
+          __inPath: inPath,
+          __isPathEndpoint: isPathEndpoint,
+          __heatColor: hm,
+          __bookmarked: bookmarks.has(n.id)
+        }),
+        selected: n.id === selectedNodeId
+      });
+    });
+  }, [filteredNodes, highlight, compact, pathResult, diffMode, healthMap, selectedNodeId, heatmapValues, bookmarks]);
+
+ var visibleEdges = useMemo(function() {
+  return filteredEdges.map(function(e) {
+    var isSelected = e.id === selectedEdgeId;
+    var hl = highlight && highlight.edges.has(e.id);
+    var baseColor = (e.data && e.data.kind === 'linkage') ? LINKAGE_COLOR
+      : (e.data && e.data.kind === 'fqid') ? FQID_COLOR : LINKAGE_COLOR;
+
+    var stroke = baseColor;
+    var opacity = 0.85;
+    var strokeWidth = (e.style && e.style.strokeWidth) || 1.5;
+    var animated = false;
+
+    // 1) Подсветка выделения / фокуса / пути / циклов
+    if (highlight) {
+      opacity = hl ? 1 : 0.06;
+      strokeWidth = hl ? ((e.data && e.data.kind === 'linkage') ? 3 : 2) : strokeWidth;
+      animated = hl && highlight.type === 'path';
+    }
+
+    // 2) Diff
+    if (diffMode) {
+      if (diffMode.addedEdges && diffMode.addedEdges.has(e.id)) { stroke = DIFF_ADDED; opacity = 1; strokeWidth = 3; animated = true; }
+      else if (diffMode.removedEdges && diffMode.removedEdges.has(e.id)) { stroke = DIFF_REMOVED; opacity = 1; strokeWidth = 3; }
+    }
+
+    // 3) Правила (имеют приоритет над остальным, кроме selected)
+    if (rulesHighlighted && violationsByEdge && violationsByEdge.has(e.id)) {
+      var v = violationsByEdge.get(e.id);
+      var hasForbid = v.some(function(x) { return x.severity === 'forbid'; });
+      stroke = hasForbid ? '#dc2626' : '#f59e0b';
+      opacity = 1;
+      strokeWidth = 3.5;
+      animated = true;
+    }
+
+    // 4) Выбранное ребро — жёлтый поверх всего
+    if (isSelected) {
+      stroke = '#fbbf24';
+      opacity = 1;
+      strokeWidth = 4;
+      animated = true;
+    }
+
+    return Object.assign({}, e, {
+      animated: animated,
+      style: Object.assign({}, e.style, {
+        stroke: stroke,
+        opacity: opacity,
+        strokeWidth: strokeWidth
+      }),
+      markerEnd: Object.assign({}, e.markerEnd, { color: stroke }),
+      markerStart: e.markerStart ? Object.assign({}, e.markerStart, { color: stroke }) : undefined
+    });
+  });
+}, [filteredEdges, highlight, diffMode, rulesHighlighted, violationsByEdge, selectedEdgeId]);
+  
+  var panelEdge = selectedEdgeId
+    ? visibleEdges.find(function(e) { return e.id === selectedEdgeId; }) || edges.find(function(e) { return e.id === selectedEdgeId; })
+    : null;
+
+  // ---- Helpers ----
+  var domainToNodeId = useMemo(function() {
+    var m = new Map();
+    nodes.forEach(function(n) { m.set((n.data.domainId || '').toLowerCase(), n.id); });
+    return m;
+  }, [nodes]);
+
+  var counts = useMemo(function() { return {
+    domain: nodes.filter(function(n) { return n.data.nodeType === 'domain'; }).length,
+    missing: nodes.filter(function(n) { return n.data.nodeType === 'missing'; }).length,
+    broken: nodes.filter(function(n) { return n.data.nodeType === 'broken'; }).length,
+    linkage: edges.filter(function(e) { return e.data && e.data.kind === 'linkage'; }).length,
+    fqid: edges.filter(function(e) { return e.data && e.data.kind === 'fqid'; }).length
+  }; }, [nodes, edges]);
+
+  var topConnected = useMemo(function() {
+    var deg = new Map();
+    nodes.forEach(function(n) { deg.set(n.id, 0); });
+    edges.forEach(function(e) {
+      if (deg.has(e.source)) deg.set(e.source, deg.get(e.source) + 1);
+      if (deg.has(e.target)) deg.set(e.target, deg.get(e.target) + 1);
+    });
+    return nodes.map(function(n) { return { node: n, degree: deg.get(n.id) || 0 }; })
+      .filter(function(x) { return x.degree > 0; })
+      .sort(function(a, b) { return b.degree - a.degree; }).slice(0, 5);
+  }, [nodes, edges]);
+
+  var worstHealth = useMemo(function() {
+    return nodes
+      .filter(function(n) { return n.data.nodeType === 'domain'; })
+      .map(function(n) { return { node: n, health: healthMap.get(n.id) || 0 }; })
+      .sort(function(a, b) { return a.health - b.health; })
+      .slice(0, 5);
+  }, [nodes, healthMap]);
+
+  var namespaces = useMemo(function() {
+    var map = new Map();
+    nodes.forEach(function(n) {
+      if (n.data.nodeType !== 'domain') return;
+      var ns = n.data.domainId.split('.').slice(0, 2).join('.');
+      map.set(ns, (map.get(ns) || 0) + 1);
+    });
+    return Array.from(map.entries()).sort(function(a, b) { return b[1] - a[1]; }).slice(0, 6);
+  }, [nodes]);
+
+  var tagCloud = useMemo(function() {
+    var m = new Map();
+    nodes.forEach(function(n) { (n.data.tags || []).forEach(function(t) { m.set(String(t), (m.get(String(t)) || 0) + 1); }); });
+    return Array.from(m.entries()).sort(function(a, b) { return b[1] - a[1]; }).slice(0, 14);
+  }, [nodes]);
+
+  var isolatedCount = useMemo(function() {
+    var conn = new Set();
+    edges.forEach(function(e) { conn.add(e.source); conn.add(e.target); });
+    return nodes.filter(function(n) { return n.data.nodeType === 'domain' && !conn.has(n.id); }).length;
+  }, [nodes, edges]);
+
+  var activeFiltersCount = useMemo(function() {
+    var c = 0;
+    if (!filters.domain) c++; if (!filters.missing) c++; if (!filters.broken) c++;
+    if (!filters.linkage) c++; if (!filters.fqid) c++;
+    if (namespaceFilter.trim()) c++;
+    if (isolatedOnly) c++;
+    return c;
+  }, [filters, namespaceFilter, isolatedOnly]);
+
+  // ---- Search ----
+  var searchResults = useMemo(function() {
+    var q = searchQuery.trim().toLowerCase();
+    if (!q) return [];
+    return nodes.map(function(n) {
+      var d = n.data || {};
+      var id = (d.domainId || '').toLowerCase();
+      var nm = (d.name || '').toLowerCase();
+      var desc = (d.description || '').toLowerCase();
+      var tags = Array.isArray(d.tags) ? d.tags.map(function(t) { return String(t).toLowerCase(); }) : [];
+      var matches = [];
+      if (id.indexOf(q) !== -1) matches.push({ field: 'id' });
+      if (nm.indexOf(q) !== -1) matches.push({ field: 'name' });
+      if (desc.indexOf(q) !== -1) matches.push({ field: 'description' });
+      tags.forEach(function(t) { if (t.indexOf(q) !== -1) matches.push({ field: 'tags' }); });
+      return matches.length > 0 ? { node: n, matches: matches } : null;
+    }).filter(Boolean).sort(function(a, b) {
+      var rank = function(r) {
+        var f = r.matches.map(function(m) { return m.field; });
+        if (f.indexOf('id') !== -1) return 0;
+        if (f.indexOf('name') !== -1) return 1;
+        if (f.indexOf('tags') !== -1) return 2;
+        return 3;
+      };
+      return rank(a) - rank(b);
+    }).slice(0, 100);
+  }, [searchQuery, nodes]);
+
+  useEffect(function() { setSearchIndex(0); }, [searchQuery]);
+
+  // ---- Actions ----
+  var navigatingFromHistory = useRef(false);
+  
+  var pushNav = useCallback(function(domainId) {
+  if (!domainId) return;
+    if (navigatingFromHistory.current) return;
+    var trimmed = navHistory.slice(0, navIndex + 1);
+    if (trimmed.length > 0 && trimmed[trimmed.length - 1] === domainId) return;
+    var next = trimmed.concat([domainId]);
+    if (next.length > 50) next = next.slice(next.length - 50);
+    setNavHistory(next);
+    setNavIndex(next.length - 1);
+  }, [navHistory, navIndex]);
+  
+  var gotoDomainByDomainId = useCallback(function(domainId) {
+    if (!domainId) return;
+    var nodeId = domainToNodeId.get(domainId.toLowerCase());
+    if (!nodeId) return;
+    var node = nodes.find(function(n) { return n.id === nodeId; });
+    if (!node || !rfInstance.current) return;
+    var w = compact ? NODE_COMPACT : NODE_WIDTH;
+    var h = compact ? NODE_COMPACT : NODE_HEIGHT;
+    var cx = node.position.x + w / 2;
+    var cy = node.position.y + h / 2;
+    var z = Math.max(rfInstance.current.getZoom(), 1.2);
+    rfInstance.current.setCenter(cx, cy, { zoom: z, duration: 500 });
+    setSelectedNodeId(nodeId);
+    // запоминаем в истории только если это не переход из истории
+    if (!navigatingFromHistory.current) {
+      pushNav(domainId);
+    }
+  }, [domainToNodeId, nodes, compact, pushNav]);
+  
+  var navBack = useCallback(function() {
+    if (navIndex <= 0) return;
+    var newIdx = navIndex - 1;
+    setNavIndex(newIdx);
+    var id = navHistory[newIdx];
+    if (id) {
+      navigatingFromHistory.current = true;
+      gotoDomainByDomainId(id);
+      setTimeout(function() { navigatingFromHistory.current = false; }, 80);
+    }
+  }, [navIndex, navHistory, gotoDomainByDomainId]);
+  
+  var navForward = useCallback(function() {
+    if (navIndex >= navHistory.length - 1) return;
+    var newIdx = navIndex + 1;
+    setNavIndex(newIdx);
+    var id = navHistory[newIdx];
+    if (id) {
+      navigatingFromHistory.current = true;
+      gotoDomainByDomainId(id);
+      setTimeout(function() { navigatingFromHistory.current = false; }, 80);
+    }
+  }, [navIndex, navHistory, gotoDomainByDomainId]);
+
+  var openSearch = useCallback(function() {
+    setSearchQuery(''); setSearchIndex(0); setSearchOpen(true);
+    setTimeout(function() { searchInputRef.current && searchInputRef.current.focus(); }, 50);
+  }, []);
+  var closeSearch = useCallback(function() { setSearchOpen(false); }, []);
+
+  var openDetails = useCallback(function(nodeId) {
+    setPanelNodeId(nodeId);
+    setPanelTab('details');
+    setPanelOpen(true);
+  }, []);
+
+  var closePanel = useCallback(function() { setPanelOpen(false); }, []);
+
+  var openFileInEditor = useCallback(function(filePath, fqid) {
+    if (!filePath) return;
+    setEditorFilePath(filePath);
+    setPanelTab('file');
+    setPanelOpen(true);
+    fetch('/file?path=' + encodeURIComponent(filePath))
+      .then(function(r) { return r.ok ? r.text() : Promise.reject('File not found'); })
+      .then(function(content) {
+        setPendingFile({ content: content, fqid: fqid || null, ts: Date.now() });
+      })
+      .catch(function(err) {
+        setPendingFile({ content: '// Не удалось загрузить файл: ' + err, fqid: null, ts: Date.now() });
+      });
+  }, []);
+
+  var handleFindCycles = useCallback(function() {
+    if (cycleHighlight) { setCycleHighlight(null); return; }
+    var info = findCycles(displayNodes, displayEdges);
+    if (info.cycleNodes.size === 0) { alert('Циклы не найдены'); return; }
+    setCycleHighlight({ nodeIds: info.cycleNodes, edgeIds: info.cycleEdges, sccCount: info.sccs.length });
+    setSelectedNodeId(null); setFocusNode(null); setPathResult(null); setPathSel([]);
+    setTimeout(function() { rfInstance.current && rfInstance.current.fitView({ duration: 500, padding: 0.25 }); }, 50);
+  }, [displayNodes, displayEdges, cycleHighlight]);
+
+  var handleExportMarkdown = useCallback(function() {
+    var md = generateMarkdownReport({
+      nodes: nodes,
+      edges: edges,
+      cyclesInfo: cyclesInfo,
+      healthMap: healthMap,
+      namespaceFilter: namespaceFilter,
+      filters: filters
+    });
+    var blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'domain-report-' + new Date().toISOString().slice(0, 19).replace(/[:.]/g, '-') + '.md';
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [nodes, edges, cyclesInfo, healthMap, namespaceFilter, filters]);
+  
+  var handleExportJSON = useCallback(function() {
+    var data = {
+      exportedAt: new Date().toISOString(),
+      scope: 'full',
+      stats: { nodes: nodes.length, edges: edges.length },
+      nodes: nodes.map(function(n) { return {
+        id: n.id, domainId: n.data.domainId, label: n.data.label, nodeType: n.data.nodeType,
+        filePath: n.data.filePath, description: n.data.description, tags: n.data.tags
+      }; }),
+      edges: edges.map(function(e) { return {
+        id: e.id, source: e.source, target: e.target, label: e.label,
+        kind: e.data && e.data.kind, fullLabel: e.data && e.data.fullLabel, refCount: e.data && e.data.refCount
+      }; })
+    };
+    var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'domain-graph-' + new Date().toISOString().slice(0, 19).replace(/[:.]/g, '-') + '.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [nodes, edges]);
+
+  var handleSnapshotUpload = useCallback(function(e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function(ev) {
+      try {
+        var snap = JSON.parse(ev.target.result);
+        if (!snap.scope) {
+          if (!confirm('Снапшот создан старой версией без поля "scope". Продолжить?')) { e.target.value = ''; return; }
+        }
+        var snapEdgeIds = new Set(snap.edges.map(function(x) { return x.id; }));
+        var snapNodeIds = new Set(snap.nodes.map(function(x) { return x.id; }));
+        var curEdgeIds = new Set(edges.map(function(x) { return x.id; }));
+        var curNodeIds = new Set(nodes.map(function(x) { return x.id; }));
+        var addedEdges = new Set(), removedEdges = new Set(), addedNodes = new Set(), removedNodes = new Set();
+        curEdgeIds.forEach(function(id) { if (!snapEdgeIds.has(id)) addedEdges.add(id); });
+        snapEdgeIds.forEach(function(id) { if (!curEdgeIds.has(id)) removedEdges.add(id); });
+        curNodeIds.forEach(function(id) { if (!snapNodeIds.has(id)) addedNodes.add(id); });
+        snapNodeIds.forEach(function(id) { if (!curNodeIds.has(id)) removedNodes.add(id); });
+        setDiffMode({ addedEdges: addedEdges, removedEdges: removedEdges, addedNodes: addedNodes, removedNodes: removedNodes, snapshot: snap });
+      } catch (err) { alert('Ошибка чтения снимка: ' + err.message); }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  }, [nodes, edges]);
+
+  // ---- Node interactions ----
+  var handleNodeClick = useCallback(function(event, node) {
+    clearTimeout(hideTimer.current);
+    setTooltip(null);
+    window.__tooltipHovered = false;
+  
+    // Режим выбора второго узла для пути
+    if (pathMode) {
+      var startId = pathMode.kind === 'from' ? pathMode.anchorId : node.id;
+      var endId = pathMode.kind === 'from' ? node.id : pathMode.anchorId;
+      if (startId === endId) { setPathMode(null); return; }
+      var res = findPath(startId, endId, filteredEdges);
+      if (res) setPathResult(res);
+      else alert('Путь не найден');
+      setPathMode(null);
+      return; // боковая панель не открывается
+    }
+  
+    if (event.ctrlKey || event.metaKey) {
+      setPathSel(function(prev) {
+        if (prev.length === 0) return [node.id];
+        if (prev.length === 1 && prev[0] !== node.id) return [prev[0], node.id];
+        return [node.id];
+      });
+      return;
+    }
+    setSelectedNodeId(node.id);
+    setSelectedEdgeId(null);
+    setFocusNode(null);
+    setPathResult(null);
+    setPathSel([]);
+    openDetails(node.id);
+  }, [openDetails, pathMode, filteredEdges]);
+
+  var handleNodeDoubleClick = useCallback(function(event, node) {
+    if (focusNode === node.id) setFocusNode(null);
+    else { setFocusNode(node.id); setSelectedNodeId(null); }
+  }, [focusNode]);
+
+  var handleNodeContextMenu = useCallback(function(event, node) {
+    event.preventDefault();
+    clearTimeout(hideTimer.current);
+    setTooltip(null);
+    window.__tooltipHovered = false;
+    setContextMenu({ x: event.clientX, y: event.clientY, nodeId: node.id });
+  }, []);
+
+  var handlePaneContextMenu = useCallback(function(event) { event.preventDefault(); }, []);
+
+  var handlePaneClick = useCallback(function() {
+    setSelectedNodeId(null);
+    setFocusNode(null);
+    setPathResult(null);
+    setPathSel([]);
+    setCycleHighlight(null);
+    setPathMode(null);
+  }, []);
+
+  var handleContextAction = useCallback(function(action, nodeId) {
+    var node = nodes.find(function(n) { return n.id === nodeId; });
+    if (!node) return;
+    if (action === 'focus') { setFocusNode(nodeId); setSelectedNodeId(null); }
+    else if (action === 'dependents') {
+      // Show only nodes that depend on this
+      setFocusNode(nodeId); setFocusDepth(3);
+    }
+    else if (action === 'path-from') {
+      setPathMode({ kind: 'from', anchorId: nodeId });
+      setPathSel([]);
+      setPathResult(null);
+    }
+    else if (action === 'path-to') {
+      setPathMode({ kind: 'to', anchorId: nodeId });
+      setPathSel([]);
+      setPathResult(null);
+    }
+    else if (action === 'open-file') { if (node.data.filePath) openFileInEditor(node.data.filePath); }
+    else if (action === 'copy-id') { navigator.clipboard.writeText(node.data.domainId); }
+    else if (action === 'hide') {
+      setHiddenNodeIds(function(prev) {
+        var s = new Set(prev);
+        s.add(nodeId);
+        return s;
+      });
+    }
+    else if (action === 'bookmark') { toggleBookmark(nodeId); }
+  }, [nodes, filteredEdges, pathSel, openFileInEditor, setNodes]);
+
+  var handleRunPath = useCallback(function() {
+    if (pathSel.length !== 2) { alert('Выберите два узла через Ctrl+клик'); return; }
+    var res = findPath(pathSel[0], pathSel[1], filteredEdges);
+    if (res) setPathResult(res);
+    else alert('Путь не найден');
+  }, [pathSel, filteredEdges]);
+
+  // ---- Tooltip ----
+  var showTooltipFor = useCallback(function(html, event) {
+    clearTimeout(hideTimer.current);
+    var x = event.clientX + 16, y = event.clientY + 16;
+    setTooltip({ html: html, x: x, y: y });
+  }, []);
+
+  var scheduleHide = useCallback(function() {
+    clearTimeout(hideTimer.current);
+    hideTimer.current = setTimeout(function() {
+      if (!window.__tooltipHovered) setTooltip(null);
+    }, 250);
+  }, []);
+
+  useEffect(function() {
+    if (!tooltip) return;
+    var el = document.querySelector('.tooltip');
+    if (!el) return;
+    var rect = el.getBoundingClientRect();
+    var x = tooltip.x, y = tooltip.y;
+    var m = 8;
+    if (x + rect.width > window.innerWidth - m) x = Math.max(m, window.innerWidth - rect.width - m);
+    if (y + rect.height > window.innerHeight - m) y = Math.max(m, window.innerHeight - rect.height - m);
+    if (x !== tooltip.x || y !== tooltip.y) setTooltip(function(t) { return t ? Object.assign({}, t, { x: x, y: y }) : null; });
+  }, [tooltip]);
+
+  var handleNodeMouseEnter = useCallback(function(event, node) {
+    if (!tooltipsEnabled) return;
+    if (pathSel.length > 0 || pathMode) return;
+    clearTimeout(hideTimer.current);
+    hideTimer.current = setTimeout(function() {
+      var key = node.id;
+      var html = tooltipCache.current.get(key);
+      if (!html) {
+        html = buildTooltipHtml(
+          node.data.domainId, node.data.label, node.data.nodeType, node.data.filePath,
+          node.data.version, node.data.entitiesCount, node.data.fqidRefs,
+          healthMap.get(node.id), node.data.description, node.data.tags
+        );
+        tooltipCache.current.set(key, html);
+      }
+      showTooltipFor(html, event);
+    }, 120);
+  }, [showTooltipFor, healthMap, pathSel.length, pathMode, tooltipsEnabled]);
+  
+  var handleEdgeMouseEnter = useCallback(function(event, edge) {
+    if (!tooltipsEnabled) return;
+    if (pathSel.length > 0 || pathMode) return;
+    clearTimeout(hideTimer.current);
+    hideTimer.current = setTimeout(function() {
+      var refs = (edge.data && edge.data.fqidRefs) || [];
+      showTooltipFor(buildEdgeTooltipHtml(edge, refs), event);
+    }, 120);
+  }, [showTooltipFor, pathSel.length, pathMode, tooltipsEnabled]);
+
+  // ---- Global click delegation (tooltip buttons, goto-domain) ----
+  useEffect(function() {
+    var handler = function(e) {
+      var openBtn = e.target.closest('.js-open-file');
+      if (openBtn) {
+        e.stopPropagation(); e.preventDefault();
+        openFileInEditor(openBtn.getAttribute('data-file'), openBtn.getAttribute('data-fqid'));
+        return;
+      }
+      var gotoBtn = e.target.closest('.js-goto-domain');
+      if (gotoBtn) {
+        e.stopPropagation(); e.preventDefault();
+        var d = gotoBtn.getAttribute('data-domain');
+        if (!d) return;
+        gotoDomainByDomainId(d);
+        setTooltip(null);
+        window.__tooltipHovered = false;
+      }
+    };
+    document.addEventListener('click', handler, true);
+    return function() { document.removeEventListener('click', handler, true); };
+  }, [openFileInEditor, gotoDomainByDomainId]);
+
+  // ---- Hotkeys ----
+  useEffect(function() {
+    var handler = function(e) {
+      if (e.shiftKey && e.key === 'Tab') { e.preventDefault(); if (searchOpen) closeSearch(); else openSearch(); return; }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); openSearch(); return; }
+      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+      if (e.key === 'f' || e.key === 'F') { rfInstance.current && rfInstance.current.fitView({ duration: 500 }); }
+      else if (e.key === 'Escape') {
+        setSelectedNodeId(null); setFocusNode(null);
+        setPathSel([]); setPathResult(null);
+        setCycleHighlight(null); setContextMenu(null);
+        setPathMode(null);
+      }
+      else if (e.key === 'c' || e.key === 'C') { handleFindCycles(); }
+      else if (e.key === 'i' || e.key === 'I') { setIsolatedOnly(function(v) { return !v; }); }
+      else if (e.key === 's' || e.key === 'S') { setNsMode(function(v) { return !v; }); }
+      else if (e.key === 'p' || e.key === 'P') { handleRunPath(); }
+      else if ((e.key === 'b' || e.key === 'B') && selectedNodeId) { toggleBookmark(selectedNodeId); }
+      else if (e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); navBack(); return; }
+      else if (e.altKey && e.key === 'ArrowRight') { e.preventDefault(); navForward(); return; }
+    };
+    window.addEventListener('keydown', handler, true);
+    return function() { window.removeEventListener('keydown', handler, true); };
+  }, [searchOpen, openSearch, closeSearch, handleFindCycles, handleRunPath, navBack, navForward]);
+
+  // ---- Layout on change ----
+  useEffect(function() {
+    setNodes(function(prev) {
+      var compactNodes = prev.map(function(n) { return Object.assign({}, n, { data: Object.assign({}, n.data, { __compact: compact }) }); });
+      return runLayout(compactNodes, edges, layoutType);
+    });
+    setTimeout(function() { rfInstance.current && rfInstance.current.fitView({ duration: 500, padding: 0.2 }); }, 150);
+  }, [layoutType, compact]);
+
+  // ---- Render ----
+  var panelNode = panelNodeId ? visibleNodes.find(function(n) { return n.id === panelNodeId; }) || nodes.find(function(n) { return n.id === panelNodeId; }) : null;
+  
+  useEffect(function() {
+    if (!panelOpen || panelTab !== 'file') return;
+    if (!panelNode) return;
+    if (!panelNode.data.filePath) return;
+    if (editorFilePath === panelNode.data.filePath && pendingFile) return;
+    // Загружаем файл узла, если ещё не загружен
+    openFileInEditor(panelNode.data.filePath);
+  }, [panelOpen, panelTab, panelNodeId]);
+  
+  var handleEdgeClick = useCallback(function(event, edge) {
+    setSelectedEdgeId(edge.id);
+    setPanelTab('edge');
+    setPanelOpen(true);
+    clearTimeout(hideTimer.current);
+    setTooltip(null);
+    window.__tooltipHovered = false;
+  }, []);
+  
+ var handleExportPNG = useCallback(function() {
+    var flowEl = document.querySelector('.graph-container');
+    if (!flowEl) { alert('Граф не найден'); return; }
+  
+    import('https://esm.sh/html-to-image@1.11.11')
+      .then(function(mod) {
+        var bg = getComputedStyle(document.documentElement).getPropertyValue('--graph-bg').trim() || '#0a0e1a';
+        return mod.toPng(flowEl, {
+          backgroundColor: bg,
+          pixelRatio: 2,
+          filter: function(node) {
+            if (!node.classList) return true;
+            if (node.classList.contains('react-flow__controls')) return false;
+            if (node.classList.contains('react-flow__minimap')) return false;
+            if (node.classList.contains('react-flow__panel')) return false;
+            if (node.classList.contains('heat-legend')) return false;
+            if (node.classList.contains('side-panel')) return false;
+            if (node.classList.contains('toolbar')) return false;
+            return true;
+          }
+        });
+      })
+      .then(function(dataUrl) {
+        var a = document.createElement('a');
+        a.href = dataUrl;
+        a.download = 'domain-graph-' + new Date().toISOString().slice(0, 19).replace(/[:.]/g, '-') + '.png';
+        a.click();
+      })
+      .catch(function(err) { alert('Ошибка экспорта: ' + err.message); });
+  }, []);
+
+  return React.createElement('div', { className: 'app' },
+    React.createElement('aside', { className: 'sidebar' + (sidebarCollapsed ? ' sidebar--collapsed' : '') },
+      sidebarCollapsed ?
+        React.createElement('button', { className: 'sidebar__expand', onClick: function() { setSidebarCollapsed(false); }, title: 'Развернуть' }, '›') :
+        React.createElement(React.Fragment, null,
+          React.createElement('div', { className: 'sidebar__header' },
+            React.createElement('div', { className: 'sidebar__logo' }, '🌐'),
+            React.createElement('div', { style: { flex: 1 } },
+              React.createElement('div', { className: 'sidebar__title' }, 'Domain Graph'),
+              React.createElement('div', { className: 'sidebar__subtitle' }, 'Analyzer')
+            ),
+            React.createElement('button', { className: 'sidebar__collapse', onClick: function() { setSidebarCollapsed(true); }, title: 'Свернуть' }, '‹')
+          ),
+          React.createElement('div', { className: 'sidebar__body' },
+            // Overview
+            React.createElement('div', { className: 'section' },
+              React.createElement('div', { className: 'section__title' }, 'Обзор'),
+              React.createElement('div', { className: 'stats-grid' },
+                React.createElement('div', { className: 'stat-card stat-card--accent' }, React.createElement('div', { className: 'stat-card__value' }, nodes.length), React.createElement('div', { className: 'stat-card__label' }, 'Всего узлов')),
+                React.createElement('div', { className: 'stat-card stat-card--success' }, React.createElement('div', { className: 'stat-card__value' }, edges.length), React.createElement('div', { className: 'stat-card__label' }, 'Связей')),
+                React.createElement('div', { className: 'stat-card stat-card--warning' }, React.createElement('div', { className: 'stat-card__value' }, counts.missing), React.createElement('div', { className: 'stat-card__label' }, 'Missing')),
+                React.createElement('div', { className: 'stat-card stat-card--danger' }, React.createElement('div', { className: 'stat-card__value' }, counts.broken), React.createElement('div', { className: 'stat-card__label' }, 'Broken'))
+              )
+            ),
+            // Connectivity
+            React.createElement('div', { className: 'section' },
+              React.createElement('div', { className: 'section__title' }, 'Связность'),
+              React.createElement('div', { className: 'mini-stats' },
+                React.createElement('div', { className: 'mini-stat' }, React.createElement('span', { className: 'mini-stat__label' }, 'Домены'), React.createElement('span', { className: 'mini-stat__value' }, counts.domain)),
+                React.createElement('div', { className: 'mini-stat' }, React.createElement('span', { className: 'mini-stat__label' }, 'Изолированы'), React.createElement('span', { className: 'mini-stat__value' }, isolatedCount)),
+                React.createElement('div', { className: 'mini-stat' }, React.createElement('span', { className: 'mini-stat__label' }, 'Linkage'), React.createElement('span', { className: 'mini-stat__value' }, counts.linkage)),
+                React.createElement('div', { className: 'mini-stat' }, React.createElement('span', { className: 'mini-stat__label' }, 'FQID'), React.createElement('span', { className: 'mini-stat__value' }, counts.fqid)),
+                React.createElement('div', { className: 'mini-stat' }, React.createElement('span', { className: 'mini-stat__label' }, 'Циклы'), React.createElement('span', { className: 'mini-stat__value' }, cyclesInfo.sccs.length))
+              )
+            ),
+            // Top connected
+            topConnected.length > 0 && React.createElement('div', { className: 'section' },
+              React.createElement('div', { className: 'section__title' }, 'Топ по связям'),
+              React.createElement('div', { className: 'rank-list' },
+                topConnected.map(function(item, i) {
+                  return React.createElement('button', { key: item.node.id, className: 'rank-item', onClick: function() { gotoDomainByDomainId(item.node.data.domainId); }, title: item.node.data.domainId },
+                    React.createElement('span', { className: 'rank-item__num' }, i + 1),
+                    React.createElement('span', { className: 'rank-item__label' }, item.node.data.domainId),
+                    React.createElement('span', { className: 'rank-item__value' }, item.degree)
+                  );
+                })
+              )
+            ),
+            bookmarks.size > 0 && React.createElement('div', { className: 'section' },
+              React.createElement('div', { className: 'section__title' }, 'Избранное (' + bookmarks.size + ')'),
+              React.createElement('div', { className: 'rank-list' },
+                Array.from(bookmarks).slice(0, 15).map(function(id) {
+                  var n = nodes.find(function(x) { return x.id === id; });
+                  if (!n) return null;
+                  return React.createElement('button', {
+                    key: id,
+                    className: 'rank-item',
+                    onClick: function() { gotoDomainByDomainId(n.data.domainId); },
+                    title: n.data.domainId
+                  },
+                    React.createElement('span', { className: 'rank-item__num' }, '★'),
+                    React.createElement('span', { className: 'rank-item__label' }, n.data.domainId),
+                    React.createElement('button', {
+                      className: 'rank-item__value',
+                      style: { background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-500)' },
+                      onClick: function(ev) { ev.stopPropagation(); toggleBookmark(id); },
+                      title: 'Убрать из избранного'
+                    }, '✕')
+                  );
+                })
+              )
+            ),
+            // Worst health
+            worstHealth.length > 0 && React.createElement('div', { className: 'section' },
+              React.createElement('div', { className: 'section__title' }, 'Стена позора (health)'),
+              React.createElement('div', { className: 'rank-list' },
+                worstHealth.map(function(item, i) {
+                  var hc = item.health >= 80 ? 'health-good' : item.health >= 50 ? 'health-mid' : 'health-bad';
+                  return React.createElement('button', { key: item.node.id, className: 'rank-item', onClick: function() { gotoDomainByDomainId(item.node.data.domainId); }, title: item.node.data.domainId },
+                    React.createElement('span', { className: 'rank-item__num' }, i + 1),
+                    React.createElement('span', { className: 'rank-item__label' }, item.node.data.domainId),
+                    React.createElement('span', { className: 'details__badge details__badge--' + hc, style: { fontSize: 10, padding: '1px 6px' } }, item.health)
+                  );
+                })
+              )
+            ),
+            // Namespaces
+            namespaces.length > 0 && React.createElement('div', { className: 'section' },
+              React.createElement('div', { className: 'section__title' }, 'Неймспейсы'),
+              React.createElement('div', { className: 'bar-list' },
+                namespaces.map(function(entry) {
+                  var ns = entry[0], count = entry[1];
+                  var max = namespaces[0][1];
+                  return React.createElement('button', { key: ns, className: 'bar-item', onClick: function() { setNamespaceFilter(ns); }, title: 'Показать ' + ns },
+                    React.createElement('span', { className: 'bar-item__label' }, ns),
+                    React.createElement('span', { className: 'bar-item__value' }, count),
+                    React.createElement('span', { className: 'bar-item__track' }, React.createElement('span', { className: 'bar-item__fill', style: { width: (count / max * 100) + '%' } }))
+                  );
+                })
+              )
+            ),
+            // Tags
+            tagCloud.length > 0 && React.createElement('div', { className: 'section' },
+              React.createElement('div', { className: 'section__title' }, 'Теги'),
+              React.createElement('div', { className: 'tag-cloud' },
+                tagCloud.map(function(entry) {
+                  var tag = entry[0], count = entry[1];
+                  return React.createElement('button', { key: tag, className: 'tag', onClick: function() { setSearchQuery(tag); openSearch(); }, title: tag + ' (' + count + ')' },
+                    tag, React.createElement('span', { className: 'tag__count' }, count)
+                  );
+                })
+              )
+            ),
+            // Legend
+            React.createElement('div', { className: 'section' },
+              React.createElement('div', { className: 'section__title' }, 'Легенда'),
+              React.createElement('div', { className: 'legend-row' }, React.createElement('span', { className: 'legend-dot', style: { background: 'var(--success)' } }), 'Domain'),
+              React.createElement('div', { className: 'legend-row' }, React.createElement('span', { className: 'legend-dot', style: { background: 'var(--warning)' } }), 'Missing'),
+              React.createElement('div', { className: 'legend-row' }, React.createElement('span', { className: 'legend-dot', style: { background: 'var(--danger)' } }), 'Broken'),
+              React.createElement('div', { className: 'legend-row' }, React.createElement('span', { className: 'legend-line', style: { background: LINKAGE_COLOR } }), 'Linkage'),
+              React.createElement('div', { className: 'legend-row' }, React.createElement('span', { className: 'legend-line', style: { background: FQID_COLOR } }), 'FQID')
+            )
+          )
+        )
+    ),
+    React.createElement('main', { className: 'main' },
+      React.createElement('div', { className: 'toolbar' },
+        React.createElement('div', { className: 'toolbar__group' },
+          React.createElement('button', { className: 'btn btn--icon', onClick: function() { rfInstance.current && rfInstance.current.fitView({ duration: 500 }); }, title: 'Вписать (F)' }, '⛶'),
+          React.createElement('button', { className: 'btn btn--icon', onClick: function() { setNodes(runLayout(nodes, edges, layoutType)); setTimeout(function() { rfInstance.current && rfInstance.current.fitView({ duration: 500 }); }, 100); }, title: 'Переуложить' }, '⟳')
+        ),
+        React.createElement('div', { className: 'toolbar__group' },
+          React.createElement('button', {
+            className: 'btn btn--icon',
+            onClick: navBack,
+            disabled: navIndex <= 0,
+            style: { opacity: navIndex <= 0 ? 0.4 : 1 },
+            title: 'Назад (Alt+←)'
+          }, '←'),
+          React.createElement('button', {
+            className: 'btn btn--icon',
+            onClick: navForward,
+            disabled: navIndex >= navHistory.length - 1,
+            style: { opacity: navIndex >= navHistory.length - 1 ? 0.4 : 1 },
+            title: 'Вперёд (Alt+→)'
+          }, '→')
+        ),
+        React.createElement('button', { className: 'btn', onClick: openSearch, title: 'Поиск (Shift+Tab)' },
+          React.createElement('span', { className: 'btn__icon' }, '🔍'),
+          'Поиск',
+          React.createElement('kbd', { className: 'btn-kbd' }, '⇧ Tab')
+        ),
+        React.createElement(Popover, {
+          width: 300,
+          trigger: function(open) {
+            return React.createElement('button', { className: 'btn' + (open ? ' btn--active' : '') },
+              React.createElement('span', { className: 'btn__icon' }, '⚙️'),
+              'Фильтры',
+              activeFiltersCount > 0 && React.createElement('span', { className: 'btn__badge' }, activeFiltersCount)
+            );
+          }
+        }, function() {
+          return React.createElement(FilterMenu, { filters: filters, setFilters: setFilters, counts: counts, namespaceFilter: namespaceFilter, setNamespaceFilter: setNamespaceFilter });
+        }),
+        React.createElement(Popover, {
+          width: 280,
+          trigger: function(open) {
+            var active = open || cycleHighlight || isolatedOnly || nsMode || focusNode;
+            return React.createElement('button', { className: 'btn' + (active ? ' btn--active' : '') },
+              React.createElement('span', { className: 'btn__icon' }, '📊'),
+              'Анализ'
+            );
+          }
+        }, function(close) {
+          return React.createElement(AnalysisMenu, {
+            cycleHighlight: cycleHighlight, handleFindCycles: handleFindCycles,
+            isolatedOnly: isolatedOnly, setIsolatedOnly: setIsolatedOnly,
+            nsMode: nsMode, setNsMode: setNsMode,
+            focusDepth: focusDepth, setFocusDepth: setFocusDepth,
+            focusNode: focusNode, clearFocus: function() { setFocusNode(null); },
+            ruleViolations: ruleViolations,
+            close: close,
+            rules: rules,
+            setRules: setRules,
+            rulesHighlighted: rulesHighlighted,
+            setRulesHighlighted: setRulesHighlighted,
+            showViolationsOnly: showViolationsOnly,
+            setShowViolationsOnly: setShowViolationsOnly
+          });
+        }),
+        React.createElement(Popover, {
+          width: 420,
+          trigger: function(open) {
+            return React.createElement('button', {
+              className: 'btn' + (open || ruleViolations.length > 0 ? ' btn--active' : '')
+            },
+              React.createElement('span', { className: 'btn__icon' }, '⛔'),
+              'Правила',
+              ruleViolations.length > 0 && React.createElement('span', { className: 'btn__badge' }, ruleViolations.length)
+            );
+          }
+        }, function(close) {
+          return React.createElement(RulesMenu, {
+            rules: rules, setRules: setRules,
+            violations: ruleViolations,
+            rulesHighlighted: rulesHighlighted, setRulesHighlighted: setRulesHighlighted,
+            showViolationsOnly: showViolationsOnly, setShowViolationsOnly: setShowViolationsOnly,
+            close: close
+          });
+        }),
+        React.createElement(Popover, {
+          width: 300,
+          trigger: function(open) {
+            return React.createElement('button', { className: 'btn' + (open ? ' btn--active' : '') },
+              React.createElement('span', { className: 'btn__icon' }, '🎨'),
+              'Вид'
+            );
+          }
+        }, function(close) {
+          return React.createElement(ViewMenu, {
+            layoutType: layoutType, setLayoutType: setLayoutType,
+            compact: compact, setCompact: setCompact,
+            showGroups: showGroups, setShowGroups: setShowGroups,
+            bidirectional: bidirectional, setBidirectional: setBidirectional,
+            showEdgeLabels: showEdgeLabels, setShowEdgeLabels: setShowEdgeLabels,
+            heatmap: heatmap, setHeatmap: setHeatmap,
+            theme: theme, setTheme: setTheme,
+            close: close
+          });
+        }),
+        React.createElement(Popover, {
+          width: 260,
+          trigger: function(open) {
+            return React.createElement('button', { className: 'btn' + (open || diffMode ? ' btn--active' : '') },
+              React.createElement('span', { className: 'btn__icon' }, '💾'),
+              'Данные'
+            );
+          }
+        }, function(close) {
+          return React.createElement(DataMenu, {
+            handleExportJSON: handleExportJSON,
+            handleExportMarkdown: handleExportMarkdown,
+            snapshotInputRef: snapshotInputRef,
+            handleSnapshotUpload: handleSnapshotUpload,
+            handleExportPNG: handleExportPNG,
+            diffMode: diffMode, setDiffMode: setDiffMode,
+            close: close
+          });
+        }),
+        pathSel.length > 0 && React.createElement('button', {
+          className: 'btn btn--active',
+          onClick: handleRunPath,
+          title: 'Найти путь (P)'
+        }, '🛤️ Найти путь (' + pathSel.length + '/2)'),
+        pathMode && React.createElement('button', {
+          className: 'btn btn--active',
+          onClick: function() { setPathMode(null); },
+          title: 'Отменить (Esc)'
+        }, '🛤️ ' + (pathMode.kind === 'from' ? 'Путь от' : 'Путь до') + ': выберите узел'),
+        cycleHighlight && React.createElement('button', {
+          className: 'btn btn--active',
+          onClick: function() { setCycleHighlight(null); }
+        }, '🔁 Циклы (' + cycleHighlight.sccCount + ')'),
+        focusNode && React.createElement('button', {
+          className: 'btn btn--active',
+          onClick: function() { setFocusNode(null); }
+        }, '🎯 Фокус (N=' + focusDepth + ')'),
+        diffMode && React.createElement('div', { className: 'diff-legend' },
+          React.createElement('span', { className: 'diff-legend__item' },
+            React.createElement('span', { className: 'diff-legend__dot', style: { background: DIFF_ADDED } }),
+            '+' + diffMode.addedNodes.size + 'n / +' + diffMode.addedEdges.size + 'e'
+          ),
+          React.createElement('span', { className: 'diff-legend__item' },
+            React.createElement('span', { className: 'diff-legend__dot', style: { background: DIFF_REMOVED } }),
+            '−' + diffMode.removedNodes.size + 'n / −' + diffMode.removedEdges.size + 'e'
+          ),
+          diffMode.snapshot && diffMode.snapshot.stats && React.createElement('span', { className: 'diff-legend__scope' },
+            'snapshot: ' + diffMode.snapshot.stats.nodes + 'n / ' + diffMode.snapshot.stats.edges + 'e'
+          ),
+          React.createElement('button', { className: 'diff-legend__close', onClick: function() { setDiffMode(null); } }, '✕')
+        ),
+        hiddenNodeIds.size > 0 && React.createElement('button', {
+          className: 'btn btn--active',
+          onClick: function() { setHiddenNodeIds(new Set()); },
+          title: 'Показать все скрытые узлы'
+        }, '👁 Скрытых: ' + hiddenNodeIds.size),
+        React.createElement('button', {
+          className: 'btn btn--icon' + (tooltipsEnabled ? '' : ' btn--active'),
+          onClick: function() { setTooltipsEnabled(function(v) { return !v; }); },
+          title: tooltipsEnabled ? 'Отключить тултипы' : 'Включить тултипы'
+        }, tooltipsEnabled ? '💬' : '🚫'),
+        React.createElement('button', {
+          className: 'btn btn--icon' + (bookmarksOnly ? ' btn--active' : ''),
+          onClick: function() { setBookmarksOnly(function(v) { return !v; }); },
+          title: bookmarksOnly ? 'Показать все домены' : 'Только избранные'
+        }, '★' + (bookmarks.size > 0 ? ' ' + bookmarks.size : '')),
+        
+        React.createElement('div', { className: 'toolbar__spacer' }),
+        React.createElement('div', { className: 'toolbar__stats' },
+          visibleNodes.length + ' / ' + nodes.length + ' узлов · ' + visibleEdges.length + ' / ' + edges.length + ' связей'
+        )
+      ),
+      React.createElement('div', { className: 'graph-container' + (showEdgeLabels ? ' show-labels' : '') },
+        React.createElement(ReactFlowProvider, null,
+          React.createElement(ReactFlowInner, {
+            nodes: visibleNodes,
+            edges: visibleEdges,
+            onNodesChange: onNodesChange,
+            onEdgesChange: onEdgesChange,
+            onEdgeClick: handleEdgeClick,
+            onNodeClick: handleNodeClick,
+            onNodeDoubleClick: handleNodeDoubleClick,
+            onNodeContextMenu: handleNodeContextMenu,
+            onNodeMouseEnter: handleNodeMouseEnter,
+            onNodeMouseLeave: scheduleHide,
+            onEdgeMouseEnter: handleEdgeMouseEnter,
+            onEdgeMouseLeave: scheduleHide,
+            onPaneClick: handlePaneClick,
+            onPaneContextMenu: handlePaneContextMenu,
+            setRfInstance: function(rf) { rfInstance.current = rf; },
+            readOnly: nsMode
+          }),
+          showGroups && React.createElement(GroupsOverlay, { nodes: visibleNodes, enabled: showGroups })
+        ),
+        visibleNodes.length === 0 && React.createElement('div', { className: 'empty-state' },
+          React.createElement('div', { className: 'empty-state__title' }, 'Ничего не найдено'),
+          React.createElement('div', { className: 'empty-state__text' }, 'Измените фильтры')
+        ),
+        React.createElement(SidePanel, {
+          open: panelOpen, tab: panelTab, setTab: setPanelTab,
+          node: panelNode,
+          edge: panelEdge,
+          filePath: editorFilePath,
+          pendingFile: pendingFile,
+          editorRef: editorRef,
+          onClose: closePanel,
+          allNodes: nodes, allEdges: edges,
+          onGotoDomain: gotoDomainByDomainId,
+          onOpenFile: function(p) { openFileInEditor(p); },
+          ruleViolations: ruleViolations
+        }),
+        heatmap !== 'none' && heatmapValues && React.createElement('div', { className: 'heat-legend' },
+          React.createElement('div', { className: 'heat-legend__title' }, 'Heatmap: ' + heatmapValues.scheme.label),
+          React.createElement('div', { className: 'heat-legend__bar' }),
+          React.createElement('div', { className: 'heat-legend__labels' },
+            React.createElement('span', null, heatmapValues.min),
+            React.createElement('span', null, heatmapValues.max)
+          ),
+          React.createElement('button', { className: 'heat-legend__close', onClick: function() { setHeatmap('none'); } }, '✕')
+        )
+      )
+    ),
+    React.createElement(HoverTooltip, { tooltip: tooltip, onHide: scheduleHide }),
+    React.createElement(SearchModal, {
+      open: searchOpen, query: searchQuery, setQuery: setSearchQuery,
+      results: searchResults, index: searchIndex, setIndex: setSearchIndex,
+      onSelect: function(domainId) { gotoDomainByDomainId(domainId); closeSearch(); },
+      onClose: closeSearch, inputRef: searchInputRef
+    }),
+    React.createElement(ContextMenu, { menu: contextMenu, onClose: function() { setContextMenu(null); }, onAction: handleContextAction })
+  );
+}
+
+var root = createRoot(document.getElementById('root'));
+root.render(React.createElement(App));
 </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.34.0/min/vs/loader.min.js"></script>
-<script type="module">${code}</script>
 </body>
 </html>`;
   }
