@@ -946,6 +946,34 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Robo
 .rule-item__remove:hover { background: var(--bg-700); color: var(--danger); }
 .rule-form { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .rule-form .menu__input { width: 100%; margin: 0; }
+.tooltip {
+  max-height: 600px;  /* увеличено с 500 */
+}
+
+.tooltip__body {
+  max-height: 520px;  /* оставляем как fallback */
+  overflow: hidden;   /* не скроллим body целиком */
+  display: flex;
+  flex-direction: column;
+}
+
+/* Скроллируемый список FQID */
+.tooltip__fqid-list {
+  flex: 1;
+  min-height: 0;
+  max-height: 300px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
+  margin-right: -4px;
+}
+.tooltip__fqid-list::-webkit-scrollbar { width: 6px; }
+.tooltip__fqid-list::-webkit-scrollbar-track { background: transparent; }
+.tooltip__fqid-list::-webkit-scrollbar-thumb {
+  background: var(--bg-600);
+  border-radius: 3px;
+}
+.tooltip__fqid-list::-webkit-scrollbar-thumb:hover { background: var(--border-hover); }
 </style>
 </head>
 <body>
@@ -1552,15 +1580,17 @@ function buildTooltipHtml(domainId, label, nodeType, filePath, version, entities
     html += '<div style="margin-top:10px"><button class="tooltip__btn js-open-file" data-file="' + escapeHtml(filePath) + '">📂 Открыть файл</button></div>';
   }
   if (fqidRefs && fqidRefs.length > 0) {
-    html += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)"><div class="tooltip__label" style="margin-bottom:8px">FQID ссылки (' + fqidRefs.length + '):</div>';
-    fqidRefs.slice(0, 20).forEach(function(ref) {
+    html += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">';
+    html += '<div class="tooltip__label" style="margin-bottom:8px">FQID ссылки (' + fqidRefs.length + '):</div>';
+    html += '<div class="tooltip__fqid-list">';
+    fqidRefs.forEach(function(ref) {
       html += '<div class="tooltip__ref">';
       html += '<div class="tooltip__fqid js-goto-domain" data-domain="' + escapeHtml(ref.targetDomainId || '') + '" style="cursor:pointer">' + escapeHtml(ref.fullFQID) + '</div>';
       html += '<div class="tooltip__path">' + escapeHtml(ref.propertyPath) + '</div>';
       html += '<button class="tooltip__btn js-open-file" data-file="' + escapeHtml(ref.filePath || '') + '" data-fqid="' + escapeHtml(ref.fullFQID || '') + '">📂 Открыть</button>';
       html += '</div>';
     });
-    if (fqidRefs.length > 20) html += '<div style="color:var(--text-500);font-size:11px">...и ещё ' + (fqidRefs.length - 20) + '</div>';
+    html += '</div>';
     html += '</div>';
   }
   html += '</div>';
@@ -1595,13 +1625,15 @@ function buildEdgeTooltipHtml(edge, refs) {
   if (link.type) html += '<div class="tooltip__row"><span class="tooltip__label">Тип:</span><span class="tooltip__value">' + escapeHtml(link.type) + '</span></div>';
   if (refs && refs.length > 0) {
     html += '<div class="tooltip__label" style="margin-top:8px;margin-bottom:8px">FQID ссылки (' + refs.length + '):</div>';
-    refs.slice(0, 15).forEach(function(ref) {
+    html += '<div class="tooltip__fqid-list">';
+    refs.forEach(function(ref) {
       html += '<div class="tooltip__ref">';
       html += '<div class="tooltip__fqid js-goto-domain" data-domain="' + escapeHtml(ref.targetDomainId || '') + '" style="cursor:pointer">' + escapeHtml(ref.fullFQID) + '</div>';
       html += '<div class="tooltip__path">' + escapeHtml(ref.propertyPath) + '</div>';
       html += '<button class="tooltip__btn js-open-file" data-file="' + escapeHtml(ref.filePath || '') + '" data-fqid="' + escapeHtml(ref.fullFQID || '') + '">📂 Открыть</button>';
       html += '</div>';
     });
+    html += '</div>';
   }
   html += '</div>';
   return html;
@@ -2517,10 +2549,8 @@ function App() {
   var [tooltipsEnabled, setTooltipsEnabled] = useState(true);
   var [selectedEdgeId, setSelectedEdgeId] = useState(null);
   var [heatmap, setHeatmap] = useState('none'); // none | health | degree | entities | fqid
-
-  var [navHistory, setNavHistory] = useState([]);
-  var [navIndex, setNavIndex] = useState(-1);
-  var navigatingFromHistory = useRef(false);
+  
+  var [navStack, setNavStack] = useState({ items: [], index: -1 });
   
   var [rules, setRules] = useState(function() {
     try {
@@ -2966,18 +2996,19 @@ function App() {
   // ---- Actions ----
   var navigatingFromHistory = useRef(false);
   
-  var pushNav = useCallback(function(domainId) {
-  if (!domainId) return;
-    if (navigatingFromHistory.current) return;
-    var trimmed = navHistory.slice(0, navIndex + 1);
-    if (trimmed.length > 0 && trimmed[trimmed.length - 1] === domainId) return;
-    var next = trimmed.concat([domainId]);
-    if (next.length > 50) next = next.slice(next.length - 50);
-    setNavHistory(next);
-    setNavIndex(next.length - 1);
-  }, [navHistory, navIndex]);
-  
-  var gotoDomainByDomainId = useCallback(function(domainId) {
+ var pushNav = useCallback(function(domainId) {
+    if (!domainId) return;
+    setNavStack(function(prev) {
+      var trimmed = prev.items.slice(0, prev.index + 1);
+      if (trimmed.length > 0 && trimmed[trimmed.length - 1] === domainId) return prev;
+      var next = trimmed.concat([domainId]);
+      if (next.length > 50) next = next.slice(next.length - 50);
+      return { items: next, index: next.length - 1 };
+    });
+  }, []);
+ 
+  var gotoWithoutNav = useCallback(function(domainId) {
+    // как gotoDomainByDomainId, но без pushNav
     if (!domainId) return;
     var nodeId = domainToNodeId.get(domainId.toLowerCase());
     if (!nodeId) return;
@@ -2990,35 +3021,33 @@ function App() {
     var z = Math.max(rfInstance.current.getZoom(), 1.2);
     rfInstance.current.setCenter(cx, cy, { zoom: z, duration: 500 });
     setSelectedNodeId(nodeId);
-    // запоминаем в истории только если это не переход из истории
-    if (!navigatingFromHistory.current) {
-      pushNav(domainId);
-    }
-  }, [domainToNodeId, nodes, compact, pushNav]);
+  }, [domainToNodeId, nodes, compact]);
+  
+  var gotoDomainByDomainId = useCallback(function(domainId) {
+    if (!domainId) return;
+    pushNav(domainId);
+    gotoWithoutNav(domainId);
+  }, [pushNav, gotoWithoutNav]);
   
   var navBack = useCallback(function() {
-    if (navIndex <= 0) return;
-    var newIdx = navIndex - 1;
-    setNavIndex(newIdx);
-    var id = navHistory[newIdx];
-    if (id) {
-      navigatingFromHistory.current = true;
-      gotoDomainByDomainId(id);
-      setTimeout(function() { navigatingFromHistory.current = false; }, 80);
-    }
-  }, [navIndex, navHistory, gotoDomainByDomainId]);
+    setNavStack(function(prev) {
+      if (prev.index <= 0) return prev;
+      var newIdx = prev.index - 1;
+      var id = prev.items[newIdx];
+      if (id) setTimeout(function() { gotoWithoutNav(id); }, 0);
+      return { items: prev.items, index: newIdx };
+    });
+  }, [gotoWithoutNav]);
   
   var navForward = useCallback(function() {
-    if (navIndex >= navHistory.length - 1) return;
-    var newIdx = navIndex + 1;
-    setNavIndex(newIdx);
-    var id = navHistory[newIdx];
-    if (id) {
-      navigatingFromHistory.current = true;
-      gotoDomainByDomainId(id);
-      setTimeout(function() { navigatingFromHistory.current = false; }, 80);
-    }
-  }, [navIndex, navHistory, gotoDomainByDomainId]);
+    setNavStack(function(prev) {
+      if (prev.index >= prev.items.length - 1) return prev;
+      var newIdx = prev.index + 1;
+      var id = prev.items[newIdx];
+      if (id) setTimeout(function() { gotoWithoutNav(id); }, 0);
+      return { items: prev.items, index: newIdx };
+    });
+  }, [gotoWithoutNav]);
 
   var openSearch = useCallback(function() {
     setSearchQuery(''); setSearchIndex(0); setSearchOpen(true);
@@ -3131,16 +3160,14 @@ function App() {
     setTooltip(null);
     window.__tooltipHovered = false;
   
-    // Режим выбора второго узла для пути
     if (pathMode) {
       var startId = pathMode.kind === 'from' ? pathMode.anchorId : node.id;
       var endId = pathMode.kind === 'from' ? node.id : pathMode.anchorId;
       if (startId === endId) { setPathMode(null); return; }
       var res = findPath(startId, endId, filteredEdges);
-      if (res) setPathResult(res);
-      else alert('Путь не найден');
+      if (res) setPathResult(res); else alert('Путь не найден');
       setPathMode(null);
-      return; // боковая панель не открывается
+      return;
     }
   
     if (event.ctrlKey || event.metaKey) {
@@ -3151,13 +3178,14 @@ function App() {
       });
       return;
     }
+  
     setSelectedNodeId(node.id);
-    setSelectedEdgeId(null);
     setFocusNode(null);
     setPathResult(null);
     setPathSel([]);
+    pushNav(node.data.domainId);   // ← добавили
     openDetails(node.id);
-  }, [openDetails, pathMode, filteredEdges]);
+  }, [openDetails, pathMode, filteredEdges, pushNav]);
 
   var handleNodeDoubleClick = useCallback(function(event, node) {
     if (focusNode === node.id) setFocusNode(null);
@@ -3519,15 +3547,15 @@ function App() {
           React.createElement('button', {
             className: 'btn btn--icon',
             onClick: navBack,
-            disabled: navIndex <= 0,
-            style: { opacity: navIndex <= 0 ? 0.4 : 1 },
+            disabled: navStack.index <= 0,
+            style: { opacity: navStack.index <= 0 ? 0.4 : 1 },
             title: 'Назад (Alt+←)'
           }, '←'),
           React.createElement('button', {
             className: 'btn btn--icon',
             onClick: navForward,
-            disabled: navIndex >= navHistory.length - 1,
-            style: { opacity: navIndex >= navHistory.length - 1 ? 0.4 : 1 },
+            disabled: navStack.index >= navStack.items.length - 1,
+            style: { opacity: navStack.index >= navStack.items.length - 1 ? 0.4 : 1 },
             title: 'Вперёд (Alt+→)'
           }, '→')
         ),
