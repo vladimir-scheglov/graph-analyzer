@@ -469,6 +469,24 @@ class DomainGraphAnalyzer {
     };
   }
 
+  getAllEntities() {
+    var result = [];
+    for (var domainEntry of this.domains) {
+      var domainId = domainEntry[0];
+      var domainData = domainEntry[1];
+      for (var entity of domainData.entities.values()) {
+        if (!entity || !entity.id) continue;
+        result.push({
+          domainId: domainId,
+          entityId: entity.id,
+          name: entity.name || entity.id,
+          inherits: (typeof entity.inherits === 'string' && entity.inherits) ? entity.inherits : null
+        });
+      }
+    }
+    return result;
+  }
+
   analyze() {
     this.scanDirectory(this.rootDir);
     return this.buildGraphData();
@@ -748,7 +766,8 @@ class DomainGraphAnalyzer {
       linkCount: this.links.length,
       fqidReferences: this.fqidReferences,
       missingCount: this.missingDomains.size,
-      brokenCount: this.brokenDomains.size
+      brokenCount: this.brokenDomains.size,
+      entities: this.getAllEntities()
     };
   }
 
@@ -2854,6 +2873,490 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Robo
 [data-theme="light"] .tour-overlay__card {
   box-shadow: 0 16px 48px rgba(15,23,42,0.2), 0 0 0 4px var(--accent-soft);
 }
+.entity-hierarchy-modal {
+  width: 100vw;
+  height: 100vh;
+  max-width: 100vw;
+  max-height: 100vh;
+  border-radius: 0;
+  border: none;
+}
+.entity-hierarchy-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.entity-search-panel {
+  width: 340px;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.entity-search-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.entity-search-icon { font-size: 14px; color: var(--text-500); }
+.entity-search-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-100);
+  font-size: 13px;
+  font-family: inherit;
+}
+.entity-search-input::placeholder { color: var(--text-500); }
+.entity-search-results {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px;
+}
+.entity-search-results::-webkit-scrollbar { width: 6px; }
+.entity-search-results::-webkit-scrollbar-thumb { background: var(--bg-600); border-radius: 3px; }
+.entity-search-hint {
+  text-align: center;
+  padding: 30px 16px;
+  color: var(--text-500);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.entity-search-item {
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.entity-search-item:hover { background: var(--bg-700); }
+.entity-search-item--active {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.entity-search-item--orphan { opacity: 0.55; }
+.entity-search-item__id {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--text-100);
+  font-weight: 600;
+}
+.entity-search-item__name {
+  font-size: 11px;
+  color: var(--text-400);
+  margin-top: 2px;
+}
+.entity-search-item__meta {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.entity-search-item__domain {
+  font-size: 10px;
+  color: var(--text-500);
+  font-family: 'JetBrains Mono', monospace;
+}
+.entity-search-item__badge {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: var(--bg-700);
+  color: var(--text-500);
+}
+.entity-search-item__badge--ok {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+
+.entity-graph-panel {
+  flex: 1;
+  position: relative;
+  background: var(--graph-bg);
+  min-width: 0;
+  overflow: hidden;
+}
+.entity-graph-back {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 5;
+  padding: 6px 12px;
+  background: var(--bg-800);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-200);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+}
+.entity-graph-back:hover {
+  background: var(--bg-700);
+  border-color: var(--accent);
+}
+.entity-graph-empty {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  color: var(--text-500);
+}
+.entity-graph-empty__icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+  opacity: 0.4;
+}
+.entity-graph-empty__title { font-size: 14px; color: var(--text-400); }
+.entity-graph-empty__hint {
+  font-size: 12px;
+  margin-top: 6px;
+  color: var(--text-500);
+}
+.entity-graph-container {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.entity-graph-svg {
+  min-width: 100%;
+  min-height: 100%;
+  max-width: 100%;
+}
+
+.entity-edge {
+  fill: none;
+  stroke: var(--accent-hover);
+  stroke-width: 1.5;
+}
+.entity-edge--cycle {
+  stroke: var(--danger);
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+}
+.entity-arrow-marker { fill: var(--accent-hover); }
+
+.entity-graph-node { transition: opacity 0.15s; }
+.entity-graph-node:hover:not(.entity-graph-node--missing) { opacity: 0.85; }
+.entity-graph-node:hover:not(.entity-graph-node--missing) .entity-node-rect {
+  stroke-width: 2.5;
+  stroke: var(--accent);
+}
+
+.entity-node-rect {
+  fill: var(--bg-800);
+  stroke: var(--border-hover);
+  stroke-width: 1.5;
+  transition: all 0.15s;
+}
+.entity-node-rect--root {
+  fill: var(--accent-soft);
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+.entity-node-rect--foreign {
+  stroke: #8b5cf6;
+  stroke-dasharray: 5 3;
+}
+.entity-node-rect--cycle {
+  stroke: var(--danger);
+  stroke-width: 2.5;
+}
+.entity-node-rect--missing {
+  fill: rgba(239, 68, 68, 0.08);
+  stroke: var(--danger);
+  stroke-dasharray: 4 3;
+}
+
+.entity-node-id {
+  font-family: 'JetBrains Mono', 'SF Mono', monospace;
+  font-size: 12px;
+  font-weight: 600;
+  fill: var(--text-100);
+  pointer-events: none;
+}
+.entity-node-id--root {
+  font-size: 14px;
+  fill: var(--accent-hover);
+}
+.entity-node-name {
+  font-size: 10px;
+  fill: var(--text-400);
+  pointer-events: none;
+}
+.entity-node-domain {
+  font-size: 9px;
+  fill: var(--text-500);
+  font-family: 'JetBrains Mono', monospace;
+  cursor: pointer;
+  transition: fill 0.15s;
+}
+.entity-node-domain:hover { fill: var(--accent-hover); text-decoration: underline; }
+.entity-node-domain--foreign { fill: #a78bfa; }
+.entity-node-domain--foreign:hover { fill: #c4b5fd; }
+.entity-node-domain--missing { fill: var(--danger); cursor: default; }
+.entity-node-domain--missing:hover { fill: var(--danger); text-decoration: none; }
+
+/* Вкладка «Сущности» в панели деталей */
+.entity-tab-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+.entity-tab-item {
+  padding: 8px 10px;
+  background: var(--bg-800);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+  border-left: 2px solid transparent;
+}
+.entity-tab-item:hover {
+  background: var(--bg-700);
+  border-left-color: var(--accent);
+}
+.entity-tab-item__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.entity-tab-item__id {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-100);
+}
+.entity-tab-item__arrows {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--success);
+  font-family: 'JetBrains Mono', monospace;
+}
+.entity-tab-item__name {
+  font-size: 11px;
+  color: var(--text-400);
+  margin-top: 2px;
+}
+.entity-tab-item__inherits {
+  font-size: 10px;
+  color: var(--text-500);
+  font-family: 'JetBrains Mono', monospace;
+  margin-top: 3px;
+}
+
+[data-theme="light"] .entity-node-rect { fill: #ffffff; }
+[data-theme="light"] .entity-node-rect--root { fill: var(--accent-soft); }
+[data-theme="light"] .entity-node-rect--missing { fill: rgba(185, 28, 28, 0.08); }
+[data-theme="light"] .entity-node-rect--foreign { stroke: #6d28d9; }
+[data-theme="light"] .entity-edge { stroke: #4f46e5; }
+[data-theme="light"] .entity-arrow-marker { fill: #4f46e5; }
+
+.entity-hierarchy-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+/* Обёртка диаграммы */
+
+
+.entity-graph-container {
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  overflow: hidden;
+}
+.entity-graph-container--dragging {
+  cursor: grabbing;
+}
+
+.entity-graph-svg {
+  display: block;
+  user-select: none;
+}
+
+/* Кнопки управления зумом */
+.entity-graph-controls {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-800);
+  border: 1px solid var(--border-hover);
+  border-radius: 10px;
+  padding: 4px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+.entity-ctrl-btn {
+  width: 36px;
+  height: 36px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-200);
+  cursor: pointer;
+  font-size: 16px;
+  font-family: inherit;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.entity-ctrl-btn:hover {
+  background: var(--bg-700);
+  color: var(--accent-hover);
+}
+.entity-zoom-level {
+  padding: 0 10px;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-400);
+  font-weight: 600;
+  min-width: 48px;
+  text-align: center;
+}
+
+/* Кнопка «Назад» остаётся */
+.entity-graph-back {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 10;
+  padding: 8px 14px;
+  background: var(--bg-800);
+  border: 1px solid var(--border-hover);
+  border-radius: 8px;
+  color: var(--text-200);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 500;
+  transition: all 0.15s;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+.entity-graph-back:hover {
+  background: var(--bg-700);
+  border-color: var(--accent);
+  color: var(--accent-hover);
+}
+
+/* Поисковая панель — чуть шире */
+.entity-search-panel {
+  width: 360px;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-850);
+}
+
+/* Пустое состояние */
+.entity-graph-empty {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  color: var(--text-500);
+}
+
+/* Светлая тема */
+[data-theme="light"] .entity-graph-controls,
+[data-theme="light"] .entity-graph-back {
+  box-shadow: 0 4px 12px rgba(15,23,42,0.12);
+}
+[data-theme="light"] .entity-ctrl-btn:hover,
+[data-theme="light"] .entity-graph-back:hover {
+  background: #f1f5f9;
+}
+/* Полноэкранный overlay для иерархии */
+.help-overlay--fullscreen {
+  padding: 0;
+}
+
+/* Полноэкранная модалка */
+.entity-hierarchy-modal {
+  width: 100vw;
+  height: 100vh;
+  max-width: 100vw;
+  max-height: 100vh;
+  border-radius: 0;
+  border: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.entity-hierarchy-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+/* Панель диаграммы — занимает всё оставшееся место */
+.entity-graph-panel {
+  flex: 1;
+  position: relative;
+  background: var(--graph-bg);
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Контейнер графа внутри панели */
+.entity-graph-container {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  overflow: hidden;
+}
+.entity-graph-container--dragging {
+  cursor: grabbing;
+}
+
+.entity-graph-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  user-select: none;
+}
+
+.entity-node-id,
+.entity-node-name,
+.entity-node-domain {
+  overflow: hidden;
+}
+.rf-node[style*="background"] {
+  /* Если узел имеет inline-цвет от heatmap, отключаем дефолтный фон */
+  background-image: none !important;
+}
+.rf-node[style*="background"] .rf-node__id,
+.rf-node[style*="background"] .rf-node__name {
+  color: #ffffff !important;
+}
+.rf-node[style*="background"] .rf-node__icon {
+  background: rgba(0,0,0,0.25) !important;
+  color: #ffffff !important;
+}
 </style>
 </head>
 <body>
@@ -3340,6 +3843,690 @@ function generateLearningPathMarkdown(path, options) {
   return lines.join('\\n');
 }
 
+function resolveEntityRef(ref, currentDomainId) {
+  if (!ref || typeof ref !== 'string') return null;
+  var slash = ref.indexOf('/');
+  if (slash > 0) {
+    return { domainId: ref.slice(0, slash), entityId: ref.slice(slash + 1) };
+  }
+  return { domainId: currentDomainId, entityId: ref };
+}
+
+function entityKey(domainId, entityId) {
+  return domainId.toLowerCase() + '/' + entityId.toLowerCase();
+}
+
+function buildEntityIndex(entities) {
+  var byKey = new Map();
+  entities.forEach(function(e) {
+    var key = entityKey(e.domainId, e.entityId);
+    byKey.set(key, e);
+  });
+
+  var children = new Map();  // parentKey → [childEntity]
+  entities.forEach(function(e) {
+    if (!e.inherits) return;
+    var ref = resolveEntityRef(e.inherits, e.domainId);
+    if (!ref) return;
+    var parentKey = entityKey(ref.domainId, ref.entityId);
+    if (!children.has(parentKey)) children.set(parentKey, []);
+    children.get(parentKey).push(e);
+  });
+
+  return { byKey: byKey, children: children };
+}
+
+function buildEntityTree(rootKey, index) {
+  var byKey = index.byKey;
+  var childMap = index.children;
+
+  var nodesMap = new Map();
+  var edgesMap = new Map();
+
+  function addNode(key) {
+    if (nodesMap.has(key)) return nodesMap.get(key);
+    var e = byKey.get(key);
+    var parts = key.split('/');
+    var node = {
+      key: key,
+      domainId: e ? e.domainId : parts[0],
+      entityId: e ? e.entityId : parts.slice(1).join('/'),
+      name: e ? e.name : null,
+      inherits: e ? e.inherits : null,
+      missing: !e
+    };
+    nodesMap.set(key, node);
+    return node;
+  }
+
+  function traverseParents(startKey) {
+    var visited = new Set();
+    var stack = [startKey];
+    while (stack.length > 0) {
+      var key = stack.pop();
+      if (visited.has(key)) continue;
+      visited.add(key);
+      var e = byKey.get(key);
+      if (!e || !e.inherits) continue;
+      var ref = resolveEntityRef(e.inherits, e.domainId);
+      if (!ref) continue;
+      var parentKey = entityKey(ref.domainId, ref.entityId);
+      addNode(parentKey);
+      var edgeId = parentKey + '->' + key;
+      if (!edgesMap.has(edgeId)) {
+        edgesMap.set(edgeId, { id: edgeId, source: parentKey, target: key });
+      }
+      if (!visited.has(parentKey)) stack.push(parentKey);
+    }
+  }
+
+  function traverseChildren(startKey) {
+    var visited = new Set();
+    var stack = [startKey];
+    while (stack.length > 0) {
+      var key = stack.pop();
+      if (visited.has(key)) continue;
+      visited.add(key);
+      var kids = childMap.get(key) || [];
+      kids.forEach(function(child) {
+        var childKey = entityKey(child.domainId, child.entityId);
+        addNode(childKey);
+        var edgeId = key + '->' + childKey;
+        if (!edgesMap.has(edgeId)) {
+          edgesMap.set(edgeId, { id: edgeId, source: key, target: childKey });
+        }
+        if (!visited.has(childKey)) stack.push(childKey);
+      });
+    }
+  }
+
+  addNode(rootKey);
+  traverseParents(rootKey);
+  traverseChildren(rootKey);
+
+  var nodes = Array.from(nodesMap.values());
+  var edges = Array.from(edgesMap.values());
+
+  // Ищем циклы (SCC размера > 1)
+  var cycleNodes = detectEntityCycles(nodes, edges);
+
+  // Помечаем "родитель" / "наследник" относительно root
+  var isRoot = function(k) { return k === rootKey; };
+  var parents = new Set();
+  var children = new Set();
+
+  // Обход от root вверх — всё в parents
+  (function() {
+    var stack = [rootKey];
+    var visited = new Set([rootKey]);
+    while (stack.length > 0) {
+      var k = stack.pop();
+      var e = byKey.get(k);
+      if (!e || !e.inherits) continue;
+      var ref = resolveEntityRef(e.inherits, e.domainId);
+      if (!ref) continue;
+      var pk = entityKey(ref.domainId, ref.entityId);
+      if (!parents.has(pk)) parents.add(pk);
+      if (!visited.has(pk)) { visited.add(pk); stack.push(pk); }
+    }
+  })();
+
+  // Обход от root вниз — всё в children
+  (function() {
+    var stack = [rootKey];
+    var visited = new Set([rootKey]);
+    while (stack.length > 0) {
+      var k = stack.pop();
+      var kids = childMap.get(k) || [];
+      kids.forEach(function(child) {
+        var ck = entityKey(child.domainId, child.entityId);
+        if (!children.has(ck)) children.add(ck);
+        if (!visited.has(ck)) { visited.add(ck); stack.push(ck); }
+      });
+    }
+  })();
+
+  return {
+    nodes: nodes,
+    edges: edges,
+    rootKey: rootKey,
+    parentKeys: parents,
+    childKeys: children,
+    cycleNodes: cycleNodes
+  };
+}
+
+function detectEntityCycles(nodes, edges) {
+  var adj = new Map();
+  nodes.forEach(function(n) { adj.set(n.key, []); });
+  edges.forEach(function(e) {
+    if (adj.has(e.source)) adj.get(e.source).push(e.target);
+  });
+
+  var index = 0;
+  var stack = [];
+  var onStack = new Set();
+  var indices = new Map();
+  var lowlinks = new Map();
+  var sccs = [];
+
+  function strongconnect(v) {
+    indices.set(v, index);
+    lowlinks.set(v, index);
+    index++;
+    stack.push(v);
+    onStack.add(v);
+    var neighbors = adj.get(v) || [];
+    for (var i = 0; i < neighbors.length; i++) {
+      var to = neighbors[i];
+      if (!adj.has(to)) continue;
+      if (!indices.has(to)) {
+        strongconnect(to);
+        lowlinks.set(v, Math.min(lowlinks.get(v), lowlinks.get(to)));
+      } else if (onStack.has(to)) {
+        lowlinks.set(v, Math.min(lowlinks.get(v), indices.get(to)));
+      }
+    }
+    if (lowlinks.get(v) === indices.get(v)) {
+      var scc = [];
+      var w;
+      do { w = stack.pop(); onStack.delete(w); scc.push(w); } while (w !== v);
+      if (scc.length > 1) sccs.push(scc);
+    }
+  }
+  nodes.forEach(function(n) { if (!indices.has(n.key)) strongconnect(n.key); });
+
+  var result = new Set();
+  sccs.forEach(function(scc) { scc.forEach(function(k) { result.add(k); }); });
+  return result;
+}
+
+function layoutEntityGraph(nodes, edges, rootKey) {
+  var ENTITY_W = 180;
+  var ENTITY_H = 60;
+  var ROOT_W = ENTITY_W * 1.35;
+  var ROOT_H = ENTITY_H * 1.2;
+
+  var g = new dagre.graphlib.Graph();
+  g.setDefaultEdgeLabel(function() { return {}; });
+  g.setGraph({ rankdir: 'TB', nodesep: 25, ranksep: 55, marginx: 30, marginy: 30 });
+
+  nodes.forEach(function(n) {
+    var w = n.key === rootKey ? ROOT_W : ENTITY_W;
+    var h = n.key === rootKey ? ROOT_H : ENTITY_H;
+    g.setNode(n.key, { width: w, height: h });
+  });
+  edges.forEach(function(e) { g.setEdge(e.source, e.target); });
+
+  dagre.layout(g);
+
+  return nodes.map(function(n) {
+    var pos = g.node(n.key);
+    var w = n.key === rootKey ? ROOT_W : ENTITY_W;
+    var h = n.key === rootKey ? ROOT_H : ENTITY_H;
+    return Object.assign({}, n, {
+      x: pos.x - w / 2,
+      y: pos.y - h / 2,
+      width: w,
+      height: h
+    });
+  });
+}
+
+function EntityHierarchyGraph(props) {
+  var tree = props.tree;
+  var onSelect = props.onSelect;
+  var onGotoDomain = props.onGotoDomain;
+
+  var svgRef = useRef(null);
+  var containerRef = useRef(null);
+
+  var [viewport, setViewport] = useState({ x: 0, y: 0, scale: 1 });
+  var dragRef = useRef(null);
+  var [isDragging, setIsDragging] = useState(false);
+
+  var laid = useMemo(function() {
+    if (!tree) return null;
+    return layoutEntityGraph(tree.nodes, tree.edges, tree.rootKey);
+  }, [tree]);
+
+  useEffect(function() {
+    setViewport({ x: 0, y: 0, scale: 1 });
+  }, [tree && tree.rootKey]);
+
+  var fitView = useCallback(function() {
+    if (!laid || !containerRef.current) return;
+    var containerRect = containerRef.current.getBoundingClientRect();
+    if (containerRect.width === 0 || containerRect.height === 0) return;
+
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    laid.forEach(function(n) {
+      minX = Math.min(minX, n.x);
+      minY = Math.min(minY, n.y);
+      maxX = Math.max(maxX, n.x + n.width);
+      maxY = Math.max(maxY, n.y + n.height);
+    });
+    var pad = 60;
+    var w = maxX - minX + pad * 2;
+    var h = maxY - minY + pad * 2;
+    var scale = Math.min(containerRect.width / w, containerRect.height / h, 1.5);
+    var cx = containerRect.width / 2;
+    var cy = containerRect.height / 2;
+    var treeCx = (minX + maxX) / 2;
+    var treeCy = (minY + maxY) / 2;
+    setViewport({
+      x: cx - treeCx * scale,
+      y: cy - treeCy * scale,
+      scale: scale
+    });
+  }, [laid]);
+
+  // Автоfit после первого рендера (с небольшой задержкой для раскладки DOM)
+  useEffect(function() {
+    if (!laid) return;
+    var t = setTimeout(fitView, 50);
+    return function() { clearTimeout(t); };
+  }, [laid, fitView]);
+
+  // Колесо мыши
+  useEffect(function() {
+    var el = containerRef.current;
+    if (!el) return;
+    var onWheel = function(e) {
+      e.preventDefault();
+      var rect = el.getBoundingClientRect();
+      var mx = e.clientX - rect.left;
+      var my = e.clientY - rect.top;
+      var delta = -e.deltaY;
+      var factor = delta > 0 ? 1.15 : 1 / 1.15;
+      setViewport(function(vp) {
+        var newScale = Math.max(0.1, Math.min(5, vp.scale * factor));
+        var newX = mx - (mx - vp.x) * (newScale / vp.scale);
+        var newY = my - (my - vp.y) * (newScale / vp.scale);
+        return { x: newX, y: newY, scale: newScale };
+      });
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return function() { el.removeEventListener('wheel', onWheel); };
+  }, []);
+
+  var onMouseDown = useCallback(function(e) {
+    if (e.button !== 0) return;
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startVpX: viewport.x,
+      startVpY: viewport.y,
+      moved: false
+    };
+    setIsDragging(true);
+  }, [viewport.x, viewport.y]);
+
+  useEffect(function() {
+    if (!isDragging) return;
+    var onMove = function(e) {
+      if (!dragRef.current) return;
+      var dx = e.clientX - dragRef.current.startX;
+      var dy = e.clientY - dragRef.current.startY;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragRef.current.moved = true;
+      setViewport(function(vp) {
+        return {
+          x: dragRef.current.startVpX + dx,
+          y: dragRef.current.startVpY + dy,
+          scale: vp.scale
+        };
+      });
+    };
+    var onUp = function() {
+      setIsDragging(false);
+      setTimeout(function() { if (dragRef.current) dragRef.current.moved = false; }, 0);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    return function() {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+  }, [isDragging]);
+
+  var zoomBy = useCallback(function(factor) {
+    var el = containerRef.current;
+    if (!el) return;
+    var rect = el.getBoundingClientRect();
+    var cx = rect.width / 2;
+    var cy = rect.height / 2;
+    setViewport(function(vp) {
+      var newScale = Math.max(0.1, Math.min(5, vp.scale * factor));
+      var newX = cx - (cx - vp.x) * (newScale / vp.scale);
+      var newY = cy - (cy - vp.y) * (newScale / vp.scale);
+      return { x: newX, y: newY, scale: newScale };
+    });
+  }, []);
+
+  if (!laid || !tree) return null;
+
+  var byKey = new Map();
+  laid.forEach(function(n) { byKey.set(n.key, n); });
+
+  var rootDomainId = (tree.rootKey.split('/')[0] || '').toLowerCase();
+
+  var handleNodeClick = function(n) {
+    if (dragRef.current && dragRef.current.moved) return;
+    if (n.missing) return;
+    if (onSelect) onSelect(n);
+  };
+
+  function truncate(s, max) {
+    if (!s) return '';
+    return s.length > max ? s.slice(0, max - 1) + '…' : s;
+  }
+
+  return React.createElement(React.Fragment, null,
+    React.createElement('div', { className: 'entity-graph-controls' },
+      React.createElement('button', { className: 'entity-ctrl-btn', onClick: function() { zoomBy(1.3); }, title: 'Приблизить' }, '+'),
+      React.createElement('button', { className: 'entity-ctrl-btn', onClick: function() { zoomBy(1 / 1.3); }, title: 'Отдалить' }, '−'),
+      React.createElement('button', { className: 'entity-ctrl-btn', onClick: fitView, title: 'Вписать' }, '⛶'),
+      React.createElement('span', { className: 'entity-zoom-level' }, Math.round(viewport.scale * 100) + '%')
+    ),
+
+    React.createElement('div', {
+      className: 'entity-graph-container' + (isDragging ? ' entity-graph-container--dragging' : ''),
+      ref: containerRef,
+      onMouseDown: onMouseDown
+    },
+      React.createElement('svg', {
+        ref: svgRef,
+        className: 'entity-graph-svg',
+        style: { width: '100%', height: '100%' }
+      },
+        React.createElement('defs', null,
+          React.createElement('marker', {
+            id: 'entity-arrow', viewBox: '0 0 10 10', refX: 9, refY: 5,
+            markerWidth: 6, markerHeight: 6, orient: 'auto-start-reverse'
+          },
+            React.createElement('path', { d: 'M 0 0 L 10 5 L 0 10 z', className: 'entity-arrow-marker' })
+          )
+        ),
+        React.createElement('g', {
+          transform: 'translate(' + viewport.x + ',' + viewport.y + ') scale(' + viewport.scale + ')'
+        },
+          React.createElement('g', { className: 'entity-graph-edges' },
+            tree.edges.map(function(e, i) {
+              var src = byKey.get(e.source);
+              var tgt = byKey.get(e.target);
+              if (!src || !tgt) return null;
+              var sx = src.x + src.width / 2;
+              var sy = src.y + src.height;
+              var tx = tgt.x + tgt.width / 2;
+              var ty = tgt.y;
+              var my = (sy + ty) / 2;
+              var path = 'M ' + sx + ',' + sy + ' C ' + sx + ',' + my + ' ' + tx + ',' + my + ' ' + tx + ',' + ty;
+              var isCycle = tree.cycleNodes.has(e.source) && tree.cycleNodes.has(e.target);
+              return React.createElement('path', {
+                key: i,
+                d: path,
+                className: 'entity-edge' + (isCycle ? ' entity-edge--cycle' : ''),
+                markerEnd: 'url(#entity-arrow)'
+              });
+            })
+          ),
+          React.createElement('g', { className: 'entity-graph-nodes' },
+            laid.map(function(n) {
+              var isRoot = n.key === tree.rootKey;
+              var isCycle = tree.cycleNodes.has(n.key);
+              var isForeign = !isRoot && n.domainId.toLowerCase() !== rootDomainId;
+              var nodeCls = 'entity-graph-node';
+              if (isRoot) nodeCls += ' entity-graph-node--root';
+              if (isCycle) nodeCls += ' entity-graph-node--cycle';
+              if (n.missing) nodeCls += ' entity-graph-node--missing';
+
+              var idMax = isRoot ? 24 : 22;
+              var shortId = truncate(n.missing ? '⚠️ ' + n.entityId : n.entityId, idMax);
+              var shortName = truncate(n.name || '', 26);
+              var shortDomain = truncate(n.domainId, 24);
+
+              return React.createElement('g', {
+                key: n.key,
+                transform: 'translate(' + n.x + ',' + n.y + ')',
+                className: nodeCls,
+                onClick: function() { handleNodeClick(n); },
+                style: { cursor: n.missing ? 'default' : 'pointer' }
+              },
+                React.createElement('title', null,
+                  n.entityId + (n.name ? ' — ' + n.name : '') + ' (' + n.domainId + ')'
+                ),
+                React.createElement('rect', {
+                  width: n.width, height: n.height, rx: 8,
+                  className: 'entity-node-rect'
+                    + (isRoot ? ' entity-node-rect--root' : '')
+                    + (isForeign ? ' entity-node-rect--foreign' : '')
+                    + (isCycle ? ' entity-node-rect--cycle' : '')
+                    + (n.missing ? ' entity-node-rect--missing' : '')
+                }),
+                React.createElement('text', {
+                  x: n.width / 2, y: isRoot ? 24 : 22, textAnchor: 'middle',
+                  className: 'entity-node-id' + (isRoot ? ' entity-node-id--root' : ''),
+                  pointerEvents: 'none'
+                }, shortId),
+                !isRoot && !n.missing && shortName && React.createElement('text', {
+                  x: n.width / 2, y: 38, textAnchor: 'middle',
+                  className: 'entity-node-name',
+                  pointerEvents: 'none'
+                }, shortName),
+                !n.missing && React.createElement('text', {
+                  x: n.width / 2, y: n.height - 8, textAnchor: 'middle',
+                  className: 'entity-node-domain' + (isForeign ? ' entity-node-domain--foreign' : ''),
+                  onClick: function(ev) {
+                    ev.stopPropagation();
+                    if (onGotoDomain) onGotoDomain(n.domainId);
+                  }
+                }, shortDomain),
+                n.missing && React.createElement('text', {
+                  x: n.width / 2, y: n.height - 8, textAnchor: 'middle',
+                  className: 'entity-node-domain entity-node-domain--missing'
+                }, 'не найдено')
+              );
+            })
+          )
+        )
+      )
+    )
+  );
+}
+
+function EntityHierarchyModal(props) {
+  var open = props.open;
+  var onClose = props.onClose;
+  var entities = props.entities || [];
+  var initialEntityKey = props.initialEntityKey;
+  var onGotoDomain = props.onGotoDomain;
+
+  var [query, setQuery] = useState('');
+  var [selectedKey, setSelectedKey] = useState(null);
+  var [history, setHistory] = useState([]);
+
+  var index = useMemo(function() {
+    return buildEntityIndex(entities);
+  }, [entities]);
+  
+  useEffect(function() {
+  if (!open) return;
+  var onKey = function(e) {
+    if (e.key === 'Escape') {
+      if (history.length > 0) {
+        e.preventDefault();
+        handleBack();
+      } else {
+        e.preventDefault();
+        onClose();
+      }
+    }
+  };
+  document.addEventListener('keydown', onKey, true);
+  return function() { document.removeEventListener('keydown', onKey, true); };
+}, [open, history, handleBack, onClose]);
+
+  useEffect(function() {
+    if (open && initialEntityKey) {
+      setSelectedKey(initialEntityKey);
+      setHistory([]);
+      setQuery('');
+    }
+  }, [open, initialEntityKey]);
+
+  useEffect(function() {
+    if (!open) {
+      setQuery('');
+      setSelectedKey(null);
+      setHistory([]);
+    }
+  }, [open]);
+
+  var searchResults = useMemo(function() {
+    var q = query.trim().toLowerCase();
+    if (!q) return [];
+    var results = [];
+    entities.forEach(function(e) {
+      var idMatch = e.entityId.toLowerCase().indexOf(q) !== -1;
+      var nameMatch = e.name && e.name.toLowerCase().indexOf(q) !== -1;
+      if (!idMatch && !nameMatch) return;
+      var key = entityKey(e.domainId, e.entityId);
+      var hasParents = !!e.inherits;
+      var hasChildren = (index.children.get(key) || []).length > 0;
+      results.push({
+        entity: e,
+        key: key,
+        hasParents: hasParents,
+        hasChildren: hasChildren,
+        isOrphan: !hasParents && !hasChildren,
+        rank: idMatch && e.entityId.toLowerCase().indexOf(q) === 0 ? 0 : idMatch ? 1 : 2
+      });
+    });
+    results.sort(function(a, b) { return a.rank - b.rank; });
+    return results.slice(0, 200);
+  }, [query, entities, index]);
+
+  var tree = useMemo(function() {
+    if (!selectedKey) return null;
+    return buildEntityTree(selectedKey, index);
+  }, [selectedKey, index]);
+
+  var handleSelect = useCallback(function(node) {
+    if (!node || node.missing) return;
+    if (node.key === selectedKey) return;
+    setHistory(function(prev) { return selectedKey ? prev.concat([selectedKey]) : prev; });
+    setSelectedKey(node.key);
+  }, [selectedKey]);
+
+  var handleBack = useCallback(function() {
+    setHistory(function(prev) {
+      if (prev.length === 0) return prev;
+      var last = prev[prev.length - 1];
+      setSelectedKey(last);
+      return prev.slice(0, -1);
+    });
+  }, []);
+
+  if (!open) return null;
+
+  return React.createElement('div', { className: 'help-overlay help-overlay--fullscreen', onMouseDown: onClose },
+    React.createElement('div', { className: 'help-modal entity-hierarchy-modal', onMouseDown: function(e) { e.stopPropagation(); } },
+      React.createElement('div', { className: 'help-modal__header' },
+        React.createElement('div', { className: 'help-modal__title' }, '🧬 Иерархия наследования сущностей'),
+        React.createElement('button', { className: 'help-modal__close', onClick: onClose }, '✕')
+      ),
+
+      React.createElement('div', { className: 'entity-hierarchy-body' },
+        React.createElement('div', { className: 'entity-search-panel' },
+          React.createElement('div', { className: 'entity-search-input-wrap' },
+            React.createElement('span', { className: 'entity-search-icon' }, '🔍'),
+            React.createElement('input', {
+              className: 'entity-search-input',
+              type: 'text',
+              placeholder: 'Поиск по id или названию...',
+              value: query,
+              onChange: function(e) { setQuery(e.target.value); }
+            })
+          ),
+          React.createElement('div', { className: 'entity-search-results' },
+            query.trim() === '' ?
+              React.createElement('div', { className: 'entity-search-hint' },
+                'Всего сущностей: ' + entities.length,
+                React.createElement('br'),
+                React.createElement('span', { style: { fontSize: 11 } }, 'Начните вводить для поиска')
+              ) :
+              searchResults.length === 0 ?
+                React.createElement('div', { className: 'entity-search-hint' }, 'Ничего не найдено') :
+                searchResults.map(function(r) {
+                  return React.createElement('div', {
+                    key: r.key,
+                    className: 'entity-search-item'
+                      + (r.key === selectedKey ? ' entity-search-item--active' : '')
+                      + (r.isOrphan ? ' entity-search-item--orphan' : ''),
+                    onClick: function() {
+                      setHistory(function(prev) { return selectedKey ? prev.concat([selectedKey]) : prev; });
+                      setSelectedKey(r.key);
+                    }
+                  },
+                    React.createElement('div', { className: 'entity-search-item__id' }, r.entity.entityId),
+                    r.entity.name && r.entity.name !== r.entity.entityId &&
+                      React.createElement('div', { className: 'entity-search-item__name' }, r.entity.name),
+                    React.createElement('div', { className: 'entity-search-item__meta' },
+                      React.createElement('span', { className: 'entity-search-item__domain' }, r.entity.domainId),
+                      r.isOrphan
+                        ? React.createElement('span', { className: 'entity-search-item__badge' }, 'без иерархии')
+                        : React.createElement('span', { className: 'entity-search-item__badge entity-search-item__badge--ok' },
+                            (r.hasParents ? '↑' : '·') + (r.hasChildren ? '↓' : '·')
+                          )
+                    )
+                  );
+                })
+          )
+        ),
+
+        React.createElement('div', { className: 'entity-graph-panel' },
+  history.length > 0 && React.createElement('button', {
+    className: 'entity-graph-back',
+    onClick: handleBack,
+    title: 'Назад'
+  }, '← Назад'),
+
+  !selectedKey ?
+    React.createElement('div', { className: 'entity-graph-empty' },
+      React.createElement('div', { className: 'entity-graph-empty__icon' }, '🧬'),
+      React.createElement('div', { className: 'entity-graph-empty__title' }, 'Выберите сущность слева'),
+      React.createElement('div', { className: 'entity-graph-empty__hint' }, 'Родители будут сверху, наследники снизу')
+    ) :
+    React.createElement(EntityHierarchyGraph, {
+      tree: tree,
+      onSelect: handleSelect,
+      onGotoDomain: onGotoDomain
+    })
+)
+      ),
+
+      tree && React.createElement('div', { className: 'validation-footer' },
+        React.createElement('div', { className: 'validation-stats' },
+          React.createElement('span', { className: 'validation-stat' },
+            '🧬 ' + tree.nodes.length + ' в графе'
+          ),
+          React.createElement('span', { className: 'validation-stat validation-stat--ok' },
+            '↑ ' + tree.parentKeys.size + ' родителей'
+          ),
+          React.createElement('span', { className: 'validation-stat validation-stat--warn' },
+            '↓ ' + tree.childKeys.size + ' наследников'
+          ),
+          tree.cycleNodes.size > 0 && React.createElement('span', { className: 'validation-stat validation-stat--err' },
+            '⚠️ цикл'
+          )
+        ),
+        React.createElement('div', { className: 'validation-footer__actions' },
+          React.createElement('button', { className: 'btn', onClick: onClose }, 'Закрыть')
+        )
+      )
+    )
+  );
+}
 function findCycles(nodes, edges) {
   var adjacency = new Map();
   nodes.forEach(function(n) { adjacency.set(n.id, []); });
@@ -3854,9 +5041,15 @@ function DomainNode(props) {
   if (data.__compact) {
     var compactCls = 'rf-compact rf-compact--' + data.nodeType + (selected ? ' rf-compact--selected' : '');
     var initial = (data.domainId || '?').charAt(0).toUpperCase();
+    var compactStyle = {};
+    if (data.__heatColor) {
+      compactStyle.background = data.__heatColor;
+      compactStyle.borderColor = data.__heatColor;
+      compactStyle.color = '#ffffff';
+    }
     return React.createElement(React.Fragment, null,
       React.createElement(Handle, { type: 'target', position: Position.Left, className: 'rf-handle' }),
-      React.createElement('div', { className: compactCls, title: data.domainId }, initial),
+      React.createElement('div', { className: compactCls, style: compactStyle, title: data.domainId }, initial),
       React.createElement(Handle, { type: 'source', position: Position.Right, className: 'rf-handle' })
     );
   }
@@ -3866,29 +5059,40 @@ function DomainNode(props) {
   if (data.dimmed) cls += ' rf-node--dimmed';
   if (data.__inPath) cls += ' rf-node--path';
   if (data.__isPathEndpoint) cls += ' rf-node--path-endpoint';
+  if (data.__failed) cls += ' rf-node--failed';
+  if (data.__pendingFail) cls += ' rf-node--pending-fail';
+  if (data.__failureRoot) cls += ' rf-node--failure-root';
+
   var icon = data.nodeType === 'domain' ? '●' : data.nodeType === 'missing' ? '▲' : '✕';
 
-  // Health — теперь это тег справа от ID, а не абсолютно позиционированный бейдж
+  // Применяем heatmap-цвет, если есть
+  var nodeStyle = {};
+  if (data.__heatColor) {
+    nodeStyle.background = data.__heatColor;
+    nodeStyle.borderColor = data.__heatColor;
+    nodeStyle.color = '#ffffff';
+  }
+
   var healthBadge = null;
-  if (data.health != null && data.nodeType === 'domain') {
+  if (data.health != null && data.nodeType === 'domain' && !data.__heatColor) {
     var hc = data.health >= 80 ? 'good' : data.health >= 50 ? 'mid' : 'bad';
     healthBadge = React.createElement('span', {
       className: 'rf-node__health rf-node__health--' + hc,
       title: 'Health score: ' + data.health + '/100'
     }, data.health);
   }
-  
+
   var validationBadge = null;
   if (data.__validationStatus === 'invalid' && data.__validationCount > 0) {
     validationBadge = React.createElement('span', {
       className: 'rf-node__issues',
-      title: 'Валидация: ' + data.__validationCount + ' проблем',
+      title: 'Валидация: ' + data.__validationCount + ' проблем'
     }, '⚠' + data.__validationCount);
   }
 
   return React.createElement(React.Fragment, null,
     React.createElement(Handle, { type: 'target', position: Position.Left, className: 'rf-handle' }),
-    React.createElement('div', { className: cls },
+    React.createElement('div', { className: cls, style: nodeStyle },
       React.createElement('div', { className: 'rf-node__icon' }, icon),
       React.createElement('div', { className: 'rf-node__content' },
         React.createElement('div', { className: 'rf-node__id-row' },
@@ -4276,21 +5480,61 @@ function SidePanel(props) {
       );
     }
   }
+  
+  var entitiesContent = null;
+if (tab === 'entities') {
+  var domainEntities = (props.entities || []).filter(function(e) {
+    return e.domainId === (node && node.data && node.data.domainId);
+  });
+
+  var childIndex = props.entityIndex;
+  entitiesContent = React.createElement('div', { className: 'details' },
+    React.createElement('div', { className: 'details__field-label' }, 'Сущности домена (' + domainEntities.length + ')'),
+    domainEntities.length === 0 ?
+      React.createElement('div', { className: 'details__field-value', style: { color: 'var(--text-500)' } }, 'Нет сущностей') :
+      React.createElement('div', { className: 'entity-tab-list' },
+        domainEntities.map(function(e) {
+          var key = (e.domainId + '/' + e.entityId).toLowerCase();
+          var hasParents = !!e.inherits;
+          var hasChildren = childIndex && (childIndex.children.get(key) || []).length > 0;
+          return React.createElement('div', {
+            key: key,
+            className: 'entity-tab-item',
+            onClick: function() { props.onOpenEntityHierarchy(key); }
+          },
+            React.createElement('div', { className: 'entity-tab-item__head' },
+              React.createElement('span', { className: 'entity-tab-item__id' }, e.entityId),
+              (hasParents || hasChildren) && React.createElement('span', { className: 'entity-tab-item__arrows' },
+                (hasParents ? '↑' : '') + (hasChildren ? '↓' : '')
+              )
+            ),
+            e.name && e.name !== e.entityId && React.createElement('div', { className: 'entity-tab-item__name' }, e.name),
+            e.inherits && React.createElement('div', { className: 'entity-tab-item__inherits' }, '↳ ' + e.inherits)
+          );
+        })
+      )
+  );
+}
 
   return React.createElement('div', { className: 'side-panel open' },
     React.createElement('div', { className: 'side-panel__header' },
       React.createElement('div', { className: 'side-panel__tabs' },
         React.createElement('button', { className: 'side-panel__tab' + (tab === 'details' ? ' active' : ''), onClick: function() { setTab('details'); } }, '📋 Детали'),
         React.createElement('button', { className: 'side-panel__tab' + (tab === 'file' ? ' active' : ''), onClick: function() { setTab('file'); } }, '📄 Файл'),
-        React.createElement('button', { className: 'side-panel__tab' + (tab === 'edge' ? ' active' : ''), onClick: function() { setTab('edge'); } }, '🔗 Связь')
+        React.createElement('button', { className: 'side-panel__tab' + (tab === 'edge' ? ' active' : ''), onClick: function() { setTab('edge'); } }, '🔗 Связь'),
+        React.createElement('button', {
+  className: 'side-panel__tab' + (tab === 'entities' ? ' active' : ''),
+  onClick: function() { setTab('entities'); }
+}, '🧬 Сущности')
       ),
       React.createElement('button', { className: 'btn btn--icon', onClick: onClose, title: 'Закрыть' }, '✕')
     ),
     filePath && React.createElement('div', { className: 'editor-panel__path', style: { padding: '6px 16px', fontSize: 11, color: 'var(--text-500)', borderBottom: '1px solid var(--border)', background: 'var(--bg-800)', fontFamily: 'monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, filePath),
     React.createElement('div', { className: 'side-panel__body' },
       tab === 'details' ? detailsContent :
-      tab === 'edge' ? edgeContent :
-      fileContent
+tab === 'edge' ? edgeContent :
+tab === 'entities' ? entitiesContent :
+fileContent
     )
   );
 }
@@ -4471,6 +5715,14 @@ function AnalysisMenu(props) {
       React.createElement('span', { className: 'menu__text' }, 'Правила зависимостей'),
       ruleViolations.length > 0 && React.createElement('span', { className: 'menu__count' }, ruleViolations.length)
     ),
+    
+    React.createElement('button', {
+  className: 'menu__item',
+  onClick: function() { props.onOpenEntityHierarchy(); close(); }
+},
+  React.createElement('span', { className: 'menu__icon' }, '🧬'),
+  React.createElement('span', { className: 'menu__text' }, 'Иерархия сущностей')
+),
 
     React.createElement('div', { className: 'menu__divider' }),
 
@@ -6234,7 +7486,9 @@ function App() {
   var [topoLevelMap, setTopoLevelMap] = useState(null);
   
   var [hotkeysOpen, setHotkeysOpen] = useState(false);
-  
+  var [entityHierarchyOpen, setEntityHierarchyOpen] = useState(false);
+var [entityHierarchyInitialKey, setEntityHierarchyInitialKey] = useState(null);
+
   var [validationAvailable, setValidationAvailable] = useState(false);
   useEffect(function() {
     fetch('/api/validation-available').then(function(r) { return r.json(); })
@@ -6310,6 +7564,9 @@ var tourTogglePlay = useCallback(function() {
 
 var tourStop = useCallback(function() { setTour(null); }, []);
 
+var entityIndex = useMemo(function() {
+  return buildEntityIndex(GRAPH_DATA.entities || []);
+}, []);
 
 useEffect(function() {
   if (!tour) return;
@@ -6610,8 +7867,11 @@ useEffect(function() {
 
   var visibleNodes = useMemo(function() {
     var pathEndpoints = pathResult ? new Set([pathResult.nodes[0], pathResult.nodes[pathResult.nodes.length - 1]]) : null;
-    var hasChanges = highlight || compact || topoLevelMap || (validationResults && validationResults.size > 0) ||
-      (bookmarks && bookmarks.size > 0) || (hiddenNodeIds && hiddenNodeIds.size > 0) || diffMode || selectedNodeId;
+    var hasChanges = highlight || compact || topoLevelMap || heatmapValues ||
+  (validationResults && validationResults.size > 0) ||
+  (bookmarks && bookmarks.size > 0) ||
+  (hiddenNodeIds && hiddenNodeIds.size > 0) ||
+  diffMode || selectedNodeId;
   
     // Быстрый путь: без активных режимов возвращаем filteredNodes как есть
     if (!hasChanges) return filteredNodes;
@@ -6626,6 +7886,13 @@ useEffect(function() {
       var validation = validationResults ? validationResults.get(n.data.domainId) : null;
       var isInvalid = validation && validation.status === 'invalid';
       var isBookmarked = bookmarks ? bookmarks.has(n.id) : false;
+      
+      var hm = null;
+if (heatmapValues) {
+  var val = heatmapValues.map.get(n.id) || 0;
+  var scheme = heatmapValues.scheme;
+  hm = heatColor(val, heatmapValues.min, heatmapValues.max, scheme);
+}
   
       return Object.assign({}, n, {
         style: { opacity: dimmed ? 0.12 : 1, transition: 'opacity 0.2s' },
@@ -6640,11 +7907,12 @@ useEffect(function() {
           __bookmarked: isBookmarked,
           __validationStatus: validation ? validation.status : null,
           __validationCount: validation && validation.diagnostics ? validation.diagnostics.length : 0,
+          __heatColor: hm
         }),
         selected: n.id === selectedNodeId
       });
     });
-  }, [filteredNodes, highlight, compact, pathResult, diffMode, healthMap, selectedNodeId, topoLevelMap, validationResults, bookmarks, hiddenNodeIds]);
+  }, [heatmapValues, filteredNodes, highlight, compact, pathResult, diffMode, healthMap, selectedNodeId, topoLevelMap, validationResults, bookmarks, hiddenNodeIds]);
 
  var visibleEdges = useMemo(function() {
   var hasHighlight = highlight || diffMode || selectedEdgeId ||
@@ -7518,6 +8786,8 @@ useEffect(function() {
         run: handleRunPath },
       { section: 'Анализ', icon: '📖', label: tour ? 'Остановить экскурсию' : 'Путь изучения архитектуры', keywords: 'learning path onboarding tour',
   run: function() { if (tour) tourStop(); else setLearningPathOpen(true); } },  
+  { section: 'Анализ', icon: '🧬', label: 'Иерархия сущностей', keywords: 'entity hierarchy inheritance inherits',
+  run: function() { setEntityHierarchyInitialKey(null); setEntityHierarchyOpen(true); } },
   
       // Фильтры
       { section: 'Фильтры', icon: '★', label: bookmarksOnly ? 'Показать все домены' : 'Только избранные', keywords: 'bookmarks favorites',
@@ -7736,6 +9006,10 @@ useEffect(function() {
             focusNode: focusNode, clearFocus: function() { setFocusNode(null); },
             onOpenTopo: function() { setTopoOpen(true); },
             onOpenLearningPath: function() { setLearningPathOpen(true); },
+            onOpenEntityHierarchy: function() {
+  setEntityHierarchyInitialKey(null);
+  setEntityHierarchyOpen(true);
+},
             close: close
           });
         }),
@@ -7840,6 +9114,12 @@ useEffect(function() {
           allNodes: nodes, allEdges: edges,
           onGotoDomain: gotoDomainByDomainId,
           onOpenFile: function(p) { openFileInEditor(p); },
+           entities: GRAPH_DATA.entities || [],
+  entityIndex: entityIndex,
+  onOpenEntityHierarchy: function(key) {
+    setEntityHierarchyInitialKey(key);
+    setEntityHierarchyOpen(true);
+  },
           ruleViolations: ruleViolations
         }),
         heatmap !== 'none' && heatmapValues && React.createElement('div', { className: 'heat-legend' },
@@ -7888,6 +9168,16 @@ useEffect(function() {
       onGotoDomain: gotoDomainByDomainId,
       onApplyLevels: function(levelMap) { setTopoLevelMap(levelMap); }
     }),
+    React.createElement(EntityHierarchyModal, {
+  open: entityHierarchyOpen,
+  onClose: function() {
+    setEntityHierarchyOpen(false);
+    setEntityHierarchyInitialKey(null);
+  },
+  entities: GRAPH_DATA.entities || [],
+  initialEntityKey: entityHierarchyInitialKey,
+  onGotoDomain: gotoDomainByDomainId
+}),
     React.createElement(LearningPathModal, {
   open: learningPathOpen,
   onClose: function() { setLearningPathOpen(false); },
