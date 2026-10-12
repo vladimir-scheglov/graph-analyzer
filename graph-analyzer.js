@@ -2037,6 +2037,138 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Robo
 .validation-log--invalid.validation-log--open {
   background: var(--bg-750);
 }
+/* Полоса активных режимов */
+.active-modes {
+  display: flex;
+  gap: 6px;
+  padding: 6px 16px;
+  background: var(--bg-850);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+  min-height: 38px;
+  align-items: center;
+}
+.active-modes::-webkit-scrollbar { height: 3px; }
+.active-modes::-webkit-scrollbar-thumb { background: var(--bg-600); border-radius: 2px; }
+
+.active-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
+  border: 1px solid;
+  transition: all 0.15s;
+}
+.active-mode__icon { font-size: 12px; }
+.active-mode__label { color: inherit; }
+
+.active-mode__close {
+  background: transparent;
+  border: none;
+  color: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1;
+  font-family: inherit;
+  transition: all 0.15s;
+}
+.active-mode__close:hover { opacity: 1; background: rgba(255,255,255,0.1); }
+
+.active-mode--accent { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-hover); }
+.active-mode--orange { background: rgba(249,115,22,0.12); border-color: #f97316; color: #fb923c; }
+.active-mode--cyan { background: rgba(34,211,238,0.12); border-color: #22d3ee; color: #67e8f9; }
+.active-mode--yellow { background: rgba(251,191,36,0.12); border-color: #fbbf24; color: #fcd34d; }
+.active-mode--red { background: rgba(239,68,68,0.12); border-color: #ef4444; color: #f87171; }
+.active-mode--purple { background: rgba(139,92,246,0.12); border-color: #8b5cf6; color: #a78bfa; }
+.active-mode--blue { background: rgba(59,130,246,0.12); border-color: #3b82f6; color: #60a5fa; }
+.active-mode--gray { background: var(--bg-700); border-color: var(--border-hover); color: var(--text-400); }
+
+[data-theme="light"] .active-mode--orange { background: rgba(249,115,22,0.15); color: #c2410c; }
+[data-theme="light"] .active-mode--cyan { background: rgba(6,182,212,0.15); color: #0e7490; }
+[data-theme="light"] .active-mode--yellow { background: rgba(251,191,36,0.2); color: #92400e; }
+[data-theme="light"] .active-mode--red { background: rgba(239,68,68,0.15); color: #b91c1c; }
+[data-theme="light"] .active-mode--purple { background: rgba(139,92,246,0.15); color: #6d28d9; }
+[data-theme="light"] .active-mode--blue { background: rgba(59,130,246,0.15); color: #1d4ed8; }
+[data-theme="light"] .active-mode--accent { background: var(--accent-soft); color: var(--accent-hover); }
+.topo-modal { width: 900px; }
+.topo-result { padding: 12px 32px; overflow-y: auto; flex: 1; min-height: 0; }
+.topo-result::-webkit-scrollbar { width: 8px; }
+.topo-result::-webkit-scrollbar-thumb { background: var(--bg-600); border-radius: 4px; }
+
+.topo-level {
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-800);
+  overflow: hidden;
+}
+.topo-level__header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; cursor: pointer; transition: background 0.15s;
+}
+.topo-level__header:hover { background: var(--bg-700); }
+.topo-level__badge {
+  width: 26px; height: 26px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), #8b5cf6);
+  color: #fff; font-size: 12px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.topo-level__title { font-weight: 600; font-size: 13px; color: var(--text-100); }
+.topo-level__count { margin-left: auto; font-size: 11px; color: var(--text-500); }
+
+.topo-level__body { padding: 6px 14px 12px; border-top: 1px solid var(--border); }
+.topo-domain { padding: 4px 0; }
+.topo-domain__head { display: flex; align-items: center; gap: 8px; }
+.topo-domain__deps { margin-top: 4px; padding-left: 26px; }
+.topo-dep { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 2px 0; }
+.topo-dep__level {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; padding: 1px 6px; border-radius: 4px;
+  background: var(--bg-700); color: var(--text-500);
+}
+
+.topo-cyclic {
+  border: 1px solid var(--danger); border-radius: 8px;
+  margin-bottom: 12px; background: rgba(239,68,68,0.05);
+  overflow: hidden;
+}
+.topo-cyclic__header {
+  padding: 10px 14px; font-weight: 600; font-size: 13px;
+  color: var(--danger); display: flex; gap: 8px; align-items: center;
+  background: rgba(239,68,68,0.08);
+}
+.topo-cyclic__icon { font-size: 14px; }
+.topo-cyclic__body { padding: 10px 14px; display: flex; flex-wrap: wrap; gap: 10px; }
+
+.topo-badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  padding: 1px 6px;
+  background: linear-gradient(135deg, var(--accent), #8b5cf6);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 10px;
+  border: 2px solid var(--bg-800);
+  font-family: 'JetBrains Mono', monospace;
+  pointer-events: none;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+}
+
+.active-mode--green { background: rgba(16,185,129,0.12); border-color: #10b981; color: #34d399; }
+[data-theme="light"] .active-mode--green { background: rgba(16,185,129,0.15); color: #047857; }
 </style>
 </head>
 <body>
@@ -2243,6 +2375,83 @@ function simplePatternMatch(domainId, pattern) {
 }
 
 // ============ GRAPH ANALYSIS ============
+function buildDependencyGraph(nodes, edges, options) {
+  var opts = options || {};
+  var includeFqid = opts.includeFqid !== false;
+  var includeLinkage = opts.includeLinkage !== false;
+  var missingAsSatisfied = opts.missingAsSatisfied !== false;
+  var excludedIds = opts.excludedIds || new Set();
+  var restrictTo = opts.restrictTo || null;
+
+  var nodeById = new Map();
+  nodes.forEach(function(n) { nodeById.set(n.id, n); });
+
+  var deps = new Map();
+  var domainIds = new Set();
+
+  nodes.forEach(function(n) {
+    if (n.data.nodeType !== 'domain') return;
+    var did = n.data.domainId;
+    if (excludedIds.has(did.toLowerCase())) return;
+    if (restrictTo && !restrictTo.has(did)) return;
+    domainIds.add(did);
+    deps.set(did, new Set());
+  });
+
+  edges.forEach(function(e) {
+    var kind = e.data && e.data.kind;
+    if (kind === 'linkage' && !includeLinkage) return;
+    if (kind === 'fqid' && !includeFqid) return;
+    if (kind === 'aggregated') return;
+
+    var srcNode = nodeById.get(e.source);
+    var tgtNode = nodeById.get(e.target);
+    if (!srcNode || !tgtNode) return;
+    if (srcNode.data.nodeType !== 'domain') return;
+
+    var srcId = srcNode.data.domainId;
+    if (!domainIds.has(srcId)) return;
+
+    var tgtType = tgtNode.data.nodeType;
+    if (tgtType === 'broken') return;
+    if (tgtType === 'missing') return;
+
+    var tgtId = tgtNode.data.domainId;
+    if (!domainIds.has(tgtId)) return;
+    if (srcId === tgtId) return;
+
+    deps.get(srcId).add(tgtId);
+  });
+
+  return { deps: deps, domainIds: domainIds, nodeById: nodeById };
+}
+
+function topologicalSort(depGraph) {
+  var deps = depGraph.deps;
+  var remaining = new Set(depGraph.domainIds);
+  var levels = [];
+
+  while (remaining.size > 0) {
+    var level = [];
+    remaining.forEach(function(id) {
+      var ready = true;
+      var depsSet = deps.get(id);
+      if (depsSet) {
+        depsSet.forEach(function(dep) {
+          if (remaining.has(dep)) ready = false;
+        });
+      }
+      if (ready) level.push(id);
+    });
+    if (level.length === 0) break;
+    level.forEach(function(id) { remaining.delete(id); });
+    levels.push(level.sort());
+  }
+
+  var cyclic = Array.from(remaining).sort();
+  return { levels: levels, cyclic: cyclic, criticalPath: levels.length };
+}
+
 function findCycles(nodes, edges) {
   var adjacency = new Map();
   nodes.forEach(function(n) { adjacency.set(n.id, []); });
@@ -2755,6 +2964,10 @@ function DomainNode(props) {
     data.__bookmarked && React.createElement('span', {
       style: { position: 'absolute', top: 4, left: 8, fontSize: 12, color: '#fbbf24' }
     }, '★'),
+    data.__topoLevel != null && React.createElement('span', {
+      className: 'topo-badge',
+      title: 'Уровень установки: ' + data.__topoLevel
+    }, 'L' + data.__topoLevel),
     data.__invalid && React.createElement('span', {
       style: { position: 'absolute', top: 4, left: 8, fontSize: 12, color: '#fbbf24' }
     }, '❌'),
@@ -2780,6 +2993,11 @@ function Popover(props) {
     document.addEventListener('keydown', onEsc, true);
     return function() { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onEsc, true); };
   }, [open]);
+  useEffect(function() {
+    var handler = function() { setOpen(false); };
+    document.addEventListener('close-all-popovers', handler);
+    return function() { document.removeEventListener('close-all-popovers', handler); };
+  }, []);
   return React.createElement('div', { className: 'popover-wrap', ref: wrapRef },
     React.createElement('div', { className: 'popover-trigger', onClick: function() { setOpen(!open); } }, trigger(open)),
     open && React.createElement('div', { className: 'popover popover--' + align, style: { width: width } },
@@ -3146,7 +3364,20 @@ function SidePanel(props) {
 function FilterMenu(props) {
   var filters = props.filters, setFilters = props.setFilters, counts = props.counts;
   var namespaceFilter = props.namespaceFilter, setNamespaceFilter = props.setNamespaceFilter;
+  var bookmarksOnly = props.bookmarksOnly, setBookmarksOnly = props.setBookmarksOnly;
+  var onlyInvalid = props.onlyInvalid, setOnlyInvalid = props.setOnlyInvalid;
+  var isolatedOnly = props.isolatedOnly, setIsolatedOnly = props.setIsolatedOnly;
+  var tooltipsEnabled = props.tooltipsEnabled, setTooltipsEnabled = props.setTooltipsEnabled;
+
   var setAll = function(val) { setFilters(function(f) { return Object.assign({}, f, { domain: val, missing: val, broken: val, linkage: val, fqid: val }); }); };
+  var resetAll = function() {
+    setAll(true);
+    setNamespaceFilter('');
+    setBookmarksOnly(false);
+    setOnlyInvalid(false);
+    setIsolatedOnly(false);
+  };
+
   var rows = [
     { key: 'domain', label: 'Domain', color: 'var(--success)' },
     { key: 'missing', label: 'Missing', color: 'var(--warning)' },
@@ -3156,11 +3387,13 @@ function FilterMenu(props) {
     { key: 'linkage', label: 'Linkage', color: LINKAGE_COLOR },
     { key: 'fqid', label: 'FQID', color: FQID_COLOR }
   ];
+
   return React.createElement('div', { className: 'menu' },
     React.createElement('div', { className: 'menu__header' },
       React.createElement('span', null, 'Фильтры'),
-      React.createElement('button', { className: 'menu__action', onClick: function() { setAll(true); setNamespaceFilter(''); } }, 'Сбросить')
+      React.createElement('button', { className: 'menu__action', onClick: resetAll }, 'Сбросить')
     ),
+
     React.createElement('div', { className: 'menu__section' },
       React.createElement('div', { className: 'menu__label' }, 'Тип узлов'),
       rows.map(function(it) {
@@ -3173,6 +3406,7 @@ function FilterMenu(props) {
         );
       })
     ),
+
     React.createElement('div', { className: 'menu__section' },
       React.createElement('div', { className: 'menu__label' }, 'Тип связей'),
       edgesRows.map(function(it) {
@@ -3185,10 +3419,41 @@ function FilterMenu(props) {
         );
       })
     ),
+
     React.createElement('div', { className: 'menu__section' },
       React.createElement('div', { className: 'menu__label' }, 'Namespace'),
       React.createElement('input', { className: 'menu__input', type: 'text', placeholder: 'sgrc.risk.*, !test.*', value: namespaceFilter, onChange: function(e) { setNamespaceFilter(e.target.value); } }),
       React.createElement('div', { className: 'menu__hint' }, 'Несколько масок через , ; или пробел. ', React.createElement('b', null, '!'), ' — исключить. ', React.createElement('b', null, '*'), ' — любой символ.')
+    ),
+
+    React.createElement('div', { className: 'menu__divider' }),
+
+    React.createElement('div', { className: 'menu__section' },
+      React.createElement('div', { className: 'menu__label' }, 'Дополнительно'),
+
+      React.createElement('label', { className: 'menu__checkbox' },
+        React.createElement('input', { type: 'checkbox', checked: bookmarksOnly, onChange: function() { setBookmarksOnly(!bookmarksOnly); } }),
+        React.createElement('span', { className: 'menu__check' }),
+        React.createElement('span', { className: 'menu__text' }, 'Только избранные (★)')
+      ),
+      React.createElement('label', { className: 'menu__checkbox' },
+        React.createElement('input', { type: 'checkbox', checked: onlyInvalid, onChange: function() { setOnlyInvalid(!onlyInvalid); } }),
+        React.createElement('span', { className: 'menu__check' }),
+        React.createElement('span', { className: 'menu__text' }, 'Только невалидные (❌)')
+      ),
+      React.createElement('label', { className: 'menu__checkbox' },
+        React.createElement('input', { type: 'checkbox', checked: isolatedOnly, onChange: function() { setIsolatedOnly(!isolatedOnly); } }),
+        React.createElement('span', { className: 'menu__check' }),
+        React.createElement('span', { className: 'menu__text' }, 'Только изолированные (◯)')
+      ),
+
+      React.createElement('div', { className: 'menu__divider' }),
+
+      React.createElement('label', { className: 'menu__checkbox' },
+        React.createElement('input', { type: 'checkbox', checked: !tooltipsEnabled, onChange: function() { setTooltipsEnabled(!tooltipsEnabled); } }),
+        React.createElement('span', { className: 'menu__check' }),
+        React.createElement('span', { className: 'menu__text' }, 'Скрывать тултипы')
+      )
     )
   );
 }
@@ -3221,6 +3486,10 @@ function AnalysisMenu(props) {
     React.createElement('button', { className: 'menu__item' + (nsMode ? ' menu__item--active' : ''), onClick: function() { setNsMode(function(v) { return !v; }); close(); } },
       React.createElement('span', { className: 'menu__icon' }, '🗂'),
       React.createElement('span', { className: 'menu__text' }, 'Агрегация по семействам')
+    ),
+    React.createElement('button', { className: 'menu__item', onClick: function() { props.onOpenTopo(); close(); } },
+      React.createElement('span', { className: 'menu__icon' }, '📦'),
+      React.createElement('span', { className: 'menu__text' }, 'Порядок установки')
     ),
     React.createElement('div', { className: 'menu__divider' }),
     React.createElement('div', { className: 'menu__row' },
@@ -3306,22 +3575,33 @@ function ViewMenu(props) {
 }
 
 function DataMenu(props) {
+  var handleExportJSON = props.handleExportJSON;
+  var handleExportMarkdown = props.handleExportMarkdown;
+  var handleExportPNG = props.handleExportPNG;
   var snapshotInputRef = props.snapshotInputRef, handleSnapshotUpload = props.handleSnapshotUpload;
   var diffMode = props.diffMode, setDiffMode = props.setDiffMode;
+  var validationAvailable = props.validationAvailable;
+  var onOpenValidation = props.onOpenValidation;
   var close = props.close;
+
   return React.createElement('div', { className: 'menu' },
-    React.createElement('button', { className: 'menu__item', onClick: function() { props.handleExportPNG(); close(); } },
-      React.createElement('span', { className: 'menu__icon' }, '🖼️'),
-      React.createElement('span', { className: 'menu__text' }, 'Экспорт графа в PNG')
-    ),
-    React.createElement('button', { className: 'menu__item', onClick: function() { props.handleExportJSON(); close(); } },
+    React.createElement('div', { className: 'menu__label', style: { paddingLeft: 12, paddingTop: 6 } }, 'Экспорт'),
+    React.createElement('button', { className: 'menu__item', onClick: function() { handleExportJSON(); close(); } },
       React.createElement('span', { className: 'menu__icon' }, '💾'),
-      React.createElement('span', { className: 'menu__text' }, 'Экспорт в JSON')
+      React.createElement('span', { className: 'menu__text' }, 'Граф в JSON')
     ),
-    React.createElement('button', { className: 'menu__item', onClick: function() { props.handleExportMarkdown(); close(); } },
-        React.createElement('span', { className: 'menu__icon' }, '📝'),
-        React.createElement('span', { className: 'menu__text' }, 'Отчёт в Markdown')
-      ),
+    React.createElement('button', { className: 'menu__item', onClick: function() { handleExportMarkdown(); close(); } },
+      React.createElement('span', { className: 'menu__icon' }, '📝'),
+      React.createElement('span', { className: 'menu__text' }, 'Отчёт в Markdown')
+    ),
+    React.createElement('button', { className: 'menu__item', onClick: function() { handleExportPNG(); close(); } },
+      React.createElement('span', { className: 'menu__icon' }, '🖼️'),
+      React.createElement('span', { className: 'menu__text' }, 'Граф в PNG')
+    ),
+
+    React.createElement('div', { className: 'menu__divider' }),
+
+    React.createElement('div', { className: 'menu__label', style: { paddingLeft: 12, paddingTop: 6 } }, 'Сравнение'),
     React.createElement('label', { className: 'menu__item' },
       React.createElement('span', { className: 'menu__icon' }, '⇄'),
       React.createElement('span', { className: 'menu__text' }, 'Загрузить снимок'),
@@ -3330,11 +3610,40 @@ function DataMenu(props) {
     diffMode && React.createElement('button', { className: 'menu__item menu__item--danger', onClick: function() { setDiffMode(null); close(); } },
       React.createElement('span', { className: 'menu__icon' }, '✕'),
       React.createElement('span', { className: 'menu__text' }, 'Сбросить diff')
+    ),
+
+    validationAvailable && React.createElement('div', { className: 'menu__divider' }),
+    validationAvailable && React.createElement('div', { className: 'menu__label', style: { paddingLeft: 12, paddingTop: 6 } }, 'Валидация'),
+    validationAvailable && React.createElement('button', { className: 'menu__item', onClick: function() { onOpenValidation(); close(); } },
+      React.createElement('span', { className: 'menu__icon' }, '🔍'),
+      React.createElement('span', { className: 'menu__text' }, 'Массовая валидация доменов')
     )
   );
 }
 
 // ============ SEARCH MODAL ============
+function ActiveModesBar(props) {
+  var modes = props.modes;
+  if (!modes || modes.length === 0) return null;
+
+  return React.createElement('div', { className: 'active-modes' },
+    modes.map(function(m, i) {
+      return React.createElement('div', {
+        key: i,
+        className: 'active-mode active-mode--' + (m.color || 'accent')
+      },
+        React.createElement('span', { className: 'active-mode__icon' }, m.icon),
+        React.createElement('span', { className: 'active-mode__label' }, m.label),
+        m.onClear && React.createElement('button', {
+          className: 'active-mode__close',
+          onClick: m.onClear,
+          title: 'Отключить'
+        }, '✕')
+      );
+    })
+  );
+}
+
 function SearchModal(props) {
   var open = props.open;
   var query = props.query, setQuery = props.setQuery;
@@ -3603,6 +3912,320 @@ function RulesMenu(props) {
       React.createElement('button', { className: 'menu__action', onClick: close }, 'Закрыть')
     )
   );
+}
+
+function TopoSortModal(props) {
+  var open = props.open;
+  var onClose = props.onClose;
+  var allNodes = props.allNodes;
+  var allEdges = props.allEdges;
+  var allDomains = props.allDomains;
+  var visibleDomains = props.visibleDomains;
+  var bookmarkedDomains = props.bookmarkedDomains;
+  var onGotoDomain = props.onGotoDomain;
+  var onApplyLevels = props.onApplyLevels;
+
+  var [scope, setScope] = useState('all');
+  var [includeFqid, setIncludeFqid] = useState(true);
+  var [includeLinkage, setIncludeLinkage] = useState(true);
+  var [missingAsSatisfied, setMissingAsSatisfied] = useState(true);
+  var [excludePattern, setExcludePattern] = useState('');
+  var [result, setResult] = useState(null);
+  var [expandedLevels, setExpandedLevels] = useState(function() { return new Set(); });
+  var [expandedDeps, setExpandedDeps] = useState(function() { return new Set(); });
+
+  useEffect(function() {
+    if (!open) {
+      setResult(null);
+      setExpandedLevels(new Set());
+      setExpandedDeps(new Set());
+    }
+  }, [open]);
+
+  var build = useCallback(function() {
+    var nodeSet;
+    if (scope === 'visible') nodeSet = visibleDomains;
+    else if (scope === 'bookmarked') nodeSet = bookmarkedDomains;
+    else nodeSet = allDomains;
+
+    var restrictTo = new Set();
+    nodeSet.forEach(function(d) { restrictTo.add(d.domainId); });
+
+    var excludedIds = new Set();
+    var tokens = excludePattern.replace(/[,;]/g, ' ').split(' ').filter(function(t) { return t.length > 0; });
+    if (tokens.length > 0) {
+      allNodes.forEach(function(n) {
+        if (n.data.nodeType !== 'domain') return;
+        for (var i = 0; i < tokens.length; i++) {
+          if (simplePatternMatch(n.data.domainId.toLowerCase(), tokens[i].toLowerCase())) {
+            excludedIds.add(n.data.domainId.toLowerCase());
+            return;
+          }
+        }
+      });
+    }
+
+    var depGraph = buildDependencyGraph(allNodes, allEdges, {
+      includeFqid: includeFqid,
+      includeLinkage: includeLinkage,
+      missingAsSatisfied: missingAsSatisfied,
+      excludedIds: excludedIds,
+      restrictTo: restrictTo
+    });
+
+    var sorted = topologicalSort(depGraph);
+
+    // Карта уровней
+    var levelMap = new Map();
+    sorted.levels.forEach(function(level, idx) {
+      level.forEach(function(id) { levelMap.set(id, idx + 1); });
+    });
+
+    setResult({
+      levels: sorted.levels,
+      cyclic: sorted.cyclic,
+      criticalPath: sorted.criticalPath,
+      levelMap: levelMap,
+      stats: {
+        total: depGraph.domainIds.size,
+        levels: sorted.levels.length,
+        cyclic: sorted.cyclic.length,
+        criticalPath: sorted.criticalPath,
+        excluded: excludedIds.size
+      }
+    });
+  }, [scope, includeFqid, includeLinkage, missingAsSatisfied, excludePattern, allNodes, allEdges, allDomains, visibleDomains, bookmarkedDomains]);
+
+  var exportJSON = useCallback(function() {
+    if (!result) return;
+    var data = {
+      generatedAt: new Date().toISOString(),
+      scope: scope,
+      options: { includeFqid: includeFqid, includeLinkage: includeLinkage, missingAsSatisfied: missingAsSatisfied, excludePattern: excludePattern },
+      criticalPath: result.criticalPath,
+      stats: result.stats,
+      levels: result.levels,
+      cyclic: result.cyclic
+    };
+    downloadFile(JSON.stringify(data, null, 2), 'topo-sort-' + new Date().toISOString().slice(0,19).replace(/[:.]/g,'-') + '.json', 'application/json');
+  }, [result, scope, includeFqid, includeLinkage, missingAsSatisfied, excludePattern]);
+
+  var exportMD = useCallback(function() {
+    if (!result) return;
+    var lines = [];
+    lines.push('# Порядок установки доменов');
+    lines.push('');
+    lines.push('_Сгенерировано: ' + new Date().toLocaleString('ru-RU') + '_');
+    lines.push('');
+    lines.push('Уровни можно устанавливать параллельно. Домены внутри уровня — одновременно.');
+    lines.push('');
+    lines.push('## Сводка');
+    lines.push('');
+    lines.push('| Метрика | Значение |');
+    lines.push('| --- | ---: |');
+    lines.push('| Всего доменов | ' + result.stats.total + ' |');
+    lines.push('| Уровней | ' + result.stats.levels + ' |');
+    lines.push('| Критический путь | ' + result.stats.criticalPath + ' |');
+    lines.push('| В циклах | ' + result.stats.cyclic + ' |');
+    lines.push('');
+    result.levels.forEach(function(level, idx) {
+      lines.push('## Уровень ' + (idx + 1) + ' (' + level.length + ')');
+      lines.push('');
+      level.forEach(function(id) { lines.push('- \`' + id + '\`'); });
+      lines.push('');
+    });
+    if (result.cyclic.length > 0) {
+      lines.push('## ⚠️ Требуют ручного вмешательства — циклические (' + result.cyclic.length + ')');
+      lines.push('');
+      result.cyclic.forEach(function(id) { lines.push('- \`' + id + '\`'); });
+      lines.push('');
+    }
+    downloadFile(lines.join('\\n'), 'topo-sort-' + new Date().toISOString().slice(0,19).replace(/[:.]/g,'-') + '.md', 'text/markdown;charset=utf-8');
+  }, [result]);
+
+  var copyAsText = useCallback(function() {
+    if (!result) return;
+    var lines = [];
+    result.levels.forEach(function(level, idx) {
+      lines.push('# Уровень ' + (idx + 1));
+      level.forEach(function(id) { lines.push(id); });
+      lines.push('');
+    });
+    if (result.cyclic.length > 0) {
+      lines.push('# Циклические (ручное вмешательство)');
+      result.cyclic.forEach(function(id) { lines.push(id); });
+    }
+    navigator.clipboard.writeText(lines.join('\\n'));
+  }, [result]);
+
+  var toggleLevel = useCallback(function(idx) {
+    setExpandedLevels(function(prev) {
+      var s = new Set(prev);
+      if (s.has(idx)) s.delete(idx); else s.add(idx);
+      return s;
+    });
+  }, []);
+
+  var toggleDeps = useCallback(function(domainId) {
+    setExpandedDeps(function(prev) {
+      var s = new Set(prev);
+      if (s.has(domainId)) s.delete(domainId); else s.add(domainId);
+      return s;
+    });
+  }, []);
+
+  if (!open) return null;
+
+  return React.createElement('div', { className: 'help-overlay', onMouseDown: onClose },
+    React.createElement('div', { className: 'help-modal topo-modal', onMouseDown: function(e) { e.stopPropagation(); } },
+
+      React.createElement('div', { className: 'help-modal__header' },
+        React.createElement('div', { className: 'help-modal__title' }, '📦 Порядок установки доменов'),
+        React.createElement('button', { className: 'help-modal__close', onClick: onClose }, '✕')
+      ),
+
+      React.createElement('div', { className: 'validation-modal__body' },
+
+        !result && React.createElement('div', { className: 'validation-scope' },
+          React.createElement('div', { className: 'validation-scope__label' }, 'Область'),
+          scopeOption('all', 'Все домены', allDomains.length, scope, setScope),
+          scopeOption('visible', 'Только видимые', visibleDomains.length, scope, setScope),
+          scopeOption('bookmarked', 'Только избранные', bookmarkedDomains.length, scope, setScope),
+
+          React.createElement('div', { className: 'validation-scope__label', style: { marginTop: 16 } }, 'Учитывать зависимости'),
+          React.createElement('label', { className: 'menu__checkbox' },
+            React.createElement('input', { type: 'checkbox', checked: includeFqid, onChange: function() { setIncludeFqid(!includeFqid); } }),
+            React.createElement('span', { className: 'menu__check' }),
+            React.createElement('span', { className: 'menu__text' }, 'FQID-ссылки')
+          ),
+          React.createElement('label', { className: 'menu__checkbox' },
+            React.createElement('input', { type: 'checkbox', checked: includeLinkage, onChange: function() { setIncludeLinkage(!includeLinkage); } }),
+            React.createElement('span', { className: 'menu__check' }),
+            React.createElement('span', { className: 'menu__text' }, 'Linkage-связи')
+          ),
+          React.createElement('label', { className: 'menu__checkbox' },
+            React.createElement('input', { type: 'checkbox', checked: missingAsSatisfied, onChange: function() { setMissingAsSatisfied(!missingAsSatisfied); } }),
+            React.createElement('span', { className: 'menu__check' }),
+            React.createElement('span', { className: 'menu__text' }, 'Missing-домены считать установленными')
+          ),
+
+          React.createElement('div', { className: 'validation-scope__label', style: { marginTop: 16 } }, 'Исключить домены по маске'),
+          React.createElement('input', {
+            className: 'menu__input',
+            type: 'text',
+            placeholder: 'например: *.settings.* , custom.*',
+            value: excludePattern,
+            onChange: function(e) { setExcludePattern(e.target.value); }
+          }),
+          React.createElement('div', { className: 'menu__hint' }, 'Маски через запятую или пробел. Исключённые домены считаются уже установленными.'),
+
+          React.createElement('button', {
+            className: 'btn btn--primary',
+            onClick: build,
+            style: { marginTop: 20, width: '100%', justifyContent: 'center' }
+          }, '▶ Построить порядок')
+        ),
+
+        result && React.createElement('div', { className: 'topo-result' },
+
+          // Циклические блоки в начале
+          result.cyclic.length > 0 && React.createElement('div', { className: 'topo-cyclic' },
+            React.createElement('div', { className: 'topo-cyclic__header' },
+              React.createElement('span', { className: 'topo-cyclic__icon' }, '⚠️'),
+              React.createElement('span', null, 'Требуют ручного вмешательства — цикл (' + result.cyclic.length + ')')
+            ),
+            React.createElement('div', { className: 'topo-cyclic__body' },
+              result.cyclic.map(function(id) {
+                return React.createElement('a', {
+                  key: id,
+                  className: 'validation-log__domain',
+                  onClick: function() { onGotoDomain(id); onClose(); }
+                }, id);
+              })
+            )
+          ),
+
+          // Уровни
+          result.levels.map(function(level, idx) {
+            var isOpen = expandedLevels.has(idx);
+            return React.createElement('div', { key: idx, className: 'topo-level' + (isOpen ? ' topo-level--open' : '') },
+              React.createElement('div', { className: 'topo-level__header', onClick: function() { toggleLevel(idx); } },
+                React.createElement('span', { className: 'validation-log__chevron' }, isOpen ? '▾' : '▸'),
+                React.createElement('span', { className: 'topo-level__badge' }, idx + 1),
+                React.createElement('span', { className: 'topo-level__title' }, 'Уровень ' + (idx + 1)),
+                React.createElement('span', { className: 'topo-level__count' }, level.length + ' домен' + (level.length === 1 ? '' : (level.length < 5 ? 'а' : 'ов')))
+              ),
+              isOpen && React.createElement('div', { className: 'topo-level__body' },
+                level.map(function(id) {
+                  var isDepsOpen = expandedDeps.has(id);
+                  var deps = result.levelMap ? findDeps(id, result, allEdges, allNodes) : [];
+                  return React.createElement('div', { key: id, className: 'topo-domain' },
+                    React.createElement('div', { className: 'topo-domain__head' },
+                      deps.length > 0 && React.createElement('span', {
+                        className: 'validation-log__chevron',
+                        style: { cursor: 'pointer' },
+                        onClick: function() { toggleDeps(id); }
+                      }, isDepsOpen ? '▾' : '▸'),
+                      !deps.length && React.createElement('span', { className: 'validation-log__chevron' }, ' '),
+                      React.createElement('a', {
+                        className: 'validation-log__domain',
+                        onClick: function() { onGotoDomain(id); onClose(); }
+                      }, id)
+                    ),
+                    isDepsOpen && React.createElement('div', { className: 'topo-domain__deps' },
+                      deps.map(function(dep) {
+                        var depLevel = result.levelMap.get(dep);
+                        return React.createElement('div', { key: dep, className: 'topo-dep' },
+                          React.createElement('span', { className: 'topo-dep__level' }, 'L' + depLevel),
+                          React.createElement('a', {
+                            className: 'validation-log__domain',
+                            onClick: function() { onGotoDomain(dep); onClose(); }
+                          }, dep)
+                        );
+                      })
+                    )
+                  );
+                })
+              )
+            );
+          })
+        )
+      ),
+
+      result && React.createElement('div', { className: 'validation-footer' },
+        React.createElement('div', { className: 'validation-stats' },
+          React.createElement('span', { className: 'validation-stat' }, '📦 ' + result.stats.total),
+          React.createElement('span', { className: 'validation-stat validation-stat--ok' }, '📊 ' + result.stats.levels + ' уровней'),
+          React.createElement('span', { className: 'validation-stat validation-stat--warn' }, '⏱ ' + result.stats.criticalPath + ' шагов'),
+          result.stats.cyclic > 0 && React.createElement('span', { className: 'validation-stat validation-stat--err' }, '⚠️ ' + result.stats.cyclic + ' цикл.')
+        ),
+        React.createElement('div', { className: 'validation-footer__actions' },
+          React.createElement('button', { className: 'btn', onClick: function() { onApplyLevels(result.levelMap); onClose(); } }, '🎨 На графе'),
+          React.createElement('button', { className: 'btn', onClick: copyAsText }, '📋 Копировать'),
+          React.createElement('button', { className: 'btn', onClick: exportJSON }, '💾 JSON'),
+          React.createElement('button', { className: 'btn', onClick: exportMD }, '📝 MD'),
+          React.createElement('button', { className: 'btn', onClick: function() { setResult(null); } }, '← Настройки')
+        )
+      )
+    )
+  );
+}
+
+// Вспомогательная функция — прямые зависимости домена с учётом фильтров
+function findDeps(domainId, result, edges, nodes) {
+  var nodeById = new Map();
+  nodes.forEach(function(n) { nodeById.set(n.id, n); });
+  var set = new Set();
+  edges.forEach(function(e) {
+    var s = nodeById.get(e.source);
+    if (!s || s.data.nodeType !== 'domain') return;
+    if (s.data.domainId !== domainId) return;
+    var t = nodeById.get(e.target);
+    if (!t || t.data.nodeType !== 'domain') return;
+    if (!result.levelMap.has(t.data.domainId)) return;
+    set.add(t.data.domainId);
+  });
+  return Array.from(set).sort();
 }
 
 function ValidationModal(props) {
@@ -4067,6 +4690,9 @@ function App() {
   var [navStack, setNavStack] = useState({ items: [], index: -1 });
   var [toastVisible, setToastVisible] = useState(!!(REMOTE_INFO && REMOTE_INFO.fromCache));
   
+  var [topoOpen, setTopoOpen] = useState(false);
+  var [topoLevelMap, setTopoLevelMap] = useState(null);
+  
   var [validationAvailable, setValidationAvailable] = useState(false);
   useEffect(function() {
     fetch('/api/validation-available').then(function(r) { return r.json(); })
@@ -4380,6 +5006,7 @@ function App() {
         extraStyle.outlineOffset = '2px';
         extraStyle.borderRadius = '12px';
       }
+      var topoLvl = topoLevelMap ? topoLevelMap.get(n.data.domainId) : null;
       return Object.assign({}, n, {
         style: { opacity: dimmed ? 0.12 : 1, transition: 'opacity 0.2s' },
         data: Object.assign({}, n.data, {
@@ -4390,12 +5017,13 @@ function App() {
           __isPathEndpoint: isPathEndpoint,
           __heatColor: hm,
           __bookmarked: bookmarks.has(n.id),
-          __invalid: isInvalid
+          __invalid: isInvalid,
+          __topoLevel: topoLvl
         }),
         selected: n.id === selectedNodeId
       });
     });
-  }, [filteredNodes, highlight, compact, pathResult, diffMode, healthMap, selectedNodeId, heatmapValues, bookmarks, validationResults]);
+  }, [filteredNodes, highlight, compact, pathResult, diffMode, healthMap, selectedNodeId, heatmapValues, bookmarks, validationResults, topoLevelMap]);
 
  var visibleEdges = useMemo(function() {
   return filteredEdges.map(function(e) {
@@ -4778,12 +5406,24 @@ var bookmarkedDomainsList = useMemo(function() {
   var handlePaneContextMenu = useCallback(function(event) { event.preventDefault(); }, []);
 
   var handlePaneClick = useCallback(function() {
-    setSelectedNodeId(null);
-    setFocusNode(null);
-    setPathResult(null);
-    setPathSel([]);
-    setCycleHighlight(null);
-    setPathMode(null);
+      // Закрываем все поповеры тулбара
+      document.dispatchEvent(new CustomEvent('close-all-popovers'));
+    
+      // Скрываем тултип
+      clearTimeout(hideTimer.current);
+      setTooltip(null);
+      window.__tooltipHovered = false;
+    
+      // Сбрасываем выделения и режимы
+      setSelectedNodeId(null);
+      setFocusNode(null);
+      setPathResult(null);
+      setPathSel([]);
+      setCycleHighlight(null);
+      setPathMode(null);
+    
+      // Закрываем контекстное меню
+      setContextMenu(null);
   }, []);
 
   var handleContextAction = useCallback(function(action, nodeId) {
@@ -4991,6 +5631,101 @@ var bookmarkedDomainsList = useMemo(function() {
       })
       .catch(function(err) { alert('Ошибка экспорта: ' + err.message); });
   }, []);
+ 
+ var activeModes = useMemo(function() {
+  var modes = [];
+
+  if (cycleHighlight) {
+    modes.push({
+      icon: '🔁',
+      label: 'Циклы (' + cycleHighlight.sccCount + ')',
+      color: 'orange',
+      onClear: function() { setCycleHighlight(null); }
+    });
+  }
+  if (focusNode) {
+    modes.push({
+      icon: '🎯',
+      label: 'Фокус N=' + focusDepth,
+      color: 'cyan',
+      onClear: function() { setFocusNode(null); }
+    });
+  }
+  if (pathResult || pathSel.length > 0) {
+    modes.push({
+      icon: '🛤️',
+      label: pathResult ? 'Путь найден' : 'Выбор пути (' + pathSel.length + '/2)',
+      color: 'yellow',
+      onClear: function() { setPathResult(null); setPathSel([]); setPathMode(null); }
+    });
+  }
+  if (hiddenNodeIds.size > 0) {
+    modes.push({
+      icon: '👁',
+      label: 'Скрыто: ' + hiddenNodeIds.size,
+      color: 'gray',
+      onClear: function() { setHiddenNodeIds(new Set()); }
+    });
+  }
+  if (onlyInvalid) {
+    modes.push({
+      icon: '❌',
+      label: 'Только невалидные',
+      color: 'red',
+      onClear: function() { setOnlyInvalid(false); }
+    });
+  }
+  if (bookmarksOnly) {
+    modes.push({
+      icon: '★',
+      label: 'Только избранные',
+      color: 'yellow',
+      onClear: function() { setBookmarksOnly(false); }
+    });
+  }
+  if (nsMode) {
+    modes.push({
+      icon: '🗂',
+      label: 'Агрегация по семействам',
+      color: 'purple',
+      onClear: function() { setNsMode(false); }
+    });
+  }
+  if (diffMode) {
+    modes.push({
+      icon: '⇄',
+      label: 'Diff +' + (diffMode.addedEdges.size + diffMode.addedNodes.size) + '/−' + (diffMode.removedEdges.size + diffMode.removedNodes.size),
+      color: 'blue',
+      onClear: function() { setDiffMode(null); }
+    });
+  }
+  if (ruleViolations && ruleViolations.length > 0 && rulesHighlighted) {
+    modes.push({
+      icon: '⛔',
+      label: 'Нарушения: ' + ruleViolations.length,
+      color: 'red',
+      onClear: function() { setRulesHighlighted(false); }
+    });
+  }
+  if (!tooltipsEnabled) {
+    modes.push({
+      icon: '🚫',
+      label: 'Тултипы выключены',
+      color: 'gray',
+      onClear: function() { setTooltipsEnabled(true); }
+    });
+  }
+  if (topoLevelMap) {
+    modes.push({
+      icon: '📦',
+      label: 'Уровни установки',
+      color: 'green',
+      onClear: function() { setTopoLevelMap(null); }
+    });
+  }
+
+  return modes;
+}, [topoLevelMap, cycleHighlight, focusNode, focusDepth, pathResult, pathSel, hiddenNodeIds, onlyInvalid, bookmarksOnly, nsMode, diffMode, ruleViolations, rulesHighlighted, tooltipsEnabled]);
 
   return React.createElement('div', { className: 'app' },
     React.createElement('aside', { className: 'sidebar' + (sidebarCollapsed ? ' sidebar--collapsed' : '') },
@@ -5119,33 +5854,22 @@ var bookmarkedDomainsList = useMemo(function() {
     ),
     React.createElement('main', { className: 'main' },
       React.createElement('div', { className: 'toolbar' },
+      
         React.createElement('div', { className: 'toolbar__group' },
           React.createElement('button', { className: 'btn btn--icon', onClick: function() { rfInstance.current && rfInstance.current.fitView({ duration: 500 }); }, title: 'Вписать (F)' }, '⛶'),
-          React.createElement('button', { className: 'btn btn--icon', onClick: function() { setNodes(runLayout(nodes, edges, layoutType)); setTimeout(function() { rfInstance.current && rfInstance.current.fitView({ duration: 500 }); }, 100); }, title: 'Переуложить' }, '⟳')
+          React.createElement('button', { className: 'btn btn--icon', onClick: function() { setNodes(runLayout(nodes, edges, layoutType)); setTimeout(function() { rfInstance.current && rfInstance.current.fitView({ duration: 500 }); }, 100); }, title: 'Переуложить' }, '⟳'),
+          React.createElement('button', { className: 'btn btn--icon', onClick: navBack, disabled: navStack.index <= 0, style: { opacity: navStack.index <= 0 ? 0.4 : 1 }, title: 'Назад (Alt+←)' }, '←'),
+          React.createElement('button', { className: 'btn btn--icon', onClick: navForward, disabled: navStack.index >= navStack.items.length - 1, style: { opacity: navStack.index >= navStack.items.length - 1 ? 0.4 : 1 }, title: 'Вперёд (Alt+→)' }, '→')
         ),
-        React.createElement('div', { className: 'toolbar__group' },
-          React.createElement('button', {
-            className: 'btn btn--icon',
-            onClick: navBack,
-            disabled: navStack.index <= 0,
-            style: { opacity: navStack.index <= 0 ? 0.4 : 1 },
-            title: 'Назад (Alt+←)'
-          }, '←'),
-          React.createElement('button', {
-            className: 'btn btn--icon',
-            onClick: navForward,
-            disabled: navStack.index >= navStack.items.length - 1,
-            style: { opacity: navStack.index >= navStack.items.length - 1 ? 0.4 : 1 },
-            title: 'Вперёд (Alt+→)'
-          }, '→')
-        ),
+      
         React.createElement('button', { className: 'btn', onClick: openSearch, title: 'Поиск (Shift+Tab)' },
           React.createElement('span', { className: 'btn__icon' }, '🔍'),
           'Поиск',
           React.createElement('kbd', { className: 'btn-kbd' }, '⇧ Tab')
         ),
+      
         React.createElement(Popover, {
-          width: 300,
+          width: 320,
           trigger: function(open) {
             return React.createElement('button', { className: 'btn' + (open ? ' btn--active' : '') },
               React.createElement('span', { className: 'btn__icon' }, '⚙️'),
@@ -5154,8 +5878,16 @@ var bookmarkedDomainsList = useMemo(function() {
             );
           }
         }, function() {
-          return React.createElement(FilterMenu, { filters: filters, setFilters: setFilters, counts: counts, namespaceFilter: namespaceFilter, setNamespaceFilter: setNamespaceFilter });
+          return React.createElement(FilterMenu, {
+            filters: filters, setFilters: setFilters, counts: counts,
+            namespaceFilter: namespaceFilter, setNamespaceFilter: setNamespaceFilter,
+            bookmarksOnly: bookmarksOnly, setBookmarksOnly: setBookmarksOnly,
+            onlyInvalid: onlyInvalid, setOnlyInvalid: setOnlyInvalid,
+            isolatedOnly: isolatedOnly, setIsolatedOnly: setIsolatedOnly,
+            tooltipsEnabled: tooltipsEnabled, setTooltipsEnabled: setTooltipsEnabled
+          });
         }),
+      
         React.createElement(Popover, {
           width: 280,
           trigger: function(open) {
@@ -5172,36 +5904,11 @@ var bookmarkedDomainsList = useMemo(function() {
             nsMode: nsMode, setNsMode: setNsMode,
             focusDepth: focusDepth, setFocusDepth: setFocusDepth,
             focusNode: focusNode, clearFocus: function() { setFocusNode(null); },
-            ruleViolations: ruleViolations,
-            close: close,
-            rules: rules,
-            setRules: setRules,
-            rulesHighlighted: rulesHighlighted,
-            setRulesHighlighted: setRulesHighlighted,
-            showViolationsOnly: showViolationsOnly,
-            setShowViolationsOnly: setShowViolationsOnly
-          });
-        }),
-        React.createElement(Popover, {
-          width: 420,
-          trigger: function(open) {
-            return React.createElement('button', {
-              className: 'btn' + (open || ruleViolations.length > 0 ? ' btn--active' : '')
-            },
-              React.createElement('span', { className: 'btn__icon' }, '⛔'),
-              'Правила',
-              ruleViolations.length > 0 && React.createElement('span', { className: 'btn__badge' }, ruleViolations.length)
-            );
-          }
-        }, function(close) {
-          return React.createElement(RulesMenu, {
-            rules: rules, setRules: setRules,
-            violations: ruleViolations,
-            rulesHighlighted: rulesHighlighted, setRulesHighlighted: setRulesHighlighted,
-            showViolationsOnly: showViolationsOnly, setShowViolationsOnly: setShowViolationsOnly,
+            onOpenTopo: function() { setTopoOpen(true); },
             close: close
           });
         }),
+      
         React.createElement(Popover, {
           width: 300,
           trigger: function(open) {
@@ -5222,6 +5929,7 @@ var bookmarkedDomainsList = useMemo(function() {
             close: close
           });
         }),
+      
         React.createElement(Popover, {
           width: 260,
           trigger: function(open) {
@@ -5234,84 +5942,29 @@ var bookmarkedDomainsList = useMemo(function() {
           return React.createElement(DataMenu, {
             handleExportJSON: handleExportJSON,
             handleExportMarkdown: handleExportMarkdown,
+            handleExportPNG: handleExportPNG,
             snapshotInputRef: snapshotInputRef,
             handleSnapshotUpload: handleSnapshotUpload,
-            handleExportPNG: handleExportPNG,
             diffMode: diffMode, setDiffMode: setDiffMode,
+            validationAvailable: validationAvailable,
+            onOpenValidation: function() { setValidationOpen(true); },
             close: close
           });
         }),
-        validationAvailable && React.createElement('button', {
-          className: 'btn' + (validationOpen ? ' btn--active' : ''),
-          onClick: function() { setValidationOpen(true); },
-          title: 'Массовая валидация доменов'
-        },
-          React.createElement('span', { className: 'btn__icon' }, '🔍'),
-          'Валидация'
-        ),
-        validationResults && React.createElement('button', {
-          className: 'btn btn--icon' + (onlyInvalid ? ' btn--active' : ''),
-          onClick: function() { setOnlyInvalid(function(v) { return !v; }); },
-          title: onlyInvalid ? 'Показать все' : 'Только невалидные'
-        }, '❌'),
+      
+        React.createElement('div', { className: 'toolbar__spacer' }),
+      
         React.createElement('button', {
           className: 'btn btn--icon',
           onClick: function() { setHelpOpen(true); },
-          title: 'Руководство пользователя'
+          title: 'Руководство пользователя (F1)'
         }, '📖'),
-        pathSel.length > 0 && React.createElement('button', {
-          className: 'btn btn--active',
-          onClick: handleRunPath,
-          title: 'Найти путь (P)'
-        }, '🛤️ Найти путь (' + pathSel.length + '/2)'),
-        pathMode && React.createElement('button', {
-          className: 'btn btn--active',
-          onClick: function() { setPathMode(null); },
-          title: 'Отменить (Esc)'
-        }, '🛤️ ' + (pathMode.kind === 'from' ? 'Путь от' : 'Путь до') + ': выберите узел'),
-        cycleHighlight && React.createElement('button', {
-          className: 'btn btn--active',
-          onClick: function() { setCycleHighlight(null); }
-        }, '🔁 Циклы (' + cycleHighlight.sccCount + ')'),
-        focusNode && React.createElement('button', {
-          className: 'btn btn--active',
-          onClick: function() { setFocusNode(null); }
-        }, '🎯 Фокус (N=' + focusDepth + ')'),
-        diffMode && React.createElement('div', { className: 'diff-legend' },
-          React.createElement('span', { className: 'diff-legend__item' },
-            React.createElement('span', { className: 'diff-legend__dot', style: { background: DIFF_ADDED } }),
-            '+' + diffMode.addedNodes.size + 'n / +' + diffMode.addedEdges.size + 'e'
-          ),
-          React.createElement('span', { className: 'diff-legend__item' },
-            React.createElement('span', { className: 'diff-legend__dot', style: { background: DIFF_REMOVED } }),
-            '−' + diffMode.removedNodes.size + 'n / −' + diffMode.removedEdges.size + 'e'
-          ),
-          diffMode.snapshot && diffMode.snapshot.stats && React.createElement('span', { className: 'diff-legend__scope' },
-            'snapshot: ' + diffMode.snapshot.stats.nodes + 'n / ' + diffMode.snapshot.stats.edges + 'e'
-          ),
-          React.createElement('button', { className: 'diff-legend__close', onClick: function() { setDiffMode(null); } }, '✕')
-        ),
-        hiddenNodeIds.size > 0 && React.createElement('button', {
-          className: 'btn btn--active',
-          onClick: function() { setHiddenNodeIds(new Set()); },
-          title: 'Показать все скрытые узлы'
-        }, '👁 Скрытых: ' + hiddenNodeIds.size),
-        React.createElement('button', {
-          className: 'btn btn--icon' + (tooltipsEnabled ? '' : ' btn--active'),
-          onClick: function() { setTooltipsEnabled(function(v) { return !v; }); },
-          title: tooltipsEnabled ? 'Отключить тултипы' : 'Включить тултипы'
-        }, tooltipsEnabled ? '💬' : '🚫'),
-        React.createElement('button', {
-          className: 'btn btn--icon' + (bookmarksOnly ? ' btn--active' : ''),
-          onClick: function() { setBookmarksOnly(function(v) { return !v; }); },
-          title: bookmarksOnly ? 'Показать все домены' : 'Только избранные'
-        }, '★' + (bookmarks.size > 0 ? ' ' + bookmarks.size : '')),
-        
-        React.createElement('div', { className: 'toolbar__spacer' }),
+      
         React.createElement('div', { className: 'toolbar__stats' },
           visibleNodes.length + ' / ' + nodes.length + ' узлов · ' + visibleEdges.length + ' / ' + edges.length + ' связей'
         )
       ),
+      React.createElement(ActiveModesBar, { modes: activeModes }),
       React.createElement('div', { className: 'graph-container' + (showEdgeLabels ? ' show-labels' : '') },
         React.createElement(ReactFlowProvider, null,
           React.createElement(ReactFlowInner, {
@@ -5381,6 +6034,17 @@ var bookmarkedDomainsList = useMemo(function() {
       bookmarkedDomains: bookmarkedDomainsList,
       onGotoDomain: gotoDomainByDomainId,
       onResults: handleValidationResults
+    }),
+    React.createElement(TopoSortModal, {
+      open: topoOpen,
+      onClose: function() { setTopoOpen(false); },
+      allNodes: nodes,
+      allEdges: edges,
+      allDomains: allDomainsList,
+      visibleDomains: visibleDomainsList,
+      bookmarkedDomains: bookmarkedDomainsList,
+      onGotoDomain: gotoDomainByDomainId,
+      onApplyLevels: function(levelMap) { setTopoLevelMap(levelMap); }
     }),
     React.createElement(ContextMenu, { menu: contextMenu, onClose: function() { setContextMenu(null); }, onAction: handleContextAction }),
     toastVisible && REMOTE_INFO && REMOTE_INFO.fromCache && React.createElement(Toast, {
