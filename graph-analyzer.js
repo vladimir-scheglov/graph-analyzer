@@ -5,6 +5,8 @@ const yaml = require('js-yaml');
 const http = require('http');
 const https = require('https');
 const crypto = require('crypto');
+let remoteCredentials = null;
+let currentValidation = null;
 
 // ============ REMOTE MODE ============
 
@@ -98,6 +100,19 @@ function httpPost(url, body, extraHeaders, rejectUnauthorized) {
     req.write(data);
     req.end();
   });
+}
+
+async function ensureRemoteToken() {
+  if (!remoteCredentials) throw new Error('Учётные данные не заданы');
+  if (remoteCredentials.token) return remoteCredentials.token;
+  const token = await apiLogin(
+      remoteCredentials.loginUrl,
+      remoteCredentials.username,
+      remoteCredentials.password,
+      remoteCredentials.secure
+  );
+  remoteCredentials.token = token;
+  return token;
 }
 
 async function apiLogin(loginUrl, username, password, rejectUnauthorized) {
@@ -213,6 +228,42 @@ async function apiFetchExpertiseSource(apiUrl, token, tenantId, id, rejectUnauth
   return e.sourceCode;
 }
 
+async function apiCheckRobject(apiUrl, token, tenantId, sourceCode, rejectUnauthorized) {
+  const query =
+      'mutation checkRobject($input: CheckRobjectInput!) {\n' +
+      '  checkRobject(input: $input) {\n' +
+      '    isValid\n' +
+      '    diagnostics {\n' +
+      '      message\n' +
+      '      severity\n' +
+      '      labels { message primary span { end start } }\n' +
+      '    }\n' +
+      '  }\n' +
+      '}';
+  return await httpPost(apiUrl, {
+    operationName: 'checkRobject',
+    variables: { input: { type: 'DOMAIN', sourceCode: sourceCode } },
+    query: query
+  }, {
+    'Authorization': 'Bearer ' + token,
+    'x-tenant-id': tenantId
+  }, rejectUnauthorized);
+}
+
+function readJsonBody(req) {
+  return new Promise(function(resolve, reject) {
+    const chunks = [];
+    req.on('data', function(c) { chunks.push(c); });
+    req.on('end', function() {
+      try {
+        const text = Buffer.concat(chunks).toString('utf8');
+        resolve(text ? JSON.parse(text) : {});
+      } catch (e) { reject(e); }
+    });
+    req.on('error', reject);
+  });
+}
+
 function buildFolderPaths(folders) {
   const byId = new Map(folders.map(function(f) { return [f.id, f]; }));
   const cache = new Map();
@@ -272,6 +323,10 @@ async function prepareRemoteCache(serverUrl, username, password, opts) {
   }
   endProgress();
   console.log('🔐 Логин: ✅ (' + username + ')');
+
+  if (remoteCredentials) {
+    remoteCredentials.token = token;
+  }
 
   // Folders
   writeProgress('📁 Загрузка структуры папок...');
@@ -859,6 +914,34 @@ class DomainGraphAnalyzer {
       if (req.url === '/') {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(this.generateHTML(graphData, refreshCommand));
+      } else if (req.url === '/api/validate-stream' && req.method === 'POST') {
+        this.handleValidateStream(req, res).catch(function(err) {
+          try {
+            res.write('data: ' + JSON.stringify({ type: 'error', message: err.message }) + '\n\n');
+            res.end();
+          } catch (e) {}
+        });
+      } else if (req.url === '/api/validate-cancel' && req.method === 'POST') {
+        if (currentValidation) currentValidation.cancelled = true;
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end('{"ok":true}');
+      } else if (req.url === '/api/validation-results' && req.method === 'GET') {
+        try {
+          const f = path.join(this.rootDir, '_validation.json');
+          if (fs.existsSync(f)) {
+            res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+            res.end(fs.readFileSync(f, 'utf8'));
+          } else {
+            res.writeHead(204);
+            res.end();
+          }
+        } catch (e) {
+          res.writeHead(500);
+          res.end('{"error":"read failed"}');
+        }
+      } else if (req.url === '/api/validation-available' && req.method === 'GET') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ available: !!remoteCredentials }));
       } else if (req.url === '/user-guide') {
         try {
           const guidePath = path.join(__dirname, 'USER_GUIDE.md');
@@ -883,6 +966,178 @@ class DomainGraphAnalyzer {
       console.log(`   Broken: ${graphData.brokenCount}\n`);
     });
     return server;
+  }
+
+  async handleValidateStream(req, res) {
+    if (!remoteCredentials) {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' });
+      res.write('data: ' + JSON.stringify({ type: 'error', message: 'Валидация доступна только в режиме --server' }) + '\n\n');
+      res.end();
+      return;
+    }
+
+    const body = await readJsonBody(req);
+    const domainIds = Array.isArray(body.domainIds) ? body.domainIds : [];
+
+    try {
+      await ensureRemoteToken();
+    } catch (e) {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write('data: ' + JSON.stringify({ type: 'error', message: 'Логин: ' + e.message }) + '\n\n');
+      res.end();
+      return;
+    }
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no'
+    });
+
+    const send = (obj) => {
+      try { res.write('data: ' + JSON.stringify(obj) + '\n\n'); } catch (e) {}
+    };
+
+    const state = { cancelled: false, startTime: Date.now() };
+    currentValidation = state;
+
+    req.on('close', function() {
+      state.cancelled = true;
+    });
+
+    const queue = domainIds.slice();
+    const results = [];
+    const total = queue.length;
+    let current = 0;
+
+    send({ type: 'start', total: total });
+
+    const checkOne = async (domainId) => {
+      const domain = this.domains.get(domainId);
+      if (!domain) {
+        return { domainId: domainId, status: 'error', error: 'Домен не найден в кэше' };
+      }
+
+      let content;
+      try {
+        content = fs.readFileSync(domain.filePath, 'utf8');
+      } catch (e) {
+        return { domainId: domainId, status: 'error', error: 'Файл недоступен: ' + e.message };
+      }
+
+      let data;
+      try {
+        try {
+          data = yaml.load(content);
+        } catch (e1) {
+          try {
+            data = this.parseLenientYaml(content);
+          } catch (e2) {
+            data = yaml.load(this.cleanYamlContent(content));
+          }
+        }
+        if (!data || typeof data !== 'object' || data.type !== 'domain') {
+          return { domainId: domainId, status: 'skip' };
+        }
+      } catch (e) {
+        return { domainId: domainId, status: 'error', error: 'YAML parse: ' + e.message };
+      }
+
+      let response;
+      try {
+        response = await apiCheckRobject(
+            remoteCredentials.apiUrl,
+            remoteCredentials.token,
+            remoteCredentials.tenantId,
+            content,
+            remoteCredentials.secure
+        );
+      } catch (e) {
+        return { domainId: domainId, status: 'error', error: e.message };
+      }
+
+      // 401 → перелогин
+      if (response.status === 401) {
+        try {
+          remoteCredentials.token = null;
+          const newToken = await ensureRemoteToken();
+          response = await apiCheckRobject(
+              remoteCredentials.apiUrl,
+              newToken,
+              remoteCredentials.tenantId,
+              content,
+              remoteCredentials.secure
+          );
+        } catch (e) {
+          return { domainId: domainId, status: 'error', error: 'Перелогин не удался: ' + e.message };
+        }
+      }
+
+      if (response.status !== 200) {
+        return { domainId: domainId, status: 'error', error: 'HTTP ' + response.status };
+      }
+
+      const checkResult = response.json && response.json.data && response.json.data.checkRobject;
+      if (!checkResult) {
+        return { domainId: domainId, status: 'error', error: 'Некорректный ответ' };
+      }
+
+      if (checkResult.isValid) {
+        return { domainId: domainId, status: 'valid' };
+      }
+      return { domainId: domainId, status: 'invalid', diagnostics: checkResult.diagnostics || [] };
+    };
+
+    const worker = async () => {
+      while (queue.length > 0 && !state.cancelled) {
+        const domainId = queue.shift();
+        let result;
+        try {
+          result = await checkOne(domainId);
+        } catch (e) {
+          result = { domainId: domainId, status: 'error', error: e.message };
+        }
+        if (state.cancelled) break;
+        current++;
+        result.current = current;
+        result.total = total;
+        results.push(result);
+        send(Object.assign({ type: 'progress' }, result));
+      }
+    };
+
+    const workers = [];
+    const limit = Math.min(3, total);
+    for (let i = 0; i < limit; i++) workers.push(worker());
+    await Promise.all(workers);
+
+    const stats = {
+      total: total,
+      processed: results.length,
+      valid: results.filter(function(r) { return r.status === 'valid'; }).length,
+      invalid: results.filter(function(r) { return r.status === 'invalid'; }).length,
+      errors: results.filter(function(r) { return r.status === 'error'; }).length,
+      elapsedMs: Date.now() - state.startTime
+    };
+
+    const report = {
+      generatedAt: new Date().toISOString(),
+      server: remoteCredentials.server,
+      cancelled: state.cancelled,
+      stats: stats,
+      results: results
+    };
+
+    // Сохраняем в кэш
+    try {
+      fs.writeFileSync(path.join(this.rootDir, '_validation.json'), JSON.stringify(report, null, 2), 'utf8');
+    } catch (e) {}
+
+    send({ type: 'done', cancelled: state.cancelled, stats: stats, results: results });
+    res.end();
+
+    currentValidation = null;
   }
 
   handleFileRequest(req, res) {
@@ -1647,6 +1902,141 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Robo
   border-top: 1px solid var(--border);
   margin: 24px 0;
 }
+.validation-modal { width: 900px; }
+.validation-modal__body { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0; }
+
+.validation-scope { padding: 20px 32px; display: flex; flex-direction: column; gap: 8px; }
+.validation-scope__label {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 1px; color: var(--text-500); margin-bottom: 8px;
+}
+.validation-scope__option {
+  display: flex; align-items: center; gap: 10px; padding: 12px 16px;
+  background: var(--bg-800); border: 1px solid var(--border); border-radius: 8px;
+  cursor: pointer; transition: all 0.15s;
+}
+.validation-scope__option:hover { border-color: var(--border-hover); }
+.validation-scope__option.active { border-color: var(--accent); background: var(--accent-soft); }
+.validation-scope__option input { display: none; }
+.validation-scope__radio {
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid var(--border-hover); position: relative; flex-shrink: 0;
+}
+.validation-scope__option.active .validation-scope__radio { border-color: var(--accent); }
+.validation-scope__option.active .validation-scope__radio::after {
+  content: ''; position: absolute; inset: 3px; border-radius: 50%; background: var(--accent);
+}
+.validation-scope__text { flex: 1; font-size: 13px; }
+.validation-scope__count {
+  font-size: 11px; font-weight: 700; padding: 2px 8px;
+  background: var(--bg-700); border-radius: 10px; color: var(--text-400);
+}
+
+.validation-progress { padding: 16px 32px; }
+.validation-progress__bar {
+  height: 8px; background: var(--bg-700); border-radius: 4px; overflow: hidden;
+}
+.validation-progress__fill {
+  height: 100%; background: linear-gradient(90deg, var(--accent), #8b5cf6);
+  transition: width 0.3s ease;
+}
+.validation-progress__text {
+  font-size: 12px; color: var(--text-400); margin-top: 8px; font-family: 'JetBrains Mono', monospace;
+}
+
+.validation-filters {
+  display: flex; gap: 6px; padding: 12px 32px; border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.validation-filter {
+  padding: 6px 12px; background: transparent; border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text-400); cursor: pointer;
+  font-size: 12px; font-family: inherit; transition: all 0.15s;
+}
+.validation-filter:hover { background: var(--bg-700); color: var(--text-200); }
+.validation-filter--active { background: var(--accent-soft); color: var(--accent-hover); border-color: var(--accent); }
+
+.validation-logs {
+  flex: 1; min-height: 0; overflow-y: auto; padding: 12px 32px;
+  font-size: 13px;
+}
+.validation-logs::-webkit-scrollbar { width: 8px; }
+.validation-logs::-webkit-scrollbar-thumb { background: var(--bg-600); border-radius: 4px; }
+.validation-logs__empty { text-align: center; color: var(--text-500); padding: 40px; }
+
+.validation-log {
+  padding: 10px 12px; border-radius: 8px; margin-bottom: 6px;
+  border-left: 3px solid var(--border); background: var(--bg-800);
+}
+.validation-log--valid { border-left-color: var(--success); }
+.validation-log--invalid { border-left-color: var(--danger); }
+.validation-log--error { border-left-color: var(--warning); }
+
+.validation-log__head { display: flex; align-items: center; gap: 8px; }
+.validation-log__icon { font-size: 14px; flex-shrink: 0; }
+.validation-log__domain {
+  font-family: 'JetBrains Mono', monospace; font-size: 12.5px;
+  color: var(--accent-hover); cursor: pointer;
+  text-decoration: underline dotted;
+}
+.validation-log__domain:hover { text-decoration: underline; color: var(--accent); }
+.validation-log__count {
+  font-size: 11px; padding: 1px 6px; border-radius: 8px;
+  background: rgba(239, 68, 68, 0.15); color: var(--danger);
+}
+.validation-log__error { font-size: 11px; color: var(--warning); }
+
+.validation-log__diag { margin-top: 8px; padding-left: 22px; }
+.validation-diag {
+  padding: 6px 10px; background: var(--bg-750); border-radius: 6px;
+  margin-top: 4px; font-size: 12px;
+}
+.validation-diag__severity {
+  font-weight: 700; font-size: 10px; text-transform: uppercase;
+  color: var(--danger); letter-spacing: 0.5px; margin-bottom: 2px;
+}
+.validation-diag__message { color: var(--text-200); }
+.validation-diag__label { color: var(--text-500); font-size: 11px; margin-top: 4px; font-family: monospace; }
+.validation-diag__span { color: var(--accent-hover); }
+
+.validation-footer {
+  padding: 14px 32px; border-top: 1px solid var(--border);
+  background: var(--bg-800); display: flex; align-items: center;
+  justify-content: space-between; gap: 16px; flex-shrink: 0;
+}
+.validation-stats { display: flex; gap: 16px; font-size: 13px; font-weight: 600; }
+.validation-stat { color: var(--text-400); }
+.validation-stat--ok { color: var(--success); }
+.validation-stat--err { color: var(--danger); }
+.validation-stat--warn { color: var(--warning); }
+.validation-footer__actions { display: flex; gap: 8px; }
+
+[data-theme="light"] .validation-scope__option { background: #ffffff; }
+[data-theme="light"] .validation-log { background: #ffffff; }
+[data-theme="light"] .validation-diag { background: #f8fafc; }
+.validation-log__head { display: flex; align-items: center; gap: 8px; }
+.validation-log__head--clickable { cursor: pointer; user-select: none; }
+.validation-log__head--clickable:hover .validation-log__domain { color: var(--accent); }
+
+.validation-log__chevron {
+  width: 14px;
+  font-size: 11px;
+  color: var(--text-500);
+  flex-shrink: 0;
+  display: inline-block;
+  text-align: center;
+}
+.validation-log--open .validation-log__chevron { color: var(--accent-hover); }
+
+.validation-log__hint {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-500);
+  font-style: italic;
+}
+.validation-log--invalid.validation-log--open {
+  background: var(--bg-750);
+}
 </style>
 </head>
 <body>
@@ -2364,7 +2754,10 @@ function DomainNode(props) {
     React.createElement(Handle, { type: 'source', position: Position.Right, className: 'rf-handle' }),
     data.__bookmarked && React.createElement('span', {
       style: { position: 'absolute', top: 4, left: 8, fontSize: 12, color: '#fbbf24' }
-    }, '★')
+    }, '★'),
+    data.__invalid && React.createElement('span', {
+      style: { position: 'absolute', top: 4, left: 8, fontSize: 12, color: '#fbbf24' }
+    }, '❌'),
   );
 }
 
@@ -3212,6 +3605,351 @@ function RulesMenu(props) {
   );
 }
 
+function ValidationModal(props) {
+  var open = props.open;
+  var onClose = props.onClose;
+  var allDomains = props.allDomains;       // [{id, domainId}]
+  var visibleDomains = props.visibleDomains;
+  var bookmarkedDomains = props.bookmarkedDomains;
+  var onGotoDomain = props.onGotoDomain;
+  var onResults = props.onResults;         // callback(resultsMap)
+
+  var [scope, setScope] = useState('all'); // all | visible | bookmarked
+  var [running, setRunning] = useState(false);
+  var [started, setStarted] = useState(false);
+  var [progress, setProgress] = useState({ current: 0, total: 0 });
+  var [logs, setLogs] = useState([]);       // {domainId, status, diagnostics, error, current, total}
+  var [filter, setFilter] = useState('problems'); // all | problems | invalid | errors | valid
+  var [stats, setStats] = useState(null);
+  var [cancelled, setCancelled] = useState(false);
+  var abortRef = useRef(null);
+  var logsRef = useRef(null);
+  var [expanded, setExpanded] = useState(function() { return new Set(); });
+  
+  var toggleExpanded = useCallback(function(domainId) {
+    setExpanded(function(prev) {
+      var s = new Set(prev);
+      if (s.has(domainId)) s.delete(domainId); else s.add(domainId);
+      return s;
+    });
+  }, []);
+
+  useEffect(function() {
+    if (!open) {
+      setStarted(false); setRunning(false); setLogs([]); setProgress({current:0,total:0});
+      setStats(null); setCancelled(false);
+      if (abortRef.current) { try { abortRef.current.abort(); } catch(e){} abortRef.current = null; }
+    }
+  }, [open]);
+
+  useEffect(function() {
+    if (logsRef.current) logsRef.current.scrollTop = logsRef.current.scrollHeight;
+  }, [logs.length]);
+
+  var startValidation = useCallback(function() {
+    var domains;
+    if (scope === 'visible') domains = visibleDomains;
+    else if (scope === 'bookmarked') domains = bookmarkedDomains;
+    else domains = allDomains;
+
+    if (domains.length === 0) { alert('Нет доменов в выбранной области'); return; }
+
+    setRunning(true);
+    setStarted(true);
+    setLogs([]);
+    setStats(null);
+    setCancelled(false);
+    setProgress({ current: 0, total: domains.length });
+    setExpanded(new Set());
+
+    var controller = new AbortController();
+    abortRef.current = controller;
+
+    fetch('/api/validate-stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ domainIds: domains.map(function(d) { return d.domainId; }) }),
+      signal: controller.signal
+    }).then(function(response) {
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      var reader = response.body.getReader();
+      var decoder = new TextDecoder();
+      var buffer = '';
+      function read() {
+        return reader.read().then(function(r) {
+          if (r.done) return;
+          buffer += decoder.decode(r.value, { stream: true });
+          var parts = buffer.split('\\n\\n');
+          buffer = parts.pop();
+          parts.forEach(function(part) {
+            var line = part.trim();
+            if (!line.startsWith('data:')) return;
+            var json = line.slice(5).trim();
+            var evt;
+            try { evt = JSON.parse(json); } catch (e) { return; }
+            handleEvent(evt);
+          });
+          return read();
+        });
+      }
+      function handleEvent(evt) {
+        if (evt.type === 'start') {
+          setProgress({ current: 0, total: evt.total });
+        } else if (evt.type === 'progress') {
+          setProgress({ current: evt.current, total: evt.total });
+          setLogs(function(prev) { return prev.concat([evt]); });
+        } else if (evt.type === 'done') {
+          setStats(evt.stats);
+          setCancelled(evt.cancelled);
+          setRunning(false);
+          if (onResults) {
+            var map = new Map();
+            (evt.results || []).forEach(function(r) { map.set(r.domainId, r); });
+            onResults(map);
+          }
+        } else if (evt.type === 'error') {
+          setRunning(false);
+          alert('Ошибка: ' + evt.message);
+        }
+      }
+      return read();
+    }).catch(function(err) {
+      if (err.name === 'AbortError') return;
+      setRunning(false);
+      alert('Ошибка: ' + err.message);
+    });
+  }, [scope, allDomains, visibleDomains, bookmarkedDomains, onResults]);
+
+  var stopValidation = useCallback(function() {
+    fetch('/api/validate-cancel', { method: 'POST' }).catch(function(){});
+    if (abortRef.current) { try { abortRef.current.abort(); } catch(e){} }
+    setRunning(false);
+  }, []);
+
+  var filteredLogs = useMemo(function() {
+    if (filter === 'all') return logs;
+    if (filter === 'valid') return logs.filter(function(l) { return l.status === 'valid'; });
+    if (filter === 'invalid') return logs.filter(function(l) { return l.status === 'invalid'; });
+    if (filter === 'errors') return logs.filter(function(l) { return l.status === 'error'; });
+    if (filter === 'problems') return logs.filter(function(l) { return l.status !== 'valid' && l.status !== 'skip'; });
+    return logs;
+  }, [logs, filter]);
+
+  var exportJSON = useCallback(function() {
+    if (!stats) return;
+    var data = {
+      generatedAt: new Date().toISOString(),
+      stats: stats,
+      cancelled: cancelled,
+      results: logs.map(function(l) {
+        return { domainId: l.domainId, status: l.status, diagnostics: l.diagnostics, error: l.error };
+      })
+    };
+    downloadFile(JSON.stringify(data, null, 2), 'validation-' + new Date().toISOString().slice(0,19).replace(/[:.]/g,'-') + '.json', 'application/json');
+  }, [stats, cancelled, logs]);
+
+  var exportMD = useCallback(function() {
+    if (!stats) return;
+    var md = generateValidationMarkdown(stats, cancelled, logs);
+    downloadFile(md, 'validation-' + new Date().toISOString().slice(0,19).replace(/[:.]/g,'-') + '.md', 'text/markdown;charset=utf-8');
+  }, [stats, cancelled, logs]);
+
+  if (!open) return null;
+
+  var pct = progress.total > 0 ? Math.round(progress.current / progress.total * 100) : 0;
+
+  return React.createElement('div', { className: 'help-overlay', onMouseDown: function() { if (!running) onClose(); } },
+    React.createElement('div', { className: 'help-modal validation-modal', onMouseDown: function(e) { e.stopPropagation(); } },
+      React.createElement('div', { className: 'help-modal__header' },
+        React.createElement('div', { className: 'help-modal__title' }, '🔍 Массовая валидация доменов'),
+        React.createElement('button', { className: 'help-modal__close', onClick: running ? stopValidation : onClose }, running ? '■ Стоп' : '✕')
+      ),
+
+      React.createElement('div', { className: 'validation-modal__body' },
+
+        // Область валидации
+        !started && React.createElement('div', { className: 'validation-scope' },
+          React.createElement('div', { className: 'validation-scope__label' }, 'Область валидации'),
+          scopeOption('all', 'Все домены в кэше', allDomains.length, scope, setScope),
+          scopeOption('visible', 'Только видимые (после фильтров)', visibleDomains.length, scope, setScope),
+          scopeOption('bookmarked', 'Только избранные', bookmarkedDomains.length, scope, setScope),
+          React.createElement('button', { className: 'btn btn--primary', onClick: startValidation, style: { marginTop: 16, width: '100%', justifyContent: 'center' } }, '▶ Запустить валидацию')
+        ),
+
+        // Прогресс
+        started && React.createElement('div', { className: 'validation-progress' },
+          React.createElement('div', { className: 'validation-progress__bar' },
+            React.createElement('div', { className: 'validation-progress__fill', style: { width: pct + '%' } })
+          ),
+          React.createElement('div', { className: 'validation-progress__text' }, progress.current + ' / ' + progress.total + ' (' + pct + '%)' + (running ? ' — идёт валидация...' : cancelled ? ' — остановлено' : ' — завершено'))
+        ),
+
+        // Фильтры логов
+        started && React.createElement('div', { className: 'validation-filters' },
+          ['problems', 'all', 'invalid', 'errors', 'valid'].map(function(f) {
+            var labels = { problems: 'Только проблемные', all: 'Все', invalid: '❌ Невалидные', errors: '⚠️ Ошибки', valid: '✅ Валидные' };
+            return React.createElement('button', {
+              key: f,
+              className: 'validation-filter' + (filter === f ? ' validation-filter--active' : ''),
+              onClick: function() { setFilter(f); }
+            }, labels[f]);
+          })
+        ),
+
+        // Логи
+        started && React.createElement('div', { className: 'validation-logs', ref: logsRef },
+          filteredLogs.length === 0 ? React.createElement('div', { className: 'validation-logs__empty' }, 'Нет записей по фильтру') :
+          filteredLogs.map(function(log, i) {
+            var icon = log.status === 'valid' ? '✅' : log.status === 'invalid' ? '❌' : '⚠️';
+            var isInvalid = log.status === 'invalid';
+            var hasDiag = isInvalid && log.diagnostics && log.diagnostics.length > 0;
+            var isOpen = expanded.has(log.domainId);
+          
+            return React.createElement('div', { key: i, className: 'validation-log validation-log--' + log.status + (isOpen ? ' validation-log--open' : '') },
+              React.createElement('div', {
+                className: 'validation-log__head' + (hasDiag ? ' validation-log__head--clickable' : ''),
+                onClick: hasDiag ? function() { toggleExpanded(log.domainId); } : undefined
+              },
+                hasDiag && React.createElement('span', { className: 'validation-log__chevron' }, isOpen ? '▾' : '▸'),
+                React.createElement('span', { className: 'validation-log__icon' }, icon),
+                React.createElement('a', {
+                  className: 'validation-log__domain',
+                  onClick: function(e) { e.stopPropagation(); onGotoDomain(log.domainId); onClose(); }
+                }, log.domainId),
+                isInvalid && log.diagnostics && React.createElement('span', { className: 'validation-log__count' }, log.diagnostics.length + ' ' + plural(log.diagnostics.length, 'issue', 'issues')),
+                log.error && React.createElement('span', { className: 'validation-log__error' }, log.error),
+                hasDiag && !isOpen && React.createElement('span', { className: 'validation-log__hint' }, 'нажмите, чтобы раскрыть')
+              ),
+          
+              isOpen && hasDiag && React.createElement('div', { className: 'validation-log__diag' },
+                log.diagnostics.map(function(d, di) {
+                  return React.createElement('div', { key: di, className: 'validation-diag' },
+                    React.createElement('div', { className: 'validation-diag__severity' }, d.severity),
+                    React.createElement('div', { className: 'validation-diag__message' }, d.message),
+                    d.labels && d.labels.length > 0 && d.labels.map(function(lb, li) {
+                      return React.createElement('div', { key: li, className: 'validation-diag__label' },
+                        lb.message,
+                        lb.span && React.createElement('span', { className: 'validation-diag__span' }, ' [' + lb.span.start + '-' + lb.span.end + ']')
+                      );
+                    })
+                  );
+                })
+              )
+            );
+          })
+        )
+      ),
+
+      // Футер с итогами
+      stats && React.createElement('div', { className: 'validation-footer' },
+        React.createElement('div', { className: 'validation-stats' },
+          React.createElement('span', { className: 'validation-stat validation-stat--ok' }, '✅ ' + stats.valid),
+          React.createElement('span', { className: 'validation-stat validation-stat--err' }, '❌ ' + stats.invalid),
+          React.createElement('span', { className: 'validation-stat validation-stat--warn' }, '⚠️ ' + stats.errors),
+          React.createElement('span', { className: 'validation-stat' }, '⏱ ' + formatDuration(stats.elapsedMs))
+        ),
+        React.createElement('div', { className: 'validation-footer__actions' },
+          React.createElement('button', { className: 'btn', onClick: exportJSON }, '💾 JSON'),
+          React.createElement('button', { className: 'btn', onClick: exportMD }, '📝 Markdown'),
+          React.createElement('button', { className: 'btn', onClick: onClose }, 'Закрыть')
+        )
+      )
+    )
+  );
+}
+
+function scopeOption(value, label, count, current, setCurrent) {
+  return React.createElement('label', { className: 'validation-scope__option' + (current === value ? ' active' : '') },
+    React.createElement('input', {
+      type: 'radio',
+      checked: current === value,
+      onChange: function() { setCurrent(value); }
+    }),
+    React.createElement('span', { className: 'validation-scope__radio' }),
+    React.createElement('span', { className: 'validation-scope__text' }, label),
+    React.createElement('span', { className: 'validation-scope__count' }, count)
+  );
+}
+
+function plural(n, one, many) {
+  return n === 1 ? one : many;
+}
+
+function formatDuration(ms) {
+  if (ms < 1000) return ms + 'ms';
+  var s = Math.floor(ms / 1000);
+  if (s < 60) return s + 'с';
+  var m = Math.floor(s / 60);
+  return m + 'м ' + (s % 60) + 'с';
+}
+
+function downloadFile(content, filename, mime) {
+  var blob = new Blob([content], { type: mime });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function generateValidationMarkdown(stats, cancelled, logs) {
+  var lines = [];
+  lines.push('# Отчёт валидации доменов');
+  lines.push('');
+  lines.push('_Сгенерировано: ' + new Date().toLocaleString('ru-RU') + '_');
+  if (cancelled) lines.push('');
+  if (cancelled) lines.push('> ⚠️ Валидация была прервана пользователем');
+  lines.push('');
+  lines.push('## Сводка');
+  lines.push('');
+  lines.push('| Метрика | Значение |');
+  lines.push('| --- | ---: |');
+  lines.push('| Всего в области | ' + stats.total + ' |');
+  lines.push('| Обработано | ' + stats.processed + ' |');
+  lines.push('| ✅ Валидных | ' + stats.valid + ' |');
+  lines.push('| ❌ Невалидных | ' + stats.invalid + ' |');
+  lines.push('| ⚠️ Ошибок | ' + stats.errors + ' |');
+  lines.push('| ⏱ Время | ' + formatDuration(stats.elapsedMs) + ' |');
+  lines.push('');
+
+  var invalid = logs.filter(function(l) { return l.status === 'invalid'; });
+  if (invalid.length > 0) {
+    lines.push('## Невалидные домены (' + invalid.length + ')');
+    lines.push('');
+    invalid.forEach(function(l) {
+      lines.push('### \`' + l.domainId + '\`');
+      lines.push('');
+      (l.diagnostics || []).forEach(function(d) {
+        lines.push('- **[' + d.severity + ']** ' + d.message);
+        (d.labels || []).forEach(function(lb) {
+          lines.push('  - ' + lb.message + (lb.span ? ' (позиция ' + lb.span.start + '-' + lb.span.end + ')' : ''));
+        });
+      });
+      lines.push('');
+    });
+  }
+
+  var errors = logs.filter(function(l) { return l.status === 'error'; });
+  if (errors.length > 0) {
+    lines.push('## Ошибки выполнения (' + errors.length + ')');
+    lines.push('');
+    errors.forEach(function(l) {
+      lines.push('- \`' + l.domainId + '\` — ' + (l.error || 'неизвестная ошибка'));
+    });
+    lines.push('');
+  }
+
+  var valid = logs.filter(function(l) { return l.status === 'valid'; });
+  if (valid.length > 0) {
+    lines.push('## Валидные домены (' + valid.length + ')');
+    lines.push('');
+    valid.forEach(function(l) { lines.push('- \`' + l.domainId + '\`'); });
+    lines.push('');
+  }
+
+  return lines.join('\\n');
+}
+
 function HelpModal(props) {
   var open = props.open;
   var onClose = props.onClose;
@@ -3329,6 +4067,13 @@ function App() {
   var [navStack, setNavStack] = useState({ items: [], index: -1 });
   var [toastVisible, setToastVisible] = useState(!!(REMOTE_INFO && REMOTE_INFO.fromCache));
   
+  var [validationAvailable, setValidationAvailable] = useState(false);
+  useEffect(function() {
+    fetch('/api/validation-available').then(function(r) { return r.json(); })
+      .then(function(d) { setValidationAvailable(!!d.available); })
+      .catch(function(){});
+  }, []);
+  
   var [rules, setRules] = useState(function() {
     try {
       var raw = localStorage.getItem('dg-rules');
@@ -3340,6 +4085,30 @@ function App() {
   var [showViolationsOnly, setShowViolationsOnly] = useState(false);
   var [rulesHighlighted, setRulesHighlighted] = useState(true);
   var [helpOpen, setHelpOpen] = useState(false);
+  
+  var [validationOpen, setValidationOpen] = useState(false);
+  var [validationResults, setValidationResults] = useState(function() {
+    // Загрузить сохранённые результаты
+    return null; // загрузим через useEffect ниже
+  });
+  var [onlyInvalid, setOnlyInvalid] = useState(false);
+  
+  
+  useEffect(function() {
+    fetch('/api/validation-results').then(function(r) {
+      if (r.status === 204) return null;
+      return r.json();
+    }).then(function(data) {
+      if (!data || !data.results) return;
+      var map = new Map();
+      data.results.forEach(function(r) { map.set(r.domainId, r); });
+      setValidationResults(map);
+    }).catch(function(){});
+  }, []);
+  
+  var handleValidationResults = useCallback(function(map) {
+    setValidationResults(map);
+  }, []);
   
   useEffect(function() {
     try {
@@ -3509,6 +4278,10 @@ function App() {
     return displayNodes.filter(function(n) {
       if (hiddenNodeIds.has(n.id)) return false;
       if (bookmarksOnly && !bookmarks.has(n.id)) return false;
+      if (onlyInvalid) {
+        var v = validationResults ? validationResults.get(n.data.domainId) : null;
+        if (!v || v.status !== 'invalid') return false;
+      }
       var t = n.data.nodeType;
       if (t === 'domain' && !filters.domain) return false;
       if (t === 'broken' && !filters.broken) return false;
@@ -3517,7 +4290,7 @@ function App() {
       if (isolatedOnly && (t !== 'domain' || connected.has(n.id))) return false;
       return true;
     });
-  }, [displayNodes, filters, namespaceFilter, isolatedOnly, connected, hiddenNodeIds, bookmarks, bookmarksOnly]);
+  }, [displayNodes, filters, namespaceFilter, isolatedOnly, connected, hiddenNodeIds, bookmarks, bookmarksOnly, onlyInvalid, validationResults]);
 
   var filteredEdges = useMemo(function() {
     var ids = new Set(filteredNodes.map(function(n) { return n.id; }));
@@ -3599,6 +4372,14 @@ function App() {
         var scheme = heatmapValues.scheme;
         hm = heatColor(val, heatmapValues.min, heatmapValues.max, scheme);
       }
+      var validation = validationResults ? validationResults.get(n.data.domainId) : null;
+      var isInvalid = validation && validation.status === 'invalid';
+      var extraStyle = {};
+      if (isInvalid) {
+        extraStyle.outline = '2px solid #ef4444';
+        extraStyle.outlineOffset = '2px';
+        extraStyle.borderRadius = '12px';
+      }
       return Object.assign({}, n, {
         style: { opacity: dimmed ? 0.12 : 1, transition: 'opacity 0.2s' },
         data: Object.assign({}, n.data, {
@@ -3608,12 +4389,13 @@ function App() {
           __inPath: inPath,
           __isPathEndpoint: isPathEndpoint,
           __heatColor: hm,
-          __bookmarked: bookmarks.has(n.id)
+          __bookmarked: bookmarks.has(n.id),
+          __invalid: isInvalid
         }),
         selected: n.id === selectedNodeId
       });
     });
-  }, [filteredNodes, highlight, compact, pathResult, diffMode, healthMap, selectedNodeId, heatmapValues, bookmarks]);
+  }, [filteredNodes, highlight, compact, pathResult, diffMode, healthMap, selectedNodeId, heatmapValues, bookmarks, validationResults]);
 
  var visibleEdges = useMemo(function() {
   return filteredEdges.map(function(e) {
@@ -3670,6 +4452,21 @@ function App() {
     });
   });
 }, [filteredEdges, highlight, diffMode, rulesHighlighted, violationsByEdge, selectedEdgeId]);
+ 
+ var allDomainsList = useMemo(function() {
+  return nodes.filter(function(n) { return n.data.nodeType === 'domain'; })
+    .map(function(n) { return { id: n.id, domainId: n.data.domainId }; });
+}, [nodes]);
+
+var visibleDomainsList = useMemo(function() {
+  return visibleNodes.filter(function(n) { return n.data.nodeType === 'domain'; })
+    .map(function(n) { return { id: n.id, domainId: n.data.domainId }; });
+}, [visibleNodes]);
+
+var bookmarkedDomainsList = useMemo(function() {
+  return nodes.filter(function(n) { return bookmarks.has(n.id) && n.data.nodeType === 'domain'; })
+    .map(function(n) { return { id: n.id, domainId: n.data.domainId }; });
+}, [nodes, bookmarks]);
   
   var panelEdge = selectedEdgeId
     ? visibleEdges.find(function(e) { return e.id === selectedEdgeId; }) || edges.find(function(e) { return e.id === selectedEdgeId; })
@@ -4444,6 +5241,19 @@ function App() {
             close: close
           });
         }),
+        validationAvailable && React.createElement('button', {
+          className: 'btn' + (validationOpen ? ' btn--active' : ''),
+          onClick: function() { setValidationOpen(true); },
+          title: 'Массовая валидация доменов'
+        },
+          React.createElement('span', { className: 'btn__icon' }, '🔍'),
+          'Валидация'
+        ),
+        validationResults && React.createElement('button', {
+          className: 'btn btn--icon' + (onlyInvalid ? ' btn--active' : ''),
+          onClick: function() { setOnlyInvalid(function(v) { return !v; }); },
+          title: onlyInvalid ? 'Показать все' : 'Только невалидные'
+        }, '❌'),
         React.createElement('button', {
           className: 'btn btn--icon',
           onClick: function() { setHelpOpen(true); },
@@ -4563,6 +5373,15 @@ function App() {
       open: helpOpen,
       onClose: function() { setHelpOpen(false); }
     }),
+    React.createElement(ValidationModal, {
+      open: validationOpen,
+      onClose: function() { setValidationOpen(false); },
+      allDomains: allDomainsList,
+      visibleDomains: visibleDomainsList,
+      bookmarkedDomains: bookmarkedDomainsList,
+      onGotoDomain: gotoDomainByDomainId,
+      onResults: handleValidationResults
+    }),
     React.createElement(ContextMenu, { menu: contextMenu, onClose: function() { setContextMenu(null); }, onAction: handleContextAction }),
     toastVisible && REMOTE_INFO && REMOTE_INFO.fromCache && React.createElement(Toast, {
       message: '📦 Граф построен из <b>кэша</b>'
@@ -4613,6 +5432,18 @@ async function main() {
       console.error('❌ Для режима --server требуются --login и --password');
       process.exit(1);
     }
+
+    const base = server.replace(/\/+$/, '');
+    remoteCredentials = {
+      server: base,
+      loginUrl: base + '/api/evo/core/bff/graphql',
+      apiUrl: base + '/api/graphql',
+      tenantId: '00000000-0000-0000-0000-000000000000',
+      token: null,               // получим лениво
+      username: username,
+      password: password,
+      secure: !!args.flags.secure
+    };
 
     try {
       const result = await prepareRemoteCache(server, username, password, {
