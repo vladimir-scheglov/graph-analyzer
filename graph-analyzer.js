@@ -3,7 +3,397 @@ const fs = require('fs');
 const path = require('path');
 const yaml = require('js-yaml');
 const http = require('http');
-const babel = require('@babel/core');
+const https = require('https');
+const crypto = require('crypto');
+
+// ============ REMOTE MODE ============
+
+function parseArgs(argv) {
+  const result = { positional: [], flags: {} };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a.startsWith('--')) {
+      const key = a.slice(2);
+      const next = argv[i + 1];
+      if (next !== undefined && !next.startsWith('--')) {
+        result.flags[key] = next;
+        i++;
+      } else {
+        result.flags[key] = true;
+      }
+    } else {
+      result.positional.push(a);
+    }
+  }
+  return result;
+}
+
+const IS_TTY = !!process.stdout.isTTY;
+
+function writeProgress(text) {
+  if (!IS_TTY) return;
+  const t = text.slice(0, 110);
+  process.stdout.write('\r' + t + ' '.repeat(Math.max(0, 110 - t.length)));
+}
+
+function endProgress() {
+  if (!IS_TTY) return;
+  process.stdout.write('\r' + ' '.repeat(110) + '\r');
+}
+
+function makeProgressBar(current, total, width) {
+  width = width || 30;
+  if (total === 0) return '[' + '░'.repeat(width) + '] 0/0';
+  const pct = Math.min(1, Math.max(0, current / total));
+  const filled = Math.round(pct * width);
+  return '[' + '█'.repeat(filled) + '░'.repeat(width - filled) + '] ' + current + '/' + total;
+}
+
+function sanitizeFileName(name) {
+  const s = String(name).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').trim();
+  return (s || 'unnamed').slice(0, 200);
+}
+
+function getCachePath(baseDir, serverUrl) {
+  const u = new URL(serverUrl);
+  const host = u.hostname;
+  const hash = crypto.createHash('sha1').update(serverUrl).digest('hex').slice(0, 8);
+  return path.join(baseDir, '.cache', 'domains', host + '__' + hash);
+}
+
+function httpPost(url, body, extraHeaders, rejectUnauthorized) {
+  return new Promise(function(resolve, reject) {
+    let urlObj;
+    try { urlObj = new URL(url); } catch (e) { return reject(new Error('Invalid URL: ' + url)); }
+    const isHttps = urlObj.protocol === 'https:';
+    const mod = isHttps ? https : http;
+    const data = JSON.stringify(body);
+    const headers = Object.assign({
+      'Accept': '*/*',
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(data),
+      'apollo-require-preflight': 'true'
+    }, extraHeaders || {});
+    const opts = {
+      hostname: urlObj.hostname,
+      port: urlObj.port || (isHttps ? 443 : 80),
+      path: urlObj.pathname + urlObj.search,
+      method: 'POST',
+      headers: headers
+    };
+    if (isHttps) opts.rejectUnauthorized = rejectUnauthorized !== false;
+    const req = mod.request(opts, function(res) {
+      const chunks = [];
+      res.on('data', function(c) { chunks.push(c); });
+      res.on('end', function() {
+        const text = Buffer.concat(chunks).toString('utf8');
+        try {
+          resolve({ status: res.statusCode, json: JSON.parse(text), raw: text });
+        } catch (e) {
+          reject(new Error('Bad JSON (' + res.statusCode + '): ' + text.slice(0, 300)));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.write(data);
+    req.end();
+  });
+}
+
+async function apiLogin(loginUrl, username, password, rejectUnauthorized) {
+  const query =
+      'mutation login($input: LoginRequest!) {\n' +
+      '  login(input: $input) {\n' +
+      '    loginResult { accessToken refreshToken }\n' +
+      '    secondFactor { isEnabled sessionToken }\n' +
+      '    forceChangePasswordSession { reason sessionId }\n' +
+      '  }\n' +
+      '}';
+  const res = await httpPost(loginUrl, {
+    operationName: 'login',
+    variables: { input: { password: password, username: username } },
+    query: query
+  }, {}, rejectUnauthorized);
+  if (res.status !== 200) throw new Error('HTTP ' + res.status);
+  const login = res.json && res.json.data && res.json.data.login;
+  if (!login) throw new Error('Нет данных в ответе');
+  const token = login.loginResult && login.loginResult.accessToken;
+  if (!token) {
+    if (login.forceChangePasswordSession) {
+      throw new Error('Требуется смена пароля: ' + (login.forceChangePasswordSession.reason || ''));
+    }
+    throw new Error('accessToken отсутствует');
+  }
+  return token;
+}
+
+async function apiFetchFolders(apiUrl, token, tenantId, rejectUnauthorized) {
+  const query =
+      'query resourceFolders {\n' +
+      '  resourceFolders {\n' +
+      '    id\n' +
+      '    name\n' +
+      '    parentFolderId\n' +
+      '  }\n' +
+      '}';
+  const res = await httpPost(apiUrl, {
+    operationName: 'resourceFolders',
+    variables: {},
+    query: query
+  }, {
+    'Authorization': 'Bearer ' + token,
+    'x-tenant-id': tenantId
+  }, rejectUnauthorized);
+  if (res.status !== 200) throw new Error('HTTP ' + res.status);
+  const folders = res.json && res.json.data && res.json.data.resourceFolders;
+  if (!Array.isArray(folders)) throw new Error('Некорректный ответ');
+  return folders;
+}
+
+async function apiFetchExpertises(apiUrl, token, tenantId, rootFolderId, rejectUnauthorized) {
+  const query =
+      'query expertises($filter: ExpertisesFilter, $pagination: PaginationInput, $sorting: ExpertisesSorting, $organizationIds: [String!]!) {\n' +
+      '  expertises(filter: $filter, pagination: $pagination, sorting: $sorting, organizationIds: $organizationIds) {\n' +
+      '    expertises {\n' +
+      '      id\n' +
+      '      sourceId\n' +
+      '      folderId\n' +
+      '      type\n' +
+      '      name\n' +
+      '      status\n' +
+      '      version\n' +
+      '    }\n' +
+      '    pageInfo { pagination { limit offset } totalCount }\n' +
+      '  }\n' +
+      '}';
+  const res = await httpPost(apiUrl, {
+    operationName: 'expertises',
+    variables: {
+      filter: {
+        folder: { folderId: rootFolderId, withChildFolders: true },
+        query: '',
+        types: ['DOMAIN']
+      },
+      organizationIds: [],
+      pagination: { limit: 500, offset: 0 },
+      sorting: { order: 'DESC', orderBy: 'UPDATED_AT' }
+    },
+    query: query
+  }, {
+    'Authorization': 'Bearer ' + token,
+    'x-tenant-id': tenantId
+  }, rejectUnauthorized);
+  if (res.status !== 200) throw new Error('HTTP ' + res.status);
+  const data = res.json && res.json.data && res.json.data.expertises;
+  if (!data) throw new Error('Некорректный ответ');
+  return data.expertises || [];
+}
+
+async function apiFetchExpertiseSource(apiUrl, token, tenantId, id, rejectUnauthorized) {
+  const query =
+      'query expertise($id: String!) {\n' +
+      '  expertise(id: $id) {\n' +
+      '    id\n' +
+      '    sourceId\n' +
+      '    sourceCode\n' +
+      '    status\n' +
+      '  }\n' +
+      '}';
+  const res = await httpPost(apiUrl, {
+    operationName: 'expertise',
+    variables: { id: id },
+    query: query
+  }, {
+    'Authorization': 'Bearer ' + token,
+    'x-tenant-id': tenantId
+  }, rejectUnauthorized);
+  if (res.status !== 200) throw new Error('HTTP ' + res.status);
+  const e = res.json && res.json.data && res.json.data.expertise;
+  if (!e) throw new Error('Некорректный ответ');
+  return e.sourceCode;
+}
+
+function buildFolderPaths(folders) {
+  const byId = new Map(folders.map(function(f) { return [f.id, f]; }));
+  const cache = new Map();
+  function getPath(id) {
+    if (cache.has(id)) return cache.get(id);
+    const folder = byId.get(id);
+    if (!folder) { cache.set(id, []); return []; }
+    if (folder.parentFolderId == null) { cache.set(id, []); return []; }
+    const parentPath = getPath(folder.parentFolderId);
+    const result = parentPath.concat([sanitizeFileName(folder.name)]);
+    cache.set(id, result);
+    return result;
+  }
+  for (const f of folders) getPath(f.id);
+  return cache;
+}
+
+async function prepareRemoteCache(serverUrl, username, password, opts) {
+  opts = opts || {};
+  const baseDir = __dirname;
+  const cacheDir = getCachePath(baseDir, serverUrl);
+  const completeFlag = path.join(cacheDir, '.complete');
+
+  if (opts.resetCache) {
+    if (fs.existsSync(cacheDir)) {
+      console.log('🗑  Удаление кэша: ' + cacheDir);
+      fs.rmSync(cacheDir, { recursive: true, force: true });
+    }
+  }
+
+  const cacheValid = fs.existsSync(completeFlag);
+  if (cacheValid && !opts.refresh) {
+    console.log('📦 Используется кэш: ' + cacheDir);
+    console.log('   (обновить: --refresh, сбросить: --reset-cache)');
+    let fetchedAt = null;
+    try {
+      const idx = JSON.parse(fs.readFileSync(path.join(cacheDir, '_index.json'), 'utf8'));
+      fetchedAt = idx.fetchedAt || null;
+    } catch (e) {}
+    return { cacheDir: cacheDir, fromCache: true, server: serverUrl, fetchedAt: fetchedAt };
+  }
+
+  const base = serverUrl.replace(/\/+$/, '');
+  const loginUrl = base + '/api/evo/core/bff/graphql';
+  const apiUrl = base + '/api/graphql';
+  const tenantId = '00000000-0000-0000-0000-000000000000';
+  const rejectUnauthorized = !!(opts && opts.secure);
+
+  // Login
+  writeProgress('🔐 Логин ' + username + '...');
+  let token;
+  try {
+    token = await apiLogin(loginUrl, username, password, rejectUnauthorized);
+  } catch (err) {
+    endProgress();
+    throw new Error('Логин: ' + err.message);
+  }
+  endProgress();
+  console.log('🔐 Логин: ✅ (' + username + ')');
+
+  // Folders
+  writeProgress('📁 Загрузка структуры папок...');
+  let folders;
+  try {
+    folders = await apiFetchFolders(apiUrl, token, tenantId, rejectUnauthorized);
+  } catch (err) {
+    endProgress();
+    throw new Error('Папки: ' + err.message);
+  }
+  endProgress();
+  console.log('📁 Структура папок: ✅ (' + folders.length + ')');
+
+  const rootFolder = folders.find(function(f) { return f.parentFolderId == null; });
+  if (!rootFolder) throw new Error('Корневая папка не найдена');
+
+  // Domains list
+  writeProgress('📄 Загрузка списка доменов...');
+  let domains;
+  try {
+    domains = await apiFetchExpertises(apiUrl, token, tenantId, rootFolder.id, rejectUnauthorized);
+  } catch (err) {
+    endProgress();
+    throw new Error('Домены: ' + err.message);
+  }
+  endProgress();
+
+  const enabledDomains = domains.filter(function(d) {
+    return d.status === 'ENABLED' && d.type === 'DOMAIN';
+  });
+  console.log('📄 Домены: ✅ всего ' + domains.length + ', ENABLED ' + enabledDomains.length);
+
+  // Prepare dir
+  if (fs.existsSync(cacheDir)) {
+    fs.rmSync(cacheDir, { recursive: true, force: true });
+  }
+  fs.mkdirSync(cacheDir, { recursive: true });
+
+  // Index
+  fs.writeFileSync(path.join(cacheDir, '_index.json'), JSON.stringify({
+    server: serverUrl,
+    fetchedAt: new Date().toISOString(),
+    rootFolderId: rootFolder.id,
+    folders: folders,
+    domains: domains.map(function(d) {
+      return { id: d.id, sourceId: d.sourceId, folderId: d.folderId, name: d.name, status: d.status, version: d.version };
+    })
+  }, null, 2), 'utf8');
+
+  // Folder paths
+  const folderPaths = buildFolderPaths(folders);
+
+  // Download each
+  const errors = [];
+  let saved = 0;
+  const total = enabledDomains.length;
+
+  for (let i = 0; i < total; i++) {
+    const d = enabledDomains[i];
+    const shortName = (d.sourceId || d.id).slice(0, 40);
+    writeProgress('💾 Скачивание схем ' + makeProgressBar(i + 1, total) + ' — ' + shortName);
+    try {
+      const sourceCode = await apiFetchExpertiseSource(apiUrl, token, tenantId, d.id, rejectUnauthorized);
+      if (!sourceCode || typeof sourceCode !== 'string') {
+        errors.push({ id: d.id, sourceId: d.sourceId, error: 'Пустой sourceCode' });
+        continue;
+      }
+      const folderPath = folderPaths.get(d.folderId) || [];
+      const fullDir = path.join.apply(path, [cacheDir].concat(folderPath));
+      fs.mkdirSync(fullDir, { recursive: true });
+      const fileName = sanitizeFileName(d.sourceId) + '.ro';
+      fs.writeFileSync(path.join(fullDir, fileName), sourceCode, 'utf8');
+      saved++;
+    } catch (err) {
+      errors.push({ id: d.id, sourceId: d.sourceId, error: err.message });
+    }
+  }
+  endProgress();
+
+  if (errors.length > 0) {
+    fs.writeFileSync(path.join(cacheDir, '_errors.json'), JSON.stringify(errors, null, 2), 'utf8');
+  }
+
+  fs.writeFileSync(completeFlag, new Date().toISOString(), 'utf8');
+
+  console.log('💾 Сохранено: ' + saved + '/' + total);
+  if (errors.length > 0) {
+    console.log('⚠️  Ошибок: ' + errors.length + ' → ' + path.join(cacheDir, '_errors.json'));
+  }
+  console.log('📂 Кэш: ' + cacheDir);
+
+  return { cacheDir: cacheDir, fromCache: false, server: serverUrl, fetchedAt: new Date().toISOString() };
+}
+
+function printHelp() {
+  console.log('Usage:');
+  console.log('');
+  console.log('  Локальный режим:');
+  console.log('    node graph-analyzer.js <directory-path> [port]');
+  console.log('');
+  console.log('  Удалённый режим:');
+  console.log('    node graph-analyzer.js --server <url> --login <user> --password <pass> [options]');
+  console.log('');
+  console.log('Опции:');
+  console.log('  --server <url>       Базовый URL сервера (например https://qa.sgrc.rvision.local)');
+  console.log('  --login <user>       Имя пользователя для логина');
+  console.log('  --password <pass>    Пароль (в кавычках, если содержит спецсимволы)');
+  console.log('  --port <port>        HTTP-порт сервера визуализации (по умолчанию 3000)');
+  console.log('  --refresh            Обновить кэш принудительно');
+  console.log('  --reset-cache        Удалить кэш перед загрузкой');
+  console.log('  --secure             Проверять TLS-сертификат (по умолчанию отключено для self-signed)');
+  console.log('  --help               Показать справку');
+  console.log('');
+  console.log('Кэш: .cache/domains/<host>__<hash>/');
+  console.log('По умолчанию используется существующий кэш, если он есть.');
+  console.log('');
+  console.log('Примеры:');
+  console.log('  node graph-analyzer.js ./domains');
+  console.log('  node graph-analyzer.js --server https://qa.sgrc.rvision.local --login vscheglov --password "1234"');
+  console.log('  node graph-analyzer.js --server https://qa.sgrc.rvision.local --login vscheglov --password "1234" --refresh');
+  console.log('  node graph-analyzer.js --server https://qa.sgrc.rvision.local --login vscheglov --password "1234" --reset-cache --port 4000');
+}
 
 class DomainGraphAnalyzer {
   constructor(rootDir) {
@@ -449,12 +839,26 @@ class DomainGraphAnalyzer {
         .join(String.fromCharCode(10));
   }
 
-  startServer(port = 3000) {
+  startServer(port, remoteInfo, cliFlags) {
     const graphData = this.analyze();
+    graphData.remoteInfo = remoteInfo || null;
+
+    // Собираем команду для повторного запуска (без пароля)
+    let refreshCommand = null;
+    if (remoteInfo && remoteInfo.server) {
+      const args = [];
+      args.push('node graph-analyzer.js');
+      args.push('--server ' + remoteInfo.server);
+      if (cliFlags && cliFlags.login) args.push('--login ' + cliFlags.login);
+      args.push('--password "***"');
+      args.push('--refresh');
+      refreshCommand = args.join(' ');
+    }
+
     const server = http.createServer((req, res) => {
       if (req.url === '/') {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(this.generateHTML(graphData));
+        res.end(this.generateHTML(graphData, refreshCommand));
       } else if (req.url.startsWith('/file')) {
         this.handleFileRequest(req, res);
       } else {
@@ -462,7 +866,7 @@ class DomainGraphAnalyzer {
       }
     });
     server.listen(port, () => {
-      console.log(`${String.fromCharCode(10)}🚀 Graph server: http://localhost:${port}`);
+      console.log(`\n🚀 Graph server: http://localhost:${port}`);
       console.log(`   Domains: ${graphData.domainCount}`);
       console.log(`   Links: ${graphData.linkCount}`);
       console.log(`   Missing: ${graphData.missingCount}`);
@@ -481,8 +885,10 @@ class DomainGraphAnalyzer {
       res.end(content);
     } catch (e) { res.writeHead(404); res.end('Not found'); }
   }
-  generateHTML(graphData) {
+  generateHTML(graphData, refreshCommand) {
     const graphDataJson = JSON.stringify(graphData).replace(/<\/script>/g, '<\\/script>');
+    const remoteInfoJson = JSON.stringify(graphData.remoteInfo || null).replace(/<\/script>/g, '<\\/script>');
+    const refreshCommandJson = JSON.stringify(refreshCommand || null).replace(/<\/script>/g, '<\\/script>');
 
     return `<!DOCTYPE html>
 <html lang="ru" data-theme="dark">
@@ -974,11 +1380,76 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Robo
   border-radius: 3px;
 }
 .tooltip__fqid-list::-webkit-scrollbar-thumb:hover { background: var(--border-hover); }
+.bar-list::-webkit-scrollbar { width: 6px; }
+.bar-list::-webkit-scrollbar-thumb { background: var(--bg-600); border-radius: 3px; }
+.toast {
+  position: fixed;
+  top: 72px;
+  right: 20px;
+  z-index: 500;
+  background: var(--bg-800);
+  border: 1px solid var(--border-hover);
+  border-left: 3px solid var(--warning);
+  border-radius: 10px;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.4);
+  padding: 12px 40px 12px 14px;
+  max-width: 520px;
+  display: flex;
+  gap: 10px;
+  animation: toastIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.toast__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.toast__message { font-size: 13px; color: var(--text-200); line-height: 1.5; }
+.toast__message b { color: var(--warning); font-weight: 600; }
+.toast__action { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.toast__command {
+  flex: 1;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  padding: 6px 10px;
+  background: var(--bg-750);
+  border-radius: 5px;
+  color: var(--text-200);
+  word-break: break-all;
+  min-width: 0;
+}
+.toast__btn {
+  font-size: 11px;
+  padding: 6px 10px;
+  background: var(--bg-700);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-200);
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+.toast__btn:hover { background: var(--accent); color: white; border-color: var(--accent); }
+.toast__close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: transparent;
+  border: none;
+  color: var(--text-500);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+.toast__close:hover { background: var(--bg-700); color: var(--text-200); }
 </style>
 </head>
 <body>
 <div id="root"></div>
 <script id="graph-data" type="application/json">${graphDataJson}</script>
+<script id="remote-info" type="application/json">${remoteInfoJson}</script>
+<script id="refresh-command" type="application/json">${refreshCommandJson}</script>
 <script type="text/babel" data-type="module" data-presets="react">
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -990,6 +1461,12 @@ import ReactFlow, {
 import dagre from 'dagre';
 
 const GRAPH_DATA = JSON.parse(document.getElementById('graph-data').textContent);
+const REMOTE_INFO = (function() {
+  try { return JSON.parse(document.getElementById('remote-info').textContent); } catch (e) { return null; }
+})();
+const REFRESH_COMMAND = (function() {
+  try { return JSON.parse(document.getElementById('refresh-command').textContent); } catch (e) { return null; }
+})();
 const NODE_WIDTH = 220;
 const NODE_HEIGHT = 60;
 const NODE_COMPACT = 28;
@@ -2329,6 +2806,46 @@ function SearchModal(props) {
 }
 
 // ============ TOOLTIP ============
+function Toast(props) {
+  var message = props.message;
+  var actions = props.actions || [];
+  var onClose = props.onClose;
+  var duration = props.duration || 20000;
+  var [visible, setVisible] = useState(true);
+  var [copied, setCopied] = useState(false);
+
+  useEffect(function() {
+    if (!duration) return;
+    var t = setTimeout(function() { setVisible(false); if (onClose) onClose(); }, duration);
+    return function() { clearTimeout(t); };
+  }, []);
+
+  if (!visible) return null;
+
+  var copyToClipboard = function(text) {
+    navigator.clipboard.writeText(text).then(function() {
+      setCopied(true);
+      setTimeout(function() { setCopied(false); }, 1500);
+    });
+  };
+
+  return React.createElement('div', { className: 'toast' },
+    React.createElement('div', { className: 'toast__body' },
+      React.createElement('div', { className: 'toast__message', dangerouslySetInnerHTML: { __html: message } }),
+      actions.map(function(a, i) {
+        return React.createElement('div', { key: i, className: 'toast__action' },
+          a.command && React.createElement('code', { className: 'toast__command' }, a.command),
+          a.command && React.createElement('button', {
+            className: 'toast__btn',
+            onClick: function() { copyToClipboard(a.command); }
+          }, copied ? '✓ Скопировано' : '📋 Копировать')
+        );
+      })
+    ),
+    React.createElement('button', { className: 'toast__close', onClick: function() { setVisible(false); if (onClose) onClose(); } }, '✕')
+  );
+}
+
 function HoverTooltip(props) {
   var tooltip = props.tooltip;
   var onHide = props.onHide;
@@ -2551,6 +3068,7 @@ function App() {
   var [heatmap, setHeatmap] = useState('none'); // none | health | degree | entities | fqid
   
   var [navStack, setNavStack] = useState({ items: [], index: -1 });
+  var [toastVisible, setToastVisible] = useState(!!(REMOTE_INFO && REMOTE_INFO.fromCache));
   
   var [rules, setRules] = useState(function() {
     try {
@@ -2939,7 +3457,7 @@ function App() {
       var ns = n.data.domainId.split('.').slice(0, 2).join('.');
       map.set(ns, (map.get(ns) || 0) + 1);
     });
-    return Array.from(map.entries()).sort(function(a, b) { return b[1] - a[1]; }).slice(0, 6);
+    return Array.from(map.entries()).sort(function(a, b) { return b[1] - a[1]; });
   }, [nodes]);
 
   var tagCloud = useMemo(function() {
@@ -3501,7 +4019,7 @@ function App() {
             // Namespaces
             namespaces.length > 0 && React.createElement('div', { className: 'section' },
               React.createElement('div', { className: 'section__title' }, 'Неймспейсы'),
-              React.createElement('div', { className: 'bar-list' },
+              React.createElement('div', { className: 'bar-list', style: { maxHeight: 240, overflowY: 'auto' } },
                 namespaces.map(function(entry) {
                   var ns = entry[0], count = entry[1];
                   var max = namespaces[0][1];
@@ -3771,7 +4289,15 @@ function App() {
       onSelect: function(domainId) { gotoDomainByDomainId(domainId); closeSearch(); },
       onClose: closeSearch, inputRef: searchInputRef
     }),
-    React.createElement(ContextMenu, { menu: contextMenu, onClose: function() { setContextMenu(null); }, onAction: handleContextAction })
+    React.createElement(ContextMenu, { menu: contextMenu, onClose: function() { setContextMenu(null); }, onAction: handleContextAction }),
+    toastVisible && REMOTE_INFO && REMOTE_INFO.fromCache && React.createElement(Toast, {
+      message: '📦 Граф построен из <b>кэша</b>'
+        + (REMOTE_INFO.fetchedAt ? ' (от ' + new Date(REMOTE_INFO.fetchedAt).toLocaleString('ru-RU') + ')' : '')
+        + '. Данные могут быть устаревшими.',
+      actions: REFRESH_COMMAND ? [{ command: REFRESH_COMMAND }] : [],
+      duration: 30000,
+      onClose: function() { setToastVisible(false); }
+    })
   );
 }
 
@@ -3783,24 +4309,70 @@ root.render(React.createElement(App));
   }
 }
 
+let __mainCalled = false;
 // --- CLI ---
-function main() {
-  const args = process.argv.slice(2);
-  if (args.length === 0 || args.includes('--help')) {
-    console.log('Usage: node graph-analyzer.js <directory-path> [port]');
-    console.log('Example: node graph-analyzer.js ./domains 3000');
+async function main() {
+  if (__mainCalled) return;
+  __mainCalled = true;
+
+  const args = parseArgs(process.argv.slice(2));
+
+  if (args.flags.help) {
+    printHelp();
     process.exit(0);
   }
-  const rootDir = path.resolve(args[0]);
-  const port = parseInt(args[1] || '3000');
-  if (!fs.existsSync(rootDir)) {
-    console.error(`❌ Directory does not exist: ${rootDir}`);
+
+  if (args.positional.length === 0 && !args.flags.server) {
+    printHelp();
     process.exit(1);
   }
-  console.log(`🔍 Analyzing domains in: ${rootDir}`);
+
+  let rootDir;
+  let remoteInfo = null;
+
+  if (args.flags.server) {
+    const server = args.flags.server;
+    const username = args.flags.login || args.flags.username;
+    const password = args.flags.password;
+
+    if (!username || !password) {
+      console.error('❌ Для режима --server требуются --login и --password');
+      process.exit(1);
+    }
+
+    try {
+      const result = await prepareRemoteCache(server, username, password, {
+        refresh: !!args.flags.refresh,
+        resetCache: !!args.flags['reset-cache'],
+        secure: !!args.flags.secure
+      });
+      rootDir = result.cacheDir;
+      remoteInfo = result;
+    } catch (err) {
+      console.error('❌ Ошибка загрузки: ' + err.message);
+      process.exit(1);
+    }
+  } else {
+    rootDir = path.resolve(args.positional[0]);
+    if (!fs.existsSync(rootDir)) {
+      console.error('❌ Directory does not exist: ' + rootDir);
+      process.exit(1);
+    }
+  }
+
+  const port = parseInt(args.flags.port || args.positional[1] || '3000', 10);
+
+  console.log('🔍 Analyzing domains in: ' + rootDir);
   const analyzer = new DomainGraphAnalyzer(rootDir);
-  analyzer.startServer(port);
+  analyzer.startServer(port, remoteInfo, args.flags);
 }
 
-if (require.main === module) main();
+if (require.main === module) {
+  main().catch(function(err) {
+    console.error('❌ Fatal: ' + err.message);
+    console.error(err.stack);
+    process.exit(1);
+  });
+}
+
 module.exports = DomainGraphAnalyzer;
