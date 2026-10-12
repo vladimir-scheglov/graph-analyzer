@@ -2589,6 +2589,271 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Robo
   background: rgba(185, 28, 28, 0.12);
   color: #b91c1c;
 }
+.learning-path-modal { width: 900px; }
+
+.learning-path-hint {
+  background: var(--accent-soft);
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+.learning-path-hint__title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--accent-hover);
+  margin-bottom: 8px;
+}
+.learning-path-hint__list {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 13px;
+  color: var(--text-300);
+  line-height: 1.7;
+}
+
+.learning-entry-points {
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+.learning-entry-points__header {
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--accent-hover);
+}
+.learning-entry-points__icon { font-size: 14px; }
+.learning-entry-points__hint {
+  font-size: 11px;
+  color: var(--text-500);
+  margin-left: auto;
+  font-style: italic;
+}
+.learning-entry-points__body {
+  padding: 10px 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  background: var(--bg-800);
+}
+
+.learning-path-stage-badge {
+  background: linear-gradient(135deg, #06b6d4, #0891b2) !important;
+}
+
+.learning-stage-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 14px 14px;
+}
+
+.learning-domain-card {
+  background: var(--bg-750);
+  border-radius: 8px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--accent);
+}
+.learning-domain-card__head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.learning-domain-card__label {
+  font-size: 12px;
+  color: var(--text-500);
+  font-style: italic;
+}
+.learning-domain-card__desc {
+  font-size: 12px;
+  color: var(--text-400);
+  margin: 4px 0 6px;
+  line-height: 1.5;
+}
+.learning-domain-card__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--text-500);
+}
+.learning-domain-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.learning-domain-stat__icon {
+  color: var(--accent-hover);
+  font-weight: 700;
+}
+.learning-domain-stat--tags {
+  background: var(--bg-700);
+  padding: 1px 8px;
+  border-radius: 8px;
+}
+
+/* Tour overlay */
+.tour-overlay {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 250;
+  pointer-events: none;
+  animation: tourIn 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes tourIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(30px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+.tour-overlay__card {
+  pointer-events: auto;
+  width: 480px;
+  max-width: 90vw;
+  background: var(--bg-800);
+  border: 1px solid var(--border-hover);
+  border-radius: 14px;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.5), 0 0 0 4px var(--accent-soft);
+  padding: 16px 20px;
+}
+
+.tour-overlay__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.tour-overlay__stage-badge {
+  padding: 3px 10px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #06b6d4, #0891b2);
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.tour-overlay__counter {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text-500);
+  margin-left: auto;
+}
+.tour-overlay__close {
+  background: transparent;
+  border: none;
+  color: var(--text-500);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 14px;
+  margin-left: 4px;
+}
+.tour-overlay__close:hover {
+  background: var(--bg-700);
+  color: var(--danger);
+}
+
+.tour-overlay__title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--accent-hover);
+  margin-bottom: 4px;
+  word-break: break-all;
+}
+.tour-overlay__subtitle {
+  font-size: 13px;
+  color: var(--text-300);
+  margin-bottom: 8px;
+}
+.tour-overlay__desc {
+  font-size: 13px;
+  color: var(--text-400);
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+.tour-overlay__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.tour-stat {
+  font-size: 11px;
+  color: var(--text-500);
+  font-family: 'JetBrains Mono', monospace;
+}
+.tour-overlay__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.tour-overlay__progress {
+  margin-bottom: 12px;
+}
+.tour-overlay__progress-bar {
+  height: 4px;
+  background: var(--bg-700);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.tour-overlay__progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), #06b6d4);
+  transition: width 0.3s ease;
+}
+
+.tour-overlay__controls {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+.tour-btn {
+  width: 44px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-750);
+  color: var(--text-200);
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+.tour-btn:hover:not(:disabled) {
+  background: var(--bg-700);
+  border-color: var(--accent);
+}
+.tour-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.tour-btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+  width: 56px;
+}
+.tour-btn--primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+[data-theme="light"] .tour-overlay__card {
+  box-shadow: 0 16px 48px rgba(15,23,42,0.2), 0 0 0 4px var(--accent-soft);
+}
 </style>
 </head>
 <body>
@@ -2915,6 +3180,164 @@ function topologicalSort(depGraph, options) {
     criticalPath: levels.length,
     broken: broken
   };
+}
+
+function computeLearningPath(nodes, edges, options) {
+  var opts = options || {};
+  var nodeById = new Map();
+  nodes.forEach(function(n) { nodeById.set(n.id, n); });
+
+  var domainNodes = nodes.filter(function(n) { return n.data.nodeType === 'domain'; });
+  var fanIn = new Map();
+  var fanOut = new Map();
+  domainNodes.forEach(function(n) { fanIn.set(n.id, 0); fanOut.set(n.id, 0); });
+
+  edges.forEach(function(e) {
+    if (!nodeById.has(e.source) || !nodeById.has(e.target)) return;
+    if (fanOut.has(e.source)) fanOut.set(e.source, fanOut.get(e.source) + 1);
+    if (fanIn.has(e.target)) fanIn.set(e.target, fanIn.get(e.target) + 1);
+  });
+
+  // Точки входа — домены с низким fan-in и ненулевым fan-out.
+  // "Фундамент" — низкий fan-out, высокий fan-in. Читать начинают с фундамента.
+  var entryPoints = domainNodes.filter(function(n) {
+    var fi = fanIn.get(n.id) || 0;
+    var fo = fanOut.get(n.id) || 0;
+    return fi === 0 && fo > 0;
+  });
+
+  // Топосорт: сначала слои, в которых нет зависимостей от других
+  var deps = new Map();
+  domainNodes.forEach(function(n) { deps.set(n.id, new Set()); });
+  edges.forEach(function(e) {
+    if (!nodeById.has(e.source) || !nodeById.has(e.target)) return;
+    var src = nodeById.get(e.source);
+    var tgt = nodeById.get(e.target);
+    if (src.data.nodeType !== 'domain' || tgt.data.nodeType !== 'domain') return;
+    if (src.id === tgt.id) return;
+    deps.get(src.id).add(tgt.id);
+  });
+
+  var remaining = new Set(domainNodes.map(function(n) { return n.id; }));
+  var stages = [];
+
+  while (remaining.size > 0) {
+    var stage = [];
+    remaining.forEach(function(id) {
+      var ready = true;
+      deps.get(id).forEach(function(dep) {
+        if (remaining.has(dep)) ready = false;
+      });
+      if (ready) stage.push(id);
+    });
+    if (stage.length === 0) break;
+    stage.forEach(function(id) { remaining.delete(id); });
+    // Сортируем внутри стадии: сначала с большим fan-in (более фундаментальные)
+    stage.sort(function(a, b) {
+      return (fanIn.get(b) || 0) - (fanIn.get(a) || 0);
+    });
+    stages.push(stage);
+  }
+
+  var unresolved = Array.from(remaining);
+
+  // Обогащаем данными
+  function enrich(id) {
+    var n = nodeById.get(id);
+    if (!n) return null;
+    return {
+      id: id,
+      domainId: n.data.domainId,
+      label: n.data.label,
+      description: n.data.description,
+      tags: n.data.tags || [],
+      fanIn: fanIn.get(id) || 0,
+      fanOut: fanOut.get(id) || 0,
+      entitiesCount: n.data.entitiesCount,
+      fqidRefsCount: (n.data.fqidRefs || []).length
+    };
+  }
+
+  var enrichedStages = stages.map(function(stage, idx) {
+    return {
+      index: idx,
+      domains: stage.map(enrich).filter(Boolean)
+    };
+  });
+
+  return {
+    entryPoints: entryPoints.map(function(n) { return enrich(n.id); }).filter(Boolean),
+    stages: enrichedStages,
+    totalStages: stages.length,
+    totalDomains: domainNodes.length,
+    unresolved: unresolved.map(enrich).filter(Boolean)
+  };
+}
+
+function generateLearningPathMarkdown(path, options) {
+  var lines = [];
+  lines.push('# Путь изучения архитектуры');
+  lines.push('');
+  lines.push('_Сгенерировано: ' + new Date().toLocaleString('ru-RU') + '_');
+  lines.push('');
+  if (options && options.scope) {
+    lines.push('Область: **' + options.scope + '**');
+    lines.push('');
+  }
+  lines.push('Порядок чтения построен от «фундамента» (домены без входящих зависимостей) к верхним слоям.');
+  lines.push('');
+  lines.push('## Сводка');
+  lines.push('');
+  lines.push('| Метрика | Значение |');
+  lines.push('| --- | ---: |');
+  lines.push('| Всего доменов | ' + path.totalDomains + ' |');
+  lines.push('| Этапов | ' + path.totalStages + ' |');
+  lines.push('| Точек входа | ' + path.entryPoints.length + ' |');
+  if (path.unresolved.length > 0) {
+    lines.push('| Не разрешено (цикл) | ' + path.unresolved.length + ' |');
+  }
+  lines.push('');
+
+  if (path.entryPoints.length > 0) {
+    lines.push('## Точки входа');
+    lines.push('');
+    lines.push('Эти домены — «клиенты» системы: они используют других, но никто не использует их. Хорошие примеры для изучения, потому что показывают функциональность верхнего уровня.');
+    lines.push('');
+    path.entryPoints.slice(0, 20).forEach(function(d) {
+      lines.push('- \`' + d.domainId + '\`' + (d.label && d.label !== d.domainId ? ' — ' + d.label : ''));
+    });
+    lines.push('');
+  }
+
+  path.stages.forEach(function(stage) {
+    lines.push('## Этап ' + (stage.index + 1) + ' — ' + stage.domains.length + ' ' + plural(stage.domains.length, 'домен', 'доменов'));
+    lines.push('');
+    stage.domains.forEach(function(d) {
+      lines.push('### \`' + d.domainId + '\`');
+      if (d.label && d.label !== d.domainId) lines.push('_ ' + d.label + '_');
+      lines.push('');
+      if (d.description) lines.push(d.description);
+      lines.push('');
+      var stats = [];
+      if (d.fanIn > 0) stats.push('используется в ' + d.fanIn + ' местах');
+      if (d.fanOut > 0) stats.push('зависит от ' + d.fanOut);
+      if (d.entitiesCount) stats.push(d.entitiesCount + ' entities');
+      if (d.tags && d.tags.length > 0) stats.push('теги: ' + d.tags.join(', '));
+      if (stats.length > 0) lines.push('*' + stats.join(' · ') + '*');
+      lines.push('');
+    });
+  });
+
+  if (path.unresolved.length > 0) {
+    lines.push('## Требуют ручного разбора (в цикле)');
+    lines.push('');
+    path.unresolved.forEach(function(d) {
+      lines.push('- \`' + d.domainId + '\`');
+    });
+    lines.push('');
+  }
+
+  return lines.join('\\n');
 }
 
 function findCycles(nodes, edges) {
@@ -3971,45 +4394,107 @@ function FilterMenu(props) {
 }
 
 function AnalysisMenu(props) {
-  var cycleHighlight = props.cycleHighlight, handleFindCycles = props.handleFindCycles;
-  var isolatedOnly = props.isolatedOnly, setIsolatedOnly = props.setIsolatedOnly;
-  var nsMode = props.nsMode, setNsMode = props.setNsMode;
-  var focusDepth = props.focusDepth, setFocusDepth = props.setFocusDepth;
+  var cycleHighlight = props.cycleHighlight;
+  var handleFindCycles = props.handleFindCycles;
+  var isolatedOnly = props.isolatedOnly;
+  var setIsolatedOnly = props.setIsolatedOnly;
+  var nsMode = props.nsMode;
+  var setNsMode = props.setNsMode;
+  var focusDepth = props.focusDepth;
+  var setFocusDepth = props.setFocusDepth;
   var focusNode = props.focusNode;
+  var clearFocus = props.clearFocus;
+  var onOpenTopo = props.onOpenTopo;
+  var onOpenLearningPath = props.onOpenLearningPath;
+  var onOpenRules = props.onOpenRules;
+  var ruleViolations = props.ruleViolations || [];
   var close = props.close;
-  var ruleViolations = props.ruleViolations;
-  var rules = props.rules;
-  var setRules = props.setRules;
-  var rulesHighlighted = props.rulesHighlighted;
-  var setRulesHighlighted = props.setRulesHighlighted;
-  var showViolationsOnly = props.showViolationsOnly;
-  var setShowViolationsOnly = props.setShowViolationsOnly;
-  
+
   return React.createElement('div', { className: 'menu' },
-    React.createElement('button', { className: 'menu__item' + (cycleHighlight ? ' menu__item--active' : ''), onClick: function() { handleFindCycles(); close(); } },
+
+    // --- Циклы ---
+    React.createElement('button', {
+      className: 'menu__item' + (cycleHighlight ? ' menu__item--active' : ''),
+      onClick: function() { handleFindCycles(); close(); }
+    },
       React.createElement('span', { className: 'menu__icon' }, '🔁'),
       React.createElement('span', { className: 'menu__text' }, 'Найти циклы'),
       cycleHighlight && React.createElement('span', { className: 'menu__count' }, cycleHighlight.sccCount)
     ),
-    React.createElement('button', { className: 'menu__item' + (isolatedOnly ? ' menu__item--active' : ''), onClick: function() { setIsolatedOnly(function(v) { return !v; }); close(); } },
+
+    // --- Изолированные ---
+    React.createElement('button', {
+      className: 'menu__item' + (isolatedOnly ? ' menu__item--active' : ''),
+      onClick: function() { setIsolatedOnly(function(v) { return !v; }); close(); }
+    },
       React.createElement('span', { className: 'menu__icon' }, '◯'),
       React.createElement('span', { className: 'menu__text' }, 'Только изолированные')
     ),
-    React.createElement('button', { className: 'menu__item' + (nsMode ? ' menu__item--active' : ''), onClick: function() { setNsMode(function(v) { return !v; }); close(); } },
+
+    // --- Агрегация по семействам ---
+    React.createElement('button', {
+      className: 'menu__item' + (nsMode ? ' menu__item--active' : ''),
+      onClick: function() { setNsMode(function(v) { return !v; }); close(); }
+    },
       React.createElement('span', { className: 'menu__icon' }, '🗂'),
       React.createElement('span', { className: 'menu__text' }, 'Агрегация по семействам')
     ),
-    React.createElement('button', { className: 'menu__item', onClick: function() { props.onOpenTopo(); close(); } },
+
+    React.createElement('div', { className: 'menu__divider' }),
+
+    // --- Порядок установки ---
+    React.createElement('button', {
+      className: 'menu__item',
+      onClick: function() { onOpenTopo(); close(); }
+    },
       React.createElement('span', { className: 'menu__icon' }, '📦'),
       React.createElement('span', { className: 'menu__text' }, 'Порядок установки')
     ),
-    React.createElement('div', { className: 'menu__divider' }),
-    React.createElement('div', { className: 'menu__row' },
-      React.createElement('span', { style: { fontSize: 12, color: 'var(--text-400)' } }, 'Глубина фокуса:'),
-      React.createElement('input', { className: 'menu__slider', type: 'range', min: 1, max: 4, value: focusDepth, onChange: function(e) { setFocusDepth(parseInt(e.target.value)); } }),
-      React.createElement('span', { style: { fontSize: 12, fontWeight: 700, color: 'var(--accent-hover)', minWidth: 12 } }, focusDepth)
+
+    // --- Путь изучения ---
+    React.createElement('button', {
+      className: 'menu__item',
+      onClick: function() { onOpenLearningPath(); close(); }
+    },
+      React.createElement('span', { className: 'menu__icon' }, '📖'),
+      React.createElement('span', { className: 'menu__text' }, 'Путь изучения')
     ),
-    focusNode && React.createElement('button', { className: 'menu__item menu__item--danger', onClick: function() { props.clearFocus(); close(); } },
+
+    React.createElement('div', { className: 'menu__divider' }),
+
+    // --- Правила зависимостей ---
+    React.createElement('button', {
+      className: 'menu__item' + (ruleViolations.length > 0 ? ' menu__item--active' : ''),
+      onClick: function() { onOpenRules(); close(); }
+    },
+      React.createElement('span', { className: 'menu__icon' }, '⛔'),
+      React.createElement('span', { className: 'menu__text' }, 'Правила зависимостей'),
+      ruleViolations.length > 0 && React.createElement('span', { className: 'menu__count' }, ruleViolations.length)
+    ),
+
+    React.createElement('div', { className: 'menu__divider' }),
+
+    // --- Фокус: слайдер глубины ---
+    React.createElement('div', { className: 'menu__row' },
+      React.createElement('span', { style: { fontSize: 12, color: 'var(--text-400)', minWidth: 100 } }, 'Глубина фокуса:'),
+      React.createElement('input', {
+        className: 'menu__slider',
+        type: 'range',
+        min: 1,
+        max: 4,
+        value: focusDepth,
+        onChange: function(e) { setFocusDepth(parseInt(e.target.value)); }
+      }),
+      React.createElement('span', {
+        style: { fontSize: 12, fontWeight: 700, color: 'var(--accent-hover)', minWidth: 12, textAlign: 'center' }
+      }, focusDepth)
+    ),
+
+    // --- Кнопка сброса фокуса (если активен) ---
+    focusNode && React.createElement('button', {
+      className: 'menu__item menu__item--danger',
+      onClick: function() { clearFocus(); close(); }
+    },
       React.createElement('span', { className: 'menu__icon' }, '✕'),
       React.createElement('span', { className: 'menu__text' }, 'Сбросить фокус')
     )
@@ -4526,6 +5011,293 @@ function RulesMenu(props) {
     ),
     React.createElement('div', { style: { padding: '4px 10px' } },
       React.createElement('button', { className: 'menu__action', onClick: close }, 'Закрыть')
+    )
+  );
+}
+
+function LearningPathModal(props) {
+  var open = props.open;
+  var onClose = props.onClose;
+  var allNodes = props.allNodes;
+  var allEdges = props.allEdges;
+  var visibleDomains = props.visibleDomains;
+  var bookmarkedDomains = props.bookmarkedDomains;
+  var onGotoDomain = props.onGotoDomain;
+  var onStartTour = props.onStartTour;
+
+  var [scope, setScope] = useState('all');
+  var [path, setPath] = useState(null);
+  var [expandedStages, setExpandedStages] = useState(function() { return new Set([0]); });
+
+  useEffect(function() {
+    if (!open) {
+      setPath(null);
+      setExpandedStages(new Set([0]));
+    }
+  }, [open]);
+
+  var build = useCallback(function() {
+    var restrictTo = null;
+    if (scope === 'visible') {
+      restrictTo = new Set();
+      visibleDomains.forEach(function(d) { restrictTo.add(d.id); });
+    } else if (scope === 'bookmarked') {
+      restrictTo = new Set();
+      bookmarkedDomains.forEach(function(d) { restrictTo.add(d.id); });
+    }
+
+    var nodes = allNodes;
+    var edges = allEdges;
+    if (restrictTo) {
+      nodes = allNodes.filter(function(n) { return restrictTo.has(n.id) || n.data.nodeType !== 'domain'; });
+      edges = allEdges.filter(function(e) { return restrictTo.has(e.source) && restrictTo.has(e.target); });
+    }
+
+    var result = computeLearningPath(nodes, edges);
+    setPath(result);
+  }, [scope, allNodes, allEdges, visibleDomains, bookmarkedDomains]);
+
+  var exportMD = useCallback(function() {
+    if (!path) return;
+    var md = generateLearningPathMarkdown(path, {
+      scope: scope === 'all' ? 'все домены' : scope === 'visible' ? 'видимые' : 'избранные'
+    });
+    downloadFile(md, 'learning-path-' + new Date().toISOString().slice(0,19).replace(/[:.]/g,'-') + '.md', 'text/markdown;charset=utf-8');
+  }, [path, scope]);
+
+  var exportJSON = useCallback(function() {
+    if (!path) return;
+    downloadFile(JSON.stringify(path, null, 2), 'learning-path-' + new Date().toISOString().slice(0,19).replace(/[:.]/g,'-') + '.json', 'application/json');
+  }, [path]);
+
+  var copyAsText = useCallback(function() {
+    if (!path) return;
+    var lines = [];
+    lines.push('Порядок изучения (' + path.totalStages + ' этапов):');
+    path.stages.forEach(function(stage) {
+      lines.push('');
+      lines.push('— Этап ' + (stage.index + 1) + ' —');
+      stage.domains.forEach(function(d) { lines.push('  ' + d.domainId); });
+    });
+    navigator.clipboard.writeText(lines.join('\\n'));
+  }, [path]);
+
+  var toggleStage = useCallback(function(idx) {
+    setExpandedStages(function(prev) {
+      var s = new Set(prev);
+      if (s.has(idx)) s.delete(idx); else s.add(idx);
+      return s;
+    });
+  }, []);
+
+  if (!open) return null;
+
+  return React.createElement('div', { className: 'help-overlay', onMouseDown: onClose },
+    React.createElement('div', { className: 'help-modal learning-path-modal', onMouseDown: function(e) { e.stopPropagation(); } },
+      React.createElement('div', { className: 'help-modal__header' },
+        React.createElement('div', { className: 'help-modal__title' }, '📖 Путь изучения архитектуры'),
+        React.createElement('button', { className: 'help-modal__close', onClick: onClose }, '✕')
+      ),
+
+      React.createElement('div', { className: 'validation-modal__body' },
+
+        !path && React.createElement('div', { className: 'validation-scope' },
+          React.createElement('div', { className: 'validation-scope__label' }, 'Область'),
+          scopeOption('all', 'Все домены', allNodes.filter(function(n) { return n.data.nodeType === 'domain'; }).length, scope, setScope),
+          scopeOption('visible', 'Только видимые', visibleDomains.length, scope, setScope),
+          scopeOption('bookmarked', 'Только избранные', bookmarkedDomains.length, scope, setScope),
+
+          React.createElement('div', { className: 'learning-path-hint', style: { marginTop: 20 } },
+            React.createElement('div', { className: 'learning-path-hint__title' }, 'Что это даёт'),
+            React.createElement('ul', { className: 'learning-path-hint__list' },
+              React.createElement('li', null, 'Порядок чтения — от «фундамента» к верхним слоям, чтобы зависимости были понятны с самого начала.'),
+              React.createElement('li', null, 'Точки входа — домены, которые никто не использует: они показывают функциональность верхнего уровня.'),
+              React.createElement('li', null, 'Камера экскурсии ведёт по этапам, показывая подсказки по каждому домену.')
+            )
+          ),
+
+          React.createElement('button', {
+            className: 'btn btn--primary',
+            onClick: build,
+            style: { marginTop: 20, width: '100%', justifyContent: 'center' }
+          }, '▶ Построить путь изучения')
+        ),
+
+        path && React.createElement('div', { className: 'topo-result' },
+
+          path.entryPoints.length > 0 && React.createElement('div', { className: 'learning-entry-points' },
+            React.createElement('div', { className: 'learning-entry-points__header' },
+              React.createElement('span', { className: 'learning-entry-points__icon' }, '🚪'),
+              React.createElement('span', null, 'Точки входа (' + path.entryPoints.length + ')'),
+              React.createElement('span', { className: 'learning-entry-points__hint' }, '— никто не зависит от них, но они зависят от других')
+            ),
+            React.createElement('div', { className: 'learning-entry-points__body' },
+              path.entryPoints.slice(0, 12).map(function(d) {
+                return React.createElement('a', {
+                  key: d.id,
+                  className: 'validation-log__domain',
+                  onClick: function() { onGotoDomain(d.domainId); onClose(); }
+                }, d.domainId);
+              }),
+              path.entryPoints.length > 12 && React.createElement('span', { style: { fontSize: 11, color: 'var(--text-500)' } },
+                '...и ещё ' + (path.entryPoints.length - 12)
+              )
+            )
+          ),
+
+          path.stages.map(function(stage) {
+            var isOpen = expandedStages.has(stage.index);
+            return React.createElement('div', { key: stage.index, className: 'topo-level' + (isOpen ? ' topo-level--open' : '') },
+              React.createElement('div', { className: 'topo-level__header', onClick: function() { toggleStage(stage.index); } },
+                React.createElement('span', { className: 'validation-log__chevron' }, isOpen ? '▾' : '▸'),
+                React.createElement('span', { className: 'topo-level__badge learning-path-stage-badge' }, stage.index + 1),
+                React.createElement('span', { className: 'topo-level__title' }, 'Этап ' + (stage.index + 1)),
+                React.createElement('span', { className: 'topo-level__count' },
+                  stage.domains.length + ' ' + plural(stage.domains.length, 'домен', 'доменов')
+                )
+              ),
+              isOpen && React.createElement('div', { className: 'topo-level__body learning-stage-body' },
+                stage.domains.map(function(d) {
+                  return React.createElement('div', { key: d.id, className: 'learning-domain-card' },
+                    React.createElement('div', { className: 'learning-domain-card__head' },
+                      React.createElement('a', {
+                        className: 'validation-log__domain',
+                        onClick: function() { onGotoDomain(d.domainId); onClose(); }
+                      }, d.domainId),
+                      d.label && d.label !== d.domainId && React.createElement('span', { className: 'learning-domain-card__label' }, d.label)
+                    ),
+                    d.description && React.createElement('div', { className: 'learning-domain-card__desc' }, d.description),
+                    React.createElement('div', { className: 'learning-domain-card__stats' },
+                      d.fanIn > 0 && React.createElement('span', { className: 'learning-domain-stat' },
+                        React.createElement('span', { className: 'learning-domain-stat__icon' }, '↑'), d.fanIn, ' входящих'
+                      ),
+                      d.fanOut > 0 && React.createElement('span', { className: 'learning-domain-stat' },
+                        React.createElement('span', { className: 'learning-domain-stat__icon' }, '↓'), d.fanOut, ' исходящих'
+                      ),
+                      d.entitiesCount != null && React.createElement('span', { className: 'learning-domain-stat' },
+                        d.entitiesCount + ' entities'
+                      ),
+                      d.tags && d.tags.length > 0 && React.createElement('span', { className: 'learning-domain-stat learning-domain-stat--tags' },
+                        d.tags.slice(0, 4).join(', ')
+                      )
+                    )
+                  );
+                })
+              )
+            );
+          }),
+
+          path.unresolved.length > 0 && React.createElement('div', { className: 'topo-cyclic' },
+            React.createElement('div', { className: 'topo-cyclic__header' },
+              React.createElement('span', { className: 'topo-cyclic__icon' }, '⚠️'),
+              React.createElement('span', null, 'В цикле — читать после всех (' + path.unresolved.length + ')')
+            ),
+            React.createElement('div', { className: 'topo-cyclic__body' },
+              path.unresolved.map(function(d) {
+                return React.createElement('a', {
+                  key: d.id,
+                  className: 'validation-log__domain',
+                  onClick: function() { onGotoDomain(d.domainId); onClose(); }
+                }, d.domainId);
+              })
+            )
+          )
+        )
+      ),
+
+      path && React.createElement('div', { className: 'validation-footer' },
+        React.createElement('div', { className: 'validation-stats' },
+          React.createElement('span', { className: 'validation-stat' }, '📖 ' + path.totalDomains + ' доменов'),
+          React.createElement('span', { className: 'validation-stat validation-stat--ok' }, '📊 ' + path.totalStages + ' этапов'),
+          path.entryPoints.length > 0 && React.createElement('span', { className: 'validation-stat' }, '🚪 ' + path.entryPoints.length + ' входов')
+        ),
+        React.createElement('div', { className: 'validation-footer__actions' },
+          React.createElement('button', { className: 'btn btn--primary', onClick: function() { onStartTour(path); onClose(); } }, '▶ Начать экскурсию'),
+          React.createElement('button', { className: 'btn', onClick: copyAsText }, '📋 Копировать'),
+          React.createElement('button', { className: 'btn', onClick: exportJSON }, '💾 JSON'),
+          React.createElement('button', { className: 'btn', onClick: exportMD }, '📝 MD'),
+          React.createElement('button', { className: 'btn', onClick: function() { setPath(null); } }, '← Настройки')
+        )
+      )
+    )
+  );
+}
+
+function TourOverlay(props) {
+  var tour = props.tour;
+  var onPrev = props.onPrev;
+  var onNext = props.onNext;
+  var onTogglePlay = props.onTogglePlay;
+  var onStop = props.onStop;
+
+  if (!tour) return null;
+
+  var allItems = useMemo(function() {
+    var items = [];
+    tour.stages.forEach(function(stage) {
+      stage.domains.forEach(function(d) {
+        items.push({
+          domainId: d.domainId,
+          nodeId: d.id,
+          stageIndex: stage.index,
+          stageNumber: stage.index + 1,
+          domainData: d
+        });
+      });
+    });
+    return items;
+  }, [tour]);
+
+  var current = allItems[tour.index];
+  if (!current) return null;
+
+  var d = current.domainData;
+  var pct = Math.round((tour.index + 1) / allItems.length * 100);
+
+  return React.createElement('div', { className: 'tour-overlay' },
+    React.createElement('div', { className: 'tour-overlay__card' },
+      React.createElement('div', { className: 'tour-overlay__header' },
+        React.createElement('span', { className: 'tour-overlay__stage-badge' }, 'Этап ' + current.stageNumber),
+        React.createElement('span', { className: 'tour-overlay__counter' }, (tour.index + 1) + ' / ' + allItems.length),
+        React.createElement('button', { className: 'tour-overlay__close', onClick: onStop, title: 'Завершить' }, '✕')
+      ),
+      React.createElement('div', { className: 'tour-overlay__title' }, current.domainId),
+      d.label && d.label !== current.domainId && React.createElement('div', { className: 'tour-overlay__subtitle' }, d.label),
+      d.description && React.createElement('div', { className: 'tour-overlay__desc' }, d.description),
+      React.createElement('div', { className: 'tour-overlay__stats' },
+        d.fanIn > 0 && React.createElement('span', { className: 'tour-stat' }, '↑ ' + d.fanIn + ' входящих'),
+        d.fanOut > 0 && React.createElement('span', { className: 'tour-stat' }, '↓ ' + d.fanOut + ' исходящих'),
+        d.entitiesCount != null && React.createElement('span', { className: 'tour-stat' }, d.entitiesCount + ' entities')
+      ),
+      d.tags && d.tags.length > 0 && React.createElement('div', { className: 'tour-overlay__tags' },
+        d.tags.slice(0, 6).map(function(t, i) {
+          return React.createElement('span', { key: i, className: 'tag', style: { fontSize: 10 } }, t);
+        })
+      ),
+      React.createElement('div', { className: 'tour-overlay__progress' },
+        React.createElement('div', { className: 'tour-overlay__progress-bar' },
+          React.createElement('div', { className: 'tour-overlay__progress-fill', style: { width: pct + '%' } })
+        )
+      ),
+      React.createElement('div', { className: 'tour-overlay__controls' },
+        React.createElement('button', {
+          className: 'tour-btn',
+          onClick: onPrev,
+          disabled: tour.index === 0,
+          title: 'Назад'
+        }, '◀'),
+        React.createElement('button', {
+          className: 'tour-btn tour-btn--primary',
+          onClick: onTogglePlay,
+          title: tour.playing ? 'Пауза' : 'Играть'
+        }, tour.playing ? '❚❚' : '▶'),
+        React.createElement('button', {
+          className: 'tour-btn',
+          onClick: onNext,
+          disabled: tour.index >= allItems.length - 1,
+          title: 'Дальше'
+        }, '▶')
+      )
     )
   );
 }
@@ -5489,9 +6261,87 @@ function App() {
   });
   var [onlyInvalid, setOnlyInvalid] = useState(false);
   
+  var [learningPathOpen, setLearningPathOpen] = useState(false);
+var [tour, setTour] = useState(null);
+  
   useEffect(function() {
     tooltipCache.current.clear();
   }, [nodes, validationResults]);
+  
+  
+  var startTour = useCallback(function(path) {
+  setTour({
+    stages: path.stages,
+    index: 0,
+    playing: false,
+    startedAt: Date.now()
+  });
+  // Уберём другие активные режимы, чтобы не мешали
+  setSelectedNodeId(null);
+  setFocusNode(null);
+  setCycleHighlight(null);
+  setPathResult(null);
+  setPathSel([]);
+  setFailureSim(null);
+}, []);
+  
+  
+  var tourNext = useCallback(function() {
+  setTour(function(prev) {
+    if (!prev) return null;
+    var items = [];
+    prev.stages.forEach(function(s) { s.domains.forEach(function(d) { items.push(d); }); });
+    if (prev.index >= items.length - 1) return prev;
+    return Object.assign({}, prev, { index: prev.index + 1, playing: false });
+  });
+}, []);
+
+var tourPrev = useCallback(function() {
+  setTour(function(prev) {
+    if (!prev) return null;
+    if (prev.index <= 0) return prev;
+    return Object.assign({}, prev, { index: prev.index - 1, playing: false });
+  });
+}, []);
+
+var tourTogglePlay = useCallback(function() {
+  setTour(function(prev) { return prev ? Object.assign({}, prev, { playing: !prev.playing }) : null; });
+}, []);
+
+var tourStop = useCallback(function() { setTour(null); }, []);
+
+
+useEffect(function() {
+  if (!tour) return;
+  var items = [];
+  tour.stages.forEach(function(s) { s.domains.forEach(function(d) { items.push(d); }); });
+  var current = items[tour.index];
+  if (!current || !rfInstance.current) return;
+
+  var nodeId = current.id;
+  var node = nodes.find(function(n) { return n.id === nodeId; });
+  if (!node) return;
+
+  var w = compact ? NODE_COMPACT : NODE_WIDTH;
+  var h = compact ? NODE_COMPACT : NODE_HEIGHT;
+  var cx = node.position.x + w / 2;
+  var cy = node.position.y + h / 2;
+  rfInstance.current.setCenter(cx, cy, { zoom: 1.5, duration: 700 });
+
+  setSelectedNodeId(nodeId);
+}, [tour && tour.index]);
+
+useEffect(function() {
+  if (!tour || !tour.playing) return;
+  var items = [];
+  tour.stages.forEach(function(s) { s.domains.forEach(function(d) { items.push(d); }); });
+  if (tour.index >= items.length - 1) {
+    setTour(function(prev) { return prev ? Object.assign({}, prev, { playing: false }) : null; });
+    return;
+  }
+  var t = setTimeout(function() { tourNext(); }, 2500);
+  return function() { clearTimeout(t); };
+}, [tour && tour.playing, tour && tour.index]);
   
   
   useEffect(function() {
@@ -6411,6 +7261,12 @@ useEffect(function() {
       if (e.shiftKey && e.key === 'Tab') { e.preventDefault(); if (searchOpen) closeSearch(); else openSearch(); return; }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); openSearch(); return; }
       if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+      if (tour) {
+  if (e.key === 'ArrowRight') { e.preventDefault(); tourNext(); return; }
+  if (e.key === 'ArrowLeft') { e.preventDefault(); tourPrev(); return; }
+  if (e.key === ' ') { e.preventDefault(); tourTogglePlay(); return; }
+  if (e.key === 'Escape') { e.preventDefault(); tourStop(); return; }
+}
       if (e.key === 'f' || e.key === 'F') { rfInstance.current && rfInstance.current.fitView({ duration: 500 }); }
       else if (e.key === 'Escape') {
         setSelectedNodeId(null); setFocusNode(null);
@@ -6660,6 +7516,8 @@ useEffect(function() {
         run: function() { if (focusNode) setFocusNode(null); else if (selectedNodeId) setFocusNode(selectedNodeId); } },
       { section: 'Анализ', icon: '🛤️', label: 'Найти путь между двумя узлами', hotkey: 'P', keywords: 'path find',
         run: handleRunPath },
+      { section: 'Анализ', icon: '📖', label: tour ? 'Остановить экскурсию' : 'Путь изучения архитектуры', keywords: 'learning path onboarding tour',
+  run: function() { if (tour) tourStop(); else setLearningPathOpen(true); } },  
   
       // Фильтры
       { section: 'Фильтры', icon: '★', label: bookmarksOnly ? 'Показать все домены' : 'Только избранные', keywords: 'bookmarks favorites',
@@ -6877,6 +7735,7 @@ useEffect(function() {
             focusDepth: focusDepth, setFocusDepth: setFocusDepth,
             focusNode: focusNode, clearFocus: function() { setFocusNode(null); },
             onOpenTopo: function() { setTopoOpen(true); },
+            onOpenLearningPath: function() { setLearningPathOpen(true); },
             close: close
           });
         }),
@@ -7029,6 +7888,23 @@ useEffect(function() {
       onGotoDomain: gotoDomainByDomainId,
       onApplyLevels: function(levelMap) { setTopoLevelMap(levelMap); }
     }),
+    React.createElement(LearningPathModal, {
+  open: learningPathOpen,
+  onClose: function() { setLearningPathOpen(false); },
+  allNodes: nodes,
+  allEdges: edges,
+  visibleDomains: visibleDomainsList,
+  bookmarkedDomains: bookmarkedDomainsList,
+  onGotoDomain: gotoDomainByDomainId,
+  onStartTour: startTour
+}),
+React.createElement(TourOverlay, {
+  tour: tour,
+  onPrev: tourPrev,
+  onNext: tourNext,
+  onTogglePlay: tourTogglePlay,
+  onStop: tourStop
+}),
     React.createElement(ContextMenu, { menu: contextMenu, onClose: function() { setContextMenu(null); }, onAction: handleContextAction }),
     toastVisible && REMOTE_INFO && REMOTE_INFO.fromCache && React.createElement(Toast, {
       message: '📦 Граф построен из <b>кэша</b>'
