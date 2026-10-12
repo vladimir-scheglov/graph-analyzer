@@ -5986,6 +5986,14 @@ var bookmarkedDomainsList = useMemo(function() {
 
   useEffect(function() { setSearchIndex(0); }, [searchQuery]);
 
+  // Отслеживаем последнюю позицию мыши глобально
+  useEffect(function() {
+    var onMove = function(e) {
+      window.__lastMouse = { x: e.clientX, y: e.clientY };
+    };
+    document.addEventListener('mousemove', onMove);
+    return function() { document.removeEventListener('mousemove', onMove); };
+  }, []);
   // ---- Actions ----
   var navigatingFromHistory = useRef(false);
   
@@ -6257,26 +6265,74 @@ var bookmarkedDomainsList = useMemo(function() {
   var showTooltipFor = useCallback(function(html, event) {
     clearTimeout(hideTimer.current);
     var x = event.clientX + 16, y = event.clientY + 16;
-    setTooltip({ html: html, x: x, y: y });
+    setTooltip({
+      html: html,
+      x: x,
+      y: y,
+      anchorX: event.clientX,
+      anchorY: event.clientY
+    });
   }, []);
 
-  var scheduleHide = useCallback(function() {
-    clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(function() {
-      if (!window.__tooltipHovered) setTooltip(null);
-    }, 250);
-  }, []);
+ var scheduleHideRef = useRef(null);
+
+var scheduleHide = useCallback(function() {
+  clearTimeout(hideTimer.current);
+  hideTimer.current = setTimeout(function() {
+    if (window.__tooltipHovered) return;
+
+    var el = document.querySelector('.tooltip');
+    var m = window.__lastMouse;
+    if (el && m) {
+      var rect = el.getBoundingClientRect();
+      var pad = 40;
+      if (m.x >= rect.left - pad && m.x <= rect.right + pad &&
+          m.y >= rect.top - pad && m.y <= rect.bottom + pad) {
+        // Мышь рядом с тултипом — не скрываем, повторим проверку позже
+        if (scheduleHideRef.current) scheduleHideRef.current();
+        return;
+      }
+    }
+    setTooltip(null);
+  }, 250);
+}, []);
+
+useEffect(function() {
+  scheduleHideRef.current = scheduleHide;
+}, [scheduleHide]);
 
   useEffect(function() {
     if (!tooltip) return;
     var el = document.querySelector('.tooltip');
     if (!el) return;
+  
     var rect = el.getBoundingClientRect();
-    var x = tooltip.x, y = tooltip.y;
-    var m = 8;
-    if (x + rect.width > window.innerWidth - m) x = Math.max(m, window.innerWidth - rect.width - m);
-    if (y + rect.height > window.innerHeight - m) y = Math.max(m, window.innerHeight - rect.height - m);
-    if (x !== tooltip.x || y !== tooltip.y) setTooltip(function(t) { return t ? Object.assign({}, t, { x: x, y: y }) : null; });
+    var margin = 12;
+    var gap = 16;
+    var ax = tooltip.anchorX != null ? tooltip.anchorX : tooltip.x;
+    var ay = tooltip.anchorY != null ? tooltip.anchorY : tooltip.y;
+  
+    // Начинаем справа-снизу от курсора
+    var x = ax + gap;
+    var y = ay + gap;
+  
+    // Не влезает справа — перебрасываем влево от курсора (не clamp!)
+    if (x + rect.width > window.innerWidth - margin) {
+      x = ax - rect.width - gap;
+    }
+    // Не влезает снизу — перебрасываем вверх от курсора
+    if (y + rect.height > window.innerHeight - margin) {
+      y = ay - rect.height - gap;
+    }
+  
+    // Финальная прижатие к краям — если и с другой стороны не влезает
+    if (x < margin) x = margin;
+    if (y < margin) y = margin;
+  
+    // Уже правильная позиция — не трогаем (это гасит цикл пересчёта)
+    if (x === tooltip.x && y === tooltip.y) return;
+  
+    setTooltip(function(t) { return t ? Object.assign({}, t, { x: x, y: y }) : null; });
   }, [tooltip]);
 
   var handleNodeMouseEnter = useCallback(function(event, node) {
