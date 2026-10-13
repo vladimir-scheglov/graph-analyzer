@@ -56,6 +56,12 @@ function sanitizeFileName(name) {
   return (s || 'unnamed').slice(0, 200);
 }
 
+function checkRemoteCacheExists(serverUrl) {
+  const cacheDir = getCachePath(__dirname, serverUrl);
+  const completeFlag = path.join(cacheDir, '.complete');
+  return fs.existsSync(completeFlag) ? cacheDir : null;
+}
+
 function getCachePath(baseDir, serverUrl) {
   const u = new URL(serverUrl);
   const host = u.hostname;
@@ -431,13 +437,13 @@ function printHelp() {
   console.log('    node graph-analyzer.js --server <url> --login <user> --password <pass> [options]');
   console.log('');
   console.log('Опции:');
-  console.log('  --server <url>       Базовый URL сервера (например https://qa.sgrc.rvision.local)');
-  console.log('  --login <user>       Имя пользователя для логина');
-  console.log('  --password <pass>    Пароль (в кавычках, если содержит спецсимволы)');
+  console.log('  --server <url>       Базовый URL сервера (например https://your.server.com)');
+  console.log('  --login <user>       Имя пользователя (не нужно, если кэш уже есть)');
+  console.log('  --password <pass>    Пароль (не нужно, если кэш уже есть)');
   console.log('  --port <port>        HTTP-порт сервера визуализации (по умолчанию 3000)');
-  console.log('  --refresh            Обновить кэш принудительно');
-  console.log('  --reset-cache        Удалить кэш перед загрузкой');
-  console.log('  --secure             Проверять TLS-сертификат (по умолчанию отключено для self-signed)');
+  console.log('  --refresh            Обновить кэш (требуются --login и --password)');
+  console.log('  --reset-cache        Удалить кэш перед загрузкой (требуются --login и --password)');
+  console.log('  --secure             Проверять TLS-сертификат');
   console.log('  --help               Показать справку');
   console.log('');
   console.log('Кэш: .cache/domains/<host>__<hash>/');
@@ -445,9 +451,10 @@ function printHelp() {
   console.log('');
   console.log('Примеры:');
   console.log('  node graph-analyzer.js ./domains');
-  console.log('  node graph-analyzer.js --server https://qa.sgrc.rvision.local --login vscheglov --password "1234"');
-  console.log('  node graph-analyzer.js --server https://qa.sgrc.rvision.local --login vscheglov --password "1234" --refresh');
-  console.log('  node graph-analyzer.js --server https://qa.sgrc.rvision.local --login vscheglov --password "1234" --reset-cache --port 4000');
+  console.log('  node graph-analyzer.js --server https://your.server.com --login admin --password "qwerty"');
+  console.log('  node graph-analyzer.js --server https://your.server.com  # если кэш уже есть');
+  console.log('  node graph-analyzer.js --server https://your.server.com --login admin --password "qwerty" --refresh');
+  console.log('  node graph-analyzer.js --server https://your.server.com --login admin --password "qwerty" --reset-cache --port 4000');
 }
 
 class DomainGraphAnalyzer {
@@ -708,6 +715,15 @@ class DomainGraphAnalyzer {
     for (const [domainId, domainData] of this.domains) {
       const nodeId = `domain_${domainId}`;
       if (!nodesMap.has(nodeId)) {
+        const raw = domainData.rawData || {};
+        // Извлекаем путь относительно rootDir
+        let folderPath = [];
+        try {
+          const relPath = path.relative(this.rootDir, domainData.filePath);
+          const dir = path.dirname(relPath);
+          folderPath = dir.split(path.sep).filter(function(p) { return p && p !== '.'; });
+        } catch (e) { /* ignore */ }
+
         nodesMap.set(nodeId, {
           id: nodeId,
           label: domainData.name,
@@ -715,13 +731,14 @@ class DomainGraphAnalyzer {
           title: this.buildTooltip(domainData),
           group: 'domain',
           filePath: domainData.filePath,
+          folderPath: folderPath, 
           fqidRefs: domainData.fqidRefs,
           version: domainData.version,
           entitiesCount: domainData.entities.size,
           name: domainData.name || '',
-          description: domainData.description || '',
-          author: domainData.author || '',
-          tags: Array.isArray(domainData.tags) ? domainData.tags.slice() : (domainData.tags ? [String(domainData.tags)] : [])
+          description: raw.description || '',
+          author: raw.author || '',
+          tags: Array.isArray(raw.tags) ? raw.tags.slice() : (raw.tags ? [String(raw.tags)] : [])
         });
       }
     }
@@ -1429,13 +1446,13 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Robo
 .rf-node--dimmed { opacity: 0.15; }
 .rf-node--path { border-color: #fbbf24 !important; box-shadow: 0 0 0 3px rgba(251,191,36,0.35) !important; }
 .rf-node--path-endpoint { border-color: #22c55e !important; box-shadow: 0 0 0 3px rgba(34,197,94,0.4) !important; }
-.rf-node__icon { width: 26px; height: 26px; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; }
+.rf-node__icon { width: 30px; height: 30px; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; flex-shrink: 0; }
 .rf-node--domain .rf-node__icon { background: rgba(16,185,129,0.15); color: var(--success); }
 .rf-node--missing .rf-node__icon { background: rgba(245,158,11,0.15); color: var(--warning); }
 .rf-node--broken .rf-node__icon { background: rgba(239,68,68,0.15); color: var(--danger); }
 .rf-node__content { flex: 1; min-width: 0; }
-.rf-node__id { font-size: 12px; font-weight: 600; color: var(--text-100); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rf-node__name { font-size: 10px; color: var(--text-500); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.rf-node__id { font-size: 14px; font-weight: 600; color: var(--text-100); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rf-node__name { font-size: 12px; color: var(--text-500); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 4px; }
 .rf-handle { width: 6px !important; height: 6px !important; background: var(--bg-600) !important; border: 1.5px solid var(--bg-850) !important; }
 /* Compact node */
 .rf-compact { width: 100%; height: 100%; border-radius: 50%; border: 2px solid; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; transition: all 0.15s; cursor: pointer; }
@@ -1481,7 +1498,7 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Robo
 .details__ref:hover { background: var(--bg-700); border-left-color: var(--accent-hover); }
 .details__ref-path { font-size: 10px; color: var(--text-500); margin-top: 2px; }
 .details__ref--missing { border-left-color: var(--warning); }
-.details__actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.details__actions { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
 
 /* Context menu */
 .ctx-menu { position: fixed; z-index: 500; background: var(--bg-800); border: 1px solid var(--border-hover); border-radius: 10px; box-shadow: 0 16px 48px rgba(0,0,0,0.5); padding: 6px; min-width: 200px; animation: popoverIn 0.12s ease; }
@@ -3405,6 +3422,17 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Robo
   transform-origin: 0 0;
   will-change: transform;
 }
+[data-theme="dark"] .rf-node {
+  background: linear-gradient(180deg, #1e2b47 0%, #131c2e 100%);
+  border-color: #33456a;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+[data-theme="dark"] .rf-node:hover {
+  background: linear-gradient(180deg, #263659 0%, #1a2642 100%);
+  border-color: #5a75b8;
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+    
 </style>
 </head>
 <body>
@@ -3419,11 +3447,7 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Robo
 }
 
 let __mainCalled = false;
-// --- CLI ---
 async function main() {
-  if (__mainCalled) return;
-  __mainCalled = true;
-
   const args = parseArgs(process.argv.slice(2));
 
   if (args.flags.help) {
@@ -3443,35 +3467,65 @@ async function main() {
     const server = args.flags.server;
     const username = args.flags.login || args.flags.username;
     const password = args.flags.password;
+    const refresh = !!args.flags.refresh;
+    const resetCache = !!args.flags['reset-cache'];
 
-    if (!username || !password) {
-      console.error('❌ Для режима --server требуются --login и --password');
-      process.exit(1);
-    }
+    // Проверяем кэш до требования кредов
+    const cachedDir = (!refresh && !resetCache) ? checkRemoteCacheExists(server) : null;
 
-    const base = server.replace(/\/+$/, '');
-    remoteCredentials = {
-      server: base,
-      loginUrl: base + '/api/evo/core/bff/graphql',
-      apiUrl: base + '/api/graphql',
-      tenantId: '00000000-0000-0000-0000-000000000000',
-      token: null,               // получим лениво
-      username: username,
-      password: password,
-      secure: !!args.flags.secure
-    };
+    if (cachedDir) {
+      // Кэш валиден — используем без логина
+      let fetchedAt = null;
+      try {
+        const idx = JSON.parse(fs.readFileSync(path.join(cachedDir, '_index.json'), 'utf8'));
+        fetchedAt = idx.fetchedAt || null;
+      } catch (e) {}
 
-    try {
-      const result = await prepareRemoteCache(server, username, password, {
-        refresh: !!args.flags.refresh,
-        resetCache: !!args.flags['reset-cache'],
+      rootDir = cachedDir;
+      remoteInfo = { cacheDir: cachedDir, fromCache: true, server: server, fetchedAt: fetchedAt };
+
+      console.log('📦 Используется кэш: ' + cachedDir);
+      console.log('   (обновить: --refresh --login <user> --password <pass>, сбросить: --reset-cache)');
+
+      if (!username || !password) {
+        console.log('💡 Логин/пароль не указаны — валидация доменов будет недоступна');
+      }
+    } else {
+      // Кэша нет или запрошено обновление — нужны креды
+      if (!username || !password) {
+        console.error('❌ Для сервера ' + server + ' нет закэшированной версии.');
+        console.error('');
+        console.error('   Укажите креды, чтобы скачать схемы:');
+        console.error('     node graph-analyzer.js --server ' + server + ' --login <user> --password <pass>');
+        console.error('');
+        console.error('   Если кэш есть, но повреждён — запустите с --reset-cache и кредами.');
+        process.exit(1);
+      }
+
+      const base = server.replace(/\/+$/, '');
+      remoteCredentials = {
+        server: base,
+        loginUrl: base + '/api/evo/core/bff/graphql',
+        apiUrl: base + '/api/graphql',
+        tenantId: '00000000-0000-0000-0000-000000000000',
+        token: null,
+        username: username,
+        password: password,
         secure: !!args.flags.secure
-      });
-      rootDir = result.cacheDir;
-      remoteInfo = result;
-    } catch (err) {
-      console.error('❌ Ошибка загрузки: ' + err.message);
-      process.exit(1);
+      };
+
+      try {
+        const result = await prepareRemoteCache(server, username, password, {
+          refresh: refresh,
+          resetCache: resetCache,
+          secure: !!args.flags.secure
+        });
+        rootDir = result.cacheDir;
+        remoteInfo = result;
+      } catch (err) {
+        console.error('❌ Ошибка загрузки: ' + err.message);
+        process.exit(1);
+      }
     }
   } else {
     rootDir = path.resolve(args.positional[0]);

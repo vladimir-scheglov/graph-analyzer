@@ -14,43 +14,38 @@ const REMOTE_INFO = (function() {
 const REFRESH_COMMAND = (function() {
   try { return JSON.parse(document.getElementById('refresh-command').textContent); } catch (e) { return null; }
 })();
-const NODE_WIDTH = 220;
-const NODE_HEIGHT = 60;
-const NODE_COMPACT = 28;
+var NODE_WIDTH = 300;      // было 220/260
+var NODE_HEIGHT = 88;      // было 60/76
+var NODE_COMPACT = 42;     // было 28/36
 const EDGE_COLOR = '#10b981';
-const LINKAGE_COLOR = '#818cf8';
-const FQID_COLOR = '#10b981';
+const LINKAGE_COLOR = '#6366a1';
+const FQID_COLOR = '#4b7c6c';
 const PATH_COLOR = '#fbbf24';
 const DIFF_ADDED = '#22c55e';
 const DIFF_REMOVED = '#ef4444';
 
 // ============ LAYOUTS ============
-function clusterLayout(nodes, edges, depth) {
-  depth = depth || 2;
-  var NODE_W = 220;
-  var NODE_H = 60;
-  var CLUSTER_PAD = 40;
+function clusterLayout(nodes, edges, getKeyForDepth) {
+  var NODE_W = NODE_WIDTH;
+  var NODE_H = NODE_HEIGHT;
+  var CLUSTER_PAD = 36;
   var HEADER_H = 30;
-  var GAP_BETWEEN_GROUPS = 60;
   var MAX_GROUPS = 50;
 
-  function getNs(domainId, d) {
-    var parts = (domainId || '').split('.');
-    return parts.slice(0, d).join('.') || domainId || '__empty__';
-  }
-
-  // Авто-уменьшение глубины
-  var effectiveDepth = depth;
-  while (effectiveDepth > 1) {
+  // Пробуем разные глубины 1..5, чтобы групп было не больше MAX_GROUPS
+  var effectiveDepth = 2;
+  for (var d = 1; d <= 5; d++) {
     var cnt = new Set();
     nodes.forEach(function(n) {
-      if (n.data && n.data.nodeType === 'domain') cnt.add(getNs(n.data.domainId, effectiveDepth));
+      if (n.data && n.data.nodeType === 'domain') {
+        var key = getKeyForDepth(n, d);
+        if (key) cnt.add(key);
+      }
     });
+    effectiveDepth = d;
     if (cnt.size <= MAX_GROUPS) break;
-    effectiveDepth--;
   }
 
-  // Группируем
   var groups = new Map();
   var nodeToNs = new Map();
   nodes.forEach(function(n) {
@@ -61,26 +56,24 @@ function clusterLayout(nodes, edges, depth) {
       nodeToNs.set(n.id, key);
       return;
     }
-    var ns = getNs(n.data.domainId, effectiveDepth);
+    var ns = getKeyForDepth(n, effectiveDepth);
     if (!groups.has(ns)) groups.set(ns, []);
     groups.get(ns).push(n);
     nodeToNs.set(n.id, ns);
   });
 
-  // Внутренний layout
+  // Внутренний layout каждой группы
   var groupLayouts = new Map();
   groups.forEach(function(groupNodes, ns) {
     if (ns === '__other__') {
       var laidOther = groupNodes.map(function(n, i) {
         return Object.assign({}, n, { __x: i * (NODE_W + 20), __y: 0 });
       });
-      var w = laidOther.length * (NODE_W + 20) - 20;
       groupLayouts.set(ns, {
         nodes: laidOther,
-        width: w,
+        width: laidOther.length * (NODE_W + 20) - 20,
         height: NODE_H,
-        label: null,
-        isOther: true
+        label: null
       });
       return;
     }
@@ -97,7 +90,7 @@ function clusterLayout(nodes, edges, depth) {
 
     var g = new dagre.graphlib.Graph();
     g.setDefaultEdgeLabel(function() { return {}; });
-    g.setGraph({ rankdir: 'LR', nodesep: 18, ranksep: 50, marginx: 10, marginy: 10 });
+    g.setGraph({ rankdir: 'LR', nodesep: 18, ranksep: 60, marginx: 10, marginy: 10 });
 
     var ids = new Set(groupNodes.map(function(n) { return n.id; }));
     groupNodes.forEach(function(n) { g.setNode(n.id, { width: NODE_W, height: NODE_H }); });
@@ -132,7 +125,7 @@ function clusterLayout(nodes, edges, depth) {
     });
   });
 
-  // Мета-граф для расстановки групп
+  // Мета-граф
   var metaEdgesMap = new Map();
   edges.forEach(function(e) {
     var sNs = nodeToNs.get(e.source);
@@ -157,7 +150,6 @@ function clusterLayout(nodes, edges, depth) {
 
   dagre.layout(meta);
 
-  // Собираем финальные позиции узлов + боксы групп
   var finalNodes = [];
   var boxes = [];
 
@@ -184,7 +176,6 @@ function clusterLayout(nodes, edges, depth) {
     }
 
     layout.nodes.forEach(function(n) {
-      // Убираем служебные поля
       var copy = Object.assign({}, n);
       delete copy.__x;
       delete copy.__y;
@@ -193,15 +184,16 @@ function clusterLayout(nodes, edges, depth) {
           x: groupX + padX + n.__x,
           y: groupY + padY + n.__y
         },
+        width: NODE_W,
+        height: NODE_H,
         targetPosition: 'left',
         sourcePosition: 'right'
       }));
     });
   });
 
-  return { nodes: finalNodes, boxes: boxes, effectiveDepth: effectiveDepth, requestedDepth: depth };
+  return { nodes: finalNodes, boxes: boxes, effectiveDepth: effectiveDepth };
 }
-
 function dagreLayout(nodes, edges, rankdir) {
   rankdir = rankdir || 'LR';
   var W = (typeof NODE_WIDTH === 'number' && isFinite(NODE_WIDTH)) ? NODE_WIDTH : 220;
@@ -210,7 +202,7 @@ function dagreLayout(nodes, edges, rankdir) {
 
   var g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(function() { return {}; });
-  g.setGraph({ rankdir: rankdir, nodesep: 30, ranksep: 100, edgesep: 20, marginx: 40, marginy: 40 });
+  g.setGraph({ rankdir: rankdir, nodesep: 18, ranksep: 60, edgesep: 10, marginx: 40, marginy: 40 });
 
   var validNodes = nodes.filter(function(n) {
     return n && typeof n.id === 'string' && n.id.length > 0;
@@ -336,14 +328,23 @@ function forceLayout(nodes, edges) {
   });
 }
 
+function getFolderKey(n, depth) {
+  var fp = (n.data && n.data.folderPath) || [];
+  if (fp.length === 0) return '__root__';
+  return fp.slice(0, depth).join('/') || '__root__';
+}
+
 function runLayout(nodes, edges, type, opts) {
   if (type === 'TB') return { nodes: dagreLayout(nodes, edges, 'TB'), boxes: [], effectiveDepth: null };
   if (type === 'force') return { nodes: forceLayout(nodes, edges), boxes: [], effectiveDepth: null };
   if (type === 'circular') return { nodes: circularLayout(nodes), boxes: [], effectiveDepth: null };
   if (type === 'cluster') {
-    var depth = (opts && opts.depth) || 2;
-    var result = clusterLayout(nodes, edges, depth);
+    var result = clusterLayout(nodes, edges, getNsByDomainId);
     return { nodes: result.nodes, boxes: result.boxes, effectiveDepth: result.effectiveDepth };
+  }
+  if (type === 'folder') {
+    var result2 = clusterLayout(nodes, edges, getFolderKey);
+    return { nodes: result2.nodes, boxes: result2.boxes, effectiveDepth: result2.effectiveDepth };
   }
   return { nodes: dagreLayout(nodes, edges, 'LR'), boxes: [], effectiveDepth: null };
 }
@@ -2240,9 +2241,25 @@ function SidePanel(props) {
         React.createElement('div', { className: 'details__field-label' }, 'Теги'),
         React.createElement('div', { className: 'details__tags' }, node.data.tags.map(function(t, i) { return React.createElement('span', { key: i, className: 'tag' }, t); }))
       ),
-      node.data.filePath && React.createElement('div', { className: 'details__field' },
+      REMOTE_INFO && REMOTE_INFO.server && React.createElement('div', { className: 'details__field' },
+        React.createElement('div', { className: 'details__field-label' }, 'Каталог'),
+        React.createElement('div', {
+          className: 'details__field-value',
+          style: { fontFamily: 'monospace', fontSize: 12, lineHeight: 1.7, wordBreak: 'break-word' }
+        }, (node.data.folderPath && node.data.folderPath.length > 0)
+          ? node.data.folderPath.join(' / ')
+          : '(корень)')
+      ),
+      !(REMOTE_INFO && REMOTE_INFO.server) && node.data.filePath && React.createElement('div', { className: 'details__field' },
         React.createElement('div', { className: 'details__field-label' }, 'Файл'),
-        React.createElement('div', { className: 'details__field-value', style: { fontSize: 11, fontFamily: 'monospace' } }, node.data.filePath)
+        React.createElement('div', {
+          className: 'details__field-value',
+          style: { fontSize: 11, fontFamily: 'monospace' }
+        }, node.data.filePath)
+      ),
+      React.createElement('div', { className: 'details__actions' },
+        node.data.filePath && React.createElement('button', { className: 'btn', onClick: function() { onOpenFile(node.data.filePath); } }, '📂 Открыть файл'),
+        node.data.nodeType === 'domain' && React.createElement('button', { className: 'btn', onClick: function() { onGotoDomain(node.data.domainId); } }, '🎯 Центрировать')
       ),
       ruleViolations.length > 0 && React.createElement('div', { className: 'section' },
         React.createElement('div', { className: 'section__title' }, 'Нарушения правил (' + ruleViolations.length + ')'),
@@ -2301,10 +2318,6 @@ function SidePanel(props) {
           })
         )
       ),
-      React.createElement('div', { className: 'details__actions' },
-        node.data.filePath && React.createElement('button', { className: 'btn', onClick: function() { onOpenFile(node.data.filePath); } }, '📂 Открыть файл'),
-        node.data.nodeType === 'domain' && React.createElement('button', { className: 'btn', onClick: function() { onGotoDomain(node.data.domainId); } }, '🎯 Центрировать')
-      )
     );
   } else {
     detailsContent = React.createElement('div', { className: 'details' }, React.createElement('div', { style: { color: 'var(--text-500)', textAlign: 'center', padding: 40 } }, 'Узел не выбран'));
@@ -2507,7 +2520,13 @@ function FilterMenu(props) {
 
     React.createElement('div', { className: 'menu__section' },
       React.createElement('div', { className: 'menu__label' }, 'Namespace'),
-      React.createElement('input', { className: 'menu__input', type: 'text', placeholder: 'sgrc.risk.*, !test.*', value: namespaceFilter, onChange: function(e) { setNamespaceFilter(e.target.value); } }),
+      React.createElement('input', { className: 'menu__input', type: 'text', placeholder: 'sgrc.risk.*, !test.*', value: namespaceFilter, onChange: function(e) { setNamespaceFilter(e.target.value); }, onKeyDown: function(e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          e.stopPropagation();
+          document.dispatchEvent(new CustomEvent('close-all-popovers'));
+        }
+      } }),
       React.createElement('div', { className: 'menu__hint' }, 'Несколько масок через , ; или пробел. ', React.createElement('b', null, '!'), ' — исключить. ', React.createElement('b', null, '*'), ' — любой символ.')
     ),
 
@@ -2533,6 +2552,16 @@ function FilterMenu(props) {
       ),
 
       React.createElement('div', { className: 'menu__divider' }),
+
+      React.createElement('label', { className: 'menu__checkbox' },
+        React.createElement('input', {
+          type: 'checkbox',
+          checked: !props.sidePanelEnabled,
+          onChange: function() { props.setSidePanelEnabled(!props.sidePanelEnabled); }
+        }),
+        React.createElement('span', { className: 'menu__check' }),
+        React.createElement('span', { className: 'menu__text' }, 'Не показывать правую панель (D)')
+      ),
 
       React.createElement('label', { className: 'menu__checkbox' },
         React.createElement('input', { type: 'checkbox', checked: !tooltipsEnabled, onChange: function() { setTooltipsEnabled(!tooltipsEnabled); } }),
@@ -2710,18 +2739,12 @@ function ViewMenu(props) {
           React.createElement('span', { className: 'menu__icon' }, props.layoutType === 'cluster' ? '●' : '○'),
           React.createElement('span', { className: 'menu__text' }, 'По семействам')
       ),
-      props.layoutType === 'cluster' && React.createElement('div', { className: 'menu__row', style: { paddingLeft: 30 } },
-          React.createElement('span', { style: { fontSize: 12, color: 'var(--text-400)', minWidth: 90 } }, 'Глубина NS:'),
-          [2, 3, 4].map(function(d) {
-            return React.createElement('button', {
-              key: d,
-              className: 'menu__pill' + (props.clusterDepth === d ? ' menu__pill--active' : ''),
-              onClick: function() { props.setClusterDepth(d); }
-            }, d + ' сегм.');
-          }),
-          props.layoutType === 'cluster' && React.createElement('div', {
-            style: { fontSize: 10, color: 'var(--text-500)', paddingLeft: 30, paddingTop: 4 }
-          }, 'Групп: ' + (props.clusterGroupCount || 0)),
+      React.createElement('button', {
+        className: 'menu__item' + (props.layoutType === 'folder' ? ' menu__item--active' : ''),
+        onClick: function() { props.setLayoutType('folder'); }
+      },
+        React.createElement('span', { className: 'menu__icon' }, props.layoutType === 'folder' ? '●' : '○'),
+        React.createElement('span', { className: 'menu__text' }, 'По каталогам')
       ),
     React.createElement('div', { className: 'menu__divider' }),
     React.createElement('div', { className: 'menu__label' }, 'Heatmap'),
@@ -4261,7 +4284,9 @@ function HotkeysModal(props) {
     {
       title: 'Вид',
       items: [
-        { keys: ['T'], label: 'Скрыть/показать тултипы' }
+        { keys: ['T'], label: 'Скрыть/показать тултипы' },
+        { keys: ['D'], label: 'Скрыть/показать правую панель' },
+        { keys: ['E'], label: 'Скрыть/показать все связи' }
       ]
     },
     {
@@ -4368,6 +4393,11 @@ function HelpModal(props) {
   );
 }
 
+function getNsByDomainId(n, depth) {
+  var parts = (n.data.domainId || '').split('.');
+  return parts.slice(0, depth).join('.') || '__empty__';
+}
+
 // ============ APP ============
 function App() {
   // Theme
@@ -4437,16 +4467,26 @@ function App() {
   var [hotkeysOpen, setHotkeysOpen] = useState(false);
   var [entityHierarchyOpen, setEntityHierarchyOpen] = useState(false);
   var [entityHierarchyInitialKey, setEntityHierarchyInitialKey] = useState(null);
-
-  var originalNodesRef = useRef(null);
   var [clusterBoxes, setClusterBoxes] = useState([]);
   var [clusterGroupCount, setClusterGroupCount] = useState(0);
   var didInitialFitRef = useRef(false);
+  var filteredNodesRef = useRef([]);
+
+  var [sidePanelEnabled, setSidePanelEnabled] = useState(function() {
+    try {
+      var saved = localStorage.getItem('dg-side-panel-enabled');
+      return saved === null ? true : saved === 'true';
+    } catch (e) { return true; }
+  });
+
+  useEffect(function() {
+    try { localStorage.setItem('dg-side-panel-enabled', String(sidePanelEnabled)); } catch (e) {}
+  }, [sidePanelEnabled]);
 
 
   useEffect(function() {
-  setEdges(displayEdges);
-}, [displayEdges, setEdges]);
+    setEdges(displayEdges);
+  }, [displayEdges, setEdges]);
 
   var getLayoutCacheKey = function(type, depth) {
     return type + ':' + depth + ':' + compact + ':' + edges.length + ':' + nodes.length;
@@ -4648,6 +4688,7 @@ useEffect(function() {
           label: n.label,
           nodeType: n.group,
           filePath: n.filePath,
+          folderPath: n.folderPath || [],
           tooltipHtml: n.title,
           fqidRefs: n.fqidRefs || [],
           version: n.version,
@@ -4690,32 +4731,29 @@ useEffect(function() {
         },
         style: {
           stroke: isLinkage ? LINKAGE_COLOR : FQID_COLOR,
-          strokeWidth: isLinkage ? 2 : 1.5,
-          opacity: 0.85
+          strokeWidth: isLinkage ? 1.0 : 0.8,
+          opacity: isLinkage ? 0.35 : 0.22
         }
       };
     });
     return { nodes: dagreLayout(nodes, edges, 'LR'), edges: edges };
   }, []);
 
-  var [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
-  var [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
+    var [allNodes, setAllNodes] = useState(initial.nodes);
+  var [allEdges, setAllEdges] = useState(initial.edges);
 
   var [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
   var [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
 
-  useEffect(function() {
-    // Запоминаем самый первый набор узлов — он не содержит cluster-узлов
-    if (!originalNodesRef.current) {
-      originalNodesRef.current = initial.nodes;
-    }
-  }, []);
+  var [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
+  var [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
 
   // ---- Derived: namespace aggregation ----
   var display = useMemo(function() {
     if (!nsMode) return { nodes: nodes, edges: edges };
     return aggregateByNamespace(nodes, edges);
   }, [nodes, edges, nsMode]);
+
   var displayNodes = display.nodes;
   var displayEdges = display.edges;
   
@@ -4792,6 +4830,14 @@ useEffect(function() {
     });
   }, [bidirectionalEdges, filteredNodes, filters.linkage, filters.fqid, showViolationsOnly, violationsByEdge]);
 
+  useEffect(function() {
+    filteredNodesRef.current = filteredNodes;
+  }, [filteredNodes]);
+
+  var filteredIdsHash = useMemo(function() {
+    return filteredNodes.map(function(n) { return n.id; }).sort().join(',');
+  }, [filteredNodes]);
+
   // ---- Highlights ----
   var highlight = useMemo(function() {
     // Priority: path > cycle > focus > selected
@@ -4858,6 +4904,7 @@ useEffect(function() {
     if (!hasChanges) return filteredNodes;
   
     return filteredNodes.map(function(n) {
+      if (n.hidden) return n;
       var dimmed = highlight ? !highlight.nodes.has(n.id) : false;
       var inPath = highlight && highlight.type === 'path' && highlight.nodes.has(n.id);
       var isPathEndpoint = pathEndpoints && pathEndpoints.has(n.id);
@@ -4869,11 +4916,11 @@ useEffect(function() {
       var isBookmarked = bookmarks ? bookmarks.has(n.id) : false;
       
       var hm = null;
-if (heatmapValues) {
-  var val = heatmapValues.map.get(n.id) || 0;
-  var scheme = heatmapValues.scheme;
-  hm = heatColor(val, heatmapValues.min, heatmapValues.max, scheme);
-}
+      if (heatmapValues) {
+        var val = heatmapValues.map.get(n.id) || 0;
+        var scheme = heatmapValues.scheme;
+        hm = heatColor(val, heatmapValues.min, heatmapValues.max, scheme);
+      }
   
       return Object.assign({}, n, {
         style: { opacity: dimmed ? 0.12 : 1, transition: 'opacity 0.2s' },
@@ -4903,14 +4950,15 @@ if (heatmapValues) {
   if (!hasHighlight) return filteredEdges;
 
   return filteredEdges.map(function(e) {
+    const isLinkage = e.data && e.data.kind === 'linkage';
     var isSelected = e.id === selectedEdgeId;
     var hl = highlight && highlight.edges.has(e.id);
-    var baseColor = (e.data && e.data.kind === 'linkage') ? LINKAGE_COLOR
+    var baseColor = isLinkage ? LINKAGE_COLOR
       : (e.data && e.data.kind === 'fqid') ? FQID_COLOR : LINKAGE_COLOR;
-
+    
     var stroke = baseColor;
-    var opacity = 0.85;
-    var strokeWidth = (e.style && e.style.strokeWidth) || 1.5;
+    var opacity = isLinkage ? 0.35 : 0.22;
+    var strokeWidth = (e.style && e.style.strokeWidth) || (isLinkage ? 1.0 : 0.8);
     var animated = false;
 
     if (highlight) {
@@ -5289,11 +5337,13 @@ var bookmarkedDomainsList = useMemo(function() {
     }
   
     setSelectedNodeId(node.id);
-    setFocusNode(null);
+    setFocusNode(node.id);
     setPathResult(null);
     setPathSel([]);
-    pushNav(node.data.domainId);   // ← добавили
-    openDetails(node.id);
+    pushNav(node.data.domainId);
+    if (sidePanelEnabled) {
+      openDetails(node.id);
+    }
   }, [openDetails, pathMode, filteredEdges, pushNav]);
 
   var handleNodeDoubleClick = useCallback(function(event, node) {
@@ -5480,130 +5530,155 @@ useEffect(function() {
   }, [showTooltipFor, pathSel.length, pathMode, tooltipsEnabled]);
 
   // ---- Global click delegation (tooltip buttons, goto-domain) ----
-  useEffect(function() {
-    var handler = function(e) {
-      var toggleBtn = e.target.closest('.js-toggle-validation');
-      if (toggleBtn) {
-        e.stopPropagation();
-        e.preventDefault();
-        var list = toggleBtn.nextElementSibling;
-        if (list && list.classList.contains('tooltip__validation-list')) {
-          var isOpen = list.style.display !== 'none';
-          list.style.display = isOpen ? 'none' : 'block';
-          var arrow = toggleBtn.querySelector('.tooltip__validation-arrow');
-          if (arrow) arrow.textContent = isOpen ? '▸' : '▾';
-        }
-        return;
+useEffect(function() {
+  var handler = function(e) {
+    try {
+      var target = e.target;
+      if (target) {
+        var tag = target.tagName || '';
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+        if (target.isContentEditable === true) return;
       }
-      var openBtn = e.target.closest('.js-open-file');
-      if (openBtn) {
-        e.stopPropagation(); e.preventDefault();
-        openFileInEditor(openBtn.getAttribute('data-file'), openBtn.getAttribute('data-fqid'));
-        return;
-      }
-      var gotoBtn = e.target.closest('.js-goto-domain');
-      if (gotoBtn) {
-        e.stopPropagation(); e.preventDefault();
-        var d = gotoBtn.getAttribute('data-domain');
-        if (!d) return;
-        gotoDomainByDomainId(d);
-        setTooltip(null);
-        window.__tooltipHovered = false;
-      }
-    };
-    document.addEventListener('click', handler, true);
-    return function() { document.removeEventListener('click', handler, true); };
-  }, [openFileInEditor, gotoDomainByDomainId]);
 
-  // ---- Hotkeys ----
-  useEffect(function() {
-    var handler = function(e) {
-      if (e.shiftKey && e.key === 'Tab') { e.preventDefault(); if (searchOpen) closeSearch(); else openSearch(); return; }
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); openSearch(); return; }
-      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
-      if (tour) {
-  if (e.key === 'ArrowRight') { e.preventDefault(); tourNext(); return; }
-  if (e.key === 'ArrowLeft') { e.preventDefault(); tourPrev(); return; }
-  if (e.key === ' ') { e.preventDefault(); tourTogglePlay(); return; }
-  if (e.key === 'Escape') { e.preventDefault(); tourStop(); return; }
-}
-      if (e.key === 'f' || e.key === 'F') { rfInstance.current && rfInstance.current.fitView({ duration: 500 }); }
-      else if (e.key === 'Escape') {
-        setSelectedNodeId(null); setFocusNode(null);
-        setPathSel([]); setPathResult(null);
-        setCycleHighlight(null); setContextMenu(null);
+      var ctrl = e.ctrlKey || e.metaKey;
+      var alt = e.altKey;
+      var shift = e.shiftKey;
+      var code = e.code;   // физическая клавиша, не зависит от раскладки
+      var k = e.key;       // символ
+
+      if (ctrl && !shift && !alt && code === 'KeyK') {
+        e.preventDefault();
+        openSearch();
+        return;
+      }
+
+      if (alt && k === 'ArrowLeft') { e.preventDefault(); navBack(); return; }
+      if (alt && k === 'ArrowRight') { e.preventDefault(); navForward(); return; }
+
+      if (shift && k === 'Tab') {
+        e.preventDefault();
+        if (searchOpen) closeSearch(); else openSearch();
+        return;
+      }
+
+      if (ctrl || alt) return;
+
+      if (code === 'KeyF') { e.preventDefault(); if (rfInstance.current) { try { rfInstance.current.fitView({ duration: 500 }); } catch (err) {} } return; }
+      if (code === 'KeyC') { e.preventDefault(); handleFindCycles(); return; }
+      if (code === 'KeyI') { e.preventDefault(); setIsolatedOnly(function(v) { return !v; }); return; }
+      if (code === 'KeyS') { e.preventDefault(); setNsMode(function(v) { return !v; }); return; }
+      if (code === 'KeyP') { e.preventDefault(); handleRunPath(); return; }
+      if (code === 'KeyT') { e.preventDefault(); setTooltipsEnabled(function(v) { return !v; }); return; }
+      if (code === 'KeyD') { e.preventDefault(); setSidePanelEnabled(function(v) { return !v; }); return; }
+
+      if (code === 'KeyE') {
+        e.preventDefault();
+        setFilters(function(f) {
+          var bothOn = f.linkage && f.fqid;
+          if (bothOn) return Object.assign({}, f, { linkage: false, fqid: false });
+          return Object.assign({}, f, { linkage: true, fqid: true });
+        });
+        return;
+      }
+
+      if (code === 'KeyB' && selectedNodeId) {
+        e.preventDefault();
+        toggleBookmark(selectedNodeId);
+        return;
+      }
+
+      if (k === 'Escape') {
+        setSelectedNodeId(null);
+        setFocusNode(null);
+        setPathResult(null);
+        setPathSel([]);
+        setCycleHighlight(null);
+        setContextMenu(null);
         setPathMode(null);
-      }
-      else if (e.key === 'c' || e.key === 'C') { handleFindCycles(); }
-      else if (e.key === 'i' || e.key === 'I') { setIsolatedOnly(function(v) { return !v; }); }
-      else if (e.key === 's' || e.key === 'S') { setNsMode(function(v) { return !v; }); }
-      else if (e.key === 'p' || e.key === 'P') { handleRunPath(); }
-      else if ((e.key === 'b' || e.key === 'B') && selectedNodeId) { toggleBookmark(selectedNodeId); }
-      else if (e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); navBack(); return; }
-      else if (e.altKey && e.key === 'ArrowRight') { e.preventDefault(); navForward(); return; }
-      else if ((e.key === '?' || e.key === 'F1') && !e.target.matches('input, textarea')) {
-        e.preventDefault();
-        setHelpOpen(true);
         return;
       }
-      else if ((e.key === '?' || e.key === 'F1') && !e.target.matches('input, textarea')) {
-        e.preventDefault();
-        if (e.key === 'F1') setHelpOpen(true);
-        else setHotkeysOpen(true);
-        return;
-      }
-      else if ((e.key === 't' || e.key === 'T') && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        setTooltipsEnabled(function(v) { return !v; });
-      }
-    };
-    window.addEventListener('keydown', handler, true);
-    return function() { window.removeEventListener('keydown', handler, true); };
-  }, [searchOpen, openSearch, closeSearch, handleFindCycles, handleRunPath, navBack, navForward, tooltipsEnabled]);
+
+      if (k === 'F1') { e.preventDefault(); setHelpOpen(true); return; }
+      if (k === '?') { e.preventDefault(); setHotkeysOpen(true); return; }
+    } catch (err) {
+      console.error('[hotkey error]', err);
+    }
+  };
+
+  document.addEventListener('keydown', handler, true);
+  return function() { document.removeEventListener('keydown', handler, true); };
+}, [
+  searchOpen, openSearch, closeSearch,
+  navBack, navForward,
+  handleFindCycles, handleRunPath,
+  selectedNodeId, toggleBookmark
+]);
 
   // ---- Layout on change ----
 var applyLayout = useCallback(function(type, depth) {
+  setNodes(function(prevNodes) {
+    if (prevNodes.length === 0) return prevNodes;
 
-  var baseNodes = originalNodesRef.current || [];
-  if (baseNodes.length === 0) {
-    console.warn('[applyLayout] baseNodes empty, skipping');
-    return;
-  }
+    var visibleIds = new Set(filteredNodes.map(function(n) { return n.id; }));
 
-  // Сохраняем viewport перед пересозданием
-  var savedViewport = null;
-  if (rfInstance.current) {
-    try { savedViewport = rfInstance.current.getViewport(); } catch (e) {}
-  }
+    var layoutInput = prevNodes
+      .filter(function(n) { return visibleIds.has(n.id); })
+      .map(function(n) {
+        return Object.assign({}, n, {
+          data: Object.assign({}, n.data, { __compact: compact })
+        });
+      });
 
-  var compactNodes = baseNodes.map(function(n) {
-    return Object.assign({}, n, {
-      data: Object.assign({}, n.data, { __compact: compact })
+    if (layoutInput.length === 0) {
+      return prevNodes.map(function(n) {
+        return Object.assign({}, n, { hidden: true });
+      });
+    }
+
+    var result = runLayout(layoutInput, filteredEdges, type, { depth: depth });
+    var posMap = new Map();
+    result.nodes.forEach(function(n) { posMap.set(n.id, n.position); });
+
+    setClusterBoxes((type === 'cluster' || type === 'folder') ? (result.boxes || []) : []);
+    setClusterGroupCount((type === 'cluster' || type === 'folder') ? (result.boxes || []).length : 0);
+
+    return prevNodes.map(function(n) {
+      var visible = visibleIds.has(n.id);
+      var newPos = posMap.get(n.id);
+      if (visible && newPos) {
+        return Object.assign({}, n, {
+          position: newPos,
+          hidden: false,
+          width: NODE_WIDTH,
+          height: NODE_HEIGHT
+        });
+      }
+      return Object.assign({}, n, { hidden: !visible });
     });
   });
 
-  var result = runLayout(compactNodes, edges, type, { depth: depth });
-
-  setClusterBoxes(type === 'cluster' ? (result.boxes || []) : []);
-setClusterGroupCount(type === 'cluster' ? (result.boxes || []).length : 0);
-
-  setNodes(result.nodes);
-  setClusterBoxes(type === 'cluster' ? (result.boxes || []) : []);
   setSelectedEdgeId(null);
-  setSelectedNodeId(null);
+}, [filteredNodes, filteredEdges, compact, setNodes]);
 
-  // Восстанавливаем viewport после пересоздания
-  if (savedViewport) {
-    setTimeout(function() {
-      if (rfInstance.current) {
-        try { rfInstance.current.setViewport(savedViewport); } catch (e) {}
-      }
-    }, 60);
-  }
-}, [edges, compact, setNodes]);
+var scheduleFit = useCallback(function(animate) {
+  var delay = 80;
+  var duration = animate ? 400 : 0;
+  setTimeout(function() {
+    requestAnimationFrame(function() {
+      requestAnimationFrame(function() {
+        if (rfInstance.current) {
+          try {
+            rfInstance.current.fitView({ duration: duration, padding: 0.15 });
+          } catch (e) {}
+        }
+      });
+    });
+  }, delay);
+}, []);
 
 useEffect(function() {
   applyLayout(layoutType, clusterDepth);
-
+scheduleFit(!didInitialFitRef.current ? false : true);
   var isFirstFit = !didInitialFitRef.current;
 
   var doFit = function() {
@@ -5614,19 +5689,16 @@ useEffect(function() {
         padding: 0.2
       });
       didInitialFitRef.current = true;
-    } catch (e) { /* ignore */ }
+    } catch (e) {}
   };
 
   var cleanup = null;
-
   if (isFirstFit) {
-    // Первый fit — даём ReactFlow время измерить 58 узлов
     var t = setTimeout(function() {
       requestAnimationFrame(doFit);
     }, 250);
     cleanup = function() { clearTimeout(t); };
   } else {
-    // Последующие — только RAF, синхронизированно с кадром
     var raf1 = requestAnimationFrame(function() {
       var raf2 = requestAnimationFrame(doFit);
       cleanup = function() { cancelAnimationFrame(raf2); };
@@ -5635,7 +5707,7 @@ useEffect(function() {
   }
 
   return cleanup;
-}, [layoutType, clusterDepth, compact]);
+}, [layoutType, clusterDepth, compact, filteredIdsHash]);
 
   // ---- Render ----
   var panelNode = panelNodeId ? visibleNodes.find(function(n) { return n.id === panelNodeId; }) || nodes.find(function(n) { return n.id === panelNodeId; }) : null;
@@ -5650,13 +5722,16 @@ useEffect(function() {
   }, [panelOpen, panelTab, panelNodeId]);
   
   var handleEdgeClick = useCallback(function(event, edge) {
-    setSelectedEdgeId(edge.id);
-    setPanelTab('edge');
-    setPanelOpen(true);
+    var realId = (edge.data && edge.data.originalId) || edge.id;
+    setSelectedEdgeId(realId);
+    if (sidePanelEnabled) {
+      setPanelTab('edge');
+      setPanelOpen(true);
+    }
     clearTimeout(hideTimer.current);
     setTooltip(null);
     window.__tooltipHovered = false;
-  }, []);
+  }, [sidePanelEnabled]);
   
  var handleExportPNG = useCallback(function() {
     var flowEl = document.querySelector('.graph-container');
@@ -5779,10 +5854,49 @@ useEffect(function() {
       color: 'green',
       onClear: function() { setTopoLevelMap(null); }
     });
-    }
-  
+  }
+  if (!sidePanelEnabled) {
+    modes.push({
+      icon: '🚫',
+      label: 'Панель выключена',
+      color: 'gray',
+      onClear: function() { setSidePanelEnabled(true); }
+    });
+  }
+
+  if (!filters.linkage && !filters.fqid) {
+      modes.push({
+      icon: '🔌',
+      label: 'Связи скрыты',
+      color: 'gray',
+      onClear: function() {
+        setFilters(function(f) { return Object.assign({}, f, { linkage: true, fqid: true }); });
+      }
+    });
+  }
+
+  if (namespaceFilter && namespaceFilter.trim()) {
+    modes.push({
+      icon: '🔎',
+      label: 'Фильтр: ' + (namespaceFilter.length > 30 ? namespaceFilter.slice(0, 30) + '…' : namespaceFilter),
+      color: 'cyan',
+      onClear: function() { setNamespaceFilter(''); }
+    });
+  }
+
     return modes;
-  }, [topoLevelMap, cycleHighlight, focusNode, focusDepth, pathResult, pathSel, hiddenNodeIds, onlyInvalid, bookmarksOnly, nsMode, diffMode, ruleViolations, rulesHighlighted, tooltipsEnabled]);
+  }, [cycleHighlight, focusNode, focusDepth,
+  pathResult, pathSel, pathMode,
+  hiddenNodeIds,
+  onlyInvalid, bookmarksOnly, isolatedOnly,
+  nsMode, diffMode,
+  ruleViolations, rulesHighlighted, tooltipsEnabled,
+  sidePanelEnabled, 
+  namespaceFilter,
+  filters.linkage, 
+  filters.fqid,
+  filters.domain, filters.missing, filters.broken,
+  topoLevelMap]);
  
  
  var commands = useMemo(function() {
@@ -5808,6 +5922,8 @@ useEffect(function() {
         run: function() { setLayoutType('circular'); } },
       { section: 'Раскладка', icon: '🗂', label: 'По семействам', keywords: 'cluster namespace family layout group',
         run: function() { setLayoutType('cluster'); } },
+      { section: 'Раскладка', icon: '📁', label: 'По каталогам', keywords: 'folder directory path layout',
+        run: function() { setLayoutType('folder'); } },  
   
       // Вид
       { section: 'Вид', icon: theme === 'dark' ? '☀️' : '🌙', label: 'Переключить тему', keywords: 'theme dark light',
@@ -6069,7 +6185,10 @@ useEffect(function() {
             bookmarksOnly: bookmarksOnly, setBookmarksOnly: setBookmarksOnly,
             onlyInvalid: onlyInvalid, setOnlyInvalid: setOnlyInvalid,
             isolatedOnly: isolatedOnly, setIsolatedOnly: setIsolatedOnly,
-            tooltipsEnabled: tooltipsEnabled, setTooltipsEnabled: setTooltipsEnabled
+            tooltipsEnabled: tooltipsEnabled, setTooltipsEnabled: setTooltipsEnabled,
+            sidePanelEnabled: sidePanelEnabled,
+            setSidePanelEnabled: setSidePanelEnabled,
+            close: close,
           });
         }),
       
@@ -6185,7 +6304,7 @@ useEffect(function() {
             readOnly: nsMode,
             perfMode: perfMode,
           }),
-          layoutType === 'cluster' && clusterBoxes.length > 0 && React.createElement(GroupsOverlay, {
+          (layoutType === 'cluster' || layoutType === 'folder') && clusterBoxes.length > 0 && React.createElement(GroupsOverlay, {
             boxes: clusterBoxes
           })
         ),
