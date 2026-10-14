@@ -1213,14 +1213,19 @@ class DomainGraphAnalyzer {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Domain Graph Analyzer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0,0&display=swap">
 <link rel="stylesheet" href="https://esm.sh/reactflow@11.11.4/dist/style.css" />
 <script type="importmap">
 {
   "imports": {
     "react": "https://esm.sh/react@18.2.0",
+    "react/": "https://esm.sh/react@18.2.0/",
     "react-dom": "https://esm.sh/react-dom@18.2.0",
-    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-    "reactflow": "https://esm.sh/reactflow@11.11.4?deps=react@18.2.0,react-dom@18.2.0",
+    "react-dom/": "https://esm.sh/react-dom@18.2.0/",
+    "reactflow": "https://esm.sh/reactflow@11.11.4?external=react,react-dom",
+    "reactflow/": "https://esm.sh/reactflow@11.11.4/",
     "dagre": "https://esm.sh/dagre@0.8.5"
   }
 }
@@ -3432,7 +3437,33 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Robo
   border-color: #5a75b8;
   box-shadow: 0 6px 20px rgba(99, 102, 241, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
-    
+ .material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 18px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  vertical-align: middle;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+.material-symbols-outlined.mi-sm { font-size: 14px; }
+.material-symbols-outlined.mi-md { font-size: 18px; }
+.material-symbols-outlined.mi-lg { font-size: 24px; }
+.material-symbols-outlined.mi-xl { font-size: 32px; }
+
+.material-symbols-outlined.mi-fill {
+  font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}   
 </style>
 </head>
 <body>

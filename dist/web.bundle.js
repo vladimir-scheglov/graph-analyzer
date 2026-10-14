@@ -40,6 +40,20 @@ var FQID_COLOR = "#4b7c6c";
 var PATH_COLOR = "#fbbf24";
 var DIFF_ADDED = "#22c55e";
 var DIFF_REMOVED = "#ef4444";
+function MIcon(props) {
+  var cls = "material-symbols-outlined";
+  if (props.size === "sm") cls += " mi-sm";
+  else if (props.size === "lg") cls += " mi-lg";
+  else if (props.size === "xl") cls += " mi-xl";
+  else cls += " mi-md";
+  if (props.fill) cls += " mi-fill";
+  if (props.className) cls += " " + props.className;
+  return React.createElement("span", {
+    className: cls,
+    "aria-hidden": "true",
+    title: props.title || void 0
+  }, props.name);
+}
 function clusterLayout(nodes, edges, getKeyForDepth) {
   var NODE_W = NODE_WIDTH;
   var NODE_H = NODE_HEIGHT;
@@ -155,7 +169,7 @@ function clusterLayout(nodes, edges, getKeyForDepth) {
     meta.setNode(ns, { width: w, height: h });
   });
   metaEdgesMap.forEach(function(_, key) {
-    var p = key.split("\u2192");
+    var p = key.split(React.createElement(MIcon, { name: "arrow_forward" }));
     meta.setEdge(p[0], p[1]);
   });
   dagre.layout(meta);
@@ -1070,7 +1084,7 @@ function EntityHierarchyGraph(props) {
       React.createElement("button", { className: "entity-ctrl-btn", onClick: function() {
         zoomBy(1 / 1.3);
       }, title: "\u041E\u0442\u0434\u0430\u043B\u0438\u0442\u044C" }, "\u2212"),
-      React.createElement("button", { className: "entity-ctrl-btn", onClick: fitView, title: "\u0412\u043F\u0438\u0441\u0430\u0442\u044C" }, "\u26F6"),
+      React.createElement("button", { className: "entity-ctrl-btn", onClick: fitView, title: "\u0412\u043F\u0438\u0441\u0430\u0442\u044C" }, React.createElement(MIcon, { name: "fit_screen" })),
       React.createElement("span", { className: "entity-zoom-level" }, Math.round(viewport.scale * 100) + "%")
     ),
     React.createElement(
@@ -1308,7 +1322,7 @@ function EntityHierarchyModal(props) {
         "div",
         { className: "help-modal__header" },
         React.createElement("div", { className: "help-modal__title" }, "\u{1F9EC} \u0418\u0435\u0440\u0430\u0440\u0445\u0438\u044F \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439"),
-        React.createElement("button", { className: "help-modal__close", onClick: onClose }, "\u2715")
+        React.createElement("button", { className: "help-modal__close", onClick: onClose }, React.createElement(MIcon, { name: "close" }))
       ),
       React.createElement(
         "div",
@@ -1319,7 +1333,7 @@ function EntityHierarchyModal(props) {
           React.createElement(
             "div",
             { className: "entity-search-input-wrap" },
-            React.createElement("span", { className: "entity-search-icon" }, "\u{1F50D}"),
+            React.createElement("span", { className: "entity-search-icon" }, React.createElement(MIcon, { name: "search" })),
             React.createElement("input", {
               className: "entity-search-input",
               type: "text",
@@ -1379,7 +1393,7 @@ function EntityHierarchyModal(props) {
           !selectedKey ? React.createElement(
             "div",
             { className: "entity-graph-empty" },
-            React.createElement("div", { className: "entity-graph-empty__icon" }, "\u{1F9EC}"),
+            React.createElement("div", { className: "entity-graph-empty__icon" }, React.createElement(MIcon, { name: "account_tree" })),
             React.createElement("div", { className: "entity-graph-empty__title" }, "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0441\u043B\u0435\u0432\u0430"),
             React.createElement("div", { className: "entity-graph-empty__hint" }, "\u0420\u043E\u0434\u0438\u0442\u0435\u043B\u0438 \u0431\u0443\u0434\u0443\u0442 \u0441\u0432\u0435\u0440\u0445\u0443, \u043D\u0430\u0441\u043B\u0435\u0434\u043D\u0438\u043A\u0438 \u0441\u043D\u0438\u0437\u0443")
           ) : React.createElement(EntityHierarchyGraph, {
@@ -1866,13 +1880,13 @@ function buildTooltipHtml(domainId, label, nodeType, filePath, version, entities
   if (tags && tags.length > 0) html += '<div class="tooltip__row"><span class="tooltip__label">\u0422\u0435\u0433\u0438:</span><span class="tooltip__value">' + tags.map(escapeHtml).join(", ") + "</span></div>";
   if (filePath) {
     html += '<div class="tooltip__row"><span class="tooltip__label">\u0424\u0430\u0439\u043B:</span><span class="tooltip__value" style="font-size:11px">' + escapeHtml(filePath) + "</span></div>";
-    html += '<div style="margin-top:10px"><button class="tooltip__btn js-open-file" data-file="' + escapeHtml(filePath) + '">\u{1F4C2} \u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0444\u0430\u0439\u043B</button></div>';
+    html += '<div style="margin-top:10px"><button class="tooltip__btn js-open-file" data-file="' + escapeHtml(filePath) + '"><span class="material-symbols-outlined mi-sm">folder_open</span> \u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0444\u0430\u0439\u043B</button></div>';
   }
   if (validation) {
     html += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">';
     if (validation.status === "invalid") {
       var diagCount = validation.diagnostics ? validation.diagnostics.length : 0;
-      html += '<button class="tooltip__validation-toggle js-toggle-validation" type="button"><span class="tooltip__validation-arrow">\u25B8</span><span class="tooltip__validation-title" style="color:var(--danger)">\u274C \u041D\u0435\u0432\u0430\u043B\u0438\u0434\u0435\u043D</span><span class="tooltip__validation-count">' + diagCount + "</span></button>";
+      html += '<button class="tooltip__validation-toggle js-toggle-validation" type="button"><span class="tooltip__validation-arrow"><span class="material-symbols-outlined mi-sm">chevron_right</span></span><span class="tooltip__validation-title" style="color:var(--danger)"><span class="material-symbols-outlined mi-sm">cancel</span> \u041D\u0435\u0432\u0430\u043B\u0438\u0434\u0435\u043D</span><span class="tooltip__validation-count">' + diagCount + "</span></button>";
       if (diagCount > 0) {
         html += '<div class="tooltip__validation-list" style="display:none">';
         validation.diagnostics.forEach(function(d, i) {
@@ -1891,7 +1905,7 @@ function buildTooltipHtml(domainId, label, nodeType, filePath, version, entities
         html += "</div>";
       }
     } else if (validation.status === "error") {
-      html += '<div class="tooltip__label" style="margin-bottom:6px;color:var(--warning)">\u26A0\uFE0F \u041E\u0448\u0438\u0431\u043A\u0430 \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u0438</div>';
+      html += '<div class="tooltip__label" style="margin-bottom:6px;color:var(--warning)"><span class="material-symbols-outlined mi-sm">warning</span> \u041E\u0448\u0438\u0431\u043A\u0430 \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u0438</div>';
       html += '<div class="tooltip__validation-message">' + escapeHtml(validation.error || "") + "</div>";
     }
     html += "</div>";
@@ -1904,7 +1918,7 @@ function buildTooltipHtml(domainId, label, nodeType, filePath, version, entities
       html += '<div class="tooltip__ref">';
       html += '<div class="tooltip__fqid js-goto-domain" data-domain="' + escapeHtml(ref.targetDomainId || "") + '" style="cursor:pointer">' + escapeHtml(ref.fullFQID) + "</div>";
       html += '<div class="tooltip__path">' + escapeHtml(ref.propertyPath) + "</div>";
-      html += '<button class="tooltip__btn js-open-file" data-file="' + escapeHtml(ref.filePath || "") + '" data-fqid="' + escapeHtml(ref.fullFQID || "") + '">\u{1F4C2} \u041E\u0442\u043A\u0440\u044B\u0442\u044C</button>';
+      html += '<button class="tooltip__btn js-open-file" data-file="' + escapeHtml(ref.filePath || "") + '" data-fqid="' + escapeHtml(ref.fullFQID || "") + '"><span class="material-symbols-outlined mi-sm">folder_open</span> \u041E\u0442\u043A\u0440\u044B\u0442\u044C</button>';
       html += "</div>";
     });
     html += "</div>";
@@ -1926,7 +1940,7 @@ function buildEdgeTooltipHtml(edge, refs) {
     var clickable = !!domain;
     var h = '<div class="tooltip__row"><span class="tooltip__label">' + labelText + "</span>";
     if (clickable) {
-      h += '<span class="tooltip__value js-goto-domain" data-domain="' + escapeHtml(domain) + '" style="cursor:pointer;color:var(--accent-hover);text-decoration:underline dotted">' + escapeHtml(text) + ' <span style="font-size:10px;color:var(--text-500)">\u2192 ' + escapeHtml(domain) + "</span></span>";
+      h += '<span class="tooltip__value js-goto-domain" data-domain="' + escapeHtml(domain) + '" style="cursor:pointer;color:var(--accent-hover);text-decoration:underline dotted">' + escapeHtml(text) + ' <span style="font-size:10px;color:var(--text-500)"><span class="material-symbols-outlined mi-sm">arrow_forward</span> ' + escapeHtml(domain) + "</span></span>";
     } else {
       h += '<span class="tooltip__value" style="color:var(--text-400)">' + escapeHtml(text) + "</span>";
     }
@@ -1934,7 +1948,7 @@ function buildEdgeTooltipHtml(edge, refs) {
   }
   var html = '<div class="tooltip__header">\u0421\u0432\u044F\u0437\u044C: ' + escapeHtml(fullLabel) + "</div>";
   html += '<div class="tooltip__body">';
-  if (edge.data && edge.data.isBidirectional) html += '<div style="font-size:11px;color:var(--accent-hover);margin-bottom:8px">\u21C4 \u0434\u0432\u0443\u043D\u0430\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u043D\u0430\u044F \u0441\u0432\u044F\u0437\u044C</div>';
+  if (edge.data && edge.data.isBidirectional) html += '<div style="font-size:11px;color:var(--accent-hover);margin-bottom:8px"><span class="material-symbols-outlined mi-sm">swap_horiz</span> \u0434\u0432\u0443\u043D\u0430\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u043D\u0430\u044F \u0441\u0432\u044F\u0437\u044C</div>';
   html += renderSide("\u0421\u0442\u043E\u0440\u043E\u043D\u0430 1:", side1Text, side1Domain);
   html += renderSide("\u0421\u0442\u043E\u0440\u043E\u043D\u0430 2:", side2Text, side2Domain);
   if (side1Text || side2Text) html += '<div style="height:1px;background:var(--border);margin:10px 0"></div>';
@@ -1946,7 +1960,7 @@ function buildEdgeTooltipHtml(edge, refs) {
       html += '<div class="tooltip__ref">';
       html += '<div class="tooltip__fqid js-goto-domain" data-domain="' + escapeHtml(ref.targetDomainId || "") + '" style="cursor:pointer">' + escapeHtml(ref.fullFQID) + "</div>";
       html += '<div class="tooltip__path">' + escapeHtml(ref.propertyPath) + "</div>";
-      html += '<button class="tooltip__btn js-open-file" data-file="' + escapeHtml(ref.filePath || "") + '" data-fqid="' + escapeHtml(ref.fullFQID || "") + '">\u{1F4C2} \u041E\u0442\u043A\u0440\u044B\u0442\u044C</button>';
+      html += '<button class="tooltip__btn js-open-file" data-file="' + escapeHtml(ref.filePath || "") + '" data-fqid="' + escapeHtml(ref.fullFQID || "") + '"><span class="material-symbols-outlined mi-sm">folder_open</span> \u041E\u0442\u043A\u0440\u044B\u0442\u044C</button>';
       html += "</div>";
     });
     html += "</div>";
@@ -1982,7 +1996,7 @@ function DomainNode(props) {
   if (data.__failed) cls += " rf-node--failed";
   if (data.__pendingFail) cls += " rf-node--pending-fail";
   if (data.__failureRoot) cls += " rf-node--failure-root";
-  var icon = data.nodeType === "domain" ? "\u25CF" : data.nodeType === "missing" ? "\u25B2" : "\u2715";
+  var icon = data.nodeType === "domain" ? "\u25CF" : data.nodeType === "missing" ? "\u25B2" : React.createElement(MIcon, { name: "close" });
   var nodeStyle = {};
   if (data.__heatColor) {
     nodeStyle.background = data.__heatColor;
@@ -2104,14 +2118,14 @@ function ContextMenu(props) {
   }, [menu]);
   if (!menu) return null;
   var items = [
-    { icon: "\u{1F3AF}", label: "\u0424\u043E\u043A\u0443\u0441 (N \u0448\u0430\u0433\u043E\u0432)", action: "focus" },
-    { icon: "\u{1F4CA}", label: "\u0427\u0442\u043E \u0437\u0430\u0432\u0438\u0441\u0438\u0442 \u043E\u0442 \u043D\u0435\u0433\u043E", action: "dependents" },
-    { icon: "\u{1F6E4}\uFE0F", label: "\u041F\u0443\u0442\u044C \u043E\u0442...", action: "path-from" },
+    { icon: React.createElement(MIcon, { name: "my_location" }), label: "\u0424\u043E\u043A\u0443\u0441 (N \u0448\u0430\u0433\u043E\u0432)", action: "focus" },
+    { icon: React.createElement(MIcon, { name: "bar_chart" }), label: "\u0427\u0442\u043E \u0437\u0430\u0432\u0438\u0441\u0438\u0442 \u043E\u0442 \u043D\u0435\u0433\u043E", action: "dependents" },
+    { icon: React.createElement(MIcon, { name: "route" }), label: "\u041F\u0443\u0442\u044C \u043E\u0442...", action: "path-from" },
     { icon: "\u21AA\uFE0F", label: "\u041F\u0443\u0442\u044C \u0434\u043E...", action: "path-to" },
     { type: "divider" },
-    { icon: "\u{1F4C2}", label: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0444\u0430\u0439\u043B", action: "open-file" },
-    { icon: "\u{1F4CB}", label: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C ID", action: "copy-id" },
-    { icon: "\u2605", label: "\u0412 \u0437\u0430\u043A\u043B\u0430\u0434\u043A\u0438", action: "bookmark" },
+    { icon: React.createElement(MIcon, { name: "folder_open" }), label: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0444\u0430\u0439\u043B", action: "open-file" },
+    { icon: React.createElement(MIcon, { name: "content_copy" }), label: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C ID", action: "copy-id" },
+    { icon: React.createElement(MIcon, { name: "star" }), label: "\u0412 \u0437\u0430\u043A\u043B\u0430\u0434\u043A\u0438", action: "bookmark" },
     { icon: "\u{1F441}\uFE0F", label: "\u0421\u043A\u0440\u044B\u0442\u044C", action: "hide", danger: true }
   ];
   return React.createElement(
@@ -2284,7 +2298,7 @@ function SidePanel(props) {
         React.createElement("span", { className: "details__id-text" }, node.data.domainId),
         React.createElement("button", { className: "details__copy", onClick: function() {
           navigator.clipboard.writeText(node.data.domainId);
-        }, title: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C" }, "\u{1F4CB}")
+        }, title: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C" }, React.createElement(MIcon, { name: "content_copy" }))
       ),
       React.createElement(
         "div",
@@ -2353,7 +2367,7 @@ function SidePanel(props) {
                   gotoDomainByDomainId(v.fromId);
                 }
               },
-              React.createElement("span", { className: "rank-item__num" }, v.severity === "forbid" ? "\u26D4" : "\u26A0\uFE0F"),
+              React.createElement("span", { className: "rank-item__num" }, v.severity === "forbid" ? React.createElement(MIcon, { name: "block" }) : React.createElement(MIcon, { name: "warning" })),
               React.createElement("span", { className: "rank-item__label" }, v.fromId + " \u2192 " + v.toId)
             );
           })
@@ -2476,7 +2490,7 @@ function SidePanel(props) {
           React.createElement("span", { className: "details__id-text" }, edge.id),
           React.createElement("button", { className: "details__copy", onClick: function() {
             navigator.clipboard.writeText(edge.id);
-          }, title: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C ID" }, "\u{1F4CB}")
+          }, title: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C ID" }, React.createElement(MIcon, { name: "content_copy" }))
         ),
         React.createElement(
           "div",
@@ -2623,7 +2637,7 @@ function SidePanel(props) {
           }
         }, "\u{1F9EC} \u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438")
       ),
-      React.createElement("button", { className: "btn btn--icon", onClick: onClose, title: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C" }, "\u2715")
+      React.createElement("button", { className: "btn btn--icon", onClick: onClose, title: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C" }, React.createElement(MIcon, { name: "close" }))
     ),
     filePath && React.createElement("div", { className: "editor-panel__path", style: { padding: "6px 16px", fontSize: 11, color: "var(--text-500)", borderBottom: "1px solid var(--border)", background: "var(--bg-800)", fontFamily: "monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, filePath),
     React.createElement(
@@ -2812,7 +2826,7 @@ function AnalysisMenu(props) {
           close2();
         }
       },
-      React.createElement("span", { className: "menu__icon" }, "\u{1F501}"),
+      React.createElement("span", { className: "menu__icon" }, React.createElement(MIcon, { name: "cycle" })),
       React.createElement("span", { className: "menu__text" }, "\u041D\u0430\u0439\u0442\u0438 \u0446\u0438\u043A\u043B\u044B"),
       cycleHighlight && React.createElement("span", { className: "menu__count" }, cycleHighlight.sccCount)
     ),
@@ -2828,7 +2842,7 @@ function AnalysisMenu(props) {
           close2();
         }
       },
-      React.createElement("span", { className: "menu__icon" }, "\u25EF"),
+      React.createElement("span", { className: "menu__icon" }, React.createElement(MIcon, { name: "radio_button_unchecked" })),
       React.createElement("span", { className: "menu__text" }, "\u0422\u043E\u043B\u044C\u043A\u043E \u0438\u0437\u043E\u043B\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0435")
     ),
     // --- Агрегация по семействам ---
@@ -2843,7 +2857,7 @@ function AnalysisMenu(props) {
           close2();
         }
       },
-      React.createElement("span", { className: "menu__icon" }, "\u{1F5C2}"),
+      React.createElement("span", { className: "menu__icon" }, React.createElement(MIcon, { name: "category" })),
       React.createElement("span", { className: "menu__text" }, "\u0410\u0433\u0440\u0435\u0433\u0430\u0446\u0438\u044F \u043F\u043E \u0441\u0435\u043C\u0435\u0439\u0441\u0442\u0432\u0430\u043C")
     ),
     React.createElement("div", { className: "menu__divider" }),
@@ -2857,7 +2871,7 @@ function AnalysisMenu(props) {
           close2();
         }
       },
-      React.createElement("span", { className: "menu__icon" }, "\u{1F4E6}"),
+      React.createElement("span", { className: "menu__icon" }, React.createElement(MIcon, { name: "inventory_2" })),
       React.createElement("span", { className: "menu__text" }, "\u041F\u043E\u0440\u044F\u0434\u043E\u043A \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438")
     ),
     // --- Путь изучения ---
@@ -2870,7 +2884,7 @@ function AnalysisMenu(props) {
           close2();
         }
       },
-      React.createElement("span", { className: "menu__icon" }, "\u{1F4D6}"),
+      React.createElement("span", { className: "menu__icon" }, React.createElement(MIcon, { name: "menu_book" })),
       React.createElement("span", { className: "menu__text" }, "\u041F\u0443\u0442\u044C \u0438\u0437\u0443\u0447\u0435\u043D\u0438\u044F")
     ),
     React.createElement("div", { className: "menu__divider" }),
@@ -2884,7 +2898,7 @@ function AnalysisMenu(props) {
           close2();
         }
       },
-      React.createElement("span", { className: "menu__icon" }, "\u26D4"),
+      React.createElement("span", { className: "menu__icon" }, React.createElement(MIcon, { name: "block" })),
       React.createElement("span", { className: "menu__text" }, "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0435\u0439"),
       ruleViolations.length > 0 && React.createElement("span", { className: "menu__count" }, ruleViolations.length)
     ),
@@ -2897,7 +2911,7 @@ function AnalysisMenu(props) {
           close2();
         }
       },
-      React.createElement("span", { className: "menu__icon" }, "\u{1F9EC}"),
+      React.createElement("span", { className: "menu__icon" }, React.createElement(MIcon, { name: "account_tree" })),
       React.createElement("span", { className: "menu__text" }, "\u0418\u0435\u0440\u0430\u0440\u0445\u0438\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439")
     ),
     React.createElement("div", { className: "menu__divider" }),
@@ -2930,7 +2944,7 @@ function AnalysisMenu(props) {
           close2();
         }
       },
-      React.createElement("span", { className: "menu__icon" }, "\u2715"),
+      React.createElement("span", { className: "menu__icon" }, React.createElement(MIcon, { name: "close" })),
       React.createElement("span", { className: "menu__text" }, "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0444\u043E\u043A\u0443\u0441")
     )
   );
@@ -3087,7 +3101,7 @@ function ViewMenu(props) {
         setTheme(theme === "dark" ? "light" : "dark");
         close2();
       } },
-      React.createElement("span", { className: "menu__icon" }, theme === "dark" ? "\u2600\uFE0F" : "\u{1F319}"),
+      React.createElement("span", { className: "menu__icon" }, theme === "dark" ? React.createElement(MIcon, { name: "light_mode" }) : React.createElement(MIcon, { name: "dark_mode" })),
       React.createElement("span", { className: "menu__text" }, theme === "dark" ? "\u0421\u0432\u0435\u0442\u043B\u0430\u044F \u0442\u0435\u043C\u0430" : "\u0422\u0451\u043C\u043D\u0430\u044F \u0442\u0435\u043C\u0430")
     )
   );
@@ -3111,7 +3125,7 @@ function DataMenu(props) {
         handleExportJSON();
         close2();
       } },
-      React.createElement("span", { className: "menu__icon" }, "\u{1F4BE}"),
+      React.createElement("span", { className: "menu__icon" }, React.createElement(MIcon, { name: "save" })),
       React.createElement("span", { className: "menu__text" }, "\u0413\u0440\u0430\u0444 \u0432 JSON")
     ),
     React.createElement(
@@ -3120,7 +3134,7 @@ function DataMenu(props) {
         handleExportMarkdown();
         close2();
       } },
-      React.createElement("span", { className: "menu__icon" }, "\u{1F4DD}"),
+      React.createElement("span", { className: "menu__icon" }, React.createElement(MIcon, { name: "description" })),
       React.createElement("span", { className: "menu__text" }, "\u041E\u0442\u0447\u0451\u0442 \u0432 Markdown")
     ),
     React.createElement(
@@ -3129,7 +3143,7 @@ function DataMenu(props) {
         handleExportPNG();
         close2();
       } },
-      React.createElement("span", { className: "menu__icon" }, "\u{1F5BC}\uFE0F"),
+      React.createElement("span", { className: "menu__icon" }, React.createElement(MIcon, { name: "image" })),
       React.createElement("span", { className: "menu__text" }, "\u0413\u0440\u0430\u0444 \u0432 PNG")
     ),
     React.createElement("div", { className: "menu__divider" }),
@@ -3137,7 +3151,7 @@ function DataMenu(props) {
     React.createElement(
       "label",
       { className: "menu__item" },
-      React.createElement("span", { className: "menu__icon" }, "\u21C4"),
+      React.createElement("span", { className: "menu__icon" }, React.createElement(MIcon, { name: "swap_horiz" })),
       React.createElement("span", { className: "menu__text" }, "\u0417\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C \u0441\u043D\u0438\u043C\u043E\u043A"),
       React.createElement("input", { ref: snapshotInputRef, type: "file", accept: "application/json", style: { display: "none" }, onChange: function(e) {
         handleSnapshotUpload(e);
@@ -3150,7 +3164,7 @@ function DataMenu(props) {
         setDiffMode(null);
         close2();
       } },
-      React.createElement("span", { className: "menu__icon" }, "\u2715"),
+      React.createElement("span", { className: "menu__icon" }, React.createElement(MIcon, { name: "close" })),
       React.createElement("span", { className: "menu__text" }, "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C diff")
     ),
     validationAvailable && React.createElement("div", { className: "menu__divider" }),
@@ -3161,7 +3175,7 @@ function DataMenu(props) {
         onOpenValidation();
         close2();
       } },
-      React.createElement("span", { className: "menu__icon" }, "\u{1F50D}"),
+      React.createElement("span", { className: "menu__icon" }, React.createElement(MIcon, { name: "search" })),
       React.createElement("span", { className: "menu__text" }, "\u041C\u0430\u0441\u0441\u043E\u0432\u0430\u044F \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u0434\u043E\u043C\u0435\u043D\u043E\u0432")
     )
   );
@@ -3185,7 +3199,7 @@ function ActiveModesBar(props) {
           className: "active-mode__close",
           onClick: m.onClear,
           title: "\u041E\u0442\u043A\u043B\u044E\u0447\u0438\u0442\u044C"
-        }, "\u2715")
+        }, React.createElement(MIcon, { name: "close" }))
       );
     })
   );
@@ -3417,7 +3431,7 @@ function Toast(props) {
     React.createElement("button", { className: "toast__close", onClick: function() {
       setVisible(false);
       if (onClose) onClose();
-    } }, "\u2715")
+    } }, React.createElement(MIcon, { name: "close" }))
   );
 }
 function HoverTooltip(props) {
@@ -3632,7 +3646,7 @@ function LearningPathModal(props) {
         "div",
         { className: "help-modal__header" },
         React.createElement("div", { className: "help-modal__title" }, "\u{1F4D6} \u041F\u0443\u0442\u044C \u0438\u0437\u0443\u0447\u0435\u043D\u0438\u044F \u0430\u0440\u0445\u0438\u0442\u0435\u043A\u0442\u0443\u0440\u044B"),
-        React.createElement("button", { className: "help-modal__close", onClick: onClose }, "\u2715")
+        React.createElement("button", { className: "help-modal__close", onClick: onClose }, React.createElement(MIcon, { name: "close" }))
       ),
       React.createElement(
         "div",
@@ -3673,7 +3687,7 @@ function LearningPathModal(props) {
             React.createElement(
               "div",
               { className: "learning-entry-points__header" },
-              React.createElement("span", { className: "learning-entry-points__icon" }, "\u{1F6AA}"),
+              React.createElement("span", { className: "learning-entry-points__icon" }, React.createElement(MIcon, { name: "login" })),
               React.createElement("span", null, "\u0422\u043E\u0447\u043A\u0438 \u0432\u0445\u043E\u0434\u0430 (" + path.entryPoints.length + ")"),
               React.createElement("span", { className: "learning-entry-points__hint" }, "\u2014 \u043D\u0438\u043A\u0442\u043E \u043D\u0435 \u0437\u0430\u0432\u0438\u0441\u0438\u0442 \u043E\u0442 \u043D\u0438\u0445, \u043D\u043E \u043E\u043D\u0438 \u0437\u0430\u0432\u0438\u0441\u044F\u0442 \u043E\u0442 \u0434\u0440\u0443\u0433\u0438\u0445")
             ),
@@ -3707,7 +3721,7 @@ function LearningPathModal(props) {
                 { className: "topo-level__header", onClick: function() {
                   toggleStage(stage.index);
                 } },
-                React.createElement("span", { className: "validation-log__chevron" }, isOpen ? "\u25BE" : "\u25B8"),
+                React.createElement("span", { className: "validation-log__chevron" }, isOpen ? React.createElement(MIcon, { name: "expand_more" }) : React.createElement(MIcon, { name: "chevron_right" })),
                 React.createElement("span", { className: "topo-level__badge learning-path-stage-badge" }, stage.index + 1),
                 React.createElement("span", { className: "topo-level__title" }, "\u042D\u0442\u0430\u043F " + (stage.index + 1)),
                 React.createElement(
@@ -3775,7 +3789,7 @@ function LearningPathModal(props) {
             React.createElement(
               "div",
               { className: "topo-cyclic__header" },
-              React.createElement("span", { className: "topo-cyclic__icon" }, "\u26A0\uFE0F"),
+              React.createElement("span", { className: "topo-cyclic__icon" }, React.createElement(MIcon, { name: "warning" })),
               React.createElement("span", null, "\u0412 \u0446\u0438\u043A\u043B\u0435 \u2014 \u0447\u0438\u0442\u0430\u0442\u044C \u043F\u043E\u0441\u043B\u0435 \u0432\u0441\u0435\u0445 (" + path.unresolved.length + ")")
             ),
             React.createElement(
@@ -3860,7 +3874,7 @@ function TourOverlay(props) {
         { className: "tour-overlay__header" },
         React.createElement("span", { className: "tour-overlay__stage-badge" }, "\u042D\u0442\u0430\u043F " + current.stageNumber),
         React.createElement("span", { className: "tour-overlay__counter" }, tour.index + 1 + " / " + allItems.length),
-        React.createElement("button", { className: "tour-overlay__close", onClick: onStop, title: "\u0417\u0430\u0432\u0435\u0440\u0448\u0438\u0442\u044C" }, "\u2715")
+        React.createElement("button", { className: "tour-overlay__close", onClick: onStop, title: "\u0417\u0430\u0432\u0435\u0440\u0448\u0438\u0442\u044C" }, React.createElement(MIcon, { name: "close" }))
       ),
       React.createElement("div", { className: "tour-overlay__title" }, current.domainId),
       d.label && d.label !== current.domainId && React.createElement("div", { className: "tour-overlay__subtitle" }, d.label),
@@ -3896,18 +3910,18 @@ function TourOverlay(props) {
           onClick: onPrev,
           disabled: tour.index === 0,
           title: "\u041D\u0430\u0437\u0430\u0434"
-        }, "\u25C0"),
+        }, React.createElement(MIcon, { name: "chevron_left" })),
         React.createElement("button", {
           className: "tour-btn tour-btn--primary",
           onClick: onTogglePlay,
           title: tour.playing ? "\u041F\u0430\u0443\u0437\u0430" : "\u0418\u0433\u0440\u0430\u0442\u044C"
-        }, tour.playing ? "\u275A\u275A" : "\u25B6"),
+        }, tour.playing ? React.createElement(MIcon, { name: "pause" }) : React.createElement(MIcon, { name: "play_arrow" })),
         React.createElement("button", {
           className: "tour-btn",
           onClick: onNext,
           disabled: tour.index >= allItems.length - 1,
           title: "\u0414\u0430\u043B\u044C\u0448\u0435"
-        }, "\u25B6")
+        }, React.createElement(MIcon, { name: "play_arrow" }))
       )
     )
   );
@@ -4105,7 +4119,7 @@ function TopoSortModal(props) {
         "div",
         { className: "help-modal__header" },
         React.createElement("div", { className: "help-modal__title" }, "\u{1F4E6} \u041F\u043E\u0440\u044F\u0434\u043E\u043A \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438 \u0434\u043E\u043C\u0435\u043D\u043E\u0432"),
-        React.createElement("button", { className: "help-modal__close", onClick: onClose }, "\u2715")
+        React.createElement("button", { className: "help-modal__close", onClick: onClose }, React.createElement(MIcon, { name: "close" }))
       ),
       React.createElement(
         "div",
@@ -4189,7 +4203,7 @@ function TopoSortModal(props) {
               React.createElement(
                 "div",
                 { className: "topo-cyclic__header" },
-                React.createElement("span", { className: "topo-cyclic__icon" }, "\u26A0\uFE0F"),
+                React.createElement("span", { className: "topo-cyclic__icon" }, React.createElement(MIcon, { name: "warning" })),
                 React.createElement("span", null, "\u0422\u0440\u0435\u0431\u0443\u044E\u0442 \u0440\u0443\u0447\u043D\u043E\u0433\u043E \u0432\u043C\u0435\u0448\u0430\u0442\u0435\u043B\u044C\u0441\u0442\u0432\u0430 \u2014 \u0446\u0438\u043A\u043B (" + result.cyclic.length + ")")
               ),
               React.createElement(
@@ -4213,7 +4227,7 @@ function TopoSortModal(props) {
               React.createElement(
                 "div",
                 { className: "topo-cyclic__header topo-cyclic__header--broken" },
-                React.createElement("span", { className: "topo-cyclic__icon" }, "\u{1F517}"),
+                React.createElement("span", { className: "topo-cyclic__icon" }, React.createElement(MIcon, { name: "link" })),
                 React.createElement("span", null, "\u0426\u0438\u043A\u043B\u044B \u0440\u0430\u0437\u043E\u0440\u0432\u0430\u043D\u044B \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 (" + result.broken.length + ")")
               ),
               React.createElement(
@@ -4251,7 +4265,7 @@ function TopoSortModal(props) {
                 { className: "topo-level__header", onClick: function() {
                   toggleLevel(idx);
                 } },
-                React.createElement("span", { className: "validation-log__chevron" }, isOpen ? "\u25BE" : "\u25B8"),
+                React.createElement("span", { className: "validation-log__chevron" }, isOpen ? React.createElement(MIcon, { name: "expand_more" }) : React.createElement(MIcon, { name: "chevron_right" })),
                 React.createElement("span", { className: "topo-level__badge" }, idx + 1),
                 React.createElement("span", { className: "topo-level__title" }, "\u0423\u0440\u043E\u0432\u0435\u043D\u044C " + (idx + 1)),
                 React.createElement("span", { className: "topo-level__count" }, level.length + " \u0434\u043E\u043C\u0435\u043D" + (level.length === 1 ? "" : level.length < 5 ? "\u0430" : "\u043E\u0432"))
@@ -4277,7 +4291,7 @@ function TopoSortModal(props) {
                         onClick: function() {
                           toggleDeps(id);
                         }
-                      }, isDepsOpen ? "\u25BE" : "\u25B8"),
+                      }, isDepsOpen ? React.createElement(MIcon, { name: "expand_more" }) : React.createElement(MIcon, { name: "chevron_right" })),
                       !deps.length && React.createElement("span", { className: "validation-log__chevron" }, " "),
                       React.createElement("a", {
                         className: "validation-log__domain",
@@ -4555,7 +4569,7 @@ function ValidationModal(props) {
         "div",
         { className: "help-modal__header" },
         React.createElement("div", { className: "help-modal__title" }, "\u{1F50D} \u041C\u0430\u0441\u0441\u043E\u0432\u0430\u044F \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u0434\u043E\u043C\u0435\u043D\u043E\u0432"),
-        React.createElement("button", { className: "help-modal__close", onClick: running ? stopValidation : onClose }, running ? "\u25A0 \u0421\u0442\u043E\u043F" : "\u2715")
+        React.createElement("button", { className: "help-modal__close", onClick: running ? stopValidation : onClose }, running ? "\u25A0 \u0421\u0442\u043E\u043F" : React.createElement(MIcon, { name: "close" }))
       ),
       React.createElement(
         "div",
@@ -4601,7 +4615,7 @@ function ValidationModal(props) {
           "div",
           { className: "validation-logs", ref: logsRef },
           filteredLogs.length === 0 ? React.createElement("div", { className: "validation-logs__empty" }, "\u041D\u0435\u0442 \u0437\u0430\u043F\u0438\u0441\u0435\u0439 \u043F\u043E \u0444\u0438\u043B\u044C\u0442\u0440\u0443") : filteredLogs.map(function(log, i) {
-            var icon = log.status === "valid" ? "\u2705" : log.status === "invalid" ? "\u274C" : "\u26A0\uFE0F";
+            var icon = log.status === "valid" ? React.createElement(MIcon, { name: "check_circle" }) : log.status === "invalid" ? React.createElement(MIcon, { name: "cancel" }) : React.createElement(MIcon, { name: "warning" });
             var isInvalid = log.status === "invalid";
             var hasDiag = isInvalid && log.diagnostics && log.diagnostics.length > 0;
             var isOpen = expanded.has(log.domainId);
@@ -4616,7 +4630,7 @@ function ValidationModal(props) {
                     toggleExpanded(log.domainId);
                   } : void 0
                 },
-                hasDiag && React.createElement("span", { className: "validation-log__chevron" }, isOpen ? "\u25BE" : "\u25B8"),
+                hasDiag && React.createElement("span", { className: "validation-log__chevron" }, isOpen ? React.createElement(MIcon, { name: "expand_more" }) : React.createElement(MIcon, { name: "chevron_right" })),
                 React.createElement("span", { className: "validation-log__icon" }, icon),
                 React.createElement("a", {
                   className: "validation-log__domain",
@@ -4802,8 +4816,8 @@ function HotkeysModal(props) {
       title: "\u041D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044F",
       items: [
         { keys: ["F"], label: "\u0412\u043F\u0438\u0441\u0430\u0442\u044C \u0433\u0440\u0430\u0444 \u0432 \u044D\u043A\u0440\u0430\u043D" },
-        { keys: ["Alt", "\u2190"], label: "\u041D\u0430\u0437\u0430\u0434 \u043F\u043E \u0438\u0441\u0442\u043E\u0440\u0438\u0438" },
-        { keys: ["Alt", "\u2192"], label: "\u0412\u043F\u0435\u0440\u0451\u0434 \u043F\u043E \u0438\u0441\u0442\u043E\u0440\u0438\u0438" },
+        { keys: ["Alt", React.createElement(MIcon, { name: "arrow_back" })], label: "\u041D\u0430\u0437\u0430\u0434 \u043F\u043E \u0438\u0441\u0442\u043E\u0440\u0438\u0438" },
+        { keys: ["Alt", React.createElement(MIcon, { name: "arrow_forward" })], label: "\u0412\u043F\u0435\u0440\u0451\u0434 \u043F\u043E \u0438\u0441\u0442\u043E\u0440\u0438\u0438" },
         { keys: ["Ctrl", "\u043A\u043B\u0438\u043A"], label: "\u041C\u0443\u043B\u044C\u0442\u0438\u0432\u044B\u0431\u043E\u0440 \u0443\u0437\u043B\u043E\u0432" }
       ]
     },
@@ -4847,7 +4861,7 @@ function HotkeysModal(props) {
         "div",
         { className: "help-modal__header" },
         React.createElement("div", { className: "help-modal__title" }, "\u2328\uFE0F \u0413\u043E\u0440\u044F\u0447\u0438\u0435 \u043A\u043B\u0430\u0432\u0438\u0448\u0438"),
-        React.createElement("button", { className: "help-modal__close", onClick: onClose }, "\u2715")
+        React.createElement("button", { className: "help-modal__close", onClick: onClose }, React.createElement(MIcon, { name: "close" }))
       ),
       React.createElement(
         "div",
@@ -4942,7 +4956,7 @@ function HelpModal(props) {
         "div",
         { className: "help-modal__header" },
         React.createElement("div", { className: "help-modal__title" }, "\u{1F4D6} \u0420\u0443\u043A\u043E\u0432\u043E\u0434\u0441\u0442\u0432\u043E \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044F"),
-        React.createElement("button", { className: "help-modal__close", onClick: onClose, title: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C (Esc)" }, "\u2715")
+        React.createElement("button", { className: "help-modal__close", onClick: onClose, title: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C (Esc)" }, React.createElement(MIcon, { name: "close" }))
       ),
       React.createElement(
         "div",
@@ -5435,7 +5449,7 @@ function App() {
   }, [heatmap, displayNodes, displayEdges, healthMap]);
   var visibleNodes = useMemo(function() {
     var pathEndpoints = pathResult ? /* @__PURE__ */ new Set([pathResult.nodes[0], pathResult.nodes[pathResult.nodes.length - 1]]) : null;
-    var hasChanges = highlight || compact || topoLevelMap || heatmapValues || validationResults && validationResults.size > 0 || bookmarks && bookmarks.size > 0 || hiddenNodeIds && hiddenNodeIds.size > 0 || diffMode || selectedNodeId;
+    var hasChanges = highlight || compact || topoLevelMap || heatmapValues || validationResults && validationResults.size > 0 || bookmarks && bookmarks.size > 0 || hiddenNodeIds && hiddenNodeIds.size > 0 || diffMode || selectedNodeId || focusNode || cycleHighlight || pathResult;
     if (!hasChanges) return filteredNodes;
     return filteredNodes.map(function(n) {
       if (n.hidden) return n;
@@ -5472,9 +5486,10 @@ function App() {
         selected: n.id === selectedNodeId
       });
     });
-  }, [heatmapValues, filteredNodes, highlight, compact, pathResult, diffMode, healthMap, selectedNodeId, topoLevelMap, validationResults, bookmarks, hiddenNodeIds]);
+  }, [filteredNodes, highlight, compact, pathResult, diffMode, healthMap, selectedNodeId, topoLevelMap, validationResults, bookmarks, hiddenNodeIds, heatmapValues, focusNode, cycleHighlight]);
   var visibleEdges = useMemo(function() {
-    var hasHighlight = highlight || diffMode || selectedEdgeId || rulesHighlighted && violationsByEdge && violationsByEdge.size > 0;
+    var hasHighlight = highlight || diffMode || selectedEdgeId || focusNode || cycleHighlight || pathResult || // ← добавили
+    rulesHighlighted && violationsByEdge && violationsByEdge.size > 0;
     if (!hasHighlight) return filteredEdges;
     return filteredEdges.map(function(e) {
       const isLinkage = e.data && e.data.kind === "linkage";
@@ -5529,7 +5544,7 @@ function App() {
         markerStart: e.markerStart ? Object.assign({}, e.markerStart, { color: stroke }) : void 0
       });
     });
-  }, [filteredEdges, highlight, diffMode, rulesHighlighted, violationsByEdge, selectedEdgeId]);
+  }, [filteredEdges, highlight, diffMode, rulesHighlighted, violationsByEdge, selectedEdgeId, cycleHighlight, focusNode, pathResult]);
   var perfMode = useMemo(function() {
     return filteredEdges.length > 250;
   }, [filteredEdges.length]);
@@ -6263,6 +6278,49 @@ function App() {
     selectedNodeId,
     toggleBookmark
   ]);
+  useEffect(function() {
+    var handler = function(e) {
+      var target = e.target;
+      if (!target || typeof target.closest !== "function") return;
+      var toggleBtn = target.closest(".js-toggle-validation");
+      if (toggleBtn) {
+        e.stopPropagation();
+        e.preventDefault();
+        var list = toggleBtn.nextElementSibling;
+        if (list && list.classList.contains("tooltip__validation-list")) {
+          var isOpen = list.style.display !== "none";
+          list.style.display = isOpen ? "none" : "block";
+          var arrow = toggleBtn.querySelector(".tooltip__validation-arrow");
+          if (arrow) arrow.textContent = isOpen ? "\u25B8" : "\u25BE";
+        }
+        return;
+      }
+      var openBtn = target.closest(".js-open-file");
+      if (openBtn) {
+        e.stopPropagation();
+        e.preventDefault();
+        var file = openBtn.getAttribute("data-file");
+        var fqid = openBtn.getAttribute("data-fqid");
+        if (file) openFileInEditor(file, fqid);
+        return;
+      }
+      var gotoBtn = target.closest(".js-goto-domain");
+      if (gotoBtn) {
+        e.stopPropagation();
+        e.preventDefault();
+        var d = gotoBtn.getAttribute("data-domain");
+        if (!d) return;
+        gotoDomainByDomainId2(d);
+        setTooltip(null);
+        window.__tooltipHovered = false;
+        return;
+      }
+    };
+    document.addEventListener("click", handler, true);
+    return function() {
+      document.removeEventListener("click", handler, true);
+    };
+  }, [openFileInEditor, gotoDomainByDomainId2]);
   var applyLayout = useCallback(function(type, depth) {
     setNodes(function(prevNodes) {
       if (prevNodes.length === 0) return prevNodes;
@@ -6414,39 +6472,42 @@ function App() {
     var modes = [];
     if (cycleHighlight) {
       modes.push({
-        icon: "\u{1F501}",
+        icon: React.createElement(MIcon, { name: "cycle" }),
         label: "\u0426\u0438\u043A\u043B\u044B (" + cycleHighlight.sccCount + ")",
         color: "orange",
         onClear: function() {
           setCycleHighlight(null);
+          setSelectedNodeId(null);
         }
       });
     }
     if (focusNode) {
       modes.push({
-        icon: "\u{1F3AF}",
+        icon: React.createElement(MIcon, { name: "my_location" }),
         label: "\u0424\u043E\u043A\u0443\u0441 N=" + focusDepth,
         color: "cyan",
         onClear: function() {
           setFocusNode(null);
+          setSelectedNodeId(null);
         }
       });
     }
     if (pathResult || pathSel.length > 0) {
       modes.push({
-        icon: "\u{1F6E4}\uFE0F",
+        icon: React.createElement(MIcon, { name: "route" }),
         label: pathResult ? "\u041F\u0443\u0442\u044C \u043D\u0430\u0439\u0434\u0435\u043D" : "\u0412\u044B\u0431\u043E\u0440 \u043F\u0443\u0442\u0438 (" + pathSel.length + "/2)",
         color: "yellow",
         onClear: function() {
           setPathResult(null);
           setPathSel([]);
           setPathMode(null);
+          setSelectedNodeId(null);
         }
       });
     }
     if (hiddenNodeIds.size > 0) {
       modes.push({
-        icon: "\u{1F441}",
+        icon: React.createElement(MIcon, { name: "visibility_off" }),
         label: "\u0421\u043A\u0440\u044B\u0442\u043E: " + hiddenNodeIds.size,
         color: "gray",
         onClear: function() {
@@ -6456,7 +6517,7 @@ function App() {
     }
     if (onlyInvalid) {
       modes.push({
-        icon: "\u274C",
+        icon: React.createElement(MIcon, { name: "cancel" }),
         label: "\u0422\u043E\u043B\u044C\u043A\u043E \u043D\u0435\u0432\u0430\u043B\u0438\u0434\u043D\u044B\u0435",
         color: "red",
         onClear: function() {
@@ -6466,7 +6527,7 @@ function App() {
     }
     if (bookmarksOnly) {
       modes.push({
-        icon: "\u2605",
+        icon: React.createElement(MIcon, { name: "star" }),
         label: "\u0422\u043E\u043B\u044C\u043A\u043E \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u044B\u0435",
         color: "yellow",
         onClear: function() {
@@ -6476,7 +6537,7 @@ function App() {
     }
     if (nsMode) {
       modes.push({
-        icon: "\u{1F5C2}",
+        icon: React.createElement(MIcon, { name: "category" }),
         label: "\u0410\u0433\u0440\u0435\u0433\u0430\u0446\u0438\u044F \u043F\u043E \u0441\u0435\u043C\u0435\u0439\u0441\u0442\u0432\u0430\u043C",
         color: "purple",
         onClear: function() {
@@ -6486,7 +6547,7 @@ function App() {
     }
     if (diffMode) {
       modes.push({
-        icon: "\u21C4",
+        icon: React.createElement(MIcon, { name: "swap_horiz" }),
         label: "Diff +" + (diffMode.addedEdges.size + diffMode.addedNodes.size) + "/\u2212" + (diffMode.removedEdges.size + diffMode.removedNodes.size),
         color: "blue",
         onClear: function() {
@@ -6496,7 +6557,7 @@ function App() {
     }
     if (ruleViolations && ruleViolations.length > 0 && rulesHighlighted) {
       modes.push({
-        icon: "\u26D4",
+        icon: React.createElement(MIcon, { name: "block" }),
         label: "\u041D\u0430\u0440\u0443\u0448\u0435\u043D\u0438\u044F: " + ruleViolations.length,
         color: "red",
         onClear: function() {
@@ -6506,7 +6567,7 @@ function App() {
     }
     if (!tooltipsEnabled) {
       modes.push({
-        icon: "\u{1F6AB}",
+        icon: React.createElement(MIcon, { name: "block" }),
         label: "\u0422\u0443\u043B\u0442\u0438\u043F\u044B \u0432\u044B\u043A\u043B\u044E\u0447\u0435\u043D\u044B",
         color: "gray",
         onClear: function() {
@@ -6516,7 +6577,7 @@ function App() {
     }
     if (topoLevelMap) {
       modes.push({
-        icon: "\u{1F4E6}",
+        icon: React.createElement(MIcon, { name: "inventory_2" }),
         label: "\u0423\u0440\u043E\u0432\u043D\u0438 \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438",
         color: "green",
         onClear: function() {
@@ -6526,7 +6587,7 @@ function App() {
     }
     if (!sidePanelEnabled) {
       modes.push({
-        icon: "\u{1F6AB}",
+        icon: React.createElement(MIcon, { name: "block" }),
         label: "\u041F\u0430\u043D\u0435\u043B\u044C \u0432\u044B\u043A\u043B\u044E\u0447\u0435\u043D\u0430",
         color: "gray",
         onClear: function() {
@@ -6536,7 +6597,7 @@ function App() {
     }
     if (!filters.linkage && !filters.fqid) {
       modes.push({
-        icon: "\u{1F50C}",
+        icon: React.createElement(MIcon, { name: "power_off" }),
         label: "\u0421\u0432\u044F\u0437\u0438 \u0441\u043A\u0440\u044B\u0442\u044B",
         color: "gray",
         onClear: function() {
@@ -6548,7 +6609,7 @@ function App() {
     }
     if (namespaceFilter && namespaceFilter.trim()) {
       modes.push({
-        icon: "\u{1F50E}",
+        icon: React.createElement(MIcon, { name: "filter_alt" }),
         label: "\u0424\u0438\u043B\u044C\u0442\u0440: " + (namespaceFilter.length > 30 ? namespaceFilter.slice(0, 30) + "\u2026" : namespaceFilter),
         color: "cyan",
         onClear: function() {
@@ -6587,7 +6648,7 @@ function App() {
       // Навигация
       {
         section: "\u041D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044F",
-        icon: "\u26F6",
+        icon: React.createElement(MIcon, { name: "fit_screen" }),
         label: "\u0412\u043F\u0438\u0441\u0430\u0442\u044C \u0432 \u044D\u043A\u0440\u0430\u043D",
         hotkey: "F",
         keywords: "fit zoom",
@@ -6597,7 +6658,7 @@ function App() {
       },
       {
         section: "\u041D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044F",
-        icon: "\u27F3",
+        icon: React.createElement(MIcon, { name: "refresh" }),
         label: "\u041F\u0435\u0440\u0435\u0443\u043B\u043E\u0436\u0438\u0442\u044C \u0433\u0440\u0430\u0444",
         keywords: "relayout",
         run: function() {
@@ -6609,7 +6670,7 @@ function App() {
       },
       {
         section: "\u041D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044F",
-        icon: "\u2190",
+        icon: React.createElement(MIcon, { name: "arrow_back" }),
         label: "\u041D\u0430\u0437\u0430\u0434 \u043F\u043E \u0438\u0441\u0442\u043E\u0440\u0438\u0438",
         hotkey: "Alt+\u2190",
         keywords: "back",
@@ -6617,7 +6678,7 @@ function App() {
       },
       {
         section: "\u041D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044F",
-        icon: "\u2192",
+        icon: React.createElement(MIcon, { name: "arrow_forward" }),
         label: "\u0412\u043F\u0435\u0440\u0451\u0434 \u043F\u043E \u0438\u0441\u0442\u043E\u0440\u0438\u0438",
         hotkey: "Alt+\u2192",
         keywords: "forward",
@@ -6626,7 +6687,7 @@ function App() {
       // Раскладка
       {
         section: "\u0420\u0430\u0441\u043A\u043B\u0430\u0434\u043A\u0430",
-        icon: "\u{1F4D0}",
+        icon: React.createElement(MIcon, { name: "straighten" }),
         label: "\u0413\u043E\u0440\u0438\u0437\u043E\u043D\u0442\u0430\u043B\u044C\u043D\u0430\u044F (LR)",
         keywords: "layout dagre horizontal",
         run: function() {
@@ -6635,7 +6696,7 @@ function App() {
       },
       {
         section: "\u0420\u0430\u0441\u043A\u043B\u0430\u0434\u043A\u0430",
-        icon: "\u{1F4D0}",
+        icon: React.createElement(MIcon, { name: "straighten" }),
         label: "\u0412\u0435\u0440\u0442\u0438\u043A\u0430\u043B\u044C\u043D\u0430\u044F (TB)",
         keywords: "layout vertical",
         run: function() {
@@ -6644,7 +6705,7 @@ function App() {
       },
       {
         section: "\u0420\u0430\u0441\u043A\u043B\u0430\u0434\u043A\u0430",
-        icon: "\u{1F4D0}",
+        icon: React.createElement(MIcon, { name: "straighten" }),
         label: "Force-directed",
         keywords: "layout force physics",
         run: function() {
@@ -6653,7 +6714,7 @@ function App() {
       },
       {
         section: "\u0420\u0430\u0441\u043A\u043B\u0430\u0434\u043A\u0430",
-        icon: "\u{1F4D0}",
+        icon: React.createElement(MIcon, { name: "straighten" }),
         label: "\u041A\u0440\u0443\u0433\u043E\u0432\u0430\u044F",
         keywords: "layout circular circle",
         run: function() {
@@ -6662,7 +6723,7 @@ function App() {
       },
       {
         section: "\u0420\u0430\u0441\u043A\u043B\u0430\u0434\u043A\u0430",
-        icon: "\u{1F5C2}",
+        icon: React.createElement(MIcon, { name: "category" }),
         label: "\u041F\u043E \u0441\u0435\u043C\u0435\u0439\u0441\u0442\u0432\u0430\u043C",
         keywords: "cluster namespace family layout group",
         run: function() {
@@ -6671,7 +6732,7 @@ function App() {
       },
       {
         section: "\u0420\u0430\u0441\u043A\u043B\u0430\u0434\u043A\u0430",
-        icon: "\u{1F4C1}",
+        icon: React.createElement(MIcon, { name: "folder" }),
         label: "\u041F\u043E \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0430\u043C",
         keywords: "folder directory path layout",
         run: function() {
@@ -6681,7 +6742,7 @@ function App() {
       // Вид
       {
         section: "\u0412\u0438\u0434",
-        icon: theme === "dark" ? "\u2600\uFE0F" : "\u{1F319}",
+        icon: theme === "dark" ? React.createElement(MIcon, { name: "light_mode" }) : React.createElement(MIcon, { name: "dark_mode" }),
         label: "\u041F\u0435\u0440\u0435\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0442\u0435\u043C\u0443",
         keywords: "theme dark light",
         run: function() {
@@ -6690,7 +6751,7 @@ function App() {
       },
       {
         section: "\u0412\u0438\u0434",
-        icon: "\u26AB",
+        icon: React.createElement(MIcon, { name: "circle" }),
         label: compact ? "\u0412\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u043A\u043E\u043C\u043F\u0430\u043A\u0442\u043D\u044B\u0439 \u0440\u0435\u0436\u0438\u043C" : "\u0412\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u043A\u043E\u043C\u043F\u0430\u043A\u0442\u043D\u044B\u0439 \u0440\u0435\u0436\u0438\u043C",
         keywords: "compact small",
         run: function() {
@@ -6699,7 +6760,7 @@ function App() {
       },
       {
         section: "\u0412\u0438\u0434",
-        icon: "\u{1F5C2}",
+        icon: React.createElement(MIcon, { name: "category" }),
         label: showGroups ? "\u0421\u043A\u0440\u044B\u0442\u044C \u0433\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u043A\u0443" : "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0433\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u043A\u0443",
         keywords: "groups boxes",
         run: function() {
@@ -6708,7 +6769,7 @@ function App() {
       },
       {
         section: "\u0412\u0438\u0434",
-        icon: "\u21C4",
+        icon: React.createElement(MIcon, { name: "swap_horiz" }),
         label: bidirectional ? "\u0420\u0430\u0437\u044A\u0435\u0434\u0438\u043D\u0438\u0442\u044C A\u2194B" : "\u041E\u0431\u044A\u0435\u0434\u0438\u043D\u044F\u0442\u044C A\u2194B",
         keywords: "bidirectional merge",
         run: function() {
@@ -6717,7 +6778,7 @@ function App() {
       },
       {
         section: "\u0412\u0438\u0434",
-        icon: "\u{1F3F7}",
+        icon: React.createElement(MIcon, { name: "label" }),
         label: showEdgeLabels ? "\u0421\u043A\u0440\u044B\u0442\u044C \u043F\u043E\u0434\u043F\u0438\u0441\u0438 \u0441\u0432\u044F\u0437\u0435\u0439" : "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u043F\u043E\u0434\u043F\u0438\u0441\u0438 \u0441\u0432\u044F\u0437\u0435\u0439",
         keywords: "labels edges",
         run: function() {
@@ -6726,7 +6787,7 @@ function App() {
       },
       {
         section: "\u0412\u0438\u0434",
-        icon: tooltipsEnabled ? "\u{1F6AB}" : "\u{1F4AC}",
+        icon: tooltipsEnabled ? React.createElement(MIcon, { name: "block" }) : React.createElement(MIcon, { name: "chat_bubble" }),
         label: tooltipsEnabled ? "\u0421\u043A\u0440\u044B\u0442\u044C \u0442\u0443\u043B\u0442\u0438\u043F\u044B" : "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0442\u0443\u043B\u0442\u0438\u043F\u044B",
         hotkey: "T",
         keywords: "tooltip hover",
@@ -6737,7 +6798,7 @@ function App() {
       // Heatmap
       {
         section: "Heatmap",
-        icon: "\u{1F525}",
+        icon: React.createElement(MIcon, { name: "local_fire_department" }),
         label: heatmap === "health" ? "\u0412\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C heatmap" : "Heatmap: Health score",
         keywords: "heatmap health",
         run: function() {
@@ -6746,7 +6807,7 @@ function App() {
       },
       {
         section: "Heatmap",
-        icon: "\u{1F525}",
+        icon: React.createElement(MIcon, { name: "local_fire_department" }),
         label: heatmap === "degree" ? "\u0412\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C heatmap" : "Heatmap: \u041A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E \u0441\u0432\u044F\u0437\u0435\u0439",
         keywords: "heatmap degree",
         run: function() {
@@ -6755,7 +6816,7 @@ function App() {
       },
       {
         section: "Heatmap",
-        icon: "\u{1F525}",
+        icon: React.createElement(MIcon, { name: "local_fire_department" }),
         label: heatmap === "entities" ? "\u0412\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C heatmap" : "Heatmap: Entities",
         keywords: "heatmap entities",
         run: function() {
@@ -6764,7 +6825,7 @@ function App() {
       },
       {
         section: "Heatmap",
-        icon: "\u{1F525}",
+        icon: React.createElement(MIcon, { name: "local_fire_department" }),
         label: heatmap === "fqid" ? "\u0412\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C heatmap" : "Heatmap: FQID-\u0441\u0441\u044B\u043B\u043A\u0438",
         keywords: "heatmap fqid refs",
         run: function() {
@@ -6774,7 +6835,7 @@ function App() {
       // Анализ
       {
         section: "\u0410\u043D\u0430\u043B\u0438\u0437",
-        icon: "\u{1F501}",
+        icon: React.createElement(MIcon, { name: "cycle" }),
         label: "\u041D\u0430\u0439\u0442\u0438 \u0446\u0438\u043A\u043B\u044B",
         hotkey: "C",
         keywords: "cycles scc loop",
@@ -6782,7 +6843,7 @@ function App() {
       },
       {
         section: "\u0410\u043D\u0430\u043B\u0438\u0437",
-        icon: "\u25EF",
+        icon: React.createElement(MIcon, { name: "radio_button_unchecked" }),
         label: isolatedOnly ? "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0432\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B" : "\u0422\u043E\u043B\u044C\u043A\u043E \u0438\u0437\u043E\u043B\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0435",
         hotkey: "I",
         keywords: "isolated orphans",
@@ -6792,7 +6853,7 @@ function App() {
       },
       {
         section: "\u0410\u043D\u0430\u043B\u0438\u0437",
-        icon: "\u{1F5C2}",
+        icon: React.createElement(MIcon, { name: "category" }),
         label: nsMode ? "\u0412\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0430\u0433\u0440\u0435\u0433\u0430\u0446\u0438\u044E" : "\u0410\u0433\u0440\u0435\u0433\u0430\u0446\u0438\u044F \u043F\u043E \u0441\u0435\u043C\u0435\u0439\u0441\u0442\u0432\u0430\u043C",
         hotkey: "S",
         keywords: "namespace aggregate family",
@@ -6802,7 +6863,7 @@ function App() {
       },
       {
         section: "\u0410\u043D\u0430\u043B\u0438\u0437",
-        icon: "\u{1F4E6}",
+        icon: React.createElement(MIcon, { name: "inventory_2" }),
         label: "\u041F\u043E\u0440\u044F\u0434\u043E\u043A \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438 (\u0442\u043E\u043F\u043E\u0441\u043E\u0440\u0442)",
         keywords: "topo install order",
         run: function() {
@@ -6811,7 +6872,7 @@ function App() {
       },
       {
         section: "\u0410\u043D\u0430\u043B\u0438\u0437",
-        icon: "\u{1F3AF}",
+        icon: React.createElement(MIcon, { name: "my_location" }),
         label: focusNode ? "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0444\u043E\u043A\u0443\u0441" : "\u0424\u043E\u043A\u0443\u0441 \u043D\u0430 \u0432\u044B\u0434\u0435\u043B\u0435\u043D\u043D\u043E\u043C",
         keywords: "focus",
         run: function() {
@@ -6821,7 +6882,7 @@ function App() {
       },
       {
         section: "\u0410\u043D\u0430\u043B\u0438\u0437",
-        icon: "\u{1F6E4}\uFE0F",
+        icon: React.createElement(MIcon, { name: "route" }),
         label: "\u041D\u0430\u0439\u0442\u0438 \u043F\u0443\u0442\u044C \u043C\u0435\u0436\u0434\u0443 \u0434\u0432\u0443\u043C\u044F \u0443\u0437\u043B\u0430\u043C\u0438",
         hotkey: "P",
         keywords: "path find",
@@ -6829,7 +6890,7 @@ function App() {
       },
       {
         section: "\u0410\u043D\u0430\u043B\u0438\u0437",
-        icon: "\u{1F4D6}",
+        icon: React.createElement(MIcon, { name: "menu_book" }),
         label: tour ? "\u041E\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C \u044D\u043A\u0441\u043A\u0443\u0440\u0441\u0438\u044E" : "\u041F\u0443\u0442\u044C \u0438\u0437\u0443\u0447\u0435\u043D\u0438\u044F \u0430\u0440\u0445\u0438\u0442\u0435\u043A\u0442\u0443\u0440\u044B",
         keywords: "learning path onboarding tour",
         run: function() {
@@ -6839,7 +6900,7 @@ function App() {
       },
       {
         section: "\u0410\u043D\u0430\u043B\u0438\u0437",
-        icon: "\u{1F9EC}",
+        icon: React.createElement(MIcon, { name: "account_tree" }),
         label: "\u0418\u0435\u0440\u0430\u0440\u0445\u0438\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439",
         keywords: "entity hierarchy inheritance inherits",
         run: function() {
@@ -6850,7 +6911,7 @@ function App() {
       // Фильтры
       {
         section: "\u0424\u0438\u043B\u044C\u0442\u0440\u044B",
-        icon: "\u2605",
+        icon: React.createElement(MIcon, { name: "star" }),
         label: bookmarksOnly ? "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0432\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B" : "\u0422\u043E\u043B\u044C\u043A\u043E \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u044B\u0435",
         keywords: "bookmarks favorites",
         run: function() {
@@ -6859,7 +6920,7 @@ function App() {
       },
       {
         section: "\u0424\u0438\u043B\u044C\u0442\u0440\u044B",
-        icon: "\u274C",
+        icon: React.createElement(MIcon, { name: "cancel" }),
         label: onlyInvalid ? "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0432\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B" : "\u0422\u043E\u043B\u044C\u043A\u043E \u043D\u0435\u0432\u0430\u043B\u0438\u0434\u043D\u044B\u0435",
         keywords: "invalid errors validation",
         run: function() {
@@ -6868,7 +6929,7 @@ function App() {
       },
       {
         section: "\u0424\u0438\u043B\u044C\u0442\u0440\u044B",
-        icon: "\u{1F5D1}",
+        icon: React.createElement(MIcon, { name: "delete_sweep" }),
         label: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0432\u0441\u0435 \u0444\u0438\u043B\u044C\u0442\u0440\u044B",
         keywords: "reset filters clear",
         run: function() {
@@ -6883,28 +6944,28 @@ function App() {
       // Данные
       {
         section: "\u0414\u0430\u043D\u043D\u044B\u0435",
-        icon: "\u{1F4BE}",
+        icon: React.createElement(MIcon, { name: "save" }),
         label: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442 \u0433\u0440\u0430\u0444\u0430 \u0432 JSON",
         keywords: "export json download",
         run: handleExportJSON
       },
       {
         section: "\u0414\u0430\u043D\u043D\u044B\u0435",
-        icon: "\u{1F4DD}",
+        icon: React.createElement(MIcon, { name: "description" }),
         label: "\u041E\u0442\u0447\u0451\u0442 \u0432 Markdown",
         keywords: "export markdown report",
         run: handleExportMarkdown
       },
       {
         section: "\u0414\u0430\u043D\u043D\u044B\u0435",
-        icon: "\u{1F5BC}\uFE0F",
+        icon: React.createElement(MIcon, { name: "image" }),
         label: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442 \u0433\u0440\u0430\u0444\u0430 \u0432 PNG",
         keywords: "export png image",
         run: handleExportPNG
       },
       validationAvailable && {
         section: "\u0414\u0430\u043D\u043D\u044B\u0435",
-        icon: "\u{1F50D}",
+        icon: React.createElement(MIcon, { name: "search" }),
         label: "\u041C\u0430\u0441\u0441\u043E\u0432\u0430\u044F \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u0434\u043E\u043C\u0435\u043D\u043E\u0432",
         keywords: "validate check",
         run: function() {
@@ -6914,7 +6975,7 @@ function App() {
       // Справка
       {
         section: "\u0421\u043F\u0440\u0430\u0432\u043A\u0430",
-        icon: "\u{1F4D6}",
+        icon: React.createElement(MIcon, { name: "menu_book" }),
         label: "\u0420\u0443\u043A\u043E\u0432\u043E\u0434\u0441\u0442\u0432\u043E \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044F",
         hotkey: "F1",
         keywords: "guide help docs",
@@ -6924,7 +6985,7 @@ function App() {
       },
       {
         section: "\u0421\u043F\u0440\u0430\u0432\u043A\u0430",
-        icon: "\u2328\uFE0F",
+        icon: React.createElement(MIcon, { name: "keyboard" }),
         label: "\u0421\u043F\u0438\u0441\u043E\u043A \u0433\u043E\u0440\u044F\u0447\u0438\u0445 \u043A\u043B\u0430\u0432\u0438\u0448",
         keywords: "hotkeys shortcuts",
         run: function() {
@@ -6972,7 +7033,7 @@ function App() {
         React.createElement(
           "div",
           { className: "sidebar__header" },
-          React.createElement("div", { className: "sidebar__logo" }, "\u{1F310}"),
+          React.createElement("div", { className: "sidebar__logo" }, React.createElement(MIcon, { name: "language" })),
           React.createElement(
             "div",
             { style: { flex: 1 } },
@@ -7058,7 +7119,7 @@ function App() {
                     },
                     title: n.data.domainId
                   },
-                  React.createElement("span", { className: "rank-item__num" }, "\u2605"),
+                  React.createElement("span", { className: "rank-item__num" }, React.createElement(MIcon, { name: "star" })),
                   React.createElement("span", { className: "rank-item__label" }, n.data.domainId),
                   React.createElement("button", {
                     className: "rank-item__value",
@@ -7068,7 +7129,7 @@ function App() {
                       toggleBookmark(id);
                     },
                     title: "\u0423\u0431\u0440\u0430\u0442\u044C \u0438\u0437 \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u043E\u0433\u043E"
-                  }, "\u2715")
+                  }, React.createElement(MIcon, { name: "close" }))
                 );
               })
             )
@@ -7165,7 +7226,7 @@ function App() {
           { className: "toolbar__group" },
           React.createElement("button", { className: "btn btn--icon", onClick: function() {
             rfInstance.current && rfInstance.current.fitView({ duration: 500 });
-          }, title: "\u0412\u043F\u0438\u0441\u0430\u0442\u044C (F)" }, "\u26F6"),
+          }, title: "\u0412\u043F\u0438\u0441\u0430\u0442\u044C (F)" }, React.createElement(MIcon, { name: "fit_screen" })),
           React.createElement("button", {
             className: "btn btn--icon",
             onClick: function() {
@@ -7176,7 +7237,7 @@ function App() {
               }, 100);
             },
             title: "\u041F\u0435\u0440\u0435\u0443\u043B\u043E\u0436\u0438\u0442\u044C"
-          }, "\u27F3"),
+          }, React.createElement(MIcon, { name: "refresh" })),
           React.createElement("button", {
             className: "btn btn--icon",
             onClick: function() {
@@ -7193,14 +7254,14 @@ function App() {
               }, 200);
             },
             title: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0440\u0430\u0441\u043A\u043B\u0430\u0434\u043A\u0443"
-          }, "\u21BA"),
-          React.createElement("button", { className: "btn btn--icon", onClick: navBack, disabled: navStack.index <= 0, style: { opacity: navStack.index <= 0 ? 0.4 : 1 }, title: "\u041D\u0430\u0437\u0430\u0434 (Alt+\u2190)" }, "\u2190"),
-          React.createElement("button", { className: "btn btn--icon", onClick: navForward, disabled: navStack.index >= navStack.items.length - 1, style: { opacity: navStack.index >= navStack.items.length - 1 ? 0.4 : 1 }, title: "\u0412\u043F\u0435\u0440\u0451\u0434 (Alt+\u2192)" }, "\u2192")
+          }, React.createElement(MIcon, { name: "restart_alt" })),
+          React.createElement("button", { className: "btn btn--icon", onClick: navBack, disabled: navStack.index <= 0, style: { opacity: navStack.index <= 0 ? 0.4 : 1 }, title: '\u041D\u0430\u0437\u0430\u0434 (Alt+<span class="material-symbols-outlined mi-sm">arrow_back</span>)' }, React.createElement(MIcon, { name: "arrow_back" })),
+          React.createElement("button", { className: "btn btn--icon", onClick: navForward, disabled: navStack.index >= navStack.items.length - 1, style: { opacity: navStack.index >= navStack.items.length - 1 ? 0.4 : 1 }, title: "\u0412\u043F\u0435\u0440\u0451\u0434 (Alt+\u2192)" }, React.createElement(MIcon, { name: "arrow_forward" }))
         ),
         React.createElement(
           "button",
           { className: "btn", onClick: openSearch, title: "\u041F\u043E\u0438\u0441\u043A (Shift+Tab)" },
-          React.createElement("span", { className: "btn__icon" }, "\u{1F50D}"),
+          React.createElement("span", { className: "btn__icon" }, React.createElement(MIcon, { name: "search" })),
           "\u041F\u043E\u0438\u0441\u043A",
           React.createElement("kbd", { className: "btn-kbd" }, "\u21E7 Tab")
         ),
@@ -7210,7 +7271,7 @@ function App() {
             return React.createElement(
               "button",
               { className: "btn" + (open ? " btn--active" : "") },
-              React.createElement("span", { className: "btn__icon" }, "\u2699\uFE0F"),
+              React.createElement("span", { className: "btn__icon" }, React.createElement(MIcon, { name: "tune" })),
               "\u0424\u0438\u043B\u044C\u0442\u0440\u044B",
               activeFiltersCount > 0 && React.createElement("span", { className: "btn__badge" }, activeFiltersCount)
             );
@@ -7242,7 +7303,7 @@ function App() {
             return React.createElement(
               "button",
               { className: "btn" + (active ? " btn--active" : "") },
-              React.createElement("span", { className: "btn__icon" }, "\u{1F4CA}"),
+              React.createElement("span", { className: "btn__icon" }, React.createElement(MIcon, { name: "bar_chart" })),
               "\u0410\u043D\u0430\u043B\u0438\u0437"
             );
           }
@@ -7279,7 +7340,7 @@ function App() {
             return React.createElement(
               "button",
               { className: "btn" + (open ? " btn--active" : "") },
-              React.createElement("span", { className: "btn__icon" }, "\u{1F3A8}"),
+              React.createElement("span", { className: "btn__icon" }, React.createElement(MIcon, { name: "palette" })),
               "\u0412\u0438\u0434"
             );
           }
@@ -7311,7 +7372,7 @@ function App() {
             return React.createElement(
               "button",
               { className: "btn" + (open || diffMode ? " btn--active" : "") },
-              React.createElement("span", { className: "btn__icon" }, "\u{1F4BE}"),
+              React.createElement("span", { className: "btn__icon" }, React.createElement(MIcon, { name: "save" })),
               "\u0414\u0430\u043D\u043D\u044B\u0435"
             );
           }
@@ -7338,14 +7399,14 @@ function App() {
             setHotkeysOpen(true);
           },
           title: "\u0413\u043E\u0440\u044F\u0447\u0438\u0435 \u043A\u043B\u0430\u0432\u0438\u0448\u0438 (?)"
-        }, "\u2328\uFE0F"),
+        }, React.createElement(MIcon, { name: "keyboard" })),
         React.createElement("button", {
           className: "btn btn--icon",
           onClick: function() {
             setHelpOpen(true);
           },
           title: "\u0420\u0443\u043A\u043E\u0432\u043E\u0434\u0441\u0442\u0432\u043E \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044F (F1)"
-        }, "\u{1F4D6}"),
+        }, React.createElement(MIcon, { name: "menu_book" })),
         React.createElement(
           "div",
           { className: "toolbar__stats" },
@@ -7427,7 +7488,7 @@ function App() {
           ),
           React.createElement("button", { className: "heat-legend__close", onClick: function() {
             setHeatmap("none");
-          } }, "\u2715")
+          } }, React.createElement(MIcon, { name: "close" }))
         )
       )
     ),
@@ -7518,7 +7579,7 @@ function App() {
       setContextMenu(null);
     }, onAction: handleContextAction }),
     toastVisible && REMOTE_INFO && REMOTE_INFO.fromCache && React.createElement(Toast, {
-      message: "\u{1F4E6} \u0413\u0440\u0430\u0444 \u043F\u043E\u0441\u0442\u0440\u043E\u0435\u043D \u0438\u0437 <b>\u043A\u044D\u0448\u0430</b>" + (REMOTE_INFO.fetchedAt ? " (\u043E\u0442 " + new Date(REMOTE_INFO.fetchedAt).toLocaleString("ru-RU") + ")" : "") + ". \u0414\u0430\u043D\u043D\u044B\u0435 \u043C\u043E\u0433\u0443\u0442 \u0431\u044B\u0442\u044C \u0443\u0441\u0442\u0430\u0440\u0435\u0432\u0448\u0438\u043C\u0438.",
+      message: '<span class="material-symbols-outlined mi-sm">inventory_2</span> \u0413\u0440\u0430\u0444 \u043F\u043E\u0441\u0442\u0440\u043E\u0435\u043D \u0438\u0437 <b>\u043A\u044D\u0448\u0430</b>' + (REMOTE_INFO.fetchedAt ? " (\u043E\u0442 " + new Date(REMOTE_INFO.fetchedAt).toLocaleString("ru-RU") + ")" : "") + ". \u0414\u0430\u043D\u043D\u044B\u0435 \u043C\u043E\u0433\u0443\u0442 \u0431\u044B\u0442\u044C \u0443\u0441\u0442\u0430\u0440\u0435\u0432\u0448\u0438\u043C\u0438.",
       actions: REFRESH_COMMAND ? [{ command: REFRESH_COMMAND }] : [],
       duration: 3e4,
       onClose: function() {

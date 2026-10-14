@@ -24,6 +24,21 @@ const PATH_COLOR = '#fbbf24';
 const DIFF_ADDED = '#22c55e';
 const DIFF_REMOVED = '#ef4444';
 
+function MIcon(props) {
+  var cls = 'material-symbols-outlined';
+  if (props.size === 'sm') cls += ' mi-sm';
+  else if (props.size === 'lg') cls += ' mi-lg';
+  else if (props.size === 'xl') cls += ' mi-xl';
+  else cls += ' mi-md';
+  if (props.fill) cls += ' mi-fill';
+  if (props.className) cls += ' ' + props.className;
+  return React.createElement('span', {
+    className: cls,
+    'aria-hidden': 'true',
+    title: props.title || undefined
+  }, props.name);
+}
+
 // ============ LAYOUTS ============
 function clusterLayout(nodes, edges, getKeyForDepth) {
   var NODE_W = NODE_WIDTH;
@@ -144,7 +159,7 @@ function clusterLayout(nodes, edges, getKeyForDepth) {
     meta.setNode(ns, { width: w, height: h });
   });
   metaEdgesMap.forEach(function(_, key) {
-    var p = key.split('→');
+    var p = key.split(React.createElement(MIcon, { name: 'arrow_forward' }));
     meta.setEdge(p[0], p[1]);
   });
 
@@ -1084,7 +1099,7 @@ function EntityHierarchyGraph(props) {
     React.createElement('div', { className: 'entity-graph-controls' },
       React.createElement('button', { className: 'entity-ctrl-btn', onClick: function() { zoomBy(1.3); }, title: 'Приблизить' }, '+'),
       React.createElement('button', { className: 'entity-ctrl-btn', onClick: function() { zoomBy(1 / 1.3); }, title: 'Отдалить' }, '−'),
-      React.createElement('button', { className: 'entity-ctrl-btn', onClick: fitView, title: 'Вписать' }, '⛶'),
+      React.createElement('button', { className: 'entity-ctrl-btn', onClick: fitView, title: 'Вписать' }, React.createElement(MIcon, { name: 'fit_screen' })),
       React.createElement('span', { className: 'entity-zoom-level' }, Math.round(viewport.scale * 100) + '%')
     ),
 
@@ -1292,13 +1307,13 @@ function EntityHierarchyModal(props) {
     React.createElement('div', { className: 'help-modal entity-hierarchy-modal', onMouseDown: function(e) { e.stopPropagation(); } },
       React.createElement('div', { className: 'help-modal__header' },
         React.createElement('div', { className: 'help-modal__title' }, '🧬 Иерархия наследования сущностей'),
-        React.createElement('button', { className: 'help-modal__close', onClick: onClose }, '✕')
+        React.createElement('button', { className: 'help-modal__close', onClick: onClose }, React.createElement(MIcon, { name: 'close' }))
       ),
 
       React.createElement('div', { className: 'entity-hierarchy-body' },
         React.createElement('div', { className: 'entity-search-panel' },
           React.createElement('div', { className: 'entity-search-input-wrap' },
-            React.createElement('span', { className: 'entity-search-icon' }, '🔍'),
+            React.createElement('span', { className: 'entity-search-icon' }, React.createElement(MIcon, { name: 'search' })),
             React.createElement('input', {
               className: 'entity-search-input',
               type: 'text',
@@ -1352,7 +1367,7 @@ function EntityHierarchyModal(props) {
 
   !selectedKey ?
     React.createElement('div', { className: 'entity-graph-empty' },
-      React.createElement('div', { className: 'entity-graph-empty__icon' }, '🧬'),
+      React.createElement('div', { className: 'entity-graph-empty__icon' }, React.createElement(MIcon, { name: 'account_tree' })),
       React.createElement('div', { className: 'entity-graph-empty__title' }, 'Выберите сущность слева'),
       React.createElement('div', { className: 'entity-graph-empty__hint' }, 'Родители будут сверху, наследники снизу')
     ) :
@@ -1821,7 +1836,7 @@ function buildTooltipHtml(domainId, label, nodeType, filePath, version, entities
   if (tags && tags.length > 0) html += '<div class="tooltip__row"><span class="tooltip__label">Теги:</span><span class="tooltip__value">' + tags.map(escapeHtml).join(', ') + '</span></div>';
   if (filePath) {
     html += '<div class="tooltip__row"><span class="tooltip__label">Файл:</span><span class="tooltip__value" style="font-size:11px">' + escapeHtml(filePath) + '</span></div>';
-    html += '<div style="margin-top:10px"><button class="tooltip__btn js-open-file" data-file="' + escapeHtml(filePath) + '">📂 Открыть файл</button></div>';
+    html += '<div style="margin-top:10px"><button class="tooltip__btn js-open-file" data-file="' + escapeHtml(filePath) + '"><span class="material-symbols-outlined mi-sm">folder_open</span> Открыть файл</button></div>';
   }
   // --- Валидация ---
   if (validation) {
@@ -1830,8 +1845,8 @@ function buildTooltipHtml(domainId, label, nodeType, filePath, version, entities
     if (validation.status === 'invalid') {
       var diagCount = validation.diagnostics ? validation.diagnostics.length : 0;
       html += '<button class="tooltip__validation-toggle js-toggle-validation" type="button">'
-        + '<span class="tooltip__validation-arrow">▸</span>'
-        + '<span class="tooltip__validation-title" style="color:var(--danger)">❌ Невалиден</span>'
+        + '<span class="tooltip__validation-arrow"><span class="material-symbols-outlined mi-sm">chevron_right</span></span>'
+        + '<span class="tooltip__validation-title" style="color:var(--danger)"><span class="material-symbols-outlined mi-sm">cancel</span> Невалиден</span>'
         + '<span class="tooltip__validation-count">' + diagCount + '</span>'
         + '</button>';
   
@@ -1856,7 +1871,7 @@ function buildTooltipHtml(domainId, label, nodeType, filePath, version, entities
         html += '</div>';
       }
     } else if (validation.status === 'error') {
-      html += '<div class="tooltip__label" style="margin-bottom:6px;color:var(--warning)">⚠️ Ошибка валидации</div>';
+      html += '<div class="tooltip__label" style="margin-bottom:6px;color:var(--warning)"><span class="material-symbols-outlined mi-sm">warning</span> Ошибка валидации</div>';
       html += '<div class="tooltip__validation-message">' + escapeHtml(validation.error || '') + '</div>';
     }
   
@@ -1870,7 +1885,7 @@ function buildTooltipHtml(domainId, label, nodeType, filePath, version, entities
       html += '<div class="tooltip__ref">';
       html += '<div class="tooltip__fqid js-goto-domain" data-domain="' + escapeHtml(ref.targetDomainId || '') + '" style="cursor:pointer">' + escapeHtml(ref.fullFQID) + '</div>';
       html += '<div class="tooltip__path">' + escapeHtml(ref.propertyPath) + '</div>';
-      html += '<button class="tooltip__btn js-open-file" data-file="' + escapeHtml(ref.filePath || '') + '" data-fqid="' + escapeHtml(ref.fullFQID || '') + '">📂 Открыть</button>';
+      html += '<button class="tooltip__btn js-open-file" data-file="' + escapeHtml(ref.filePath || '') + '" data-fqid="' + escapeHtml(ref.fullFQID || '') + '"><span class="material-symbols-outlined mi-sm">folder_open</span> Открыть</button>';
       html += '</div>';
     });
     html += '</div>';
@@ -1893,7 +1908,7 @@ function buildEdgeTooltipHtml(edge, refs) {
     var clickable = !!domain;
     var h = '<div class="tooltip__row"><span class="tooltip__label">' + labelText + '</span>';
     if (clickable) {
-      h += '<span class="tooltip__value js-goto-domain" data-domain="' + escapeHtml(domain) + '" style="cursor:pointer;color:var(--accent-hover);text-decoration:underline dotted">' + escapeHtml(text) + ' <span style="font-size:10px;color:var(--text-500)">→ ' + escapeHtml(domain) + '</span></span>';
+      h += '<span class="tooltip__value js-goto-domain" data-domain="' + escapeHtml(domain) + '" style="cursor:pointer;color:var(--accent-hover);text-decoration:underline dotted">' + escapeHtml(text) + ' <span style="font-size:10px;color:var(--text-500)"><span class="material-symbols-outlined mi-sm">arrow_forward</span> ' + escapeHtml(domain) + '</span></span>';
     } else {
       h += '<span class="tooltip__value" style="color:var(--text-400)">' + escapeHtml(text) + '</span>';
     }
@@ -1901,7 +1916,7 @@ function buildEdgeTooltipHtml(edge, refs) {
   }
   var html = '<div class="tooltip__header">Связь: ' + escapeHtml(fullLabel) + '</div>';
   html += '<div class="tooltip__body">';
-  if (edge.data && edge.data.isBidirectional) html += '<div style="font-size:11px;color:var(--accent-hover);margin-bottom:8px">⇄ двунаправленная связь</div>';
+  if (edge.data && edge.data.isBidirectional) html += '<div style="font-size:11px;color:var(--accent-hover);margin-bottom:8px"><span class="material-symbols-outlined mi-sm">swap_horiz</span> двунаправленная связь</div>';
   html += renderSide('Сторона 1:', side1Text, side1Domain);
   html += renderSide('Сторона 2:', side2Text, side2Domain);
   if (side1Text || side2Text) html += '<div style="height:1px;background:var(--border);margin:10px 0"></div>';
@@ -1913,7 +1928,7 @@ function buildEdgeTooltipHtml(edge, refs) {
       html += '<div class="tooltip__ref">';
       html += '<div class="tooltip__fqid js-goto-domain" data-domain="' + escapeHtml(ref.targetDomainId || '') + '" style="cursor:pointer">' + escapeHtml(ref.fullFQID) + '</div>';
       html += '<div class="tooltip__path">' + escapeHtml(ref.propertyPath) + '</div>';
-      html += '<button class="tooltip__btn js-open-file" data-file="' + escapeHtml(ref.filePath || '') + '" data-fqid="' + escapeHtml(ref.fullFQID || '') + '">📂 Открыть</button>';
+      html += '<button class="tooltip__btn js-open-file" data-file="' + escapeHtml(ref.filePath || '') + '" data-fqid="' + escapeHtml(ref.fullFQID || '') + '"><span class="material-symbols-outlined mi-sm">folder_open</span> Открыть</button>';
       html += '</div>';
     });
     html += '</div>';
@@ -1953,7 +1968,7 @@ function DomainNode(props) {
   if (data.__pendingFail) cls += ' rf-node--pending-fail';
   if (data.__failureRoot) cls += ' rf-node--failure-root';
 
-  var icon = data.nodeType === 'domain' ? '●' : data.nodeType === 'missing' ? '▲' : '✕';
+  var icon = data.nodeType === 'domain' ? '●' : data.nodeType === 'missing' ? '▲' : React.createElement(MIcon, { name: 'close' });
 
   // Применяем heatmap-цвет, если есть
   var nodeStyle = {};
@@ -2051,14 +2066,14 @@ function ContextMenu(props) {
   }, [menu]);
   if (!menu) return null;
   var items = [
-    { icon: '🎯', label: 'Фокус (N шагов)', action: 'focus' },
-    { icon: '📊', label: 'Что зависит от него', action: 'dependents' },
-    { icon: '🛤️', label: 'Путь от...', action: 'path-from' },
+    { icon: React.createElement(MIcon, { name: 'my_location' }), label: 'Фокус (N шагов)', action: 'focus' },
+    { icon: React.createElement(MIcon, { name: 'bar_chart' }), label: 'Что зависит от него', action: 'dependents' },
+    { icon: React.createElement(MIcon, { name: 'route' }), label: 'Путь от...', action: 'path-from' },
     { icon: '↪️', label: 'Путь до...', action: 'path-to' },
     { type: 'divider' },
-    { icon: '📂', label: 'Открыть файл', action: 'open-file' },
-    { icon: '📋', label: 'Копировать ID', action: 'copy-id' },
-    { icon: '★', label: 'В закладки', action: 'bookmark' },
+    { icon: React.createElement(MIcon, { name: 'folder_open' }), label: 'Открыть файл', action: 'open-file' },
+    { icon: React.createElement(MIcon, { name: 'content_copy' }), label: 'Копировать ID', action: 'copy-id' },
+    { icon: React.createElement(MIcon, { name: 'star' }), label: 'В закладки', action: 'bookmark' },
     { icon: '👁️', label: 'Скрыть', action: 'hide', danger: true }
   ];
   return React.createElement('div', { className: 'ctx-menu', ref: ref, style: { left: menu.x, top: menu.y } },
@@ -2226,7 +2241,7 @@ function SidePanel(props) {
       React.createElement('div', { className: 'details__title' }, node.data.label || node.data.domainId),
       React.createElement('div', { className: 'details__id' },
         React.createElement('span', { className: 'details__id-text' }, node.data.domainId),
-        React.createElement('button', { className: 'details__copy', onClick: function() { navigator.clipboard.writeText(node.data.domainId); }, title: 'Копировать' }, '📋')
+        React.createElement('button', { className: 'details__copy', onClick: function() { navigator.clipboard.writeText(node.data.domainId); }, title: 'Копировать' }, React.createElement(MIcon, { name: 'content_copy' }))
       ),
       React.createElement('div', { className: 'details__badges' },
         React.createElement('span', { className: 'details__badge details__badge--' + node.data.nodeType }, node.data.nodeType),
@@ -2271,7 +2286,7 @@ function SidePanel(props) {
               style: { cursor: 'pointer' },
               onClick: function() { gotoDomainByDomainId(v.fromId); }
             },
-              React.createElement('span', { className: 'rank-item__num' }, v.severity === 'forbid' ? '⛔' : '⚠️'),
+              React.createElement('span', { className: 'rank-item__num' }, v.severity === 'forbid' ? React.createElement(MIcon, { name: 'block' }) : React.createElement(MIcon, { name: 'warning' })),
               React.createElement('span', { className: 'rank-item__label' }, v.fromId + ' → ' + v.toId)
             );
           })
@@ -2350,7 +2365,7 @@ function SidePanel(props) {
         React.createElement('div', { className: 'details__title' }, (edge.data && edge.data.fullLabel) || edge.label || edge.id),
         React.createElement('div', { className: 'details__id' },
           React.createElement('span', { className: 'details__id-text' }, edge.id),
-          React.createElement('button', { className: 'details__copy', onClick: function() { navigator.clipboard.writeText(edge.id); }, title: 'Копировать ID' }, '📋')
+          React.createElement('button', { className: 'details__copy', onClick: function() { navigator.clipboard.writeText(edge.id); }, title: 'Копировать ID' }, React.createElement(MIcon, { name: 'content_copy' }))
         ),
         React.createElement('div', { className: 'details__badges' },
           edge.data && edge.data.kind && React.createElement('span', { className: 'details__badge' }, edge.data.kind),
@@ -2446,7 +2461,7 @@ if (tab === 'entities') {
   onClick: function() { setTab('entities'); }
 }, '🧬 Сущности')
       ),
-      React.createElement('button', { className: 'btn btn--icon', onClick: onClose, title: 'Закрыть' }, '✕')
+      React.createElement('button', { className: 'btn btn--icon', onClick: onClose, title: 'Закрыть' }, React.createElement(MIcon, { name: 'close' }))
     ),
     filePath && React.createElement('div', { className: 'editor-panel__path', style: { padding: '6px 16px', fontSize: 11, color: 'var(--text-500)', borderBottom: '1px solid var(--border)', background: 'var(--bg-800)', fontFamily: 'monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, filePath),
     React.createElement('div', { className: 'side-panel__body' },
@@ -2596,7 +2611,7 @@ function AnalysisMenu(props) {
       className: 'menu__item' + (cycleHighlight ? ' menu__item--active' : ''),
       onClick: function() { handleFindCycles(); close(); }
     },
-      React.createElement('span', { className: 'menu__icon' }, '🔁'),
+      React.createElement('span', { className: 'menu__icon' }, React.createElement(MIcon, { name: 'cycle' })),
       React.createElement('span', { className: 'menu__text' }, 'Найти циклы'),
       cycleHighlight && React.createElement('span', { className: 'menu__count' }, cycleHighlight.sccCount)
     ),
@@ -2606,7 +2621,7 @@ function AnalysisMenu(props) {
       className: 'menu__item' + (isolatedOnly ? ' menu__item--active' : ''),
       onClick: function() { setIsolatedOnly(function(v) { return !v; }); close(); }
     },
-      React.createElement('span', { className: 'menu__icon' }, '◯'),
+      React.createElement('span', { className: 'menu__icon' }, React.createElement(MIcon, { name: 'radio_button_unchecked' })),
       React.createElement('span', { className: 'menu__text' }, 'Только изолированные')
     ),
 
@@ -2615,7 +2630,7 @@ function AnalysisMenu(props) {
       className: 'menu__item' + (nsMode ? ' menu__item--active' : ''),
       onClick: function() { setNsMode(function(v) { return !v; }); close(); }
     },
-      React.createElement('span', { className: 'menu__icon' }, '🗂'),
+      React.createElement('span', { className: 'menu__icon' }, React.createElement(MIcon, { name: 'category' })),
       React.createElement('span', { className: 'menu__text' }, 'Агрегация по семействам')
     ),
 
@@ -2626,7 +2641,7 @@ function AnalysisMenu(props) {
       className: 'menu__item',
       onClick: function() { onOpenTopo(); close(); }
     },
-      React.createElement('span', { className: 'menu__icon' }, '📦'),
+      React.createElement('span', { className: 'menu__icon' }, React.createElement(MIcon, { name: 'inventory_2' })),
       React.createElement('span', { className: 'menu__text' }, 'Порядок установки')
     ),
 
@@ -2635,7 +2650,7 @@ function AnalysisMenu(props) {
       className: 'menu__item',
       onClick: function() { onOpenLearningPath(); close(); }
     },
-      React.createElement('span', { className: 'menu__icon' }, '📖'),
+      React.createElement('span', { className: 'menu__icon' }, React.createElement(MIcon, { name: 'menu_book' })),
       React.createElement('span', { className: 'menu__text' }, 'Путь изучения')
     ),
 
@@ -2646,7 +2661,7 @@ function AnalysisMenu(props) {
       className: 'menu__item' + (ruleViolations.length > 0 ? ' menu__item--active' : ''),
       onClick: function() { onOpenRules(); close(); }
     },
-      React.createElement('span', { className: 'menu__icon' }, '⛔'),
+      React.createElement('span', { className: 'menu__icon' }, React.createElement(MIcon, { name: 'block' })),
       React.createElement('span', { className: 'menu__text' }, 'Правила зависимостей'),
       ruleViolations.length > 0 && React.createElement('span', { className: 'menu__count' }, ruleViolations.length)
     ),
@@ -2655,7 +2670,7 @@ function AnalysisMenu(props) {
   className: 'menu__item',
   onClick: function() { props.onOpenEntityHierarchy(); close(); }
 },
-  React.createElement('span', { className: 'menu__icon' }, '🧬'),
+  React.createElement('span', { className: 'menu__icon' }, React.createElement(MIcon, { name: 'account_tree' })),
   React.createElement('span', { className: 'menu__text' }, 'Иерархия сущностей')
 ),
 
@@ -2682,7 +2697,7 @@ function AnalysisMenu(props) {
       className: 'menu__item menu__item--danger',
       onClick: function() { clearFocus(); close(); }
     },
-      React.createElement('span', { className: 'menu__icon' }, '✕'),
+      React.createElement('span', { className: 'menu__icon' }, React.createElement(MIcon, { name: 'close' })),
       React.createElement('span', { className: 'menu__text' }, 'Сбросить фокус')
     )
   );
@@ -2788,7 +2803,7 @@ function ViewMenu(props) {
     ),
     React.createElement('div', { className: 'menu__divider' }),
     React.createElement('button', { className: 'menu__item', onClick: function() { setTheme(theme === 'dark' ? 'light' : 'dark'); close(); } },
-      React.createElement('span', { className: 'menu__icon' }, theme === 'dark' ? '☀️' : '🌙'),
+      React.createElement('span', { className: 'menu__icon' }, theme === 'dark' ? React.createElement(MIcon, { name: 'light_mode' }) : React.createElement(MIcon, { name: 'dark_mode' })),
       React.createElement('span', { className: 'menu__text' }, theme === 'dark' ? 'Светлая тема' : 'Тёмная тема')
     )
   );
@@ -2807,15 +2822,15 @@ function DataMenu(props) {
   return React.createElement('div', { className: 'menu' },
     React.createElement('div', { className: 'menu__label', style: { paddingLeft: 12, paddingTop: 6 } }, 'Экспорт'),
     React.createElement('button', { className: 'menu__item', onClick: function() { handleExportJSON(); close(); } },
-      React.createElement('span', { className: 'menu__icon' }, '💾'),
+      React.createElement('span', { className: 'menu__icon' }, React.createElement(MIcon, { name: 'save' })),
       React.createElement('span', { className: 'menu__text' }, 'Граф в JSON')
     ),
     React.createElement('button', { className: 'menu__item', onClick: function() { handleExportMarkdown(); close(); } },
-      React.createElement('span', { className: 'menu__icon' }, '📝'),
+      React.createElement('span', { className: 'menu__icon' }, React.createElement(MIcon, { name: 'description' })),
       React.createElement('span', { className: 'menu__text' }, 'Отчёт в Markdown')
     ),
     React.createElement('button', { className: 'menu__item', onClick: function() { handleExportPNG(); close(); } },
-      React.createElement('span', { className: 'menu__icon' }, '🖼️'),
+      React.createElement('span', { className: 'menu__icon' }, React.createElement(MIcon, { name: 'image' })),
       React.createElement('span', { className: 'menu__text' }, 'Граф в PNG')
     ),
 
@@ -2823,19 +2838,19 @@ function DataMenu(props) {
 
     React.createElement('div', { className: 'menu__label', style: { paddingLeft: 12, paddingTop: 6 } }, 'Сравнение'),
     React.createElement('label', { className: 'menu__item' },
-      React.createElement('span', { className: 'menu__icon' }, '⇄'),
+      React.createElement('span', { className: 'menu__icon' }, React.createElement(MIcon, { name: 'swap_horiz' })),
       React.createElement('span', { className: 'menu__text' }, 'Загрузить снимок'),
       React.createElement('input', { ref: snapshotInputRef, type: 'file', accept: 'application/json', style: { display: 'none' }, onChange: function(e) { handleSnapshotUpload(e); close(); } })
     ),
     diffMode && React.createElement('button', { className: 'menu__item menu__item--danger', onClick: function() { setDiffMode(null); close(); } },
-      React.createElement('span', { className: 'menu__icon' }, '✕'),
+      React.createElement('span', { className: 'menu__icon' }, React.createElement(MIcon, { name: 'close' })),
       React.createElement('span', { className: 'menu__text' }, 'Сбросить diff')
     ),
 
     validationAvailable && React.createElement('div', { className: 'menu__divider' }),
     validationAvailable && React.createElement('div', { className: 'menu__label', style: { paddingLeft: 12, paddingTop: 6 } }, 'Валидация'),
     validationAvailable && React.createElement('button', { className: 'menu__item', onClick: function() { onOpenValidation(); close(); } },
-      React.createElement('span', { className: 'menu__icon' }, '🔍'),
+      React.createElement('span', { className: 'menu__icon' }, React.createElement(MIcon, { name: 'search' })),
       React.createElement('span', { className: 'menu__text' }, 'Массовая валидация доменов')
     )
   );
@@ -2858,7 +2873,7 @@ function ActiveModesBar(props) {
           className: 'active-mode__close',
           onClick: m.onClear,
           title: 'Отключить'
-        }, '✕')
+        }, React.createElement(MIcon, { name: 'close' }))
       );
     })
   );
@@ -3047,7 +3062,7 @@ function Toast(props) {
         );
       })
     ),
-    React.createElement('button', { className: 'toast__close', onClick: function() { setVisible(false); if (onClose) onClose(); } }, '✕')
+    React.createElement('button', { className: 'toast__close', onClick: function() { setVisible(false); if (onClose) onClose(); } }, React.createElement(MIcon, { name: 'close' }))
   );
 }
 
@@ -3198,12 +3213,12 @@ function RulesMenu(props) {
           className: 'rule-item__action rule-item__action--' + r.action,
           onClick: function() { toggleAction(r.id); },
           title: r.action === 'forbid' ? 'Запрещено' : 'Предупреждение'
-        }, r.action === 'forbid' ? '⛔' : '⚠️'),
+        }, r.action === 'forbid' ? React.createElement(MIcon, { name: 'block' }) : React.createElement(MIcon, { name: 'warning' })),
         React.createElement('div', { className: 'rule-item__body' },
           React.createElement('div', { className: 'rule-item__pattern' }, r.from + ' → ' + r.to),
           r.message && React.createElement('div', { className: 'rule-item__message' }, r.message)
         ),
-        React.createElement('button', { className: 'rule-item__remove', onClick: function() { removeRule(r.id); } }, '✕')
+        React.createElement('button', { className: 'rule-item__remove', onClick: function() { removeRule(r.id); } }, React.createElement(MIcon, { name: 'close' }))
       );
     }),
     React.createElement('div', { className: 'rule-form' },
@@ -3319,7 +3334,7 @@ function LearningPathModal(props) {
     React.createElement('div', { className: 'help-modal learning-path-modal', onMouseDown: function(e) { e.stopPropagation(); } },
       React.createElement('div', { className: 'help-modal__header' },
         React.createElement('div', { className: 'help-modal__title' }, '📖 Путь изучения архитектуры'),
-        React.createElement('button', { className: 'help-modal__close', onClick: onClose }, '✕')
+        React.createElement('button', { className: 'help-modal__close', onClick: onClose }, React.createElement(MIcon, { name: 'close' }))
       ),
 
       React.createElement('div', { className: 'validation-modal__body' },
@@ -3350,7 +3365,7 @@ function LearningPathModal(props) {
 
           path.entryPoints.length > 0 && React.createElement('div', { className: 'learning-entry-points' },
             React.createElement('div', { className: 'learning-entry-points__header' },
-              React.createElement('span', { className: 'learning-entry-points__icon' }, '🚪'),
+              React.createElement('span', { className: 'learning-entry-points__icon' }, React.createElement(MIcon, { name: 'login' })),
               React.createElement('span', null, 'Точки входа (' + path.entryPoints.length + ')'),
               React.createElement('span', { className: 'learning-entry-points__hint' }, '— никто не зависит от них, но они зависят от других')
             ),
@@ -3372,7 +3387,7 @@ function LearningPathModal(props) {
             var isOpen = expandedStages.has(stage.index);
             return React.createElement('div', { key: stage.index, className: 'topo-level' + (isOpen ? ' topo-level--open' : '') },
               React.createElement('div', { className: 'topo-level__header', onClick: function() { toggleStage(stage.index); } },
-                React.createElement('span', { className: 'validation-log__chevron' }, isOpen ? '▾' : '▸'),
+                React.createElement('span', { className: 'validation-log__chevron' }, isOpen ? React.createElement(MIcon, { name: 'expand_more' }) : React.createElement(MIcon, { name: 'chevron_right' })),
                 React.createElement('span', { className: 'topo-level__badge learning-path-stage-badge' }, stage.index + 1),
                 React.createElement('span', { className: 'topo-level__title' }, 'Этап ' + (stage.index + 1)),
                 React.createElement('span', { className: 'topo-level__count' },
@@ -3412,7 +3427,7 @@ function LearningPathModal(props) {
 
           path.unresolved.length > 0 && React.createElement('div', { className: 'topo-cyclic' },
             React.createElement('div', { className: 'topo-cyclic__header' },
-              React.createElement('span', { className: 'topo-cyclic__icon' }, '⚠️'),
+              React.createElement('span', { className: 'topo-cyclic__icon' }, React.createElement(MIcon, { name: 'warning' })),
               React.createElement('span', null, 'В цикле — читать после всех (' + path.unresolved.length + ')')
             ),
             React.createElement('div', { className: 'topo-cyclic__body' },
@@ -3482,7 +3497,7 @@ function TourOverlay(props) {
       React.createElement('div', { className: 'tour-overlay__header' },
         React.createElement('span', { className: 'tour-overlay__stage-badge' }, 'Этап ' + current.stageNumber),
         React.createElement('span', { className: 'tour-overlay__counter' }, (tour.index + 1) + ' / ' + allItems.length),
-        React.createElement('button', { className: 'tour-overlay__close', onClick: onStop, title: 'Завершить' }, '✕')
+        React.createElement('button', { className: 'tour-overlay__close', onClick: onStop, title: 'Завершить' }, React.createElement(MIcon, { name: 'close' }))
       ),
       React.createElement('div', { className: 'tour-overlay__title' }, current.domainId),
       d.label && d.label !== current.domainId && React.createElement('div', { className: 'tour-overlay__subtitle' }, d.label),
@@ -3508,18 +3523,18 @@ function TourOverlay(props) {
           onClick: onPrev,
           disabled: tour.index === 0,
           title: 'Назад'
-        }, '◀'),
+        }, React.createElement(MIcon, { name: 'chevron_left' })),
         React.createElement('button', {
           className: 'tour-btn tour-btn--primary',
           onClick: onTogglePlay,
           title: tour.playing ? 'Пауза' : 'Играть'
-        }, tour.playing ? '❚❚' : '▶'),
+        }, tour.playing ? React.createElement(MIcon, { name: 'pause' }) : React.createElement(MIcon, { name: 'play_arrow' })),
         React.createElement('button', {
           className: 'tour-btn',
           onClick: onNext,
           disabled: tour.index >= allItems.length - 1,
           title: 'Дальше'
-        }, '▶')
+        }, React.createElement(MIcon, { name: 'play_arrow' }))
       )
     )
   );
@@ -3706,7 +3721,7 @@ function TopoSortModal(props) {
 
       React.createElement('div', { className: 'help-modal__header' },
         React.createElement('div', { className: 'help-modal__title' }, '📦 Порядок установки доменов'),
-        React.createElement('button', { className: 'help-modal__close', onClick: onClose }, '✕')
+        React.createElement('button', { className: 'help-modal__close', onClick: onClose }, React.createElement(MIcon, { name: 'close' }))
       ),
 
       React.createElement('div', { className: 'validation-modal__body' },
@@ -3767,7 +3782,7 @@ function TopoSortModal(props) {
 
             result.cyclic.length > 0 && React.createElement(React.Fragment, null,
               React.createElement('div', { className: 'topo-cyclic__header' },
-                React.createElement('span', { className: 'topo-cyclic__icon' }, '⚠️'),
+                React.createElement('span', { className: 'topo-cyclic__icon' }, React.createElement(MIcon, { name: 'warning' })),
                 React.createElement('span', null, 'Требуют ручного вмешательства — цикл (' + result.cyclic.length + ')')
               ),
               React.createElement('div', { className: 'topo-cyclic__body' },
@@ -3783,7 +3798,7 @@ function TopoSortModal(props) {
           
             result.cyclic.length === 0 && result.broken.length > 0 && React.createElement(React.Fragment, null,
               React.createElement('div', { className: 'topo-cyclic__header topo-cyclic__header--broken' },
-                React.createElement('span', { className: 'topo-cyclic__icon' }, '🔗'),
+                React.createElement('span', { className: 'topo-cyclic__icon' }, React.createElement(MIcon, { name: 'link' })),
                 React.createElement('span', null, 'Циклы разорваны автоматически (' + result.broken.length + ')')
               ),
               React.createElement('div', { className: 'topo-cyclic__body' },
@@ -3808,7 +3823,7 @@ function TopoSortModal(props) {
             var isOpen = expandedLevels.has(idx);
             return React.createElement('div', { key: idx, className: 'topo-level' + (isOpen ? ' topo-level--open' : '') },
               React.createElement('div', { className: 'topo-level__header', onClick: function() { toggleLevel(idx); } },
-                React.createElement('span', { className: 'validation-log__chevron' }, isOpen ? '▾' : '▸'),
+                React.createElement('span', { className: 'validation-log__chevron' }, isOpen ? React.createElement(MIcon, { name: 'expand_more' }) : React.createElement(MIcon, { name: 'chevron_right' })),
                 React.createElement('span', { className: 'topo-level__badge' }, idx + 1),
                 React.createElement('span', { className: 'topo-level__title' }, 'Уровень ' + (idx + 1)),
                 React.createElement('span', { className: 'topo-level__count' }, level.length + ' домен' + (level.length === 1 ? '' : (level.length < 5 ? 'а' : 'ов')))
@@ -3824,7 +3839,7 @@ function TopoSortModal(props) {
                         className: 'validation-log__chevron',
                         style: { cursor: 'pointer' },
                         onClick: function() { toggleDeps(id); }
-                      }, isDepsOpen ? '▾' : '▸'),
+                      }, isDepsOpen ? React.createElement(MIcon, { name: 'expand_more' }) : React.createElement(MIcon, { name: 'chevron_right' })),
                       !deps.length && React.createElement('span', { className: 'validation-log__chevron' }, ' '),
                       React.createElement('a', {
                         className: 'validation-log__domain',
@@ -4049,7 +4064,7 @@ function ValidationModal(props) {
     React.createElement('div', { className: 'help-modal validation-modal', onMouseDown: function(e) { e.stopPropagation(); } },
       React.createElement('div', { className: 'help-modal__header' },
         React.createElement('div', { className: 'help-modal__title' }, '🔍 Массовая валидация доменов'),
-        React.createElement('button', { className: 'help-modal__close', onClick: running ? stopValidation : onClose }, running ? '■ Стоп' : '✕')
+        React.createElement('button', { className: 'help-modal__close', onClick: running ? stopValidation : onClose }, running ? '■ Стоп' : React.createElement(MIcon, { name: 'close' }))
       ),
 
       React.createElement('div', { className: 'validation-modal__body' },
@@ -4087,7 +4102,7 @@ function ValidationModal(props) {
         started && React.createElement('div', { className: 'validation-logs', ref: logsRef },
           filteredLogs.length === 0 ? React.createElement('div', { className: 'validation-logs__empty' }, 'Нет записей по фильтру') :
           filteredLogs.map(function(log, i) {
-            var icon = log.status === 'valid' ? '✅' : log.status === 'invalid' ? '❌' : '⚠️';
+            var icon = log.status === 'valid' ? React.createElement(MIcon, { name: 'check_circle' }) : log.status === 'invalid' ? React.createElement(MIcon, { name: 'cancel' }) : React.createElement(MIcon, { name: 'warning' });
             var isInvalid = log.status === 'invalid';
             var hasDiag = isInvalid && log.diagnostics && log.diagnostics.length > 0;
             var isOpen = expanded.has(log.domainId);
@@ -4097,7 +4112,7 @@ function ValidationModal(props) {
                 className: 'validation-log__head' + (hasDiag ? ' validation-log__head--clickable' : ''),
                 onClick: hasDiag ? function() { toggleExpanded(log.domainId); } : undefined
               },
-                hasDiag && React.createElement('span', { className: 'validation-log__chevron' }, isOpen ? '▾' : '▸'),
+                hasDiag && React.createElement('span', { className: 'validation-log__chevron' }, isOpen ? React.createElement(MIcon, { name: 'expand_more' }) : React.createElement(MIcon, { name: 'chevron_right' })),
                 React.createElement('span', { className: 'validation-log__icon' }, icon),
                 React.createElement('a', {
                   className: 'validation-log__domain',
@@ -4266,8 +4281,8 @@ function HotkeysModal(props) {
       title: 'Навигация',
       items: [
         { keys: ['F'], label: 'Вписать граф в экран' },
-        { keys: ['Alt', '←'], label: 'Назад по истории' },
-        { keys: ['Alt', '→'], label: 'Вперёд по истории' },
+        { keys: ['Alt', React.createElement(MIcon, { name: 'arrow_back' })], label: 'Назад по истории' },
+        { keys: ['Alt', React.createElement(MIcon, { name: 'arrow_forward' })], label: 'Вперёд по истории' },
         { keys: ['Ctrl', 'клик'], label: 'Мультивыбор узлов' }
       ]
     },
@@ -4305,7 +4320,7 @@ function HotkeysModal(props) {
 
       React.createElement('div', { className: 'help-modal__header' },
         React.createElement('div', { className: 'help-modal__title' }, '⌨️ Горячие клавиши'),
-        React.createElement('button', { className: 'help-modal__close', onClick: onClose }, '✕')
+        React.createElement('button', { className: 'help-modal__close', onClick: onClose }, React.createElement(MIcon, { name: 'close' }))
       ),
 
       React.createElement('div', { className: 'hotkeys-body' },
@@ -4383,7 +4398,7 @@ function HelpModal(props) {
     React.createElement('div', { className: 'help-modal', onMouseDown: function(e) { e.stopPropagation(); } },
       React.createElement('div', { className: 'help-modal__header' },
         React.createElement('div', { className: 'help-modal__title' }, '📖 Руководство пользователя'),
-        React.createElement('button', { className: 'help-modal__close', onClick: onClose, title: 'Закрыть (Esc)' }, '✕')
+        React.createElement('button', { className: 'help-modal__close', onClick: onClose, title: 'Закрыть (Esc)' }, React.createElement(MIcon, { name: 'close' }))
       ),
       React.createElement('div', { className: 'help-modal__body', ref: bodyRef },
         loading ? React.createElement('div', { className: 'help-modal__loading' }, 'Загрузка...') :
@@ -4895,10 +4910,10 @@ useEffect(function() {
   var visibleNodes = useMemo(function() {
     var pathEndpoints = pathResult ? new Set([pathResult.nodes[0], pathResult.nodes[pathResult.nodes.length - 1]]) : null;
     var hasChanges = highlight || compact || topoLevelMap || heatmapValues ||
-        (validationResults && validationResults.size > 0) ||
-        (bookmarks && bookmarks.size > 0) ||
-        (hiddenNodeIds && hiddenNodeIds.size > 0) ||
-        diffMode || selectedNodeId;
+      (validationResults && validationResults.size > 0) ||
+      (bookmarks && bookmarks.size > 0) ||
+      (hiddenNodeIds && hiddenNodeIds.size > 0) ||
+      diffMode || selectedNodeId || focusNode || cycleHighlight || pathResult;
   
     // Быстрый путь: без активных режимов возвращаем filteredNodes как есть
     if (!hasChanges) return filteredNodes;
@@ -4940,11 +4955,12 @@ useEffect(function() {
         selected: n.id === selectedNodeId
       });
     });
-  }, [heatmapValues, filteredNodes, highlight, compact, pathResult, diffMode, healthMap, selectedNodeId, topoLevelMap, validationResults, bookmarks, hiddenNodeIds]);
+  }, [filteredNodes, highlight, compact, pathResult, diffMode, healthMap, selectedNodeId, topoLevelMap, validationResults, bookmarks, hiddenNodeIds, heatmapValues, focusNode, cycleHighlight]);
 
  var visibleEdges = useMemo(function() {
   var hasHighlight = highlight || diffMode || selectedEdgeId ||
-    (rulesHighlighted && violationsByEdge && violationsByEdge.size > 0);
+  focusNode || cycleHighlight || pathResult ||   // ← добавили
+  (rulesHighlighted && violationsByEdge && violationsByEdge.size > 0);
 
   // Быстрый путь: если нет активных подсветок — возвращаем исходный массив
   if (!hasHighlight) return filteredEdges;
@@ -4999,7 +5015,7 @@ useEffect(function() {
       markerStart: e.markerStart ? Object.assign({}, e.markerStart, { color: stroke }) : undefined
     });
   });
-}, [filteredEdges, highlight, diffMode, rulesHighlighted, violationsByEdge, selectedEdgeId]);
+}, [filteredEdges, highlight, diffMode, rulesHighlighted, violationsByEdge, selectedEdgeId, cycleHighlight, focusNode, pathResult]);
  
  var perfMode = useMemo(function() {
   return filteredEdges.length > 250;
@@ -5614,6 +5630,55 @@ useEffect(function() {
   selectedNodeId, toggleBookmark
 ]);
 
+useEffect(function() {
+  var handler = function(e) {
+    var target = e.target;
+    if (!target || typeof target.closest !== 'function') return;
+
+    // 1. Разворачивание/сворачивание секции валидации
+    var toggleBtn = target.closest('.js-toggle-validation');
+    if (toggleBtn) {
+      e.stopPropagation();
+      e.preventDefault();
+      var list = toggleBtn.nextElementSibling;
+      if (list && list.classList.contains('tooltip__validation-list')) {
+        var isOpen = list.style.display !== 'none';
+        list.style.display = isOpen ? 'none' : 'block';
+        var arrow = toggleBtn.querySelector('.tooltip__validation-arrow');
+        if (arrow) arrow.textContent = isOpen ? '▸' : '▾';
+      }
+      return;
+    }
+
+    // 2. Открытие файла
+    var openBtn = target.closest('.js-open-file');
+    if (openBtn) {
+      e.stopPropagation();
+      e.preventDefault();
+      var file = openBtn.getAttribute('data-file');
+      var fqid = openBtn.getAttribute('data-fqid');
+      if (file) openFileInEditor(file, fqid);
+      return;
+    }
+
+    // 3. Переход к домену
+    var gotoBtn = target.closest('.js-goto-domain');
+    if (gotoBtn) {
+      e.stopPropagation();
+      e.preventDefault();
+      var d = gotoBtn.getAttribute('data-domain');
+      if (!d) return;
+      gotoDomainByDomainId(d);
+      setTooltip(null);
+      window.__tooltipHovered = false;
+      return;
+    }
+  };
+
+  document.addEventListener('click', handler, true);
+  return function() { document.removeEventListener('click', handler, true); };
+}, [openFileInEditor, gotoDomainByDomainId]);
+
   // ---- Layout on change ----
 var applyLayout = useCallback(function(type, depth) {
   setNodes(function(prevNodes) {
@@ -5769,31 +5834,31 @@ scheduleFit(!didInitialFitRef.current ? false : true);
 
   if (cycleHighlight) {
     modes.push({
-      icon: '🔁',
+      icon: React.createElement(MIcon, { name: 'cycle' }),
       label: 'Циклы (' + cycleHighlight.sccCount + ')',
       color: 'orange',
-      onClear: function() { setCycleHighlight(null); }
+      onClear: function() { setCycleHighlight(null); setSelectedNodeId(null); }
     });
   }
   if (focusNode) {
     modes.push({
-      icon: '🎯',
+      icon: React.createElement(MIcon, { name: 'my_location' }),
       label: 'Фокус N=' + focusDepth,
       color: 'cyan',
-      onClear: function() { setFocusNode(null); }
+      onClear: function() { setFocusNode(null); setSelectedNodeId(null); }
     });
   }
   if (pathResult || pathSel.length > 0) {
     modes.push({
-      icon: '🛤️',
+      icon: React.createElement(MIcon, { name: 'route' }),
       label: pathResult ? 'Путь найден' : 'Выбор пути (' + pathSel.length + '/2)',
       color: 'yellow',
-      onClear: function() { setPathResult(null); setPathSel([]); setPathMode(null); }
+      onClear: function() { setPathResult(null); setPathSel([]); setPathMode(null); setSelectedNodeId(null); }
     });
   }
   if (hiddenNodeIds.size > 0) {
     modes.push({
-      icon: '👁',
+      icon: React.createElement(MIcon, { name: 'visibility_off' }),
       label: 'Скрыто: ' + hiddenNodeIds.size,
       color: 'gray',
       onClear: function() { setHiddenNodeIds(new Set()); }
@@ -5801,7 +5866,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
   }
   if (onlyInvalid) {
     modes.push({
-      icon: '❌',
+      icon: React.createElement(MIcon, { name: 'cancel' }),
       label: 'Только невалидные',
       color: 'red',
       onClear: function() { setOnlyInvalid(false); }
@@ -5809,7 +5874,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
   }
   if (bookmarksOnly) {
     modes.push({
-      icon: '★',
+      icon: React.createElement(MIcon, { name: 'star' }),
       label: 'Только избранные',
       color: 'yellow',
       onClear: function() { setBookmarksOnly(false); }
@@ -5817,7 +5882,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
   }
   if (nsMode) {
     modes.push({
-      icon: '🗂',
+      icon: React.createElement(MIcon, { name: 'category' }),
       label: 'Агрегация по семействам',
       color: 'purple',
       onClear: function() { setNsMode(false); }
@@ -5825,7 +5890,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
   }
   if (diffMode) {
     modes.push({
-      icon: '⇄',
+      icon: React.createElement(MIcon, { name: 'swap_horiz' }),
       label: 'Diff +' + (diffMode.addedEdges.size + diffMode.addedNodes.size) + '/−' + (diffMode.removedEdges.size + diffMode.removedNodes.size),
       color: 'blue',
       onClear: function() { setDiffMode(null); }
@@ -5833,7 +5898,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
   }
   if (ruleViolations && ruleViolations.length > 0 && rulesHighlighted) {
     modes.push({
-      icon: '⛔',
+      icon: React.createElement(MIcon, { name: 'block' }),
       label: 'Нарушения: ' + ruleViolations.length,
       color: 'red',
       onClear: function() { setRulesHighlighted(false); }
@@ -5841,7 +5906,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
   }
   if (!tooltipsEnabled) {
     modes.push({
-      icon: '🚫',
+      icon: React.createElement(MIcon, { name: 'block' }),
       label: 'Тултипы выключены',
       color: 'gray',
       onClear: function() { setTooltipsEnabled(true); }
@@ -5849,7 +5914,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
   }
   if (topoLevelMap) {
     modes.push({
-      icon: '📦',
+      icon: React.createElement(MIcon, { name: 'inventory_2' }),
       label: 'Уровни установки',
       color: 'green',
       onClear: function() { setTopoLevelMap(null); }
@@ -5857,7 +5922,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
   }
   if (!sidePanelEnabled) {
     modes.push({
-      icon: '🚫',
+      icon: React.createElement(MIcon, { name: 'block' }),
       label: 'Панель выключена',
       color: 'gray',
       onClear: function() { setSidePanelEnabled(true); }
@@ -5866,7 +5931,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
 
   if (!filters.linkage && !filters.fqid) {
       modes.push({
-      icon: '🔌',
+      icon: React.createElement(MIcon, { name: 'power_off' }),
       label: 'Связи скрыты',
       color: 'gray',
       onClear: function() {
@@ -5877,7 +5942,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
 
   if (namespaceFilter && namespaceFilter.trim()) {
     modes.push({
-      icon: '🔎',
+      icon: React.createElement(MIcon, { name: 'filter_alt' }),
       label: 'Фильтр: ' + (namespaceFilter.length > 30 ? namespaceFilter.slice(0, 30) + '…' : namespaceFilter),
       color: 'cyan',
       onClear: function() { setNamespaceFilter(''); }
@@ -5902,77 +5967,77 @@ scheduleFit(!didInitialFitRef.current ? false : true);
  var commands = useMemo(function() {
     return [
       // Навигация
-      { section: 'Навигация', icon: '⛶', label: 'Вписать в экран', hotkey: 'F', keywords: 'fit zoom',
+      { section: 'Навигация', icon: React.createElement(MIcon, { name: 'fit_screen' }), label: 'Вписать в экран', hotkey: 'F', keywords: 'fit zoom',
         run: function() { rfInstance.current && rfInstance.current.fitView({ duration: 500 }); } },
-      { section: 'Навигация', icon: '⟳', label: 'Переуложить граф', keywords: 'relayout',
+      { section: 'Навигация', icon: React.createElement(MIcon, { name: 'refresh' }), label: 'Переуложить граф', keywords: 'relayout',
         run: function() { setNodes(runLayout(nodes, edges, layoutType)); setTimeout(function() { rfInstance.current && rfInstance.current.fitView({ duration: 500 }); }, 100); } },
-      { section: 'Навигация', icon: '←', label: 'Назад по истории', hotkey: 'Alt+←', keywords: 'back',
+      { section: 'Навигация', icon: React.createElement(MIcon, { name: 'arrow_back' }), label: 'Назад по истории', hotkey: 'Alt+←', keywords: 'back',
         run: navBack },
-      { section: 'Навигация', icon: '→', label: 'Вперёд по истории', hotkey: 'Alt+→', keywords: 'forward',
+      { section: 'Навигация', icon: React.createElement(MIcon, { name: 'arrow_forward' }), label: 'Вперёд по истории', hotkey: 'Alt+→', keywords: 'forward',
         run: navForward },
   
       // Раскладка
-      { section: 'Раскладка', icon: '📐', label: 'Горизонтальная (LR)', keywords: 'layout dagre horizontal',
+      { section: 'Раскладка', icon: React.createElement(MIcon, { name: 'straighten' }), label: 'Горизонтальная (LR)', keywords: 'layout dagre horizontal',
         run: function() { setLayoutType('LR'); } },
-      { section: 'Раскладка', icon: '📐', label: 'Вертикальная (TB)', keywords: 'layout vertical',
+      { section: 'Раскладка', icon: React.createElement(MIcon, { name: 'straighten' }), label: 'Вертикальная (TB)', keywords: 'layout vertical',
         run: function() { setLayoutType('TB'); } },
-      { section: 'Раскладка', icon: '📐', label: 'Force-directed', keywords: 'layout force physics',
+      { section: 'Раскладка', icon: React.createElement(MIcon, { name: 'straighten' }), label: 'Force-directed', keywords: 'layout force physics',
         run: function() { setLayoutType('force'); } },
-      { section: 'Раскладка', icon: '📐', label: 'Круговая', keywords: 'layout circular circle',
+      { section: 'Раскладка', icon: React.createElement(MIcon, { name: 'straighten' }), label: 'Круговая', keywords: 'layout circular circle',
         run: function() { setLayoutType('circular'); } },
-      { section: 'Раскладка', icon: '🗂', label: 'По семействам', keywords: 'cluster namespace family layout group',
+      { section: 'Раскладка', icon: React.createElement(MIcon, { name: 'category' }), label: 'По семействам', keywords: 'cluster namespace family layout group',
         run: function() { setLayoutType('cluster'); } },
-      { section: 'Раскладка', icon: '📁', label: 'По каталогам', keywords: 'folder directory path layout',
+      { section: 'Раскладка', icon: React.createElement(MIcon, { name: 'folder' }), label: 'По каталогам', keywords: 'folder directory path layout',
         run: function() { setLayoutType('folder'); } },  
   
       // Вид
-      { section: 'Вид', icon: theme === 'dark' ? '☀️' : '🌙', label: 'Переключить тему', keywords: 'theme dark light',
+      { section: 'Вид', icon: theme === 'dark' ? React.createElement(MIcon, { name: 'light_mode' }) : React.createElement(MIcon, { name: 'dark_mode' }), label: 'Переключить тему', keywords: 'theme dark light',
         run: function() { setTheme(theme === 'dark' ? 'light' : 'dark'); } },
-      { section: 'Вид', icon: '⚫', label: compact ? 'Выключить компактный режим' : 'Включить компактный режим', keywords: 'compact small',
+      { section: 'Вид', icon: React.createElement(MIcon, { name: 'circle' }), label: compact ? 'Выключить компактный режим' : 'Включить компактный режим', keywords: 'compact small',
         run: function() { setCompact(!compact); } },
-      { section: 'Вид', icon: '🗂', label: showGroups ? 'Скрыть группировку' : 'Показать группировку', keywords: 'groups boxes',
+      { section: 'Вид', icon: React.createElement(MIcon, { name: 'category' }), label: showGroups ? 'Скрыть группировку' : 'Показать группировку', keywords: 'groups boxes',
         run: function() { setShowGroups(!showGroups); } },
-      { section: 'Вид', icon: '⇄', label: bidirectional ? 'Разъединить A↔B' : 'Объединять A↔B', keywords: 'bidirectional merge',
+      { section: 'Вид', icon: React.createElement(MIcon, { name: 'swap_horiz' }), label: bidirectional ? 'Разъединить A↔B' : 'Объединять A↔B', keywords: 'bidirectional merge',
         run: function() { setBidirectional(!bidirectional); } },
-      { section: 'Вид', icon: '🏷', label: showEdgeLabels ? 'Скрыть подписи связей' : 'Показать подписи связей', keywords: 'labels edges',
+      { section: 'Вид', icon: React.createElement(MIcon, { name: 'label' }), label: showEdgeLabels ? 'Скрыть подписи связей' : 'Показать подписи связей', keywords: 'labels edges',
         run: function() { setShowEdgeLabels(!showEdgeLabels); } },
-      { section: 'Вид', icon: tooltipsEnabled ? '🚫' : '💬', label: tooltipsEnabled ? 'Скрыть тултипы' : 'Показать тултипы', hotkey: 'T', keywords: 'tooltip hover',
+      { section: 'Вид', icon: tooltipsEnabled ? React.createElement(MIcon, { name: 'block' }) : React.createElement(MIcon, { name: 'chat_bubble' }), label: tooltipsEnabled ? 'Скрыть тултипы' : 'Показать тултипы', hotkey: 'T', keywords: 'tooltip hover',
         run: function() { setTooltipsEnabled(!tooltipsEnabled); } },
   
       // Heatmap
-      { section: 'Heatmap', icon: '🔥', label: heatmap === 'health' ? 'Выключить heatmap' : 'Heatmap: Health score', keywords: 'heatmap health',
+      { section: 'Heatmap', icon: React.createElement(MIcon, { name: 'local_fire_department' }), label: heatmap === 'health' ? 'Выключить heatmap' : 'Heatmap: Health score', keywords: 'heatmap health',
         run: function() { setHeatmap(heatmap === 'health' ? 'none' : 'health'); } },
-      { section: 'Heatmap', icon: '🔥', label: heatmap === 'degree' ? 'Выключить heatmap' : 'Heatmap: Количество связей', keywords: 'heatmap degree',
+      { section: 'Heatmap', icon: React.createElement(MIcon, { name: 'local_fire_department' }), label: heatmap === 'degree' ? 'Выключить heatmap' : 'Heatmap: Количество связей', keywords: 'heatmap degree',
         run: function() { setHeatmap(heatmap === 'degree' ? 'none' : 'degree'); } },
-      { section: 'Heatmap', icon: '🔥', label: heatmap === 'entities' ? 'Выключить heatmap' : 'Heatmap: Entities', keywords: 'heatmap entities',
+      { section: 'Heatmap', icon: React.createElement(MIcon, { name: 'local_fire_department' }), label: heatmap === 'entities' ? 'Выключить heatmap' : 'Heatmap: Entities', keywords: 'heatmap entities',
         run: function() { setHeatmap(heatmap === 'entities' ? 'none' : 'entities'); } },
-      { section: 'Heatmap', icon: '🔥', label: heatmap === 'fqid' ? 'Выключить heatmap' : 'Heatmap: FQID-ссылки', keywords: 'heatmap fqid refs',
+      { section: 'Heatmap', icon: React.createElement(MIcon, { name: 'local_fire_department' }), label: heatmap === 'fqid' ? 'Выключить heatmap' : 'Heatmap: FQID-ссылки', keywords: 'heatmap fqid refs',
         run: function() { setHeatmap(heatmap === 'fqid' ? 'none' : 'fqid'); } },
   
       // Анализ
-      { section: 'Анализ', icon: '🔁', label: 'Найти циклы', hotkey: 'C', keywords: 'cycles scc loop',
+      { section: 'Анализ', icon: React.createElement(MIcon, { name: 'cycle' }), label: 'Найти циклы', hotkey: 'C', keywords: 'cycles scc loop',
         run: handleFindCycles },
-      { section: 'Анализ', icon: '◯', label: isolatedOnly ? 'Показать все домены' : 'Только изолированные', hotkey: 'I', keywords: 'isolated orphans',
+      { section: 'Анализ', icon: React.createElement(MIcon, { name: 'radio_button_unchecked' }), label: isolatedOnly ? 'Показать все домены' : 'Только изолированные', hotkey: 'I', keywords: 'isolated orphans',
         run: function() { setIsolatedOnly(!isolatedOnly); } },
-      { section: 'Анализ', icon: '🗂', label: nsMode ? 'Выключить агрегацию' : 'Агрегация по семействам', hotkey: 'S', keywords: 'namespace aggregate family',
+      { section: 'Анализ', icon: React.createElement(MIcon, { name: 'category' }), label: nsMode ? 'Выключить агрегацию' : 'Агрегация по семействам', hotkey: 'S', keywords: 'namespace aggregate family',
         run: function() { setNsMode(!nsMode); } },
-      { section: 'Анализ', icon: '📦', label: 'Порядок установки (топосорт)', keywords: 'topo install order',
+      { section: 'Анализ', icon: React.createElement(MIcon, { name: 'inventory_2' }), label: 'Порядок установки (топосорт)', keywords: 'topo install order',
         run: function() { setTopoOpen(true); } },
-      { section: 'Анализ', icon: '🎯', label: focusNode ? 'Сбросить фокус' : 'Фокус на выделенном', keywords: 'focus',
+      { section: 'Анализ', icon: React.createElement(MIcon, { name: 'my_location' }), label: focusNode ? 'Сбросить фокус' : 'Фокус на выделенном', keywords: 'focus',
         run: function() { if (focusNode) setFocusNode(null); else if (selectedNodeId) setFocusNode(selectedNodeId); } },
-      { section: 'Анализ', icon: '🛤️', label: 'Найти путь между двумя узлами', hotkey: 'P', keywords: 'path find',
+      { section: 'Анализ', icon: React.createElement(MIcon, { name: 'route' }), label: 'Найти путь между двумя узлами', hotkey: 'P', keywords: 'path find',
         run: handleRunPath },
-      { section: 'Анализ', icon: '📖', label: tour ? 'Остановить экскурсию' : 'Путь изучения архитектуры', keywords: 'learning path onboarding tour',
+      { section: 'Анализ', icon: React.createElement(MIcon, { name: 'menu_book' }), label: tour ? 'Остановить экскурсию' : 'Путь изучения архитектуры', keywords: 'learning path onboarding tour',
   run: function() { if (tour) tourStop(); else setLearningPathOpen(true); } },  
-  { section: 'Анализ', icon: '🧬', label: 'Иерархия сущностей', keywords: 'entity hierarchy inheritance inherits',
+  { section: 'Анализ', icon: React.createElement(MIcon, { name: 'account_tree' }), label: 'Иерархия сущностей', keywords: 'entity hierarchy inheritance inherits',
   run: function() { setEntityHierarchyInitialKey(null); setEntityHierarchyOpen(true); } },
   
       // Фильтры
-      { section: 'Фильтры', icon: '★', label: bookmarksOnly ? 'Показать все домены' : 'Только избранные', keywords: 'bookmarks favorites',
+      { section: 'Фильтры', icon: React.createElement(MIcon, { name: 'star' }), label: bookmarksOnly ? 'Показать все домены' : 'Только избранные', keywords: 'bookmarks favorites',
         run: function() { setBookmarksOnly(!bookmarksOnly); } },
-      { section: 'Фильтры', icon: '❌', label: onlyInvalid ? 'Показать все домены' : 'Только невалидные', keywords: 'invalid errors validation',
+      { section: 'Фильтры', icon: React.createElement(MIcon, { name: 'cancel' }), label: onlyInvalid ? 'Показать все домены' : 'Только невалидные', keywords: 'invalid errors validation',
         run: function() { setOnlyInvalid(!onlyInvalid); } },
-      { section: 'Фильтры', icon: '🗑', label: 'Сбросить все фильтры', keywords: 'reset filters clear',
+      { section: 'Фильтры', icon: React.createElement(MIcon, { name: 'delete_sweep' }), label: 'Сбросить все фильтры', keywords: 'reset filters clear',
         run: function() {
           setFilters({ domain: true, broken: true, missing: true, linkage: true, fqid: true });
           setNamespaceFilter('');
@@ -5983,19 +6048,19 @@ scheduleFit(!didInitialFitRef.current ? false : true);
         } },
   
       // Данные
-      { section: 'Данные', icon: '💾', label: 'Экспорт графа в JSON', keywords: 'export json download',
+      { section: 'Данные', icon: React.createElement(MIcon, { name: 'save' }), label: 'Экспорт графа в JSON', keywords: 'export json download',
         run: handleExportJSON },
-      { section: 'Данные', icon: '📝', label: 'Отчёт в Markdown', keywords: 'export markdown report',
+      { section: 'Данные', icon: React.createElement(MIcon, { name: 'description' }), label: 'Отчёт в Markdown', keywords: 'export markdown report',
         run: handleExportMarkdown },
-      { section: 'Данные', icon: '🖼️', label: 'Экспорт графа в PNG', keywords: 'export png image',
+      { section: 'Данные', icon: React.createElement(MIcon, { name: 'image' }), label: 'Экспорт графа в PNG', keywords: 'export png image',
         run: handleExportPNG },
-      validationAvailable && { section: 'Данные', icon: '🔍', label: 'Массовая валидация доменов', keywords: 'validate check',
+      validationAvailable && { section: 'Данные', icon: React.createElement(MIcon, { name: 'search' }), label: 'Массовая валидация доменов', keywords: 'validate check',
         run: function() { setValidationOpen(true); } },
   
       // Справка
-      { section: 'Справка', icon: '📖', label: 'Руководство пользователя', hotkey: 'F1', keywords: 'guide help docs',
+      { section: 'Справка', icon: React.createElement(MIcon, { name: 'menu_book' }), label: 'Руководство пользователя', hotkey: 'F1', keywords: 'guide help docs',
         run: function() { setHelpOpen(true); } },
-      { section: 'Справка', icon: '⌨️', label: 'Список горячих клавиш', keywords: 'hotkeys shortcuts',
+      { section: 'Справка', icon: React.createElement(MIcon, { name: 'keyboard' }), label: 'Список горячих клавиш', keywords: 'hotkeys shortcuts',
         run: function() { setHotkeysOpen(true); } }
     ].filter(Boolean);
   }, [
@@ -6011,7 +6076,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
         React.createElement('button', { className: 'sidebar__expand', onClick: function() { setSidebarCollapsed(false); }, title: 'Развернуть' }, '›') :
         React.createElement(React.Fragment, null,
           React.createElement('div', { className: 'sidebar__header' },
-            React.createElement('div', { className: 'sidebar__logo' }, '🌐'),
+            React.createElement('div', { className: 'sidebar__logo' }, React.createElement(MIcon, { name: 'language' })),
             React.createElement('div', { style: { flex: 1 } },
               React.createElement('div', { className: 'sidebar__title' }, 'Domain Graph'),
               React.createElement('div', { className: 'sidebar__subtitle' }, 'Analyzer')
@@ -6065,14 +6130,14 @@ scheduleFit(!didInitialFitRef.current ? false : true);
                     onClick: function() { gotoDomainByDomainId(n.data.domainId); },
                     title: n.data.domainId
                   },
-                    React.createElement('span', { className: 'rank-item__num' }, '★'),
+                    React.createElement('span', { className: 'rank-item__num' }, React.createElement(MIcon, { name: 'star' })),
                     React.createElement('span', { className: 'rank-item__label' }, n.data.domainId),
                     React.createElement('button', {
                       className: 'rank-item__value',
                       style: { background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-500)' },
                       onClick: function(ev) { ev.stopPropagation(); toggleBookmark(id); },
                       title: 'Убрать из избранного'
-                    }, '✕')
+                    }, React.createElement(MIcon, { name: 'close' }))
                   );
                 })
               )
@@ -6134,7 +6199,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
       React.createElement('div', { className: 'toolbar' },
       
         React.createElement('div', { className: 'toolbar__group' },
-          React.createElement('button', { className: 'btn btn--icon', onClick: function() { rfInstance.current && rfInstance.current.fitView({ duration: 500 }); }, title: 'Вписать (F)' }, '⛶'),
+          React.createElement('button', { className: 'btn btn--icon', onClick: function() { rfInstance.current && rfInstance.current.fitView({ duration: 500 }); }, title: 'Вписать (F)' }, React.createElement(MIcon, { name: 'fit_screen' })),
             React.createElement('button', {
               className: 'btn btn--icon',
               onClick: function() {
@@ -6143,7 +6208,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
                 setTimeout(function() { rfInstance.current && rfInstance.current.fitView({ duration: 500 }); }, 100);
               },
               title: 'Переуложить'
-            }, '⟳'),
+            }, React.createElement(MIcon, { name: 'refresh' })),
             React.createElement('button', {
               className: 'btn btn--icon',
               onClick: function() {
@@ -6158,13 +6223,13 @@ scheduleFit(!didInitialFitRef.current ? false : true);
                 setTimeout(function() { rfInstance.current && rfInstance.current.fitView({ duration: 500 }); }, 200);
               },
               title: 'Сбросить раскладку'
-            }, '↺'),
-          React.createElement('button', { className: 'btn btn--icon', onClick: navBack, disabled: navStack.index <= 0, style: { opacity: navStack.index <= 0 ? 0.4 : 1 }, title: 'Назад (Alt+←)' }, '←'),
-          React.createElement('button', { className: 'btn btn--icon', onClick: navForward, disabled: navStack.index >= navStack.items.length - 1, style: { opacity: navStack.index >= navStack.items.length - 1 ? 0.4 : 1 }, title: 'Вперёд (Alt+→)' }, '→')
+            }, React.createElement(MIcon, { name: 'restart_alt' })),
+          React.createElement('button', { className: 'btn btn--icon', onClick: navBack, disabled: navStack.index <= 0, style: { opacity: navStack.index <= 0 ? 0.4 : 1 }, title: 'Назад (Alt+<span class="material-symbols-outlined mi-sm">arrow_back</span>)' }, React.createElement(MIcon, { name: 'arrow_back' })),
+          React.createElement('button', { className: 'btn btn--icon', onClick: navForward, disabled: navStack.index >= navStack.items.length - 1, style: { opacity: navStack.index >= navStack.items.length - 1 ? 0.4 : 1 }, title: 'Вперёд (Alt+→)' }, React.createElement(MIcon, { name: 'arrow_forward' }))
         ),
       
         React.createElement('button', { className: 'btn', onClick: openSearch, title: 'Поиск (Shift+Tab)' },
-          React.createElement('span', { className: 'btn__icon' }, '🔍'),
+          React.createElement('span', { className: 'btn__icon' }, React.createElement(MIcon, { name: 'search' })),
           'Поиск',
           React.createElement('kbd', { className: 'btn-kbd' }, '⇧ Tab')
         ),
@@ -6173,7 +6238,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
           width: 320,
           trigger: function(open) {
             return React.createElement('button', { className: 'btn' + (open ? ' btn--active' : '') },
-              React.createElement('span', { className: 'btn__icon' }, '⚙️'),
+              React.createElement('span', { className: 'btn__icon' }, React.createElement(MIcon, { name: 'tune' })),
               'Фильтры',
               activeFiltersCount > 0 && React.createElement('span', { className: 'btn__badge' }, activeFiltersCount)
             );
@@ -6197,7 +6262,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
           trigger: function(open) {
             var active = open || cycleHighlight || isolatedOnly || nsMode || focusNode;
             return React.createElement('button', { className: 'btn' + (active ? ' btn--active' : '') },
-              React.createElement('span', { className: 'btn__icon' }, '📊'),
+              React.createElement('span', { className: 'btn__icon' }, React.createElement(MIcon, { name: 'bar_chart' })),
               'Анализ'
             );
           }
@@ -6207,7 +6272,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
             isolatedOnly: isolatedOnly, setIsolatedOnly: setIsolatedOnly,
             nsMode: nsMode, setNsMode: setNsMode,
             focusDepth: focusDepth, setFocusDepth: setFocusDepth,
-            focusNode: focusNode, clearFocus: function() { setFocusNode(null); },
+            focusNode: focusNode, clearFocus: function() { setFocusNode(null);  },
             onOpenTopo: function() { setTopoOpen(true); },
             onOpenLearningPath: function() { setLearningPathOpen(true); },
             onOpenEntityHierarchy: function() {
@@ -6222,7 +6287,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
           width: 300,
           trigger: function(open) {
             return React.createElement('button', { className: 'btn' + (open ? ' btn--active' : '') },
-              React.createElement('span', { className: 'btn__icon' }, '🎨'),
+              React.createElement('span', { className: 'btn__icon' }, React.createElement(MIcon, { name: 'palette' })),
               'Вид'
             );
           }
@@ -6246,7 +6311,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
           width: 260,
           trigger: function(open) {
             return React.createElement('button', { className: 'btn' + (open || diffMode ? ' btn--active' : '') },
-              React.createElement('span', { className: 'btn__icon' }, '💾'),
+              React.createElement('span', { className: 'btn__icon' }, React.createElement(MIcon, { name: 'save' })),
               'Данные'
             );
           }
@@ -6270,13 +6335,13 @@ scheduleFit(!didInitialFitRef.current ? false : true);
           className: 'btn btn--icon',
           onClick: function() { setHotkeysOpen(true); },
           title: 'Горячие клавиши (?)'
-        }, '⌨️'),
+        }, React.createElement(MIcon, { name: 'keyboard' })),
 
         React.createElement('button', {
           className: 'btn btn--icon',
           onClick: function() { setHelpOpen(true); },
           title: 'Руководство пользователя (F1)'
-        }, '📖'),
+        }, React.createElement(MIcon, { name: 'menu_book' })),
       
         React.createElement('div', { className: 'toolbar__stats' },
           visibleNodes.length + ' / ' + nodes.length + ' узлов · ' + visibleEdges.length + ' / ' + edges.length + ' связей'
@@ -6338,7 +6403,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
             React.createElement('span', null, heatmapValues.min),
             React.createElement('span', null, heatmapValues.max)
           ),
-          React.createElement('button', { className: 'heat-legend__close', onClick: function() { setHeatmap('none'); } }, '✕')
+          React.createElement('button', { className: 'heat-legend__close', onClick: function() { setHeatmap('none'); } }, React.createElement(MIcon, { name: 'close' }))
         )
       )
     ),
@@ -6406,7 +6471,7 @@ React.createElement(TourOverlay, {
 }),
     React.createElement(ContextMenu, { menu: contextMenu, onClose: function() { setContextMenu(null); }, onAction: handleContextAction }),
     toastVisible && REMOTE_INFO && REMOTE_INFO.fromCache && React.createElement(Toast, {
-      message: '📦 Граф построен из <b>кэша</b>'
+      message: '<span class="material-symbols-outlined mi-sm">inventory_2</span> Граф построен из <b>кэша</b>'
         + (REMOTE_INFO.fetchedAt ? ' (от ' + new Date(REMOTE_INFO.fetchedAt).toLocaleString('ru-RU') + ')' : '')
         + '. Данные могут быть устаревшими.',
       actions: REFRESH_COMMAND ? [{ command: REFRESH_COMMAND }] : [],
