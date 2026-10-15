@@ -4563,6 +4563,10 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Robo
   flex-shrink: 0;
   margin-top: 1px;
 }
+  .rf-node--selected-soft {
+  border-color: var(--accent-hover) !important;
+  box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.35) !important;
+}
 </style>
 </head>
 <body>

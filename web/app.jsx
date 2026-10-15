@@ -2042,6 +2042,7 @@ function DomainNode(props) {
   if (data.__failed) cls += ' rf-node--failed';
   if (data.__pendingFail) cls += ' rf-node--pending-fail';
   if (data.__failureRoot) cls += ' rf-node--failure-root';
+  if (data.__selectedHighlight) cls += ' rf-node--selected-soft';
 
   var icon = data.nodeType === 'domain' ? '●' : data.nodeType === 'missing' ? '▲' : '✕';
 
@@ -3607,16 +3608,6 @@ function FilterMenu(props) {
         React.createElement('span', { className: 'menu__check' }),
         React.createElement('span', { className: 'menu__text' }, 'Скрывать тултипы')
       ),
-
-      React.createElement('label', { className: 'menu__checkbox' },
-        React.createElement('input', {
-          type: 'checkbox',
-          checked: !props.focusEnabled,
-          onChange: function() { props.setFocusEnabled(!props.focusEnabled); }
-        }),
-        React.createElement('span', { className: 'menu__check' }),
-        React.createElement('span', { className: 'menu__text' }, 'Не фокусировать при клике (G)')
-      ),
     )
   );
 }
@@ -4361,14 +4352,18 @@ var ReactFlowInner = React.memo(function(props) {
     prev.readOnly === next.readOnly &&
     prev.perfMode === next.perfMode &&
     prev.showGroups === next.showGroups &&
+    prev.interactive === next.interactive &&
+    prev.setRfInstance === next.setRfInstance &&
     prev.onNodeClick === next.onNodeClick &&
-    prev.onEdgeClick === next.onEdgeClick &&
-    prev.onPaneClick === next.onPaneClick &&
+    prev.onNodeDoubleClick === next.onNodeDoubleClick &&
+    prev.onNodeContextMenu === next.onNodeContextMenu &&
     prev.onNodeMouseEnter === next.onNodeMouseEnter &&
     prev.onNodeMouseLeave === next.onNodeMouseLeave &&
+    prev.onEdgeClick === next.onEdgeClick &&
     prev.onEdgeMouseEnter === next.onEdgeMouseEnter &&
     prev.onEdgeMouseLeave === next.onEdgeMouseLeave &&
-    prev.setRfInstance === next.setRfInstance
+    prev.onPaneClick === next.onPaneClick &&
+    prev.onPaneContextMenu === next.onPaneContextMenu
   );
 });
 
@@ -5794,13 +5789,12 @@ function HotkeysModal(props) {
         { keys: ['T'], label: 'Скрыть/показать тултипы' },
         { keys: ['D'], label: 'Скрыть/показать правую панель' },
         { keys: ['E'], label: 'Скрыть/показать все связи' },
-        { keys: ['G'], label: 'Не фокусировать при клике' }
       ]
     },
     {
       title: 'Мышью',
       items: [
-        { keys: ['Двойной клик'], label: 'Включить/выключить фокус на узле' },
+        { keys: ['Двойной клик'], label: 'Фокус на узле' },
         { keys: ['Правая кнопка'], label: 'Контекстное меню узла' },
         { keys: ['Клик по связи'], label: 'Детали связи в панели' },
         { keys: ['Клик по пустому месту'], label: 'Снять все выделения' }
@@ -6147,18 +6141,6 @@ var toggleSection = useCallback(function(id, isCollapsed) {
       return saved === null ? true : saved === 'true';
     } catch (e) { return true; }
   });
-
-  var [focusEnabled, setFocusEnabled] = useState(function() {
-    try {
-      var v = localStorage.getItem('dg-focus-enabled');
-      return v === null ? true : v === 'true';
-    } catch (e) { return true; }
-  });
-
-  useEffect(function() {
-    try { localStorage.setItem('dg-focus-enabled', String(focusEnabled)); } catch (e) {}
-    setSelectedNodeId(null);
-  }, [focusEnabled]);
 
   useEffect(function() {
     try { localStorage.setItem('dg-tooltip-enabled', String(tooltipsEnabled)); } catch (e) {}
@@ -6710,7 +6692,7 @@ var healthMap = useMemo(function() {
     if (cycleHighlight) {
       return { nodes: cycleHighlight.nodeIds, edges: cycleHighlight.edgeIds, color: '#f97316', type: 'cycle' };
     }
-    if (focusEnabled && focusNode) {
+    if (focusNode) {
       var reachable = findReachable(focusNode, focusDepth, edgesForFocus);
       var focusEdges = new Set();
       edgesForFocus.forEach(function(e) {
@@ -6718,8 +6700,7 @@ var healthMap = useMemo(function() {
       });
       return { nodes: reachable, edges: focusEdges, color: '#22d3ee', type: 'focus' };
     }
-    if (selectedNodeId) {
-      if (!focusEnabled) return null;
+    if (selectedNodeId && !focusNode) {
       var nodeIds = new Set([selectedNodeId]);
       var edgeIds = new Set();
       filteredEdges.forEach(function(e) {
@@ -6729,10 +6710,16 @@ var healthMap = useMemo(function() {
           nodeIds.add(e.target);
         }
       });
-      return { nodes: nodeIds, edges: edgeIds, color: '#fbbf24', type: 'selected' };
+      return {
+        nodes: nodeIds,
+        edges: edgeIds,
+        color: '#818cf8',
+        type: 'selected',
+        soft: true 
+      };
     }
     return null;
-  }, [focusEnabled, selectedNodeId, focusNode, focusDepth, cycleHighlight, pathResult, filteredEdges, edgesForFocus]);
+  }, [focusNode, selectedNodeId, focusNode, focusDepth, cycleHighlight, pathResult, filteredEdges, edgesForFocus]);
   
   var edgesForRender = useMemo(function() {
     // При фокусе, цикле или пути — показываем все рёбра между видимыми узлами,
@@ -6805,7 +6792,7 @@ var healthMap = useMemo(function() {
     }
 
     // --- Полный путь: добавляем поля, зависящие от режимов ---
-    var dimmed = highlight ? !highlight.nodes.has(n.id) : false;
+    var dimmed = (highlight && !highlight.soft) ? !highlight.nodes.has(n.id) : false;
     var inPath = highlight && highlight.type === 'path' && highlight.nodes.has(n.id);
     var isPathEndpoint = pathEndpoints && pathEndpoints.has(n.id);
     var isAdded = diffMode && diffMode.addedNodes && diffMode.addedNodes.has(n.id);
@@ -6816,7 +6803,8 @@ var healthMap = useMemo(function() {
         dimmed: dimmed,
         __inPath: inPath,
         __isPathEndpoint: isPathEndpoint,
-        __isAdded: isAdded
+        __isAdded: isAdded,
+        __selectedHighlight: highlight && highlight.soft && highlight.nodes.has(n.id) && n.id === selectedNodeId,
       }),
       selected: n.id === selectedNodeId
     });
@@ -6863,12 +6851,21 @@ var visibleEdges = useMemo(function() {
     var animated = false;
 
     if (highlight) {
-      opacity = hl ? 1 : 0.06;
-      strokeWidth = hl
-        ? ((e.data && e.data.kind === 'linkage') ? 3 : 2)
-        : strokeWidth;
-      animated = hl && highlight.type === 'path';
+  if (highlight.soft) {
+    // Мягкий режим — не затемняем. Только утолщаем рёбра выделенного узла.
+    if (hl) {
+      opacity = 0.9;
+      strokeWidth = (e.data && e.data.kind === 'linkage') ? 2.2 : 1.8;
     }
+    // Остальные оставляем с их базовой opacity
+  } else {
+    opacity = hl ? 1 : 0.06;
+    strokeWidth = hl
+      ? ((e.data && e.data.kind === 'linkage') ? 3 : 2)
+      : strokeWidth;
+    animated = hl && highlight.type === 'path';
+  }
+}
 
     if (diffMode) {
       if (diffMode.addedEdges && diffMode.addedEdges.has(e.id)) {
@@ -7197,9 +7194,9 @@ var searchResults = useMemo(function() {
   if (!nodeId) return;
     pushNav(domainId);
     setSelectedNodeId(nodeId);
-  if (focusEnabled) setFocusNode(nodeId);
+    setFocusNode(nodeId);
     gotoWithoutNav(domainId);
-  }, [pushNav, gotoWithoutNav, focusEnabled]);
+  }, [pushNav, gotoWithoutNav]);
   
   var navBack = useCallback(function() {
     setNavStack(function(prev) {
@@ -7368,19 +7365,18 @@ var handleSnapshotUpload = useCallback(function(e) {
 }, [applySnapshotDiff, showSnackbar]);
 
   // ---- Node interactions ----
-  var handleNodeClick = useCallback(function(event, node) {
-    clearTimeout(hideTimer.current);
+var handleNodeClick = useCallback(function(event, node) {
+  clearTimeout(hideTimer.current);
   setTooltip(null);
+  window.__tooltipHovered = false;
 
-  // Если активен режим выбора пути
+  // Path mode — отдельная логика
   if (pathMode) {
     if (!pathMode.anchorId) {
-      // Первый клик — устанавливаем anchor
       setPathMode({ anchorId: node.id, anchorDomainId: node.data.domainId });
       setPathSel([node.id]);
       return;
     }
-    // Второй клик — строим путь
     var startId = pathMode.anchorId;
     var endId = node.id;
     if (startId === endId) { setPathMode(null); setPathSel([]); return; }
@@ -7389,7 +7385,6 @@ var handleSnapshotUpload = useCallback(function(e) {
       setPathResult(res);
       setPathMode(null);
       setPathSel([]);
-      scheduleFit(false);
     } else {
       alert('Путь не найден');
       setPathMode(null);
@@ -7398,43 +7393,25 @@ var handleSnapshotUpload = useCallback(function(e) {
     return;
   }
 
-    if (node.type === 'clusterNode') return;
-    clearTimeout(hideTimer.current);
-    setTooltip(null);
-    window.__tooltipHovered = false;
+  // Обычный клик — выделение без затемнения
+  setSelectedEdgeId(null);
+  setPathResult(null);
+  setPathSel([]);
+  setSelectedNodeId(node.id);
+  setFocusNode(null);
+  pushNav(node.data.domainId);
 
-    if (focusNode === node.id) {
-      setFocusNode(null);
-      setSelectedNodeId(node.id);
-      setSelectedEdgeId(null);
-      pushNav(node.data.domainId);
-      if (sidePanelEnabled) openDetails(node.id);
-      return;
-    }
-  
+  if (sidePanelEnabled) openDetails(node.id);
+}, [openDetails, pathMode, filteredEdges, pushNav, sidePanelEnabled]);
+
+var handleNodeDoubleClick = useCallback(function(event, node) {
+  if (focusNode === node.id) {
+    setFocusNode(null);
+  } else {
+    setFocusNode(node.id);
     setSelectedNodeId(node.id);
-    if (focusEnabled) {
-      setFocusNode(node.id);
-    } else {
-      setFocusNode(null);
-    }
-    setSelectedEdgeId(null);
-    setPathResult(null);
-    setPathSel([]);
-    pushNav(node.data.domainId);
-    if (sidePanelEnabled) {
-      openDetails(node.id);
-    }
-  }, [openDetails, pathMode, filteredEdges, pushNav, focusEnabled, focusNode, pathResult, pathSel, sidePanelEnabled]);
-
-  var handleNodeDoubleClick = useCallback(function(event, node) {
-    if (node.type === 'clusterNode') return;
-    if (focusNode === node.id) setFocusNode(null);
-    else { if (focusEnabled) {
-      setFocusNode(node.id); 
-    }
-    setSelectedNodeId(null); }
-  }, [focusNode, focusEnabled]);
+  }
+}, [focusNode]);
 
   useEffect(function() {
   setSelectedEdgeId(null);
@@ -7474,8 +7451,7 @@ var handleSnapshotUpload = useCallback(function(e) {
   var handleContextAction = useCallback(function(action, nodeId) {
     var node = nodes.find(function(n) { return n.id === nodeId; });
     if (!node) return;
-    if (action === 'focus') { 
-      if (!focusEnabled) return;
+    if (action === 'focus') {
       setFocusNode(nodeId); 
       setSelectedNodeId(null); 
     } else if (action === 'dependents') {
@@ -7502,7 +7478,7 @@ var handleSnapshotUpload = useCallback(function(e) {
       });
     }
     else if (action === 'bookmark') { toggleBookmark(nodeId); }
-  }, [nodes, filteredEdges, pathSel, openFileInEditor, setNodes, focusEnabled]);
+  }, [nodes, filteredEdges, pathSel, openFileInEditor, setNodes]);
 
   var handleRunPath = useCallback(function() {
     if (pathSel.length !== 2) { alert('Выберите два узла через Ctrl+клик'); return; }
@@ -7686,24 +7662,19 @@ useEffect(function() {
         return;
       }
 
-      if (code === 'KeyG') {
-        e.preventDefault();
-        setFocusEnabled(function(v) {
-          var newValue = !v;
-          if (!newValue) setFocusNode(null);
-          return newValue;
-        });
-        return;
-      }
-
       if (k === 'Escape') {
-        setSelectedNodeId(null);
-        setFocusNode(null);
-        setPathResult(null);
-        setPathSel([]);
-        setCycleHighlight(null);
-        setContextMenu(null);
-        setPathMode(null);
+        if (focusNode) {
+          setFocusNode(null);
+        } else {
+          setSelectedNodeId(null);
+          setSelectedEdgeId(null);
+          setFocusNode(null);
+          setPathResult(null);
+          setPathSel([]);
+          setCycleHighlight(null);
+          setContextMenu(null);
+          setPathMode(null);
+        }
         return;
       }
 
@@ -7906,28 +7877,41 @@ var handleEdgeClick = useCallback(function(event, edge) {
 
   if (cycleHighlight) {
     modes.push({
-      icon: '🔁',
+      iconName: 'cycle',
       label: 'Циклы (' + cycleHighlight.sccCount + ')',
       color: 'orange',
       onClear: function() { setCycleHighlight(null); setSelectedNodeId(null);
   setSelectedEdgeId(null);}
     });
   }
-  if (focusNode) {
-    modes.push({
-      icon: '🎯',
-      label: 'Фокус N=' + focusDepth,
-      color: 'cyan',
-      onClear: function() {
-        setFocusNode(null);
-        setSelectedNodeId(null);
-        setSelectedEdgeId(null);
-      }
-    });
-  }
+  // Фокус (приоритет)
+if (focusNode) {
+  var fn = nodes.find(function(n) { return n.id === focusNode; });
+  modes.push({
+    iconName: 'my_location',
+    label: 'Фокус N=' + focusDepth + (fn ? ': ' + fn.data.domainId : ''),
+    color: 'cyan',
+    onClear: function() {
+      setFocusNode(null);
+      setSelectedNodeId(null);
+      setSelectedEdgeId(null);
+    }
+  });
+} else if (selectedNodeId) {
+  var sn = nodes.find(function(n) { return n.id === selectedNodeId; });
+  modes.push({
+    iconName: 'visibility',
+    label: sn ? sn.data.domainId : 'узел',
+    color: 'accent',
+    onClear: function() {
+      setSelectedNodeId(null);
+      setSelectedEdgeId(null);
+    }
+  });
+}
   if (pathResult || pathSel.length > 0) {
     modes.push({
-      icon: '🛤️',
+      iconName: 'route',
       label: pathResult ? 'Путь найден' : 'Выбор пути (' + pathSel.length + '/2)',
       color: 'yellow',
       onClear: function() { setPathResult(null); setPathSel([]); setPathMode(null); setSelectedNodeId(null);
@@ -7936,7 +7920,7 @@ var handleEdgeClick = useCallback(function(event, edge) {
   }
   if (hiddenNodeIds.size > 0) {
     modes.push({
-      icon: '👁',
+      iconName: 'visibility_off',
       label: 'Скрыто: ' + hiddenNodeIds.size,
       color: 'gray',
       onClear: function() { setHiddenNodeIds(new Set()); }
@@ -7944,7 +7928,7 @@ var handleEdgeClick = useCallback(function(event, edge) {
   }
   if (onlyInvalid) {
     modes.push({
-      icon: '❌',
+      iconName: 'cancel',
       label: 'Только невалидные',
       color: 'red',
       onClear: function() { setOnlyInvalid(false); }
@@ -7952,7 +7936,7 @@ var handleEdgeClick = useCallback(function(event, edge) {
   }
   if (bookmarksOnly) {
     modes.push({
-      icon: '★',
+      iconName: 'star',
       label: 'Только избранные',
       color: 'yellow',
       onClear: function() { setBookmarksOnly(false); }
@@ -7960,7 +7944,7 @@ var handleEdgeClick = useCallback(function(event, edge) {
   }
   if (nsMode) {
     modes.push({
-      icon: '🗂',
+      iconName: 'category',
       label: 'Агрегация по семействам',
       color: 'purple',
       onClear: function() { setNsMode(false); }
@@ -7968,7 +7952,7 @@ var handleEdgeClick = useCallback(function(event, edge) {
   }
   if (diffMode) {
     modes.push({
-      icon: '⇄',
+      iconName: 'swap_horiz',
       label: 'Diff +' + (diffMode.addedEdges.size + diffMode.addedNodes.size) + '/−' + (diffMode.removedEdges.size + diffMode.removedNodes.size),
       color: 'blue',
       onClear: function() { setDiffMode(null); }
@@ -7976,7 +7960,7 @@ var handleEdgeClick = useCallback(function(event, edge) {
   }
   if (ruleViolations && ruleViolations.length > 0 && rulesHighlighted) {
     modes.push({
-      icon: '⛔',
+      iconName: 'block',
       label: 'Нарушения: ' + ruleViolations.length,
       color: 'red',
       onClear: function() { setRulesHighlighted(false); }
@@ -7984,7 +7968,7 @@ var handleEdgeClick = useCallback(function(event, edge) {
   }
   if (!tooltipsEnabled) {
     modes.push({
-      icon: '🚫',
+      iconName: 'block',
       label: 'Тултипы выключены',
       color: 'gray',
       onClear: function() { setTooltipsEnabled(true); }
@@ -7992,7 +7976,7 @@ var handleEdgeClick = useCallback(function(event, edge) {
   }
   if (topoLevelMap) {
     modes.push({
-      icon: '📦',
+      iconName: 'inventory_2',
       label: 'Уровни установки',
       color: 'green',
       onClear: function() { setTopoLevelMap(null); }
@@ -8000,7 +7984,7 @@ var handleEdgeClick = useCallback(function(event, edge) {
   }
   if (!sidePanelEnabled) {
     modes.push({
-      icon: '🚫',
+      iconName: 'block',
       label: 'Панель выключена',
       color: 'gray',
       onClear: function() { setSidePanelEnabled(true); }
@@ -8009,7 +7993,7 @@ var handleEdgeClick = useCallback(function(event, edge) {
 
   if (!filters.linkage && !filters.fqid) {
       modes.push({
-      icon: '🔌',
+      iconName: 'power_off',
       label: 'Связи скрыты',
       color: 'gray',
       onClear: function() {
@@ -8020,7 +8004,7 @@ var handleEdgeClick = useCallback(function(event, edge) {
 
   if (namespaceFilter && namespaceFilter.trim()) {
     modes.push({
-      icon: '🔎',
+      iconName: 'filter_alt',
       label: 'Фильтр: ' + (namespaceFilter.length > 30 ? namespaceFilter.slice(0, 30) + '…' : namespaceFilter),
       color: 'cyan',
       onClear: function() { setNamespaceFilter(''); }
@@ -8033,15 +8017,6 @@ var handleEdgeClick = useCallback(function(event, edge) {
     label: 'Только изолированные',
     color: 'orange',
     onClear: function() { setIsolatedOnly(false); }
-  });
-}
-
-if (!focusEnabled) {
-  modes.push({
-    iconName: 'my_location',
-    label: 'Фокус выключен',
-    color: 'gray',
-    onClear: function() { setFocusEnabled(true); }
   });
 }
 
@@ -8064,7 +8039,7 @@ if (tagFilters.size > 0) {
 }
 
     return modes;
-  }, [cycleHighlight, focusNode, focusDepth,focusEnabled,tagFilters,
+  }, [cycleHighlight, focusNode, focusDepth,tagFilters,
   pathResult, pathSel, pathMode,
   hiddenNodeIds,
   onlyInvalid, bookmarksOnly, isolatedOnly,
@@ -8076,7 +8051,7 @@ if (tagFilters.size > 0) {
   filters.linkage, 
   filters.fqid,
   filters.domain, filters.missing, filters.broken,
-  topoLevelMap]);
+  topoLevelMap, selectedNodeId, nodes]);
 
   var handleExportStats = useCallback(function() {
   var lines = [];
@@ -8384,8 +8359,6 @@ setActivityPeriod: setActivityPeriod,
             tooltipsEnabled: tooltipsEnabled, setTooltipsEnabled: setTooltipsEnabled,
             sidePanelEnabled: sidePanelEnabled,
             setSidePanelEnabled: setSidePanelEnabled,
-            focusEnabled: focusEnabled,
-            setFocusEnabled: setFocusEnabled,
             close: close,
           });
         }),
@@ -8512,7 +8485,6 @@ onClearB: function() { handleClearSnapshot('B'); },
           React.createElement(ReactFlowInner, {
             nodes: visibleNodes,
             edges: displayEdges,
-            setRfInstance: setRfInstance,
             onNodesChange: onNodesChange,
             onEdgesChange: onEdgesChange,
             onEdgeClick: handleEdgeClick,
@@ -8525,7 +8497,7 @@ onClearB: function() { handleClearSnapshot('B'); },
             onEdgeMouseLeave: scheduleHide,
             onPaneClick: handlePaneClick,
             onPaneContextMenu: handlePaneContextMenu,
-            setRfInstance: function(rf) { rfInstance.current = rf; },
+            setRfInstance: setRfInstance,
             readOnly: nsMode,
             perfMode: perfMode,
           }),
