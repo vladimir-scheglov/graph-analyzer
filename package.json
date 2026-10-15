@@ -1,21 +1,33 @@
 {
   "name": "domain-graph-analyzer",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Analyze inter-domain relationships from .ro YAML files",
-  "main": "graph-analyzer.js",
+  "main": "dist/index.js",
+  "type": "commonjs",
   "scripts": {
-    "start": "node graph-analyzer.js",
-    "extract-jsx": "node scripts/extract-jsx.js",
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts",
     "build:web": "node scripts/build-web.js",
-    "build:web:prod": "NODE_ENV=production node scripts/build-web.js",
-    "build": "npm run build:web"
+    "build:web:prod": "cross-env NODE_ENV=production node scripts/build-web.js",
+    "build:server": "tsc -p tsconfig.json",
+    "build": "npm run build:web && npm run build:server",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx tests/**/*.test.ts"
   },
   "dependencies": {
-    "@babel/core": "^8.0.7",
-    "@babel/preset-react": "^8.0.1",
     "js-yaml": "^4.3.2"
   },
   "devDependencies": {
-    "esbuild": "^0.28.2"
+    "@types/dagre": "^0.7.54",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.11.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "cross-env": "^7.0.3",
+    "esbuild": "^0.20.0",
+    "reactflow": "^11.11.4",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0",
+    "zustand": "^4.5.2"
   }
 }

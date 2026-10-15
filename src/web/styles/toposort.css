@@ -1,0 +1,111 @@
+.topo-modal { width: 900px; }
+.topo-result {
+  padding: 12px 32px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+.topo-result::-webkit-scrollbar { width: 8px; }
+.topo-result::-webkit-scrollbar-thumb { background: var(--bg-600); border-radius: 4px; }
+
+.topo-level {
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-800);
+  overflow: hidden;
+}
+.topo-level__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.topo-level__header:hover { background: var(--bg-700); }
+.topo-level__badge {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), #8b5cf6);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.topo-level__title { font-weight: 600; font-size: 13px; color: var(--text-100); }
+.topo-level__count { margin-left: auto; font-size: 11px; color: var(--text-500); }
+.topo-level__body { padding: 6px 14px 12px; border-top: 1px solid var(--border); }
+
+.topo-domain { padding: 4px 0; }
+.topo-domain__head { display: flex; align-items: center; gap: 8px; }
+.topo-domain__deps { margin-top: 4px; padding-left: 26px; }
+.topo-dep { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 2px 0; }
+.topo-dep__level {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-700);
+  color: var(--text-500);
+}
+
+.topo-cyclic {
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  background: rgba(239, 68, 68, 0.05);
+  overflow: hidden;
+}
+.topo-cyclic__header {
+  padding: 10px 14px;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--danger);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  background: rgba(239, 68, 68, 0.08);
+}
+.topo-cyclic__icon { font-size: 14px; }
+.topo-cyclic__body {
+  padding: 10px 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.topo-domain--broken {
+  background: rgba(245, 158, 11, 0.06);
+  border-left: 2px solid var(--warning);
+  padding-left: 8px;
+  border-radius: 4px;
+}
+.topo-broken-badge {
+  margin-left: 8px;
+  padding: 1px 6px;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  color: var(--warning);
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: help;
+}
+.topo-cyclic__header--broken {
+  background: rgba(245, 158, 11, 0.08);
+  color: var(--warning);
+}
+.topo-broken-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.topo-broken-item__meta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  padding: 1px 6px;
+  background: var(--bg-700);
+  color: var(--text-500);
+  border-radius: 4px;
+}
+.topo-broken-item__deps { font-size: 11px; color: var(--warning); cursor: help; }

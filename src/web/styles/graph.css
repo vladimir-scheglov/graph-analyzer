@@ -1,0 +1,87 @@
+.graph-container {
+  flex: 1;
+  position: relative;
+  background: var(--graph-bg);
+  min-height: 0;
+}
+.react-flow__attribution { display: none; }
+.react-flow__background { background: var(--graph-bg) !important; }
+.react-flow__minimap {
+  background: var(--bg-800) !important;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.react-flow__minimap-mask { fill: rgba(99, 102, 241, 0.15); }
+.react-flow__controls {
+  background: var(--bg-800) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+  overflow: hidden;
+}
+.react-flow__controls-button {
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid var(--border) !important;
+  color: var(--text-200) !important;
+  fill: var(--text-200) !important;
+}
+.react-flow__controls-button:hover { background: var(--bg-700) !important; }
+.react-flow__controls-button svg { fill: var(--text-200) !important; }
+
+/* Рёбра */
+.react-flow__edge-path { stroke-width: 1.5; }
+.react-flow__edge-text {
+  fill: var(--text-400);
+  font-size: 10px;
+  font-family: inherit;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.react-flow__edge-textbg {
+  fill: var(--bg-850);
+  stroke: var(--border);
+  stroke-width: 1;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.react-flow__edge:hover .react-flow__edge-text,
+.react-flow__edge:hover .react-flow__edge-textbg { opacity: 1 !important; }
+.graph-container.show-labels .react-flow__edge-text,
+.graph-container.show-labels .react-flow__edge-textbg { opacity: 1 !important; }
+.graph-container.hide-labels .react-flow__edge-text,
+.graph-container.hide-labels .react-flow__edge-textbg {
+  opacity: 0 !important;
+  transition: opacity 0.2s;
+}
+
+/* Groups overlay */
+.groups-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  pointer-events: none;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+/* Perf-mode */
+.graph-container.perf-mode .rf-node {
+  box-shadow: none !important;
+  transition: none !important;
+  border-width: 1px !important;
+}
+.graph-container.perf-mode .rf-node:hover {
+  transform: none !important;
+  box-shadow: none !important;
+}
+.graph-container.perf-mode .rf-node__id { font-size: 11px; }
+.graph-container.perf-mode .react-flow__edge-path { stroke-width: 1 !important; }
+.graph-container.perf-mode .rf-handle {
+  width: 4px !important;
+  height: 4px !important;
+}
+.graph-container.perf-mode .react-flow__edge:hover .react-flow__edge-path {
+  stroke-width: 1.5 !important;
+}

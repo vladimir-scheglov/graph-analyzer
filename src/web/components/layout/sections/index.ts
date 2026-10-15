@@ -1,0 +1,11 @@
+export { OverviewSection } from "./OverviewSection";
+export { ActivitySection } from "./ActivitySection";
+export { ProblemsSection } from "./ProblemsSection";
+export { NewsSection } from "./NewsSection";
+export { TopConnectedSection } from "./TopConnectedSection";
+export { WorstHealthSection } from "./WorstHealthSection";
+export { MissingRefsSection } from "./MissingRefsSection";
+export { NamespacesSection } from "./NamespacesSection";
+export { TagsSection } from "./TagsSection";
+export { BookmarksSection } from "./BookmarksSection";
+export { LegendSection } from "./LegendSection";

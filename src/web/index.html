@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Domain Graph Analyzer</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='8' cy='8' r='4' fill='%236366f1'/%3E%3Ccircle cx='24' cy='8' r='4' fill='%2310b981'/%3E%3Ccircle cx='16' cy='24' r='4' fill='%23f59e0b'/%3E%3Cpath d='M8 8 L24 8 M8 8 L16 24 M24 8 L16 24' stroke='%236366f1' stroke-width='1.5' fill='none'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0,0&display=swap">
+<link rel="stylesheet" href="https://esm.sh/reactflow@11.11.4/dist/style.css" />
+<link rel="stylesheet" href="/web.bundle.css" />
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.2.0",
+    "react/": "https://esm.sh/react@18.2.0/",
+    "react-dom": "https://esm.sh/react-dom@18.2.0?external=react",
+    "react-dom/": "https://esm.sh/react-dom@18.2.0/",
+    "reactflow": "https://esm.sh/reactflow@11.11.4?external=react,react-dom",
+    "dagre": "https://esm.sh/dagre@0.8.5",
+    "zustand": "https://esm.sh/zustand@4.5.2?external=react",
+    "zustand/": "https://esm.sh/zustand@4.5.2/"
+  }
+}
+</script>
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.34.0/min/vs/loader.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script id="graph-data" type="application/json">__GRAPH_DATA__</script>
+<script id="remote-info" type="application/json">__REMOTE_INFO__</script>
+<script id="refresh-command" type="application/json">__REFRESH_COMMAND__</script>
+<script type="module" src="/web.bundle.js"></script>
+</body>
+</html>

@@ -1,0 +1,241 @@
+.side-panel {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 480px;
+  max-width: 60vw;
+  background: var(--bg-850);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  z-index: 20;
+  transform: translateX(100%);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: -20px 0 40px rgba(0, 0, 0, 0.3);
+}
+.side-panel.open { transform: translateX(0); }
+.side-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  gap: 12px;
+  background: var(--bg-800);
+  flex-shrink: 0;
+}
+.side-panel__tabs { display: flex; gap: 4px; }
+.side-panel__tab {
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: transparent;
+  border: none;
+  color: var(--text-500);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.15s;
+}
+.side-panel__tab:hover { background: var(--bg-700); color: var(--text-200); }
+.side-panel__tab.active { background: var(--accent-soft); color: var(--accent-hover); }
+.side-panel__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+.side-panel__pane {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+/* Details */
+.details {
+  padding: 16px;
+  overflow-y: auto;
+  flex: 1;
+}
+.details::-webkit-scrollbar { width: 6px; }
+.details::-webkit-scrollbar-thumb { background: var(--bg-600); border-radius: 3px; }
+.details__title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-100);
+  margin-bottom: 4px;
+  word-break: break-word;
+}
+.details__id {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--accent-hover);
+  word-break: break-all;
+  margin-bottom: 12px;
+  padding: 6px 8px;
+  background: var(--bg-800);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.details__id-text { flex: 1; }
+.details__copy {
+  background: transparent;
+  border: none;
+  color: var(--text-500);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.details__copy:hover { background: var(--bg-700); color: var(--accent-hover); }
+
+.details__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.details__badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.details__badge--domain { background: rgba(16, 185, 129, 0.15); color: var(--success); }
+.details__badge--missing { background: rgba(245, 158, 11, 0.15); color: var(--warning); }
+.details__badge--broken { background: rgba(239, 68, 68, 0.15); color: var(--danger); }
+.details__badge--health-good { background: rgba(16, 185, 129, 0.15); color: var(--success); }
+.details__badge--health-mid { background: rgba(245, 158, 11, 0.15); color: var(--warning); }
+.details__badge--health-bad { background: rgba(239, 68, 68, 0.15); color: var(--danger); }
+
+.details__field { margin-bottom: 12px; }
+.details__field-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-500);
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.details__field-label--btn {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--text-500);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 700;
+  padding: 4px 0;
+  cursor: pointer;
+  font-family: inherit;
+  transition: color 0.15s;
+}
+.details__field-label--btn:hover { color: var(--accent-hover); }
+.details__field-count {
+  margin-left: auto;
+  padding: 1px 6px;
+  background: var(--bg-700);
+  border-radius: 8px;
+  color: var(--text-500);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.details__field-value {
+  font-size: 13px;
+  color: var(--text-200);
+  line-height: 1.5;
+  word-break: break-word;
+}
+.details__tags { display: flex; flex-wrap: wrap; gap: 5px; }
+
+.details__refs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.details__ref {
+  padding: 6px 8px;
+  background: var(--bg-800);
+  border-left: 2px solid var(--accent);
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text-200);
+  word-break: break-all;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.details__ref:hover { background: var(--bg-700); border-left-color: var(--accent-hover); }
+.details__ref-path { font-size: 10px; color: var(--text-500); margin-top: 2px; }
+.details__ref--missing { border-left-color: var(--warning); }
+.details__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.details__source-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-750);
+  font-family: 'JetBrains Mono', monospace;
+  margin-left: auto;
+  text-transform: lowercase;
+}
+
+/* Monaco */
+#monaco-container { width: 100%; height: 100%; }
+
+/* Вкладка сущностей */
+.entity-tab-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+.entity-tab-item {
+  padding: 8px 10px;
+  background: var(--bg-800);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+  border-left: 2px solid transparent;
+}
+.entity-tab-item:hover { background: var(--bg-700); border-left-color: var(--accent); }
+.entity-tab-item__head { display: flex; align-items: center; gap: 8px; }
+.entity-tab-item__id {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-100);
+}
+.entity-tab-item__arrows {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--success);
+  font-family: 'JetBrains Mono', monospace;
+}
+.entity-tab-item__name { font-size: 11px; color: var(--text-400); margin-top: 2px; }
+.entity-tab-item__inherits {
+  font-size: 10px;
+  color: var(--text-500);
+  font-family: 'JetBrains Mono', monospace;
+  margin-top: 3px;
+}
