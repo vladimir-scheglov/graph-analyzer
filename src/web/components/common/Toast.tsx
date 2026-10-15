@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 export interface ToastAction {
     command?: string;
@@ -15,14 +15,20 @@ export function Toast({ message, actions = [], onClose, duration = 20000 }: Toas
     const [visible, setVisible] = useState(true);
     const [copied, setCopied] = useState(false);
 
+    // Ref — чтобы effect не перезапускался при новой ссылке на onClose
+    const onCloseRef = useRef(onClose);
+    useEffect(() => {
+        onCloseRef.current = onClose;
+    }, [onClose]);
+
     useEffect(() => {
         if (!duration) return;
         const t = setTimeout(() => {
             setVisible(false);
-            if (onClose) onClose();
+            onCloseRef.current?.();
         }, duration);
         return () => clearTimeout(t);
-    }, [duration, onClose]);
+    }, [duration]);   // ← onClose убран из deps
 
     if (!visible) return null;
 
@@ -52,7 +58,7 @@ export function Toast({ message, actions = [], onClose, duration = 20000 }: Toas
                 className="toast__close"
                 onClick={() => {
                     setVisible(false);
-                    if (onClose) onClose();
+                    onCloseRef.current?.();
                 }}
             >
                 ✕

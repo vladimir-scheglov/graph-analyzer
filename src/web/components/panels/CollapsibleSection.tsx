@@ -18,7 +18,7 @@ export function CollapsibleSection({ id, title, count, children }: CollapsibleSe
         <div className="details__field">
             <button
                 className="details__field-label details__field-label--btn"
-                onClick={() => toggle(id, isOpen)}
+                onClick={() => toggle(id, !isOpen)}
             >
                 <MIcon name={isOpen ? 'expand_more' : 'chevron_right'} size="sm" />
                 <span style={{ marginLeft: 6 }}>{title}</span>

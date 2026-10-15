@@ -5,3 +5,7 @@ export { Sidebar } from "./Sidebar";
 export type { SidebarProps } from "./Sidebar";
 export { Section } from "./Section";
 export { ActivityChart } from "./ActivityChart";
+export { GraphArea } from "./GraphArea";
+export type { GraphAreaProps } from "./GraphArea";
+export { AppModals } from "./AppModals";
+export type { AppModalsProps } from "./AppModals";

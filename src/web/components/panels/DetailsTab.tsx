@@ -4,6 +4,8 @@ import { useNavigation } from '../../hooks/useNavigation';
 import { MIcon } from '../common/MIcon';
 import { CollapsibleSection } from './CollapsibleSection';
 import { formatDate, sourceIcon, sourceLabel, sourceColor } from '../../lib/format';
+import { readRemoteInfo } from '../../state/initial';
+
 
 export interface DetailsTabProps {
     node: any;
@@ -33,7 +35,7 @@ export function DetailsTab({ node, allNodes, allEdges, ruleViolations }: Details
     const hc =
         health != null ? (health >= 80 ? 'health-good' : health >= 50 ? 'health-mid' : 'health-bad') : null;
 
-    const remoteInfo = (window as any).__REMOTE_INFO__;
+    const remoteInfo = readRemoteInfo();
 
     return (
         <div className="details">

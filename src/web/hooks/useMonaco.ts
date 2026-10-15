@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 declare global {
   interface Window {
@@ -16,19 +16,28 @@ export interface PendingFile {
 }
 
 /**
- * Инициализация Monaco, загрузка контента, переход к FQID.
- * - `enabled` — когда true, начинается загрузка/создание.
- * - `pendingFile` — при изменении, обновляется содержимое редактора.
+ * Monaco lifecycle.
+ *
+ * - `panelOpen` — панель открыта? Пока false — редактор не создаётся (или dispose).
+ * - `panelTab` — текущая вкладка. Когда 'file' — делаем layout.
+ * - `pendingFile` — {content, fqid}; при изменении — setValue.
+ *
+ * Редактор создаётся один раз при открытии панели и живёт до её закрытия,
+ * независимо от переключений вкладок.
  */
-export function useMonaco(enabled: boolean, pendingFile: PendingFile | null) {
+export function useMonaco(
+  panelOpen: boolean,
+  panelTab: string,
+  pendingFile: PendingFile | null,
+) {
   const editorRef = useRef<any>(null);
   const [ready, setReady] = useState(false);
   const [created, setCreated] = useState(false);
   const loadingRef = useRef(false);
 
-  // @ts-expect-error
+  // 1. Загрузка monaco (однократно, при открытии панели)
   useEffect(() => {
-    if (!enabled) return;
+    if (!panelOpen) return;
     if (ready) return;
     if (window.monaco && window.monaco.editor) {
       setReady(true);
@@ -60,10 +69,11 @@ export function useMonaco(enabled: boolean, pendingFile: PendingFile | null) {
         loadingRef.current = false;
       },
     );
-  }, [enabled, ready]);
+  }, [panelOpen, ready]);
 
+  // 2. Создание редактора — один раз, пока открыта панель
   useEffect(() => {
-    if (!enabled) return;
+    if (!panelOpen) return;
     if (!ready) return;
     if (editorRef.current) return;
     if (!window.monaco || !window.monaco.editor) return;
@@ -87,8 +97,26 @@ export function useMonaco(enabled: boolean, pendingFile: PendingFile | null) {
     } catch (e) {
       console.error("[monaco] create failed:", e);
     }
-  }, [enabled, ready]);
+  }, [panelOpen, ready]);
 
+  // 3. Обновление layout при переключении вкладок
+  //    (automaticLayout через ResizeObserver иногда пропускает display:none → block)
+  useEffect(() => {
+    if (!panelOpen) return;
+    if (panelTab !== "file") return;
+    if (!editorRef.current) return;
+
+    const t = setTimeout(() => {
+      if (editorRef.current) {
+        try {
+          editorRef.current.layout();
+        } catch {}
+      }
+    }, 60);
+    return () => clearTimeout(t);
+  }, [panelOpen, panelTab, created]);
+
+  // 4. Установка содержимого при изменении pendingFile
   useEffect(() => {
     if (!pendingFile) return;
     if (!created) return;
@@ -117,8 +145,9 @@ export function useMonaco(enabled: boolean, pendingFile: PendingFile | null) {
     }
   }, [pendingFile, created]);
 
+  // 5. Dispose при закрытии панели
   useEffect(() => {
-    if (enabled) return;
+    if (panelOpen) return;
     if (editorRef.current) {
       try {
         editorRef.current.dispose();
@@ -126,11 +155,7 @@ export function useMonaco(enabled: boolean, pendingFile: PendingFile | null) {
       editorRef.current = null;
       setCreated(false);
     }
-  }, [enabled]);
+  }, [panelOpen]);
 
-  const setValue = useCallback((content: string) => {
-    if (editorRef.current) editorRef.current.setValue(content);
-  }, []);
-
-  return { editorRef, ready, created, setValue };
+  return { editorRef, ready, created };
 }

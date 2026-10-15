@@ -449,7 +449,13 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   setSidebarCollapsed: (v) => set({ sidebarCollapsed: v }),
   sidebarCompact: false,
   setSidebarCompact: (v) => set({ sidebarCompact: v }),
-  collapsedSections: new Set<string>(),
+  collapsedSections: new Set<string>([
+    "fqid-out",
+    "incoming",
+    "outgoing",
+    "violations",
+    "validation",
+  ]),
   toggleCollapsedSection: (id, isCollapsed) =>
     set((s) => {
       const next = new Set(s.collapsedSections);

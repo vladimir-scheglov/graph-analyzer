@@ -6,10 +6,13 @@ import { EdgeTab } from './EdgeTab';
 import { EntitiesTab } from './EntitiesTab';
 import { FileTab } from './FileTab';
 import type { EntityIndex } from '../../lib/types';
+import { openFileInEditor } from '../../lib/open-file';
 
 export interface SidePanelProps {
     allNodes: any[];
     allEdges: any[];
+    visibleNodes: any[];
+    visibleEdges: any[];
     entities: any[];
     entityIndex: EntityIndex | null;
     ruleViolations: any[];
@@ -22,19 +25,23 @@ export function SidePanel(props: SidePanelProps) {
     const panelNode = useMemo(() => {
         if (!store.panelNodeId) return null;
         return (
-            store.nodes.find((n) => n.id === store.panelNodeId) || null
+            props.visibleNodes.find((n) => n.id === store.panelNodeId) ||
+            props.allNodes.find((n) => n.id === store.panelNodeId) ||
+            null
         );
-    }, [store.panelNodeId, store.nodes]);
+    }, [store.panelNodeId, props.visibleNodes, props.allNodes]);
 
     const panelEdge = useMemo(() => {
         if (!store.selectedEdgeId) return null;
         return (
-            store.edges.find((e) => e.id === store.selectedEdgeId) || null
+            props.visibleEdges.find((e) => e.id === store.selectedEdgeId) ||
+            props.allEdges.find((e) => e.id === store.selectedEdgeId) ||
+            null
         );
-    }, [store.selectedEdgeId, store.edges]);
+    }, [store.selectedEdgeId, props.visibleEdges, props.allEdges]);
 
     // Монтирование Monaco — когда открыта вкладка "file" и есть путь
-    useMonaco(store.panelOpen && store.panelTab === 'file', store.pendingFile);
+    useMonaco(store.panelOpen, store.panelTab, store.pendingFile);
 
     // Автоподгрузка файла, если выбрана вкладка и есть путь
     React.useEffect(() => {
@@ -42,20 +49,25 @@ export function SidePanel(props: SidePanelProps) {
         if (!panelNode) return;
         if (!panelNode.data.filePath) return;
         if (store.editorFilePath === panelNode.data.filePath && store.pendingFile) return;
-        // Открытие файла проброшено в callback — App это подхватит
-        document.dispatchEvent(
-            new CustomEvent('dg:open-file', { detail: { filePath: panelNode.data.filePath } })
-        );
-    }, [store.panelOpen, store.panelTab, store.panelNodeId, panelNode, store.editorFilePath, store.pendingFile]);
-
-    if (!store.panelOpen) return null;
+        openFileInEditor(panelNode.data.filePath);
+    }, [
+        store.panelOpen,
+        store.panelTab,
+        store.panelNodeId,
+        panelNode,
+        store.editorFilePath,
+        store.pendingFile
+    ]);
 
     const ruleViolationsFiltered = useMemo(() => {
         if (!panelNode) return [];
         return props.ruleViolations.filter(
-            (v: any) => v.fromId === panelNode.data.domainId || v.toId === panelNode.data.domainId
+            (v: any) =>
+                v.fromId === panelNode.data.domainId || v.toId === panelNode.data.domainId
         );
     }, [props.ruleViolations, panelNode]);
+
+    if (!store.panelOpen) return null;
 
     return (
         <div className="side-panel open">
