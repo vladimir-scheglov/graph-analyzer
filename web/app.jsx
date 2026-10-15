@@ -159,7 +159,7 @@ function clusterLayout(nodes, edges, getKeyForDepth) {
     meta.setNode(ns, { width: w, height: h });
   });
   metaEdgesMap.forEach(function(_, key) {
-    var p = key.split(React.createElement(MIcon, { name: 'arrow_forward' }));
+    var p = key.split('→');
     meta.setEdge(p[0], p[1]);
   });
 
@@ -1099,7 +1099,7 @@ function EntityHierarchyGraph(props) {
     React.createElement('div', { className: 'entity-graph-controls' },
       React.createElement('button', { className: 'entity-ctrl-btn', onClick: function() { zoomBy(1.3); }, title: 'Приблизить' }, '+'),
       React.createElement('button', { className: 'entity-ctrl-btn', onClick: function() { zoomBy(1 / 1.3); }, title: 'Отдалить' }, '−'),
-      React.createElement('button', { className: 'entity-ctrl-btn', onClick: fitView, title: 'Вписать' }, React.createElement(MIcon, { name: 'fit_screen' })),
+      React.createElement('button', { className: 'entity-ctrl-btn', onClick: fitView, title: 'Вписать' }, '⛶'),
       React.createElement('span', { className: 'entity-zoom-level' }, Math.round(viewport.scale * 100) + '%')
     ),
 
@@ -1307,13 +1307,13 @@ function EntityHierarchyModal(props) {
     React.createElement('div', { className: 'help-modal entity-hierarchy-modal', onMouseDown: function(e) { e.stopPropagation(); } },
       React.createElement('div', { className: 'help-modal__header' },
         React.createElement('div', { className: 'help-modal__title' }, '🧬 Иерархия наследования сущностей'),
-        React.createElement('button', { className: 'help-modal__close', onClick: onClose }, React.createElement(MIcon, { name: 'close' }))
+        React.createElement('button', { className: 'help-modal__close', onClick: onClose }, '✕')
       ),
 
       React.createElement('div', { className: 'entity-hierarchy-body' },
         React.createElement('div', { className: 'entity-search-panel' },
           React.createElement('div', { className: 'entity-search-input-wrap' },
-            React.createElement('span', { className: 'entity-search-icon' }, React.createElement(MIcon, { name: 'search' })),
+            React.createElement('span', { className: 'entity-search-icon' }, '🔍'),
             React.createElement('input', {
               className: 'entity-search-input',
               type: 'text',
@@ -1367,7 +1367,7 @@ function EntityHierarchyModal(props) {
 
   !selectedKey ?
     React.createElement('div', { className: 'entity-graph-empty' },
-      React.createElement('div', { className: 'entity-graph-empty__icon' }, React.createElement(MIcon, { name: 'account_tree' })),
+      React.createElement('div', { className: 'entity-graph-empty__icon' }, '🧬'),
       React.createElement('div', { className: 'entity-graph-empty__title' }, 'Выберите сущность слева'),
       React.createElement('div', { className: 'entity-graph-empty__hint' }, 'Родители будут сверху, наследники снизу')
     ) :
@@ -1682,25 +1682,43 @@ var HEATMAPS = {
 };
 
 function computeHealth(node, edges, allNodes, cycleNodes, missingSet) {
-  if (node.data.nodeType === 'broken' || node.data.nodeType === 'missing') return 0;
+  if (node.data.nodeType === 'broken' || node.data.nodeType === 'missing') {
+    return { score: 0, breakdown: [{ reason: 'Узел битый или отсутствует', delta: -100 }] };
+  }
+  var breakdown = [];
   var score = 100;
+
   var connected = false;
   var inEdges = 0, outEdges = 0;
   edges.forEach(function(e) {
     if (e.source === node.id) { connected = true; outEdges++; }
     if (e.target === node.id) { connected = true; inEdges++; }
   });
-  if (!connected) score -= 40;
-  if (cycleNodes && cycleNodes.has(node.id)) score -= 30;
+  if (!connected) {
+    score -= 40;
+    breakdown.push({ reason: 'Домен изолирован (нет связей)', delta: -40 });
+  }
+
+  if (cycleNodes && cycleNodes.has(node.id)) {
+    score -= 30;
+    breakdown.push({ reason: 'Участвует в цикле', delta: -30 });
+  }
+
   var refs = node.data.fqidRefs || [];
   var missingRefs = 0;
   refs.forEach(function(r) {
-    if (!allNodes.some(function(n) { return (n.data.domainId || '').toLowerCase() === (r.targetDomainId || '').toLowerCase(); })) {
-      missingRefs++;
-    }
+    var exists = allNodes.some(function(n) {
+      return (n.data.domainId || '').toLowerCase() === (r.targetDomainId || '').toLowerCase();
+    });
+    if (!exists) missingRefs++;
   });
-  score -= Math.min(missingRefs * 3, 20);
-  return Math.max(0, Math.round(score));
+  if (missingRefs > 0) {
+    var delta = -Math.min(missingRefs * 3, 20);
+    score -= Math.abs(delta);
+    breakdown.push({ reason: 'Битых FQID-ссылок: ' + missingRefs, delta: delta });
+  }
+
+  return { score: Math.max(0, Math.round(score)), breakdown: breakdown };
 }
 
 function healthClass(score) {
@@ -1822,7 +1840,7 @@ function mergeBidirectional(edges) {
 }
 
 // ============ TOOLTIP BUILDERS ============
-function buildTooltipHtml(domainId, label, nodeType, filePath, version, entitiesCount, fqidRefs, health, description, tags, validation) {
+function buildTooltipHtml(domainId, label, nodeType, filePath, version, entitiesCount, fqidRefs, health, description, tags, validation, updatedAt, updatedAtSource) {
   var typeLabel = nodeType === 'domain' ? 'Корректный домен' : nodeType === 'missing' ? 'Несуществующий домен' : 'Битый YAML';
   var typeColor = nodeType === 'domain' ? '#10b981' : nodeType === 'missing' ? '#f59e0b' : '#ef4444';
   var html = '<div class="tooltip__header" style="color:' + typeColor + '">' + escapeHtml(typeLabel) + '</div>';
@@ -1831,12 +1849,24 @@ function buildTooltipHtml(domainId, label, nodeType, filePath, version, entities
   if (label && label !== domainId) html += '<div class="tooltip__row"><span class="tooltip__label">Название:</span><span class="tooltip__value">' + escapeHtml(label) + '</span></div>';
   if (version) html += '<div class="tooltip__row"><span class="tooltip__label">Версия:</span><span class="tooltip__value">' + escapeHtml(version) + '</span></div>';
   if (entitiesCount != null) html += '<div class="tooltip__row"><span class="tooltip__label">Entities:</span><span class="tooltip__value">' + entitiesCount + '</span></div>';
+  if (updatedAt) {
+    var srcIcon = updatedAtSource === 'graphql' ? 'cloud_done' : (updatedAtSource === 'fs' ? 'hard_drive' : 'help');
+    var srcColor = updatedAtSource === 'graphql' ? 'var(--accent-hover)' : (updatedAtSource === 'fs' ? 'var(--warning)' : 'var(--text-500)');
+    var srcLabel = updatedAtSource === 'graphql' ? 'обновлён на сервере' : (updatedAtSource === 'fs' ? 'изменён локально' : '');
+    html += '<div class="tooltip__row">'
+      + '<span class="tooltip__label">Обновлён:</span>'
+      + '<span class="tooltip__value">'
+      + escapeHtml(formatDate(updatedAt))
+      + (srcIcon ? ' <span class="material-symbols-outlined mi-sm" style="color:' + srcColor + '" title="' + escapeHtml(srcLabel) + '">' + srcIcon + '</span>' : '')
+      + '</span>'
+      + '</div>';
+  }
   if (health != null) html += '<div class="tooltip__row"><span class="tooltip__label">Health:</span><span class="tooltip__value">' + health + '/100</span></div>';
   if (description) html += '<div class="tooltip__row"><span class="tooltip__label">Описание:</span><span class="tooltip__value">' + escapeHtml(description) + '</span></div>';
   if (tags && tags.length > 0) html += '<div class="tooltip__row"><span class="tooltip__label">Теги:</span><span class="tooltip__value">' + tags.map(escapeHtml).join(', ') + '</span></div>';
   if (filePath) {
     html += '<div class="tooltip__row"><span class="tooltip__label">Файл:</span><span class="tooltip__value" style="font-size:11px">' + escapeHtml(filePath) + '</span></div>';
-    html += '<div style="margin-top:10px"><button class="tooltip__btn js-open-file" data-file="' + escapeHtml(filePath) + '"><span class="material-symbols-outlined mi-sm">folder_open</span> Открыть файл</button></div>';
+    html += '<div style="margin-top:10px"><button class="tooltip__btn js-open-file" data-file="' + escapeHtml(filePath) + '">📂 Открыть файл</button></div>';
   }
   // --- Валидация ---
   if (validation) {
@@ -1845,8 +1875,8 @@ function buildTooltipHtml(domainId, label, nodeType, filePath, version, entities
     if (validation.status === 'invalid') {
       var diagCount = validation.diagnostics ? validation.diagnostics.length : 0;
       html += '<button class="tooltip__validation-toggle js-toggle-validation" type="button">'
-        + '<span class="tooltip__validation-arrow"><span class="material-symbols-outlined mi-sm">chevron_right</span></span>'
-        + '<span class="tooltip__validation-title" style="color:var(--danger)"><span class="material-symbols-outlined mi-sm">cancel</span> Невалиден</span>'
+        + '<span class="tooltip__validation-arrow">▸</span>'
+        + '<span class="tooltip__validation-title" style="color:var(--danger)">❌ Невалиден</span>'
         + '<span class="tooltip__validation-count">' + diagCount + '</span>'
         + '</button>';
   
@@ -1871,7 +1901,7 @@ function buildTooltipHtml(domainId, label, nodeType, filePath, version, entities
         html += '</div>';
       }
     } else if (validation.status === 'error') {
-      html += '<div class="tooltip__label" style="margin-bottom:6px;color:var(--warning)"><span class="material-symbols-outlined mi-sm">warning</span> Ошибка валидации</div>';
+      html += '<div class="tooltip__label" style="margin-bottom:6px;color:var(--warning)">⚠️ Ошибка валидации</div>';
       html += '<div class="tooltip__validation-message">' + escapeHtml(validation.error || '') + '</div>';
     }
   
@@ -1885,7 +1915,7 @@ function buildTooltipHtml(domainId, label, nodeType, filePath, version, entities
       html += '<div class="tooltip__ref">';
       html += '<div class="tooltip__fqid js-goto-domain" data-domain="' + escapeHtml(ref.targetDomainId || '') + '" style="cursor:pointer">' + escapeHtml(ref.fullFQID) + '</div>';
       html += '<div class="tooltip__path">' + escapeHtml(ref.propertyPath) + '</div>';
-      html += '<button class="tooltip__btn js-open-file" data-file="' + escapeHtml(ref.filePath || '') + '" data-fqid="' + escapeHtml(ref.fullFQID || '') + '"><span class="material-symbols-outlined mi-sm">folder_open</span> Открыть</button>';
+      html += '<button class="tooltip__btn js-open-file" data-file="' + escapeHtml(ref.filePath || '') + '" data-fqid="' + escapeHtml(ref.fullFQID || '') + '">📂 Открыть</button>';
       html += '</div>';
     });
     html += '</div>';
@@ -1903,36 +1933,81 @@ function buildEdgeTooltipHtml(edge, refs) {
   var side2Text = nameFrom.side2 || link.targetEntity || null;
   var side1Domain = edge.data && edge.data.side1Domain;
   var side2Domain = edge.data && edge.data.side2Domain;
+
   function renderSide(labelText, text, domain) {
     if (!text) return '';
     var clickable = !!domain;
     var h = '<div class="tooltip__row"><span class="tooltip__label">' + labelText + '</span>';
     if (clickable) {
-      h += '<span class="tooltip__value js-goto-domain" data-domain="' + escapeHtml(domain) + '" style="cursor:pointer;color:var(--accent-hover);text-decoration:underline dotted">' + escapeHtml(text) + ' <span style="font-size:10px;color:var(--text-500)"><span class="material-symbols-outlined mi-sm">arrow_forward</span> ' + escapeHtml(domain) + '</span></span>';
+      h += '<span class="tooltip__value js-goto-domain" data-domain="' + escapeHtml(domain) + '" style="cursor:pointer;color:var(--accent-hover);text-decoration:underline dotted">'
+        + escapeHtml(text)
+        + ' <span style="font-size:10px;color:var(--text-500)">→ ' + escapeHtml(domain) + '</span></span>';
     } else {
       h += '<span class="tooltip__value" style="color:var(--text-400)">' + escapeHtml(text) + '</span>';
     }
     return h + '</div>';
   }
+
   var html = '<div class="tooltip__header">Связь: ' + escapeHtml(fullLabel) + '</div>';
   html += '<div class="tooltip__body">';
-  if (edge.data && edge.data.isBidirectional) html += '<div style="font-size:11px;color:var(--accent-hover);margin-bottom:8px"><span class="material-symbols-outlined mi-sm">swap_horiz</span> двунаправленная связь</div>';
+
+  if (edge.data && edge.data.isBidirectional) {
+    html += '<div style="font-size:11px;color:var(--accent-hover);margin-bottom:8px">⇄ двунаправленная связь</div>';
+  }
+
   html += renderSide('Сторона 1:', side1Text, side1Domain);
   html += renderSide('Сторона 2:', side2Text, side2Domain);
-  if (side1Text || side2Text) html += '<div style="height:1px;background:var(--border);margin:10px 0"></div>';
-  if (link.type) html += '<div class="tooltip__row"><span class="tooltip__label">Тип:</span><span class="tooltip__value">' + escapeHtml(link.type) + '</span></div>';
+
+  if (side1Text || side2Text) {
+    html += '<div style="height:1px;background:var(--border);margin:10px 0"></div>';
+  }
+
+  if (link.type) {
+    html += '<div class="tooltip__row"><span class="tooltip__label">Тип:</span><span class="tooltip__value">' + escapeHtml(link.type) + '</span></div>';
+  }
+
   if (refs && refs.length > 0) {
     html += '<div class="tooltip__label" style="margin-top:8px;margin-bottom:8px">FQID ссылки (' + refs.length + '):</div>';
     html += '<div class="tooltip__fqid-list">';
+
     refs.forEach(function(ref) {
+      var srcDom = ref.sourceDomainId || '—';
+      var tgtDom = ref.targetDomainId || '—';
+
       html += '<div class="tooltip__ref">';
-      html += '<div class="tooltip__fqid js-goto-domain" data-domain="' + escapeHtml(ref.targetDomainId || '') + '" style="cursor:pointer">' + escapeHtml(ref.fullFQID) + '</div>';
-      html += '<div class="tooltip__path">' + escapeHtml(ref.propertyPath) + '</div>';
-      html += '<button class="tooltip__btn js-open-file" data-file="' + escapeHtml(ref.filePath || '') + '" data-fqid="' + escapeHtml(ref.fullFQID || '') + '"><span class="material-symbols-outlined mi-sm">folder_open</span> Открыть</button>';
+
+      // Полный FQID
+      html += '<div class="tooltip__fqid">' + escapeHtml(ref.fullFQID) + '</div>';
+
+      // Контекст — откуда и куда
+      html += '<div class="tooltip__ref-context">';
+      html += '<button class="tooltip__ref-node js-goto-domain" data-domain="' + escapeHtml(srcDom) + '" title="Перейти к источнику">'
+        + '<span class="material-symbols-outlined mi-sm">arrow_outward</span>'
+        + '<span class="tooltip__ref-node-label">' + escapeHtml(srcDom) + '</span>'
+        + '</button>';
+      html += '<span class="tooltip__ref-arrow"><span class="material-symbols-outlined mi-sm">arrow_forward</span></span>';
+      html += '<button class="tooltip__ref-node js-goto-domain" data-domain="' + escapeHtml(tgtDom) + '" title="Перейти к цели">'
+        + '<span class="material-symbols-outlined mi-sm">call_received</span>'
+        + '<span class="tooltip__ref-node-label">' + escapeHtml(tgtDom) + '</span>'
+        + '</button>';
+      html += '</div>';
+
+      // Путь в YAML
+      if (ref.propertyPath) {
+        html += '<div class="tooltip__path">' + escapeHtml(ref.propertyPath) + '</div>';
+      }
+
+      // Кнопка «открыть файл»
+      html += '<button class="tooltip__btn js-open-file" data-file="' + escapeHtml(ref.filePath || '') + '" data-fqid="' + escapeHtml(ref.fullFQID || '') + '">'
+        + '<span class="material-symbols-outlined mi-sm">folder_open</span> Открыть'
+        + '</button>';
+
       html += '</div>';
     });
+
     html += '</div>';
   }
+
   html += '</div>';
   return html;
 }
@@ -1968,7 +2043,7 @@ function DomainNode(props) {
   if (data.__pendingFail) cls += ' rf-node--pending-fail';
   if (data.__failureRoot) cls += ' rf-node--failure-root';
 
-  var icon = data.nodeType === 'domain' ? '●' : data.nodeType === 'missing' ? '▲' : React.createElement(MIcon, { name: 'close' });
+  var icon = data.nodeType === 'domain' ? '●' : data.nodeType === 'missing' ? '▲' : '✕';
 
   // Применяем heatmap-цвет, если есть
   var nodeStyle = {};
@@ -1978,14 +2053,40 @@ function DomainNode(props) {
     nodeStyle.color = '#ffffff';
   }
 
+  var onHealthEnter = function(e) {
+  if (!data.__tooltipsEnabled) return;
+  e.stopPropagation();
+  var items = (data.healthBreakdown || []).map(function(b) {
+    return '<div style="margin:3px 0;display:flex;justify-content:space-between;gap:12px;">'
+      + '<span>' + escapeHtml(b.reason) + '</span>'
+      + '<span style="color:' + (b.delta < 0 ? '#ef4444' : '#10b981') + ';font-weight:700;">'
+      + (b.delta > 0 ? '+' + b.delta : b.delta) + '</span></div>';
+  }).join('');
+  var html = '<div style="padding:8px 10px;">'
+    + '<div style="font-weight:700;margin-bottom:6px;">Health score: ' + data.health + '/100</div>'
+    + (items || '<div style="color:#64748b;">Все показатели в норме</div>')
+    + '</div>';
+  window.__healthTooltip = { html: html, x: e.clientX, y: e.clientY };
+  document.dispatchEvent(new CustomEvent('show-health-tooltip'));
+};
+var onHealthLeave = function() {
+  document.dispatchEvent(new CustomEvent('hide-health-tooltip'));
+};
+
   var healthBadge = null;
   if (data.health != null && data.nodeType === 'domain' && !data.__heatColor) {
-    var hc = data.health >= 80 ? 'good' : data.health >= 50 ? 'mid' : 'bad';
+  var healthScore = (data.health && typeof data.health === 'object') ? data.health.score : data.health;
+  if (healthScore != null) {
+    var hc = healthScore >= 80 ? 'good' : healthScore >= 50 ? 'mid' : 'bad';
     healthBadge = React.createElement('span', {
       className: 'rf-node__health rf-node__health--' + hc,
-      title: 'Health score: ' + data.health + '/100'
-    }, data.health);
+      title: 'Health score: ' + healthScore + '/100',
+      onMouseEnter: onHealthEnter,
+      onMouseLeave: onHealthLeave,
+      style: { cursor: 'help' }
+    }, healthScore);
   }
+}
 
   var validationBadge = null;
   if (data.__validationStatus === 'invalid' && data.__validationCount > 0) {
@@ -2006,12 +2107,16 @@ function DomainNode(props) {
             title: data.domainId + (data.__invalid ? ' — невалиден' : '')
           }, data.domainId),
           healthBadge,
-          validationBadge
+          validationBadge,
+          data.__topoLevel != null && React.createElement('span', {
+            className: 'topo-badge',
+            title: 'Уровень установки: ' + data.__topoLevel
+          }, 'L' + data.__topoLevel)
         ),
         data.label && data.label !== data.domainId && React.createElement('div', {
           className: 'rf-node__name',
           title: data.label
-        }, data.label)
+        }, data.label),
       )
     ),
     React.createElement(Handle, { type: 'source', position: Position.Right, className: 'rf-handle' })
@@ -2066,14 +2171,14 @@ function ContextMenu(props) {
   }, [menu]);
   if (!menu) return null;
   var items = [
-    { icon: React.createElement(MIcon, { name: 'my_location' }), label: 'Фокус (N шагов)', action: 'focus' },
-    { icon: React.createElement(MIcon, { name: 'bar_chart' }), label: 'Что зависит от него', action: 'dependents' },
-    { icon: React.createElement(MIcon, { name: 'route' }), label: 'Путь от...', action: 'path-from' },
+    { icon: '🎯', label: 'Фокус (N шагов)', action: 'focus' },
+    { icon: '📊', label: 'Что зависит от него', action: 'dependents' },
+    { icon: '🛤️', label: 'Путь от...', action: 'path-from' },
     { icon: '↪️', label: 'Путь до...', action: 'path-to' },
     { type: 'divider' },
-    { icon: React.createElement(MIcon, { name: 'folder_open' }), label: 'Открыть файл', action: 'open-file' },
-    { icon: React.createElement(MIcon, { name: 'content_copy' }), label: 'Копировать ID', action: 'copy-id' },
-    { icon: React.createElement(MIcon, { name: 'star' }), label: 'В закладки', action: 'bookmark' },
+    { icon: '📂', label: 'Открыть файл', action: 'open-file' },
+    { icon: '📋', label: 'Копировать ID', action: 'copy-id' },
+    { icon: '★', label: 'В закладки', action: 'bookmark' },
     { icon: '👁️', label: 'Скрыть', action: 'hide', danger: true }
   ];
   return React.createElement('div', { className: 'ctx-menu', ref: ref, style: { left: menu.x, top: menu.y } },
@@ -2150,7 +2255,705 @@ function GroupsOverlay(props) {
   );
 }
 
+function GroupsOverlayInner(props) {
+  var nodes = props.nodes;
+  var viewport = useViewport();
+
+  var groups = useMemo(function() {
+    var map = new Map();
+    nodes.forEach(function(n) {
+      if (!n.data || (n.data.nodeType !== 'domain' && n.data.nodeType !== 'missing')) return;
+      var parts = (n.data.domainId || '').split('.');
+      var ns = parts.slice(0, 2).join('.');
+      if (!map.has(ns)) map.set(ns, []);
+      map.get(ns).push(n);
+    });
+    return Array.from(map.entries()).map(function(entry) {
+      var ns = entry[0], arr = entry[1];
+      var w = (arr[0].data && arr[0].data.__compact) ? 28 : 220;
+      var h = (arr[0].data && arr[0].data.__compact) ? 28 : 60;
+      var xs = arr.map(function(n) { return n.position.x; });
+      var ys = arr.map(function(n) { return n.position.y; });
+      var minX = Math.min.apply(null, xs) - 30;
+      var minY = Math.min.apply(null, ys) - 40;
+      var maxX = Math.max.apply(null, xs) + w + 30;
+      var maxY = Math.max.apply(null, ys) + h + 30;
+      return { id: ns, label: ns, x: minX, y: minY, w: maxX - minX, h: maxY - minY, count: arr.length };
+    });
+  }, [nodes]);
+
+  if (groups.length === 0) return null;
+
+  return React.createElement('svg', {
+    style: {
+      position: 'absolute', top: 0, left: 0, width: 1, height: 1,
+      overflow: 'visible', pointerEvents: 'none'
+    }
+  },
+    groups.map(function(g) {
+      return React.createElement('g', {
+        key: g.id,
+        transform: 'translate(' + (g.x * viewport.zoom + viewport.x) + ',' + (g.y * viewport.zoom + viewport.y) + ') scale(' + viewport.zoom + ')'
+      },
+        React.createElement('rect', {
+          width: g.w, height: g.h, rx: 12,
+          fill: 'rgba(99,102,241,0.05)',
+          stroke: 'rgba(99,102,241,0.35)',
+          strokeDasharray: '6 4',
+          strokeWidth: 1.5
+        }),
+        React.createElement('text', { x: 12, y: 22, fill: '#818cf8', fontSize: 12, fontWeight: 700 },
+          g.label + ' · ' + g.count)
+      );
+    })
+  );
+}
+
 // ============ SIDE PANEL (details + editor) ============
+function CollapsibleSection(props) {
+  var id = props.id;
+  var title = props.title;
+  var count = props.count;
+  var defaultOpen = props.defaultOpen !== false;
+  var collapsed = props.collapsed;
+  var onToggle = props.onToggle;
+  var isOpen = !collapsed.has(id);
+  var children = props.children;
+
+  return React.createElement('div', { className: 'details__field' },
+    React.createElement('button', {
+      className: 'details__field-label details__field-label--btn',
+      onClick: function() { onToggle(id, !isOpen); }
+    },
+      React.createElement(MIcon, {
+        name: isOpen ? 'expand_more' : 'chevron_right',
+        size: 'sm'
+      }),
+      React.createElement('span', { style: { marginLeft: 6 } }, title),
+      count != null && React.createElement('span', { className: 'details__field-count' }, count)
+    ),
+    isOpen && children
+  );
+}
+
+function Sidebar(props) {
+  // --- Внешнее состояние ---
+  var collapsed = props.collapsed;
+  var setCollapsed = props.setCollapsed;
+  var compact = props.compact;
+  var setCompact = props.setCompact;
+
+  // --- Данные ---
+  var nodes = props.nodes || [];
+  var edges = props.edges || [];
+  var counts = props.counts || {};
+  var isolatedCount = props.isolatedCount || 0;
+  var cyclesInfo = props.cyclesInfo || { sccs: [], cycleNodes: new Set(), cycleEdges: new Set() };
+  var healthMap = props.healthMap;
+  var validationResults = props.validationResults;
+  var topConnected = props.topConnected || [];
+  var worstHealth = props.worstHealth || [];
+  var namespaces = props.namespaces || [];
+  var tagCloud = props.tagCloud || [];
+  var bookmarks = props.bookmarks || new Set();
+  var cacheDiff = props.cacheDiff || null;
+  var topMissingRefs = props.topMissingRefs || [];
+
+  // --- Фильтры / теги ---
+  var tagFilters = props.tagFilters || new Set();
+
+  // --- Активность ---
+  var activityPeriod = props.activityPeriod || 30;
+  var setActivityPeriod = props.setActivityPeriod;
+
+  // --- Секции ---
+  var collapsedSections = props.collapsedSections || new Set();
+  var toggleSection = props.toggleSection;
+
+  // --- Действия ---
+  var onGotoDomain = props.onGotoDomain;
+  var onSetNamespace = props.onSetNamespace;
+  var onToggleTag = props.onToggleTag;
+  var onToggleBookmark = props.onToggleBookmark;
+  var setIsolatedOnly = props.setIsolatedOnly;
+  var setOnlyInvalid = props.setOnlyInvalid;
+  var setBookmarksOnly = props.setBookmarksOnly;
+  var setCycleHighlight = props.setCycleHighlight;
+  var setSelectedNodeId = props.setSelectedNodeId;
+  var onFilterMissing = props.onFilterMissing;
+  var onFilterBroken = props.onFilterBroken;
+  var onExportStats = props.onExportStats;
+  var onFitView = props.onFitView;
+
+  // ---------- Хуки (всегда до return) ----------
+  var problemDomains = useMemo(function() {
+    if (!validationResults) return [];
+    var result = [];
+    nodes.forEach(function(n) {
+      var v = validationResults.get(n.data.domainId);
+      if (v && v.status === 'invalid') {
+        result.push({ node: n, count: (v.diagnostics || []).length });
+      }
+    });
+    return result.sort(function(a, b) { return b.count - a.count; }).slice(0, 5);
+  }, [nodes, validationResults]);
+
+  var brokenRefsDomains = useMemo(function() {
+    var result = [];
+    var domainIds = new Set();
+    nodes.forEach(function(n) {
+      if (n.data.nodeType === 'domain') domainIds.add(n.data.domainId.toLowerCase());
+    });
+    nodes.forEach(function(n) {
+      if (n.data.nodeType !== 'domain') return;
+      var refs = n.data.fqidRefs || [];
+      var broken = refs.filter(function(r) {
+        return !domainIds.has((r.targetDomainId || '').toLowerCase());
+      });
+      if (broken.length > 0) result.push({ node: n, count: broken.length });
+    });
+    return result.sort(function(a, b) { return b.count - a.count; }).slice(0, 5);
+  }, [nodes]);
+
+  // ---------- Если свёрнут — только кнопка развернуть ----------
+  if (collapsed) {
+    return React.createElement('aside', { className: 'sidebar sidebar--collapsed' },
+      React.createElement('button', {
+        className: 'sidebar__expand',
+        onClick: function() { setCollapsed(false); },
+        title: 'Развернуть панель'
+      }, React.createElement(MIcon, { name: 'chevron_right' }))
+    );
+  }
+
+  // ---------- Секции с контентом ----------
+  var hasNews = !!cacheDiff;
+  var hasProblems = (
+    problemDomains.length > 0 ||
+    brokenRefsDomains.length > 0 ||
+    isolatedCount > 0 ||
+    counts.broken > 0 ||
+    cyclesInfo.sccs.length > 0
+  );
+
+  var totalProblems = (counts.missing || 0) + (counts.broken || 0) +
+    problemDomains.length +
+    (cyclesInfo.sccs.length > 0 ? cyclesInfo.sccs.length : 0);
+
+  var newsCount = cacheDiff
+    ? (cacheDiff.added.length + cacheDiff.changed.length + cacheDiff.removed.length)
+    : 0;
+
+  // Хелпер рендера секции
+  function renderSection(id, title, iconName, content, badge) {
+    var isCollapsed = collapsedSections.has(id);
+    return React.createElement('div', {
+      key: id,
+      className: 'section' + (isCollapsed ? ' section--collapsed' : '')
+    },
+      React.createElement('button', {
+        className: 'section__header',
+        onClick: function() { toggleSection(id, isCollapsed); }
+      },
+        React.createElement(MIcon, {
+          name: isCollapsed ? 'chevron_right' : 'expand_more',
+          size: 'sm'
+        }),
+        React.createElement('span', { className: 'section__icon' },
+          React.createElement(MIcon, { name: iconName, size: 'sm' })
+        ),
+        React.createElement('span', { className: 'section__title' }, title),
+        badge != null && badge > 0 && React.createElement('span', {
+          className: 'section__badge'
+        }, badge)
+      ),
+      !isCollapsed && React.createElement('div', { className: 'section__body' }, content)
+    );
+  }
+
+  // ---------- Рендер ----------
+  return React.createElement('aside', {
+    className: 'sidebar' + (compact ? ' sidebar--compact' : '')
+  },
+
+    // ===== Шапка =====
+    React.createElement('div', { className: 'sidebar__header' },
+      React.createElement('div', { className: 'sidebar__logo' },
+        React.createElement(MIcon, { name: 'hub' })
+      ),
+      React.createElement('div', { style: { flex: 1, minWidth: 0 } },
+        React.createElement('div', { className: 'sidebar__title' }, 'Domain Graph'),
+        React.createElement('div', { className: 'sidebar__subtitle' }, 'Analyzer')
+      ),
+      React.createElement('button', {
+        className: 'sidebar__icon-btn',
+        onClick: function() { setCompact(!compact); },
+        title: compact ? 'Полный режим' : 'Компактный режим'
+      }, React.createElement(MIcon, { name: compact ? 'view_sidebar' : 'view_compact', size: 'sm' })),
+      React.createElement('button', {
+        className: 'sidebar__icon-btn',
+        onClick: onExportStats,
+        title: 'Экспорт статистики в Markdown'
+      }, React.createElement(MIcon, { name: 'download', size: 'sm' })),
+      React.createElement('button', {
+        className: 'sidebar__icon-btn',
+        onClick: function() { setCollapsed(true); },
+        title: 'Свернуть панель'
+      }, React.createElement(MIcon, { name: 'chevron_left', size: 'sm' }))
+    ),
+
+    // ===== Тело =====
+    React.createElement('div', { className: 'sidebar__body' },
+
+      // ----- ОБЗОР + БЫСТРЫЕ ДЕЙСТВИЯ -----
+      renderSection('overview', 'Обзор', 'insights',
+        React.createElement(React.Fragment, null,
+          React.createElement('div', { className: 'stats-grid' },
+            React.createElement('div', {
+              className: 'stat-card stat-card--accent stat-card--clickable',
+              onClick: function() { if (onFitView) onFitView(); }
+            },
+              React.createElement('div', { className: 'stat-card__value' }, nodes.length),
+              React.createElement('div', { className: 'stat-card__label' }, 'Всего узлов')
+            ),
+            React.createElement('div', {
+              className: 'stat-card stat-card--success stat-card--clickable',
+              onClick: function() { if (onFitView) onFitView(); }
+            },
+              React.createElement('div', { className: 'stat-card__value' }, edges.length),
+              React.createElement('div', { className: 'stat-card__label' }, 'Связей')
+            ),
+            React.createElement('div', {
+              className: 'stat-card stat-card--warning stat-card--clickable' + ((counts.missing || 0) === 0 ? ' stat-card--empty' : ''),
+              onClick: function() { if ((counts.missing || 0) > 0 && onFilterMissing) onFilterMissing(); }
+            },
+              React.createElement('div', { className: 'stat-card__value' }, counts.missing || 0),
+              React.createElement('div', { className: 'stat-card__label' }, 'Missing')
+            ),
+            React.createElement('div', {
+              className: 'stat-card stat-card--danger stat-card--clickable' + ((counts.broken || 0) === 0 ? ' stat-card--empty' : ''),
+              onClick: function() { if ((counts.broken || 0) > 0 && onFilterBroken) onFilterBroken(); }
+            },
+              React.createElement('div', { className: 'stat-card__value' }, counts.broken || 0),
+              React.createElement('div', { className: 'stat-card__label' }, 'Broken')
+            )
+          ),
+
+          React.createElement('div', { className: 'quick-actions' },
+            React.createElement('button', {
+              className: 'quick-action',
+              onClick: function() { setIsolatedOnly(true); },
+              disabled: isolatedCount === 0
+            },
+              React.createElement(MIcon, { name: 'radio_button_unchecked', size: 'sm' }),
+              React.createElement('span', null, 'Изолированные'),
+              React.createElement('span', { className: 'quick-action__count' }, isolatedCount)
+            ),
+            validationResults && React.createElement('button', {
+              className: 'quick-action',
+              onClick: function() { setOnlyInvalid(true); },
+              disabled: problemDomains.length === 0
+            },
+              React.createElement(MIcon, { name: 'cancel', size: 'sm' }),
+              React.createElement('span', null, 'Невалидные'),
+              React.createElement('span', { className: 'quick-action__count' }, problemDomains.length)
+            ),
+            React.createElement('button', {
+              className: 'quick-action',
+              onClick: function() {
+                if (cyclesInfo.sccs.length > 0) {
+                  setCycleHighlight({
+                    nodeIds: cyclesInfo.cycleNodes,
+                    edgeIds: cyclesInfo.cycleEdges,
+                    sccCount: cyclesInfo.sccs.length
+                  });
+                }
+              },
+              disabled: cyclesInfo.sccs.length === 0
+            },
+              React.createElement(MIcon, { name: 'cycle', size: 'sm' }),
+              React.createElement('span', null, 'Циклы'),
+              React.createElement('span', { className: 'quick-action__count' }, cyclesInfo.sccs.length)
+            ),
+            bookmarks.size > 0 && React.createElement('button', {
+              className: 'quick-action',
+              onClick: function() { setBookmarksOnly(true); }
+            },
+              React.createElement(MIcon, { name: 'star', size: 'sm', fill: true }),
+              React.createElement('span', null, 'Избранные'),
+              React.createElement('span', { className: 'quick-action__count' }, bookmarks.size)
+            )
+          )
+        ),
+        null
+      ),
+
+      // ----- АКТИВНОСТЬ -----
+      renderSection('activity', 'Активность', 'trending_up',
+        React.createElement(React.Fragment, null,
+          React.createElement('div', { className: 'activity-periods' },
+            [7, 30, 90].map(function(d) {
+              return React.createElement('button', {
+                key: d,
+                className: 'period-btn' + (activityPeriod === d ? ' period-btn--active' : ''),
+                onClick: function() { if (setActivityPeriod) setActivityPeriod(d); }
+              }, d + 'д');
+            })
+          ),
+          React.createElement(ActivityChart, { nodes: nodes, days: activityPeriod })
+        ),
+        null
+      ),
+
+      // ----- ПРОБЛЕМЫ -----
+      hasProblems && renderSection('problems', 'Проблемы', 'warning',
+        React.createElement(React.Fragment, null,
+
+          problemDomains.length > 0 && React.createElement('div', { className: 'problems-group' },
+            React.createElement('div', { className: 'problems-group__title' },
+              React.createElement(MIcon, { name: 'cancel', size: 'sm' }),
+              ' Невалидные (' + problemDomains.length + ')'
+            ),
+            problemDomains.map(function(item) {
+              return React.createElement('button', {
+                key: item.node.id,
+                className: 'rank-item',
+                onClick: function() { onGotoDomain(item.node.data.domainId); }
+              },
+                React.createElement('span', { className: 'rank-item__label' }, item.node.data.domainId),
+                React.createElement('span', { className: 'rank-item__value', style: { color: 'var(--danger)' } }, item.count)
+              );
+            })
+          ),
+
+          brokenRefsDomains.length > 0 && React.createElement('div', { className: 'problems-group' },
+            React.createElement('div', { className: 'problems-group__title' },
+              React.createElement(MIcon, { name: 'link_off', size: 'sm' }),
+              ' Битые FQID (' + brokenRefsDomains.length + ')'
+            ),
+            brokenRefsDomains.map(function(item) {
+              return React.createElement('button', {
+                key: item.node.id,
+                className: 'rank-item',
+                onClick: function() { onGotoDomain(item.node.data.domainId); }
+              },
+                React.createElement('span', { className: 'rank-item__label' }, item.node.data.domainId),
+                React.createElement('span', { className: 'rank-item__value', style: { color: 'var(--warning)' } }, item.count)
+              );
+            })
+          ),
+
+          isolatedCount > 0 && React.createElement('div', { className: 'problems-group' },
+            React.createElement('div', { className: 'problems-group__title' },
+              React.createElement(MIcon, { name: 'radio_button_unchecked', size: 'sm' }),
+              ' Изолированные (' + isolatedCount + ')'
+            ),
+            React.createElement('button', {
+              className: 'problems-group__action',
+              onClick: function() { setIsolatedOnly(true); }
+            }, 'Показать')
+          ),
+
+          cyclesInfo.sccs.length > 0 && React.createElement('div', { className: 'problems-group' },
+            React.createElement('div', { className: 'problems-group__title' },
+              React.createElement(MIcon, { name: 'cycle', size: 'sm' }),
+              ' Циклы (' + cyclesInfo.sccs.length + ')'
+            ),
+            React.createElement('button', {
+              className: 'problems-group__action',
+              onClick: function() {
+                setCycleHighlight({
+                  nodeIds: cyclesInfo.cycleNodes,
+                  edgeIds: cyclesInfo.cycleEdges,
+                  sccCount: cyclesInfo.sccs.length
+                });
+              }
+            }, 'Подсветить')
+          )
+        ),
+        totalProblems
+      ),
+
+      // ----- ЧТО НОВОГО -----
+      hasNews && renderSection('news', 'Что нового', 'new_releases',
+        React.createElement(React.Fragment, null,
+
+          (cacheDiff.added.length === 0 && cacheDiff.changed.length === 0 && cacheDiff.removed.length === 0) &&
+            React.createElement('div', { className: 'news-empty' },
+              React.createElement(MIcon, { name: 'history_toggle_off', size: 'sm' }),
+              React.createElement('div', null,
+                React.createElement('div', null, 'Изменений нет'),
+                cacheDiff.previousFetchedAt && React.createElement('div', {
+                  style: { fontSize: 11, color: 'var(--text-500)', marginTop: 4 }
+                }, 'с ' + new Date(cacheDiff.previousFetchedAt).toLocaleString('ru-RU', {
+                  day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
+                }))
+              )
+            ),
+
+          newsCount > 0 && cacheDiff.previousFetchedAt &&
+            React.createElement('div', { className: 'news-since' },
+              'с ' + new Date(cacheDiff.previousFetchedAt).toLocaleString('ru-RU', {
+                day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
+              })
+            ),
+
+          cacheDiff.added.length > 0 && React.createElement('div', { className: 'problems-group' },
+            React.createElement('div', { className: 'problems-group__title', style: { color: 'var(--success)' } },
+              React.createElement(MIcon, { name: 'add_circle', size: 'sm' }),
+              ' Добавлено (' + cacheDiff.added.length + ')'
+            ),
+            cacheDiff.added.slice(0, 5).map(function(d) {
+              return React.createElement('button', {
+                key: d.sourceId,
+                className: 'rank-item',
+                onClick: function() { onGotoDomain(d.sourceId); }
+              },
+                React.createElement('span', { className: 'rank-item__label' }, d.sourceId),
+                d.version && React.createElement('span', { className: 'rank-item__value' }, d.version)
+              );
+            }),
+            cacheDiff.added.length > 5 && React.createElement('div', {
+              className: 'news-more'
+            }, '...и ещё ' + (cacheDiff.added.length - 5))
+          ),
+
+          cacheDiff.changed.length > 0 && React.createElement('div', { className: 'problems-group' },
+            React.createElement('div', { className: 'problems-group__title', style: { color: 'var(--accent-hover)' } },
+              React.createElement(MIcon, { name: 'update', size: 'sm' }),
+              ' Изменено (' + cacheDiff.changed.length + ')'
+            ),
+            cacheDiff.changed.slice(0, 5).map(function(d) {
+              return React.createElement('button', {
+                key: d.sourceId,
+                className: 'rank-item',
+                onClick: function() { onGotoDomain(d.sourceId); }
+              },
+                React.createElement('span', { className: 'rank-item__label' }, d.sourceId),
+                d.version && React.createElement('span', {
+                  className: 'rank-item__value',
+                  style: { fontSize: 10, fontFamily: 'monospace' }
+                }, d.oldVersion && d.newVersion ? (d.oldVersion + ' → ' + d.newVersion) : d.version)
+              );
+            }),
+            cacheDiff.changed.length > 5 && React.createElement('div', {
+              className: 'news-more'
+            }, '...и ещё ' + (cacheDiff.changed.length - 5))
+          ),
+
+          cacheDiff.removed.length > 0 && React.createElement('div', { className: 'problems-group' },
+            React.createElement('div', { className: 'problems-group__title', style: { color: 'var(--danger)' } },
+              React.createElement(MIcon, { name: 'remove_circle', size: 'sm' }),
+              ' Удалено (' + cacheDiff.removed.length + ')'
+            ),
+            cacheDiff.removed.slice(0, 5).map(function(d) {
+              return React.createElement('div', {
+                key: d.sourceId,
+                className: 'rank-item',
+                style: { cursor: 'default' }
+              },
+                React.createElement('span', {
+                  className: 'rank-item__label',
+                  style: { textDecoration: 'line-through', opacity: 0.6 }
+                }, d.sourceId)
+              );
+            }),
+            cacheDiff.removed.length > 5 && React.createElement('div', {
+              className: 'news-more'
+            }, '...и ещё ' + (cacheDiff.removed.length - 5))
+          )
+        ),
+        newsCount
+      ),
+
+      // ----- ТОП ПО СВЯЗЯМ -----
+      topConnected.length > 0 && renderSection('top', 'Топ по связям', 'bar_chart',
+        React.createElement('div', { className: 'rank-list' },
+          topConnected.map(function(item, i) {
+            return React.createElement('button', {
+              key: item.node.id,
+              className: 'rank-item',
+              onClick: function() { onGotoDomain(item.node.data.domainId); }
+            },
+              React.createElement('span', { className: 'rank-item__num' }, i + 1),
+              React.createElement('span', { className: 'rank-item__label' }, item.node.data.domainId),
+              React.createElement('span', { className: 'rank-item__value' }, item.degree)
+            );
+          })
+        ),
+        null
+      ),
+
+      // ----- СТЕНА ПОЗОРА -----
+      worstHealth.length > 0 && renderSection('worst', 'Стена позора', 'trending_down',
+        React.createElement('div', { className: 'rank-list' },
+          worstHealth.slice(0, compact ? 5 : 20).map(function(item, i) {
+            var score = (item.health && typeof item.health === 'object') ? item.health.score : item.health;
+            var hc = score >= 80 ? 'good' : score >= 50 ? 'mid' : 'bad';
+            return React.createElement('button', {
+              key: item.node.id,
+              className: 'rank-item',
+              onClick: function() { onGotoDomain(item.node.data.domainId); }
+            },
+              React.createElement('span', { className: 'rank-item__num' }, i + 1),
+              React.createElement('span', { className: 'rank-item__label' }, item.node.data.domainId),
+              React.createElement('span', {
+                className: 'rf-node__health rf-node__health--' + hc,
+                style: { fontSize: 10, padding: '1px 6px' }
+              }, score)
+            );
+          })
+        ),
+        null
+      ),
+
+      // ----- БИТЫЕ FQID (расширенный список) -----
+      topMissingRefs.length > 0 && renderSection('missing-refs', 'Битые FQID-ссылки', 'link_off',
+        React.createElement('div', { className: 'rank-list' },
+          topMissingRefs.map(function(item, i) {
+            return React.createElement('div', {
+              key: item.node.id,
+              className: 'missing-ref-item'
+            },
+              React.createElement('div', {
+                className: 'rank-item',
+                onClick: function() { onGotoDomain(item.node.data.domainId); },
+                style: { cursor: 'pointer', padding: '4px 6px' }
+              },
+                React.createElement('span', { className: 'rank-item__num' }, i + 1),
+                React.createElement('span', { className: 'rank-item__label' }, item.node.data.domainId),
+                React.createElement('span', {
+                  className: 'rank-item__value',
+                  style: { color: 'var(--warning)' }
+                }, item.count)
+              ),
+              item.uniqueTargets && item.uniqueTargets.length > 0 &&
+                React.createElement('div', { className: 'missing-ref-targets' },
+                  item.uniqueTargets.slice(0, 3).map(function(t, ti) {
+                    return React.createElement('div', {
+                      key: ti,
+                      className: 'missing-ref-target'
+                    },
+                      React.createElement(MIcon, { name: 'warning', size: 'sm' }),
+                      React.createElement('span', null, t)
+                    );
+                  }),
+                  item.uniqueTargets.length > 3 && React.createElement('div', {
+                    className: 'missing-ref-target missing-ref-target--more'
+                  }, '...и ещё ' + (item.uniqueTargets.length - 3))
+                )
+            );
+          })
+        ),
+        topMissingRefs.length
+      ),
+
+      // ----- НЕЙМСПЕЙСЫ -----
+      namespaces.length > 0 && renderSection('namespaces', 'Неймспейсы', 'category',
+        React.createElement('div', { className: 'bar-list' },
+          namespaces.map(function(entry) {
+            var ns = entry[0];
+            var count = entry[1];
+            var max = namespaces[0][1];
+            return React.createElement('button', {
+              key: ns,
+              className: 'bar-item',
+              onClick: function() { onSetNamespace(ns); }
+            },
+              React.createElement('span', { className: 'bar-item__label' }, ns),
+              React.createElement('span', { className: 'bar-item__value' }, count),
+              React.createElement('span', { className: 'bar-item__track' },
+                React.createElement('span', {
+                  className: 'bar-item__fill',
+                  style: { width: (count / max * 100) + '%' }
+                })
+              )
+            );
+          })
+        ),
+        null
+      ),
+
+      // ----- ТЕГИ -----
+      tagCloud.length > 0 && renderSection('tags', 'Теги', 'label',
+        React.createElement('div', { className: 'tag-cloud' },
+          tagCloud.map(function(entry) {
+            var tag = entry[0];
+            var count = entry[1];
+            var active = tagFilters.has(tag);
+            return React.createElement('button', {
+              key: tag,
+              className: 'tag' + (active ? ' tag--active' : ''),
+              onClick: function() { onToggleTag(tag); }
+            },
+              tag,
+              React.createElement('span', { className: 'tag__count' }, count)
+            );
+          })
+        ),
+        tagFilters.size > 0 ? tagFilters.size : null
+      ),
+
+      // ----- ИЗБРАННОЕ -----
+      bookmarks.size > 0 && renderSection('bookmarks', 'Избранное', 'star',
+        React.createElement('div', { className: 'rank-list' },
+          Array.from(bookmarks).slice(0, compact ? 5 : 15).map(function(id) {
+            var n = nodes.find(function(x) { return x.id === id; });
+            if (!n) return null;
+            return React.createElement('div', {
+              key: id,
+              className: 'rank-item',
+              style: { cursor: 'pointer' },
+              onClick: function() { onGotoDomain(n.data.domainId); }
+            },
+              React.createElement('span', { className: 'rank-item__num' },
+                React.createElement(MIcon, { name: 'star', size: 'sm', fill: true })
+              ),
+              React.createElement('span', { className: 'rank-item__label' }, n.data.domainId),
+              React.createElement('button', {
+                className: 'rank-item__remove',
+                onClick: function(ev) {
+                  ev.stopPropagation();
+                  onToggleBookmark(id);
+                },
+                title: 'Убрать из избранного'
+              }, React.createElement(MIcon, { name: 'close', size: 'sm' }))
+            );
+          })
+        ),
+        bookmarks.size
+      ),
+
+      // ----- ЛЕГЕНДА -----
+      renderSection('legend', 'Легенда', 'palette',
+        React.createElement('div', { className: 'legend-list' },
+          React.createElement('div', { className: 'legend-row' },
+            React.createElement('span', { className: 'legend-dot', style: { background: 'var(--success)' } }),
+            'Domain'
+          ),
+          React.createElement('div', { className: 'legend-row' },
+            React.createElement('span', { className: 'legend-dot', style: { background: 'var(--warning)' } }),
+            'Missing'
+          ),
+          React.createElement('div', { className: 'legend-row' },
+            React.createElement('span', { className: 'legend-dot', style: { background: 'var(--danger)' } }),
+            'Broken'
+          ),
+          React.createElement('div', { className: 'legend-row' },
+            React.createElement('span', { className: 'legend-line', style: { background: '#6366a1' } }),
+            'Linkage'
+          ),
+          React.createElement('div', { className: 'legend-row' },
+            React.createElement('span', { className: 'legend-line', style: { background: '#4b7c6c' } }),
+            'FQID'
+          )
+        ),
+        null
+      )
+    )
+  );
+}
+
 function SidePanel(props) {
   var open = props.open;
   var tab = props.tab;
@@ -2171,23 +2974,69 @@ function SidePanel(props) {
   var monacoInitedRef = useRef(false);
 
   // Инициализация Monaco — при первом открытии панели, а не только на вкладке «Файл»
-  useEffect(function() {
-    if (!open) return;
-    if (monacoInitedRef.current) return;
-    if (typeof window.require === 'undefined') return;
-    monacoInitedRef.current = true;
-    window.require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.34.0/min/vs' } });
-    window.require(['vs/editor/editor.main'], function() {
-      setMonacoReady(true);
-    });
-  }, [open]);
+  var [monacoReady, setMonacoReady] = useState(false);
+var monacoLoadingRef = useRef(false);
+var [editorCreated, setEditorCreated] = useState(false);
 
-  // Создание редактора, когда вкладка «Файл» активна и Monaco загружен
-  useEffect(function() {
-    if (!open || tab !== 'file' || !monacoReady) return;
-    if (editorRef.current) return;
-    var el = document.getElementById('monaco-container');
-    if (!el) return;
+var [collapsedSections, setCollapsedSections] = useState(function() {
+  return new Set(['incoming', 'outgoing', 'violations', 'fqid-out', 'validation']); // по умолчанию всё раскрыто
+});
+
+var toggleSection = useCallback(function(id, shouldOpen) {
+  setCollapsedSections(function(prev) {
+    var s = new Set(prev);
+    if (shouldOpen) s.delete(id); else s.add(id);
+    return s;
+  });
+}, []);
+
+// Загрузка Monaco — с повторными попытками
+useEffect(function() {
+  if (!open) return;
+  if (monacoReady) return;
+  if (window.monaco && window.monaco.editor) {
+    setMonacoReady(true);
+    return;
+  }
+  if (monacoLoadingRef.current) return;
+  if (typeof window.require === 'undefined') {
+    // Monaco loader ещё не подгрузился — попробуем позже
+    var retry = setTimeout(function() {
+      monacoLoadingRef.current = false;
+      setMonacoReady(function(v) { return v; }); // триггерим пересборку эффекта
+    }, 300);
+    return function() { clearTimeout(retry); };
+  }
+
+  monacoLoadingRef.current = true;
+  window.require.config({
+    paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.34.0/min/vs' }
+  });
+
+  window.require(['vs/editor/editor.main'], function() {
+    if (window.monaco && window.monaco.editor) {
+      setMonacoReady(true);
+    } else {
+      // что-то не так — сбросим флаг, чтобы попробовать снова
+      monacoLoadingRef.current = false;
+    }
+  }, function(err) {
+    console.error('[monaco] load error:', err);
+    monacoLoadingRef.current = false;
+  });
+}, [open, monacoReady]);
+
+// Создание редактора — строго когда monaco готов
+useEffect(function() {
+  if (!open) return;
+  if (!monacoReady) return;
+  if (editorRef.current) return;
+  if (!window.monaco || !window.monaco.editor) return;
+
+  var el = document.getElementById('monaco-container');
+  if (!el) return;
+
+  try {
     editorRef.current = window.monaco.editor.create(el, {
       value: '',
       language: 'yaml',
@@ -2199,33 +3048,46 @@ function SidePanel(props) {
       scrollBeyondLastLine: false,
       fontFamily: 'JetBrains Mono, SF Mono, Monaco, monospace'
     });
-  }, [open, tab, monacoReady, pendingFile]);
+    setEditorCreated(true);
+  } catch (e) {
+    console.error('[monaco] create failed:', e);
+  }
+}, [open, monacoReady]);
 
-  // Применение контента при появлении нового pendingFile или когда редактор готов
-  useEffect(function() {
-    if (!open || tab !== 'file') return;
-    if (!editorRef.current) return;
-    if (!pendingFile) return;
-    editorRef.current.setValue(pendingFile.content);
-    if (pendingFile.fqid) {
-      setTimeout(function() {
-        var ed = editorRef.current;
-        if (!ed) return;
-        var NEWLINE = String.fromCharCode(10);
-        var lines = pendingFile.content.split(NEWLINE);
-        for (var i = 0; i < lines.length; i++) {
-          if (lines[i].indexOf(pendingFile.fqid) !== -1) {
-            ed.revealLineInCenter(i + 1);
-            ed.setSelection({
-              startLineNumber: i + 1, startColumn: 1,
-              endLineNumber: i + 1, endColumn: lines[i].length + 1
-            });
-            break;
-          }
+useEffect(function() {
+  if (!pendingFile) return;
+  if (!editorCreated) return;
+  if (!editorRef.current) return;
+
+  editorRef.current.setValue(pendingFile.content);
+
+  if (pendingFile.fqid) {
+    setTimeout(function() {
+      var ed = editorRef.current;
+      if (!ed) return;
+      var lines = pendingFile.content.split(String.fromCharCode(10));
+      for (var i = 0; i < lines.length; i++) {
+        if (lines[i].indexOf(pendingFile.fqid) !== -1) {
+          ed.revealLineInCenter(i + 1);
+          ed.setSelection({
+            startLineNumber: i + 1, startColumn: 1,
+            endLineNumber: i + 1, endColumn: lines[i].length + 1
+          });
+          break;
         }
-      }, 100);
-    }
-  }, [open, tab, pendingFile, monacoReady]);
+      }
+    }, 150);
+  }
+}, [pendingFile, editorCreated]);
+
+useEffect(function() {
+  if (open) return;
+  if (editorRef.current) {
+    try { editorRef.current.dispose(); } catch (e) {}
+    editorRef.current = null;
+    setEditorCreated(false);
+  }
+}, [open]);
 
   if (!open) return null;
 
@@ -2241,13 +3103,58 @@ function SidePanel(props) {
       React.createElement('div', { className: 'details__title' }, node.data.label || node.data.domainId),
       React.createElement('div', { className: 'details__id' },
         React.createElement('span', { className: 'details__id-text' }, node.data.domainId),
-        React.createElement('button', { className: 'details__copy', onClick: function() { navigator.clipboard.writeText(node.data.domainId); }, title: 'Копировать' }, React.createElement(MIcon, { name: 'content_copy' }))
+        React.createElement('button', { className: 'details__copy', onClick: function() { navigator.clipboard.writeText(node.data.domainId); }, title: 'Копировать' }, '📋')
       ),
       React.createElement('div', { className: 'details__badges' },
         React.createElement('span', { className: 'details__badge details__badge--' + node.data.nodeType }, node.data.nodeType),
         health != null && React.createElement('span', { className: 'details__badge details__badge--' + hc }, 'Health: ' + health + '/100'),
         node.data.version && React.createElement('span', { className: 'details__badge' }, 'v' + node.data.version)
       ),
+      node.data.updatedAt && React.createElement('div', { className: 'details__field' },
+  React.createElement('div', { className: 'details__field-label' }, 'Обновлён'),
+  React.createElement('div', { className: 'details__field-value', style: { display: 'flex', alignItems: 'center', gap: 8 } },
+    React.createElement(MIcon, {
+      name: sourceIcon(node.data.updatedAtSource),
+      size: 'sm',
+      title: sourceLabel(node.data.updatedAtSource)
+    }),
+    React.createElement('span', null, formatDate(node.data.updatedAt)),
+    React.createElement('span', {
+      style: {
+        fontSize: 10,
+        color: sourceColor(node.data.updatedAtSource),
+        fontFamily: 'JetBrains Mono, monospace',
+        padding: '1px 6px',
+        borderRadius: 4,
+        background: 'var(--bg-750)',
+        marginLeft: 'auto'
+      }
+    }, node.data.updatedAtSource === 'graphql' ? 'server' : (node.data.updatedAtSource === 'fs' ? 'local' : '—'))
+  )
+),
+
+node.data.createdAt && React.createElement('div', { className: 'details__field' },
+  React.createElement('div', { className: 'details__field-label' }, 'Создан'),
+  React.createElement('div', { className: 'details__field-value', style: { display: 'flex', alignItems: 'center', gap: 8 } },
+    React.createElement(MIcon, {
+      name: sourceIcon(node.data.createdAtSource),
+      size: 'sm',
+      title: sourceLabel(node.data.createdAtSource)
+    }),
+    React.createElement('span', null, formatDate(node.data.createdAt)),
+    React.createElement('span', {
+      style: {
+        fontSize: 10,
+        color: sourceColor(node.data.createdAtSource),
+        fontFamily: 'JetBrains Mono, monospace',
+        padding: '1px 6px',
+        borderRadius: 4,
+        background: 'var(--bg-750)',
+        marginLeft: 'auto'
+      }
+    }, node.data.createdAtSource === 'graphql' ? 'server' : (node.data.createdAtSource === 'fs' ? 'local' : '—'))
+  )
+),
       node.data.description && React.createElement('div', { className: 'details__field' },
         React.createElement('div', { className: 'details__field-label' }, 'Описание'),
         React.createElement('div', { className: 'details__field-value' }, node.data.description)
@@ -2267,33 +3174,48 @@ function SidePanel(props) {
       ),
       !(REMOTE_INFO && REMOTE_INFO.server) && node.data.filePath && React.createElement('div', { className: 'details__field' },
         React.createElement('div', { className: 'details__field-label' }, 'Файл'),
-        React.createElement('div', {
-          className: 'details__field-value',
-          style: { fontSize: 11, fontFamily: 'monospace' }
-        }, node.data.filePath)
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 } },
+          React.createElement('div', {
+            className: 'details__field-value',
+            style: { fontFamily: 'monospace', fontSize: 11, flex: 1, wordBreak: 'break-all' }
+          }, node.data.filePath),
+          React.createElement('button', {
+            className: 'details__copy',
+            onClick: function() {
+              var path = node.data.filePath;
+              // vscode://file/<absolute-path>:<line>
+              var url = 'vscode://file' + (path.startsWith('/') ? path : '/' + path);
+              window.location.href = url;
+            },
+            title: 'Открыть в VS Code'
+          }, React.createElement(MIcon, { name: 'code' }))
+        )
       ),
-      React.createElement('div', { className: 'details__actions' },
-        node.data.filePath && React.createElement('button', { className: 'btn', onClick: function() { onOpenFile(node.data.filePath); } }, '📂 Открыть файл'),
-        node.data.nodeType === 'domain' && React.createElement('button', { className: 'btn', onClick: function() { onGotoDomain(node.data.domainId); } }, '🎯 Центрировать')
-      ),
-      ruleViolations.length > 0 && React.createElement('div', { className: 'section' },
-        React.createElement('div', { className: 'section__title' }, 'Нарушения правил (' + ruleViolations.length + ')'),
-        React.createElement('div', { className: 'rank-list' },
-          ruleViolations.slice(0, 10).map(function(v, i) {
+      node.data.health != null && node.data.healthBreakdown && node.data.healthBreakdown.length > 0 &&
+      React.createElement('div', { className: 'details__field' },
+        React.createElement('div', { className: 'details__field-label' }, 'Health breakdown'),
+        React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 4 } },
+          node.data.healthBreakdown.map(function(b, i) {
             return React.createElement('div', {
               key: i,
-              className: 'rank-item',
-              style: { cursor: 'pointer' },
-              onClick: function() { gotoDomainByDomainId(v.fromId); }
+              style: { display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-400)' }
             },
-              React.createElement('span', { className: 'rank-item__num' }, v.severity === 'forbid' ? React.createElement(MIcon, { name: 'block' }) : React.createElement(MIcon, { name: 'warning' })),
-              React.createElement('span', { className: 'rank-item__label' }, v.fromId + ' → ' + v.toId)
+              React.createElement('span', null, b.reason),
+              React.createElement('span', {
+                style: { color: b.delta < 0 ? 'var(--danger)' : 'var(--success)', fontWeight: 600, fontFamily: 'monospace' }
+              }, b.delta > 0 ? '+' + b.delta : b.delta)
             );
           })
         )
       ),
-      React.createElement('div', { className: 'details__field' },
-        React.createElement('div', { className: 'details__field-label' }, 'Исходящие FQID-ссылки (' + refs.length + ')'),
+
+      React.createElement(CollapsibleSection, {
+        id: 'fqid-out',
+        title: 'Исходящие FQID-ссылки',
+        count: refs.length,
+        collapsed: collapsedSections,
+        onToggle: toggleSection
+      },
         refs.length === 0 ? React.createElement('div', { className: 'details__field-value', style: { color: 'var(--text-500)' } }, '—') :
           React.createElement('div', { className: 'details__refs' },
             refs.slice(0, 50).map(function(r, i) {
@@ -2309,48 +3231,112 @@ function SidePanel(props) {
             })
           )
       ),
-      incoming.length > 0 && React.createElement('div', { className: 'details__field' },
-        React.createElement('div', { className: 'details__field-label' }, 'Входящие связи (' + incoming.length + ')'),
-        React.createElement('div', { className: 'details__refs' },
-          incoming.slice(0, 30).map(function(e, i) {
-            var src = allNodes.find(function(n) { return n.id === e.source; });
-            return React.createElement('div', { key: i, className: 'details__ref', onClick: function() { if (src) onGotoDomain(src.data.domainId); } },
-              React.createElement('div', null, src ? src.data.domainId : e.source),
-              React.createElement('div', { className: 'details__ref-path' }, (e.data && e.data.kind) || '')
-            );
-          })
-        )
+
+      React.createElement(CollapsibleSection, {
+        id: 'incoming',
+        title: 'Входящие связи',
+        count: incoming.length,
+        collapsed: collapsedSections,
+        onToggle: toggleSection
+      },
+        incoming.length === 0 ? React.createElement('div', { className: 'details__field-value', style: { color: 'var(--text-500)' } }, '—') :
+          React.createElement('div', { className: 'details__refs' },
+            incoming.slice(0, 30).map(function(e, i) {
+              var src = allNodes.find(function(n) { return n.id === e.source; });
+              return React.createElement('div', { key: i, className: 'details__ref', onClick: function() { if (src) onGotoDomain(src.data.domainId); } },
+                React.createElement('div', null, src ? src.data.domainId : e.source),
+                React.createElement('div', { className: 'details__ref-path' }, (e.data && e.data.kind) || '')
+              );
+            })
+          )
       ),
-      outgoing.length > 0 && React.createElement('div', { className: 'details__field' },
-        React.createElement('div', { className: 'details__field-label' }, 'Исходящие связи (' + outgoing.length + ')'),
-        React.createElement('div', { className: 'details__refs' },
-          outgoing.slice(0, 30).map(function(e, i) {
-            var tgt = allNodes.find(function(n) { return n.id === e.target; });
-            return React.createElement('div', { key: i, className: 'details__ref', onClick: function() { if (tgt) onGotoDomain(tgt.data.domainId); } },
-              React.createElement('div', null, tgt ? tgt.data.domainId : e.target),
-              React.createElement('div', { className: 'details__ref-path' }, (e.data && e.data.kind) || '')
-            );
-          })
-        )
+
+      React.createElement(CollapsibleSection, {
+        id: 'outgoing',
+        title: 'Исходящие связи',
+        count: outgoing.length,
+        collapsed: collapsedSections,
+        onToggle: toggleSection
+      },
+        outgoing.length === 0 ? React.createElement('div', { className: 'details__field-value', style: { color: 'var(--text-500)' } }, '—') :
+          React.createElement('div', { className: 'details__refs' },
+            outgoing.slice(0, 30).map(function(e, i) {
+              var tgt = allNodes.find(function(n) { return n.id === e.target; });
+              return React.createElement('div', { key: i, className: 'details__ref', onClick: function() { if (tgt) onGotoDomain(tgt.data.domainId); } },
+                React.createElement('div', null, tgt ? tgt.data.domainId : e.target),
+                React.createElement('div', { className: 'details__ref-path' }, (e.data && e.data.kind) || '')
+              );
+            })
+          )
+      ),
+
+      node.data.__validationStatus === 'invalid' && node.data.__validationDiagnostics && node.data.__validationDiagnostics.length > 0 &&
+        React.createElement(CollapsibleSection, {
+          id: 'validation',
+          title: 'Ошибки валидации',
+          count: node.data.__validationDiagnostics.length,
+          collapsed: collapsedSections,
+          onToggle: toggleSection
+        },
+          React.createElement('div', { style: { maxHeight: 320, overflowY: 'auto' } },
+            node.data.__validationDiagnostics.map(function(d, i) {
+              return React.createElement('div', {
+                key: i,
+                style: {
+                  padding: '8px 10px',
+                  background: 'var(--bg-750)',
+                  borderRadius: 6,
+                  marginBottom: 6,
+                  fontSize: 12,
+                  borderLeft: '2px solid ' + (d.severity === 'ERROR' ? 'var(--danger)' : 'var(--warning)')
+                }
+              },
+                React.createElement('div', {
+                  style: { fontWeight: 700, fontSize: 10, textTransform: 'uppercase', color: d.severity === 'ERROR' ? 'var(--danger)' : 'var(--warning)', marginBottom: 4 }
+                }, d.severity),
+                React.createElement('div', { style: { color: 'var(--text-200)' } }, d.message),
+                d.labels && d.labels.length > 0 && d.labels.map(function(lb, li) {
+                  return React.createElement('div', {
+                    key: li,
+                    style: { fontSize: 11, color: 'var(--text-500)', fontFamily: 'monospace', marginTop: 4 }
+                  }, lb.message, lb.span && ' [' + lb.span.start + '–' + lb.span.end + ']');
+                })
+              );
+            })
+          )
+      ),
+
+      React.createElement(CollapsibleSection, {
+        id: 'violations',
+        title: 'Нарушения правил',
+        count: ruleViolations.length,
+        collapsed: collapsedSections,
+        onToggle: toggleSection
+      },
+        ruleViolations.length === 0 ? React.createElement('div', { className: 'details__field-value', style: { color: 'var(--text-500)' } }, '—') :
+          React.createElement('div', { className: 'details__refs' },
+            ruleViolations.slice(0, 10).map(function(v, i) {
+              return React.createElement('div', {
+                key: i,
+                className: 'rank-item',
+                style: { cursor: 'pointer' },
+                onClick: function() { gotoDomainByDomainId(v.fromId); }
+              },
+                React.createElement('span', { className: 'rank-item__num' }, v.severity === 'forbid' ? '⛔' : '⚠️'),
+                React.createElement('span', { className: 'rank-item__label' }, v.fromId + ' → ' + v.toId)
+              );
+            })
+          )
       ),
     );
   } else {
     detailsContent = React.createElement('div', { className: 'details' }, React.createElement('div', { style: { color: 'var(--text-500)', textAlign: 'center', padding: 40 } }, 'Узел не выбран'));
   }
 
-  var fileContent = null;
-  if (tab === 'file') {
-    fileContent = React.createElement('div', { style: { flex: 1, minHeight: 0, position: 'relative' } },
-      React.createElement('div', { id: 'monaco-container', style: { width: '100%', height: '100%' } }),
-      !pendingFile && React.createElement('div', {
-        style: {
-          position: 'absolute', inset: 0,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: 'var(--text-500)', background: 'var(--bg-850)', fontSize: 13
-        }
-      }, 'Загрузка файла...')
-    );
-  }
+  var fileContent = React.createElement('div', {
+  id: 'monaco-container',
+  style: { width: '100%', height: '100%' }
+});
   
   var edgeContent = null;
   if (tab === 'edge') {
@@ -2364,15 +3350,41 @@ function SidePanel(props) {
       edgeContent = React.createElement('div', { className: 'details' },
         React.createElement('div', { className: 'details__title' }, (edge.data && edge.data.fullLabel) || edge.label || edge.id),
         React.createElement('div', { className: 'details__id' },
-          React.createElement('span', { className: 'details__id-text' }, edge.id),
-          React.createElement('button', { className: 'details__copy', onClick: function() { navigator.clipboard.writeText(edge.id); }, title: 'Копировать ID' }, React.createElement(MIcon, { name: 'content_copy' }))
+        React.createElement('span', { className: 'details__id-text' },
+            (edge.data && edge.data.linkData && edge.data.linkData.originalId ? `${srcNode.data.domainId}/${edge.data.linkData.originalId }` : null)
+              || (edge.data && edge.data.fullLabel)
+              || edge.label
+              || `${srcNode.data.domainId}/${edge.id}`
+          ),
+          React.createElement('button', {
+            className: 'details__copy',
+            onClick: function() {
+              var copyId = (edge.data && edge.data.linkData && edge.data.linkData.originalId) || edge.id;
+              navigator.clipboard.writeText(copyId);
+            },
+            title: 'Копировать ID связи'
+          }, React.createElement(MIcon, { name: 'content_copy', size: 'sm' }))
         ),
-        React.createElement('div', { className: 'details__badges' },
-          edge.data && edge.data.kind && React.createElement('span', { className: 'details__badge' }, edge.data.kind),
-          edge.data && edge.data.isBidirectional && React.createElement('span', { className: 'details__badge' }, '⇄ двунаправленная'),
-          link.type && React.createElement('span', { className: 'details__badge' }, link.type),
-          edge.data && edge.data.refCount && React.createElement('span', { className: 'details__badge' }, edge.data.refCount + ' refs')
+        edge.data && edge.data.fullLabel && React.createElement('div', { className: 'details__field' },
+          React.createElement('div', { className: 'details__field-label' }, 'Название'),
+          React.createElement('div', { className: 'details__field-value' }, edge.data.fullLabel)
         ),
+
+        edge.data && edge.data.kind && React.createElement('div', { className: 'details__field' },
+          React.createElement('div', { className: 'details__field-label' }, 'Тип связи'),
+          React.createElement('div', { className: 'details__field-value' },
+            React.createElement('span', { className: 'details__badge' },
+              edge.data.kind === 'linkage' ? 'Linkage' : 'FQID'
+            ),
+            edge.data && edge.data.isBidirectional && React.createElement('span', { className: 'details__badge' }, '⇄ двунаправленная'),
+            edge.data.linkData && edge.data.linkData.type &&
+              React.createElement('span', { className: 'details__badge', style: { marginLeft: 8 } },
+                edge.data.linkData.type
+              ),
+            edge.data && edge.data.refCount && React.createElement('span', { className: 'details__badge' }, edge.data.refCount + ' refs')  
+          )
+        ),
+
         srcNode && React.createElement('div', { className: 'details__field' },
           React.createElement('div', { className: 'details__field-label' }, 'Источник'),
           React.createElement('div', { className: 'details__ref', onClick: function() { onGotoDomain(srcNode.data.domainId); } },
@@ -2457,19 +3469,31 @@ if (tab === 'entities') {
         React.createElement('button', { className: 'side-panel__tab' + (tab === 'file' ? ' active' : ''), onClick: function() { setTab('file'); } }, '📄 Файл'),
         React.createElement('button', { className: 'side-panel__tab' + (tab === 'edge' ? ' active' : ''), onClick: function() { setTab('edge'); } }, '🔗 Связь'),
         React.createElement('button', {
-  className: 'side-panel__tab' + (tab === 'entities' ? ' active' : ''),
-  onClick: function() { setTab('entities'); }
-}, '🧬 Сущности')
-      ),
-      React.createElement('button', { className: 'btn btn--icon', onClick: onClose, title: 'Закрыть' }, React.createElement(MIcon, { name: 'close' }))
+          className: 'side-panel__tab' + (tab === 'entities' ? ' active' : ''),
+            onClick: function() { setTab('entities'); }
+          }, '🧬 Сущности')
+        ),
+      React.createElement('button', { className: 'btn btn--icon', onClick: onClose, title: 'Закрыть' }, '✕')
     ),
-    filePath && React.createElement('div', { className: 'editor-panel__path', style: { padding: '6px 16px', fontSize: 11, color: 'var(--text-500)', borderBottom: '1px solid var(--border)', background: 'var(--bg-800)', fontFamily: 'monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, filePath),
-    React.createElement('div', { className: 'side-panel__body' },
-      tab === 'details' ? detailsContent :
-tab === 'edge' ? edgeContent :
-tab === 'entities' ? entitiesContent :
-fileContent
-    )
+    //filePath && React.createElement('div', { className: 'editor-panel__path', style: { padding: '6px 16px', fontSize: 11, color: 'var(--text-500)', borderBottom: '1px solid var(--border)', background: 'var(--bg-800)', fontFamily: 'monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, filePath),
+    React.createElement('div', { className: 'side-panel__body', style: { position: 'relative' } },
+  React.createElement('div', {
+    className: 'side-panel__pane',
+    style: { display: tab === 'details' ? 'block' : 'none' }
+  }, detailsContent),
+  React.createElement('div', {
+    className: 'side-panel__pane',
+    style: { display: tab === 'edge' ? 'block' : 'none' }
+  }, edgeContent),
+  React.createElement('div', {
+    className: 'side-panel__pane',
+    style: { display: tab === 'entities' ? 'block' : 'none' }
+  }, entitiesContent),
+  React.createElement('div', {
+    className: 'side-panel__pane',
+    style: { display: tab === 'file' ? 'block' : 'none' }
+  }, fileContent)
+)
   );
 }
 
@@ -2582,7 +3606,17 @@ function FilterMenu(props) {
         React.createElement('input', { type: 'checkbox', checked: !tooltipsEnabled, onChange: function() { setTooltipsEnabled(!tooltipsEnabled); } }),
         React.createElement('span', { className: 'menu__check' }),
         React.createElement('span', { className: 'menu__text' }, 'Скрывать тултипы')
-      )
+      ),
+
+      React.createElement('label', { className: 'menu__checkbox' },
+        React.createElement('input', {
+          type: 'checkbox',
+          checked: !props.focusEnabled,
+          onChange: function() { props.setFocusEnabled(!props.focusEnabled); }
+        }),
+        React.createElement('span', { className: 'menu__check' }),
+        React.createElement('span', { className: 'menu__text' }, 'Не фокусировать при клике (G)')
+      ),
     )
   );
 }
@@ -2611,9 +3645,22 @@ function AnalysisMenu(props) {
       className: 'menu__item' + (cycleHighlight ? ' menu__item--active' : ''),
       onClick: function() { handleFindCycles(); close(); }
     },
-      React.createElement('span', { className: 'menu__icon' }, React.createElement(MIcon, { name: 'cycle' })),
+      React.createElement('span', { className: 'menu__icon' }, '🔁'),
       React.createElement('span', { className: 'menu__text' }, 'Найти циклы'),
       cycleHighlight && React.createElement('span', { className: 'menu__count' }, cycleHighlight.sccCount)
+    ),
+
+    React.createElement('button', {
+      className: 'menu__item' + (props.pathMode ? ' menu__item--active' : ''),
+      onClick: function() {
+        props.onStartPathFinder();
+        close();
+      }
+    },
+      React.createElement('span', { className: 'menu__icon' },
+        React.createElement(MIcon, { name: 'route', size: 'sm' })
+      ),
+      React.createElement('span', { className: 'menu__text' }, 'Найти путь между узлами')
     ),
 
     // --- Изолированные ---
@@ -2621,7 +3668,7 @@ function AnalysisMenu(props) {
       className: 'menu__item' + (isolatedOnly ? ' menu__item--active' : ''),
       onClick: function() { setIsolatedOnly(function(v) { return !v; }); close(); }
     },
-      React.createElement('span', { className: 'menu__icon' }, React.createElement(MIcon, { name: 'radio_button_unchecked' })),
+      React.createElement('span', { className: 'menu__icon' }, '◯'),
       React.createElement('span', { className: 'menu__text' }, 'Только изолированные')
     ),
 
@@ -2630,7 +3677,7 @@ function AnalysisMenu(props) {
       className: 'menu__item' + (nsMode ? ' menu__item--active' : ''),
       onClick: function() { setNsMode(function(v) { return !v; }); close(); }
     },
-      React.createElement('span', { className: 'menu__icon' }, React.createElement(MIcon, { name: 'category' })),
+      React.createElement('span', { className: 'menu__icon' }, '🗂'),
       React.createElement('span', { className: 'menu__text' }, 'Агрегация по семействам')
     ),
 
@@ -2641,7 +3688,7 @@ function AnalysisMenu(props) {
       className: 'menu__item',
       onClick: function() { onOpenTopo(); close(); }
     },
-      React.createElement('span', { className: 'menu__icon' }, React.createElement(MIcon, { name: 'inventory_2' })),
+      React.createElement('span', { className: 'menu__icon' }, '📦'),
       React.createElement('span', { className: 'menu__text' }, 'Порядок установки')
     ),
 
@@ -2650,27 +3697,29 @@ function AnalysisMenu(props) {
       className: 'menu__item',
       onClick: function() { onOpenLearningPath(); close(); }
     },
-      React.createElement('span', { className: 'menu__icon' }, React.createElement(MIcon, { name: 'menu_book' })),
+      React.createElement('span', { className: 'menu__icon' }, '📖'),
       React.createElement('span', { className: 'menu__text' }, 'Путь изучения')
     ),
 
     React.createElement('div', { className: 'menu__divider' }),
 
-    // --- Правила зависимостей ---
-    React.createElement('button', {
-      className: 'menu__item' + (ruleViolations.length > 0 ? ' menu__item--active' : ''),
-      onClick: function() { onOpenRules(); close(); }
-    },
-      React.createElement('span', { className: 'menu__icon' }, React.createElement(MIcon, { name: 'block' })),
-      React.createElement('span', { className: 'menu__text' }, 'Правила зависимостей'),
-      ruleViolations.length > 0 && React.createElement('span', { className: 'menu__count' }, ruleViolations.length)
-    ),
+React.createElement('button', {
+  className: 'menu__item' + (props.ruleViolations && props.ruleViolations.length > 0 ? ' menu__item--active' : ''),
+  onClick: function() { props.onOpenRules(); close(); }
+},
+  React.createElement('span', { className: 'menu__icon' },
+    React.createElement(MIcon, { name: 'block', size: 'sm' })
+  ),
+  React.createElement('span', { className: 'menu__text' }, 'Правила зависимостей'),
+  props.ruleViolations && props.ruleViolations.length > 0 &&
+    React.createElement('span', { className: 'menu__count' }, props.ruleViolations.length)
+),
     
     React.createElement('button', {
   className: 'menu__item',
   onClick: function() { props.onOpenEntityHierarchy(); close(); }
 },
-  React.createElement('span', { className: 'menu__icon' }, React.createElement(MIcon, { name: 'account_tree' })),
+  React.createElement('span', { className: 'menu__icon' }, '🧬'),
   React.createElement('span', { className: 'menu__text' }, 'Иерархия сущностей')
 ),
 
@@ -2697,7 +3746,7 @@ function AnalysisMenu(props) {
       className: 'menu__item menu__item--danger',
       onClick: function() { clearFocus(); close(); }
     },
-      React.createElement('span', { className: 'menu__icon' }, React.createElement(MIcon, { name: 'close' })),
+      React.createElement('span', { className: 'menu__icon' }, '✕'),
       React.createElement('span', { className: 'menu__text' }, 'Сбросить фокус')
     )
   );
@@ -2803,7 +3852,7 @@ function ViewMenu(props) {
     ),
     React.createElement('div', { className: 'menu__divider' }),
     React.createElement('button', { className: 'menu__item', onClick: function() { setTheme(theme === 'dark' ? 'light' : 'dark'); close(); } },
-      React.createElement('span', { className: 'menu__icon' }, theme === 'dark' ? React.createElement(MIcon, { name: 'light_mode' }) : React.createElement(MIcon, { name: 'dark_mode' })),
+      React.createElement('span', { className: 'menu__icon' }, theme === 'dark' ? '☀️' : '🌙'),
       React.createElement('span', { className: 'menu__text' }, theme === 'dark' ? 'Светлая тема' : 'Тёмная тема')
     )
   );
@@ -2817,40 +3866,136 @@ function DataMenu(props) {
   var diffMode = props.diffMode, setDiffMode = props.setDiffMode;
   var validationAvailable = props.validationAvailable;
   var onOpenValidation = props.onOpenValidation;
+  var handleExportMermaid = props.handleExportMermaid;
   var close = props.close;
 
   return React.createElement('div', { className: 'menu' },
     React.createElement('div', { className: 'menu__label', style: { paddingLeft: 12, paddingTop: 6 } }, 'Экспорт'),
     React.createElement('button', { className: 'menu__item', onClick: function() { handleExportJSON(); close(); } },
-      React.createElement('span', { className: 'menu__icon' }, React.createElement(MIcon, { name: 'save' })),
+      React.createElement('span', { className: 'menu__icon' }, '💾'),
       React.createElement('span', { className: 'menu__text' }, 'Граф в JSON')
     ),
     React.createElement('button', { className: 'menu__item', onClick: function() { handleExportMarkdown(); close(); } },
-      React.createElement('span', { className: 'menu__icon' }, React.createElement(MIcon, { name: 'description' })),
+      React.createElement('span', { className: 'menu__icon' }, '📝'),
       React.createElement('span', { className: 'menu__text' }, 'Отчёт в Markdown')
     ),
     React.createElement('button', { className: 'menu__item', onClick: function() { handleExportPNG(); close(); } },
-      React.createElement('span', { className: 'menu__icon' }, React.createElement(MIcon, { name: 'image' })),
+      React.createElement('span', { className: 'menu__icon' }, '🖼️'),
       React.createElement('span', { className: 'menu__text' }, 'Граф в PNG')
+    ),
+
+    React.createElement('button', { className: 'menu__item', onClick: function() { handleExportMermaid(); close(); } },
+      React.createElement('span', { className: 'menu__icon' }, React.createElement(MIcon, { name: 'schema', size: 'sm' })),
+      React.createElement('span', { className: 'menu__text' }, 'Диаграмма Mermaid')
     ),
 
     React.createElement('div', { className: 'menu__divider' }),
 
     React.createElement('div', { className: 'menu__label', style: { paddingLeft: 12, paddingTop: 6 } }, 'Сравнение'),
     React.createElement('label', { className: 'menu__item' },
-      React.createElement('span', { className: 'menu__icon' }, React.createElement(MIcon, { name: 'swap_horiz' })),
+      React.createElement('span', { className: 'menu__icon' }, '⇄'),
       React.createElement('span', { className: 'menu__text' }, 'Загрузить снимок'),
       React.createElement('input', { ref: snapshotInputRef, type: 'file', accept: 'application/json', style: { display: 'none' }, onChange: function(e) { handleSnapshotUpload(e); close(); } })
     ),
-    diffMode && React.createElement('button', { className: 'menu__item menu__item--danger', onClick: function() { setDiffMode(null); close(); } },
-      React.createElement('span', { className: 'menu__icon' }, React.createElement(MIcon, { name: 'close' })),
-      React.createElement('span', { className: 'menu__text' }, 'Сбросить diff')
+    React.createElement('div', { className: 'menu__divider' }),
+
+React.createElement('div', { className: 'menu__label', style: { paddingLeft: 12, paddingTop: 6 } }, 'Снимки (локально)'),
+
+// Слот A
+React.createElement('div', { className: 'snap-slot' },
+  React.createElement('div', { className: 'snap-slot__info' },
+    React.createElement('span', { className: 'snap-slot__badge snap-slot__badge--a' }, 'A'),
+    props.snapshotA
+      ? React.createElement('div', { className: 'snap-slot__meta' },
+          React.createElement('div', { className: 'snap-slot__time' }, formatSavedAt(props.snapshotA.savedAt)),
+          React.createElement('div', { className: 'snap-slot__stats' },
+            props.snapshotA.stats.nodes + ' узлов · ' + props.snapshotA.stats.edges + ' связей'
+          )
+        )
+      : React.createElement('div', { className: 'snap-slot__empty' }, 'пусто')
+  ),
+  React.createElement('div', { className: 'snap-slot__actions' },
+    React.createElement('button', {
+      className: 'snap-btn',
+      onClick: props.onSaveA,
+      title: 'Сохранить текущее состояние в A'
+    }, React.createElement(MIcon, { name: 'save', size: 'sm' })),
+    props.snapshotA && React.createElement('button', {
+      className: 'snap-btn snap-btn--primary',
+      onClick: function() { props.onLoadA(); close(); },
+      title: 'Сравнить текущее с A'
+    }, React.createElement(MIcon, { name: 'compare_arrows', size: 'sm' })),
+    props.snapshotA && React.createElement('button', {
+      className: 'snap-btn snap-btn--danger',
+      onClick: props.onClearA,
+      title: 'Удалить снимок A'
+    }, React.createElement(MIcon, { name: 'close', size: 'sm' }))
+  )
+),
+
+// Слот B
+React.createElement('div', { className: 'snap-slot' },
+  React.createElement('div', { className: 'snap-slot__info' },
+    React.createElement('span', { className: 'snap-slot__badge snap-slot__badge--b' }, 'B'),
+    props.snapshotB
+      ? React.createElement('div', { className: 'snap-slot__meta' },
+          React.createElement('div', { className: 'snap-slot__time' }, formatSavedAt(props.snapshotB.savedAt)),
+          React.createElement('div', { className: 'snap-slot__stats' },
+            props.snapshotB.stats.nodes + ' узлов · ' + props.snapshotB.stats.edges + ' связей'
+          )
+        )
+      : React.createElement('div', { className: 'snap-slot__empty' }, 'пусто')
+  ),
+  React.createElement('div', { className: 'snap-slot__actions' },
+    React.createElement('button', {
+      className: 'snap-btn',
+      onClick: props.onSaveB,
+      title: 'Сохранить текущее состояние в B'
+    }, React.createElement(MIcon, { name: 'save', size: 'sm' })),
+    props.snapshotB && React.createElement('button', {
+      className: 'snap-btn snap-btn--primary',
+      onClick: function() { props.onLoadB(); close(); },
+      title: 'Сравнить текущее с B'
+    }, React.createElement(MIcon, { name: 'compare_arrows', size: 'sm' })),
+    props.snapshotB && React.createElement('button', {
+      className: 'snap-btn snap-btn--danger',
+      onClick: props.onClearB,
+      title: 'Удалить снимок B'
+    }, React.createElement(MIcon, { name: 'close', size: 'sm' }))
+  )
+),
+
+React.createElement('div', { className: 'menu__hint', style: { paddingLeft: 12, paddingRight: 12 } },
+  'Сохраните «до», сделайте изменения, нажмите ',
+  React.createElement(MIcon, { name: 'compare_arrows', size: 'sm' }),
+  ' — увидите разницу на графе.'
+),
+    diffMode && React.createElement('div', { className: 'diff-legend' },
+  React.createElement('span', { className: 'diff-legend__item' },
+    React.createElement('span', { className: 'diff-legend__dot', style: { background: DIFF_ADDED } }),
+    '+' + diffMode.addedNodes.size + 'n / +' + diffMode.addedEdges.size + 'e'
+  ),
+  React.createElement('span', { className: 'diff-legend__item' },
+    React.createElement('span', { className: 'diff-legend__dot', style: { background: DIFF_REMOVED } }),
+    '−' + diffMode.removedNodes.size + 'n / −' + diffMode.removedEdges.size + 'e'
+  ),
+  diffMode.snapshot && diffMode.snapshot.savedAt &&
+    React.createElement('span', { className: 'diff-legend__scope', title: 'С чем сравниваем' },
+      'vs ' + new Date(diffMode.snapshot.savedAt).toLocaleString('ru-RU', {
+        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+      })
     ),
+  React.createElement('button', {
+    className: 'diff-legend__close',
+    onClick: function() { setDiffMode(null); },
+    title: 'Сбросить diff'
+  }, React.createElement(MIcon, { name: 'close', size: 'sm' }))
+),
 
     validationAvailable && React.createElement('div', { className: 'menu__divider' }),
     validationAvailable && React.createElement('div', { className: 'menu__label', style: { paddingLeft: 12, paddingTop: 6 } }, 'Валидация'),
     validationAvailable && React.createElement('button', { className: 'menu__item', onClick: function() { onOpenValidation(); close(); } },
-      React.createElement('span', { className: 'menu__icon' }, React.createElement(MIcon, { name: 'search' })),
+      React.createElement('span', { className: 'menu__icon' }, '🔍'),
       React.createElement('span', { className: 'menu__text' }, 'Массовая валидация доменов')
     )
   );
@@ -2873,7 +4018,7 @@ function ActiveModesBar(props) {
           className: 'active-mode__close',
           onClick: m.onClear,
           title: 'Отключить'
-        }, React.createElement(MIcon, { name: 'close' }))
+        }, '✕')
       );
     })
   );
@@ -2881,26 +4026,28 @@ function ActiveModesBar(props) {
 
 function SearchModal(props) {
   var open = props.open;
-  var query = props.query, setQuery = props.setQuery;
-  var results = props.results, index = props.index, setIndex = props.setIndex;
+  var query = props.query;
+  var setQuery = props.setQuery;
+  var results = props.results || [];
   var commands = props.commands || [];
-  var onSelect = props.onSelect, onClose = props.onClose;
+  var index = props.index;
+  var setIndex = props.setIndex;
+  var onSelect = props.onSelect;
+  var onOpenFile = props.onOpenFile;   // опционально
+  var onClose = props.onClose;
   var inputRef = props.inputRef;
 
+  // Отфильтрованные команды
   var filteredCommands = useMemo(function() {
     var q = query.trim().toLowerCase();
     if (!q) return commands;
     return commands.filter(function(c) {
-      var hay = (c.label + ' ' + (c.keywords || '') + ' ' + (c.section || '')).toLowerCase();
+      var hay = ((c.label || '') + ' ' + (c.keywords || '') + ' ' + (c.section || '')).toLowerCase();
       return hay.indexOf(q) !== -1;
     });
   }, [query, commands]);
 
-  // Единый индекс: сначала команды, потом домены
-  var totalItems = filteredCommands.length + results.length;
-  var safeIndex = Math.min(index, Math.max(totalItems - 1, 0));
-
-  // Сгруппировать команды по секциям для отображения
+  // Группировка команд по секциям
   var commandsBySection = useMemo(function() {
     var map = new Map();
     filteredCommands.forEach(function(c) {
@@ -2911,55 +4058,93 @@ function SearchModal(props) {
     return Array.from(map.entries());
   }, [filteredCommands]);
 
-  if (!open) return null;
+  var totalItems = filteredCommands.length + results.length;
+  var safeIndex = Math.min(index, Math.max(totalItems - 1, 0));
 
+  // Обработка клавиатуры
   var onKey = function(e) {
-    if (e.key === 'Escape') { e.preventDefault(); onClose(); }
-    else if (e.key === 'ArrowDown') { e.preventDefault(); setIndex(Math.min(safeIndex + 1, Math.max(totalItems - 1, 0))); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); setIndex(Math.max(safeIndex - 1, 0)); }
-    else if (e.key === 'Enter') {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      onClose();
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setIndex(Math.min(safeIndex + 1, Math.max(totalItems - 1, 0)));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setIndex(Math.max(safeIndex - 1, 0));
+    } else if (e.key === 'Enter') {
       e.preventDefault();
       if (totalItems === 0) return;
       if (safeIndex < filteredCommands.length) {
-        // Команда
         var cmd = filteredCommands[safeIndex];
         onClose();
-        setTimeout(function() { cmd.run(); }, 50);
+        setTimeout(function() { cmd.run && cmd.run(); }, 50);
       } else {
-        // Домен
         var domainItem = results[safeIndex - filteredCommands.length];
-        if (domainItem) onSelect(domainItem.node.data.domainId);
+        if (domainItem && domainItem.node) {
+          onSelect(domainItem.node.data.domainId);
+        }
       }
     }
   };
 
+  if (!open) return null;
+
+  // Счётчики для индексации
   var cmdIdx = 0;
   var domainStartIdx = filteredCommands.length;
 
-  return React.createElement('div', { className: 'search-overlay', onMouseDown: onClose },
-    React.createElement('div', { className: 'search-modal search-modal--palette', onMouseDown: function(e) { e.stopPropagation(); } },
+  return React.createElement('div', {
+    className: 'search-overlay',
+    onMouseDown: onClose
+  },
+    React.createElement('div', {
+      className: 'search-modal search-modal--palette',
+      onMouseDown: function(e) { e.stopPropagation(); }
+    },
 
+      // Поле ввода
       React.createElement('div', { className: 'search-modal__input-wrap' },
-        React.createElement('span', { className: 'search-modal__icon' }, '⌘'),
+        React.createElement('span', { className: 'search-modal__icon' },
+          React.createElement(MIcon, { name: 'search' })
+        ),
         React.createElement('input', {
           ref: inputRef,
           className: 'search-modal__input',
           type: 'text',
-          placeholder: 'Команда или домен...',
+          placeholder: 'Команда, домен или FQID...',
           value: query,
           onChange: function(e) { setQuery(e.target.value); },
-          onKeyDown: onKey
+          onKeyDown: onKey,
+          autoComplete: 'off',
+          spellCheck: false
         }),
         React.createElement('kbd', { className: 'search-modal__kbd' }, 'Esc')
       ),
 
+      // Результаты
       React.createElement('div', { className: 'search-modal__results' },
 
-        // Команды
+        // Пустое состояние
+        query.trim() === '' && filteredCommands.length === 0 && results.length === 0 &&
+          React.createElement('div', { className: 'search-modal__hint' },
+            'Начните вводить имя команды, домен или FQID'
+          ),
+
+        // Ничего не найдено
+        query.trim() !== '' && filteredCommands.length === 0 && results.length === 0 &&
+          React.createElement('div', { className: 'search-modal__hint' },
+            'Ничего не найдено по запросу «' + query + '»'
+          ),
+
+        // Секции команд
         filteredCommands.length > 0 && commandsBySection.map(function(entry) {
           var section = entry[0];
           var cmds = entry[1];
-          return React.createElement('div', { key: 'sec-' + section, className: 'palette-section' },
+          return React.createElement('div', {
+            key: 'sec-' + section,
+            className: 'palette-section'
+          },
             React.createElement('div', { className: 'palette-section__title' }, section),
             cmds.map(function(cmd) {
               var itemIdx = cmdIdx++;
@@ -2968,9 +4153,14 @@ function SearchModal(props) {
                 key: 'cmd-' + itemIdx,
                 className: 'palette-item palette-item--command' + (isActive ? ' active' : ''),
                 onMouseEnter: function() { setIndex(itemIdx); },
-                onClick: function() { onClose(); setTimeout(function() { cmd.run(); }, 50); }
+                onClick: function() {
+                  onClose();
+                  setTimeout(function() { cmd.run && cmd.run(); }, 50);
+                }
               },
-                React.createElement('span', { className: 'palette-item__icon' }, cmd.icon || '•'),
+                React.createElement('span', { className: 'palette-item__icon' },
+                  React.createElement(MIcon, { name: cmd.iconName || 'chevron_right', size: 'sm' })
+                ),
                 React.createElement('span', { className: 'palette-item__label' }, cmd.label),
                 cmd.hotkey && React.createElement('kbd', { className: 'palette-item__hotkey' }, cmd.hotkey)
               );
@@ -2978,48 +4168,122 @@ function SearchModal(props) {
           );
         }),
 
-        // Домены
+        // Секция доменов
         results.length > 0 && React.createElement('div', { className: 'palette-section' },
-          React.createElement('div', { className: 'palette-section__title' }, 'Домены (' + results.length + ')'),
-          results.slice(0, 50).map(function(item, i) {
+          React.createElement('div', { className: 'palette-section__title' },
+            'Домены (' + results.length + ')'
+          ),
+          results.map(function(item, i) {
             var itemIdx = domainStartIdx + i;
             var isActive = itemIdx === safeIndex;
             var n = item.node;
             var matched = new Set(item.matches.map(function(m) { return m.field; }));
+
             return React.createElement('div', {
               key: 'dom-' + i,
               className: 'palette-item' + (isActive ? ' active' : ''),
               onMouseEnter: function() { setIndex(itemIdx); },
-              onClick: function() { onSelect(n.data.domainId); }
+              onClick: function() {
+                onSelect(n.data.domainId);
+              }
             },
               React.createElement('span', { className: 'palette-item__icon' },
-                React.createElement('span', { className: 'search-result__dot search-result__dot--' + n.data.nodeType })
+                React.createElement('span', {
+                  className: 'search-result__dot search-result__dot--' + n.data.nodeType
+                })
               ),
               React.createElement('div', { className: 'palette-item__content' },
+
+                // ID домена
                 React.createElement('div', { className: 'search-result__id' },
                   React.createElement(HighlightedText, { text: n.data.domainId, query: query }),
                   matched.has('id') && React.createElement('span', { className: 'search-result__badge' }, 'id')
                 ),
-                n.data.name && n.data.name !== n.data.domainId && React.createElement('div', { className: 'search-result__label' },
-                  React.createElement(HighlightedText, { text: n.data.name, query: query }),
-                  matched.has('name') && React.createElement('span', { className: 'search-result__badge' }, 'name')
-                )
+
+                // Название
+                n.data.name && n.data.name !== n.data.domainId &&
+                  React.createElement('div', { className: 'search-result__label' },
+                    React.createElement(HighlightedText, { text: n.data.name, query: query }),
+                    matched.has('name') && React.createElement('span', { className: 'search-result__badge' }, 'name')
+                  ),
+
+                // Описание
+                n.data.description &&
+                  React.createElement('div', { className: 'search-result__desc' },
+                    React.createElement(HighlightedText, { text: n.data.description, query: query }),
+                    matched.has('description') && React.createElement('span', { className: 'search-result__badge' }, 'description')
+                  ),
+
+                // Теги
+                Array.isArray(n.data.tags) && n.data.tags.length > 0 &&
+                  React.createElement('div', { className: 'search-result__tags' },
+                    n.data.tags.slice(0, 5).map(function(tag, ti) {
+                      return React.createElement('span', {
+                        key: ti,
+                        className: 'search-result__tag'
+                      }, React.createElement(HighlightedText, { text: tag, query: query }));
+                    }),
+                    matched.has('tags') && React.createElement('span', { className: 'search-result__badge' }, 'tags')
+                  ),
+
+                // FQID-ссылки
+                (function() {
+                  var fqidMatch = item.matches.find(function(m) { return m.field === 'fqid'; });
+                  if (!fqidMatch || !fqidMatch.value || fqidMatch.value.length === 0) return null;
+
+                  return React.createElement('div', { className: 'search-result__fqid-block' },
+                    React.createElement('div', { className: 'search-result__fqid-head' },
+                      React.createElement(MIcon, { name: 'link', size: 'sm' }),
+                      React.createElement('span', null, 'FQID-ссылки (' + fqidMatch.value.length + ')'),
+                      React.createElement('span', { className: 'search-result__badge' }, 'fqid')
+                    ),
+                    fqidMatch.value.slice(0, 3).map(function(f, fi) {
+                      return React.createElement('div', {
+                        key: fi,
+                        className: 'search-result__fqid-item',
+                        onClick: function(e) {
+                          e.stopPropagation();
+                          if (onOpenFile && f.filePath) {
+                            onOpenFile(f.filePath, f.fullFQID);
+                            onClose();
+                          } else {
+                            onSelect(n.data.domainId);
+                          }
+                        },
+                        title: onOpenFile
+                          ? 'Открыть файл на строке с FQID'
+                          : 'Перейти к домену'
+                      },
+                        React.createElement(HighlightedText, { text: f.fullFQID, query: query }),
+                        f.propertyPath && React.createElement('span', { className: 'search-result__fqid-path' }, f.propertyPath)
+                      );
+                    }),
+                    fqidMatch.value.length > 3 && React.createElement('div', {
+                      className: 'search-result__fqid-more'
+                    }, '...и ещё ' + (fqidMatch.value.length - 3))
+                  );
+                })()
               )
             );
           })
-        ),
-
-        // Пусто
-        query.trim() === '' && filteredCommands.length === 0 && results.length === 0 &&
-          React.createElement('div', { className: 'search-modal__hint' }, 'Начните вводить команду или имя домена'),
-        query.trim() !== '' && filteredCommands.length === 0 && results.length === 0 &&
-          React.createElement('div', { className: 'search-modal__hint' }, 'Ничего не найдено')
+        )
       ),
 
+      // Футер с подсказками по навигации
       React.createElement('div', { className: 'search-modal__footer' },
-        React.createElement('span', null, React.createElement('kbd', null, '↑'), React.createElement('kbd', null, '↓'), ' навигация'),
-        React.createElement('span', null, React.createElement('kbd', null, 'Enter'), ' выбрать'),
-        React.createElement('span', null, React.createElement('kbd', null, 'Esc'), ' закрыть')
+        React.createElement('span', null,
+          React.createElement('kbd', null, '↑'),
+          React.createElement('kbd', null, '↓'),
+          ' навигация'
+        ),
+        React.createElement('span', null,
+          React.createElement('kbd', null, 'Enter'),
+          ' выбрать'
+        ),
+        React.createElement('span', null,
+          React.createElement('kbd', null, 'Esc'),
+          ' закрыть'
+        )
       )
     )
   );
@@ -3062,7 +4326,7 @@ function Toast(props) {
         );
       })
     ),
-    React.createElement('button', { className: 'toast__close', onClick: function() { setVisible(false); if (onClose) onClose(); } }, React.createElement(MIcon, { name: 'close' }))
+    React.createElement('button', { className: 'toast__close', onClick: function() { setVisible(false); if (onClose) onClose(); } }, '✕')
   );
 }
 
@@ -3072,13 +4336,15 @@ function HoverTooltip(props) {
   if (!tooltip) return null;
   var style = { left: tooltip.x, top: tooltip.y };
   return React.createElement('div', {
-    className: 'tooltip',
-    style: style,
-    onMouseEnter: function() { window.__tooltipHovered = true; },
-    onMouseLeave: function() { window.__tooltipHovered = false; if (onHide) onHide(); }
-  },
-    React.createElement('div', { dangerouslySetInnerHTML: { __html: tooltip.html } })
-  );
+  className: 'tooltip',
+  style: style,
+  onMouseEnter: function() { window.__tooltipHovered = true; },
+  onMouseLeave: function() { window.__tooltipHovered = false; if (onHide) onHide(); },
+  onMouseDown: function(e) { e.stopPropagation(); },
+  onClick: function(e) { e.stopPropagation(); }
+},
+  React.createElement('div', { dangerouslySetInnerHTML: { __html: tooltip.html } })
+);
 }
 
 // ============ INNER (ReactFlow wrapper) ============
@@ -3087,6 +4353,23 @@ var ReactFlowInner = React.memo(function(props) {
   useEffect(function() { props.setRfInstance(rf); }, [rf]);
   var zoomClass = useStore(function(s) {
   return s.transform[2] < 0.5 ? 'hide' : 'show';
+}, function(prev, next) {
+  // Перерендериваем только если изменилось что-то важное
+  return (
+    prev.nodes === next.nodes &&
+    prev.edges === next.edges &&
+    prev.readOnly === next.readOnly &&
+    prev.perfMode === next.perfMode &&
+    prev.showGroups === next.showGroups &&
+    prev.onNodeClick === next.onNodeClick &&
+    prev.onEdgeClick === next.onEdgeClick &&
+    prev.onPaneClick === next.onPaneClick &&
+    prev.onNodeMouseEnter === next.onNodeMouseEnter &&
+    prev.onNodeMouseLeave === next.onNodeMouseLeave &&
+    prev.onEdgeMouseEnter === next.onEdgeMouseEnter &&
+    prev.onEdgeMouseLeave === next.onEdgeMouseLeave &&
+    prev.setRfInstance === next.setRfInstance
+  );
 });
 
 useEffect(function() {
@@ -3104,10 +4387,6 @@ var defaultEdgeOptions = useMemo(function() {
   return {
     type: props.perfMode ? 'default' : 'smoothstep',
     animated: false,
-    labelStyle: { fill: '#e2e8f0', fontSize: 10, fontWeight: 500 },
-    labelBgStyle: { fill: '#0d1424', fillOpacity: 0.95 },
-    labelBgPadding: [4, 2],
-    labelBgBorderRadius: 4
   };
 }, [props.perfMode]);
   return React.createElement(ReactFlow, {
@@ -3139,7 +4418,13 @@ var defaultEdgeOptions = useMemo(function() {
   },
     React.createElement(Background, { variant: BackgroundVariant.Dots, gap: 20, size: 1, color: 'var(--graph-dots)' }),
     React.createElement(Controls, { position: 'bottom-left' }),
-    React.createElement(MiniMap, { position: 'bottom-right', nodeColor: function(n) { var t = n.data && n.data.nodeType; if (t === 'missing') return '#f59e0b'; if (t === 'broken') return '#ef4444'; return '#10b981'; }, maskColor: 'rgba(10,14,26,0.7)', style: { width: 180, height: 130 } })
+    React.createElement(MiniMap, { position: 'bottom-right', nodeColor: function(n) { var t = n.data && n.data.nodeType; if (t === 'missing') return '#f59e0b'; if (t === 'broken') return '#ef4444'; return '#10b981'; }, maskColor: 'rgba(10,14,26,0.7)', style: { width: 180, height: 130 } }),
+    props.showGroups && React.createElement(Panel, {
+      position: 'top-left',
+      style: { pointerEvents: 'none', width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, margin: 0 }
+    },
+      React.createElement(GroupsOverlay, { nodes: props.nodes, enabled: true })
+    )
   );
 });
 
@@ -3174,81 +4459,285 @@ function evaluateRules(edges, nodes, rules) {
   return violations;
 }
 
-function RulesMenu(props) {
-  var rules = props.rules, setRules = props.setRules;
-  var violations = props.violations;
-  var rulesHighlighted = props.rulesHighlighted, setRulesHighlighted = props.setRulesHighlighted;
-  var showViolationsOnly = props.showViolationsOnly, setShowViolationsOnly = props.setShowViolationsOnly;
-  var close = props.close;
-  var [draft, setDraft] = useState({ from: '', to: '', action: 'warn', message: '' });
+function RulesModal(props) {
+  var open = props.open;
+  var onClose = props.onClose;
+  var rules = props.rules || [];
+  var setRules = props.setRules;
+  var violations = props.violations || [];
+  var rulesHighlighted = props.rulesHighlighted;
+  var setRulesHighlighted = props.setRulesHighlighted;
+  var showViolationsOnly = props.showViolationsOnly;
+  var setShowViolationsOnly = props.setShowViolationsOnly;
+  var onGotoDomain = props.onGotoDomain;
+
+  var [draft, setDraft] = useState({
+    from: '',
+    to: '',
+    action: 'warn',
+    message: ''
+  });
+
+  // Сброс черновика при закрытии
+  useEffect(function() {
+    if (!open) {
+      setDraft({ from: '', to: '', action: 'warn', message: '' });
+    }
+  }, [open]);
+
+  // Esc — закрыть
+  useEffect(function() {
+    if (!open) return;
+    var onKey = function(e) {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey, true);
+    return function() { document.removeEventListener('keydown', onKey, true); };
+  }, [open, onClose]);
+
+  if (!open) return null;
 
   var addRule = function() {
-    if (!draft.from || !draft.to) return;
+    if (!draft.from.trim() || !draft.to.trim()) return;
+    var newRule = {
+      id: 'r' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+      from: draft.from.trim(),
+      to: draft.to.trim(),
+      action: draft.action,
+      message: draft.message.trim()
+    };
     setRules(function(prev) {
       var arr = Array.isArray(prev) ? prev : [];
-      return arr.concat([Object.assign({ id: 'r' + Date.now() }, draft)]);
+      return arr.concat([newRule]);
     });
     setDraft({ from: '', to: '', action: 'warn', message: '' });
   };
+
   var removeRule = function(id) {
     setRules(function(prev) {
       return (Array.isArray(prev) ? prev : []).filter(function(r) { return r.id !== id; });
     });
   };
+
   var toggleAction = function(id) {
     setRules(function(prev) {
       return (Array.isArray(prev) ? prev : []).map(function(r) {
         if (r.id !== id) return r;
-        return Object.assign({}, r, { action: r.action === 'forbid' ? 'warn' : 'forbid' });
+        return Object.assign({}, r, {
+          action: r.action === 'forbid' ? 'warn' : 'forbid'
+        });
       });
     });
   };
 
-  return React.createElement('div', { className: 'menu', style: { width: 380, padding: 12 } },
-    React.createElement('div', { className: 'menu__label' }, 'Правила зависимостей'),
-    rules.length === 0 && React.createElement('div', { style: { fontSize: 11, color: 'var(--text-500)', padding: '8px 10px' } }, 'Правила не заданы'),
-    rules.map(function(r) {
-      return React.createElement('div', { key: r.id, className: 'rule-item' },
+  var clearAllRules = function() {
+    if (!confirm('Удалить все правила?')) return;
+    setRules([]);
+  };
+
+  var onFormKeyDown = function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      addRule();
+    }
+  };
+
+  return React.createElement('div', {
+    className: 'help-overlay',
+    onMouseDown: onClose
+  },
+    React.createElement('div', {
+      className: 'help-modal rules-modal',
+      onMouseDown: function(e) { e.stopPropagation(); }
+    },
+
+      // Header
+      React.createElement('div', { className: 'help-modal__header' },
+        React.createElement('div', { className: 'help-modal__title' },
+          React.createElement(MIcon, { name: 'block' }),
+          React.createElement('span', { style: { marginLeft: 8 } }, 'Правила зависимостей'),
+          violations.length > 0 && React.createElement('span', { className: 'help-modal__badge' }, violations.length)
+        ),
         React.createElement('button', {
-          className: 'rule-item__action rule-item__action--' + r.action,
-          onClick: function() { toggleAction(r.id); },
-          title: r.action === 'forbid' ? 'Запрещено' : 'Предупреждение'
-        }, r.action === 'forbid' ? React.createElement(MIcon, { name: 'block' }) : React.createElement(MIcon, { name: 'warning' })),
-        React.createElement('div', { className: 'rule-item__body' },
-          React.createElement('div', { className: 'rule-item__pattern' }, r.from + ' → ' + r.to),
-          r.message && React.createElement('div', { className: 'rule-item__message' }, r.message)
+          className: 'help-modal__close',
+          onClick: onClose,
+          title: 'Закрыть (Esc)'
+        }, React.createElement(MIcon, { name: 'close' }))
+      ),
+
+      // Body
+      React.createElement('div', { className: 'help-modal__body rules-modal__body' },
+
+        // Форма добавления
+        React.createElement('div', { className: 'rules-form' },
+          React.createElement('div', { className: 'rules-form__label' }, 'Новое правило'),
+          React.createElement('div', { className: 'rules-form__row' },
+            React.createElement('input', {
+              className: 'rules-form__input',
+              type: 'text',
+              placeholder: 'from (например: ui.*)',
+              value: draft.from,
+              onChange: function(e) { setDraft(Object.assign({}, draft, { from: e.target.value })); },
+              onKeyDown: onFormKeyDown
+            }),
+            React.createElement('span', { className: 'rules-form__arrow' },
+              React.createElement(MIcon, { name: 'arrow_forward', size: 'sm' })
+            ),
+            React.createElement('input', {
+              className: 'rules-form__input',
+              type: 'text',
+              placeholder: 'to (например: db.*)',
+              value: draft.to,
+              onChange: function(e) { setDraft(Object.assign({}, draft, { to: e.target.value })); },
+              onKeyDown: onFormKeyDown
+            })
+          ),
+          React.createElement('div', { className: 'rules-form__row' },
+            React.createElement('select', {
+              className: 'rules-form__select',
+              value: draft.action,
+              onChange: function(e) { setDraft(Object.assign({}, draft, { action: e.target.value })); }
+            },
+              React.createElement('option', { value: 'warn' }, '⚠️ Warning'),
+              React.createElement('option', { value: 'forbid' }, '⛔ Forbid')
+            ),
+            React.createElement('input', {
+              className: 'rules-form__input',
+              type: 'text',
+              placeholder: 'Комментарий (необязательно)',
+              value: draft.message,
+              onChange: function(e) { setDraft(Object.assign({}, draft, { message: e.target.value })); },
+              onKeyDown: onFormKeyDown
+            }),
+            React.createElement('button', {
+              className: 'btn btn--primary',
+              onClick: addRule,
+              disabled: !draft.from.trim() || !draft.to.trim()
+            }, React.createElement(MIcon, { name: 'add', size: 'sm' }), ' Добавить')
+          ),
+          React.createElement('div', { className: 'rules-form__hint' },
+            'Маски: ',
+            React.createElement('code', null, 'sgrc.evo.*'),
+            ', ',
+            React.createElement('code', null, 'ui.*'),
+            ', ',
+            React.createElement('code', null, '!test.*'),
+            '. Поддерживается ',
+            React.createElement('b', null, '*'),
+            ' (любой символ) и ',
+            React.createElement('b', null, '!'),
+            ' (исключение).'
+          )
         ),
-        React.createElement('button', { className: 'rule-item__remove', onClick: function() { removeRule(r.id); } }, React.createElement(MIcon, { name: 'close' }))
-      );
-    }),
-    React.createElement('div', { className: 'rule-form' },
-      React.createElement('input', { className: 'menu__input', placeholder: 'from (ui.*)', value: draft.from, onChange: function(e) { setDraft(Object.assign({}, draft, { from: e.target.value })); } }),
-      React.createElement('input', { className: 'menu__input', placeholder: 'to (db.*)', value: draft.to, onChange: function(e) { setDraft(Object.assign({}, draft, { to: e.target.value })); } }),
-      React.createElement('input', { className: 'menu__input', placeholder: 'комментарий', value: draft.message, onChange: function(e) { setDraft(Object.assign({}, draft, { message: e.target.value })); } }),
-      React.createElement('div', { style: { display: 'flex', gap: 6, alignItems: 'center' } },
-        React.createElement('select', { className: 'menu__input', style: { flex: 1 }, value: draft.action, onChange: function(e) { setDraft(Object.assign({}, draft, { action: e.target.value })); } },
-          React.createElement('option', { value: 'warn' }, '⚠️ Warn'),
-          React.createElement('option', { value: 'forbid' }, '⛔ Forbid')
+
+        // Список правил
+        React.createElement('div', { className: 'rules-list' },
+          React.createElement('div', { className: 'rules-list__header' },
+            React.createElement('span', { className: 'rules-form__label' },
+              'Активные правила (' + rules.length + ')'
+            ),
+            rules.length > 0 && React.createElement('button', {
+              className: 'rules-list__clear',
+              onClick: clearAllRules
+            }, 'Очистить все')
+          ),
+
+          rules.length === 0
+            ? React.createElement('div', { className: 'rules-list__empty' }, 'Правила не заданы')
+            : rules.map(function(rule) {
+                return React.createElement('div', {
+                  key: rule.id,
+                  className: 'rules-item rules-item--' + (rule.action || 'warn')
+                },
+                  React.createElement('button', {
+                    className: 'rules-item__action rules-item__action--' + (rule.action || 'warn'),
+                    onClick: function() { toggleAction(rule.id); },
+                    title: rule.action === 'forbid' ? 'Нажмите, чтобы сделать Warning' : 'Нажмите, чтобы сделать Forbid'
+                  },
+                    React.createElement(MIcon, {
+                      name: rule.action === 'forbid' ? 'block' : 'warning',
+                      size: 'sm'
+                    })
+                  ),
+                  React.createElement('div', { className: 'rules-item__body' },
+                    React.createElement('div', { className: 'rules-item__pattern' },
+                      React.createElement('code', null, rule.from),
+                      React.createElement('span', { className: 'rules-item__arrow' }, ' → '),
+                      React.createElement('code', null, rule.to)
+                    ),
+                    rule.message && React.createElement('div', { className: 'rules-item__message' }, rule.message)
+                  ),
+                  React.createElement('button', {
+                    className: 'rules-item__remove',
+                    onClick: function() { removeRule(rule.id); },
+                    title: 'Удалить'
+                  }, React.createElement(MIcon, { name: 'close', size: 'sm' }))
+                );
+              })
         ),
-        React.createElement('button', { className: 'btn btn--primary', onClick: addRule }, 'Добавить')
+
+        // Переключатели
+        React.createElement('div', { className: 'rules-toggles' },
+          React.createElement('label', { className: 'rules-toggle' },
+            React.createElement('input', {
+              type: 'checkbox',
+              checked: rulesHighlighted,
+              onChange: function() { setRulesHighlighted(!rulesHighlighted); }
+            }),
+            React.createElement('span', { className: 'rules-toggle__check' }),
+            React.createElement('span', null, 'Подсвечивать нарушения на графе')
+          ),
+          React.createElement('label', { className: 'rules-toggle' },
+            React.createElement('input', {
+              type: 'checkbox',
+              checked: showViolationsOnly,
+              onChange: function() { setShowViolationsOnly(!showViolationsOnly); }
+            }),
+            React.createElement('span', { className: 'rules-toggle__check' }),
+            React.createElement('span', null, 'Показать только нарушения')
+          )
+        ),
+
+        // Список нарушений
+        violations.length > 0 && React.createElement('div', { className: 'rules-violations' },
+          React.createElement('div', { className: 'rules-form__label' },
+            'Найденные нарушения (' + violations.length + ')'
+          ),
+          React.createElement('div', { className: 'rules-violations__list' },
+            violations.slice(0, 50).map(function(v, idx) {
+              return React.createElement('div', {
+                key: idx,
+                className: 'rules-violation rules-violation--' + (v.severity || 'warn')
+              },
+                React.createElement(MIcon, {
+                  name: v.severity === 'forbid' ? 'block' : 'warning',
+                  size: 'sm'
+                }),
+                React.createElement('span', { className: 'rules-violation__from', onClick: function() {
+                  if (onGotoDomain) { onGotoDomain(v.fromId); onClose(); }
+                } }, v.fromId),
+                React.createElement('span', { className: 'rules-violation__arrow' }, ' → '),
+                React.createElement('span', { className: 'rules-violation__to', onClick: function() {
+                  if (onGotoDomain) { onGotoDomain(v.toId); onClose(); }
+                } }, v.toId),
+                v.rule && v.rule.message && React.createElement('span', { className: 'rules-violation__message' }, v.rule.message)
+              );
+            }),
+            violations.length > 50 && React.createElement('div', { className: 'rules-violations__more' },
+              '...и ещё ' + (violations.length - 50)
+            )
+          )
+        )
+      ),
+
+      // Footer
+      React.createElement('div', { className: 'rules-modal__footer' },
+        React.createElement('div', { className: 'rules-modal__stats' },
+          'Правил: ' + rules.length,
+          violations.length > 0 && React.createElement('span', { className: 'rules-modal__stats--err' }, ' · Нарушений: ' + violations.length)
+        ),
+        React.createElement('button', { className: 'btn', onClick: onClose }, 'Закрыть')
       )
-    ),
-    React.createElement('div', { className: 'menu__divider' }),
-    React.createElement('label', { className: 'menu__checkbox' },
-      React.createElement('input', { type: 'checkbox', checked: rulesHighlighted, onChange: function() { setRulesHighlighted(!rulesHighlighted); } }),
-      React.createElement('span', { className: 'menu__check' }),
-      React.createElement('span', { className: 'menu__text' }, 'Подсвечивать нарушения')
-    ),
-    React.createElement('label', { className: 'menu__checkbox' },
-      React.createElement('input', { type: 'checkbox', checked: showViolationsOnly, onChange: function() { setShowViolationsOnly(!showViolationsOnly); } }),
-      React.createElement('span', { className: 'menu__check' }),
-      React.createElement('span', { className: 'menu__text' }, 'Показать только нарушения')
-    ),
-    React.createElement('div', { style: { padding: '6px 10px', fontSize: 11, color: 'var(--text-500)' } },
-      violations.length === 0 ? 'Нарушений нет ✅' : 'Найдено: ' + violations.length
-    ),
-    React.createElement('div', { style: { padding: '4px 10px' } },
-      React.createElement('button', { className: 'menu__action', onClick: close }, 'Закрыть')
     )
   );
 }
@@ -3334,7 +4823,7 @@ function LearningPathModal(props) {
     React.createElement('div', { className: 'help-modal learning-path-modal', onMouseDown: function(e) { e.stopPropagation(); } },
       React.createElement('div', { className: 'help-modal__header' },
         React.createElement('div', { className: 'help-modal__title' }, '📖 Путь изучения архитектуры'),
-        React.createElement('button', { className: 'help-modal__close', onClick: onClose }, React.createElement(MIcon, { name: 'close' }))
+        React.createElement('button', { className: 'help-modal__close', onClick: onClose }, '✕')
       ),
 
       React.createElement('div', { className: 'validation-modal__body' },
@@ -3365,7 +4854,7 @@ function LearningPathModal(props) {
 
           path.entryPoints.length > 0 && React.createElement('div', { className: 'learning-entry-points' },
             React.createElement('div', { className: 'learning-entry-points__header' },
-              React.createElement('span', { className: 'learning-entry-points__icon' }, React.createElement(MIcon, { name: 'login' })),
+              React.createElement('span', { className: 'learning-entry-points__icon' }, '🚪'),
               React.createElement('span', null, 'Точки входа (' + path.entryPoints.length + ')'),
               React.createElement('span', { className: 'learning-entry-points__hint' }, '— никто не зависит от них, но они зависят от других')
             ),
@@ -3387,7 +4876,7 @@ function LearningPathModal(props) {
             var isOpen = expandedStages.has(stage.index);
             return React.createElement('div', { key: stage.index, className: 'topo-level' + (isOpen ? ' topo-level--open' : '') },
               React.createElement('div', { className: 'topo-level__header', onClick: function() { toggleStage(stage.index); } },
-                React.createElement('span', { className: 'validation-log__chevron' }, isOpen ? React.createElement(MIcon, { name: 'expand_more' }) : React.createElement(MIcon, { name: 'chevron_right' })),
+                React.createElement('span', { className: 'validation-log__chevron' }, isOpen ? '▾' : '▸'),
                 React.createElement('span', { className: 'topo-level__badge learning-path-stage-badge' }, stage.index + 1),
                 React.createElement('span', { className: 'topo-level__title' }, 'Этап ' + (stage.index + 1)),
                 React.createElement('span', { className: 'topo-level__count' },
@@ -3427,7 +4916,7 @@ function LearningPathModal(props) {
 
           path.unresolved.length > 0 && React.createElement('div', { className: 'topo-cyclic' },
             React.createElement('div', { className: 'topo-cyclic__header' },
-              React.createElement('span', { className: 'topo-cyclic__icon' }, React.createElement(MIcon, { name: 'warning' })),
+              React.createElement('span', { className: 'topo-cyclic__icon' }, '⚠️'),
               React.createElement('span', null, 'В цикле — читать после всех (' + path.unresolved.length + ')')
             ),
             React.createElement('div', { className: 'topo-cyclic__body' },
@@ -3450,7 +4939,7 @@ function LearningPathModal(props) {
           path.entryPoints.length > 0 && React.createElement('span', { className: 'validation-stat' }, '🚪 ' + path.entryPoints.length + ' входов')
         ),
         React.createElement('div', { className: 'validation-footer__actions' },
-          React.createElement('button', { className: 'btn btn--primary', onClick: function() { onStartTour(path); onClose(); } }, '▶ Начать экскурсию'),
+          React.createElement('button', { className: 'btn btn--primary', onClick: function() { onClose(); setTimeout(function() { onStartTour(path); }, 50); } }, '▶ Начать экскурсию'),
           React.createElement('button', { className: 'btn', onClick: copyAsText }, '📋 Копировать'),
           React.createElement('button', { className: 'btn', onClick: exportJSON }, '💾 JSON'),
           React.createElement('button', { className: 'btn', onClick: exportMD }, '📝 MD'),
@@ -3497,7 +4986,7 @@ function TourOverlay(props) {
       React.createElement('div', { className: 'tour-overlay__header' },
         React.createElement('span', { className: 'tour-overlay__stage-badge' }, 'Этап ' + current.stageNumber),
         React.createElement('span', { className: 'tour-overlay__counter' }, (tour.index + 1) + ' / ' + allItems.length),
-        React.createElement('button', { className: 'tour-overlay__close', onClick: onStop, title: 'Завершить' }, React.createElement(MIcon, { name: 'close' }))
+        React.createElement('button', { className: 'tour-overlay__close', onClick: onStop, title: 'Завершить' }, '✕')
       ),
       React.createElement('div', { className: 'tour-overlay__title' }, current.domainId),
       d.label && d.label !== current.domainId && React.createElement('div', { className: 'tour-overlay__subtitle' }, d.label),
@@ -3523,18 +5012,18 @@ function TourOverlay(props) {
           onClick: onPrev,
           disabled: tour.index === 0,
           title: 'Назад'
-        }, React.createElement(MIcon, { name: 'chevron_left' })),
+        }, '◀'),
         React.createElement('button', {
           className: 'tour-btn tour-btn--primary',
           onClick: onTogglePlay,
           title: tour.playing ? 'Пауза' : 'Играть'
-        }, tour.playing ? React.createElement(MIcon, { name: 'pause' }) : React.createElement(MIcon, { name: 'play_arrow' })),
+        }, tour.playing ? '❚❚' : '▶'),
         React.createElement('button', {
           className: 'tour-btn',
           onClick: onNext,
           disabled: tour.index >= allItems.length - 1,
           title: 'Дальше'
-        }, React.createElement(MIcon, { name: 'play_arrow' }))
+        }, '▶')
       )
     )
   );
@@ -3721,7 +5210,7 @@ function TopoSortModal(props) {
 
       React.createElement('div', { className: 'help-modal__header' },
         React.createElement('div', { className: 'help-modal__title' }, '📦 Порядок установки доменов'),
-        React.createElement('button', { className: 'help-modal__close', onClick: onClose }, React.createElement(MIcon, { name: 'close' }))
+        React.createElement('button', { className: 'help-modal__close', onClick: onClose }, '✕')
       ),
 
       React.createElement('div', { className: 'validation-modal__body' },
@@ -3782,7 +5271,7 @@ function TopoSortModal(props) {
 
             result.cyclic.length > 0 && React.createElement(React.Fragment, null,
               React.createElement('div', { className: 'topo-cyclic__header' },
-                React.createElement('span', { className: 'topo-cyclic__icon' }, React.createElement(MIcon, { name: 'warning' })),
+                React.createElement('span', { className: 'topo-cyclic__icon' }, '⚠️'),
                 React.createElement('span', null, 'Требуют ручного вмешательства — цикл (' + result.cyclic.length + ')')
               ),
               React.createElement('div', { className: 'topo-cyclic__body' },
@@ -3798,7 +5287,7 @@ function TopoSortModal(props) {
           
             result.cyclic.length === 0 && result.broken.length > 0 && React.createElement(React.Fragment, null,
               React.createElement('div', { className: 'topo-cyclic__header topo-cyclic__header--broken' },
-                React.createElement('span', { className: 'topo-cyclic__icon' }, React.createElement(MIcon, { name: 'link' })),
+                React.createElement('span', { className: 'topo-cyclic__icon' }, '🔗'),
                 React.createElement('span', null, 'Циклы разорваны автоматически (' + result.broken.length + ')')
               ),
               React.createElement('div', { className: 'topo-cyclic__body' },
@@ -3823,7 +5312,7 @@ function TopoSortModal(props) {
             var isOpen = expandedLevels.has(idx);
             return React.createElement('div', { key: idx, className: 'topo-level' + (isOpen ? ' topo-level--open' : '') },
               React.createElement('div', { className: 'topo-level__header', onClick: function() { toggleLevel(idx); } },
-                React.createElement('span', { className: 'validation-log__chevron' }, isOpen ? React.createElement(MIcon, { name: 'expand_more' }) : React.createElement(MIcon, { name: 'chevron_right' })),
+                React.createElement('span', { className: 'validation-log__chevron' }, isOpen ? '▾' : '▸'),
                 React.createElement('span', { className: 'topo-level__badge' }, idx + 1),
                 React.createElement('span', { className: 'topo-level__title' }, 'Уровень ' + (idx + 1)),
                 React.createElement('span', { className: 'topo-level__count' }, level.length + ' домен' + (level.length === 1 ? '' : (level.length < 5 ? 'а' : 'ов')))
@@ -3839,7 +5328,7 @@ function TopoSortModal(props) {
                         className: 'validation-log__chevron',
                         style: { cursor: 'pointer' },
                         onClick: function() { toggleDeps(id); }
-                      }, isDepsOpen ? React.createElement(MIcon, { name: 'expand_more' }) : React.createElement(MIcon, { name: 'chevron_right' })),
+                      }, isDepsOpen ? '▾' : '▸'),
                       !deps.length && React.createElement('span', { className: 'validation-log__chevron' }, ' '),
                       React.createElement('a', {
                         className: 'validation-log__domain',
@@ -4064,7 +5553,7 @@ function ValidationModal(props) {
     React.createElement('div', { className: 'help-modal validation-modal', onMouseDown: function(e) { e.stopPropagation(); } },
       React.createElement('div', { className: 'help-modal__header' },
         React.createElement('div', { className: 'help-modal__title' }, '🔍 Массовая валидация доменов'),
-        React.createElement('button', { className: 'help-modal__close', onClick: running ? stopValidation : onClose }, running ? '■ Стоп' : React.createElement(MIcon, { name: 'close' }))
+        React.createElement('button', { className: 'help-modal__close', onClick: running ? stopValidation : onClose }, running ? '■ Стоп' : '✕')
       ),
 
       React.createElement('div', { className: 'validation-modal__body' },
@@ -4102,7 +5591,7 @@ function ValidationModal(props) {
         started && React.createElement('div', { className: 'validation-logs', ref: logsRef },
           filteredLogs.length === 0 ? React.createElement('div', { className: 'validation-logs__empty' }, 'Нет записей по фильтру') :
           filteredLogs.map(function(log, i) {
-            var icon = log.status === 'valid' ? React.createElement(MIcon, { name: 'check_circle' }) : log.status === 'invalid' ? React.createElement(MIcon, { name: 'cancel' }) : React.createElement(MIcon, { name: 'warning' });
+            var icon = log.status === 'valid' ? '✅' : log.status === 'invalid' ? '❌' : '⚠️';
             var isInvalid = log.status === 'invalid';
             var hasDiag = isInvalid && log.diagnostics && log.diagnostics.length > 0;
             var isOpen = expanded.has(log.domainId);
@@ -4112,7 +5601,7 @@ function ValidationModal(props) {
                 className: 'validation-log__head' + (hasDiag ? ' validation-log__head--clickable' : ''),
                 onClick: hasDiag ? function() { toggleExpanded(log.domainId); } : undefined
               },
-                hasDiag && React.createElement('span', { className: 'validation-log__chevron' }, isOpen ? React.createElement(MIcon, { name: 'expand_more' }) : React.createElement(MIcon, { name: 'chevron_right' })),
+                hasDiag && React.createElement('span', { className: 'validation-log__chevron' }, isOpen ? '▾' : '▸'),
                 React.createElement('span', { className: 'validation-log__icon' }, icon),
                 React.createElement('a', {
                   className: 'validation-log__domain',
@@ -4281,9 +5770,12 @@ function HotkeysModal(props) {
       title: 'Навигация',
       items: [
         { keys: ['F'], label: 'Вписать граф в экран' },
-        { keys: ['Alt', React.createElement(MIcon, { name: 'arrow_back' })], label: 'Назад по истории' },
-        { keys: ['Alt', React.createElement(MIcon, { name: 'arrow_forward' })], label: 'Вперёд по истории' },
-        { keys: ['Ctrl', 'клик'], label: 'Мультивыбор узлов' }
+        { keys: ['Alt', '←'], label: 'Назад по истории' },
+        { keys: ['Alt', '→'], label: 'Вперёд по истории' },
+        { keys: ['Ctrl', 'клик'], label: 'Мультивыбор узлов' },
+        { keys: ['+'], label: 'Приблизить' },
+        { keys: ['−'], label: 'Отдалить' },
+        { keys: ['0'], label: 'Вписать в экран' }
       ]
     },
     {
@@ -4301,7 +5793,8 @@ function HotkeysModal(props) {
       items: [
         { keys: ['T'], label: 'Скрыть/показать тултипы' },
         { keys: ['D'], label: 'Скрыть/показать правую панель' },
-        { keys: ['E'], label: 'Скрыть/показать все связи' }
+        { keys: ['E'], label: 'Скрыть/показать все связи' },
+        { keys: ['G'], label: 'Не фокусировать при клике' }
       ]
     },
     {
@@ -4320,7 +5813,7 @@ function HotkeysModal(props) {
 
       React.createElement('div', { className: 'help-modal__header' },
         React.createElement('div', { className: 'help-modal__title' }, '⌨️ Горячие клавиши'),
-        React.createElement('button', { className: 'help-modal__close', onClick: onClose }, React.createElement(MIcon, { name: 'close' }))
+        React.createElement('button', { className: 'help-modal__close', onClick: onClose }, '✕')
       ),
 
       React.createElement('div', { className: 'hotkeys-body' },
@@ -4398,7 +5891,7 @@ function HelpModal(props) {
     React.createElement('div', { className: 'help-modal', onMouseDown: function(e) { e.stopPropagation(); } },
       React.createElement('div', { className: 'help-modal__header' },
         React.createElement('div', { className: 'help-modal__title' }, '📖 Руководство пользователя'),
-        React.createElement('button', { className: 'help-modal__close', onClick: onClose, title: 'Закрыть (Esc)' }, React.createElement(MIcon, { name: 'close' }))
+        React.createElement('button', { className: 'help-modal__close', onClick: onClose, title: 'Закрыть (Esc)' }, '✕')
       ),
       React.createElement('div', { className: 'help-modal__body', ref: bodyRef },
         loading ? React.createElement('div', { className: 'help-modal__loading' }, 'Загрузка...') :
@@ -4411,6 +5904,128 @@ function HelpModal(props) {
 function getNsByDomainId(n, depth) {
   var parts = (n.data.domainId || '').split('.');
   return parts.slice(0, depth).join('.') || '__empty__';
+}
+
+function relativeTime(iso) {
+  var ms = Date.now() - new Date(iso).getTime();
+  var min = Math.floor(ms / 60000);
+  if (min < 1) return 'только что';
+  if (min < 60) return min + ' мин назад';
+  var h = Math.floor(min / 60);
+  if (h < 24) return h + ' ч назад';
+  var d = Math.floor(h / 24);
+  return d + ' дн назад';
+}
+
+function ActivityChart(props) {
+  var nodes = props.nodes;
+  var days = props.days || 30;
+
+  var buckets = useMemo(function() {
+    var now = new Date();
+    now.setHours(23, 59, 59, 999);
+    var startMs = now.getTime() - (days - 1) * 24 * 60 * 60 * 1000;
+
+    var arr = [];
+    for (var i = 0; i < days; i++) {
+      var d = new Date(startMs + i * 24 * 60 * 60 * 1000);
+      arr.push({
+        date: d,
+        day: d.getDate(),
+        month: d.getMonth(),
+        count: 0
+      });
+    }
+
+    nodes.forEach(function(n) {
+      if (!n.data || n.data.nodeType !== 'domain') return;
+      if (!n.data.updatedAt) return;
+      var t;
+      try { t = new Date(n.data.updatedAt).getTime(); } catch (e) { return; }
+      if (isNaN(t)) return;
+      if (t < startMs) return;
+      var idx = Math.floor((t - startMs) / (24 * 60 * 60 * 1000));
+      if (idx >= 0 && idx < days) {
+        arr[idx].count++;
+      }
+    });
+
+    return arr;
+  }, [nodes, days]);
+
+  var max = Math.max.apply(null, buckets.map(function(b) { return b.count; }));
+  if (max === 0) max = 1;
+
+  return React.createElement('div', { className: 'activity-chart' },
+    React.createElement('div', { className: 'activity-chart__bars' },
+      buckets.map(function(b, i) {
+        var height = (b.count / max) * 100;
+        var isToday = i === buckets.length - 1;
+        return React.createElement('div', {
+          key: i,
+          className: 'activity-chart__bar' + (isToday ? ' activity-chart__bar--today' : ''),
+          style: { height: Math.max(height, b.count > 0 ? 8 : 0) + '%' },
+          title: b.date.toLocaleDateString('ru-RU') + ': ' + b.count + ' обновлений'
+        });
+      })
+    ),
+    React.createElement('div', { className: 'activity-chart__legend' },
+      React.createElement('span', null, days + ' дней назад'),
+      React.createElement('span', { style: { color: 'var(--text-200)' } }, 'сегодня'),
+      React.createElement('span', null, 'макс: ' + max)
+    )
+  );
+}
+
+function formatSavedAt(iso) {
+  if (!iso) return '';
+  var d = new Date(iso);
+  var diffMs = Date.now() - d.getTime();
+  var diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return 'только что';
+  if (diffMin < 60) return diffMin + ' мин назад';
+  var diffH = Math.floor(diffMin / 60);
+  if (diffH < 24) return diffH + ' ч назад';
+  var diffD = Math.floor(diffH / 24);
+  if (diffD < 7) return diffD + ' дн назад';
+  return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+}
+
+function Snackbar(props) {
+  var snackbar = props.snackbar;
+  if (!snackbar) return null;
+  return React.createElement('div', { className: 'snackbar' },
+    React.createElement(MIcon, { name: 'check_circle', size: 'sm' }),
+    React.createElement('span', null, snackbar.message)
+  );
+}
+
+function formatDate(iso) {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString('ru-RU', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit'
+    });
+  } catch (e) { return iso; }
+}
+
+function sourceIcon(source) {
+  if (source === 'graphql') return 'cloud_done';     // обновлён на сервере
+  if (source === 'fs') return 'hard_drive';           // изменён локально
+  return 'help';
+}
+
+function sourceLabel(source) {
+  if (source === 'graphql') return 'обновлён на сервере';
+  if (source === 'fs') return 'изменён локально';
+  return 'источник неизвестен';
+}
+
+function sourceColor(source) {
+  if (source === 'graphql') return 'var(--accent-hover)';
+  if (source === 'fs') return 'var(--warning)';
+  return 'var(--text-500)';
 }
 
 // ============ APP ============
@@ -4469,7 +6084,6 @@ function App() {
   var [hiddenNodeIds, setHiddenNodeIds] = useState(function() { return new Set(); });
   
   var [pathMode, setPathMode] = useState(null); // { kind: 'from' | 'to', anchorId }
-  var [tooltipsEnabled, setTooltipsEnabled] = useState(true);
   var [selectedEdgeId, setSelectedEdgeId] = useState(null);
   var [heatmap, setHeatmap] = useState('none'); // none | health | degree | entities | fqid
   
@@ -4486,7 +6100,47 @@ function App() {
   var [clusterGroupCount, setClusterGroupCount] = useState(0);
   var didInitialFitRef = useRef(false);
   var filteredNodesRef = useRef([]);
+var setRfInstance = useCallback(function(rf) {
+  rfInstance.current = rf;
+}, []);
 
+  var [snapshotA, setSnapshotA] = useState(function() {
+  try {
+    var raw = localStorage.getItem('dg-snapshot-a');
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+});
+
+var [snapshotB, setSnapshotB] = useState(function() {
+  try {
+    var raw = localStorage.getItem('dg-snapshot-b');
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+});
+
+var [snackbar, setSnackbar] = useState(null);
+
+  var [sidebarCompact, setSidebarCompact] = useState(false);
+var [collapsedSections, setCollapsedSections] = useState(function() {
+  return new Set(); // по умолчанию всё раскрыто
+});
+
+var toggleSection = useCallback(function(id, isCollapsed) {
+  setCollapsedSections(function(prev) {
+    var s = new Set(prev);
+    if (isCollapsed) s.delete(id); else s.add(id);
+    return s;
+  });
+}, []);
+
+  var [tagFilters, setTagFilters] = useState(function() { return new Set(); });
+
+  var [tooltipsEnabled, setTooltipsEnabled] = useState(function() {
+    try {
+      var saved = localStorage.getItem('dg-tooltip-enabled');
+      return saved === null ? true : saved === 'true';
+    } catch (e) { return true; }
+  });
   var [sidePanelEnabled, setSidePanelEnabled] = useState(function() {
     try {
       var saved = localStorage.getItem('dg-side-panel-enabled');
@@ -4494,10 +6148,55 @@ function App() {
     } catch (e) { return true; }
   });
 
+  var [focusEnabled, setFocusEnabled] = useState(function() {
+    try {
+      var v = localStorage.getItem('dg-focus-enabled');
+      return v === null ? true : v === 'true';
+    } catch (e) { return true; }
+  });
+
+  useEffect(function() {
+    try { localStorage.setItem('dg-focus-enabled', String(focusEnabled)); } catch (e) {}
+    setSelectedNodeId(null);
+  }, [focusEnabled]);
+
+  useEffect(function() {
+    try { localStorage.setItem('dg-tooltip-enabled', String(tooltipsEnabled)); } catch (e) {}
+  }, [tooltipsEnabled]);
   useEffect(function() {
     try { localStorage.setItem('dg-side-panel-enabled', String(sidePanelEnabled)); } catch (e) {}
   }, [sidePanelEnabled]);
 
+  var [activityPeriod, setActivityPeriod] = useState(function() {
+  try {
+    var v = localStorage.getItem('dg-activity-period');
+    return v ? parseInt(v, 10) : 30;
+  } catch (e) { return 30; }
+});
+
+useEffect(function() {
+  try { localStorage.setItem('dg-activity-period', String(activityPeriod)); } catch (e) {}
+}, [activityPeriod]);
+
+useEffect(function() {
+  var onShow = function() {
+    if (!window.__healthTooltip) return;
+    setTooltip({
+      html: window.__healthTooltip.html,
+      x: window.__healthTooltip.x + 12,
+      y: window.__healthTooltip.y + 12,
+      anchorX: window.__healthTooltip.x,
+      anchorY: window.__healthTooltip.y
+    });
+  };
+  var onHide = function() { setTooltip(null); };
+  document.addEventListener('show-health-tooltip', onShow);
+  document.addEventListener('hide-health-tooltip', onHide);
+  return function() {
+    document.removeEventListener('show-health-tooltip', onShow);
+    document.removeEventListener('hide-health-tooltip', onHide);
+  };
+}, []);
 
   useEffect(function() {
     setEdges(displayEdges);
@@ -4524,6 +6223,7 @@ function App() {
   
   var [showViolationsOnly, setShowViolationsOnly] = useState(false);
   var [rulesHighlighted, setRulesHighlighted] = useState(true);
+  var [rulesOpen, setRulesOpen] = useState(false);
   var [helpOpen, setHelpOpen] = useState(false);
   
   var [validationOpen, setValidationOpen] = useState(false);
@@ -4539,7 +6239,100 @@ var [tour, setTour] = useState(null);
   useEffect(function() {
     tooltipCache.current.clear();
   }, [nodes, validationResults]);
-  
+
+  var showSnackbar = useCallback(function(message) {
+  setSnackbar({ message: message, ts: Date.now() });
+  setTimeout(function() {
+    setSnackbar(function(prev) {
+      return prev && Date.now() - prev.ts >= 2000 ? null : prev;
+    });
+  }, 2100);
+}, []);
+
+var createSnapshot = useCallback(function() {
+  return {
+    savedAt: new Date().toISOString(),
+    server: (REMOTE_INFO && REMOTE_INFO.server) ? REMOTE_INFO.server : null,
+    stats: { nodes: nodes.length, edges: edges.length },
+    nodes: nodes.map(function(n) {
+      return {
+        id: n.id,
+        domainId: n.data.domainId,
+        nodeType: n.data.nodeType
+      };
+    }),
+    edges: edges.map(function(e) {
+      return {
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        label: e.label,
+        kind: e.data && e.data.kind,
+        fullLabel: e.data && e.data.fullLabel,
+        refCount: e.data && e.data.refCount
+      };
+    })
+  };
+}, [nodes, edges]);
+
+// Извлечённая логика диффа — используется и при загрузке файла, и при снимках
+var applySnapshotDiff = useCallback(function(snap) {
+  if (!snap || !Array.isArray(snap.nodes) || !Array.isArray(snap.edges)) {
+    alert('Снимок некорректен');
+    return;
+  }
+  var snapEdgeIds = new Set(snap.edges.map(function(x) { return x.id; }));
+  var snapNodeIds = new Set(snap.nodes.map(function(x) { return x.id; }));
+  var curEdgeIds = new Set(edges.map(function(x) { return x.id; }));
+  var curNodeIds = new Set(nodes.map(function(x) { return x.id; }));
+
+  var addedEdges = new Set();
+  var removedEdges = new Set();
+  var addedNodes = new Set();
+  var removedNodes = new Set();
+
+  curEdgeIds.forEach(function(id) { if (!snapEdgeIds.has(id)) addedEdges.add(id); });
+  snapEdgeIds.forEach(function(id) { if (!curEdgeIds.has(id)) removedEdges.add(id); });
+  curNodeIds.forEach(function(id) { if (!snapNodeIds.has(id)) addedNodes.add(id); });
+  snapNodeIds.forEach(function(id) { if (!curNodeIds.has(id)) removedNodes.add(id); });
+
+  setDiffMode({
+    addedEdges: addedEdges,
+    removedEdges: removedEdges,
+    addedNodes: addedNodes,
+    removedNodes: removedNodes,
+    snapshot: snap
+  });
+}, [nodes, edges]);
+
+var handleSaveSnapshot = useCallback(function(slot) {
+  var snap = createSnapshot();
+  try {
+    localStorage.setItem('dg-snapshot-' + slot.toLowerCase(), JSON.stringify(snap));
+  } catch (e) {
+    alert('Не удалось сохранить снимок: ' + e.message);
+    return;
+  }
+  if (slot === 'A') setSnapshotA(snap); else setSnapshotB(snap);
+  showSnackbar('Снимок сохранён в ' + slot + ' (' + snap.stats.nodes + ' узлов, ' + snap.stats.edges + ' связей)');
+}, [createSnapshot, showSnackbar]);
+
+var handleLoadSnapshot = useCallback(function(slot) {
+  var snap = slot === 'A' ? snapshotA : snapshotB;
+  if (!snap) return;
+  applySnapshotDiff(snap);
+  showSnackbar('Сравнение с снимком ' + slot + ' от ' + new Date(snap.savedAt).toLocaleString('ru-RU', {
+    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+  }));
+}, [snapshotA, snapshotB, applySnapshotDiff, showSnackbar]);
+
+var handleClearSnapshot = useCallback(function(slot) {
+  if (!confirm('Удалить снимок ' + slot + '?')) return;
+  try {
+    localStorage.removeItem('dg-snapshot-' + slot.toLowerCase());
+  } catch (e) {}
+  if (slot === 'A') setSnapshotA(null); else setSnapshotB(null);
+}, []);
   
   var startTour = useCallback(function(path) {
     setTour({
@@ -4557,7 +6350,14 @@ var [tour, setTour] = useState(null);
     setFailureSim(null);
   }, []);
   
-  
+  var toggleTagFilter = useCallback(function(tag) {
+  setTagFilters(function(prev) {
+    var s = new Set(prev);
+    if (s.has(tag)) s.delete(tag); else s.add(tag);
+    return s;
+  });
+}, []);
+
   var tourNext = useCallback(function() {
   setTour(function(prev) {
     if (!prev) return null;
@@ -4711,7 +6511,11 @@ useEffect(function() {
           name: n.name || n.label || '',
           description: n.description || '',
           author: n.author || '',
-          tags: Array.isArray(n.tags) ? n.tags : []
+          tags: Array.isArray(n.tags) ? n.tags : [],
+          updatedAt: n.updatedAt || null,
+  updatedAtSource: n.updatedAtSource || null,
+  createdAt: n.createdAt || null,
+  createdAtSource: n.createdAtSource || null
         },
         position: { x: 0, y: 0 }
       };
@@ -4746,8 +6550,8 @@ useEffect(function() {
         },
         style: {
           stroke: isLinkage ? LINKAGE_COLOR : FQID_COLOR,
-          strokeWidth: isLinkage ? 1.0 : 0.8,
-          opacity: isLinkage ? 0.35 : 0.22
+          strokeWidth: 1.0,
+          opacity: 0.5
         }
       };
     });
@@ -4760,10 +6564,37 @@ useEffect(function() {
   var [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
   var [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
 
-  var [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
-  var [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
-
   // ---- Derived: namespace aggregation ----
+  var topMissingRefs = useMemo(function() {
+  var result = [];
+  var domainIds = new Set();
+  nodes.forEach(function(n) {
+    if (n.data.nodeType === 'domain') domainIds.add(n.data.domainId.toLowerCase());
+  });
+
+  nodes.forEach(function(n) {
+    if (n.data.nodeType !== 'domain') return;
+    var refs = n.data.fqidRefs || [];
+    var missing = refs.filter(function(r) {
+      return !domainIds.has((r.targetDomainId || '').toLowerCase());
+    });
+    if (missing.length === 0) return;
+
+    var targets = new Set();
+    missing.forEach(function(r) {
+      targets.add(r.targetDomainId);
+    });
+
+    result.push({
+      node: n,
+      count: missing.length,
+      uniqueTargets: Array.from(targets)
+    });
+  });
+
+  return result.sort(function(a, b) { return b.count - a.count; }).slice(0, 10);
+}, [nodes]);
+
   var display = useMemo(function() {
     if (!nsMode) return { nodes: nodes, edges: edges };
     return aggregateByNamespace(nodes, edges);
@@ -4772,8 +6603,9 @@ useEffect(function() {
   var displayNodes = display.nodes;
   var displayEdges = display.edges;
   
-    var ruleViolations = useMemo(function() {
-    if (rules.length === 0) return [];
+  var ruleViolations = useMemo(function() {
+    if (!Array.isArray(rules) || rules.length === 0) return [];
+  if (!Array.isArray(displayEdges) || !Array.isArray(displayNodes)) return [];
     return evaluateRules(displayEdges, displayNodes, rules);
   }, [displayEdges, displayNodes, rules]);
   
@@ -4790,16 +6622,16 @@ useEffect(function() {
   var cyclesInfo = useMemo(function() { return findCycles(displayNodes, displayEdges); }, [displayNodes, displayEdges]);
 
   // ---- Derived: health score ----
-  var healthMap = useMemo(function() {
-    var allNs = new Set();
-    displayNodes.forEach(function(n) { allNs.add(n.id); });
-    var map = new Map();
-    displayNodes.forEach(function(n) {
-      var h = computeHealth(n, displayEdges, displayNodes, cyclesInfo.cycleNodes, null);
-      map.set(n.id, h);
-    });
-    return map;
-  }, [displayNodes, displayEdges, cyclesInfo]);
+var healthMap = useMemo(function() {
+  var map = new Map();
+  displayNodes.forEach(function(n) {
+    var h = computeHealth(n, displayEdges, displayNodes, cyclesInfo.cycleNodes, null);
+    // Гарантируем: хранится объект {score, breakdown}
+    if (typeof h === 'number') h = { score: h, breakdown: [] };
+    map.set(n.id, h);
+  });
+  return map;
+}, [displayNodes, displayEdges, cyclesInfo]);
 
   // ---- Derived: bidirectional merge ----
   var bidirectionalEdges = useMemo(function() {
@@ -4819,6 +6651,15 @@ useEffect(function() {
       if (n.type === 'clusterNode') return true; 
       if (hiddenNodeIds.has(n.id)) return false;
       if (bookmarksOnly && !bookmarks.has(n.id)) return false;
+      if (tagFilters.size > 0) {
+        var nodeTags = (n.data.tags || []).map(function(t) { return String(t).toLowerCase(); });
+        var matchesAny = false;
+        tagFilters.forEach(function(tag) {
+          if (nodeTags.indexOf(tag.toLowerCase()) !== -1) matchesAny = true;
+        });
+        if (!matchesAny) return false;
+      }
+
       if (onlyInvalid) {
         var v = validationResults ? validationResults.get(n.data.domainId) : null;
         if (!v || v.status !== 'invalid') return false;
@@ -4831,7 +6672,7 @@ useEffect(function() {
       if (isolatedOnly && (t !== 'domain' || connected.has(n.id))) return false;
       return true;
     });
-  }, [displayNodes, filters, namespaceFilter, isolatedOnly, connected, hiddenNodeIds, bookmarks, bookmarksOnly, onlyInvalid, validationResults]);
+  }, [displayNodes, filters, namespaceFilter, isolatedOnly, connected, hiddenNodeIds, bookmarks, bookmarksOnly, onlyInvalid, validationResults, tagFilters]);
 
   var filteredEdges = useMemo(function() {
     var ids = new Set(filteredNodes.map(function(n) { return n.id; }));
@@ -4844,6 +6685,13 @@ useEffect(function() {
       return true;
     });
   }, [bidirectionalEdges, filteredNodes, filters.linkage, filters.fqid, showViolationsOnly, violationsByEdge]);
+
+  var edgesForFocus = useMemo(function() {
+  var ids = new Set(filteredNodes.map(function(n) { return n.id; }));
+  return displayEdges.filter(function(e) {
+    return ids.has(e.source) && ids.has(e.target);
+  });
+}, [displayEdges, filteredNodes]);
 
   useEffect(function() {
     filteredNodesRef.current = filteredNodes;
@@ -4862,15 +6710,16 @@ useEffect(function() {
     if (cycleHighlight) {
       return { nodes: cycleHighlight.nodeIds, edges: cycleHighlight.edgeIds, color: '#f97316', type: 'cycle' };
     }
-    if (focusNode) {
-      var reachable = findReachable(focusNode, focusDepth, filteredEdges);
+    if (focusEnabled && focusNode) {
+      var reachable = findReachable(focusNode, focusDepth, edgesForFocus);
       var focusEdges = new Set();
-      filteredEdges.forEach(function(e) {
+      edgesForFocus.forEach(function(e) {
         if (reachable.has(e.source) && reachable.has(e.target)) focusEdges.add(e.id);
       });
       return { nodes: reachable, edges: focusEdges, color: '#22d3ee', type: 'focus' };
     }
     if (selectedNodeId) {
+      if (!focusEnabled) return null;
       var nodeIds = new Set([selectedNodeId]);
       var edgeIds = new Set();
       filteredEdges.forEach(function(e) {
@@ -4883,15 +6732,27 @@ useEffect(function() {
       return { nodes: nodeIds, edges: edgeIds, color: '#fbbf24', type: 'selected' };
     }
     return null;
-  }, [selectedNodeId, focusNode, focusDepth, cycleHighlight, pathResult, filteredEdges]);
+  }, [focusEnabled, selectedNodeId, focusNode, focusDepth, cycleHighlight, pathResult, filteredEdges, edgesForFocus]);
   
+  var edgesForRender = useMemo(function() {
+    // При фокусе, цикле или пути — показываем все рёбра между видимыми узлами,
+    // игнорируя фильтр linkage/fqid. Иначе подсветка соседей теряет смысл.
+    if (highlight && (highlight.type === 'focus' || highlight.type === 'cycle' || highlight.type === 'path')) {
+      return edgesForFocus;
+    }
+    return filteredEdges;
+  }, [filteredEdges, edgesForFocus, highlight]);
+
   var heatmapValues = useMemo(function() {
     if (heatmap === 'none') return null;
     var map = new Map();
     var values = [];
     displayNodes.forEach(function(n) {
       var v = 0;
-      if (heatmap === 'health') v = healthMap.get(n.id) != null ? healthMap.get(n.id) : 0;
+      if (heatmap === 'health') {
+  var h = healthMap.get(n.id);
+  v = (h && typeof h === 'object') ? (h.score || 0) : (typeof h === 'number' ? h : 0);
+}
       else if (heatmap === 'degree') {
         var d = 0;
         displayEdges.forEach(function(e) { if (e.source === n.id) d++; if (e.target === n.id) d++; });
@@ -4908,84 +6769,118 @@ useEffect(function() {
   }, [heatmap, displayNodes, displayEdges, healthMap]);
 
   var visibleNodes = useMemo(function() {
-    var pathEndpoints = pathResult ? new Set([pathResult.nodes[0], pathResult.nodes[pathResult.nodes.length - 1]]) : null;
-    var hasChanges = highlight || compact || topoLevelMap || heatmapValues ||
-      (validationResults && validationResults.size > 0) ||
-      (bookmarks && bookmarks.size > 0) ||
-      (hiddenNodeIds && hiddenNodeIds.size > 0) ||
-      diffMode || selectedNodeId || focusNode || cycleHighlight || pathResult;
-  
-    // Быстрый путь: без активных режимов возвращаем filteredNodes как есть
-    if (!hasChanges) return filteredNodes;
-  
-    return filteredNodes.map(function(n) {
-      if (n.hidden) return n;
-      var dimmed = highlight ? !highlight.nodes.has(n.id) : false;
-      var inPath = highlight && highlight.type === 'path' && highlight.nodes.has(n.id);
-      var isPathEndpoint = pathEndpoints && pathEndpoints.has(n.id);
-      var isAdded = diffMode && diffMode.addedNodes && diffMode.addedNodes.has(n.id);
-      var health = healthMap.get(n.id);
-      var topoLvl = topoLevelMap ? topoLevelMap.get(n.data.domainId) : null;
-      var validation = validationResults ? validationResults.get(n.data.domainId) : null;
-      var isInvalid = validation && validation.status === 'invalid';
-      var isBookmarked = bookmarks ? bookmarks.has(n.id) : false;
-      
-      var hm = null;
-      if (heatmapValues) {
-        var val = heatmapValues.map.get(n.id) || 0;
-        var scheme = heatmapValues.scheme;
-        hm = heatColor(val, heatmapValues.min, heatmapValues.max, scheme);
-      }
-  
-      return Object.assign({}, n, {
-        style: { opacity: dimmed ? 0.12 : 1, transition: 'opacity 0.2s' },
-        data: Object.assign({}, n.data, {
-          dimmed: dimmed,
-          health: health,
-          __compact: compact,
-          __inPath: inPath,
-          __isPathEndpoint: isPathEndpoint,
-          __topoLevel: topoLvl,
-          __invalid: isInvalid,
-          __bookmarked: isBookmarked,
-          __validationStatus: validation ? validation.status : null,
-          __validationCount: validation && validation.diagnostics ? validation.diagnostics.length : 0,
-          __heatColor: hm
-        }),
-        selected: n.id === selectedNodeId
-      });
+  var pathEndpoints = pathResult ? new Set([pathResult.nodes[0], pathResult.nodes[pathResult.nodes.length - 1]]) : null;
+  var hasHighlight = !!(highlight || diffMode || topoLevelMap || validationResults || heatmapValues);
+
+  return filteredNodes.map(function(n) {
+    // --- Всегда добавляемые поля ---
+    var h = healthMap.get(n.id);
+    var healthScore = (h && typeof h === 'object') ? h.score : (typeof h === 'number' ? h : null);
+    var healthBreakdown = (h && typeof h === 'object') ? (h.breakdown || []) : [];
+
+    var topoLvl = topoLevelMap ? topoLevelMap.get(n.data.domainId) : null;
+    var validation = validationResults ? validationResults.get(n.data.domainId) : null;
+    var isInvalid = validation && validation.status === 'invalid';
+    var isBookmarked = bookmarks ? bookmarks.has(n.id) : false;
+
+    var baseData = Object.assign({}, n.data, {
+      health: healthScore,
+      healthBreakdown: healthBreakdown,
+      __compact: compact,
+      __topoLevel: topoLvl,
+      __invalid: isInvalid,
+      __validationStatus: validation ? validation.status : null,
+      __validationDiagnostics: validation && validation.diagnostics ? validation.diagnostics : [],
+      __validationCount: validation && validation.diagnostics ? validation.diagnostics.length : 0,
+      __bookmarked: isBookmarked,
+      __tooltipsEnabled: tooltipsEnabled
     });
-  }, [filteredNodes, highlight, compact, pathResult, diffMode, healthMap, selectedNodeId, topoLevelMap, validationResults, bookmarks, hiddenNodeIds, heatmapValues, focusNode, cycleHighlight]);
 
- var visibleEdges = useMemo(function() {
+    // --- Быстрый путь: если нет активных режимов, только базовые поля ---
+    if (!hasHighlight && !selectedNodeId && !hiddenNodeIds.size) {
+      return Object.assign({}, n, {
+        data: baseData,
+        selected: false
+      });
+    }
+
+    // --- Полный путь: добавляем поля, зависящие от режимов ---
+    var dimmed = highlight ? !highlight.nodes.has(n.id) : false;
+    var inPath = highlight && highlight.type === 'path' && highlight.nodes.has(n.id);
+    var isPathEndpoint = pathEndpoints && pathEndpoints.has(n.id);
+    var isAdded = diffMode && diffMode.addedNodes && diffMode.addedNodes.has(n.id);
+
+    return Object.assign({}, n, {
+      style: { opacity: dimmed ? 0.12 : 1, transition: 'opacity 0.2s' },
+      data: Object.assign(baseData, {
+        dimmed: dimmed,
+        __inPath: inPath,
+        __isPathEndpoint: isPathEndpoint,
+        __isAdded: isAdded
+      }),
+      selected: n.id === selectedNodeId
+    });
+  });
+}, [
+  filteredNodes, highlight, compact, pathResult, diffMode, healthMap,
+  selectedNodeId, topoLevelMap, validationResults, bookmarks, hiddenNodeIds,
+  heatmapValues, tooltipsEnabled
+]);
+var visibleEdges = useMemo(function() {
+  // Жёсткая фильтрация — оставляем только рёбра из highlight
+  var isStrictHighlight = highlight && (
+    highlight.type === 'path' ||
+    highlight.type === 'cycle' ||
+    highlight.type === 'focus'
+  );
+
+  var baseEdges = edgesForRender;
+  if (isStrictHighlight) {
+    baseEdges = edgesForRender.filter(function(e) {
+      var eid = (e.data && e.data.originalId) || e.id;
+      return highlight.edges.has(e.id) || highlight.edges.has(eid);
+    });
+  }
+
   var hasHighlight = highlight || diffMode || selectedEdgeId ||
-  focusNode || cycleHighlight || pathResult ||   // ← добавили
-  (rulesHighlighted && violationsByEdge && violationsByEdge.size > 0);
+    (rulesHighlighted && violationsByEdge && violationsByEdge.size > 0);
 
-  // Быстрый путь: если нет активных подсветок — возвращаем исходный массив
-  if (!hasHighlight) return filteredEdges;
+  if (!hasHighlight) return baseEdges;
 
-  return filteredEdges.map(function(e) {
-    const isLinkage = e.data && e.data.kind === 'linkage';
+  return baseEdges.map(function(e) {
     var isSelected = e.id === selectedEdgeId;
-    var hl = highlight && highlight.edges.has(e.id);
-    var baseColor = isLinkage ? LINKAGE_COLOR
-      : (e.data && e.data.kind === 'fqid') ? FQID_COLOR : LINKAGE_COLOR;
-    
+    var hl = highlight && (
+      highlight.edges.has(e.id) ||
+      (e.data && e.data.originalId && highlight.edges.has(e.data.originalId))
+    );
+    var baseColor = (e.data && e.data.kind === 'linkage') ? LINKAGE_COLOR
+      : (e.data && e.data.kind === 'fqid') ? FQID_COLOR
+      : LINKAGE_COLOR;
+
     var stroke = baseColor;
-    var opacity = isLinkage ? 0.35 : 0.22;
-    var strokeWidth = (e.style && e.style.strokeWidth) || (isLinkage ? 1.0 : 0.8);
+    var opacity = 0.5;
+    var strokeWidth = (e.style && e.style.strokeWidth) || 1.0;
     var animated = false;
 
     if (highlight) {
       opacity = hl ? 1 : 0.06;
-      strokeWidth = hl ? ((e.data && e.data.kind === 'linkage') ? 3 : 2) : strokeWidth;
+      strokeWidth = hl
+        ? ((e.data && e.data.kind === 'linkage') ? 3 : 2)
+        : strokeWidth;
       animated = hl && highlight.type === 'path';
     }
 
     if (diffMode) {
-      if (diffMode.addedEdges && diffMode.addedEdges.has(e.id)) { stroke = DIFF_ADDED; opacity = 1; strokeWidth = 3; animated = true; }
-      else if (diffMode.removedEdges && diffMode.removedEdges.has(e.id)) { stroke = DIFF_REMOVED; opacity = 1; strokeWidth = 3; }
+      if (diffMode.addedEdges && diffMode.addedEdges.has(e.id)) {
+        stroke = DIFF_ADDED;
+        opacity = 1;
+        strokeWidth = 3;
+        animated = true;
+      } else if (diffMode.removedEdges && diffMode.removedEdges.has(e.id)) {
+        stroke = DIFF_REMOVED;
+        opacity = 1;
+        strokeWidth = 3;
+      }
     }
 
     if (rulesHighlighted && violationsByEdge && violationsByEdge.has(e.id)) {
@@ -5012,22 +6907,58 @@ useEffect(function() {
         strokeWidth: strokeWidth
       }),
       markerEnd: Object.assign({}, e.markerEnd, { color: stroke }),
-      markerStart: e.markerStart ? Object.assign({}, e.markerStart, { color: stroke }) : undefined
+      markerStart: e.markerStart
+        ? Object.assign({}, e.markerStart, { color: stroke })
+        : undefined
     });
   });
-}, [filteredEdges, highlight, diffMode, rulesHighlighted, violationsByEdge, selectedEdgeId, cycleHighlight, focusNode, pathResult]);
+}, [edgesForRender, highlight, diffMode, rulesHighlighted, violationsByEdge, selectedEdgeId]);
  
+var handleExportMermaid = useCallback(function() {
+  var lines = ['graph LR'];
+  var idMap = new Map();
+  var counter = 1;
+
+  // Алиасы
+  visibleNodes.forEach(function(n) {
+    if (n.data.nodeType !== 'domain') return;
+    var id = 'D' + counter++;
+    idMap.set(n.id, id);
+    var safeLabel = (n.data.domainId || '').replace(/"/g, '&quot;');
+    lines.push('  ' + id + '["' + safeLabel + '"]');
+  });
+
+  // Рёбра
+  visibleEdges.forEach(function(e) {
+    var s = idMap.get(e.source);
+    var t = idMap.get(e.target);
+    if (!s || !t) return;
+    var kind = e.data && e.data.kind;
+    var label = (kind === 'linkage') ? '' : '|' + (e.data && e.data.refCount || 1) + '|';
+    lines.push('  ' + s + ' -->' + label + ' ' + t);
+  });
+
+  // Стили
+  lines.push('');
+  lines.push('  classDef domain fill:#4CAF50,color:#fff');
+  lines.push('  classDef missing fill:#FF9800,color:#fff');
+  lines.push('  classDef broken fill:#F44336,color:#fff');
+
+  var md = lines.join('\n');
+  downloadFile(md, 'domain-graph-' + new Date().toISOString().slice(0, 19).replace(/[:.]/g, '-') + '.mmd', 'text/plain;charset=utf-8');
+}, [visibleNodes, visibleEdges]);
+
  var perfMode = useMemo(function() {
   return filteredEdges.length > 250;
 }, [filteredEdges.length]);
 
 var displayEdges = useMemo(function() {
-  var hideLabels = perfMode || !showEdgeLabels;
+  var hideLabels = perfMode && !showEdgeLabels;
   if (!hideLabels) return visibleEdges;
   return visibleEdges.map(function(e) {
     if (!e.label) return e;
     var copy = Object.assign({}, e);
-    delete copy.label;
+    //delete copy.label;
     return copy;
   });
 }, [visibleEdges, perfMode, showEdgeLabels]);
@@ -5061,6 +6992,38 @@ var bookmarkedDomainsList = useMemo(function() {
     ? visibleEdges.find(function(e) { return e.id === selectedEdgeId; }) || edges.find(function(e) { return e.id === selectedEdgeId; })
     : null;
 
+/*useEffect(function() {
+  if (!topoLevelMap) {
+    setClusterBoxes([]);
+    return;
+  }
+  var byLevel = new Map();
+  visibleNodes.forEach(function(n) {
+    if (!n.data || n.data.nodeType !== 'domain') return;
+    var lvl = topoLevelMap.get(n.data.domainId);
+    if (lvl == null) return;
+    if (!byLevel.has(lvl)) byLevel.set(lvl, []);
+    byLevel.get(lvl).push(n);
+  });
+  var boxes = [];
+  byLevel.forEach(function(arr, lvl) {
+    var xs = arr.map(function(n) { return n.position.x; });
+    var ys = arr.map(function(n) { return n.position.y; });
+    var minX = Math.min.apply(null, xs) - 25;
+    var minY = Math.min.apply(null, ys) - 45;
+    var maxX = Math.max.apply(null, xs) + NODE_WIDTH + 25;
+    var maxY = Math.max.apply(null, ys) + NODE_HEIGHT + 25;
+    boxes.push({
+      id: 'lvl_' + lvl,
+      label: 'Уровень ' + lvl,
+      x: minX, y: minY,
+      w: maxX - minX, h: maxY - minY,
+      count: arr.length
+    });
+  });
+  setClusterBoxes(boxes);
+}, [topoLevelMap, visibleNodes]);*/
+
   // ---- Helpers ----
   var domainToNodeId = useMemo(function() {
     var m = new Map();
@@ -5088,13 +7051,17 @@ var bookmarkedDomainsList = useMemo(function() {
       .sort(function(a, b) { return b.degree - a.degree; }).slice(0, 5);
   }, [nodes, edges]);
 
-  var worstHealth = useMemo(function() {
-    return nodes
-      .filter(function(n) { return n.data.nodeType === 'domain'; })
-      .map(function(n) { return { node: n, health: healthMap.get(n.id) || 0 }; })
-      .sort(function(a, b) { return a.health - b.health; })
-      .slice(0, 5);
-  }, [nodes, healthMap]);
+var worstHealth = useMemo(function() {
+  return nodes
+    .filter(function(n) { return n.data.nodeType === 'domain'; })
+    .map(function(n) {
+      var h = healthMap.get(n.id);
+      var score = (h && typeof h === 'object') ? h.score : (typeof h === 'number' ? h : 0);
+      return { node: n, health: score };
+    })
+    .sort(function(a, b) { return a.health - b.health; })
+    .slice(0, 5);
+}, [nodes, healthMap]);
 
   var namespaces = useMemo(function() {
     var map = new Map();
@@ -5119,41 +7086,70 @@ var bookmarkedDomainsList = useMemo(function() {
   }, [nodes, edges]);
 
   var activeFiltersCount = useMemo(function() {
-    var c = 0;
-    if (!filters.domain) c++; if (!filters.missing) c++; if (!filters.broken) c++;
-    if (!filters.linkage) c++; if (!filters.fqid) c++;
-    if (namespaceFilter.trim()) c++;
-    if (isolatedOnly) c++;
-    return c;
-  }, [filters, namespaceFilter, isolatedOnly]);
+  var c = 0;
+  if (!filters.domain) c++;
+  if (!filters.missing) c++;
+  if (!filters.broken) c++;
+  if (!filters.linkage) c++;
+  if (!filters.fqid) c++;
+  if (namespaceFilter && namespaceFilter.trim()) c++;
+  if (tagFilters && tagFilters.size > 0) c++;
+  if (isolatedOnly) c++;
+  if (bookmarksOnly) c++;
+  if (onlyInvalid) c++;
+  if (hiddenNodeIds && hiddenNodeIds.size > 0) c++;
+  return c;
+}, [filters, namespaceFilter, tagFilters, isolatedOnly, bookmarksOnly, onlyInvalid, hiddenNodeIds]);
 
   // ---- Search ----
-  var searchResults = useMemo(function() {
-    var q = searchQuery.trim().toLowerCase();
-    if (!q) return [];
-    return nodes.map(function(n) {
-      var d = n.data || {};
-      var id = (d.domainId || '').toLowerCase();
-      var nm = (d.name || '').toLowerCase();
-      var desc = (d.description || '').toLowerCase();
-      var tags = Array.isArray(d.tags) ? d.tags.map(function(t) { return String(t).toLowerCase(); }) : [];
-      var matches = [];
-      if (id.indexOf(q) !== -1) matches.push({ field: 'id' });
-      if (nm.indexOf(q) !== -1) matches.push({ field: 'name' });
-      if (desc.indexOf(q) !== -1) matches.push({ field: 'description' });
-      tags.forEach(function(t) { if (t.indexOf(q) !== -1) matches.push({ field: 'tags' }); });
-      return matches.length > 0 ? { node: n, matches: matches } : null;
-    }).filter(Boolean).sort(function(a, b) {
-      var rank = function(r) {
-        var f = r.matches.map(function(m) { return m.field; });
-        if (f.indexOf('id') !== -1) return 0;
-        if (f.indexOf('name') !== -1) return 1;
-        if (f.indexOf('tags') !== -1) return 2;
-        return 3;
-      };
-      return rank(a) - rank(b);
-    }).slice(0, 100);
-  }, [searchQuery, nodes]);
+var searchResults = useMemo(function() {
+  var q = searchQuery.trim().toLowerCase();
+  if (!q) return [];
+
+  return nodes.map(function(n) {
+    var d = n.data || {};
+    var id = (d.domainId || '').toLowerCase();
+    var nm = (d.name || '').toLowerCase();
+    var desc = (d.description || '').toLowerCase();
+    var tags = Array.isArray(d.tags) ? d.tags.map(function(t) { return String(t).toLowerCase(); }) : [];
+    var matches = [];
+
+    if (id.indexOf(q) !== -1) matches.push({ field: 'id', value: d.domainId });
+    if (nm.indexOf(q) !== -1) matches.push({ field: 'name', value: d.name });
+    if (desc.indexOf(q) !== -1) matches.push({ field: 'description', value: d.description });
+    tags.forEach(function(t) {
+      if (t.indexOf(q) !== -1) matches.push({ field: 'tags', value: t });
+    });
+
+    // FQID-ссылки
+    var fqidRefs = d.fqidRefs || [];
+    var fqidHits = [];
+    fqidRefs.forEach(function(r) {
+      if (r.fullFQID && r.fullFQID.toLowerCase().indexOf(q) !== -1) {
+        fqidHits.push({
+          fullFQID: r.fullFQID,
+          targetDomainId: r.targetDomainId,
+          propertyPath: r.propertyPath
+        });
+      }
+    });
+    if (fqidHits.length > 0) {
+      matches.push({ field: 'fqid', value: fqidHits });
+    }
+
+    return matches.length > 0 ? { node: n, matches: matches } : null;
+  }).filter(Boolean).sort(function(a, b) {
+    var rank = function(r) {
+      var f = r.matches.map(function(m) { return m.field; });
+      if (f.indexOf('id') !== -1) return 0;
+      if (f.indexOf('name') !== -1) return 1;
+      if (f.indexOf('fqid') !== -1) return 2;
+      if (f.indexOf('tags') !== -1) return 3;
+      return 4;
+    };
+    return rank(a) - rank(b);
+  }).slice(0, 100);
+}, [searchQuery, nodes]);
 
   useEffect(function() { setSearchIndex(0); }, [searchQuery]);
 
@@ -5197,9 +7193,13 @@ var bookmarkedDomainsList = useMemo(function() {
   
   var gotoDomainByDomainId = useCallback(function(domainId) {
     if (!domainId) return;
+    var nodeId = domainToNodeId.get(domainId.toLowerCase());
+  if (!nodeId) return;
     pushNav(domainId);
+    setSelectedNodeId(nodeId);
+  if (focusEnabled) setFocusNode(nodeId);
     gotoWithoutNav(domainId);
-  }, [pushNav, gotoWithoutNav]);
+  }, [pushNav, gotoWithoutNav, focusEnabled]);
   
   var navBack = useCallback(function() {
     setNavStack(function(prev) {
@@ -5236,19 +7236,69 @@ var bookmarkedDomainsList = useMemo(function() {
   var closePanel = useCallback(function() { setPanelOpen(false); }, []);
 
   var openFileInEditor = useCallback(function(filePath, fqid) {
-    if (!filePath) return;
-    setEditorFilePath(filePath);
-    setPanelTab('file');
-    setPanelOpen(true);
-    fetch('/file?path=' + encodeURIComponent(filePath))
-      .then(function(r) { return r.ok ? r.text() : Promise.reject('File not found'); })
-      .then(function(content) {
-        setPendingFile({ content: content, fqid: fqid || null, ts: Date.now() });
-      })
-      .catch(function(err) {
-        setPendingFile({ content: '// Не удалось загрузить файл: ' + err, fqid: null, ts: Date.now() });
-      });
-  }, []);
+  if (!filePath) return;
+  setEditorFilePath(filePath);
+  setPanelTab('file');
+  setPanelOpen(true);
+
+  fetch('/file?path=' + encodeURIComponent(filePath))
+    .then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.text();
+    })
+    .then(function(content) {
+      setPendingFile({ content: content, fqid: fqid || null, ts: Date.now() });
+    })
+    .catch(function(err) {
+      setPendingFile({ content: '// Не удалось загрузить файл: ' + err.message, fqid: null, ts: Date.now() });
+    });
+}, []);
+
+  useEffect(function() {
+  var handler = function(e) {
+    var target = e.target;
+    if (!target || typeof target.closest !== 'function') return;
+
+    var toggleBtn = target.closest('.js-toggle-validation');
+    if (toggleBtn) {
+      e.stopPropagation();
+      e.preventDefault();
+      var list = toggleBtn.nextElementSibling;
+      if (list && list.classList.contains('tooltip__validation-list')) {
+        var isOpen = list.style.display !== 'none';
+        list.style.display = isOpen ? 'none' : 'block';
+        var arrow = toggleBtn.querySelector('.tooltip__validation-arrow');
+        if (arrow) arrow.textContent = isOpen ? '▸' : '▾';
+      }
+      return;
+    }
+
+    var openBtn = target.closest('.js-open-file');
+    if (openBtn) {
+      e.stopPropagation();
+      e.preventDefault();
+      var file = openBtn.getAttribute('data-file');
+      var fqid = openBtn.getAttribute('data-fqid');
+      if (file) openFileInEditor(file, fqid);
+      return;
+    }
+
+    var gotoBtn = target.closest('.js-goto-domain');
+    if (gotoBtn) {
+      e.stopPropagation();
+      e.preventDefault();
+      var d = gotoBtn.getAttribute('data-domain');
+      if (!d) return;
+      gotoDomainByDomainId(d);
+      setTooltip(null);
+      window.__tooltipHovered = false;
+      return;
+    }
+  };
+
+  document.addEventListener('click', handler, true);
+  return function() { document.removeEventListener('click', handler, true); };
+}, [openFileInEditor, gotoDomainByDomainId]);
 
   var handleFindCycles = useCallback(function() {
     if (cycleHighlight) { setCycleHighlight(null); return; }
@@ -5300,73 +7350,95 @@ var bookmarkedDomainsList = useMemo(function() {
     URL.revokeObjectURL(url);
   }, [nodes, edges]);
 
-  var handleSnapshotUpload = useCallback(function(e) {
-    var file = e.target.files[0];
-    if (!file) return;
-    var reader = new FileReader();
-    reader.onload = function(ev) {
-      try {
-        var snap = JSON.parse(ev.target.result);
-        if (!snap.scope) {
-          if (!confirm('Снапшот создан старой версией без поля "scope". Продолжить?')) { e.target.value = ''; return; }
-        }
-        var snapEdgeIds = new Set(snap.edges.map(function(x) { return x.id; }));
-        var snapNodeIds = new Set(snap.nodes.map(function(x) { return x.id; }));
-        var curEdgeIds = new Set(edges.map(function(x) { return x.id; }));
-        var curNodeIds = new Set(nodes.map(function(x) { return x.id; }));
-        var addedEdges = new Set(), removedEdges = new Set(), addedNodes = new Set(), removedNodes = new Set();
-        curEdgeIds.forEach(function(id) { if (!snapEdgeIds.has(id)) addedEdges.add(id); });
-        snapEdgeIds.forEach(function(id) { if (!curEdgeIds.has(id)) removedEdges.add(id); });
-        curNodeIds.forEach(function(id) { if (!snapNodeIds.has(id)) addedNodes.add(id); });
-        snapNodeIds.forEach(function(id) { if (!curNodeIds.has(id)) removedNodes.add(id); });
-        setDiffMode({ addedEdges: addedEdges, removedEdges: removedEdges, addedNodes: addedNodes, removedNodes: removedNodes, snapshot: snap });
-      } catch (err) { alert('Ошибка чтения снимка: ' + err.message); }
-    };
-    reader.readAsText(file);
-    e.target.value = '';
-  }, [nodes, edges]);
+var handleSnapshotUpload = useCallback(function(e) {
+  var file = e.target.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(ev) {
+    try {
+      var snap = JSON.parse(ev.target.result);
+      applySnapshotDiff(snap);
+      showSnackbar('Сравнение с загруженным файлом');
+    } catch (err) {
+      alert('Ошибка чтения снимка: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+}, [applySnapshotDiff, showSnackbar]);
 
   // ---- Node interactions ----
   var handleNodeClick = useCallback(function(event, node) {
+    clearTimeout(hideTimer.current);
+  setTooltip(null);
+
+  // Если активен режим выбора пути
+  if (pathMode) {
+    if (!pathMode.anchorId) {
+      // Первый клик — устанавливаем anchor
+      setPathMode({ anchorId: node.id, anchorDomainId: node.data.domainId });
+      setPathSel([node.id]);
+      return;
+    }
+    // Второй клик — строим путь
+    var startId = pathMode.anchorId;
+    var endId = node.id;
+    if (startId === endId) { setPathMode(null); setPathSel([]); return; }
+    var res = findPath(startId, endId, filteredEdges);
+    if (res) {
+      setPathResult(res);
+      setPathMode(null);
+      setPathSel([]);
+      scheduleFit(false);
+    } else {
+      alert('Путь не найден');
+      setPathMode(null);
+      setPathSel([]);
+    }
+    return;
+  }
+
     if (node.type === 'clusterNode') return;
     clearTimeout(hideTimer.current);
     setTooltip(null);
     window.__tooltipHovered = false;
-  
-    if (pathMode) {
-      var startId = pathMode.kind === 'from' ? pathMode.anchorId : node.id;
-      var endId = pathMode.kind === 'from' ? node.id : pathMode.anchorId;
-      if (startId === endId) { setPathMode(null); return; }
-      var res = findPath(startId, endId, filteredEdges);
-      if (res) setPathResult(res); else alert('Путь не найден');
-      setPathMode(null);
-      return;
-    }
-  
-    if (event.ctrlKey || event.metaKey) {
-      setPathSel(function(prev) {
-        if (prev.length === 0) return [node.id];
-        if (prev.length === 1 && prev[0] !== node.id) return [prev[0], node.id];
-        return [node.id];
-      });
+
+    if (focusNode === node.id) {
+      setFocusNode(null);
+      setSelectedNodeId(node.id);
+      setSelectedEdgeId(null);
+      pushNav(node.data.domainId);
+      if (sidePanelEnabled) openDetails(node.id);
       return;
     }
   
     setSelectedNodeId(node.id);
-    setFocusNode(node.id);
+    if (focusEnabled) {
+      setFocusNode(node.id);
+    } else {
+      setFocusNode(null);
+    }
+    setSelectedEdgeId(null);
     setPathResult(null);
     setPathSel([]);
     pushNav(node.data.domainId);
     if (sidePanelEnabled) {
       openDetails(node.id);
     }
-  }, [openDetails, pathMode, filteredEdges, pushNav]);
+  }, [openDetails, pathMode, filteredEdges, pushNav, focusEnabled, focusNode, pathResult, pathSel, sidePanelEnabled]);
 
   var handleNodeDoubleClick = useCallback(function(event, node) {
     if (node.type === 'clusterNode') return;
     if (focusNode === node.id) setFocusNode(null);
-    else { setFocusNode(node.id); setSelectedNodeId(null); }
-  }, [focusNode]);
+    else { if (focusEnabled) {
+      setFocusNode(node.id); 
+    }
+    setSelectedNodeId(null); }
+  }, [focusNode, focusEnabled]);
+
+  useEffect(function() {
+  setSelectedEdgeId(null);
+}, [focusNode, cycleHighlight, pathResult]);
 
   var handleNodeContextMenu = useCallback(function(event, node) {
     event.preventDefault();
@@ -5389,10 +7461,10 @@ var bookmarkedDomainsList = useMemo(function() {
     
       // Сбрасываем выделения и режимы
       setSelectedNodeId(null);
+      setSelectedEdgeId(null);
       setFocusNode(null);
       setPathResult(null);
       setPathSel([]);
-      setCycleHighlight(null);
       setPathMode(null);
     
       // Закрываем контекстное меню
@@ -5402,8 +7474,11 @@ var bookmarkedDomainsList = useMemo(function() {
   var handleContextAction = useCallback(function(action, nodeId) {
     var node = nodes.find(function(n) { return n.id === nodeId; });
     if (!node) return;
-    if (action === 'focus') { setFocusNode(nodeId); setSelectedNodeId(null); }
-    else if (action === 'dependents') {
+    if (action === 'focus') { 
+      if (!focusEnabled) return;
+      setFocusNode(nodeId); 
+      setSelectedNodeId(null); 
+    } else if (action === 'dependents') {
       // Show only nodes that depend on this
       setFocusNode(nodeId); setFocusDepth(3);
     }
@@ -5427,7 +7502,7 @@ var bookmarkedDomainsList = useMemo(function() {
       });
     }
     else if (action === 'bookmark') { toggleBookmark(nodeId); }
-  }, [nodes, filteredEdges, pathSel, openFileInEditor, setNodes]);
+  }, [nodes, filteredEdges, pathSel, openFileInEditor, setNodes, focusEnabled]);
 
   var handleRunPath = useCallback(function() {
     if (pathSel.length !== 2) { alert('Выберите два узла через Ctrl+клик'); return; }
@@ -5515,7 +7590,7 @@ useEffect(function() {
     if (!tooltipsEnabled) return;
     if (pathSel.length > 0 || pathMode) return;
     var curZoom = rfInstance.current ? rfInstance.current.getZoom() : 1;
-    if (curZoom < 0.5) return;
+    if (curZoom < 0.15) return;
 
     clearTimeout(hideTimer.current);
     hideTimer.current = setTimeout(function() {
@@ -5527,7 +7602,9 @@ useEffect(function() {
           node.data.domainId, node.data.label, node.data.nodeType, node.data.filePath,
           node.data.version, node.data.entitiesCount, node.data.fqidRefs,
           healthMap.get(node.id), node.data.description, node.data.tags,
-          validation                              
+          validation,
+          node.data.updatedAt,
+          node.data.updatedAtSource
         );
         tooltipCache.current.set(key, html);
       }
@@ -5597,9 +7674,25 @@ useEffect(function() {
         return;
       }
 
+      if (code === 'KeyR') {
+        e.preventDefault();
+        setRulesOpen(true);
+        return;
+      }
+
       if (code === 'KeyB' && selectedNodeId) {
         e.preventDefault();
         toggleBookmark(selectedNodeId);
+        return;
+      }
+
+      if (code === 'KeyG') {
+        e.preventDefault();
+        setFocusEnabled(function(v) {
+          var newValue = !v;
+          if (!newValue) setFocusNode(null);
+          return newValue;
+        });
         return;
       }
 
@@ -5611,6 +7704,34 @@ useEffect(function() {
         setCycleHighlight(null);
         setContextMenu(null);
         setPathMode(null);
+        return;
+      }
+
+      if (k === '+' || k === '=') {
+        e.preventDefault();
+        if (rfInstance.current) {
+          try {
+            var currentZoom = rfInstance.current.getZoom();
+            rfInstance.current.zoomTo(currentZoom * 1.3, { duration: 200 });
+          } catch (err) {}
+        }
+        return;
+      }
+      if (k === '-' || k === '_') {
+        e.preventDefault();
+        if (rfInstance.current) {
+          try {
+            var currentZoom2 = rfInstance.current.getZoom();
+            rfInstance.current.zoomTo(currentZoom2 / 1.3, { duration: 200 });
+          } catch (err) {}
+        }
+        return;
+      }
+      if (code === 'Digit0' && !ctrl && !alt) {
+        e.preventDefault();
+        if (rfInstance.current) {
+          try { rfInstance.current.fitView({ duration: 300, padding: 0.15 }); } catch (err) {}
+        }
         return;
       }
 
@@ -5629,55 +7750,6 @@ useEffect(function() {
   handleFindCycles, handleRunPath,
   selectedNodeId, toggleBookmark
 ]);
-
-useEffect(function() {
-  var handler = function(e) {
-    var target = e.target;
-    if (!target || typeof target.closest !== 'function') return;
-
-    // 1. Разворачивание/сворачивание секции валидации
-    var toggleBtn = target.closest('.js-toggle-validation');
-    if (toggleBtn) {
-      e.stopPropagation();
-      e.preventDefault();
-      var list = toggleBtn.nextElementSibling;
-      if (list && list.classList.contains('tooltip__validation-list')) {
-        var isOpen = list.style.display !== 'none';
-        list.style.display = isOpen ? 'none' : 'block';
-        var arrow = toggleBtn.querySelector('.tooltip__validation-arrow');
-        if (arrow) arrow.textContent = isOpen ? '▸' : '▾';
-      }
-      return;
-    }
-
-    // 2. Открытие файла
-    var openBtn = target.closest('.js-open-file');
-    if (openBtn) {
-      e.stopPropagation();
-      e.preventDefault();
-      var file = openBtn.getAttribute('data-file');
-      var fqid = openBtn.getAttribute('data-fqid');
-      if (file) openFileInEditor(file, fqid);
-      return;
-    }
-
-    // 3. Переход к домену
-    var gotoBtn = target.closest('.js-goto-domain');
-    if (gotoBtn) {
-      e.stopPropagation();
-      e.preventDefault();
-      var d = gotoBtn.getAttribute('data-domain');
-      if (!d) return;
-      gotoDomainByDomainId(d);
-      setTooltip(null);
-      window.__tooltipHovered = false;
-      return;
-    }
-  };
-
-  document.addEventListener('click', handler, true);
-  return function() { document.removeEventListener('click', handler, true); };
-}, [openFileInEditor, gotoDomainByDomainId]);
 
   // ---- Layout on change ----
 var applyLayout = useCallback(function(type, depth) {
@@ -5786,17 +7858,17 @@ scheduleFit(!didInitialFitRef.current ? false : true);
     openFileInEditor(panelNode.data.filePath);
   }, [panelOpen, panelTab, panelNodeId]);
   
-  var handleEdgeClick = useCallback(function(event, edge) {
-    var realId = (edge.data && edge.data.originalId) || edge.id;
-    setSelectedEdgeId(realId);
-    if (sidePanelEnabled) {
-      setPanelTab('edge');
-      setPanelOpen(true);
-    }
-    clearTimeout(hideTimer.current);
-    setTooltip(null);
-    window.__tooltipHovered = false;
-  }, [sidePanelEnabled]);
+var handleEdgeClick = useCallback(function(event, edge) {
+  var realId = (edge.data && edge.data.originalId) || edge.id;
+  setSelectedEdgeId(realId);
+  if (sidePanelEnabled) {
+    setPanelTab('edge');
+    setPanelOpen(true);
+  }
+  clearTimeout(hideTimer.current);
+  setTooltip(null);
+  window.__tooltipHovered = false;
+}, [sidePanelEnabled]);
   
  var handleExportPNG = useCallback(function() {
     var flowEl = document.querySelector('.graph-container');
@@ -5834,31 +7906,37 @@ scheduleFit(!didInitialFitRef.current ? false : true);
 
   if (cycleHighlight) {
     modes.push({
-      icon: React.createElement(MIcon, { name: 'cycle' }),
+      icon: '🔁',
       label: 'Циклы (' + cycleHighlight.sccCount + ')',
       color: 'orange',
-      onClear: function() { setCycleHighlight(null); setSelectedNodeId(null); }
+      onClear: function() { setCycleHighlight(null); setSelectedNodeId(null);
+  setSelectedEdgeId(null);}
     });
   }
   if (focusNode) {
     modes.push({
-      icon: React.createElement(MIcon, { name: 'my_location' }),
+      icon: '🎯',
       label: 'Фокус N=' + focusDepth,
       color: 'cyan',
-      onClear: function() { setFocusNode(null); setSelectedNodeId(null); }
+      onClear: function() {
+        setFocusNode(null);
+        setSelectedNodeId(null);
+        setSelectedEdgeId(null);
+      }
     });
   }
   if (pathResult || pathSel.length > 0) {
     modes.push({
-      icon: React.createElement(MIcon, { name: 'route' }),
+      icon: '🛤️',
       label: pathResult ? 'Путь найден' : 'Выбор пути (' + pathSel.length + '/2)',
       color: 'yellow',
-      onClear: function() { setPathResult(null); setPathSel([]); setPathMode(null); setSelectedNodeId(null); }
+      onClear: function() { setPathResult(null); setPathSel([]); setPathMode(null); setSelectedNodeId(null);
+  setSelectedEdgeId(null);}
     });
   }
   if (hiddenNodeIds.size > 0) {
     modes.push({
-      icon: React.createElement(MIcon, { name: 'visibility_off' }),
+      icon: '👁',
       label: 'Скрыто: ' + hiddenNodeIds.size,
       color: 'gray',
       onClear: function() { setHiddenNodeIds(new Set()); }
@@ -5866,7 +7944,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
   }
   if (onlyInvalid) {
     modes.push({
-      icon: React.createElement(MIcon, { name: 'cancel' }),
+      icon: '❌',
       label: 'Только невалидные',
       color: 'red',
       onClear: function() { setOnlyInvalid(false); }
@@ -5874,7 +7952,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
   }
   if (bookmarksOnly) {
     modes.push({
-      icon: React.createElement(MIcon, { name: 'star' }),
+      icon: '★',
       label: 'Только избранные',
       color: 'yellow',
       onClear: function() { setBookmarksOnly(false); }
@@ -5882,7 +7960,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
   }
   if (nsMode) {
     modes.push({
-      icon: React.createElement(MIcon, { name: 'category' }),
+      icon: '🗂',
       label: 'Агрегация по семействам',
       color: 'purple',
       onClear: function() { setNsMode(false); }
@@ -5890,7 +7968,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
   }
   if (diffMode) {
     modes.push({
-      icon: React.createElement(MIcon, { name: 'swap_horiz' }),
+      icon: '⇄',
       label: 'Diff +' + (diffMode.addedEdges.size + diffMode.addedNodes.size) + '/−' + (diffMode.removedEdges.size + diffMode.removedNodes.size),
       color: 'blue',
       onClear: function() { setDiffMode(null); }
@@ -5898,7 +7976,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
   }
   if (ruleViolations && ruleViolations.length > 0 && rulesHighlighted) {
     modes.push({
-      icon: React.createElement(MIcon, { name: 'block' }),
+      icon: '⛔',
       label: 'Нарушения: ' + ruleViolations.length,
       color: 'red',
       onClear: function() { setRulesHighlighted(false); }
@@ -5906,7 +7984,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
   }
   if (!tooltipsEnabled) {
     modes.push({
-      icon: React.createElement(MIcon, { name: 'block' }),
+      icon: '🚫',
       label: 'Тултипы выключены',
       color: 'gray',
       onClear: function() { setTooltipsEnabled(true); }
@@ -5914,7 +7992,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
   }
   if (topoLevelMap) {
     modes.push({
-      icon: React.createElement(MIcon, { name: 'inventory_2' }),
+      icon: '📦',
       label: 'Уровни установки',
       color: 'green',
       onClear: function() { setTopoLevelMap(null); }
@@ -5922,7 +8000,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
   }
   if (!sidePanelEnabled) {
     modes.push({
-      icon: React.createElement(MIcon, { name: 'block' }),
+      icon: '🚫',
       label: 'Панель выключена',
       color: 'gray',
       onClear: function() { setSidePanelEnabled(true); }
@@ -5931,7 +8009,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
 
   if (!filters.linkage && !filters.fqid) {
       modes.push({
-      icon: React.createElement(MIcon, { name: 'power_off' }),
+      icon: '🔌',
       label: 'Связи скрыты',
       color: 'gray',
       onClear: function() {
@@ -5942,102 +8020,209 @@ scheduleFit(!didInitialFitRef.current ? false : true);
 
   if (namespaceFilter && namespaceFilter.trim()) {
     modes.push({
-      icon: React.createElement(MIcon, { name: 'filter_alt' }),
+      icon: '🔎',
       label: 'Фильтр: ' + (namespaceFilter.length > 30 ? namespaceFilter.slice(0, 30) + '…' : namespaceFilter),
       color: 'cyan',
       onClear: function() { setNamespaceFilter(''); }
     });
   }
 
+  if (isolatedOnly) {
+  modes.push({
+    iconName: 'radio_button_unchecked',
+    label: 'Только изолированные',
+    color: 'orange',
+    onClear: function() { setIsolatedOnly(false); }
+  });
+}
+
+if (!focusEnabled) {
+  modes.push({
+    iconName: 'my_location',
+    label: 'Фокус выключен',
+    color: 'gray',
+    onClear: function() { setFocusEnabled(true); }
+  });
+}
+
+if (pathMode) {
+  modes.push({
+    iconName: 'route',
+    label: pathMode.anchorId ? 'Выберите второй узел' : 'Выберите первый узел',
+    color: 'yellow',
+    onClear: function() { setPathMode(null); setPathSel([]); }
+  });
+}
+
+if (tagFilters.size > 0) {
+  modes.push({
+    iconName: 'label',
+    label: 'Теги: ' + Array.from(tagFilters).join(', '),
+    color: 'purple',
+    onClear: function() { setTagFilters(new Set()); }
+  });
+}
+
     return modes;
-  }, [cycleHighlight, focusNode, focusDepth,
+  }, [cycleHighlight, focusNode, focusDepth,focusEnabled,tagFilters,
   pathResult, pathSel, pathMode,
   hiddenNodeIds,
   onlyInvalid, bookmarksOnly, isolatedOnly,
   nsMode, diffMode,
   ruleViolations, rulesHighlighted, tooltipsEnabled,
+  showViolationsOnly,setRulesHighlighted,setShowViolationsOnly,
   sidePanelEnabled, 
   namespaceFilter,
   filters.linkage, 
   filters.fqid,
   filters.domain, filters.missing, filters.broken,
   topoLevelMap]);
+
+  var handleExportStats = useCallback(function() {
+  var lines = [];
+  lines.push('# Статистика Domain Graph');
+  lines.push('');
+  lines.push('_Сгенерировано: ' + new Date().toLocaleString('ru-RU') + '_');
+  lines.push('');
+  lines.push('## Обзор');
+  lines.push('');
+  lines.push('| Метрика | Значение |');
+  lines.push('| --- | ---: |');
+  lines.push('| Всего узлов | ' + nodes.length + ' |');
+  lines.push('| Связей | ' + edges.length + ' |');
+  lines.push('| Missing | ' + counts.missing + ' |');
+  lines.push('| Broken | ' + counts.broken + ' |');
+  lines.push('| Изолированных | ' + isolatedCount + ' |');
+  lines.push('| Циклических групп | ' + cyclesInfo.sccs.length + ' |');
+  lines.push('');
+
+  if (topConnected.length > 0) {
+    lines.push('## Топ по связям');
+    lines.push('');
+    lines.push('| # | Домен | Связей |');
+    lines.push('| ---: | --- | ---: |');
+    topConnected.forEach(function(item, i) {
+      lines.push('| ' + (i + 1) + ' | `' + item.node.data.domainId + '` | ' + item.degree + ' |');
+    });
+    lines.push('');
+  }
+
+  if (worstHealth.length > 0) {
+    lines.push('## Низкий health');
+    lines.push('');
+    lines.push('| # | Домен | Health |');
+    lines.push('| ---: | --- | ---: |');
+    worstHealth.slice(0, 20).forEach(function(item, i) {
+      lines.push('| ' + (i + 1) + ' | `' + item.node.data.domainId + '` | ' + item.health + '/100 |');
+    });
+    lines.push('');
+  }
+
+  if (namespaces.length > 0) {
+    lines.push('## Неймспейсы');
+    lines.push('');
+    lines.push('| Неймспейс | Доменов |');
+    lines.push('| --- | ---: |');
+    namespaces.forEach(function(entry) {
+      lines.push('| `' + entry[0] + '` | ' + entry[1] + ' |');
+    });
+    lines.push('');
+  }
+
+  if (tagCloud.length > 0) {
+    lines.push('## Теги');
+    lines.push('');
+    tagCloud.forEach(function(entry) {
+      lines.push('- `' + entry[0] + '` (' + entry[1] + ')');
+    });
+    lines.push('');
+  }
+
+  var md = lines.join('\n');
+  var blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'domain-stats-' + new Date().toISOString().slice(0, 19).replace(/[:.]/g, '-') + '.md';
+  a.click();
+  URL.revokeObjectURL(url);
+}, [nodes, edges, counts, isolatedCount, cyclesInfo, topConnected, worstHealth, namespaces, tagCloud]);
  
  
  var commands = useMemo(function() {
     return [
       // Навигация
-      { section: 'Навигация', icon: React.createElement(MIcon, { name: 'fit_screen' }), label: 'Вписать в экран', hotkey: 'F', keywords: 'fit zoom',
+      { section: 'Навигация', icon: '⛶', label: 'Вписать в экран', hotkey: 'F', keywords: 'fit zoom',
         run: function() { rfInstance.current && rfInstance.current.fitView({ duration: 500 }); } },
-      { section: 'Навигация', icon: React.createElement(MIcon, { name: 'refresh' }), label: 'Переуложить граф', keywords: 'relayout',
+      { section: 'Навигация', icon: '⟳', label: 'Переуложить граф', keywords: 'relayout',
         run: function() { setNodes(runLayout(nodes, edges, layoutType)); setTimeout(function() { rfInstance.current && rfInstance.current.fitView({ duration: 500 }); }, 100); } },
-      { section: 'Навигация', icon: React.createElement(MIcon, { name: 'arrow_back' }), label: 'Назад по истории', hotkey: 'Alt+←', keywords: 'back',
+      { section: 'Навигация', icon: '←', label: 'Назад по истории', hotkey: 'Alt+←', keywords: 'back',
         run: navBack },
-      { section: 'Навигация', icon: React.createElement(MIcon, { name: 'arrow_forward' }), label: 'Вперёд по истории', hotkey: 'Alt+→', keywords: 'forward',
+      { section: 'Навигация', icon: '→', label: 'Вперёд по истории', hotkey: 'Alt+→', keywords: 'forward',
         run: navForward },
   
       // Раскладка
-      { section: 'Раскладка', icon: React.createElement(MIcon, { name: 'straighten' }), label: 'Горизонтальная (LR)', keywords: 'layout dagre horizontal',
+      { section: 'Раскладка', icon: '📐', label: 'Горизонтальная (LR)', keywords: 'layout dagre horizontal',
         run: function() { setLayoutType('LR'); } },
-      { section: 'Раскладка', icon: React.createElement(MIcon, { name: 'straighten' }), label: 'Вертикальная (TB)', keywords: 'layout vertical',
+      { section: 'Раскладка', icon: '📐', label: 'Вертикальная (TB)', keywords: 'layout vertical',
         run: function() { setLayoutType('TB'); } },
-      { section: 'Раскладка', icon: React.createElement(MIcon, { name: 'straighten' }), label: 'Force-directed', keywords: 'layout force physics',
+      { section: 'Раскладка', icon: '📐', label: 'Force-directed', keywords: 'layout force physics',
         run: function() { setLayoutType('force'); } },
-      { section: 'Раскладка', icon: React.createElement(MIcon, { name: 'straighten' }), label: 'Круговая', keywords: 'layout circular circle',
+      { section: 'Раскладка', icon: '📐', label: 'Круговая', keywords: 'layout circular circle',
         run: function() { setLayoutType('circular'); } },
-      { section: 'Раскладка', icon: React.createElement(MIcon, { name: 'category' }), label: 'По семействам', keywords: 'cluster namespace family layout group',
+      { section: 'Раскладка', icon: '🗂', label: 'По семействам', keywords: 'cluster namespace family layout group',
         run: function() { setLayoutType('cluster'); } },
-      { section: 'Раскладка', icon: React.createElement(MIcon, { name: 'folder' }), label: 'По каталогам', keywords: 'folder directory path layout',
+      { section: 'Раскладка', icon: '📁', label: 'По каталогам', keywords: 'folder directory path layout',
         run: function() { setLayoutType('folder'); } },  
   
       // Вид
-      { section: 'Вид', icon: theme === 'dark' ? React.createElement(MIcon, { name: 'light_mode' }) : React.createElement(MIcon, { name: 'dark_mode' }), label: 'Переключить тему', keywords: 'theme dark light',
+      { section: 'Вид', icon: theme === 'dark' ? '☀️' : '🌙', label: 'Переключить тему', keywords: 'theme dark light',
         run: function() { setTheme(theme === 'dark' ? 'light' : 'dark'); } },
-      { section: 'Вид', icon: React.createElement(MIcon, { name: 'circle' }), label: compact ? 'Выключить компактный режим' : 'Включить компактный режим', keywords: 'compact small',
+      { section: 'Вид', icon: '⚫', label: compact ? 'Выключить компактный режим' : 'Включить компактный режим', keywords: 'compact small',
         run: function() { setCompact(!compact); } },
-      { section: 'Вид', icon: React.createElement(MIcon, { name: 'category' }), label: showGroups ? 'Скрыть группировку' : 'Показать группировку', keywords: 'groups boxes',
+      { section: 'Вид', icon: '🗂', label: showGroups ? 'Скрыть группировку' : 'Показать группировку', keywords: 'groups boxes',
         run: function() { setShowGroups(!showGroups); } },
-      { section: 'Вид', icon: React.createElement(MIcon, { name: 'swap_horiz' }), label: bidirectional ? 'Разъединить A↔B' : 'Объединять A↔B', keywords: 'bidirectional merge',
+      { section: 'Вид', icon: '⇄', label: bidirectional ? 'Разъединить A↔B' : 'Объединять A↔B', keywords: 'bidirectional merge',
         run: function() { setBidirectional(!bidirectional); } },
-      { section: 'Вид', icon: React.createElement(MIcon, { name: 'label' }), label: showEdgeLabels ? 'Скрыть подписи связей' : 'Показать подписи связей', keywords: 'labels edges',
+      { section: 'Вид', icon: '🏷', label: showEdgeLabels ? 'Скрыть подписи связей' : 'Показать подписи связей', keywords: 'labels edges',
         run: function() { setShowEdgeLabels(!showEdgeLabels); } },
-      { section: 'Вид', icon: tooltipsEnabled ? React.createElement(MIcon, { name: 'block' }) : React.createElement(MIcon, { name: 'chat_bubble' }), label: tooltipsEnabled ? 'Скрыть тултипы' : 'Показать тултипы', hotkey: 'T', keywords: 'tooltip hover',
+      { section: 'Вид', icon: tooltipsEnabled ? '🚫' : '💬', label: tooltipsEnabled ? 'Скрыть тултипы' : 'Показать тултипы', hotkey: 'T', keywords: 'tooltip hover',
         run: function() { setTooltipsEnabled(!tooltipsEnabled); } },
   
       // Heatmap
-      { section: 'Heatmap', icon: React.createElement(MIcon, { name: 'local_fire_department' }), label: heatmap === 'health' ? 'Выключить heatmap' : 'Heatmap: Health score', keywords: 'heatmap health',
+      { section: 'Heatmap', icon: '🔥', label: heatmap === 'health' ? 'Выключить heatmap' : 'Heatmap: Health score', keywords: 'heatmap health',
         run: function() { setHeatmap(heatmap === 'health' ? 'none' : 'health'); } },
-      { section: 'Heatmap', icon: React.createElement(MIcon, { name: 'local_fire_department' }), label: heatmap === 'degree' ? 'Выключить heatmap' : 'Heatmap: Количество связей', keywords: 'heatmap degree',
+      { section: 'Heatmap', icon: '🔥', label: heatmap === 'degree' ? 'Выключить heatmap' : 'Heatmap: Количество связей', keywords: 'heatmap degree',
         run: function() { setHeatmap(heatmap === 'degree' ? 'none' : 'degree'); } },
-      { section: 'Heatmap', icon: React.createElement(MIcon, { name: 'local_fire_department' }), label: heatmap === 'entities' ? 'Выключить heatmap' : 'Heatmap: Entities', keywords: 'heatmap entities',
+      { section: 'Heatmap', icon: '🔥', label: heatmap === 'entities' ? 'Выключить heatmap' : 'Heatmap: Entities', keywords: 'heatmap entities',
         run: function() { setHeatmap(heatmap === 'entities' ? 'none' : 'entities'); } },
-      { section: 'Heatmap', icon: React.createElement(MIcon, { name: 'local_fire_department' }), label: heatmap === 'fqid' ? 'Выключить heatmap' : 'Heatmap: FQID-ссылки', keywords: 'heatmap fqid refs',
+      { section: 'Heatmap', icon: '🔥', label: heatmap === 'fqid' ? 'Выключить heatmap' : 'Heatmap: FQID-ссылки', keywords: 'heatmap fqid refs',
         run: function() { setHeatmap(heatmap === 'fqid' ? 'none' : 'fqid'); } },
   
       // Анализ
-      { section: 'Анализ', icon: React.createElement(MIcon, { name: 'cycle' }), label: 'Найти циклы', hotkey: 'C', keywords: 'cycles scc loop',
+      { section: 'Анализ', icon: '🔁', label: 'Найти циклы', hotkey: 'C', keywords: 'cycles scc loop',
         run: handleFindCycles },
-      { section: 'Анализ', icon: React.createElement(MIcon, { name: 'radio_button_unchecked' }), label: isolatedOnly ? 'Показать все домены' : 'Только изолированные', hotkey: 'I', keywords: 'isolated orphans',
+      { section: 'Анализ', icon: '◯', label: isolatedOnly ? 'Показать все домены' : 'Только изолированные', hotkey: 'I', keywords: 'isolated orphans',
         run: function() { setIsolatedOnly(!isolatedOnly); } },
-      { section: 'Анализ', icon: React.createElement(MIcon, { name: 'category' }), label: nsMode ? 'Выключить агрегацию' : 'Агрегация по семействам', hotkey: 'S', keywords: 'namespace aggregate family',
+      { section: 'Анализ', icon: '🗂', label: nsMode ? 'Выключить агрегацию' : 'Агрегация по семействам', hotkey: 'S', keywords: 'namespace aggregate family',
         run: function() { setNsMode(!nsMode); } },
-      { section: 'Анализ', icon: React.createElement(MIcon, { name: 'inventory_2' }), label: 'Порядок установки (топосорт)', keywords: 'topo install order',
+      { section: 'Анализ', icon: '📦', label: 'Порядок установки (топосорт)', keywords: 'topo install order',
         run: function() { setTopoOpen(true); } },
-      { section: 'Анализ', icon: React.createElement(MIcon, { name: 'my_location' }), label: focusNode ? 'Сбросить фокус' : 'Фокус на выделенном', keywords: 'focus',
+      { section: 'Анализ', icon: '🎯', label: focusNode ? 'Сбросить фокус' : 'Фокус на выделенном', keywords: 'focus',
         run: function() { if (focusNode) setFocusNode(null); else if (selectedNodeId) setFocusNode(selectedNodeId); } },
-      { section: 'Анализ', icon: React.createElement(MIcon, { name: 'route' }), label: 'Найти путь между двумя узлами', hotkey: 'P', keywords: 'path find',
+      { section: 'Анализ', icon: '🛤️', label: 'Найти путь между двумя узлами', hotkey: 'P', keywords: 'path find',
         run: handleRunPath },
-      { section: 'Анализ', icon: React.createElement(MIcon, { name: 'menu_book' }), label: tour ? 'Остановить экскурсию' : 'Путь изучения архитектуры', keywords: 'learning path onboarding tour',
+      { section: 'Анализ', icon: '📖', label: tour ? 'Остановить экскурсию' : 'Путь изучения архитектуры', keywords: 'learning path onboarding tour',
   run: function() { if (tour) tourStop(); else setLearningPathOpen(true); } },  
-  { section: 'Анализ', icon: React.createElement(MIcon, { name: 'account_tree' }), label: 'Иерархия сущностей', keywords: 'entity hierarchy inheritance inherits',
+  { section: 'Анализ', icon: '🧬', label: 'Иерархия сущностей', keywords: 'entity hierarchy inheritance inherits',
   run: function() { setEntityHierarchyInitialKey(null); setEntityHierarchyOpen(true); } },
   
       // Фильтры
-      { section: 'Фильтры', icon: React.createElement(MIcon, { name: 'star' }), label: bookmarksOnly ? 'Показать все домены' : 'Только избранные', keywords: 'bookmarks favorites',
+      { section: 'Фильтры', icon: '★', label: bookmarksOnly ? 'Показать все домены' : 'Только избранные', keywords: 'bookmarks favorites',
         run: function() { setBookmarksOnly(!bookmarksOnly); } },
-      { section: 'Фильтры', icon: React.createElement(MIcon, { name: 'cancel' }), label: onlyInvalid ? 'Показать все домены' : 'Только невалидные', keywords: 'invalid errors validation',
+      { section: 'Фильтры', icon: '❌', label: onlyInvalid ? 'Показать все домены' : 'Только невалидные', keywords: 'invalid errors validation',
         run: function() { setOnlyInvalid(!onlyInvalid); } },
-      { section: 'Фильтры', icon: React.createElement(MIcon, { name: 'delete_sweep' }), label: 'Сбросить все фильтры', keywords: 'reset filters clear',
+      { section: 'Фильтры', icon: '🗑', label: 'Сбросить все фильтры', keywords: 'reset filters clear',
         run: function() {
           setFilters({ domain: true, broken: true, missing: true, linkage: true, fqid: true });
           setNamespaceFilter('');
@@ -6048,19 +8233,19 @@ scheduleFit(!didInitialFitRef.current ? false : true);
         } },
   
       // Данные
-      { section: 'Данные', icon: React.createElement(MIcon, { name: 'save' }), label: 'Экспорт графа в JSON', keywords: 'export json download',
+      { section: 'Данные', icon: '💾', label: 'Экспорт графа в JSON', keywords: 'export json download',
         run: handleExportJSON },
-      { section: 'Данные', icon: React.createElement(MIcon, { name: 'description' }), label: 'Отчёт в Markdown', keywords: 'export markdown report',
+      { section: 'Данные', icon: '📝', label: 'Отчёт в Markdown', keywords: 'export markdown report',
         run: handleExportMarkdown },
-      { section: 'Данные', icon: React.createElement(MIcon, { name: 'image' }), label: 'Экспорт графа в PNG', keywords: 'export png image',
+      { section: 'Данные', icon: '🖼️', label: 'Экспорт графа в PNG', keywords: 'export png image',
         run: handleExportPNG },
-      validationAvailable && { section: 'Данные', icon: React.createElement(MIcon, { name: 'search' }), label: 'Массовая валидация доменов', keywords: 'validate check',
+      validationAvailable && { section: 'Данные', icon: '🔍', label: 'Массовая валидация доменов', keywords: 'validate check',
         run: function() { setValidationOpen(true); } },
   
       // Справка
-      { section: 'Справка', icon: React.createElement(MIcon, { name: 'menu_book' }), label: 'Руководство пользователя', hotkey: 'F1', keywords: 'guide help docs',
+      { section: 'Справка', icon: '📖', label: 'Руководство пользователя', hotkey: 'F1', keywords: 'guide help docs',
         run: function() { setHelpOpen(true); } },
-      { section: 'Справка', icon: React.createElement(MIcon, { name: 'keyboard' }), label: 'Список горячих клавиш', keywords: 'hotkeys shortcuts',
+      { section: 'Справка', icon: '⌨️', label: 'Список горячих клавиш', keywords: 'hotkeys shortcuts',
         run: function() { setHotkeysOpen(true); } }
     ].filter(Boolean);
   }, [
@@ -6071,135 +8256,49 @@ scheduleFit(!didInitialFitRef.current ? false : true);
   ]);
 
   return React.createElement('div', { className: 'app' },
-    React.createElement('aside', { className: 'sidebar' + (sidebarCollapsed ? ' sidebar--collapsed' : '') },
-      sidebarCollapsed ?
-        React.createElement('button', { className: 'sidebar__expand', onClick: function() { setSidebarCollapsed(false); }, title: 'Развернуть' }, '›') :
-        React.createElement(React.Fragment, null,
-          React.createElement('div', { className: 'sidebar__header' },
-            React.createElement('div', { className: 'sidebar__logo' }, React.createElement(MIcon, { name: 'language' })),
-            React.createElement('div', { style: { flex: 1 } },
-              React.createElement('div', { className: 'sidebar__title' }, 'Domain Graph'),
-              React.createElement('div', { className: 'sidebar__subtitle' }, 'Analyzer')
-            ),
-            React.createElement('button', { className: 'sidebar__collapse', onClick: function() { setSidebarCollapsed(true); }, title: 'Свернуть' }, '‹')
-          ),
-          React.createElement('div', { className: 'sidebar__body' },
-            // Overview
-            React.createElement('div', { className: 'section' },
-              React.createElement('div', { className: 'section__title' }, 'Обзор'),
-              React.createElement('div', { className: 'stats-grid' },
-                React.createElement('div', { className: 'stat-card stat-card--accent' }, React.createElement('div', { className: 'stat-card__value' }, nodes.length), React.createElement('div', { className: 'stat-card__label' }, 'Всего узлов')),
-                React.createElement('div', { className: 'stat-card stat-card--success' }, React.createElement('div', { className: 'stat-card__value' }, edges.length), React.createElement('div', { className: 'stat-card__label' }, 'Связей')),
-                React.createElement('div', { className: 'stat-card stat-card--warning' }, React.createElement('div', { className: 'stat-card__value' }, counts.missing), React.createElement('div', { className: 'stat-card__label' }, 'Missing')),
-                React.createElement('div', { className: 'stat-card stat-card--danger' }, React.createElement('div', { className: 'stat-card__value' }, counts.broken), React.createElement('div', { className: 'stat-card__label' }, 'Broken'))
-              )
-            ),
-            // Connectivity
-            React.createElement('div', { className: 'section' },
-              React.createElement('div', { className: 'section__title' }, 'Связность'),
-              React.createElement('div', { className: 'mini-stats' },
-                React.createElement('div', { className: 'mini-stat' }, React.createElement('span', { className: 'mini-stat__label' }, 'Домены'), React.createElement('span', { className: 'mini-stat__value' }, counts.domain)),
-                React.createElement('div', { className: 'mini-stat' }, React.createElement('span', { className: 'mini-stat__label' }, 'Изолированы'), React.createElement('span', { className: 'mini-stat__value' }, isolatedCount)),
-                React.createElement('div', { className: 'mini-stat' }, React.createElement('span', { className: 'mini-stat__label' }, 'Linkage'), React.createElement('span', { className: 'mini-stat__value' }, counts.linkage)),
-                React.createElement('div', { className: 'mini-stat' }, React.createElement('span', { className: 'mini-stat__label' }, 'FQID'), React.createElement('span', { className: 'mini-stat__value' }, counts.fqid)),
-                React.createElement('div', { className: 'mini-stat' }, React.createElement('span', { className: 'mini-stat__label' }, 'Циклы'), React.createElement('span', { className: 'mini-stat__value' }, cyclesInfo.sccs.length))
-              )
-            ),
-            // Top connected
-            topConnected.length > 0 && React.createElement('div', { className: 'section' },
-              React.createElement('div', { className: 'section__title' }, 'Топ по связям'),
-              React.createElement('div', { className: 'rank-list' },
-                topConnected.map(function(item, i) {
-                  return React.createElement('button', { key: item.node.id, className: 'rank-item', onClick: function() { gotoDomainByDomainId(item.node.data.domainId); }, title: item.node.data.domainId },
-                    React.createElement('span', { className: 'rank-item__num' }, i + 1),
-                    React.createElement('span', { className: 'rank-item__label' }, item.node.data.domainId),
-                    React.createElement('span', { className: 'rank-item__value' }, item.degree)
-                  );
-                })
-              )
-            ),
-            bookmarks.size > 0 && React.createElement('div', { className: 'section' },
-              React.createElement('div', { className: 'section__title' }, 'Избранное (' + bookmarks.size + ')'),
-              React.createElement('div', { className: 'rank-list' },
-                Array.from(bookmarks).slice(0, 15).map(function(id) {
-                  var n = nodes.find(function(x) { return x.id === id; });
-                  if (!n) return null;
-                  return React.createElement('button', {
-                    key: id,
-                    className: 'rank-item',
-                    onClick: function() { gotoDomainByDomainId(n.data.domainId); },
-                    title: n.data.domainId
-                  },
-                    React.createElement('span', { className: 'rank-item__num' }, React.createElement(MIcon, { name: 'star' })),
-                    React.createElement('span', { className: 'rank-item__label' }, n.data.domainId),
-                    React.createElement('button', {
-                      className: 'rank-item__value',
-                      style: { background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-500)' },
-                      onClick: function(ev) { ev.stopPropagation(); toggleBookmark(id); },
-                      title: 'Убрать из избранного'
-                    }, React.createElement(MIcon, { name: 'close' }))
-                  );
-                })
-              )
-            ),
-            // Worst health
-            worstHealth.length > 0 && React.createElement('div', { className: 'section' },
-              React.createElement('div', { className: 'section__title' }, 'Стена позора (health)'),
-              React.createElement('div', { className: 'rank-list' },
-                worstHealth.map(function(item, i) {
-                  var hc = item.health >= 80 ? 'health-good' : item.health >= 50 ? 'health-mid' : 'health-bad';
-                  return React.createElement('button', { key: item.node.id, className: 'rank-item', onClick: function() { gotoDomainByDomainId(item.node.data.domainId); }, title: item.node.data.domainId },
-                    React.createElement('span', { className: 'rank-item__num' }, i + 1),
-                    React.createElement('span', { className: 'rank-item__label' }, item.node.data.domainId),
-                    React.createElement('span', { className: 'details__badge details__badge--' + hc, style: { fontSize: 10, padding: '1px 6px' } }, item.health)
-                  );
-                })
-              )
-            ),
-            // Namespaces
-            namespaces.length > 0 && React.createElement('div', { className: 'section' },
-              React.createElement('div', { className: 'section__title' }, 'Неймспейсы'),
-              React.createElement('div', { className: 'bar-list', style: { maxHeight: 240, overflowY: 'auto' } },
-                namespaces.map(function(entry) {
-                  var ns = entry[0], count = entry[1];
-                  var max = namespaces[0][1];
-                  return React.createElement('button', { key: ns, className: 'bar-item', onClick: function() { setNamespaceFilter(ns); }, title: 'Показать ' + ns },
-                    React.createElement('span', { className: 'bar-item__label' }, ns),
-                    React.createElement('span', { className: 'bar-item__value' }, count),
-                    React.createElement('span', { className: 'bar-item__track' }, React.createElement('span', { className: 'bar-item__fill', style: { width: (count / max * 100) + '%' } }))
-                  );
-                })
-              )
-            ),
-            // Tags
-            tagCloud.length > 0 && React.createElement('div', { className: 'section' },
-              React.createElement('div', { className: 'section__title' }, 'Теги'),
-              React.createElement('div', { className: 'tag-cloud' },
-                tagCloud.map(function(entry) {
-                  var tag = entry[0], count = entry[1];
-                  return React.createElement('button', { key: tag, className: 'tag', onClick: function() { setSearchQuery(tag); openSearch(); }, title: tag + ' (' + count + ')' },
-                    tag, React.createElement('span', { className: 'tag__count' }, count)
-                  );
-                })
-              )
-            ),
-            // Legend
-            React.createElement('div', { className: 'section' },
-              React.createElement('div', { className: 'section__title' }, 'Легенда'),
-              React.createElement('div', { className: 'legend-row' }, React.createElement('span', { className: 'legend-dot', style: { background: 'var(--success)' } }), 'Domain'),
-              React.createElement('div', { className: 'legend-row' }, React.createElement('span', { className: 'legend-dot', style: { background: 'var(--warning)' } }), 'Missing'),
-              React.createElement('div', { className: 'legend-row' }, React.createElement('span', { className: 'legend-dot', style: { background: 'var(--danger)' } }), 'Broken'),
-              React.createElement('div', { className: 'legend-row' }, React.createElement('span', { className: 'legend-line', style: { background: LINKAGE_COLOR } }), 'Linkage'),
-              React.createElement('div', { className: 'legend-row' }, React.createElement('span', { className: 'legend-line', style: { background: FQID_COLOR } }), 'FQID')
-            )
-          )
-        )
-    ),
+    React.createElement(Sidebar, {
+      collapsed: sidebarCollapsed,
+      setCollapsed: setSidebarCollapsed,
+      compact: sidebarCompact,
+      setCompact: setSidebarCompact,
+      nodes: nodes,
+      edges: edges,
+      counts: counts,
+      isolatedCount: isolatedCount,
+      cyclesInfo: cyclesInfo,
+      healthMap: healthMap,
+      validationResults: validationResults,
+      topConnected: topConnected,
+      worstHealth: worstHealth,
+      namespaces: namespaces,
+      tagCloud: tagCloud,
+      bookmarks: bookmarks,
+      cacheDiff: GRAPH_DATA.cacheDiff || null,
+      tagFilters: tagFilters,
+      collapsedSections: collapsedSections,
+      toggleSection: toggleSection,
+      onGotoDomain: gotoDomainByDomainId,
+      onSetNamespace: function(ns) { setNamespaceFilter(ns); },
+      onToggleTag: toggleTagFilter,
+      onToggleBookmark: toggleBookmark,
+      setIsolatedOnly: setIsolatedOnly,
+      setOnlyInvalid: setOnlyInvalid,
+      setBookmarksOnly: setBookmarksOnly,
+      setCycleHighlight: setCycleHighlight,
+      setSelectedNodeId: setSelectedNodeId,
+      onFilterMissing: function() { setFilters(function(f) { return Object.assign({}, f, { domain: false, broken: false, missing: true }); }); },
+      onFilterBroken: function() { setFilters(function(f) { return Object.assign({}, f, { domain: false, missing: false, broken: true }); }); },
+      onFitView: function() { rfInstance.current && rfInstance.current.fitView({ duration: 500, padding: 0.15 }); },
+      onExportStats: handleExportStats,
+      topMissingRefs: topMissingRefs,
+      activityPeriod: activityPeriod,
+setActivityPeriod: setActivityPeriod,
+    }),
     React.createElement('main', { className: 'main' },
       React.createElement('div', { className: 'toolbar' },
       
         React.createElement('div', { className: 'toolbar__group' },
-          React.createElement('button', { className: 'btn btn--icon', onClick: function() { rfInstance.current && rfInstance.current.fitView({ duration: 500 }); }, title: 'Вписать (F)' }, React.createElement(MIcon, { name: 'fit_screen' })),
+          React.createElement('button', { className: 'btn btn--icon', onClick: function() { rfInstance.current && rfInstance.current.fitView({ duration: 500 }); }, title: 'Вписать (F)' }, '⛶'),
             React.createElement('button', {
               className: 'btn btn--icon',
               onClick: function() {
@@ -6208,7 +8307,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
                 setTimeout(function() { rfInstance.current && rfInstance.current.fitView({ duration: 500 }); }, 100);
               },
               title: 'Переуложить'
-            }, React.createElement(MIcon, { name: 'refresh' })),
+            }, '⟳'),
             React.createElement('button', {
               className: 'btn btn--icon',
               onClick: function() {
@@ -6223,13 +8322,43 @@ scheduleFit(!didInitialFitRef.current ? false : true);
                 setTimeout(function() { rfInstance.current && rfInstance.current.fitView({ duration: 500 }); }, 200);
               },
               title: 'Сбросить раскладку'
-            }, React.createElement(MIcon, { name: 'restart_alt' })),
-          React.createElement('button', { className: 'btn btn--icon', onClick: navBack, disabled: navStack.index <= 0, style: { opacity: navStack.index <= 0 ? 0.4 : 1 }, title: 'Назад (Alt+<span class="material-symbols-outlined mi-sm">arrow_back</span>)' }, React.createElement(MIcon, { name: 'arrow_back' })),
-          React.createElement('button', { className: 'btn btn--icon', onClick: navForward, disabled: navStack.index >= navStack.items.length - 1, style: { opacity: navStack.index >= navStack.items.length - 1 ? 0.4 : 1 }, title: 'Вперёд (Alt+→)' }, React.createElement(MIcon, { name: 'arrow_forward' }))
+            }, '↺'),
+            React.createElement('button', {
+              className: 'btn btn--icon',
+              onClick: function() {
+                if (!confirm('Сбросить все фильтры, режимы и выделения?')) return;
+                // Фильтры
+                setFilters({ domain: true, missing: true, broken: true, linkage: true, fqid: true });
+                setNamespaceFilter('');
+                setTagFilters(new Set());
+                setIsolatedOnly(false);
+                setBookmarksOnly(false);
+                setOnlyInvalid(false);
+                setHiddenNodeIds(new Set());
+                // Режимы
+                setCycleHighlight(null);
+                setFocusNode(null);
+                setPathMode(null);
+                setPathSel([]);
+                setPathResult(null);
+                setSelectedNodeId(null);
+                setSelectedEdgeId(null);
+                setDiffMode(null);
+                setRulesHighlighted(true);
+                setShowViolationsOnly(false);
+                // Layout
+                setLayoutType('LR');
+                applyLayout('LR', 0);
+                setTimeout(function() { rfInstance.current && rfInstance.current.fitView({ duration: 500, padding: 0.15 }); }, 200);
+              },
+              title: 'Сбросить всё'
+            }, React.createElement(MIcon, { name: 'restart_alt' })),  
+          React.createElement('button', { className: 'btn btn--icon', onClick: navBack, disabled: navStack.index <= 0, style: { opacity: navStack.index <= 0 ? 0.4 : 1 }, title: 'Назад (Alt+←)' }, '←'),
+          React.createElement('button', { className: 'btn btn--icon', onClick: navForward, disabled: navStack.index >= navStack.items.length - 1, style: { opacity: navStack.index >= navStack.items.length - 1 ? 0.4 : 1 }, title: 'Вперёд (Alt+→)' }, '→')
         ),
       
         React.createElement('button', { className: 'btn', onClick: openSearch, title: 'Поиск (Shift+Tab)' },
-          React.createElement('span', { className: 'btn__icon' }, React.createElement(MIcon, { name: 'search' })),
+          React.createElement('span', { className: 'btn__icon' }, '🔍'),
           'Поиск',
           React.createElement('kbd', { className: 'btn-kbd' }, '⇧ Tab')
         ),
@@ -6237,9 +8366,11 @@ scheduleFit(!didInitialFitRef.current ? false : true);
         React.createElement(Popover, {
           width: 320,
           trigger: function(open) {
-            return React.createElement('button', { className: 'btn' + (open ? ' btn--active' : '') },
-              React.createElement('span', { className: 'btn__icon' }, React.createElement(MIcon, { name: 'tune' })),
-              'Фильтры',
+            return React.createElement('button', {
+              className: 'btn' + (open || activeFiltersCount > 0 ? ' btn--active' : '')
+            },
+              React.createElement(MIcon, { name: 'tune' }),
+              React.createElement('span', { style: { marginLeft: 6 } }, 'Фильтры'),
               activeFiltersCount > 0 && React.createElement('span', { className: 'btn__badge' }, activeFiltersCount)
             );
           }
@@ -6253,6 +8384,8 @@ scheduleFit(!didInitialFitRef.current ? false : true);
             tooltipsEnabled: tooltipsEnabled, setTooltipsEnabled: setTooltipsEnabled,
             sidePanelEnabled: sidePanelEnabled,
             setSidePanelEnabled: setSidePanelEnabled,
+            focusEnabled: focusEnabled,
+            setFocusEnabled: setFocusEnabled,
             close: close,
           });
         }),
@@ -6262,7 +8395,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
           trigger: function(open) {
             var active = open || cycleHighlight || isolatedOnly || nsMode || focusNode;
             return React.createElement('button', { className: 'btn' + (active ? ' btn--active' : '') },
-              React.createElement('span', { className: 'btn__icon' }, React.createElement(MIcon, { name: 'bar_chart' })),
+              React.createElement('span', { className: 'btn__icon' }, '📊'),
               'Анализ'
             );
           }
@@ -6272,13 +8405,21 @@ scheduleFit(!didInitialFitRef.current ? false : true);
             isolatedOnly: isolatedOnly, setIsolatedOnly: setIsolatedOnly,
             nsMode: nsMode, setNsMode: setNsMode,
             focusDepth: focusDepth, setFocusDepth: setFocusDepth,
-            focusNode: focusNode, clearFocus: function() { setFocusNode(null);  },
+            focusNode: focusNode, clearFocus: function() { setFocusNode(null);setSelectedNodeId(null);
+  setSelectedEdgeId(null); },
             onOpenTopo: function() { setTopoOpen(true); },
             onOpenLearningPath: function() { setLearningPathOpen(true); },
+            onStartPathFinder: function() {
+              setPathMode({ anchorId: null });
+              setPathSel([]);
+              setPathResult(null);
+            },
             onOpenEntityHierarchy: function() {
-  setEntityHierarchyInitialKey(null);
-  setEntityHierarchyOpen(true);
-},
+              setEntityHierarchyInitialKey(null);
+              setEntityHierarchyOpen(true);
+            },
+            onOpenRules: function() { setRulesOpen(true); },       // ← добавили
+  ruleViolations: ruleViolations,
             close: close
           });
         }),
@@ -6287,7 +8428,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
           width: 300,
           trigger: function(open) {
             return React.createElement('button', { className: 'btn' + (open ? ' btn--active' : '') },
-              React.createElement('span', { className: 'btn__icon' }, React.createElement(MIcon, { name: 'palette' })),
+              React.createElement('span', { className: 'btn__icon' }, '🎨'),
               'Вид'
             );
           }
@@ -6311,7 +8452,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
           width: 260,
           trigger: function(open) {
             return React.createElement('button', { className: 'btn' + (open || diffMode ? ' btn--active' : '') },
-              React.createElement('span', { className: 'btn__icon' }, React.createElement(MIcon, { name: 'save' })),
+              React.createElement('span', { className: 'btn__icon' }, '💾'),
               'Данные'
             );
           }
@@ -6324,24 +8465,42 @@ scheduleFit(!didInitialFitRef.current ? false : true);
             handleSnapshotUpload: handleSnapshotUpload,
             diffMode: diffMode, setDiffMode: setDiffMode,
             validationAvailable: validationAvailable,
+            handleExportMermaid: handleExportMermaid,
             onOpenValidation: function() { setValidationOpen(true); },
+            snapshotA: snapshotA,
+snapshotB: snapshotB,
+onSaveA: function() { handleSaveSnapshot('A'); },
+onSaveB: function() { handleSaveSnapshot('B'); },
+onLoadA: function() { handleLoadSnapshot('A'); },
+onLoadB: function() { handleLoadSnapshot('B'); },
+onClearA: function() { handleClearSnapshot('A'); },
+onClearB: function() { handleClearSnapshot('B'); },
             close: close
           });
         }),
       
         React.createElement('div', { className: 'toolbar__spacer' }),
+
+        REMOTE_INFO && REMOTE_INFO.server && REMOTE_INFO.fetchedAt && React.createElement('div', {
+          className: 'toolbar__cache',
+          title: 'Источник: ' + REMOTE_INFO.server + '\nОбновлён: ' + new Date(REMOTE_INFO.fetchedAt).toLocaleString('ru-RU'),
+          onClick: function() { setToastVisible(true); }
+        },
+          React.createElement(MIcon, { name: 'database', size: 'sm' }),
+          React.createElement('span', null, 'Получено ' + relativeTime(REMOTE_INFO.fetchedAt))
+        ),
       
         React.createElement('button', {
           className: 'btn btn--icon',
           onClick: function() { setHotkeysOpen(true); },
           title: 'Горячие клавиши (?)'
-        }, React.createElement(MIcon, { name: 'keyboard' })),
+        }, '⌨️'),
 
         React.createElement('button', {
           className: 'btn btn--icon',
           onClick: function() { setHelpOpen(true); },
           title: 'Руководство пользователя (F1)'
-        }, React.createElement(MIcon, { name: 'menu_book' })),
+        }, '📖'),
       
         React.createElement('div', { className: 'toolbar__stats' },
           visibleNodes.length + ' / ' + nodes.length + ' узлов · ' + visibleEdges.length + ' / ' + edges.length + ' связей'
@@ -6353,6 +8512,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
           React.createElement(ReactFlowInner, {
             nodes: visibleNodes,
             edges: displayEdges,
+            setRfInstance: setRfInstance,
             onNodesChange: onNodesChange,
             onEdgesChange: onEdgesChange,
             onEdgeClick: handleEdgeClick,
@@ -6369,13 +8529,32 @@ scheduleFit(!didInitialFitRef.current ? false : true);
             readOnly: nsMode,
             perfMode: perfMode,
           }),
-          (layoutType === 'cluster' || layoutType === 'folder') && clusterBoxes.length > 0 && React.createElement(GroupsOverlay, {
+          (layoutType === 'cluster' || layoutType === 'folder' || topoLevelMap) && clusterBoxes.length > 0 && React.createElement(GroupsOverlay, {
             boxes: clusterBoxes
           })
         ),
         visibleNodes.length === 0 && React.createElement('div', { className: 'empty-state' },
+          React.createElement('div', { className: 'empty-state__icon' },
+            React.createElement(MIcon, { name: 'search_off', size: 'xl' })
+          ),
           React.createElement('div', { className: 'empty-state__title' }, 'Ничего не найдено'),
-          React.createElement('div', { className: 'empty-state__text' }, 'Измените фильтры')
+          React.createElement('div', { className: 'empty-state__text' },
+            'Под текущие фильтры не подходит ни один домен.'
+          ),
+          React.createElement('div', { className: 'empty-state__actions' },
+            namespaceFilter && React.createElement('button', {
+              className: 'btn',
+              onClick: function() { setNamespaceFilter(''); }
+            }, 'Сбросить namespace'),
+            tagFilters.size > 0 && React.createElement('button', {
+              className: 'btn',
+              onClick: function() { setTagFilters(new Set()); }
+            }, 'Сбросить теги'),
+            React.createElement('button', {
+              className: 'btn btn--primary',
+              onClick: function() { /* reset all, см. п.2 */ }
+            }, 'Сбросить всё')
+          )
         ),
         React.createElement(SidePanel, {
           open: panelOpen, tab: panelTab, setTab: setPanelTab,
@@ -6403,7 +8582,7 @@ scheduleFit(!didInitialFitRef.current ? false : true);
             React.createElement('span', null, heatmapValues.min),
             React.createElement('span', null, heatmapValues.max)
           ),
-          React.createElement('button', { className: 'heat-legend__close', onClick: function() { setHeatmap('none'); } }, React.createElement(MIcon, { name: 'close' }))
+          React.createElement('button', { className: 'heat-legend__close', onClick: function() { setHeatmap('none'); } }, '✕')
         )
       )
     ),
@@ -6471,13 +8650,37 @@ React.createElement(TourOverlay, {
 }),
     React.createElement(ContextMenu, { menu: contextMenu, onClose: function() { setContextMenu(null); }, onAction: handleContextAction }),
     toastVisible && REMOTE_INFO && REMOTE_INFO.fromCache && React.createElement(Toast, {
-      message: '<span class="material-symbols-outlined mi-sm">inventory_2</span> Граф построен из <b>кэша</b>'
+      message: '📦 Граф построен из <b>кэша</b>'
         + (REMOTE_INFO.fetchedAt ? ' (от ' + new Date(REMOTE_INFO.fetchedAt).toLocaleString('ru-RU') + ')' : '')
         + '. Данные могут быть устаревшими.',
       actions: REFRESH_COMMAND ? [{ command: REFRESH_COMMAND }] : [],
-      duration: 30000,
+      duration: 15000,
       onClose: function() { setToastVisible(false); }
-    })
+    }),
+    rulesOpen && React.createElement('div', { className: 'help-overlay', onMouseDown: function() { setRulesOpen(false); } },
+  React.createElement('div', { className: 'help-modal rules-modal', onMouseDown: function(e) { e.stopPropagation(); } },
+    React.createElement('div', { className: 'help-modal__header' },
+      React.createElement('div', { className: 'help-modal__title' },
+        'Правила зависимостей',
+        ruleViolations.length > 0 && React.createElement('span', { className: 'help-modal__badge' }, ruleViolations.length)
+      ),
+      React.createElement('button', { className: 'help-modal__close', onClick: function() { setRulesOpen(false); } }, '✕')
+    ),
+    rulesOpen && React.createElement(RulesModal, {
+  open: rulesOpen,
+  onClose: function() { setRulesOpen(false); },
+  rules: rules,
+  setRules: setRules,
+  violations: ruleViolations,
+  rulesHighlighted: rulesHighlighted,
+  setRulesHighlighted: setRulesHighlighted,
+  showViolationsOnly: showViolationsOnly,
+  setShowViolationsOnly: setShowViolationsOnly,
+  onGotoDomain: gotoDomainByDomainId
+}),
+React.createElement(Snackbar, { snackbar: snackbar }),
+  )
+),
   );
 }
 

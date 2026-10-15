@@ -173,20 +173,46 @@ async function apiFetchFolders(apiUrl, token, tenantId, rejectUnauthorized) {
 
 async function apiFetchExpertises(apiUrl, token, tenantId, rootFolderId, rejectUnauthorized) {
   const query =
-      'query expertises($filter: ExpertisesFilter, $pagination: PaginationInput, $sorting: ExpertisesSorting, $organizationIds: [String!]!) {\n' +
-      '  expertises(filter: $filter, pagination: $pagination, sorting: $sorting, organizationIds: $organizationIds) {\n' +
-      '    expertises {\n' +
-      '      id\n' +
-      '      sourceId\n' +
-      '      folderId\n' +
-      '      type\n' +
-      '      name\n' +
-      '      status\n' +
-      '      version\n' +
-      '    }\n' +
-      '    pageInfo { pagination { limit offset } totalCount }\n' +
-      '  }\n' +
-      '}';
+    'query expertises($filter: ExpertisesFilter, $pagination: PaginationInput, $sorting: ExpertisesSorting, $organizationIds: [String!]!) {\n' +
+    '  expertises(\n' +
+    '    filter: $filter\n' +
+    '    pagination: $pagination\n' +
+    '    sorting: $sorting\n' +
+    '    organizationIds: $organizationIds\n' +
+    '  ) {\n' +
+    '    expertises {\n' +
+    '      id\n' +
+    '      sourceId\n' +
+    '      folderId\n' +
+    '      type\n' +
+    '      name\n' +
+    '      objectType\n' +
+    '      dataSource\n' +
+    '      description\n' +
+    '      draft\n' +
+    '      author\n' +
+    '      status\n' +
+    '      tags\n' +
+    '      version\n' +
+    '      severity\n' +
+    '      createdAt\n' +
+    '      updatedAt\n' +
+    '      updater {\n' +
+    '        id\n' +
+    '        displayName\n' +
+    '      }\n' +
+    '      organization {\n' +
+    '        id\n' +
+    '        name\n' +
+    '      }\n' +
+    '    }\n' +
+    '    pageInfo {\n' +
+    '      pagination { limit offset }\n' +
+    '      totalCount\n' +
+    '    }\n' +
+    '  }\n' +
+    '}';
+
   const res = await httpPost(apiUrl, {
     operationName: 'expertises',
     variables: {
@@ -204,10 +230,32 @@ async function apiFetchExpertises(apiUrl, token, tenantId, rootFolderId, rejectU
     'Authorization': 'Bearer ' + token,
     'x-tenant-id': tenantId
   }, rejectUnauthorized);
+
   if (res.status !== 200) throw new Error('HTTP ' + res.status);
+
   const data = res.json && res.json.data && res.json.data.expertises;
   if (!data) throw new Error('Некорректный ответ');
-  return data.expertises || [];
+
+  return (data.expertises || []).map(function(d) {
+    // Нормализуем поля — чтобы на выходе был единый контракт
+    return {
+      id: d.id,
+      sourceId: d.sourceId,
+      folderId: d.folderId,
+      type: d.type,
+      name: d.name || '',
+      status: d.status,
+      version: d.version || '',
+      description: d.description || '',
+      author: d.author || '',
+      tags: Array.isArray(d.tags) ? d.tags : [],
+      createdAt: d.createdAt || null,
+      updatedAt: d.updatedAt || null,
+      objectType: d.objectType || null,
+      updater: d.updater ? { id: d.updater.id, displayName: d.updater.displayName } : null,
+      organization: d.organization ? { id: d.organization.id, name: d.organization.name } : null
+    };
+  });
 }
 
 async function apiFetchExpertiseSource(apiUrl, token, tenantId, id, rejectUnauthorized) {
@@ -292,6 +340,17 @@ async function prepareRemoteCache(serverUrl, username, password, opts) {
   const baseDir = __dirname;
   const cacheDir = getCachePath(baseDir, serverUrl);
   const completeFlag = path.join(cacheDir, '.complete');
+
+  const currentIndexPath = path.join(cacheDir, '_index.json');
+  const previousIndexPath = path.join(cacheDir, '_index_previous.json');
+
+  // Сохраняем предыдущий index перед перезаписью
+  if (fs.existsSync(currentIndexPath)) {
+    try {
+      fs.copyFileSync(currentIndexPath, previousIndexPath);
+       console.log('📸 Сохранён предыдущий снимок перед refresh');
+    } catch (e) {}
+  }
 
   if (opts.resetCache) {
     if (fs.existsSync(cacheDir)) {
@@ -378,7 +437,22 @@ async function prepareRemoteCache(serverUrl, username, password, opts) {
     rootFolderId: rootFolder.id,
     folders: folders,
     domains: domains.map(function(d) {
-      return { id: d.id, sourceId: d.sourceId, folderId: d.folderId, name: d.name, status: d.status, version: d.version };
+      return {
+        id: d.id,
+        sourceId: d.sourceId,
+        folderId: d.folderId,
+        type: d.type,
+        name: d.name,
+        status: d.status,
+        version: d.version,
+        description: d.description,
+        author: d.author,
+        tags: Array.isArray(d.tags) ? d.tags : [],
+        createdAt: d.createdAt || null,
+        updatedAt: d.updatedAt || null,
+        objectType: d.objectType || null,
+        updater: d.updater ? { displayName: d.updater.displayName, id: d.updater.id } : null
+      };
     })
   }, null, 2), 'utf8');
 
@@ -465,6 +539,8 @@ class DomainGraphAnalyzer {
     this.brokenDomains = new Map();
     this.missingDomains = new Set();
     this.fqidReferences = [];
+    this.metadata = new Map(); 
+    this.loadMetadata();    
     this.stats = {
       totalFiles: 0,
       processedFiles: 0,
@@ -475,6 +551,94 @@ class DomainGraphAnalyzer {
       fqidReferences: 0
     };
   }
+
+  loadMetadata() {
+    try {
+      const indexPath = path.join(this.rootDir, '_index.json');
+      if (!fs.existsSync(indexPath)) return;
+      const idx = JSON.parse(fs.readFileSync(indexPath, 'utf8'));
+      (idx.domains || []).forEach((d) => {
+        if (!d.sourceId) return;
+        this.metadata.set(d.sourceId.toLowerCase(), {
+          updatedAt: d.updatedAt || null,
+          createdAt: d.createdAt || null,
+          author: d.author || null,
+          description: d.description || null,
+          tags: Array.isArray(d.tags) ? d.tags : [],
+          version: d.version || null
+        });
+      });
+    } catch (e) {
+      // Работает и без метаданных
+    }
+  }
+
+
+  collectCacheDiff() {
+  const current = path.join(this.rootDir, '_index.json');
+  const previous = path.join(this.rootDir, '_index_previous.json');
+  if (!fs.existsSync(current) || !fs.existsSync(previous)) return null;
+
+  try {
+    const cur = JSON.parse(fs.readFileSync(current, 'utf8'));
+    const prev = JSON.parse(fs.readFileSync(previous, 'utf8'));
+
+    const curMap = new Map((cur.domains || []).map(d => [d.sourceId, d]));
+    const prevMap = new Map((prev.domains || []).map(d => [d.sourceId, d]));
+
+    const added = [];
+    const removed = [];
+    const changed = [];
+
+    for (const [id, d] of curMap) {
+      if (!prevMap.has(id)) {
+        added.push({
+          sourceId: id,
+          name: d.name,
+          version: d.version,
+          tags: d.tags || []
+        });
+      } else {
+        const p = prevMap.get(id);
+        const changes = [];
+        if (p.version !== d.version) {
+          changes.push({ field: 'version', from: p.version, to: d.version });
+        }
+        if (p.name !== d.name) {
+          changes.push({ field: 'name', from: p.name, to: d.name });
+        }
+        if (JSON.stringify(p.tags || []) !== JSON.stringify(d.tags || [])) {
+          changes.push({
+            field: 'tags',
+            from: (p.tags || []).join(', '),
+            to: (d.tags || []).join(', ')
+          });
+        }
+        if (changes.length > 0) {
+          changed.push({
+            sourceId: id,
+            name: d.name,
+            version: d.version,
+            changes: changes
+          });
+        }
+      }
+    }
+    for (const [id, d] of prevMap) {
+      if (!curMap.has(id)) {
+        removed.push({ sourceId: id, name: d.name, version: d.version });
+      }
+    }
+
+    return {
+      previousFetchedAt: prev.fetchedAt || null,
+      currentFetchedAt: cur.fetchedAt || null,
+      added,
+      removed,
+      changed
+    };
+  } catch (e) { return null; }
+}
 
   getAllEntities() {
     var result = [];
@@ -713,35 +877,63 @@ class DomainGraphAnalyzer {
     const edgesMap = new Map();
 
     for (const [domainId, domainData] of this.domains) {
-      const nodeId = `domain_${domainId}`;
-      if (!nodesMap.has(nodeId)) {
-        const raw = domainData.rawData || {};
-        // Извлекаем путь относительно rootDir
-        let folderPath = [];
-        try {
-          const relPath = path.relative(this.rootDir, domainData.filePath);
-          const dir = path.dirname(relPath);
-          folderPath = dir.split(path.sep).filter(function(p) { return p && p !== '.'; });
-        } catch (e) { /* ignore */ }
+  const nodeId = `domain_${domainId}`;
+  if (!nodesMap.has(nodeId)) {
+    const raw = domainData.rawData || {};
+    const meta = this.metadata.get(domainId.toLowerCase()) || {};
 
-        nodesMap.set(nodeId, {
-          id: nodeId,
-          label: domainData.name,
-          domainId: domainId,
-          title: this.buildTooltip(domainData),
-          group: 'domain',
-          filePath: domainData.filePath,
-          folderPath: folderPath, 
-          fqidRefs: domainData.fqidRefs,
-          version: domainData.version,
-          entitiesCount: domainData.entities.size,
-          name: domainData.name || '',
-          description: raw.description || '',
-          author: raw.author || '',
-          tags: Array.isArray(raw.tags) ? raw.tags.slice() : (raw.tags ? [String(raw.tags)] : [])
-        });
-      }
-    }
+    let folderPath = [];
+    try {
+      const relPath = path.relative(this.rootDir, domainData.filePath);
+      const dir = path.dirname(relPath);
+      folderPath = dir.split(path.sep).filter(function(p) { return p && p !== '.'; });
+    } catch (e) {}
+
+    // Fallback: mtime файла, если нет метаданных из GraphQL
+    let fallbackUpdatedAt = null;
+    let fallbackCreatedAt = null;
+    try {
+      const stat = fs.statSync(domainData.filePath);
+      fallbackUpdatedAt = stat.mtime.toISOString();
+      fallbackCreatedAt = stat.birthtime && stat.birthtime.getTime() > 0
+        ? stat.birthtime.toISOString()
+        : null;
+    } catch (e) { /* файл недоступен */ }
+
+    const updatedAt = meta.updatedAt || fallbackUpdatedAt;
+    const updatedAtSource = meta.updatedAt ? 'graphql' : (fallbackUpdatedAt ? 'fs' : null);
+
+    const createdAt = meta.createdAt || fallbackCreatedAt;
+    const createdAtSource = meta.createdAt ? 'graphql' : (fallbackCreatedAt ? 'fs' : null);
+
+    nodesMap.set(nodeId, {
+      id: nodeId,
+      label: domainData.name,
+      domainId: domainId,
+      title: this.buildTooltip(domainData),
+      group: 'domain',
+      filePath: domainData.filePath,
+      folderPath: folderPath,
+      fqidRefs: domainData.fqidRefs,
+      version: meta.version || domainData.version || '',
+      entitiesCount: domainData.entities.size,
+      name: domainData.name || '',
+      description: raw.description || meta.description || '',
+      author: raw.author || meta.author || '',
+      tags: Array.isArray(raw.tags) ? raw.tags
+        : (raw.tags ? [String(raw.tags)]
+        : (meta.tags || [])),
+
+      updatedAt: updatedAt,
+      updatedAtSource: updatedAtSource,
+      createdAt: createdAt,
+      createdAtSource: createdAtSource,
+
+      // Опционально: если meta.version есть, но не отличается от YAML — можно сохранить источник версии
+      metaAuthor: meta.author || null
+    });
+  }
+}
 
     for (const missingDomain of this.missingDomains) {
       if (this.findDomainCaseInsensitive(missingDomain)) continue;
@@ -784,7 +976,8 @@ class DomainGraphAnalyzer {
       fqidReferences: this.fqidReferences,
       missingCount: this.missingDomains.size,
       brokenCount: this.brokenDomains.size,
-      entities: this.getAllEntities()
+      entities: this.getAllEntities(),
+      cacheDiff: this.collectCacheDiff(),
     };
   }
 
@@ -1213,6 +1406,7 @@ class DomainGraphAnalyzer {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Domain Graph Analyzer</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='8' cy='8' r='4' fill='%236366f1'/%3E%3Ccircle cx='24' cy='8' r='4' fill='%2310b981'/%3E%3Ccircle cx='16' cy='24' r='4' fill='%23f59e0b'/%3E%3Cpath d='M8 8 L24 8 M8 8 L16 24 M24 8 L16 24' stroke='%236366f1' stroke-width='1.5' fill='none'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0,0&display=swap">
@@ -1222,10 +1416,9 @@ class DomainGraphAnalyzer {
   "imports": {
     "react": "https://esm.sh/react@18.2.0",
     "react/": "https://esm.sh/react@18.2.0/",
-    "react-dom": "https://esm.sh/react-dom@18.2.0",
+    "react-dom": "https://esm.sh/react-dom@18.2.0?external=react",
     "react-dom/": "https://esm.sh/react-dom@18.2.0/",
     "reactflow": "https://esm.sh/reactflow@11.11.4?external=react,react-dom",
-    "reactflow/": "https://esm.sh/reactflow@11.11.4/",
     "dagre": "https://esm.sh/dagre@0.8.5"
   }
 }
@@ -1362,7 +1555,7 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Robo
 .sidebar__body::-webkit-scrollbar { width: 6px; }
 .sidebar__body::-webkit-scrollbar-thumb { background: var(--bg-600); border-radius: 3px; }
 .section { margin-bottom: 20px; }
-.section__title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--text-500); margin-bottom: 10px; }
+.section__title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--text-500); }
 .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .stat-card { background: var(--bg-800); border: 1px solid var(--border); border-radius: 10px; padding: 12px; transition: all 0.2s; }
 .stat-card:hover { border-color: var(--border-hover); }
@@ -1437,9 +1630,9 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Robo
 .react-flow__edge-text { fill: var(--text-400); font-size: 10px; font-family: inherit; opacity: 0; transition: opacity 0.15s; }
 .react-flow__edge-textbg { fill: var(--bg-850); stroke: var(--border); stroke-width: 1; opacity: 0; transition: opacity 0.15s; }
 .react-flow__edge:hover .react-flow__edge-text,
-.react-flow__edge:hover .react-flow__edge-textbg { opacity: 1; }
-.show-labels .react-flow__edge-text,
-.show-labels .react-flow__edge-textbg { opacity: 1; }
+.react-flow__edge:hover .react-flow__edge-textbg { opacity: 1 !important; }
+.graph-container.show-labels .react-flow__edge-text,
+.graph-container.show-labels .react-flow__edge-textbg { opacity: 1 !important; }
 
 /* Nodes */
 .rf-node { position: relative; display: flex; align-items: center; gap: 10px; width: 100%; height: 100%; padding: 10px 14px; border-radius: 10px; background: var(--bg-800); border: 1.5px solid var(--border); transition: all 0.2s; cursor: pointer; overflow: hidden; }
@@ -1498,7 +1691,7 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Robo
 .details__field-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-500); font-weight: 700; margin-bottom: 4px; }
 .details__field-value { font-size: 13px; color: var(--text-200); line-height: 1.5; word-break: break-word; }
 .details__tags { display: flex; flex-wrap: wrap; gap: 5px; }
-.details__refs { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.details__refs { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; max-height: 260px; overflow-y: auto; }
 .details__ref { padding: 6px 8px; background: var(--bg-800); border-left: 2px solid var(--accent); border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-200); word-break: break-all; cursor: pointer; transition: all 0.15s; }
 .details__ref:hover { background: var(--bg-700); border-left-color: var(--accent-hover); }
 .details__ref-path { font-size: 10px; color: var(--text-500); margin-top: 2px; }
@@ -1608,7 +1801,7 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Robo
 .diff-legend__close:hover { background: var(--bg-700); color: var(--text-200); }
 .diff-legend__scope { font-size: 10px; color: var(--text-500); padding: 2px 6px; background: var(--bg-700); border-radius: 4px; font-family: 'JetBrains Mono', monospace; }
 
-.empty-state { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: var(--text-500); pointer-events: none; }
+.empty-state { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: var(--text-500); z-index: 5; }
 .empty-state__title { font-size: 16px; color: var(--text-400); margin-bottom: 6px; }
 .empty-state__text { font-size: 13px; }
 
@@ -2207,9 +2400,6 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Robo
 .topo-cyclic__body { padding: 10px 14px; display: flex; flex-wrap: wrap; gap: 10px; }
 
 .topo-badge {
-  position: absolute;
-  top: -8px;
-  right: -8px;
   padding: 1px 6px;
   background: linear-gradient(135deg, var(--accent), #8b5cf6);
   color: #fff;
@@ -2447,12 +2637,6 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Robo
 .graph-container.perf-mode .rf-node:hover {
   transform: none !important;
   box-shadow: none !important;
-}
-.graph-container.perf-mode .rf-node__icon {
-  display: none;
-}
-.graph-container.perf-mode .rf-node__name {
-  display: none;
 }
 .graph-container.perf-mode .rf-node {
   box-shadow: none !important;
@@ -3464,6 +3648,921 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Robo
 .material-symbols-outlined.mi-fill {
   font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
 }   
+  .side-panel__pane {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+  .rules-modal {
+  width: 720px;
+  max-width: 92vw;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+.rules-modal__body {
+  padding: 16px 24px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Форма */
+.rules-form {
+  background: var(--bg-800);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 20px;
+}
+.rules-form__label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-500);
+  margin-bottom: 10px;
+}
+.rules-form__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.rules-form__input {
+  flex: 1;
+  padding: 8px 12px;
+  background: var(--bg-750);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-100);
+  font-size: 13px;
+  font-family: 'JetBrains Mono', monospace;
+  outline: none;
+}
+.rules-form__input:focus { border-color: var(--accent); }
+.rules-form__select {
+  padding: 8px 12px;
+  background: var(--bg-750);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-100);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+.rules-form__arrow {
+  color: var(--accent-hover);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+.rules-form__hint {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-500);
+  line-height: 1.6;
+}
+.rules-form__hint code {
+  background: var(--bg-750);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  color: var(--accent-hover);
+}
+.rules-form__hint b {
+  color: var(--accent-hover);
+  background: var(--bg-750);
+  padding: 0 4px;
+  border-radius: 3px;
+}
+
+/* Список правил */
+.rules-list { margin-bottom: 20px; }
+.rules-list__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.rules-list__clear {
+  background: transparent;
+  border: none;
+  color: var(--text-500);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-family: inherit;
+}
+.rules-list__clear:hover { background: var(--bg-700); color: var(--danger); }
+.rules-list__empty {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-500);
+  font-size: 13px;
+}
+
+.rules-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg-800);
+  border-radius: 8px;
+  margin-bottom: 6px;
+  border-left: 3px solid var(--border);
+}
+.rules-item--warn { border-left-color: var(--warning); }
+.rules-item--forbid { border-left-color: var(--danger); }
+
+.rules-item__action {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: inherit;
+  transition: all 0.15s;
+}
+.rules-item__action--warn { background: rgba(245, 158, 11, 0.15); color: var(--warning); }
+.rules-item__action--forbid { background: rgba(239, 68, 68, 0.15); color: var(--danger); }
+.rules-item__action:hover { transform: scale(1.05); }
+
+.rules-item__body { flex: 1; min-width: 0; }
+.rules-item__pattern {
+  font-size: 13px;
+  color: var(--text-100);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rules-item__pattern code {
+  background: var(--bg-750);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color: var(--accent-hover);
+}
+.rules-item__arrow { color: var(--text-500); }
+.rules-item__message { font-size: 11px; color: var(--text-500); margin-top: 2px; }
+
+.rules-item__remove {
+  background: transparent;
+  border: none;
+  color: var(--text-500);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+}
+.rules-item__remove:hover { background: var(--bg-700); color: var(--danger); }
+
+/* Toggles */
+.rules-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+.rules-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-200);
+  padding: 4px 0;
+}
+.rules-toggle input { display: none; }
+.rules-toggle__check {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1.5px solid var(--border-hover);
+  background: var(--bg-750);
+  position: relative;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+.rules-toggle input:checked + .rules-toggle__check {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.rules-toggle input:checked + .rules-toggle__check::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 5px;
+  height: 9px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+/* Список нарушений */
+.rules-violations { margin-bottom: 8px; }
+.rules-violations__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.rules-violations__list::-webkit-scrollbar { width: 6px; }
+.rules-violations__list::-webkit-scrollbar-thumb { background: var(--bg-600); border-radius: 3px; }
+
+.rules-violation {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--bg-800);
+  border-radius: 6px;
+  font-size: 12px;
+  border-left: 2px solid var(--border);
+}
+.rules-violation--warn { border-left-color: var(--warning); }
+.rules-violation--forbid { border-left-color: var(--danger); }
+.rules-violation__from,
+.rules-violation__to {
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--accent-hover);
+  cursor: pointer;
+  text-decoration: underline dotted;
+}
+.rules-violation__from:hover,
+.rules-violation__to:hover { text-decoration: underline; }
+.rules-violation__arrow { color: var(--text-500); }
+.rules-violation__message {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-500);
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rules-violations__more {
+  font-size: 11px;
+  color: var(--text-500);
+  padding: 8px;
+  text-align: center;
+}
+
+/* Footer */
+.rules-modal__footer {
+  padding: 12px 24px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-800);
+  flex-shrink: 0;
+}
+.rules-modal__stats {
+  font-size: 12px;
+  color: var(--text-500);
+}
+.rules-modal__stats--err { color: var(--danger); }
+
+/* Light theme */
+[data-theme="light"] .rules-form { background: #f8fafc; }
+[data-theme="light"] .rules-item { background: #ffffff; }
+[data-theme="light"] .rules-violation { background: #ffffff; }
+[data-theme="light"] .rules-form__input,
+[data-theme="light"] .rules-form__select { background: #ffffff; }
+.tag--active {
+  background: var(--accent-soft) !important;
+  border-color: var(--accent) !important;
+  color: var(--accent-hover) !important;
+}
+  .details__field-label--btn {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--text-500);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 700;
+  padding: 4px 0;
+  cursor: pointer;
+  font-family: inherit;
+  transition: color 0.15s;
+}
+.details__field-label--btn:hover { color: var(--accent-hover); }
+.details__field-count {
+  margin-left: auto;
+  padding: 1px 6px;
+  background: var(--bg-700);
+  border-radius: 8px;
+  color: var(--text-500);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0;
+}
+  .tag--active {
+  background: var(--accent-soft) !important;
+  border-color: var(--accent) !important;
+  color: var(--accent-hover) !important;
+}
+
+.tooltip__fqid-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 4px;
+  margin-right: -4px;
+}
+.tooltip__fqid-list::-webkit-scrollbar { width: 6px; }
+.tooltip__fqid-list::-webkit-scrollbar-thumb { background: var(--bg-600); border-radius: 3px; }
+
+.tooltip__ref {
+  padding: 8px 10px;
+  background: var(--bg-750);
+  border-radius: 6px;
+  border-left: 2px solid var(--accent);
+}
+
+.tooltip__fqid {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--accent-hover);
+  margin-bottom: 6px;
+  word-break: break-all;
+}
+
+/* Контекст: откуда → куда */
+.tooltip__ref-context {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+.tooltip__ref-arrow {
+  color: var(--text-500);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+.tooltip__ref-node {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  background: var(--bg-800);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-400);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+  max-width: 180px;
+  min-width: 0;
+}
+.tooltip__ref-node:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-hover);
+}
+.tooltip__ref-node-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: 'JetBrains Mono', monospace;
+}
+.tooltip__ref-node .material-symbols-outlined {
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.tooltip__path {
+  font-size: 10px;
+  color: var(--text-500);
+  font-family: 'JetBrains Mono', monospace;
+  margin-bottom: 6px;
+  word-break: break-all;
+}
+.empty-state__icon { color: var(--text-500); margin-bottom: 12px; }
+.empty-state__actions {
+  display: flex; gap: 8px; margin-top: 16px;
+  justify-content: center; flex-wrap: wrap;
+}  
+.search-result__fqid-block {
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: rgba(99, 102, 241, 0.06);
+  border-left: 2px solid var(--accent);
+  border-radius: 4px;
+}
+.search-result__fqid-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--accent-hover);
+  margin-bottom: 4px;
+}
+.search-result__fqid-head .material-symbols-outlined {
+  font-size: 12px;
+}
+.search-result__fqid-item {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text-200);
+  padding: 2px 0;
+  word-break: break-all;
+}
+.search-result__fqid-path {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 10px;
+  color: var(--text-500);
+  font-family: 'JetBrains Mono', monospace;
+}
+.search-result__fqid-more {
+  font-size: 10px;
+  color: var(--text-500);
+  font-style: italic;
+  margin-top: 2px;
+}  
+  .sidebar__icon-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-500);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  transition: all 0.15s;
+}
+.sidebar__icon-btn:hover {
+  background: var(--bg-700);
+  color: var(--accent-hover);
+}
+
+.section {
+  margin-bottom: 6px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.section__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  color: var(--text-400);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  transition: all 0.15s;
+  text-align: left;
+}
+.section__header:hover {
+  background: var(--bg-800);
+  color: var(--text-200);
+}
+.section__icon {
+  color: var(--accent-hover);
+  display: flex;
+  align-items: center;
+}
+.section__title { flex: 1; }
+.section__badge {
+  padding: 1px 6px;
+  background: var(--bg-700);
+  border-radius: 8px;
+  font-size: 10px;
+  color: var(--text-500);
+  font-weight: 700;
+}
+.section__body { padding: 4px 0 10px; }
+
+/* Быстрые действия */
+.quick-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 8px;
+}
+.quick-action {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--bg-800);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-300);
+  font-size: 11px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+  text-align: left;
+  min-width: 0;
+}
+.quick-action:hover:not(:disabled) {
+  background: var(--bg-700);
+  border-color: var(--accent);
+  color: var(--accent-hover);
+}
+.quick-action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.quick-action__count {
+  margin-left: auto;
+  padding: 1px 6px;
+  background: var(--bg-700);
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Проблемы */
+.problems-group { margin-bottom: 10px; }
+.problems-group:last-child { margin-bottom: 0; }
+.problems-group__title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-400);
+  margin-bottom: 4px;
+  padding: 0 4px;
+}
+.problems-group__action {
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--accent-hover);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  font-weight: 500;
+}
+.problems-group__action:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+/* Что нового */
+.news-since {
+  font-size: 10px;
+  color: var(--text-500);
+  padding: 0 4px 8px;
+  font-style: italic;
+}
+
+/* Клик по карточке */
+.stat-card--clickable {
+  cursor: pointer;
+}
+.stat-card--clickable:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+.stat-card--empty {
+  opacity: 0.5;
+}
+
+/* Удаление из избранного */
+.rank-item__remove {
+  background: transparent;
+  border: none;
+  color: var(--text-500);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  display: flex;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.rank-item:hover .rank-item__remove { opacity: 1; }
+.rank-item__remove:hover { color: var(--danger); background: var(--bg-700); }
+
+/* Компактный режим */
+.sidebar--compact .stat-card__value { font-size: 16px; }
+.sidebar--compact .stat-card__label { font-size: 9px; }
+.sidebar--compact .section__body { padding: 2px 0 6px; }
+.sidebar--compact .rank-item { padding: 4px 6px; font-size: 11px; }
+.sidebar--compact .rank-item__num { display: none; }
+.sidebar--compact .quick-actions { grid-template-columns: 1fr; }
+.sidebar--compact .tag-cloud { gap: 3px; }
+.sidebar--compact .tag { font-size: 10px; padding: 2px 6px; }
+
+/* Секции со сворачиванием */
+.section--collapsed .section__body { display: none; }
+
+/* Legacy совместимость */
+.section__title {
+  /* раньше был просто .section__title — оставлено для совместимости */
+}
+  .activity-chart {
+  padding: 4px 4px 0;
+}
+.activity-chart__bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 60px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 2px;
+}
+.activity-chart__bar {
+  flex: 1;
+  background: linear-gradient(180deg, var(--accent-hover) 0%, var(--accent) 100%);
+  border-radius: 2px 2px 0 0;
+  min-height: 2px;
+  transition: all 0.15s;
+  cursor: help;
+}
+.activity-chart__bar:hover {
+  background: var(--accent-hover);
+  filter: brightness(1.3);
+}
+.activity-chart__bar--today {
+  background: linear-gradient(180deg, #10b981 0%, #059669 100%);
+}
+.activity-chart__legend {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  color: var(--text-500);
+  margin-top: 6px;
+  padding: 0 2px;
+}
+  .missing-ref-item {
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.missing-ref-item:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+.missing-ref-targets {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 4px 0 24px;
+}
+.missing-ref-target {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--warning);
+  opacity: 0.85;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.missing-ref-target .material-symbols-outlined {
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.missing-ref-target--more {
+  color: var(--text-500);
+  font-style: italic;
+  padding-left: 14px;
+}
+  .news-more {
+  font-size: 10px;
+  color: var(--text-500);
+  padding: 6px 4px;
+  text-align: center;
+  font-style: italic;
+}
+
+.news-changed-item {
+  margin-bottom: 4px;
+  padding: 0 0 4px;
+}
+.news-changes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 6px 4px 26px;
+}
+.news-change {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-500);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.news-change__field {
+  color: var(--text-400);
+  min-width: 60px;
+}
+.news-change__from {
+  color: var(--danger);
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+.news-change__to {
+  color: var(--success);
+  font-weight: 600;
+}
+.news-change .material-symbols-outlined {
+  font-size: 10px;
+  color: var(--text-500);
+  flex-shrink: 0;
+}
+  .section__periods {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+.period-btn {
+  padding: 2px 6px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-500);
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.period-btn:hover {
+  background: var(--bg-700);
+  color: var(--text-200);
+}
+.period-btn--active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-hover);
+}
+  /* Снимки в DataMenu */
+.snap-slot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin: 2px 6px;
+  background: var(--bg-750);
+}
+.snap-slot__info {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.snap-slot__badge {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+}
+.snap-slot__badge--a { background: #6366f1; }
+.snap-slot__badge--b { background: #10b981; }
+.snap-slot__meta { min-width: 0; }
+.snap-slot__time {
+  font-size: 12px;
+  color: var(--text-200);
+  font-weight: 500;
+}
+.snap-slot__stats {
+  font-size: 10px;
+  color: var(--text-500);
+  font-family: 'JetBrains Mono', monospace;
+  margin-top: 2px;
+}
+.snap-slot__empty {
+  font-size: 12px;
+  color: var(--text-500);
+  font-style: italic;
+}
+.snap-slot__actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.snap-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-400);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+.snap-btn:hover { background: var(--bg-700); color: var(--text-100); }
+.snap-btn--primary { color: var(--accent-hover); }
+.snap-btn--primary:hover { background: var(--accent-soft); color: var(--accent-hover); }
+.snap-btn--danger { color: var(--danger); }
+.snap-btn--danger:hover { background: rgba(239, 68, 68, 0.15); }
+
+/* Snackbar */
+.snackbar {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  background: var(--bg-800);
+  border: 1px solid var(--border-hover);
+  border-radius: 8px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+  color: var(--text-100);
+  font-size: 13px;
+  z-index: 400;
+  animation: snackbarIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.snackbar .material-symbols-outlined {
+  color: var(--success);
+  font-size: 18px;
+}
+@keyframes snackbarIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+  .details__source-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-750);
+  font-family: 'JetBrains Mono', monospace;
+  margin-left: auto;
+  text-transform: lowercase;
+}
+  .news-empty {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--bg-750);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-400);
+  line-height: 1.5;
+}
+.news-empty .material-symbols-outlined {
+  color: var(--text-500);
+  font-size: 16px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
 </style>
 </head>
 <body>
@@ -3501,6 +4600,20 @@ async function main() {
     const refresh = !!args.flags.refresh;
     const resetCache = !!args.flags['reset-cache'];
 
+    if (username && password) {
+      const base = server.replace(/\/+$/, '');
+      remoteCredentials = {
+        server: base,
+        loginUrl: base + '/api/evo/core/bff/graphql',
+        apiUrl: base + '/api/graphql',
+        tenantId: '00000000-0000-0000-0000-000000000000',
+        token: null,
+        username: username,
+        password: password,
+        secure: !!args.flags.secure
+      };
+    }
+
     // Проверяем кэш до требования кредов
     const cachedDir = (!refresh && !resetCache) ? checkRemoteCacheExists(server) : null;
 
@@ -3514,6 +4627,15 @@ async function main() {
 
       rootDir = cachedDir;
       remoteInfo = { cacheDir: cachedDir, fromCache: true, server: server, fetchedAt: fetchedAt };
+
+      var currentIndex = path.join(cachedDir, '_index.json');
+      var previousIndex = path.join(cachedDir, '_index_previous.json');
+      if (fs.existsSync(currentIndex) && !fs.existsSync(previousIndex)) {
+        try {
+          fs.copyFileSync(currentIndex, previousIndex);
+          console.log('📸 Создан предыдущий снимок для diff');
+        } catch (e) { /* ignore */ }
+      }
 
       console.log('📦 Используется кэш: ' + cachedDir);
       console.log('   (обновить: --refresh --login <user> --password <pass>, сбросить: --reset-cache)');
