@@ -248,10 +248,21 @@ export function YamlViewerModal() {
                 wordWrap: 'off',
                 scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
                 occurrencesHighlight: 'off',
-                selectionHighlight: false
+                selectionHighlight: false,
+                renderValidationDecorations: 'on',
             });
             editorRef.current = editor;
             setEditorCreated(true);
+
+            setTimeout(() => {
+                if (!editorRef.current) return;
+                try {
+                    if (isLocked) {
+                        editorRef.current.updateOptions({ readOnly: false });
+                        editorRef.current.updateOptions({ readOnly: true });
+                    }
+                } catch { }
+            }, 500);
 
             layouts.push(setTimeout(() => { try { editor?.layout(); } catch { } }, 0));
             layouts.push(setTimeout(() => { try { editor?.layout(); } catch { } }, 100));
@@ -341,7 +352,13 @@ export function YamlViewerModal() {
         if (!m) return;
         const model = editorRef.current.getModel();
         if (!model) return;
-        const t = setTimeout(() => applyRqlMarkers(m, model), 100);
+        const t = setTimeout(() => {
+            applyRqlMarkers(m, model);
+            requestAnimationFrame(() => {
+                if (!editorRef.current) return;
+                try { editorRef.current.layout(); } catch { }
+            });
+        }, 100);
         return () => clearTimeout(t);
     }, [monacoReady, editorCreated, lineMap]);
 
@@ -383,10 +400,25 @@ export function YamlViewerModal() {
             .filter((x): x is NonNullable<typeof x> => x !== null);
 
         m.editor.setModelMarkers(model, 'dg-linter', markers);
+
+        // Принудительный layout ПОСЛЕ установки маркеров.
+        // Без этого при readOnly: true Monaco кэширует viewport=0×0 и не рисует
+        // маркеры до первого взаимодействия с редактором (unlock, focus, resize).
+        requestAnimationFrame(() => {
+            if (!editorRef.current) return;
+            try { editorRef.current.layout(); } catch { }
+        });
+
+        // Дополнительный вариант на случай, если rAF сработал слишком рано:
+        setTimeout(() => {
+            if (!editorRef.current) return;
+            try { editorRef.current.layout(); } catch { }
+        }, 400);
+
         return () => {
             try { m.editor.setModelMarkers(model, 'dg-linter', []); } catch { }
         };
-    }, [monacoReady, editorCreated, lineMap, domainIssues]);
+    }, [monacoReady, editorCreated, lineMap, domainIssues, isLocked]);
 
     // ============ Jump ============
     const jumpTo = useCallback((line: number) => {
@@ -832,7 +864,7 @@ export function YamlViewerModal() {
                             <MIcon name={isSaving ? 'hourglass' : 'save'} />
                         </button>
 
-                        {previousContent != null && (
+                        {previousContent && (
                             <button
                                 className={'help-modal__icon-btn' + (diffMode ? ' active' : '')}
                                 onClick={() => setDiffMode(!diffMode)}
@@ -939,6 +971,20 @@ export function YamlViewerModal() {
                             ref={containerRef}
                             style={{ width: '100%', height: '100%' }}
                         />
+
+                        {/* Diff-контейнер — рендерится только в diff-режиме */}
+                        {diffMode && (
+                            <div
+                                ref={diffContainerRef}
+                                style={{
+                                    position: 'absolute',
+                                    top: 0,
+                                    left: 0,
+                                    right: 0,
+                                    bottom: 0
+                                }}
+                            />
+                        )}
 
                         {(loading || (!monacoReady && !monacoError)) && (
                             <div

@@ -418,7 +418,6 @@ export function scanRqlInText(
     let endLine = i + 1;
     const baseIndent = (line.match(/^(\s*)/) || ["", ""])[1].length;
 
-    /** Собирает block scalar. Пустые строки и комментарии — пропускаем, но endLine тянем. */
     const collectBlock = (): string => {
       const collected: string[] = [];
       for (let j = i + 1; j < lines.length; j++) {

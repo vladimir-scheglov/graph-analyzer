@@ -5,7 +5,11 @@ import type { RemoteCredentials, RemoteInfo } from "../shared/types";
 import { DomainAnalyzer } from "../core/analyzer/DomainAnalyzer";
 import { ValidationContext } from "../core/validation/validate";
 import { renderHTML } from "./html-template";
-import { handleFileRequest, handleFileSave } from "./routes/file";
+import {
+  handleFileRequest,
+  handleFileSave,
+  handleFilePrevious,
+} from "./routes/file";
 import { handleUserGuide } from "./routes/user-guide";
 import {
   handleValidateStream,
@@ -41,7 +45,6 @@ export function startServer(opts: StartServerOptions): http.Server {
   const { port, rootDir, analyzer, remoteInfo, credentials, refreshCommand } =
     opts;
 
-  // Обновляем глобальный state
   state.credentials = credentials;
   state.validation = credentials
     ? { credentials, analyzer, state: null }
@@ -63,8 +66,6 @@ export function startServer(opts: StartServerOptions): http.Server {
 
   const currentSnapshot = createSnapshotFromModelIndex(modelIndex);
   const snapshotResult = updateModelSnapshot(rootDir, currentSnapshot);
-
-  // hasSnapshot = файл снапшота существует (не первый запуск)
   setModelDiff(snapshotResult.effectiveDiff, !snapshotResult.isFirstRun);
 
   if (snapshotResult.isFirstRun) {
@@ -96,6 +97,7 @@ export function startServer(opts: StartServerOptions): http.Server {
   const server = http.createServer(async (req, res) => {
     const url = req.url || "/";
 
+    // ============ Static ============
     if (url === "/") {
       const graphData = (analyzer as any).__graphData || analyzer.analyze();
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
@@ -130,6 +132,16 @@ export function startServer(opts: StartServerOptions): http.Server {
       }
     } else if (url === "/user-guide") {
       handleUserGuide(req, res);
+    } else if (url === "/favicon.ico") {
+      res.writeHead(204);
+      res.end();
+    }
+
+    // ============ File routes ============
+    // ВАЖНО: /file/previous ДОЛЖЕН идти ПЕРЕД /file,
+    // иначе попадает в handleFileRequest и отдаёт текущий файл
+    else if (url.startsWith("/file/previous")) {
+      handleFilePrevious(req, res, rootDir);
     } else if (url.startsWith("/file") && req.method === "POST") {
       try {
         await handleFileSave(req, res, rootDir, !!remoteInfo?.server);
@@ -143,9 +155,19 @@ export function startServer(opts: StartServerOptions): http.Server {
       }
     } else if (url.startsWith("/file")) {
       handleFileRequest(req, res);
-    } else if (url.startsWith("/file")) {
-      handleFileRequest(req, res);
-    } else if (url === "/api/validate-stream" && req.method === "POST") {
+    }
+
+    // ============ API: model ============
+    else if (url === "/api/model" && req.method === "GET") {
+      handleModelRequest(req, res);
+    } else if (url === "/api/model/summary" && req.method === "GET") {
+      handleModelSummary(res);
+    } else if (url === "/api/model/diff" && req.method === "GET") {
+      handleModelDiff(res);
+    }
+
+    // ============ API: validation ============
+    else if (url === "/api/validate-stream" && req.method === "POST") {
       try {
         await handleValidateStream(req, res, state);
       } catch (err: any) {
@@ -166,16 +188,10 @@ export function startServer(opts: StartServerOptions): http.Server {
       handleValidationResults(req, res, rootDir);
     } else if (url === "/api/validation-available" && req.method === "GET") {
       handleValidationAvailable(req, res, state);
-    } else if (url === "/favicon.ico") {
-      res.writeHead(204);
-      res.end();
-    } else if (url === "/api/model" && req.method === "GET") {
-      handleModelRequest(req, res);
-    } else if (url === "/api/model/summary" && req.method === "GET") {
-      handleModelSummary(res);
-    } else if (url === "/api/model/diff" && req.method === "GET") {
-      handleModelDiff(res);
-    } else {
+    }
+
+    // ============ 404 ============
+    else {
       res.writeHead(404);
       res.end("Not found");
     }

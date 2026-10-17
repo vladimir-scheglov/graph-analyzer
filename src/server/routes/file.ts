@@ -105,7 +105,7 @@ export function handleFilePrevious(
   const url = new URL(req.url!, "http://localhost");
   const filePath = url.searchParams.get("path");
   if (!filePath) {
-    res.writeHead(400);
+    res.writeHead(400, { "Content-Type": "text/plain" });
     res.end("Missing path");
     return;
   }
@@ -116,15 +116,15 @@ export function handleFilePrevious(
     resolved !== rootResolved &&
     !resolved.startsWith(rootResolved + path.sep)
   ) {
-    res.writeHead(403);
-    res.end();
+    res.writeHead(403, { "Content-Type": "text/plain" });
+    res.end("Path outside root");
     return;
   }
 
   const prevPath = resolvePreviousPath(rootResolved, resolved);
   if (!fs.existsSync(prevPath)) {
-    res.writeHead(404);
-    res.end();
+    res.writeHead(404, { "Content-Type": "text/plain" });
+    res.end("No previous version");
     return;
   }
 
@@ -132,8 +132,8 @@ export function handleFilePrevious(
     const content = fs.readFileSync(prevPath, "utf8");
     res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
     res.end(content);
-  } catch {
-    res.writeHead(500);
-    res.end();
+  } catch (e: any) {
+    res.writeHead(500, { "Content-Type": "text/plain" });
+    res.end(e.message);
   }
 }

@@ -19908,10 +19908,22 @@ function YamlViewerModal() {
         wordWrap: "off",
         scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
         occurrencesHighlight: "off",
-        selectionHighlight: false
+        selectionHighlight: false,
+        renderValidationDecorations: "on"
       });
       editorRef.current = editor;
       setEditorCreated(true);
+      setTimeout(() => {
+        if (!editorRef.current)
+          return;
+        try {
+          if (isLocked) {
+            editorRef.current.updateOptions({ readOnly: false });
+            editorRef.current.updateOptions({ readOnly: true });
+          }
+        } catch {
+        }
+      }, 500);
       layouts.push(setTimeout(() => {
         try {
           editor?.layout();
@@ -20018,7 +20030,17 @@ function YamlViewerModal() {
     const model = editorRef.current.getModel();
     if (!model)
       return;
-    const t = setTimeout(() => applyRqlMarkers(m, model), 100);
+    const t = setTimeout(() => {
+      applyRqlMarkers(m, model);
+      requestAnimationFrame(() => {
+        if (!editorRef.current)
+          return;
+        try {
+          editorRef.current.layout();
+        } catch {
+        }
+      });
+    }, 100);
     return () => clearTimeout(t);
   }, [monacoReady, editorCreated, lineMap]);
   const ignored = useMemo38(() => {
@@ -20052,13 +20074,29 @@ function YamlViewerModal() {
       };
     }).filter((x) => x !== null);
     m.editor.setModelMarkers(model, "dg-linter", markers);
+    requestAnimationFrame(() => {
+      if (!editorRef.current)
+        return;
+      try {
+        editorRef.current.layout();
+      } catch {
+      }
+    });
+    setTimeout(() => {
+      if (!editorRef.current)
+        return;
+      try {
+        editorRef.current.layout();
+      } catch {
+      }
+    }, 400);
     return () => {
       try {
         m.editor.setModelMarkers(model, "dg-linter", []);
       } catch {
       }
     };
-  }, [monacoReady, editorCreated, lineMap, domainIssues]);
+  }, [monacoReady, editorCreated, lineMap, domainIssues, isLocked]);
   const jumpTo = useCallback16((line) => {
     const editor = editorRef.current;
     if (!editor)
@@ -20499,7 +20537,7 @@ function YamlViewerModal() {
                       children: /* @__PURE__ */ jsx67(MIcon, { name: isSaving ? "hourglass" : "save" })
                     }
                   ),
-                  previousContent != null && /* @__PURE__ */ jsx67(
+                  previousContent && /* @__PURE__ */ jsx67(
                     "button",
                     {
                       className: "help-modal__icon-btn" + (diffMode ? " active" : ""),
@@ -20602,6 +20640,19 @@ function YamlViewerModal() {
                       style: { width: "100%", height: "100%" }
                     },
                     "monaco"
+                  ),
+                  diffMode && /* @__PURE__ */ jsx67(
+                    "div",
+                    {
+                      ref: diffContainerRef,
+                      style: {
+                        position: "absolute",
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0
+                      }
+                    }
                   ),
                   (loading || !monacoReady && !monacoError) && /* @__PURE__ */ jsx67(
                     "div",
