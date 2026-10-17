@@ -30,31 +30,46 @@
 .react-flow__controls-button svg { fill: var(--text-200) !important; }
 
 /* Рёбра */
-.react-flow__edge-path { stroke-width: 1.5; }
+.react-flow__edge-path {
+  stroke-width: 1.5;
+}
+
+/* Label ребра — НИКОГДА не должен перехватывать мышь */
+.react-flow__edge-text,
+.react-flow__edge-textbg {
+  pointer-events: none;
+  user-select: none;
+}
+
 .react-flow__edge-text {
   fill: var(--text-400);
   font-size: 10px;
   font-family: inherit;
   opacity: 0;
-  transition: opacity 0.15s;
+  /* Убрали transition — он тоже подливал масла в огонь */
 }
+
 .react-flow__edge-textbg {
   fill: var(--bg-850);
   stroke: var(--border);
   stroke-width: 1;
   opacity: 0;
-  transition: opacity 0.15s;
-}
-.react-flow__edge:hover .react-flow__edge-text,
-.react-flow__edge:hover .react-flow__edge-textbg { opacity: 1 !important; }
-.graph-container.show-labels .react-flow__edge-text,
-.graph-container.show-labels .react-flow__edge-textbg { opacity: 1 !important; }
-.graph-container.hide-labels .react-flow__edge-text,
-.graph-container.hide-labels .react-flow__edge-textbg {
-  opacity: 0 !important;
-  transition: opacity 0.2s;
 }
 
+.react-flow__edge:hover .react-flow__edge-text,
+.react-flow__edge:hover .react-flow__edge-textbg {
+  opacity: 1;
+}
+
+.graph-container.show-labels .react-flow__edge-text,
+.graph-container.show-labels .react-flow__edge-textbg {
+  opacity: 1;
+}
+
+.graph-container.hide-labels .react-flow__edge-text,
+.graph-container.hide-labels .react-flow__edge-textbg {
+  opacity: 0;
+}
 /* Groups overlay */
 .groups-overlay {
   position: absolute;

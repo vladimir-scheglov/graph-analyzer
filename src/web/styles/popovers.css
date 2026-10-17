@@ -264,3 +264,18 @@
 .snap-btn--primary:hover { background: var(--accent-soft); color: var(--accent-hover); }
 .snap-btn--danger { color: var(--danger); }
 .snap-btn--danger:hover { background: rgba(239, 68, 68, 0.15); }
+.menu__hotkey {
+  padding: 1px 6px;
+  background: var(--bg-750);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  color: var(--text-500);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.menu__item:hover .menu__hotkey {
+  background: var(--bg-700);
+  color: var(--text-300);
+}

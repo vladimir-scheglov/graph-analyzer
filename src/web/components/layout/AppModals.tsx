@@ -14,9 +14,24 @@ import {
     LearningPathModal,
     TourOverlay,
     EntityHierarchyModal,
-    RulesModal
+    RulesModal,
+    EntitiesCatalogModal,
+    AttributeFinderModal
 } from '../modals';
 import type { Command } from '../../lib/commands';
+import { EntityMatrixModal } from '../modals/EntityMatrixModal';
+import { ModelDiffModal } from '../modals/ModelDiffModal';
+import { ModelValidationModal } from '../modals/ModelValidationModal';
+import { GlossaryModal } from '../modals/GlossaryModal';
+import { EntityGraphModal } from '../modals/EntityGraphModal';
+import { DomainSchemaModal } from '../modals/DomainSchemaModal';
+import { LintModal } from '../modals/LintModal';
+import { AttributeMatrixModal } from '../modals/AttributeMatrixModal';
+import { MartinMetricsModal } from '../modals/MartinMetricsModal';
+import { DomainCompareModal } from '../modals/DomainCompareModal';
+import { PiiModal } from '../modals/PiiModal';
+import { YamlViewerModal } from '../modals/YamlViewerModal';
+
 
 export interface AppModalsProps {
     commands: Command[];
@@ -34,7 +49,10 @@ export interface AppModalsProps {
 }
 
 export function AppModals(props: AppModalsProps) {
-    const store = useGraphStore();
+    const helpOpen = useGraphStore((s) => s.helpOpen);
+    const hotkeysOpen = useGraphStore((s) => s.hotkeysOpen);
+    const contextMenu = useGraphStore((s) => s.contextMenu);
+    const snackbar = useGraphStore((s) => s.snackbar);
 
     return (
         <>
@@ -46,12 +64,12 @@ export function AppModals(props: AppModalsProps) {
             />
 
             <HelpModal
-                open={store.helpOpen}
-                onClose={() => store.setHelpOpen(false)}
+                open={helpOpen}
+                onClose={() => useGraphStore.getState().setHelpOpen(false)}
             />
             <HotkeysModal
-                open={store.hotkeysOpen}
-                onClose={() => store.setHotkeysOpen(false)}
+                open={hotkeysOpen}
+                onClose={() => useGraphStore.getState().setHotkeysOpen(false)}
             />
 
             <ValidationModal
@@ -79,8 +97,8 @@ export function AppModals(props: AppModalsProps) {
             <RulesModal violations={props.ruleViolations} />
 
             <ContextMenu
-                menu={store.contextMenu}
-                onClose={() => store.setContextMenu(null)}
+                menu={contextMenu}
+                onClose={() => useGraphStore.getState().setContextMenu(null)}
                 onAction={props.onContextAction}
             />
 
@@ -103,7 +121,21 @@ export function AppModals(props: AppModalsProps) {
                 />
             )}
 
-            <Snackbar snackbar={store.snackbar} />
+            <Snackbar snackbar={snackbar} />
+            <EntityGraphModal />
+            <ModelValidationModal />
+            <GlossaryModal />
+            <ModelDiffModal />
+            <EntitiesCatalogModal />
+            <AttributeFinderModal />
+            <EntityMatrixModal />
+            <AttributeMatrixModal />
+            <DomainSchemaModal />
+            <LintModal /> 
+            <MartinMetricsModal />
+            <DomainCompareModal />
+            <PiiModal />
+            <YamlViewerModal />
         </>
     );
 }

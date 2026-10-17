@@ -5,6 +5,9 @@ import { MIcon } from '../common/MIcon';
 import { CollapsibleSection } from './CollapsibleSection';
 import { formatDate, sourceIcon, sourceLabel, sourceColor } from '../../lib/format';
 import { readRemoteInfo } from '../../state/initial';
+import { DomainMixinsPanel } from './DomainMixinsPanel';
+import { openFileInEditor } from '../../lib/open-file';
+import { DomainSonarPanel } from './DomainSonarPanel';
 
 
 export interface DetailsTabProps {
@@ -15,7 +18,8 @@ export interface DetailsTabProps {
 }
 
 export function DetailsTab({ node, allNodes, allEdges, ruleViolations }: DetailsTabProps) {
-    const store = useGraphStore();
+    const setDomainSchemaDomainId = useGraphStore((s) => s.setDomainSchemaDomainId);
+    const setDomainSchemaOpen = useGraphStore((s) => s.setDomainSchemaOpen);
     const { goto } = useNavigation();
 
     if (!node) {
@@ -48,7 +52,7 @@ export function DetailsTab({ node, allNodes, allEdges, ruleViolations }: Details
                     onClick={() => navigator.clipboard.writeText(node.data.domainId)}
                     title="Копировать"
                 >
-                    📋
+                    <MIcon name="content_copy" size="sm" /> 
                 </button>
             </div>
 
@@ -65,6 +69,30 @@ export function DetailsTab({ node, allNodes, allEdges, ruleViolations }: Details
                     <span className="details__badge">v{node.data.version}</span>
                 )}
             </div>
+
+            {node.data.nodeType === 'domain' && (
+                <div className="details__actions details__actions--top">
+                    <button
+                        className="btn btn--primary"
+                        onClick={() => {
+                            setDomainSchemaDomainId(node.data.domainId);
+                            setDomainSchemaOpen(true);
+                        }}
+                    >
+                        <MIcon name="menu_book" size="sm"/>
+                        Схема домена
+                    </button>
+                    {node.data.filePath && (
+                        <button
+                            className="btn"
+                            onClick={() => openFileInEditor(node.data.filePath, null)}
+                        >
+                            <MIcon name="description" size="sm" /> 
+                            Открыть файл
+                        </button>
+                    )}
+                </div>
+            )}
 
             {node.data.updatedAt && (
                 <div className="details__field">
@@ -304,6 +332,18 @@ export function DetailsTab({ node, allNodes, allEdges, ruleViolations }: Details
                 )}
             </CollapsibleSection>
 
+            {node.data.nodeType === 'domain' && (
+                <CollapsibleSection id="mixins" title="Миксины">
+                    <DomainMixinsPanel domainId={node.data.domainId} />
+                </CollapsibleSection>
+            )}
+
+            {node.data.nodeType === 'domain' && (
+                <CollapsibleSection id="sonar" title="Sonar-оценка">
+                    <DomainSonarPanel domainId={node.data.domainId} />
+                </CollapsibleSection>
+            )}
+
             {node.data.__validationStatus === 'invalid' &&
                 node.data.__validationDiagnostics &&
                 node.data.__validationDiagnostics.length > 0 && (
@@ -373,7 +413,7 @@ export function DetailsTab({ node, allNodes, allEdges, ruleViolations }: Details
                                 style={{ cursor: 'pointer' }}
                                 onClick={() => goto(v.fromId)}
                             >
-                                <span className="rank-item__num">{v.severity === 'forbid' ? '⛔' : '⚠️'}</span>
+                                <span className="rank-item__num">{v.severity === 'forbid' ? <MIcon name="block" size="sm" /> : <MIcon name="warning" size="sm" />}</span>
                                 <span className="rank-item__label">
                                     {v.fromId} → {v.toId}
                                 </span>

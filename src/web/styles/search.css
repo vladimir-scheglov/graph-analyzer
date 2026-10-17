@@ -243,3 +243,8 @@
   font-style: italic;
   margin-top: 2px;
 }
+.palette-item {
+  /* ... существующее ... */
+  content-visibility: auto;
+  contain-intrinsic-size: 40px;
+}

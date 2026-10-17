@@ -8,6 +8,7 @@ import { AnalysisMenu } from '../popovers/AnalysisMenu';
 import { ViewMenu } from '../popovers/ViewMenu';
 import { DataMenu } from '../popovers/DataMenu';
 import { relativeTime } from '../../lib/format';
+import { ModelMenu } from '../popovers';
 
 export interface ToolbarProps {
     counts: { domain: number; missing: number; broken: number; linkage: number; fqid: number };
@@ -57,10 +58,10 @@ export function Toolbar(props: ToolbarProps) {
                     onClick={() => store.rfInstance?.fitView({ duration: 500 })}
                     title="Вписать (F)"
                 >
-                    ⛶
+                    <MIcon name="fit_screen"  />
                 </button>
                 <button className="btn btn--icon" onClick={props.onRelayout} title="Переуложить">
-                    ⟳
+                    <MIcon name="refresh"  />
                 </button>
                 <button
                     className="btn btn--icon"
@@ -77,7 +78,7 @@ export function Toolbar(props: ToolbarProps) {
                     }}
                     title="Сбросить раскладку"
                 >
-                    ↺
+                    <MIcon name="restart_alt"  />
                 </button>
                 <button
                     className="btn btn--icon"
@@ -96,7 +97,7 @@ export function Toolbar(props: ToolbarProps) {
                     style={{ opacity: navStack.index <= 0 ? 0.4 : 1 }}
                     title="Назад (Alt+←)"
                 >
-                    ←
+                    <MIcon name="arrow_back"  />
                 </button>
                 <button
                     className="btn btn--icon"
@@ -105,7 +106,7 @@ export function Toolbar(props: ToolbarProps) {
                     style={{ opacity: navStack.index >= navStack.items.length - 1 ? 0.4 : 1 }}
                     title="Вперёд (Alt+→)"
                 >
-                    →
+                    <MIcon name="arrow_forward"  />
                 </button>
             </div>
 
@@ -114,10 +115,21 @@ export function Toolbar(props: ToolbarProps) {
                 onClick={() => store.setSearchOpen(true)}
                 title="Поиск (Shift+Tab)"
             >
-                <span className="btn__icon">🔍</span>
-                Поиск
+                <MIcon name="search"  />
                 <kbd className="btn-kbd">⇧ Tab</kbd>
             </button>
+
+            <Popover
+                width={280}
+                trigger={(open) => (
+                    <button className={'btn' + (open ? ' btn--active' : '')}>
+                        <MIcon name="psychology" />
+                        Модель
+                    </button>
+                )}
+            >
+                {(close) => <ModelMenu close={close} />}
+            </Popover>
 
             <Popover
                 width={320}
@@ -138,7 +150,7 @@ export function Toolbar(props: ToolbarProps) {
                 width={280}
                 trigger={(open) => (
                     <button className={'btn' + (open || analysisActive ? ' btn--active' : '')}>
-                        <span className="btn__icon">📊</span>
+                        <MIcon name="bar_chart"  />
                         Анализ
                     </button>
                 )}
@@ -162,7 +174,7 @@ export function Toolbar(props: ToolbarProps) {
                 width={300}
                 trigger={(open) => (
                     <button className={'btn' + (open ? ' btn--active' : '')}>
-                        <span className="btn__icon">🎨</span>
+                        <MIcon name="palette"  />
                         Вид
                     </button>
                 )}
@@ -174,7 +186,7 @@ export function Toolbar(props: ToolbarProps) {
                 width={260}
                 trigger={(open) => (
                     <button className={'btn' + (open || dataActive ? ' btn--active' : '')}>
-                        <span className="btn__icon">💾</span>
+                        <MIcon name="save"  />
                         Данные
                     </button>
                 )}
@@ -208,7 +220,7 @@ export function Toolbar(props: ToolbarProps) {
                     }
                     onClick={props.onShowToast}
                 >
-                    <MIcon name="database" size="sm" />
+                    <MIcon name="database"  />
                     <span>Получено {relativeTime(props.remoteInfo.fetchedAt)}</span>
                 </div>
             )}
@@ -218,7 +230,7 @@ export function Toolbar(props: ToolbarProps) {
                 onClick={() => store.setHotkeysOpen(true)}
                 title="Горячие клавиши (?)"
             >
-                ⌨️
+                <MIcon name="keyboard"  />
             </button>
 
             <button
@@ -226,7 +238,7 @@ export function Toolbar(props: ToolbarProps) {
                 onClick={() => store.setHelpOpen(true)}
                 title="Руководство пользователя (F1)"
             >
-                📖
+                <MIcon name="menu_book"  />
             </button>
 
             <div className="toolbar__stats">

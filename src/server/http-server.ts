@@ -5,7 +5,7 @@ import type { RemoteCredentials, RemoteInfo } from "../shared/types";
 import { DomainAnalyzer } from "../core/analyzer/DomainAnalyzer";
 import { ValidationContext } from "../core/validation/validate";
 import { renderHTML } from "./html-template";
-import { handleFileRequest } from "./routes/file";
+import { handleFileRequest, handleFileSave } from "./routes/file";
 import { handleUserGuide } from "./routes/user-guide";
 import {
   handleValidateStream,
@@ -14,6 +14,19 @@ import {
   handleValidationAvailable,
 } from "./routes/validation";
 import { ServerState, state } from "./state";
+import { buildModelIndex } from "../core/analyzer/model-builder";
+import {
+  setModelIndex,
+  setModelDiff,
+  handleModelRequest,
+  handleModelSummary,
+  handleModelDiff,
+} from "./routes/model";
+import {
+  createSnapshotFromModelIndex,
+  updateModelSnapshot,
+} from "../core/analyzer/model-snapshot";
+import { computeSemanticDiff } from "../core/analyzer/semantic-diff";
 
 export interface StartServerOptions {
   port: number;
@@ -33,6 +46,52 @@ export function startServer(opts: StartServerOptions): http.Server {
   state.validation = credentials
     ? { credentials, analyzer, state: null }
     : null;
+
+  const rawDomains = analyzer.getRawDomainsForModelIndex();
+  const modelIndex = buildModelIndex(rawDomains);
+  setModelIndex(modelIndex);
+
+  console.log(
+    `📊 Model index: ${modelIndex.stats.entityCount} entities, ` +
+      `${modelIndex.stats.attributeCount} attributes, ${modelIndex.stats.mixinCount} mixins`,
+  );
+
+  console.log(
+    `🔬 Lint: ${modelIndex.lint.lintReport.stats.total} проблем, ` +
+      `Sonar: ${modelIndex.lint.sonar.overall.score}/100 (${modelIndex.lint.sonar.overall.grade})`,
+  );
+
+  const currentSnapshot = createSnapshotFromModelIndex(modelIndex);
+  const snapshotResult = updateModelSnapshot(rootDir, currentSnapshot);
+
+  // hasSnapshot = файл снапшота существует (не первый запуск)
+  setModelDiff(snapshotResult.effectiveDiff, !snapshotResult.isFirstRun);
+
+  if (snapshotResult.isFirstRun) {
+    console.log(
+      "📸 Первый снапшот модели создан (изменения будут доступны после следующего запуска)",
+    );
+  } else if (snapshotResult.hasChanges) {
+    const s = snapshotResult.freshDiff!.stats;
+    const total =
+      s.entitiesAdded +
+      s.entitiesRemoved +
+      s.entitiesChanged +
+      s.mixinsAdded +
+      s.mixinsRemoved +
+      s.dataTypesAdded +
+      s.dataTypesRemoved +
+      s.domainsAdded +
+      s.domainsRemoved +
+      s.domainsChanged;
+    console.log(`📊 Semantic diff: зафиксировано изменений — ${total}`);
+  } else if (snapshotResult.effectiveDiff) {
+    console.log(
+      "📊 Semantic diff: показываем последнее зафиксированное изменение",
+    );
+  } else {
+    console.log("📊 Semantic diff: снапшот есть, изменений пока не было");
+  }
 
   const server = http.createServer(async (req, res) => {
     const url = req.url || "/";
@@ -71,6 +130,19 @@ export function startServer(opts: StartServerOptions): http.Server {
       }
     } else if (url === "/user-guide") {
       handleUserGuide(req, res);
+    } else if (url.startsWith("/file") && req.method === "POST") {
+      try {
+        await handleFileSave(req, res, rootDir, !!remoteInfo?.server);
+      } catch (err: any) {
+        try {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: err.message }));
+        } catch {
+          /* ignore */
+        }
+      }
+    } else if (url.startsWith("/file")) {
+      handleFileRequest(req, res);
     } else if (url.startsWith("/file")) {
       handleFileRequest(req, res);
     } else if (url === "/api/validate-stream" && req.method === "POST") {
@@ -97,6 +169,12 @@ export function startServer(opts: StartServerOptions): http.Server {
     } else if (url === "/favicon.ico") {
       res.writeHead(204);
       res.end();
+    } else if (url === "/api/model" && req.method === "GET") {
+      handleModelRequest(req, res);
+    } else if (url === "/api/model/summary" && req.method === "GET") {
+      handleModelSummary(res);
+    } else if (url === "/api/model/diff" && req.method === "GET") {
+      handleModelDiff(res);
     } else {
       res.writeHead(404);
       res.end("Not found");

@@ -6,10 +6,10 @@ import { findPath } from "../lib/algorithms/path";
 import { buildNodeTooltip, buildEdgeTooltip } from "../lib/tooltip-builders";
 import type { RFEdge, FQIDRef } from "../lib/types";
 import type { ContextAction } from "../components/common/ContextMenu";
+import { openFileInEditor } from "../lib/open-file";
 
 export interface UseNodeInteractionsParams {
   filteredEdges: RFEdge[];
-  openFileInEditor: (filePath: string, fqid: string | null) => void;
 }
 
 export interface UseNodeInteractionsResult {
@@ -32,7 +32,6 @@ export interface UseNodeInteractionsResult {
  */
 export function useNodeInteractions({
   filteredEdges,
-  openFileInEditor,
 }: UseNodeInteractionsParams): UseNodeInteractionsResult {
   const tooltip = useTooltip();
   const { goto } = useNavigation();

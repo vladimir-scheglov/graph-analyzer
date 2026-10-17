@@ -1,12 +1,9 @@
 import React, { useMemo } from 'react';
 import { useGraphStore } from '../../state/useGraphStore';
-import { useMonaco } from '../../hooks/useMonaco';
 import { DetailsTab } from './DetailsTab';
 import { EdgeTab } from './EdgeTab';
 import { EntitiesTab } from './EntitiesTab';
-import { FileTab } from './FileTab';
 import type { EntityIndex } from '../../lib/types';
-import { openFileInEditor } from '../../lib/open-file';
 
 export interface SidePanelProps {
     allNodes: any[];
@@ -40,25 +37,6 @@ export function SidePanel(props: SidePanelProps) {
         );
     }, [store.selectedEdgeId, props.visibleEdges, props.allEdges]);
 
-    // Монтирование Monaco — когда открыта вкладка "file" и есть путь
-    useMonaco(store.panelOpen, store.panelTab, store.pendingFile);
-
-    // Автоподгрузка файла, если выбрана вкладка и есть путь
-    React.useEffect(() => {
-        if (!store.panelOpen || store.panelTab !== 'file') return;
-        if (!panelNode) return;
-        if (!panelNode.data.filePath) return;
-        if (store.editorFilePath === panelNode.data.filePath && store.pendingFile) return;
-        openFileInEditor(panelNode.data.filePath);
-    }, [
-        store.panelOpen,
-        store.panelTab,
-        store.panelNodeId,
-        panelNode,
-        store.editorFilePath,
-        store.pendingFile
-    ]);
-
     const ruleViolationsFiltered = useMemo(() => {
         if (!panelNode) return [];
         return props.ruleViolations.filter(
@@ -78,12 +56,6 @@ export function SidePanel(props: SidePanelProps) {
                         onClick={() => store.setPanelTab('details')}
                     >
                         📋 Детали
-                    </button>
-                    <button
-                        className={'side-panel__tab' + (store.panelTab === 'file' ? ' active' : '')}
-                        onClick={() => store.setPanelTab('file')}
-                    >
-                        📄 Файл
                     </button>
                     <button
                         className={'side-panel__tab' + (store.panelTab === 'edge' ? ' active' : '')}
@@ -109,8 +81,10 @@ export function SidePanel(props: SidePanelProps) {
 
             <div className="side-panel__body" style={{ position: 'relative' }}>
                 <div
-                    className="side-panel__pane"
-                    style={{ display: store.panelTab === 'details' ? 'block' : 'none' }}
+                    className={
+                        'side-panel__pane' +
+                        (store.panelTab !== 'details' ? ' side-panel__pane--hidden' : '')
+                    }
                 >
                     <DetailsTab
                         node={panelNode}
@@ -119,15 +93,21 @@ export function SidePanel(props: SidePanelProps) {
                         ruleViolations={ruleViolationsFiltered}
                     />
                 </div>
+
                 <div
-                    className="side-panel__pane"
-                    style={{ display: store.panelTab === 'edge' ? 'block' : 'none' }}
+                    className={
+                        'side-panel__pane' +
+                        (store.panelTab !== 'edge' ? ' side-panel__pane--hidden' : '')
+                    }
                 >
                     <EdgeTab edge={panelEdge} allNodes={props.allNodes} />
                 </div>
+
                 <div
-                    className="side-panel__pane"
-                    style={{ display: store.panelTab === 'entities' ? 'block' : 'none' }}
+                    className={
+                        'side-panel__pane' +
+                        (store.panelTab !== 'entities' ? ' side-panel__pane--hidden' : '')
+                    }
                 >
                     <EntitiesTab
                         node={panelNode}
@@ -135,12 +115,6 @@ export function SidePanel(props: SidePanelProps) {
                         entityIndex={props.entityIndex}
                         onOpenEntityHierarchy={props.onOpenEntityHierarchy}
                     />
-                </div>
-                <div
-                    className="side-panel__pane"
-                    style={{ display: store.panelTab === 'file' ? 'block' : 'none' }}
-                >
-                    <FileTab />
                 </div>
             </div>
         </div>

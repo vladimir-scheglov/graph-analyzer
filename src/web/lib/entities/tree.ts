@@ -1,85 +1,216 @@
 import dagre from "dagre";
 import type {
   EntityIndex,
-  EntityTree,
   EntityTreeNode,
   EntityRecord,
+  EntityTreeEdge,
+  EntityTree,
 } from "../types";
 import { entityKey, resolveEntityRef } from "./index";
+
+export type EntityTreeMode = "inherits" | "all";
+
+export interface BuildEntityTreeOptions {
+  mode?: EntityTreeMode;
+  /** Максимальная глубина от корня. 0 = без ограничения. */
+  depth?: number;
+  /** Показывать наследование. */
+  showInheritance?: boolean;
+  /** Показывать Reference-ссылки (только mode='all'). */
+  showReferences?: boolean;
+  /** Показывать linkages (только mode='all'). */
+  showLinkages?: boolean;
+  /** Скрыть узлы без связей после фильтрации. */
+  hideIsolated?: boolean;
+}
 
 export function buildEntityTree(
   rootKey: string,
   index: EntityIndex,
+  modelIndex: any,
+  options: BuildEntityTreeOptions = {},
 ): EntityTree {
+  const mode = options.mode || "inherits";
+  const maxDepth = options.depth || 0;
+  const showInheritance = options.showInheritance !== false;
+  const showReferences = options.showReferences !== false && mode === "all";
+  const showLinkages = options.showLinkages !== false && mode === "all";
+  const hideIsolated = options.hideIsolated !== false;
+
   const byKey = index.byKey;
   const childMap = index.children;
 
   const nodesMap = new Map<string, EntityTreeNode>();
-  const edgesMap = new Map<
-    string,
-    { id: string; source: string; target: string }
-  >();
+  const edgesMap = new Map<string, EntityTreeEdge>();
+  const depthMap = new Map<string, number>();
 
-  function addNode(key: string): EntityTreeNode {
-    if (nodesMap.has(key)) return nodesMap.get(key)!;
+  /** Возвращает true, если узел был добавлен или обновлён (глубина уменьшилась). */
+  function addNode(key: string, depth: number): boolean {
+    if (maxDepth > 0 && depth > maxDepth) return false;
+
+    if (nodesMap.has(key)) {
+      const existing = depthMap.get(key);
+      if (existing != null && existing <= depth) return false;
+      depthMap.set(key, depth);
+      return true;
+    }
+
     const e = byKey.get(key);
     const parts = key.split("/");
-    const node: EntityTreeNode = {
+    nodesMap.set(key, {
       key,
       domainId: e ? e.domainId : parts[0],
       entityId: e ? e.entityId : parts.slice(1).join("/"),
       name: e ? e.name : null,
       inherits: e ? e.inherits : null,
       missing: !e,
-    };
-    nodesMap.set(key, node);
-    return node;
+    });
+    depthMap.set(key, depth);
+    return true;
   }
 
-  function traverseParents(startKey: string): void {
-    const visited = new Set<string>();
-    const stack = [startKey];
-    while (stack.length > 0) {
-      const key = stack.pop()!;
-      if (visited.has(key)) continue;
-      visited.add(key);
+  function addEdge(
+    id: string,
+    source: string,
+    target: string,
+    kind: EntityTreeEdge["kind"],
+    label?: string,
+  ): void {
+    if (!edgesMap.has(id)) {
+      edgesMap.set(id, { id, source, target, kind, label });
+    }
+  }
+
+  addNode(rootKey, 0);
+
+  // BFS
+  const queue: Array<{ key: string; depth: number }> = [
+    { key: rootKey, depth: 0 },
+  ];
+  const processed = new Set<string>();
+
+  while (queue.length > 0) {
+    const { key, depth } = queue.shift()!;
+    if (processed.has(key)) continue;
+    processed.add(key);
+
+    const nextDepth = depth + 1;
+
+    // ============ Наследование ============
+    if (showInheritance) {
+      // Вверх
       const e = byKey.get(key);
-      if (!e || !e.inherits) continue;
-      const ref = resolveEntityRef(e.inherits, e.domainId);
-      if (!ref) continue;
-      const parentKey = entityKey(ref.domainId, ref.entityId);
-      addNode(parentKey);
-      const edgeId = parentKey + "->" + key;
-      if (!edgesMap.has(edgeId)) {
-        edgesMap.set(edgeId, { id: edgeId, source: parentKey, target: key });
-      }
-      if (!visited.has(parentKey)) stack.push(parentKey);
-    }
-  }
-
-  function traverseChildren(startKey: string): void {
-    const visited = new Set<string>();
-    const stack = [startKey];
-    while (stack.length > 0) {
-      const key = stack.pop()!;
-      if (visited.has(key)) continue;
-      visited.add(key);
-      const kids = childMap.get(key) || [];
-      kids.forEach((child) => {
-        const childKey = entityKey(child.domainId, child.entityId);
-        addNode(childKey);
-        const edgeId = key + "->" + childKey;
-        if (!edgesMap.has(edgeId)) {
-          edgesMap.set(edgeId, { id: edgeId, source: key, target: childKey });
+      if (e && e.inherits) {
+        const ref = resolveEntityRef(e.inherits, e.domainId);
+        if (ref) {
+          const parentKey = entityKey(ref.domainId, ref.entityId);
+          if (addNode(parentKey, nextDepth)) {
+            queue.push({ key: parentKey, depth: nextDepth });
+          }
+          addEdge(`${parentKey}->${key}`, parentKey, key, "inheritance");
         }
-        if (!visited.has(childKey)) stack.push(childKey);
-      });
+      }
+
+      // Вниз
+      const kids = childMap.get(key) || [];
+      for (const child of kids) {
+        const childKey = entityKey(child.domainId, child.entityId);
+        if (addNode(childKey, nextDepth)) {
+          queue.push({ key: childKey, depth: nextDepth });
+        }
+        addEdge(`${key}->${childKey}`, key, childKey, "inheritance");
+      }
+    }
+
+    // ============ Reference и Linkage ============
+    if (mode === "all" && modelIndex) {
+      const entity = modelIndex.entitiesByFqid[key];
+      if (entity) {
+        if (showReferences) {
+          // Исходящие
+          for (const a of entity.attributes) {
+            const target = a.referenceEntity || a.itemReferenceEntity;
+            if (!target || !modelIndex.entitiesByFqid[target]) continue;
+            if (addNode(target, nextDepth)) {
+              queue.push({ key: target, depth: nextDepth });
+            }
+            addEdge(
+              `ref:${key}#${a.id}->${target}`,
+              key,
+              target,
+              "reference",
+              a.name || a.id,
+            );
+          }
+
+          // Входящие
+          for (const other of modelIndex.entities) {
+            if (other.fqid === key) continue;
+            for (const a of other.attributes) {
+              const target = a.referenceEntity || a.itemReferenceEntity;
+              if (target !== key) continue;
+              if (addNode(other.fqid, nextDepth)) {
+                queue.push({ key: other.fqid, depth: nextDepth });
+              }
+              addEdge(
+                `ref:${other.fqid}#${a.id}->${key}`,
+                other.fqid,
+                key,
+                "reference",
+                a.name || a.id,
+              );
+            }
+          }
+        }
+
+        if (showLinkages) {
+          for (const l of modelIndex.entityLinkages || []) {
+            if (l.side1Fqid === key) {
+              if (addNode(l.side2Fqid, nextDepth)) {
+                queue.push({ key: l.side2Fqid, depth: nextDepth });
+              }
+              addEdge(
+                `lnk:${l.domainId}#${l.id}`,
+                l.side1Fqid,
+                l.side2Fqid,
+                "linkage",
+                l.name,
+              );
+            } else if (l.side2Fqid === key) {
+              if (addNode(l.side1Fqid, nextDepth)) {
+                queue.push({ key: l.side1Fqid, depth: nextDepth });
+              }
+              addEdge(
+                `lnk:${l.domainId}#${l.id}`,
+                l.side1Fqid,
+                l.side2Fqid,
+                "linkage",
+                l.name,
+              );
+            }
+          }
+        }
+      }
     }
   }
 
-  addNode(rootKey);
-  traverseParents(rootKey);
-  traverseChildren(rootKey);
+  // ============ Скрытие изолированных ============
+  if (hideIsolated) {
+    const connectedKeys = new Set<string>();
+    for (const edge of edgesMap.values()) {
+      connectedKeys.add(edge.source);
+      connectedKeys.add(edge.target);
+    }
+    connectedKeys.add(rootKey);
+
+    for (const key of Array.from(nodesMap.keys())) {
+      if (!connectedKeys.has(key)) nodesMap.delete(key);
+    }
+    for (const [id, edge] of Array.from(edgesMap.entries())) {
+      if (!nodesMap.has(edge.source) || !nodesMap.has(edge.target))
+        edgesMap.delete(id);
+    }
+  }
 
   const nodes = Array.from(nodesMap.values());
   const edges = Array.from(edgesMap.values());
@@ -89,7 +220,6 @@ export function buildEntityTree(
   const parents = new Set<string>();
   const children = new Set<string>();
 
-  // Обход от root вверх
   (() => {
     const stack = [rootKey];
     const visited = new Set([rootKey]);
@@ -108,7 +238,6 @@ export function buildEntityTree(
     }
   })();
 
-  // Обход от root вниз
   (() => {
     const stack = [rootKey];
     const visited = new Set([rootKey]);
@@ -135,7 +264,6 @@ export function buildEntityTree(
     cycleNodes,
   };
 }
-
 export function detectEntityCycles(
   nodes: EntityTreeNode[],
   edges: Array<{ source: string; target: string }>,
@@ -202,41 +330,4 @@ export interface LaidEntityNode extends EntityTreeNode {
   y: number;
   width: number;
   height: number;
-}
-
-export function layoutEntityGraph(
-  nodes: EntityTreeNode[],
-  edges: Array<{ source: string; target: string }>,
-  rootKey: string,
-): LaidEntityNode[] {
-  const g = new dagre.graphlib.Graph();
-  g.setDefaultEdgeLabel(() => ({}));
-  g.setGraph({
-    rankdir: "TB",
-    nodesep: 25,
-    ranksep: 55,
-    marginx: 30,
-    marginy: 30,
-  });
-
-  nodes.forEach((n) => {
-    const w = n.key === rootKey ? ROOT_W : ENTITY_W;
-    const h = n.key === rootKey ? ROOT_H : ENTITY_H;
-    g.setNode(n.key, { width: w, height: h });
-  });
-  edges.forEach((e) => g.setEdge(e.source, e.target));
-
-  dagre.layout(g);
-
-  return nodes.map((n) => {
-    const pos = g.node(n.key);
-    const w = n.key === rootKey ? ROOT_W : ENTITY_W;
-    const h = n.key === rootKey ? ROOT_H : ENTITY_H;
-    return Object.assign({}, n, {
-      x: pos.x - w / 2,
-      y: pos.y - h / 2,
-      width: w,
-      height: h,
-    });
-  });
 }

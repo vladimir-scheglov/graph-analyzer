@@ -106,6 +106,8 @@ export interface GraphState {
   edges: RFEdge[];
   setNodes: (updater: RFNode[] | ((prev: RFNode[]) => RFNode[])) => void;
   setEdges: (updater: RFEdge[] | ((prev: RFEdge[]) => RFEdge[])) => void;
+  entityCatalogOpen: boolean;
+  setEntityCatalogOpen: (v: boolean) => void;
 
   // Тема
   theme: ThemeName;
@@ -290,6 +292,60 @@ export interface GraphState {
 
   // Сброс всего
   resetAll: () => void;
+
+  attributeFinderOpen: boolean;
+  setAttributeFinderOpen: (v: boolean) => void;
+
+  entityCatalogInitialFqid: string | null;
+  setEntityCatalogInitialFqid: (fqid: string | null) => void;
+
+  entityMatrixOpen: boolean;
+  setEntityMatrixOpen: (v: boolean) => void;
+
+  modelDiffOpen: boolean;
+  setModelDiffOpen: (v: boolean) => void;
+
+  modelValidationOpen: boolean;
+  setModelValidationOpen: (v: boolean) => void;
+
+  glossaryOpen: boolean;
+  setGlossaryOpen: (v: boolean) => void;
+
+  entityGraphOpen: boolean;
+  setEntityGraphOpen: (v: boolean) => void;
+
+  entityGraphDomainFilter: string;
+  setEntityGraphDomainFilter: (v: string) => void;
+  entityGraphRankdir: "LR" | "TB";
+  setEntityGraphRankdir: (v: "LR" | "TB") => void;
+  entityGraphShowInheritance: boolean;
+  setEntityGraphShowInheritance: (v: boolean) => void;
+  entityGraphShowReferences: boolean;
+  setEntityGraphShowReferences: (v: boolean) => void;
+  entityGraphShowLinkages: boolean;
+  setEntityGraphShowLinkages: (v: boolean) => void;
+  domainSchemaOpen: boolean;
+  setDomainSchemaOpen: (v: boolean) => void;
+  domainSchemaDomainId: string | null;
+  setDomainSchemaDomainId: (id: string | null) => void;
+  lintOpen: boolean;
+  setLintOpen: (v: boolean) => void;
+  attributeMatrixOpen: boolean;
+  setAttributeMatrixOpen: (v: boolean) => void;
+  martinOpen: boolean;
+  setMartinOpen: (v: boolean) => void;
+  domainCompareOpen: boolean;
+  setDomainCompareOpen: (v: boolean) => void;
+  piiOpen: boolean;
+  setPiiOpen: (v: boolean) => void;
+  yamlViewerOpen: boolean;
+  setYamlViewerOpen: (v: boolean) => void;
+  yamlViewerFilePath: string | null;
+  setYamlViewerFilePath: (v: string | null) => void;
+  yamlViewerFqid: string | null;
+  setYamlViewerFqid: (v: string | null) => void;
+  yamlViewerDomainId: string | null;
+  setYamlViewerDomainId: (v: string | null) => void;
 }
 
 // ============ Хелперы для чтения localStorage ============
@@ -366,6 +422,64 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     document.documentElement.setAttribute("data-theme", t);
     set({ theme: t });
   },
+
+  entityCatalogOpen: false,
+  setEntityCatalogOpen: (v) => set({ entityCatalogOpen: v }),
+
+  attributeFinderOpen: false,
+  setAttributeFinderOpen: (v) => set({ attributeFinderOpen: v }),
+
+  entityCatalogInitialFqid: null,
+  setEntityCatalogInitialFqid: (fqid) =>
+    set({ entityCatalogInitialFqid: fqid }),
+
+  entityMatrixOpen: false,
+  setEntityMatrixOpen: (v) => set({ entityMatrixOpen: v }),
+
+  modelDiffOpen: false,
+  setModelDiffOpen: (v) => set({ modelDiffOpen: v }),
+
+  modelValidationOpen: false,
+  setModelValidationOpen: (v) => set({ modelValidationOpen: v }),
+
+  glossaryOpen: false,
+  setGlossaryOpen: (v) => set({ glossaryOpen: v }),
+
+  entityGraphOpen: false,
+  setEntityGraphOpen: (v) => set({ entityGraphOpen: v }),
+
+  entityGraphDomainFilter: "",
+  setEntityGraphDomainFilter: (v) => set({ entityGraphDomainFilter: v }),
+  entityGraphRankdir: "LR",
+  setEntityGraphRankdir: (v) => set({ entityGraphRankdir: v }),
+  entityGraphShowInheritance: true,
+  setEntityGraphShowInheritance: (v) => set({ entityGraphShowInheritance: v }),
+  entityGraphShowReferences: true,
+  setEntityGraphShowReferences: (v) => set({ entityGraphShowReferences: v }),
+  entityGraphShowLinkages: true,
+  setEntityGraphShowLinkages: (v) => set({ entityGraphShowLinkages: v }),
+  domainSchemaOpen: false,
+  setDomainSchemaOpen: (v) => set({ domainSchemaOpen: v }),
+  domainSchemaDomainId: null,
+  setDomainSchemaDomainId: (id) => set({ domainSchemaDomainId: id }),
+  lintOpen: false,
+  setLintOpen: (v) => set({ lintOpen: v }),
+  attributeMatrixOpen: false,
+  setAttributeMatrixOpen: (v) => set({ attributeMatrixOpen: v }),
+  martinOpen: false,
+  setMartinOpen: (v) => set({ martinOpen: v }),
+  domainCompareOpen: false,
+  setDomainCompareOpen: (v) => set({ domainCompareOpen: v }),
+  piiOpen: false,
+  setPiiOpen: (v) => set({ piiOpen: v }),
+  yamlViewerOpen: false,
+  setYamlViewerOpen: (v) => set({ yamlViewerOpen: v }),
+  yamlViewerFilePath: null,
+  setYamlViewerFilePath: (v) => set({ yamlViewerFilePath: v }),
+  yamlViewerFqid: null,
+  setYamlViewerFqid: (v) => set({ yamlViewerFqid: v }),
+  yamlViewerDomainId: null,
+  setYamlViewerDomainId: (v) => set({ yamlViewerDomainId: v }),
 
   // Фильтры
   filters: {
@@ -455,6 +569,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     "outgoing",
     "violations",
     "validation",
+    "sonar",
   ]),
   toggleCollapsedSection: (id, isCollapsed) =>
     set((s) => {

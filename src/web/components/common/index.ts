@@ -7,3 +7,13 @@ export { HoverTooltip } from "./HoverTooltip";
 export { ContextMenu } from "./ContextMenu";
 export type { ContextMenuState, ContextAction } from "./ContextMenu";
 export { Popover } from "./Popover";
+export {
+  ModalHelp,
+  HelpSection,
+  HelpText,
+  HelpList,
+  HelpCard,
+  HelpZones,
+  HelpZone,
+  HelpButton,
+} from "./ModalHelp";

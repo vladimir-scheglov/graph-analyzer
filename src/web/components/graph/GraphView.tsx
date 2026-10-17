@@ -37,7 +37,7 @@ interface GraphViewInnerProps {
     perfMode: boolean;
 }
 
-function GraphViewInner(props: GraphViewInnerProps) {
+const GraphViewInner = React.memo(function GraphViewInner(props: GraphViewInnerProps) {
     const rf = useReactFlow();
     const setRfInstance = useGraphStore((s) => s.setRfInstance);
 
@@ -115,7 +115,7 @@ function GraphViewInner(props: GraphViewInnerProps) {
             )}
         </ReactFlow>
     );
-}
+});
 
 // ============ Обёртка с провайдером ============
 

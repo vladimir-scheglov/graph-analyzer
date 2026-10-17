@@ -71,6 +71,65 @@ export function useHotkeys() {
           navForward();
           return;
         }
+
+        if (ctrl && shift && !alt) {
+          if (code === "KeyE") {
+            e.preventDefault();
+            useGraphStore.getState().setEntityCatalogInitialFqid(null);
+            useGraphStore.getState().setEntityCatalogOpen(true);
+            return;
+          }
+          if (code === "KeyA") {
+            e.preventDefault();
+            useGraphStore.getState().setAttributeFinderOpen(true);
+            return;
+          }
+          if (code === "KeyM") {
+            e.preventDefault();
+            useGraphStore.getState().setEntityMatrixOpen(true);
+            return;
+          }
+
+          if (code === "KeyK") {
+            e.preventDefault();
+            useGraphStore.getState().setEntityGraphOpen(true);
+            return;
+          }
+
+          if (code === "KeyV") {
+            e.preventDefault();
+            useGraphStore.getState().setModelValidationOpen(true);
+            return;
+          }
+
+          if (code === "KeyG") {
+            e.preventDefault();
+            useGraphStore.getState().setGlossaryOpen(true);
+            return;
+          }
+
+          if (code === "KeyL") {
+            e.preventDefault();
+            useGraphStore.getState().setLintOpen(true);
+            return;
+          }
+
+          if (code === "KeyB") {
+            e.preventDefault();
+            useGraphStore.getState().setAttributeMatrixOpen(true);
+            return;
+          }
+          if (code === "KeyY") {
+            e.preventDefault();
+            useGraphStore.getState().setMartinOpen(true);
+            return;
+          }
+          if (code === "KeyP") {
+            e.preventDefault();
+            useGraphStore.getState().setPiiOpen(true);
+            return;
+          }
+        }
         if (ctrl || alt) return;
 
         // Fit view

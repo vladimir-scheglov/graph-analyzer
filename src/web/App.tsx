@@ -46,23 +46,28 @@ const REFRESH_COMMAND = readRefreshCommand();
 const PERF_THRESHOLD = 250;
 
 export default function App() {
-    const store = useGraphStore();
+    // ============ Точечные подписки на store (НЕ весь store) ============
+    // Всё, что App реально использует для вычислений — здесь. Через селекторы.
+    // Экшены вызываются через useGraphStore.getState().setX() — они стабильны и не создают подписок.
+    const nodes = useGraphStore((s) => s.nodes);
+    const edges = useGraphStore((s) => s.edges);
+    const rules = useGraphStore((s) => s.rules);
 
-    // ---------- Инициализация один раз ----------
+    // ============ Инициализация (однократно) ============
     const didInit = useRef(false);
     useEffect(() => {
         if (didInit.current) return;
         didInit.current = true;
-        store.setNodes(buildInitialNodes(GRAPH_DATA));
-        store.setEdges(buildInitialEdges(GRAPH_DATA));
-        document.documentElement.setAttribute('data-theme', store.theme);
+
+        const st = useGraphStore.getState();
+        st.setNodes(buildInitialNodes(GRAPH_DATA));
+        st.setEdges(buildInitialEdges(GRAPH_DATA));
+        document.documentElement.setAttribute('data-theme', st.theme);
     }, []);
 
-    const [toastVisible, setToastVisible] = React.useState(
-        !!REMOTE_INFO?.fromCache
-    );
+    const [toastVisible, setToastVisible] = React.useState(!!REMOTE_INFO?.fromCache);
 
-    // ---------- Производные множества ----------
+    // ============ Фильтры/подсветка ============
     const {
         displayNodes,
         displayEdges,
@@ -80,25 +85,26 @@ export default function App() {
 
     const highlight = useGraphHighlight(filteredEdges, edgesForFocus);
 
+    // ============ Циклы ============
     const cyclesInfo = useMemo(
         () => findCycles(displayNodes, displayEdges),
         [displayNodes, displayEdges]
     );
 
+    // ============ Health ============
     const healthMap = useMemo(() => {
         const map = new Map<string, any>();
         displayNodes.forEach((n) => {
-            map.set(
-                n.id,
-                computeHealth(n, displayEdges, displayNodes, cyclesInfo.cycleNodes, null)
-            );
+            const h = computeHealth(n, displayEdges, displayNodes, cyclesInfo.cycleNodes, null);
+            map.set(n.id, h);
         });
         return map;
     }, [displayNodes, displayEdges, cyclesInfo]);
 
+    // ============ Rule violations ============
     const ruleViolations = useMemo(
-        () => evaluateRules(displayEdges, displayNodes, store.rules),
-        [displayEdges, displayNodes, store.rules]
+        () => evaluateRules(displayEdges, displayNodes, rules),
+        [displayEdges, displayNodes, rules]
     );
 
     const violationsByEdge = useMemo(() => {
@@ -110,48 +116,45 @@ export default function App() {
         return m;
     }, [ruleViolations]);
 
+    // ============ Рёбра для рендера ============
     const edgesForRender = useMemo(() => {
         if (
             highlight &&
-            (highlight.type === 'focus' ||
-                highlight.type === 'cycle' ||
-                highlight.type === 'path')
+            (highlight.type === 'focus' || highlight.type === 'cycle' || highlight.type === 'path')
         ) {
             return edgesForFocus;
         }
         return filteredEdges;
     }, [filteredEdges, edgesForFocus, highlight]);
 
+    // ============ Heatmap ============
     const heatmapValues = useHeatmapValues(displayNodes, displayEdges, healthMap);
-    const visibleNodes = useVisibleNodes(
-        filteredNodes,
-        highlight,
-        healthMap,
-        heatmapValues
-    );
-    const visibleEdges = useVisibleEdges(
-        edgesForRender,
-        highlight,
-        violationsByEdge
-    );
 
+    // ============ Видимые узлы/рёбра ============
+    const visibleNodes = useVisibleNodes(filteredNodes, highlight, healthMap, heatmapValues);
+    const visibleEdges = useVisibleEdges(edgesForRender, highlight, violationsByEdge);
+
+    // ============ Perf mode ============
     const perfMode = useMemo(
         () => filteredEdges.length > PERF_THRESHOLD,
         [filteredEdges.length]
     );
 
+    const showEdgeLabels = useGraphStore((s) => s.showEdgeLabels);
+
     const displayEdgesForRender = useMemo(() => {
-        const hideLabels = perfMode && !store.showEdgeLabels;
+        const hideLabels = perfMode && !showEdgeLabels;
         if (!hideLabels) return visibleEdges;
         return visibleEdges.map((e) => (e.label ? { ...e } : e));
-    }, [visibleEdges, perfMode, store.showEdgeLabels]);
+    }, [visibleEdges, perfMode, showEdgeLabels]);
 
-    // ---------- Хуки верхнего уровня ----------
+    // ============ Хуки верхнего уровня ============
     useHotkeys();
     const tooltip = useTooltip();
     const { goto, back, forward } = useNavigation();
 
     const snapshots = useSnapshots(REMOTE_INFO?.server || null);
+
     const exportsApi = useExports({
         visibleNodes,
         visibleEdges,
@@ -184,45 +187,45 @@ export default function App() {
     useGraphEvents({ displayNodes, displayEdges });
     useGlobalClickDelegation(goto, tooltip.hide);
 
-    // ---------- Reset ----------
+    // ============ Reset ============
     const handleResetAll = useCallback(() => {
-        store.resetAll();
+        useGraphStore.getState().resetAll();
         invalidateLayout();
         setTimeout(() => {
-            if (store.rfInstance) {
+            const rf = useGraphStore.getState().rfInstance;
+            if (rf) {
                 try {
-                    store.rfInstance.fitView({ duration: 500, padding: 0.15 });
+                    rf.fitView({ duration: 500, padding: 0.15 });
                 } catch { }
             }
         }, 200);
-    }, [store, invalidateLayout]);
+    }, [invalidateLayout]);
 
-    // ---------- Tour ----------
-    const startTour = useCallback(
-        (path: any) => {
-            store.setTour({
-                stages: path.stages,
-                index: 0,
-                playing: false,
-                startedAt: Date.now()
-            });
-            store.setSelectedNodeId(null);
-            store.setFocusNode(null);
-            store.setCycleHighlight(null);
-            store.setPathResult(null);
-            store.setPathSel([]);
-        },
-        [store]
-    );
+    // ============ Tour ============
+    const startTour = useCallback((path: any) => {
+        const st = useGraphStore.getState();
+        st.setTour({
+            stages: path.stages,
+            index: 0,
+            playing: false,
+            startedAt: Date.now()
+        });
+        st.setSelectedNodeId(null);
+        st.setFocusNode(null);
+        st.setCycleHighlight(null);
+        st.setPathResult(null);
+        st.setPathSel([]);
+    }, []);
 
-    // ---------- Списки доменов для модалок ----------
+    // ============ Списки доменов для модалок ============
     const allDomainsList = useMemo(
         () =>
-            store.nodes
+            nodes
                 .filter((n) => n.data.nodeType === 'domain')
                 .map((n) => ({ id: n.id, domainId: n.data.domainId })),
-        [store.nodes]
+        [nodes]
     );
+
     const visibleDomainsList = useMemo(
         () =>
             visibleNodes
@@ -230,50 +233,53 @@ export default function App() {
                 .map((n) => ({ id: n.id, domainId: n.data.domainId })),
         [visibleNodes]
     );
+
+    const bookmarks = useGraphStore((s) => s.bookmarks);
+
     const bookmarkedDomainsList = useMemo(
         () =>
-            store.nodes
-                .filter(
-                    (n) => store.bookmarks.has(n.id) && n.data.nodeType === 'domain'
-                )
+            nodes
+                .filter((n) => bookmarks.has(n.id) && n.data.nodeType === 'domain')
                 .map((n) => ({ id: n.id, domainId: n.data.domainId })),
-        [store.nodes, store.bookmarks]
+        [nodes, bookmarks]
     );
 
-    const entityIndex = useMemo(
-        () => buildEntityIndex(GRAPH_DATA.entities || []),
-        []
-    );
+    const entityIndex = useMemo(() => buildEntityIndex(GRAPH_DATA.entities || []), []);
 
-    // ---------- activeFiltersCount ----------
+    // ============ activeFiltersCount ============
+    const filters = useGraphStore((s) => s.filters);
+    const namespaceFilter = useGraphStore((s) => s.namespaceFilter);
+    const tagFilters = useGraphStore((s) => s.tagFilters);
+    const isolatedOnly = useGraphStore((s) => s.isolatedOnly);
+    const bookmarksOnly = useGraphStore((s) => s.bookmarksOnly);
+    const onlyInvalid = useGraphStore((s) => s.onlyInvalid);
+    const hiddenNodeIds = useGraphStore((s) => s.hiddenNodeIds);
+
     const activeFiltersCount = useMemo(() => {
         let c = 0;
-        const f = store.filters;
-        if (!f.domain) c++;
-        if (!f.missing) c++;
-        if (!f.broken) c++;
-        if (!f.linkage) c++;
-        if (!f.fqid) c++;
-        if (store.namespaceFilter.trim()) c++;
-        if (store.tagFilters.size > 0) c++;
-        if (store.isolatedOnly) c++;
-        if (store.bookmarksOnly) c++;
-        if (store.onlyInvalid) c++;
-        if (store.hiddenNodeIds.size > 0) c++;
+        if (!filters.domain) c++;
+        if (!filters.missing) c++;
+        if (!filters.broken) c++;
+        if (!filters.linkage) c++;
+        if (!filters.fqid) c++;
+        if (namespaceFilter.trim()) c++;
+        if (tagFilters.size > 0) c++;
+        if (isolatedOnly) c++;
+        if (bookmarksOnly) c++;
+        if (onlyInvalid) c++;
+        if (hiddenNodeIds.size > 0) c++;
         return c;
     }, [
-        store.filters,
-        store.namespaceFilter,
-        store.tagFilters,
-        store.isolatedOnly,
-        store.bookmarksOnly,
-        store.onlyInvalid,
-        store.hiddenNodeIds
+        filters,
+        namespaceFilter,
+        tagFilters,
+        isolatedOnly,
+        bookmarksOnly,
+        onlyInvalid,
+        hiddenNodeIds
     ]);
 
-    const closeToast = useCallback(() => setToastVisible(false), []);
-
-    // ---------- Рендер ----------
+    // ============ Рендер ============
     return (
         <div className="app">
             <Sidebar
@@ -281,9 +287,10 @@ export default function App() {
                 cyclesCount={cyclesInfo.sccs.length}
                 cacheDiff={GRAPH_DATA.cacheDiff || null}
                 onFitView={() => {
-                    if (store.rfInstance) {
+                    const rf = useGraphStore.getState().rfInstance;
+                    if (rf) {
                         try {
-                            store.rfInstance.fitView({ duration: 500, padding: 0.15 });
+                            rf.fitView({ duration: 500, padding: 0.15 });
                         } catch { }
                     }
                 }}
@@ -295,28 +302,28 @@ export default function App() {
                     counts={counts}
                     visibleNodesCount={visibleNodes.length}
                     visibleEdgesCount={visibleEdges.length}
-                    totalNodesCount={store.nodes.length}
-                    totalEdgesCount={store.edges.length}
+                    totalNodesCount={nodes.length}
+                    totalEdgesCount={edges.length}
                     activeFiltersCount={activeFiltersCount}
                     remoteInfo={REMOTE_INFO}
-                    cycleHighlight={store.cycleHighlight}
+                    cycleHighlight={useGraphStore.getState().cycleHighlight}
                     ruleViolationsCount={ruleViolations.length}
-                    onFindCycles={() =>
-                        document.dispatchEvent(new CustomEvent(EVT_FIND_CYCLES))
-                    }
+                    onFindCycles={() => document.dispatchEvent(new CustomEvent(EVT_FIND_CYCLES))}
                     onStartPathFinder={() => {
-                        store.setPathMode({ anchorId: null });
-                        store.setPathSel([]);
-                        store.setPathResult(null);
+                        const st = useGraphStore.getState();
+                        st.setPathMode({ anchorId: null });
+                        st.setPathSel([]);
+                        st.setPathResult(null);
                     }}
-                    onOpenTopo={() => store.setTopoOpen(true)}
-                    onOpenLearningPath={() => store.setLearningPathOpen(true)}
-                    onOpenRules={() => store.setRulesOpen(true)}
+                    onOpenTopo={() => useGraphStore.getState().setTopoOpen(true)}
+                    onOpenLearningPath={() => useGraphStore.getState().setLearningPathOpen(true)}
+                    onOpenRules={() => useGraphStore.getState().setRulesOpen(true)}
                     onOpenEntityHierarchy={() => {
-                        store.setEntityHierarchyInitialKey(null);
-                        store.setEntityHierarchyOpen(true);
+                        const st = useGraphStore.getState();
+                        st.setEntityHierarchyInitialKey(null);
+                        st.setEntityHierarchyOpen(true);
                     }}
-                    onOpenValidation={() => store.setValidationOpen(true)}
+                    onOpenValidation={() => useGraphStore.getState().setValidationOpen(true)}
                     onExportJSON={exportsApi.exportJSON}
                     onExportMarkdown={exportsApi.exportMarkdown}
                     onExportPNG={exportsApi.exportPNGFile}
@@ -344,8 +351,9 @@ export default function App() {
                     entityIndex={entityIndex}
                     ruleViolations={ruleViolations}
                     onOpenEntityHierarchy={(key) => {
-                        store.setEntityHierarchyInitialKey(key);
-                        store.setEntityHierarchyOpen(true);
+                        const st = useGraphStore.getState();
+                        st.setEntityHierarchyInitialKey(key);
+                        st.setEntityHierarchyOpen(true);
                     }}
                     onResetAll={handleResetAll}
                 />
@@ -363,7 +371,7 @@ export default function App() {
                 remoteInfo={REMOTE_INFO}
                 refreshCommand={REFRESH_COMMAND}
                 toastVisible={toastVisible}
-                onToastClose={closeToast}
+                onToastClose={useCallback(() => setToastVisible(false), [])}
             />
         </div>
     );

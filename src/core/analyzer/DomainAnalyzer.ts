@@ -15,6 +15,7 @@ import { scanDirectory } from "./scanner";
 import { loadYaml } from "./yaml-loader";
 import { findFQIDReferences } from "./references";
 import { processLinkages, RawLinkage } from "./linkages";
+import type { RawDomainEntry } from "./model-builder";
 
 interface DomainData {
   id: string;
@@ -530,6 +531,26 @@ export class DomainAnalyzer {
     } catch {
       return null;
     }
+  }
+
+  // В классе DomainAnalyzer
+
+  getRawDomainsForModelIndex(): RawDomainEntry[] {
+    const result: RawDomainEntry[] = [];
+    for (const [domainId, domainData] of this.domains) {
+      const meta =
+        this.metadata.get(domainId.toLowerCase()) || ({} as DomainMetadata);
+      const raw = domainData.rawData || {};
+      result.push({
+        id: domainId,
+        name: domainData.name,
+        version: meta.version || domainData.version || "",
+        author: raw.author || meta.author || "",
+        tags: Array.isArray(raw.tags) ? raw.tags : meta.tags || [],
+        rawData: raw,
+      });
+    }
+    return result;
   }
 
   getDomainsMap(): Map<string, DomainData> {

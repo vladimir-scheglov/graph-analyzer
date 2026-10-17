@@ -36,6 +36,7 @@ export function useMonaco(
   const loadingRef = useRef(false);
 
   // 1. Загрузка monaco (однократно, при открытии панели)
+  // @ts-expect-error
   useEffect(() => {
     if (!panelOpen) return;
     if (ready) return;

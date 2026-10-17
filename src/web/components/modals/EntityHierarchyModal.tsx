@@ -1,25 +1,38 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useGraphStore } from '../../state/useGraphStore';
-import { useNavigation } from '../../hooks/useNavigation';
 import { buildEntityIndex } from '../../lib/entities';
-import { buildEntityTree } from '../../lib/entities/tree';
 import { entityKey } from '../../lib/entities';
-import { EntityHierarchyGraph } from './EntityHierarchyGraph';
+import { buildEntityTree, EntityTreeMode } from '../../lib/entities/tree';
+import { EntityHierarchyFlow } from './EntityHierarchyFlow';
+import { useModelIndex } from '../../hooks/useModelIndex';
 
 export interface EntityHierarchyModalProps {
     entities: any[];
 }
 
 export function EntityHierarchyModal({ entities }: EntityHierarchyModalProps) {
-    const store = useGraphStore();
-    const { goto } = useNavigation();
+    const setEntityHierarchyOpen = useGraphStore(
+        (s) => s.setEntityHierarchyOpen
+    );
+    const entityHierarchyOpen = useGraphStore((s) => s.entityHierarchyOpen);
+    const entityHierarchyInitialKey = useGraphStore(
+        (s) => s.entityHierarchyInitialKey
+    );
+
+    const { index: modelIndex } = useModelIndex();
+    const [mode, setMode] = useState<EntityTreeMode>('inherits');
+    const [depth, setDepth] = useState(2);
+    const [showInheritance, setShowInheritance] = useState(true);
+    const [showReferences, setShowReferences] = useState(true);
+    const [showLinkages, setShowLinkages] = useState(true);
+    const [hideIsolated, setHideIsolated] = useState(true);
 
     const [query, setQuery] = useState('');
     const [selectedKey, setSelectedKey] = useState<string | null>(null);
     const [history, setHistory] = useState<string[]>([]);
 
-    const open = store.entityHierarchyOpen;
-    const initialKey = store.entityHierarchyInitialKey;
+    const open = entityHierarchyOpen;
+    const initialKey = entityHierarchyInitialKey;
 
     const index = useMemo(() => buildEntityIndex(entities), [entities]);
 
@@ -54,12 +67,12 @@ export function EntityHierarchyModal({ entities }: EntityHierarchyModalProps) {
             if (e.key === 'Escape') {
                 e.preventDefault();
                 if (history.length > 0) handleBack();
-                else store.setEntityHierarchyOpen(false);
+                else setEntityHierarchyOpen(false);
             }
         };
         document.addEventListener('keydown', onKey, true);
         return () => document.removeEventListener('keydown', onKey, true);
-    }, [open, history, handleBack, store]);
+    }, [open, history, handleBack, setEntityHierarchyOpen]);
 
     const searchResults = useMemo(() => {
         const q = query.trim().toLowerCase();
@@ -86,8 +99,16 @@ export function EntityHierarchyModal({ entities }: EntityHierarchyModalProps) {
 
     const tree = useMemo(() => {
         if (!selectedKey) return null;
-        return buildEntityTree(selectedKey, index);
-    }, [selectedKey, index]);
+        if (!modelIndex) return null;
+        return buildEntityTree(selectedKey, index, modelIndex, {
+            mode,
+            depth,
+            showInheritance,
+            showReferences,
+            showLinkages,
+            hideIsolated
+        });
+    }, [selectedKey, index, modelIndex, mode, depth, showInheritance, showReferences, showLinkages, hideIsolated]);
 
     const handleSelect = useCallback(
         (node: any) => {
@@ -104,7 +125,7 @@ export function EntityHierarchyModal({ entities }: EntityHierarchyModalProps) {
     return (
         <div
             className="help-overlay help-overlay--fullscreen"
-            onMouseDown={() => store.setEntityHierarchyOpen(false)}
+            onMouseDown={() => setEntityHierarchyOpen(false)}
         >
             <div
                 className="help-modal entity-hierarchy-modal"
@@ -114,7 +135,7 @@ export function EntityHierarchyModal({ entities }: EntityHierarchyModalProps) {
                     <div className="help-modal__title">🧬 Иерархия наследования сущностей</div>
                     <button
                         className="help-modal__close"
-                        onClick={() => store.setEntityHierarchyOpen(false)}
+                        onClick={() => setEntityHierarchyOpen(false)}
                     >
                         ✕
                     </button>
@@ -180,30 +201,107 @@ export function EntityHierarchyModal({ entities }: EntityHierarchyModalProps) {
                     </div>
 
                     <div className="entity-graph-panel">
-                        {history.length > 0 && (
-                            <button
-                                className="entity-graph-back"
-                                onClick={handleBack}
-                                title="Назад"
-                            >
-                                ← Назад
-                            </button>
-                        )}
-
                         {!selectedKey ? (
                             <div className="entity-graph-empty">
                                 <div className="entity-graph-empty__icon">🧬</div>
                                 <div className="entity-graph-empty__title">Выберите сущность слева</div>
                                 <div className="entity-graph-empty__hint">
-                                    Родители будут сверху, наследники снизу
+                                    Родители сверху, наследники снизу. Во втором режиме — ещё Reference и Linkage.
                                 </div>
                             </div>
                         ) : tree ? (
-                            <EntityHierarchyGraph
-                                tree={tree}
-                                onSelect={handleSelect}
-                                onGotoDomain={goto}
-                            />
+                            <>
+                                <div className="entity-hierarchy-toolbar">
+                                    {history.length > 0 && (
+                                        <button
+                                            className="entity-hierarchy-back"
+                                            onClick={handleBack}
+                                            title="Назад"
+                                        >
+                                            ← Назад
+                                        </button>
+                                    )}
+
+                                    <div className="entity-hierarchy-toolbar__modes">
+                                        <button
+                                            className={'entity-hierarchy-mode' + (mode === 'inherits' ? ' active' : '')}
+                                            onClick={() => setMode('inherits')}
+                                        >
+                                            <span className="entity-hierarchy-mode__dot" style={{ background: '#a78bfa' }} />
+                                            Наследование
+                                        </button>
+                                        <button
+                                            className={'entity-hierarchy-mode' + (mode === 'all' ? ' active' : '')}
+                                            onClick={() => setMode('all')}
+                                        >
+                                            <span className="entity-hierarchy-mode__dot" style={{ background: '#6366f1' }} />
+                                            Все связи
+                                        </button>
+                                    </div>
+
+                                    <div className="entity-hierarchy-toolbar__filters">
+                                        {mode === 'all' && (
+                                            <>
+                                                <label className="entity-hierarchy-filter">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={showInheritance}
+                                                        onChange={() => setShowInheritance(!showInheritance)}
+                                                    />
+                                                    <span className="entity-hierarchy-filter__dot" style={{ background: '#a78bfa' }} />
+                                                    Наслед.
+                                                </label>
+                                                <label className="entity-hierarchy-filter">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={showReferences}
+                                                        onChange={() => setShowReferences(!showReferences)}
+                                                    />
+                                                    <span className="entity-hierarchy-filter__dot" style={{ background: '#6366f1' }} />
+                                                    Reference
+                                                </label>
+                                                <label className="entity-hierarchy-filter">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={showLinkages}
+                                                        onChange={() => setShowLinkages(!showLinkages)}
+                                                    />
+                                                    <span className="entity-hierarchy-filter__dot" style={{ background: '#10b981' }} />
+                                                    Linkage
+                                                </label>
+                                                <span className="entity-hierarchy-toolbar__sep" />
+                                            </>
+                                        )}
+                                        <label className="entity-hierarchy-filter">
+                                            <input
+                                                type="checkbox"
+                                                checked={hideIsolated}
+                                                onChange={() => setHideIsolated(!hideIsolated)}
+                                            />
+                                            Без связей
+                                        </label>
+                                    </div>
+
+                                    {mode === 'all' && (
+                                        <div className="entity-hierarchy-toolbar__depth">
+                                            <span>Глубина:</span>
+                                            <input
+                                                type="range"
+                                                min={1}
+                                                max={6}
+                                                value={depth}
+                                                onChange={(e) => setDepth(parseInt(e.target.value, 10))}
+                                            />
+                                            <span className="entity-hierarchy-depth-value">{depth}</span>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <EntityHierarchyFlow
+                                    tree={tree}
+                                    onSelect={handleSelect}
+                                />
+                            </>
                         ) : null}
                     </div>
                 </div>
@@ -225,7 +323,7 @@ export function EntityHierarchyModal({ entities }: EntityHierarchyModalProps) {
                         <div className="validation-footer__actions">
                             <button
                                 className="btn"
-                                onClick={() => store.setEntityHierarchyOpen(false)}
+                                onClick={() => setEntityHierarchyOpen(false)}
                             >
                                 Закрыть
                             </button>

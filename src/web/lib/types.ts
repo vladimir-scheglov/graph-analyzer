@@ -115,9 +115,17 @@ export interface EntityTreeNode {
   missing: boolean;
 }
 
+export interface EntityTreeEdge {
+  id: string;
+  source: string;
+  target: string;
+  kind: "inheritance" | "reference" | "linkage";
+  label?: string;
+}
+
 export interface EntityTree {
   nodes: EntityTreeNode[];
-  edges: Array<{ id: string; source: string; target: string }>;
+  edges: EntityTreeEdge[];
   rootKey: string;
   parentKeys: Set<string>;
   childKeys: Set<string>;

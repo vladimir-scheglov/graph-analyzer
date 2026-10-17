@@ -39,6 +39,21 @@ const GROUPS: HotkeyGroup[] = [
         ]
     },
     {
+        title: 'Модель данных',
+        items: [
+            { keys: ['Ctrl', 'Shift', 'E'], label: 'Каталог сущностей' },
+            { keys: ['Ctrl', 'Shift', 'A'], label: 'Поиск атрибутов' },
+            { keys: ['Ctrl', 'Shift', 'M'], label: 'Матрица связей' },
+            { keys: ['Ctrl', 'Shift', 'B'], label: 'Матрица атрибутов' },
+            { keys: ['Ctrl', 'Shift', 'V'], label: 'Валидация модели' },
+            { keys: ['Ctrl', 'Shift', 'P'], label: 'PII-атрибуты' },
+            { keys: ['Ctrl', 'Shift', 'K'], label: 'Граф сущностей' },
+            { keys: ['Ctrl', 'Shift', 'L'], label: 'Линтер схем' },
+            { keys: ['Ctrl', 'Shift', 'Y'], label: 'Архитектурные метрики' },
+            { keys: ['Ctrl', 'Shift', 'G'], label: 'Глоссарий' }
+        ]
+    },
+    {
         title: 'Анализ',
         items: [
             { keys: ['C'], label: 'Найти циклы' },

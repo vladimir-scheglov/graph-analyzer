@@ -526,3 +526,249 @@
 .sidebar--compact .quick-actions { grid-template-columns: 1fr; }
 .sidebar--compact .tag-cloud { gap: 3px; }
 .sidebar--compact .tag { font-size: 10px; padding: 2px 6px; }
+
+/* ============ Карта миксинов ============ */
+.domain-mixins {
+  margin-top: 8px;
+}
+
+.domain-mixins__summary {
+  display: flex;
+  gap: 16px;
+  padding: 10px 12px;
+  background: var(--bg-800);
+  border-radius: 6px;
+  margin-bottom: 10px;
+}
+.domain-mixins__summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.domain-mixins__summary-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--accent-hover);
+}
+.domain-mixins__summary-label {
+  font-size: 10px;
+  color: var(--text-500);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.domain-mixins__alert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  margin-bottom: 10px;
+}
+.domain-mixins__alert--warn {
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--warning);
+  border-left: 3px solid var(--warning);
+}
+
+.domain-mixins__heavy {
+  margin-bottom: 12px;
+}
+.domain-mixins__subtitle {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-500);
+  margin-bottom: 6px;
+}
+
+.domain-mixins__groups {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.domain-mixins__group {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg-800);
+}
+.domain-mixins__group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  color: var(--text-200);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+  text-align: left;
+}
+.domain-mixins__group-header:hover {
+  background: var(--bg-700);
+}
+.domain-mixins__chevron {
+  color: var(--text-500);
+  width: 12px;
+  font-size: 10px;
+}
+.domain-mixins__source {
+  flex: 1;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color: #a78bfa;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.domain-mixins__counts {
+  font-size: 10px;
+  color: var(--text-500);
+  font-family: 'JetBrains Mono', monospace;
+  white-space: nowrap;
+}
+.domain-mixins__group-body {
+  padding: 8px 10px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-850);
+}
+
+.domain-mixins__mixin {
+  padding: 8px 10px;
+  background: var(--bg-800);
+  border-left: 2px solid #8b5cf6;
+  border-radius: 4px;
+  margin-bottom: 6px;
+}
+.domain-mixins__mixin:last-child {
+  margin-bottom: 0;
+}
+.domain-mixins__mixin-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+}
+.domain-mixins__mixin-id {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-100);
+}
+.domain-mixins__mixin-type {
+  font-size: 9.5px;
+  padding: 1px 6px;
+  background: var(--bg-700);
+  border-radius: 8px;
+  color: var(--text-500);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.domain-mixins__mixin-badge {
+  font-size: 9.5px;
+  padding: 1px 6px;
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--danger);
+  border-radius: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  font-weight: 600;
+}
+.domain-mixins__mixin-target {
+  font-size: 11.5px;
+  color: var(--text-400);
+  margin-bottom: 6px;
+}
+.domain-mixins__target-panel {
+  margin-left: 6px;
+  color: var(--text-500);
+}
+.domain-mixins__target-panel code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  padding: 1px 5px;
+  background: var(--bg-750);
+  border-radius: 3px;
+  color: var(--accent-hover);
+}
+.domain-mixins__entity-link {
+  background: transparent;
+  border: none;
+  color: var(--accent-hover);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  cursor: pointer;
+  padding: 0 2px;
+  text-decoration: underline dotted;
+}
+.domain-mixins__entity-link:hover {
+  text-decoration: underline;
+}
+
+.domain-mixins__adds {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 11px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+.domain-mixins__adds-label {
+  color: var(--text-500);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  min-width: 70px;
+}
+.domain-mixins__count-only {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text-300);
+}
+.domain-mixins__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.domain-mixins__chip {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  padding: 1px 6px;
+  background: var(--bg-750);
+  border-radius: 8px;
+  color: var(--text-400);
+  border: 1px solid transparent;
+}
+.domain-mixins__chip--entity {
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.domain-mixins__chip--entity:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-hover);
+}
+
+.domain-mixins__targets {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  flex-wrap: wrap;
+}
+.domain-mixins__actions {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  gap: 6px;
+}

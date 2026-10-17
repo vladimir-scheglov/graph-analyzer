@@ -1,25 +1,176 @@
-import React, { useMemo, useRef, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useGraphStore } from '../../state/useGraphStore';
 import { useNavigation } from '../../hooks/useNavigation';
 import { useSearch } from '../../hooks/useSearch';
 import { MIcon } from '../common/MIcon';
 import { HighlightedText } from '../common/HighlightedText';
 import type { Command } from '../../lib/commands';
+import type { SearchResult } from '../../hooks/useSearch';
 
 export interface CommandPaletteProps {
     commands: Command[];
     onOpenFile?: (filePath: string, fqid: string | null) => void;
 }
 
+// ============ memo-компоненты для строк ============
+
+interface CommandItemProps {
+    cmd: Command;
+    itemIdx: number;
+    isActive: boolean;
+    onHover: (idx: number) => void;
+    onSelect: () => void;
+}
+
+const CommandItem = React.memo(function CommandItem({
+    cmd,
+    itemIdx,
+    isActive,
+    onHover,
+    onSelect
+}: CommandItemProps) {
+    return (
+        <div
+            className={'palette-item palette-item--command' + (isActive ? ' active' : '')}
+            onMouseEnter={() => onHover(itemIdx)}
+            onClick={onSelect}
+        >
+            <span className="palette-item__icon">
+                {cmd.iconName ? <MIcon name={cmd.iconName} size="sm" /> : cmd.icon}
+            </span>
+            <span className="palette-item__label">{cmd.label}</span>
+            {cmd.hotkey && <kbd className="palette-item__hotkey">{cmd.hotkey}</kbd>}
+        </div>
+    );
+});
+
+interface DomainItemProps {
+    item: SearchResult;
+    itemIdx: number;
+    isActive: boolean;
+    query: string;
+    onHover: (idx: number) => void;
+    onSelect: () => void;
+    onOpenFile?: (filePath: string, fqid: string | null) => void;
+    onGoto: (domainId: string) => void;
+}
+
+const DomainItem = React.memo(function DomainItem({
+    item,
+    itemIdx,
+    isActive,
+    query,
+    onHover,
+    onSelect,
+    onOpenFile,
+    onGoto
+}: DomainItemProps) {
+    const n = item.node;
+    const matched = useMemo(
+        () => new Set(item.matches.map((m) => m.field)),
+        [item.matches]
+    );
+
+    const fqidMatch = useMemo(
+        () => item.matches.find((m) => m.field === 'fqid'),
+        [item.matches]
+    );
+
+    return (
+        <div
+            className={'palette-item' + (isActive ? ' active' : '')}
+            onMouseEnter={() => onHover(itemIdx)}
+            onClick={onSelect}
+        >
+            <span className="palette-item__icon">
+                <span className={'search-result__dot search-result__dot--' + n.data.nodeType} />
+            </span>
+            <div className="palette-item__content">
+                <div className="search-result__id">
+                    <HighlightedText text={n.data.domainId} query={query} />
+                    {matched.has('id') && <span className="search-result__badge">id</span>}
+                </div>
+
+                {n.data.name && n.data.name !== n.data.domainId && (
+                    <div className="search-result__label">
+                        <HighlightedText text={n.data.name} query={query} />
+                        {matched.has('name') && <span className="search-result__badge">name</span>}
+                    </div>
+                )}
+
+                {n.data.description && (
+                    <div className="search-result__desc">
+                        <HighlightedText text={n.data.description} query={query} />
+                        {matched.has('description') && (
+                            <span className="search-result__badge">description</span>
+                        )}
+                    </div>
+                )}
+
+                {Array.isArray(n.data.tags) && n.data.tags.length > 0 && (
+                    <div className="search-result__tags">
+                        {n.data.tags.slice(0, 5).map((tag: string, ti: number) => (
+                            <span key={ti} className="search-result__tag">
+                                <HighlightedText text={tag} query={query} />
+                            </span>
+                        ))}
+                        {matched.has('tags') && <span className="search-result__badge">tags</span>}
+                    </div>
+                )}
+
+                {fqidMatch && Array.isArray(fqidMatch.value) && fqidMatch.value.length > 0 && (
+                    <div className="search-result__fqid-block">
+                        <div className="search-result__fqid-head">
+                            <MIcon name="link" size="sm" />
+                            <span>FQID-ссылки ({fqidMatch.value.length})</span>
+                            <span className="search-result__badge">fqid</span>
+                        </div>
+                        {fqidMatch.value.slice(0, 3).map((f: any, fi: number) => (
+                            <div
+                                key={fi}
+                                className="search-result__fqid-item"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (onOpenFile && f.filePath) {
+                                        onOpenFile(f.filePath, f.fullFQID);
+                                    } else {
+                                        onGoto(n.data.domainId);
+                                    }
+                                }}
+                                title={onOpenFile ? 'Открыть файл на строке с FQID' : 'Перейти к домену'}
+                            >
+                                <HighlightedText text={f.fullFQID} query={query} />
+                                {f.propertyPath && (
+                                    <span className="search-result__fqid-path">{f.propertyPath}</span>
+                                )}
+                            </div>
+                        ))}
+                        {fqidMatch.value.length > 3 && (
+                            <div className="search-result__fqid-more">
+                                ...и ещё {fqidMatch.value.length - 3}
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+});
+
+// ============ Главный компонент ============
+
 export function CommandPalette({ commands, onOpenFile }: CommandPaletteProps) {
-    const store = useGraphStore();
+    // Точечные подписки
+    const open = useGraphStore((s) => s.searchOpen);
+    const query = useGraphStore((s) => s.searchQuery);
+    const index = useGraphStore((s) => s.searchIndex);
+    const setSearchOpen = useGraphStore((s) => s.setSearchOpen);
+    const setSearchQuery = useGraphStore((s) => s.setSearchQuery);
+    const setSearchIndex = useGraphStore((s) => s.setSearchIndex);
+
     const { goto } = useNavigation();
     const results = useSearch();
     const inputRef = useRef<HTMLInputElement>(null);
-
-    const open = store.searchOpen;
-    const query = store.searchQuery;
-    const index = store.searchIndex;
 
     useEffect(() => {
         if (open) {
@@ -49,7 +200,13 @@ export function CommandPalette({ commands, onOpenFile }: CommandPaletteProps) {
     const totalItems = filteredCommands.length + results.length;
     const safeIndex = Math.min(index, Math.max(totalItems - 1, 0));
 
-    const close = () => store.setSearchOpen(false);
+    const close = useCallback(() => setSearchOpen(false), [setSearchOpen]);
+
+    // Стабильные колбэки для memo-строк
+    const handleHover = useCallback(
+        (idx: number) => setSearchIndex(idx),
+        [setSearchIndex]
+    );
 
     const onKey = (e: React.KeyboardEvent) => {
         if (e.key === 'Escape') {
@@ -57,10 +214,10 @@ export function CommandPalette({ commands, onOpenFile }: CommandPaletteProps) {
             close();
         } else if (e.key === 'ArrowDown') {
             e.preventDefault();
-            store.setSearchIndex(Math.min(safeIndex + 1, Math.max(totalItems - 1, 0)));
+            setSearchIndex(Math.min(safeIndex + 1, Math.max(totalItems - 1, 0)));
         } else if (e.key === 'ArrowUp') {
             e.preventDefault();
-            store.setSearchIndex(Math.max(safeIndex - 1, 0));
+            setSearchIndex(Math.max(safeIndex - 1, 0));
         } else if (e.key === 'Enter') {
             e.preventDefault();
             if (totalItems === 0) return;
@@ -96,7 +253,7 @@ export function CommandPalette({ commands, onOpenFile }: CommandPaletteProps) {
                         type="text"
                         placeholder="Команда, домен или FQID..."
                         value={query}
-                        onChange={(e) => store.setSearchQuery(e.target.value)}
+                        onChange={(e) => setSearchQuery(e.target.value)}
                         onKeyDown={onKey}
                         autoComplete="off"
                         spellCheck={false}
@@ -106,7 +263,9 @@ export function CommandPalette({ commands, onOpenFile }: CommandPaletteProps) {
 
                 <div className="search-modal__results">
                     {query.trim() === '' && filteredCommands.length === 0 && results.length === 0 && (
-                        <div className="search-modal__hint">Начните вводить имя команды, домен или FQID</div>
+                        <div className="search-modal__hint">
+                            Начните вводить имя команды, домен или FQID
+                        </div>
                     )}
                     {query.trim() !== '' && filteredCommands.length === 0 && results.length === 0 && (
                         <div className="search-modal__hint">Ничего не найдено по запросу «{query}»</div>
@@ -118,23 +277,18 @@ export function CommandPalette({ commands, onOpenFile }: CommandPaletteProps) {
                                 <div className="palette-section__title">{section}</div>
                                 {cmds.map((cmd) => {
                                     const itemIdx = cmdIdx++;
-                                    const isActive = itemIdx === safeIndex;
                                     return (
-                                        <div
+                                        <CommandItem
                                             key={'cmd-' + itemIdx}
-                                            className={'palette-item palette-item--command' + (isActive ? ' active' : '')}
-                                            onMouseEnter={() => store.setSearchIndex(itemIdx)}
-                                            onClick={() => {
+                                            cmd={cmd}
+                                            itemIdx={itemIdx}
+                                            isActive={itemIdx === safeIndex}
+                                            onHover={handleHover}
+                                            onSelect={() => {
                                                 close();
                                                 setTimeout(() => cmd.run && cmd.run(), 50);
                                             }}
-                                        >
-                                            <span className="palette-item__icon">
-                                                {cmd.iconName ? <MIcon name={cmd.iconName} size="sm" /> : cmd.icon}
-                                            </span>
-                                            <span className="palette-item__label">{cmd.label}</span>
-                                            {cmd.hotkey && <kbd className="palette-item__hotkey">{cmd.hotkey}</kbd>}
-                                        </div>
+                                        />
                                     );
                                 })}
                             </div>
@@ -145,105 +299,24 @@ export function CommandPalette({ commands, onOpenFile }: CommandPaletteProps) {
                             <div className="palette-section__title">Домены ({results.length})</div>
                             {results.map((item, i) => {
                                 const itemIdx = domainStartIdx + i;
-                                const isActive = itemIdx === safeIndex;
-                                const n = item.node;
-                                const matched = new Set(item.matches.map((m) => m.field));
-
                                 return (
-                                    <div
-                                        key={'dom-' + i}
-                                        className={'palette-item' + (isActive ? ' active' : '')}
-                                        onMouseEnter={() => store.setSearchIndex(itemIdx)}
-                                        onClick={() => {
-                                            goto(n.data.domainId);
+                                    <DomainItem
+                                        key={'dom-' + item.node.id}
+                                        item={item}
+                                        itemIdx={itemIdx}
+                                        isActive={itemIdx === safeIndex}
+                                        query={query}
+                                        onHover={handleHover}
+                                        onSelect={() => {
+                                            goto(item.node.data.domainId);
                                             close();
                                         }}
-                                    >
-                                        <span className="palette-item__icon">
-                                            <span
-                                                className={'search-result__dot search-result__dot--' + n.data.nodeType}
-                                            />
-                                        </span>
-                                        <div className="palette-item__content">
-                                            <div className="search-result__id">
-                                                <HighlightedText text={n.data.domainId} query={query} />
-                                                {matched.has('id') && <span className="search-result__badge">id</span>}
-                                            </div>
-                                            {n.data.name && n.data.name !== n.data.domainId && (
-                                                <div className="search-result__label">
-                                                    <HighlightedText text={n.data.name} query={query} />
-                                                    {matched.has('name') && (
-                                                        <span className="search-result__badge">name</span>
-                                                    )}
-                                                </div>
-                                            )}
-                                            {n.data.description && (
-                                                <div className="search-result__desc">
-                                                    <HighlightedText text={n.data.description} query={query} />
-                                                    {matched.has('description') && (
-                                                        <span className="search-result__badge">description</span>
-                                                    )}
-                                                </div>
-                                            )}
-                                            {Array.isArray(n.data.tags) && n.data.tags.length > 0 && (
-                                                <div className="search-result__tags">
-                                                    {n.data.tags.slice(0, 5).map((tag: string, ti: number) => (
-                                                        <span key={ti} className="search-result__tag">
-                                                            <HighlightedText text={tag} query={query} />
-                                                        </span>
-                                                    ))}
-                                                    {matched.has('tags') && (
-                                                        <span className="search-result__badge">tags</span>
-                                                    )}
-                                                </div>
-                                            )}
-
-                                            {(() => {
-                                                const fqidMatch = item.matches.find((m) => m.field === 'fqid');
-                                                if (!fqidMatch || !Array.isArray(fqidMatch.value) || !fqidMatch.value.length) {
-                                                    return null;
-                                                }
-                                                return (
-                                                    <div className="search-result__fqid-block">
-                                                        <div className="search-result__fqid-head">
-                                                            <MIcon name="link" size="sm" />
-                                                            <span>FQID-ссылки ({fqidMatch.value.length})</span>
-                                                            <span className="search-result__badge">fqid</span>
-                                                        </div>
-                                                        {fqidMatch.value.slice(0, 3).map((f: any, fi: number) => (
-                                                            <div
-                                                                key={fi}
-                                                                className="search-result__fqid-item"
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    if (onOpenFile && f.filePath) {
-                                                                        onOpenFile(f.filePath, f.fullFQID);
-                                                                        close();
-                                                                    } else {
-                                                                        goto(n.data.domainId);
-                                                                        close();
-                                                                    }
-                                                                }}
-                                                                title={
-                                                                    onOpenFile ? 'Открыть файл на строке с FQID' : 'Перейти к домену'
-                                                                }
-                                                            >
-                                                                <HighlightedText text={f.fullFQID} query={query} />
-                                                                {f.propertyPath && (
-                                                                    <span className="search-result__fqid-path">{f.propertyPath}</span>
-                                                                )}
-                                                            </div>
-                                                        ))}
-                                                        {fqidMatch.value.length > 3 && (
-                                                            <div className="search-result__fqid-more">
-                                                                ...и ещё {fqidMatch.value.length - 3}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                );
-                                            })()}
-                                        </div>
-                                    </div>
+                                        onOpenFile={onOpenFile}
+                                        onGoto={(domainId) => {
+                                            goto(domainId);
+                                            close();
+                                        }}
+                                    />
                                 );
                             })}
                         </div>

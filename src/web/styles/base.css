@@ -6,6 +6,14 @@ html, body, #root {
   overflow: hidden;
 }
 
+html {
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+}
+
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   background: var(--bg-900);
@@ -38,6 +46,23 @@ body {
   user-select: none;
   vertical-align: middle;
   font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+
+  /* Скрываем до загрузки шрифта — вместо текста будет пустое место */
+  visibility: hidden;
+}
+
+/* Показываем, когда шрифт готов */
+html.fonts-ready .material-symbols-outlined {
+  visibility: visible;
+}
+
+/* Размеры — работают и без шрифта */
+.material-symbols-outlined.mi-sm { font-size: 14px; }
+.material-symbols-outlined.mi-md { font-size: 18px; }
+.material-symbols-outlined.mi-lg { font-size: 24px; }
+.material-symbols-outlined.mi-xl { font-size: 32px; }
+.material-symbols-outlined.mi-fill {
+  font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
 }
 .material-symbols-outlined.mi-sm { font-size: 14px; }
 .material-symbols-outlined.mi-md { font-size: 18px; }
@@ -104,4 +129,11 @@ body {
 @keyframes searchSlideDown {
   from { opacity: 0; transform: translateY(-20px) scale(0.98); }
   to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.icon-label {
+  margin-left: 8px;
+}
+button {
+  color: inherit;
+  font: inherit;
 }

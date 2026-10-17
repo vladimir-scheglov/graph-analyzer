@@ -68,6 +68,9 @@
   padding: 24px 32px;
   scroll-behavior: smooth;
 }
+.help-modal__body--flush {
+  padding: 0;
+}
 .help-modal__body::-webkit-scrollbar { width: 8px; }
 .help-modal__body::-webkit-scrollbar-thumb { background: var(--bg-600); border-radius: 4px; }
 .help-modal__loading {

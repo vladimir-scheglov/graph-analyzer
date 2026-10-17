@@ -78,6 +78,25 @@ export function DataMenu(props: DataMenuProps) {
             <div className="menu__divider" />
 
             <div className="menu__label" style={{ paddingLeft: 12, paddingTop: 6 }}>
+                Модель
+            </div>
+
+            <button
+                className="menu__item"
+                onClick={() => {
+                    useGraphStore.getState().setModelDiffOpen(true);
+                    props.close();
+                }}
+            >
+                <span className="menu__icon">
+                    <MIcon name="history" size="sm" />
+                </span>
+                <span className="menu__text">Что изменилось в модели</span>
+            </button>
+
+            <div className="menu__divider" />
+
+            <div className="menu__label" style={{ paddingLeft: 12, paddingTop: 6 }}>
                 Сравнение
             </div>
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useGraphStore } from "../state/useGraphStore";
 
 const HIDE_DELAY = 250;
@@ -13,18 +13,18 @@ declare global {
 }
 
 /**
- * Логика тултипов: показ с задержкой, скрытие с проверкой границ,
- * авто-репозиционирование, кэш по id узла.
+ * Логика тултипов — только функции. НЕ подписывается на store.tooltip,
+ * чтобы родительские компоненты (App) не ре-рендерились при каждом hover.
+ *
+ * Подписка на tooltip и позиционирование — в HoverTooltip.
  */
 export function useTooltip() {
-  const tooltip = useGraphStore((s) => s.tooltip);
   const setTooltip = useGraphStore((s) => s.setTooltip);
-  const tooltipsEnabled = useGraphStore((s) => s.tooltipsEnabled);
 
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cache = useRef(new Map<string, string>());
 
-  // Глобально — трекинг позиции мыши для проверки границ при скрытии
+  // Трекинг позиции мыши для проверки границ при скрытии
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       window.__lastMouse = { x: e.clientX, y: e.clientY };
@@ -33,12 +33,12 @@ export function useTooltip() {
     return () => document.removeEventListener("mousemove", onMove);
   }, []);
 
-  // Слежение за health-tooltip событиями от узлов
+  // Health tooltip события от узлов
   useEffect(() => {
     const onShow = () => {
       if (!window.__healthTooltip) return;
       const ht = window.__healthTooltip;
-      setTooltip({
+      useGraphStore.getState().setTooltip({
         html: ht.html,
         x: ht.x + 12,
         y: ht.y + 12,
@@ -46,51 +46,15 @@ export function useTooltip() {
         anchorY: ht.y,
       });
     };
-    const onHide = () => setTooltip(null);
+    const onHide = () => useGraphStore.getState().setTooltip(null);
     document.addEventListener("show-health-tooltip", onShow);
     document.addEventListener("hide-health-tooltip", onHide);
     return () => {
       document.removeEventListener("show-health-tooltip", onShow);
       document.removeEventListener("hide-health-tooltip", onHide);
     };
-  }, [setTooltip]);
+  }, []);
 
-  // Скрывать тултип, если тултипы выключены
-  useEffect(() => {
-    if (!tooltipsEnabled) {
-      if (hideTimer.current) clearTimeout(hideTimer.current);
-      setTooltip(null);
-      window.__tooltipHovered = false;
-    }
-  }, [tooltipsEnabled, setTooltip]);
-
-  // Репозиционирование: если тултип не влезает справа/снизу — перебрасываем
-  useEffect(() => {
-    if (!tooltip) return;
-    const el = document.querySelector(".tooltip") as HTMLElement | null;
-    if (!el) return;
-
-    const rect = el.getBoundingClientRect();
-    const margin = 12;
-    const gap = 16;
-    const ax = tooltip.anchorX != null ? tooltip.anchorX : tooltip.x;
-    const ay = tooltip.anchorY != null ? tooltip.anchorY : tooltip.y;
-
-    let x = ax + gap;
-    let y = ay + gap;
-
-    if (x + rect.width > window.innerWidth - margin) x = ax - rect.width - gap;
-    if (y + rect.height > window.innerHeight - margin)
-      y = ay - rect.height - gap;
-    if (x < margin) x = margin;
-    if (y < margin) y = margin;
-
-    if (x === tooltip.x && y === tooltip.y) return;
-
-    setTooltip((t) => (t ? { ...t, x, y } : null));
-  }, [tooltip, setTooltip]);
-
-  /** Показать тултип с готовым HTML */
   const show = useCallback(
     (html: string, event: { clientX: number; clientY: number }) => {
       if (hideTimer.current) clearTimeout(hideTimer.current);
@@ -105,7 +69,6 @@ export function useTooltip() {
     [setTooltip],
   );
 
-  /** Запланировать скрытие (с проверкой — не рядом ли мышь) */
   const scheduleHide = useCallback(() => {
     if (hideTimer.current) clearTimeout(hideTimer.current);
     hideTimer.current = setTimeout(() => {
@@ -127,18 +90,16 @@ export function useTooltip() {
           return;
         }
       }
-      setTooltip(null);
+      useGraphStore.getState().setTooltip(null);
     }, HIDE_DELAY);
-  }, [setTooltip]);
+  }, []);
 
-  /** Немедленно скрыть */
   const hide = useCallback(() => {
     if (hideTimer.current) clearTimeout(hideTimer.current);
-    setTooltip(null);
+    useGraphStore.getState().setTooltip(null);
     window.__tooltipHovered = false;
-  }, [setTooltip]);
+  }, []);
 
-  /** Показать тултип для узла с задержкой и кэшированием */
   const showForNode = useCallback(
     (
       nodeId: string,
@@ -162,12 +123,9 @@ export function useTooltip() {
     cache.current.clear();
   }, []);
 
-  return {
-    tooltip,
-    show,
-    scheduleHide,
-    hide,
-    showForNode,
-    clearCache,
-  };
+  // Возврат стабильного объекта — функции не зависят от значения tooltip
+  return useMemo(
+    () => ({ show, hide, scheduleHide, showForNode, clearCache }),
+    [show, hide, scheduleHide, showForNode, clearCache],
+  );
 }

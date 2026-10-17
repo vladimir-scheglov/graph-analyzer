@@ -70,6 +70,54 @@ var init_useGraphStore = __esm({
         document.documentElement.setAttribute("data-theme", t);
         set({ theme: t });
       },
+      entityCatalogOpen: false,
+      setEntityCatalogOpen: (v) => set({ entityCatalogOpen: v }),
+      attributeFinderOpen: false,
+      setAttributeFinderOpen: (v) => set({ attributeFinderOpen: v }),
+      entityCatalogInitialFqid: null,
+      setEntityCatalogInitialFqid: (fqid) => set({ entityCatalogInitialFqid: fqid }),
+      entityMatrixOpen: false,
+      setEntityMatrixOpen: (v) => set({ entityMatrixOpen: v }),
+      modelDiffOpen: false,
+      setModelDiffOpen: (v) => set({ modelDiffOpen: v }),
+      modelValidationOpen: false,
+      setModelValidationOpen: (v) => set({ modelValidationOpen: v }),
+      glossaryOpen: false,
+      setGlossaryOpen: (v) => set({ glossaryOpen: v }),
+      entityGraphOpen: false,
+      setEntityGraphOpen: (v) => set({ entityGraphOpen: v }),
+      entityGraphDomainFilter: "",
+      setEntityGraphDomainFilter: (v) => set({ entityGraphDomainFilter: v }),
+      entityGraphRankdir: "LR",
+      setEntityGraphRankdir: (v) => set({ entityGraphRankdir: v }),
+      entityGraphShowInheritance: true,
+      setEntityGraphShowInheritance: (v) => set({ entityGraphShowInheritance: v }),
+      entityGraphShowReferences: true,
+      setEntityGraphShowReferences: (v) => set({ entityGraphShowReferences: v }),
+      entityGraphShowLinkages: true,
+      setEntityGraphShowLinkages: (v) => set({ entityGraphShowLinkages: v }),
+      domainSchemaOpen: false,
+      setDomainSchemaOpen: (v) => set({ domainSchemaOpen: v }),
+      domainSchemaDomainId: null,
+      setDomainSchemaDomainId: (id) => set({ domainSchemaDomainId: id }),
+      lintOpen: false,
+      setLintOpen: (v) => set({ lintOpen: v }),
+      attributeMatrixOpen: false,
+      setAttributeMatrixOpen: (v) => set({ attributeMatrixOpen: v }),
+      martinOpen: false,
+      setMartinOpen: (v) => set({ martinOpen: v }),
+      domainCompareOpen: false,
+      setDomainCompareOpen: (v) => set({ domainCompareOpen: v }),
+      piiOpen: false,
+      setPiiOpen: (v) => set({ piiOpen: v }),
+      yamlViewerOpen: false,
+      setYamlViewerOpen: (v) => set({ yamlViewerOpen: v }),
+      yamlViewerFilePath: null,
+      setYamlViewerFilePath: (v) => set({ yamlViewerFilePath: v }),
+      yamlViewerFqid: null,
+      setYamlViewerFqid: (v) => set({ yamlViewerFqid: v }),
+      yamlViewerDomainId: null,
+      setYamlViewerDomainId: (v) => set({ yamlViewerDomainId: v }),
       // Фильтры
       filters: {
         domain: true,
@@ -152,7 +200,8 @@ var init_useGraphStore = __esm({
         "incoming",
         "outgoing",
         "violations",
-        "validation"
+        "validation",
+        "sonar"
       ]),
       toggleCollapsedSection: (id, isCollapsed) => set((s) => {
         const next = new Set(s.collapsedSections);
@@ -1654,13 +1703,11 @@ var init_useVisibleEdges = __esm({
 });
 
 // src/web/hooks/useTooltip.ts
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo as useMemo6, useRef } from "react";
 function useTooltip() {
-  const tooltip = useGraphStore((s) => s.tooltip);
   const setTooltip = useGraphStore((s) => s.setTooltip);
-  const tooltipsEnabled = useGraphStore((s) => s.tooltipsEnabled);
   const hideTimer = useRef(null);
-  const cache = useRef(/* @__PURE__ */ new Map());
+  const cache2 = useRef(/* @__PURE__ */ new Map());
   useEffect(() => {
     const onMove = (e) => {
       window.__lastMouse = { x: e.clientX, y: e.clientY };
@@ -1673,7 +1720,7 @@ function useTooltip() {
       if (!window.__healthTooltip)
         return;
       const ht = window.__healthTooltip;
-      setTooltip({
+      useGraphStore.getState().setTooltip({
         html: ht.html,
         x: ht.x + 12,
         y: ht.y + 12,
@@ -1681,47 +1728,14 @@ function useTooltip() {
         anchorY: ht.y
       });
     };
-    const onHide = () => setTooltip(null);
+    const onHide = () => useGraphStore.getState().setTooltip(null);
     document.addEventListener("show-health-tooltip", onShow);
     document.addEventListener("hide-health-tooltip", onHide);
     return () => {
       document.removeEventListener("show-health-tooltip", onShow);
       document.removeEventListener("hide-health-tooltip", onHide);
     };
-  }, [setTooltip]);
-  useEffect(() => {
-    if (!tooltipsEnabled) {
-      if (hideTimer.current)
-        clearTimeout(hideTimer.current);
-      setTooltip(null);
-      window.__tooltipHovered = false;
-    }
-  }, [tooltipsEnabled, setTooltip]);
-  useEffect(() => {
-    if (!tooltip)
-      return;
-    const el = document.querySelector(".tooltip");
-    if (!el)
-      return;
-    const rect = el.getBoundingClientRect();
-    const margin = 12;
-    const gap = 16;
-    const ax = tooltip.anchorX != null ? tooltip.anchorX : tooltip.x;
-    const ay = tooltip.anchorY != null ? tooltip.anchorY : tooltip.y;
-    let x = ax + gap;
-    let y = ay + gap;
-    if (x + rect.width > window.innerWidth - margin)
-      x = ax - rect.width - gap;
-    if (y + rect.height > window.innerHeight - margin)
-      y = ay - rect.height - gap;
-    if (x < margin)
-      x = margin;
-    if (y < margin)
-      y = margin;
-    if (x === tooltip.x && y === tooltip.y)
-      return;
-    setTooltip((t) => t ? { ...t, x, y } : null);
-  }, [tooltip, setTooltip]);
+  }, []);
   const show = useCallback(
     (html, event) => {
       if (hideTimer.current)
@@ -1752,24 +1766,24 @@ function useTooltip() {
           return;
         }
       }
-      setTooltip(null);
+      useGraphStore.getState().setTooltip(null);
     }, HIDE_DELAY);
-  }, [setTooltip]);
+  }, []);
   const hide = useCallback(() => {
     if (hideTimer.current)
       clearTimeout(hideTimer.current);
-    setTooltip(null);
+    useGraphStore.getState().setTooltip(null);
     window.__tooltipHovered = false;
-  }, [setTooltip]);
+  }, []);
   const showForNode = useCallback(
     (nodeId, htmlBuilder, event) => {
       if (hideTimer.current)
         clearTimeout(hideTimer.current);
       hideTimer.current = setTimeout(() => {
-        let html = cache.current.get(nodeId);
+        let html = cache2.current.get(nodeId);
         if (!html) {
           html = htmlBuilder();
-          cache.current.set(nodeId, html);
+          cache2.current.set(nodeId, html);
         }
         show(html, event);
       }, SHOW_DELAY);
@@ -1777,16 +1791,12 @@ function useTooltip() {
     [show]
   );
   const clearCache = useCallback(() => {
-    cache.current.clear();
+    cache2.current.clear();
   }, []);
-  return {
-    tooltip,
-    show,
-    scheduleHide,
-    hide,
-    showForNode,
-    clearCache
-  };
+  return useMemo6(
+    () => ({ show, hide, scheduleHide, showForNode, clearCache }),
+    [show, hide, scheduleHide, showForNode, clearCache]
+  );
 }
 var HIDE_DELAY, SHOW_DELAY;
 var init_useTooltip = __esm({
@@ -1860,6 +1870,59 @@ function useHotkeys() {
           e.preventDefault();
           navForward();
           return;
+        }
+        if (ctrl && shift && !alt) {
+          if (code === "KeyE") {
+            e.preventDefault();
+            useGraphStore.getState().setEntityCatalogInitialFqid(null);
+            useGraphStore.getState().setEntityCatalogOpen(true);
+            return;
+          }
+          if (code === "KeyA") {
+            e.preventDefault();
+            useGraphStore.getState().setAttributeFinderOpen(true);
+            return;
+          }
+          if (code === "KeyM") {
+            e.preventDefault();
+            useGraphStore.getState().setEntityMatrixOpen(true);
+            return;
+          }
+          if (code === "KeyK") {
+            e.preventDefault();
+            useGraphStore.getState().setEntityGraphOpen(true);
+            return;
+          }
+          if (code === "KeyV") {
+            e.preventDefault();
+            useGraphStore.getState().setModelValidationOpen(true);
+            return;
+          }
+          if (code === "KeyG") {
+            e.preventDefault();
+            useGraphStore.getState().setGlossaryOpen(true);
+            return;
+          }
+          if (code === "KeyL") {
+            e.preventDefault();
+            useGraphStore.getState().setLintOpen(true);
+            return;
+          }
+          if (code === "KeyB") {
+            e.preventDefault();
+            useGraphStore.getState().setAttributeMatrixOpen(true);
+            return;
+          }
+          if (code === "KeyY") {
+            e.preventDefault();
+            useGraphStore.getState().setMartinOpen(true);
+            return;
+          }
+          if (code === "KeyP") {
+            e.preventDefault();
+            useGraphStore.getState().setPiiOpen(true);
+            return;
+          }
         }
         if (ctrl || alt)
           return;
@@ -2004,11 +2067,11 @@ var init_useHotkeys = __esm({
 });
 
 // src/web/hooks/useSearch.ts
-import { useMemo as useMemo6 } from "react";
+import { useMemo as useMemo7 } from "react";
 function useSearch() {
   const nodes = useGraphStore((s) => s.nodes);
   const query = useGraphStore((s) => s.searchQuery);
-  return useMemo6(() => {
+  return useMemo7(() => {
     const q = query.trim().toLowerCase();
     if (!q)
       return [];
@@ -2244,11 +2307,11 @@ function useNavigation() {
       const node = nodes.find((n) => n.id === nodeId);
       if (!node)
         return;
-      const NODE_WIDTH3 = 300;
-      const NODE_HEIGHT3 = 88;
+      const NODE_WIDTH5 = 300;
+      const NODE_HEIGHT5 = 88;
       const NODE_COMPACT2 = 42;
-      const w = compact ? NODE_COMPACT2 : NODE_WIDTH3;
-      const h = compact ? NODE_COMPACT2 : NODE_HEIGHT3;
+      const w = compact ? NODE_COMPACT2 : NODE_WIDTH5;
+      const h = compact ? NODE_COMPACT2 : NODE_HEIGHT5;
       const cx = node.position.x + w / 2;
       const cy = node.position.y + h / 2;
       const z = Math.max(rfInstance.getZoom(), 1.2);
@@ -2301,143 +2364,9 @@ var init_useNavigation = __esm({
 
 // src/web/hooks/useMonaco.ts
 import { useEffect as useEffect4, useRef as useRef3, useState as useState2 } from "react";
-function useMonaco(panelOpen, panelTab, pendingFile) {
-  const editorRef = useRef3(null);
-  const [ready, setReady] = useState2(false);
-  const [created, setCreated] = useState2(false);
-  const loadingRef = useRef3(false);
-  useEffect4(() => {
-    if (!panelOpen)
-      return;
-    if (ready)
-      return;
-    if (window.monaco && window.monaco.editor) {
-      setReady(true);
-      return;
-    }
-    if (loadingRef.current)
-      return;
-    if (typeof window.require === "undefined") {
-      const retry = setTimeout(() => {
-        loadingRef.current = false;
-        setReady((v) => v);
-      }, 300);
-      return () => clearTimeout(retry);
-    }
-    loadingRef.current = true;
-    window.require.config({
-      paths: {
-        vs: `https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/${MONACO_VERSION}/min/vs`
-      }
-    });
-    window.require(
-      ["vs/editor/editor.main"],
-      () => {
-        if (window.monaco && window.monaco.editor)
-          setReady(true);
-        else
-          loadingRef.current = false;
-      },
-      (err) => {
-        console.error("[monaco] load error:", err);
-        loadingRef.current = false;
-      }
-    );
-  }, [panelOpen, ready]);
-  useEffect4(() => {
-    if (!panelOpen)
-      return;
-    if (!ready)
-      return;
-    if (editorRef.current)
-      return;
-    if (!window.monaco || !window.monaco.editor)
-      return;
-    const el = document.getElementById("monaco-container");
-    if (!el)
-      return;
-    try {
-      editorRef.current = window.monaco.editor.create(el, {
-        value: "",
-        language: "yaml",
-        theme: "vs-dark",
-        readOnly: true,
-        automaticLayout: true,
-        fontSize: 13,
-        minimap: { enabled: false },
-        scrollBeyondLastLine: false,
-        fontFamily: "JetBrains Mono, SF Mono, Monaco, monospace"
-      });
-      setCreated(true);
-    } catch (e) {
-      console.error("[monaco] create failed:", e);
-    }
-  }, [panelOpen, ready]);
-  useEffect4(() => {
-    if (!panelOpen)
-      return;
-    if (panelTab !== "file")
-      return;
-    if (!editorRef.current)
-      return;
-    const t = setTimeout(() => {
-      if (editorRef.current) {
-        try {
-          editorRef.current.layout();
-        } catch {
-        }
-      }
-    }, 60);
-    return () => clearTimeout(t);
-  }, [panelOpen, panelTab, created]);
-  useEffect4(() => {
-    if (!pendingFile)
-      return;
-    if (!created)
-      return;
-    if (!editorRef.current)
-      return;
-    editorRef.current.setValue(pendingFile.content);
-    if (pendingFile.fqid) {
-      setTimeout(() => {
-        const ed = editorRef.current;
-        if (!ed)
-          return;
-        const lines = pendingFile.content.split("\n");
-        for (let i = 0; i < lines.length; i++) {
-          if (lines[i].indexOf(pendingFile.fqid) !== -1) {
-            ed.revealLineInCenter(i + 1);
-            ed.setSelection({
-              startLineNumber: i + 1,
-              startColumn: 1,
-              endLineNumber: i + 1,
-              endColumn: lines[i].length + 1
-            });
-            break;
-          }
-        }
-      }, 150);
-    }
-  }, [pendingFile, created]);
-  useEffect4(() => {
-    if (panelOpen)
-      return;
-    if (editorRef.current) {
-      try {
-        editorRef.current.dispose();
-      } catch {
-      }
-      editorRef.current = null;
-      setCreated(false);
-    }
-  }, [panelOpen]);
-  return { editorRef, ready, created };
-}
-var MONACO_VERSION;
 var init_useMonaco = __esm({
   "src/web/hooks/useMonaco.ts"() {
     "use strict";
-    MONACO_VERSION = "0.34.0";
   }
 });
 
@@ -2468,7 +2397,7 @@ var init_useMarked = __esm({
 });
 
 // src/web/lib/commands.ts
-function buildCommands(ctx) {
+function buildCommands(ctx2) {
   const commands = [
     // Навигация
     {
@@ -2477,7 +2406,7 @@ function buildCommands(ctx) {
       label: "\u0412\u043F\u0438\u0441\u0430\u0442\u044C \u0432 \u044D\u043A\u0440\u0430\u043D",
       hotkey: "F",
       keywords: "fit zoom",
-      run: () => ctx.rfInstance?.fitView({ duration: 500 })
+      run: () => ctx2.rfInstance?.fitView({ duration: 500 })
     },
     {
       section: "\u041D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044F",
@@ -2485,7 +2414,7 @@ function buildCommands(ctx) {
       label: "\u041D\u0430\u0437\u0430\u0434 \u043F\u043E \u0438\u0441\u0442\u043E\u0440\u0438\u0438",
       hotkey: "Alt+\u2190",
       keywords: "back",
-      run: ctx.navBack
+      run: ctx2.navBack
     },
     {
       section: "\u041D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044F",
@@ -2493,7 +2422,7 @@ function buildCommands(ctx) {
       label: "\u0412\u043F\u0435\u0440\u0451\u0434 \u043F\u043E \u0438\u0441\u0442\u043E\u0440\u0438\u0438",
       hotkey: "Alt+\u2192",
       keywords: "forward",
-      run: ctx.navForward
+      run: ctx2.navForward
     },
     // Раскладка
     {
@@ -2501,115 +2430,115 @@ function buildCommands(ctx) {
       icon: "\u{1F4D0}",
       label: "\u0413\u043E\u0440\u0438\u0437\u043E\u043D\u0442\u0430\u043B\u044C\u043D\u0430\u044F (LR)",
       keywords: "layout",
-      run: () => ctx.setLayoutType("LR")
+      run: () => ctx2.setLayoutType("LR")
     },
     {
       section: "\u0420\u0430\u0441\u043A\u043B\u0430\u0434\u043A\u0430",
       icon: "\u{1F4D0}",
       label: "\u0412\u0435\u0440\u0442\u0438\u043A\u0430\u043B\u044C\u043D\u0430\u044F (TB)",
       keywords: "layout vertical",
-      run: () => ctx.setLayoutType("TB")
+      run: () => ctx2.setLayoutType("TB")
     },
     {
       section: "\u0420\u0430\u0441\u043A\u043B\u0430\u0434\u043A\u0430",
       icon: "\u{1F4D0}",
       label: "Force-directed",
       keywords: "layout force physics",
-      run: () => ctx.setLayoutType("force")
+      run: () => ctx2.setLayoutType("force")
     },
     {
       section: "\u0420\u0430\u0441\u043A\u043B\u0430\u0434\u043A\u0430",
       icon: "\u{1F4D0}",
       label: "\u041A\u0440\u0443\u0433\u043E\u0432\u0430\u044F",
       keywords: "layout circular",
-      run: () => ctx.setLayoutType("circular")
+      run: () => ctx2.setLayoutType("circular")
     },
     {
       section: "\u0420\u0430\u0441\u043A\u043B\u0430\u0434\u043A\u0430",
       icon: "\u{1F5C2}",
       label: "\u041F\u043E \u0441\u0435\u043C\u0435\u0439\u0441\u0442\u0432\u0430\u043C",
       keywords: "cluster namespace",
-      run: () => ctx.setLayoutType("cluster")
+      run: () => ctx2.setLayoutType("cluster")
     },
     {
       section: "\u0420\u0430\u0441\u043A\u043B\u0430\u0434\u043A\u0430",
       icon: "\u{1F4C1}",
       label: "\u041F\u043E \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0430\u043C",
       keywords: "folder directory",
-      run: () => ctx.setLayoutType("folder")
+      run: () => ctx2.setLayoutType("folder")
     },
     // Вид
     {
       section: "\u0412\u0438\u0434",
-      icon: ctx.theme === "dark" ? "\u2600\uFE0F" : "\u{1F319}",
+      icon: ctx2.theme === "dark" ? "\u2600\uFE0F" : "\u{1F319}",
       label: "\u041F\u0435\u0440\u0435\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0442\u0435\u043C\u0443",
       keywords: "theme dark light",
-      run: () => ctx.setTheme(ctx.theme === "dark" ? "light" : "dark")
+      run: () => ctx2.setTheme(ctx2.theme === "dark" ? "light" : "dark")
     },
     {
       section: "\u0412\u0438\u0434",
       icon: "\u26AB",
-      label: ctx.compact ? "\u0412\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u043A\u043E\u043C\u043F\u0430\u043A\u0442\u043D\u044B\u0439 \u0440\u0435\u0436\u0438\u043C" : "\u0412\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u043A\u043E\u043C\u043F\u0430\u043A\u0442\u043D\u044B\u0439 \u0440\u0435\u0436\u0438\u043C",
+      label: ctx2.compact ? "\u0412\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u043A\u043E\u043C\u043F\u0430\u043A\u0442\u043D\u044B\u0439 \u0440\u0435\u0436\u0438\u043C" : "\u0412\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u043A\u043E\u043C\u043F\u0430\u043A\u0442\u043D\u044B\u0439 \u0440\u0435\u0436\u0438\u043C",
       keywords: "compact small",
-      run: () => ctx.setCompact((v) => !v)
+      run: () => ctx2.setCompact((v) => !v)
     },
     {
       section: "\u0412\u0438\u0434",
       icon: "\u{1F5C2}",
-      label: ctx.showGroups ? "\u0421\u043A\u0440\u044B\u0442\u044C \u0433\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u043A\u0443" : "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0433\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u043A\u0443",
+      label: ctx2.showGroups ? "\u0421\u043A\u0440\u044B\u0442\u044C \u0433\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u043A\u0443" : "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0433\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u043A\u0443",
       keywords: "groups boxes",
-      run: () => ctx.setShowGroups(!ctx.showGroups)
+      run: () => ctx2.setShowGroups(!ctx2.showGroups)
     },
     {
       section: "\u0412\u0438\u0434",
       icon: "\u21C4",
-      label: ctx.bidirectional ? "\u0420\u0430\u0437\u044A\u0435\u0434\u0438\u043D\u0438\u0442\u044C A\u2194B" : "\u041E\u0431\u044A\u0435\u0434\u0438\u043D\u044F\u0442\u044C A\u2194B",
+      label: ctx2.bidirectional ? "\u0420\u0430\u0437\u044A\u0435\u0434\u0438\u043D\u0438\u0442\u044C A\u2194B" : "\u041E\u0431\u044A\u0435\u0434\u0438\u043D\u044F\u0442\u044C A\u2194B",
       keywords: "bidirectional",
-      run: () => ctx.setBidirectional(!ctx.bidirectional)
+      run: () => ctx2.setBidirectional(!ctx2.bidirectional)
     },
     {
       section: "\u0412\u0438\u0434",
       icon: "\u{1F3F7}",
-      label: ctx.showEdgeLabels ? "\u0421\u043A\u0440\u044B\u0442\u044C \u043F\u043E\u0434\u043F\u0438\u0441\u0438 \u0441\u0432\u044F\u0437\u0435\u0439" : "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u043F\u043E\u0434\u043F\u0438\u0441\u0438 \u0441\u0432\u044F\u0437\u0435\u0439",
+      label: ctx2.showEdgeLabels ? "\u0421\u043A\u0440\u044B\u0442\u044C \u043F\u043E\u0434\u043F\u0438\u0441\u0438 \u0441\u0432\u044F\u0437\u0435\u0439" : "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u043F\u043E\u0434\u043F\u0438\u0441\u0438 \u0441\u0432\u044F\u0437\u0435\u0439",
       keywords: "labels edges",
-      run: () => ctx.setShowEdgeLabels(!ctx.showEdgeLabels)
+      run: () => ctx2.setShowEdgeLabels(!ctx2.showEdgeLabels)
     },
     {
       section: "\u0412\u0438\u0434",
-      icon: ctx.tooltipsEnabled ? "\u{1F6AB}" : "\u{1F4AC}",
-      label: ctx.tooltipsEnabled ? "\u0421\u043A\u0440\u044B\u0442\u044C \u0442\u0443\u043B\u0442\u0438\u043F\u044B" : "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0442\u0443\u043B\u0442\u0438\u043F\u044B",
+      icon: ctx2.tooltipsEnabled ? "\u{1F6AB}" : "\u{1F4AC}",
+      label: ctx2.tooltipsEnabled ? "\u0421\u043A\u0440\u044B\u0442\u044C \u0442\u0443\u043B\u0442\u0438\u043F\u044B" : "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0442\u0443\u043B\u0442\u0438\u043F\u044B",
       hotkey: "T",
       keywords: "tooltip",
-      run: () => ctx.setTooltipsEnabled((v) => !v)
+      run: () => ctx2.setTooltipsEnabled((v) => !v)
     },
     // Heatmap
     {
       section: "Heatmap",
       icon: "\u{1F525}",
-      label: ctx.heatmap === "health" ? "\u0412\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C heatmap" : "Heatmap: Health score",
+      label: ctx2.heatmap === "health" ? "\u0412\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C heatmap" : "Heatmap: Health score",
       keywords: "heatmap",
-      run: () => ctx.setHeatmap(ctx.heatmap === "health" ? "none" : "health")
+      run: () => ctx2.setHeatmap(ctx2.heatmap === "health" ? "none" : "health")
     },
     {
       section: "Heatmap",
       icon: "\u{1F525}",
-      label: ctx.heatmap === "degree" ? "\u0412\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C heatmap" : "Heatmap: \u041A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E \u0441\u0432\u044F\u0437\u0435\u0439",
+      label: ctx2.heatmap === "degree" ? "\u0412\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C heatmap" : "Heatmap: \u041A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E \u0441\u0432\u044F\u0437\u0435\u0439",
       keywords: "heatmap degree",
-      run: () => ctx.setHeatmap(ctx.heatmap === "degree" ? "none" : "degree")
+      run: () => ctx2.setHeatmap(ctx2.heatmap === "degree" ? "none" : "degree")
     },
     {
       section: "Heatmap",
       icon: "\u{1F525}",
-      label: ctx.heatmap === "entities" ? "\u0412\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C heatmap" : "Heatmap: Entities",
+      label: ctx2.heatmap === "entities" ? "\u0412\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C heatmap" : "Heatmap: Entities",
       keywords: "heatmap entities",
-      run: () => ctx.setHeatmap(ctx.heatmap === "entities" ? "none" : "entities")
+      run: () => ctx2.setHeatmap(ctx2.heatmap === "entities" ? "none" : "entities")
     },
     {
       section: "Heatmap",
       icon: "\u{1F525}",
-      label: ctx.heatmap === "fqid" ? "\u0412\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C heatmap" : "Heatmap: FQID-\u0441\u0441\u044B\u043B\u043A\u0438",
+      label: ctx2.heatmap === "fqid" ? "\u0412\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C heatmap" : "Heatmap: FQID-\u0441\u0441\u044B\u043B\u043A\u0438",
       keywords: "heatmap fqid",
-      run: () => ctx.setHeatmap(ctx.heatmap === "fqid" ? "none" : "fqid")
+      run: () => ctx2.setHeatmap(ctx2.heatmap === "fqid" ? "none" : "fqid")
     },
     // Анализ
     {
@@ -2618,41 +2547,41 @@ function buildCommands(ctx) {
       label: "\u041D\u0430\u0439\u0442\u0438 \u0446\u0438\u043A\u043B\u044B",
       hotkey: "C",
       keywords: "cycles scc",
-      run: ctx.handleFindCycles
+      run: ctx2.handleFindCycles
     },
     {
       section: "\u0410\u043D\u0430\u043B\u0438\u0437",
       icon: "\u25EF",
-      label: ctx.isolatedOnly ? "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0432\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B" : "\u0422\u043E\u043B\u044C\u043A\u043E \u0438\u0437\u043E\u043B\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0435",
+      label: ctx2.isolatedOnly ? "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0432\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B" : "\u0422\u043E\u043B\u044C\u043A\u043E \u0438\u0437\u043E\u043B\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0435",
       hotkey: "I",
       keywords: "isolated",
-      run: () => ctx.setIsolatedOnly((v) => !v)
+      run: () => ctx2.setIsolatedOnly((v) => !v)
     },
     {
       section: "\u0410\u043D\u0430\u043B\u0438\u0437",
       icon: "\u{1F5C2}",
-      label: ctx.nsMode ? "\u0412\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0430\u0433\u0440\u0435\u0433\u0430\u0446\u0438\u044E" : "\u0410\u0433\u0440\u0435\u0433\u0430\u0446\u0438\u044F \u043F\u043E \u0441\u0435\u043C\u0435\u0439\u0441\u0442\u0432\u0430\u043C",
+      label: ctx2.nsMode ? "\u0412\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0430\u0433\u0440\u0435\u0433\u0430\u0446\u0438\u044E" : "\u0410\u0433\u0440\u0435\u0433\u0430\u0446\u0438\u044F \u043F\u043E \u0441\u0435\u043C\u0435\u0439\u0441\u0442\u0432\u0430\u043C",
       hotkey: "S",
       keywords: "namespace aggregate",
-      run: () => ctx.setNsMode((v) => !v)
+      run: () => ctx2.setNsMode((v) => !v)
     },
     {
       section: "\u0410\u043D\u0430\u043B\u0438\u0437",
       icon: "\u{1F4E6}",
       label: "\u041F\u043E\u0440\u044F\u0434\u043E\u043A \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438 (\u0442\u043E\u043F\u043E\u0441\u043E\u0440\u0442)",
       keywords: "topo install order",
-      run: () => ctx.setTopoOpen(true)
+      run: () => ctx2.setTopoOpen(true)
     },
     {
       section: "\u0410\u043D\u0430\u043B\u0438\u0437",
       icon: "\u{1F3AF}",
-      label: ctx.focusNode ? "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0444\u043E\u043A\u0443\u0441" : "\u0424\u043E\u043A\u0443\u0441 \u043D\u0430 \u0432\u044B\u0434\u0435\u043B\u0435\u043D\u043D\u043E\u043C",
+      label: ctx2.focusNode ? "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0444\u043E\u043A\u0443\u0441" : "\u0424\u043E\u043A\u0443\u0441 \u043D\u0430 \u0432\u044B\u0434\u0435\u043B\u0435\u043D\u043D\u043E\u043C",
       keywords: "focus",
       run: () => {
-        if (ctx.focusNode)
-          ctx.setFocusNode(null);
-        else if (ctx.selectedNodeId)
-          ctx.setFocusNode(ctx.selectedNodeId);
+        if (ctx2.focusNode)
+          ctx2.setFocusNode(null);
+        else if (ctx2.selectedNodeId)
+          ctx2.setFocusNode(ctx2.selectedNodeId);
       }
     },
     {
@@ -2661,18 +2590,18 @@ function buildCommands(ctx) {
       label: "\u041D\u0430\u0439\u0442\u0438 \u043F\u0443\u0442\u044C \u043C\u0435\u0436\u0434\u0443 \u0434\u0432\u0443\u043C\u044F \u0443\u0437\u043B\u0430\u043C\u0438",
       hotkey: "P",
       keywords: "path",
-      run: ctx.handleRunPath
+      run: ctx2.handleRunPath
     },
     {
       section: "\u0410\u043D\u0430\u043B\u0438\u0437",
       icon: "\u{1F4D6}",
-      label: ctx.tour ? "\u041E\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C \u044D\u043A\u0441\u043A\u0443\u0440\u0441\u0438\u044E" : "\u041F\u0443\u0442\u044C \u0438\u0437\u0443\u0447\u0435\u043D\u0438\u044F \u0430\u0440\u0445\u0438\u0442\u0435\u043A\u0442\u0443\u0440\u044B",
+      label: ctx2.tour ? "\u041E\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C \u044D\u043A\u0441\u043A\u0443\u0440\u0441\u0438\u044E" : "\u041F\u0443\u0442\u044C \u0438\u0437\u0443\u0447\u0435\u043D\u0438\u044F \u0430\u0440\u0445\u0438\u0442\u0435\u043A\u0442\u0443\u0440\u044B",
       keywords: "learning path tour",
       run: () => {
-        if (ctx.tour)
-          ctx.tourStop();
+        if (ctx2.tour)
+          ctx2.tourStop();
         else
-          ctx.setLearningPathOpen(true);
+          ctx2.setLearningPathOpen(true);
       }
     },
     {
@@ -2681,31 +2610,31 @@ function buildCommands(ctx) {
       label: "\u0418\u0435\u0440\u0430\u0440\u0445\u0438\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439",
       keywords: "entity hierarchy inherits",
       run: () => {
-        ctx.setEntityHierarchyInitialKey(null);
-        ctx.setEntityHierarchyOpen(true);
+        ctx2.setEntityHierarchyInitialKey(null);
+        ctx2.setEntityHierarchyOpen(true);
       }
     },
     // Фильтры
     {
       section: "\u0424\u0438\u043B\u044C\u0442\u0440\u044B",
       icon: "\u2605",
-      label: ctx.bookmarksOnly ? "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0432\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B" : "\u0422\u043E\u043B\u044C\u043A\u043E \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u044B\u0435",
+      label: ctx2.bookmarksOnly ? "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0432\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B" : "\u0422\u043E\u043B\u044C\u043A\u043E \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u044B\u0435",
       keywords: "bookmarks",
-      run: () => ctx.setBookmarksOnly(!ctx.bookmarksOnly)
+      run: () => ctx2.setBookmarksOnly(!ctx2.bookmarksOnly)
     },
     {
       section: "\u0424\u0438\u043B\u044C\u0442\u0440\u044B",
       icon: "\u274C",
-      label: ctx.onlyInvalid ? "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0432\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B" : "\u0422\u043E\u043B\u044C\u043A\u043E \u043D\u0435\u0432\u0430\u043B\u0438\u0434\u043D\u044B\u0435",
+      label: ctx2.onlyInvalid ? "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0432\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B" : "\u0422\u043E\u043B\u044C\u043A\u043E \u043D\u0435\u0432\u0430\u043B\u0438\u0434\u043D\u044B\u0435",
       keywords: "invalid validation",
-      run: () => ctx.setOnlyInvalid(!ctx.onlyInvalid)
+      run: () => ctx2.setOnlyInvalid(!ctx2.onlyInvalid)
     },
     {
       section: "\u0424\u0438\u043B\u044C\u0442\u0440\u044B",
       icon: "\u{1F5D1}",
       label: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0432\u0441\u0435 \u0444\u0438\u043B\u044C\u0442\u0440\u044B",
       keywords: "reset clear filters",
-      run: ctx.resetAll
+      run: ctx2.resetAll
     },
     // Данные
     {
@@ -2713,28 +2642,28 @@ function buildCommands(ctx) {
       icon: "\u{1F4BE}",
       label: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442 \u0433\u0440\u0430\u0444\u0430 \u0432 JSON",
       keywords: "export json",
-      run: ctx.handleExportJSON
+      run: ctx2.handleExportJSON
     },
     {
       section: "\u0414\u0430\u043D\u043D\u044B\u0435",
       icon: "\u{1F4DD}",
       label: "\u041E\u0442\u0447\u0451\u0442 \u0432 Markdown",
       keywords: "export markdown report",
-      run: ctx.handleExportMarkdown
+      run: ctx2.handleExportMarkdown
     },
     {
       section: "\u0414\u0430\u043D\u043D\u044B\u0435",
       icon: "\u{1F5BC}\uFE0F",
       label: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442 \u0433\u0440\u0430\u0444\u0430 \u0432 PNG",
       keywords: "export png",
-      run: ctx.handleExportPNG
+      run: ctx2.handleExportPNG
     },
-    ctx.validationAvailable ? {
+    ctx2.validationAvailable ? {
       section: "\u0414\u0430\u043D\u043D\u044B\u0435",
       icon: "\u{1F50D}",
       label: "\u041C\u0430\u0441\u0441\u043E\u0432\u0430\u044F \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u0434\u043E\u043C\u0435\u043D\u043E\u0432",
       keywords: "validate check",
-      run: () => ctx.setValidationOpen(true)
+      run: () => ctx2.setValidationOpen(true)
     } : null,
     // Справка
     {
@@ -2743,14 +2672,14 @@ function buildCommands(ctx) {
       label: "\u0420\u0443\u043A\u043E\u0432\u043E\u0434\u0441\u0442\u0432\u043E \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044F",
       hotkey: "F1",
       keywords: "guide help",
-      run: () => ctx.setHelpOpen(true)
+      run: () => ctx2.setHelpOpen(true)
     },
     {
       section: "\u0421\u043F\u0440\u0430\u0432\u043A\u0430",
       icon: "\u2328\uFE0F",
       label: "\u0421\u043F\u0438\u0441\u043E\u043A \u0433\u043E\u0440\u044F\u0447\u0438\u0445 \u043A\u043B\u0430\u0432\u0438\u0448",
       keywords: "hotkeys",
-      run: () => ctx.setHotkeysOpen(true)
+      run: () => ctx2.setHotkeysOpen(true)
     }
   ];
   return commands.filter((c) => c !== null);
@@ -2809,7 +2738,7 @@ var init_path = __esm({
 });
 
 // src/web/hooks/useCommands.ts
-import { useMemo as useMemo7 } from "react";
+import { useMemo as useMemo8 } from "react";
 function useCommands({
   filteredEdges,
   navBack,
@@ -2866,7 +2795,7 @@ function useCommands({
   const setNamespaceFilter = useGraphStore((s) => s.setNamespaceFilter);
   const setTagFilters = useGraphStore((s) => s.setTagFilters);
   const resetHiddenNodes = useGraphStore((s) => s.resetHiddenNodes);
-  return useMemo7(
+  return useMemo8(
     () => buildCommands({
       theme,
       setTheme,
@@ -3389,8 +3318,8 @@ var init_format = __esm({
 });
 
 // src/web/lib/markdown.ts
-function generateMarkdownReport(ctx) {
-  const { nodes, edges, cyclesInfo, healthMap, namespaceFilter = "" } = ctx;
+function generateMarkdownReport(ctx2) {
+  const { nodes, edges, cyclesInfo, healthMap, namespaceFilter = "" } = ctx2;
   const now = (/* @__PURE__ */ new Date()).toISOString().replace("T", " ").slice(0, 19);
   const domainNodes = nodes.filter((n) => n.data.nodeType === "domain");
   const missingNodes = nodes.filter((n) => n.data.nodeType === "missing");
@@ -3799,7 +3728,7 @@ var init_useInitialFit = __esm({
 });
 
 // src/web/hooks/usePanelNode.ts
-import { useMemo as useMemo8 } from "react";
+import { useMemo as useMemo9 } from "react";
 var init_usePanelNode = __esm({
   "src/web/hooks/usePanelNode.ts"() {
     "use strict";
@@ -4073,11 +4002,35 @@ var init_tooltip_builders = __esm({
   }
 });
 
+// src/web/lib/open-file.ts
+function openFileInEditor(filePath, fqid = null) {
+  if (!filePath)
+    return;
+  const store = useGraphStore.getState();
+  store.setYamlViewerFilePath(filePath);
+  store.setYamlViewerFqid(fqid);
+  let domainId = null;
+  const nodes = store.nodes;
+  for (const n of nodes) {
+    if (n.data?.filePath === filePath) {
+      domainId = n.data.domainId || null;
+      break;
+    }
+  }
+  store.setYamlViewerDomainId(domainId);
+  store.setYamlViewerOpen(true);
+}
+var init_open_file = __esm({
+  "src/web/lib/open-file.ts"() {
+    "use strict";
+    init_useGraphStore();
+  }
+});
+
 // src/web/hooks/useNodeInteractions.ts
 import { useCallback as useCallback6 } from "react";
 function useNodeInteractions({
-  filteredEdges,
-  openFileInEditor: openFileInEditor2
+  filteredEdges
 }) {
   const tooltip = useTooltip();
   const { goto } = useNavigation();
@@ -4237,7 +4190,7 @@ function useNodeInteractions({
           break;
         case "open-file":
           if (node.data.filePath)
-            openFileInEditor2(node.data.filePath, null);
+            openFileInEditor(node.data.filePath, null);
           break;
         case "copy-id":
           navigator.clipboard.writeText(node.data.domainId);
@@ -4250,7 +4203,7 @@ function useNodeInteractions({
           break;
       }
     },
-    [store, openFileInEditor2]
+    [store, openFileInEditor]
   );
   return {
     handleNodeClick,
@@ -4274,6 +4227,7 @@ var init_useNodeInteractions = __esm({
     init_useTooltip();
     init_path();
     init_tooltip_builders();
+    init_open_file();
   }
 });
 
@@ -4388,39 +4342,6 @@ var init_useGraphLayout = __esm({
     init_layout();
     NODE_WIDTH2 = 300;
     NODE_HEIGHT2 = 88;
-  }
-});
-
-// src/web/lib/open-file.ts
-function openFileInEditor(filePath, fqid = null) {
-  if (!filePath)
-    return;
-  const store = useGraphStore.getState();
-  store.setEditorFilePath(filePath);
-  store.setPanelTab("file");
-  store.setPanelOpen(true);
-  fetch("/file?path=" + encodeURIComponent(filePath)).then((r) => {
-    if (!r.ok)
-      throw new Error("HTTP " + r.status);
-    return r.text();
-  }).then((content) => {
-    useGraphStore.getState().setPendingFile({
-      content,
-      fqid: fqid || null,
-      ts: Date.now()
-    });
-  }).catch((err) => {
-    useGraphStore.getState().setPendingFile({
-      content: "// \u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C \u0444\u0430\u0439\u043B: " + err.message,
-      fqid: null,
-      ts: Date.now()
-    });
-  });
-}
-var init_open_file = __esm({
-  "src/web/lib/open-file.ts"() {
-    "use strict";
-    init_useGraphStore();
   }
 });
 
@@ -5171,6 +5092,22 @@ function DataMenu(props) {
       }
     ),
     /* @__PURE__ */ jsx6("div", { className: "menu__divider" }),
+    /* @__PURE__ */ jsx6("div", { className: "menu__label", style: { paddingLeft: 12, paddingTop: 6 }, children: "\u041C\u043E\u0434\u0435\u043B\u044C" }),
+    /* @__PURE__ */ jsxs5(
+      "button",
+      {
+        className: "menu__item",
+        onClick: () => {
+          useGraphStore.getState().setModelDiffOpen(true);
+          props.close();
+        },
+        children: [
+          /* @__PURE__ */ jsx6("span", { className: "menu__icon", children: /* @__PURE__ */ jsx6(MIcon, { name: "history", size: "sm" }) }),
+          /* @__PURE__ */ jsx6("span", { className: "menu__text", children: "\u0427\u0442\u043E \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u043E\u0441\u044C \u0432 \u043C\u043E\u0434\u0435\u043B\u0438" })
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsx6("div", { className: "menu__divider" }),
     /* @__PURE__ */ jsx6("div", { className: "menu__label", style: { paddingLeft: 12, paddingTop: 6 }, children: "\u0421\u0440\u0430\u0432\u043D\u0435\u043D\u0438\u0435" }),
     /* @__PURE__ */ jsxs5(
       "button",
@@ -5362,27 +5299,221 @@ var init_DataMenu = __esm({
   }
 });
 
-// src/web/components/layout/Toolbar.tsx
+// src/web/components/popovers/ModelMenu.tsx
 import { jsx as jsx7, jsxs as jsxs6 } from "react/jsx-runtime";
+function ModelMenu({ close }) {
+  const setEntityCatalogOpen = useGraphStore((s) => s.setEntityCatalogOpen);
+  const setAttributeFinderOpen = useGraphStore((s) => s.setAttributeFinderOpen);
+  const setEntityMatrixOpen = useGraphStore((s) => s.setEntityMatrixOpen);
+  const openCatalog = () => {
+    useGraphStore.getState().setEntityCatalogInitialFqid(null);
+    setEntityCatalogOpen(true);
+    close();
+  };
+  return /* @__PURE__ */ jsxs6("div", { className: "menu", children: [
+    /* @__PURE__ */ jsx7("div", { className: "menu__label", style: { paddingLeft: 12, paddingTop: 6 }, children: "\u041E\u0431\u0437\u043E\u0440 \u043C\u043E\u0434\u0435\u043B\u0438" }),
+    /* @__PURE__ */ jsxs6("button", { className: "menu__item", onClick: openCatalog, children: [
+      /* @__PURE__ */ jsx7("span", { className: "menu__icon", children: /* @__PURE__ */ jsx7(MIcon, { name: "menu_book", size: "sm" }) }),
+      /* @__PURE__ */ jsx7("span", { className: "menu__text", children: "\u041A\u0430\u0442\u0430\u043B\u043E\u0433 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" }),
+      /* @__PURE__ */ jsx7("kbd", { className: "menu__hotkey", children: "\u21E7\u2318E" })
+    ] }),
+    /* @__PURE__ */ jsxs6(
+      "button",
+      {
+        className: "menu__item",
+        onClick: () => {
+          setAttributeFinderOpen(true);
+          close();
+        },
+        children: [
+          /* @__PURE__ */ jsx7("span", { className: "menu__icon", children: /* @__PURE__ */ jsx7(MIcon, { name: "search", size: "sm" }) }),
+          /* @__PURE__ */ jsx7("span", { className: "menu__text", children: "\u041F\u043E\u0438\u0441\u043A \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432" }),
+          /* @__PURE__ */ jsx7("kbd", { className: "menu__hotkey", children: "\u21E7\u2318A" })
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsxs6(
+      "button",
+      {
+        className: "menu__item",
+        onClick: () => {
+          setEntityMatrixOpen(true);
+          close();
+        },
+        children: [
+          /* @__PURE__ */ jsx7("span", { className: "menu__icon", children: /* @__PURE__ */ jsx7(MIcon, { name: "grid_on", size: "sm" }) }),
+          /* @__PURE__ */ jsx7("span", { className: "menu__text", children: "\u041C\u0430\u0442\u0440\u0438\u0446\u0430 \u0441\u0432\u044F\u0437\u0435\u0439" }),
+          /* @__PURE__ */ jsx7("kbd", { className: "menu__hotkey", children: "\u21E7\u2318M" })
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsxs6(
+      "button",
+      {
+        className: "menu__item",
+        onClick: () => {
+          useGraphStore.getState().setAttributeMatrixOpen(true);
+          close();
+        },
+        children: [
+          /* @__PURE__ */ jsx7("span", { className: "menu__icon", children: /* @__PURE__ */ jsx7(MIcon, { name: "grid_view", size: "sm" }) }),
+          /* @__PURE__ */ jsx7("span", { className: "menu__text", children: "\u041C\u0430\u0442\u0440\u0438\u0446\u0430 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432" }),
+          /* @__PURE__ */ jsx7("kbd", { className: "menu__hotkey", children: "\u21E7\u2318B" })
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsxs6(
+      "button",
+      {
+        className: "menu__item",
+        onClick: () => {
+          useGraphStore.getState().setEntityGraphOpen(true);
+          close();
+        },
+        children: [
+          /* @__PURE__ */ jsx7("span", { className: "menu__icon", children: /* @__PURE__ */ jsx7(MIcon, { name: "account_tree", size: "sm" }) }),
+          /* @__PURE__ */ jsx7("span", { className: "menu__text", children: "\u0413\u0440\u0430\u0444 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" }),
+          /* @__PURE__ */ jsx7("kbd", { className: "menu__hotkey", children: "\u21E7\u2318K" })
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsx7("div", { className: "menu__divider" }),
+    /* @__PURE__ */ jsxs6(
+      "button",
+      {
+        className: "menu__item",
+        onClick: () => {
+          useGraphStore.getState().setModelValidationOpen(true);
+          close();
+        },
+        children: [
+          /* @__PURE__ */ jsx7("span", { className: "menu__icon", children: /* @__PURE__ */ jsx7(MIcon, { name: "verified", size: "sm" }) }),
+          /* @__PURE__ */ jsx7("span", { className: "menu__text", children: "\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u043C\u043E\u0434\u0435\u043B\u0438" }),
+          /* @__PURE__ */ jsx7("kbd", { className: "menu__hotkey", children: "\u21E7\u2318V" })
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsxs6(
+      "button",
+      {
+        className: "menu__item",
+        onClick: () => {
+          useGraphStore.getState().setPiiOpen(true);
+          close();
+        },
+        children: [
+          /* @__PURE__ */ jsx7("span", { className: "menu__icon", children: /* @__PURE__ */ jsx7(MIcon, { name: "shield_lock", size: "sm" }) }),
+          /* @__PURE__ */ jsx7("span", { className: "menu__text", children: "PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B" }),
+          /* @__PURE__ */ jsx7("kbd", { className: "menu__hotkey", children: "\u21E7\u2318P" })
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsxs6(
+      "button",
+      {
+        className: "menu__item",
+        onClick: () => {
+          useGraphStore.getState().setLintOpen(true);
+          close();
+        },
+        children: [
+          /* @__PURE__ */ jsx7("span", { className: "menu__icon", children: /* @__PURE__ */ jsx7(MIcon, { name: "rule", size: "sm" }) }),
+          /* @__PURE__ */ jsx7("span", { className: "menu__text", children: "\u041B\u0438\u043D\u0442\u0435\u0440 \u0441\u0445\u0435\u043C" }),
+          /* @__PURE__ */ jsx7("kbd", { className: "menu__hotkey", children: "\u21E7\u2318L" })
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsxs6(
+      "button",
+      {
+        className: "menu__item",
+        onClick: () => {
+          useGraphStore.getState().setMartinOpen(true);
+          close();
+        },
+        children: [
+          /* @__PURE__ */ jsx7("span", { className: "menu__icon", children: /* @__PURE__ */ jsx7(MIcon, { name: "scatter_plot", size: "sm" }) }),
+          /* @__PURE__ */ jsx7("span", { className: "menu__text", children: "\u0410\u0440\u0445\u0438\u0442\u0435\u043A\u0442\u0443\u0440\u043D\u044B\u0435 \u043C\u0435\u0442\u0440\u0438\u043A\u0438" }),
+          /* @__PURE__ */ jsx7("kbd", { className: "menu__hotkey", children: "\u21E7\u2318Y" })
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsx7("div", { className: "menu__divider" }),
+    /* @__PURE__ */ jsxs6(
+      "button",
+      {
+        className: "menu__item",
+        onClick: () => {
+          useGraphStore.getState().setDomainCompareOpen(true);
+          close();
+        },
+        children: [
+          /* @__PURE__ */ jsx7("span", { className: "menu__icon", children: /* @__PURE__ */ jsx7(MIcon, { name: "compare_arrows", size: "sm" }) }),
+          /* @__PURE__ */ jsx7("span", { className: "menu__text", children: "\u0421\u0440\u0430\u0432\u043D\u0438\u0442\u044C \u0434\u043E\u043C\u0435\u043D\u044B" })
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsxs6(
+      "button",
+      {
+        className: "menu__item",
+        onClick: () => {
+          useGraphStore.getState().setGlossaryOpen(true);
+          close();
+        },
+        children: [
+          /* @__PURE__ */ jsx7("span", { className: "menu__icon", children: /* @__PURE__ */ jsx7(MIcon, { name: "menu_book", size: "sm" }) }),
+          /* @__PURE__ */ jsx7("span", { className: "menu__text", children: "\u0413\u043B\u043E\u0441\u0441\u0430\u0440\u0438\u0439" }),
+          /* @__PURE__ */ jsx7("kbd", { className: "menu__hotkey", children: "\u21E7\u2318G" })
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsx7("div", { className: "menu__divider" }),
+    /* @__PURE__ */ jsx7("div", { className: "menu__hint", style: { paddingLeft: 12, paddingRight: 12 }, children: "\u0412\u0441\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438, \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0438 \u0441\u0432\u044F\u0437\u0438 \u0432\u0441\u0435\u0445 \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u2014 \u043A\u0430\u043A \u0435\u0434\u0438\u043D\u0430\u044F \u043C\u043E\u0434\u0435\u043B\u044C \u0434\u0430\u043D\u043D\u044B\u0445." })
+  ] });
+}
+var init_ModelMenu = __esm({
+  "src/web/components/popovers/ModelMenu.tsx"() {
+    "use strict";
+    init_useGraphStore();
+    init_MIcon();
+  }
+});
+
+// src/web/components/popovers/index.ts
+var init_popovers = __esm({
+  "src/web/components/popovers/index.ts"() {
+    "use strict";
+    init_FilterMenu();
+    init_AnalysisMenu();
+    init_ViewMenu();
+    init_DataMenu();
+    init_diff_colors();
+    init_ModelMenu();
+  }
+});
+
+// src/web/components/layout/Toolbar.tsx
+import { jsx as jsx8, jsxs as jsxs7 } from "react/jsx-runtime";
 function Toolbar(props) {
   const store = useGraphStore();
   const { back, forward, navStack } = useNavigation();
   const cycleActive = !!props.cycleHighlight;
   const analysisActive = cycleActive || store.isolatedOnly || store.nsMode || !!store.focusNode;
   const dataActive = !!store.diffMode;
-  return /* @__PURE__ */ jsxs6("div", { className: "toolbar", children: [
-    /* @__PURE__ */ jsxs6("div", { className: "toolbar__group", children: [
-      /* @__PURE__ */ jsx7(
+  return /* @__PURE__ */ jsxs7("div", { className: "toolbar", children: [
+    /* @__PURE__ */ jsxs7("div", { className: "toolbar__group", children: [
+      /* @__PURE__ */ jsx8(
         "button",
         {
           className: "btn btn--icon",
           onClick: () => store.rfInstance?.fitView({ duration: 500 }),
           title: "\u0412\u043F\u0438\u0441\u0430\u0442\u044C (F)",
-          children: "\u26F6"
+          children: /* @__PURE__ */ jsx8(MIcon, { name: "fit_screen" })
         }
       ),
-      /* @__PURE__ */ jsx7("button", { className: "btn btn--icon", onClick: props.onRelayout, title: "\u041F\u0435\u0440\u0435\u0443\u043B\u043E\u0436\u0438\u0442\u044C", children: "\u27F3" }),
-      /* @__PURE__ */ jsx7(
+      /* @__PURE__ */ jsx8("button", { className: "btn btn--icon", onClick: props.onRelayout, title: "\u041F\u0435\u0440\u0435\u0443\u043B\u043E\u0436\u0438\u0442\u044C", children: /* @__PURE__ */ jsx8(MIcon, { name: "refresh" }) }),
+      /* @__PURE__ */ jsx8(
         "button",
         {
           className: "btn btn--icon",
@@ -5399,10 +5530,10 @@ function Toolbar(props) {
             setTimeout(() => store.rfInstance?.fitView({ duration: 500 }), 200);
           },
           title: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0440\u0430\u0441\u043A\u043B\u0430\u0434\u043A\u0443",
-          children: "\u21BA"
+          children: /* @__PURE__ */ jsx8(MIcon, { name: "restart_alt" })
         }
       ),
-      /* @__PURE__ */ jsx7(
+      /* @__PURE__ */ jsx8(
         "button",
         {
           className: "btn btn--icon",
@@ -5412,10 +5543,10 @@ function Toolbar(props) {
             props.onResetAll();
           },
           title: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0432\u0441\u0451",
-          children: /* @__PURE__ */ jsx7(MIcon, { name: "restart_alt" })
+          children: /* @__PURE__ */ jsx8(MIcon, { name: "restart_alt" })
         }
       ),
-      /* @__PURE__ */ jsx7(
+      /* @__PURE__ */ jsx8(
         "button",
         {
           className: "btn btn--icon",
@@ -5423,10 +5554,10 @@ function Toolbar(props) {
           disabled: navStack.index <= 0,
           style: { opacity: navStack.index <= 0 ? 0.4 : 1 },
           title: "\u041D\u0430\u0437\u0430\u0434 (Alt+\u2190)",
-          children: "\u2190"
+          children: /* @__PURE__ */ jsx8(MIcon, { name: "arrow_back" })
         }
       ),
-      /* @__PURE__ */ jsx7(
+      /* @__PURE__ */ jsx8(
         "button",
         {
           className: "btn btn--icon",
@@ -5434,44 +5565,54 @@ function Toolbar(props) {
           disabled: navStack.index >= navStack.items.length - 1,
           style: { opacity: navStack.index >= navStack.items.length - 1 ? 0.4 : 1 },
           title: "\u0412\u043F\u0435\u0440\u0451\u0434 (Alt+\u2192)",
-          children: "\u2192"
+          children: /* @__PURE__ */ jsx8(MIcon, { name: "arrow_forward" })
         }
       )
     ] }),
-    /* @__PURE__ */ jsxs6(
+    /* @__PURE__ */ jsxs7(
       "button",
       {
         className: "btn",
         onClick: () => store.setSearchOpen(true),
         title: "\u041F\u043E\u0438\u0441\u043A (Shift+Tab)",
         children: [
-          /* @__PURE__ */ jsx7("span", { className: "btn__icon", children: "\u{1F50D}" }),
-          "\u041F\u043E\u0438\u0441\u043A",
-          /* @__PURE__ */ jsx7("kbd", { className: "btn-kbd", children: "\u21E7 Tab" })
+          /* @__PURE__ */ jsx8(MIcon, { name: "search" }),
+          /* @__PURE__ */ jsx8("kbd", { className: "btn-kbd", children: "\u21E7 Tab" })
         ]
       }
     ),
-    /* @__PURE__ */ jsx7(
-      Popover,
-      {
-        width: 320,
-        trigger: (open) => /* @__PURE__ */ jsxs6("button", { className: "btn" + (open || props.activeFiltersCount > 0 ? " btn--active" : ""), children: [
-          /* @__PURE__ */ jsx7(MIcon, { name: "tune" }),
-          /* @__PURE__ */ jsx7("span", { style: { marginLeft: 6 }, children: "\u0424\u0438\u043B\u044C\u0442\u0440\u044B" }),
-          props.activeFiltersCount > 0 && /* @__PURE__ */ jsx7("span", { className: "btn__badge", children: props.activeFiltersCount })
-        ] }),
-        children: /* @__PURE__ */ jsx7(FilterMenu, { counts: props.counts })
-      }
-    ),
-    /* @__PURE__ */ jsx7(
+    /* @__PURE__ */ jsx8(
       Popover,
       {
         width: 280,
-        trigger: (open) => /* @__PURE__ */ jsxs6("button", { className: "btn" + (open || analysisActive ? " btn--active" : ""), children: [
-          /* @__PURE__ */ jsx7("span", { className: "btn__icon", children: "\u{1F4CA}" }),
+        trigger: (open) => /* @__PURE__ */ jsxs7("button", { className: "btn" + (open ? " btn--active" : ""), children: [
+          /* @__PURE__ */ jsx8(MIcon, { name: "psychology" }),
+          "\u041C\u043E\u0434\u0435\u043B\u044C"
+        ] }),
+        children: (close) => /* @__PURE__ */ jsx8(ModelMenu, { close })
+      }
+    ),
+    /* @__PURE__ */ jsx8(
+      Popover,
+      {
+        width: 320,
+        trigger: (open) => /* @__PURE__ */ jsxs7("button", { className: "btn" + (open || props.activeFiltersCount > 0 ? " btn--active" : ""), children: [
+          /* @__PURE__ */ jsx8(MIcon, { name: "tune" }),
+          /* @__PURE__ */ jsx8("span", { style: { marginLeft: 6 }, children: "\u0424\u0438\u043B\u044C\u0442\u0440\u044B" }),
+          props.activeFiltersCount > 0 && /* @__PURE__ */ jsx8("span", { className: "btn__badge", children: props.activeFiltersCount })
+        ] }),
+        children: /* @__PURE__ */ jsx8(FilterMenu, { counts: props.counts })
+      }
+    ),
+    /* @__PURE__ */ jsx8(
+      Popover,
+      {
+        width: 280,
+        trigger: (open) => /* @__PURE__ */ jsxs7("button", { className: "btn" + (open || analysisActive ? " btn--active" : ""), children: [
+          /* @__PURE__ */ jsx8(MIcon, { name: "bar_chart" }),
           "\u0410\u043D\u0430\u043B\u0438\u0437"
         ] }),
-        children: (close) => /* @__PURE__ */ jsx7(
+        children: (close) => /* @__PURE__ */ jsx8(
           AnalysisMenu,
           {
             cycleHighlight: props.cycleHighlight,
@@ -5487,26 +5628,26 @@ function Toolbar(props) {
         )
       }
     ),
-    /* @__PURE__ */ jsx7(
+    /* @__PURE__ */ jsx8(
       Popover,
       {
         width: 300,
-        trigger: (open) => /* @__PURE__ */ jsxs6("button", { className: "btn" + (open ? " btn--active" : ""), children: [
-          /* @__PURE__ */ jsx7("span", { className: "btn__icon", children: "\u{1F3A8}" }),
+        trigger: (open) => /* @__PURE__ */ jsxs7("button", { className: "btn" + (open ? " btn--active" : ""), children: [
+          /* @__PURE__ */ jsx8(MIcon, { name: "palette" }),
           "\u0412\u0438\u0434"
         ] }),
-        children: (close) => /* @__PURE__ */ jsx7(ViewMenu, { close })
+        children: (close) => /* @__PURE__ */ jsx8(ViewMenu, { close })
       }
     ),
-    /* @__PURE__ */ jsx7(
+    /* @__PURE__ */ jsx8(
       Popover,
       {
         width: 260,
-        trigger: (open) => /* @__PURE__ */ jsxs6("button", { className: "btn" + (open || dataActive ? " btn--active" : ""), children: [
-          /* @__PURE__ */ jsx7("span", { className: "btn__icon", children: "\u{1F4BE}" }),
+        trigger: (open) => /* @__PURE__ */ jsxs7("button", { className: "btn" + (open || dataActive ? " btn--active" : ""), children: [
+          /* @__PURE__ */ jsx8(MIcon, { name: "save" }),
           "\u0414\u0430\u043D\u043D\u044B\u0435"
         ] }),
-        children: (close) => /* @__PURE__ */ jsx7(
+        children: (close) => /* @__PURE__ */ jsx8(
           DataMenu,
           {
             close,
@@ -5523,41 +5664,41 @@ function Toolbar(props) {
         )
       }
     ),
-    /* @__PURE__ */ jsx7("div", { className: "toolbar__spacer" }),
-    props.remoteInfo?.server && props.remoteInfo?.fetchedAt && /* @__PURE__ */ jsxs6(
+    /* @__PURE__ */ jsx8("div", { className: "toolbar__spacer" }),
+    props.remoteInfo?.server && props.remoteInfo?.fetchedAt && /* @__PURE__ */ jsxs7(
       "div",
       {
         className: "toolbar__cache",
         title: "\u0418\u0441\u0442\u043E\u0447\u043D\u0438\u043A: " + props.remoteInfo.server + "\n\u041E\u0431\u043D\u043E\u0432\u043B\u0451\u043D: " + new Date(props.remoteInfo.fetchedAt).toLocaleString("ru-RU"),
         onClick: props.onShowToast,
         children: [
-          /* @__PURE__ */ jsx7(MIcon, { name: "database", size: "sm" }),
-          /* @__PURE__ */ jsxs6("span", { children: [
+          /* @__PURE__ */ jsx8(MIcon, { name: "database" }),
+          /* @__PURE__ */ jsxs7("span", { children: [
             "\u041F\u043E\u043B\u0443\u0447\u0435\u043D\u043E ",
             relativeTime(props.remoteInfo.fetchedAt)
           ] })
         ]
       }
     ),
-    /* @__PURE__ */ jsx7(
+    /* @__PURE__ */ jsx8(
       "button",
       {
         className: "btn btn--icon",
         onClick: () => store.setHotkeysOpen(true),
         title: "\u0413\u043E\u0440\u044F\u0447\u0438\u0435 \u043A\u043B\u0430\u0432\u0438\u0448\u0438 (?)",
-        children: "\u2328\uFE0F"
+        children: /* @__PURE__ */ jsx8(MIcon, { name: "keyboard" })
       }
     ),
-    /* @__PURE__ */ jsx7(
+    /* @__PURE__ */ jsx8(
       "button",
       {
         className: "btn btn--icon",
         onClick: () => store.setHelpOpen(true),
         title: "\u0420\u0443\u043A\u043E\u0432\u043E\u0434\u0441\u0442\u0432\u043E \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044F (F1)",
-        children: "\u{1F4D6}"
+        children: /* @__PURE__ */ jsx8(MIcon, { name: "menu_book" })
       }
     ),
-    /* @__PURE__ */ jsxs6("div", { className: "toolbar__stats", children: [
+    /* @__PURE__ */ jsxs7("div", { className: "toolbar__stats", children: [
       props.visibleNodesCount,
       " / ",
       props.totalNodesCount,
@@ -5582,15 +5723,16 @@ var init_Toolbar = __esm({
     init_ViewMenu();
     init_DataMenu();
     init_format();
+    init_popovers();
   }
 });
 
 // src/web/components/layout/ActiveModesBar.tsx
-import { useMemo as useMemo9 } from "react";
-import { jsx as jsx8, jsxs as jsxs7 } from "react/jsx-runtime";
+import { useMemo as useMemo10 } from "react";
+import { jsx as jsx9, jsxs as jsxs8 } from "react/jsx-runtime";
 function ActiveModesBar({ ruleViolationsCount }) {
   const store = useGraphStore();
-  const modes = useMemo9(() => {
+  const modes = useMemo10(() => {
     const result = [];
     const nodes = store.nodes;
     if (store.cycleHighlight) {
@@ -5788,10 +5930,10 @@ function ActiveModesBar({ ruleViolationsCount }) {
   ]);
   if (modes.length === 0)
     return null;
-  return /* @__PURE__ */ jsx8("div", { className: "active-modes", children: modes.map((m, i) => /* @__PURE__ */ jsxs7("div", { className: "active-mode active-mode--" + (m.color || "accent"), children: [
-    /* @__PURE__ */ jsx8("span", { className: "active-mode__icon", children: m.iconName ? /* @__PURE__ */ jsx8(MIcon, { name: m.iconName, size: "sm" }) : m.icon }),
-    /* @__PURE__ */ jsx8("span", { className: "active-mode__label", children: m.label }),
-    /* @__PURE__ */ jsx8("button", { className: "active-mode__close", onClick: m.onClear, title: "\u041E\u0442\u043A\u043B\u044E\u0447\u0438\u0442\u044C", children: "\u2715" })
+  return /* @__PURE__ */ jsx9("div", { className: "active-modes", children: modes.map((m, i) => /* @__PURE__ */ jsxs8("div", { className: "active-mode active-mode--" + (m.color || "accent"), children: [
+    /* @__PURE__ */ jsx9("span", { className: "active-mode__icon", children: m.iconName ? /* @__PURE__ */ jsx9(MIcon, { name: m.iconName, size: "sm" }) : m.icon }),
+    /* @__PURE__ */ jsx9("span", { className: "active-mode__label", children: m.label }),
+    /* @__PURE__ */ jsx9("button", { className: "active-mode__close", onClick: m.onClear, title: "\u041E\u0442\u043A\u043B\u044E\u0447\u0438\u0442\u044C", children: "\u2715" })
   ] }, i)) });
 }
 var init_ActiveModesBar = __esm({
@@ -5803,11 +5945,11 @@ var init_ActiveModesBar = __esm({
 });
 
 // src/web/hooks/useSidebarStats.ts
-import { useMemo as useMemo10 } from "react";
+import { useMemo as useMemo11 } from "react";
 function useSidebarStats(healthMap) {
   const nodes = useGraphStore((s) => s.nodes);
   const edges = useGraphStore((s) => s.edges);
-  const topConnected = useMemo10(() => {
+  const topConnected = useMemo11(() => {
     const deg = /* @__PURE__ */ new Map();
     nodes.forEach((n) => deg.set(n.id, 0));
     edges.forEach((e) => {
@@ -5818,14 +5960,14 @@ function useSidebarStats(healthMap) {
     });
     return nodes.map((n) => ({ node: n, degree: deg.get(n.id) || 0 })).filter((x) => x.degree > 0).sort((a, b) => b.degree - a.degree).slice(0, 5);
   }, [nodes, edges]);
-  const worstHealth = useMemo10(() => {
+  const worstHealth = useMemo11(() => {
     return nodes.filter((n) => n.data.nodeType === "domain").map((n) => {
       const h = healthMap.get(n.id);
       const score = h && typeof h === "object" ? h.score : typeof h === "number" ? h : 0;
       return { node: n, health: score };
     }).sort((a, b) => a.health - b.health).slice(0, 5);
   }, [nodes, healthMap]);
-  const namespaces = useMemo10(() => {
+  const namespaces = useMemo11(() => {
     const map = /* @__PURE__ */ new Map();
     nodes.forEach((n) => {
       if (n.data.nodeType !== "domain")
@@ -5835,7 +5977,7 @@ function useSidebarStats(healthMap) {
     });
     return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
   }, [nodes]);
-  const tagCloud = useMemo10(() => {
+  const tagCloud = useMemo11(() => {
     const m = /* @__PURE__ */ new Map();
     nodes.forEach((n) => {
       (n.data.tags || []).forEach(
@@ -5844,7 +5986,7 @@ function useSidebarStats(healthMap) {
     });
     return Array.from(m.entries()).sort((a, b) => b[1] - a[1]).slice(0, 14);
   }, [nodes]);
-  const isolatedCount = useMemo10(() => {
+  const isolatedCount = useMemo11(() => {
     const conn = /* @__PURE__ */ new Set();
     edges.forEach((e) => {
       conn.add(e.source);
@@ -5852,7 +5994,7 @@ function useSidebarStats(healthMap) {
     });
     return nodes.filter((n) => n.data.nodeType === "domain" && !conn.has(n.id)).length;
   }, [nodes, edges]);
-  const topMissingRefs = useMemo10(() => {
+  const topMissingRefs = useMemo11(() => {
     const result = [];
     const domainIds = /* @__PURE__ */ new Set();
     nodes.forEach((n) => {
@@ -5878,7 +6020,7 @@ function useSidebarStats(healthMap) {
     });
     return result.sort((a, b) => b.count - a.count).slice(0, 10);
   }, [nodes]);
-  const counts = useMemo10(
+  const counts = useMemo11(
     () => ({
       domain: nodes.filter((n) => n.data.nodeType === "domain").length,
       missing: nodes.filter((n) => n.data.nodeType === "missing").length,
@@ -5906,25 +6048,25 @@ var init_useSidebarStats = __esm({
 });
 
 // src/web/components/layout/Section.tsx
-import { jsx as jsx9, jsxs as jsxs8 } from "react/jsx-runtime";
+import { jsx as jsx10, jsxs as jsxs9 } from "react/jsx-runtime";
 function Section({ id, title, icon, badge, children }) {
   const collapsed = useGraphStore((s) => s.collapsedSections.has(id));
   const toggle = useGraphStore((s) => s.toggleCollapsedSection);
-  return /* @__PURE__ */ jsxs8("div", { className: "section" + (collapsed ? " section--collapsed" : ""), children: [
-    /* @__PURE__ */ jsxs8(
+  return /* @__PURE__ */ jsxs9("div", { className: "section" + (collapsed ? " section--collapsed" : ""), children: [
+    /* @__PURE__ */ jsxs9(
       "button",
       {
         className: "section__header",
         onClick: () => toggle(id, collapsed),
         children: [
-          /* @__PURE__ */ jsx9(MIcon, { name: collapsed ? "chevron_right" : "expand_more", size: "sm" }),
-          /* @__PURE__ */ jsx9("span", { className: "section__icon", children: /* @__PURE__ */ jsx9(MIcon, { name: icon, size: "sm" }) }),
-          /* @__PURE__ */ jsx9("span", { className: "section__title", children: title }),
-          badge != null && badge > 0 && /* @__PURE__ */ jsx9("span", { className: "section__badge", children: badge })
+          /* @__PURE__ */ jsx10(MIcon, { name: collapsed ? "chevron_right" : "expand_more", size: "sm" }),
+          /* @__PURE__ */ jsx10("span", { className: "section__icon", children: /* @__PURE__ */ jsx10(MIcon, { name: icon, size: "sm" }) }),
+          /* @__PURE__ */ jsx10("span", { className: "section__title", children: title }),
+          badge != null && badge > 0 && /* @__PURE__ */ jsx10("span", { className: "section__badge", children: badge })
         ]
       }
     ),
-    !collapsed && /* @__PURE__ */ jsx9("div", { className: "section__body", children })
+    !collapsed && /* @__PURE__ */ jsx10("div", { className: "section__body", children })
   ] });
 }
 var init_Section = __esm({
@@ -5936,71 +6078,71 @@ var init_Section = __esm({
 });
 
 // src/web/components/layout/sections/OverviewSection.tsx
-import { jsx as jsx10, jsxs as jsxs9 } from "react/jsx-runtime";
+import { jsx as jsx11, jsxs as jsxs10 } from "react/jsx-runtime";
 function OverviewSection(props) {
   const store = useGraphStore();
   const { goto } = useNavigation();
-  return /* @__PURE__ */ jsxs9(Section, { id: "overview", title: "\u041E\u0431\u0437\u043E\u0440", icon: "insights", children: [
-    /* @__PURE__ */ jsxs9("div", { className: "stats-grid", children: [
-      /* @__PURE__ */ jsxs9("div", { className: "stat-card stat-card--accent stat-card--clickable", onClick: props.onFitView, children: [
-        /* @__PURE__ */ jsx10("div", { className: "stat-card__value", children: store.nodes.length }),
-        /* @__PURE__ */ jsx10("div", { className: "stat-card__label", children: "\u0412\u0441\u0435\u0433\u043E \u0443\u0437\u043B\u043E\u0432" })
+  return /* @__PURE__ */ jsxs10(Section, { id: "overview", title: "\u041E\u0431\u0437\u043E\u0440", icon: "insights", children: [
+    /* @__PURE__ */ jsxs10("div", { className: "stats-grid", children: [
+      /* @__PURE__ */ jsxs10("div", { className: "stat-card stat-card--accent stat-card--clickable", onClick: props.onFitView, children: [
+        /* @__PURE__ */ jsx11("div", { className: "stat-card__value", children: store.nodes.length }),
+        /* @__PURE__ */ jsx11("div", { className: "stat-card__label", children: "\u0412\u0441\u0435\u0433\u043E \u0443\u0437\u043B\u043E\u0432" })
       ] }),
-      /* @__PURE__ */ jsxs9("div", { className: "stat-card stat-card--success stat-card--clickable", onClick: props.onFitView, children: [
-        /* @__PURE__ */ jsx10("div", { className: "stat-card__value", children: store.edges.length }),
-        /* @__PURE__ */ jsx10("div", { className: "stat-card__label", children: "\u0421\u0432\u044F\u0437\u0435\u0439" })
+      /* @__PURE__ */ jsxs10("div", { className: "stat-card stat-card--success stat-card--clickable", onClick: props.onFitView, children: [
+        /* @__PURE__ */ jsx11("div", { className: "stat-card__value", children: store.edges.length }),
+        /* @__PURE__ */ jsx11("div", { className: "stat-card__label", children: "\u0421\u0432\u044F\u0437\u0435\u0439" })
       ] }),
-      /* @__PURE__ */ jsxs9(
+      /* @__PURE__ */ jsxs10(
         "div",
         {
           className: "stat-card stat-card--warning stat-card--clickable" + (props.counts.missing === 0 ? " stat-card--empty" : ""),
           onClick: () => props.counts.missing > 0 && props.onFilterMissing(),
           children: [
-            /* @__PURE__ */ jsx10("div", { className: "stat-card__value", children: props.counts.missing }),
-            /* @__PURE__ */ jsx10("div", { className: "stat-card__label", children: "Missing" })
+            /* @__PURE__ */ jsx11("div", { className: "stat-card__value", children: props.counts.missing }),
+            /* @__PURE__ */ jsx11("div", { className: "stat-card__label", children: "Missing" })
           ]
         }
       ),
-      /* @__PURE__ */ jsxs9(
+      /* @__PURE__ */ jsxs10(
         "div",
         {
           className: "stat-card stat-card--danger stat-card--clickable" + (props.counts.broken === 0 ? " stat-card--empty" : ""),
           onClick: () => props.counts.broken > 0 && props.onFilterBroken(),
           children: [
-            /* @__PURE__ */ jsx10("div", { className: "stat-card__value", children: props.counts.broken }),
-            /* @__PURE__ */ jsx10("div", { className: "stat-card__label", children: "Broken" })
+            /* @__PURE__ */ jsx11("div", { className: "stat-card__value", children: props.counts.broken }),
+            /* @__PURE__ */ jsx11("div", { className: "stat-card__label", children: "Broken" })
           ]
         }
       )
     ] }),
-    /* @__PURE__ */ jsxs9("div", { className: "quick-actions", children: [
-      /* @__PURE__ */ jsxs9(
+    /* @__PURE__ */ jsxs10("div", { className: "quick-actions", children: [
+      /* @__PURE__ */ jsxs10(
         "button",
         {
           className: "quick-action",
           onClick: () => store.setIsolatedOnly(true),
           disabled: props.isolatedCount === 0,
           children: [
-            /* @__PURE__ */ jsx10(MIcon, { name: "radio_button_unchecked", size: "sm" }),
-            /* @__PURE__ */ jsx10("span", { children: "\u0418\u0437\u043E\u043B\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0435" }),
-            /* @__PURE__ */ jsx10("span", { className: "quick-action__count", children: props.isolatedCount })
+            /* @__PURE__ */ jsx11(MIcon, { name: "radio_button_unchecked", size: "sm" }),
+            /* @__PURE__ */ jsx11("span", { children: "\u0418\u0437\u043E\u043B\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0435" }),
+            /* @__PURE__ */ jsx11("span", { className: "quick-action__count", children: props.isolatedCount })
           ]
         }
       ),
-      /* @__PURE__ */ jsxs9(
+      /* @__PURE__ */ jsxs10(
         "button",
         {
           className: "quick-action",
           onClick: () => store.setOnlyInvalid(true),
           disabled: props.problemDomainsCount === 0,
           children: [
-            /* @__PURE__ */ jsx10(MIcon, { name: "cancel", size: "sm" }),
-            /* @__PURE__ */ jsx10("span", { children: "\u041D\u0435\u0432\u0430\u043B\u0438\u0434\u043D\u044B\u0435" }),
-            /* @__PURE__ */ jsx10("span", { className: "quick-action__count", children: props.problemDomainsCount })
+            /* @__PURE__ */ jsx11(MIcon, { name: "cancel", size: "sm" }),
+            /* @__PURE__ */ jsx11("span", { children: "\u041D\u0435\u0432\u0430\u043B\u0438\u0434\u043D\u044B\u0435" }),
+            /* @__PURE__ */ jsx11("span", { className: "quick-action__count", children: props.problemDomainsCount })
           ]
         }
       ),
-      /* @__PURE__ */ jsxs9(
+      /* @__PURE__ */ jsxs10(
         "button",
         {
           className: "quick-action",
@@ -6011,16 +6153,16 @@ function OverviewSection(props) {
           },
           disabled: props.cyclesCount === 0,
           children: [
-            /* @__PURE__ */ jsx10(MIcon, { name: "cycle", size: "sm" }),
-            /* @__PURE__ */ jsx10("span", { children: "\u0426\u0438\u043A\u043B\u044B" }),
-            /* @__PURE__ */ jsx10("span", { className: "quick-action__count", children: props.cyclesCount })
+            /* @__PURE__ */ jsx11(MIcon, { name: "cycle", size: "sm" }),
+            /* @__PURE__ */ jsx11("span", { children: "\u0426\u0438\u043A\u043B\u044B" }),
+            /* @__PURE__ */ jsx11("span", { className: "quick-action__count", children: props.cyclesCount })
           ]
         }
       ),
-      store.bookmarks.size > 0 && /* @__PURE__ */ jsxs9("button", { className: "quick-action", onClick: () => store.setBookmarksOnly(true), children: [
-        /* @__PURE__ */ jsx10(MIcon, { name: "star", size: "sm", fill: true }),
-        /* @__PURE__ */ jsx10("span", { children: "\u0418\u0437\u0431\u0440\u0430\u043D\u043D\u044B\u0435" }),
-        /* @__PURE__ */ jsx10("span", { className: "quick-action__count", children: store.bookmarks.size })
+      store.bookmarks.size > 0 && /* @__PURE__ */ jsxs10("button", { className: "quick-action", onClick: () => store.setBookmarksOnly(true), children: [
+        /* @__PURE__ */ jsx11(MIcon, { name: "star", size: "sm", fill: true }),
+        /* @__PURE__ */ jsx11("span", { children: "\u0418\u0437\u0431\u0440\u0430\u043D\u043D\u044B\u0435" }),
+        /* @__PURE__ */ jsx11("span", { className: "quick-action__count", children: store.bookmarks.size })
       ] })
     ] })
   ] });
@@ -6071,19 +6213,19 @@ var init_activity = __esm({
 });
 
 // src/web/components/layout/ActivityChart.tsx
-import { useMemo as useMemo11 } from "react";
-import { jsx as jsx11, jsxs as jsxs10 } from "react/jsx-runtime";
+import { useMemo as useMemo12 } from "react";
+import { jsx as jsx12, jsxs as jsxs11 } from "react/jsx-runtime";
 function ActivityChart({ nodes, days }) {
-  const buckets = useMemo11(() => buildActivityBuckets(nodes, days), [nodes, days]);
-  const max = useMemo11(() => {
+  const buckets = useMemo12(() => buildActivityBuckets(nodes, days), [nodes, days]);
+  const max = useMemo12(() => {
     const m = Math.max(...buckets.map((b) => b.count));
     return m === 0 ? 1 : m;
   }, [buckets]);
-  return /* @__PURE__ */ jsxs10("div", { className: "activity-chart", children: [
-    /* @__PURE__ */ jsx11("div", { className: "activity-chart__bars", children: buckets.map((b, i) => {
+  return /* @__PURE__ */ jsxs11("div", { className: "activity-chart", children: [
+    /* @__PURE__ */ jsx12("div", { className: "activity-chart__bars", children: buckets.map((b, i) => {
       const height = b.count / max * 100;
       const isToday = i === buckets.length - 1;
-      return /* @__PURE__ */ jsx11(
+      return /* @__PURE__ */ jsx12(
         "div",
         {
           className: "activity-chart__bar" + (isToday ? " activity-chart__bar--today" : ""),
@@ -6093,13 +6235,13 @@ function ActivityChart({ nodes, days }) {
         i
       );
     }) }),
-    /* @__PURE__ */ jsxs10("div", { className: "activity-chart__legend", children: [
-      /* @__PURE__ */ jsxs10("span", { children: [
+    /* @__PURE__ */ jsxs11("div", { className: "activity-chart__legend", children: [
+      /* @__PURE__ */ jsxs11("span", { children: [
         days,
         " \u0434\u043D\u0435\u0439 \u043D\u0430\u0437\u0430\u0434"
       ] }),
-      /* @__PURE__ */ jsx11("span", { style: { color: "var(--text-200)" }, children: "\u0441\u0435\u0433\u043E\u0434\u043D\u044F" }),
-      /* @__PURE__ */ jsxs10("span", { children: [
+      /* @__PURE__ */ jsx12("span", { style: { color: "var(--text-200)" }, children: "\u0441\u0435\u0433\u043E\u0434\u043D\u044F" }),
+      /* @__PURE__ */ jsxs11("span", { children: [
         "\u043C\u0430\u043A\u0441: ",
         max
       ] })
@@ -6114,13 +6256,13 @@ var init_ActivityChart = __esm({
 });
 
 // src/web/components/layout/sections/ActivitySection.tsx
-import { jsx as jsx12, jsxs as jsxs11 } from "react/jsx-runtime";
+import { jsx as jsx13, jsxs as jsxs12 } from "react/jsx-runtime";
 function ActivitySection() {
   const nodes = useGraphStore((s) => s.nodes);
   const period = useGraphStore((s) => s.activityPeriod);
   const setPeriod = useGraphStore((s) => s.setActivityPeriod);
-  return /* @__PURE__ */ jsxs11(Section, { id: "activity", title: "\u0410\u043A\u0442\u0438\u0432\u043D\u043E\u0441\u0442\u044C", icon: "trending_up", children: [
-    /* @__PURE__ */ jsx12("div", { className: "activity-periods", children: [7, 30, 90].map((d) => /* @__PURE__ */ jsxs11(
+  return /* @__PURE__ */ jsxs12(Section, { id: "activity", title: "\u0410\u043A\u0442\u0438\u0432\u043D\u043E\u0441\u0442\u044C", icon: "trending_up", children: [
+    /* @__PURE__ */ jsx13("div", { className: "activity-periods", children: [7, 30, 90].map((d) => /* @__PURE__ */ jsxs12(
       "button",
       {
         className: "period-btn" + (period === d ? " period-btn--active" : ""),
@@ -6132,7 +6274,7 @@ function ActivitySection() {
       },
       d
     )) }),
-    /* @__PURE__ */ jsx12(ActivityChart, { nodes, days: period })
+    /* @__PURE__ */ jsx13(ActivityChart, { nodes, days: period })
   ] });
 }
 var init_ActivitySection = __esm({
@@ -6145,59 +6287,59 @@ var init_ActivitySection = __esm({
 });
 
 // src/web/components/layout/sections/ProblemsSection.tsx
-import { jsx as jsx13, jsxs as jsxs12 } from "react/jsx-runtime";
+import { jsx as jsx14, jsxs as jsxs13 } from "react/jsx-runtime";
 function ProblemsSection(props) {
   const store = useGraphStore();
   const { goto } = useNavigation();
-  return /* @__PURE__ */ jsxs12(Section, { id: "problems", title: "\u041F\u0440\u043E\u0431\u043B\u0435\u043C\u044B", icon: "warning", badge: props.totalProblems, children: [
-    props.problemDomains.length > 0 && /* @__PURE__ */ jsxs12("div", { className: "problems-group", children: [
-      /* @__PURE__ */ jsxs12("div", { className: "problems-group__title", children: [
-        /* @__PURE__ */ jsx13(MIcon, { name: "cancel", size: "sm" }),
+  return /* @__PURE__ */ jsxs13(Section, { id: "problems", title: "\u041F\u0440\u043E\u0431\u043B\u0435\u043C\u044B", icon: "warning", badge: props.totalProblems, children: [
+    props.problemDomains.length > 0 && /* @__PURE__ */ jsxs13("div", { className: "problems-group", children: [
+      /* @__PURE__ */ jsxs13("div", { className: "problems-group__title", children: [
+        /* @__PURE__ */ jsx14(MIcon, { name: "cancel", size: "sm" }),
         " \u041D\u0435\u0432\u0430\u043B\u0438\u0434\u043D\u044B\u0435 (",
         props.problemDomains.length,
         ")"
       ] }),
-      props.problemDomains.map((item) => /* @__PURE__ */ jsxs12(
+      props.problemDomains.map((item) => /* @__PURE__ */ jsxs13(
         "button",
         {
           className: "rank-item",
           onClick: () => goto(item.node.data.domainId),
           children: [
-            /* @__PURE__ */ jsx13("span", { className: "rank-item__label", children: item.node.data.domainId }),
-            /* @__PURE__ */ jsx13("span", { className: "rank-item__value", style: { color: "var(--danger)" }, children: item.count })
+            /* @__PURE__ */ jsx14("span", { className: "rank-item__label", children: item.node.data.domainId }),
+            /* @__PURE__ */ jsx14("span", { className: "rank-item__value", style: { color: "var(--danger)" }, children: item.count })
           ]
         },
         item.node.id
       ))
     ] }),
-    props.brokenRefsDomains.length > 0 && /* @__PURE__ */ jsxs12("div", { className: "problems-group", children: [
-      /* @__PURE__ */ jsxs12("div", { className: "problems-group__title", children: [
-        /* @__PURE__ */ jsx13(MIcon, { name: "link_off", size: "sm" }),
+    props.brokenRefsDomains.length > 0 && /* @__PURE__ */ jsxs13("div", { className: "problems-group", children: [
+      /* @__PURE__ */ jsxs13("div", { className: "problems-group__title", children: [
+        /* @__PURE__ */ jsx14(MIcon, { name: "link_off", size: "sm" }),
         " \u0411\u0438\u0442\u044B\u0435 FQID (",
         props.brokenRefsDomains.length,
         ")"
       ] }),
-      props.brokenRefsDomains.map((item) => /* @__PURE__ */ jsxs12(
+      props.brokenRefsDomains.map((item) => /* @__PURE__ */ jsxs13(
         "button",
         {
           className: "rank-item",
           onClick: () => goto(item.node.data.domainId),
           children: [
-            /* @__PURE__ */ jsx13("span", { className: "rank-item__label", children: item.node.data.domainId }),
-            /* @__PURE__ */ jsx13("span", { className: "rank-item__value", style: { color: "var(--warning)" }, children: item.count })
+            /* @__PURE__ */ jsx14("span", { className: "rank-item__label", children: item.node.data.domainId }),
+            /* @__PURE__ */ jsx14("span", { className: "rank-item__value", style: { color: "var(--warning)" }, children: item.count })
           ]
         },
         item.node.id
       ))
     ] }),
-    props.isolatedCount > 0 && /* @__PURE__ */ jsxs12("div", { className: "problems-group", children: [
-      /* @__PURE__ */ jsxs12("div", { className: "problems-group__title", children: [
-        /* @__PURE__ */ jsx13(MIcon, { name: "radio_button_unchecked", size: "sm" }),
+    props.isolatedCount > 0 && /* @__PURE__ */ jsxs13("div", { className: "problems-group", children: [
+      /* @__PURE__ */ jsxs13("div", { className: "problems-group__title", children: [
+        /* @__PURE__ */ jsx14(MIcon, { name: "radio_button_unchecked", size: "sm" }),
         " \u0418\u0437\u043E\u043B\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0435 (",
         props.isolatedCount,
         ")"
       ] }),
-      /* @__PURE__ */ jsx13(
+      /* @__PURE__ */ jsx14(
         "button",
         {
           className: "problems-group__action",
@@ -6206,14 +6348,14 @@ function ProblemsSection(props) {
         }
       )
     ] }),
-    props.cyclesCount > 0 && /* @__PURE__ */ jsxs12("div", { className: "problems-group", children: [
-      /* @__PURE__ */ jsxs12("div", { className: "problems-group__title", children: [
-        /* @__PURE__ */ jsx13(MIcon, { name: "cycle", size: "sm" }),
+    props.cyclesCount > 0 && /* @__PURE__ */ jsxs13("div", { className: "problems-group", children: [
+      /* @__PURE__ */ jsxs13("div", { className: "problems-group__title", children: [
+        /* @__PURE__ */ jsx14(MIcon, { name: "cycle", size: "sm" }),
         " \u0426\u0438\u043A\u043B\u044B (",
         props.cyclesCount,
         ")"
       ] }),
-      /* @__PURE__ */ jsx13(
+      /* @__PURE__ */ jsx14(
         "button",
         {
           className: "problems-group__action",
@@ -6235,18 +6377,18 @@ var init_ProblemsSection = __esm({
 });
 
 // src/web/components/layout/sections/NewsSection.tsx
-import { jsx as jsx14, jsxs as jsxs13 } from "react/jsx-runtime";
+import { jsx as jsx15, jsxs as jsxs14 } from "react/jsx-runtime";
 function NewsSection({ cacheDiff }) {
   const { goto } = useNavigation();
   if (!cacheDiff)
     return null;
   const newsCount = cacheDiff.added.length + cacheDiff.changed.length + cacheDiff.removed.length;
-  return /* @__PURE__ */ jsxs13(Section, { id: "news", title: "\u0427\u0442\u043E \u043D\u043E\u0432\u043E\u0433\u043E", icon: "new_releases", badge: newsCount, children: [
-    newsCount === 0 && /* @__PURE__ */ jsxs13("div", { className: "news-empty", children: [
-      /* @__PURE__ */ jsx14(MIcon, { name: "history_toggle_off", size: "sm" }),
-      /* @__PURE__ */ jsxs13("div", { children: [
-        /* @__PURE__ */ jsx14("div", { children: "\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439 \u043D\u0435\u0442" }),
-        cacheDiff.previousFetchedAt && /* @__PURE__ */ jsxs13("div", { style: { fontSize: 11, color: "var(--text-500)", marginTop: 4 }, children: [
+  return /* @__PURE__ */ jsxs14(Section, { id: "news", title: "\u0427\u0442\u043E \u043D\u043E\u0432\u043E\u0433\u043E", icon: "new_releases", badge: newsCount, children: [
+    newsCount === 0 && /* @__PURE__ */ jsxs14("div", { className: "news-empty", children: [
+      /* @__PURE__ */ jsx15(MIcon, { name: "history_toggle_off", size: "sm" }),
+      /* @__PURE__ */ jsxs14("div", { children: [
+        /* @__PURE__ */ jsx15("div", { children: "\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439 \u043D\u0435\u0442" }),
+        cacheDiff.previousFetchedAt && /* @__PURE__ */ jsxs14("div", { style: { fontSize: 11, color: "var(--text-500)", marginTop: 4 }, children: [
           "\u0441",
           " ",
           new Date(cacheDiff.previousFetchedAt).toLocaleString("ru-RU", {
@@ -6258,7 +6400,7 @@ function NewsSection({ cacheDiff }) {
         ] })
       ] })
     ] }),
-    newsCount > 0 && cacheDiff.previousFetchedAt && /* @__PURE__ */ jsxs13("div", { className: "news-since", children: [
+    newsCount > 0 && cacheDiff.previousFetchedAt && /* @__PURE__ */ jsxs14("div", { className: "news-since", children: [
       "\u0441",
       " ",
       new Date(cacheDiff.previousFetchedAt).toLocaleString("ru-RU", {
@@ -6268,32 +6410,32 @@ function NewsSection({ cacheDiff }) {
         minute: "2-digit"
       })
     ] }),
-    cacheDiff.added.length > 0 && /* @__PURE__ */ jsxs13("div", { className: "problems-group", children: [
-      /* @__PURE__ */ jsxs13("div", { className: "problems-group__title", style: { color: "var(--success)" }, children: [
-        /* @__PURE__ */ jsx14(MIcon, { name: "add_circle", size: "sm" }),
+    cacheDiff.added.length > 0 && /* @__PURE__ */ jsxs14("div", { className: "problems-group", children: [
+      /* @__PURE__ */ jsxs14("div", { className: "problems-group__title", style: { color: "var(--success)" }, children: [
+        /* @__PURE__ */ jsx15(MIcon, { name: "add_circle", size: "sm" }),
         " \u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u043E (",
         cacheDiff.added.length,
         ")"
       ] }),
-      cacheDiff.added.slice(0, 5).map((d) => /* @__PURE__ */ jsxs13("button", { className: "rank-item", onClick: () => goto(d.sourceId), children: [
-        /* @__PURE__ */ jsx14("span", { className: "rank-item__label", children: d.sourceId }),
-        d.version && /* @__PURE__ */ jsx14("span", { className: "rank-item__value", children: d.version })
+      cacheDiff.added.slice(0, 5).map((d) => /* @__PURE__ */ jsxs14("button", { className: "rank-item", onClick: () => goto(d.sourceId), children: [
+        /* @__PURE__ */ jsx15("span", { className: "rank-item__label", children: d.sourceId }),
+        d.version && /* @__PURE__ */ jsx15("span", { className: "rank-item__value", children: d.version })
       ] }, d.sourceId)),
-      cacheDiff.added.length > 5 && /* @__PURE__ */ jsxs13("div", { className: "news-more", children: [
+      cacheDiff.added.length > 5 && /* @__PURE__ */ jsxs14("div", { className: "news-more", children: [
         "...\u0438 \u0435\u0449\u0451 ",
         cacheDiff.added.length - 5
       ] })
     ] }),
-    cacheDiff.changed.length > 0 && /* @__PURE__ */ jsxs13("div", { className: "problems-group", children: [
-      /* @__PURE__ */ jsxs13("div", { className: "problems-group__title", style: { color: "var(--accent-hover)" }, children: [
-        /* @__PURE__ */ jsx14(MIcon, { name: "update", size: "sm" }),
+    cacheDiff.changed.length > 0 && /* @__PURE__ */ jsxs14("div", { className: "problems-group", children: [
+      /* @__PURE__ */ jsxs14("div", { className: "problems-group__title", style: { color: "var(--accent-hover)" }, children: [
+        /* @__PURE__ */ jsx15(MIcon, { name: "update", size: "sm" }),
         " \u0418\u0437\u043C\u0435\u043D\u0435\u043D\u043E (",
         cacheDiff.changed.length,
         ")"
       ] }),
-      cacheDiff.changed.slice(0, 5).map((d) => /* @__PURE__ */ jsxs13("button", { className: "rank-item", onClick: () => goto(d.sourceId), children: [
-        /* @__PURE__ */ jsx14("span", { className: "rank-item__label", children: d.sourceId }),
-        d.version && /* @__PURE__ */ jsx14(
+      cacheDiff.changed.slice(0, 5).map((d) => /* @__PURE__ */ jsxs14("button", { className: "rank-item", onClick: () => goto(d.sourceId), children: [
+        /* @__PURE__ */ jsx15("span", { className: "rank-item__label", children: d.sourceId }),
+        d.version && /* @__PURE__ */ jsx15(
           "span",
           {
             className: "rank-item__value",
@@ -6302,19 +6444,19 @@ function NewsSection({ cacheDiff }) {
           }
         )
       ] }, d.sourceId)),
-      cacheDiff.changed.length > 5 && /* @__PURE__ */ jsxs13("div", { className: "news-more", children: [
+      cacheDiff.changed.length > 5 && /* @__PURE__ */ jsxs14("div", { className: "news-more", children: [
         "...\u0438 \u0435\u0449\u0451 ",
         cacheDiff.changed.length - 5
       ] })
     ] }),
-    cacheDiff.removed.length > 0 && /* @__PURE__ */ jsxs13("div", { className: "problems-group", children: [
-      /* @__PURE__ */ jsxs13("div", { className: "problems-group__title", style: { color: "var(--danger)" }, children: [
-        /* @__PURE__ */ jsx14(MIcon, { name: "remove_circle", size: "sm" }),
+    cacheDiff.removed.length > 0 && /* @__PURE__ */ jsxs14("div", { className: "problems-group", children: [
+      /* @__PURE__ */ jsxs14("div", { className: "problems-group__title", style: { color: "var(--danger)" }, children: [
+        /* @__PURE__ */ jsx15(MIcon, { name: "remove_circle", size: "sm" }),
         " \u0423\u0434\u0430\u043B\u0435\u043D\u043E (",
         cacheDiff.removed.length,
         ")"
       ] }),
-      cacheDiff.removed.slice(0, 5).map((d) => /* @__PURE__ */ jsx14("div", { className: "rank-item", style: { cursor: "default" }, children: /* @__PURE__ */ jsx14(
+      cacheDiff.removed.slice(0, 5).map((d) => /* @__PURE__ */ jsx15("div", { className: "rank-item", style: { cursor: "default" }, children: /* @__PURE__ */ jsx15(
         "span",
         {
           className: "rank-item__label",
@@ -6322,7 +6464,7 @@ function NewsSection({ cacheDiff }) {
           children: d.sourceId
         }
       ) }, d.sourceId)),
-      cacheDiff.removed.length > 5 && /* @__PURE__ */ jsxs13("div", { className: "news-more", children: [
+      cacheDiff.removed.length > 5 && /* @__PURE__ */ jsxs14("div", { className: "news-more", children: [
         "...\u0438 \u0435\u0449\u0451 ",
         cacheDiff.removed.length - 5
       ] })
@@ -6339,20 +6481,20 @@ var init_NewsSection = __esm({
 });
 
 // src/web/components/layout/sections/TopConnectedSection.tsx
-import { jsx as jsx15, jsxs as jsxs14 } from "react/jsx-runtime";
+import { jsx as jsx16, jsxs as jsxs15 } from "react/jsx-runtime";
 function TopConnectedSection({ items }) {
   const { goto } = useNavigation();
   if (items.length === 0)
     return null;
-  return /* @__PURE__ */ jsx15(Section, { id: "top", title: "\u0422\u043E\u043F \u043F\u043E \u0441\u0432\u044F\u0437\u044F\u043C", icon: "bar_chart", children: /* @__PURE__ */ jsx15("div", { className: "rank-list", children: items.map((item, i) => /* @__PURE__ */ jsxs14(
+  return /* @__PURE__ */ jsx16(Section, { id: "top", title: "\u0422\u043E\u043F \u043F\u043E \u0441\u0432\u044F\u0437\u044F\u043C", icon: "bar_chart", children: /* @__PURE__ */ jsx16("div", { className: "rank-list", children: items.map((item, i) => /* @__PURE__ */ jsxs15(
     "button",
     {
       className: "rank-item",
       onClick: () => goto(item.node.data.domainId),
       children: [
-        /* @__PURE__ */ jsx15("span", { className: "rank-item__num", children: i + 1 }),
-        /* @__PURE__ */ jsx15("span", { className: "rank-item__label", children: item.node.data.domainId }),
-        /* @__PURE__ */ jsx15("span", { className: "rank-item__value", children: item.degree })
+        /* @__PURE__ */ jsx16("span", { className: "rank-item__num", children: i + 1 }),
+        /* @__PURE__ */ jsx16("span", { className: "rank-item__label", children: item.node.data.domainId }),
+        /* @__PURE__ */ jsx16("span", { className: "rank-item__value", children: item.degree })
       ]
     },
     item.node.id
@@ -6367,23 +6509,23 @@ var init_TopConnectedSection = __esm({
 });
 
 // src/web/components/layout/sections/WorstHealthSection.tsx
-import { jsx as jsx16, jsxs as jsxs15 } from "react/jsx-runtime";
+import { jsx as jsx17, jsxs as jsxs16 } from "react/jsx-runtime";
 function WorstHealthSection({ items }) {
   const { goto } = useNavigation();
   const compact = useGraphStore((s) => s.sidebarCompact);
   if (items.length === 0)
     return null;
-  return /* @__PURE__ */ jsx16(Section, { id: "worst", title: "\u0421\u0442\u0435\u043D\u0430 \u043F\u043E\u0437\u043E\u0440\u0430", icon: "trending_down", children: /* @__PURE__ */ jsx16("div", { className: "rank-list", children: items.slice(0, compact ? 5 : 20).map((item, i) => {
+  return /* @__PURE__ */ jsx17(Section, { id: "worst", title: "\u0421\u0442\u0435\u043D\u0430 \u043F\u043E\u0437\u043E\u0440\u0430", icon: "trending_down", children: /* @__PURE__ */ jsx17("div", { className: "rank-list", children: items.slice(0, compact ? 5 : 20).map((item, i) => {
     const hc = item.health >= 80 ? "good" : item.health >= 50 ? "mid" : "bad";
-    return /* @__PURE__ */ jsxs15(
+    return /* @__PURE__ */ jsxs16(
       "button",
       {
         className: "rank-item",
         onClick: () => goto(item.node.data.domainId),
         children: [
-          /* @__PURE__ */ jsx16("span", { className: "rank-item__num", children: i + 1 }),
-          /* @__PURE__ */ jsx16("span", { className: "rank-item__label", children: item.node.data.domainId }),
-          /* @__PURE__ */ jsx16(
+          /* @__PURE__ */ jsx17("span", { className: "rank-item__num", children: i + 1 }),
+          /* @__PURE__ */ jsx17("span", { className: "rank-item__label", children: item.node.data.domainId }),
+          /* @__PURE__ */ jsx17(
             "span",
             {
               className: "rf-node__health rf-node__health--" + hc,
@@ -6407,31 +6549,31 @@ var init_WorstHealthSection = __esm({
 });
 
 // src/web/components/layout/sections/MissingRefsSection.tsx
-import { jsx as jsx17, jsxs as jsxs16 } from "react/jsx-runtime";
+import { jsx as jsx18, jsxs as jsxs17 } from "react/jsx-runtime";
 function MissingRefsSection({ items }) {
   const { goto } = useNavigation();
   if (items.length === 0)
     return null;
-  return /* @__PURE__ */ jsx17(Section, { id: "missing-refs", title: "\u0411\u0438\u0442\u044B\u0435 FQID-\u0441\u0441\u044B\u043B\u043A\u0438", icon: "link_off", badge: items.length, children: /* @__PURE__ */ jsx17("div", { className: "rank-list", children: items.map((item, i) => /* @__PURE__ */ jsxs16("div", { className: "missing-ref-item", children: [
-    /* @__PURE__ */ jsxs16(
+  return /* @__PURE__ */ jsx18(Section, { id: "missing-refs", title: "\u0411\u0438\u0442\u044B\u0435 FQID-\u0441\u0441\u044B\u043B\u043A\u0438", icon: "link_off", badge: items.length, children: /* @__PURE__ */ jsx18("div", { className: "rank-list", children: items.map((item, i) => /* @__PURE__ */ jsxs17("div", { className: "missing-ref-item", children: [
+    /* @__PURE__ */ jsxs17(
       "div",
       {
         className: "rank-item",
         onClick: () => goto(item.node.data.domainId),
         style: { cursor: "pointer", padding: "4px 6px" },
         children: [
-          /* @__PURE__ */ jsx17("span", { className: "rank-item__num", children: i + 1 }),
-          /* @__PURE__ */ jsx17("span", { className: "rank-item__label", children: item.node.data.domainId }),
-          /* @__PURE__ */ jsx17("span", { className: "rank-item__value", style: { color: "var(--warning)" }, children: item.count })
+          /* @__PURE__ */ jsx18("span", { className: "rank-item__num", children: i + 1 }),
+          /* @__PURE__ */ jsx18("span", { className: "rank-item__label", children: item.node.data.domainId }),
+          /* @__PURE__ */ jsx18("span", { className: "rank-item__value", style: { color: "var(--warning)" }, children: item.count })
         ]
       }
     ),
-    item.uniqueTargets.length > 0 && /* @__PURE__ */ jsxs16("div", { className: "missing-ref-targets", children: [
-      item.uniqueTargets.slice(0, 3).map((t, ti) => /* @__PURE__ */ jsxs16("div", { className: "missing-ref-target", children: [
-        /* @__PURE__ */ jsx17(MIcon, { name: "warning", size: "sm" }),
-        /* @__PURE__ */ jsx17("span", { children: t })
+    item.uniqueTargets.length > 0 && /* @__PURE__ */ jsxs17("div", { className: "missing-ref-targets", children: [
+      item.uniqueTargets.slice(0, 3).map((t, ti) => /* @__PURE__ */ jsxs17("div", { className: "missing-ref-target", children: [
+        /* @__PURE__ */ jsx18(MIcon, { name: "warning", size: "sm" }),
+        /* @__PURE__ */ jsx18("span", { children: t })
       ] }, ti)),
-      item.uniqueTargets.length > 3 && /* @__PURE__ */ jsxs16("div", { className: "missing-ref-target missing-ref-target--more", children: [
+      item.uniqueTargets.length > 3 && /* @__PURE__ */ jsxs17("div", { className: "missing-ref-target missing-ref-target--more", children: [
         "...\u0438 \u0435\u0449\u0451 ",
         item.uniqueTargets.length - 3
       ] })
@@ -6448,23 +6590,23 @@ var init_MissingRefsSection = __esm({
 });
 
 // src/web/components/layout/sections/NamespacesSection.tsx
-import { jsx as jsx18, jsxs as jsxs17 } from "react/jsx-runtime";
+import { jsx as jsx19, jsxs as jsxs18 } from "react/jsx-runtime";
 function NamespacesSection({ items }) {
   const setNamespaceFilter = useGraphStore((s) => s.setNamespaceFilter);
   if (items.length === 0)
     return null;
   const max = items[0][1];
-  return /* @__PURE__ */ jsx18(Section, { id: "namespaces", title: "\u041D\u0435\u0439\u043C\u0441\u043F\u0435\u0439\u0441\u044B", icon: "category", children: /* @__PURE__ */ jsx18("div", { className: "bar-list", children: items.map((entry) => {
+  return /* @__PURE__ */ jsx19(Section, { id: "namespaces", title: "\u041D\u0435\u0439\u043C\u0441\u043F\u0435\u0439\u0441\u044B", icon: "category", children: /* @__PURE__ */ jsx19("div", { className: "bar-list", children: items.map((entry) => {
     const [ns, count] = entry;
-    return /* @__PURE__ */ jsxs17(
+    return /* @__PURE__ */ jsxs18(
       "button",
       {
         className: "bar-item",
         onClick: () => setNamespaceFilter(ns),
         children: [
-          /* @__PURE__ */ jsx18("span", { className: "bar-item__label", children: ns }),
-          /* @__PURE__ */ jsx18("span", { className: "bar-item__value", children: count }),
-          /* @__PURE__ */ jsx18("span", { className: "bar-item__track", children: /* @__PURE__ */ jsx18(
+          /* @__PURE__ */ jsx19("span", { className: "bar-item__label", children: ns }),
+          /* @__PURE__ */ jsx19("span", { className: "bar-item__value", children: count }),
+          /* @__PURE__ */ jsx19("span", { className: "bar-item__track", children: /* @__PURE__ */ jsx19(
             "span",
             {
               className: "bar-item__fill",
@@ -6486,29 +6628,29 @@ var init_NamespacesSection = __esm({
 });
 
 // src/web/components/layout/sections/TagsSection.tsx
-import { jsx as jsx19, jsxs as jsxs18 } from "react/jsx-runtime";
+import { jsx as jsx20, jsxs as jsxs19 } from "react/jsx-runtime";
 function TagsSection({ items }) {
   const store = useGraphStore();
   if (items.length === 0)
     return null;
-  return /* @__PURE__ */ jsx19(
+  return /* @__PURE__ */ jsx20(
     Section,
     {
       id: "tags",
       title: "\u0422\u0435\u0433\u0438",
       icon: "label",
       badge: store.tagFilters.size > 0 ? store.tagFilters.size : null,
-      children: /* @__PURE__ */ jsx19("div", { className: "tag-cloud", children: items.map((entry) => {
+      children: /* @__PURE__ */ jsx20("div", { className: "tag-cloud", children: items.map((entry) => {
         const [tag, count] = entry;
         const active = store.tagFilters.has(tag);
-        return /* @__PURE__ */ jsxs18(
+        return /* @__PURE__ */ jsxs19(
           "button",
           {
             className: "tag" + (active ? " tag--active" : ""),
             onClick: () => store.toggleTagFilter(tag),
             children: [
               tag,
-              /* @__PURE__ */ jsx19("span", { className: "tag__count", children: count })
+              /* @__PURE__ */ jsx20("span", { className: "tag__count", children: count })
             ]
           },
           tag
@@ -6526,26 +6668,26 @@ var init_TagsSection = __esm({
 });
 
 // src/web/components/layout/sections/BookmarksSection.tsx
-import { jsx as jsx20, jsxs as jsxs19 } from "react/jsx-runtime";
+import { jsx as jsx21, jsxs as jsxs20 } from "react/jsx-runtime";
 function BookmarksSection() {
   const store = useGraphStore();
   const { goto } = useNavigation();
   if (store.bookmarks.size === 0)
     return null;
-  return /* @__PURE__ */ jsx20(Section, { id: "bookmarks", title: "\u0418\u0437\u0431\u0440\u0430\u043D\u043D\u043E\u0435", icon: "star", badge: store.bookmarks.size, children: /* @__PURE__ */ jsx20("div", { className: "rank-list", children: Array.from(store.bookmarks).slice(0, store.sidebarCompact ? 5 : 15).map((id) => {
+  return /* @__PURE__ */ jsx21(Section, { id: "bookmarks", title: "\u0418\u0437\u0431\u0440\u0430\u043D\u043D\u043E\u0435", icon: "star", badge: store.bookmarks.size, children: /* @__PURE__ */ jsx21("div", { className: "rank-list", children: Array.from(store.bookmarks).slice(0, store.sidebarCompact ? 5 : 15).map((id) => {
     const n = store.nodes.find((x) => x.id === id);
     if (!n)
       return null;
-    return /* @__PURE__ */ jsxs19(
+    return /* @__PURE__ */ jsxs20(
       "div",
       {
         className: "rank-item",
         style: { cursor: "pointer" },
         onClick: () => goto(n.data.domainId),
         children: [
-          /* @__PURE__ */ jsx20("span", { className: "rank-item__num", children: /* @__PURE__ */ jsx20(MIcon, { name: "star", size: "sm", fill: true }) }),
-          /* @__PURE__ */ jsx20("span", { className: "rank-item__label", children: n.data.domainId }),
-          /* @__PURE__ */ jsx20(
+          /* @__PURE__ */ jsx21("span", { className: "rank-item__num", children: /* @__PURE__ */ jsx21(MIcon, { name: "star", size: "sm", fill: true }) }),
+          /* @__PURE__ */ jsx21("span", { className: "rank-item__label", children: n.data.domainId }),
+          /* @__PURE__ */ jsx21(
             "button",
             {
               className: "rank-item__remove",
@@ -6554,7 +6696,7 @@ function BookmarksSection() {
                 store.toggleBookmark(id);
               },
               title: "\u0423\u0431\u0440\u0430\u0442\u044C \u0438\u0437 \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u043E\u0433\u043E",
-              children: /* @__PURE__ */ jsx20(MIcon, { name: "close", size: "sm" })
+              children: /* @__PURE__ */ jsx21(MIcon, { name: "close", size: "sm" })
             }
           )
         ]
@@ -6574,27 +6716,27 @@ var init_BookmarksSection = __esm({
 });
 
 // src/web/components/layout/sections/LegendSection.tsx
-import { jsx as jsx21, jsxs as jsxs20 } from "react/jsx-runtime";
+import { jsx as jsx22, jsxs as jsxs21 } from "react/jsx-runtime";
 function LegendSection() {
-  return /* @__PURE__ */ jsx21(Section, { id: "legend", title: "\u041B\u0435\u0433\u0435\u043D\u0434\u0430", icon: "palette", children: /* @__PURE__ */ jsxs20("div", { className: "legend-list", children: [
-    /* @__PURE__ */ jsxs20("div", { className: "legend-row", children: [
-      /* @__PURE__ */ jsx21("span", { className: "legend-dot", style: { background: "var(--success)" } }),
+  return /* @__PURE__ */ jsx22(Section, { id: "legend", title: "\u041B\u0435\u0433\u0435\u043D\u0434\u0430", icon: "palette", children: /* @__PURE__ */ jsxs21("div", { className: "legend-list", children: [
+    /* @__PURE__ */ jsxs21("div", { className: "legend-row", children: [
+      /* @__PURE__ */ jsx22("span", { className: "legend-dot", style: { background: "var(--success)" } }),
       " Domain"
     ] }),
-    /* @__PURE__ */ jsxs20("div", { className: "legend-row", children: [
-      /* @__PURE__ */ jsx21("span", { className: "legend-dot", style: { background: "var(--warning)" } }),
+    /* @__PURE__ */ jsxs21("div", { className: "legend-row", children: [
+      /* @__PURE__ */ jsx22("span", { className: "legend-dot", style: { background: "var(--warning)" } }),
       " Missing"
     ] }),
-    /* @__PURE__ */ jsxs20("div", { className: "legend-row", children: [
-      /* @__PURE__ */ jsx21("span", { className: "legend-dot", style: { background: "var(--danger)" } }),
+    /* @__PURE__ */ jsxs21("div", { className: "legend-row", children: [
+      /* @__PURE__ */ jsx22("span", { className: "legend-dot", style: { background: "var(--danger)" } }),
       " Broken"
     ] }),
-    /* @__PURE__ */ jsxs20("div", { className: "legend-row", children: [
-      /* @__PURE__ */ jsx21("span", { className: "legend-line", style: { background: LINKAGE_COLOR2 } }),
+    /* @__PURE__ */ jsxs21("div", { className: "legend-row", children: [
+      /* @__PURE__ */ jsx22("span", { className: "legend-line", style: { background: LINKAGE_COLOR2 } }),
       " Linkage"
     ] }),
-    /* @__PURE__ */ jsxs20("div", { className: "legend-row", children: [
-      /* @__PURE__ */ jsx21("span", { className: "legend-line", style: { background: FQID_COLOR2 } }),
+    /* @__PURE__ */ jsxs21("div", { className: "legend-row", children: [
+      /* @__PURE__ */ jsx22("span", { className: "legend-line", style: { background: FQID_COLOR2 } }),
       " FQID"
     ] })
   ] }) });
@@ -6626,12 +6768,12 @@ var init_sections = __esm({
 });
 
 // src/web/components/layout/Sidebar.tsx
-import { useMemo as useMemo12 } from "react";
-import { jsx as jsx22, jsxs as jsxs21 } from "react/jsx-runtime";
+import { useMemo as useMemo13 } from "react";
+import { jsx as jsx23, jsxs as jsxs22 } from "react/jsx-runtime";
 function Sidebar(props) {
   const store = useGraphStore();
   const stats = useSidebarStats(props.healthMap);
-  const problemDomains = useMemo12(() => {
+  const problemDomains = useMemo13(() => {
     if (!store.validationResults)
       return [];
     const result = [];
@@ -6643,7 +6785,7 @@ function Sidebar(props) {
     });
     return result.sort((a, b) => b.count - a.count).slice(0, 5);
   }, [store.nodes, store.validationResults]);
-  const brokenRefsDomains = useMemo12(() => {
+  const brokenRefsDomains = useMemo13(() => {
     const result = [];
     const domainIds = /* @__PURE__ */ new Set();
     store.nodes.forEach((n) => {
@@ -6666,53 +6808,53 @@ function Sidebar(props) {
   const hasProblems = problemDomains.length > 0 || brokenRefsDomains.length > 0 || stats.isolatedCount > 0 || stats.counts.broken > 0 || props.cyclesCount > 0;
   const totalProblems = stats.counts.missing + stats.counts.broken + problemDomains.length + props.cyclesCount;
   if (store.sidebarCollapsed) {
-    return /* @__PURE__ */ jsx22("aside", { className: "sidebar sidebar--collapsed", children: /* @__PURE__ */ jsx22(
+    return /* @__PURE__ */ jsx23("aside", { className: "sidebar sidebar--collapsed", children: /* @__PURE__ */ jsx23(
       "button",
       {
         className: "sidebar__expand",
         onClick: () => store.setSidebarCollapsed(false),
         title: "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u043F\u0430\u043D\u0435\u043B\u044C",
-        children: /* @__PURE__ */ jsx22(MIcon, { name: "chevron_right" })
+        children: /* @__PURE__ */ jsx23(MIcon, { name: "chevron_right" })
       }
     ) });
   }
-  return /* @__PURE__ */ jsxs21("aside", { className: "sidebar" + (store.sidebarCompact ? " sidebar--compact" : ""), children: [
-    /* @__PURE__ */ jsxs21("div", { className: "sidebar__header", children: [
-      /* @__PURE__ */ jsx22("div", { className: "sidebar__logo", children: /* @__PURE__ */ jsx22(MIcon, { name: "hub" }) }),
-      /* @__PURE__ */ jsxs21("div", { style: { flex: 1, minWidth: 0 }, children: [
-        /* @__PURE__ */ jsx22("div", { className: "sidebar__title", children: "Domain Graph" }),
-        /* @__PURE__ */ jsx22("div", { className: "sidebar__subtitle", children: "Analyzer" })
+  return /* @__PURE__ */ jsxs22("aside", { className: "sidebar" + (store.sidebarCompact ? " sidebar--compact" : ""), children: [
+    /* @__PURE__ */ jsxs22("div", { className: "sidebar__header", children: [
+      /* @__PURE__ */ jsx23("div", { className: "sidebar__logo", children: /* @__PURE__ */ jsx23(MIcon, { name: "hub" }) }),
+      /* @__PURE__ */ jsxs22("div", { style: { flex: 1, minWidth: 0 }, children: [
+        /* @__PURE__ */ jsx23("div", { className: "sidebar__title", children: "Domain Graph" }),
+        /* @__PURE__ */ jsx23("div", { className: "sidebar__subtitle", children: "Analyzer" })
       ] }),
-      /* @__PURE__ */ jsx22(
+      /* @__PURE__ */ jsx23(
         "button",
         {
           className: "sidebar__icon-btn",
           onClick: () => store.setSidebarCompact(!store.sidebarCompact),
           title: store.sidebarCompact ? "\u041F\u043E\u043B\u043D\u044B\u0439 \u0440\u0435\u0436\u0438\u043C" : "\u041A\u043E\u043C\u043F\u0430\u043A\u0442\u043D\u044B\u0439 \u0440\u0435\u0436\u0438\u043C",
-          children: /* @__PURE__ */ jsx22(MIcon, { name: store.sidebarCompact ? "view_sidebar" : "view_compact", size: "sm" })
+          children: /* @__PURE__ */ jsx23(MIcon, { name: store.sidebarCompact ? "view_sidebar" : "view_compact", size: "sm" })
         }
       ),
-      /* @__PURE__ */ jsx22(
+      /* @__PURE__ */ jsx23(
         "button",
         {
           className: "sidebar__icon-btn",
           onClick: props.onExportStats,
           title: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442 \u0441\u0442\u0430\u0442\u0438\u0441\u0442\u0438\u043A\u0438 \u0432 Markdown",
-          children: /* @__PURE__ */ jsx22(MIcon, { name: "download", size: "sm" })
+          children: /* @__PURE__ */ jsx23(MIcon, { name: "download", size: "sm" })
         }
       ),
-      /* @__PURE__ */ jsx22(
+      /* @__PURE__ */ jsx23(
         "button",
         {
           className: "sidebar__icon-btn",
           onClick: () => store.setSidebarCollapsed(true),
           title: "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u043F\u0430\u043D\u0435\u043B\u044C",
-          children: /* @__PURE__ */ jsx22(MIcon, { name: "chevron_left", size: "sm" })
+          children: /* @__PURE__ */ jsx23(MIcon, { name: "chevron_left", size: "sm" })
         }
       )
     ] }),
-    /* @__PURE__ */ jsxs21("div", { className: "sidebar__body", children: [
-      /* @__PURE__ */ jsx22(
+    /* @__PURE__ */ jsxs22("div", { className: "sidebar__body", children: [
+      /* @__PURE__ */ jsx23(
         OverviewSection,
         {
           counts: stats.counts,
@@ -6724,8 +6866,8 @@ function Sidebar(props) {
           onFilterBroken: () => store.setFilters((f) => ({ ...f, domain: false, missing: false, broken: true }))
         }
       ),
-      /* @__PURE__ */ jsx22(ActivitySection, {}),
-      hasProblems && /* @__PURE__ */ jsx22(
+      /* @__PURE__ */ jsx23(ActivitySection, {}),
+      hasProblems && /* @__PURE__ */ jsx23(
         ProblemsSection,
         {
           isolatedCount: stats.isolatedCount,
@@ -6735,14 +6877,14 @@ function Sidebar(props) {
           totalProblems
         }
       ),
-      hasNews && /* @__PURE__ */ jsx22(NewsSection, { cacheDiff: props.cacheDiff }),
-      /* @__PURE__ */ jsx22(TopConnectedSection, { items: stats.topConnected }),
-      /* @__PURE__ */ jsx22(WorstHealthSection, { items: stats.worstHealth }),
-      /* @__PURE__ */ jsx22(MissingRefsSection, { items: stats.topMissingRefs }),
-      /* @__PURE__ */ jsx22(NamespacesSection, { items: stats.namespaces }),
-      /* @__PURE__ */ jsx22(TagsSection, { items: stats.tagCloud }),
-      /* @__PURE__ */ jsx22(BookmarksSection, {}),
-      /* @__PURE__ */ jsx22(LegendSection, {})
+      hasNews && /* @__PURE__ */ jsx23(NewsSection, { cacheDiff: props.cacheDiff }),
+      /* @__PURE__ */ jsx23(TopConnectedSection, { items: stats.topConnected }),
+      /* @__PURE__ */ jsx23(WorstHealthSection, { items: stats.worstHealth }),
+      /* @__PURE__ */ jsx23(MissingRefsSection, { items: stats.topMissingRefs }),
+      /* @__PURE__ */ jsx23(NamespacesSection, { items: stats.namespaces }),
+      /* @__PURE__ */ jsx23(TagsSection, { items: stats.tagCloud }),
+      /* @__PURE__ */ jsx23(BookmarksSection, {}),
+      /* @__PURE__ */ jsx23(LegendSection, {})
     ] })
   ] });
 }
@@ -6758,7 +6900,7 @@ var init_Sidebar = __esm({
 
 // src/web/components/graph/DomainNode.tsx
 import { Handle, Position } from "reactflow";
-import { Fragment as Fragment2, jsx as jsx23, jsxs as jsxs22 } from "react/jsx-runtime";
+import { Fragment as Fragment2, jsx as jsx24, jsxs as jsxs23 } from "react/jsx-runtime";
 function DomainNode({ data, selected }) {
   if (data.__compact) {
     const cls2 = "rf-compact rf-compact--" + data.nodeType + (selected ? " rf-compact--selected" : "");
@@ -6769,10 +6911,10 @@ function DomainNode({ data, selected }) {
       style.borderColor = data.__heatColor;
       style.color = "#ffffff";
     }
-    return /* @__PURE__ */ jsxs22(Fragment2, { children: [
-      /* @__PURE__ */ jsx23(Handle, { type: "target", position: Position.Left, className: "rf-handle" }),
-      /* @__PURE__ */ jsx23("div", { className: cls2, style, title: data.domainId, children: initial }),
-      /* @__PURE__ */ jsx23(Handle, { type: "source", position: Position.Right, className: "rf-handle" })
+    return /* @__PURE__ */ jsxs23(Fragment2, { children: [
+      /* @__PURE__ */ jsx24(Handle, { type: "target", position: Position.Left, className: "rf-handle" }),
+      /* @__PURE__ */ jsx24("div", { className: cls2, style, title: data.domainId, children: initial }),
+      /* @__PURE__ */ jsx24(Handle, { type: "source", position: Position.Right, className: "rf-handle" })
     ] });
   }
   const cls = ["rf-node", "rf-node--" + data.nodeType];
@@ -6818,7 +6960,7 @@ function DomainNode({ data, selected }) {
     const healthScore = typeof data.health === "object" ? data.health.score : data.health;
     if (healthScore != null) {
       const hc = healthScore >= 80 ? "good" : healthScore >= 50 ? "mid" : "bad";
-      healthBadge = /* @__PURE__ */ jsx23(
+      healthBadge = /* @__PURE__ */ jsx24(
         "span",
         {
           className: "rf-node__health rf-node__health--" + hc,
@@ -6833,7 +6975,7 @@ function DomainNode({ data, selected }) {
   }
   let validationBadge = null;
   if (data.__validationStatus === "invalid" && data.__validationCount > 0) {
-    validationBadge = /* @__PURE__ */ jsxs22(
+    validationBadge = /* @__PURE__ */ jsxs23(
       "span",
       {
         className: "rf-node__issues",
@@ -6845,13 +6987,13 @@ function DomainNode({ data, selected }) {
       }
     );
   }
-  return /* @__PURE__ */ jsxs22(Fragment2, { children: [
-    /* @__PURE__ */ jsx23(Handle, { type: "target", position: Position.Left, className: "rf-handle" }),
-    /* @__PURE__ */ jsxs22("div", { className: cls.join(" "), style: nodeStyle, children: [
-      /* @__PURE__ */ jsx23("div", { className: "rf-node__icon", children: icon }),
-      /* @__PURE__ */ jsxs22("div", { className: "rf-node__content", children: [
-        /* @__PURE__ */ jsxs22("div", { className: "rf-node__id-row", children: [
-          /* @__PURE__ */ jsx23(
+  return /* @__PURE__ */ jsxs23(Fragment2, { children: [
+    /* @__PURE__ */ jsx24(Handle, { type: "target", position: Position.Left, className: "rf-handle" }),
+    /* @__PURE__ */ jsxs23("div", { className: cls.join(" "), style: nodeStyle, children: [
+      /* @__PURE__ */ jsx24("div", { className: "rf-node__icon", children: icon }),
+      /* @__PURE__ */ jsxs23("div", { className: "rf-node__content", children: [
+        /* @__PURE__ */ jsxs23("div", { className: "rf-node__id-row", children: [
+          /* @__PURE__ */ jsx24(
             "span",
             {
               className: "rf-node__id" + (data.__invalid ? " rf-node__id--invalid" : ""),
@@ -6861,15 +7003,15 @@ function DomainNode({ data, selected }) {
           ),
           healthBadge,
           validationBadge,
-          data.__topoLevel != null && /* @__PURE__ */ jsxs22("span", { className: "topo-badge", title: "\u0423\u0440\u043E\u0432\u0435\u043D\u044C \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438: " + data.__topoLevel, children: [
+          data.__topoLevel != null && /* @__PURE__ */ jsxs23("span", { className: "topo-badge", title: "\u0423\u0440\u043E\u0432\u0435\u043D\u044C \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438: " + data.__topoLevel, children: [
             "L",
             data.__topoLevel
           ] })
         ] }),
-        data.label && data.label !== data.domainId && /* @__PURE__ */ jsx23("div", { className: "rf-node__name", title: data.label, children: data.label })
+        data.label && data.label !== data.domainId && /* @__PURE__ */ jsx24("div", { className: "rf-node__name", title: data.label, children: data.label })
       ] })
     ] }),
-    /* @__PURE__ */ jsx23(Handle, { type: "source", position: Position.Right, className: "rf-handle" })
+    /* @__PURE__ */ jsx24(Handle, { type: "source", position: Position.Right, className: "rf-handle" })
   ] });
 }
 function escapeHtml2(s) {
@@ -6895,7 +7037,7 @@ var init_DomainNode = __esm({
 // src/web/components/graph/GroupsOverlay.tsx
 import { useEffect as useEffect11, useRef as useRef7 } from "react";
 import { useViewport } from "reactflow";
-import { jsx as jsx24, jsxs as jsxs23 } from "react/jsx-runtime";
+import { jsx as jsx25, jsxs as jsxs24 } from "react/jsx-runtime";
 function GroupsOverlay({ boxes }) {
   const svgRef = useRef7(null);
   const viewport = useViewport();
@@ -6907,7 +7049,7 @@ function GroupsOverlay({ boxes }) {
   }, [viewport.x, viewport.y, viewport.zoom]);
   if (!boxes || boxes.length === 0)
     return null;
-  return /* @__PURE__ */ jsx24(
+  return /* @__PURE__ */ jsx25(
     "svg",
     {
       ref: svgRef,
@@ -6923,8 +7065,8 @@ function GroupsOverlay({ boxes }) {
         transformOrigin: "0 0",
         willChange: "transform"
       },
-      children: boxes.map((b) => /* @__PURE__ */ jsxs23("g", { transform: `translate(${b.x},${b.y})`, children: [
-        /* @__PURE__ */ jsx24(
+      children: boxes.map((b) => /* @__PURE__ */ jsxs24("g", { transform: `translate(${b.x},${b.y})`, children: [
+        /* @__PURE__ */ jsx25(
           "rect",
           {
             width: b.w,
@@ -6936,7 +7078,7 @@ function GroupsOverlay({ boxes }) {
             strokeWidth: 1.5
           }
         ),
-        /* @__PURE__ */ jsxs23(
+        /* @__PURE__ */ jsxs24(
           "text",
           {
             x: 14,
@@ -6963,7 +7105,7 @@ var init_GroupsOverlay = __esm({
 });
 
 // src/web/components/graph/GraphView.tsx
-import { useEffect as useEffect12, useMemo as useMemo13 } from "react";
+import React7, { useEffect as useEffect12, useMemo as useMemo14 } from "react";
 import ReactFlow, {
   Background,
   BackgroundVariant,
@@ -6973,89 +7115,11 @@ import ReactFlow, {
   useReactFlow,
   useStore
 } from "reactflow";
-import { jsx as jsx25, jsxs as jsxs24 } from "react/jsx-runtime";
-function GraphViewInner(props) {
-  const rf = useReactFlow();
-  const setRfInstance = useGraphStore((s) => s.setRfInstance);
-  useEffect12(() => {
-    setRfInstance(rf);
-  }, [rf, setRfInstance]);
-  const zoomClass = useStore((s) => s.transform[2] < 0.5 ? "hide" : "show");
-  useEffect12(() => {
-    const el = document.querySelector(".graph-container");
-    if (!el)
-      return;
-    el.classList.toggle("hide-labels", zoomClass === "hide");
-  }, [zoomClass]);
-  useEffect12(() => {
-    const el = document.querySelector(".graph-container");
-    if (!el)
-      return;
-    el.classList.toggle("perf-mode", !!props.perfMode);
-  }, [props.perfMode]);
-  const defaultEdgeOptions = useMemo13(
-    () => ({
-      type: props.perfMode ? "default" : "smoothstep",
-      animated: false
-    }),
-    [props.perfMode]
-  );
-  return /* @__PURE__ */ jsxs24(
-    ReactFlow,
-    {
-      nodes: props.nodes,
-      edges: props.edges,
-      onNodesChange: props.onNodesChange,
-      onEdgesChange: props.onEdgesChange,
-      onEdgeClick: props.onEdgeClick,
-      nodeTypes,
-      onNodeClick: props.onNodeClick,
-      onNodeDoubleClick: props.onNodeDoubleClick,
-      onNodeContextMenu: props.onNodeContextMenu,
-      onNodeMouseEnter: props.onNodeMouseEnter,
-      onNodeMouseLeave: props.onNodeMouseLeave,
-      onEdgeMouseEnter: props.onEdgeMouseEnter,
-      onEdgeMouseLeave: props.onEdgeMouseLeave,
-      onPaneClick: props.onPaneClick,
-      onPaneContextMenu: props.onPaneContextMenu,
-      fitView: true,
-      fitViewOptions: { padding: 0.2 },
-      minZoom: 0.05,
-      maxZoom: 4,
-      proOptions: { hideAttribution: true },
-      nodesDraggable: true,
-      nodesConnectable: false,
-      elementsSelectable: true,
-      onlyRenderVisibleElements: false,
-      defaultEdgeOptions,
-      children: [
-        /* @__PURE__ */ jsx25(Background, { variant: BackgroundVariant.Dots, gap: 20, size: 1, color: "var(--graph-dots)" }),
-        /* @__PURE__ */ jsx25(Controls, { position: "bottom-left" }),
-        /* @__PURE__ */ jsx25(
-          MiniMap,
-          {
-            position: "bottom-right",
-            nodeColor: (n) => {
-              const t = n.data && n.data.nodeType;
-              if (t === "missing")
-                return "#f59e0b";
-              if (t === "broken")
-                return "#ef4444";
-              return "#10b981";
-            },
-            maskColor: "rgba(10,14,26,0.7)",
-            style: { width: 180, height: 130 }
-          }
-        ),
-        props.showGroups && props.clusterBoxes.length > 0 && /* @__PURE__ */ jsx25(GroupsOverlay, { boxes: props.clusterBoxes })
-      ]
-    }
-  );
-}
+import { jsx as jsx26, jsxs as jsxs25 } from "react/jsx-runtime";
 function GraphView(props) {
-  return /* @__PURE__ */ jsx25(ReactFlowProvider, { children: /* @__PURE__ */ jsx25(GraphViewInner, { ...props }) });
+  return /* @__PURE__ */ jsx26(ReactFlowProvider, { children: /* @__PURE__ */ jsx26(GraphViewInner, { ...props }) });
 }
-var nodeTypes;
+var nodeTypes, GraphViewInner;
 var init_GraphView = __esm({
   "src/web/components/graph/GraphView.tsx"() {
     "use strict";
@@ -7063,25 +7127,103 @@ var init_GraphView = __esm({
     init_DomainNode();
     init_GroupsOverlay();
     nodeTypes = { domainNode: DomainNode };
+    GraphViewInner = React7.memo(function GraphViewInner2(props) {
+      const rf = useReactFlow();
+      const setRfInstance = useGraphStore((s) => s.setRfInstance);
+      useEffect12(() => {
+        setRfInstance(rf);
+      }, [rf, setRfInstance]);
+      const zoomClass = useStore((s) => s.transform[2] < 0.5 ? "hide" : "show");
+      useEffect12(() => {
+        const el = document.querySelector(".graph-container");
+        if (!el)
+          return;
+        el.classList.toggle("hide-labels", zoomClass === "hide");
+      }, [zoomClass]);
+      useEffect12(() => {
+        const el = document.querySelector(".graph-container");
+        if (!el)
+          return;
+        el.classList.toggle("perf-mode", !!props.perfMode);
+      }, [props.perfMode]);
+      const defaultEdgeOptions = useMemo14(
+        () => ({
+          type: props.perfMode ? "default" : "smoothstep",
+          animated: false
+        }),
+        [props.perfMode]
+      );
+      return /* @__PURE__ */ jsxs25(
+        ReactFlow,
+        {
+          nodes: props.nodes,
+          edges: props.edges,
+          onNodesChange: props.onNodesChange,
+          onEdgesChange: props.onEdgesChange,
+          onEdgeClick: props.onEdgeClick,
+          nodeTypes,
+          onNodeClick: props.onNodeClick,
+          onNodeDoubleClick: props.onNodeDoubleClick,
+          onNodeContextMenu: props.onNodeContextMenu,
+          onNodeMouseEnter: props.onNodeMouseEnter,
+          onNodeMouseLeave: props.onNodeMouseLeave,
+          onEdgeMouseEnter: props.onEdgeMouseEnter,
+          onEdgeMouseLeave: props.onEdgeMouseLeave,
+          onPaneClick: props.onPaneClick,
+          onPaneContextMenu: props.onPaneContextMenu,
+          fitView: true,
+          fitViewOptions: { padding: 0.2 },
+          minZoom: 0.05,
+          maxZoom: 4,
+          proOptions: { hideAttribution: true },
+          nodesDraggable: true,
+          nodesConnectable: false,
+          elementsSelectable: true,
+          onlyRenderVisibleElements: false,
+          defaultEdgeOptions,
+          children: [
+            /* @__PURE__ */ jsx26(Background, { variant: BackgroundVariant.Dots, gap: 20, size: 1, color: "var(--graph-dots)" }),
+            /* @__PURE__ */ jsx26(Controls, { position: "bottom-left" }),
+            /* @__PURE__ */ jsx26(
+              MiniMap,
+              {
+                position: "bottom-right",
+                nodeColor: (n) => {
+                  const t = n.data && n.data.nodeType;
+                  if (t === "missing")
+                    return "#f59e0b";
+                  if (t === "broken")
+                    return "#ef4444";
+                  return "#10b981";
+                },
+                maskColor: "rgba(10,14,26,0.7)",
+                style: { width: 180, height: 130 }
+              }
+            ),
+            props.showGroups && props.clusterBoxes.length > 0 && /* @__PURE__ */ jsx26(GroupsOverlay, { boxes: props.clusterBoxes })
+          ]
+        }
+      );
+    });
   }
 });
 
 // src/web/components/panels/CollapsibleSection.tsx
-import { jsx as jsx26, jsxs as jsxs25 } from "react/jsx-runtime";
+import { jsx as jsx27, jsxs as jsxs26 } from "react/jsx-runtime";
 function CollapsibleSection({ id, title, count, children }) {
   const collapsed = useGraphStore((s) => s.collapsedSections.has(id));
   const toggle = useGraphStore((s) => s.toggleCollapsedSection);
   const isOpen = !collapsed;
-  return /* @__PURE__ */ jsxs25("div", { className: "details__field", children: [
-    /* @__PURE__ */ jsxs25(
+  return /* @__PURE__ */ jsxs26("div", { className: "details__field", children: [
+    /* @__PURE__ */ jsxs26(
       "button",
       {
         className: "details__field-label details__field-label--btn",
         onClick: () => toggle(id, !isOpen),
         children: [
-          /* @__PURE__ */ jsx26(MIcon, { name: isOpen ? "expand_more" : "chevron_right", size: "sm" }),
-          /* @__PURE__ */ jsx26("span", { style: { marginLeft: 6 }, children: title }),
-          count != null && /* @__PURE__ */ jsx26("span", { className: "details__field-count", children: count })
+          /* @__PURE__ */ jsx27(MIcon, { name: isOpen ? "expand_more" : "chevron_right", size: "sm" }),
+          /* @__PURE__ */ jsx27("span", { style: { marginLeft: 6 }, children: title }),
+          count != null && /* @__PURE__ */ jsx27("span", { className: "details__field-count", children: count })
         ]
       }
     ),
@@ -7096,13 +7238,395 @@ var init_CollapsibleSection = __esm({
   }
 });
 
-// src/web/components/panels/DetailsTab.tsx
-import { jsx as jsx27, jsxs as jsxs26 } from "react/jsx-runtime";
-function DetailsTab({ node, allNodes, allEdges, ruleViolations }) {
+// src/web/hooks/useModelIndex.ts
+import { useEffect as useEffect13, useState as useState5 } from "react";
+function useModelIndex() {
+  const [state, setState] = useState5({
+    index: null,
+    loading: true,
+    error: null
+  });
+  useEffect13(() => {
+    if (!cachedPromise) {
+      cachedPromise = fetch("/api/model").then((r) => {
+        if (!r.ok)
+          throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      }).catch((err) => {
+        cachedPromise = null;
+        throw err;
+      });
+    }
+    let cancelled = false;
+    cachedPromise.then((index) => {
+      if (!cancelled)
+        setState({ index, loading: false, error: null });
+    }).catch((err) => {
+      if (!cancelled)
+        setState({ index: null, loading: false, error: err.message });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return state;
+}
+var cachedPromise;
+var init_useModelIndex = __esm({
+  "src/web/hooks/useModelIndex.ts"() {
+    "use strict";
+    cachedPromise = null;
+  }
+});
+
+// src/web/lib/model/domain-mixins.ts
+function computeDomainMixins(domainId, index) {
+  const domainIdLower = domainId.toLowerCase();
+  const entities = index.entities.filter(
+    (e) => e.domainId.toLowerCase() === domainIdLower
+  );
+  const entityByFqid = new Map(entities.map((e) => [e.fqid, e]));
+  const allMixins = [];
+  entities.forEach((e) => {
+    const ms = index.mixinsByEntityFqid[e.fqid] || [];
+    allMixins.push(...ms);
+  });
+  const groupsMap = /* @__PURE__ */ new Map();
+  allMixins.forEach((m) => {
+    if (!groupsMap.has(m.domainId))
+      groupsMap.set(m.domainId, []);
+    groupsMap.get(m.domainId).push(m);
+  });
+  const groups = Array.from(groupsMap.entries()).map(
+    ([sourceDomain, mixins]) => {
+      const targetFqids = new Set(mixins.map((m) => m.targetEntityFqid));
+      const targetEntities = Array.from(targetFqids).map((fqid) => entityByFqid.get(fqid)).filter((x) => !!x);
+      return {
+        sourceDomain,
+        mixins,
+        targetEntities,
+        totalTabs: mixins.reduce((s, m) => s + m.addedTabs.length, 0),
+        totalComponents: mixins.reduce(
+          (s, m) => s + m.addedComponents.length,
+          0
+        ),
+        totalBlocks: mixins.reduce((s, m) => s + m.addedBlocks.length, 0)
+      };
+    }
+  );
+  groups.sort((a, b) => b.mixins.length - a.mixins.length);
+  const affectedFqids = new Set(allMixins.map((m) => m.targetEntityFqid));
+  const affectedEntities = Array.from(affectedFqids).map((fqid) => entityByFqid.get(fqid)).filter((x) => !!x);
+  const countPerEntity = /* @__PURE__ */ new Map();
+  allMixins.forEach((m) => {
+    countPerEntity.set(
+      m.targetEntityFqid,
+      (countPerEntity.get(m.targetEntityFqid) || 0) + 1
+    );
+  });
+  const heavyTargets = Array.from(countPerEntity.entries()).map(([fqid, cnt]) => ({
+    entity: entityByFqid.get(fqid),
+    mixinCount: cnt
+  })).filter((x) => x.entity && x.mixinCount >= 2).sort((a, b) => b.mixinCount - a.mixinCount);
+  const conflicts = [];
+  const byTarget = /* @__PURE__ */ new Map();
+  allMixins.forEach((m) => {
+    if (!byTarget.has(m.targetEntityFqid))
+      byTarget.set(m.targetEntityFqid, []);
+    byTarget.get(m.targetEntityFqid).push(m);
+  });
+  byTarget.forEach((mixins, fqid) => {
+    const tabSources = /* @__PURE__ */ new Map();
+    mixins.forEach((m) => {
+      m.addedTabs.forEach((tab) => {
+        if (!tabSources.has(tab))
+          tabSources.set(tab, /* @__PURE__ */ new Set());
+        tabSources.get(tab).add(m.domainId);
+      });
+    });
+    tabSources.forEach((sources, tab) => {
+      if (sources.size > 1) {
+        conflicts.push({
+          entityFqid: fqid,
+          tab,
+          sources: Array.from(sources).sort()
+        });
+      }
+    });
+  });
+  return {
+    domainId,
+    groups,
+    affectedEntities,
+    stats: {
+      totalMixins: allMixins.length,
+      totalSourceDomains: groupsMap.size,
+      affectedEntitiesCount: affectedEntities.length,
+      heavyTargets,
+      conflicts
+    }
+  };
+}
+var init_domain_mixins = __esm({
+  "src/web/lib/model/domain-mixins.ts"() {
+    "use strict";
+  }
+});
+
+// src/web/hooks/useDomainMixins.ts
+import { useMemo as useMemo15 } from "react";
+function useDomainMixins(domainId) {
+  const { index, loading, error } = useModelIndex();
+  const data = useMemo15(() => {
+    if (!index || !domainId)
+      return null;
+    return computeDomainMixins(domainId, index);
+  }, [index, domainId]);
+  return { data, loading, error };
+}
+var init_useDomainMixins = __esm({
+  "src/web/hooks/useDomainMixins.ts"() {
+    "use strict";
+    init_useModelIndex();
+    init_domain_mixins();
+  }
+});
+
+// src/web/components/panels/DomainMixinsPanel.tsx
+import { useState as useState6 } from "react";
+import { jsx as jsx28, jsxs as jsxs27 } from "react/jsx-runtime";
+function DomainMixinsPanel({ domainId }) {
+  const { data, loading, error } = useDomainMixins(domainId);
+  const { goto } = useNavigation();
   const store = useGraphStore();
+  const [expandedGroups, setExpandedGroups] = useState6(/* @__PURE__ */ new Set());
+  const toggleGroup = (source) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(source))
+        next.delete(source);
+      else
+        next.add(source);
+      return next;
+    });
+  };
+  if (loading) {
+    return /* @__PURE__ */ jsx28("div", { className: "details__field-value", style: { color: "var(--text-500)" }, children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." });
+  }
+  if (error) {
+    return /* @__PURE__ */ jsxs27("div", { className: "details__field-value", style: { color: "var(--danger)" }, children: [
+      "\u041E\u0448\u0438\u0431\u043A\u0430: ",
+      error
+    ] });
+  }
+  if (!data || data.stats.totalMixins === 0) {
+    return /* @__PURE__ */ jsx28("div", { className: "details__field-value", style: { color: "var(--text-500)" }, children: "\u042D\u0442\u043E\u0442 \u0434\u043E\u043C\u0435\u043D \u043D\u0435 \u0440\u0430\u0441\u0448\u0438\u0440\u044F\u0435\u0442\u0441\u044F \u043C\u0438\u043A\u0441\u0438\u043D\u0430\u043C\u0438" });
+  }
+  return /* @__PURE__ */ jsxs27("div", { className: "domain-mixins", children: [
+    /* @__PURE__ */ jsxs27("div", { className: "domain-mixins__summary", children: [
+      /* @__PURE__ */ jsxs27("div", { className: "domain-mixins__summary-item", children: [
+        /* @__PURE__ */ jsx28("span", { className: "domain-mixins__summary-value", children: data.stats.affectedEntitiesCount }),
+        /* @__PURE__ */ jsx28("span", { className: "domain-mixins__summary-label", children: "\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0437\u0430\u0442\u0440\u043E\u043D\u0443\u0442\u043E" })
+      ] }),
+      /* @__PURE__ */ jsxs27("div", { className: "domain-mixins__summary-item", children: [
+        /* @__PURE__ */ jsx28("span", { className: "domain-mixins__summary-value", children: data.stats.totalSourceDomains }),
+        /* @__PURE__ */ jsx28("span", { className: "domain-mixins__summary-label", children: "\u0438\u0441\u0442\u043E\u0447\u043D\u0438\u043A\u043E\u0432" })
+      ] })
+    ] }),
+    data.stats.conflicts.length > 0 && /* @__PURE__ */ jsxs27("div", { className: "domain-mixins__alert domain-mixins__alert--warn", children: [
+      /* @__PURE__ */ jsx28(MIcon, { name: "warning", size: "sm" }),
+      /* @__PURE__ */ jsxs27("span", { children: [
+        "\u041A\u043E\u043D\u0444\u043B\u0438\u043A\u0442\u043E\u0432: ",
+        data.stats.conflicts.length,
+        " \u2014 \u0432\u043A\u043B\u0430\u0434\u043A\u0438 \u0434\u043E\u0431\u0430\u0432\u043B\u044F\u044E\u0442\u0441\u044F \u0438\u0437 \u043D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u0438\u0445 \u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432"
+      ] })
+    ] }),
+    data.stats.heavyTargets.length > 0 && /* @__PURE__ */ jsxs27("div", { className: "domain-mixins__heavy", children: [
+      /* @__PURE__ */ jsx28("div", { className: "domain-mixins__subtitle", children: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0441 2+ \u043C\u0438\u043A\u0441\u0438\u043D\u0430\u043C\u0438" }),
+      data.stats.heavyTargets.slice(0, 5).map(({ entity, mixinCount }) => /* @__PURE__ */ jsxs27(
+        "button",
+        {
+          className: "rank-item",
+          onClick: () => {
+            store.setEntityCatalogInitialFqid(entity.fqid);
+            store.setEntityCatalogOpen(true);
+          },
+          children: [
+            /* @__PURE__ */ jsx28("span", { className: "rank-item__num", children: mixinCount }),
+            /* @__PURE__ */ jsx28("span", { className: "rank-item__label", children: entity.entityId }),
+            /* @__PURE__ */ jsx28("span", { className: "rank-item__value", children: "\u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432" })
+          ]
+        },
+        entity.fqid
+      ))
+    ] }),
+    /* @__PURE__ */ jsx28("div", { className: "domain-mixins__groups", children: data.groups.map((g) => {
+      const isOpen = expandedGroups.has(g.sourceDomain);
+      return /* @__PURE__ */ jsxs27(
+        "div",
+        {
+          className: "domain-mixins__group" + (isOpen ? " open" : ""),
+          children: [
+            /* @__PURE__ */ jsxs27(
+              "button",
+              {
+                className: "domain-mixins__group-header",
+                onClick: () => toggleGroup(g.sourceDomain),
+                children: [
+                  /* @__PURE__ */ jsx28("span", { className: "domain-mixins__chevron", children: isOpen ? "\u25BE" : "\u25B8" }),
+                  /* @__PURE__ */ jsx28("span", { className: "domain-mixins__source", children: g.sourceDomain }),
+                  /* @__PURE__ */ jsxs27("span", { className: "domain-mixins__counts", children: [
+                    g.mixins.length,
+                    " \u043C\u0438\u043A\u0441.",
+                    g.totalTabs > 0 && ` \xB7 ${g.totalTabs} \u0432\u043A\u043B.`,
+                    g.totalComponents > 0 && ` \xB7 ${g.totalComponents} \u043A\u043E\u043C\u043F.`
+                  ] })
+                ]
+              }
+            ),
+            isOpen && /* @__PURE__ */ jsxs27("div", { className: "domain-mixins__group-body", children: [
+              g.mixins.map((m) => /* @__PURE__ */ jsxs27("div", { className: "domain-mixins__mixin", children: [
+                /* @__PURE__ */ jsxs27("div", { className: "domain-mixins__mixin-head", children: [
+                  /* @__PURE__ */ jsx28("code", { className: "domain-mixins__mixin-id", children: m.id }),
+                  /* @__PURE__ */ jsx28("span", { className: "domain-mixins__mixin-type", children: m.type }),
+                  m.changeAction === "replace" && /* @__PURE__ */ jsx28("span", { className: "domain-mixins__mixin-badge", children: "replace" })
+                ] }),
+                /* @__PURE__ */ jsxs27("div", { className: "domain-mixins__mixin-target", children: [
+                  "\u2192",
+                  " ",
+                  /* @__PURE__ */ jsx28(
+                    "button",
+                    {
+                      className: "domain-mixins__entity-link",
+                      onClick: () => {
+                        store.setEntityCatalogInitialFqid(m.targetEntityFqid);
+                        store.setEntityCatalogOpen(true);
+                      },
+                      children: m.targetEntityFqid.split("/")[1]
+                    }
+                  ),
+                  m.targetPanel && /* @__PURE__ */ jsxs27("span", { className: "domain-mixins__target-panel", children: [
+                    " ",
+                    "\u043F\u0430\u043D\u0435\u043B\u044C ",
+                    /* @__PURE__ */ jsx28("code", { children: m.targetPanel })
+                  ] }),
+                  m.targetTab && /* @__PURE__ */ jsxs27("span", { className: "domain-mixins__target-panel", children: [
+                    " ",
+                    "\u0432\u043A\u043B\u0430\u0434\u043A\u0430 ",
+                    /* @__PURE__ */ jsx28("code", { children: m.targetTab })
+                  ] })
+                ] }),
+                m.addedTabs.length > 0 && /* @__PURE__ */ jsxs27("div", { className: "domain-mixins__adds", children: [
+                  /* @__PURE__ */ jsx28("span", { className: "domain-mixins__adds-label", children: "\u0412\u043A\u043B\u0430\u0434\u043A\u0438:" }),
+                  /* @__PURE__ */ jsx28("div", { className: "domain-mixins__chips", children: m.addedTabs.map((t) => /* @__PURE__ */ jsx28("code", { className: "domain-mixins__chip", children: t }, t)) })
+                ] }),
+                m.addedBlocks.length > 0 && /* @__PURE__ */ jsxs27("div", { className: "domain-mixins__adds", children: [
+                  /* @__PURE__ */ jsx28("span", { className: "domain-mixins__adds-label", children: "\u0411\u043B\u043E\u043A\u0438:" }),
+                  /* @__PURE__ */ jsx28("div", { className: "domain-mixins__chips", children: m.addedBlocks.map((b) => /* @__PURE__ */ jsx28("code", { className: "domain-mixins__chip", children: b }, b)) })
+                ] }),
+                m.addedComponents.length > 0 && /* @__PURE__ */ jsxs27("div", { className: "domain-mixins__adds", children: [
+                  /* @__PURE__ */ jsx28("span", { className: "domain-mixins__adds-label", children: "\u041A\u043E\u043C\u043F\u043E\u043D\u0435\u043D\u0442\u044B:" }),
+                  /* @__PURE__ */ jsx28("span", { className: "domain-mixins__count-only", children: m.addedComponents.length })
+                ] })
+              ] }, `${m.id}`)),
+              /* @__PURE__ */ jsxs27("div", { className: "domain-mixins__targets", children: [
+                /* @__PURE__ */ jsx28("span", { className: "domain-mixins__adds-label", children: "\u0417\u0430\u0442\u0440\u043E\u043D\u0443\u0442\u044B:" }),
+                /* @__PURE__ */ jsx28("div", { className: "domain-mixins__chips", children: g.targetEntities.map((e) => /* @__PURE__ */ jsx28(
+                  "button",
+                  {
+                    className: "domain-mixins__chip domain-mixins__chip--entity",
+                    onClick: () => {
+                      store.setEntityCatalogInitialFqid(e.fqid);
+                      store.setEntityCatalogOpen(true);
+                    },
+                    children: e.entityId
+                  },
+                  e.fqid
+                )) })
+              ] }),
+              /* @__PURE__ */ jsx28("div", { className: "domain-mixins__actions", children: /* @__PURE__ */ jsx28(
+                "button",
+                {
+                  className: "btn",
+                  onClick: () => goto(g.sourceDomain),
+                  children: "\u{1F3AF} \u041F\u0435\u0440\u0435\u0439\u0442\u0438 \u043A \u0434\u043E\u043C\u0435\u043D\u0443"
+                }
+              ) })
+            ] })
+          ]
+        },
+        g.sourceDomain
+      );
+    }) })
+  ] });
+}
+var init_DomainMixinsPanel = __esm({
+  "src/web/components/panels/DomainMixinsPanel.tsx"() {
+    "use strict";
+    init_MIcon();
+    init_useDomainMixins();
+    init_useNavigation();
+    init_useGraphStore();
+  }
+});
+
+// src/web/components/panels/DomainSonarPanel.tsx
+import { jsx as jsx29, jsxs as jsxs28 } from "react/jsx-runtime";
+function DomainSonarPanel({ domainId }) {
+  const { index } = useModelIndex();
+  if (!index)
+    return null;
+  const sonar = index.lint.sonar.byDomain[domainId];
+  if (!sonar)
+    return null;
+  const gradeClass = "sonar-grade--" + sonar.grade.toLowerCase();
+  return /* @__PURE__ */ jsxs28("div", { className: "details__field domain-sonar", children: [
+    /* @__PURE__ */ jsx29("div", { className: "details__field-label", children: "Sonar-\u043E\u0446\u0435\u043D\u043A\u0430" }),
+    /* @__PURE__ */ jsxs28("div", { className: "domain-sonar__head", children: [
+      /* @__PURE__ */ jsx29("div", { className: "domain-sonar__grade " + gradeClass, children: sonar.grade }),
+      /* @__PURE__ */ jsxs28("div", { className: "domain-sonar__score", children: [
+        sonar.score,
+        "/100"
+      ] })
+    ] }),
+    /* @__PURE__ */ jsx29("div", { className: "domain-sonar__bar", children: /* @__PURE__ */ jsx29(
+      "div",
+      {
+        className: "domain-sonar__fill " + gradeClass,
+        style: { width: sonar.score + "%" }
+      }
+    ) }),
+    /* @__PURE__ */ jsx29("div", { className: "domain-sonar__breakdown", children: sonar.breakdown.filter((b) => b.issueCount > 0).sort((a, b) => a.score - b.score).map((b) => /* @__PURE__ */ jsxs28("div", { className: "domain-sonar__row", children: [
+      /* @__PURE__ */ jsx29("span", { className: "domain-sonar__row-label", children: b.label }),
+      /* @__PURE__ */ jsx29(
+        "span",
+        {
+          className: "domain-sonar__row-score" + (b.score < 60 ? " bad" : b.score < 80 ? " mid" : " good"),
+          children: b.score
+        }
+      ),
+      /* @__PURE__ */ jsxs28("span", { className: "domain-sonar__row-count", children: [
+        b.issueCount,
+        " \u043F\u0440\u043E\u0431\u043B\u0435\u043C"
+      ] })
+    ] }, b.category)) })
+  ] });
+}
+var init_DomainSonarPanel = __esm({
+  "src/web/components/panels/DomainSonarPanel.tsx"() {
+    "use strict";
+    init_useModelIndex();
+  }
+});
+
+// src/web/components/panels/DetailsTab.tsx
+import { jsx as jsx30, jsxs as jsxs29 } from "react/jsx-runtime";
+function DetailsTab({ node, allNodes, allEdges, ruleViolations }) {
+  const setDomainSchemaDomainId = useGraphStore((s) => s.setDomainSchemaDomainId);
+  const setDomainSchemaOpen = useGraphStore((s) => s.setDomainSchemaOpen);
   const { goto } = useNavigation();
   if (!node) {
-    return /* @__PURE__ */ jsx27("div", { className: "details", children: /* @__PURE__ */ jsx27("div", { style: { color: "var(--text-500)", textAlign: "center", padding: 40 }, children: "\u0423\u0437\u0435\u043B \u043D\u0435 \u0432\u044B\u0431\u0440\u0430\u043D" }) });
+    return /* @__PURE__ */ jsx30("div", { className: "details", children: /* @__PURE__ */ jsx30("div", { style: { color: "var(--text-500)", textAlign: "center", padding: 40 }, children: "\u0423\u0437\u0435\u043B \u043D\u0435 \u0432\u044B\u0431\u0440\u0430\u043D" }) });
   }
   const incoming = allEdges.filter((e) => e.target === node.id);
   const outgoing = allEdges.filter((e) => e.source === node.id);
@@ -7110,41 +7634,68 @@ function DetailsTab({ node, allNodes, allEdges, ruleViolations }) {
   const health = node.data.health;
   const hc = health != null ? health >= 80 ? "health-good" : health >= 50 ? "health-mid" : "health-bad" : null;
   const remoteInfo = readRemoteInfo();
-  return /* @__PURE__ */ jsxs26("div", { className: "details", children: [
-    /* @__PURE__ */ jsx27("div", { className: "details__title", children: node.data.label || node.data.domainId }),
-    /* @__PURE__ */ jsxs26("div", { className: "details__id", children: [
-      /* @__PURE__ */ jsx27("span", { className: "details__id-text", children: node.data.domainId }),
-      /* @__PURE__ */ jsx27(
+  return /* @__PURE__ */ jsxs29("div", { className: "details", children: [
+    /* @__PURE__ */ jsx30("div", { className: "details__title", children: node.data.label || node.data.domainId }),
+    /* @__PURE__ */ jsxs29("div", { className: "details__id", children: [
+      /* @__PURE__ */ jsx30("span", { className: "details__id-text", children: node.data.domainId }),
+      /* @__PURE__ */ jsx30(
         "button",
         {
           className: "details__copy",
           onClick: () => navigator.clipboard.writeText(node.data.domainId),
           title: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C",
-          children: "\u{1F4CB}"
+          children: /* @__PURE__ */ jsx30(MIcon, { name: "content_copy", size: "sm" })
         }
       )
     ] }),
-    /* @__PURE__ */ jsxs26("div", { className: "details__badges", children: [
-      /* @__PURE__ */ jsx27("span", { className: "details__badge details__badge--" + node.data.nodeType, children: node.data.nodeType }),
-      health != null && /* @__PURE__ */ jsxs26("span", { className: "details__badge details__badge--" + hc, children: [
+    /* @__PURE__ */ jsxs29("div", { className: "details__badges", children: [
+      /* @__PURE__ */ jsx30("span", { className: "details__badge details__badge--" + node.data.nodeType, children: node.data.nodeType }),
+      health != null && /* @__PURE__ */ jsxs29("span", { className: "details__badge details__badge--" + hc, children: [
         "Health: ",
         health,
         "/100"
       ] }),
-      node.data.version && /* @__PURE__ */ jsxs26("span", { className: "details__badge", children: [
+      node.data.version && /* @__PURE__ */ jsxs29("span", { className: "details__badge", children: [
         "v",
         node.data.version
       ] })
     ] }),
-    node.data.updatedAt && /* @__PURE__ */ jsxs26("div", { className: "details__field", children: [
-      /* @__PURE__ */ jsx27("div", { className: "details__field-label", children: "\u041E\u0431\u043D\u043E\u0432\u043B\u0451\u043D" }),
-      /* @__PURE__ */ jsxs26(
+    node.data.nodeType === "domain" && /* @__PURE__ */ jsxs29("div", { className: "details__actions details__actions--top", children: [
+      /* @__PURE__ */ jsxs29(
+        "button",
+        {
+          className: "btn btn--primary",
+          onClick: () => {
+            setDomainSchemaDomainId(node.data.domainId);
+            setDomainSchemaOpen(true);
+          },
+          children: [
+            /* @__PURE__ */ jsx30(MIcon, { name: "menu_book", size: "sm" }),
+            "\u0421\u0445\u0435\u043C\u0430 \u0434\u043E\u043C\u0435\u043D\u0430"
+          ]
+        }
+      ),
+      node.data.filePath && /* @__PURE__ */ jsxs29(
+        "button",
+        {
+          className: "btn",
+          onClick: () => openFileInEditor(node.data.filePath, null),
+          children: [
+            /* @__PURE__ */ jsx30(MIcon, { name: "description", size: "sm" }),
+            "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0444\u0430\u0439\u043B"
+          ]
+        }
+      )
+    ] }),
+    node.data.updatedAt && /* @__PURE__ */ jsxs29("div", { className: "details__field", children: [
+      /* @__PURE__ */ jsx30("div", { className: "details__field-label", children: "\u041E\u0431\u043D\u043E\u0432\u043B\u0451\u043D" }),
+      /* @__PURE__ */ jsxs29(
         "div",
         {
           className: "details__field-value",
           style: { display: "flex", alignItems: "center", gap: 8 },
           children: [
-            /* @__PURE__ */ jsx27(
+            /* @__PURE__ */ jsx30(
               MIcon,
               {
                 name: sourceIcon(node.data.updatedAtSource),
@@ -7152,8 +7703,8 @@ function DetailsTab({ node, allNodes, allEdges, ruleViolations }) {
                 title: sourceLabel(node.data.updatedAtSource)
               }
             ),
-            /* @__PURE__ */ jsx27("span", { children: formatDate(node.data.updatedAt) }),
-            /* @__PURE__ */ jsx27(
+            /* @__PURE__ */ jsx30("span", { children: formatDate(node.data.updatedAt) }),
+            /* @__PURE__ */ jsx30(
               "span",
               {
                 style: {
@@ -7172,15 +7723,15 @@ function DetailsTab({ node, allNodes, allEdges, ruleViolations }) {
         }
       )
     ] }),
-    node.data.createdAt && /* @__PURE__ */ jsxs26("div", { className: "details__field", children: [
-      /* @__PURE__ */ jsx27("div", { className: "details__field-label", children: "\u0421\u043E\u0437\u0434\u0430\u043D" }),
-      /* @__PURE__ */ jsxs26(
+    node.data.createdAt && /* @__PURE__ */ jsxs29("div", { className: "details__field", children: [
+      /* @__PURE__ */ jsx30("div", { className: "details__field-label", children: "\u0421\u043E\u0437\u0434\u0430\u043D" }),
+      /* @__PURE__ */ jsxs29(
         "div",
         {
           className: "details__field-value",
           style: { display: "flex", alignItems: "center", gap: 8 },
           children: [
-            /* @__PURE__ */ jsx27(
+            /* @__PURE__ */ jsx30(
               MIcon,
               {
                 name: sourceIcon(node.data.createdAtSource),
@@ -7188,8 +7739,8 @@ function DetailsTab({ node, allNodes, allEdges, ruleViolations }) {
                 title: sourceLabel(node.data.createdAtSource)
               }
             ),
-            /* @__PURE__ */ jsx27("span", { children: formatDate(node.data.createdAt) }),
-            /* @__PURE__ */ jsx27(
+            /* @__PURE__ */ jsx30("span", { children: formatDate(node.data.createdAt) }),
+            /* @__PURE__ */ jsx30(
               "span",
               {
                 style: {
@@ -7208,17 +7759,17 @@ function DetailsTab({ node, allNodes, allEdges, ruleViolations }) {
         }
       )
     ] }),
-    node.data.description && /* @__PURE__ */ jsxs26("div", { className: "details__field", children: [
-      /* @__PURE__ */ jsx27("div", { className: "details__field-label", children: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" }),
-      /* @__PURE__ */ jsx27("div", { className: "details__field-value", children: node.data.description })
+    node.data.description && /* @__PURE__ */ jsxs29("div", { className: "details__field", children: [
+      /* @__PURE__ */ jsx30("div", { className: "details__field-label", children: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" }),
+      /* @__PURE__ */ jsx30("div", { className: "details__field-value", children: node.data.description })
     ] }),
-    node.data.tags && node.data.tags.length > 0 && /* @__PURE__ */ jsxs26("div", { className: "details__field", children: [
-      /* @__PURE__ */ jsx27("div", { className: "details__field-label", children: "\u0422\u0435\u0433\u0438" }),
-      /* @__PURE__ */ jsx27("div", { className: "details__tags", children: node.data.tags.map((t, i) => /* @__PURE__ */ jsx27("span", { className: "tag", children: t }, i)) })
+    node.data.tags && node.data.tags.length > 0 && /* @__PURE__ */ jsxs29("div", { className: "details__field", children: [
+      /* @__PURE__ */ jsx30("div", { className: "details__field-label", children: "\u0422\u0435\u0433\u0438" }),
+      /* @__PURE__ */ jsx30("div", { className: "details__tags", children: node.data.tags.map((t, i) => /* @__PURE__ */ jsx30("span", { className: "tag", children: t }, i)) })
     ] }),
-    remoteInfo?.server && /* @__PURE__ */ jsxs26("div", { className: "details__field", children: [
-      /* @__PURE__ */ jsx27("div", { className: "details__field-label", children: "\u041A\u0430\u0442\u0430\u043B\u043E\u0433" }),
-      /* @__PURE__ */ jsx27(
+    remoteInfo?.server && /* @__PURE__ */ jsxs29("div", { className: "details__field", children: [
+      /* @__PURE__ */ jsx30("div", { className: "details__field-label", children: "\u041A\u0430\u0442\u0430\u043B\u043E\u0433" }),
+      /* @__PURE__ */ jsx30(
         "div",
         {
           className: "details__field-value",
@@ -7232,10 +7783,10 @@ function DetailsTab({ node, allNodes, allEdges, ruleViolations }) {
         }
       )
     ] }),
-    !remoteInfo?.server && node.data.filePath && /* @__PURE__ */ jsxs26("div", { className: "details__field", children: [
-      /* @__PURE__ */ jsx27("div", { className: "details__field-label", children: "\u0424\u0430\u0439\u043B" }),
-      /* @__PURE__ */ jsxs26("div", { style: { display: "flex", alignItems: "center", gap: 8, minWidth: 0 }, children: [
-        /* @__PURE__ */ jsx27(
+    !remoteInfo?.server && node.data.filePath && /* @__PURE__ */ jsxs29("div", { className: "details__field", children: [
+      /* @__PURE__ */ jsx30("div", { className: "details__field-label", children: "\u0424\u0430\u0439\u043B" }),
+      /* @__PURE__ */ jsxs29("div", { style: { display: "flex", alignItems: "center", gap: 8, minWidth: 0 }, children: [
+        /* @__PURE__ */ jsx30(
           "div",
           {
             className: "details__field-value",
@@ -7243,7 +7794,7 @@ function DetailsTab({ node, allNodes, allEdges, ruleViolations }) {
             children: node.data.filePath
           }
         ),
-        /* @__PURE__ */ jsx27(
+        /* @__PURE__ */ jsx30(
           "button",
           {
             className: "details__copy",
@@ -7253,14 +7804,14 @@ function DetailsTab({ node, allNodes, allEdges, ruleViolations }) {
               window.location.href = url;
             },
             title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0432 VS Code",
-            children: /* @__PURE__ */ jsx27(MIcon, { name: "code" })
+            children: /* @__PURE__ */ jsx30(MIcon, { name: "code" })
           }
         )
       ] })
     ] }),
-    node.data.health != null && node.data.healthBreakdown && node.data.healthBreakdown.length > 0 && /* @__PURE__ */ jsxs26("div", { className: "details__field", children: [
-      /* @__PURE__ */ jsx27("div", { className: "details__field-label", children: "Health breakdown" }),
-      /* @__PURE__ */ jsx27("div", { style: { display: "flex", flexDirection: "column", gap: 4 }, children: node.data.healthBreakdown.map((b, i) => /* @__PURE__ */ jsxs26(
+    node.data.health != null && node.data.healthBreakdown && node.data.healthBreakdown.length > 0 && /* @__PURE__ */ jsxs29("div", { className: "details__field", children: [
+      /* @__PURE__ */ jsx30("div", { className: "details__field-label", children: "Health breakdown" }),
+      /* @__PURE__ */ jsx30("div", { style: { display: "flex", flexDirection: "column", gap: 4 }, children: node.data.healthBreakdown.map((b, i) => /* @__PURE__ */ jsxs29(
         "div",
         {
           style: {
@@ -7270,8 +7821,8 @@ function DetailsTab({ node, allNodes, allEdges, ruleViolations }) {
             color: "var(--text-400)"
           },
           children: [
-            /* @__PURE__ */ jsx27("span", { children: b.reason }),
-            /* @__PURE__ */ jsx27(
+            /* @__PURE__ */ jsx30("span", { children: b.reason }),
+            /* @__PURE__ */ jsx30(
               "span",
               {
                 style: {
@@ -7287,60 +7838,62 @@ function DetailsTab({ node, allNodes, allEdges, ruleViolations }) {
         i
       )) })
     ] }),
-    /* @__PURE__ */ jsx27(CollapsibleSection, { id: "fqid-out", title: "\u0418\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u0435 FQID-\u0441\u0441\u044B\u043B\u043A\u0438", count: refs.length, children: refs.length === 0 ? /* @__PURE__ */ jsx27("div", { className: "details__field-value", style: { color: "var(--text-500)" }, children: "\u2014" }) : /* @__PURE__ */ jsx27("div", { className: "details__refs", children: refs.slice(0, 50).map((r, i) => {
+    /* @__PURE__ */ jsx30(CollapsibleSection, { id: "fqid-out", title: "\u0418\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u0435 FQID-\u0441\u0441\u044B\u043B\u043A\u0438", count: refs.length, children: refs.length === 0 ? /* @__PURE__ */ jsx30("div", { className: "details__field-value", style: { color: "var(--text-500)" }, children: "\u2014" }) : /* @__PURE__ */ jsx30("div", { className: "details__refs", children: refs.slice(0, 50).map((r, i) => {
       const targetExists = allNodes.some(
         (n) => (n.data.domainId || "").toLowerCase() === (r.targetDomainId || "").toLowerCase()
       );
-      return /* @__PURE__ */ jsxs26(
+      return /* @__PURE__ */ jsxs29(
         "div",
         {
           className: "details__ref" + (targetExists ? "" : " details__ref--missing"),
           onClick: () => targetExists && goto(r.targetDomainId),
           children: [
-            /* @__PURE__ */ jsx27("div", { children: r.fullFQID }),
-            /* @__PURE__ */ jsx27("div", { className: "details__ref-path", children: r.propertyPath + (!targetExists ? " \xB7 \u26A0\uFE0F missing" : "") })
+            /* @__PURE__ */ jsx30("div", { children: r.fullFQID }),
+            /* @__PURE__ */ jsx30("div", { className: "details__ref-path", children: r.propertyPath + (!targetExists ? " \xB7 \u26A0\uFE0F missing" : "") })
           ]
         },
         i
       );
     }) }) }),
-    /* @__PURE__ */ jsx27(CollapsibleSection, { id: "incoming", title: "\u0412\u0445\u043E\u0434\u044F\u0449\u0438\u0435 \u0441\u0432\u044F\u0437\u0438", count: incoming.length, children: incoming.length === 0 ? /* @__PURE__ */ jsx27("div", { className: "details__field-value", style: { color: "var(--text-500)" }, children: "\u2014" }) : /* @__PURE__ */ jsx27("div", { className: "details__refs", children: incoming.slice(0, 30).map((e, i) => {
+    /* @__PURE__ */ jsx30(CollapsibleSection, { id: "incoming", title: "\u0412\u0445\u043E\u0434\u044F\u0449\u0438\u0435 \u0441\u0432\u044F\u0437\u0438", count: incoming.length, children: incoming.length === 0 ? /* @__PURE__ */ jsx30("div", { className: "details__field-value", style: { color: "var(--text-500)" }, children: "\u2014" }) : /* @__PURE__ */ jsx30("div", { className: "details__refs", children: incoming.slice(0, 30).map((e, i) => {
       const src = allNodes.find((n) => n.id === e.source);
-      return /* @__PURE__ */ jsxs26(
+      return /* @__PURE__ */ jsxs29(
         "div",
         {
           className: "details__ref",
           onClick: () => src && goto(src.data.domainId),
           children: [
-            /* @__PURE__ */ jsx27("div", { children: src ? src.data.domainId : e.source }),
-            /* @__PURE__ */ jsx27("div", { className: "details__ref-path", children: e.data && e.data.kind || "" })
+            /* @__PURE__ */ jsx30("div", { children: src ? src.data.domainId : e.source }),
+            /* @__PURE__ */ jsx30("div", { className: "details__ref-path", children: e.data && e.data.kind || "" })
           ]
         },
         i
       );
     }) }) }),
-    /* @__PURE__ */ jsx27(CollapsibleSection, { id: "outgoing", title: "\u0418\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u0435 \u0441\u0432\u044F\u0437\u0438", count: outgoing.length, children: outgoing.length === 0 ? /* @__PURE__ */ jsx27("div", { className: "details__field-value", style: { color: "var(--text-500)" }, children: "\u2014" }) : /* @__PURE__ */ jsx27("div", { className: "details__refs", children: outgoing.slice(0, 30).map((e, i) => {
+    /* @__PURE__ */ jsx30(CollapsibleSection, { id: "outgoing", title: "\u0418\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u0435 \u0441\u0432\u044F\u0437\u0438", count: outgoing.length, children: outgoing.length === 0 ? /* @__PURE__ */ jsx30("div", { className: "details__field-value", style: { color: "var(--text-500)" }, children: "\u2014" }) : /* @__PURE__ */ jsx30("div", { className: "details__refs", children: outgoing.slice(0, 30).map((e, i) => {
       const tgt = allNodes.find((n) => n.id === e.target);
-      return /* @__PURE__ */ jsxs26(
+      return /* @__PURE__ */ jsxs29(
         "div",
         {
           className: "details__ref",
           onClick: () => tgt && goto(tgt.data.domainId),
           children: [
-            /* @__PURE__ */ jsx27("div", { children: tgt ? tgt.data.domainId : e.target }),
-            /* @__PURE__ */ jsx27("div", { className: "details__ref-path", children: e.data && e.data.kind || "" })
+            /* @__PURE__ */ jsx30("div", { children: tgt ? tgt.data.domainId : e.target }),
+            /* @__PURE__ */ jsx30("div", { className: "details__ref-path", children: e.data && e.data.kind || "" })
           ]
         },
         i
       );
     }) }) }),
-    node.data.__validationStatus === "invalid" && node.data.__validationDiagnostics && node.data.__validationDiagnostics.length > 0 && /* @__PURE__ */ jsx27(
+    node.data.nodeType === "domain" && /* @__PURE__ */ jsx30(CollapsibleSection, { id: "mixins", title: "\u041C\u0438\u043A\u0441\u0438\u043D\u044B", children: /* @__PURE__ */ jsx30(DomainMixinsPanel, { domainId: node.data.domainId }) }),
+    node.data.nodeType === "domain" && /* @__PURE__ */ jsx30(CollapsibleSection, { id: "sonar", title: "Sonar-\u043E\u0446\u0435\u043D\u043A\u0430", children: /* @__PURE__ */ jsx30(DomainSonarPanel, { domainId: node.data.domainId }) }),
+    node.data.__validationStatus === "invalid" && node.data.__validationDiagnostics && node.data.__validationDiagnostics.length > 0 && /* @__PURE__ */ jsx30(
       CollapsibleSection,
       {
         id: "validation",
         title: "\u041E\u0448\u0438\u0431\u043A\u0438 \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u0438",
         count: node.data.__validationDiagnostics.length,
-        children: /* @__PURE__ */ jsx27("div", { style: { maxHeight: 320, overflowY: "auto" }, children: node.data.__validationDiagnostics.map((d, i) => /* @__PURE__ */ jsxs26(
+        children: /* @__PURE__ */ jsx30("div", { style: { maxHeight: 320, overflowY: "auto" }, children: node.data.__validationDiagnostics.map((d, i) => /* @__PURE__ */ jsxs29(
           "div",
           {
             style: {
@@ -7352,7 +7905,7 @@ function DetailsTab({ node, allNodes, allEdges, ruleViolations }) {
               borderLeft: "2px solid " + (d.severity === "ERROR" ? "var(--danger)" : "var(--warning)")
             },
             children: [
-              /* @__PURE__ */ jsx27(
+              /* @__PURE__ */ jsx30(
                 "div",
                 {
                   style: {
@@ -7365,8 +7918,8 @@ function DetailsTab({ node, allNodes, allEdges, ruleViolations }) {
                   children: d.severity
                 }
               ),
-              /* @__PURE__ */ jsx27("div", { style: { color: "var(--text-200)" }, children: d.message }),
-              d.labels && d.labels.length > 0 && d.labels.map((lb, li) => /* @__PURE__ */ jsxs26(
+              /* @__PURE__ */ jsx30("div", { style: { color: "var(--text-200)" }, children: d.message }),
+              d.labels && d.labels.length > 0 && d.labels.map((lb, li) => /* @__PURE__ */ jsxs29(
                 "div",
                 {
                   style: {
@@ -7388,15 +7941,15 @@ function DetailsTab({ node, allNodes, allEdges, ruleViolations }) {
         )) })
       }
     ),
-    /* @__PURE__ */ jsx27(CollapsibleSection, { id: "violations", title: "\u041D\u0430\u0440\u0443\u0448\u0435\u043D\u0438\u044F \u043F\u0440\u0430\u0432\u0438\u043B", count: ruleViolations.length, children: ruleViolations.length === 0 ? /* @__PURE__ */ jsx27("div", { className: "details__field-value", style: { color: "var(--text-500)" }, children: "\u2014" }) : /* @__PURE__ */ jsx27("div", { className: "details__refs", children: ruleViolations.slice(0, 10).map((v, i) => /* @__PURE__ */ jsxs26(
+    /* @__PURE__ */ jsx30(CollapsibleSection, { id: "violations", title: "\u041D\u0430\u0440\u0443\u0448\u0435\u043D\u0438\u044F \u043F\u0440\u0430\u0432\u0438\u043B", count: ruleViolations.length, children: ruleViolations.length === 0 ? /* @__PURE__ */ jsx30("div", { className: "details__field-value", style: { color: "var(--text-500)" }, children: "\u2014" }) : /* @__PURE__ */ jsx30("div", { className: "details__refs", children: ruleViolations.slice(0, 10).map((v, i) => /* @__PURE__ */ jsxs29(
       "div",
       {
         className: "rank-item",
         style: { cursor: "pointer" },
         onClick: () => goto(v.fromId),
         children: [
-          /* @__PURE__ */ jsx27("span", { className: "rank-item__num", children: v.severity === "forbid" ? "\u26D4" : "\u26A0\uFE0F" }),
-          /* @__PURE__ */ jsxs26("span", { className: "rank-item__label", children: [
+          /* @__PURE__ */ jsx30("span", { className: "rank-item__num", children: v.severity === "forbid" ? /* @__PURE__ */ jsx30(MIcon, { name: "block", size: "sm" }) : /* @__PURE__ */ jsx30(MIcon, { name: "warning", size: "sm" }) }),
+          /* @__PURE__ */ jsxs29("span", { className: "rank-item__label", children: [
             v.fromId,
             " \u2192 ",
             v.toId
@@ -7416,25 +7969,28 @@ var init_DetailsTab = __esm({
     init_CollapsibleSection();
     init_format();
     init_initial();
+    init_DomainMixinsPanel();
+    init_open_file();
+    init_DomainSonarPanel();
   }
 });
 
 // src/web/components/panels/EdgeTab.tsx
-import { jsx as jsx28, jsxs as jsxs27 } from "react/jsx-runtime";
+import { jsx as jsx31, jsxs as jsxs30 } from "react/jsx-runtime";
 function EdgeTab({ edge, allNodes }) {
   const { goto } = useNavigation();
   if (!edge) {
-    return /* @__PURE__ */ jsx28("div", { className: "details", children: /* @__PURE__ */ jsx28("div", { style: { color: "var(--text-500)", textAlign: "center", padding: 40 }, children: "\u0421\u0432\u044F\u0437\u044C \u043D\u0435 \u0432\u044B\u0431\u0440\u0430\u043D\u0430" }) });
+    return /* @__PURE__ */ jsx31("div", { className: "details", children: /* @__PURE__ */ jsx31("div", { style: { color: "var(--text-500)", textAlign: "center", padding: 40 }, children: "\u0421\u0432\u044F\u0437\u044C \u043D\u0435 \u0432\u044B\u0431\u0440\u0430\u043D\u0430" }) });
   }
   const link = edge.data && edge.data.linkData || {};
   const refs = edge.data && edge.data.fqidRefs || [];
   const srcNode = allNodes.find((n) => n.id === edge.source);
   const tgtNode = allNodes.find((n) => n.id === edge.target);
-  return /* @__PURE__ */ jsxs27("div", { className: "details", children: [
-    /* @__PURE__ */ jsx28("div", { className: "details__title", children: edge.data && edge.data.fullLabel || edge.label || edge.id }),
-    /* @__PURE__ */ jsxs27("div", { className: "details__id", children: [
-      /* @__PURE__ */ jsx28("span", { className: "details__id-text", children: (link.originalId && srcNode ? `${srcNode.data.domainId}/${link.originalId}` : null) || edge.data && edge.data.fullLabel || edge.label || (srcNode ? `${srcNode.data.domainId}/${edge.id}` : edge.id) }),
-      /* @__PURE__ */ jsx28(
+  return /* @__PURE__ */ jsxs30("div", { className: "details", children: [
+    /* @__PURE__ */ jsx31("div", { className: "details__title", children: edge.data && edge.data.fullLabel || edge.label || edge.id }),
+    /* @__PURE__ */ jsxs30("div", { className: "details__id", children: [
+      /* @__PURE__ */ jsx31("span", { className: "details__id-text", children: (link.originalId && srcNode ? `${srcNode.data.domainId}/${link.originalId}` : null) || edge.data && edge.data.fullLabel || edge.label || (srcNode ? `${srcNode.data.domainId}/${edge.id}` : edge.id) }),
+      /* @__PURE__ */ jsx31(
         "button",
         {
           className: "details__copy",
@@ -7443,73 +7999,73 @@ function EdgeTab({ edge, allNodes }) {
             navigator.clipboard.writeText(copyId);
           },
           title: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C ID \u0441\u0432\u044F\u0437\u0438",
-          children: /* @__PURE__ */ jsx28(MIcon, { name: "content_copy", size: "sm" })
+          children: /* @__PURE__ */ jsx31(MIcon, { name: "content_copy", size: "sm" })
         }
       )
     ] }),
-    edge.data?.fullLabel && /* @__PURE__ */ jsxs27("div", { className: "details__field", children: [
-      /* @__PURE__ */ jsx28("div", { className: "details__field-label", children: "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435" }),
-      /* @__PURE__ */ jsx28("div", { className: "details__field-value", children: edge.data.fullLabel })
+    edge.data?.fullLabel && /* @__PURE__ */ jsxs30("div", { className: "details__field", children: [
+      /* @__PURE__ */ jsx31("div", { className: "details__field-label", children: "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435" }),
+      /* @__PURE__ */ jsx31("div", { className: "details__field-value", children: edge.data.fullLabel })
     ] }),
-    edge.data?.kind && /* @__PURE__ */ jsxs27("div", { className: "details__field", children: [
-      /* @__PURE__ */ jsx28("div", { className: "details__field-label", children: "\u0422\u0438\u043F \u0441\u0432\u044F\u0437\u0438" }),
-      /* @__PURE__ */ jsxs27("div", { className: "details__field-value", children: [
-        /* @__PURE__ */ jsx28("span", { className: "details__badge", children: edge.data.kind === "linkage" ? "Linkage" : "FQID" }),
-        edge.data.isBidirectional && /* @__PURE__ */ jsx28("span", { className: "details__badge", children: "\u21C4 \u0434\u0432\u0443\u043D\u0430\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u043D\u0430\u044F" }),
-        link.type && /* @__PURE__ */ jsx28("span", { className: "details__badge", style: { marginLeft: 8 }, children: link.type }),
-        edge.data.refCount && /* @__PURE__ */ jsxs27("span", { className: "details__badge", children: [
+    edge.data?.kind && /* @__PURE__ */ jsxs30("div", { className: "details__field", children: [
+      /* @__PURE__ */ jsx31("div", { className: "details__field-label", children: "\u0422\u0438\u043F \u0441\u0432\u044F\u0437\u0438" }),
+      /* @__PURE__ */ jsxs30("div", { className: "details__field-value", children: [
+        /* @__PURE__ */ jsx31("span", { className: "details__badge", children: edge.data.kind === "linkage" ? "Linkage" : "FQID" }),
+        edge.data.isBidirectional && /* @__PURE__ */ jsx31("span", { className: "details__badge", children: "\u21C4 \u0434\u0432\u0443\u043D\u0430\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u043D\u0430\u044F" }),
+        link.type && /* @__PURE__ */ jsx31("span", { className: "details__badge", style: { marginLeft: 8 }, children: link.type }),
+        edge.data.refCount && /* @__PURE__ */ jsxs30("span", { className: "details__badge", children: [
           edge.data.refCount,
           " refs"
         ] })
       ] })
     ] }),
-    srcNode && /* @__PURE__ */ jsxs27("div", { className: "details__field", children: [
-      /* @__PURE__ */ jsx28("div", { className: "details__field-label", children: "\u0418\u0441\u0442\u043E\u0447\u043D\u0438\u043A" }),
-      /* @__PURE__ */ jsxs27("div", { className: "details__ref", onClick: () => goto(srcNode.data.domainId), children: [
-        /* @__PURE__ */ jsx28("div", { children: srcNode.data.domainId }),
-        link.sourceEntity && /* @__PURE__ */ jsx28("div", { className: "details__ref-path", children: link.sourceEntity })
+    srcNode && /* @__PURE__ */ jsxs30("div", { className: "details__field", children: [
+      /* @__PURE__ */ jsx31("div", { className: "details__field-label", children: "\u0418\u0441\u0442\u043E\u0447\u043D\u0438\u043A" }),
+      /* @__PURE__ */ jsxs30("div", { className: "details__ref", onClick: () => goto(srcNode.data.domainId), children: [
+        /* @__PURE__ */ jsx31("div", { children: srcNode.data.domainId }),
+        link.sourceEntity && /* @__PURE__ */ jsx31("div", { className: "details__ref-path", children: link.sourceEntity })
       ] })
     ] }),
-    tgtNode && /* @__PURE__ */ jsxs27("div", { className: "details__field", children: [
-      /* @__PURE__ */ jsx28("div", { className: "details__field-label", children: "\u0426\u0435\u043B\u044C" }),
-      /* @__PURE__ */ jsxs27("div", { className: "details__ref", onClick: () => goto(tgtNode.data.domainId), children: [
-        /* @__PURE__ */ jsx28("div", { children: tgtNode.data.domainId }),
-        link.targetEntity && /* @__PURE__ */ jsx28("div", { className: "details__ref-path", children: link.targetEntity })
+    tgtNode && /* @__PURE__ */ jsxs30("div", { className: "details__field", children: [
+      /* @__PURE__ */ jsx31("div", { className: "details__field-label", children: "\u0426\u0435\u043B\u044C" }),
+      /* @__PURE__ */ jsxs30("div", { className: "details__ref", onClick: () => goto(tgtNode.data.domainId), children: [
+        /* @__PURE__ */ jsx31("div", { children: tgtNode.data.domainId }),
+        link.targetEntity && /* @__PURE__ */ jsx31("div", { className: "details__ref-path", children: link.targetEntity })
       ] })
     ] }),
-    link.nameFrom && (link.nameFrom.side1 || link.nameFrom.side2) && /* @__PURE__ */ jsxs27("div", { className: "details__field", children: [
-      /* @__PURE__ */ jsx28("div", { className: "details__field-label", children: "\u0421\u0442\u043E\u0440\u043E\u043D\u044B" }),
-      link.nameFrom.side1 && /* @__PURE__ */ jsxs27("div", { className: "details__field-value", children: [
+    link.nameFrom && (link.nameFrom.side1 || link.nameFrom.side2) && /* @__PURE__ */ jsxs30("div", { className: "details__field", children: [
+      /* @__PURE__ */ jsx31("div", { className: "details__field-label", children: "\u0421\u0442\u043E\u0440\u043E\u043D\u044B" }),
+      link.nameFrom.side1 && /* @__PURE__ */ jsxs30("div", { className: "details__field-value", children: [
         "\u0421\u0442\u043E\u0440\u043E\u043D\u0430 1: ",
         link.nameFrom.side1
       ] }),
-      link.nameFrom.side2 && /* @__PURE__ */ jsxs27("div", { className: "details__field-value", children: [
+      link.nameFrom.side2 && /* @__PURE__ */ jsxs30("div", { className: "details__field-value", children: [
         "\u0421\u0442\u043E\u0440\u043E\u043D\u0430 2: ",
         link.nameFrom.side2
       ] })
     ] }),
-    refs.length > 0 && /* @__PURE__ */ jsxs27("div", { className: "details__field", children: [
-      /* @__PURE__ */ jsxs27("div", { className: "details__field-label", children: [
+    refs.length > 0 && /* @__PURE__ */ jsxs30("div", { className: "details__field", children: [
+      /* @__PURE__ */ jsxs30("div", { className: "details__field-label", children: [
         "FQID-\u0441\u0441\u044B\u043B\u043A\u0438 (",
         refs.length,
         ")"
       ] }),
-      /* @__PURE__ */ jsx28("div", { className: "details__refs", children: refs.map((r, i) => /* @__PURE__ */ jsxs27(
+      /* @__PURE__ */ jsx31("div", { className: "details__refs", children: refs.map((r, i) => /* @__PURE__ */ jsxs30(
         "div",
         {
           className: "details__ref",
           onClick: () => r.targetDomainId && goto(r.targetDomainId),
           children: [
-            /* @__PURE__ */ jsx28("div", { children: r.fullFQID }),
-            /* @__PURE__ */ jsx28("div", { className: "details__ref-path", children: r.propertyPath })
+            /* @__PURE__ */ jsx31("div", { children: r.fullFQID }),
+            /* @__PURE__ */ jsx31("div", { className: "details__ref-path", children: r.propertyPath })
           ]
         },
         i
       )) })
     ] }),
-    /* @__PURE__ */ jsxs27("div", { className: "details__actions", children: [
-      srcNode && /* @__PURE__ */ jsx28("button", { className: "btn", onClick: () => goto(srcNode.data.domainId), children: "\u{1F3AF} \u041A \u0438\u0441\u0442\u043E\u0447\u043D\u0438\u043A\u0443" }),
-      tgtNode && /* @__PURE__ */ jsx28("button", { className: "btn", onClick: () => goto(tgtNode.data.domainId), children: "\u{1F3AF} \u041A \u0446\u0435\u043B\u0438" })
+    /* @__PURE__ */ jsxs30("div", { className: "details__actions", children: [
+      srcNode && /* @__PURE__ */ jsx31("button", { className: "btn", onClick: () => goto(srcNode.data.domainId), children: "\u{1F3AF} \u041A \u0438\u0441\u0442\u043E\u0447\u043D\u0438\u043A\u0443" }),
+      tgtNode && /* @__PURE__ */ jsx31("button", { className: "btn", onClick: () => goto(tgtNode.data.domainId), children: "\u{1F3AF} \u041A \u0446\u0435\u043B\u0438" })
     ] })
   ] });
 }
@@ -7522,33 +8078,33 @@ var init_EdgeTab = __esm({
 });
 
 // src/web/components/panels/EntitiesTab.tsx
-import { jsx as jsx29, jsxs as jsxs28 } from "react/jsx-runtime";
+import { jsx as jsx32, jsxs as jsxs31 } from "react/jsx-runtime";
 function EntitiesTab({ node, entities, entityIndex, onOpenEntityHierarchy }) {
   const domainEntities = entities.filter(
     (e) => e.domainId === (node && node.data && node.data.domainId)
   );
-  return /* @__PURE__ */ jsxs28("div", { className: "details", children: [
-    /* @__PURE__ */ jsxs28("div", { className: "details__field-label", children: [
+  return /* @__PURE__ */ jsxs31("div", { className: "details", children: [
+    /* @__PURE__ */ jsxs31("div", { className: "details__field-label", children: [
       "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0434\u043E\u043C\u0435\u043D\u0430 (",
       domainEntities.length,
       ")"
     ] }),
-    domainEntities.length === 0 ? /* @__PURE__ */ jsx29("div", { className: "details__field-value", style: { color: "var(--text-500)" }, children: "\u041D\u0435\u0442 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" }) : /* @__PURE__ */ jsx29("div", { className: "entity-tab-list", children: domainEntities.map((e) => {
+    domainEntities.length === 0 ? /* @__PURE__ */ jsx32("div", { className: "details__field-value", style: { color: "var(--text-500)" }, children: "\u041D\u0435\u0442 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" }) : /* @__PURE__ */ jsx32("div", { className: "entity-tab-list", children: domainEntities.map((e) => {
       const key = (e.domainId + "/" + e.entityId).toLowerCase();
       const hasParents = !!e.inherits;
       const hasChildren = entityIndex && (entityIndex.children.get(key) || []).length > 0;
-      return /* @__PURE__ */ jsxs28(
+      return /* @__PURE__ */ jsxs31(
         "div",
         {
           className: "entity-tab-item",
           onClick: () => onOpenEntityHierarchy(key),
           children: [
-            /* @__PURE__ */ jsxs28("div", { className: "entity-tab-item__head", children: [
-              /* @__PURE__ */ jsx29("span", { className: "entity-tab-item__id", children: e.entityId }),
-              (hasParents || hasChildren) && /* @__PURE__ */ jsx29("span", { className: "entity-tab-item__arrows", children: (hasParents ? "\u2191" : "") + (hasChildren ? "\u2193" : "") })
+            /* @__PURE__ */ jsxs31("div", { className: "entity-tab-item__head", children: [
+              /* @__PURE__ */ jsx32("span", { className: "entity-tab-item__id", children: e.entityId }),
+              (hasParents || hasChildren) && /* @__PURE__ */ jsx32("span", { className: "entity-tab-item__arrows", children: (hasParents ? "\u2191" : "") + (hasChildren ? "\u2193" : "") })
             ] }),
-            e.name && e.name !== e.entityId && /* @__PURE__ */ jsx29("div", { className: "entity-tab-item__name", children: e.name }),
-            e.inherits && /* @__PURE__ */ jsxs28("div", { className: "entity-tab-item__inherits", children: [
+            e.name && e.name !== e.entityId && /* @__PURE__ */ jsx32("div", { className: "entity-tab-item__name", children: e.name }),
+            e.inherits && /* @__PURE__ */ jsxs31("div", { className: "entity-tab-item__inherits", children: [
               "\u21B3 ",
               e.inherits
             ] })
@@ -7565,52 +8121,22 @@ var init_EntitiesTab = __esm({
   }
 });
 
-// src/web/components/panels/FileTab.tsx
-import { jsx as jsx30 } from "react/jsx-runtime";
-function FileTab() {
-  return /* @__PURE__ */ jsx30("div", { id: "monaco-container", style: { width: "100%", height: "100%" } });
-}
-var init_FileTab = __esm({
-  "src/web/components/panels/FileTab.tsx"() {
-    "use strict";
-  }
-});
-
 // src/web/components/panels/SidePanel.tsx
-import React8, { useMemo as useMemo14 } from "react";
-import { jsx as jsx31, jsxs as jsxs29 } from "react/jsx-runtime";
+import { useMemo as useMemo16 } from "react";
+import { jsx as jsx33, jsxs as jsxs32 } from "react/jsx-runtime";
 function SidePanel(props) {
   const store = useGraphStore();
-  const panelNode = useMemo14(() => {
+  const panelNode = useMemo16(() => {
     if (!store.panelNodeId)
       return null;
     return props.visibleNodes.find((n) => n.id === store.panelNodeId) || props.allNodes.find((n) => n.id === store.panelNodeId) || null;
   }, [store.panelNodeId, props.visibleNodes, props.allNodes]);
-  const panelEdge = useMemo14(() => {
+  const panelEdge = useMemo16(() => {
     if (!store.selectedEdgeId)
       return null;
     return props.visibleEdges.find((e) => e.id === store.selectedEdgeId) || props.allEdges.find((e) => e.id === store.selectedEdgeId) || null;
   }, [store.selectedEdgeId, props.visibleEdges, props.allEdges]);
-  useMonaco(store.panelOpen, store.panelTab, store.pendingFile);
-  React8.useEffect(() => {
-    if (!store.panelOpen || store.panelTab !== "file")
-      return;
-    if (!panelNode)
-      return;
-    if (!panelNode.data.filePath)
-      return;
-    if (store.editorFilePath === panelNode.data.filePath && store.pendingFile)
-      return;
-    openFileInEditor(panelNode.data.filePath);
-  }, [
-    store.panelOpen,
-    store.panelTab,
-    store.panelNodeId,
-    panelNode,
-    store.editorFilePath,
-    store.pendingFile
-  ]);
-  const ruleViolationsFiltered = useMemo14(() => {
+  const ruleViolationsFiltered = useMemo16(() => {
     if (!panelNode)
       return [];
     return props.ruleViolations.filter(
@@ -7619,10 +8145,10 @@ function SidePanel(props) {
   }, [props.ruleViolations, panelNode]);
   if (!store.panelOpen)
     return null;
-  return /* @__PURE__ */ jsxs29("div", { className: "side-panel open", children: [
-    /* @__PURE__ */ jsxs29("div", { className: "side-panel__header", children: [
-      /* @__PURE__ */ jsxs29("div", { className: "side-panel__tabs", children: [
-        /* @__PURE__ */ jsx31(
+  return /* @__PURE__ */ jsxs32("div", { className: "side-panel open", children: [
+    /* @__PURE__ */ jsxs32("div", { className: "side-panel__header", children: [
+      /* @__PURE__ */ jsxs32("div", { className: "side-panel__tabs", children: [
+        /* @__PURE__ */ jsx33(
           "button",
           {
             className: "side-panel__tab" + (store.panelTab === "details" ? " active" : ""),
@@ -7630,15 +8156,7 @@ function SidePanel(props) {
             children: "\u{1F4CB} \u0414\u0435\u0442\u0430\u043B\u0438"
           }
         ),
-        /* @__PURE__ */ jsx31(
-          "button",
-          {
-            className: "side-panel__tab" + (store.panelTab === "file" ? " active" : ""),
-            onClick: () => store.setPanelTab("file"),
-            children: "\u{1F4C4} \u0424\u0430\u0439\u043B"
-          }
-        ),
-        /* @__PURE__ */ jsx31(
+        /* @__PURE__ */ jsx33(
           "button",
           {
             className: "side-panel__tab" + (store.panelTab === "edge" ? " active" : ""),
@@ -7646,7 +8164,7 @@ function SidePanel(props) {
             children: "\u{1F517} \u0421\u0432\u044F\u0437\u044C"
           }
         ),
-        /* @__PURE__ */ jsx31(
+        /* @__PURE__ */ jsx33(
           "button",
           {
             className: "side-panel__tab" + (store.panelTab === "entities" ? " active" : ""),
@@ -7655,7 +8173,7 @@ function SidePanel(props) {
           }
         )
       ] }),
-      /* @__PURE__ */ jsx31(
+      /* @__PURE__ */ jsx33(
         "button",
         {
           className: "btn btn--icon",
@@ -7665,13 +8183,12 @@ function SidePanel(props) {
         }
       )
     ] }),
-    /* @__PURE__ */ jsxs29("div", { className: "side-panel__body", style: { position: "relative" }, children: [
-      /* @__PURE__ */ jsx31(
+    /* @__PURE__ */ jsxs32("div", { className: "side-panel__body", style: { position: "relative" }, children: [
+      /* @__PURE__ */ jsx33(
         "div",
         {
-          className: "side-panel__pane",
-          style: { display: store.panelTab === "details" ? "block" : "none" },
-          children: /* @__PURE__ */ jsx31(
+          className: "side-panel__pane" + (store.panelTab !== "details" ? " side-panel__pane--hidden" : ""),
+          children: /* @__PURE__ */ jsx33(
             DetailsTab,
             {
               node: panelNode,
@@ -7682,20 +8199,18 @@ function SidePanel(props) {
           )
         }
       ),
-      /* @__PURE__ */ jsx31(
+      /* @__PURE__ */ jsx33(
         "div",
         {
-          className: "side-panel__pane",
-          style: { display: store.panelTab === "edge" ? "block" : "none" },
-          children: /* @__PURE__ */ jsx31(EdgeTab, { edge: panelEdge, allNodes: props.allNodes })
+          className: "side-panel__pane" + (store.panelTab !== "edge" ? " side-panel__pane--hidden" : ""),
+          children: /* @__PURE__ */ jsx33(EdgeTab, { edge: panelEdge, allNodes: props.allNodes })
         }
       ),
-      /* @__PURE__ */ jsx31(
+      /* @__PURE__ */ jsx33(
         "div",
         {
-          className: "side-panel__pane",
-          style: { display: store.panelTab === "entities" ? "block" : "none" },
-          children: /* @__PURE__ */ jsx31(
+          className: "side-panel__pane" + (store.panelTab !== "entities" ? " side-panel__pane--hidden" : ""),
+          children: /* @__PURE__ */ jsx33(
             EntitiesTab,
             {
               node: panelNode,
@@ -7705,14 +8220,6 @@ function SidePanel(props) {
             }
           )
         }
-      ),
-      /* @__PURE__ */ jsx31(
-        "div",
-        {
-          className: "side-panel__pane",
-          style: { display: store.panelTab === "file" ? "block" : "none" },
-          children: /* @__PURE__ */ jsx31(FileTab, {})
-        }
       )
     ] })
   ] });
@@ -7721,26 +8228,23 @@ var init_SidePanel = __esm({
   "src/web/components/panels/SidePanel.tsx"() {
     "use strict";
     init_useGraphStore();
-    init_useMonaco();
     init_DetailsTab();
     init_EdgeTab();
     init_EntitiesTab();
-    init_FileTab();
-    init_open_file();
   }
 });
 
 // src/web/components/layout/GraphArea.tsx
 import { applyEdgeChanges, applyNodeChanges } from "reactflow";
-import { jsx as jsx32, jsxs as jsxs30 } from "react/jsx-runtime";
+import { jsx as jsx34, jsxs as jsxs33 } from "react/jsx-runtime";
 function GraphArea(props) {
   const store = useGraphStore();
-  return /* @__PURE__ */ jsxs30(
+  return /* @__PURE__ */ jsxs33(
     "div",
     {
       className: "graph-container" + (store.showEdgeLabels ? " show-labels" : ""),
       children: [
-        /* @__PURE__ */ jsx32(
+        /* @__PURE__ */ jsx34(
           GraphView,
           {
             nodes: props.visibleNodes,
@@ -7766,12 +8270,12 @@ function GraphArea(props) {
             perfMode: props.perfMode
           }
         ),
-        props.visibleNodes.length === 0 && /* @__PURE__ */ jsxs30("div", { className: "empty-state", children: [
-          /* @__PURE__ */ jsx32("div", { className: "empty-state__icon", children: /* @__PURE__ */ jsx32("span", { className: "material-symbols-outlined mi-xl", children: "search_off" }) }),
-          /* @__PURE__ */ jsx32("div", { className: "empty-state__title", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" }),
-          /* @__PURE__ */ jsx32("div", { className: "empty-state__text", children: "\u041F\u043E\u0434 \u0442\u0435\u043A\u0443\u0449\u0438\u0435 \u0444\u0438\u043B\u044C\u0442\u0440\u044B \u043D\u0435 \u043F\u043E\u0434\u0445\u043E\u0434\u0438\u0442 \u043D\u0438 \u043E\u0434\u0438\u043D \u0434\u043E\u043C\u0435\u043D." }),
-          /* @__PURE__ */ jsxs30("div", { className: "empty-state__actions", children: [
-            store.namespaceFilter && /* @__PURE__ */ jsx32(
+        props.visibleNodes.length === 0 && /* @__PURE__ */ jsxs33("div", { className: "empty-state", children: [
+          /* @__PURE__ */ jsx34("div", { className: "empty-state__icon", children: /* @__PURE__ */ jsx34("span", { className: "material-symbols-outlined mi-xl", children: "search_off" }) }),
+          /* @__PURE__ */ jsx34("div", { className: "empty-state__title", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" }),
+          /* @__PURE__ */ jsx34("div", { className: "empty-state__text", children: "\u041F\u043E\u0434 \u0442\u0435\u043A\u0443\u0449\u0438\u0435 \u0444\u0438\u043B\u044C\u0442\u0440\u044B \u043D\u0435 \u043F\u043E\u0434\u0445\u043E\u0434\u0438\u0442 \u043D\u0438 \u043E\u0434\u0438\u043D \u0434\u043E\u043C\u0435\u043D." }),
+          /* @__PURE__ */ jsxs33("div", { className: "empty-state__actions", children: [
+            store.namespaceFilter && /* @__PURE__ */ jsx34(
               "button",
               {
                 className: "btn",
@@ -7779,7 +8283,7 @@ function GraphArea(props) {
                 children: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C namespace"
               }
             ),
-            store.tagFilters.size > 0 && /* @__PURE__ */ jsx32(
+            store.tagFilters.size > 0 && /* @__PURE__ */ jsx34(
               "button",
               {
                 className: "btn",
@@ -7787,20 +8291,20 @@ function GraphArea(props) {
                 children: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0442\u0435\u0433\u0438"
               }
             ),
-            /* @__PURE__ */ jsx32("button", { className: "btn btn--primary", onClick: props.onResetAll, children: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0432\u0441\u0451" })
+            /* @__PURE__ */ jsx34("button", { className: "btn btn--primary", onClick: props.onResetAll, children: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0432\u0441\u0451" })
           ] })
         ] }),
-        store.heatmap !== "none" && props.heatmapValues && /* @__PURE__ */ jsxs30("div", { className: "heat-legend", children: [
-          /* @__PURE__ */ jsxs30("div", { className: "heat-legend__title", children: [
+        store.heatmap !== "none" && props.heatmapValues && /* @__PURE__ */ jsxs33("div", { className: "heat-legend", children: [
+          /* @__PURE__ */ jsxs33("div", { className: "heat-legend__title", children: [
             "Heatmap: ",
             props.heatmapValues.scheme.label
           ] }),
-          /* @__PURE__ */ jsx32("div", { className: "heat-legend__bar" }),
-          /* @__PURE__ */ jsxs30("div", { className: "heat-legend__labels", children: [
-            /* @__PURE__ */ jsx32("span", { children: props.heatmapValues.min }),
-            /* @__PURE__ */ jsx32("span", { children: props.heatmapValues.max })
+          /* @__PURE__ */ jsx34("div", { className: "heat-legend__bar" }),
+          /* @__PURE__ */ jsxs33("div", { className: "heat-legend__labels", children: [
+            /* @__PURE__ */ jsx34("span", { children: props.heatmapValues.min }),
+            /* @__PURE__ */ jsx34("span", { children: props.heatmapValues.max })
           ] }),
-          /* @__PURE__ */ jsx32(
+          /* @__PURE__ */ jsx34(
             "button",
             {
               className: "heat-legend__close",
@@ -7809,7 +8313,7 @@ function GraphArea(props) {
             }
           )
         ] }),
-        /* @__PURE__ */ jsx32(
+        /* @__PURE__ */ jsx34(
           SidePanel,
           {
             allNodes: store.nodes,
@@ -7836,13 +8340,39 @@ var init_GraphArea = __esm({
 });
 
 // src/web/components/common/HoverTooltip.tsx
-import { jsx as jsx33 } from "react/jsx-runtime";
+import { useEffect as useEffect14 } from "react";
+import { jsx as jsx35 } from "react/jsx-runtime";
 function HoverTooltip() {
   const tooltip = useGraphStore((s) => s.tooltip);
   const setTooltip = useGraphStore((s) => s.setTooltip);
+  useEffect14(() => {
+    if (!tooltip)
+      return;
+    const el = document.querySelector(".tooltip");
+    if (!el)
+      return;
+    const rect = el.getBoundingClientRect();
+    const margin = 12;
+    const gap = 16;
+    const ax = tooltip.anchorX != null ? tooltip.anchorX : tooltip.x;
+    const ay = tooltip.anchorY != null ? tooltip.anchorY : tooltip.y;
+    let x = ax + gap;
+    let y = ay + gap;
+    if (x + rect.width > window.innerWidth - margin)
+      x = ax - rect.width - gap;
+    if (y + rect.height > window.innerHeight - margin)
+      y = ay - rect.height - gap;
+    if (x < margin)
+      x = margin;
+    if (y < margin)
+      y = margin;
+    if (x === tooltip.x && y === tooltip.y)
+      return;
+    setTooltip((t) => t ? { ...t, x, y } : null);
+  }, [tooltip, setTooltip]);
   if (!tooltip)
     return null;
-  return /* @__PURE__ */ jsx33(
+  return /* @__PURE__ */ jsx35(
     "div",
     {
       className: "tooltip",
@@ -7855,7 +8385,7 @@ function HoverTooltip() {
       },
       onMouseDown: (e) => e.stopPropagation(),
       onClick: (e) => e.stopPropagation(),
-      children: /* @__PURE__ */ jsx33("div", { dangerouslySetInnerHTML: { __html: tooltip.html } })
+      children: /* @__PURE__ */ jsx35("div", { dangerouslySetInnerHTML: { __html: tooltip.html } })
     }
   );
 }
@@ -7867,11 +8397,11 @@ var init_HoverTooltip = __esm({
 });
 
 // src/web/components/common/ContextMenu.tsx
-import { useEffect as useEffect13, useRef as useRef8 } from "react";
-import { jsx as jsx34, jsxs as jsxs31 } from "react/jsx-runtime";
+import { useEffect as useEffect15, useRef as useRef8 } from "react";
+import { jsx as jsx36, jsxs as jsxs34 } from "react/jsx-runtime";
 function ContextMenu({ menu, onClose, onAction }) {
   const ref = useRef8(null);
-  useEffect13(() => {
+  useEffect15(() => {
     if (!menu)
       return;
     const onDoc = (e) => {
@@ -7891,10 +8421,10 @@ function ContextMenu({ menu, onClose, onAction }) {
   }, [menu, onClose]);
   if (!menu)
     return null;
-  return /* @__PURE__ */ jsx34("div", { className: "ctx-menu", ref, style: { left: menu.x, top: menu.y }, children: ITEMS.map((it, i) => {
+  return /* @__PURE__ */ jsx36("div", { className: "ctx-menu", ref, style: { left: menu.x, top: menu.y }, children: ITEMS.map((it, i) => {
     if (it.type === "divider")
-      return /* @__PURE__ */ jsx34("div", { className: "ctx-menu__divider" }, i);
-    return /* @__PURE__ */ jsxs31(
+      return /* @__PURE__ */ jsx36("div", { className: "ctx-menu__divider" }, i);
+    return /* @__PURE__ */ jsxs34(
       "button",
       {
         className: "ctx-menu__item" + (it.danger ? " ctx-menu__item--danger" : ""),
@@ -7904,8 +8434,8 @@ function ContextMenu({ menu, onClose, onAction }) {
           onClose();
         },
         children: [
-          /* @__PURE__ */ jsx34("span", { className: "ctx-menu__icon", children: it.icon }),
-          /* @__PURE__ */ jsx34("span", { children: it.label })
+          /* @__PURE__ */ jsx36("span", { className: "ctx-menu__icon", children: it.icon }),
+          /* @__PURE__ */ jsx36("span", { children: it.label })
         ]
       },
       i
@@ -7931,16 +8461,16 @@ var init_ContextMenu = __esm({
 });
 
 // src/web/components/common/Toast.tsx
-import { useEffect as useEffect14, useRef as useRef9, useState as useState5 } from "react";
-import { jsx as jsx35, jsxs as jsxs32 } from "react/jsx-runtime";
+import { useEffect as useEffect16, useRef as useRef9, useState as useState7 } from "react";
+import { jsx as jsx37, jsxs as jsxs35 } from "react/jsx-runtime";
 function Toast({ message, actions = [], onClose, duration = 2e4 }) {
-  const [visible, setVisible] = useState5(true);
-  const [copied, setCopied] = useState5(false);
+  const [visible, setVisible] = useState7(true);
+  const [copied, setCopied] = useState7(false);
   const onCloseRef = useRef9(onClose);
-  useEffect14(() => {
+  useEffect16(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
-  useEffect14(() => {
+  useEffect16(() => {
     if (!duration)
       return;
     const t = setTimeout(() => {
@@ -7957,15 +8487,15 @@ function Toast({ message, actions = [], onClose, duration = 2e4 }) {
       setTimeout(() => setCopied(false), 1500);
     });
   };
-  return /* @__PURE__ */ jsxs32("div", { className: "toast", children: [
-    /* @__PURE__ */ jsxs32("div", { className: "toast__body", children: [
-      /* @__PURE__ */ jsx35("div", { className: "toast__message", dangerouslySetInnerHTML: { __html: message } }),
-      actions.map((a, i) => /* @__PURE__ */ jsxs32("div", { className: "toast__action", children: [
-        a.command && /* @__PURE__ */ jsx35("code", { className: "toast__command", children: a.command }),
-        a.command && /* @__PURE__ */ jsx35("button", { className: "toast__btn", onClick: () => copyToClipboard(a.command), children: copied ? "\u2713 \u0421\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D\u043E" : "\u{1F4CB} \u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C" })
+  return /* @__PURE__ */ jsxs35("div", { className: "toast", children: [
+    /* @__PURE__ */ jsxs35("div", { className: "toast__body", children: [
+      /* @__PURE__ */ jsx37("div", { className: "toast__message", dangerouslySetInnerHTML: { __html: message } }),
+      actions.map((a, i) => /* @__PURE__ */ jsxs35("div", { className: "toast__action", children: [
+        a.command && /* @__PURE__ */ jsx37("code", { className: "toast__command", children: a.command }),
+        a.command && /* @__PURE__ */ jsx37("button", { className: "toast__btn", onClick: () => copyToClipboard(a.command), children: copied ? "\u2713 \u0421\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D\u043E" : "\u{1F4CB} \u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C" })
       ] }, i))
     ] }),
-    /* @__PURE__ */ jsx35(
+    /* @__PURE__ */ jsx37(
       "button",
       {
         className: "toast__close",
@@ -7985,13 +8515,13 @@ var init_Toast = __esm({
 });
 
 // src/web/components/common/Snackbar.tsx
-import { jsx as jsx36, jsxs as jsxs33 } from "react/jsx-runtime";
+import { jsx as jsx38, jsxs as jsxs36 } from "react/jsx-runtime";
 function Snackbar({ snackbar }) {
   if (!snackbar)
     return null;
-  return /* @__PURE__ */ jsxs33("div", { className: "snackbar", children: [
-    /* @__PURE__ */ jsx36(MIcon, { name: "check_circle", size: "sm" }),
-    /* @__PURE__ */ jsx36("span", { children: snackbar.message })
+  return /* @__PURE__ */ jsxs36("div", { className: "snackbar", children: [
+    /* @__PURE__ */ jsx38(MIcon, { name: "check_circle", size: "sm" }),
+    /* @__PURE__ */ jsx38("span", { children: snackbar.message })
   ] });
 }
 var init_Snackbar = __esm({
@@ -8002,13 +8532,13 @@ var init_Snackbar = __esm({
 });
 
 // src/web/components/modals/HelpModal.tsx
-import { useEffect as useEffect15, useState as useState6 } from "react";
-import { jsx as jsx37, jsxs as jsxs34 } from "react/jsx-runtime";
+import { useEffect as useEffect17, useState as useState8 } from "react";
+import { jsx as jsx39, jsxs as jsxs37 } from "react/jsx-runtime";
 function HelpModal({ open, onClose }) {
-  const [content, setContent] = useState6("");
-  const [loading, setLoading] = useState6(false);
+  const [content, setContent] = useState8("");
+  const [loading, setLoading] = useState8(false);
   const { parse, ready } = useMarked();
-  useEffect15(() => {
+  useEffect17(() => {
     if (!open || content)
       return;
     setLoading(true);
@@ -8018,13 +8548,13 @@ function HelpModal({ open, onClose }) {
       return r.text();
     }).then((md) => setContent(md)).catch((err) => setContent("# \u041E\u0448\u0438\u0431\u043A\u0430\n\n" + err.message)).finally(() => setLoading(false));
   }, [open, content]);
-  useEffect15(() => {
+  useEffect17(() => {
     if (!open || !content || !ready || !parse)
       return;
     if (loading)
       setLoading(false);
   }, [open, content, ready, parse, loading]);
-  useEffect15(() => {
+  useEffect17(() => {
     if (!open)
       return;
     const onEsc = (e) => {
@@ -8037,12 +8567,12 @@ function HelpModal({ open, onClose }) {
   if (!open)
     return null;
   const html = ready && parse && content ? parse(content) : "";
-  return /* @__PURE__ */ jsx37("div", { className: "help-overlay", onMouseDown: onClose, children: /* @__PURE__ */ jsxs34("div", { className: "help-modal", onMouseDown: (e) => e.stopPropagation(), children: [
-    /* @__PURE__ */ jsxs34("div", { className: "help-modal__header", children: [
-      /* @__PURE__ */ jsx37("div", { className: "help-modal__title", children: "\u{1F4D6} \u0420\u0443\u043A\u043E\u0432\u043E\u0434\u0441\u0442\u0432\u043E \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044F" }),
-      /* @__PURE__ */ jsx37("button", { className: "help-modal__close", onClick: onClose, title: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C (Esc)", children: "\u2715" })
+  return /* @__PURE__ */ jsx39("div", { className: "help-overlay", onMouseDown: onClose, children: /* @__PURE__ */ jsxs37("div", { className: "help-modal", onMouseDown: (e) => e.stopPropagation(), children: [
+    /* @__PURE__ */ jsxs37("div", { className: "help-modal__header", children: [
+      /* @__PURE__ */ jsx39("div", { className: "help-modal__title", children: "\u{1F4D6} \u0420\u0443\u043A\u043E\u0432\u043E\u0434\u0441\u0442\u0432\u043E \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044F" }),
+      /* @__PURE__ */ jsx39("button", { className: "help-modal__close", onClick: onClose, title: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C (Esc)", children: "\u2715" })
     ] }),
-    /* @__PURE__ */ jsx37("div", { className: "help-modal__body", children: loading || !html ? /* @__PURE__ */ jsx37("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430..." }) : /* @__PURE__ */ jsx37("div", { className: "help-content", dangerouslySetInnerHTML: { __html: html } }) })
+    /* @__PURE__ */ jsx39("div", { className: "help-modal__body", children: loading || !html ? /* @__PURE__ */ jsx39("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430..." }) : /* @__PURE__ */ jsx39("div", { className: "help-content", dangerouslySetInnerHTML: { __html: html } }) })
   ] }) });
 }
 var init_HelpModal = __esm({
@@ -8053,10 +8583,10 @@ var init_HelpModal = __esm({
 });
 
 // src/web/components/modals/HotkeysModal.tsx
-import React12, { useEffect as useEffect16 } from "react";
-import { jsx as jsx38, jsxs as jsxs35 } from "react/jsx-runtime";
+import React14, { useEffect as useEffect18 } from "react";
+import { jsx as jsx40, jsxs as jsxs38 } from "react/jsx-runtime";
 function HotkeysModal({ open, onClose }) {
-  useEffect16(() => {
+  useEffect18(() => {
     if (!open)
       return;
     const onEsc = (e) => {
@@ -8068,22 +8598,22 @@ function HotkeysModal({ open, onClose }) {
   }, [open, onClose]);
   if (!open)
     return null;
-  return /* @__PURE__ */ jsx38("div", { className: "help-overlay", onMouseDown: onClose, children: /* @__PURE__ */ jsxs35("div", { className: "help-modal hotkeys-modal", onMouseDown: (e) => e.stopPropagation(), children: [
-    /* @__PURE__ */ jsxs35("div", { className: "help-modal__header", children: [
-      /* @__PURE__ */ jsx38("div", { className: "help-modal__title", children: "\u2328\uFE0F \u0413\u043E\u0440\u044F\u0447\u0438\u0435 \u043A\u043B\u0430\u0432\u0438\u0448\u0438" }),
-      /* @__PURE__ */ jsx38("button", { className: "help-modal__close", onClick: onClose, children: "\u2715" })
+  return /* @__PURE__ */ jsx40("div", { className: "help-overlay", onMouseDown: onClose, children: /* @__PURE__ */ jsxs38("div", { className: "help-modal hotkeys-modal", onMouseDown: (e) => e.stopPropagation(), children: [
+    /* @__PURE__ */ jsxs38("div", { className: "help-modal__header", children: [
+      /* @__PURE__ */ jsx40("div", { className: "help-modal__title", children: "\u2328\uFE0F \u0413\u043E\u0440\u044F\u0447\u0438\u0435 \u043A\u043B\u0430\u0432\u0438\u0448\u0438" }),
+      /* @__PURE__ */ jsx40("button", { className: "help-modal__close", onClick: onClose, children: "\u2715" })
     ] }),
-    /* @__PURE__ */ jsx38("div", { className: "hotkeys-body", children: GROUPS.map((g) => /* @__PURE__ */ jsxs35("div", { className: "hotkeys-group", children: [
-      /* @__PURE__ */ jsx38("div", { className: "hotkeys-group__title", children: g.title }),
-      /* @__PURE__ */ jsx38("div", { className: "hotkeys-group__items", children: g.items.map((item, i) => /* @__PURE__ */ jsxs35("div", { className: "hotkey-row", children: [
-        /* @__PURE__ */ jsx38("div", { className: "hotkey-row__keys", children: item.keys.map((k, ki) => /* @__PURE__ */ jsxs35(React12.Fragment, { children: [
-          ki > 0 && /* @__PURE__ */ jsx38("span", { className: "hotkey-plus", children: "+" }),
-          /* @__PURE__ */ jsx38("kbd", { className: "hotkey-key", children: k })
+    /* @__PURE__ */ jsx40("div", { className: "hotkeys-body", children: GROUPS.map((g) => /* @__PURE__ */ jsxs38("div", { className: "hotkeys-group", children: [
+      /* @__PURE__ */ jsx40("div", { className: "hotkeys-group__title", children: g.title }),
+      /* @__PURE__ */ jsx40("div", { className: "hotkeys-group__items", children: g.items.map((item, i) => /* @__PURE__ */ jsxs38("div", { className: "hotkey-row", children: [
+        /* @__PURE__ */ jsx40("div", { className: "hotkey-row__keys", children: item.keys.map((k, ki) => /* @__PURE__ */ jsxs38(React14.Fragment, { children: [
+          ki > 0 && /* @__PURE__ */ jsx40("span", { className: "hotkey-plus", children: "+" }),
+          /* @__PURE__ */ jsx40("kbd", { className: "hotkey-key", children: k })
         ] }, ki)) }),
-        /* @__PURE__ */ jsx38("div", { className: "hotkey-row__label", children: item.label })
+        /* @__PURE__ */ jsx40("div", { className: "hotkey-row__label", children: item.label })
       ] }, i)) })
     ] }, g.title)) }),
-    /* @__PURE__ */ jsx38("div", { className: "hotkeys-footer", children: "\u0412\u0441\u0435 \u0433\u043E\u0440\u044F\u0447\u0438\u0435 \u043A\u043B\u0430\u0432\u0438\u0448\u0438 \u0440\u0430\u0431\u043E\u0442\u0430\u044E\u0442, \u043A\u043E\u0433\u0434\u0430 \u0444\u043E\u043A\u0443\u0441 \u043D\u0435 \u0432 \u043F\u043E\u043B\u0435 \u0432\u0432\u043E\u0434\u0430." })
+    /* @__PURE__ */ jsx40("div", { className: "hotkeys-footer", children: "\u0412\u0441\u0435 \u0433\u043E\u0440\u044F\u0447\u0438\u0435 \u043A\u043B\u0430\u0432\u0438\u0448\u0438 \u0440\u0430\u0431\u043E\u0442\u0430\u044E\u0442, \u043A\u043E\u0433\u0434\u0430 \u0444\u043E\u043A\u0443\u0441 \u043D\u0435 \u0432 \u043F\u043E\u043B\u0435 \u0432\u0432\u043E\u0434\u0430." })
   ] }) });
 }
 var GROUPS;
@@ -8111,6 +8641,21 @@ var init_HotkeysModal = __esm({
           { keys: ["+"], label: "\u041F\u0440\u0438\u0431\u043B\u0438\u0437\u0438\u0442\u044C" },
           { keys: ["\u2212"], label: "\u041E\u0442\u0434\u0430\u043B\u0438\u0442\u044C" },
           { keys: ["0"], label: "\u0412\u043F\u0438\u0441\u0430\u0442\u044C \u0432 \u044D\u043A\u0440\u0430\u043D" }
+        ]
+      },
+      {
+        title: "\u041C\u043E\u0434\u0435\u043B\u044C \u0434\u0430\u043D\u043D\u044B\u0445",
+        items: [
+          { keys: ["Ctrl", "Shift", "E"], label: "\u041A\u0430\u0442\u0430\u043B\u043E\u0433 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" },
+          { keys: ["Ctrl", "Shift", "A"], label: "\u041F\u043E\u0438\u0441\u043A \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432" },
+          { keys: ["Ctrl", "Shift", "M"], label: "\u041C\u0430\u0442\u0440\u0438\u0446\u0430 \u0441\u0432\u044F\u0437\u0435\u0439" },
+          { keys: ["Ctrl", "Shift", "B"], label: "\u041C\u0430\u0442\u0440\u0438\u0446\u0430 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432" },
+          { keys: ["Ctrl", "Shift", "V"], label: "\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u043C\u043E\u0434\u0435\u043B\u0438" },
+          { keys: ["Ctrl", "Shift", "P"], label: "PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B" },
+          { keys: ["Ctrl", "Shift", "K"], label: "\u0413\u0440\u0430\u0444 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" },
+          { keys: ["Ctrl", "Shift", "L"], label: "\u041B\u0438\u043D\u0442\u0435\u0440 \u0441\u0445\u0435\u043C" },
+          { keys: ["Ctrl", "Shift", "Y"], label: "\u0410\u0440\u0445\u0438\u0442\u0435\u043A\u0442\u0443\u0440\u043D\u044B\u0435 \u043C\u0435\u0442\u0440\u0438\u043A\u0438" },
+          { keys: ["Ctrl", "Shift", "G"], label: "\u0413\u043B\u043E\u0441\u0441\u0430\u0440\u0438\u0439" }
         ]
       },
       {
@@ -8145,14 +8690,14 @@ var init_HotkeysModal = __esm({
 });
 
 // src/web/components/common/HighlightedText.tsx
-import { Fragment as Fragment3, jsx as jsx39 } from "react/jsx-runtime";
+import { Fragment as Fragment3, jsx as jsx41 } from "react/jsx-runtime";
 function HighlightedText({ text, query }) {
   if (text === null || text === void 0)
     return null;
   const str = String(text);
   const q = (query || "").trim();
   if (!q)
-    return /* @__PURE__ */ jsx39(Fragment3, { children: str });
+    return /* @__PURE__ */ jsx41(Fragment3, { children: str });
   const lower = str.toLowerCase();
   const qLower = q.toLowerCase();
   const parts = [];
@@ -8163,14 +8708,14 @@ function HighlightedText({ text, query }) {
     if (idx > pos)
       parts.push(str.slice(pos, idx));
     parts.push(
-      /* @__PURE__ */ jsx39("mark", { className: "search-hl", children: str.slice(idx, idx + q.length) }, "m" + key++)
+      /* @__PURE__ */ jsx41("mark", { className: "search-hl", children: str.slice(idx, idx + q.length) }, "m" + key++)
     );
     pos = idx + q.length;
     idx = lower.indexOf(qLower, pos);
   }
   if (pos < str.length)
     parts.push(str.slice(pos));
-  return /* @__PURE__ */ jsx39(Fragment3, { children: parts });
+  return /* @__PURE__ */ jsx41(Fragment3, { children: parts });
 }
 var init_HighlightedText = __esm({
   "src/web/components/common/HighlightedText.tsx"() {
@@ -8179,22 +8724,24 @@ var init_HighlightedText = __esm({
 });
 
 // src/web/components/modals/CommandPalette.tsx
-import { useMemo as useMemo15, useRef as useRef10, useEffect as useEffect17 } from "react";
-import { jsx as jsx40, jsxs as jsxs36 } from "react/jsx-runtime";
+import React15, { useCallback as useCallback8, useEffect as useEffect19, useMemo as useMemo17, useRef as useRef10 } from "react";
+import { jsx as jsx42, jsxs as jsxs39 } from "react/jsx-runtime";
 function CommandPalette({ commands, onOpenFile }) {
-  const store = useGraphStore();
+  const open = useGraphStore((s) => s.searchOpen);
+  const query = useGraphStore((s) => s.searchQuery);
+  const index = useGraphStore((s) => s.searchIndex);
+  const setSearchOpen = useGraphStore((s) => s.setSearchOpen);
+  const setSearchQuery = useGraphStore((s) => s.setSearchQuery);
+  const setSearchIndex = useGraphStore((s) => s.setSearchIndex);
   const { goto } = useNavigation();
   const results = useSearch();
   const inputRef = useRef10(null);
-  const open = store.searchOpen;
-  const query = store.searchQuery;
-  const index = store.searchIndex;
-  useEffect17(() => {
+  useEffect19(() => {
     if (open) {
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [open]);
-  const filteredCommands = useMemo15(() => {
+  const filteredCommands = useMemo17(() => {
     const q = query.trim().toLowerCase();
     if (!q)
       return commands;
@@ -8203,7 +8750,7 @@ function CommandPalette({ commands, onOpenFile }) {
       return hay.indexOf(q) !== -1;
     });
   }, [query, commands]);
-  const commandsBySection = useMemo15(() => {
+  const commandsBySection = useMemo17(() => {
     const map = /* @__PURE__ */ new Map();
     filteredCommands.forEach((c) => {
       const s = c.section || "\u041F\u0440\u043E\u0447\u0435\u0435";
@@ -8215,17 +8762,21 @@ function CommandPalette({ commands, onOpenFile }) {
   }, [filteredCommands]);
   const totalItems = filteredCommands.length + results.length;
   const safeIndex = Math.min(index, Math.max(totalItems - 1, 0));
-  const close = () => store.setSearchOpen(false);
+  const close = useCallback8(() => setSearchOpen(false), [setSearchOpen]);
+  const handleHover = useCallback8(
+    (idx) => setSearchIndex(idx),
+    [setSearchIndex]
+  );
   const onKey = (e) => {
     if (e.key === "Escape") {
       e.preventDefault();
       close();
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
-      store.setSearchIndex(Math.min(safeIndex + 1, Math.max(totalItems - 1, 0)));
+      setSearchIndex(Math.min(safeIndex + 1, Math.max(totalItems - 1, 0)));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      store.setSearchIndex(Math.max(safeIndex - 1, 0));
+      setSearchIndex(Math.max(safeIndex - 1, 0));
     } else if (e.key === "Enter") {
       e.preventDefault();
       if (totalItems === 0)
@@ -8247,10 +8798,10 @@ function CommandPalette({ commands, onOpenFile }) {
     return null;
   let cmdIdx = 0;
   const domainStartIdx = filteredCommands.length;
-  return /* @__PURE__ */ jsx40("div", { className: "search-overlay", onMouseDown: close, children: /* @__PURE__ */ jsxs36("div", { className: "search-modal search-modal--palette", onMouseDown: (e) => e.stopPropagation(), children: [
-    /* @__PURE__ */ jsxs36("div", { className: "search-modal__input-wrap", children: [
-      /* @__PURE__ */ jsx40("span", { className: "search-modal__icon", children: /* @__PURE__ */ jsx40(MIcon, { name: "search" }) }),
-      /* @__PURE__ */ jsx40(
+  return /* @__PURE__ */ jsx42("div", { className: "search-overlay", onMouseDown: close, children: /* @__PURE__ */ jsxs39("div", { className: "search-modal search-modal--palette", onMouseDown: (e) => e.stopPropagation(), children: [
+    /* @__PURE__ */ jsxs39("div", { className: "search-modal__input-wrap", children: [
+      /* @__PURE__ */ jsx42("span", { className: "search-modal__icon", children: /* @__PURE__ */ jsx42(MIcon, { name: "search" }) }),
+      /* @__PURE__ */ jsx42(
         "input",
         {
           ref: inputRef,
@@ -8258,157 +8809,90 @@ function CommandPalette({ commands, onOpenFile }) {
           type: "text",
           placeholder: "\u041A\u043E\u043C\u0430\u043D\u0434\u0430, \u0434\u043E\u043C\u0435\u043D \u0438\u043B\u0438 FQID...",
           value: query,
-          onChange: (e) => store.setSearchQuery(e.target.value),
+          onChange: (e) => setSearchQuery(e.target.value),
           onKeyDown: onKey,
           autoComplete: "off",
           spellCheck: false
         }
       ),
-      /* @__PURE__ */ jsx40("kbd", { className: "search-modal__kbd", children: "Esc" })
+      /* @__PURE__ */ jsx42("kbd", { className: "search-modal__kbd", children: "Esc" })
     ] }),
-    /* @__PURE__ */ jsxs36("div", { className: "search-modal__results", children: [
-      query.trim() === "" && filteredCommands.length === 0 && results.length === 0 && /* @__PURE__ */ jsx40("div", { className: "search-modal__hint", children: "\u041D\u0430\u0447\u043D\u0438\u0442\u0435 \u0432\u0432\u043E\u0434\u0438\u0442\u044C \u0438\u043C\u044F \u043A\u043E\u043C\u0430\u043D\u0434\u044B, \u0434\u043E\u043C\u0435\u043D \u0438\u043B\u0438 FQID" }),
-      query.trim() !== "" && filteredCommands.length === 0 && results.length === 0 && /* @__PURE__ */ jsxs36("div", { className: "search-modal__hint", children: [
+    /* @__PURE__ */ jsxs39("div", { className: "search-modal__results", children: [
+      query.trim() === "" && filteredCommands.length === 0 && results.length === 0 && /* @__PURE__ */ jsx42("div", { className: "search-modal__hint", children: "\u041D\u0430\u0447\u043D\u0438\u0442\u0435 \u0432\u0432\u043E\u0434\u0438\u0442\u044C \u0438\u043C\u044F \u043A\u043E\u043C\u0430\u043D\u0434\u044B, \u0434\u043E\u043C\u0435\u043D \u0438\u043B\u0438 FQID" }),
+      query.trim() !== "" && filteredCommands.length === 0 && results.length === 0 && /* @__PURE__ */ jsxs39("div", { className: "search-modal__hint", children: [
         "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443 \xAB",
         query,
         "\xBB"
       ] }),
-      filteredCommands.length > 0 && commandsBySection.map(([section, cmds]) => /* @__PURE__ */ jsxs36("div", { className: "palette-section", children: [
-        /* @__PURE__ */ jsx40("div", { className: "palette-section__title", children: section }),
+      filteredCommands.length > 0 && commandsBySection.map(([section, cmds]) => /* @__PURE__ */ jsxs39("div", { className: "palette-section", children: [
+        /* @__PURE__ */ jsx42("div", { className: "palette-section__title", children: section }),
         cmds.map((cmd) => {
           const itemIdx = cmdIdx++;
-          const isActive = itemIdx === safeIndex;
-          return /* @__PURE__ */ jsxs36(
-            "div",
+          return /* @__PURE__ */ jsx42(
+            CommandItem,
             {
-              className: "palette-item palette-item--command" + (isActive ? " active" : ""),
-              onMouseEnter: () => store.setSearchIndex(itemIdx),
-              onClick: () => {
+              cmd,
+              itemIdx,
+              isActive: itemIdx === safeIndex,
+              onHover: handleHover,
+              onSelect: () => {
                 close();
                 setTimeout(() => cmd.run && cmd.run(), 50);
-              },
-              children: [
-                /* @__PURE__ */ jsx40("span", { className: "palette-item__icon", children: cmd.iconName ? /* @__PURE__ */ jsx40(MIcon, { name: cmd.iconName, size: "sm" }) : cmd.icon }),
-                /* @__PURE__ */ jsx40("span", { className: "palette-item__label", children: cmd.label }),
-                cmd.hotkey && /* @__PURE__ */ jsx40("kbd", { className: "palette-item__hotkey", children: cmd.hotkey })
-              ]
+              }
             },
             "cmd-" + itemIdx
           );
         })
       ] }, "sec-" + section)),
-      results.length > 0 && /* @__PURE__ */ jsxs36("div", { className: "palette-section", children: [
-        /* @__PURE__ */ jsxs36("div", { className: "palette-section__title", children: [
+      results.length > 0 && /* @__PURE__ */ jsxs39("div", { className: "palette-section", children: [
+        /* @__PURE__ */ jsxs39("div", { className: "palette-section__title", children: [
           "\u0414\u043E\u043C\u0435\u043D\u044B (",
           results.length,
           ")"
         ] }),
         results.map((item, i) => {
           const itemIdx = domainStartIdx + i;
-          const isActive = itemIdx === safeIndex;
-          const n = item.node;
-          const matched = new Set(item.matches.map((m) => m.field));
-          return /* @__PURE__ */ jsxs36(
-            "div",
+          return /* @__PURE__ */ jsx42(
+            DomainItem,
             {
-              className: "palette-item" + (isActive ? " active" : ""),
-              onMouseEnter: () => store.setSearchIndex(itemIdx),
-              onClick: () => {
-                goto(n.data.domainId);
+              item,
+              itemIdx,
+              isActive: itemIdx === safeIndex,
+              query,
+              onHover: handleHover,
+              onSelect: () => {
+                goto(item.node.data.domainId);
                 close();
               },
-              children: [
-                /* @__PURE__ */ jsx40("span", { className: "palette-item__icon", children: /* @__PURE__ */ jsx40(
-                  "span",
-                  {
-                    className: "search-result__dot search-result__dot--" + n.data.nodeType
-                  }
-                ) }),
-                /* @__PURE__ */ jsxs36("div", { className: "palette-item__content", children: [
-                  /* @__PURE__ */ jsxs36("div", { className: "search-result__id", children: [
-                    /* @__PURE__ */ jsx40(HighlightedText, { text: n.data.domainId, query }),
-                    matched.has("id") && /* @__PURE__ */ jsx40("span", { className: "search-result__badge", children: "id" })
-                  ] }),
-                  n.data.name && n.data.name !== n.data.domainId && /* @__PURE__ */ jsxs36("div", { className: "search-result__label", children: [
-                    /* @__PURE__ */ jsx40(HighlightedText, { text: n.data.name, query }),
-                    matched.has("name") && /* @__PURE__ */ jsx40("span", { className: "search-result__badge", children: "name" })
-                  ] }),
-                  n.data.description && /* @__PURE__ */ jsxs36("div", { className: "search-result__desc", children: [
-                    /* @__PURE__ */ jsx40(HighlightedText, { text: n.data.description, query }),
-                    matched.has("description") && /* @__PURE__ */ jsx40("span", { className: "search-result__badge", children: "description" })
-                  ] }),
-                  Array.isArray(n.data.tags) && n.data.tags.length > 0 && /* @__PURE__ */ jsxs36("div", { className: "search-result__tags", children: [
-                    n.data.tags.slice(0, 5).map((tag, ti) => /* @__PURE__ */ jsx40("span", { className: "search-result__tag", children: /* @__PURE__ */ jsx40(HighlightedText, { text: tag, query }) }, ti)),
-                    matched.has("tags") && /* @__PURE__ */ jsx40("span", { className: "search-result__badge", children: "tags" })
-                  ] }),
-                  (() => {
-                    const fqidMatch = item.matches.find((m) => m.field === "fqid");
-                    if (!fqidMatch || !Array.isArray(fqidMatch.value) || !fqidMatch.value.length) {
-                      return null;
-                    }
-                    return /* @__PURE__ */ jsxs36("div", { className: "search-result__fqid-block", children: [
-                      /* @__PURE__ */ jsxs36("div", { className: "search-result__fqid-head", children: [
-                        /* @__PURE__ */ jsx40(MIcon, { name: "link", size: "sm" }),
-                        /* @__PURE__ */ jsxs36("span", { children: [
-                          "FQID-\u0441\u0441\u044B\u043B\u043A\u0438 (",
-                          fqidMatch.value.length,
-                          ")"
-                        ] }),
-                        /* @__PURE__ */ jsx40("span", { className: "search-result__badge", children: "fqid" })
-                      ] }),
-                      fqidMatch.value.slice(0, 3).map((f, fi) => /* @__PURE__ */ jsxs36(
-                        "div",
-                        {
-                          className: "search-result__fqid-item",
-                          onClick: (e) => {
-                            e.stopPropagation();
-                            if (onOpenFile && f.filePath) {
-                              onOpenFile(f.filePath, f.fullFQID);
-                              close();
-                            } else {
-                              goto(n.data.domainId);
-                              close();
-                            }
-                          },
-                          title: onOpenFile ? "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0444\u0430\u0439\u043B \u043D\u0430 \u0441\u0442\u0440\u043E\u043A\u0435 \u0441 FQID" : "\u041F\u0435\u0440\u0435\u0439\u0442\u0438 \u043A \u0434\u043E\u043C\u0435\u043D\u0443",
-                          children: [
-                            /* @__PURE__ */ jsx40(HighlightedText, { text: f.fullFQID, query }),
-                            f.propertyPath && /* @__PURE__ */ jsx40("span", { className: "search-result__fqid-path", children: f.propertyPath })
-                          ]
-                        },
-                        fi
-                      )),
-                      fqidMatch.value.length > 3 && /* @__PURE__ */ jsxs36("div", { className: "search-result__fqid-more", children: [
-                        "...\u0438 \u0435\u0449\u0451 ",
-                        fqidMatch.value.length - 3
-                      ] })
-                    ] });
-                  })()
-                ] })
-              ]
+              onOpenFile,
+              onGoto: (domainId) => {
+                goto(domainId);
+                close();
+              }
             },
-            "dom-" + i
+            "dom-" + item.node.id
           );
         })
       ] })
     ] }),
-    /* @__PURE__ */ jsxs36("div", { className: "search-modal__footer", children: [
-      /* @__PURE__ */ jsxs36("span", { children: [
-        /* @__PURE__ */ jsx40("kbd", { children: "\u2191" }),
-        /* @__PURE__ */ jsx40("kbd", { children: "\u2193" }),
+    /* @__PURE__ */ jsxs39("div", { className: "search-modal__footer", children: [
+      /* @__PURE__ */ jsxs39("span", { children: [
+        /* @__PURE__ */ jsx42("kbd", { children: "\u2191" }),
+        /* @__PURE__ */ jsx42("kbd", { children: "\u2193" }),
         " \u043D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044F"
       ] }),
-      /* @__PURE__ */ jsxs36("span", { children: [
-        /* @__PURE__ */ jsx40("kbd", { children: "Enter" }),
+      /* @__PURE__ */ jsxs39("span", { children: [
+        /* @__PURE__ */ jsx42("kbd", { children: "Enter" }),
         " \u0432\u044B\u0431\u0440\u0430\u0442\u044C"
       ] }),
-      /* @__PURE__ */ jsxs36("span", { children: [
-        /* @__PURE__ */ jsx40("kbd", { children: "Esc" }),
+      /* @__PURE__ */ jsxs39("span", { children: [
+        /* @__PURE__ */ jsx42("kbd", { children: "Esc" }),
         " \u0437\u0430\u043A\u0440\u044B\u0442\u044C"
       ] })
     ] })
   ] }) });
 }
+var CommandItem, DomainItem;
 var init_CommandPalette = __esm({
   "src/web/components/modals/CommandPalette.tsx"() {
     "use strict";
@@ -8417,12 +8901,117 @@ var init_CommandPalette = __esm({
     init_useSearch();
     init_MIcon();
     init_HighlightedText();
+    CommandItem = React15.memo(function CommandItem2({
+      cmd,
+      itemIdx,
+      isActive,
+      onHover,
+      onSelect
+    }) {
+      return /* @__PURE__ */ jsxs39(
+        "div",
+        {
+          className: "palette-item palette-item--command" + (isActive ? " active" : ""),
+          onMouseEnter: () => onHover(itemIdx),
+          onClick: onSelect,
+          children: [
+            /* @__PURE__ */ jsx42("span", { className: "palette-item__icon", children: cmd.iconName ? /* @__PURE__ */ jsx42(MIcon, { name: cmd.iconName, size: "sm" }) : cmd.icon }),
+            /* @__PURE__ */ jsx42("span", { className: "palette-item__label", children: cmd.label }),
+            cmd.hotkey && /* @__PURE__ */ jsx42("kbd", { className: "palette-item__hotkey", children: cmd.hotkey })
+          ]
+        }
+      );
+    });
+    DomainItem = React15.memo(function DomainItem2({
+      item,
+      itemIdx,
+      isActive,
+      query,
+      onHover,
+      onSelect,
+      onOpenFile,
+      onGoto
+    }) {
+      const n = item.node;
+      const matched = useMemo17(
+        () => new Set(item.matches.map((m) => m.field)),
+        [item.matches]
+      );
+      const fqidMatch = useMemo17(
+        () => item.matches.find((m) => m.field === "fqid"),
+        [item.matches]
+      );
+      return /* @__PURE__ */ jsxs39(
+        "div",
+        {
+          className: "palette-item" + (isActive ? " active" : ""),
+          onMouseEnter: () => onHover(itemIdx),
+          onClick: onSelect,
+          children: [
+            /* @__PURE__ */ jsx42("span", { className: "palette-item__icon", children: /* @__PURE__ */ jsx42("span", { className: "search-result__dot search-result__dot--" + n.data.nodeType }) }),
+            /* @__PURE__ */ jsxs39("div", { className: "palette-item__content", children: [
+              /* @__PURE__ */ jsxs39("div", { className: "search-result__id", children: [
+                /* @__PURE__ */ jsx42(HighlightedText, { text: n.data.domainId, query }),
+                matched.has("id") && /* @__PURE__ */ jsx42("span", { className: "search-result__badge", children: "id" })
+              ] }),
+              n.data.name && n.data.name !== n.data.domainId && /* @__PURE__ */ jsxs39("div", { className: "search-result__label", children: [
+                /* @__PURE__ */ jsx42(HighlightedText, { text: n.data.name, query }),
+                matched.has("name") && /* @__PURE__ */ jsx42("span", { className: "search-result__badge", children: "name" })
+              ] }),
+              n.data.description && /* @__PURE__ */ jsxs39("div", { className: "search-result__desc", children: [
+                /* @__PURE__ */ jsx42(HighlightedText, { text: n.data.description, query }),
+                matched.has("description") && /* @__PURE__ */ jsx42("span", { className: "search-result__badge", children: "description" })
+              ] }),
+              Array.isArray(n.data.tags) && n.data.tags.length > 0 && /* @__PURE__ */ jsxs39("div", { className: "search-result__tags", children: [
+                n.data.tags.slice(0, 5).map((tag, ti) => /* @__PURE__ */ jsx42("span", { className: "search-result__tag", children: /* @__PURE__ */ jsx42(HighlightedText, { text: tag, query }) }, ti)),
+                matched.has("tags") && /* @__PURE__ */ jsx42("span", { className: "search-result__badge", children: "tags" })
+              ] }),
+              fqidMatch && Array.isArray(fqidMatch.value) && fqidMatch.value.length > 0 && /* @__PURE__ */ jsxs39("div", { className: "search-result__fqid-block", children: [
+                /* @__PURE__ */ jsxs39("div", { className: "search-result__fqid-head", children: [
+                  /* @__PURE__ */ jsx42(MIcon, { name: "link", size: "sm" }),
+                  /* @__PURE__ */ jsxs39("span", { children: [
+                    "FQID-\u0441\u0441\u044B\u043B\u043A\u0438 (",
+                    fqidMatch.value.length,
+                    ")"
+                  ] }),
+                  /* @__PURE__ */ jsx42("span", { className: "search-result__badge", children: "fqid" })
+                ] }),
+                fqidMatch.value.slice(0, 3).map((f, fi) => /* @__PURE__ */ jsxs39(
+                  "div",
+                  {
+                    className: "search-result__fqid-item",
+                    onClick: (e) => {
+                      e.stopPropagation();
+                      if (onOpenFile && f.filePath) {
+                        onOpenFile(f.filePath, f.fullFQID);
+                      } else {
+                        onGoto(n.data.domainId);
+                      }
+                    },
+                    title: onOpenFile ? "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0444\u0430\u0439\u043B \u043D\u0430 \u0441\u0442\u0440\u043E\u043A\u0435 \u0441 FQID" : "\u041F\u0435\u0440\u0435\u0439\u0442\u0438 \u043A \u0434\u043E\u043C\u0435\u043D\u0443",
+                    children: [
+                      /* @__PURE__ */ jsx42(HighlightedText, { text: f.fullFQID, query }),
+                      f.propertyPath && /* @__PURE__ */ jsx42("span", { className: "search-result__fqid-path", children: f.propertyPath })
+                    ]
+                  },
+                  fi
+                )),
+                fqidMatch.value.length > 3 && /* @__PURE__ */ jsxs39("div", { className: "search-result__fqid-more", children: [
+                  "...\u0438 \u0435\u0449\u0451 ",
+                  fqidMatch.value.length - 3
+                ] })
+              ] })
+            ] })
+          ]
+        }
+      );
+    });
   }
 });
 
 // src/web/components/modals/ValidationModal.tsx
-import { useMemo as useMemo16, useState as useState7 } from "react";
-import { jsx as jsx41, jsxs as jsxs37 } from "react/jsx-runtime";
+import { useMemo as useMemo18, useState as useState9 } from "react";
+import { jsx as jsx43, jsxs as jsxs40 } from "react/jsx-runtime";
 function downloadFile2(content, filename, mime) {
   const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
@@ -8436,9 +9025,9 @@ function ValidationModal(props) {
   const store = useGraphStore();
   const { goto } = useNavigation();
   const v = useValidation();
-  const [scope, setScope] = useState7("all");
-  const [filter, setFilter] = useState7("problems");
-  const [expanded, setExpanded] = useState7(/* @__PURE__ */ new Set());
+  const [scope, setScope] = useState9("all");
+  const [filter, setFilter] = useState9("problems");
+  const [expanded, setExpanded] = useState9(/* @__PURE__ */ new Set());
   const open = store.validationOpen;
   const toggleExpanded = (id) => {
     setExpanded((prev) => {
@@ -8450,7 +9039,7 @@ function ValidationModal(props) {
       return s;
     });
   };
-  const filteredLogs = useMemo16(() => {
+  const filteredLogs = useMemo18(() => {
     if (filter === "all")
       return v.logs;
     if (filter === "valid")
@@ -8505,13 +9094,13 @@ function ValidationModal(props) {
   if (!open)
     return null;
   const pct = v.progress.total > 0 ? Math.round(v.progress.current / v.progress.total * 100) : 0;
-  const scopeOption = (value, label, count) => /* @__PURE__ */ jsxs37("label", { className: "validation-scope__option" + (scope === value ? " active" : ""), children: [
-    /* @__PURE__ */ jsx41("input", { type: "radio", checked: scope === value, onChange: () => setScope(value) }),
-    /* @__PURE__ */ jsx41("span", { className: "validation-scope__radio" }),
-    /* @__PURE__ */ jsx41("span", { className: "validation-scope__text", children: label }),
-    /* @__PURE__ */ jsx41("span", { className: "validation-scope__count", children: count })
+  const scopeOption = (value, label, count) => /* @__PURE__ */ jsxs40("label", { className: "validation-scope__option" + (scope === value ? " active" : ""), children: [
+    /* @__PURE__ */ jsx43("input", { type: "radio", checked: scope === value, onChange: () => setScope(value) }),
+    /* @__PURE__ */ jsx43("span", { className: "validation-scope__radio" }),
+    /* @__PURE__ */ jsx43("span", { className: "validation-scope__text", children: label }),
+    /* @__PURE__ */ jsx43("span", { className: "validation-scope__count", children: count })
   ] });
-  return /* @__PURE__ */ jsx41(
+  return /* @__PURE__ */ jsx43(
     "div",
     {
       className: "help-overlay",
@@ -8521,10 +9110,10 @@ function ValidationModal(props) {
           v.reset();
         }
       },
-      children: /* @__PURE__ */ jsxs37("div", { className: "help-modal validation-modal", onMouseDown: (e) => e.stopPropagation(), children: [
-        /* @__PURE__ */ jsxs37("div", { className: "help-modal__header", children: [
-          /* @__PURE__ */ jsx41("div", { className: "help-modal__title", children: "\u{1F50D} \u041C\u0430\u0441\u0441\u043E\u0432\u0430\u044F \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u0434\u043E\u043C\u0435\u043D\u043E\u0432" }),
-          /* @__PURE__ */ jsx41(
+      children: /* @__PURE__ */ jsxs40("div", { className: "help-modal validation-modal", onMouseDown: (e) => e.stopPropagation(), children: [
+        /* @__PURE__ */ jsxs40("div", { className: "help-modal__header", children: [
+          /* @__PURE__ */ jsx43("div", { className: "help-modal__title", children: "\u{1F50D} \u041C\u0430\u0441\u0441\u043E\u0432\u0430\u044F \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u0434\u043E\u043C\u0435\u043D\u043E\u0432" }),
+          /* @__PURE__ */ jsx43(
             "button",
             {
               className: "help-modal__close",
@@ -8540,13 +9129,13 @@ function ValidationModal(props) {
             }
           )
         ] }),
-        /* @__PURE__ */ jsxs37("div", { className: "validation-modal__body", children: [
-          !v.started && /* @__PURE__ */ jsxs37("div", { className: "validation-scope", children: [
-            /* @__PURE__ */ jsx41("div", { className: "validation-scope__label", children: "\u041E\u0431\u043B\u0430\u0441\u0442\u044C \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u0438" }),
+        /* @__PURE__ */ jsxs40("div", { className: "validation-modal__body", children: [
+          !v.started && /* @__PURE__ */ jsxs40("div", { className: "validation-scope", children: [
+            /* @__PURE__ */ jsx43("div", { className: "validation-scope__label", children: "\u041E\u0431\u043B\u0430\u0441\u0442\u044C \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u0438" }),
             scopeOption("all", "\u0412\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B \u0432 \u043A\u044D\u0448\u0435", props.allDomains.length),
             scopeOption("visible", "\u0422\u043E\u043B\u044C\u043A\u043E \u0432\u0438\u0434\u0438\u043C\u044B\u0435 (\u043F\u043E\u0441\u043B\u0435 \u0444\u0438\u043B\u044C\u0442\u0440\u043E\u0432)", props.visibleDomains.length),
             scopeOption("bookmarked", "\u0422\u043E\u043B\u044C\u043A\u043E \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u044B\u0435", props.bookmarkedDomains.length),
-            /* @__PURE__ */ jsx41(
+            /* @__PURE__ */ jsx43(
               "button",
               {
                 className: "btn btn--primary",
@@ -8556,15 +9145,15 @@ function ValidationModal(props) {
               }
             )
           ] }),
-          v.started && /* @__PURE__ */ jsxs37("div", { className: "validation-progress", children: [
-            /* @__PURE__ */ jsx41("div", { className: "validation-progress__bar", children: /* @__PURE__ */ jsx41(
+          v.started && /* @__PURE__ */ jsxs40("div", { className: "validation-progress", children: [
+            /* @__PURE__ */ jsx43("div", { className: "validation-progress__bar", children: /* @__PURE__ */ jsx43(
               "div",
               {
                 className: "validation-progress__fill",
                 style: { width: pct + "%" }
               }
             ) }),
-            /* @__PURE__ */ jsxs37("div", { className: "validation-progress__text", children: [
+            /* @__PURE__ */ jsxs40("div", { className: "validation-progress__text", children: [
               v.progress.current,
               " / ",
               v.progress.total,
@@ -8574,7 +9163,7 @@ function ValidationModal(props) {
               v.running ? " \u2014 \u0438\u0434\u0451\u0442 \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F..." : v.cancelled ? " \u2014 \u043E\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u043E" : " \u2014 \u0437\u0430\u0432\u0435\u0440\u0448\u0435\u043D\u043E"
             ] })
           ] }),
-          v.started && /* @__PURE__ */ jsx41("div", { className: "validation-filters", children: ["problems", "all", "invalid", "errors", "valid"].map((f) => {
+          v.started && /* @__PURE__ */ jsx43("div", { className: "validation-filters", children: ["problems", "all", "invalid", "errors", "valid"].map((f) => {
             const labels = {
               problems: "\u0422\u043E\u043B\u044C\u043A\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0435",
               all: "\u0412\u0441\u0435",
@@ -8582,7 +9171,7 @@ function ValidationModal(props) {
               errors: "\u26A0\uFE0F \u041E\u0448\u0438\u0431\u043A\u0438",
               valid: "\u2705 \u0412\u0430\u043B\u0438\u0434\u043D\u044B\u0435"
             };
-            return /* @__PURE__ */ jsx41(
+            return /* @__PURE__ */ jsx43(
               "button",
               {
                 className: "validation-filter" + (filter === f ? " validation-filter--active" : ""),
@@ -8592,25 +9181,25 @@ function ValidationModal(props) {
               f
             );
           }) }),
-          v.started && /* @__PURE__ */ jsx41("div", { className: "validation-logs", children: filteredLogs.length === 0 ? /* @__PURE__ */ jsx41("div", { className: "validation-logs__empty", children: "\u041D\u0435\u0442 \u0437\u0430\u043F\u0438\u0441\u0435\u0439 \u043F\u043E \u0444\u0438\u043B\u044C\u0442\u0440\u0443" }) : filteredLogs.map((log, i) => {
+          v.started && /* @__PURE__ */ jsx43("div", { className: "validation-logs", children: filteredLogs.length === 0 ? /* @__PURE__ */ jsx43("div", { className: "validation-logs__empty", children: "\u041D\u0435\u0442 \u0437\u0430\u043F\u0438\u0441\u0435\u0439 \u043F\u043E \u0444\u0438\u043B\u044C\u0442\u0440\u0443" }) : filteredLogs.map((log, i) => {
             const icon = log.status === "valid" ? "\u2705" : log.status === "invalid" ? "\u274C" : "\u26A0\uFE0F";
             const isInvalid = log.status === "invalid";
             const hasDiag = isInvalid && log.diagnostics && log.diagnostics.length > 0;
             const isOpen = expanded.has(log.domainId);
-            return /* @__PURE__ */ jsxs37(
+            return /* @__PURE__ */ jsxs40(
               "div",
               {
                 className: "validation-log validation-log--" + log.status + (isOpen ? " validation-log--open" : ""),
                 children: [
-                  /* @__PURE__ */ jsxs37(
+                  /* @__PURE__ */ jsxs40(
                     "div",
                     {
                       className: "validation-log__head" + (hasDiag ? " validation-log__head--clickable" : ""),
                       onClick: hasDiag ? () => toggleExpanded(log.domainId) : void 0,
                       children: [
-                        hasDiag && /* @__PURE__ */ jsx41("span", { className: "validation-log__chevron", children: isOpen ? "\u25BE" : "\u25B8" }),
-                        /* @__PURE__ */ jsx41("span", { className: "validation-log__icon", children: icon }),
-                        /* @__PURE__ */ jsx41(
+                        hasDiag && /* @__PURE__ */ jsx43("span", { className: "validation-log__chevron", children: isOpen ? "\u25BE" : "\u25B8" }),
+                        /* @__PURE__ */ jsx43("span", { className: "validation-log__icon", children: icon }),
+                        /* @__PURE__ */ jsx43(
                           "a",
                           {
                             className: "validation-log__domain",
@@ -8622,22 +9211,22 @@ function ValidationModal(props) {
                             children: log.domainId
                           }
                         ),
-                        isInvalid && log.diagnostics && /* @__PURE__ */ jsxs37("span", { className: "validation-log__count", children: [
+                        isInvalid && log.diagnostics && /* @__PURE__ */ jsxs40("span", { className: "validation-log__count", children: [
                           log.diagnostics.length,
                           " ",
                           plural(log.diagnostics.length, "issue", "issues")
                         ] }),
-                        log.error && /* @__PURE__ */ jsx41("span", { className: "validation-log__error", children: log.error }),
-                        hasDiag && !isOpen && /* @__PURE__ */ jsx41("span", { className: "validation-log__hint", children: "\u043D\u0430\u0436\u043C\u0438\u0442\u0435, \u0447\u0442\u043E\u0431\u044B \u0440\u0430\u0441\u043A\u0440\u044B\u0442\u044C" })
+                        log.error && /* @__PURE__ */ jsx43("span", { className: "validation-log__error", children: log.error }),
+                        hasDiag && !isOpen && /* @__PURE__ */ jsx43("span", { className: "validation-log__hint", children: "\u043D\u0430\u0436\u043C\u0438\u0442\u0435, \u0447\u0442\u043E\u0431\u044B \u0440\u0430\u0441\u043A\u0440\u044B\u0442\u044C" })
                       ]
                     }
                   ),
-                  isOpen && hasDiag && /* @__PURE__ */ jsx41("div", { className: "validation-log__diag", children: log.diagnostics.map((d, di) => /* @__PURE__ */ jsxs37("div", { className: "validation-diag", children: [
-                    /* @__PURE__ */ jsx41("div", { className: "validation-diag__severity", children: d.severity }),
-                    /* @__PURE__ */ jsx41("div", { className: "validation-diag__message", children: d.message }),
-                    d.labels && d.labels.map((lb, li) => /* @__PURE__ */ jsxs37("div", { className: "validation-diag__label", children: [
+                  isOpen && hasDiag && /* @__PURE__ */ jsx43("div", { className: "validation-log__diag", children: log.diagnostics.map((d, di) => /* @__PURE__ */ jsxs40("div", { className: "validation-diag", children: [
+                    /* @__PURE__ */ jsx43("div", { className: "validation-diag__severity", children: d.severity }),
+                    /* @__PURE__ */ jsx43("div", { className: "validation-diag__message", children: d.message }),
+                    d.labels && d.labels.map((lb, li) => /* @__PURE__ */ jsxs40("div", { className: "validation-diag__label", children: [
                       lb.message,
-                      lb.span && /* @__PURE__ */ jsx41("span", { className: "validation-diag__span", children: " [" + lb.span.start + "-" + lb.span.end + "]" })
+                      lb.span && /* @__PURE__ */ jsx43("span", { className: "validation-diag__span", children: " [" + lb.span.start + "-" + lb.span.end + "]" })
                     ] }, li))
                   ] }, di)) })
                 ]
@@ -8646,29 +9235,29 @@ function ValidationModal(props) {
             );
           }) })
         ] }),
-        v.stats && /* @__PURE__ */ jsxs37("div", { className: "validation-footer", children: [
-          /* @__PURE__ */ jsxs37("div", { className: "validation-stats", children: [
-            /* @__PURE__ */ jsxs37("span", { className: "validation-stat validation-stat--ok", children: [
+        v.stats && /* @__PURE__ */ jsxs40("div", { className: "validation-footer", children: [
+          /* @__PURE__ */ jsxs40("div", { className: "validation-stats", children: [
+            /* @__PURE__ */ jsxs40("span", { className: "validation-stat validation-stat--ok", children: [
               "\u2705 ",
               v.stats.valid
             ] }),
-            /* @__PURE__ */ jsxs37("span", { className: "validation-stat validation-stat--err", children: [
+            /* @__PURE__ */ jsxs40("span", { className: "validation-stat validation-stat--err", children: [
               "\u274C ",
               v.stats.invalid
             ] }),
-            /* @__PURE__ */ jsxs37("span", { className: "validation-stat validation-stat--warn", children: [
+            /* @__PURE__ */ jsxs40("span", { className: "validation-stat validation-stat--warn", children: [
               "\u26A0\uFE0F ",
               v.stats.errors
             ] }),
-            /* @__PURE__ */ jsxs37("span", { className: "validation-stat", children: [
+            /* @__PURE__ */ jsxs40("span", { className: "validation-stat", children: [
               "\u23F1 ",
               formatDuration(v.stats.elapsedMs)
             ] })
           ] }),
-          /* @__PURE__ */ jsxs37("div", { className: "validation-footer__actions", children: [
-            /* @__PURE__ */ jsx41("button", { className: "btn", onClick: exportJSON, children: "\u{1F4BE} JSON" }),
-            /* @__PURE__ */ jsx41("button", { className: "btn", onClick: exportMD, children: "\u{1F4DD} Markdown" }),
-            /* @__PURE__ */ jsx41(
+          /* @__PURE__ */ jsxs40("div", { className: "validation-footer__actions", children: [
+            /* @__PURE__ */ jsx43("button", { className: "btn", onClick: exportJSON, children: "\u{1F4BE} JSON" }),
+            /* @__PURE__ */ jsx43("button", { className: "btn", onClick: exportMD, children: "\u{1F4DD} Markdown" }),
+            /* @__PURE__ */ jsx43(
               "button",
               {
                 className: "btn",
@@ -8837,8 +9426,8 @@ var init_topological = __esm({
 });
 
 // src/web/components/modals/TopoSortModal.tsx
-import { useCallback as useCallback8, useEffect as useEffect18, useState as useState8 } from "react";
-import { Fragment as Fragment4, jsx as jsx42, jsxs as jsxs38 } from "react/jsx-runtime";
+import { useCallback as useCallback9, useEffect as useEffect20, useState as useState10 } from "react";
+import { Fragment as Fragment4, jsx as jsx44, jsxs as jsxs41 } from "react/jsx-runtime";
 function downloadFile3(content, filename, mime) {
   const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
@@ -8851,24 +9440,24 @@ function downloadFile3(content, filename, mime) {
 function TopoSortModal(props) {
   const store = useGraphStore();
   const { goto } = useNavigation();
-  const [scope, setScope] = useState8("all");
-  const [includeFqid, setIncludeFqid] = useState8(true);
-  const [includeLinkage, setIncludeLinkage] = useState8(true);
-  const [missingAsSatisfied, setMissingAsSatisfied] = useState8(true);
-  const [excludePattern, setExcludePattern] = useState8("");
-  const [autoBreak, setAutoBreak] = useState8(false);
-  const [result, setResult] = useState8(null);
-  const [expandedLevels, setExpandedLevels] = useState8(/* @__PURE__ */ new Set());
-  const [expandedDeps, setExpandedDeps] = useState8(/* @__PURE__ */ new Set());
+  const [scope, setScope] = useState10("all");
+  const [includeFqid, setIncludeFqid] = useState10(true);
+  const [includeLinkage, setIncludeLinkage] = useState10(true);
+  const [missingAsSatisfied, setMissingAsSatisfied] = useState10(true);
+  const [excludePattern, setExcludePattern] = useState10("");
+  const [autoBreak, setAutoBreak] = useState10(false);
+  const [result, setResult] = useState10(null);
+  const [expandedLevels, setExpandedLevels] = useState10(/* @__PURE__ */ new Set());
+  const [expandedDeps, setExpandedDeps] = useState10(/* @__PURE__ */ new Set());
   const open = store.topoOpen;
-  useEffect18(() => {
+  useEffect20(() => {
     if (!open) {
       setResult(null);
       setExpandedLevels(/* @__PURE__ */ new Set());
       setExpandedDeps(/* @__PURE__ */ new Set());
     }
   }, [open]);
-  const build = useCallback8(() => {
+  const build = useCallback9(() => {
     const nodeSet = scope === "visible" ? props.visibleDomains : scope === "bookmarked" ? props.bookmarkedDomains : props.allDomains;
     const restrictTo = new Set(nodeSet.map((d) => d.domainId));
     const excludedIds = /* @__PURE__ */ new Set();
@@ -9024,28 +9613,28 @@ function TopoSortModal(props) {
       return s;
     });
   };
-  const scopeOption = (value, label, count) => /* @__PURE__ */ jsxs38("label", { className: "validation-scope__option" + (scope === value ? " active" : ""), children: [
-    /* @__PURE__ */ jsx42("input", { type: "radio", checked: scope === value, onChange: () => setScope(value) }),
-    /* @__PURE__ */ jsx42("span", { className: "validation-scope__radio" }),
-    /* @__PURE__ */ jsx42("span", { className: "validation-scope__text", children: label }),
-    /* @__PURE__ */ jsx42("span", { className: "validation-scope__count", children: count })
+  const scopeOption = (value, label, count) => /* @__PURE__ */ jsxs41("label", { className: "validation-scope__option" + (scope === value ? " active" : ""), children: [
+    /* @__PURE__ */ jsx44("input", { type: "radio", checked: scope === value, onChange: () => setScope(value) }),
+    /* @__PURE__ */ jsx44("span", { className: "validation-scope__radio" }),
+    /* @__PURE__ */ jsx44("span", { className: "validation-scope__text", children: label }),
+    /* @__PURE__ */ jsx44("span", { className: "validation-scope__count", children: count })
   ] });
   if (!open)
     return null;
-  return /* @__PURE__ */ jsx42("div", { className: "help-overlay", onMouseDown: () => store.setTopoOpen(false), children: /* @__PURE__ */ jsxs38("div", { className: "help-modal topo-modal", onMouseDown: (e) => e.stopPropagation(), children: [
-    /* @__PURE__ */ jsxs38("div", { className: "help-modal__header", children: [
-      /* @__PURE__ */ jsx42("div", { className: "help-modal__title", children: "\u{1F4E6} \u041F\u043E\u0440\u044F\u0434\u043E\u043A \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438 \u0434\u043E\u043C\u0435\u043D\u043E\u0432" }),
-      /* @__PURE__ */ jsx42("button", { className: "help-modal__close", onClick: () => store.setTopoOpen(false), children: "\u2715" })
+  return /* @__PURE__ */ jsx44("div", { className: "help-overlay", onMouseDown: () => store.setTopoOpen(false), children: /* @__PURE__ */ jsxs41("div", { className: "help-modal topo-modal", onMouseDown: (e) => e.stopPropagation(), children: [
+    /* @__PURE__ */ jsxs41("div", { className: "help-modal__header", children: [
+      /* @__PURE__ */ jsx44("div", { className: "help-modal__title", children: "\u{1F4E6} \u041F\u043E\u0440\u044F\u0434\u043E\u043A \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438 \u0434\u043E\u043C\u0435\u043D\u043E\u0432" }),
+      /* @__PURE__ */ jsx44("button", { className: "help-modal__close", onClick: () => store.setTopoOpen(false), children: "\u2715" })
     ] }),
-    /* @__PURE__ */ jsxs38("div", { className: "validation-modal__body", children: [
-      !result && /* @__PURE__ */ jsxs38("div", { className: "validation-scope", children: [
-        /* @__PURE__ */ jsx42("div", { className: "validation-scope__label", children: "\u041E\u0431\u043B\u0430\u0441\u0442\u044C" }),
+    /* @__PURE__ */ jsxs41("div", { className: "validation-modal__body", children: [
+      !result && /* @__PURE__ */ jsxs41("div", { className: "validation-scope", children: [
+        /* @__PURE__ */ jsx44("div", { className: "validation-scope__label", children: "\u041E\u0431\u043B\u0430\u0441\u0442\u044C" }),
         scopeOption("all", "\u0412\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B", props.allDomains.length),
         scopeOption("visible", "\u0422\u043E\u043B\u044C\u043A\u043E \u0432\u0438\u0434\u0438\u043C\u044B\u0435", props.visibleDomains.length),
         scopeOption("bookmarked", "\u0422\u043E\u043B\u044C\u043A\u043E \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u044B\u0435", props.bookmarkedDomains.length),
-        /* @__PURE__ */ jsx42("div", { className: "validation-scope__label", style: { marginTop: 16 }, children: "\u0423\u0447\u0438\u0442\u044B\u0432\u0430\u0442\u044C \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438" }),
-        /* @__PURE__ */ jsxs38("label", { className: "menu__checkbox", children: [
-          /* @__PURE__ */ jsx42(
+        /* @__PURE__ */ jsx44("div", { className: "validation-scope__label", style: { marginTop: 16 }, children: "\u0423\u0447\u0438\u0442\u044B\u0432\u0430\u0442\u044C \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438" }),
+        /* @__PURE__ */ jsxs41("label", { className: "menu__checkbox", children: [
+          /* @__PURE__ */ jsx44(
             "input",
             {
               type: "checkbox",
@@ -9053,11 +9642,11 @@ function TopoSortModal(props) {
               onChange: () => setIncludeFqid(!includeFqid)
             }
           ),
-          /* @__PURE__ */ jsx42("span", { className: "menu__check" }),
-          /* @__PURE__ */ jsx42("span", { className: "menu__text", children: "FQID-\u0441\u0441\u044B\u043B\u043A\u0438" })
+          /* @__PURE__ */ jsx44("span", { className: "menu__check" }),
+          /* @__PURE__ */ jsx44("span", { className: "menu__text", children: "FQID-\u0441\u0441\u044B\u043B\u043A\u0438" })
         ] }),
-        /* @__PURE__ */ jsxs38("label", { className: "menu__checkbox", children: [
-          /* @__PURE__ */ jsx42(
+        /* @__PURE__ */ jsxs41("label", { className: "menu__checkbox", children: [
+          /* @__PURE__ */ jsx44(
             "input",
             {
               type: "checkbox",
@@ -9065,11 +9654,11 @@ function TopoSortModal(props) {
               onChange: () => setIncludeLinkage(!includeLinkage)
             }
           ),
-          /* @__PURE__ */ jsx42("span", { className: "menu__check" }),
-          /* @__PURE__ */ jsx42("span", { className: "menu__text", children: "Linkage-\u0441\u0432\u044F\u0437\u0438" })
+          /* @__PURE__ */ jsx44("span", { className: "menu__check" }),
+          /* @__PURE__ */ jsx44("span", { className: "menu__text", children: "Linkage-\u0441\u0432\u044F\u0437\u0438" })
         ] }),
-        /* @__PURE__ */ jsxs38("label", { className: "menu__checkbox", children: [
-          /* @__PURE__ */ jsx42(
+        /* @__PURE__ */ jsxs41("label", { className: "menu__checkbox", children: [
+          /* @__PURE__ */ jsx44(
             "input",
             {
               type: "checkbox",
@@ -9077,11 +9666,11 @@ function TopoSortModal(props) {
               onChange: () => setMissingAsSatisfied(!missingAsSatisfied)
             }
           ),
-          /* @__PURE__ */ jsx42("span", { className: "menu__check" }),
-          /* @__PURE__ */ jsx42("span", { className: "menu__text", children: "Missing-\u0434\u043E\u043C\u0435\u043D\u044B \u0441\u0447\u0438\u0442\u0430\u0442\u044C \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u043D\u044B\u043C\u0438" })
+          /* @__PURE__ */ jsx44("span", { className: "menu__check" }),
+          /* @__PURE__ */ jsx44("span", { className: "menu__text", children: "Missing-\u0434\u043E\u043C\u0435\u043D\u044B \u0441\u0447\u0438\u0442\u0430\u0442\u044C \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u043D\u044B\u043C\u0438" })
         ] }),
-        /* @__PURE__ */ jsxs38("label", { className: "menu__checkbox", children: [
-          /* @__PURE__ */ jsx42(
+        /* @__PURE__ */ jsxs41("label", { className: "menu__checkbox", children: [
+          /* @__PURE__ */ jsx44(
             "input",
             {
               type: "checkbox",
@@ -9089,12 +9678,12 @@ function TopoSortModal(props) {
               onChange: () => setAutoBreak(!autoBreak)
             }
           ),
-          /* @__PURE__ */ jsx42("span", { className: "menu__check" }),
-          /* @__PURE__ */ jsx42("span", { className: "menu__text", children: "\u0410\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u0440\u0430\u0437\u0440\u044B\u0432\u0430\u0442\u044C \u0446\u0438\u043A\u043B\u044B" })
+          /* @__PURE__ */ jsx44("span", { className: "menu__check" }),
+          /* @__PURE__ */ jsx44("span", { className: "menu__text", children: "\u0410\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u0440\u0430\u0437\u0440\u044B\u0432\u0430\u0442\u044C \u0446\u0438\u043A\u043B\u044B" })
         ] }),
-        /* @__PURE__ */ jsx42("div", { className: "menu__hint", children: autoBreak ? "\u0414\u043E\u043C\u0435\u043D\u044B \u0441 \u0446\u0438\u043A\u043B\u043E\u043C \u0431\u0443\u0434\u0443\u0442 \u0440\u0430\u0437\u043C\u0435\u0449\u0435\u043D\u044B \u0432 \u043F\u043E\u0440\u044F\u0434\u043A\u0435, \u0430 \u0440\u0430\u0437\u043E\u0440\u0432\u0430\u043D\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0438 \u2014 \u043F\u043E\u043C\u0435\u0447\u0435\u043D\u044B." : "\u0414\u043E\u043C\u0435\u043D\u044B \u0441 \u0446\u0438\u043A\u043B\u043E\u043C \u043F\u043E\u043F\u0430\u0434\u0443\u0442 \u0432 \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u044B\u0439 \u0431\u043B\u043E\u043A \xAB\u0422\u0440\u0435\u0431\u0443\u044E\u0442 \u0440\u0443\u0447\u043D\u043E\u0433\u043E \u0432\u043C\u0435\u0448\u0430\u0442\u0435\u043B\u044C\u0441\u0442\u0432\u0430\xBB." }),
-        /* @__PURE__ */ jsx42("div", { className: "validation-scope__label", style: { marginTop: 16 }, children: "\u0418\u0441\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0434\u043E\u043C\u0435\u043D\u044B \u043F\u043E \u043C\u0430\u0441\u043A\u0435" }),
-        /* @__PURE__ */ jsx42(
+        /* @__PURE__ */ jsx44("div", { className: "menu__hint", children: autoBreak ? "\u0414\u043E\u043C\u0435\u043D\u044B \u0441 \u0446\u0438\u043A\u043B\u043E\u043C \u0431\u0443\u0434\u0443\u0442 \u0440\u0430\u0437\u043C\u0435\u0449\u0435\u043D\u044B \u0432 \u043F\u043E\u0440\u044F\u0434\u043A\u0435, \u0430 \u0440\u0430\u0437\u043E\u0440\u0432\u0430\u043D\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0438 \u2014 \u043F\u043E\u043C\u0435\u0447\u0435\u043D\u044B." : "\u0414\u043E\u043C\u0435\u043D\u044B \u0441 \u0446\u0438\u043A\u043B\u043E\u043C \u043F\u043E\u043F\u0430\u0434\u0443\u0442 \u0432 \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u044B\u0439 \u0431\u043B\u043E\u043A \xAB\u0422\u0440\u0435\u0431\u0443\u044E\u0442 \u0440\u0443\u0447\u043D\u043E\u0433\u043E \u0432\u043C\u0435\u0448\u0430\u0442\u0435\u043B\u044C\u0441\u0442\u0432\u0430\xBB." }),
+        /* @__PURE__ */ jsx44("div", { className: "validation-scope__label", style: { marginTop: 16 }, children: "\u0418\u0441\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0434\u043E\u043C\u0435\u043D\u044B \u043F\u043E \u043C\u0430\u0441\u043A\u0435" }),
+        /* @__PURE__ */ jsx44(
           "input",
           {
             className: "menu__input",
@@ -9104,7 +9693,7 @@ function TopoSortModal(props) {
             onChange: (e) => setExcludePattern(e.target.value)
           }
         ),
-        /* @__PURE__ */ jsx42(
+        /* @__PURE__ */ jsx44(
           "button",
           {
             className: "btn btn--primary",
@@ -9114,18 +9703,18 @@ function TopoSortModal(props) {
           }
         )
       ] }),
-      result && /* @__PURE__ */ jsxs38("div", { className: "topo-result", children: [
-        (result.cyclic.length > 0 || result.broken.length > 0) && /* @__PURE__ */ jsxs38("div", { className: "topo-cyclic", children: [
-          result.cyclic.length > 0 && /* @__PURE__ */ jsxs38(Fragment4, { children: [
-            /* @__PURE__ */ jsxs38("div", { className: "topo-cyclic__header", children: [
-              /* @__PURE__ */ jsx42("span", { className: "topo-cyclic__icon", children: "\u26A0\uFE0F" }),
-              /* @__PURE__ */ jsxs38("span", { children: [
+      result && /* @__PURE__ */ jsxs41("div", { className: "topo-result", children: [
+        (result.cyclic.length > 0 || result.broken.length > 0) && /* @__PURE__ */ jsxs41("div", { className: "topo-cyclic", children: [
+          result.cyclic.length > 0 && /* @__PURE__ */ jsxs41(Fragment4, { children: [
+            /* @__PURE__ */ jsxs41("div", { className: "topo-cyclic__header", children: [
+              /* @__PURE__ */ jsx44("span", { className: "topo-cyclic__icon", children: "\u26A0\uFE0F" }),
+              /* @__PURE__ */ jsxs41("span", { children: [
                 "\u0422\u0440\u0435\u0431\u0443\u044E\u0442 \u0440\u0443\u0447\u043D\u043E\u0433\u043E \u0432\u043C\u0435\u0448\u0430\u0442\u0435\u043B\u044C\u0441\u0442\u0432\u0430 \u2014 \u0446\u0438\u043A\u043B (",
                 result.cyclic.length,
                 ")"
               ] })
             ] }),
-            /* @__PURE__ */ jsx42("div", { className: "topo-cyclic__body", children: result.cyclic.map((id) => /* @__PURE__ */ jsx42(
+            /* @__PURE__ */ jsx44("div", { className: "topo-cyclic__body", children: result.cyclic.map((id) => /* @__PURE__ */ jsx44(
               "a",
               {
                 className: "validation-log__domain",
@@ -9138,17 +9727,17 @@ function TopoSortModal(props) {
               id
             )) })
           ] }),
-          result.cyclic.length === 0 && result.broken.length > 0 && /* @__PURE__ */ jsxs38(Fragment4, { children: [
-            /* @__PURE__ */ jsxs38("div", { className: "topo-cyclic__header topo-cyclic__header--broken", children: [
-              /* @__PURE__ */ jsx42("span", { className: "topo-cyclic__icon", children: "\u{1F517}" }),
-              /* @__PURE__ */ jsxs38("span", { children: [
+          result.cyclic.length === 0 && result.broken.length > 0 && /* @__PURE__ */ jsxs41(Fragment4, { children: [
+            /* @__PURE__ */ jsxs41("div", { className: "topo-cyclic__header topo-cyclic__header--broken", children: [
+              /* @__PURE__ */ jsx44("span", { className: "topo-cyclic__icon", children: "\u{1F517}" }),
+              /* @__PURE__ */ jsxs41("span", { children: [
                 "\u0426\u0438\u043A\u043B\u044B \u0440\u0430\u0437\u043E\u0440\u0432\u0430\u043D\u044B \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 (",
                 result.broken.length,
                 ")"
               ] })
             ] }),
-            /* @__PURE__ */ jsx42("div", { className: "topo-cyclic__body", children: result.broken.map((b) => /* @__PURE__ */ jsxs38("div", { className: "topo-broken-item", children: [
-              /* @__PURE__ */ jsx42(
+            /* @__PURE__ */ jsx44("div", { className: "topo-cyclic__body", children: result.broken.map((b) => /* @__PURE__ */ jsxs41("div", { className: "topo-broken-item", children: [
+              /* @__PURE__ */ jsx44(
                 "a",
                 {
                   className: "validation-log__domain",
@@ -9159,11 +9748,11 @@ function TopoSortModal(props) {
                   children: b.id
                 }
               ),
-              /* @__PURE__ */ jsxs38("span", { className: "topo-broken-item__meta", children: [
+              /* @__PURE__ */ jsxs41("span", { className: "topo-broken-item__meta", children: [
                 "L",
                 b.level
               ] }),
-              b.brokenDeps.length > 0 && /* @__PURE__ */ jsxs38(
+              b.brokenDeps.length > 0 && /* @__PURE__ */ jsxs41(
                 "span",
                 {
                   className: "topo-broken-item__deps",
@@ -9179,35 +9768,35 @@ function TopoSortModal(props) {
         ] }),
         result.levels.map((level, idx) => {
           const isOpen = expandedLevels.has(idx);
-          return /* @__PURE__ */ jsxs38(
+          return /* @__PURE__ */ jsxs41(
             "div",
             {
               className: "topo-level" + (isOpen ? " topo-level--open" : ""),
               children: [
-                /* @__PURE__ */ jsxs38("div", { className: "topo-level__header", onClick: () => toggleLevel(idx), children: [
-                  /* @__PURE__ */ jsx42("span", { className: "validation-log__chevron", children: isOpen ? "\u25BE" : "\u25B8" }),
-                  /* @__PURE__ */ jsx42("span", { className: "topo-level__badge", children: idx + 1 }),
-                  /* @__PURE__ */ jsxs38("span", { className: "topo-level__title", children: [
+                /* @__PURE__ */ jsxs41("div", { className: "topo-level__header", onClick: () => toggleLevel(idx), children: [
+                  /* @__PURE__ */ jsx44("span", { className: "validation-log__chevron", children: isOpen ? "\u25BE" : "\u25B8" }),
+                  /* @__PURE__ */ jsx44("span", { className: "topo-level__badge", children: idx + 1 }),
+                  /* @__PURE__ */ jsxs41("span", { className: "topo-level__title", children: [
                     "\u0423\u0440\u043E\u0432\u0435\u043D\u044C ",
                     idx + 1
                   ] }),
-                  /* @__PURE__ */ jsxs38("span", { className: "topo-level__count", children: [
+                  /* @__PURE__ */ jsxs41("span", { className: "topo-level__count", children: [
                     level.length,
                     " ",
                     level.length === 1 ? "\u0434\u043E\u043C\u0435\u043D" : level.length < 5 ? "\u0434\u043E\u043C\u0435\u043D\u0430" : "\u0434\u043E\u043C\u0435\u043D\u043E\u0432"
                   ] })
                 ] }),
-                isOpen && /* @__PURE__ */ jsx42("div", { className: "topo-level__body", children: level.map((id) => {
+                isOpen && /* @__PURE__ */ jsx44("div", { className: "topo-level__body", children: level.map((id) => {
                   const isDepsOpen = expandedDeps.has(id);
                   const deps = findDeps(id, result.levelMap, store.edges, store.nodes);
                   const brokenInfo = result.broken.find((b) => b.id === id);
-                  return /* @__PURE__ */ jsxs38(
+                  return /* @__PURE__ */ jsxs41(
                     "div",
                     {
                       className: "topo-domain" + (brokenInfo ? " topo-domain--broken" : ""),
                       children: [
-                        /* @__PURE__ */ jsxs38("div", { className: "topo-domain__head", children: [
-                          deps.length > 0 ? /* @__PURE__ */ jsx42(
+                        /* @__PURE__ */ jsxs41("div", { className: "topo-domain__head", children: [
+                          deps.length > 0 ? /* @__PURE__ */ jsx44(
                             "span",
                             {
                               className: "validation-log__chevron",
@@ -9215,8 +9804,8 @@ function TopoSortModal(props) {
                               onClick: () => toggleDeps(id),
                               children: isDepsOpen ? "\u25BE" : "\u25B8"
                             }
-                          ) : /* @__PURE__ */ jsx42("span", { className: "validation-log__chevron", children: " " }),
-                          /* @__PURE__ */ jsx42(
+                          ) : /* @__PURE__ */ jsx44("span", { className: "validation-log__chevron", children: " " }),
+                          /* @__PURE__ */ jsx44(
                             "a",
                             {
                               className: "validation-log__domain",
@@ -9227,7 +9816,7 @@ function TopoSortModal(props) {
                               children: id
                             }
                           ),
-                          brokenInfo && /* @__PURE__ */ jsx42(
+                          brokenInfo && /* @__PURE__ */ jsx44(
                             "span",
                             {
                               className: "topo-broken-badge",
@@ -9236,12 +9825,12 @@ function TopoSortModal(props) {
                             }
                           )
                         ] }),
-                        isDepsOpen && deps.length > 0 && /* @__PURE__ */ jsx42("div", { className: "topo-domain__deps", children: deps.map((dep) => /* @__PURE__ */ jsxs38("div", { className: "topo-dep", children: [
-                          /* @__PURE__ */ jsxs38("span", { className: "topo-dep__level", children: [
+                        isDepsOpen && deps.length > 0 && /* @__PURE__ */ jsx44("div", { className: "topo-domain__deps", children: deps.map((dep) => /* @__PURE__ */ jsxs41("div", { className: "topo-dep", children: [
+                          /* @__PURE__ */ jsxs41("span", { className: "topo-dep__level", children: [
                             "L",
                             result.levelMap.get(dep)
                           ] }),
-                          /* @__PURE__ */ jsx42(
+                          /* @__PURE__ */ jsx44(
                             "a",
                             {
                               className: "validation-log__domain",
@@ -9265,35 +9854,35 @@ function TopoSortModal(props) {
         })
       ] })
     ] }),
-    result && /* @__PURE__ */ jsxs38("div", { className: "validation-footer", children: [
-      /* @__PURE__ */ jsxs38("div", { className: "validation-stats", children: [
-        /* @__PURE__ */ jsxs38("span", { className: "validation-stat", children: [
+    result && /* @__PURE__ */ jsxs41("div", { className: "validation-footer", children: [
+      /* @__PURE__ */ jsxs41("div", { className: "validation-stats", children: [
+        /* @__PURE__ */ jsxs41("span", { className: "validation-stat", children: [
           "\u{1F4E6} ",
           result.stats.total
         ] }),
-        /* @__PURE__ */ jsxs38("span", { className: "validation-stat validation-stat--ok", children: [
+        /* @__PURE__ */ jsxs41("span", { className: "validation-stat validation-stat--ok", children: [
           "\u{1F4CA} ",
           result.stats.levels,
           " \u0443\u0440\u043E\u0432\u043D\u0435\u0439"
         ] }),
-        /* @__PURE__ */ jsxs38("span", { className: "validation-stat validation-stat--warn", children: [
+        /* @__PURE__ */ jsxs41("span", { className: "validation-stat validation-stat--warn", children: [
           "\u23F1 ",
           result.stats.criticalPath,
           " \u0448\u0430\u0433\u043E\u0432"
         ] }),
-        result.stats.brokenCount > 0 && /* @__PURE__ */ jsxs38("span", { className: "validation-stat validation-stat--warn", children: [
+        result.stats.brokenCount > 0 && /* @__PURE__ */ jsxs41("span", { className: "validation-stat validation-stat--warn", children: [
           "\u{1F517} ",
           result.stats.brokenCount,
           " \u0440\u0430\u0437\u043E\u0440\u0432\u0430\u043D\u043E"
         ] }),
-        result.stats.cyclic > 0 && /* @__PURE__ */ jsxs38("span", { className: "validation-stat validation-stat--err", children: [
+        result.stats.cyclic > 0 && /* @__PURE__ */ jsxs41("span", { className: "validation-stat validation-stat--err", children: [
           "\u26A0\uFE0F ",
           result.stats.cyclic,
           " \u0446\u0438\u043A\u043B."
         ] })
       ] }),
-      /* @__PURE__ */ jsxs38("div", { className: "validation-footer__actions", children: [
-        /* @__PURE__ */ jsx42(
+      /* @__PURE__ */ jsxs41("div", { className: "validation-footer__actions", children: [
+        /* @__PURE__ */ jsx44(
           "button",
           {
             className: "btn",
@@ -9304,10 +9893,10 @@ function TopoSortModal(props) {
             children: "\u{1F3A8} \u041D\u0430 \u0433\u0440\u0430\u0444\u0435"
           }
         ),
-        /* @__PURE__ */ jsx42("button", { className: "btn", onClick: copyAsText, children: "\u{1F4CB} \u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C" }),
-        /* @__PURE__ */ jsx42("button", { className: "btn", onClick: exportJSON, children: "\u{1F4BE} JSON" }),
-        /* @__PURE__ */ jsx42("button", { className: "btn", onClick: exportMD, children: "\u{1F4DD} MD" }),
-        /* @__PURE__ */ jsx42("button", { className: "btn", onClick: () => setResult(null), children: "\u2190 \u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438" })
+        /* @__PURE__ */ jsx44("button", { className: "btn", onClick: copyAsText, children: "\u{1F4CB} \u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C" }),
+        /* @__PURE__ */ jsx44("button", { className: "btn", onClick: exportJSON, children: "\u{1F4BE} JSON" }),
+        /* @__PURE__ */ jsx44("button", { className: "btn", onClick: exportMD, children: "\u{1F4DD} MD" }),
+        /* @__PURE__ */ jsx44("button", { className: "btn", onClick: () => setResult(null), children: "\u2190 \u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438" })
       ] })
     ] })
   ] }) });
@@ -9414,8 +10003,8 @@ var init_learning_path = __esm({
 });
 
 // src/web/components/modals/LearningPathModal.tsx
-import { useCallback as useCallback9, useEffect as useEffect19, useState as useState9 } from "react";
-import { jsx as jsx43, jsxs as jsxs39 } from "react/jsx-runtime";
+import { useCallback as useCallback10, useEffect as useEffect21, useState as useState11 } from "react";
+import { jsx as jsx45, jsxs as jsxs42 } from "react/jsx-runtime";
 function downloadFile4(content, filename, mime) {
   const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
@@ -9428,17 +10017,17 @@ function downloadFile4(content, filename, mime) {
 function LearningPathModal(props) {
   const store = useGraphStore();
   const { goto } = useNavigation();
-  const [scope, setScope] = useState9("all");
-  const [path, setPath] = useState9(null);
-  const [expandedStages, setExpandedStages] = useState9(/* @__PURE__ */ new Set([0]));
+  const [scope, setScope] = useState11("all");
+  const [path, setPath] = useState11(null);
+  const [expandedStages, setExpandedStages] = useState11(/* @__PURE__ */ new Set([0]));
   const open = store.learningPathOpen;
-  useEffect19(() => {
+  useEffect21(() => {
     if (!open) {
       setPath(null);
       setExpandedStages(/* @__PURE__ */ new Set([0]));
     }
   }, [open]);
-  const build = useCallback9(() => {
+  const build = useCallback10(() => {
     let restrictTo = null;
     if (scope === "visible") {
       restrictTo = new Set(props.visibleDomains.map((d) => d.id));
@@ -9500,23 +10089,23 @@ function LearningPathModal(props) {
       return s;
     });
   };
-  const scopeOption = (value, label, count) => /* @__PURE__ */ jsxs39("label", { className: "validation-scope__option" + (scope === value ? " active" : ""), children: [
-    /* @__PURE__ */ jsx43("input", { type: "radio", checked: scope === value, onChange: () => setScope(value) }),
-    /* @__PURE__ */ jsx43("span", { className: "validation-scope__radio" }),
-    /* @__PURE__ */ jsx43("span", { className: "validation-scope__text", children: label }),
-    /* @__PURE__ */ jsx43("span", { className: "validation-scope__count", children: count })
+  const scopeOption = (value, label, count) => /* @__PURE__ */ jsxs42("label", { className: "validation-scope__option" + (scope === value ? " active" : ""), children: [
+    /* @__PURE__ */ jsx45("input", { type: "radio", checked: scope === value, onChange: () => setScope(value) }),
+    /* @__PURE__ */ jsx45("span", { className: "validation-scope__radio" }),
+    /* @__PURE__ */ jsx45("span", { className: "validation-scope__text", children: label }),
+    /* @__PURE__ */ jsx45("span", { className: "validation-scope__count", children: count })
   ] });
   if (!open)
     return null;
-  return /* @__PURE__ */ jsx43("div", { className: "help-overlay", onMouseDown: () => store.setLearningPathOpen(false), children: /* @__PURE__ */ jsxs39(
+  return /* @__PURE__ */ jsx45("div", { className: "help-overlay", onMouseDown: () => store.setLearningPathOpen(false), children: /* @__PURE__ */ jsxs42(
     "div",
     {
       className: "help-modal learning-path-modal",
       onMouseDown: (e) => e.stopPropagation(),
       children: [
-        /* @__PURE__ */ jsxs39("div", { className: "help-modal__header", children: [
-          /* @__PURE__ */ jsx43("div", { className: "help-modal__title", children: "\u{1F4D6} \u041F\u0443\u0442\u044C \u0438\u0437\u0443\u0447\u0435\u043D\u0438\u044F \u0430\u0440\u0445\u0438\u0442\u0435\u043A\u0442\u0443\u0440\u044B" }),
-          /* @__PURE__ */ jsx43(
+        /* @__PURE__ */ jsxs42("div", { className: "help-modal__header", children: [
+          /* @__PURE__ */ jsx45("div", { className: "help-modal__title", children: "\u{1F4D6} \u041F\u0443\u0442\u044C \u0438\u0437\u0443\u0447\u0435\u043D\u0438\u044F \u0430\u0440\u0445\u0438\u0442\u0435\u043A\u0442\u0443\u0440\u044B" }),
+          /* @__PURE__ */ jsx45(
             "button",
             {
               className: "help-modal__close",
@@ -9525,9 +10114,9 @@ function LearningPathModal(props) {
             }
           )
         ] }),
-        /* @__PURE__ */ jsxs39("div", { className: "validation-modal__body", children: [
-          !path && /* @__PURE__ */ jsxs39("div", { className: "validation-scope", children: [
-            /* @__PURE__ */ jsx43("div", { className: "validation-scope__label", children: "\u041E\u0431\u043B\u0430\u0441\u0442\u044C" }),
+        /* @__PURE__ */ jsxs42("div", { className: "validation-modal__body", children: [
+          !path && /* @__PURE__ */ jsxs42("div", { className: "validation-scope", children: [
+            /* @__PURE__ */ jsx45("div", { className: "validation-scope__label", children: "\u041E\u0431\u043B\u0430\u0441\u0442\u044C" }),
             scopeOption(
               "all",
               "\u0412\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B",
@@ -9535,15 +10124,15 @@ function LearningPathModal(props) {
             ),
             scopeOption("visible", "\u0422\u043E\u043B\u044C\u043A\u043E \u0432\u0438\u0434\u0438\u043C\u044B\u0435", props.visibleDomains.length),
             scopeOption("bookmarked", "\u0422\u043E\u043B\u044C\u043A\u043E \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u044B\u0435", props.bookmarkedDomains.length),
-            /* @__PURE__ */ jsxs39("div", { className: "learning-path-hint", style: { marginTop: 20 }, children: [
-              /* @__PURE__ */ jsx43("div", { className: "learning-path-hint__title", children: "\u0427\u0442\u043E \u044D\u0442\u043E \u0434\u0430\u0451\u0442" }),
-              /* @__PURE__ */ jsxs39("ul", { className: "learning-path-hint__list", children: [
-                /* @__PURE__ */ jsx43("li", { children: "\u041F\u043E\u0440\u044F\u0434\u043E\u043A \u0447\u0442\u0435\u043D\u0438\u044F \u2014 \u043E\u0442 \xAB\u0444\u0443\u043D\u0434\u0430\u043C\u0435\u043D\u0442\u0430\xBB \u043A \u0432\u0435\u0440\u0445\u043D\u0438\u043C \u0441\u043B\u043E\u044F\u043C, \u0447\u0442\u043E\u0431\u044B \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438 \u0431\u044B\u043B\u0438 \u043F\u043E\u043D\u044F\u0442\u043D\u044B \u0441 \u0441\u0430\u043C\u043E\u0433\u043E \u043D\u0430\u0447\u0430\u043B\u0430." }),
-                /* @__PURE__ */ jsx43("li", { children: "\u0422\u043E\u0447\u043A\u0438 \u0432\u0445\u043E\u0434\u0430 \u2014 \u0434\u043E\u043C\u0435\u043D\u044B, \u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u043D\u0438\u043A\u0442\u043E \u043D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442: \u043E\u043D\u0438 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u044E\u0442 \u0444\u0443\u043D\u043A\u0446\u0438\u043E\u043D\u0430\u043B\u044C\u043D\u043E\u0441\u0442\u044C \u0432\u0435\u0440\u0445\u043D\u0435\u0433\u043E \u0443\u0440\u043E\u0432\u043D\u044F." }),
-                /* @__PURE__ */ jsx43("li", { children: "\u041A\u0430\u043C\u0435\u0440\u0430 \u044D\u043A\u0441\u043A\u0443\u0440\u0441\u0438\u0438 \u0432\u0435\u0434\u0451\u0442 \u043F\u043E \u044D\u0442\u0430\u043F\u0430\u043C, \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u044F \u043F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0438 \u043F\u043E \u043A\u0430\u0436\u0434\u043E\u043C\u0443 \u0434\u043E\u043C\u0435\u043D\u0443." })
+            /* @__PURE__ */ jsxs42("div", { className: "learning-path-hint", style: { marginTop: 20 }, children: [
+              /* @__PURE__ */ jsx45("div", { className: "learning-path-hint__title", children: "\u0427\u0442\u043E \u044D\u0442\u043E \u0434\u0430\u0451\u0442" }),
+              /* @__PURE__ */ jsxs42("ul", { className: "learning-path-hint__list", children: [
+                /* @__PURE__ */ jsx45("li", { children: "\u041F\u043E\u0440\u044F\u0434\u043E\u043A \u0447\u0442\u0435\u043D\u0438\u044F \u2014 \u043E\u0442 \xAB\u0444\u0443\u043D\u0434\u0430\u043C\u0435\u043D\u0442\u0430\xBB \u043A \u0432\u0435\u0440\u0445\u043D\u0438\u043C \u0441\u043B\u043E\u044F\u043C, \u0447\u0442\u043E\u0431\u044B \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438 \u0431\u044B\u043B\u0438 \u043F\u043E\u043D\u044F\u0442\u043D\u044B \u0441 \u0441\u0430\u043C\u043E\u0433\u043E \u043D\u0430\u0447\u0430\u043B\u0430." }),
+                /* @__PURE__ */ jsx45("li", { children: "\u0422\u043E\u0447\u043A\u0438 \u0432\u0445\u043E\u0434\u0430 \u2014 \u0434\u043E\u043C\u0435\u043D\u044B, \u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u043D\u0438\u043A\u0442\u043E \u043D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442: \u043E\u043D\u0438 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u044E\u0442 \u0444\u0443\u043D\u043A\u0446\u0438\u043E\u043D\u0430\u043B\u044C\u043D\u043E\u0441\u0442\u044C \u0432\u0435\u0440\u0445\u043D\u0435\u0433\u043E \u0443\u0440\u043E\u0432\u043D\u044F." }),
+                /* @__PURE__ */ jsx45("li", { children: "\u041A\u0430\u043C\u0435\u0440\u0430 \u044D\u043A\u0441\u043A\u0443\u0440\u0441\u0438\u0438 \u0432\u0435\u0434\u0451\u0442 \u043F\u043E \u044D\u0442\u0430\u043F\u0430\u043C, \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u044F \u043F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0438 \u043F\u043E \u043A\u0430\u0436\u0434\u043E\u043C\u0443 \u0434\u043E\u043C\u0435\u043D\u0443." })
               ] })
             ] }),
-            /* @__PURE__ */ jsx43(
+            /* @__PURE__ */ jsx45(
               "button",
               {
                 className: "btn btn--primary",
@@ -9553,19 +10142,19 @@ function LearningPathModal(props) {
               }
             )
           ] }),
-          path && /* @__PURE__ */ jsxs39("div", { className: "topo-result", children: [
-            path.entryPoints.length > 0 && /* @__PURE__ */ jsxs39("div", { className: "learning-entry-points", children: [
-              /* @__PURE__ */ jsxs39("div", { className: "learning-entry-points__header", children: [
-                /* @__PURE__ */ jsx43("span", { className: "learning-entry-points__icon", children: "\u{1F6AA}" }),
-                /* @__PURE__ */ jsxs39("span", { children: [
+          path && /* @__PURE__ */ jsxs42("div", { className: "topo-result", children: [
+            path.entryPoints.length > 0 && /* @__PURE__ */ jsxs42("div", { className: "learning-entry-points", children: [
+              /* @__PURE__ */ jsxs42("div", { className: "learning-entry-points__header", children: [
+                /* @__PURE__ */ jsx45("span", { className: "learning-entry-points__icon", children: "\u{1F6AA}" }),
+                /* @__PURE__ */ jsxs42("span", { children: [
                   "\u0422\u043E\u0447\u043A\u0438 \u0432\u0445\u043E\u0434\u0430 (",
                   path.entryPoints.length,
                   ")"
                 ] }),
-                /* @__PURE__ */ jsx43("span", { className: "learning-entry-points__hint", children: "\u2014 \u043D\u0438\u043A\u0442\u043E \u043D\u0435 \u0437\u0430\u0432\u0438\u0441\u0438\u0442 \u043E\u0442 \u043D\u0438\u0445, \u043D\u043E \u043E\u043D\u0438 \u0437\u0430\u0432\u0438\u0441\u044F\u0442 \u043E\u0442 \u0434\u0440\u0443\u0433\u0438\u0445" })
+                /* @__PURE__ */ jsx45("span", { className: "learning-entry-points__hint", children: "\u2014 \u043D\u0438\u043A\u0442\u043E \u043D\u0435 \u0437\u0430\u0432\u0438\u0441\u0438\u0442 \u043E\u0442 \u043D\u0438\u0445, \u043D\u043E \u043E\u043D\u0438 \u0437\u0430\u0432\u0438\u0441\u044F\u0442 \u043E\u0442 \u0434\u0440\u0443\u0433\u0438\u0445" })
               ] }),
-              /* @__PURE__ */ jsxs39("div", { className: "learning-entry-points__body", children: [
-                path.entryPoints.slice(0, 12).map((d) => /* @__PURE__ */ jsx43(
+              /* @__PURE__ */ jsxs42("div", { className: "learning-entry-points__body", children: [
+                path.entryPoints.slice(0, 12).map((d) => /* @__PURE__ */ jsx45(
                   "a",
                   {
                     className: "validation-log__domain",
@@ -9577,7 +10166,7 @@ function LearningPathModal(props) {
                   },
                   d.id
                 )),
-                path.entryPoints.length > 12 && /* @__PURE__ */ jsxs39("span", { style: { fontSize: 11, color: "var(--text-500)" }, children: [
+                path.entryPoints.length > 12 && /* @__PURE__ */ jsxs42("span", { style: { fontSize: 11, color: "var(--text-500)" }, children: [
                   "...\u0438 \u0435\u0449\u0451 ",
                   path.entryPoints.length - 12
                 ] })
@@ -9585,24 +10174,24 @@ function LearningPathModal(props) {
             ] }),
             path.stages.map((stage) => {
               const isOpen = expandedStages.has(stage.index);
-              return /* @__PURE__ */ jsxs39(
+              return /* @__PURE__ */ jsxs42(
                 "div",
                 {
                   className: "topo-level" + (isOpen ? " topo-level--open" : ""),
                   children: [
-                    /* @__PURE__ */ jsxs39(
+                    /* @__PURE__ */ jsxs42(
                       "div",
                       {
                         className: "topo-level__header",
                         onClick: () => toggleStage(stage.index),
                         children: [
-                          /* @__PURE__ */ jsx43("span", { className: "validation-log__chevron", children: isOpen ? "\u25BE" : "\u25B8" }),
-                          /* @__PURE__ */ jsx43("span", { className: "topo-level__badge learning-path-stage-badge", children: stage.index + 1 }),
-                          /* @__PURE__ */ jsxs39("span", { className: "topo-level__title", children: [
+                          /* @__PURE__ */ jsx45("span", { className: "validation-log__chevron", children: isOpen ? "\u25BE" : "\u25B8" }),
+                          /* @__PURE__ */ jsx45("span", { className: "topo-level__badge learning-path-stage-badge", children: stage.index + 1 }),
+                          /* @__PURE__ */ jsxs42("span", { className: "topo-level__title", children: [
                             "\u042D\u0442\u0430\u043F ",
                             stage.index + 1
                           ] }),
-                          /* @__PURE__ */ jsxs39("span", { className: "topo-level__count", children: [
+                          /* @__PURE__ */ jsxs42("span", { className: "topo-level__count", children: [
                             stage.domains.length,
                             " ",
                             plural(stage.domains.length, "\u0434\u043E\u043C\u0435\u043D", "\u0434\u043E\u043C\u0435\u043D\u043E\u0432")
@@ -9610,9 +10199,9 @@ function LearningPathModal(props) {
                         ]
                       }
                     ),
-                    isOpen && /* @__PURE__ */ jsx43("div", { className: "topo-level__body learning-stage-body", children: stage.domains.map((d) => /* @__PURE__ */ jsxs39("div", { className: "learning-domain-card", children: [
-                      /* @__PURE__ */ jsxs39("div", { className: "learning-domain-card__head", children: [
-                        /* @__PURE__ */ jsx43(
+                    isOpen && /* @__PURE__ */ jsx45("div", { className: "topo-level__body learning-stage-body", children: stage.domains.map((d) => /* @__PURE__ */ jsxs42("div", { className: "learning-domain-card", children: [
+                      /* @__PURE__ */ jsxs42("div", { className: "learning-domain-card__head", children: [
+                        /* @__PURE__ */ jsx45(
                           "a",
                           {
                             className: "validation-log__domain",
@@ -9623,25 +10212,25 @@ function LearningPathModal(props) {
                             children: d.domainId
                           }
                         ),
-                        d.label && d.label !== d.domainId && /* @__PURE__ */ jsx43("span", { className: "learning-domain-card__label", children: d.label })
+                        d.label && d.label !== d.domainId && /* @__PURE__ */ jsx45("span", { className: "learning-domain-card__label", children: d.label })
                       ] }),
-                      d.description && /* @__PURE__ */ jsx43("div", { className: "learning-domain-card__desc", children: d.description }),
-                      /* @__PURE__ */ jsxs39("div", { className: "learning-domain-card__stats", children: [
-                        d.fanIn > 0 && /* @__PURE__ */ jsxs39("span", { className: "learning-domain-stat", children: [
-                          /* @__PURE__ */ jsx43("span", { className: "learning-domain-stat__icon", children: "\u2191" }),
+                      d.description && /* @__PURE__ */ jsx45("div", { className: "learning-domain-card__desc", children: d.description }),
+                      /* @__PURE__ */ jsxs42("div", { className: "learning-domain-card__stats", children: [
+                        d.fanIn > 0 && /* @__PURE__ */ jsxs42("span", { className: "learning-domain-stat", children: [
+                          /* @__PURE__ */ jsx45("span", { className: "learning-domain-stat__icon", children: "\u2191" }),
                           d.fanIn,
                           " \u0432\u0445\u043E\u0434\u044F\u0449\u0438\u0445"
                         ] }),
-                        d.fanOut > 0 && /* @__PURE__ */ jsxs39("span", { className: "learning-domain-stat", children: [
-                          /* @__PURE__ */ jsx43("span", { className: "learning-domain-stat__icon", children: "\u2193" }),
+                        d.fanOut > 0 && /* @__PURE__ */ jsxs42("span", { className: "learning-domain-stat", children: [
+                          /* @__PURE__ */ jsx45("span", { className: "learning-domain-stat__icon", children: "\u2193" }),
                           d.fanOut,
                           " \u0438\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u0445"
                         ] }),
-                        d.entitiesCount != null && /* @__PURE__ */ jsxs39("span", { className: "learning-domain-stat", children: [
+                        d.entitiesCount != null && /* @__PURE__ */ jsxs42("span", { className: "learning-domain-stat", children: [
                           d.entitiesCount,
                           " entities"
                         ] }),
-                        d.tags && d.tags.length > 0 && /* @__PURE__ */ jsx43("span", { className: "learning-domain-stat learning-domain-stat--tags", children: d.tags.slice(0, 4).join(", ") })
+                        d.tags && d.tags.length > 0 && /* @__PURE__ */ jsx45("span", { className: "learning-domain-stat learning-domain-stat--tags", children: d.tags.slice(0, 4).join(", ") })
                       ] })
                     ] }, d.id)) })
                   ]
@@ -9649,16 +10238,16 @@ function LearningPathModal(props) {
                 stage.index
               );
             }),
-            path.unresolved.length > 0 && /* @__PURE__ */ jsxs39("div", { className: "topo-cyclic", children: [
-              /* @__PURE__ */ jsxs39("div", { className: "topo-cyclic__header", children: [
-                /* @__PURE__ */ jsx43("span", { className: "topo-cyclic__icon", children: "\u26A0\uFE0F" }),
-                /* @__PURE__ */ jsxs39("span", { children: [
+            path.unresolved.length > 0 && /* @__PURE__ */ jsxs42("div", { className: "topo-cyclic", children: [
+              /* @__PURE__ */ jsxs42("div", { className: "topo-cyclic__header", children: [
+                /* @__PURE__ */ jsx45("span", { className: "topo-cyclic__icon", children: "\u26A0\uFE0F" }),
+                /* @__PURE__ */ jsxs42("span", { children: [
                   "\u0412 \u0446\u0438\u043A\u043B\u0435 \u2014 \u0447\u0438\u0442\u0430\u0442\u044C \u043F\u043E\u0441\u043B\u0435 \u0432\u0441\u0435\u0445 (",
                   path.unresolved.length,
                   ")"
                 ] })
               ] }),
-              /* @__PURE__ */ jsx43("div", { className: "topo-cyclic__body", children: path.unresolved.map((d) => /* @__PURE__ */ jsx43(
+              /* @__PURE__ */ jsx45("div", { className: "topo-cyclic__body", children: path.unresolved.map((d) => /* @__PURE__ */ jsx45(
                 "a",
                 {
                   className: "validation-log__domain",
@@ -9673,26 +10262,26 @@ function LearningPathModal(props) {
             ] })
           ] })
         ] }),
-        path && /* @__PURE__ */ jsxs39("div", { className: "validation-footer", children: [
-          /* @__PURE__ */ jsxs39("div", { className: "validation-stats", children: [
-            /* @__PURE__ */ jsxs39("span", { className: "validation-stat", children: [
+        path && /* @__PURE__ */ jsxs42("div", { className: "validation-footer", children: [
+          /* @__PURE__ */ jsxs42("div", { className: "validation-stats", children: [
+            /* @__PURE__ */ jsxs42("span", { className: "validation-stat", children: [
               "\u{1F4D6} ",
               path.totalDomains,
               " \u0434\u043E\u043C\u0435\u043D\u043E\u0432"
             ] }),
-            /* @__PURE__ */ jsxs39("span", { className: "validation-stat validation-stat--ok", children: [
+            /* @__PURE__ */ jsxs42("span", { className: "validation-stat validation-stat--ok", children: [
               "\u{1F4CA} ",
               path.totalStages,
               " \u044D\u0442\u0430\u043F\u043E\u0432"
             ] }),
-            path.entryPoints.length > 0 && /* @__PURE__ */ jsxs39("span", { className: "validation-stat", children: [
+            path.entryPoints.length > 0 && /* @__PURE__ */ jsxs42("span", { className: "validation-stat", children: [
               "\u{1F6AA} ",
               path.entryPoints.length,
               " \u0432\u0445\u043E\u0434\u043E\u0432"
             ] })
           ] }),
-          /* @__PURE__ */ jsxs39("div", { className: "validation-footer__actions", children: [
-            /* @__PURE__ */ jsx43(
+          /* @__PURE__ */ jsxs42("div", { className: "validation-footer__actions", children: [
+            /* @__PURE__ */ jsx45(
               "button",
               {
                 className: "btn btn--primary",
@@ -9703,10 +10292,10 @@ function LearningPathModal(props) {
                 children: "\u25B6 \u041D\u0430\u0447\u0430\u0442\u044C \u044D\u043A\u0441\u043A\u0443\u0440\u0441\u0438\u044E"
               }
             ),
-            /* @__PURE__ */ jsx43("button", { className: "btn", onClick: copyAsText, children: "\u{1F4CB} \u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C" }),
-            /* @__PURE__ */ jsx43("button", { className: "btn", onClick: exportJSON, children: "\u{1F4BE} JSON" }),
-            /* @__PURE__ */ jsx43("button", { className: "btn", onClick: exportMD, children: "\u{1F4DD} MD" }),
-            /* @__PURE__ */ jsx43("button", { className: "btn", onClick: () => setPath(null), children: "\u2190 \u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438" })
+            /* @__PURE__ */ jsx45("button", { className: "btn", onClick: copyAsText, children: "\u{1F4CB} \u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C" }),
+            /* @__PURE__ */ jsx45("button", { className: "btn", onClick: exportJSON, children: "\u{1F4BE} JSON" }),
+            /* @__PURE__ */ jsx45("button", { className: "btn", onClick: exportMD, children: "\u{1F4DD} MD" }),
+            /* @__PURE__ */ jsx45("button", { className: "btn", onClick: () => setPath(null), children: "\u2190 \u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438" })
           ] })
         ] })
       ]
@@ -9725,12 +10314,12 @@ var init_LearningPathModal = __esm({
 });
 
 // src/web/components/modals/TourOverlay.tsx
-import { useEffect as useEffect20, useMemo as useMemo18 } from "react";
-import { jsx as jsx44, jsxs as jsxs40 } from "react/jsx-runtime";
+import { useEffect as useEffect22, useMemo as useMemo20 } from "react";
+import { jsx as jsx46, jsxs as jsxs43 } from "react/jsx-runtime";
 function TourOverlay() {
   const store = useGraphStore();
   const tour = store.tour;
-  const allItems = useMemo18(() => {
+  const allItems = useMemo20(() => {
     if (!tour)
       return [];
     const items = [];
@@ -9746,7 +10335,7 @@ function TourOverlay() {
     });
     return items;
   }, [tour]);
-  useEffect20(() => {
+  useEffect22(() => {
     if (!tour)
       return;
     const current2 = allItems[tour.index];
@@ -9755,17 +10344,17 @@ function TourOverlay() {
     const node = store.nodes.find((n) => n.id === current2.nodeId);
     if (!node)
       return;
-    const NODE_WIDTH3 = 300;
-    const NODE_HEIGHT3 = 88;
+    const NODE_WIDTH5 = 300;
+    const NODE_HEIGHT5 = 88;
     const NODE_COMPACT2 = 42;
-    const w = store.compact ? NODE_COMPACT2 : NODE_WIDTH3;
-    const h = store.compact ? NODE_COMPACT2 : NODE_HEIGHT3;
+    const w = store.compact ? NODE_COMPACT2 : NODE_WIDTH5;
+    const h = store.compact ? NODE_COMPACT2 : NODE_HEIGHT5;
     const cx = node.position.x + w / 2;
     const cy = node.position.y + h / 2;
     store.rfInstance.setCenter(cx, cy, { zoom: 1.5, duration: 700 });
     store.setSelectedNodeId(current2.nodeId);
   }, [tour, tour?.index, allItems, store]);
-  useEffect20(() => {
+  useEffect22(() => {
     if (!tour || !tour.playing)
       return;
     if (tour.index >= allItems.length - 1) {
@@ -9792,42 +10381,42 @@ function TourOverlay() {
   const prev = () => store.setTour((p) => p && p.index > 0 ? { ...p, index: p.index - 1, playing: false } : p);
   const togglePlay = () => store.setTour((p) => p ? { ...p, playing: !p.playing } : null);
   const stop = () => store.setTour(null);
-  return /* @__PURE__ */ jsx44("div", { className: "tour-overlay", children: /* @__PURE__ */ jsxs40("div", { className: "tour-overlay__card", children: [
-    /* @__PURE__ */ jsxs40("div", { className: "tour-overlay__header", children: [
-      /* @__PURE__ */ jsxs40("span", { className: "tour-overlay__stage-badge", children: [
+  return /* @__PURE__ */ jsx46("div", { className: "tour-overlay", children: /* @__PURE__ */ jsxs43("div", { className: "tour-overlay__card", children: [
+    /* @__PURE__ */ jsxs43("div", { className: "tour-overlay__header", children: [
+      /* @__PURE__ */ jsxs43("span", { className: "tour-overlay__stage-badge", children: [
         "\u042D\u0442\u0430\u043F ",
         current.stageNumber
       ] }),
-      /* @__PURE__ */ jsxs40("span", { className: "tour-overlay__counter", children: [
+      /* @__PURE__ */ jsxs43("span", { className: "tour-overlay__counter", children: [
         tour.index + 1,
         " / ",
         allItems.length
       ] }),
-      /* @__PURE__ */ jsx44("button", { className: "tour-overlay__close", onClick: stop, title: "\u0417\u0430\u0432\u0435\u0440\u0448\u0438\u0442\u044C", children: "\u2715" })
+      /* @__PURE__ */ jsx46("button", { className: "tour-overlay__close", onClick: stop, title: "\u0417\u0430\u0432\u0435\u0440\u0448\u0438\u0442\u044C", children: "\u2715" })
     ] }),
-    /* @__PURE__ */ jsx44("div", { className: "tour-overlay__title", children: current.domainId }),
-    d.label && d.label !== current.domainId && /* @__PURE__ */ jsx44("div", { className: "tour-overlay__subtitle", children: d.label }),
-    d.description && /* @__PURE__ */ jsx44("div", { className: "tour-overlay__desc", children: d.description }),
-    /* @__PURE__ */ jsxs40("div", { className: "tour-overlay__stats", children: [
-      d.fanIn > 0 && /* @__PURE__ */ jsxs40("span", { className: "tour-stat", children: [
+    /* @__PURE__ */ jsx46("div", { className: "tour-overlay__title", children: current.domainId }),
+    d.label && d.label !== current.domainId && /* @__PURE__ */ jsx46("div", { className: "tour-overlay__subtitle", children: d.label }),
+    d.description && /* @__PURE__ */ jsx46("div", { className: "tour-overlay__desc", children: d.description }),
+    /* @__PURE__ */ jsxs43("div", { className: "tour-overlay__stats", children: [
+      d.fanIn > 0 && /* @__PURE__ */ jsxs43("span", { className: "tour-stat", children: [
         "\u2191 ",
         d.fanIn,
         " \u0432\u0445\u043E\u0434\u044F\u0449\u0438\u0445"
       ] }),
-      d.fanOut > 0 && /* @__PURE__ */ jsxs40("span", { className: "tour-stat", children: [
+      d.fanOut > 0 && /* @__PURE__ */ jsxs43("span", { className: "tour-stat", children: [
         "\u2193 ",
         d.fanOut,
         " \u0438\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u0445"
       ] }),
-      d.entitiesCount != null && /* @__PURE__ */ jsxs40("span", { className: "tour-stat", children: [
+      d.entitiesCount != null && /* @__PURE__ */ jsxs43("span", { className: "tour-stat", children: [
         d.entitiesCount,
         " entities"
       ] })
     ] }),
-    d.tags && d.tags.length > 0 && /* @__PURE__ */ jsx44("div", { className: "tour-overlay__tags", children: d.tags.slice(0, 6).map((t, i) => /* @__PURE__ */ jsx44("span", { className: "tag", style: { fontSize: 10 }, children: t }, i)) }),
-    /* @__PURE__ */ jsx44("div", { className: "tour-overlay__progress", children: /* @__PURE__ */ jsx44("div", { className: "tour-overlay__progress-bar", children: /* @__PURE__ */ jsx44("div", { className: "tour-overlay__progress-fill", style: { width: pct + "%" } }) }) }),
-    /* @__PURE__ */ jsxs40("div", { className: "tour-overlay__controls", children: [
-      /* @__PURE__ */ jsx44(
+    d.tags && d.tags.length > 0 && /* @__PURE__ */ jsx46("div", { className: "tour-overlay__tags", children: d.tags.slice(0, 6).map((t, i) => /* @__PURE__ */ jsx46("span", { className: "tag", style: { fontSize: 10 }, children: t }, i)) }),
+    /* @__PURE__ */ jsx46("div", { className: "tour-overlay__progress", children: /* @__PURE__ */ jsx46("div", { className: "tour-overlay__progress-bar", children: /* @__PURE__ */ jsx46("div", { className: "tour-overlay__progress-fill", style: { width: pct + "%" } }) }) }),
+    /* @__PURE__ */ jsxs43("div", { className: "tour-overlay__controls", children: [
+      /* @__PURE__ */ jsx46(
         "button",
         {
           className: "tour-btn",
@@ -9837,7 +10426,7 @@ function TourOverlay() {
           children: "\u25C0"
         }
       ),
-      /* @__PURE__ */ jsx44(
+      /* @__PURE__ */ jsx46(
         "button",
         {
           className: "tour-btn tour-btn--primary",
@@ -9846,7 +10435,7 @@ function TourOverlay() {
           children: tour.playing ? "\u275A\u275A" : "\u25B6"
         }
       ),
-      /* @__PURE__ */ jsx44(
+      /* @__PURE__ */ jsx46(
         "button",
         {
           className: "tour-btn",
@@ -9867,76 +10456,163 @@ var init_TourOverlay = __esm({
 });
 
 // src/web/lib/entities/tree.ts
-import dagre2 from "dagre";
-function buildEntityTree(rootKey, index) {
+function buildEntityTree(rootKey, index, modelIndex, options = {}) {
+  const mode = options.mode || "inherits";
+  const maxDepth = options.depth || 0;
+  const showInheritance = options.showInheritance !== false;
+  const showReferences = options.showReferences !== false && mode === "all";
+  const showLinkages = options.showLinkages !== false && mode === "all";
+  const hideIsolated = options.hideIsolated !== false;
   const byKey = index.byKey;
   const childMap = index.children;
   const nodesMap = /* @__PURE__ */ new Map();
   const edgesMap = /* @__PURE__ */ new Map();
-  function addNode(key) {
-    if (nodesMap.has(key))
-      return nodesMap.get(key);
+  const depthMap = /* @__PURE__ */ new Map();
+  function addNode(key, depth) {
+    if (maxDepth > 0 && depth > maxDepth)
+      return false;
+    if (nodesMap.has(key)) {
+      const existing = depthMap.get(key);
+      if (existing != null && existing <= depth)
+        return false;
+      depthMap.set(key, depth);
+      return true;
+    }
     const e = byKey.get(key);
     const parts = key.split("/");
-    const node = {
+    nodesMap.set(key, {
       key,
       domainId: e ? e.domainId : parts[0],
       entityId: e ? e.entityId : parts.slice(1).join("/"),
       name: e ? e.name : null,
       inherits: e ? e.inherits : null,
       missing: !e
-    };
-    nodesMap.set(key, node);
-    return node;
+    });
+    depthMap.set(key, depth);
+    return true;
   }
-  function traverseParents(startKey) {
-    const visited = /* @__PURE__ */ new Set();
-    const stack = [startKey];
-    while (stack.length > 0) {
-      const key = stack.pop();
-      if (visited.has(key))
-        continue;
-      visited.add(key);
+  function addEdge(id, source, target, kind, label) {
+    if (!edgesMap.has(id)) {
+      edgesMap.set(id, { id, source, target, kind, label });
+    }
+  }
+  addNode(rootKey, 0);
+  const queue = [
+    { key: rootKey, depth: 0 }
+  ];
+  const processed = /* @__PURE__ */ new Set();
+  while (queue.length > 0) {
+    const { key, depth } = queue.shift();
+    if (processed.has(key))
+      continue;
+    processed.add(key);
+    const nextDepth = depth + 1;
+    if (showInheritance) {
       const e = byKey.get(key);
-      if (!e || !e.inherits)
-        continue;
-      const ref = resolveEntityRef(e.inherits, e.domainId);
-      if (!ref)
-        continue;
-      const parentKey = entityKey(ref.domainId, ref.entityId);
-      addNode(parentKey);
-      const edgeId = parentKey + "->" + key;
-      if (!edgesMap.has(edgeId)) {
-        edgesMap.set(edgeId, { id: edgeId, source: parentKey, target: key });
-      }
-      if (!visited.has(parentKey))
-        stack.push(parentKey);
-    }
-  }
-  function traverseChildren(startKey) {
-    const visited = /* @__PURE__ */ new Set();
-    const stack = [startKey];
-    while (stack.length > 0) {
-      const key = stack.pop();
-      if (visited.has(key))
-        continue;
-      visited.add(key);
-      const kids = childMap.get(key) || [];
-      kids.forEach((child) => {
-        const childKey = entityKey(child.domainId, child.entityId);
-        addNode(childKey);
-        const edgeId = key + "->" + childKey;
-        if (!edgesMap.has(edgeId)) {
-          edgesMap.set(edgeId, { id: edgeId, source: key, target: childKey });
+      if (e && e.inherits) {
+        const ref = resolveEntityRef(e.inherits, e.domainId);
+        if (ref) {
+          const parentKey = entityKey(ref.domainId, ref.entityId);
+          if (addNode(parentKey, nextDepth)) {
+            queue.push({ key: parentKey, depth: nextDepth });
+          }
+          addEdge(`${parentKey}->${key}`, parentKey, key, "inheritance");
         }
-        if (!visited.has(childKey))
-          stack.push(childKey);
-      });
+      }
+      const kids = childMap.get(key) || [];
+      for (const child of kids) {
+        const childKey = entityKey(child.domainId, child.entityId);
+        if (addNode(childKey, nextDepth)) {
+          queue.push({ key: childKey, depth: nextDepth });
+        }
+        addEdge(`${key}->${childKey}`, key, childKey, "inheritance");
+      }
+    }
+    if (mode === "all" && modelIndex) {
+      const entity = modelIndex.entitiesByFqid[key];
+      if (entity) {
+        if (showReferences) {
+          for (const a of entity.attributes) {
+            const target = a.referenceEntity || a.itemReferenceEntity;
+            if (!target || !modelIndex.entitiesByFqid[target])
+              continue;
+            if (addNode(target, nextDepth)) {
+              queue.push({ key: target, depth: nextDepth });
+            }
+            addEdge(
+              `ref:${key}#${a.id}->${target}`,
+              key,
+              target,
+              "reference",
+              a.name || a.id
+            );
+          }
+          for (const other of modelIndex.entities) {
+            if (other.fqid === key)
+              continue;
+            for (const a of other.attributes) {
+              const target = a.referenceEntity || a.itemReferenceEntity;
+              if (target !== key)
+                continue;
+              if (addNode(other.fqid, nextDepth)) {
+                queue.push({ key: other.fqid, depth: nextDepth });
+              }
+              addEdge(
+                `ref:${other.fqid}#${a.id}->${key}`,
+                other.fqid,
+                key,
+                "reference",
+                a.name || a.id
+              );
+            }
+          }
+        }
+        if (showLinkages) {
+          for (const l of modelIndex.entityLinkages || []) {
+            if (l.side1Fqid === key) {
+              if (addNode(l.side2Fqid, nextDepth)) {
+                queue.push({ key: l.side2Fqid, depth: nextDepth });
+              }
+              addEdge(
+                `lnk:${l.domainId}#${l.id}`,
+                l.side1Fqid,
+                l.side2Fqid,
+                "linkage",
+                l.name
+              );
+            } else if (l.side2Fqid === key) {
+              if (addNode(l.side1Fqid, nextDepth)) {
+                queue.push({ key: l.side1Fqid, depth: nextDepth });
+              }
+              addEdge(
+                `lnk:${l.domainId}#${l.id}`,
+                l.side1Fqid,
+                l.side2Fqid,
+                "linkage",
+                l.name
+              );
+            }
+          }
+        }
+      }
     }
   }
-  addNode(rootKey);
-  traverseParents(rootKey);
-  traverseChildren(rootKey);
+  if (hideIsolated) {
+    const connectedKeys = /* @__PURE__ */ new Set();
+    for (const edge of edgesMap.values()) {
+      connectedKeys.add(edge.source);
+      connectedKeys.add(edge.target);
+    }
+    connectedKeys.add(rootKey);
+    for (const key of Array.from(nodesMap.keys())) {
+      if (!connectedKeys.has(key))
+        nodesMap.delete(key);
+    }
+    for (const [id, edge] of Array.from(edgesMap.entries())) {
+      if (!nodesMap.has(edge.source) || !nodesMap.has(edge.target))
+        edgesMap.delete(id);
+    }
+  }
   const nodes = Array.from(nodesMap.values());
   const edges = Array.from(edgesMap.values());
   const cycleNodes = detectEntityCycles(nodes, edges);
@@ -10038,35 +10714,6 @@ function detectEntityCycles(nodes, edges) {
   sccs.forEach((scc) => scc.forEach((k) => result.add(k)));
   return result;
 }
-function layoutEntityGraph(nodes, edges, rootKey) {
-  const g = new dagre2.graphlib.Graph();
-  g.setDefaultEdgeLabel(() => ({}));
-  g.setGraph({
-    rankdir: "TB",
-    nodesep: 25,
-    ranksep: 55,
-    marginx: 30,
-    marginy: 30
-  });
-  nodes.forEach((n) => {
-    const w = n.key === rootKey ? ROOT_W : ENTITY_W;
-    const h = n.key === rootKey ? ROOT_H : ENTITY_H;
-    g.setNode(n.key, { width: w, height: h });
-  });
-  edges.forEach((e) => g.setEdge(e.source, e.target));
-  dagre2.layout(g);
-  return nodes.map((n) => {
-    const pos = g.node(n.key);
-    const w = n.key === rootKey ? ROOT_W : ENTITY_W;
-    const h = n.key === rootKey ? ROOT_H : ENTITY_H;
-    return Object.assign({}, n, {
-      x: pos.x - w / 2,
-      y: pos.y - h / 2,
-      width: w,
-      height: h
-    });
-  });
-}
 var ENTITY_W, ENTITY_H, ROOT_W, ROOT_H;
 var init_tree = __esm({
   "src/web/lib/entities/tree.ts"() {
@@ -10079,356 +10726,294 @@ var init_tree = __esm({
   }
 });
 
-// src/web/components/modals/EntityHierarchyGraph.tsx
-import { useCallback as useCallback10, useEffect as useEffect21, useMemo as useMemo19, useRef as useRef11, useState as useState10 } from "react";
-import { Fragment as Fragment5, jsx as jsx45, jsxs as jsxs41 } from "react/jsx-runtime";
-function EntityHierarchyGraph({ tree, onSelect, onGotoDomain }) {
-  const svgRef = useRef11(null);
-  const containerRef = useRef11(null);
-  const [viewport, setViewport] = useState10({ x: 0, y: 0, scale: 1 });
-  const dragRef = useRef11(null);
-  const [isDragging, setIsDragging] = useState10(false);
-  const laid = useMemo19(
-    () => layoutEntityGraph(tree.nodes, tree.edges, tree.rootKey),
-    [tree]
-  );
-  useEffect21(() => {
-    setViewport({ x: 0, y: 0, scale: 1 });
-  }, [tree.rootKey]);
-  const fitView = useCallback10(() => {
-    if (!laid || !containerRef.current)
-      return;
-    const rect = containerRef.current.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0)
-      return;
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    laid.forEach((n) => {
-      minX = Math.min(minX, n.x);
-      minY = Math.min(minY, n.y);
-      maxX = Math.max(maxX, n.x + n.width);
-      maxY = Math.max(maxY, n.y + n.height);
-    });
-    const pad = 60;
-    const w = maxX - minX + pad * 2;
-    const h = maxY - minY + pad * 2;
-    const scale = Math.min(rect.width / w, rect.height / h, 1.5);
-    const cx = rect.width / 2;
-    const cy = rect.height / 2;
-    const treeCx = (minX + maxX) / 2;
-    const treeCy = (minY + maxY) / 2;
-    setViewport({ x: cx - treeCx * scale, y: cy - treeCy * scale, scale });
-  }, [laid]);
-  useEffect21(() => {
-    if (!laid)
-      return;
-    const t = setTimeout(fitView, 50);
-    return () => clearTimeout(t);
-  }, [laid, fitView]);
-  useEffect21(() => {
-    const el = containerRef.current;
-    if (!el)
-      return;
-    const onWheel = (e) => {
-      e.preventDefault();
-      const rect = el.getBoundingClientRect();
-      const mx = e.clientX - rect.left;
-      const my = e.clientY - rect.top;
-      const factor = -e.deltaY > 0 ? 1.15 : 1 / 1.15;
-      setViewport((vp) => {
-        const newScale = Math.max(0.1, Math.min(5, vp.scale * factor));
-        return {
-          x: mx - (mx - vp.x) * (newScale / vp.scale),
-          y: my - (my - vp.y) * (newScale / vp.scale),
-          scale: newScale
-        };
-      });
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, []);
-  const onMouseDown = useCallback10(
-    (e) => {
-      if (e.button !== 0)
-        return;
-      dragRef.current = {
-        startX: e.clientX,
-        startY: e.clientY,
-        startVpX: viewport.x,
-        startVpY: viewport.y,
-        moved: false
-      };
-      setIsDragging(true);
-    },
-    [viewport.x, viewport.y]
-  );
-  useEffect21(() => {
-    if (!isDragging)
-      return;
-    const onMove = (e) => {
-      if (!dragRef.current)
-        return;
-      const dx = e.clientX - dragRef.current.startX;
-      const dy = e.clientY - dragRef.current.startY;
-      if (Math.abs(dx) > 3 || Math.abs(dy) > 3)
-        dragRef.current.moved = true;
-      setViewport((vp) => ({
-        x: dragRef.current.startVpX + dx,
-        y: dragRef.current.startVpY + dy,
-        scale: vp.scale
-      }));
-    };
-    const onUp = () => {
-      setIsDragging(false);
-      setTimeout(() => {
-        if (dragRef.current)
-          dragRef.current.moved = false;
-      }, 0);
-    };
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-    return () => {
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-    };
-  }, [isDragging]);
-  const zoomBy = useCallback10((factor) => {
-    const el = containerRef.current;
-    if (!el)
-      return;
-    const rect = el.getBoundingClientRect();
-    const cx = rect.width / 2;
-    const cy = rect.height / 2;
-    setViewport((vp) => {
-      const newScale = Math.max(0.1, Math.min(5, vp.scale * factor));
-      return {
-        x: cx - (cx - vp.x) * (newScale / vp.scale),
-        y: cy - (cy - vp.y) * (newScale / vp.scale),
-        scale: newScale
-      };
-    });
-  }, []);
-  if (!laid)
-    return null;
-  const byKey = /* @__PURE__ */ new Map();
-  laid.forEach((n) => byKey.set(n.key, n));
-  const rootDomainId = (tree.rootKey.split("/")[0] || "").toLowerCase();
-  const handleNodeClick = (n) => {
-    if (dragRef.current && dragRef.current.moved)
-      return;
-    if (n.missing)
-      return;
-    if (onSelect)
-      onSelect(n);
-  };
-  const truncate = (s, max) => !s ? "" : s.length > max ? s.slice(0, max - 1) + "\u2026" : s;
-  return /* @__PURE__ */ jsxs41(Fragment5, { children: [
-    /* @__PURE__ */ jsxs41("div", { className: "entity-graph-controls", children: [
-      /* @__PURE__ */ jsx45(
-        "button",
-        {
-          className: "entity-ctrl-btn",
-          onClick: () => zoomBy(1.3),
-          title: "\u041F\u0440\u0438\u0431\u043B\u0438\u0437\u0438\u0442\u044C",
-          children: "+"
-        }
-      ),
-      /* @__PURE__ */ jsx45(
-        "button",
-        {
-          className: "entity-ctrl-btn",
-          onClick: () => zoomBy(1 / 1.3),
-          title: "\u041E\u0442\u0434\u0430\u043B\u0438\u0442\u044C",
-          children: "\u2212"
-        }
-      ),
-      /* @__PURE__ */ jsx45("button", { className: "entity-ctrl-btn", onClick: fitView, title: "\u0412\u043F\u0438\u0441\u0430\u0442\u044C", children: "\u26F6" }),
-      /* @__PURE__ */ jsxs41("span", { className: "entity-zoom-level", children: [
-        Math.round(viewport.scale * 100),
-        "%"
-      ] })
-    ] }),
-    /* @__PURE__ */ jsx45(
-      "div",
+// src/web/components/modals/EntityHierarchyFlow.tsx
+import { useCallback as useCallback11, useEffect as useEffect23, useMemo as useMemo21 } from "react";
+import ReactFlow2, {
+  Background as Background2,
+  BackgroundVariant as BackgroundVariant2,
+  Controls as Controls2,
+  Handle as Handle2,
+  MiniMap as MiniMap2,
+  Position as Position2,
+  ReactFlowProvider as ReactFlowProvider2,
+  useReactFlow as useReactFlow2
+} from "reactflow";
+import dagre2 from "dagre";
+import {
+  BaseEdge,
+  getSmoothStepPath
+} from "reactflow";
+import { Fragment as Fragment5, jsx as jsx47, jsxs as jsxs44 } from "react/jsx-runtime";
+function EntityEdge({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  style,
+  markerEnd,
+  data
+}) {
+  const [edgePath] = getSmoothStepPath({
+    sourceX,
+    sourceY,
+    sourcePosition,
+    targetX,
+    targetY,
+    targetPosition,
+    borderRadius: 8
+  });
+  const kind = data && data.kind || "inheritance";
+  const label = data && data.label || "";
+  const title = kind === "inheritance" ? "\u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435" : kind === "reference" ? `\u0430\u0442\u0440\u0438\u0431\u0443\u0442: ${label}` : `\u0441\u0432\u044F\u0437\u044C: ${label}`;
+  return /* @__PURE__ */ jsxs44(Fragment5, { children: [
+    /* @__PURE__ */ jsx47(BaseEdge, { id, path: edgePath, style, markerEnd }),
+    /* @__PURE__ */ jsx47(
+      "path",
       {
-        className: "entity-graph-container" + (isDragging ? " entity-graph-container--dragging" : ""),
-        ref: containerRef,
-        onMouseDown,
-        children: /* @__PURE__ */ jsxs41(
-          "svg",
-          {
-            ref: svgRef,
-            className: "entity-graph-svg",
-            style: { width: "100%", height: "100%" },
-            children: [
-              /* @__PURE__ */ jsx45("defs", { children: /* @__PURE__ */ jsx45(
-                "marker",
-                {
-                  id: "entity-arrow",
-                  viewBox: "0 0 10 10",
-                  refX: 9,
-                  refY: 5,
-                  markerWidth: 6,
-                  markerHeight: 6,
-                  orient: "auto-start-reverse",
-                  children: /* @__PURE__ */ jsx45("path", { d: "M 0 0 L 10 5 L 0 10 z", className: "entity-arrow-marker" })
-                }
-              ) }),
-              /* @__PURE__ */ jsxs41(
-                "g",
-                {
-                  transform: "translate(" + viewport.x + "," + viewport.y + ") scale(" + viewport.scale + ")",
-                  children: [
-                    /* @__PURE__ */ jsx45("g", { className: "entity-graph-edges", children: tree.edges.map((e, i) => {
-                      const src = byKey.get(e.source);
-                      const tgt = byKey.get(e.target);
-                      if (!src || !tgt)
-                        return null;
-                      const sx = src.x + src.width / 2;
-                      const sy = src.y + src.height;
-                      const tx = tgt.x + tgt.width / 2;
-                      const ty = tgt.y;
-                      const my = (sy + ty) / 2;
-                      const path = "M " + sx + "," + sy + " C " + sx + "," + my + " " + tx + "," + my + " " + tx + "," + ty;
-                      const isCycle = tree.cycleNodes.has(e.source) && tree.cycleNodes.has(e.target);
-                      return /* @__PURE__ */ jsx45(
-                        "path",
-                        {
-                          d: path,
-                          className: "entity-edge" + (isCycle ? " entity-edge--cycle" : ""),
-                          markerEnd: "url(#entity-arrow)"
-                        },
-                        i
-                      );
-                    }) }),
-                    /* @__PURE__ */ jsx45("g", { className: "entity-graph-nodes", children: laid.map((n) => {
-                      const isRoot = n.key === tree.rootKey;
-                      const isCycle = tree.cycleNodes.has(n.key);
-                      const isForeign = !isRoot && n.domainId.toLowerCase() !== rootDomainId;
-                      let nodeCls = "entity-graph-node";
-                      if (isRoot)
-                        nodeCls += " entity-graph-node--root";
-                      if (isCycle)
-                        nodeCls += " entity-graph-node--cycle";
-                      if (n.missing)
-                        nodeCls += " entity-graph-node--missing";
-                      const idMax = isRoot ? 24 : 22;
-                      const shortId = truncate(n.missing ? "\u26A0\uFE0F " + n.entityId : n.entityId, idMax);
-                      const shortName = truncate(n.name || "", 26);
-                      const shortDomain = truncate(n.domainId, 24);
-                      return /* @__PURE__ */ jsxs41(
-                        "g",
-                        {
-                          transform: "translate(" + n.x + "," + n.y + ")",
-                          className: nodeCls,
-                          onClick: () => handleNodeClick(n),
-                          style: { cursor: n.missing ? "default" : "pointer" },
-                          children: [
-                            /* @__PURE__ */ jsx45("title", { children: n.entityId + (n.name ? " \u2014 " + n.name : "") + " (" + n.domainId + ")" }),
-                            /* @__PURE__ */ jsx45(
-                              "rect",
-                              {
-                                width: n.width,
-                                height: n.height,
-                                rx: 8,
-                                className: "entity-node-rect" + (isRoot ? " entity-node-rect--root" : "") + (isForeign ? " entity-node-rect--foreign" : "") + (isCycle ? " entity-node-rect--cycle" : "") + (n.missing ? " entity-node-rect--missing" : "")
-                              }
-                            ),
-                            /* @__PURE__ */ jsx45(
-                              "text",
-                              {
-                                x: n.width / 2,
-                                y: isRoot ? 24 : 22,
-                                textAnchor: "middle",
-                                className: "entity-node-id" + (isRoot ? " entity-node-id--root" : ""),
-                                pointerEvents: "none",
-                                children: shortId
-                              }
-                            ),
-                            !isRoot && !n.missing && shortName && /* @__PURE__ */ jsx45(
-                              "text",
-                              {
-                                x: n.width / 2,
-                                y: 38,
-                                textAnchor: "middle",
-                                className: "entity-node-name",
-                                pointerEvents: "none",
-                                children: shortName
-                              }
-                            ),
-                            !n.missing && /* @__PURE__ */ jsx45(
-                              "text",
-                              {
-                                x: n.width / 2,
-                                y: n.height - 8,
-                                textAnchor: "middle",
-                                className: "entity-node-domain" + (isForeign ? " entity-node-domain--foreign" : ""),
-                                onClick: (ev) => {
-                                  ev.stopPropagation();
-                                  if (onGotoDomain)
-                                    onGotoDomain(n.domainId);
-                                },
-                                children: shortDomain
-                              }
-                            ),
-                            n.missing && /* @__PURE__ */ jsx45(
-                              "text",
-                              {
-                                x: n.width / 2,
-                                y: n.height - 8,
-                                textAnchor: "middle",
-                                className: "entity-node-domain entity-node-domain--missing",
-                                children: "\u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E"
-                              }
-                            )
-                          ]
-                        },
-                        n.key
-                      );
-                    }) })
-                  ]
-                }
-              )
-            ]
-          }
-        )
+        d: edgePath,
+        fill: "none",
+        stroke: "transparent",
+        strokeWidth: 18,
+        style: { cursor: "pointer" },
+        children: /* @__PURE__ */ jsx47("title", { children: title })
       }
     )
   ] });
 }
-var init_EntityHierarchyGraph = __esm({
-  "src/web/components/modals/EntityHierarchyGraph.tsx"() {
+function EntityFlowNode({ data }) {
+  const cls = ["entity-flow-node"];
+  if (data.isRoot)
+    cls.push("entity-flow-node--root");
+  if (data.isCycle)
+    cls.push("entity-flow-node--cycle");
+  if (data.missing)
+    cls.push("entity-flow-node--missing");
+  if (data.isForeign)
+    cls.push("entity-flow-node--foreign");
+  return /* @__PURE__ */ jsxs44(Fragment5, { children: [
+    /* @__PURE__ */ jsx47(Handle2, { type: "target", position: Position2.Top, className: "entity-flow-handle" }),
+    /* @__PURE__ */ jsxs44("div", { className: cls.join(" "), children: [
+      /* @__PURE__ */ jsxs44("div", { className: "entity-flow-node__id", children: [
+        data.missing && "\u26A0\uFE0F ",
+        data.entityId
+      ] }),
+      data.name && data.name !== data.entityId && /* @__PURE__ */ jsx47("div", { className: "entity-flow-node__name", children: data.name }),
+      /* @__PURE__ */ jsx47("div", { className: "entity-flow-node__domain", children: data.domainId })
+    ] }),
+    /* @__PURE__ */ jsx47(Handle2, { type: "source", position: Position2.Bottom, className: "entity-flow-handle" })
+  ] });
+}
+function layoutWithDagre(nodes, edges) {
+  const g = new dagre2.graphlib.Graph();
+  g.setDefaultEdgeLabel(() => ({}));
+  g.setGraph({
+    rankdir: "TB",
+    nodesep: 40,
+    ranksep: 80,
+    marginx: 40,
+    marginy: 40
+  });
+  const nodeIds = new Set(nodes.map((n) => n.id));
+  nodes.forEach((n) => g.setNode(n.id, { width: n.width, height: n.height }));
+  edges.forEach((e) => {
+    if (nodeIds.has(e.source) && nodeIds.has(e.target)) {
+      g.setEdge(e.source, e.target);
+    }
+  });
+  dagre2.layout(g);
+  const result = /* @__PURE__ */ new Map();
+  nodes.forEach((n) => {
+    const pos = g.node(n.id);
+    if (!pos)
+      return;
+    result.set(n.id, {
+      x: pos.x - n.width / 2,
+      y: pos.y - n.height / 2
+    });
+  });
+  return result;
+}
+function EntityHierarchyFlowInner({ tree, onSelect }) {
+  const rf = useReactFlow2();
+  const rootDomainId = (tree.rootKey.split("/")[0] || "").toLowerCase();
+  const { flowNodes, flowEdges } = useMemo21(() => {
+    const initialNodes = tree.nodes.map((n) => {
+      const isRoot = n.key === tree.rootKey;
+      return {
+        id: n.key,
+        type: "entityNode",
+        position: { x: 0, y: 0 },
+        data: {
+          key: n.key,
+          domainId: n.domainId,
+          entityId: n.entityId,
+          name: n.name,
+          missing: n.missing,
+          isRoot,
+          isCycle: tree.cycleNodes.has(n.key),
+          isForeign: !isRoot && n.domainId.toLowerCase() !== rootDomainId,
+          rootDomainId
+        },
+        width: isRoot ? ROOT_WIDTH : NODE_WIDTH3,
+        height: isRoot ? ROOT_HEIGHT : NODE_HEIGHT3
+      };
+    });
+    const layoutEdges = tree.edges.map((e) => ({
+      source: e.source,
+      target: e.target
+    }));
+    const positions = layoutWithDagre(
+      initialNodes.map((n) => ({ id: n.id, width: n.width, height: n.height })),
+      layoutEdges
+    );
+    const flowNodes2 = initialNodes.map((n) => {
+      const pos = positions.get(n.id);
+      return {
+        ...n,
+        position: pos || { x: 0, y: 0 }
+      };
+    });
+    const flowEdges2 = tree.edges.map((e) => {
+      const stroke = e.kind === "inheritance" ? "#a78bfa" : e.kind === "reference" ? "#6366f1" : "#10b981";
+      return {
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        type: "entityEdge",
+        data: { label: e.label, kind: e.kind },
+        style: {
+          stroke,
+          strokeWidth: e.kind === "inheritance" ? 2.5 : 1.5,
+          strokeDasharray: e.kind === "reference" ? "5 3" : void 0,
+          opacity: 0.85
+        },
+        markerEnd: {
+          type: "arrowclosed",
+          color: stroke,
+          width: 12,
+          height: 12
+        }
+      };
+    });
+    return { flowNodes: flowNodes2, flowEdges: flowEdges2 };
+  }, [tree, rootDomainId]);
+  useEffect23(() => {
+    if (flowNodes.length === 0)
+      return;
+    const t = setTimeout(() => {
+      try {
+        rf.fitView({ duration: 400, padding: 0.15 });
+      } catch {
+      }
+    }, 120);
+    return () => clearTimeout(t);
+  }, [flowNodes.length, flowEdges.length, rf]);
+  const handleNodeClick = useCallback11(
+    (_, node) => {
+      if (!node?.data)
+        return;
+      onSelect({ key: node.data.key, missing: node.data.missing });
+    },
+    [onSelect]
+  );
+  return /* @__PURE__ */ jsxs44(
+    ReactFlow2,
+    {
+      nodes: flowNodes,
+      edges: flowEdges,
+      nodeTypes: nodeTypes2,
+      edgeTypes,
+      onNodeClick: handleNodeClick,
+      fitView: true,
+      minZoom: 0.1,
+      maxZoom: 4,
+      proOptions: { hideAttribution: true },
+      nodesDraggable: true,
+      nodesConnectable: false,
+      elementsSelectable: true,
+      onlyRenderVisibleElements: false,
+      children: [
+        /* @__PURE__ */ jsx47(Background2, { variant: BackgroundVariant2.Dots, gap: 20, size: 1, color: "var(--graph-dots)" }),
+        /* @__PURE__ */ jsx47(Controls2, { position: "bottom-left" }),
+        /* @__PURE__ */ jsx47(
+          MiniMap2,
+          {
+            position: "bottom-right",
+            nodeColor: (n) => {
+              if (n.data?.isRoot)
+                return "#6366f1";
+              if (n.data?.isCycle)
+                return "#ef4444";
+              if (n.data?.missing)
+                return "#f59e0b";
+              return "#10b981";
+            },
+            maskColor: "rgba(10,14,26,0.7)",
+            style: { width: 160, height: 120 }
+          }
+        )
+      ]
+    }
+  );
+}
+function EntityHierarchyFlow(props) {
+  return /* @__PURE__ */ jsx47(ReactFlowProvider2, { children: /* @__PURE__ */ jsx47(EntityHierarchyFlowInner, { ...props }) });
+}
+var edgeTypes, NODE_WIDTH3, NODE_HEIGHT3, ROOT_WIDTH, ROOT_HEIGHT, nodeTypes2;
+var init_EntityHierarchyFlow = __esm({
+  "src/web/components/modals/EntityHierarchyFlow.tsx"() {
     "use strict";
-    init_tree();
+    edgeTypes = { entityEdge: EntityEdge };
+    NODE_WIDTH3 = 200;
+    NODE_HEIGHT3 = 64;
+    ROOT_WIDTH = 240;
+    ROOT_HEIGHT = 76;
+    nodeTypes2 = { entityNode: EntityFlowNode };
   }
 });
 
 // src/web/components/modals/EntityHierarchyModal.tsx
-import { useCallback as useCallback11, useEffect as useEffect22, useMemo as useMemo20, useState as useState11 } from "react";
-import { jsx as jsx46, jsxs as jsxs42 } from "react/jsx-runtime";
+import { useCallback as useCallback12, useEffect as useEffect24, useMemo as useMemo22, useState as useState12 } from "react";
+import { Fragment as Fragment6, jsx as jsx48, jsxs as jsxs45 } from "react/jsx-runtime";
 function EntityHierarchyModal({ entities }) {
-  const store = useGraphStore();
-  const { goto } = useNavigation();
-  const [query, setQuery] = useState11("");
-  const [selectedKey, setSelectedKey] = useState11(null);
-  const [history, setHistory] = useState11([]);
-  const open = store.entityHierarchyOpen;
-  const initialKey = store.entityHierarchyInitialKey;
-  const index = useMemo20(() => buildEntityIndex(entities), [entities]);
-  useEffect22(() => {
+  const setEntityHierarchyOpen = useGraphStore(
+    (s) => s.setEntityHierarchyOpen
+  );
+  const entityHierarchyOpen = useGraphStore((s) => s.entityHierarchyOpen);
+  const entityHierarchyInitialKey = useGraphStore(
+    (s) => s.entityHierarchyInitialKey
+  );
+  const { index: modelIndex } = useModelIndex();
+  const [mode, setMode] = useState12("inherits");
+  const [depth, setDepth] = useState12(2);
+  const [showInheritance, setShowInheritance] = useState12(true);
+  const [showReferences, setShowReferences] = useState12(true);
+  const [showLinkages, setShowLinkages] = useState12(true);
+  const [hideIsolated, setHideIsolated] = useState12(true);
+  const [query, setQuery] = useState12("");
+  const [selectedKey, setSelectedKey] = useState12(null);
+  const [history, setHistory] = useState12([]);
+  const open = entityHierarchyOpen;
+  const initialKey = entityHierarchyInitialKey;
+  const index = useMemo22(() => buildEntityIndex(entities), [entities]);
+  useEffect24(() => {
     if (open && initialKey) {
       setSelectedKey(initialKey);
       setHistory([]);
       setQuery("");
     }
   }, [open, initialKey]);
-  useEffect22(() => {
+  useEffect24(() => {
     if (!open) {
       setQuery("");
       setSelectedKey(null);
       setHistory([]);
     }
   }, [open]);
-  const handleBack = useCallback11(() => {
+  const handleBack = useCallback12(() => {
     setHistory((prev) => {
       if (prev.length === 0)
         return prev;
@@ -10437,7 +11022,7 @@ function EntityHierarchyModal({ entities }) {
       return prev.slice(0, -1);
     });
   }, []);
-  useEffect22(() => {
+  useEffect24(() => {
     if (!open)
       return;
     const onKey = (e) => {
@@ -10446,13 +11031,13 @@ function EntityHierarchyModal({ entities }) {
         if (history.length > 0)
           handleBack();
         else
-          store.setEntityHierarchyOpen(false);
+          setEntityHierarchyOpen(false);
       }
     };
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
-  }, [open, history, handleBack, store]);
-  const searchResults = useMemo20(() => {
+  }, [open, history, handleBack, setEntityHierarchyOpen]);
+  const searchResults = useMemo22(() => {
     const q = query.trim().toLowerCase();
     if (!q)
       return [];
@@ -10476,12 +11061,21 @@ function EntityHierarchyModal({ entities }) {
     });
     return results.sort((a, b) => a.rank - b.rank).slice(0, 200);
   }, [query, entities, index]);
-  const tree = useMemo20(() => {
+  const tree = useMemo22(() => {
     if (!selectedKey)
       return null;
-    return buildEntityTree(selectedKey, index);
-  }, [selectedKey, index]);
-  const handleSelect = useCallback11(
+    if (!modelIndex)
+      return null;
+    return buildEntityTree(selectedKey, index, modelIndex, {
+      mode,
+      depth,
+      showInheritance,
+      showReferences,
+      showLinkages,
+      hideIsolated
+    });
+  }, [selectedKey, index, modelIndex, mode, depth, showInheritance, showReferences, showLinkages, hideIsolated]);
+  const handleSelect = useCallback12(
     (node) => {
       if (!node || node.missing)
         return;
@@ -10494,33 +11088,33 @@ function EntityHierarchyModal({ entities }) {
   );
   if (!open)
     return null;
-  return /* @__PURE__ */ jsx46(
+  return /* @__PURE__ */ jsx48(
     "div",
     {
       className: "help-overlay help-overlay--fullscreen",
-      onMouseDown: () => store.setEntityHierarchyOpen(false),
-      children: /* @__PURE__ */ jsxs42(
+      onMouseDown: () => setEntityHierarchyOpen(false),
+      children: /* @__PURE__ */ jsxs45(
         "div",
         {
           className: "help-modal entity-hierarchy-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
-            /* @__PURE__ */ jsxs42("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsx46("div", { className: "help-modal__title", children: "\u{1F9EC} \u0418\u0435\u0440\u0430\u0440\u0445\u0438\u044F \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" }),
-              /* @__PURE__ */ jsx46(
+            /* @__PURE__ */ jsxs45("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsx48("div", { className: "help-modal__title", children: "\u{1F9EC} \u0418\u0435\u0440\u0430\u0440\u0445\u0438\u044F \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" }),
+              /* @__PURE__ */ jsx48(
                 "button",
                 {
                   className: "help-modal__close",
-                  onClick: () => store.setEntityHierarchyOpen(false),
+                  onClick: () => setEntityHierarchyOpen(false),
                   children: "\u2715"
                 }
               )
             ] }),
-            /* @__PURE__ */ jsxs42("div", { className: "entity-hierarchy-body", children: [
-              /* @__PURE__ */ jsxs42("div", { className: "entity-search-panel", children: [
-                /* @__PURE__ */ jsxs42("div", { className: "entity-search-input-wrap", children: [
-                  /* @__PURE__ */ jsx46("span", { className: "entity-search-icon", children: "\u{1F50D}" }),
-                  /* @__PURE__ */ jsx46(
+            /* @__PURE__ */ jsxs45("div", { className: "entity-hierarchy-body", children: [
+              /* @__PURE__ */ jsxs45("div", { className: "entity-search-panel", children: [
+                /* @__PURE__ */ jsxs45("div", { className: "entity-search-input-wrap", children: [
+                  /* @__PURE__ */ jsx48("span", { className: "entity-search-icon", children: "\u{1F50D}" }),
+                  /* @__PURE__ */ jsx48(
                     "input",
                     {
                       className: "entity-search-input",
@@ -10531,12 +11125,12 @@ function EntityHierarchyModal({ entities }) {
                     }
                   )
                 ] }),
-                /* @__PURE__ */ jsx46("div", { className: "entity-search-results", children: query.trim() === "" ? /* @__PURE__ */ jsxs42("div", { className: "entity-search-hint", children: [
+                /* @__PURE__ */ jsx48("div", { className: "entity-search-results", children: query.trim() === "" ? /* @__PURE__ */ jsxs45("div", { className: "entity-search-hint", children: [
                   "\u0412\u0441\u0435\u0433\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439: ",
                   entities.length,
-                  /* @__PURE__ */ jsx46("br", {}),
-                  /* @__PURE__ */ jsx46("span", { style: { fontSize: 11 }, children: "\u041D\u0430\u0447\u043D\u0438\u0442\u0435 \u0432\u0432\u043E\u0434\u0438\u0442\u044C \u0434\u043B\u044F \u043F\u043E\u0438\u0441\u043A\u0430" })
-                ] }) : searchResults.length === 0 ? /* @__PURE__ */ jsx46("div", { className: "entity-search-hint", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" }) : searchResults.map((r) => /* @__PURE__ */ jsxs42(
+                  /* @__PURE__ */ jsx48("br", {}),
+                  /* @__PURE__ */ jsx48("span", { style: { fontSize: 11 }, children: "\u041D\u0430\u0447\u043D\u0438\u0442\u0435 \u0432\u0432\u043E\u0434\u0438\u0442\u044C \u0434\u043B\u044F \u043F\u043E\u0438\u0441\u043A\u0430" })
+                ] }) : searchResults.length === 0 ? /* @__PURE__ */ jsx48("div", { className: "entity-search-hint", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" }) : searchResults.map((r) => /* @__PURE__ */ jsxs45(
                   "div",
                   {
                     className: "entity-search-item" + (r.key === selectedKey ? " entity-search-item--active" : "") + (r.isOrphan ? " entity-search-item--orphan" : ""),
@@ -10547,65 +11141,156 @@ function EntityHierarchyModal({ entities }) {
                       setSelectedKey(r.key);
                     },
                     children: [
-                      /* @__PURE__ */ jsx46("div", { className: "entity-search-item__id", children: r.entity.entityId }),
-                      r.entity.name && r.entity.name !== r.entity.entityId && /* @__PURE__ */ jsx46("div", { className: "entity-search-item__name", children: r.entity.name }),
-                      /* @__PURE__ */ jsxs42("div", { className: "entity-search-item__meta", children: [
-                        /* @__PURE__ */ jsx46("span", { className: "entity-search-item__domain", children: r.entity.domainId }),
-                        r.isOrphan ? /* @__PURE__ */ jsx46("span", { className: "entity-search-item__badge", children: "\u0431\u0435\u0437 \u0438\u0435\u0440\u0430\u0440\u0445\u0438\u0438" }) : /* @__PURE__ */ jsx46("span", { className: "entity-search-item__badge entity-search-item__badge--ok", children: (r.hasParents ? "\u2191" : "\xB7") + (r.hasChildren ? "\u2193" : "\xB7") })
+                      /* @__PURE__ */ jsx48("div", { className: "entity-search-item__id", children: r.entity.entityId }),
+                      r.entity.name && r.entity.name !== r.entity.entityId && /* @__PURE__ */ jsx48("div", { className: "entity-search-item__name", children: r.entity.name }),
+                      /* @__PURE__ */ jsxs45("div", { className: "entity-search-item__meta", children: [
+                        /* @__PURE__ */ jsx48("span", { className: "entity-search-item__domain", children: r.entity.domainId }),
+                        r.isOrphan ? /* @__PURE__ */ jsx48("span", { className: "entity-search-item__badge", children: "\u0431\u0435\u0437 \u0438\u0435\u0440\u0430\u0440\u0445\u0438\u0438" }) : /* @__PURE__ */ jsx48("span", { className: "entity-search-item__badge entity-search-item__badge--ok", children: (r.hasParents ? "\u2191" : "\xB7") + (r.hasChildren ? "\u2193" : "\xB7") })
                       ] })
                     ]
                   },
                   r.key
                 )) })
               ] }),
-              /* @__PURE__ */ jsxs42("div", { className: "entity-graph-panel", children: [
-                history.length > 0 && /* @__PURE__ */ jsx46(
-                  "button",
-                  {
-                    className: "entity-graph-back",
-                    onClick: handleBack,
-                    title: "\u041D\u0430\u0437\u0430\u0434",
-                    children: "\u2190 \u041D\u0430\u0437\u0430\u0434"
-                  }
-                ),
-                !selectedKey ? /* @__PURE__ */ jsxs42("div", { className: "entity-graph-empty", children: [
-                  /* @__PURE__ */ jsx46("div", { className: "entity-graph-empty__icon", children: "\u{1F9EC}" }),
-                  /* @__PURE__ */ jsx46("div", { className: "entity-graph-empty__title", children: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0441\u043B\u0435\u0432\u0430" }),
-                  /* @__PURE__ */ jsx46("div", { className: "entity-graph-empty__hint", children: "\u0420\u043E\u0434\u0438\u0442\u0435\u043B\u0438 \u0431\u0443\u0434\u0443\u0442 \u0441\u0432\u0435\u0440\u0445\u0443, \u043D\u0430\u0441\u043B\u0435\u0434\u043D\u0438\u043A\u0438 \u0441\u043D\u0438\u0437\u0443" })
-                ] }) : tree ? /* @__PURE__ */ jsx46(
-                  EntityHierarchyGraph,
+              /* @__PURE__ */ jsx48("div", { className: "entity-graph-panel", children: !selectedKey ? /* @__PURE__ */ jsxs45("div", { className: "entity-graph-empty", children: [
+                /* @__PURE__ */ jsx48("div", { className: "entity-graph-empty__icon", children: "\u{1F9EC}" }),
+                /* @__PURE__ */ jsx48("div", { className: "entity-graph-empty__title", children: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0441\u043B\u0435\u0432\u0430" }),
+                /* @__PURE__ */ jsx48("div", { className: "entity-graph-empty__hint", children: "\u0420\u043E\u0434\u0438\u0442\u0435\u043B\u0438 \u0441\u0432\u0435\u0440\u0445\u0443, \u043D\u0430\u0441\u043B\u0435\u0434\u043D\u0438\u043A\u0438 \u0441\u043D\u0438\u0437\u0443. \u0412\u043E \u0432\u0442\u043E\u0440\u043E\u043C \u0440\u0435\u0436\u0438\u043C\u0435 \u2014 \u0435\u0449\u0451 Reference \u0438 Linkage." })
+              ] }) : tree ? /* @__PURE__ */ jsxs45(Fragment6, { children: [
+                /* @__PURE__ */ jsxs45("div", { className: "entity-hierarchy-toolbar", children: [
+                  history.length > 0 && /* @__PURE__ */ jsx48(
+                    "button",
+                    {
+                      className: "entity-hierarchy-back",
+                      onClick: handleBack,
+                      title: "\u041D\u0430\u0437\u0430\u0434",
+                      children: "\u2190 \u041D\u0430\u0437\u0430\u0434"
+                    }
+                  ),
+                  /* @__PURE__ */ jsxs45("div", { className: "entity-hierarchy-toolbar__modes", children: [
+                    /* @__PURE__ */ jsxs45(
+                      "button",
+                      {
+                        className: "entity-hierarchy-mode" + (mode === "inherits" ? " active" : ""),
+                        onClick: () => setMode("inherits"),
+                        children: [
+                          /* @__PURE__ */ jsx48("span", { className: "entity-hierarchy-mode__dot", style: { background: "#a78bfa" } }),
+                          "\u041D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435"
+                        ]
+                      }
+                    ),
+                    /* @__PURE__ */ jsxs45(
+                      "button",
+                      {
+                        className: "entity-hierarchy-mode" + (mode === "all" ? " active" : ""),
+                        onClick: () => setMode("all"),
+                        children: [
+                          /* @__PURE__ */ jsx48("span", { className: "entity-hierarchy-mode__dot", style: { background: "#6366f1" } }),
+                          "\u0412\u0441\u0435 \u0441\u0432\u044F\u0437\u0438"
+                        ]
+                      }
+                    )
+                  ] }),
+                  /* @__PURE__ */ jsxs45("div", { className: "entity-hierarchy-toolbar__filters", children: [
+                    mode === "all" && /* @__PURE__ */ jsxs45(Fragment6, { children: [
+                      /* @__PURE__ */ jsxs45("label", { className: "entity-hierarchy-filter", children: [
+                        /* @__PURE__ */ jsx48(
+                          "input",
+                          {
+                            type: "checkbox",
+                            checked: showInheritance,
+                            onChange: () => setShowInheritance(!showInheritance)
+                          }
+                        ),
+                        /* @__PURE__ */ jsx48("span", { className: "entity-hierarchy-filter__dot", style: { background: "#a78bfa" } }),
+                        "\u041D\u0430\u0441\u043B\u0435\u0434."
+                      ] }),
+                      /* @__PURE__ */ jsxs45("label", { className: "entity-hierarchy-filter", children: [
+                        /* @__PURE__ */ jsx48(
+                          "input",
+                          {
+                            type: "checkbox",
+                            checked: showReferences,
+                            onChange: () => setShowReferences(!showReferences)
+                          }
+                        ),
+                        /* @__PURE__ */ jsx48("span", { className: "entity-hierarchy-filter__dot", style: { background: "#6366f1" } }),
+                        "Reference"
+                      ] }),
+                      /* @__PURE__ */ jsxs45("label", { className: "entity-hierarchy-filter", children: [
+                        /* @__PURE__ */ jsx48(
+                          "input",
+                          {
+                            type: "checkbox",
+                            checked: showLinkages,
+                            onChange: () => setShowLinkages(!showLinkages)
+                          }
+                        ),
+                        /* @__PURE__ */ jsx48("span", { className: "entity-hierarchy-filter__dot", style: { background: "#10b981" } }),
+                        "Linkage"
+                      ] }),
+                      /* @__PURE__ */ jsx48("span", { className: "entity-hierarchy-toolbar__sep" })
+                    ] }),
+                    /* @__PURE__ */ jsxs45("label", { className: "entity-hierarchy-filter", children: [
+                      /* @__PURE__ */ jsx48(
+                        "input",
+                        {
+                          type: "checkbox",
+                          checked: hideIsolated,
+                          onChange: () => setHideIsolated(!hideIsolated)
+                        }
+                      ),
+                      "\u0411\u0435\u0437 \u0441\u0432\u044F\u0437\u0435\u0439"
+                    ] })
+                  ] }),
+                  mode === "all" && /* @__PURE__ */ jsxs45("div", { className: "entity-hierarchy-toolbar__depth", children: [
+                    /* @__PURE__ */ jsx48("span", { children: "\u0413\u043B\u0443\u0431\u0438\u043D\u0430:" }),
+                    /* @__PURE__ */ jsx48(
+                      "input",
+                      {
+                        type: "range",
+                        min: 1,
+                        max: 6,
+                        value: depth,
+                        onChange: (e) => setDepth(parseInt(e.target.value, 10))
+                      }
+                    ),
+                    /* @__PURE__ */ jsx48("span", { className: "entity-hierarchy-depth-value", children: depth })
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsx48(
+                  EntityHierarchyFlow,
                   {
                     tree,
-                    onSelect: handleSelect,
-                    onGotoDomain: goto
+                    onSelect: handleSelect
                   }
-                ) : null
-              ] })
+                )
+              ] }) : null })
             ] }),
-            tree && /* @__PURE__ */ jsxs42("div", { className: "validation-footer", children: [
-              /* @__PURE__ */ jsxs42("div", { className: "validation-stats", children: [
-                /* @__PURE__ */ jsxs42("span", { className: "validation-stat", children: [
+            tree && /* @__PURE__ */ jsxs45("div", { className: "validation-footer", children: [
+              /* @__PURE__ */ jsxs45("div", { className: "validation-stats", children: [
+                /* @__PURE__ */ jsxs45("span", { className: "validation-stat", children: [
                   "\u{1F9EC} ",
                   tree.nodes.length,
                   " \u0432 \u0433\u0440\u0430\u0444\u0435"
                 ] }),
-                /* @__PURE__ */ jsxs42("span", { className: "validation-stat validation-stat--ok", children: [
+                /* @__PURE__ */ jsxs45("span", { className: "validation-stat validation-stat--ok", children: [
                   "\u2191 ",
                   tree.parentKeys.size,
                   " \u0440\u043E\u0434\u0438\u0442\u0435\u043B\u0435\u0439"
                 ] }),
-                /* @__PURE__ */ jsxs42("span", { className: "validation-stat validation-stat--warn", children: [
+                /* @__PURE__ */ jsxs45("span", { className: "validation-stat validation-stat--warn", children: [
                   "\u2193 ",
                   tree.childKeys.size,
                   " \u043D\u0430\u0441\u043B\u0435\u0434\u043D\u0438\u043A\u043E\u0432"
                 ] }),
-                tree.cycleNodes.size > 0 && /* @__PURE__ */ jsx46("span", { className: "validation-stat validation-stat--err", children: "\u26A0\uFE0F \u0446\u0438\u043A\u043B" })
+                tree.cycleNodes.size > 0 && /* @__PURE__ */ jsx48("span", { className: "validation-stat validation-stat--err", children: "\u26A0\uFE0F \u0446\u0438\u043A\u043B" })
               ] }),
-              /* @__PURE__ */ jsx46("div", { className: "validation-footer__actions", children: /* @__PURE__ */ jsx46(
+              /* @__PURE__ */ jsx48("div", { className: "validation-footer__actions", children: /* @__PURE__ */ jsx48(
                 "button",
                 {
                   className: "btn",
-                  onClick: () => store.setEntityHierarchyOpen(false),
+                  onClick: () => setEntityHierarchyOpen(false),
                   children: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C"
                 }
               ) })
@@ -10620,32 +11305,32 @@ var init_EntityHierarchyModal = __esm({
   "src/web/components/modals/EntityHierarchyModal.tsx"() {
     "use strict";
     init_useGraphStore();
-    init_useNavigation();
+    init_entities();
     init_entities();
     init_tree();
-    init_entities();
-    init_EntityHierarchyGraph();
+    init_EntityHierarchyFlow();
+    init_useModelIndex();
   }
 });
 
 // src/web/components/modals/RulesModal.tsx
-import { useEffect as useEffect23, useState as useState12 } from "react";
-import { jsx as jsx47, jsxs as jsxs43 } from "react/jsx-runtime";
+import { useEffect as useEffect25, useState as useState13 } from "react";
+import { jsx as jsx49, jsxs as jsxs46 } from "react/jsx-runtime";
 function RulesModal({ violations }) {
   const store = useGraphStore();
   const { goto } = useNavigation();
-  const [draft, setDraft] = useState12({
+  const [draft, setDraft] = useState13({
     from: "",
     to: "",
     action: "warn",
     message: ""
   });
   const open = store.rulesOpen;
-  useEffect23(() => {
+  useEffect25(() => {
     if (!open)
       setDraft({ from: "", to: "", action: "warn", message: "" });
   }, [open]);
-  useEffect23(() => {
+  useEffect25(() => {
     if (!open)
       return;
     const onKey = (e) => {
@@ -10691,28 +11376,28 @@ function RulesModal({ violations }) {
       addRule();
     }
   };
-  return /* @__PURE__ */ jsx47("div", { className: "help-overlay", onMouseDown: () => store.setRulesOpen(false), children: /* @__PURE__ */ jsxs43("div", { className: "help-modal rules-modal", onMouseDown: (e) => e.stopPropagation(), children: [
-    /* @__PURE__ */ jsxs43("div", { className: "help-modal__header", children: [
-      /* @__PURE__ */ jsxs43("div", { className: "help-modal__title", children: [
-        /* @__PURE__ */ jsx47(MIcon, { name: "block" }),
-        /* @__PURE__ */ jsx47("span", { style: { marginLeft: 8 }, children: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0435\u0439" }),
-        violations.length > 0 && /* @__PURE__ */ jsx47("span", { className: "help-modal__badge", children: violations.length })
+  return /* @__PURE__ */ jsx49("div", { className: "help-overlay", onMouseDown: () => store.setRulesOpen(false), children: /* @__PURE__ */ jsxs46("div", { className: "help-modal rules-modal", onMouseDown: (e) => e.stopPropagation(), children: [
+    /* @__PURE__ */ jsxs46("div", { className: "help-modal__header", children: [
+      /* @__PURE__ */ jsxs46("div", { className: "help-modal__title", children: [
+        /* @__PURE__ */ jsx49(MIcon, { name: "block" }),
+        /* @__PURE__ */ jsx49("span", { style: { marginLeft: 8 }, children: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0435\u0439" }),
+        violations.length > 0 && /* @__PURE__ */ jsx49("span", { className: "help-modal__badge", children: violations.length })
       ] }),
-      /* @__PURE__ */ jsx47(
+      /* @__PURE__ */ jsx49(
         "button",
         {
           className: "help-modal__close",
           onClick: () => store.setRulesOpen(false),
           title: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C (Esc)",
-          children: /* @__PURE__ */ jsx47(MIcon, { name: "close" })
+          children: /* @__PURE__ */ jsx49(MIcon, { name: "close" })
         }
       )
     ] }),
-    /* @__PURE__ */ jsxs43("div", { className: "help-modal__body rules-modal__body", children: [
-      /* @__PURE__ */ jsxs43("div", { className: "rules-form", children: [
-        /* @__PURE__ */ jsx47("div", { className: "rules-form__label", children: "\u041D\u043E\u0432\u043E\u0435 \u043F\u0440\u0430\u0432\u0438\u043B\u043E" }),
-        /* @__PURE__ */ jsxs43("div", { className: "rules-form__row", children: [
-          /* @__PURE__ */ jsx47(
+    /* @__PURE__ */ jsxs46("div", { className: "help-modal__body rules-modal__body", children: [
+      /* @__PURE__ */ jsxs46("div", { className: "rules-form", children: [
+        /* @__PURE__ */ jsx49("div", { className: "rules-form__label", children: "\u041D\u043E\u0432\u043E\u0435 \u043F\u0440\u0430\u0432\u0438\u043B\u043E" }),
+        /* @__PURE__ */ jsxs46("div", { className: "rules-form__row", children: [
+          /* @__PURE__ */ jsx49(
             "input",
             {
               className: "rules-form__input",
@@ -10723,8 +11408,8 @@ function RulesModal({ violations }) {
               onKeyDown: onFormKeyDown
             }
           ),
-          /* @__PURE__ */ jsx47("span", { className: "rules-form__arrow", children: /* @__PURE__ */ jsx47(MIcon, { name: "arrow_forward", size: "sm" }) }),
-          /* @__PURE__ */ jsx47(
+          /* @__PURE__ */ jsx49("span", { className: "rules-form__arrow", children: /* @__PURE__ */ jsx49(MIcon, { name: "arrow_forward", size: "sm" }) }),
+          /* @__PURE__ */ jsx49(
             "input",
             {
               className: "rules-form__input",
@@ -10736,20 +11421,20 @@ function RulesModal({ violations }) {
             }
           )
         ] }),
-        /* @__PURE__ */ jsxs43("div", { className: "rules-form__row", children: [
-          /* @__PURE__ */ jsxs43(
+        /* @__PURE__ */ jsxs46("div", { className: "rules-form__row", children: [
+          /* @__PURE__ */ jsxs46(
             "select",
             {
               className: "rules-form__select",
               value: draft.action,
               onChange: (e) => setDraft({ ...draft, action: e.target.value }),
               children: [
-                /* @__PURE__ */ jsx47("option", { value: "warn", children: "\u26A0\uFE0F Warning" }),
-                /* @__PURE__ */ jsx47("option", { value: "forbid", children: "\u26D4 Forbid" })
+                /* @__PURE__ */ jsx49("option", { value: "warn", children: "\u26A0\uFE0F Warning" }),
+                /* @__PURE__ */ jsx49("option", { value: "forbid", children: "\u26D4 Forbid" })
               ]
             }
           ),
-          /* @__PURE__ */ jsx47(
+          /* @__PURE__ */ jsx49(
             "input",
             {
               className: "rules-form__input",
@@ -10760,54 +11445,54 @@ function RulesModal({ violations }) {
               onKeyDown: onFormKeyDown
             }
           ),
-          /* @__PURE__ */ jsxs43(
+          /* @__PURE__ */ jsxs46(
             "button",
             {
               className: "btn btn--primary",
               onClick: addRule,
               disabled: !draft.from.trim() || !draft.to.trim(),
               children: [
-                /* @__PURE__ */ jsx47(MIcon, { name: "add", size: "sm" }),
+                /* @__PURE__ */ jsx49(MIcon, { name: "add", size: "sm" }),
                 " \u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C"
               ]
             }
           )
         ] }),
-        /* @__PURE__ */ jsxs43("div", { className: "rules-form__hint", children: [
+        /* @__PURE__ */ jsxs46("div", { className: "rules-form__hint", children: [
           "\u041C\u0430\u0441\u043A\u0438: ",
-          /* @__PURE__ */ jsx47("code", { children: "sgrc.evo.*" }),
+          /* @__PURE__ */ jsx49("code", { children: "sgrc.evo.*" }),
           ", ",
-          /* @__PURE__ */ jsx47("code", { children: "ui.*" }),
+          /* @__PURE__ */ jsx49("code", { children: "ui.*" }),
           ", ",
-          /* @__PURE__ */ jsx47("code", { children: "!test.*" }),
+          /* @__PURE__ */ jsx49("code", { children: "!test.*" }),
           ". \u041F\u043E\u0434\u0434\u0435\u0440\u0436\u0438\u0432\u0430\u0435\u0442\u0441\u044F ",
-          /* @__PURE__ */ jsx47("b", { children: "*" }),
+          /* @__PURE__ */ jsx49("b", { children: "*" }),
           " \u0438 ",
-          /* @__PURE__ */ jsx47("b", { children: "!" }),
+          /* @__PURE__ */ jsx49("b", { children: "!" }),
           "."
         ] })
       ] }),
-      /* @__PURE__ */ jsxs43("div", { className: "rules-list", children: [
-        /* @__PURE__ */ jsxs43("div", { className: "rules-list__header", children: [
-          /* @__PURE__ */ jsxs43("span", { className: "rules-form__label", children: [
+      /* @__PURE__ */ jsxs46("div", { className: "rules-list", children: [
+        /* @__PURE__ */ jsxs46("div", { className: "rules-list__header", children: [
+          /* @__PURE__ */ jsxs46("span", { className: "rules-form__label", children: [
             "\u0410\u043A\u0442\u0438\u0432\u043D\u044B\u0435 \u043F\u0440\u0430\u0432\u0438\u043B\u0430 (",
             store.rules.length,
             ")"
           ] }),
-          store.rules.length > 0 && /* @__PURE__ */ jsx47("button", { className: "rules-list__clear", onClick: clearAllRules, children: "\u041E\u0447\u0438\u0441\u0442\u0438\u0442\u044C \u0432\u0441\u0435" })
+          store.rules.length > 0 && /* @__PURE__ */ jsx49("button", { className: "rules-list__clear", onClick: clearAllRules, children: "\u041E\u0447\u0438\u0441\u0442\u0438\u0442\u044C \u0432\u0441\u0435" })
         ] }),
-        store.rules.length === 0 ? /* @__PURE__ */ jsx47("div", { className: "rules-list__empty", children: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u043D\u0435 \u0437\u0430\u0434\u0430\u043D\u044B" }) : store.rules.map((rule) => /* @__PURE__ */ jsxs43(
+        store.rules.length === 0 ? /* @__PURE__ */ jsx49("div", { className: "rules-list__empty", children: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u043D\u0435 \u0437\u0430\u0434\u0430\u043D\u044B" }) : store.rules.map((rule) => /* @__PURE__ */ jsxs46(
           "div",
           {
             className: "rules-item rules-item--" + (rule.action || "warn"),
             children: [
-              /* @__PURE__ */ jsx47(
+              /* @__PURE__ */ jsx49(
                 "button",
                 {
                   className: "rules-item__action rules-item__action--" + (rule.action || "warn"),
                   onClick: () => toggleAction(rule.id),
                   title: rule.action === "forbid" ? "\u041D\u0430\u0436\u043C\u0438\u0442\u0435, \u0447\u0442\u043E\u0431\u044B \u0441\u0434\u0435\u043B\u0430\u0442\u044C Warning" : "\u041D\u0430\u0436\u043C\u0438\u0442\u0435, \u0447\u0442\u043E\u0431\u044B \u0441\u0434\u0435\u043B\u0430\u0442\u044C Forbid",
-                  children: /* @__PURE__ */ jsx47(
+                  children: /* @__PURE__ */ jsx49(
                     MIcon,
                     {
                       name: rule.action === "forbid" ? "block" : "warning",
@@ -10816,21 +11501,21 @@ function RulesModal({ violations }) {
                   )
                 }
               ),
-              /* @__PURE__ */ jsxs43("div", { className: "rules-item__body", children: [
-                /* @__PURE__ */ jsxs43("div", { className: "rules-item__pattern", children: [
-                  /* @__PURE__ */ jsx47("code", { children: rule.from }),
-                  /* @__PURE__ */ jsx47("span", { className: "rules-item__arrow", children: " \u2192 " }),
-                  /* @__PURE__ */ jsx47("code", { children: rule.to })
+              /* @__PURE__ */ jsxs46("div", { className: "rules-item__body", children: [
+                /* @__PURE__ */ jsxs46("div", { className: "rules-item__pattern", children: [
+                  /* @__PURE__ */ jsx49("code", { children: rule.from }),
+                  /* @__PURE__ */ jsx49("span", { className: "rules-item__arrow", children: " \u2192 " }),
+                  /* @__PURE__ */ jsx49("code", { children: rule.to })
                 ] }),
-                rule.message && /* @__PURE__ */ jsx47("div", { className: "rules-item__message", children: rule.message })
+                rule.message && /* @__PURE__ */ jsx49("div", { className: "rules-item__message", children: rule.message })
               ] }),
-              /* @__PURE__ */ jsx47(
+              /* @__PURE__ */ jsx49(
                 "button",
                 {
                   className: "rules-item__remove",
                   onClick: () => removeRule(rule.id),
                   title: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C",
-                  children: /* @__PURE__ */ jsx47(MIcon, { name: "close", size: "sm" })
+                  children: /* @__PURE__ */ jsx49(MIcon, { name: "close", size: "sm" })
                 }
               )
             ]
@@ -10838,9 +11523,9 @@ function RulesModal({ violations }) {
           rule.id
         ))
       ] }),
-      /* @__PURE__ */ jsxs43("div", { className: "rules-toggles", children: [
-        /* @__PURE__ */ jsxs43("label", { className: "rules-toggle", children: [
-          /* @__PURE__ */ jsx47(
+      /* @__PURE__ */ jsxs46("div", { className: "rules-toggles", children: [
+        /* @__PURE__ */ jsxs46("label", { className: "rules-toggle", children: [
+          /* @__PURE__ */ jsx49(
             "input",
             {
               type: "checkbox",
@@ -10848,11 +11533,11 @@ function RulesModal({ violations }) {
               onChange: () => store.setRulesHighlighted(!store.rulesHighlighted)
             }
           ),
-          /* @__PURE__ */ jsx47("span", { className: "rules-toggle__check" }),
-          /* @__PURE__ */ jsx47("span", { children: "\u041F\u043E\u0434\u0441\u0432\u0435\u0447\u0438\u0432\u0430\u0442\u044C \u043D\u0430\u0440\u0443\u0448\u0435\u043D\u0438\u044F \u043D\u0430 \u0433\u0440\u0430\u0444\u0435" })
+          /* @__PURE__ */ jsx49("span", { className: "rules-toggle__check" }),
+          /* @__PURE__ */ jsx49("span", { children: "\u041F\u043E\u0434\u0441\u0432\u0435\u0447\u0438\u0432\u0430\u0442\u044C \u043D\u0430\u0440\u0443\u0448\u0435\u043D\u0438\u044F \u043D\u0430 \u0433\u0440\u0430\u0444\u0435" })
         ] }),
-        /* @__PURE__ */ jsxs43("label", { className: "rules-toggle", children: [
-          /* @__PURE__ */ jsx47(
+        /* @__PURE__ */ jsxs46("label", { className: "rules-toggle", children: [
+          /* @__PURE__ */ jsx49(
             "input",
             {
               type: "checkbox",
@@ -10860,30 +11545,30 @@ function RulesModal({ violations }) {
               onChange: () => store.setShowViolationsOnly(!store.showViolationsOnly)
             }
           ),
-          /* @__PURE__ */ jsx47("span", { className: "rules-toggle__check" }),
-          /* @__PURE__ */ jsx47("span", { children: "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0442\u043E\u043B\u044C\u043A\u043E \u043D\u0430\u0440\u0443\u0448\u0435\u043D\u0438\u044F" })
+          /* @__PURE__ */ jsx49("span", { className: "rules-toggle__check" }),
+          /* @__PURE__ */ jsx49("span", { children: "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0442\u043E\u043B\u044C\u043A\u043E \u043D\u0430\u0440\u0443\u0448\u0435\u043D\u0438\u044F" })
         ] })
       ] }),
-      violations.length > 0 && /* @__PURE__ */ jsxs43("div", { className: "rules-violations", children: [
-        /* @__PURE__ */ jsxs43("div", { className: "rules-form__label", children: [
+      violations.length > 0 && /* @__PURE__ */ jsxs46("div", { className: "rules-violations", children: [
+        /* @__PURE__ */ jsxs46("div", { className: "rules-form__label", children: [
           "\u041D\u0430\u0439\u0434\u0435\u043D\u043D\u044B\u0435 \u043D\u0430\u0440\u0443\u0448\u0435\u043D\u0438\u044F (",
           violations.length,
           ")"
         ] }),
-        /* @__PURE__ */ jsxs43("div", { className: "rules-violations__list", children: [
-          violations.slice(0, 50).map((v, idx) => /* @__PURE__ */ jsxs43(
+        /* @__PURE__ */ jsxs46("div", { className: "rules-violations__list", children: [
+          violations.slice(0, 50).map((v, idx) => /* @__PURE__ */ jsxs46(
             "div",
             {
               className: "rules-violation rules-violation--" + (v.severity || "warn"),
               children: [
-                /* @__PURE__ */ jsx47(
+                /* @__PURE__ */ jsx49(
                   MIcon,
                   {
                     name: v.severity === "forbid" ? "block" : "warning",
                     size: "sm"
                   }
                 ),
-                /* @__PURE__ */ jsx47(
+                /* @__PURE__ */ jsx49(
                   "span",
                   {
                     className: "rules-violation__from",
@@ -10894,8 +11579,8 @@ function RulesModal({ violations }) {
                     children: v.fromId
                   }
                 ),
-                /* @__PURE__ */ jsx47("span", { className: "rules-violation__arrow", children: " \u2192 " }),
-                /* @__PURE__ */ jsx47(
+                /* @__PURE__ */ jsx49("span", { className: "rules-violation__arrow", children: " \u2192 " }),
+                /* @__PURE__ */ jsx49(
                   "span",
                   {
                     className: "rules-violation__to",
@@ -10906,25 +11591,25 @@ function RulesModal({ violations }) {
                     children: v.toId
                   }
                 ),
-                v.rule && v.rule.message && /* @__PURE__ */ jsx47("span", { className: "rules-violation__message", children: v.rule.message })
+                v.rule && v.rule.message && /* @__PURE__ */ jsx49("span", { className: "rules-violation__message", children: v.rule.message })
               ]
             },
             idx
           )),
-          violations.length > 50 && /* @__PURE__ */ jsxs43("div", { className: "rules-violations__more", children: [
+          violations.length > 50 && /* @__PURE__ */ jsxs46("div", { className: "rules-violations__more", children: [
             "...\u0438 \u0435\u0449\u0451 ",
             violations.length - 50
           ] })
         ] })
       ] })
     ] }),
-    /* @__PURE__ */ jsxs43("div", { className: "rules-modal__footer", children: [
-      /* @__PURE__ */ jsxs43("div", { className: "rules-modal__stats", children: [
+    /* @__PURE__ */ jsxs46("div", { className: "rules-modal__footer", children: [
+      /* @__PURE__ */ jsxs46("div", { className: "rules-modal__stats", children: [
         "\u041F\u0440\u0430\u0432\u0438\u043B: ",
         store.rules.length,
-        violations.length > 0 && /* @__PURE__ */ jsx47("span", { className: "rules-modal__stats--err", children: " \xB7 \u041D\u0430\u0440\u0443\u0448\u0435\u043D\u0438\u0439: " + violations.length })
+        violations.length > 0 && /* @__PURE__ */ jsx49("span", { className: "rules-modal__stats--err", children: " \xB7 \u041D\u0430\u0440\u0443\u0448\u0435\u043D\u0438\u0439: " + violations.length })
       ] }),
-      /* @__PURE__ */ jsx47("button", { className: "btn", onClick: () => store.setRulesOpen(false), children: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C" })
+      /* @__PURE__ */ jsx49("button", { className: "btn", onClick: () => store.setRulesOpen(false), children: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C" })
     ] })
   ] }) });
 }
@@ -10934,6 +11619,9390 @@ var init_RulesModal = __esm({
     init_useGraphStore();
     init_useNavigation();
     init_MIcon();
+  }
+});
+
+// src/web/lib/model/entity-filters.ts
+function countRefs(e, index) {
+  const children = (index.entityChildrenByFqid[e.fqid] || []).length;
+  const linkages = e.linkedViaLinkages.length;
+  const mixins = (index.mixinsByEntityFqid[e.fqid] || []).length;
+  return children + linkages + mixins;
+}
+function filterEntities(index, filters) {
+  const q = filters.query.trim().toLowerCase();
+  const orphanSet = new Set(index.stats.orphanEntities);
+  const result = index.entities.filter((e) => {
+    if (filters.domains.size > 0 && !filters.domains.has(e.domainId.toLowerCase()))
+      return false;
+    if (filters.tags.size > 0) {
+      const hasTag = e.domainTags.some(
+        (t) => filters.tags.has(String(t).toLowerCase())
+      );
+      if (!hasTag)
+        return false;
+    }
+    if (filters.hasInherits && !e.inherits)
+      return false;
+    if (filters.hasMixins && e.mixinSources.length === 0)
+      return false;
+    if (filters.onlyOrphans && !orphanSet.has(e.fqid))
+      return false;
+    if (filters.minRefs > 0) {
+      const refs = countRefs(e, index);
+      if (refs < filters.minRefs)
+        return false;
+    }
+    if (q) {
+      const hay = e.fqid + " " + e.name + " " + e.description + " " + e.attributes.map((a) => a.name).join(" ");
+      if (hay.toLowerCase().indexOf(q) === -1)
+        return false;
+    }
+    return true;
+  });
+  return result.sort((a, b) => {
+    const ra = countRefs(a, index);
+    const rb = countRefs(b, index);
+    if (ra !== rb)
+      return rb - ra;
+    return a.fqid.localeCompare(b.fqid);
+  });
+}
+var EMPTY_FILTERS;
+var init_entity_filters = __esm({
+  "src/web/lib/model/entity-filters.ts"() {
+    "use strict";
+    EMPTY_FILTERS = {
+      query: "",
+      domains: /* @__PURE__ */ new Set(),
+      tags: /* @__PURE__ */ new Set(),
+      hasInherits: false,
+      hasMixins: false,
+      onlyOrphans: false,
+      minRefs: 0
+    };
+  }
+});
+
+// src/web/lib/model/impact-analysis.ts
+function computeImpact(fqid, index) {
+  const entity = index.entitiesByFqid[fqid];
+  if (!entity)
+    return null;
+  const parent = entity.inherits ? index.entitiesByFqid[entity.inherits] || null : null;
+  const ancestors = [];
+  const seen = /* @__PURE__ */ new Set();
+  let cur = parent;
+  while (cur && !seen.has(cur.fqid)) {
+    ancestors.push(cur);
+    seen.add(cur.fqid);
+    cur = cur.inherits ? index.entitiesByFqid[cur.inherits] || null : null;
+  }
+  const childrenFqids = index.entityChildrenByFqid[fqid] || [];
+  const children = childrenFqids.map((id) => index.entitiesByFqid[id]).filter((x) => !!x);
+  const referencedByAttributes = [];
+  const referencesToOthers = [];
+  for (const e of index.entities) {
+    for (const a of e.attributes) {
+      if (a.referenceEntity === fqid || a.itemReferenceEntity === fqid) {
+        referencedByAttributes.push({
+          entity: e,
+          attributeId: a.id,
+          attributeName: a.name
+        });
+      }
+      if (e.fqid === fqid) {
+        const target = a.referenceEntity || a.itemReferenceEntity;
+        if (target && index.entitiesByFqid[target]) {
+          referencesToOthers.push({
+            entity: index.entitiesByFqid[target],
+            attributeId: a.id,
+            attributeName: a.name
+          });
+        }
+      }
+    }
+  }
+  const linkages = [];
+  const mixins = index.mixinsByEntityFqid[fqid] || [];
+  const mixinDomains = Array.from(new Set(mixins.map((m) => m.domainId)));
+  return {
+    entity,
+    parent,
+    children,
+    ancestors,
+    referencedByAttributes,
+    referencesToOthers,
+    linkages,
+    mixins,
+    mixinDomains
+  };
+}
+var init_impact_analysis = __esm({
+  "src/web/lib/model/impact-analysis.ts"() {
+    "use strict";
+  }
+});
+
+// src/web/components/modals/ImpactAnalysisPanel.tsx
+import { useMemo as useMemo23 } from "react";
+import { jsx as jsx50, jsxs as jsxs47 } from "react/jsx-runtime";
+function ImpactAnalysisPanel(props) {
+  const impact = useMemo23(() => computeImpact(props.fqid, props.index), [props.fqid, props.index]);
+  if (!impact) {
+    return /* @__PURE__ */ jsxs47("div", { className: "impact-panel", children: [
+      /* @__PURE__ */ jsx50("button", { className: "entity-graph-back", onClick: props.onBack, children: "\u2190 \u041D\u0430\u0437\u0430\u0434 \u043A \u0441\u043F\u0438\u0441\u043A\u0443" }),
+      /* @__PURE__ */ jsx50("div", { className: "entity-catalog-empty", style: { marginTop: 60 }, children: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430 \u0432 \u0438\u043D\u0434\u0435\u043A\u0441\u0435" })
+    ] });
+  }
+  const { entity } = impact;
+  const refsTotal = impact.children.length + impact.referencedByAttributes.length + impact.mixins.length;
+  return /* @__PURE__ */ jsxs47("div", { className: "impact-panel", children: [
+    /* @__PURE__ */ jsx50("button", { className: "entity-graph-back", onClick: props.onBack, children: "\u2190 \u041D\u0430\u0437\u0430\u0434 \u043A \u0441\u043F\u0438\u0441\u043A\u0443" }),
+    /* @__PURE__ */ jsxs47("div", { className: "impact-header", children: [
+      /* @__PURE__ */ jsx50("div", { className: "impact-header__fqid", children: entity.fqid }),
+      /* @__PURE__ */ jsx50("div", { className: "impact-header__name", children: entity.name }),
+      entity.description && /* @__PURE__ */ jsx50("div", { className: "impact-header__desc", children: entity.description }),
+      /* @__PURE__ */ jsxs47("div", { className: "impact-header__badges", children: [
+        /* @__PURE__ */ jsx50(
+          "button",
+          {
+            className: "btn btn--primary",
+            onClick: () => props.onGotoDomain(entity.domainId),
+            children: "\u{1F3AF} \u041F\u0435\u0440\u0435\u0439\u0442\u0438 \u043A \u0434\u043E\u043C\u0435\u043D\u0443"
+          }
+        ),
+        /* @__PURE__ */ jsxs47("span", { className: "impact-stat", children: [
+          "\u0421\u0441\u044B\u043B\u043E\u043A: ",
+          refsTotal
+        ] }),
+        /* @__PURE__ */ jsxs47("span", { className: "impact-stat", children: [
+          "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432: ",
+          entity.attributes.length
+        ] })
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxs47("div", { className: "impact-body", children: [
+      /* @__PURE__ */ jsxs47("section", { className: "impact-section", children: [
+        /* @__PURE__ */ jsxs47("h3", { className: "impact-section__title", children: [
+          /* @__PURE__ */ jsx50(MIcon, { name: "account_tree", size: "sm" }),
+          "\u041D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435"
+        ] }),
+        impact.ancestors.length > 0 && /* @__PURE__ */ jsxs47("div", { className: "impact-row", children: [
+          /* @__PURE__ */ jsxs47("span", { className: "impact-row__label", children: [
+            "\u0420\u043E\u0434\u0438\u0442\u0435\u043B\u0438 (",
+            impact.ancestors.length,
+            "):"
+          ] }),
+          /* @__PURE__ */ jsx50("div", { className: "impact-row__links", children: impact.ancestors.map((a) => /* @__PURE__ */ jsxs47(
+            "button",
+            {
+              className: "impact-link",
+              onClick: () => props.onSelectEntity(a.fqid),
+              children: [
+                a.entityId,
+                /* @__PURE__ */ jsx50("span", { className: "impact-link__domain", children: a.domainId })
+              ]
+            },
+            a.fqid
+          )) })
+        ] }),
+        impact.children.length > 0 ? /* @__PURE__ */ jsxs47("div", { className: "impact-row", children: [
+          /* @__PURE__ */ jsxs47("span", { className: "impact-row__label", children: [
+            "\u041D\u0430\u0441\u043B\u0435\u0434\u043D\u0438\u043A\u0438 (",
+            impact.children.length,
+            "):"
+          ] }),
+          /* @__PURE__ */ jsx50("div", { className: "impact-row__links", children: impact.children.map((c) => /* @__PURE__ */ jsxs47(
+            "button",
+            {
+              className: "impact-link",
+              onClick: () => props.onSelectEntity(c.fqid),
+              children: [
+                c.entityId,
+                /* @__PURE__ */ jsx50("span", { className: "impact-link__domain", children: c.domainId })
+              ]
+            },
+            c.fqid
+          )) })
+        ] }) : /* @__PURE__ */ jsx50("div", { className: "impact-row impact-row--empty", children: "\u041D\u0430\u0441\u043B\u0435\u0434\u043D\u0438\u043A\u043E\u0432 \u043D\u0435\u0442" }),
+        !entity.inherits && impact.ancestors.length === 0 && /* @__PURE__ */ jsx50("div", { className: "impact-row impact-row--empty", children: "\u041D\u0435 \u043D\u0430\u0441\u043B\u0435\u0434\u0443\u0435\u0442 \u043E\u0442 \u0434\u0440\u0443\u0433\u0438\u0445 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" })
+      ] }),
+      /* @__PURE__ */ jsxs47("section", { className: "impact-section", children: [
+        /* @__PURE__ */ jsxs47("h3", { className: "impact-section__title", children: [
+          /* @__PURE__ */ jsx50(MIcon, { name: "call_received", size: "sm" }),
+          "\u041D\u0430 \u043D\u0435\u0451 \u0441\u0441\u044B\u043B\u0430\u044E\u0442\u0441\u044F (",
+          impact.referencedByAttributes.length,
+          ")"
+        ] }),
+        impact.referencedByAttributes.length === 0 ? /* @__PURE__ */ jsx50("div", { className: "impact-row impact-row--empty", children: "\u041D\u0438 \u043E\u0434\u043D\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u043D\u0435 \u0441\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F \u0447\u0435\u0440\u0435\u0437 \u0430\u0442\u0440\u0438\u0431\u0443\u0442 \u0442\u0438\u043F\u0430 Reference" }) : /* @__PURE__ */ jsx50("div", { className: "impact-refs", children: impact.referencedByAttributes.map(({ entity: refEntity, attributeId, attributeName }) => /* @__PURE__ */ jsxs47("div", { className: "impact-ref", children: [
+          /* @__PURE__ */ jsxs47(
+            "button",
+            {
+              className: "impact-link",
+              onClick: () => props.onSelectEntity(refEntity.fqid),
+              children: [
+                refEntity.entityId,
+                /* @__PURE__ */ jsx50("span", { className: "impact-link__domain", children: refEntity.domainId })
+              ]
+            }
+          ),
+          /* @__PURE__ */ jsx50("span", { className: "impact-ref__arrow", children: "\u2192" }),
+          /* @__PURE__ */ jsx50("code", { className: "impact-ref__attr", children: attributeName })
+        ] }, `${refEntity.fqid}#${attributeId}`)) })
+      ] }),
+      /* @__PURE__ */ jsxs47("section", { className: "impact-section", children: [
+        /* @__PURE__ */ jsxs47("h3", { className: "impact-section__title", children: [
+          /* @__PURE__ */ jsx50(MIcon, { name: "call_made", size: "sm" }),
+          "\u0421\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F \u043D\u0430 \u0434\u0440\u0443\u0433\u0438\u0445 (",
+          impact.referencesToOthers.length,
+          ")"
+        ] }),
+        impact.referencesToOthers.length === 0 ? /* @__PURE__ */ jsx50("div", { className: "impact-row impact-row--empty", children: "\u041D\u0435\u0442 \u0438\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u0445 FQID-\u0441\u0441\u044B\u043B\u043E\u043A" }) : /* @__PURE__ */ jsx50("div", { className: "impact-refs", children: impact.referencesToOthers.map(({ entity: refEntity, attributeId, attributeName }) => /* @__PURE__ */ jsxs47("div", { className: "impact-ref", children: [
+          /* @__PURE__ */ jsx50("code", { className: "impact-ref__attr", children: attributeName }),
+          /* @__PURE__ */ jsx50("span", { className: "impact-ref__arrow", children: "\u2192" }),
+          /* @__PURE__ */ jsxs47(
+            "button",
+            {
+              className: "impact-link",
+              onClick: () => props.onSelectEntity(refEntity.fqid),
+              children: [
+                refEntity.entityId,
+                /* @__PURE__ */ jsx50("span", { className: "impact-link__domain", children: refEntity.domainId })
+              ]
+            }
+          )
+        ] }, `${refEntity.fqid}#${attributeId}`)) })
+      ] }),
+      impact.mixins.length > 0 && /* @__PURE__ */ jsxs47("section", { className: "impact-section", children: [
+        /* @__PURE__ */ jsxs47("h3", { className: "impact-section__title", children: [
+          /* @__PURE__ */ jsx50(MIcon, { name: "merge", size: "sm" }),
+          "\u0420\u0430\u0441\u0448\u0438\u0440\u044F\u0435\u0442\u0441\u044F \u043C\u0438\u043A\u0441\u0438\u043D\u0430\u043C\u0438 (",
+          impact.mixins.length,
+          ")"
+        ] }),
+        /* @__PURE__ */ jsx50("div", { className: "impact-mixins", children: impact.mixins.map((m) => /* @__PURE__ */ jsxs47("div", { className: "impact-mixin", children: [
+          /* @__PURE__ */ jsxs47("div", { className: "impact-mixin__head", children: [
+            /* @__PURE__ */ jsx50("span", { className: "impact-mixin__domain", children: m.domainId }),
+            /* @__PURE__ */ jsx50("span", { className: "impact-mixin__id", children: m.id })
+          ] }),
+          m.targetPanel && /* @__PURE__ */ jsxs47("div", { className: "impact-mixin__target", children: [
+            "\u2192 \u043F\u0430\u043D\u0435\u043B\u044C ",
+            /* @__PURE__ */ jsx50("code", { children: m.targetPanel })
+          ] }),
+          m.addedTabs.length > 0 && /* @__PURE__ */ jsxs47("div", { className: "impact-mixin__adds", children: [
+            "+ \u0432\u043A\u043B\u0430\u0434\u043A\u0438: ",
+            m.addedTabs.map((t) => /* @__PURE__ */ jsx50("code", { children: t }, t))
+          ] }),
+          m.addedComponents.length > 0 && /* @__PURE__ */ jsxs47("div", { className: "impact-mixin__adds", children: [
+            "+ \u043A\u043E\u043C\u043F\u043E\u043D\u0435\u043D\u0442\u044B: ",
+            m.addedComponents.length
+          ] })
+        ] }, `${m.domainId}#${m.id}`)) })
+      ] }),
+      /* @__PURE__ */ jsxs47("section", { className: "impact-section", children: [
+        /* @__PURE__ */ jsxs47("h3", { className: "impact-section__title", children: [
+          /* @__PURE__ */ jsx50(MIcon, { name: "list", size: "sm" }),
+          "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u044B (",
+          entity.attributes.length,
+          ")"
+        ] }),
+        entity.attributes.length === 0 ? /* @__PURE__ */ jsx50("div", { className: "impact-row impact-row--empty", children: "\u0421\u043E\u0431\u0441\u0442\u0432\u0435\u043D\u043D\u044B\u0445 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u043D\u0435\u0442" }) : /* @__PURE__ */ jsx50("div", { className: "impact-attrs", children: entity.attributes.map((a) => /* @__PURE__ */ jsxs47("div", { className: "impact-attr", children: [
+          /* @__PURE__ */ jsx50("code", { className: "impact-attr__id", children: a.id }),
+          /* @__PURE__ */ jsx50("span", { className: "impact-attr__name", children: a.name }),
+          /* @__PURE__ */ jsx50("span", { className: "impact-attr__type", children: a.dataType }),
+          a.referenceEntity && /* @__PURE__ */ jsxs47(
+            "button",
+            {
+              className: "impact-attr__ref",
+              onClick: () => props.onSelectEntity(a.referenceEntity),
+              children: [
+                "\u2192 ",
+                a.referenceEntity.split("/")[1]
+              ]
+            }
+          ),
+          a.constraints.length > 0 && /* @__PURE__ */ jsx50("span", { className: "impact-attr__constraints", children: a.constraints.map((c) => /* @__PURE__ */ jsx50("span", { className: "impact-attr__constraint", children: c }, c)) })
+        ] }, a.id)) })
+      ] })
+    ] })
+  ] });
+}
+var init_ImpactAnalysisPanel = __esm({
+  "src/web/components/modals/ImpactAnalysisPanel.tsx"() {
+    "use strict";
+    init_MIcon();
+    init_impact_analysis();
+  }
+});
+
+// src/web/components/modals/EntitiesCatalogModal.tsx
+import React23, { useCallback as useCallback13, useEffect as useEffect26, useMemo as useMemo24, useState as useState14 } from "react";
+import { jsx as jsx51, jsxs as jsxs48 } from "react/jsx-runtime";
+function EntitiesCatalogModal() {
+  const store = useGraphStore();
+  const { goto } = useNavigation();
+  const { index, loading, error } = useModelIndex();
+  const [filters, setFilters] = useState14(EMPTY_FILTERS);
+  const [selectedFqid, setSelectedFqid] = useState14(null);
+  const [limit, setLimit] = useState14(PAGE_SIZE);
+  const open = store.entityCatalogOpen;
+  const initialFqid = store.entityCatalogInitialFqid;
+  useEffect26(() => {
+    if (!open)
+      return;
+    if (!initialFqid)
+      return;
+    if (!index)
+      return;
+    setSelectedFqid(initialFqid);
+    store.setEntityCatalogInitialFqid(null);
+  }, [open, initialFqid, index, store]);
+  useEffect26(() => {
+    setLimit(PAGE_SIZE);
+  }, [filters]);
+  const orphanSet = useMemo24(() => {
+    if (!index)
+      return /* @__PURE__ */ new Set();
+    return new Set(index.stats.orphanEntities);
+  }, [index]);
+  const filtered = useMemo24(
+    () => index ? filterEntities(index, filters) : [],
+    [index, filters]
+  );
+  const visibleRows = useMemo24(
+    () => filtered.slice(0, limit),
+    [filtered, limit]
+  );
+  const allDomains = useMemo24(() => {
+    if (!index)
+      return [];
+    const map = /* @__PURE__ */ new Map();
+    index.entities.forEach((e) => {
+      map.set(e.domainId, (map.get(e.domainId) || 0) + 1);
+    });
+    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
+  }, [index]);
+  const allTags = useMemo24(() => {
+    if (!index)
+      return [];
+    const map = /* @__PURE__ */ new Map();
+    index.entities.forEach((e) => {
+      e.domainTags.forEach((t) => {
+        const key = String(t).toLowerCase();
+        map.set(key, (map.get(key) || 0) + 1);
+      });
+    });
+    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
+  }, [index]);
+  const handleSelectRow = useCallback13((fqid) => {
+    setSelectedFqid(fqid);
+  }, []);
+  const handleBack = useCallback13(() => {
+    setSelectedFqid(null);
+  }, []);
+  const handleGotoDomain = useCallback13(
+    (domainId) => {
+      goto(domainId);
+      store.setEntityCatalogOpen(false);
+    },
+    [goto, store]
+  );
+  const handleSelectFromImpact = useCallback13((fqid) => {
+    setSelectedFqid(fqid);
+  }, []);
+  const toggleDomainFilter = useCallback13((domainId) => {
+    setFilters((prev) => {
+      const next = new Set(prev.domains);
+      const key = domainId.toLowerCase();
+      if (next.has(key))
+        next.delete(key);
+      else
+        next.add(key);
+      return { ...prev, domains: next };
+    });
+  }, []);
+  const toggleTagFilter = useCallback13((tag) => {
+    setFilters((prev) => {
+      const next = new Set(prev.tags);
+      if (next.has(tag))
+        next.delete(tag);
+      else
+        next.add(tag);
+      return { ...prev, tags: next };
+    });
+  }, []);
+  if (!open)
+    return null;
+  return /* @__PURE__ */ jsx51(
+    "div",
+    {
+      className: "help-overlay help-overlay--fullscreen",
+      onMouseDown: () => store.setEntityCatalogOpen(false),
+      children: /* @__PURE__ */ jsxs48(
+        "div",
+        {
+          className: "help-modal entity-hierarchy-modal",
+          onMouseDown: (e) => e.stopPropagation(),
+          children: [
+            /* @__PURE__ */ jsxs48("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs48("div", { className: "help-modal__title", children: [
+                "\u{1F4D6} \u041A\u0430\u0442\u0430\u043B\u043E\u0433 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439",
+                index && /* @__PURE__ */ jsxs48("span", { className: "help-modal__badge", children: [
+                  filtered.length,
+                  " / ",
+                  index.entities.length
+                ] })
+              ] }),
+              /* @__PURE__ */ jsx51(
+                "button",
+                {
+                  className: "help-modal__close",
+                  onClick: () => store.setEntityCatalogOpen(false),
+                  children: "\u2715"
+                }
+              )
+            ] }),
+            loading && /* @__PURE__ */ jsx51("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx51("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
+            error && /* @__PURE__ */ jsx51("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs48("div", { style: { color: "var(--danger)" }, children: [
+              "\u041E\u0448\u0438\u0431\u043A\u0430: ",
+              error
+            ] }) }),
+            index && /* @__PURE__ */ jsxs48("div", { className: "entity-hierarchy-body", children: [
+              /* @__PURE__ */ jsxs48("div", { className: "entity-catalog-filters", children: [
+                /* @__PURE__ */ jsxs48("div", { className: "entity-search-input-wrap", children: [
+                  /* @__PURE__ */ jsx51("span", { className: "entity-search-icon", children: "\u{1F50D}" }),
+                  /* @__PURE__ */ jsx51(
+                    "input",
+                    {
+                      className: "entity-search-input",
+                      type: "text",
+                      placeholder: "\u041F\u043E\u0438\u0441\u043A: id, \u0438\u043C\u044F, \u043E\u043F\u0438\u0441\u0430\u043D\u0438\u0435, \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B...",
+                      value: filters.query,
+                      onChange: (e) => setFilters({ ...filters, query: e.target.value })
+                    }
+                  )
+                ] }),
+                /* @__PURE__ */ jsxs48("div", { className: "entity-catalog-filter-body", children: [
+                  /* @__PURE__ */ jsxs48("div", { className: "entity-catalog-group", children: [
+                    /* @__PURE__ */ jsx51("div", { className: "entity-catalog-group__title", children: "\u0414\u043E\u043C\u0435\u043D\u044B" }),
+                    /* @__PURE__ */ jsx51("div", { className: "entity-catalog-chips", children: allDomains.slice(0, 30).map(([domainId, count]) => {
+                      const active = filters.domains.has(domainId.toLowerCase());
+                      return /* @__PURE__ */ jsxs48(
+                        "button",
+                        {
+                          className: "entity-catalog-chip" + (active ? " active" : ""),
+                          onClick: () => toggleDomainFilter(domainId),
+                          children: [
+                            domainId,
+                            /* @__PURE__ */ jsx51("span", { className: "entity-catalog-chip__count", children: count })
+                          ]
+                        },
+                        domainId
+                      );
+                    }) })
+                  ] }),
+                  allTags.length > 0 && /* @__PURE__ */ jsxs48("div", { className: "entity-catalog-group", children: [
+                    /* @__PURE__ */ jsx51("div", { className: "entity-catalog-group__title", children: "\u0422\u0435\u0433\u0438" }),
+                    /* @__PURE__ */ jsx51("div", { className: "entity-catalog-chips", children: allTags.slice(0, 20).map(([tag, count]) => {
+                      const active = filters.tags.has(tag);
+                      return /* @__PURE__ */ jsxs48(
+                        "button",
+                        {
+                          className: "entity-catalog-chip" + (active ? " active" : ""),
+                          onClick: () => toggleTagFilter(tag),
+                          children: [
+                            tag,
+                            /* @__PURE__ */ jsx51("span", { className: "entity-catalog-chip__count", children: count })
+                          ]
+                        },
+                        tag
+                      );
+                    }) })
+                  ] }),
+                  /* @__PURE__ */ jsxs48("div", { className: "entity-catalog-group", children: [
+                    /* @__PURE__ */ jsx51("div", { className: "entity-catalog-group__title", children: "\u0421\u0432\u043E\u0439\u0441\u0442\u0432\u0430" }),
+                    /* @__PURE__ */ jsxs48("label", { className: "entity-catalog-toggle", children: [
+                      /* @__PURE__ */ jsx51(
+                        "input",
+                        {
+                          type: "checkbox",
+                          checked: filters.hasInherits,
+                          onChange: () => setFilters({ ...filters, hasInherits: !filters.hasInherits })
+                        }
+                      ),
+                      "\u0422\u043E\u043B\u044C\u043A\u043E \u0441 \u0440\u043E\u0434\u0438\u0442\u0435\u043B\u0435\u043C"
+                    ] }),
+                    /* @__PURE__ */ jsxs48("label", { className: "entity-catalog-toggle", children: [
+                      /* @__PURE__ */ jsx51(
+                        "input",
+                        {
+                          type: "checkbox",
+                          checked: filters.hasMixins,
+                          onChange: () => setFilters({ ...filters, hasMixins: !filters.hasMixins })
+                        }
+                      ),
+                      "\u0422\u043E\u043B\u044C\u043A\u043E \u0441 \u043C\u0438\u043A\u0441\u0438\u043D\u0430\u043C\u0438"
+                    ] }),
+                    /* @__PURE__ */ jsxs48("label", { className: "entity-catalog-toggle", children: [
+                      /* @__PURE__ */ jsx51(
+                        "input",
+                        {
+                          type: "checkbox",
+                          checked: filters.onlyOrphans,
+                          onChange: () => setFilters({ ...filters, onlyOrphans: !filters.onlyOrphans })
+                        }
+                      ),
+                      "\u0422\u043E\u043B\u044C\u043A\u043E \u0441\u0438\u0440\u043E\u0442\u044B (",
+                      index.stats.orphanEntities.length,
+                      ")"
+                    ] })
+                  ] }),
+                  /* @__PURE__ */ jsxs48("div", { className: "entity-catalog-group", children: [
+                    /* @__PURE__ */ jsxs48("div", { className: "entity-catalog-group__title", children: [
+                      "\u041C\u0438\u043D\u0438\u043C\u0443\u043C \u0441\u0441\u044B\u043B\u043E\u043A: ",
+                      filters.minRefs
+                    ] }),
+                    /* @__PURE__ */ jsx51(
+                      "input",
+                      {
+                        type: "range",
+                        min: 0,
+                        max: 20,
+                        value: filters.minRefs,
+                        onChange: (e) => setFilters({ ...filters, minRefs: parseInt(e.target.value, 10) }),
+                        style: { width: "100%" }
+                      }
+                    )
+                  ] }),
+                  /* @__PURE__ */ jsx51(
+                    "button",
+                    {
+                      className: "btn",
+                      style: { width: "100%", justifyContent: "center", marginTop: 12 },
+                      onClick: () => setFilters(EMPTY_FILTERS),
+                      children: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0444\u0438\u043B\u044C\u0442\u0440\u044B"
+                    }
+                  ),
+                  index.stats.circularInheritance.length > 0 && /* @__PURE__ */ jsxs48("div", { className: "entity-catalog-alert entity-catalog-alert--warn", children: [
+                    "\u26A0\uFE0F \u041D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435 \u0432 \u0446\u0438\u043A\u043B\u0435: ",
+                    index.stats.circularInheritance.length
+                  ] }),
+                  index.stats.unknownReferences.length > 0 && /* @__PURE__ */ jsxs48("div", { className: "entity-catalog-alert entity-catalog-alert--err", children: [
+                    "\u274C \u0411\u0438\u0442\u044B\u0445 \u0441\u0441\u044B\u043B\u043E\u043A: ",
+                    index.stats.unknownReferences.length
+                  ] })
+                ] })
+              ] }),
+              /* @__PURE__ */ jsx51("div", { className: "entity-catalog-panel", children: !selectedFqid ? /* @__PURE__ */ jsxs48("div", { className: "entity-catalog-table-wrap", children: [
+                /* @__PURE__ */ jsxs48("table", { className: "entity-catalog-table", children: [
+                  /* @__PURE__ */ jsx51("thead", { children: /* @__PURE__ */ jsxs48("tr", { children: [
+                    /* @__PURE__ */ jsx51("th", { children: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C" }),
+                    /* @__PURE__ */ jsx51("th", { children: "\u0414\u043E\u043C\u0435\u043D" }),
+                    /* @__PURE__ */ jsx51("th", { children: "\u041D\u0430\u0441\u043B\u0435\u0434\u0443\u0435\u0442" }),
+                    /* @__PURE__ */ jsx51("th", { children: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432" }),
+                    /* @__PURE__ */ jsx51("th", { children: "\u0421\u0441\u044B\u043B\u043E\u043A" }),
+                    /* @__PURE__ */ jsx51("th", { children: "\u041C\u0438\u043A\u0441\u0438\u043D\u044B" }),
+                    /* @__PURE__ */ jsx51("th", { children: "\u0422\u0435\u0433\u0438" })
+                  ] }) }),
+                  /* @__PURE__ */ jsx51("tbody", { children: visibleRows.map((e) => /* @__PURE__ */ jsx51(
+                    EntityRow,
+                    {
+                      entity: e,
+                      index,
+                      isOrphan: orphanSet.has(e.fqid),
+                      onSelect: handleSelectRow
+                    },
+                    e.fqid
+                  )) })
+                ] }),
+                filtered.length === 0 && /* @__PURE__ */ jsx51("div", { className: "entity-catalog-empty", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" }),
+                filtered.length > visibleRows.length && /* @__PURE__ */ jsxs48("div", { className: "entity-catalog-more", children: [
+                  "\u041F\u043E\u043A\u0430\u0437\u0430\u043D\u043E ",
+                  visibleRows.length,
+                  " \u0438\u0437 ",
+                  filtered.length,
+                  /* @__PURE__ */ jsxs48(
+                    "button",
+                    {
+                      className: "btn",
+                      style: { marginLeft: 12 },
+                      onClick: () => setLimit((n) => n + PAGE_SIZE),
+                      children: [
+                        "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0435\u0449\u0451 ",
+                        PAGE_SIZE,
+                        " (\u043E\u0441\u0442\u0430\u043B\u043E\u0441\u044C",
+                        " ",
+                        filtered.length - visibleRows.length,
+                        ")"
+                      ]
+                    }
+                  )
+                ] })
+              ] }) : /* @__PURE__ */ jsx51(
+                ImpactAnalysisPanel,
+                {
+                  fqid: selectedFqid,
+                  index,
+                  onBack: handleBack,
+                  onGotoDomain: handleGotoDomain,
+                  onSelectEntity: handleSelectFromImpact
+                }
+              ) })
+            ] })
+          ]
+        }
+      )
+    }
+  );
+}
+var PAGE_SIZE, EntityRow;
+var init_EntitiesCatalogModal = __esm({
+  "src/web/components/modals/EntitiesCatalogModal.tsx"() {
+    "use strict";
+    init_useGraphStore();
+    init_useNavigation();
+    init_useModelIndex();
+    init_entity_filters();
+    init_ImpactAnalysisPanel();
+    PAGE_SIZE = 300;
+    EntityRow = React23.memo(function EntityRow2({
+      entity,
+      index,
+      isOrphan,
+      onSelect
+    }) {
+      const refs = countRefs(entity, index);
+      return /* @__PURE__ */ jsxs48(
+        "tr",
+        {
+          className: "entity-catalog-row" + (isOrphan ? " orphan" : ""),
+          onClick: () => onSelect(entity.fqid),
+          children: [
+            /* @__PURE__ */ jsxs48("td", { children: [
+              /* @__PURE__ */ jsx51("div", { className: "entity-catalog-cell-id", children: entity.entityId }),
+              entity.name !== entity.entityId && /* @__PURE__ */ jsx51("div", { className: "entity-catalog-cell-name", children: entity.name })
+            ] }),
+            /* @__PURE__ */ jsx51("td", { className: "entity-catalog-cell-mono", children: entity.domainId }),
+            /* @__PURE__ */ jsx51("td", { className: "entity-catalog-cell-mono", children: entity.inherits ? entity.inherits.split("/")[1] : "\u2014" }),
+            /* @__PURE__ */ jsx51("td", { className: "entity-catalog-cell-num", children: entity.attributes.length }),
+            /* @__PURE__ */ jsx51("td", { className: "entity-catalog-cell-num", children: /* @__PURE__ */ jsx51("span", { className: refs > 0 ? "ref-badge" : "ref-badge ref-badge--zero", children: refs }) }),
+            /* @__PURE__ */ jsx51("td", { className: "entity-catalog-cell-num", children: entity.mixinSources.length > 0 ? /* @__PURE__ */ jsx51("span", { className: "mixin-badge", children: entity.mixinSources.length }) : "\u2014" }),
+            /* @__PURE__ */ jsx51("td", { children: entity.domainTags.slice(0, 2).map((t) => /* @__PURE__ */ jsx51("span", { className: "entity-catalog-tag", children: t }, t)) })
+          ]
+        }
+      );
+    });
+  }
+});
+
+// src/web/lib/model/attribute-search.ts
+function searchAttributes(index, query, options = {}) {
+  const q = query.trim().toLowerCase();
+  const limit = options.limit ?? 500;
+  const domainFilter = options.domains;
+  const typeFilter = options.dataTypes;
+  const constraintFilter = options.constraint;
+  const hits = [];
+  for (const entity of index.entities) {
+    if (domainFilter && domainFilter.size > 0 && !domainFilter.has(entity.domainId.toLowerCase())) {
+      continue;
+    }
+    const visit = (a) => {
+      if (typeFilter && typeFilter.size > 0 && !typeFilter.has(a.dataType))
+        return;
+      if (constraintFilter && !a.constraints.includes(constraintFilter))
+        return;
+      let matchedBy = null;
+      if (q) {
+        if (a.id.toLowerCase().indexOf(q) !== -1)
+          matchedBy = "id";
+        else if (a.name.toLowerCase().indexOf(q) !== -1)
+          matchedBy = "name";
+        else if (a.description.toLowerCase().indexOf(q) !== -1)
+          matchedBy = "description";
+      } else {
+        matchedBy = "name";
+      }
+      if (matchedBy) {
+        hits.push({
+          key: `${entity.fqid}#${a.id}`,
+          attribute: a,
+          entity,
+          matchedBy
+        });
+      }
+      if (a.nestedAttributes)
+        a.nestedAttributes.forEach(visit);
+    };
+    entity.attributes.forEach(visit);
+  }
+  const byNameMap = /* @__PURE__ */ new Map();
+  hits.forEach((h) => {
+    const key = h.attribute.name.toLowerCase();
+    if (!byNameMap.has(key))
+      byNameMap.set(key, { count: 0, domains: /* @__PURE__ */ new Set() });
+    const entry = byNameMap.get(key);
+    entry.count++;
+    entry.domains.add(h.entity.domainId);
+  });
+  const byName = Array.from(byNameMap.entries()).map(([name, { count, domains }]) => ({
+    name,
+    count,
+    domains: Array.from(domains).sort()
+  })).sort((a, b) => b.count - a.count);
+  return {
+    hits: hits.slice(0, limit),
+    byName: byName.slice(0, 100),
+    totalHits: hits.length
+  };
+}
+function collectDataTypes(index) {
+  const map = /* @__PURE__ */ new Map();
+  index.entities.forEach((e) => {
+    e.attributes.forEach((a) => {
+      map.set(a.dataType, (map.get(a.dataType) || 0) + 1);
+      if (a.nestedAttributes) {
+        a.nestedAttributes.forEach((na) => {
+          map.set(na.dataType, (map.get(na.dataType) || 0) + 1);
+        });
+      }
+    });
+  });
+  return Array.from(map.entries()).map(([type, count]) => ({ type, count })).sort((a, b) => b.count - a.count);
+}
+function collectConstraints(index) {
+  const map = /* @__PURE__ */ new Map();
+  const visit = (a) => {
+    a.constraints.forEach((c) => {
+      map.set(c, (map.get(c) || 0) + 1);
+    });
+    if (a.nestedAttributes)
+      a.nestedAttributes.forEach(visit);
+  };
+  index.entities.forEach((e) => e.attributes.forEach(visit));
+  return Array.from(map.entries()).map(([kind, count]) => ({ kind, count })).sort((a, b) => b.count - a.count);
+}
+var init_attribute_search = __esm({
+  "src/web/lib/model/attribute-search.ts"() {
+    "use strict";
+  }
+});
+
+// src/web/components/modals/AttributeFinderModal.tsx
+import React24, { useCallback as useCallback14, useMemo as useMemo25, useState as useState15 } from "react";
+import { Fragment as Fragment7, jsx as jsx52, jsxs as jsxs49 } from "react/jsx-runtime";
+function AttributeFinderModal() {
+  const store = useGraphStore();
+  const { goto } = useNavigation();
+  const { index, loading, error } = useModelIndex();
+  const [onlyPii, setOnlyPii] = useState15(false);
+  const [query, setQuery] = useState15("");
+  const [domainFilter, setDomainFilter] = useState15(/* @__PURE__ */ new Set());
+  const [typeFilter, setTypeFilter] = useState15(/* @__PURE__ */ new Set());
+  const [constraintFilter, setConstraintFilter] = useState15("");
+  const [showSummary, setShowSummary] = useState15(true);
+  const [expandedKey, setExpandedKey] = useState15(null);
+  const open = store.attributeFinderOpen;
+  const allTypes = useMemo25(() => index ? collectDataTypes(index) : [], [index]);
+  const allConstraints = useMemo25(() => index ? collectConstraints(index) : [], [index]);
+  const allDomains = useMemo25(() => {
+    if (!index)
+      return [];
+    const map = /* @__PURE__ */ new Map();
+    index.entities.forEach((e) => {
+      map.set(e.domainId, (map.get(e.domainId) || 0) + 1);
+    });
+    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
+  }, [index]);
+  const toggleHit = useCallback14(
+    (key) => {
+      setExpandedKey((prev) => prev === key ? null : key);
+    },
+    []
+  );
+  const openEntity = useCallback14(
+    (entity) => {
+      goto(entity.domainId);
+      store.setEntityCatalogInitialFqid(entity.fqid);
+      store.setEntityCatalogOpen(true);
+      store.setAttributeFinderOpen(false);
+    },
+    [goto, store]
+  );
+  const [limit, setLimit] = useState15(300);
+  const result = useMemo25(() => {
+    if (!index)
+      return { hits: [], byName: [], totalHits: 0 };
+    return searchAttributes(index, query, {
+      domains: domainFilter,
+      dataTypes: typeFilter,
+      constraint: constraintFilter || void 0,
+      limit
+    });
+  }, [index, query, domainFilter, typeFilter, constraintFilter, limit]);
+  const piiKeys = useMemo25(() => {
+    if (!index)
+      return /* @__PURE__ */ new Set();
+    return new Set(index.pii.hits.map((h) => h.key));
+  }, [index]);
+  const filteredHits = useMemo25(() => {
+    let hits = result.hits;
+    if (onlyPii) {
+      hits = hits.filter((h) => piiKeys.has(h.key));
+    }
+    return hits;
+  }, [result.hits, onlyPii, piiKeys]);
+  if (!open)
+    return null;
+  return /* @__PURE__ */ jsx52(
+    "div",
+    {
+      className: "help-overlay help-overlay--fullscreen",
+      onMouseDown: () => store.setAttributeFinderOpen(false),
+      children: /* @__PURE__ */ jsxs49(
+        "div",
+        {
+          className: "help-modal entity-hierarchy-modal",
+          onMouseDown: (e) => e.stopPropagation(),
+          children: [
+            /* @__PURE__ */ jsxs49("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs49("div", { className: "help-modal__title", children: [
+                "\u{1F50E} \u041F\u043E\u0438\u0441\u043A \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432",
+                index && /* @__PURE__ */ jsxs49("span", { className: "help-modal__badge", children: [
+                  result.totalHits,
+                  " \u0441\u043E\u0432\u043F\u0430\u0434\u0435\u043D\u0438\u0439"
+                ] })
+              ] }),
+              /* @__PURE__ */ jsx52(
+                "button",
+                {
+                  className: "help-modal__close",
+                  onClick: () => store.setAttributeFinderOpen(false),
+                  children: "\u2715"
+                }
+              )
+            ] }),
+            loading && /* @__PURE__ */ jsx52("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx52("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
+            error && /* @__PURE__ */ jsx52("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs49("div", { style: { color: "var(--danger)" }, children: [
+              "\u041E\u0448\u0438\u0431\u043A\u0430: ",
+              error
+            ] }) }),
+            index && /* @__PURE__ */ jsxs49("div", { className: "entity-hierarchy-body", children: [
+              /* @__PURE__ */ jsxs49("div", { className: "attribute-filters", children: [
+                /* @__PURE__ */ jsxs49("div", { className: "entity-search-input-wrap", children: [
+                  /* @__PURE__ */ jsx52("span", { className: "entity-search-icon", children: "\u{1F50D}" }),
+                  /* @__PURE__ */ jsx52(
+                    "input",
+                    {
+                      className: "entity-search-input",
+                      type: "text",
+                      placeholder: "email, createdAt, iocId...",
+                      value: query,
+                      onChange: (e) => setQuery(e.target.value),
+                      autoFocus: true
+                    }
+                  ),
+                  query && /* @__PURE__ */ jsx52(
+                    "button",
+                    {
+                      className: "entity-search-clear",
+                      onClick: () => setQuery(""),
+                      title: "\u041E\u0447\u0438\u0441\u0442\u0438\u0442\u044C",
+                      children: "\u2715"
+                    }
+                  )
+                ] }),
+                /* @__PURE__ */ jsxs49("div", { className: "entity-catalog-filter-body", children: [
+                  /* @__PURE__ */ jsxs49("div", { className: "entity-catalog-group", children: [
+                    /* @__PURE__ */ jsxs49("div", { className: "entity-catalog-group__title", children: [
+                      "\u0422\u0438\u043F \u0434\u0430\u043D\u043D\u044B\u0445 ",
+                      typeFilter.size > 0 && `(${typeFilter.size})`
+                    ] }),
+                    /* @__PURE__ */ jsx52("div", { className: "entity-catalog-chips", children: allTypes.slice(0, 24).map(({ type, count }) => {
+                      const active = typeFilter.has(type);
+                      return /* @__PURE__ */ jsxs49(
+                        "button",
+                        {
+                          className: "entity-catalog-chip" + (active ? " active" : ""),
+                          onClick: () => {
+                            const next = new Set(typeFilter);
+                            if (active)
+                              next.delete(type);
+                            else
+                              next.add(type);
+                            setTypeFilter(next);
+                          },
+                          children: [
+                            type,
+                            /* @__PURE__ */ jsx52("span", { className: "entity-catalog-chip__count", children: count })
+                          ]
+                        },
+                        type
+                      );
+                    }) })
+                  ] }),
+                  /* @__PURE__ */ jsxs49("div", { className: "entity-catalog-group", children: [
+                    /* @__PURE__ */ jsx52("div", { className: "entity-catalog-group__title", children: "\u041E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F" }),
+                    /* @__PURE__ */ jsxs49(
+                      "select",
+                      {
+                        className: "menu__input",
+                        style: { width: "100%", margin: 0 },
+                        value: constraintFilter,
+                        onChange: (e) => setConstraintFilter(e.target.value),
+                        children: [
+                          /* @__PURE__ */ jsx52("option", { value: "", children: "\u2014 \u0432\u0441\u0435 \u2014" }),
+                          allConstraints.map(({ kind, count }) => /* @__PURE__ */ jsxs49("option", { value: kind, children: [
+                            kind,
+                            " (",
+                            count,
+                            ")"
+                          ] }, kind))
+                        ]
+                      }
+                    )
+                  ] }),
+                  /* @__PURE__ */ jsxs49("div", { className: "entity-catalog-group", children: [
+                    /* @__PURE__ */ jsxs49("div", { className: "entity-catalog-group__title", children: [
+                      "\u0414\u043E\u043C\u0435\u043D\u044B ",
+                      domainFilter.size > 0 && `(${domainFilter.size})`
+                    ] }),
+                    /* @__PURE__ */ jsx52("div", { className: "entity-catalog-chips", children: allDomains.slice(0, 30).map(([domainId, count]) => {
+                      const active = domainFilter.has(domainId.toLowerCase());
+                      return /* @__PURE__ */ jsxs49(
+                        "button",
+                        {
+                          className: "entity-catalog-chip" + (active ? " active" : ""),
+                          onClick: () => {
+                            const next = new Set(domainFilter);
+                            if (active)
+                              next.delete(domainId.toLowerCase());
+                            else
+                              next.add(domainId.toLowerCase());
+                            setDomainFilter(next);
+                          },
+                          children: [
+                            domainId,
+                            /* @__PURE__ */ jsx52("span", { className: "entity-catalog-chip__count", children: count })
+                          ]
+                        },
+                        domainId
+                      );
+                    }) })
+                  ] }),
+                  /* @__PURE__ */ jsx52(
+                    "button",
+                    {
+                      className: "btn",
+                      style: { width: "100%", justifyContent: "center", marginTop: 12 },
+                      onClick: () => {
+                        setDomainFilter(/* @__PURE__ */ new Set());
+                        setTypeFilter(/* @__PURE__ */ new Set());
+                        setConstraintFilter("");
+                        setQuery("");
+                      },
+                      children: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0432\u0441\u0451"
+                    }
+                  )
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxs49("div", { className: "attribute-panel", children: [
+                query.trim() === "" && result.totalHits > 0 && /* @__PURE__ */ jsxs49("div", { className: "attribute-tabs", children: [
+                  /* @__PURE__ */ jsxs49(
+                    "button",
+                    {
+                      className: "attribute-tab" + (showSummary ? " active" : ""),
+                      onClick: () => setShowSummary(true),
+                      children: [
+                        "\u0421\u0432\u043E\u0434\u043A\u0430 \u043F\u043E \u0438\u043C\u0435\u043D\u0430\u043C (",
+                        result.byName.length,
+                        ")"
+                      ]
+                    }
+                  ),
+                  /* @__PURE__ */ jsxs49(
+                    "button",
+                    {
+                      className: "attribute-tab" + (!showSummary ? " active" : ""),
+                      onClick: () => setShowSummary(false),
+                      children: [
+                        "\u0412\u0441\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B (",
+                        result.totalHits,
+                        ")"
+                      ]
+                    }
+                  ),
+                  /* @__PURE__ */ jsxs49("label", { className: "entity-graph-toggle", children: [
+                    /* @__PURE__ */ jsx52(
+                      "input",
+                      {
+                        type: "checkbox",
+                        checked: onlyPii,
+                        onChange: () => setOnlyPii(!onlyPii)
+                      }
+                    ),
+                    /* @__PURE__ */ jsx52(MIcon, { name: "shield_lock", size: "sm" }),
+                    "\u0422\u043E\u043B\u044C\u043A\u043E PII"
+                  ] })
+                ] }),
+                query.trim() === "" && showSummary && result.byName.length > 0 && /* @__PURE__ */ jsx52("div", { className: "attribute-summary", children: result.byName.map(({ name, count, domains }) => /* @__PURE__ */ jsxs49(
+                  "button",
+                  {
+                    className: "attribute-summary-item",
+                    onClick: () => {
+                      setQuery(name);
+                      setShowSummary(false);
+                    },
+                    children: [
+                      /* @__PURE__ */ jsx52("span", { className: "attribute-summary-item__name", children: name }),
+                      /* @__PURE__ */ jsx52("span", { className: "attribute-summary-item__count", children: count }),
+                      /* @__PURE__ */ jsxs49("span", { className: "attribute-summary-item__domains", children: [
+                        domains.slice(0, 3).map((d) => /* @__PURE__ */ jsx52("code", { children: d }, d)),
+                        domains.length > 3 && /* @__PURE__ */ jsxs49("span", { children: [
+                          "+",
+                          domains.length - 3
+                        ] })
+                      ] })
+                    ]
+                  },
+                  name
+                )) }),
+                (query.trim() !== "" || !showSummary) && /* @__PURE__ */ jsxs49("div", { className: "attribute-hits", children: [
+                  filteredHits.length === 0 ? /* @__PURE__ */ jsx52("div", { className: "entity-catalog-empty", children: query.trim() ? "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443" : "\u041D\u0435\u0442 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432" }) : filteredHits.map((hit) => /* @__PURE__ */ jsx52(
+                    AttributeHitRow,
+                    {
+                      hit,
+                      query,
+                      expanded: expandedKey === hit.key,
+                      onToggle: toggleHit,
+                      onOpenEntity: openEntity,
+                      isPii: piiKeys.has(hit.key)
+                    },
+                    hit.key
+                  )),
+                  result.totalHits > filteredHits.length && /* @__PURE__ */ jsx52("div", { style: { padding: 16, textAlign: "center" }, children: /* @__PURE__ */ jsxs49("button", { className: "btn", onClick: () => setLimit((n) => n + 300), children: [
+                    "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0435\u0449\u0451 300 (\u043E\u0441\u0442\u0430\u043B\u043E\u0441\u044C ",
+                    result.totalHits - filteredHits.length,
+                    ")"
+                  ] }) })
+                ] })
+              ] })
+            ] })
+          ]
+        }
+      )
+    }
+  );
+}
+var AttributeHitRow;
+var init_AttributeFinderModal = __esm({
+  "src/web/components/modals/AttributeFinderModal.tsx"() {
+    "use strict";
+    init_useGraphStore();
+    init_useNavigation();
+    init_useModelIndex();
+    init_MIcon();
+    init_attribute_search();
+    AttributeHitRow = React24.memo(function AttributeHitRow2({ hit, query, expanded, isPii, onToggle, onOpenEntity }) {
+      const { attribute, entity, matchedBy } = hit;
+      const highlight = (text) => {
+        if (!query)
+          return text;
+        const q = query.toLowerCase();
+        const idx = text.toLowerCase().indexOf(q);
+        if (idx === -1)
+          return text;
+        return /* @__PURE__ */ jsxs49(Fragment7, { children: [
+          text.slice(0, idx),
+          /* @__PURE__ */ jsx52("mark", { className: "search-hl", children: text.slice(idx, idx + q.length) }),
+          text.slice(idx + q.length)
+        ] });
+      };
+      return /* @__PURE__ */ jsxs49("div", { className: "attribute-hit" + (expanded ? " attribute-hit--expanded" : ""), children: [
+        /* @__PURE__ */ jsxs49(
+          "div",
+          {
+            className: "attribute-hit__head",
+            onClick: () => onToggle(hit.key),
+            role: "button",
+            tabIndex: 0,
+            onKeyDown: (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onToggle(hit.key);
+              }
+            },
+            children: [
+              /* @__PURE__ */ jsx52("code", { className: "attribute-hit__id", children: highlight(attribute.id) }),
+              /* @__PURE__ */ jsx52("span", { className: "attribute-hit__name", children: highlight(attribute.name) }),
+              matchedBy === "description" && /* @__PURE__ */ jsx52("span", { className: "attribute-hit__match-badge", children: "\u043F\u043E \u043E\u043F\u0438\u0441\u0430\u043D\u0438\u044E" }),
+              /* @__PURE__ */ jsx52("span", { className: "attribute-hit__toggle-hint", children: expanded ? "\u0441\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u25B4" : "\u0434\u0435\u0442\u0430\u043B\u0438 \u25BE" })
+            ]
+          }
+        ),
+        /* @__PURE__ */ jsxs49("div", { className: "attribute-hit__meta", children: [
+          isPii && /* @__PURE__ */ jsx52("span", { className: "pii-badge", title: "PII", children: /* @__PURE__ */ jsx52(MIcon, { name: "lock", size: "sm" }) }),
+          /* @__PURE__ */ jsxs49(
+            "button",
+            {
+              className: "attribute-hit__entity",
+              onClick: (e) => {
+                e.stopPropagation();
+                onOpenEntity(entity);
+              },
+              title: `\u041E\u0442\u043A\u0440\u044B\u0442\u044C ${entity.fqid} \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435`,
+              children: [
+                /* @__PURE__ */ jsx52(MIcon, { name: "hub", size: "sm" }),
+                /* @__PURE__ */ jsx52("span", { children: entity.entityId }),
+                /* @__PURE__ */ jsx52("span", { className: "attribute-hit__domain", children: entity.domainId })
+              ]
+            }
+          ),
+          /* @__PURE__ */ jsx52("span", { className: "attribute-hit__type", children: attribute.dataType }),
+          attribute.referenceEntity && /* @__PURE__ */ jsxs49("span", { className: "attribute-hit__ref", children: [
+            "\u2192 ",
+            attribute.referenceEntity.split("/")[1]
+          ] }),
+          attribute.constraints.length > 0 && /* @__PURE__ */ jsx52("span", { className: "attribute-hit__constraints", children: attribute.constraints.map((c) => /* @__PURE__ */ jsx52("span", { className: "impact-attr__constraint", children: c }, c)) })
+        ] }),
+        expanded && /* @__PURE__ */ jsxs49("div", { className: "attribute-hit__details", children: [
+          attribute.description ? /* @__PURE__ */ jsxs49("div", { className: "attribute-hit__detail-row", children: [
+            /* @__PURE__ */ jsx52("span", { className: "attribute-hit__detail-label", children: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" }),
+            /* @__PURE__ */ jsx52("span", { className: "attribute-hit__detail-value", children: highlight(attribute.description) })
+          ] }) : /* @__PURE__ */ jsxs49("div", { className: "attribute-hit__detail-row", children: [
+            /* @__PURE__ */ jsx52("span", { className: "attribute-hit__detail-label", children: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" }),
+            /* @__PURE__ */ jsx52("span", { className: "attribute-hit__detail-value attribute-hit__detail-value--muted", children: "\u043D\u0435\u0442" })
+          ] }),
+          /* @__PURE__ */ jsxs49("div", { className: "attribute-hit__detail-row", children: [
+            /* @__PURE__ */ jsx52("span", { className: "attribute-hit__detail-label", children: "\u041F\u043E\u043B\u043D\u044B\u0439 ID" }),
+            /* @__PURE__ */ jsx52("code", { className: "attribute-hit__detail-value", children: hit.key })
+          ] }),
+          attribute.itemDataType && /* @__PURE__ */ jsxs49("div", { className: "attribute-hit__detail-row", children: [
+            /* @__PURE__ */ jsx52("span", { className: "attribute-hit__detail-label", children: "\u042D\u043B\u0435\u043C\u0435\u043D\u0442 \u043C\u0430\u0441\u0441\u0438\u0432\u0430" }),
+            /* @__PURE__ */ jsx52("code", { className: "attribute-hit__detail-value", children: attribute.itemDataType })
+          ] }),
+          attribute.itemReferenceEntity && /* @__PURE__ */ jsxs49("div", { className: "attribute-hit__detail-row", children: [
+            /* @__PURE__ */ jsx52("span", { className: "attribute-hit__detail-label", children: "\u0421\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F \u043D\u0430" }),
+            /* @__PURE__ */ jsx52("code", { className: "attribute-hit__detail-value", children: attribute.itemReferenceEntity })
+          ] }),
+          attribute.nestedAttributes && attribute.nestedAttributes.length > 0 && /* @__PURE__ */ jsxs49("div", { className: "attribute-hit__detail-row", children: [
+            /* @__PURE__ */ jsxs49("span", { className: "attribute-hit__detail-label", children: [
+              "\u0412\u043B\u043E\u0436\u0435\u043D\u043D\u044B\u0435 (",
+              attribute.nestedAttributes.length,
+              ")"
+            ] }),
+            /* @__PURE__ */ jsx52("span", { className: "attribute-hit__detail-value", children: attribute.nestedAttributes.map((n, i) => /* @__PURE__ */ jsxs49("span", { children: [
+              i > 0 && ", ",
+              /* @__PURE__ */ jsx52("code", { children: n.id }),
+              /* @__PURE__ */ jsxs49("span", { style: { color: "var(--text-500)" }, children: [
+                ": ",
+                n.dataType
+              ] })
+            ] }, n.id)) })
+          ] }),
+          attribute.usedInViews > 0 && /* @__PURE__ */ jsxs49("div", { className: "attribute-hit__detail-row", children: [
+            /* @__PURE__ */ jsx52("span", { className: "attribute-hit__detail-label", children: "\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F" }),
+            /* @__PURE__ */ jsxs49("span", { className: "attribute-hit__detail-value", children: [
+              "\u0432 ",
+              attribute.usedInViews,
+              " \u0432\u0438\u0434\u0436\u0435\u0442",
+              attribute.usedInViews === 1 ? "\u0435" : "\u0430\u0445"
+            ] })
+          ] }),
+          /* @__PURE__ */ jsx52("div", { className: "attribute-hit__actions", children: /* @__PURE__ */ jsx52("button", { className: "btn btn--primary", onClick: () => onOpenEntity(entity), children: "\u{1F3AF} \u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435" }) })
+        ] })
+      ] });
+    });
+  }
+});
+
+// src/web/lib/model/entity-matrix.ts
+function buildEntityMatrix(index, options = {}) {
+  const limit = options.limit ?? 60;
+  const domainFilter = options.domains;
+  let candidates = index.entities;
+  if (domainFilter && domainFilter.size > 0) {
+    candidates = candidates.filter(
+      (e) => domainFilter.has(e.domainId.toLowerCase())
+    );
+  }
+  const outgoingCount = /* @__PURE__ */ new Map();
+  candidates.forEach((e) => outgoingCount.set(e.fqid, 0));
+  const addOutgoing = (fromFqid, toFqid) => {
+    if (!outgoingCount.has(fromFqid))
+      return;
+    if (!outgoingCount.has(toFqid))
+      return;
+    outgoingCount.set(fromFqid, (outgoingCount.get(fromFqid) || 0) + 1);
+  };
+  candidates.forEach((e) => {
+    for (const a of e.attributes) {
+      const target = a.referenceEntity || a.itemReferenceEntity;
+      if (target)
+        addOutgoing(e.fqid, target);
+    }
+    if (e.inherits)
+      addOutgoing(e.fqid, e.inherits);
+  });
+  const sorted = candidates.slice().sort((a, b) => {
+    const ca = outgoingCount.get(a.fqid) || 0;
+    const cb = outgoingCount.get(b.fqid) || 0;
+    if (ca !== cb)
+      return cb - ca;
+    return a.fqid.localeCompare(b.fqid);
+  });
+  const selected = sorted.slice(0, limit);
+  const selectedSet = new Set(selected.map((e) => e.fqid));
+  const rowsMap = /* @__PURE__ */ new Map();
+  selected.forEach((e) => {
+    rowsMap.set(e.fqid, {
+      entity: e,
+      cells: /* @__PURE__ */ new Map(),
+      totalOutgoing: 0
+    });
+  });
+  function addCell(sourceFqid, targetFqid, kind, via) {
+    if (!selectedSet.has(sourceFqid) || !selectedSet.has(targetFqid))
+      return;
+    if (sourceFqid === targetFqid)
+      return;
+    const row = rowsMap.get(sourceFqid);
+    let cell = row.cells.get(targetFqid);
+    if (!cell) {
+      cell = { kind, count: 0, details: [] };
+      row.cells.set(targetFqid, cell);
+    }
+    if (cell.kind !== kind && priority(kind) > priority(cell.kind)) {
+      cell.kind = kind;
+    }
+    cell.count++;
+    cell.details.push({ via });
+    row.totalOutgoing++;
+  }
+  function priority(k) {
+    if (k === "reference")
+      return 3;
+    if (k === "inheritance")
+      return 2;
+    return 1;
+  }
+  selected.forEach((e) => {
+    for (const a of e.attributes) {
+      const target = a.referenceEntity || a.itemReferenceEntity;
+      if (target) {
+        addCell(e.fqid, target, "reference", `attr:${a.id}`);
+      }
+    }
+    if (e.inherits) {
+      addCell(e.fqid, e.inherits, "inheritance", "inherits");
+      if (selectedSet.has(e.inherits)) {
+        const parentRow = rowsMap.get(e.inherits);
+        if (parentRow) {
+          let cell = parentRow.cells.get(e.fqid);
+          if (!cell) {
+            cell = { kind: "inheritance", count: 0, details: [] };
+            parentRow.cells.set(e.fqid, cell);
+          }
+          cell.count++;
+          cell.details.push({ via: e.fqid, reverse: true });
+          parentRow.totalOutgoing++;
+        }
+      }
+    }
+  });
+  const rows = selected.map((e) => rowsMap.get(e.fqid));
+  const entityFqids = selected.map((e) => e.fqid);
+  const columnIndex = /* @__PURE__ */ new Map();
+  entityFqids.forEach((fqid, idx) => columnIndex.set(fqid, idx));
+  let totalLinks = 0;
+  const byKind = {
+    reference: 0,
+    inheritance: 0,
+    linkage: 0
+  };
+  rows.forEach((r) => {
+    r.cells.forEach((cell) => {
+      totalLinks += cell.count;
+      byKind[cell.kind] += cell.count;
+    });
+  });
+  return {
+    rows,
+    entityFqids,
+    columnIndex,
+    stats: {
+      totalEntities: selected.length,
+      totalLinks,
+      byKind
+    }
+  };
+}
+function shortLabel(fqid) {
+  const slash = fqid.indexOf("/");
+  return slash > 0 ? fqid.slice(slash + 1) : fqid;
+}
+var init_entity_matrix = __esm({
+  "src/web/lib/model/entity-matrix.ts"() {
+    "use strict";
+  }
+});
+
+// src/web/components/common/ModalHelp.tsx
+import { jsx as jsx53, jsxs as jsxs50 } from "react/jsx-runtime";
+function HelpButton({ open, onToggle, label = "\u0427\u0442\u043E \u044D\u0442\u043E?" }) {
+  return /* @__PURE__ */ jsxs50(
+    "button",
+    {
+      type: "button",
+      className: "help-modal__help-btn" + (open ? " active" : ""),
+      onClick: onToggle,
+      title: open ? "\u0421\u043A\u0440\u044B\u0442\u044C \u0441\u043F\u0440\u0430\u0432\u043A\u0443" : label,
+      children: [
+        /* @__PURE__ */ jsx53(MIcon, { name: "help" }),
+        /* @__PURE__ */ jsx53("span", { children: open ? "\u0421\u043A\u0440\u044B\u0442\u044C" : label })
+      ]
+    }
+  );
+}
+function ModalHelp({ visible, children }) {
+  if (!visible)
+    return null;
+  return /* @__PURE__ */ jsx53("div", { className: "modal-help", children });
+}
+function HelpSection({ title, children }) {
+  return /* @__PURE__ */ jsxs50("div", { className: "modal-help__section", children: [
+    /* @__PURE__ */ jsx53("h3", { className: "modal-help__title", children: title }),
+    children
+  ] });
+}
+function HelpText({ children }) {
+  return /* @__PURE__ */ jsx53("p", { className: "modal-help__text", children });
+}
+function HelpList({ children }) {
+  return /* @__PURE__ */ jsx53("ul", { className: "modal-help__list", children });
+}
+function HelpCard({
+  letter,
+  title,
+  formula,
+  wide,
+  children
+}) {
+  return /* @__PURE__ */ jsxs50("div", { className: "modal-help__card" + (wide ? " modal-help__card--wide" : ""), children: [
+    /* @__PURE__ */ jsxs50("div", { className: "modal-help__card-head", children: [
+      letter && /* @__PURE__ */ jsx53("span", { className: "modal-help__letter", children: letter }),
+      /* @__PURE__ */ jsx53("span", { className: "modal-help__name", children: title })
+    ] }),
+    formula && /* @__PURE__ */ jsx53("div", { className: "modal-help__formula", children: formula }),
+    /* @__PURE__ */ jsx53("div", { className: "modal-help__desc", children })
+  ] });
+}
+function HelpZones({ children }) {
+  return /* @__PURE__ */ jsx53("div", { className: "modal-help__zones", children });
+}
+function HelpZone({
+  color,
+  title,
+  children
+}) {
+  return /* @__PURE__ */ jsxs50("div", { className: "modal-help__zone modal-help__zone--" + color, children: [
+    /* @__PURE__ */ jsx53("div", { className: "modal-help__zone-title", children: title }),
+    /* @__PURE__ */ jsx53("div", { className: "modal-help__zone-desc", children })
+  ] });
+}
+var init_ModalHelp = __esm({
+  "src/web/components/common/ModalHelp.tsx"() {
+    "use strict";
+    init_MIcon();
+  }
+});
+
+// src/web/components/common/index.ts
+var init_common = __esm({
+  "src/web/components/common/index.ts"() {
+    "use strict";
+    init_MIcon();
+    init_HighlightedText();
+    init_Toast();
+    init_Snackbar();
+    init_HoverTooltip();
+    init_ContextMenu();
+    init_Popover();
+    init_ModalHelp();
+  }
+});
+
+// src/web/components/modals/EntityMatrixModal.tsx
+import { useMemo as useMemo26, useState as useState16 } from "react";
+import { jsx as jsx54, jsxs as jsxs51 } from "react/jsx-runtime";
+function EntityMatrixModal() {
+  const store = useGraphStore();
+  const { index, loading, error } = useModelIndex();
+  const [showHelp, setShowHelp] = useState16(false);
+  const [domainFilter, setDomainFilter] = useState16("");
+  const [hoveredRow, setHoveredRow] = useState16(null);
+  const [hoveredCol, setHoveredCol] = useState16(null);
+  const open = store.entityMatrixOpen;
+  const allDomains = useMemo26(() => {
+    if (!index)
+      return [];
+    const map = /* @__PURE__ */ new Map();
+    index.entities.forEach((e) => {
+      map.set(e.domainId, (map.get(e.domainId) || 0) + 1);
+    });
+    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
+  }, [index]);
+  const matrix = useMemo26(() => {
+    if (!index)
+      return null;
+    const domains = domainFilter ? /* @__PURE__ */ new Set([domainFilter.toLowerCase()]) : void 0;
+    return buildEntityMatrix(index, { domains, limit: MATRIX_LIMIT });
+  }, [index, domainFilter]);
+  if (!open)
+    return null;
+  return /* @__PURE__ */ jsx54(
+    "div",
+    {
+      className: "help-overlay help-overlay--fullscreen",
+      onMouseDown: () => store.setEntityMatrixOpen(false),
+      children: /* @__PURE__ */ jsxs51(
+        "div",
+        {
+          className: "help-modal entity-matrix-modal",
+          onMouseDown: (e) => e.stopPropagation(),
+          children: [
+            /* @__PURE__ */ jsxs51("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs51("div", { className: "help-modal__title", children: [
+                /* @__PURE__ */ jsx54(MIcon, { name: "calculate", size: "sm" }),
+                /* @__PURE__ */ jsx54("span", { className: "icon-label", children: "\u041C\u0430\u0442\u0440\u0438\u0446\u0430 \u0441\u0432\u044F\u0437\u0435\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" }),
+                matrix && /* @__PURE__ */ jsxs51("span", { className: "help-modal__badge", children: [
+                  matrix.stats.totalEntities,
+                  " \xD7 ",
+                  matrix.stats.totalEntities
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxs51("div", { className: "help-modal__actions", children: [
+                /* @__PURE__ */ jsx54(HelpButton, { open: showHelp, onToggle: () => setShowHelp(!showHelp), label: "\u041A\u0430\u043A \u0447\u0438\u0442\u0430\u0442\u044C?" }),
+                /* @__PURE__ */ jsx54(
+                  "button",
+                  {
+                    className: "help-modal__close",
+                    onClick: () => store.setEntityMatrixOpen(false),
+                    children: "\u2715"
+                  }
+                )
+              ] })
+            ] }),
+            loading && /* @__PURE__ */ jsx54("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx54("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
+            error && /* @__PURE__ */ jsx54("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs51("div", { style: { color: "var(--danger)" }, children: [
+              "\u041E\u0448\u0438\u0431\u043A\u0430: ",
+              error
+            ] }) }),
+            index && matrix && /* @__PURE__ */ jsxs51("div", { className: "entity-matrix-body", children: [
+              /* @__PURE__ */ jsxs51(ModalHelp, { visible: showHelp, children: [
+                /* @__PURE__ */ jsx54(HelpSection, { title: "\u041A\u0430\u043A \u0447\u0438\u0442\u0430\u0442\u044C \u043C\u0430\u0442\u0440\u0438\u0446\u0443", children: /* @__PURE__ */ jsx54(HelpText, { children: "\u0421\u0442\u0440\u043E\u043A\u0438 \u0438 \u0441\u0442\u043E\u043B\u0431\u0446\u044B \u2014 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438. \u042F\u0447\u0435\u0439\u043A\u0430 \u043D\u0430 \u043F\u0435\u0440\u0435\u0441\u0435\u0447\u0435\u043D\u0438\u0438 \u2014 \u0435\u0441\u0442\u044C \u043B\u0438 \u0441\u0432\u044F\u0437\u044C \u043E\u0442 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0432 \u0441\u0442\u0440\u043E\u043A\u0435 \u043A \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0432 \u0441\u0442\u043E\u043B\u0431\u0446\u0435. \u041F\u043B\u043E\u0442\u043D\u044B\u0435 \u0431\u043B\u043E\u043A\u0438 \u2014 \u043A\u043B\u0430\u0441\u0442\u0435\u0440\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439, \u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u0430\u043A\u0442\u0438\u0432\u043D\u043E \u043E\u0431\u0449\u0430\u044E\u0442\u0441\u044F \u043C\u0435\u0436\u0434\u0443 \u0441\u043E\u0431\u043E\u0439." }) }),
+                /* @__PURE__ */ jsx54(HelpSection, { title: "\u0426\u0432\u0435\u0442\u0430", children: /* @__PURE__ */ jsxs51(HelpList, { children: [
+                  /* @__PURE__ */ jsxs51("li", { children: [
+                    /* @__PURE__ */ jsx54("strong", { style: { color: "#a78bfa" }, children: "\u0424\u0438\u043E\u043B\u0435\u0442\u043E\u0432\u044B\u0439" }),
+                    " \u2014 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435 (inherits)."
+                  ] }),
+                  /* @__PURE__ */ jsxs51("li", { children: [
+                    /* @__PURE__ */ jsx54("strong", { style: { color: "#6366f1" }, children: "\u0421\u0438\u043D\u0438\u0439" }),
+                    " \u2014 Reference-\u0430\u0442\u0440\u0438\u0431\u0443\u0442."
+                  ] }),
+                  /* @__PURE__ */ jsxs51("li", { children: [
+                    /* @__PURE__ */ jsx54("strong", { style: { color: "#10b981" }, children: "\u0417\u0435\u043B\u0451\u043D\u044B\u0439" }),
+                    " \u2014 linkage."
+                  ] }),
+                  /* @__PURE__ */ jsx54("li", { children: "\u0427\u0438\u0441\u043B\u043E \u0432 \u044F\u0447\u0435\u0439\u043A\u0435 \u2014 \u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0441\u0432\u044F\u0437\u0435\u0439 \u044D\u0442\u043E\u0433\u043E \u0442\u0438\u043F\u0430 \u043C\u0435\u0436\u0434\u0443 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u043C\u0438." })
+                ] }) }),
+                /* @__PURE__ */ jsx54(HelpSection, { title: "\u0417\u0430\u0447\u0435\u043C", children: /* @__PURE__ */ jsx54(HelpText, { children: "\u041D\u0435\u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u0441\u0432\u044F\u0437\u0438 \u0437\u0430\u043C\u0435\u0442\u043D\u044B \u0442\u043E\u043B\u044C\u043A\u043E \u0432 \u043C\u0430\u0442\u0440\u0438\u0447\u043D\u043E\u043C \u0432\u0438\u0434\u0435, \u0430 \u043D\u0435 \u043D\u0430 \u0433\u0440\u0430\u0444\u0435. \u0425\u043E\u0440\u043E\u0448\u043E \u0432\u0438\u0434\u043D\u043E \xAB\u0434\u0438\u0430\u0433\u043E\u043D\u0430\u043B\u044C\u043D\u043E\u0435\xBB \u043F\u043E\u0432\u0435\u0434\u0435\u043D\u0438\u0435 \u2014 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C A \u0441\u0432\u044F\u0437\u0430\u043D\u0430 \u0441 B, B \u0441 C, \u043D\u043E \u043D\u0435 A \u0441 C \u2014 \u043A\u043B\u0430\u0441\u0442\u0435\u0440\u044B \u0432\u044B\u0434\u0435\u043B\u044F\u044E\u0442\u0441\u044F \u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u043D\u043E." }) }),
+                /* @__PURE__ */ jsx54(HelpSection, { title: "\u041E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F", children: /* @__PURE__ */ jsx54(HelpText, { children: "\u041C\u0430\u0442\u0440\u0438\u0446\u0430 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 \u0442\u043E\u043F-60 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u043F\u043E \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u0443 \u0441\u0432\u044F\u0437\u0435\u0439. \u0414\u043B\u044F \u0431\u043E\u043B\u044C\u0448\u0438\u0445 \u0433\u0440\u0430\u0444\u043E\u0432 \u0443\u0442\u043E\u0447\u043D\u044F\u0439\u0442\u0435 \u0447\u0435\u0440\u0435\u0437 \u0444\u0438\u043B\u044C\u0442\u0440 \u043F\u043E \u0434\u043E\u043C\u0435\u043D\u0443." }) })
+              ] }),
+              /* @__PURE__ */ jsxs51("div", { className: "entity-matrix-toolbar", children: [
+                /* @__PURE__ */ jsxs51("div", { className: "entity-matrix-toolbar__filters", children: [
+                  /* @__PURE__ */ jsxs51("label", { className: "entity-matrix-filter", children: [
+                    /* @__PURE__ */ jsx54("span", { children: "\u0414\u043E\u043C\u0435\u043D:" }),
+                    /* @__PURE__ */ jsxs51(
+                      "select",
+                      {
+                        value: domainFilter,
+                        onChange: (e) => setDomainFilter(e.target.value),
+                        children: [
+                          /* @__PURE__ */ jsx54("option", { value: "", children: "\u2014 \u0432\u0441\u0435 \u2014" }),
+                          allDomains.map(([d, count]) => /* @__PURE__ */ jsxs51("option", { value: d, children: [
+                            d,
+                            " (",
+                            count,
+                            ")"
+                          ] }, d))
+                        ]
+                      }
+                    )
+                  ] }),
+                  /* @__PURE__ */ jsxs51("span", { className: "entity-matrix-hint", children: [
+                    "\u041F\u043E\u043A\u0430\u0437\u0430\u043D\u043E \u0442\u043E\u043F-",
+                    MATRIX_LIMIT,
+                    " \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u043F\u043E \u0438\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u043C \u0441\u0432\u044F\u0437\u044F\u043C"
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxs51("div", { className: "entity-matrix-toolbar__legend", children: [
+                  /* @__PURE__ */ jsxs51("span", { className: "entity-matrix-legend-item", children: [
+                    /* @__PURE__ */ jsx54("span", { className: "entity-matrix-legend-cell entity-matrix-legend-cell--reference" }),
+                    "Reference (",
+                    matrix.stats.byKind.reference,
+                    ")"
+                  ] }),
+                  /* @__PURE__ */ jsxs51("span", { className: "entity-matrix-legend-item", children: [
+                    /* @__PURE__ */ jsx54("span", { className: "entity-matrix-legend-cell entity-matrix-legend-cell--inheritance" }),
+                    "\u041D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435 (",
+                    matrix.stats.byKind.inheritance,
+                    ")"
+                  ] }),
+                  /* @__PURE__ */ jsxs51("span", { className: "entity-matrix-legend-item", children: [
+                    /* @__PURE__ */ jsx54("span", { className: "entity-matrix-legend-cell entity-matrix-legend-cell--linkage" }),
+                    "Linkage (",
+                    matrix.stats.byKind.linkage,
+                    ")"
+                  ] }),
+                  /* @__PURE__ */ jsxs51("span", { className: "entity-matrix-toolbar__total", children: [
+                    "\u0412\u0441\u0435\u0433\u043E \u0441\u0432\u044F\u0437\u0435\u0439: ",
+                    matrix.stats.totalLinks
+                  ] })
+                ] })
+              ] }),
+              matrix.rows.length === 0 ? /* @__PURE__ */ jsx54("div", { className: "entity-matrix-empty", children: "\u041D\u0435\u0442 \u0434\u0430\u043D\u043D\u044B\u0445 \u0434\u043B\u044F \u043E\u0442\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u044F" }) : /* @__PURE__ */ jsx54("div", { className: "entity-matrix-scroll", children: /* @__PURE__ */ jsxs51("table", { className: "entity-matrix-table", children: [
+                /* @__PURE__ */ jsx54("thead", { children: /* @__PURE__ */ jsxs51("tr", { children: [
+                  /* @__PURE__ */ jsx54("th", { className: "entity-matrix-corner", children: /* @__PURE__ */ jsx54("span", { className: "entity-matrix-corner__arrow", children: "\u2198" }) }),
+                  matrix.entityFqids.map((fqid, idx) => {
+                    const e = matrix.rows[idx].entity;
+                    const isHovered = hoveredCol === idx;
+                    return /* @__PURE__ */ jsx54(
+                      "th",
+                      {
+                        className: "entity-matrix-col-head" + (isHovered ? " highlighted" : ""),
+                        onMouseEnter: () => setHoveredCol(idx),
+                        onMouseLeave: () => setHoveredCol(null),
+                        title: fqid,
+                        children: /* @__PURE__ */ jsx54("span", { className: "entity-matrix-col-head__text", children: shortLabel(fqid) })
+                      },
+                      fqid
+                    );
+                  })
+                ] }) }),
+                /* @__PURE__ */ jsx54("tbody", { children: matrix.rows.map((row, rowIdx) => {
+                  const isRowHovered = hoveredRow === rowIdx;
+                  return /* @__PURE__ */ jsxs51("tr", { className: isRowHovered ? "highlighted" : "", children: [
+                    /* @__PURE__ */ jsxs51(
+                      "th",
+                      {
+                        className: "entity-matrix-row-head",
+                        onMouseEnter: () => setHoveredRow(rowIdx),
+                        onMouseLeave: () => setHoveredRow(null),
+                        title: row.entity.fqid,
+                        children: [
+                          /* @__PURE__ */ jsx54("span", { className: "entity-matrix-row-head__text", children: shortLabel(row.entity.fqid) }),
+                          /* @__PURE__ */ jsx54("span", { className: "entity-matrix-row-head__count", children: row.totalOutgoing })
+                        ]
+                      }
+                    ),
+                    matrix.entityFqids.map((colFqid, colIdx) => {
+                      const cell = row.cells.get(colFqid);
+                      const isHoveredRow = hoveredRow === rowIdx;
+                      const isHoveredCol = hoveredCol === colIdx;
+                      if (!cell) {
+                        return /* @__PURE__ */ jsx54(
+                          "td",
+                          {
+                            className: "entity-matrix-cell entity-matrix-cell--empty" + (isHoveredRow || isHoveredCol ? " in-row-col" : ""),
+                            onMouseEnter: () => {
+                              setHoveredRow(rowIdx);
+                              setHoveredCol(colIdx);
+                            },
+                            onMouseLeave: () => {
+                              setHoveredRow(null);
+                              setHoveredCol(null);
+                            }
+                          },
+                          colFqid
+                        );
+                      }
+                      const kindClass = "entity-matrix-cell--" + cell.kind;
+                      return /* @__PURE__ */ jsx54(
+                        "td",
+                        {
+                          className: "entity-matrix-cell " + kindClass + (isHoveredRow || isHoveredCol ? " in-row-col" : ""),
+                          onMouseEnter: () => {
+                            setHoveredRow(rowIdx);
+                            setHoveredCol(colIdx);
+                          },
+                          onMouseLeave: () => {
+                            setHoveredRow(null);
+                            setHoveredCol(null);
+                          },
+                          title: shortLabel(row.entity.fqid) + " \u2192 " + shortLabel(colFqid) + "\n" + cell.details.map((d) => d.via + (d.reverse ? " (reverse)" : "")).join("\n"),
+                          children: /* @__PURE__ */ jsx54("span", { className: "entity-matrix-cell__count", children: cell.count })
+                        },
+                        colFqid
+                      );
+                    })
+                  ] }, row.entity.fqid);
+                }) })
+              ] }) })
+            ] })
+          ]
+        }
+      )
+    }
+  );
+}
+var MATRIX_LIMIT;
+var init_EntityMatrixModal = __esm({
+  "src/web/components/modals/EntityMatrixModal.tsx"() {
+    "use strict";
+    init_useGraphStore();
+    init_useModelIndex();
+    init_entity_matrix();
+    init_ModalHelp();
+    init_common();
+    MATRIX_LIMIT = 60;
+  }
+});
+
+// src/web/hooks/useModelDiff.ts
+import { useEffect as useEffect27, useState as useState17 } from "react";
+function useModelDiff() {
+  const [state, setState] = useState17({
+    diff: null,
+    hasSnapshot: false,
+    loading: true,
+    error: null
+  });
+  useEffect27(() => {
+    if (!cachedPromise2) {
+      cachedPromise2 = fetch("/api/model/diff").then((r) => {
+        if (!r.ok)
+          throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      }).catch((err) => {
+        cachedPromise2 = null;
+        throw err;
+      });
+    }
+    let cancelled = false;
+    cachedPromise2.then((data) => {
+      if (cancelled)
+        return;
+      setState({
+        diff: data.diff || null,
+        hasSnapshot: !!data.hasSnapshot,
+        loading: false,
+        error: null
+      });
+    }).catch((err) => {
+      if (cancelled)
+        return;
+      setState({
+        diff: null,
+        hasSnapshot: false,
+        loading: false,
+        error: err.message
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return state;
+}
+var cachedPromise2;
+var init_useModelDiff = __esm({
+  "src/web/hooks/useModelDiff.ts"() {
+    "use strict";
+    cachedPromise2 = null;
+  }
+});
+
+// src/web/components/modals/ModelDiffModal.tsx
+import { useMemo as useMemo27, useState as useState18 } from "react";
+import { Fragment as Fragment8, jsx as jsx55, jsxs as jsxs52 } from "react/jsx-runtime";
+function ModelDiffModal() {
+  const store = useGraphStore();
+  const { diff, hasSnapshot, loading, error } = useModelDiff();
+  const [openSections, setOpenSections] = useState18(
+    /* @__PURE__ */ new Set(["domains", "added", "removed", "changed"])
+  );
+  const [domainFilter, setDomainFilter] = useState18("");
+  const [viewMode, setViewMode] = useState18("domain");
+  const byDomainFiltered = useMemo27(() => {
+    if (!diff)
+      return [];
+    if (!domainFilter)
+      return diff.byDomain;
+    const d = domainFilter.toLowerCase();
+    return diff.byDomain.filter((s) => s.domainId.toLowerCase() === d);
+  }, [diff, domainFilter]);
+  const open = store.modelDiffOpen;
+  const toggle = (id) => {
+    setOpenSections((prev) => {
+      const s = new Set(prev);
+      if (s.has(id))
+        s.delete(id);
+      else
+        s.add(id);
+      return s;
+    });
+  };
+  const filtered = useMemo27(() => {
+    if (!diff)
+      return null;
+    if (!domainFilter)
+      return diff;
+    const d = domainFilter.toLowerCase();
+    return {
+      ...diff,
+      entities: {
+        added: diff.entities.added.filter((e) => e.domainId.toLowerCase() === d),
+        removed: diff.entities.removed.filter((e) => e.domainId.toLowerCase() === d),
+        changed: diff.entities.changed.filter((e) => e.domainId.toLowerCase() === d)
+      },
+      mixins: {
+        added: diff.mixins.added.filter((m) => m.domainId.toLowerCase() === d),
+        removed: diff.mixins.removed.filter((m) => m.domainId.toLowerCase() === d)
+      },
+      dataTypes: {
+        added: diff.dataTypes.added.filter((x) => x.domainId.toLowerCase() === d),
+        removed: diff.dataTypes.removed.filter((x) => x.domainId.toLowerCase() === d)
+      },
+      domains: {
+        added: diff.domains.added.filter((x) => x.domainId.toLowerCase() === d),
+        removed: diff.domains.removed.filter((x) => x.domainId.toLowerCase() === d),
+        changed: diff.domains.changed.filter((x) => x.domainId.toLowerCase() === d)
+      }
+    };
+  }, [diff, domainFilter]);
+  const allDomains = useMemo27(() => {
+    if (!diff)
+      return [];
+    const set = /* @__PURE__ */ new Set();
+    diff.entities.added.forEach((e) => set.add(e.domainId));
+    diff.entities.removed.forEach((e) => set.add(e.domainId));
+    diff.entities.changed.forEach((e) => set.add(e.domainId));
+    diff.mixins.added.forEach((m) => set.add(m.domainId));
+    diff.mixins.removed.forEach((m) => set.add(m.domainId));
+    return Array.from(set).sort();
+  }, [diff]);
+  const totalChanges = useMemo27(() => {
+    if (!diff)
+      return 0;
+    const s = diff.stats;
+    return s.entitiesAdded + s.entitiesRemoved + s.entitiesChanged + s.mixinsAdded + s.mixinsRemoved + s.dataTypesAdded + s.dataTypesRemoved + s.domainsAdded + s.domainsRemoved + s.domainsChanged;
+  }, [diff]);
+  if (!open)
+    return null;
+  return /* @__PURE__ */ jsx55(
+    "div",
+    {
+      className: "help-overlay",
+      onMouseDown: () => store.setModelDiffOpen(false),
+      children: /* @__PURE__ */ jsxs52(
+        "div",
+        {
+          className: "help-modal model-diff-modal",
+          onMouseDown: (e) => e.stopPropagation(),
+          children: [
+            /* @__PURE__ */ jsxs52("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs52("div", { className: "help-modal__title", children: [
+                "\u{1F4CB} \u0427\u0442\u043E \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u043E\u0441\u044C \u0432 \u043C\u043E\u0434\u0435\u043B\u0438",
+                diff && totalChanges > 0 && /* @__PURE__ */ jsx55("span", { className: "help-modal__badge", children: totalChanges })
+              ] }),
+              /* @__PURE__ */ jsx55(
+                "button",
+                {
+                  className: "help-modal__close",
+                  onClick: () => store.setModelDiffOpen(false),
+                  children: "\u2715"
+                }
+              )
+            ] }),
+            /* @__PURE__ */ jsxs52("div", { className: "help-modal__body", children: [
+              loading && /* @__PURE__ */ jsx55("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 diff..." }),
+              error && /* @__PURE__ */ jsxs52("div", { style: { color: "var(--danger)" }, children: [
+                "\u041E\u0448\u0438\u0431\u043A\u0430: ",
+                error
+              ] }),
+              !loading && !error && !hasSnapshot && /* @__PURE__ */ jsxs52("div", { className: "model-diff-empty", children: [
+                /* @__PURE__ */ jsx55("div", { className: "model-diff-empty__icon", children: "\u{1F4F8}" }),
+                /* @__PURE__ */ jsx55("div", { className: "model-diff-empty__title", children: "\u0421\u043D\u0430\u043F\u0448\u043E\u0442 \u043C\u043E\u0434\u0435\u043B\u0438 \u0441\u043E\u0437\u0434\u0430\u043D" }),
+                /* @__PURE__ */ jsxs52("div", { className: "model-diff-empty__hint", children: [
+                  "\u042D\u0442\u043E \u043F\u0435\u0440\u0432\u044B\u0439 \u0437\u0430\u043F\u0443\u0441\u043A. \u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u0441\u0442\u0430\u043D\u0443\u0442 \u0432\u0438\u0434\u043D\u044B \u043F\u043E\u0441\u043B\u0435 \u0441\u043B\u0435\u0434\u0443\u044E\u0449\u0435\u0433\u043E \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F \u0434\u043E\u043C\u0435\u043D\u043E\u0432 (",
+                  /* @__PURE__ */ jsx55("code", { children: "--refresh" }),
+                  ") \u0438\u043B\u0438 \u043F\u0440\u0430\u0432\u043E\u043A \u0432 \u0441\u0445\u0435\u043C\u0430\u0445."
+                ] })
+              ] }),
+              !loading && !error && hasSnapshot && !diff && /* @__PURE__ */ jsxs52("div", { className: "model-diff-empty", children: [
+                /* @__PURE__ */ jsx55("div", { className: "model-diff-empty__icon", children: "\u2705" }),
+                /* @__PURE__ */ jsx55("div", { className: "model-diff-empty__title", children: "\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439 \u043D\u0435\u0442" }),
+                /* @__PURE__ */ jsx55("div", { className: "model-diff-empty__hint", children: "\u0421\u043D\u0430\u043F\u0448\u043E\u0442 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u0435\u0442, \u043D\u043E \u0441 \u043C\u043E\u043C\u0435\u043D\u0442\u0430 \u043F\u043E\u0441\u043B\u0435\u0434\u043D\u0435\u0433\u043E \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u043C\u043E\u0434\u0435\u043B\u0438 \u043D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043F\u0440\u043E\u0438\u0441\u0445\u043E\u0434\u0438\u043B\u043E." })
+              ] }),
+              !loading && !error && hasSnapshot && diff && /* @__PURE__ */ jsxs52(Fragment8, { children: [
+                /* @__PURE__ */ jsxs52("div", { className: "model-diff-versions", children: [
+                  /* @__PURE__ */ jsxs52("div", { className: "model-diff-version", children: [
+                    /* @__PURE__ */ jsx55("div", { className: "model-diff-version__label", children: "\u0411\u044B\u043B\u043E" }),
+                    /* @__PURE__ */ jsx55("div", { className: "model-diff-version__date", children: new Date(diff.previousGeneratedAt).toLocaleString("ru-RU", {
+                      day: "2-digit",
+                      month: "short",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit"
+                    }) })
+                  ] }),
+                  /* @__PURE__ */ jsx55("div", { className: "model-diff-version__arrow", children: "\u2192" }),
+                  /* @__PURE__ */ jsxs52("div", { className: "model-diff-version", children: [
+                    /* @__PURE__ */ jsx55("div", { className: "model-diff-version__label", children: "\u0421\u0442\u0430\u043B\u043E" }),
+                    /* @__PURE__ */ jsx55("div", { className: "model-diff-version__date", children: new Date(diff.currentGeneratedAt).toLocaleString("ru-RU", {
+                      day: "2-digit",
+                      month: "short",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit"
+                    }) })
+                  ] })
+                ] }),
+                totalChanges > 0 && /* @__PURE__ */ jsxs52("div", { style: { display: "flex", flexDirection: "row", gap: 10 }, children: [
+                  /* @__PURE__ */ jsxs52("div", { className: "model-diff-view-mode", children: [
+                    /* @__PURE__ */ jsxs52(
+                      "button",
+                      {
+                        className: "model-diff-view-btn" + (viewMode === "domain" ? " active" : ""),
+                        onClick: () => setViewMode("domain"),
+                        children: [
+                          "\u041F\u043E \u0434\u043E\u043C\u0435\u043D\u0430\u043C (",
+                          byDomainFiltered.length,
+                          ")"
+                        ]
+                      }
+                    ),
+                    /* @__PURE__ */ jsx55(
+                      "button",
+                      {
+                        className: "model-diff-view-btn" + (viewMode === "kind" ? " active" : ""),
+                        onClick: () => setViewMode("kind"),
+                        children: "\u041F\u043E \u0442\u0438\u043F\u0430\u043C"
+                      }
+                    )
+                  ] }),
+                  allDomains.length > 0 && /* @__PURE__ */ jsx55("div", { className: "model-diff-filter", children: /* @__PURE__ */ jsxs52("label", { children: [
+                    /* @__PURE__ */ jsx55("span", { children: "\u0414\u043E\u043C\u0435\u043D:" }),
+                    /* @__PURE__ */ jsxs52(
+                      "select",
+                      {
+                        value: domainFilter,
+                        onChange: (e) => setDomainFilter(e.target.value),
+                        children: [
+                          /* @__PURE__ */ jsxs52("option", { value: "", children: [
+                            "\u2014 \u0432\u0441\u0435 (",
+                            allDomains.length,
+                            ") \u2014"
+                          ] }),
+                          allDomains.map((d) => /* @__PURE__ */ jsx55("option", { value: d, children: d }, d))
+                        ]
+                      }
+                    )
+                  ] }) })
+                ] }),
+                totalChanges === 0 && /* @__PURE__ */ jsx55("div", { className: "model-diff-no-changes", children: "\u2705 \u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439 \u043D\u0435\u0442" }),
+                viewMode === "domain" && totalChanges > 0 && /* @__PURE__ */ jsx55("div", { className: "model-diff-domains", children: byDomainFiltered.map((s) => /* @__PURE__ */ jsx55(DomainChangeCard, { summary: s }, s.domainId)) }),
+                viewMode === "kind" && totalChanges > 0 && filtered && /* @__PURE__ */ jsx55("div", { className: "model-diff-sections", children: totalChanges > 0 && filtered && /* @__PURE__ */ jsxs52("div", { className: "model-diff-sections", children: [
+                  filtered.domains.changed.length > 0 && /* @__PURE__ */ jsx55(
+                    DiffSection,
+                    {
+                      id: "domains",
+                      title: "\u041C\u0435\u0442\u0430\u0434\u0430\u043D\u043D\u044B\u0435 \u0434\u043E\u043C\u0435\u043D\u043E\u0432",
+                      count: filtered.domains.changed.length,
+                      color: "changed",
+                      open: openSections.has("domains"),
+                      onToggle: () => toggle("domains"),
+                      children: filtered.domains.changed.map((d) => /* @__PURE__ */ jsxs52("div", { className: "model-diff-change", children: [
+                        /* @__PURE__ */ jsxs52("div", { className: "model-diff-change__head", children: [
+                          /* @__PURE__ */ jsx55("code", { className: "model-diff-domain__id", children: d.domainId }),
+                          d.name && d.name !== d.domainId && /* @__PURE__ */ jsx55("span", { className: "model-diff-entity__name", children: d.name })
+                        ] }),
+                        /* @__PURE__ */ jsx55("div", { className: "model-diff-change__body", children: d.changes.map((c, i) => /* @__PURE__ */ jsxs52("div", { className: "model-diff-change__row", children: [
+                          /* @__PURE__ */ jsxs52("span", { className: "model-diff-change__label", children: [
+                            c.field,
+                            ":"
+                          ] }),
+                          /* @__PURE__ */ jsx55("span", { className: "model-diff-change__from", children: formatValue(c.from) }),
+                          /* @__PURE__ */ jsx55("span", { className: "model-diff-change__arrow", children: "\u2192" }),
+                          /* @__PURE__ */ jsx55("span", { className: "model-diff-change__to", children: formatValue(c.to) })
+                        ] }, i)) })
+                      ] }, d.domainId))
+                    }
+                  ),
+                  filtered.entities.added.length > 0 && /* @__PURE__ */ jsx55(
+                    DiffSection,
+                    {
+                      id: "added",
+                      title: "\u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438",
+                      count: filtered.entities.added.length,
+                      color: "added",
+                      open: openSections.has("added"),
+                      onToggle: () => toggle("added"),
+                      children: filtered.entities.added.map((e) => /* @__PURE__ */ jsx55(DiffEntityRow, { entity: e }, e.fqid))
+                    }
+                  ),
+                  filtered.entities.removed.length > 0 && /* @__PURE__ */ jsx55(
+                    DiffSection,
+                    {
+                      id: "removed",
+                      title: "\u0423\u0434\u0430\u043B\u0435\u043D\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438",
+                      count: filtered.entities.removed.length,
+                      color: "removed",
+                      open: openSections.has("removed"),
+                      onToggle: () => toggle("removed"),
+                      children: filtered.entities.removed.map((e) => /* @__PURE__ */ jsx55(DiffEntityRow, { entity: e }, e.fqid))
+                    }
+                  ),
+                  filtered.entities.changed.length > 0 && /* @__PURE__ */ jsx55(
+                    DiffSection,
+                    {
+                      id: "changed",
+                      title: "\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438",
+                      count: filtered.entities.changed.length,
+                      color: "changed",
+                      open: openSections.has("changed"),
+                      onToggle: () => toggle("changed"),
+                      children: filtered.entities.changed.map((c) => /* @__PURE__ */ jsx55(DiffChangedEntity, { change: c }, c.fqid))
+                    }
+                  ),
+                  (filtered.mixins.added.length > 0 || filtered.mixins.removed.length > 0) && /* @__PURE__ */ jsxs52(
+                    DiffSection,
+                    {
+                      id: "mixins",
+                      title: "\u041C\u0438\u043A\u0441\u0438\u043D\u044B",
+                      count: filtered.mixins.added.length + filtered.mixins.removed.length,
+                      color: "changed",
+                      open: openSections.has("mixins"),
+                      onToggle: () => toggle("mixins"),
+                      children: [
+                        filtered.mixins.added.map((m) => /* @__PURE__ */ jsxs52("div", { className: "model-diff-item model-diff-item--added", children: [
+                          /* @__PURE__ */ jsx55("span", { className: "model-diff-item__sign", children: "+" }),
+                          /* @__PURE__ */ jsx55("code", { children: m.id }),
+                          /* @__PURE__ */ jsxs52("span", { className: "model-diff-item__meta", children: [
+                            m.domainId,
+                            " \u2192 ",
+                            m.targetEntityFqid.split("/")[1]
+                          ] })
+                        ] }, `+${m.domainId}#${m.id}`)),
+                        filtered.mixins.removed.map((m) => /* @__PURE__ */ jsxs52("div", { className: "model-diff-item model-diff-item--removed", children: [
+                          /* @__PURE__ */ jsx55("span", { className: "model-diff-item__sign", children: "\u2212" }),
+                          /* @__PURE__ */ jsx55("code", { children: m.id }),
+                          /* @__PURE__ */ jsxs52("span", { className: "model-diff-item__meta", children: [
+                            m.domainId,
+                            " \u2192 ",
+                            m.targetEntityFqid.split("/")[1]
+                          ] })
+                        ] }, `-${m.domainId}#${m.id}`))
+                      ]
+                    }
+                  )
+                ] }) })
+              ] })
+            ] })
+          ]
+        }
+      )
+    }
+  );
+}
+function DiffSection({
+  id,
+  title,
+  count,
+  color,
+  open,
+  onToggle,
+  children
+}) {
+  return /* @__PURE__ */ jsxs52("div", { className: "model-diff-section model-diff-section--" + color, children: [
+    /* @__PURE__ */ jsxs52("button", { className: "model-diff-section__header", onClick: onToggle, children: [
+      /* @__PURE__ */ jsx55(MIcon, { name: open ? "expand_more" : "chevron_right", size: "sm" }),
+      /* @__PURE__ */ jsx55("span", { className: "model-diff-section__title", children: title }),
+      /* @__PURE__ */ jsx55("span", { className: "model-diff-section__count", children: count })
+    ] }),
+    open && /* @__PURE__ */ jsx55("div", { className: "model-diff-section__body", children })
+  ] });
+}
+function DiffEntityRow({ entity }) {
+  const setModelDiffOpen = useGraphStore((s) => s.setModelDiffOpen);
+  const setEntityCatalogInitialFqid = useGraphStore((s) => s.setEntityCatalogInitialFqid);
+  const setEntityCatalogOpen = useGraphStore((s) => s.setEntityCatalogOpen);
+  return /* @__PURE__ */ jsxs52("div", { className: "model-diff-entity", children: [
+    /* @__PURE__ */ jsx55(
+      "button",
+      {
+        className: "model-diff-entity__id",
+        onClick: () => {
+          setModelDiffOpen(false);
+          setEntityCatalogInitialFqid(entity.fqid);
+          setEntityCatalogOpen(true);
+        },
+        children: entity.entityId
+      }
+    ),
+    /* @__PURE__ */ jsx55("span", { className: "model-diff-entity__domain", children: entity.domainId }),
+    entity.name !== entity.entityId && /* @__PURE__ */ jsx55("span", { className: "model-diff-entity__name", children: entity.name })
+  ] });
+}
+function DiffChangedEntity({ change }) {
+  const setModelDiffOpen = useGraphStore((s) => s.setModelDiffOpen);
+  const setEntityCatalogInitialFqid = useGraphStore((s) => s.setEntityCatalogInitialFqid);
+  const setEntityCatalogOpen = useGraphStore((s) => s.setEntityCatalogOpen);
+  return /* @__PURE__ */ jsxs52("div", { className: "model-diff-change", children: [
+    /* @__PURE__ */ jsxs52("div", { className: "model-diff-change__head", children: [
+      /* @__PURE__ */ jsx55(
+        "button",
+        {
+          className: "model-diff-entity__id",
+          onClick: () => {
+            setModelDiffOpen(false);
+            setEntityCatalogInitialFqid(change.fqid);
+            setEntityCatalogOpen(true);
+          },
+          children: change.entityId
+        }
+      ),
+      /* @__PURE__ */ jsx55("span", { className: "model-diff-entity__domain", children: change.domainId })
+    ] }),
+    /* @__PURE__ */ jsxs52("div", { className: "model-diff-change__body", children: [
+      change.inheritsChange && /* @__PURE__ */ jsxs52("div", { className: "model-diff-change__row", children: [
+        /* @__PURE__ */ jsx55("span", { className: "model-diff-change__label", children: "inherits:" }),
+        /* @__PURE__ */ jsx55("code", { className: "model-diff-change__from", children: change.inheritsChange.from || "\u2014" }),
+        /* @__PURE__ */ jsx55("span", { className: "model-diff-change__arrow", children: "\u2192" }),
+        /* @__PURE__ */ jsx55("code", { className: "model-diff-change__to", children: change.inheritsChange.to || "\u2014" })
+      ] }),
+      change.nameChange && /* @__PURE__ */ jsxs52("div", { className: "model-diff-change__row", children: [
+        /* @__PURE__ */ jsx55("span", { className: "model-diff-change__label", children: "name:" }),
+        /* @__PURE__ */ jsx55("span", { className: "model-diff-change__from", children: change.nameChange.from }),
+        /* @__PURE__ */ jsx55("span", { className: "model-diff-change__arrow", children: "\u2192" }),
+        /* @__PURE__ */ jsx55("span", { className: "model-diff-change__to", children: change.nameChange.to })
+      ] }),
+      change.attributesAdded.length > 0 && /* @__PURE__ */ jsxs52("div", { className: "model-diff-change__row model-diff-change__row--stack", children: [
+        /* @__PURE__ */ jsx55("span", { className: "model-diff-change__label", children: "+ \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B:" }),
+        /* @__PURE__ */ jsx55("div", { className: "model-diff-change__chips", children: change.attributesAdded.map((a) => /* @__PURE__ */ jsxs52("code", { className: "model-diff-chip model-diff-chip--added", children: [
+          a.id,
+          /* @__PURE__ */ jsx55("span", { className: "model-diff-chip__type", children: a.dataType })
+        ] }, a.id)) })
+      ] }),
+      change.attributesRemoved.length > 0 && /* @__PURE__ */ jsxs52("div", { className: "model-diff-change__row model-diff-change__row--stack", children: [
+        /* @__PURE__ */ jsx55("span", { className: "model-diff-change__label", children: "\u2212 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B:" }),
+        /* @__PURE__ */ jsx55("div", { className: "model-diff-change__chips", children: change.attributesRemoved.map((a) => /* @__PURE__ */ jsx55("code", { className: "model-diff-chip model-diff-chip--removed", children: a.id }, a.id)) })
+      ] }),
+      change.attributesChanged.length > 0 && /* @__PURE__ */ jsxs52("div", { className: "model-diff-change__row model-diff-change__row--stack", children: [
+        /* @__PURE__ */ jsx55("span", { className: "model-diff-change__label", children: "~ \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B:" }),
+        /* @__PURE__ */ jsx55("div", { className: "model-diff-change__attr-changes", children: change.attributesChanged.map((ac) => /* @__PURE__ */ jsxs52("div", { className: "model-diff-attr-change", children: [
+          /* @__PURE__ */ jsx55("code", { className: "model-diff-attr-change__id", children: ac.id }),
+          /* @__PURE__ */ jsx55("div", { className: "model-diff-attr-change__fields", children: Object.entries(ac.changes).map(([field, { from, to }]) => /* @__PURE__ */ jsxs52("div", { className: "model-diff-field-change", children: [
+            /* @__PURE__ */ jsxs52("span", { className: "model-diff-field-change__name", children: [
+              field,
+              ":"
+            ] }),
+            /* @__PURE__ */ jsx55("span", { className: "model-diff-field-change__from", children: formatValue(from) }),
+            /* @__PURE__ */ jsx55("span", { className: "model-diff-field-change__arrow", children: "\u2192" }),
+            /* @__PURE__ */ jsx55("span", { className: "model-diff-field-change__to", children: formatValue(to) })
+          ] }, field)) })
+        ] }, ac.id)) })
+      ] })
+    ] })
+  ] });
+}
+function DomainChangeCard({ summary }) {
+  const [open, setOpen] = useState18(true);
+  const store = useGraphStore((s) => s);
+  const setModelDiffOpen = useGraphStore((s) => s.setModelDiffOpen);
+  const setEntityCatalogInitialFqid = useGraphStore((s) => s.setEntityCatalogInitialFqid);
+  const setEntityCatalogOpen = useGraphStore((s) => s.setEntityCatalogOpen);
+  const openEntity = (fqid) => {
+    setModelDiffOpen(false);
+    setEntityCatalogInitialFqid(fqid);
+    setEntityCatalogOpen(true);
+  };
+  return /* @__PURE__ */ jsxs52("div", { className: "model-diff-domain", children: [
+    /* @__PURE__ */ jsxs52(
+      "button",
+      {
+        className: "model-diff-domain__head",
+        onClick: () => setOpen(!open),
+        children: [
+          /* @__PURE__ */ jsx55(MIcon, { name: open ? "expand_more" : "chevron_right", size: "sm" }),
+          /* @__PURE__ */ jsx55("code", { className: "model-diff-domain__id", children: summary.domainId }),
+          summary.version && /* @__PURE__ */ jsxs52("span", { className: "model-diff-domain__version", children: [
+            "v",
+            summary.version
+          ] }),
+          /* @__PURE__ */ jsx55("span", { className: "model-diff-domain__count", children: summary.totalChanges })
+        ]
+      }
+    ),
+    open && /* @__PURE__ */ jsxs52("div", { className: "model-diff-domain__body", children: [
+      summary.metadataChanges.length > 0 && /* @__PURE__ */ jsxs52("div", { className: "model-diff-domain__group", children: [
+        /* @__PURE__ */ jsx55("div", { className: "model-diff-domain__group-title", children: "\u041C\u0435\u0442\u0430\u0434\u0430\u043D\u043D\u044B\u0435" }),
+        summary.metadataChanges.map((c, i) => /* @__PURE__ */ jsxs52("div", { className: "model-diff-change__row", children: [
+          /* @__PURE__ */ jsxs52("span", { className: "model-diff-change__label", children: [
+            c.field,
+            ":"
+          ] }),
+          /* @__PURE__ */ jsx55("span", { className: "model-diff-change__from", children: formatValue(c.from) }),
+          /* @__PURE__ */ jsx55("span", { className: "model-diff-change__arrow", children: "\u2192" }),
+          /* @__PURE__ */ jsx55("span", { className: "model-diff-change__to", children: formatValue(c.to) })
+        ] }, i))
+      ] }),
+      summary.entitiesAdded.length > 0 && /* @__PURE__ */ jsxs52("div", { className: "model-diff-domain__group", children: [
+        /* @__PURE__ */ jsxs52("div", { className: "model-diff-domain__group-title model-diff-domain__group-title--added", children: [
+          "+ \u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 (",
+          summary.entitiesAdded.length,
+          ")"
+        ] }),
+        summary.entitiesAdded.map((e) => /* @__PURE__ */ jsxs52("div", { className: "model-diff-item model-diff-item--added", children: [
+          /* @__PURE__ */ jsx55("span", { className: "model-diff-item__sign", children: "+" }),
+          /* @__PURE__ */ jsx55(
+            "button",
+            {
+              className: "model-diff-entity__id",
+              onClick: () => openEntity(e.fqid),
+              children: e.entityId
+            }
+          ),
+          e.name !== e.entityId && /* @__PURE__ */ jsx55("span", { className: "model-diff-item__meta", children: e.name })
+        ] }, e.fqid))
+      ] }),
+      summary.entitiesRemoved.length > 0 && /* @__PURE__ */ jsxs52("div", { className: "model-diff-domain__group", children: [
+        /* @__PURE__ */ jsxs52("div", { className: "model-diff-domain__group-title model-diff-domain__group-title--removed", children: [
+          "\u2212 \u0423\u0434\u0430\u043B\u0435\u043D\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 (",
+          summary.entitiesRemoved.length,
+          ")"
+        ] }),
+        summary.entitiesRemoved.map((e) => /* @__PURE__ */ jsxs52("div", { className: "model-diff-item model-diff-item--removed", children: [
+          /* @__PURE__ */ jsx55("span", { className: "model-diff-item__sign", children: "\u2212" }),
+          /* @__PURE__ */ jsx55("span", { className: "model-diff-entity__id", style: { textDecoration: "line-through", opacity: 0.7 }, children: e.entityId })
+        ] }, e.fqid))
+      ] }),
+      summary.entitiesChanged.length > 0 && /* @__PURE__ */ jsxs52("div", { className: "model-diff-domain__group", children: [
+        /* @__PURE__ */ jsxs52("div", { className: "model-diff-domain__group-title model-diff-domain__group-title--changed", children: [
+          "~ \u0418\u0437\u043C\u0435\u043D\u0435\u043D\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 (",
+          summary.entitiesChanged.length,
+          ")"
+        ] }),
+        summary.entitiesChanged.map((c) => /* @__PURE__ */ jsx55(DiffChangedEntity, { change: c }, c.fqid))
+      ] }),
+      (summary.mixinsAdded.length > 0 || summary.mixinsRemoved.length > 0) && /* @__PURE__ */ jsxs52("div", { className: "model-diff-domain__group", children: [
+        /* @__PURE__ */ jsx55("div", { className: "model-diff-domain__group-title", children: "\u041C\u0438\u043A\u0441\u0438\u043D\u044B" }),
+        summary.mixinsAdded.map((m) => /* @__PURE__ */ jsxs52("div", { className: "model-diff-item model-diff-item--added", children: [
+          /* @__PURE__ */ jsx55("span", { className: "model-diff-item__sign", children: "+" }),
+          /* @__PURE__ */ jsx55("code", { children: m.id }),
+          /* @__PURE__ */ jsxs52("span", { className: "model-diff-item__meta", children: [
+            "\u2192 ",
+            m.targetEntityFqid.split("/")[1]
+          ] })
+        ] }, "+" + m.id)),
+        summary.mixinsRemoved.map((m) => /* @__PURE__ */ jsxs52("div", { className: "model-diff-item model-diff-item--removed", children: [
+          /* @__PURE__ */ jsx55("span", { className: "model-diff-item__sign", children: "\u2212" }),
+          /* @__PURE__ */ jsx55("code", { children: m.id })
+        ] }, "-" + m.id))
+      ] }),
+      (summary.dataTypesAdded.length > 0 || summary.dataTypesRemoved.length > 0) && /* @__PURE__ */ jsxs52("div", { className: "model-diff-domain__group", children: [
+        /* @__PURE__ */ jsx55("div", { className: "model-diff-domain__group-title", children: "\u0422\u0438\u043F\u044B \u0434\u0430\u043D\u043D\u044B\u0445" }),
+        summary.dataTypesAdded.map((d) => /* @__PURE__ */ jsxs52("div", { className: "model-diff-item model-diff-item--added", children: [
+          /* @__PURE__ */ jsx55("span", { className: "model-diff-item__sign", children: "+" }),
+          /* @__PURE__ */ jsx55("code", { children: d.id }),
+          /* @__PURE__ */ jsx55("span", { className: "model-diff-item__meta", children: d.kind })
+        ] }, "+" + d.id)),
+        summary.dataTypesRemoved.map((d) => /* @__PURE__ */ jsxs52("div", { className: "model-diff-item model-diff-item--removed", children: [
+          /* @__PURE__ */ jsx55("span", { className: "model-diff-item__sign", children: "\u2212" }),
+          /* @__PURE__ */ jsx55("code", { children: d.id })
+        ] }, "-" + d.id))
+      ] })
+    ] })
+  ] });
+}
+function formatValue(v) {
+  if (v === null || v === void 0)
+    return "\u2014";
+  if (Array.isArray(v))
+    return v.join(", ") || "(\u043F\u0443\u0441\u0442\u043E)";
+  return String(v);
+}
+var init_ModelDiffModal = __esm({
+  "src/web/components/modals/ModelDiffModal.tsx"() {
+    "use strict";
+    init_useGraphStore();
+    init_useModelDiff();
+    init_MIcon();
+  }
+});
+
+// src/web/lib/model/validation.ts
+function summarizeValidation(stats, orphans) {
+  const issues = [];
+  if (stats.circularInheritance.length > 0) {
+    issues.push({
+      severity: "error",
+      count: stats.circularInheritance.length,
+      title: "\u0426\u0438\u043A\u043B\u044B \u0432 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0438",
+      description: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u043D\u0430\u0441\u043B\u0435\u0434\u0443\u044E\u0442 \u0434\u0440\u0443\u0433 \u0434\u0440\u0443\u0433\u0430 \u043F\u043E \u043A\u0440\u0443\u0433\u0443 \u2014 \u044D\u0442\u043E \u043B\u043E\u043C\u0430\u0435\u0442 \u043B\u043E\u0433\u0438\u043A\u0443 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F.",
+      hint: "\u0420\u0430\u0437\u043E\u0440\u0432\u0438\u0442\u0435 \u0446\u0435\u043F\u043E\u0447\u043A\u0443 \u2014 \u0443\u0431\u0435\u0440\u0438\u0442\u0435 \u043E\u0434\u0438\u043D \u0438\u0437 inherits.",
+      samples: stats.circularInheritance.slice(0, 20)
+    });
+  }
+  if (stats.unknownReferences.length > 0) {
+    const byKind = {};
+    stats.unknownReferences.forEach((r) => {
+      byKind[r.kind] = (byKind[r.kind] || 0) + 1;
+    });
+    issues.push({
+      severity: "error",
+      count: stats.unknownReferences.length,
+      title: "\u0411\u0438\u0442\u044B\u0435 \u0441\u0441\u044B\u043B\u043A\u0438",
+      description: "\u0415\u0441\u0442\u044C \u0441\u0441\u044B\u043B\u043A\u0438 \u043D\u0430 \u043D\u0435\u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438: " + Object.entries(byKind).map(([k, n]) => `${k} (${n})`).join(", "),
+      hint: "\u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 FQID \u0438 \u043E\u043F\u0435\u0447\u0430\u0442\u043A\u0438 \u0432 id.",
+      samples: stats.unknownReferences.map((r) => `${r.from} \u2192 ${r.ref}`).slice(0, 20)
+    });
+  }
+  if (stats.duplicateEntityIds.length > 0) {
+    issues.push({
+      severity: "error",
+      count: stats.duplicateEntityIds.length,
+      title: "\u0414\u0443\u0431\u043B\u0438\u043A\u0430\u0442\u044B entityId \u043C\u0435\u0436\u0434\u0443 \u0434\u043E\u043C\u0435\u043D\u0430\u043C\u0438",
+      description: "\u041E\u0434\u0438\u043D\u0430\u043A\u043E\u0432\u044B\u0439 id \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u0432 \u043D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u0438\u0445 \u0434\u043E\u043C\u0435\u043D\u0430\u0445 \u2014 \u044D\u0442\u043E \u043F\u0443\u0442\u0430\u0435\u0442 FQID-\u0441\u0441\u044B\u043B\u043A\u0438.",
+      hint: "\u041F\u0435\u0440\u0435\u0438\u043C\u0435\u043D\u0443\u0439\u0442\u0435 \u043E\u0434\u043D\u0443 \u0438\u0437 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0438\u043B\u0438 \u0432\u044B\u043D\u0435\u0441\u0438\u0442\u0435 \u0432 \u043E\u0431\u0449\u0438\u0439 \u0434\u043E\u043C\u0435\u043D.",
+      samples: stats.duplicateEntityIds.map(
+        (d) => `${d.entityId}: ${d.domains.join(", ")}`
+      )
+    });
+  }
+  if (stats.mixinConflicts.length > 0) {
+    issues.push({
+      severity: "warning",
+      count: stats.mixinConflicts.length,
+      title: "\u041A\u043E\u043D\u0444\u043B\u0438\u043A\u0442\u044B \u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432",
+      description: "\u0420\u0430\u0437\u043D\u044B\u0435 \u043C\u0438\u043A\u0441\u0438\u043D\u044B \u0434\u043E\u0431\u0430\u0432\u043B\u044F\u044E\u0442 \u043E\u0434\u0438\u043D\u0430\u043A\u043E\u0432\u044B\u0435 \u0432\u043A\u043B\u0430\u0434\u043A\u0438 \u043A \u043E\u0434\u043D\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438.",
+      hint: "\u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u043F\u043E\u0440\u044F\u0434\u043E\u043A \u043F\u0440\u0438\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432 \u2014 \u043A\u0430\u043A\u043E\u0439 \u043F\u043E\u0431\u0435\u0434\u0438\u0442.",
+      samples: stats.mixinConflicts.map(
+        (c) => `${c.targetFqid}: ${c.addedTabs.join(", ")} (${c.source} \u2194 ${c.conflictsWith.join(", ")})`
+      )
+    });
+  }
+  if (stats.orphanEntities.length > 0) {
+    issues.push({
+      severity: "warning",
+      count: stats.orphanEntities.length,
+      title: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438-\u0441\u0438\u0440\u043E\u0442\u044B",
+      description: "\u041D\u0438 \u043D\u0430 \u043A\u043E\u0433\u043E \u043D\u0435 \u0441\u0441\u044B\u043B\u0430\u044E\u0442\u0441\u044F \u0438 \u043D\u0438\u043A\u0442\u043E \u043D\u0435 \u0441\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F \u2014 \u0432\u043E\u0437\u043C\u043E\u0436\u043D\u043E, \u043C\u0451\u0440\u0442\u0432\u044B\u0439 \u043A\u043E\u0434.",
+      hint: "\u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435: \u043C\u043E\u0436\u0435\u0442, \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0440\u0435\u0430\u043B\u044C\u043D\u043E \u043D\u0435 \u043D\u0443\u0436\u043D\u0430 \u0438\u043B\u0438 \u043D\u0435 \u043F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0430.",
+      samples: stats.orphanEntities.slice(0, 30)
+    });
+  }
+  if (stats.attributesWithoutViews.length > 0) {
+    issues.push({
+      severity: "warning",
+      count: stats.attributesWithoutViews.length,
+      title: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0431\u0435\u0437 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F",
+      description: "\u041E\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u044B, \u043D\u043E \u043D\u0435 \u0443\u043F\u043E\u043C\u044F\u043D\u0443\u0442\u044B \u043D\u0438 \u0432 \u043E\u0434\u043D\u043E\u043C views[].widgets[] \u2014 \u043D\u0435 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u044E\u0442\u0441\u044F \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044E.",
+      hint: "\u0415\u0441\u043B\u0438 \u0430\u0442\u0440\u0438\u0431\u0443\u0442 \u0440\u0435\u0430\u043B\u044C\u043D\u043E \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u2014 \u0434\u043E\u0431\u0430\u0432\u044C\u0442\u0435 \u0432\u0438\u0434\u0436\u0435\u0442.",
+      samples: stats.attributesWithoutViews.slice(0, 30).map((a) => a.key)
+    });
+  }
+  if (stats.emptyDomains.length > 0) {
+    issues.push({
+      severity: "info",
+      count: stats.emptyDomains.length,
+      title: "\u0414\u043E\u043C\u0435\u043D\u044B \u0431\u0435\u0437 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439",
+      description: "\u0421\u043E\u0434\u0435\u0440\u0436\u0430\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u043C\u0438\u043A\u0441\u0438\u043D\u044B / \u0442\u0438\u043F\u044B \u0434\u0430\u043D\u043D\u044B\u0445 / \u043F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u0438 \u2014 \u044D\u0442\u043E \u043D\u043E\u0440\u043C\u0430\u043B\u044C\u043D\u043E \u0434\u043B\u044F mixin-\u0434\u043E\u043C\u0435\u043D\u043E\u0432.",
+      hint: "\u041D\u0435 \u0442\u0440\u0435\u0431\u0443\u0435\u0442 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0439, \u0435\u0441\u043B\u0438 \u0434\u043E\u043C\u0435\u043D \u0437\u0430\u0434\u0443\u043C\u0430\u043D \u043A\u0430\u043A \u043C\u0438\u043A\u0441\u0438\u043D-\u0431\u0438\u0431\u043B\u0438\u043E\u0442\u0435\u043A\u0430.",
+      samples: stats.emptyDomains
+    });
+  }
+  if (stats.entitiesWithoutAttributes.length > 0) {
+    issues.push({
+      severity: "info",
+      count: stats.entitiesWithoutAttributes.length,
+      title: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0431\u0435\u0437 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432",
+      description: "\u0412\u0441\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0443\u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u044B \u043E\u0442 \u0440\u043E\u0434\u0438\u0442\u0435\u043B\u044F \u2014 \u0441\u043E\u0431\u0441\u0442\u0432\u0435\u043D\u043D\u044B\u0445 \u043D\u0435\u0442.",
+      hint: "\u041D\u043E\u0440\u043C\u0430\u043B\u044C\u043D\u043E, \u0435\u0441\u043B\u0438 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0447\u0438\u0441\u0442\u043E \u043C\u0430\u0440\u043A\u0435\u0440\u043D\u0430\u044F.",
+      samples: stats.entitiesWithoutAttributes.slice(0, 20)
+    });
+  }
+  if (orphans) {
+    if (orphans.views.length > 0) {
+      issues.push({
+        severity: "info",
+        count: orphans.views.length,
+        title: "\u041E\u0441\u0438\u0440\u043E\u0442\u0435\u0432\u0448\u0438\u0435 views",
+        description: "\u041E\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u044B, \u043D\u043E \u043D\u0438\u0433\u0434\u0435 \u043D\u0435 \u0432\u044B\u0437\u044B\u0432\u0430\u044E\u0442\u0441\u044F \u2014 \u043D\u0438 \u0432 \u043C\u0435\u043D\u044E, \u043D\u0438 \u0432 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F\u0445.",
+        hint: "\u041A\u0430\u043D\u0434\u0438\u0434\u0430\u0442\u044B \u043D\u0430 \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435 \u0438\u043B\u0438 \u043D\u0430 \u043F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435 \u043A \u0438\u043D\u0442\u0435\u0440\u0444\u0435\u0439\u0441\u0443.",
+        samples: orphans.views.map((v) => `${v.domainId}/${v.id} (${v.type})`).slice(0, 30)
+      });
+    }
+    if (orphans.actions.length > 0) {
+      issues.push({
+        severity: "info",
+        count: orphans.actions.length,
+        title: "\u041E\u0441\u0438\u0440\u043E\u0442\u0435\u0432\u0448\u0438\u0435 actions",
+        description: "\u041E\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u044B, \u043D\u043E \u043D\u0435\u0442 \u0432\u0438\u0434\u0436\u0435\u0442\u0430, \u043A\u043E\u0442\u043E\u0440\u044B\u0439 \u0431\u044B \u0438\u0445 \u0432\u044B\u0437\u044B\u0432\u0430\u043B.",
+        hint: "\u0412\u043E\u0437\u043C\u043E\u0436\u043D\u043E, \u043D\u0435 \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u044B \u043A\u043D\u043E\u043F\u043A\u0438 \u0432 \u0438\u043D\u0442\u0435\u0440\u0444\u0435\u0439\u0441.",
+        samples: orphans.actions.map((a) => `${a.domainId}/${a.id}`).slice(0, 30)
+      });
+    }
+    if (orphans.dataTypes.length > 0) {
+      issues.push({
+        severity: "info",
+        count: orphans.dataTypes.length,
+        title: "\u041E\u0441\u0438\u0440\u043E\u0442\u0435\u0432\u0448\u0438\u0435 \u0442\u0438\u043F\u044B \u0434\u0430\u043D\u043D\u044B\u0445",
+        description: "Enum/Table/Workflow \u043D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u044E\u0442\u0441\u044F \u043D\u0438 \u043E\u0434\u043D\u0438\u043C \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u043C.",
+        hint: "\u041C\u0451\u0440\u0442\u0432\u044B\u0439 \u043A\u043E\u0434 \u2014 \u043C\u043E\u0436\u043D\u043E \u0443\u0434\u0430\u043B\u0438\u0442\u044C.",
+        samples: orphans.dataTypes.map((d) => `${d.domainId}/${d.id} (${d.kind})`).slice(0, 30)
+      });
+    }
+    if (orphans.sequences.length > 0) {
+      issues.push({
+        severity: "info",
+        count: orphans.sequences.length,
+        title: "\u041E\u0441\u0438\u0440\u043E\u0442\u0435\u0432\u0448\u0438\u0435 \u043F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u0438",
+        description: "\u041D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u044E\u0442\u0441\u044F \u043D\u0438 \u043E\u0434\u043D\u0438\u043C Identifier-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u043C.",
+        hint: "\u041C\u043E\u0436\u043D\u043E \u0443\u0434\u0430\u043B\u0438\u0442\u044C \u0431\u0435\u0437 \u043F\u043E\u0441\u043B\u0435\u0434\u0441\u0442\u0432\u0438\u0439.",
+        samples: orphans.sequences.map((s) => `${s.domainId}/${s.id}`).slice(0, 30)
+      });
+    }
+    if (orphans.medias.length > 0) {
+      issues.push({
+        severity: "info",
+        count: orphans.medias.length,
+        title: "\u041E\u0441\u0438\u0440\u043E\u0442\u0435\u0432\u0448\u0438\u0435 \u0438\u043A\u043E\u043D\u043A\u0438",
+        description: "\u041D\u0435 \u0443\u043F\u043E\u043C\u044F\u043D\u0443\u0442\u044B \u043D\u0438 \u0432 \u043E\u0434\u043D\u043E\u043C \u0432\u0438\u0434\u0436\u0435\u0442\u0435.",
+        hint: "\u041C\u043E\u0436\u043D\u043E \u0443\u0434\u0430\u043B\u0438\u0442\u044C \u0438\u0437 medias[].",
+        samples: orphans.medias.map((m) => `${m.domainId}/${m.id}`).slice(0, 30)
+      });
+    }
+  }
+  const counts = {
+    error: issues.filter((i) => i.severity === "error").reduce((s, i) => s + i.count, 0),
+    warning: issues.filter((i) => i.severity === "warning").reduce((s, i) => s + i.count, 0),
+    info: issues.filter((i) => i.severity === "info").reduce((s, i) => s + i.count, 0)
+  };
+  return {
+    issues,
+    counts,
+    totalIssues: counts.error + counts.warning + counts.info
+  };
+}
+var init_validation = __esm({
+  "src/web/lib/model/validation.ts"() {
+    "use strict";
+  }
+});
+
+// src/web/components/modals/ModelValidationModal.tsx
+import { useMemo as useMemo28, useState as useState19 } from "react";
+import { Fragment as Fragment9, jsx as jsx56, jsxs as jsxs53 } from "react/jsx-runtime";
+function ModelValidationModal() {
+  const store = useGraphStore();
+  const { index, loading, error } = useModelIndex();
+  const [showHelp, setShowHelp] = useState19(false);
+  const [expanded, setExpanded] = useState19(/* @__PURE__ */ new Set());
+  const open = store.modelValidationOpen;
+  const summary = useMemo28(
+    () => index ? summarizeValidation(index.stats, index.orphans) : null,
+    [index]
+  );
+  const toggle = (title) => {
+    setExpanded((prev) => {
+      const s = new Set(prev);
+      if (s.has(title))
+        s.delete(title);
+      else
+        s.add(title);
+      return s;
+    });
+  };
+  const openEntity = (fqid) => {
+    store.setModelValidationOpen(false);
+    store.setEntityCatalogInitialFqid(fqid);
+    store.setEntityCatalogOpen(true);
+  };
+  if (!open)
+    return null;
+  const errors = summary?.issues.filter((i) => i.severity === "error") ?? [];
+  const warnings = summary?.issues.filter((i) => i.severity === "warning") ?? [];
+  const infos = summary?.issues.filter((i) => i.severity === "info") ?? [];
+  return /* @__PURE__ */ jsx56(
+    "div",
+    {
+      className: "help-overlay",
+      onMouseDown: () => store.setModelValidationOpen(false),
+      children: /* @__PURE__ */ jsxs53(
+        "div",
+        {
+          className: "help-modal model-validation-modal",
+          onMouseDown: (e) => e.stopPropagation(),
+          children: [
+            /* @__PURE__ */ jsxs53("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs53("div", { className: "help-modal__title", children: [
+                /* @__PURE__ */ jsx56(MIcon, { name: "science", size: "sm" }),
+                /* @__PURE__ */ jsx56("span", { className: "icon-label", children: "\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u043C\u043E\u0434\u0435\u043B\u0438" }),
+                summary && summary.totalIssues > 0 && /* @__PURE__ */ jsx56("span", { className: "help-modal__badge", children: summary.totalIssues })
+              ] }),
+              /* @__PURE__ */ jsxs53("div", { className: "help-modal__actions", children: [
+                /* @__PURE__ */ jsx56(HelpButton, { open: showHelp, onToggle: () => setShowHelp(!showHelp), label: "\u0427\u0442\u043E \u044D\u0442\u043E?" }),
+                /* @__PURE__ */ jsx56(
+                  "button",
+                  {
+                    className: "help-modal__close",
+                    onClick: () => store.setModelValidationOpen(false),
+                    children: "\u2715"
+                  }
+                )
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxs53("div", { className: "help-modal__body", children: [
+              loading && /* @__PURE__ */ jsx56("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }),
+              error && /* @__PURE__ */ jsxs53("div", { style: { color: "var(--danger)" }, children: [
+                "\u041E\u0448\u0438\u0431\u043A\u0430: ",
+                error
+              ] }),
+              index && summary && /* @__PURE__ */ jsxs53(Fragment9, { children: [
+                /* @__PURE__ */ jsxs53(ModalHelp, { visible: showHelp, children: [
+                  /* @__PURE__ */ jsx56(HelpSection, { title: "\u0427\u0442\u043E \u044D\u0442\u043E", children: /* @__PURE__ */ jsxs53(HelpText, { children: [
+                    "\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u2014 \u044D\u0442\u043E \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438\u0439 \u043E\u0431\u0445\u043E\u0434 \u0432\u0441\u0435\u0439 \u043C\u043E\u0434\u0435\u043B\u0438 \u0438 \u043F\u043E\u0438\u0441\u043A \u043F\u0440\u043E\u0431\u043B\u0435\u043C: \u0446\u0438\u043A\u043B\u043E\u0432, \u0431\u0438\u0442\u044B\u0445 \u0441\u0441\u044B\u043B\u043E\u043A, \u0434\u0443\u0431\u043B\u0435\u0439, \u0441\u0438\u0440\u043E\u0442, \u043A\u043E\u043D\u0444\u043B\u0438\u043A\u0442\u043E\u0432 \u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432. \u041E\u0442\u043B\u0438\u0447\u0430\u0435\u0442\u0441\u044F \u043E\u0442 \u043B\u0438\u043D\u0442\u0435\u0440\u0430: \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u0438\u0449\u0435\u0442 ",
+                    /* @__PURE__ */ jsx56("em", { children: "\u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u043D\u044B\u0435" }),
+                    " \u043E\u0448\u0438\u0431\u043A\u0438, \u043B\u0438\u043D\u0442\u0435\u0440 \u2014 ",
+                    /* @__PURE__ */ jsx56("em", { children: "\u0441\u0442\u0438\u043B\u0435\u0432\u044B\u0435" }),
+                    "."
+                  ] }) }),
+                  /* @__PURE__ */ jsx56(HelpSection, { title: "\u0423\u0440\u043E\u0432\u043D\u0438 \u043F\u0440\u043E\u0431\u043B\u0435\u043C", children: /* @__PURE__ */ jsxs53(HelpList, { children: [
+                    /* @__PURE__ */ jsxs53("li", { children: [
+                      /* @__PURE__ */ jsx56("strong", { children: "\u041E\u0448\u0438\u0431\u043A\u0438" }),
+                      " \u2014 \u043C\u043E\u0434\u0435\u043B\u044C \u0441\u043B\u043E\u043C\u0430\u043D\u0430: \u0446\u0438\u043A\u043B\u044B \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F, \u0441\u0441\u044B\u043B\u043A\u0438 \u043D\u0430 \u043D\u0435\u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438, \u0434\u0443\u0431\u043B\u0438\u043A\u0430\u0442\u044B entityId."
+                    ] }),
+                    /* @__PURE__ */ jsxs53("li", { children: [
+                      /* @__PURE__ */ jsx56("strong", { children: "\u041F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u044F" }),
+                      " \u2014 \u043C\u043E\u0434\u0435\u043B\u044C \u0440\u0430\u0431\u043E\u0442\u0430\u0435\u0442, \u043D\u043E \u0435\u0441\u0442\u044C \u043F\u043E\u0442\u0435\u043D\u0446\u0438\u0430\u043B\u044C\u043D\u044B\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B: \u0441\u0438\u0440\u043E\u0442\u044B, \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0431\u0435\u0437 views, \u043A\u043E\u043D\u0444\u043B\u0438\u043A\u0442\u044B \u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432."
+                    ] }),
+                    /* @__PURE__ */ jsxs53("li", { children: [
+                      /* @__PURE__ */ jsx56("strong", { children: "\u0418\u043D\u0444\u043E\u0440\u043C\u0430\u0446\u0438\u044F" }),
+                      " \u2014 \u043D\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0430, \u0430 \u0444\u0430\u043A\u0442: \u043F\u0443\u0441\u0442\u044B\u0435 \u0434\u043E\u043C\u0435\u043D\u044B (\u044D\u0442\u043E \u043D\u043E\u0440\u043C\u0430 \u0434\u043B\u044F \u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432), \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0431\u0435\u0437 \u0441\u043E\u0431\u0441\u0442\u0432\u0435\u043D\u043D\u044B\u0445 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432."
+                    ] })
+                  ] }) }),
+                  /* @__PURE__ */ jsx56(HelpSection, { title: "\u041F\u0440\u0438\u043C\u0435\u0440\u044B", children: /* @__PURE__ */ jsxs53(HelpText, { children: [
+                    /* @__PURE__ */ jsx56("strong", { children: "\u0426\u0438\u043A\u043B:" }),
+                    " A \u043D\u0430\u0441\u043B\u0435\u0434\u0443\u0435\u0442 B, B \u043D\u0430\u0441\u043B\u0435\u0434\u0443\u0435\u0442 A \u2014 \u0441\u043B\u043E\u043C\u0430\u0435\u0442\u0441\u044F \u043B\u043E\u0433\u0438\u043A\u0430 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F.",
+                    " ",
+                    /* @__PURE__ */ jsx56("strong", { children: "\u0411\u0438\u0442\u0430\u044F \u0441\u0441\u044B\u043B\u043A\u0430:" }),
+                    " \u0430\u0442\u0440\u0438\u0431\u0443\u0442 ",
+                    /* @__PURE__ */ jsx56("code", { children: "Reference" }),
+                    " \u0443\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 \u043D\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C, \u043A\u043E\u0442\u043E\u0440\u043E\u0439 \u043D\u0435\u0442 \u0432 \u0438\u043D\u0434\u0435\u043A\u0441\u0435. ",
+                    /* @__PURE__ */ jsx56("strong", { children: "\u041E\u0441\u0438\u0440\u043E\u0442\u0435\u0432\u0448\u0438\u0439 view:" }),
+                    " \u043E\u0431\u044A\u044F\u0432\u043B\u0435\u043D, \u043D\u043E \u043D\u0435 \u0432\u044B\u0437\u044B\u0432\u0430\u0435\u0442\u0441\u044F \u043D\u0438 \u0438\u0437 \u043C\u0435\u043D\u044E, \u043D\u0438 \u0438\u0437 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F."
+                  ] }) })
+                ] }),
+                /* @__PURE__ */ jsxs53("div", { className: "model-validation-summary", children: [
+                  /* @__PURE__ */ jsxs53("div", { className: "model-validation-stat model-validation-stat--error", children: [
+                    /* @__PURE__ */ jsx56("div", { className: "model-validation-stat__value", children: summary.counts.error }),
+                    /* @__PURE__ */ jsx56("div", { className: "model-validation-stat__label", children: "\u041E\u0448\u0438\u0431\u043E\u043A" })
+                  ] }),
+                  /* @__PURE__ */ jsxs53("div", { className: "model-validation-stat model-validation-stat--warning", children: [
+                    /* @__PURE__ */ jsx56("div", { className: "model-validation-stat__value", children: summary.counts.warning }),
+                    /* @__PURE__ */ jsx56("div", { className: "model-validation-stat__label", children: "\u041F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u0439" })
+                  ] }),
+                  /* @__PURE__ */ jsxs53("div", { className: "model-validation-stat model-validation-stat--info", children: [
+                    /* @__PURE__ */ jsx56("div", { className: "model-validation-stat__value", children: summary.counts.info }),
+                    /* @__PURE__ */ jsx56("div", { className: "model-validation-stat__label", children: "\u0417\u0430\u043C\u0435\u0447\u0430\u043D\u0438\u0439" })
+                  ] })
+                ] }),
+                summary.totalIssues === 0 && /* @__PURE__ */ jsxs53("div", { className: "model-validation-empty", children: [
+                  /* @__PURE__ */ jsx56("div", { className: "model-validation-empty__icon", children: "\u2705" }),
+                  /* @__PURE__ */ jsx56("div", { className: "model-validation-empty__title", children: "\u041C\u043E\u0434\u0435\u043B\u044C \u043F\u0440\u043E\u0448\u043B\u0430 \u0432\u0441\u0435 \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0438" }),
+                  /* @__PURE__ */ jsx56("div", { className: "model-validation-empty__hint", children: "\u0426\u0438\u043A\u043B\u043E\u0432, \u0431\u0438\u0442\u044B\u0445 \u0441\u0441\u044B\u043B\u043E\u043A, \u0441\u0438\u0440\u043E\u0442 \u0438 \u0434\u0443\u0431\u043B\u0438\u043A\u0430\u0442\u043E\u0432 \u043D\u0435 \u043E\u0431\u043D\u0430\u0440\u0443\u0436\u0435\u043D\u043E." })
+                ] }),
+                errors.length > 0 && /* @__PURE__ */ jsx56(
+                  IssueSection,
+                  {
+                    severity: "error",
+                    label: "\u041E\u0448\u0438\u0431\u043A\u0438",
+                    issues: errors,
+                    expanded,
+                    onToggle: toggle,
+                    onOpenEntity: openEntity
+                  }
+                ),
+                warnings.length > 0 && /* @__PURE__ */ jsx56(
+                  IssueSection,
+                  {
+                    severity: "warning",
+                    label: "\u041F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u044F",
+                    issues: warnings,
+                    expanded,
+                    onToggle: toggle,
+                    onOpenEntity: openEntity
+                  }
+                ),
+                infos.length > 0 && /* @__PURE__ */ jsx56(
+                  IssueSection,
+                  {
+                    severity: "info",
+                    label: "\u0418\u043D\u0444\u043E\u0440\u043C\u0430\u0446\u0438\u044F",
+                    issues: infos,
+                    expanded,
+                    onToggle: toggle,
+                    onOpenEntity: openEntity
+                  }
+                )
+              ] })
+            ] })
+          ]
+        }
+      )
+    }
+  );
+}
+function IssueSection({
+  severity,
+  label,
+  issues,
+  expanded,
+  onToggle,
+  onOpenEntity
+}) {
+  return /* @__PURE__ */ jsxs53("div", { className: "model-validation-group model-validation-group--" + severity, children: [
+    /* @__PURE__ */ jsx56("div", { className: "model-validation-group__title", children: label }),
+    issues.map((issue) => {
+      const isOpen = expanded.has(issue.title);
+      return /* @__PURE__ */ jsxs53("div", { className: "model-validation-issue", children: [
+        /* @__PURE__ */ jsxs53(
+          "button",
+          {
+            className: "model-validation-issue__head",
+            onClick: () => onToggle(issue.title),
+            children: [
+              /* @__PURE__ */ jsx56(
+                MIcon,
+                {
+                  name: isOpen ? "expand_more" : "chevron_right",
+                  size: "sm"
+                }
+              ),
+              /* @__PURE__ */ jsx56("span", { className: "model-validation-issue__title", children: issue.title }),
+              /* @__PURE__ */ jsx56("span", { className: "model-validation-issue__count", children: issue.count })
+            ]
+          }
+        ),
+        /* @__PURE__ */ jsx56("div", { className: "model-validation-issue__desc", children: issue.description }),
+        /* @__PURE__ */ jsxs53("div", { className: "model-validation-issue__hint", children: [
+          /* @__PURE__ */ jsx56(MIcon, { name: "lightbulb", size: "sm" }),
+          /* @__PURE__ */ jsx56("span", { children: issue.hint })
+        ] }),
+        isOpen && issue.samples.length > 0 && /* @__PURE__ */ jsxs53("div", { className: "model-validation-issue__samples", children: [
+          issue.samples.map((s, i) => {
+            const isFqid = /^[a-z0-9.-]+\/[a-z0-9_-]+$/i.test(s);
+            if (isFqid) {
+              return /* @__PURE__ */ jsx56(
+                "button",
+                {
+                  className: "model-validation-sample model-validation-sample--link",
+                  onClick: () => onOpenEntity(s.toLowerCase()),
+                  children: s
+                },
+                i
+              );
+            }
+            return /* @__PURE__ */ jsx56("div", { className: "model-validation-sample", children: s }, i);
+          }),
+          issue.count > issue.samples.length && /* @__PURE__ */ jsxs53("div", { className: "model-validation-sample model-validation-sample--more", children: [
+            "...\u0438 \u0435\u0449\u0451 ",
+            issue.count - issue.samples.length
+          ] })
+        ] })
+      ] }, issue.title);
+    })
+  ] });
+}
+var init_ModelValidationModal = __esm({
+  "src/web/components/modals/ModelValidationModal.tsx"() {
+    "use strict";
+    init_useGraphStore();
+    init_useModelIndex();
+    init_MIcon();
+    init_validation();
+    init_ModalHelp();
+  }
+});
+
+// src/web/lib/model/glossary.ts
+function firstLetter(s) {
+  const ch = (s || "").trim().charAt(0).toUpperCase();
+  return /[A-ZА-ЯЁ]/.test(ch) ? ch : "#";
+}
+function buildEntityGlossary(index) {
+  const entries = index.entities.map((e) => ({
+    kind: "entity",
+    fqid: e.fqid,
+    name: e.name || e.entityId,
+    letter: firstLetter(e.name || e.entityId),
+    entity: e
+  }));
+  return groupByLetter(entries);
+}
+function buildAttributeGlossary(index) {
+  const entries = [];
+  index.entities.forEach((e) => {
+    e.attributes.forEach((a) => {
+      entries.push({
+        kind: "attribute",
+        key: `${e.fqid}#${a.id}`,
+        name: a.name || a.id,
+        letter: firstLetter(a.name || a.id),
+        attribute: a,
+        entity: e
+      });
+    });
+  });
+  const seen = /* @__PURE__ */ new Set();
+  const filtered = entries.filter((e) => {
+    const key = `${e.entity.fqid}#${e.attribute.id}`;
+    if (seen.has(key))
+      return false;
+    seen.add(key);
+    return true;
+  });
+  return groupByLetter(filtered);
+}
+function buildDataTypeGlossary(index) {
+  const entries = index.dataTypes.map((d) => ({
+    kind: "dataType",
+    key: `${d.domainId}#${d.id}`,
+    name: d.name || d.id,
+    letter: firstLetter(d.name || d.id),
+    dataType: d
+  }));
+  return groupByLetter(entries);
+}
+function groupByLetter(entries) {
+  const map = /* @__PURE__ */ new Map();
+  entries.forEach((e) => {
+    const letter = e.letter;
+    if (!map.has(letter))
+      map.set(letter, []);
+    map.get(letter).push(e);
+  });
+  const sorted = Array.from(map.entries()).sort(([a], [b]) => {
+    if (a === "#")
+      return 1;
+    if (b === "#")
+      return -1;
+    return a.localeCompare(b, "ru");
+  });
+  return sorted.map(([letter, arr]) => ({
+    letter,
+    entries: arr.sort(
+      (a, b) => a.name.localeCompare(b.name, "ru", { sensitivity: "base" })
+    )
+  }));
+}
+function filterGlossarySections(sections, query) {
+  const q = query.trim().toLowerCase();
+  if (!q)
+    return sections;
+  return sections.map((s) => ({
+    letter: s.letter,
+    entries: s.entries.filter((e) => e.name.toLowerCase().indexOf(q) !== -1)
+  })).filter((s) => s.entries.length > 0);
+}
+var init_glossary = __esm({
+  "src/web/lib/model/glossary.ts"() {
+    "use strict";
+  }
+});
+
+// src/web/components/modals/GlossaryModal.tsx
+import { useMemo as useMemo29, useState as useState20 } from "react";
+import { Fragment as Fragment10, jsx as jsx57, jsxs as jsxs54 } from "react/jsx-runtime";
+function GlossaryModal() {
+  const store = useGraphStore();
+  const { index, loading, error } = useModelIndex();
+  const [tab, setTab] = useState20("entity");
+  const [query, setQuery] = useState20("");
+  const open = store.glossaryOpen;
+  const sections = useMemo29(() => {
+    if (!index)
+      return [];
+    if (tab === "entity")
+      return buildEntityGlossary(index);
+    if (tab === "attribute")
+      return buildAttributeGlossary(index);
+    return buildDataTypeGlossary(index);
+  }, [index, tab]);
+  const filtered = useMemo29(
+    () => filterGlossarySections(sections, query),
+    [sections, query]
+  );
+  const totalCount = useMemo29(
+    () => sections.reduce((s, sec) => s + sec.entries.length, 0),
+    [sections]
+  );
+  const filteredCount = useMemo29(
+    () => filtered.reduce((s, sec) => s + sec.entries.length, 0),
+    [filtered]
+  );
+  const openEntity = (fqid) => {
+    store.setGlossaryOpen(false);
+    store.setEntityCatalogInitialFqid(fqid);
+    store.setEntityCatalogOpen(true);
+  };
+  const scrollToLetter = (letter) => {
+    const el = document.getElementById("glossary-section-" + letter);
+    if (el)
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  if (!open)
+    return null;
+  const availableLetters = filtered.map((s) => s.letter);
+  return /* @__PURE__ */ jsx57(
+    "div",
+    {
+      className: "help-overlay help-overlay--fullscreen",
+      onMouseDown: () => store.setGlossaryOpen(false),
+      children: /* @__PURE__ */ jsxs54(
+        "div",
+        {
+          className: "help-modal glossary-modal",
+          onMouseDown: (e) => e.stopPropagation(),
+          children: [
+            /* @__PURE__ */ jsxs54("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs54("div", { className: "help-modal__title", children: [
+                "\u{1F4DA} \u0413\u043B\u043E\u0441\u0441\u0430\u0440\u0438\u0439",
+                index && /* @__PURE__ */ jsxs54("span", { className: "help-modal__badge", children: [
+                  filteredCount,
+                  " / ",
+                  totalCount
+                ] })
+              ] }),
+              /* @__PURE__ */ jsx57(
+                "button",
+                {
+                  className: "help-modal__close",
+                  onClick: () => store.setGlossaryOpen(false),
+                  children: "\u2715"
+                }
+              )
+            ] }),
+            loading && /* @__PURE__ */ jsx57("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx57("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
+            error && /* @__PURE__ */ jsx57("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs54("div", { style: { color: "var(--danger)" }, children: [
+              "\u041E\u0448\u0438\u0431\u043A\u0430: ",
+              error
+            ] }) }),
+            index && /* @__PURE__ */ jsxs54("div", { className: "glossary-body", children: [
+              /* @__PURE__ */ jsxs54("div", { className: "glossary-sidebar", children: [
+                /* @__PURE__ */ jsxs54("div", { className: "glossary-tabs", children: [
+                  /* @__PURE__ */ jsx57(
+                    "button",
+                    {
+                      className: "glossary-tab" + (tab === "entity" ? " active" : ""),
+                      onClick: () => {
+                        setTab("entity");
+                        setQuery("");
+                      },
+                      children: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438"
+                    }
+                  ),
+                  /* @__PURE__ */ jsx57(
+                    "button",
+                    {
+                      className: "glossary-tab" + (tab === "attribute" ? " active" : ""),
+                      onClick: () => {
+                        setTab("attribute");
+                        setQuery("");
+                      },
+                      children: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u044B"
+                    }
+                  ),
+                  /* @__PURE__ */ jsx57(
+                    "button",
+                    {
+                      className: "glossary-tab" + (tab === "dataType" ? " active" : ""),
+                      onClick: () => {
+                        setTab("dataType");
+                        setQuery("");
+                      },
+                      children: "\u0422\u0438\u043F\u044B \u0434\u0430\u043D\u043D\u044B\u0445"
+                    }
+                  )
+                ] }),
+                /* @__PURE__ */ jsxs54("div", { className: "glossary-index", children: [
+                  /* @__PURE__ */ jsx57("div", { className: "glossary-index__title", children: "\u0423\u043A\u0430\u0437\u0430\u0442\u0435\u043B\u044C" }),
+                  /* @__PURE__ */ jsxs54("div", { className: "glossary-index__letters", children: [
+                    "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map((L) => {
+                      const has = availableLetters.includes(L);
+                      return /* @__PURE__ */ jsx57(
+                        "button",
+                        {
+                          className: "glossary-letter" + (has ? "" : " disabled"),
+                          onClick: () => has && scrollToLetter(L),
+                          disabled: !has,
+                          children: L
+                        },
+                        L
+                      );
+                    }),
+                    /* @__PURE__ */ jsx57(
+                      "button",
+                      {
+                        className: "glossary-letter" + (availableLetters.includes("#") ? "" : " disabled"),
+                        onClick: () => availableLetters.includes("#") && scrollToLetter("#"),
+                        disabled: !availableLetters.includes("#"),
+                        children: "#"
+                      }
+                    )
+                  ] })
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxs54("div", { className: "glossary-content", children: [
+                /* @__PURE__ */ jsxs54("div", { className: "glossary-search-wrap", children: [
+                  /* @__PURE__ */ jsx57("span", { className: "entity-search-icon", children: "\u{1F50D}" }),
+                  /* @__PURE__ */ jsx57(
+                    "input",
+                    {
+                      className: "entity-search-input",
+                      type: "text",
+                      placeholder: tab === "entity" ? "\u041F\u043E\u0438\u0441\u043A \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438..." : tab === "attribute" ? "\u041F\u043E\u0438\u0441\u043A \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430..." : "\u041F\u043E\u0438\u0441\u043A \u0442\u0438\u043F\u0430 \u0434\u0430\u043D\u043D\u044B\u0445...",
+                      value: query,
+                      onChange: (e) => setQuery(e.target.value),
+                      autoFocus: true
+                    }
+                  ),
+                  query && /* @__PURE__ */ jsx57(
+                    "button",
+                    {
+                      className: "entity-search-clear",
+                      onClick: () => setQuery(""),
+                      children: "\u2715"
+                    }
+                  )
+                ] }),
+                /* @__PURE__ */ jsx57("div", { className: "glossary-list", children: filtered.length === 0 ? /* @__PURE__ */ jsx57("div", { className: "glossary-empty", children: query ? `\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443 \xAB${query}\xBB` : "\u041D\u0435\u0442 \u0434\u0430\u043D\u043D\u044B\u0445" }) : filtered.map((section) => /* @__PURE__ */ jsxs54(
+                  "div",
+                  {
+                    id: "glossary-section-" + section.letter,
+                    className: "glossary-section",
+                    children: [
+                      /* @__PURE__ */ jsx57("div", { className: "glossary-section__letter", children: section.letter }),
+                      section.entries.map((entry) => /* @__PURE__ */ jsx57(
+                        GlossaryEntryCard,
+                        {
+                          entry,
+                          query,
+                          onOpenEntity: openEntity
+                        },
+                        entry.kind === "entity" ? entry.fqid : entry.kind === "attribute" ? entry.key : entry.key
+                      ))
+                    ]
+                  },
+                  section.letter
+                )) })
+              ] })
+            ] })
+          ]
+        }
+      )
+    }
+  );
+}
+function GlossaryEntryCard({
+  entry,
+  query,
+  onOpenEntity
+}) {
+  const highlight = (text) => {
+    if (!query)
+      return text;
+    const q = query.toLowerCase();
+    const idx = text.toLowerCase().indexOf(q);
+    if (idx === -1)
+      return text;
+    return /* @__PURE__ */ jsxs54(Fragment10, { children: [
+      text.slice(0, idx),
+      /* @__PURE__ */ jsx57("mark", { className: "search-hl", children: text.slice(idx, idx + q.length) }),
+      text.slice(idx + q.length)
+    ] });
+  };
+  if (entry.kind === "entity") {
+    const e = entry.entity;
+    return /* @__PURE__ */ jsxs54("div", { className: "glossary-entry", children: [
+      /* @__PURE__ */ jsxs54("div", { className: "glossary-entry__head", children: [
+        /* @__PURE__ */ jsx57(
+          "button",
+          {
+            className: "glossary-entry__name",
+            onClick: () => onOpenEntity(e.fqid),
+            title: e.fqid,
+            children: highlight(e.name || e.entityId)
+          }
+        ),
+        /* @__PURE__ */ jsx57("span", { className: "glossary-entry__id", children: e.entityId })
+      ] }),
+      /* @__PURE__ */ jsxs54("div", { className: "glossary-entry__meta", children: [
+        /* @__PURE__ */ jsx57(
+          "button",
+          {
+            className: "glossary-entry__domain",
+            onClick: () => onOpenEntity(e.fqid),
+            children: e.domainId
+          }
+        ),
+        /* @__PURE__ */ jsxs54("span", { className: "glossary-entry__tags", children: [
+          e.attributes.length,
+          " \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432"
+        ] }),
+        e.inherits && /* @__PURE__ */ jsxs54("span", { className: "glossary-entry__inherits", children: [
+          "\u21B3 ",
+          e.inherits.split("/")[1]
+        ] })
+      ] }),
+      e.description && /* @__PURE__ */ jsx57("div", { className: "glossary-entry__desc", children: highlight(e.description) })
+    ] });
+  }
+  if (entry.kind === "attribute") {
+    const a = entry.attribute;
+    const e = entry.entity;
+    return /* @__PURE__ */ jsxs54("div", { className: "glossary-entry", children: [
+      /* @__PURE__ */ jsxs54("div", { className: "glossary-entry__head", children: [
+        /* @__PURE__ */ jsx57(
+          "button",
+          {
+            className: "glossary-entry__name",
+            onClick: () => onOpenEntity(e.fqid),
+            title: `${e.fqid}#${a.id}`,
+            children: highlight(a.name || a.id)
+          }
+        ),
+        /* @__PURE__ */ jsx57("code", { className: "glossary-entry__attr-id", children: a.id }),
+        /* @__PURE__ */ jsx57("span", { className: "glossary-entry__type", children: a.dataType })
+      ] }),
+      /* @__PURE__ */ jsxs54("div", { className: "glossary-entry__meta", children: [
+        /* @__PURE__ */ jsxs54("span", { className: "glossary-entry__context", children: [
+          "\u0432 ",
+          /* @__PURE__ */ jsx57("strong", { children: e.entityId })
+        ] }),
+        /* @__PURE__ */ jsx57(
+          "button",
+          {
+            className: "glossary-entry__domain",
+            onClick: () => onOpenEntity(e.fqid),
+            children: e.domainId
+          }
+        ),
+        a.referenceEntity && /* @__PURE__ */ jsxs54("span", { className: "glossary-entry__ref", children: [
+          "\u2192 ",
+          a.referenceEntity.split("/")[1]
+        ] })
+      ] }),
+      a.description && /* @__PURE__ */ jsx57("div", { className: "glossary-entry__desc", children: highlight(a.description) })
+    ] });
+  }
+  const d = entry.dataType;
+  return /* @__PURE__ */ jsxs54("div", { className: "glossary-entry", children: [
+    /* @__PURE__ */ jsxs54("div", { className: "glossary-entry__head", children: [
+      /* @__PURE__ */ jsx57("span", { className: "glossary-entry__name", children: highlight(d.name || d.id) }),
+      /* @__PURE__ */ jsx57("code", { className: "glossary-entry__attr-id", children: d.id }),
+      /* @__PURE__ */ jsx57("span", { className: "glossary-entry__type", children: d.kind })
+    ] }),
+    /* @__PURE__ */ jsxs54("div", { className: "glossary-entry__meta", children: [
+      /* @__PURE__ */ jsx57(
+        "button",
+        {
+          className: "glossary-entry__domain",
+          onClick: () => onOpenEntity(`${d.domainId}/${d.id}`),
+          children: d.domainId
+        }
+      ),
+      d.valuesCount != null && /* @__PURE__ */ jsxs54("span", { className: "glossary-entry__tags", children: [
+        d.valuesCount,
+        " \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0439"
+      ] })
+    ] }),
+    d.description && /* @__PURE__ */ jsx57("div", { className: "glossary-entry__desc", children: highlight(d.description) })
+  ] });
+}
+var init_GlossaryModal = __esm({
+  "src/web/components/modals/GlossaryModal.tsx"() {
+    "use strict";
+    init_useGraphStore();
+    init_useModelIndex();
+    init_glossary();
+  }
+});
+
+// src/web/lib/model/entity-graph.ts
+function buildEntityGraph(index, options = {}) {
+  const limit = options.limit ?? 200;
+  const showInheritance = options.showInheritance !== false;
+  const showReferences = options.showReferences !== false;
+  const showLinkages = options.showLinkages !== false;
+  const domainFilter = options.domains;
+  let candidates = index.entities;
+  if (domainFilter && domainFilter.size > 0) {
+    candidates = candidates.filter(
+      (e) => domainFilter.has(e.domainId.toLowerCase())
+    );
+  }
+  const degreeMap = /* @__PURE__ */ new Map();
+  candidates.forEach((e) => degreeMap.set(e.fqid, 0));
+  const bump = (fqid) => {
+    if (degreeMap.has(fqid))
+      degreeMap.set(fqid, (degreeMap.get(fqid) || 0) + 1);
+  };
+  candidates.forEach((e) => {
+    if (showInheritance && e.inherits) {
+      bump(e.fqid);
+      bump(e.inherits);
+    }
+    if (showReferences) {
+      for (const a of e.attributes) {
+        const t = a.referenceEntity || a.itemReferenceEntity;
+        if (t) {
+          bump(e.fqid);
+          bump(t);
+        }
+      }
+    }
+  });
+  if (showLinkages) {
+    for (const l of index.entityLinkages) {
+      bump(l.side1Fqid);
+      bump(l.side2Fqid);
+    }
+  }
+  const sorted = candidates.slice().sort((a, b) => {
+    const da = degreeMap.get(a.fqid) || 0;
+    const db = degreeMap.get(b.fqid) || 0;
+    if (da !== db)
+      return db - da;
+    return a.fqid.localeCompare(b.fqid);
+  });
+  const selected = sorted.slice(0, limit);
+  const selectedSet = new Set(selected.map((e) => e.fqid));
+  const nodes = selected.map((e) => ({
+    id: e.fqid,
+    entity: e,
+    domainId: e.domainId,
+    entityId: e.entityId,
+    label: e.name || e.entityId
+  }));
+  const edges = [];
+  const addedEdges = /* @__PURE__ */ new Set();
+  const addEdge = (edge) => {
+    if (addedEdges.has(edge.id))
+      return;
+    if (edge.source === edge.target)
+      return;
+    addedEdges.add(edge.id);
+    edges.push(edge);
+  };
+  if (showInheritance) {
+    selected.forEach((e) => {
+      if (!e.inherits)
+        return;
+      if (!selectedSet.has(e.inherits))
+        return;
+      const parentFqid = e.inherits;
+      const childFqid = e.fqid;
+      const parentShort = shortEntityId(parentFqid);
+      const childShort = shortEntityId(childFqid);
+      addEdge({
+        id: `inh:${parentFqid}\u2192${childFqid}`,
+        source: parentFqid,
+        target: childFqid,
+        kind: "inheritance",
+        label: "inherits",
+        title: `${childShort} \u043D\u0430\u0441\u043B\u0435\u0434\u0443\u0435\u0442\u0441\u044F \u043E\u0442 ${parentShort}`
+        /*`${childFqid}\n` +
+        `↳ ${parentFqid}`,*/
+      });
+    });
+  }
+  if (showReferences) {
+    selected.forEach((e) => {
+      for (const a of e.attributes) {
+        const target = a.referenceEntity || a.itemReferenceEntity;
+        if (!target)
+          continue;
+        if (!selectedSet.has(target))
+          continue;
+        const isArray = !!a.itemReferenceEntity;
+        addEdge({
+          id: `ref:${e.fqid}#${a.id}\u2192${target}`,
+          source: e.fqid,
+          target,
+          kind: "reference",
+          label: a.name || a.id,
+          viaAttribute: a.id,
+          title: `${e.entityId}.${a.id} \u2192 ${shortEntityId(target)}
+${isArray ? "\u0410\u0442\u0440\u0438\u0431\u0443\u0442: Array<" : "\u0430\u0442\u0440\u0438\u0431\u0443\u0442: "}${a.dataType}${isArray ? ">" : ""}`
+          /*`${e.fqid}\n` +
+          `↳ ${target}`,*/
+        });
+      }
+    });
+  }
+  if (showLinkages) {
+    for (const l of index.entityLinkages) {
+      if (!selectedSet.has(l.side1Fqid) || !selectedSet.has(l.side2Fqid))
+        continue;
+      const arrow = l.symmetric ? "\u2194" : "\u2192";
+      addEdge({
+        id: `lnk:${l.domainId}#${l.id}`,
+        source: l.side1Fqid,
+        target: l.side2Fqid,
+        kind: "linkage",
+        label: l.name,
+        linkageId: l.id,
+        title: `${l.name}
+\u0422\u0438\u043F: ${l.type}${l.symmetric ? " (\u0441\u0438\u043C\u043C\u0435\u0442\u0440\u0440\u0438\u0447\u043D\u0430\u044F)" : ""}
+${shortEntityId(l.side1Fqid)} ${arrow} ${shortEntityId(l.side2Fqid)}`
+        /*`${l.side1Fqid}\n` +
+        `${l.side2Fqid}`,*/
+      });
+    }
+  }
+  const byKind = {
+    inheritance: 0,
+    reference: 0,
+    linkage: 0
+  };
+  edges.forEach((e) => byKind[e.kind]++);
+  return {
+    nodes,
+    edges,
+    stats: {
+      totalNodes: nodes.length,
+      byKind,
+      truncated: Math.max(0, candidates.length - nodes.length)
+    }
+  };
+}
+function shortEntityId(fqid) {
+  const slash = fqid.indexOf("/");
+  return slash > 0 ? fqid.slice(slash + 1) : fqid;
+}
+var init_entity_graph = __esm({
+  "src/web/lib/model/entity-graph.ts"() {
+    "use strict";
+  }
+});
+
+// src/web/components/common/DomainCombobox.tsx
+import { useEffect as useEffect28, useMemo as useMemo30, useRef as useRef11, useState as useState21 } from "react";
+import { jsx as jsx58, jsxs as jsxs55 } from "react/jsx-runtime";
+function DomainCombobox({
+  value,
+  onChange,
+  domains,
+  placeholder = "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u043E\u043C\u0435\u043D..."
+}) {
+  const [open, setOpen] = useState21(false);
+  const [query, setQuery] = useState21("");
+  const [activeIdx, setActiveIdx] = useState21(0);
+  const wrapRef = useRef11(null);
+  const inputRef = useRef11(null);
+  const listRef = useRef11(null);
+  const filtered = useMemo30(() => {
+    const q = query.trim().toLowerCase();
+    if (!q)
+      return domains;
+    return domains.filter(([d]) => d.toLowerCase().indexOf(q) !== -1);
+  }, [domains, query]);
+  useEffect28(() => {
+    if (open) {
+      setQuery(value || "");
+      setActiveIdx(0);
+      setTimeout(() => inputRef.current?.focus(), 30);
+    } else {
+      setQuery("");
+    }
+  }, [open, value]);
+  useEffect28(() => {
+    if (!open)
+      return;
+    const onDoc = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target))
+        setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+  useEffect28(() => {
+    if (!open || !listRef.current)
+      return;
+    const el = listRef.current.querySelector(".domain-combobox__option--active");
+    if (el)
+      el.scrollIntoView({ block: "nearest" });
+  }, [activeIdx, open]);
+  const onKey = (e) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIdx((i) => Math.min(i + 1, filtered.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIdx((i) => Math.max(i - 1, 0));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const item = filtered[activeIdx];
+      if (item) {
+        onChange(item[0]);
+        setOpen(false);
+      }
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setOpen(false);
+    }
+  };
+  const current = domains.find(([d]) => d === value);
+  return /* @__PURE__ */ jsxs55("div", { className: "domain-combobox", ref: wrapRef, children: [
+    /* @__PURE__ */ jsxs55(
+      "button",
+      {
+        type: "button",
+        className: "domain-combobox__trigger" + (open ? " open" : ""),
+        onClick: () => setOpen(!open),
+        children: [
+          /* @__PURE__ */ jsx58(MIcon, { name: "folder", size: "sm" }),
+          /* @__PURE__ */ jsx58("span", { className: "domain-combobox__trigger-text", children: current ? current[0] : placeholder }),
+          current && /* @__PURE__ */ jsx58("span", { className: "domain-combobox__trigger-count", children: current[1] }),
+          /* @__PURE__ */ jsx58(MIcon, { name: open ? "expand_less" : "expand_more", size: "sm" })
+        ]
+      }
+    ),
+    open && /* @__PURE__ */ jsxs55("div", { className: "domain-combobox__dropdown", children: [
+      /* @__PURE__ */ jsxs55("div", { className: "domain-combobox__search", children: [
+        /* @__PURE__ */ jsx58(MIcon, { name: "search", size: "sm" }),
+        /* @__PURE__ */ jsx58(
+          "input",
+          {
+            ref: inputRef,
+            type: "text",
+            value: query,
+            onChange: (e) => {
+              setQuery(e.target.value);
+              setActiveIdx(0);
+            },
+            onKeyDown: onKey,
+            placeholder: "\u0424\u0438\u043B\u044C\u0442\u0440 \u043F\u043E \u0438\u043C\u0435\u043D\u0438...",
+            spellCheck: false,
+            autoComplete: "off"
+          }
+        ),
+        query && /* @__PURE__ */ jsx58(
+          "button",
+          {
+            type: "button",
+            className: "domain-combobox__clear",
+            onClick: () => {
+              setQuery("");
+              setActiveIdx(0);
+              inputRef.current?.focus();
+            },
+            children: "\u2715"
+          }
+        )
+      ] }),
+      /* @__PURE__ */ jsx58("div", { className: "domain-combobox__list", ref: listRef, children: filtered.length === 0 ? /* @__PURE__ */ jsx58("div", { className: "domain-combobox__empty", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" }) : filtered.map(([d, count], idx) => /* @__PURE__ */ jsxs55(
+        "button",
+        {
+          type: "button",
+          className: "domain-combobox__option" + (d === value ? " domain-combobox__option--selected" : "") + (idx === activeIdx ? " domain-combobox__option--active" : ""),
+          onMouseEnter: () => setActiveIdx(idx),
+          onClick: () => {
+            onChange(d);
+            setOpen(false);
+          },
+          children: [
+            /* @__PURE__ */ jsx58("span", { className: "domain-combobox__option-name", children: d }),
+            /* @__PURE__ */ jsx58("span", { className: "domain-combobox__option-count", children: count })
+          ]
+        },
+        d
+      )) })
+    ] })
+  ] });
+}
+var init_DomainCombobox = __esm({
+  "src/web/components/common/DomainCombobox.tsx"() {
+    "use strict";
+    init_MIcon();
+  }
+});
+
+// src/web/components/modals/EntityGraphModal.tsx
+import { useCallback as useCallback15, useEffect as useEffect29, useMemo as useMemo31, useState as useState22 } from "react";
+import ReactFlow3, {
+  Background as Background3,
+  BackgroundVariant as BackgroundVariant3,
+  BaseEdge as BaseEdge2,
+  Controls as Controls3,
+  getSmoothStepPath as getSmoothStepPath2,
+  Handle as Handle3,
+  MiniMap as MiniMap3,
+  Position as Position3,
+  ReactFlowProvider as ReactFlowProvider3,
+  useReactFlow as useReactFlow3
+} from "reactflow";
+import dagre3 from "dagre";
+import { Fragment as Fragment11, jsx as jsx59, jsxs as jsxs56 } from "react/jsx-runtime";
+function EntityNode({ data }) {
+  const domainHue = data.__domainHue ?? 220;
+  return /* @__PURE__ */ jsxs56(Fragment11, { children: [
+    /* @__PURE__ */ jsx59(
+      Handle3,
+      {
+        type: "target",
+        position: Position3.Top,
+        className: "entity-node-handle"
+      }
+    ),
+    /* @__PURE__ */ jsxs56(
+      "div",
+      {
+        className: "entity-graph-node-card",
+        style: { borderLeftColor: `hsl(${domainHue}, 60%, 55%)` },
+        title: `${data.entityId}
+${data.domainId}
+${data.attributeCount} \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432`,
+        children: [
+          /* @__PURE__ */ jsx59("div", { className: "entity-graph-node-card__id", children: data.entityId }),
+          /* @__PURE__ */ jsx59("div", { className: "entity-graph-node-card__domain", children: data.domainId })
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsx59(
+      Handle3,
+      {
+        type: "source",
+        position: Position3.Bottom,
+        className: "entity-node-handle"
+      }
+    )
+  ] });
+}
+function layoutGraph(nodes, edges, rankdir) {
+  if (nodes.length === 0)
+    return nodes;
+  const g = new dagre3.graphlib.Graph();
+  g.setDefaultEdgeLabel(() => ({}));
+  g.setGraph({
+    rankdir,
+    nodesep: 30,
+    ranksep: 80,
+    marginx: 40,
+    marginy: 40
+  });
+  const nodeIds = new Set(nodes.map((n) => n.id));
+  nodes.forEach((n) => g.setNode(n.id, { width: NODE_WIDTH4, height: NODE_HEIGHT4 }));
+  edges.forEach((e) => {
+    if (nodeIds.has(e.source) && nodeIds.has(e.target)) {
+      g.setEdge(e.source, e.target);
+    }
+  });
+  dagre3.layout(g);
+  return nodes.map((n) => {
+    const pos = g.node(n.id);
+    if (!pos)
+      return { ...n, position: { x: 0, y: 0 } };
+    return {
+      ...n,
+      position: {
+        x: pos.x - NODE_WIDTH4 / 2,
+        y: pos.y - NODE_HEIGHT4 / 2
+      }
+    };
+  });
+}
+function hueForDomain(domainId) {
+  let hash = 0;
+  for (let i = 0; i < domainId.length; i++) {
+    hash = hash * 31 + domainId.charCodeAt(i) | 0;
+  }
+  return Math.abs(hash) % 360;
+}
+function EntityGraphInner({
+  nodes,
+  edges,
+  sourcePosition,
+  targetPosition,
+  onNodeClick
+}) {
+  const rf = useReactFlow3();
+  const positionedNodes = useMemo31(
+    () => nodes.map((n) => ({ ...n, sourcePosition, targetPosition })),
+    [nodes, sourcePosition, targetPosition]
+  );
+  useEffect29(() => {
+    if (nodes.length === 0)
+      return;
+    const t = setTimeout(() => {
+      try {
+        rf.fitView({ duration: 400, padding: 0.15 });
+      } catch {
+      }
+    }, 120);
+    return () => clearTimeout(t);
+  }, [nodes.length, edges.length, rf]);
+  return /* @__PURE__ */ jsxs56(
+    ReactFlow3,
+    {
+      nodes: positionedNodes,
+      edges,
+      nodeTypes: nodeTypes3,
+      edgeTypes: edgeTypes2,
+      onNodeClick: (_, node) => onNodeClick(node.id),
+      fitView: true,
+      minZoom: 0.05,
+      maxZoom: 4,
+      proOptions: { hideAttribution: true },
+      nodesDraggable: true,
+      nodesConnectable: false,
+      elementsSelectable: true,
+      onlyRenderVisibleElements: false,
+      children: [
+        /* @__PURE__ */ jsx59(Background3, { variant: BackgroundVariant3.Dots, gap: 20, size: 1, color: "var(--graph-dots)" }),
+        /* @__PURE__ */ jsx59(Controls3, { position: "bottom-left" }),
+        /* @__PURE__ */ jsx59(
+          MiniMap3,
+          {
+            position: "bottom-right",
+            nodeColor: (n) => `hsl(${n.data?.__domainHue ?? 220}, 60%, 55%)`,
+            maskColor: "rgba(10,14,26,0.7)",
+            style: { width: 160, height: 120 }
+          }
+        )
+      ]
+    }
+  );
+}
+function EntityGraphModal() {
+  const store = useGraphStore();
+  const { index, loading, error } = useModelIndex();
+  const [showHelp, setShowHelp] = useState22(false);
+  const open = store.entityGraphOpen;
+  const allDomains = useMemo31(() => {
+    if (!index)
+      return [];
+    const map = /* @__PURE__ */ new Map();
+    index.entities.forEach((e) => {
+      map.set(e.domainId, (map.get(e.domainId) || 0) + 1);
+    });
+    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
+  }, [index]);
+  useEffect29(() => {
+    if (!open)
+      return;
+    if (!index)
+      return;
+    if (store.entityGraphDomainFilter)
+      return;
+    if (allDomains.length === 0)
+      return;
+    store.setEntityGraphDomainFilter(allDomains[0][0]);
+  }, [open, index, allDomains, store]);
+  const domainFilter = store.entityGraphDomainFilter;
+  const rankdir = store.entityGraphRankdir;
+  const showInheritance = store.entityGraphShowInheritance;
+  const showReferences = store.entityGraphShowReferences;
+  const showLinkages = store.entityGraphShowLinkages;
+  const graph = useMemo31(() => {
+    if (!index || !domainFilter)
+      return null;
+    const domains = /* @__PURE__ */ new Set([domainFilter.toLowerCase()]);
+    return buildEntityGraph(index, {
+      domains,
+      showInheritance,
+      showReferences,
+      showLinkages,
+      limit: GRAPH_LIMIT
+    });
+  }, [index, domainFilter, showInheritance, showReferences, showLinkages]);
+  const rfNodes = useMemo31(() => {
+    if (!graph)
+      return [];
+    return graph.nodes.map((n) => ({
+      id: n.id,
+      type: "entityNode",
+      position: { x: 0, y: 0 },
+      data: {
+        entityId: n.entityId,
+        domainId: n.domainId,
+        attributeCount: n.entity.attributes.length,
+        __domainHue: hueForDomain(n.domainId)
+      },
+      width: NODE_WIDTH4,
+      height: NODE_HEIGHT4
+    }));
+  }, [graph]);
+  const rfEdges = useMemo31(() => {
+    if (!graph)
+      return [];
+    return graph.edges.map((e) => {
+      const stroke = e.kind === "inheritance" ? "#a78bfa" : e.kind === "reference" ? "#6366f1" : "#10b981";
+      return {
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        type: "entityEdge",
+        data: {
+          kind: e.kind,
+          label: e.label,
+          viaAttribute: e.viaAttribute,
+          linkageId: e.linkageId,
+          title: e.title || e.label || ""
+        },
+        style: {
+          stroke,
+          strokeWidth: e.kind === "inheritance" ? 2.5 : 1.5,
+          strokeDasharray: e.kind === "reference" ? "5 3" : void 0,
+          opacity: 0.85
+        },
+        markerEnd: {
+          type: "arrowclosed",
+          color: stroke,
+          width: 12,
+          height: 12
+        }
+      };
+    });
+  }, [graph]);
+  const laidNodes = useMemo31(
+    () => layoutGraph(rfNodes, rfEdges, rankdir),
+    [rfNodes, rfEdges, rankdir]
+  );
+  const handleNodeClick = useCallback15(
+    (fqid) => {
+      store.setEntityCatalogInitialFqid(fqid);
+      store.setEntityCatalogOpen(true);
+    },
+    [store]
+  );
+  if (!open)
+    return null;
+  const sourcePosition = rankdir === "LR" ? "right" : "bottom";
+  const targetPosition = rankdir === "LR" ? "left" : "top";
+  const domainCount = allDomains.find(([d]) => d === domainFilter)?.[1] ?? 0;
+  return /* @__PURE__ */ jsx59(
+    "div",
+    {
+      className: "help-overlay help-overlay--fullscreen",
+      style: { zIndex: 400 },
+      onMouseDown: () => store.setEntityGraphOpen(false),
+      children: /* @__PURE__ */ jsxs56(
+        "div",
+        {
+          className: "help-modal entity-matrix-modal",
+          onMouseDown: (e) => e.stopPropagation(),
+          children: [
+            /* @__PURE__ */ jsxs56("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs56("div", { className: "help-modal__title", children: [
+                /* @__PURE__ */ jsx59(MIcon, { name: "hub", size: "sm" }),
+                " ",
+                /* @__PURE__ */ jsx59("span", { className: "icon-label", children: "\u0413\u0440\u0430\u0444 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" }),
+                graph && /* @__PURE__ */ jsxs56("span", { className: "help-modal__badge", children: [
+                  graph.stats.totalNodes,
+                  " \u0443\u0437\u043B\u043E\u0432 \xB7 ",
+                  graph.edges.length,
+                  " \u0441\u0432\u044F\u0437\u0435\u0439"
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxs56("div", { className: "help-modal__actions", children: [
+                /* @__PURE__ */ jsx59(HelpButton, { open: showHelp, onToggle: () => setShowHelp(!showHelp), label: "\u041A\u0430\u043A \u0447\u0438\u0442\u0430\u0442\u044C?" }),
+                /* @__PURE__ */ jsx59(
+                  "button",
+                  {
+                    className: "help-modal__close",
+                    onClick: () => store.setEntityGraphOpen(false),
+                    children: "\u2715"
+                  }
+                )
+              ] })
+            ] }),
+            loading && /* @__PURE__ */ jsx59("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx59("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
+            error && /* @__PURE__ */ jsx59("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs56("div", { style: { color: "var(--danger)" }, children: [
+              "\u041E\u0448\u0438\u0431\u043A\u0430: ",
+              error
+            ] }) }),
+            index && graph && /* @__PURE__ */ jsxs56("div", { className: "entity-graph-modal-body", children: [
+              /* @__PURE__ */ jsxs56(ModalHelp, { visible: showHelp, children: [
+                /* @__PURE__ */ jsx59(HelpSection, { title: "\u0427\u0442\u043E \u044D\u0442\u043E", children: /* @__PURE__ */ jsxs56(HelpText, { children: [
+                  "\u041F\u0440\u043E\u043C\u0435\u0436\u0443\u0442\u043E\u0447\u043D\u044B\u0439 \u0443\u0440\u043E\u0432\u0435\u043D\u044C \u0432\u0438\u0437\u0443\u0430\u043B\u0438\u0437\u0430\u0446\u0438\u0438 \u043C\u0435\u0436\u0434\u0443 \u0433\u0440\u0430\u0444\u043E\u043C \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u0438 \u043C\u0430\u0442\u0440\u0438\u0446\u0435\u0439: \u0437\u0434\u0435\u0441\u044C \u0443\u0437\u043B\u044B \u2014 ",
+                  /* @__PURE__ */ jsx59("strong", { children: "\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438" }),
+                  ", \u0430 \u0440\u0451\u0431\u0440\u0430 \u2014 \u0442\u0440\u0438 \u0442\u0438\u043F\u0430 \u0441\u0432\u044F\u0437\u0435\u0439 \u043C\u0435\u0436\u0434\u0443 \u043D\u0438\u043C\u0438. \u041F\u043E\u043B\u0435\u0437\u043D\u043E \u0434\u043B\u044F \u043E\u0446\u0435\u043D\u043A\u0438 \u043F\u043B\u043E\u0442\u043D\u043E\u0441\u0442\u0438 \u0438 \xAB\u043A\u043B\u0430\u0441\u0442\u0435\u0440\u043E\u0432\xBB \u0432 \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u043E\u043C \u0434\u043E\u043C\u0435\u043D\u0435."
+                ] }) }),
+                /* @__PURE__ */ jsx59(HelpSection, { title: "\u0426\u0432\u0435\u0442\u0430 \u0440\u0451\u0431\u0435\u0440", children: /* @__PURE__ */ jsxs56(HelpList, { children: [
+                  /* @__PURE__ */ jsxs56("li", { children: [
+                    /* @__PURE__ */ jsx59("strong", { style: { color: "#a78bfa" }, children: "\u0424\u0438\u043E\u043B\u0435\u0442\u043E\u0432\u044B\u0435 \u0442\u043E\u043B\u0441\u0442\u044B\u0435" }),
+                    " \u2014 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435. \u0421\u0442\u0440\u0435\u043B\u043A\u0430 \u0438\u0434\u0451\u0442 \u043E\u0442 \u0440\u043E\u0434\u0438\u0442\u0435\u043B\u044F \u043A \u043D\u0430\u0441\u043B\u0435\u0434\u043D\u0438\u043A\u0443."
+                  ] }),
+                  /* @__PURE__ */ jsxs56("li", { children: [
+                    /* @__PURE__ */ jsx59("strong", { style: { color: "#6366f1" }, children: "\u0421\u0438\u043D\u0438\u0435 \u043F\u0443\u043D\u043A\u0442\u0438\u0440\u043D\u044B\u0435" }),
+                    " \u2014 Reference-\u0430\u0442\u0440\u0438\u0431\u0443\u0442 (\u043E\u0434\u043D\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0441\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F \u043D\u0430 \u0434\u0440\u0443\u0433\u0443\u044E)."
+                  ] }),
+                  /* @__PURE__ */ jsxs56("li", { children: [
+                    /* @__PURE__ */ jsx59("strong", { style: { color: "#10b981" }, children: "\u0417\u0435\u043B\u0451\u043D\u044B\u0435 \u0441\u043F\u043B\u043E\u0448\u043D\u044B\u0435" }),
+                    " \u2014 linkage (\u043E\u0431\u044A\u044F\u0432\u043B\u0435\u043D\u043D\u0430\u044F \u0441\u0432\u044F\u0437\u044C \u043C\u0435\u0436\u0434\u0443 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u043C\u0438)."
+                  ] })
+                ] }) }),
+                /* @__PURE__ */ jsx59(HelpSection, { title: "\u0426\u0432\u0435\u0442 \u043F\u043E\u043B\u043E\u0441\u044B \u0441\u043B\u0435\u0432\u0430", children: /* @__PURE__ */ jsxs56(HelpText, { children: [
+                  "\u041F\u043E\u043B\u043E\u0441\u0430 \u0441\u043B\u0435\u0432\u0430 \u0443 \u043A\u0430\u0436\u0434\u043E\u0433\u043E \u0443\u0437\u043B\u0430 \u043A\u043E\u0434\u0438\u0440\u0443\u0435\u0442 ",
+                  /* @__PURE__ */ jsx59("strong", { children: "\u0434\u043E\u043C\u0435\u043D" }),
+                  ", \u043A \u043A\u043E\u0442\u043E\u0440\u043E\u043C\u0443 \u043E\u0442\u043D\u043E\u0441\u0438\u0442\u0441\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C. \u0412\u0441\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0438\u0437 \u043E\u0434\u043D\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430 \u2014 \u043E\u0434\u043D\u043E\u0433\u043E \u043E\u0442\u0442\u0435\u043D\u043A\u0430. \u041B\u0435\u0433\u043A\u043E \u0443\u0432\u0438\u0434\u0435\u0442\u044C \xAB\u043A\u043B\u0430\u0441\u0442\u0435\u0440\u044B\xBB \u0438 \xAB\u043C\u043E\u0441\u0442\u044B\xBB \u043C\u0435\u0436\u0434\u0443 \u0434\u043E\u043C\u0435\u043D\u0430\u043C\u0438."
+                ] }) }),
+                /* @__PURE__ */ jsx59(HelpSection, { title: "\u0427\u0442\u043E \u0432\u0430\u0436\u043D\u043E", children: /* @__PURE__ */ jsx59(HelpText, { children: "\u0413\u0440\u0430\u0444 \u043E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D \u043E\u0434\u043D\u0438\u043C \u0434\u043E\u043C\u0435\u043D\u043E\u043C \u2014 \u0442\u0430\u043A \u0438\u0437\u0431\u0435\u0433\u0430\u0435\u043C \u043A\u0430\u0448\u0438 \u0438\u0437 \u0441\u043E\u0442\u0435\u043D \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439. \u041F\u0435\u0440\u0435\u043A\u043B\u044E\u0447\u0430\u0439\u0442\u0435 \u0434\u043E\u043C\u0435\u043D \u0447\u0435\u0440\u0435\u0437 \u0441\u0435\u043B\u0435\u043A\u0442 \u0441\u0432\u0435\u0440\u0445\u0443. \u0420\u0430\u0437\u043D\u044B\u0435 \u0442\u0438\u043F\u044B \u0440\u0451\u0431\u0435\u0440 \u043C\u043E\u0436\u043D\u043E \u0441\u043A\u0440\u044B\u0432\u0430\u0442\u044C \u0447\u0435\u043A\u0431\u043E\u043A\u0441\u0430\u043C\u0438, \u0447\u0442\u043E\u0431\u044B \u0441\u0444\u043E\u043A\u0443\u0441\u0438\u0440\u043E\u0432\u0430\u0442\u044C\u0441\u044F \u043D\u0430 \u043E\u0434\u043D\u043E\u043C \u0432\u0438\u0434\u0435 \u0441\u0432\u044F\u0437\u0438." }) })
+              ] }),
+              /* @__PURE__ */ jsxs56("div", { className: "entity-graph-toolbar", children: [
+                /* @__PURE__ */ jsxs56("div", { className: "entity-graph-toolbar__filters", children: [
+                  /* @__PURE__ */ jsx59(
+                    DomainCombobox,
+                    {
+                      value: domainFilter,
+                      onChange: store.setEntityGraphDomainFilter,
+                      domains: allDomains,
+                      placeholder: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u043E\u043C\u0435\u043D..."
+                    }
+                  ),
+                  domainFilter && /* @__PURE__ */ jsxs56(
+                    "button",
+                    {
+                      className: "btn",
+                      onClick: () => {
+                        store.setDomainSchemaDomainId(domainFilter);
+                        store.setDomainSchemaOpen(true);
+                      },
+                      title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0443 \u0441\u0445\u0435\u043C\u044B \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430",
+                      children: [
+                        /* @__PURE__ */ jsx59(MIcon, { name: "description", size: "sm" }),
+                        /* @__PURE__ */ jsx59("span", { style: { marginLeft: 6 }, children: "\u0421\u0445\u0435\u043C\u0430 \u0434\u043E\u043C\u0435\u043D\u0430" })
+                      ]
+                    }
+                  ),
+                  /* @__PURE__ */ jsxs56("label", { className: "entity-matrix-filter", children: [
+                    /* @__PURE__ */ jsx59("span", { children: "\u041E\u0440\u0438\u0435\u043D\u0442\u0430\u0446\u0438\u044F:" }),
+                    /* @__PURE__ */ jsxs56(
+                      "select",
+                      {
+                        value: rankdir,
+                        onChange: (e) => store.setEntityGraphRankdir(e.target.value),
+                        children: [
+                          /* @__PURE__ */ jsx59("option", { value: "LR", children: "\u0413\u043E\u0440\u0438\u0437\u043E\u043D\u0442\u0430\u043B\u044C\u043D\u0430\u044F" }),
+                          /* @__PURE__ */ jsx59("option", { value: "TB", children: "\u0412\u0435\u0440\u0442\u0438\u043A\u0430\u043B\u044C\u043D\u0430\u044F" })
+                        ]
+                      }
+                    )
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxs56("div", { className: "entity-graph-toolbar__toggles", children: [
+                  /* @__PURE__ */ jsxs56("label", { className: "entity-graph-toggle", children: [
+                    /* @__PURE__ */ jsx59(
+                      "input",
+                      {
+                        type: "checkbox",
+                        checked: showInheritance,
+                        onChange: () => store.setEntityGraphShowInheritance(!showInheritance)
+                      }
+                    ),
+                    /* @__PURE__ */ jsx59("span", { className: "entity-graph-legend-dot", style: { background: "#a78bfa" } }),
+                    "\u041D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435 (",
+                    graph.stats.byKind.inheritance,
+                    ")"
+                  ] }),
+                  /* @__PURE__ */ jsxs56("label", { className: "entity-graph-toggle", children: [
+                    /* @__PURE__ */ jsx59(
+                      "input",
+                      {
+                        type: "checkbox",
+                        checked: showReferences,
+                        onChange: () => store.setEntityGraphShowReferences(!showReferences)
+                      }
+                    ),
+                    /* @__PURE__ */ jsx59("span", { className: "entity-graph-legend-dot", style: { background: "#6366f1" } }),
+                    "\u0421\u0441\u044B\u043B\u043A\u0438 (",
+                    graph.stats.byKind.reference,
+                    ")"
+                  ] }),
+                  /* @__PURE__ */ jsxs56("label", { className: "entity-graph-toggle", children: [
+                    /* @__PURE__ */ jsx59(
+                      "input",
+                      {
+                        type: "checkbox",
+                        checked: showLinkages,
+                        onChange: () => store.setEntityGraphShowLinkages(!showLinkages)
+                      }
+                    ),
+                    /* @__PURE__ */ jsx59("span", { className: "entity-graph-legend-dot", style: { background: "#10b981" } }),
+                    "Linkages (",
+                    graph.stats.byKind.linkage,
+                    ")"
+                  ] })
+                ] }),
+                graph.stats.truncated > 0 && /* @__PURE__ */ jsxs56("div", { className: "entity-graph-hint", children: [
+                  "\u041F\u043E\u043A\u0430\u0437\u0430\u043D\u043E \u0442\u043E\u043F-",
+                  GRAPH_LIMIT,
+                  " \u0438\u0437 ",
+                  GRAPH_LIMIT + graph.stats.truncated,
+                  " \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439"
+                ] })
+              ] }),
+              /* @__PURE__ */ jsx59("div", { className: "entity-graph-canvas", children: graph.nodes.length === 0 ? /* @__PURE__ */ jsx59("div", { className: "entity-matrix-empty", children: domainCount === 0 ? "\u0412 \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u043E\u043C \u0434\u043E\u043C\u0435\u043D\u0435 \u043D\u0435\u0442 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" : "\u041D\u0435\u0442 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0434\u043B\u044F \u043E\u0442\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u044F" }) : /* @__PURE__ */ jsx59(ReactFlowProvider3, { children: /* @__PURE__ */ jsx59(
+                EntityGraphInner,
+                {
+                  nodes: laidNodes,
+                  edges: rfEdges,
+                  sourcePosition,
+                  targetPosition,
+                  onNodeClick: handleNodeClick
+                }
+              ) }) })
+            ] })
+          ]
+        }
+      )
+    }
+  );
+}
+function EntityEdge2({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  style,
+  markerEnd,
+  data
+}) {
+  const [edgePath] = getSmoothStepPath2({
+    sourceX,
+    sourceY,
+    sourcePosition,
+    targetX,
+    targetY,
+    targetPosition,
+    borderRadius: 8
+  });
+  const title = data && data.title || "";
+  const kind = data && data.kind || "reference";
+  return /* @__PURE__ */ jsxs56(Fragment11, { children: [
+    /* @__PURE__ */ jsx59(
+      BaseEdge2,
+      {
+        id,
+        path: edgePath,
+        style,
+        markerEnd
+      }
+    ),
+    /* @__PURE__ */ jsx59(
+      "path",
+      {
+        d: edgePath,
+        fill: "none",
+        stroke: "transparent",
+        strokeWidth: 20,
+        style: { cursor: "pointer" },
+        children: /* @__PURE__ */ jsx59("title", { children: title })
+      }
+    )
+  ] });
+}
+var GRAPH_LIMIT, NODE_WIDTH4, NODE_HEIGHT4, nodeTypes3, edgeTypes2;
+var init_EntityGraphModal = __esm({
+  "src/web/components/modals/EntityGraphModal.tsx"() {
+    "use strict";
+    init_useGraphStore();
+    init_useModelIndex();
+    init_entity_graph();
+    init_DomainCombobox();
+    init_common();
+    init_ModalHelp();
+    GRAPH_LIMIT = 200;
+    NODE_WIDTH4 = 180;
+    NODE_HEIGHT4 = 46;
+    nodeTypes3 = { entityNode: EntityNode };
+    edgeTypes2 = {
+      entityEdge: EntityEdge2
+    };
+  }
+});
+
+// src/web/lib/markdown/domain-markdown.ts
+function generateDomainMarkdown(schema, index) {
+  const lines = [];
+  const m = schema.metadata;
+  lines.push(`# \u0414\u043E\u043C\u0435\u043D: \`${m.id}\``);
+  lines.push("");
+  if (m.name && m.name !== m.id) {
+    lines.push(`**${m.name}**`);
+    lines.push("");
+  }
+  if (m.description) {
+    lines.push(m.description);
+    lines.push("");
+  }
+  lines.push("## \u041C\u0435\u0442\u0430\u0434\u0430\u043D\u043D\u044B\u0435");
+  lines.push("");
+  lines.push("| \u041F\u043E\u043B\u0435 | \u0417\u043D\u0430\u0447\u0435\u043D\u0438\u0435 |");
+  lines.push("| --- | --- |");
+  lines.push(`| ID | \`${m.id}\` |`);
+  if (m.name)
+    lines.push(`| \u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 | ${m.name} |`);
+  if (m.version)
+    lines.push(`| \u0412\u0435\u0440\u0441\u0438\u044F | ${m.version} |`);
+  if (m.author)
+    lines.push(`| \u0410\u0432\u0442\u043E\u0440 | ${m.author} |`);
+  if (m.status)
+    lines.push(`| \u0421\u0442\u0430\u0442\u0443\u0441 | ${m.status} |`);
+  if (m.date)
+    lines.push(`| \u0414\u0430\u0442\u0430 | ${m.date} |`);
+  if (m.tags.length > 0) {
+    lines.push(`| \u0422\u0435\u0433\u0438 | ${m.tags.map((t) => "`" + t + "`").join(", ")} |`);
+  }
+  lines.push("");
+  lines.push("## \u0421\u0432\u043E\u0434\u043A\u0430");
+  lines.push("");
+  lines.push("| \u0420\u0430\u0437\u0434\u0435\u043B | \u041A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E |");
+  lines.push("| --- | ---: |");
+  const sections = schema.sections;
+  lines.push(`| \u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438 | ${sections.entities.count} |`);
+  lines.push(`| \u0421\u0432\u044F\u0437\u0438 | ${sections.linkages.count} |`);
+  lines.push(`| \u0422\u0438\u043F\u044B \u0434\u0430\u043D\u043D\u044B\u0445 | ${sections.dataTypes.count} |`);
+  lines.push(`| \u041F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u0438 | ${sections.sequences.count} |`);
+  lines.push(`| \u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F | ${sections.actions.count} |`);
+  lines.push(`| \u041F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F | ${sections.views.count} |`);
+  lines.push(`| \u041F\u0443\u043D\u043A\u0442\u044B \u043C\u0435\u043D\u044E | ${sections.menus.count} |`);
+  lines.push(`| \u041C\u0438\u043A\u0441\u0438\u043D\u044B | ${sections.mixins.count} |`);
+  lines.push(`| \u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0434\u0430\u043D\u043D\u044B\u0445 | ${sections.dataRules.count} |`);
+  lines.push(`| \u0418\u043A\u043E\u043D\u043A\u0438 | ${sections.medias.count} |`);
+  lines.push("");
+  const sonar = index.lint?.sonar?.byDomain[m.id];
+  if (sonar) {
+    lines.push("## Sonar-\u043E\u0446\u0435\u043D\u043A\u0430");
+    lines.push("");
+    lines.push(`**${sonar.grade}** (${sonar.score}/100)`);
+    lines.push("");
+    lines.push("| \u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F | \u041E\u0446\u0435\u043D\u043A\u0430 | \u041F\u0440\u043E\u0431\u043B\u0435\u043C |");
+    lines.push("| --- | ---: | ---: |");
+    sonar.breakdown.forEach((b) => {
+      lines.push(`| ${b.label} | ${b.score} | ${b.issueCount} |`);
+    });
+    lines.push("");
+  }
+  if (sections.entities.items.length > 0) {
+    lines.push(`## \u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438 (${sections.entities.items.length})`);
+    lines.push("");
+    const entitiesByFqid = /* @__PURE__ */ new Map();
+    index.entities.forEach((e) => {
+      if (e.domainId === m.id)
+        entitiesByFqid.set(e.entityId, e);
+    });
+    sections.entities.items.forEach((entityItem) => {
+      const full = entitiesByFqid.get(entityItem.id);
+      lines.push(`### \`${entityItem.id}\``);
+      lines.push("");
+      if (entityItem.name && entityItem.name !== entityItem.id) {
+        lines.push(`*${entityItem.name}*`);
+        lines.push("");
+      }
+      if (full?.description) {
+        lines.push(full.description);
+        lines.push("");
+      }
+      const meta = [];
+      if (entityItem.inherits) {
+        meta.push(`**\u041D\u0430\u0441\u043B\u0435\u0434\u0443\u0435\u0442:** \`${entityItem.inherits}\``);
+      }
+      if (full?.label) {
+        meta.push(`**Label:** \`${full.label}\``);
+      }
+      meta.push(`**\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432:** ${entityItem.attributesCount}`);
+      if (meta.length > 0) {
+        lines.push(meta.join(" \xB7 "));
+        lines.push("");
+      }
+      if (full && full.attributes.length > 0) {
+        lines.push("| ID | \u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 | \u0422\u0438\u043F | \u0421\u0441\u044B\u043B\u043A\u0430 | Constraints |");
+        lines.push("| --- | --- | --- | --- | --- |");
+        full.attributes.forEach((a) => {
+          const ref = a.referenceEntity ? `\u2192 \`${a.referenceEntity}\`` : a.itemReferenceEntity ? `\u2192 \`${a.itemReferenceEntity}\` (Array)` : "\u2014";
+          const constraints = a.constraints.length > 0 ? a.constraints.join(", ") : "\u2014";
+          lines.push(
+            `| \`${a.id}\` | ${a.name} | \`${a.dataType}\` | ${ref} | ${constraints} |`
+          );
+        });
+        lines.push("");
+      }
+    });
+  }
+  if (sections.linkages.items.length > 0) {
+    lines.push(`## \u0421\u0432\u044F\u0437\u0438 (${sections.linkages.items.length})`);
+    lines.push("");
+    lines.push("| ID | \u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 | \u0422\u0438\u043F | \u0421\u0442\u043E\u0440\u043E\u043D\u0430 1 | \u0421\u0442\u043E\u0440\u043E\u043D\u0430 2 |");
+    lines.push("| --- | --- | --- | --- | --- |");
+    sections.linkages.items.forEach((l) => {
+      const arrow = l.undirected ? "\u2194" : "\u2192";
+      lines.push(
+        `| \`${l.id}\` | ${l.name} | \`${l.type}\` | \`${l.side1}\` | \`${l.side2}\` |`
+      );
+    });
+    lines.push("");
+  }
+  if (sections.dataTypes.items.length > 0) {
+    lines.push(`## \u0422\u0438\u043F\u044B \u0434\u0430\u043D\u043D\u044B\u0445 (${sections.dataTypes.items.length})`);
+    lines.push("");
+    sections.dataTypes.items.forEach((d) => {
+      const suffix = [];
+      if (d.valuesCount != null)
+        suffix.push(`${d.valuesCount} \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0439`);
+      if (d.statusesCount != null)
+        suffix.push(`${d.statusesCount} \u0441\u0442\u0430\u0442\u0443\u0441\u043E\u0432`);
+      if (d.attributesCount != null)
+        suffix.push(`${d.attributesCount} \u043A\u043E\u043B\u043E\u043D\u043E\u043A`);
+      lines.push(
+        `- **\`${d.id}\`** (${d.kind})${d.name !== d.id ? ` \u2014 ${d.name}` : ""}${suffix.length > 0 ? " \xB7 " + suffix.join(", ") : ""}`
+      );
+    });
+    lines.push("");
+  }
+  if (sections.sequences.items.length > 0) {
+    lines.push(`## \u041F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u0438 (${sections.sequences.items.length})`);
+    lines.push("");
+    sections.sequences.items.forEach((s) => {
+      lines.push(`- \`${s.id}\` \u2014 \u043D\u0430\u0447\u0438\u043D\u0430\u0435\u0442\u0441\u044F \u0441 ${s.startFrom}`);
+    });
+    lines.push("");
+  }
+  if (sections.actions.items.length > 0) {
+    lines.push(`## \u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F (${sections.actions.items.length})`);
+    lines.push("");
+    sections.actions.items.forEach((a) => {
+      lines.push(`- \`${a.id}\` \u2014 **${a.name}** \`${a.type}\``);
+    });
+    lines.push("");
+  }
+  if (sections.views.items.length > 0) {
+    lines.push(`## \u041F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F (${sections.views.items.length})`);
+    lines.push("");
+    sections.views.items.forEach((v) => {
+      const meta = [`\`${v.type}\``];
+      if (v.entity)
+        meta.push(`\u2192 \`${v.entity}\``);
+      if (v.isMixin)
+        meta.push("mixin");
+      lines.push(`- \`${v.id}\` \u2014 ${meta.join(" \xB7 ")}`);
+    });
+    lines.push("");
+  }
+  if (sections.menus.items.length > 0) {
+    lines.push(`## \u041C\u0435\u043D\u044E (${sections.menus.items.length})`);
+    lines.push("");
+    sections.menus.items.forEach((mi) => {
+      lines.push(
+        `- \`${mi.route}\` \u2014 **${mi.label}** \`${mi.type}\`${mi.view ? " \u2192 " + mi.view : ""}`
+      );
+    });
+    lines.push("");
+  }
+  if (sections.mixins.items.length > 0) {
+    lines.push(`## \u041C\u0438\u043A\u0441\u0438\u043D\u044B (${sections.mixins.items.length})`);
+    lines.push("");
+    sections.mixins.items.forEach((mx) => {
+      lines.push(
+        `- \`${mx.id}\` (${mx.type}) \u2192 \`${mx.entity}\` \xB7 ${mx.viewsCount} view`
+      );
+    });
+    lines.push("");
+  }
+  if (sections.dataRules.items.length > 0) {
+    lines.push(`## \u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0434\u0430\u043D\u043D\u044B\u0445 (${sections.dataRules.items.length})`);
+    lines.push("");
+    sections.dataRules.items.forEach((r) => {
+      const meta = [];
+      if (r.effect)
+        meta.push(`\`${r.effect}\``);
+      if (r.entity)
+        meta.push(`\u2192 \`${r.entity}\``);
+      lines.push(
+        `- \`${r.id}\` \u2014 ${r.name}${meta.length > 0 ? " \xB7 " + meta.join(" ") : ""}`
+      );
+    });
+    lines.push("");
+  }
+  if (schema.flags.hasExchangeSettings || schema.flags.hasCounterColorPattern) {
+    lines.push("## \u041E\u0441\u043E\u0431\u0435\u043D\u043D\u043E\u0441\u0442\u0438");
+    lines.push("");
+    if (schema.flags.hasExchangeSettings) {
+      lines.push("- \u041D\u0430\u0441\u0442\u0440\u043E\u0435\u043D \u043E\u0431\u043C\u0435\u043D \u0434\u0430\u043D\u043D\u044B\u043C\u0438 (`exchangeSettings`)");
+    }
+    if (schema.flags.hasCounterColorPattern) {
+      lines.push("- \u0415\u0441\u0442\u044C \u0446\u0432\u0435\u0442\u043E\u0432\u044B\u0435 \u0441\u0445\u0435\u043C\u044B \u0441\u0447\u0451\u0442\u0447\u0438\u043A\u043E\u0432 (`counterColorPattern`)");
+    }
+    lines.push("");
+  }
+  lines.push("---");
+  lines.push("");
+  lines.push(
+    `_\u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043E Domain Graph Analyzer \u2014 ${(/* @__PURE__ */ new Date()).toLocaleString("ru-RU")}_`
+  );
+  return lines.join("\n");
+}
+function downloadDomainMarkdown(domainId, markdown) {
+  const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const safeId = domainId.replace(/[^a-z0-9.-]/gi, "_");
+  const dateStr = (/* @__PURE__ */ new Date()).toISOString().slice(0, 19).replace(/[:.]/g, "-");
+  a.download = `${safeId}-${dateStr}.md`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+var init_domain_markdown = __esm({
+  "src/web/lib/markdown/domain-markdown.ts"() {
+    "use strict";
+  }
+});
+
+// src/web/components/modals/DomainSchemaModal.tsx
+import { useMemo as useMemo32, useState as useState23 } from "react";
+import { jsx as jsx60, jsxs as jsxs57 } from "react/jsx-runtime";
+function DomainSchemaModal() {
+  const store = useGraphStore();
+  const { goto } = useNavigation();
+  const { index, loading, error } = useModelIndex();
+  const open = store.domainSchemaOpen;
+  const domainId = store.domainSchemaDomainId;
+  const [expanded, setExpanded] = useState23(
+    /* @__PURE__ */ new Set(["entities", "linkages"])
+  );
+  const schema = useMemo32(() => {
+    if (!index || !domainId)
+      return null;
+    return index.schemasByDomain[domainId] || null;
+  }, [index, domainId]);
+  const toggle = (key) => {
+    setExpanded((prev) => {
+      const s = new Set(prev);
+      if (s.has(key))
+        s.delete(key);
+      else
+        s.add(key);
+      return s;
+    });
+  };
+  const openEntity = (entityId) => {
+    const fqid = `${domainId}/${entityId}`.toLowerCase();
+    store.setDomainSchemaOpen(false);
+    store.setEntityCatalogInitialFqid(fqid);
+    store.setEntityCatalogOpen(true);
+  };
+  if (!open)
+    return null;
+  return /* @__PURE__ */ jsx60(
+    "div",
+    {
+      className: "help-overlay help-overlay--fullscreen",
+      onMouseDown: () => store.setDomainSchemaOpen(false),
+      children: /* @__PURE__ */ jsxs57(
+        "div",
+        {
+          className: "help-modal entity-hierarchy-modal",
+          onMouseDown: (e) => e.stopPropagation(),
+          children: [
+            /* @__PURE__ */ jsxs57("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs57("div", { className: "help-modal__title", children: [
+                /* @__PURE__ */ jsx60(MIcon, { name: "menu_book", size: "sm" }),
+                /* @__PURE__ */ jsx60("span", { className: "icon-label", children: "\u0421\u0445\u0435\u043C\u0430 \u0434\u043E\u043C\u0435\u043D\u0430" }),
+                schema && /* @__PURE__ */ jsx60("span", { className: "help-modal__badge", children: schema.metadata.id })
+              ] }),
+              /* @__PURE__ */ jsx60(
+                "button",
+                {
+                  className: "help-modal__close",
+                  onClick: () => store.setDomainSchemaOpen(false),
+                  children: "\u2715"
+                }
+              )
+            ] }),
+            loading && /* @__PURE__ */ jsx60("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx60("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
+            error && /* @__PURE__ */ jsx60("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs57("div", { style: { color: "var(--danger)" }, children: [
+              "\u041E\u0448\u0438\u0431\u043A\u0430: ",
+              error
+            ] }) }),
+            !loading && !error && !schema && /* @__PURE__ */ jsx60("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx60("div", { style: { padding: 40, textAlign: "center", color: "var(--text-500)" }, children: "\u0421\u0445\u0435\u043C\u0430 \u0434\u043B\u044F \u044D\u0442\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430 \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430 \u0432 \u0438\u043D\u0434\u0435\u043A\u0441\u0435" }) }),
+            schema && /* @__PURE__ */ jsxs57("div", { className: "domain-schema-body", children: [
+              /* @__PURE__ */ jsxs57("div", { className: "domain-schema-header", children: [
+                /* @__PURE__ */ jsxs57("div", { className: "domain-schema-header__title", children: [
+                  schema.metadata.name,
+                  schema.metadata.version && /* @__PURE__ */ jsxs57("span", { className: "domain-schema-header__version", children: [
+                    "v",
+                    schema.metadata.version
+                  ] })
+                ] }),
+                schema.metadata.description && /* @__PURE__ */ jsx60("div", { className: "domain-schema-header__desc", children: schema.metadata.description }),
+                /* @__PURE__ */ jsxs57("div", { className: "domain-schema-header__meta", children: [
+                  schema.metadata.author && /* @__PURE__ */ jsxs57("span", { children: [
+                    /* @__PURE__ */ jsx60(MIcon, { name: "person", size: "sm" }),
+                    schema.metadata.author
+                  ] }),
+                  schema.metadata.status && /* @__PURE__ */ jsxs57("span", { children: [
+                    /* @__PURE__ */ jsx60(MIcon, { name: "flag", size: "sm" }),
+                    schema.metadata.status
+                  ] }),
+                  schema.metadata.date && /* @__PURE__ */ jsxs57("span", { children: [
+                    /* @__PURE__ */ jsx60(MIcon, { name: "calendar_today", size: "sm" }),
+                    schema.metadata.date
+                  ] }),
+                  schema.metadata.tags.length > 0 && /* @__PURE__ */ jsx60("span", { className: "domain-schema-header__tags", children: schema.metadata.tags.map((t) => /* @__PURE__ */ jsx60("span", { className: "tag", children: t }, t)) })
+                ] }),
+                /* @__PURE__ */ jsxs57("div", { className: "domain-schema-header__actions", children: [
+                  /* @__PURE__ */ jsxs57("button", { className: "btn", onClick: () => goto(schema.domainId), children: [
+                    /* @__PURE__ */ jsx60(MIcon, { name: "my_location", size: "sm" }),
+                    " \u041A \u0434\u043E\u043C\u0435\u043D\u0443 \u043D\u0430 \u0433\u0440\u0430\u0444\u0435"
+                  ] }),
+                  /* @__PURE__ */ jsxs57(
+                    "button",
+                    {
+                      className: "btn",
+                      onClick: () => {
+                        store.setDomainSchemaOpen(false);
+                        const node = store.nodes.find(
+                          (n) => n.data.domainId === schema.domainId
+                        );
+                        if (node?.data.filePath) {
+                          openFileInEditor(node.data.filePath, null);
+                        }
+                      },
+                      children: [
+                        /* @__PURE__ */ jsx60(MIcon, { name: "description", size: "sm" }),
+                        " \u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0444\u0430\u0439\u043B"
+                      ]
+                    }
+                  ),
+                  /* @__PURE__ */ jsxs57(
+                    "button",
+                    {
+                      className: "btn btn--primary",
+                      onClick: () => {
+                        const md = generateDomainMarkdown(schema, index);
+                        downloadDomainMarkdown(schema.domainId, md);
+                      },
+                      title: "\u0421\u043A\u0430\u0447\u0430\u0442\u044C \u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0443 \u0441\u0445\u0435\u043C\u044B \u043A\u0430\u043A Markdown-\u0444\u0430\u0439\u043B",
+                      children: [
+                        /* @__PURE__ */ jsx60(MIcon, { name: "description", size: "sm" }),
+                        " \u042D\u043A\u0441\u043F\u043E\u0440\u0442 \u0432 Markdown"
+                      ]
+                    }
+                  )
+                ] })
+              ] }),
+              /* @__PURE__ */ jsx60("div", { className: "domain-schema-sections", children: Object.keys(SECTION_LABELS).map((key) => {
+                const section = schema.sections[key];
+                const isOpen = expanded.has(key);
+                const meta = SECTION_LABELS[key];
+                return /* @__PURE__ */ jsxs57(
+                  "div",
+                  {
+                    className: "domain-schema-section" + (isOpen ? " open" : ""),
+                    children: [
+                      /* @__PURE__ */ jsxs57(
+                        "button",
+                        {
+                          className: "domain-schema-section__head",
+                          onClick: () => toggle(key),
+                          children: [
+                            /* @__PURE__ */ jsx60(MIcon, { name: isOpen ? "expand_more" : "chevron_right", size: "sm" }),
+                            /* @__PURE__ */ jsx60(MIcon, { name: meta.icon, size: "sm" }),
+                            /* @__PURE__ */ jsx60("span", { className: "domain-schema-section__title", children: meta.label }),
+                            /* @__PURE__ */ jsx60("span", { className: "domain-schema-section__count" + (section.count === 0 ? " zero" : ""), children: section.count })
+                          ]
+                        }
+                      ),
+                      isOpen && section.count > 0 && /* @__PURE__ */ jsx60("div", { className: "domain-schema-section__body", children: /* @__PURE__ */ jsx60(
+                        SectionItems,
+                        {
+                          sectionKey: key,
+                          items: section.items,
+                          onOpenEntity: openEntity
+                        }
+                      ) }),
+                      isOpen && section.count === 0 && /* @__PURE__ */ jsx60("div", { className: "domain-schema-section__body domain-schema-section__body--empty", children: "\u041F\u0443\u0441\u0442\u043E" })
+                    ]
+                  },
+                  key
+                );
+              }) }),
+              (schema.flags.hasExchangeSettings || schema.flags.hasCounterColorPattern) && /* @__PURE__ */ jsxs57("div", { className: "domain-schema-flags", children: [
+                schema.flags.hasExchangeSettings && /* @__PURE__ */ jsxs57("span", { className: "domain-schema-flag", children: [
+                  /* @__PURE__ */ jsx60(MIcon, { name: "swap_horiz", size: "sm" }),
+                  " \u041D\u0430\u0441\u0442\u0440\u043E\u0435\u043D \u043E\u0431\u043C\u0435\u043D \u0434\u0430\u043D\u043D\u044B\u043C\u0438"
+                ] }),
+                schema.flags.hasCounterColorPattern && /* @__PURE__ */ jsxs57("span", { className: "domain-schema-flag", children: [
+                  /* @__PURE__ */ jsx60(MIcon, { name: "palette", size: "sm" }),
+                  " \u0415\u0441\u0442\u044C \u0446\u0432\u0435\u0442\u043E\u0432\u044B\u0435 \u0441\u0445\u0435\u043C\u044B \u0441\u0447\u0451\u0442\u0447\u0438\u043A\u043E\u0432"
+                ] })
+              ] })
+            ] })
+          ]
+        }
+      )
+    }
+  );
+}
+function SectionItems({
+  sectionKey,
+  items,
+  onOpenEntity
+}) {
+  if (sectionKey === "entities") {
+    return /* @__PURE__ */ jsx60("div", { className: "domain-schema-list", children: items.map((e) => /* @__PURE__ */ jsxs57(
+      "button",
+      {
+        className: "domain-schema-item domain-schema-item--link",
+        onClick: () => onOpenEntity(e.id),
+        children: [
+          /* @__PURE__ */ jsx60("code", { className: "domain-schema-item__id", children: e.id }),
+          /* @__PURE__ */ jsx60("span", { className: "domain-schema-item__name", children: e.name }),
+          /* @__PURE__ */ jsxs57("span", { className: "domain-schema-item__meta", children: [
+            e.attributesCount,
+            " \u0430\u0442\u0440.",
+            e.inherits && ` \xB7 \u21B3 ${e.inherits.split("/").pop()}`
+          ] })
+        ]
+      },
+      e.id
+    )) });
+  }
+  if (sectionKey === "linkages") {
+    return /* @__PURE__ */ jsx60("div", { className: "domain-schema-list", children: items.map((l) => /* @__PURE__ */ jsxs57("div", { className: "domain-schema-item", children: [
+      /* @__PURE__ */ jsx60("code", { className: "domain-schema-item__id", children: l.id }),
+      /* @__PURE__ */ jsx60("span", { className: "domain-schema-item__name", children: l.name }),
+      /* @__PURE__ */ jsxs57("span", { className: "domain-schema-item__meta", children: [
+        l.side1.split("/").pop(),
+        " ",
+        l.undirected ? "\u2194" : "\u2192",
+        " ",
+        l.side2.split("/").pop(),
+        " \xB7 ",
+        /* @__PURE__ */ jsx60("span", { className: "domain-schema-item__badge", children: l.type })
+      ] })
+    ] }, l.id)) });
+  }
+  if (sectionKey === "dataTypes") {
+    return /* @__PURE__ */ jsx60("div", { className: "domain-schema-list", children: items.map((d) => /* @__PURE__ */ jsxs57("div", { className: "domain-schema-item", children: [
+      /* @__PURE__ */ jsx60("code", { className: "domain-schema-item__id", children: d.id }),
+      /* @__PURE__ */ jsx60("span", { className: "domain-schema-item__name", children: d.name }),
+      /* @__PURE__ */ jsxs57("span", { className: "domain-schema-item__meta", children: [
+        /* @__PURE__ */ jsx60("span", { className: "domain-schema-item__badge", children: d.kind }),
+        d.valuesCount != null && ` \xB7 ${d.valuesCount} \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0439`,
+        d.statusesCount != null && ` \xB7 ${d.statusesCount} \u0441\u0442\u0430\u0442\u0443\u0441\u043E\u0432`,
+        d.attributesCount != null && ` \xB7 ${d.attributesCount} \u043A\u043E\u043B\u043E\u043D\u043E\u043A`
+      ] })
+    ] }, d.id)) });
+  }
+  if (sectionKey === "sequences") {
+    return /* @__PURE__ */ jsx60("div", { className: "domain-schema-list", children: items.map((s) => /* @__PURE__ */ jsxs57("div", { className: "domain-schema-item", children: [
+      /* @__PURE__ */ jsx60("code", { className: "domain-schema-item__id", children: s.id }),
+      /* @__PURE__ */ jsxs57("span", { className: "domain-schema-item__meta", children: [
+        "\u043D\u0430\u0447\u0438\u043D\u0430\u0435\u0442\u0441\u044F \u0441 ",
+        s.startFrom
+      ] })
+    ] }, s.id)) });
+  }
+  if (sectionKey === "actions") {
+    return /* @__PURE__ */ jsx60("div", { className: "domain-schema-list", children: items.map((a) => /* @__PURE__ */ jsxs57("div", { className: "domain-schema-item", children: [
+      /* @__PURE__ */ jsx60("code", { className: "domain-schema-item__id", children: a.id }),
+      /* @__PURE__ */ jsx60("span", { className: "domain-schema-item__name", children: a.name }),
+      /* @__PURE__ */ jsx60("span", { className: "domain-schema-item__meta", children: /* @__PURE__ */ jsx60("span", { className: "domain-schema-item__badge", children: a.type }) })
+    ] }, a.id)) });
+  }
+  if (sectionKey === "views") {
+    return /* @__PURE__ */ jsx60("div", { className: "domain-schema-list", children: items.map((v) => /* @__PURE__ */ jsxs57("div", { className: "domain-schema-item", children: [
+      /* @__PURE__ */ jsx60("code", { className: "domain-schema-item__id", children: v.id }),
+      /* @__PURE__ */ jsx60("span", { className: "domain-schema-item__name", children: v.label || "" }),
+      /* @__PURE__ */ jsxs57("span", { className: "domain-schema-item__meta", children: [
+        /* @__PURE__ */ jsx60("span", { className: "domain-schema-item__badge", children: v.type }),
+        v.entity && ` \xB7 ${v.entity.split("/").pop()}`,
+        v.isMixin && " \xB7 mixin"
+      ] })
+    ] }, v.id)) });
+  }
+  if (sectionKey === "menus") {
+    return /* @__PURE__ */ jsx60("div", { className: "domain-schema-list", children: items.map((m) => /* @__PURE__ */ jsxs57("div", { className: "domain-schema-item", children: [
+      /* @__PURE__ */ jsx60("code", { className: "domain-schema-item__id", children: m.route }),
+      /* @__PURE__ */ jsx60("span", { className: "domain-schema-item__name", children: m.label }),
+      /* @__PURE__ */ jsxs57("span", { className: "domain-schema-item__meta", children: [
+        /* @__PURE__ */ jsx60("span", { className: "domain-schema-item__badge", children: m.type }),
+        m.view && ` \u2192 ${m.view}`
+      ] })
+    ] }, m.id)) });
+  }
+  if (sectionKey === "mixins") {
+    return /* @__PURE__ */ jsx60("div", { className: "domain-schema-list", children: items.map((m) => /* @__PURE__ */ jsxs57("div", { className: "domain-schema-item", children: [
+      /* @__PURE__ */ jsx60("code", { className: "domain-schema-item__id", children: m.id }),
+      /* @__PURE__ */ jsxs57("span", { className: "domain-schema-item__meta", children: [
+        /* @__PURE__ */ jsx60("span", { className: "domain-schema-item__badge", children: m.type }),
+        " \u2192 ",
+        m.entity,
+        " \xB7 ",
+        m.viewsCount,
+        " view"
+      ] })
+    ] }, m.id)) });
+  }
+  if (sectionKey === "dataRules") {
+    return /* @__PURE__ */ jsx60("div", { className: "domain-schema-list", children: items.map((r) => /* @__PURE__ */ jsxs57("div", { className: "domain-schema-item", children: [
+      /* @__PURE__ */ jsx60("code", { className: "domain-schema-item__id", children: r.id }),
+      /* @__PURE__ */ jsx60("span", { className: "domain-schema-item__name", children: r.name }),
+      /* @__PURE__ */ jsxs57("span", { className: "domain-schema-item__meta", children: [
+        r.effect && /* @__PURE__ */ jsx60("span", { className: "domain-schema-item__badge", children: r.effect }),
+        r.entity && ` \xB7 ${r.entity.split("/").pop()}`
+      ] })
+    ] }, r.id)) });
+  }
+  if (sectionKey === "medias") {
+    return /* @__PURE__ */ jsx60("div", { className: "domain-schema-list", children: items.map((m) => /* @__PURE__ */ jsxs57("div", { className: "domain-schema-item", children: [
+      /* @__PURE__ */ jsx60("code", { className: "domain-schema-item__id", children: m.id }),
+      /* @__PURE__ */ jsxs57("span", { className: "domain-schema-item__meta", children: [
+        m.type,
+        m.iconName && ` \xB7 ${m.iconName}`
+      ] })
+    ] }, m.id)) });
+  }
+  return null;
+}
+var SECTION_LABELS;
+var init_DomainSchemaModal = __esm({
+  "src/web/components/modals/DomainSchemaModal.tsx"() {
+    "use strict";
+    init_useGraphStore();
+    init_useModelIndex();
+    init_useNavigation();
+    init_MIcon();
+    init_open_file();
+    init_domain_markdown();
+    SECTION_LABELS = {
+      entities: { label: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438", icon: "category" },
+      linkages: { label: "\u0421\u0432\u044F\u0437\u0438", icon: "link" },
+      dataTypes: { label: "\u0422\u0438\u043F\u044B \u0434\u0430\u043D\u043D\u044B\u0445", icon: "data_object" },
+      sequences: { label: "\u041F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u0438", icon: "linear_scale" },
+      actions: { label: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F", icon: "bolt" },
+      views: { label: "\u041F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F", icon: "visibility" },
+      menus: { label: "\u041C\u0435\u043D\u044E", icon: "menu" },
+      mixins: { label: "\u041C\u0438\u043A\u0441\u0438\u043D\u044B", icon: "merge" },
+      dataRules: { label: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0434\u0430\u043D\u043D\u044B\u0445", icon: "rule" },
+      medias: { label: "\u0418\u043A\u043E\u043D\u043A\u0438", icon: "image" }
+    };
+  }
+});
+
+// src/web/components/modals/LintModal.tsx
+import { useMemo as useMemo33, useState as useState24 } from "react";
+import { jsx as jsx61, jsxs as jsxs58 } from "react/jsx-runtime";
+function LintModal() {
+  const store = useGraphStore();
+  const { index, loading, error } = useModelIndex();
+  const [filterCategory, setFilterCategory] = useState24("");
+  const [filterDomain, setFilterDomain] = useState24("");
+  const [expandedRules, setExpandedRules] = useState24(/* @__PURE__ */ new Set());
+  const [showHelp, setShowHelp] = useState24(false);
+  const open = store.lintOpen;
+  const report = index?.lint.lintReport ?? null;
+  const allDomains = useMemo33(() => {
+    if (!report)
+      return [];
+    const set = /* @__PURE__ */ new Set();
+    report.issues.forEach((i) => set.add(i.domainId));
+    return Array.from(set).sort();
+  }, [report]);
+  const filteredIssues = useMemo33(() => {
+    if (!report)
+      return [];
+    return report.issues.filter((i) => {
+      if (filterCategory && i.category !== filterCategory)
+        return false;
+      if (filterDomain && i.domainId !== filterDomain)
+        return false;
+      return true;
+    });
+  }, [report, filterCategory, filterDomain]);
+  const grouped = useMemo33(() => {
+    const map = /* @__PURE__ */ new Map();
+    filteredIssues.forEach((i) => {
+      if (!map.has(i.ruleId)) {
+        map.set(i.ruleId, {
+          ruleId: i.ruleId,
+          rule: i.rule,
+          severity: i.severity,
+          category: i.category,
+          issues: []
+        });
+      }
+      map.get(i.ruleId).issues.push(i);
+    });
+    return Array.from(map.values()).sort((a, b) => {
+      const sOrder = { error: 0, warning: 1, info: 2 };
+      if (sOrder[a.severity] !== sOrder[b.severity])
+        return sOrder[a.severity] - sOrder[b.severity];
+      return b.issues.length - a.issues.length;
+    });
+  }, [filteredIssues]);
+  const toggleRule = (ruleId) => {
+    setExpandedRules((prev) => {
+      const s = new Set(prev);
+      if (s.has(ruleId))
+        s.delete(ruleId);
+      else
+        s.add(ruleId);
+      return s;
+    });
+  };
+  const openEntity = (fqid) => {
+    store.setLintOpen(false);
+    store.setEntityCatalogInitialFqid(fqid);
+    store.setEntityCatalogOpen(true);
+  };
+  if (!open)
+    return null;
+  return /* @__PURE__ */ jsx61(
+    "div",
+    {
+      className: "help-overlay help-overlay--fullscreen",
+      style: { zIndex: 500 },
+      onMouseDown: () => store.setLintOpen(false),
+      children: /* @__PURE__ */ jsxs58(
+        "div",
+        {
+          className: "help-modal entity-hierarchy-modal",
+          onMouseDown: (e) => e.stopPropagation(),
+          children: [
+            /* @__PURE__ */ jsxs58("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs58("div", { className: "help-modal__title", children: [
+                /* @__PURE__ */ jsx61(MIcon, { name: "science", size: "sm" }),
+                /* @__PURE__ */ jsx61("span", { className: "icon-label", children: "\u041B\u0438\u043D\u0442\u0435\u0440 \u0441\u0445\u0435\u043C" }),
+                report && /* @__PURE__ */ jsx61("span", { className: "help-modal__badge", children: filteredIssues.length })
+              ] }),
+              /* @__PURE__ */ jsxs58("div", { className: "help-modal__actions", children: [
+                /* @__PURE__ */ jsx61(HelpButton, { open: showHelp, onToggle: () => setShowHelp(!showHelp), label: "\u0427\u0442\u043E \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442\u0441\u044F?" }),
+                /* @__PURE__ */ jsx61(
+                  "button",
+                  {
+                    className: "help-modal__close",
+                    onClick: () => store.setLintOpen(false),
+                    children: "\u2715"
+                  }
+                )
+              ] })
+            ] }),
+            loading && /* @__PURE__ */ jsx61("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx61("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
+            error && /* @__PURE__ */ jsx61("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs58("div", { style: { color: "var(--danger)" }, children: [
+              "\u041E\u0448\u0438\u0431\u043A\u0430: ",
+              error
+            ] }) }),
+            index && report && /* @__PURE__ */ jsxs58("div", { className: "help-modal__body help-modal__body--flush", children: [
+              /* @__PURE__ */ jsxs58(ModalHelp, { visible: showHelp, children: [
+                /* @__PURE__ */ jsx61(HelpSection, { title: "\u0427\u0442\u043E \u044D\u0442\u043E", children: /* @__PURE__ */ jsx61(HelpText, { children: "\u041B\u0438\u043D\u0442\u0435\u0440 \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442 \u0441\u0445\u0435\u043C\u044B \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u043D\u0430 \u0441\u043E\u043E\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0438\u0435 \u0441\u043E\u0433\u043B\u0430\u0448\u0435\u043D\u0438\u044F\u043C R-Vision: \u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u0438\u043C\u0435\u043D\u043E\u0432\u0430\u043D\u0438\u044F, \u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u044B\u0435 \u043F\u043E\u043B\u044F, \u0441\u0441\u044B\u043B\u043E\u0447\u043D\u0443\u044E \u0446\u0435\u043B\u043E\u0441\u0442\u043D\u043E\u0441\u0442\u044C, \u0442\u0438\u043F\u044B \u0434\u0430\u043D\u043D\u044B\u0445 \u0438 \u0441\u0435\u043C\u0430\u043D\u0442\u0438\u043A\u0443. \u0412\u0441\u0451, \u0447\u0442\u043E \u043D\u0430\u0440\u0443\u0448\u0430\u0435\u0442 \u043D\u043E\u0440\u043C\u0443, \u043F\u043E\u043F\u0430\u0434\u0430\u0435\u0442 \u0432 \u043E\u0442\u0447\u0451\u0442." }) }),
+                /* @__PURE__ */ jsx61(HelpSection, { title: "\u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438 \u043F\u0440\u0430\u0432\u0438\u043B", children: /* @__PURE__ */ jsxs58(HelpList, { children: [
+                  /* @__PURE__ */ jsxs58("li", { children: [
+                    /* @__PURE__ */ jsx61("strong", { children: "\u0421\u0441\u044B\u043B\u043E\u0447\u043D\u0430\u044F \u0446\u0435\u043B\u043E\u0441\u0442\u043D\u043E\u0441\u0442\u044C" }),
+                    " \u2014 \u0432\u0441\u0435 \u043B\u0438 \u0441\u0441\u044B\u043B\u043A\u0438 \u0432\u0435\u0434\u0443\u0442 \u043D\u0430 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0438 \u0442\u0438\u043F\u044B."
+                  ] }),
+                  /* @__PURE__ */ jsxs58("li", { children: [
+                    /* @__PURE__ */ jsx61("strong", { children: "\u0421\u0435\u043C\u0430\u043D\u0442\u0438\u043A\u0430" }),
+                    " \u2014 \u043D\u0435\u0442 \u043B\u0438 \u0434\u0443\u0431\u043B\u0435\u0439, \u0446\u0438\u043A\u043B\u043E\u0432, \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439-\u043F\u0443\u0441\u0442\u044B\u0448\u0435\u043A."
+                  ] }),
+                  /* @__PURE__ */ jsxs58("li", { children: [
+                    /* @__PURE__ */ jsx61("strong", { children: "\u0418\u043C\u0435\u043D\u043E\u0432\u0430\u043D\u0438\u0435" }),
+                    " \u2014 camelCase \u0434\u043B\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0438 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432, \u0434\u043B\u0438\u043D\u0430 id \u0432 \u043F\u0440\u0435\u0434\u0435\u043B\u0430\u0445 \u043D\u043E\u0440\u043C\u044B."
+                  ] }),
+                  /* @__PURE__ */ jsxs58("li", { children: [
+                    /* @__PURE__ */ jsx61("strong", { children: "\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F" }),
+                    " \u2014 email \u0431\u0435\u0437 regexp, IP \u043A\u0430\u043A String, \u0434\u0430\u0442\u0430 \u043A\u0430\u043A String \u2014 \u043B\u043E\u0432\u0438\u043C \u043D\u0435\u0441\u043E\u043E\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0438\u044F \u0442\u0438\u043F\u043E\u0432."
+                  ] }),
+                  /* @__PURE__ */ jsxs58("li", { children: [
+                    /* @__PURE__ */ jsx61("strong", { children: "\u041E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u044B\u0435 \u043F\u043E\u043B\u044F" }),
+                    " \u2014 \u0435\u0441\u0442\u044C \u043B\u0438 ",
+                    /* @__PURE__ */ jsx61("code", { children: "name" }),
+                    " \u0443 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438."
+                  ] }),
+                  /* @__PURE__ */ jsxs58("li", { children: [
+                    /* @__PURE__ */ jsx61("strong", { children: "\u0420\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u0438" }),
+                    " \u2014 \u0435\u0441\u0442\u044C \u043B\u0438 ",
+                    /* @__PURE__ */ jsx61("code", { children: "description" }),
+                    ", ",
+                    /* @__PURE__ */ jsx61("code", { children: "label" }),
+                    " \u2014 \u043D\u0435 \u0431\u043B\u043E\u043A\u0438\u0440\u0443\u044E\u0442, \u043D\u043E \u0443\u043B\u0443\u0447\u0448\u0430\u044E\u0442 \u0447\u0438\u0442\u0430\u0435\u043C\u043E\u0441\u0442\u044C."
+                  ] })
+                ] }) }),
+                /* @__PURE__ */ jsx61(HelpSection, { title: "\u0423\u0440\u043E\u0432\u043D\u0438", children: /* @__PURE__ */ jsxs58(HelpText, { children: [
+                  /* @__PURE__ */ jsx61("strong", { children: "\u041E\u0448\u0438\u0431\u043A\u0438" }),
+                  " \u2014 \u0442\u043E\u0447\u043D\u043E \u043D\u0430\u0434\u043E \u043F\u0440\u0430\u0432\u0438\u0442\u044C. ",
+                  /* @__PURE__ */ jsx61("strong", { children: "\u041F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u044F" }),
+                  " \u2014 \u0442\u0430\u043A \u043F\u0438\u0441\u0430\u0442\u044C \u043D\u0435 \u0440\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0443\u0435\u0442\u0441\u044F. ",
+                  /* @__PURE__ */ jsx61("strong", { children: "\u0420\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u0438" }),
+                  " \u2014 \u043C\u043E\u0436\u043D\u043E \u0443\u043B\u0443\u0447\u0448\u0438\u0442\u044C, \u043D\u043E \u043D\u0435 \u043A\u0440\u0438\u0442\u0438\u0447\u043D\u043E."
+                ] }) }),
+                /* @__PURE__ */ jsx61(HelpSection, { title: "Sonar-\u043E\u0446\u0435\u043D\u043A\u0430", children: /* @__PURE__ */ jsx61(HelpText, { children: "\u042D\u0442\u043E \u0432\u0437\u0432\u0435\u0448\u0435\u043D\u043D\u0430\u044F \u0441\u0432\u043E\u0434\u043A\u0430: 100 \u2014 \u0438\u0434\u0435\u0430\u043B, 0 \u2014 \u043E\u0447\u0435\u043D\u044C \u043C\u043D\u043E\u0433\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C. \u0412\u0435\u0441 \u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438 \u043E\u0442\u0440\u0430\u0436\u0430\u0435\u0442 \u0432\u0430\u0436\u043D\u043E\u0441\u0442\u044C: \u0441\u0441\u044B\u043B\u043E\u0447\u043D\u0430\u044F \u0446\u0435\u043B\u043E\u0441\u0442\u043D\u043E\u0441\u0442\u044C \u0432\u043B\u0438\u044F\u0435\u0442 \u043D\u0430 \u043E\u0446\u0435\u043D\u043A\u0443 \u0432 5 \u0440\u0430\u0437 \u0441\u0438\u043B\u044C\u043D\u0435\u0435, \u0447\u0435\u043C \u0440\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u0438." }) })
+              ] }),
+              /* @__PURE__ */ jsxs58("div", { className: "lint-summary", children: [
+                /* @__PURE__ */ jsxs58("div", { className: "lint-summary__stat lint-summary__stat--error", children: [
+                  /* @__PURE__ */ jsx61("div", { className: "lint-summary__value", children: report.stats.bySeverity.error }),
+                  /* @__PURE__ */ jsx61("div", { className: "lint-summary__label", children: "\u041E\u0448\u0438\u0431\u043E\u043A" })
+                ] }),
+                /* @__PURE__ */ jsxs58("div", { className: "lint-summary__stat lint-summary__stat--warning", children: [
+                  /* @__PURE__ */ jsx61("div", { className: "lint-summary__value", children: report.stats.bySeverity.warning }),
+                  /* @__PURE__ */ jsx61("div", { className: "lint-summary__label", children: "\u041F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u0439" })
+                ] }),
+                /* @__PURE__ */ jsxs58("div", { className: "lint-summary__stat lint-summary__stat--info", children: [
+                  /* @__PURE__ */ jsx61("div", { className: "lint-summary__value", children: report.stats.bySeverity.info }),
+                  /* @__PURE__ */ jsx61("div", { className: "lint-summary__label", children: "\u0420\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u0439" })
+                ] }),
+                /* @__PURE__ */ jsxs58("div", { className: "lint-summary__stat lint-summary__stat--score", children: [
+                  /* @__PURE__ */ jsx61("div", { className: "lint-summary__value", children: index.lint.sonar.overall.score }),
+                  /* @__PURE__ */ jsxs58("div", { className: "lint-summary__label", children: [
+                    "Sonar ",
+                    index.lint.sonar.overall.grade
+                  ] })
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxs58("div", { className: "lint-filters", children: [
+                /* @__PURE__ */ jsxs58("label", { className: "entity-matrix-filter", children: [
+                  /* @__PURE__ */ jsx61("span", { children: "\u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F:" }),
+                  /* @__PURE__ */ jsxs58(
+                    "select",
+                    {
+                      value: filterCategory,
+                      onChange: (e) => setFilterCategory(e.target.value),
+                      children: [
+                        /* @__PURE__ */ jsx61("option", { value: "", children: "\u2014 \u0432\u0441\u0435 \u2014" }),
+                        Object.keys(CATEGORY_LABELS).map((k) => /* @__PURE__ */ jsxs58("option", { value: k, children: [
+                          CATEGORY_LABELS[k],
+                          " (",
+                          report.stats.byCategory[k],
+                          ")"
+                        ] }, k))
+                      ]
+                    }
+                  )
+                ] }),
+                /* @__PURE__ */ jsxs58("label", { className: "entity-matrix-filter", children: [
+                  /* @__PURE__ */ jsx61("span", { children: "\u0414\u043E\u043C\u0435\u043D:" }),
+                  /* @__PURE__ */ jsxs58(
+                    "select",
+                    {
+                      value: filterDomain,
+                      onChange: (e) => setFilterDomain(e.target.value),
+                      children: [
+                        /* @__PURE__ */ jsx61("option", { value: "", children: "\u2014 \u0432\u0441\u0435 \u2014" }),
+                        allDomains.map((d) => /* @__PURE__ */ jsx61("option", { value: d, children: d }, d))
+                      ]
+                    }
+                  )
+                ] })
+              ] }),
+              /* @__PURE__ */ jsx61("div", { className: "lint-rules", children: grouped.length === 0 ? /* @__PURE__ */ jsxs58("div", { className: "lint-empty", children: [
+                /* @__PURE__ */ jsx61("div", { className: "lint-empty__icon", children: "\u2705" }),
+                /* @__PURE__ */ jsx61("div", { className: "lint-empty__title", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u043C" })
+              ] }) : grouped.map((g) => {
+                const isOpen = expandedRules.has(g.ruleId);
+                return /* @__PURE__ */ jsxs58(
+                  "div",
+                  {
+                    className: "lint-rule lint-rule--" + g.severity,
+                    children: [
+                      /* @__PURE__ */ jsxs58(
+                        "button",
+                        {
+                          className: "lint-rule__head",
+                          onClick: () => toggleRule(g.ruleId),
+                          children: [
+                            /* @__PURE__ */ jsx61(MIcon, { name: isOpen ? "expand_more" : "chevron_right", size: "sm" }),
+                            /* @__PURE__ */ jsx61("span", { className: "lint-rule__title", children: g.rule }),
+                            /* @__PURE__ */ jsx61("span", { className: "lint-rule__category", children: CATEGORY_LABELS[g.category] }),
+                            /* @__PURE__ */ jsx61("span", { className: "lint-rule__count", children: g.issues.length })
+                          ]
+                        }
+                      ),
+                      isOpen && /* @__PURE__ */ jsxs58("div", { className: "lint-rule__body", children: [
+                        g.issues.slice(0, 100).map((issue, i) => /* @__PURE__ */ jsxs58("div", { className: "lint-issue", children: [
+                          /* @__PURE__ */ jsx61("div", { className: "lint-issue__message", children: issue.message }),
+                          issue.hint && /* @__PURE__ */ jsxs58("div", { className: "lint-issue__hint", children: [
+                            /* @__PURE__ */ jsx61(MIcon, { name: "lightbulb", size: "sm" }),
+                            issue.hint
+                          ] }),
+                          /* @__PURE__ */ jsxs58("div", { className: "lint-issue__context", children: [
+                            issue.entityFqid && /* @__PURE__ */ jsxs58(
+                              "button",
+                              {
+                                className: "lint-issue__link",
+                                onClick: () => openEntity(issue.entityFqid),
+                                children: [
+                                  issue.entityFqid,
+                                  issue.attributeId && `.${issue.attributeId}`
+                                ]
+                              }
+                            ),
+                            !issue.entityFqid && issue.domainId && /* @__PURE__ */ jsx61("code", { className: "lint-issue__link-static", children: issue.domainId })
+                          ] })
+                        ] }, i)),
+                        g.issues.length > 100 && /* @__PURE__ */ jsxs58("div", { className: "lint-issue__more", children: [
+                          "...\u0438 \u0435\u0449\u0451 ",
+                          g.issues.length - 100
+                        ] })
+                      ] })
+                    ]
+                  },
+                  g.ruleId
+                );
+              }) })
+            ] })
+          ]
+        }
+      )
+    }
+  );
+}
+var CATEGORY_LABELS;
+var init_LintModal = __esm({
+  "src/web/components/modals/LintModal.tsx"() {
+    "use strict";
+    init_useGraphStore();
+    init_useModelIndex();
+    init_MIcon();
+    init_ModalHelp();
+    CATEGORY_LABELS = {
+      reference: "\u0421\u0441\u044B\u043B\u043E\u0447\u043D\u0430\u044F \u0446\u0435\u043B\u043E\u0441\u0442\u043D\u043E\u0441\u0442\u044C",
+      semantic: "\u0421\u0435\u043C\u0430\u043D\u0442\u0438\u043A\u0430",
+      naming: "\u0418\u043C\u0435\u043D\u043E\u0432\u0430\u043D\u0438\u0435",
+      validation: "\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F",
+      required: "\u041E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u044B\u0435 \u043F\u043E\u043B\u044F",
+      recommended: "\u0420\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u0438"
+    };
+  }
+});
+
+// src/web/lib/model/attribute-matrix.ts
+function buildAttributeMatrix(index, options = {}) {
+  const minOccurrences = options.minOccurrences ?? 2;
+  const maxColumns = options.maxColumns ?? 40;
+  const maxRows = options.maxRows ?? 100;
+  const domainFilter = options.domains;
+  const attrMap = /* @__PURE__ */ new Map();
+  const candidates = domainFilter && domainFilter.size > 0 ? index.entities.filter((e) => domainFilter.has(e.domainId.toLowerCase())) : index.entities;
+  for (const e of candidates) {
+    for (const a of e.attributes) {
+      const key = (a.name || a.id).toLowerCase();
+      let stat = attrMap.get(key);
+      if (!stat) {
+        stat = {
+          key,
+          spellings: /* @__PURE__ */ new Map(),
+          dataTypes: /* @__PURE__ */ new Set(),
+          entities: /* @__PURE__ */ new Set()
+        };
+        attrMap.set(key, stat);
+      }
+      const displayName = a.name || a.id;
+      stat.spellings.set(
+        displayName,
+        (stat.spellings.get(displayName) || 0) + 1
+      );
+      stat.dataTypes.add(a.dataType);
+      stat.entities.add(e.fqid);
+    }
+  }
+  const filtered = Array.from(attrMap.values()).filter(
+    (s) => s.entities.size >= minOccurrences
+  );
+  filtered.sort((a, b) => b.entities.size - a.entities.size);
+  const selected = filtered.slice(0, maxColumns);
+  const columns = selected.map((s) => {
+    const label = Array.from(s.spellings.entries()).sort(
+      (a, b) => b[1] - a[1]
+    )[0][0];
+    const dataTypes = Array.from(s.dataTypes).sort();
+    return {
+      key: s.key,
+      label,
+      count: s.entities.size,
+      dataTypes,
+      consistentType: dataTypes.length === 1
+    };
+  });
+  const columnKeys = new Set(columns.map((c) => c.key));
+  const rowCandidates = candidates.slice().sort((a, b) => {
+    if (b.attributes.length !== a.attributes.length) {
+      return b.attributes.length - a.attributes.length;
+    }
+    return a.fqid.localeCompare(b.fqid);
+  });
+  const rows = rowCandidates.slice(0, maxRows).map((e) => {
+    const present = /* @__PURE__ */ new Set();
+    for (const a of e.attributes) {
+      const key = (a.name || a.id).toLowerCase();
+      if (columnKeys.has(key))
+        present.add(key);
+    }
+    return {
+      entityFqid: e.fqid,
+      entityId: e.entityId,
+      domainId: e.domainId,
+      present,
+      attributesCount: e.attributes.length
+    };
+  });
+  const inconsistentTypes = columns.filter((c) => !c.consistentType);
+  const singletons = [];
+  attrMap.forEach((s) => {
+    if (s.entities.size === 1) {
+      const label = Array.from(s.spellings.keys())[0];
+      singletons.push({
+        key: s.key,
+        label,
+        count: 1,
+        dataTypes: Array.from(s.dataTypes),
+        consistentType: s.dataTypes.size === 1
+      });
+    }
+  });
+  return {
+    columns,
+    rows,
+    stats: {
+      totalColumns: columns.length,
+      totalRows: rows.length,
+      inconsistentTypes,
+      singletons
+    }
+  };
+}
+var init_attribute_matrix = __esm({
+  "src/web/lib/model/attribute-matrix.ts"() {
+    "use strict";
+  }
+});
+
+// src/web/components/modals/AttributeMatrixModal.tsx
+import { useMemo as useMemo34, useState as useState25 } from "react";
+import { jsx as jsx62, jsxs as jsxs59 } from "react/jsx-runtime";
+function AttributeMatrixModal() {
+  const store = useGraphStore();
+  const { index, loading, error } = useModelIndex();
+  const open = store.attributeMatrixOpen;
+  const [domainFilter, setDomainFilter] = useState25("");
+  const [minOccurrences, setMinOccurrences] = useState25(2);
+  const [onlyInconsistent, setOnlyInconsistent] = useState25(false);
+  const allDomains = useMemo34(() => {
+    if (!index)
+      return [];
+    const map = /* @__PURE__ */ new Map();
+    index.entities.forEach((e) => {
+      map.set(e.domainId, (map.get(e.domainId) || 0) + 1);
+    });
+    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
+  }, [index]);
+  const matrix = useMemo34(() => {
+    if (!index)
+      return null;
+    return buildAttributeMatrix(index, {
+      domains: domainFilter ? /* @__PURE__ */ new Set([domainFilter.toLowerCase()]) : void 0,
+      minOccurrences,
+      maxColumns: 40,
+      maxRows: 100
+    });
+  }, [index, domainFilter, minOccurrences]);
+  const visibleColumns = useMemo34(() => {
+    if (!matrix)
+      return [];
+    if (!onlyInconsistent)
+      return matrix.columns;
+    return matrix.columns.filter((c) => !c.consistentType);
+  }, [matrix, onlyInconsistent]);
+  const openEntity = (fqid) => {
+    store.setAttributeMatrixOpen(false);
+    store.setEntityCatalogInitialFqid(fqid);
+    store.setEntityCatalogOpen(true);
+  };
+  if (!open)
+    return null;
+  return /* @__PURE__ */ jsx62(
+    "div",
+    {
+      className: "help-overlay help-overlay--fullscreen",
+      onMouseDown: () => store.setAttributeMatrixOpen(false),
+      children: /* @__PURE__ */ jsxs59(
+        "div",
+        {
+          className: "help-modal entity-matrix-modal",
+          onMouseDown: (e) => e.stopPropagation(),
+          children: [
+            /* @__PURE__ */ jsxs59("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs59("div", { className: "help-modal__title", children: [
+                "\u{1F4CA} \u041C\u0430\u0442\u0440\u0438\u0446\u0430 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432",
+                matrix && /* @__PURE__ */ jsxs59("span", { className: "help-modal__badge", children: [
+                  matrix.rows.length,
+                  " \xD7 ",
+                  visibleColumns.length
+                ] })
+              ] }),
+              /* @__PURE__ */ jsx62(
+                "button",
+                {
+                  className: "help-modal__close",
+                  onClick: () => store.setAttributeMatrixOpen(false),
+                  children: "\u2715"
+                }
+              )
+            ] }),
+            loading && /* @__PURE__ */ jsx62("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx62("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
+            error && /* @__PURE__ */ jsx62("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs59("div", { style: { color: "var(--danger)" }, children: [
+              "\u041E\u0448\u0438\u0431\u043A\u0430: ",
+              error
+            ] }) }),
+            index && matrix && /* @__PURE__ */ jsxs59("div", { className: "attribute-matrix-body", children: [
+              /* @__PURE__ */ jsxs59("div", { className: "attribute-matrix-toolbar", children: [
+                /* @__PURE__ */ jsxs59("div", { className: "attribute-matrix-toolbar__filters", children: [
+                  /* @__PURE__ */ jsx62(
+                    DomainCombobox,
+                    {
+                      value: domainFilter,
+                      onChange: setDomainFilter,
+                      domains: allDomains,
+                      placeholder: "\u0412\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B"
+                    }
+                  ),
+                  /* @__PURE__ */ jsxs59("label", { className: "entity-matrix-filter", children: [
+                    /* @__PURE__ */ jsx62("span", { children: "\u041C\u0438\u043D\u0438\u043C\u0443\u043C \u0443\u043F\u043E\u043C\u0438\u043D\u0430\u043D\u0438\u0439:" }),
+                    /* @__PURE__ */ jsx62(
+                      "input",
+                      {
+                        type: "number",
+                        min: 1,
+                        max: 20,
+                        value: minOccurrences,
+                        onChange: (e) => setMinOccurrences(Math.max(1, parseInt(e.target.value, 10) || 1)),
+                        style: { width: 60 }
+                      }
+                    )
+                  ] }),
+                  /* @__PURE__ */ jsxs59("label", { className: "entity-graph-toggle", children: [
+                    /* @__PURE__ */ jsx62(
+                      "input",
+                      {
+                        type: "checkbox",
+                        checked: onlyInconsistent,
+                        onChange: () => setOnlyInconsistent(!onlyInconsistent)
+                      }
+                    ),
+                    "\u0422\u043E\u043B\u044C\u043A\u043E \u0441 \u0440\u0430\u0437\u043D\u044B\u043C\u0438 \u0442\u0438\u043F\u0430\u043C\u0438",
+                    matrix.stats.inconsistentTypes.length > 0 && /* @__PURE__ */ jsx62("span", { className: "attribute-matrix-badge", children: matrix.stats.inconsistentTypes.length })
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsx62("div", { className: "attribute-matrix-toolbar__stats", children: matrix.stats.singletons.length > 0 && /* @__PURE__ */ jsxs59("span", { className: "attribute-matrix-hint", children: [
+                  "\u041E\u0434\u0438\u043D\u043E\u0447\u043D\u044B\u0445 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432: ",
+                  matrix.stats.singletons.length
+                ] }) })
+              ] }),
+              visibleColumns.length === 0 ? /* @__PURE__ */ jsx62("div", { className: "entity-matrix-empty", children: "\u041D\u0435\u0442 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432, \u0443\u0434\u043E\u0432\u043B\u0435\u0442\u0432\u043E\u0440\u044F\u044E\u0449\u0438\u0445 \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u043C" }) : /* @__PURE__ */ jsx62("div", { className: "attribute-matrix-scroll", children: /* @__PURE__ */ jsxs59("table", { className: "attribute-matrix-table", children: [
+                /* @__PURE__ */ jsx62("thead", { children: /* @__PURE__ */ jsxs59("tr", { children: [
+                  /* @__PURE__ */ jsx62("th", { className: "attribute-matrix-corner", children: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C" }),
+                  visibleColumns.map((col) => /* @__PURE__ */ jsxs59(
+                    "th",
+                    {
+                      className: "attribute-matrix-col-head" + (!col.consistentType ? " inconsistent" : ""),
+                      title: col.dataTypes.join(", ") + "\n\u0432\u0441\u0442\u0440\u0435\u0447\u0430\u0435\u0442\u0441\u044F \u0443 " + col.count + " \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439",
+                      children: [
+                        /* @__PURE__ */ jsx62("span", { className: "attribute-matrix-col-head__text", children: col.label }),
+                        !col.consistentType && /* @__PURE__ */ jsx62("span", { className: "attribute-matrix-col-head__warn", children: "\u26A0" })
+                      ]
+                    },
+                    col.key
+                  ))
+                ] }) }),
+                /* @__PURE__ */ jsx62("tbody", { children: matrix.rows.map((row) => /* @__PURE__ */ jsxs59("tr", { children: [
+                  /* @__PURE__ */ jsxs59(
+                    "th",
+                    {
+                      className: "attribute-matrix-row-head",
+                      title: row.entityFqid,
+                      onClick: () => openEntity(row.entityFqid),
+                      children: [
+                        /* @__PURE__ */ jsx62("span", { className: "attribute-matrix-row-head__id", children: row.entityId }),
+                        /* @__PURE__ */ jsx62("span", { className: "attribute-matrix-row-head__domain", children: row.domainId })
+                      ]
+                    }
+                  ),
+                  visibleColumns.map((col) => {
+                    const has = row.present.has(col.key);
+                    return /* @__PURE__ */ jsx62(
+                      "td",
+                      {
+                        className: "attribute-matrix-cell" + (has ? " present" : ""),
+                        title: has ? `\u0435\u0441\u0442\u044C ${col.label}` : "",
+                        children: has && /* @__PURE__ */ jsx62("span", { className: "attribute-matrix-cell__dot" })
+                      },
+                      col.key
+                    );
+                  })
+                ] }, row.entityFqid)) })
+              ] }) })
+            ] })
+          ]
+        }
+      )
+    }
+  );
+}
+var init_AttributeMatrixModal = __esm({
+  "src/web/components/modals/AttributeMatrixModal.tsx"() {
+    "use strict";
+    init_useGraphStore();
+    init_useModelIndex();
+    init_attribute_matrix();
+    init_DomainCombobox();
+  }
+});
+
+// src/web/components/modals/MartinMetricsModal.tsx
+import { useMemo as useMemo35, useState as useState26 } from "react";
+import { jsx as jsx63, jsxs as jsxs60 } from "react/jsx-runtime";
+function MartinMetricsModal() {
+  const store = useGraphStore();
+  const { index, loading, error } = useModelIndex();
+  const [showHelp, setShowHelp] = useState26(false);
+  const open = store.martinOpen;
+  const [sortBy, setSortBy] = useState26("distance");
+  const [filterZone, setFilterZone] = useState26("");
+  const report = index?.martin ?? null;
+  const sorted = useMemo35(() => {
+    if (!report)
+      return [];
+    let arr = [...report.metrics];
+    if (filterZone)
+      arr = arr.filter((m) => m.zone === filterZone);
+    arr.sort((a, b) => {
+      if (sortBy === "distance")
+        return b.distance - a.distance;
+      if (sortBy === "instability")
+        return b.instability - a.instability;
+      if (sortBy === "abstractness")
+        return b.abstractness - a.abstractness;
+      if (sortBy === "ca")
+        return b.ca - a.ca;
+      if (sortBy === "ce")
+        return b.ce - a.ce;
+      return 0;
+    });
+    return arr;
+  }, [report, sortBy, filterZone]);
+  if (!open)
+    return null;
+  return /* @__PURE__ */ jsx63(
+    "div",
+    {
+      className: "help-overlay help-overlay--fullscreen",
+      onMouseDown: () => store.setMartinOpen(false),
+      children: /* @__PURE__ */ jsxs60(
+        "div",
+        {
+          className: "help-modal entity-hierarchy-modal",
+          onMouseDown: (e) => e.stopPropagation(),
+          children: [
+            /* @__PURE__ */ jsxs60("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs60("div", { className: "help-modal__title", children: [
+                "\u{1F4D0} \u0410\u0440\u0445\u0438\u0442\u0435\u043A\u0442\u0443\u0440\u043D\u044B\u0435 \u043C\u0435\u0442\u0440\u0438\u043A\u0438 (\u041C\u0430\u0440\u0442\u0438\u043D)",
+                report && /* @__PURE__ */ jsxs60("span", { className: "help-modal__badge", children: [
+                  report.stats.totalDomains,
+                  " \u0434\u043E\u043C\u0435\u043D\u043E\u0432"
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxs60("div", { className: "help-modal__actions", children: [
+                /* @__PURE__ */ jsx63(
+                  HelpButton,
+                  {
+                    open: showHelp,
+                    onToggle: () => setShowHelp(!showHelp),
+                    label: "\u041A\u0430\u043A \u044D\u0442\u043E \u0447\u0438\u0442\u0430\u0442\u044C?"
+                  }
+                ),
+                /* @__PURE__ */ jsx63(
+                  "button",
+                  {
+                    className: "help-modal__close",
+                    onClick: () => store.setMartinOpen(false),
+                    children: "\u2715"
+                  }
+                )
+              ] })
+            ] }),
+            loading && /* @__PURE__ */ jsx63("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx63("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
+            error && /* @__PURE__ */ jsx63("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs60("div", { style: { color: "var(--danger)" }, children: [
+              "\u041E\u0448\u0438\u0431\u043A\u0430: ",
+              error
+            ] }) }),
+            index && report && /* @__PURE__ */ jsxs60("div", { className: "help-modal__body help-modal__body--flush", children: [
+              /* @__PURE__ */ jsxs60(ModalHelp, { visible: showHelp, children: [
+                /* @__PURE__ */ jsx63(HelpSection, { title: "\u0427\u0442\u043E \u044D\u0442\u043E \u0442\u0430\u043A\u043E\u0435", children: /* @__PURE__ */ jsxs60(HelpText, { children: [
+                  "\u042D\u0442\u043E \u043C\u0435\u0442\u0440\u0438\u043A\u0438 \u0420\u043E\u0431\u0435\u0440\u0442\u0430 \u041C\u0430\u0440\u0442\u0438\u043D\u0430 \u0438\u0437 \u043A\u043D\u0438\u0433\u0438 \xAB\u0427\u0438\u0441\u0442\u0430\u044F \u0430\u0440\u0445\u0438\u0442\u0435\u043A\u0442\u0443\u0440\u0430\xBB. \u041E\u043D\u0438 \u0438\u0437\u043C\u0435\u0440\u044F\u044E\u0442",
+                  " ",
+                  /* @__PURE__ */ jsx63("strong", { children: "\u0441\u0432\u044F\u0437\u043D\u043E\u0441\u0442\u044C" }),
+                  " \u0438 ",
+                  /* @__PURE__ */ jsx63("strong", { children: "\u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u044E" }),
+                  " \u0434\u043E\u043C\u0435\u043D\u043E\u0432. \u041F\u0440\u043E\u0441\u0442\u043E\u0439 \u0438\u0434\u0435\u0430\u043B: ",
+                  /* @__PURE__ */ jsx63("em", { children: "\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0435 \u0434\u043E\u043C\u0435\u043D\u044B \u0434\u043E\u043B\u0436\u043D\u044B \u0431\u044B\u0442\u044C \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u044B\u043C\u0438, \u043D\u0435\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0435 \u2014 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u043C\u0438." }),
+                  " \u041C\u0435\u0442\u0440\u0438\u043A\u0438 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u044E\u0442, \u0433\u0434\u0435 \u044D\u0442\u043E\u0442 \u0431\u0430\u043B\u0430\u043D\u0441 \u043D\u0430\u0440\u0443\u0448\u0435\u043D."
+                ] }) }),
+                /* @__PURE__ */ jsxs60("div", { className: "modal-help__grid", children: [
+                  /* @__PURE__ */ jsxs60(HelpCard, { letter: "Ca", title: "Afferent coupling", formula: "\u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u0437\u0430\u0432\u0438\u0441\u044F\u0442 \u043E\u0442 \u044D\u0442\u043E\u0433\u043E", children: [
+                    "\u0412\u044B\u0441\u043E\u043A\u0438\u0439 Ca = ",
+                    /* @__PURE__ */ jsx63("strong", { children: "\u043D\u0430 \u043D\u0435\u0433\u043E \u043C\u043D\u043E\u0433\u0438\u0435 \u0441\u043C\u043E\u0442\u0440\u044F\u0442" }),
+                    ". \u041C\u0435\u043D\u044F\u0442\u044C \u0440\u0438\u0441\u043A\u043E\u0432\u0430\u043D\u043D\u043E \u2014 \u0437\u0430\u0442\u0440\u043E\u043D\u0435\u0448\u044C \u0447\u0443\u0436\u0438\u0435 \u0441\u0446\u0435\u043D\u0430\u0440\u0438\u0438."
+                  ] }),
+                  /* @__PURE__ */ jsxs60(HelpCard, { letter: "Ce", title: "Efferent coupling", formula: "\u043E\u0442 \u0441\u043A\u043E\u043B\u044C\u043A\u0438\u0445 \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u0437\u0430\u0432\u0438\u0441\u0438\u0442 \u044D\u0442\u043E\u0442", children: [
+                    "\u0412\u044B\u0441\u043E\u043A\u0438\u0439 Ce = ",
+                    /* @__PURE__ */ jsx63("strong", { children: "\u043E\u043D \u0441\u0430\u043C \u0437\u0430\u0432\u0438\u0441\u0438\u0442 \u043E\u0442 \u043C\u043D\u043E\u0433\u0438\u0445" }),
+                    ". \u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u0432 \u0441\u043E\u0441\u0435\u0434\u044F\u0445 \u043B\u043E\u043C\u0430\u044E\u0442 \u0435\u0433\u043E."
+                  ] }),
+                  /* @__PURE__ */ jsxs60(HelpCard, { letter: "I", title: "Instability", formula: "I = Ce / (Ca + Ce)", children: [
+                    /* @__PURE__ */ jsx63("strong", { children: "0" }),
+                    " \u2014 \u043E\u0447\u0435\u043D\u044C \u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0439, \u043C\u0435\u043D\u044F\u0442\u044C \u043D\u0435\u043B\u044C\u0437\u044F \u0431\u0435\u0437 \u043F\u043E\u0441\u043B\u0435\u0434\u0441\u0442\u0432\u0438\u0439.",
+                    " ",
+                    /* @__PURE__ */ jsx63("strong", { children: "1" }),
+                    " \u2014 \u043D\u0435\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0439, \u043C\u043E\u0436\u043D\u043E \u043C\u0435\u043D\u044F\u0442\u044C \u0441\u0432\u043E\u0431\u043E\u0434\u043D\u043E."
+                  ] }),
+                  /* @__PURE__ */ jsxs60(HelpCard, { letter: "A", title: "Abstractness", formula: "A = \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438-\u0440\u043E\u0434\u0438\u0442\u0435\u043B\u0438 / \u0432\u0441\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438", children: [
+                    "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C \xAB\u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u0430\u044F\xBB, \u0435\u0441\u043B\u0438 \u043E\u0442 \u043D\u0435\u0451 \u043A\u0442\u043E-\u0442\u043E \u043D\u0430\u0441\u043B\u0435\u0434\u0443\u0435\u0442.",
+                    " ",
+                    /* @__PURE__ */ jsx63("strong", { children: "0" }),
+                    " \u2014 \u0432\u0441\u0451 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u043E\u0435. ",
+                    /* @__PURE__ */ jsx63("strong", { children: "1" }),
+                    " \u2014 \u0432\u0441\u0451 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u043E\u0435."
+                  ] }),
+                  /* @__PURE__ */ jsxs60(
+                    HelpCard,
+                    {
+                      letter: "D",
+                      title: "Distance from the Main Sequence",
+                      formula: "D = |A + I \u2212 1|",
+                      wide: true,
+                      children: [
+                        "\u041D\u0430\u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0434\u043E\u043C\u0435\u043D \u0443\u0448\u0451\u043B \u043E\u0442 \u0438\u0434\u0435\u0430\u043B\u044C\u043D\u043E\u0439 \u043B\u0438\u043D\u0438\u0438 ",
+                        /* @__PURE__ */ jsx63("code", { children: "A + I = 1" }),
+                        ".",
+                        " ",
+                        /* @__PURE__ */ jsx63("strong", { children: "0" }),
+                        " \u2014 \u0438\u0434\u0435\u0430\u043B. ",
+                        /* @__PURE__ */ jsx63("strong", { children: "1" }),
+                        " \u2014 \u043C\u0430\u043A\u0441\u0438\u043C\u0430\u043B\u044C\u043D\u043E \u0434\u0430\u043B\u0451\u043A."
+                      ]
+                    }
+                  )
+                ] }),
+                /* @__PURE__ */ jsx63(HelpSection, { title: "\u0427\u0442\u043E \u0442\u0430\u043A\u043E\u0435 \u0437\u043E\u043D\u044B", children: /* @__PURE__ */ jsxs60(HelpZones, { children: [
+                  /* @__PURE__ */ jsx63(HelpZone, { color: "green", title: "\u2705 \u0413\u043B\u0430\u0432\u043D\u0430\u044F \u043F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u044C", children: "D < 0.3. \u0414\u043E\u043C\u0435\u043D \u043D\u0430 \u0438\u0434\u0435\u0430\u043B\u044C\u043D\u043E\u0439 \u043B\u0438\u043D\u0438\u0438. \u0421\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0435 \u0434\u043E\u043C\u0435\u043D\u044B \u2014 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u044B\u0435, \u043D\u0435\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0435 \u2014 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0435. \u0412\u0441\u0451 \u043F\u0440\u0430\u0432\u0438\u043B\u044C\u043D\u043E." }),
+                  /* @__PURE__ */ jsxs60(HelpZone, { color: "red", title: "\u{1F534} \u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438", children: [
+                    "A < 0.3 \u0438 I < 0.3. \u0414\u043E\u043C\u0435\u043D ",
+                    /* @__PURE__ */ jsx63("strong", { children: "\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0439 \u0438 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0439" }),
+                    ": \u043E\u0442 \u043D\u0435\u0433\u043E \u0437\u0430\u0432\u0438\u0441\u044F\u0442 \u043C\u043D\u043E\u0433\u0438\u0435, \u043D\u043E \u0443 \u043D\u0435\u0433\u043E \u043D\u0435\u0442 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u0439, \u0447\u0442\u043E\u0431\u044B \u043C\u0435\u043D\u044F\u0442\u044C\u0441\u044F \u0431\u0435\u0437\u043E\u043F\u0430\u0441\u043D\u043E. \u041B\u044E\u0431\u043E\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0435 \u0437\u0430\u0442\u0440\u0430\u0433\u0438\u0432\u0430\u0435\u0442 \u0432\u0441\u0435\u0445 \u043F\u043E\u0442\u0440\u0435\u0431\u0438\u0442\u0435\u043B\u0435\u0439."
+                  ] }),
+                  /* @__PURE__ */ jsxs60(HelpZone, { color: "orange", title: "\u{1F7E0} \u0411\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u044B\u0435 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u0438", children: [
+                    "A > 0.7 \u0438 I > 0.7. \u0414\u043E\u043C\u0435\u043D ",
+                    /* @__PURE__ */ jsx63("strong", { children: "\u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u044B\u0439 \u0438 \u043D\u0435\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0439" }),
+                    ": \u043C\u043D\u043E\u0433\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439-\u0440\u043E\u0434\u0438\u0442\u0435\u043B\u0435\u0439, \u043D\u043E \u043D\u0438\u043A\u0442\u043E \u0438\u0445 \u043D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442. \u0421\u043A\u043E\u0440\u0435\u0435 \u0432\u0441\u0435\u0433\u043E \u2014 \u043C\u0451\u0440\u0442\u0432\u044B\u0439 \u043A\u043E\u0434 \u0438\u043B\u0438 \u043D\u0435\u0434\u043E\u0434\u0435\u043B\u0430\u043D\u043D\u044B\u0439 \u043C\u043E\u0434\u0443\u043B\u044C."
+                  ] })
+                ] }) }),
+                /* @__PURE__ */ jsx63(HelpSection, { title: "\u041A\u0430\u043A \u044D\u0442\u0438\u043C \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u044C\u0441\u044F", children: /* @__PURE__ */ jsxs60(HelpList, { children: [
+                  /* @__PURE__ */ jsxs60("li", { children: [
+                    /* @__PURE__ */ jsx63("strong", { children: "\u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438 \u2014 \u0442\u043E\u043F \u043F\u0440\u0438\u043E\u0440\u0438\u0442\u0435\u0442." }),
+                    " \u042D\u0442\u043E \u0434\u043E\u043C\u0435\u043D\u044B, \u0433\u0434\u0435 \u043B\u044E\u0431\u043E\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0435 \u0431\u043E\u043B\u044C\u043D\u043E. \u0415\u0441\u043B\u0438 \u0438\u0445 \u043C\u043D\u043E\u0433\u043E \u2014 \u0430\u0440\u0445\u0438\u0442\u0435\u043A\u0442\u0443\u0440\u0430 \xAB\u0437\u0430\u0441\u0442\u0440\u044F\u043B\u0430\xBB."
+                  ] }),
+                  /* @__PURE__ */ jsxs60("li", { children: [
+                    /* @__PURE__ */ jsx63("strong", { children: "\u0411\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u044B\u0435 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u0438 \u2014 \u043D\u0430 \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435." }),
+                    " \u0418\u043B\u0438 \u043F\u043E\u0434\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u043A \u0434\u0435\u043B\u0443, \u0438\u043B\u0438 \u0432\u044B\u043A\u0438\u043D\u0443\u0442\u044C \u2014 \u043E\u043D\u0438 \u0442\u043E\u043B\u044C\u043A\u043E \u043F\u0443\u0442\u0430\u044E\u0442."
+                  ] }),
+                  /* @__PURE__ */ jsxs60("li", { children: [
+                    /* @__PURE__ */ jsx63("strong", { children: "\u041D\u0435 \u0433\u043E\u043D\u044F\u0439\u0442\u0435\u0441\u044C \u0437\u0430 D = 0 \u0443 \u0432\u0441\u0435\u0445." }),
+                    " \u0418\u0434\u0435\u0430\u043B \u043D\u0435\u0434\u043E\u0441\u0442\u0438\u0436\u0438\u043C, \u0441\u0442\u0440\u0435\u043C\u0438\u0442\u0435\u0441\u044C \u0447\u0442\u043E\u0431\u044B \xAB\u0437\u043E\u043D\u0430 \u0431\u043E\u043B\u0438\xBB \u0431\u044B\u043B\u0430 \u043F\u0443\u0441\u0442\u043E\u0439."
+                  ] }),
+                  /* @__PURE__ */ jsxs60("li", { children: [
+                    /* @__PURE__ */ jsx63("strong", { children: "\u0421\u0440\u0430\u0432\u043D\u0438\u0442\u0435 \u0441 Sonar:" }),
+                    " \u0434\u043E\u043C\u0435\u043D \u043C\u043E\u0436\u0435\u0442 \u0438\u043C\u0435\u0442\u044C \u043E\u0442\u043B\u0438\u0447\u043D\u044B\u0439 Sonar (\u043D\u0430\u043F\u0438\u0441\u0430\u043D \u043F\u043E \u043F\u0440\u0430\u0432\u0438\u043B\u0430\u043C) \u0438 \u043F\u0440\u0438 \u044D\u0442\u043E\u043C \u0431\u044B\u0442\u044C \u0432 \u0437\u043E\u043D\u0435 \u0431\u043E\u043B\u0438 (\u0430\u0440\u0445\u0438\u0442\u0435\u043A\u0442\u0443\u0440\u043D\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0439). \u042D\u0442\u043E \u0440\u0430\u0437\u043D\u044B\u0435 \u0438\u0437\u043C\u0435\u0440\u0435\u043D\u0438\u044F."
+                  ] })
+                ] }) })
+              ] }),
+              /* @__PURE__ */ jsxs60("div", { className: "martin-summary", children: [
+                /* @__PURE__ */ jsxs60("div", { className: "martin-summary__stats", children: [
+                  /* @__PURE__ */ jsxs60("div", { className: "martin-stat", children: [
+                    /* @__PURE__ */ jsx63("span", { className: "martin-stat__value", children: report.averages.instability.toFixed(2) }),
+                    /* @__PURE__ */ jsx63("span", { className: "martin-stat__label", children: "I \u0441\u0440\u0435\u0434\u043D\u044F\u044F" })
+                  ] }),
+                  /* @__PURE__ */ jsxs60("div", { className: "martin-stat", children: [
+                    /* @__PURE__ */ jsx63("span", { className: "martin-stat__value", children: report.averages.abstractness.toFixed(2) }),
+                    /* @__PURE__ */ jsx63("span", { className: "martin-stat__label", children: "A \u0441\u0440\u0435\u0434\u043D\u044F\u044F" })
+                  ] }),
+                  /* @__PURE__ */ jsxs60("div", { className: "martin-stat", children: [
+                    /* @__PURE__ */ jsx63("span", { className: "martin-stat__value", children: report.averages.distance.toFixed(2) }),
+                    /* @__PURE__ */ jsx63("span", { className: "martin-stat__label", children: "D \u0441\u0440\u0435\u0434\u043D\u044F\u044F" })
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxs60("div", { className: "martin-zones", children: [
+                  /* @__PURE__ */ jsxs60(
+                    "button",
+                    {
+                      className: "martin-zone martin-zone--main" + (filterZone === "main-sequence" ? " active" : ""),
+                      onClick: () => setFilterZone(filterZone === "main-sequence" ? "" : "main-sequence"),
+                      children: [
+                        /* @__PURE__ */ jsx63("span", { className: "martin-zone__count", children: report.stats.mainSequence.length }),
+                        /* @__PURE__ */ jsx63("span", { className: "martin-zone__label", children: "\u041D\u0430 \u0433\u043B\u0430\u0432\u043D\u043E\u0439 \u043F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u0438" })
+                      ]
+                    }
+                  ),
+                  /* @__PURE__ */ jsxs60(
+                    "button",
+                    {
+                      className: "martin-zone martin-zone--pain" + (filterZone === "pain" ? " active" : ""),
+                      onClick: () => setFilterZone(filterZone === "pain" ? "" : "pain"),
+                      children: [
+                        /* @__PURE__ */ jsx63("span", { className: "martin-zone__count", children: report.stats.painZone.length }),
+                        /* @__PURE__ */ jsx63("span", { className: "martin-zone__label", children: "\u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438 (\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0435 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0435)" })
+                      ]
+                    }
+                  ),
+                  /* @__PURE__ */ jsxs60(
+                    "button",
+                    {
+                      className: "martin-zone martin-zone--useless" + (filterZone === "uselessness" ? " active" : ""),
+                      onClick: () => setFilterZone(filterZone === "uselessness" ? "" : "uselessness"),
+                      children: [
+                        /* @__PURE__ */ jsx63("span", { className: "martin-zone__count", children: report.stats.uselessnessZone.length }),
+                        /* @__PURE__ */ jsx63("span", { className: "martin-zone__label", children: "\u0411\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u044B\u0435 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u0438" })
+                      ]
+                    }
+                  )
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxs60("div", { className: "martin-scatter", children: [
+                /* @__PURE__ */ jsx63("div", { className: "martin-scatter__title", children: "\u0414\u0438\u0430\u0433\u0440\u0430\u043C\u043C\u0430 \xABI \xD7 A\xBB" }),
+                /* @__PURE__ */ jsxs60("svg", { viewBox: "0 0 400 400", className: "martin-scatter__svg", children: [
+                  /* @__PURE__ */ jsx63("line", { x1: "40", y1: "360", x2: "380", y2: "360", stroke: "var(--border)" }),
+                  /* @__PURE__ */ jsx63("line", { x1: "40", y1: "360", x2: "40", y2: "20", stroke: "var(--border)" }),
+                  /* @__PURE__ */ jsx63("text", { x: "210", y: "392", textAnchor: "middle", fill: "var(--text-500)", fontSize: "11", children: "Instability \u2192" }),
+                  /* @__PURE__ */ jsx63(
+                    "text",
+                    {
+                      x: "12",
+                      y: "190",
+                      textAnchor: "middle",
+                      fill: "var(--text-500)",
+                      fontSize: "11",
+                      transform: "rotate(-90 12 190)",
+                      children: "Abstractness \u2192"
+                    }
+                  ),
+                  /* @__PURE__ */ jsx63("text", { x: "40", y: "378", textAnchor: "middle", fill: "var(--text-500)", fontSize: "9", children: "0" }),
+                  /* @__PURE__ */ jsx63("text", { x: "380", y: "378", textAnchor: "middle", fill: "var(--text-500)", fontSize: "9", children: "1" }),
+                  /* @__PURE__ */ jsx63("text", { x: "22", y: "360", textAnchor: "end", fill: "var(--text-500)", fontSize: "9", children: "0" }),
+                  /* @__PURE__ */ jsx63("text", { x: "22", y: "24", textAnchor: "end", fill: "var(--text-500)", fontSize: "9", children: "1" }),
+                  /* @__PURE__ */ jsx63(
+                    "line",
+                    {
+                      x1: "40",
+                      y1: "20",
+                      x2: "380",
+                      y2: "360",
+                      stroke: "var(--accent)",
+                      strokeWidth: "1.5",
+                      strokeDasharray: "5 5",
+                      opacity: "0.5"
+                    }
+                  ),
+                  /* @__PURE__ */ jsx63("rect", { x: "40", y: "240", width: "120", height: "120", fill: "rgba(239,68,68,0.08)" }),
+                  /* @__PURE__ */ jsx63("text", { x: "100", y: "300", textAnchor: "middle", fill: "var(--danger)", fontSize: "10", opacity: "0.6", children: "\u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438" }),
+                  /* @__PURE__ */ jsx63("rect", { x: "260", y: "20", width: "120", height: "120", fill: "rgba(245,158,11,0.08)" }),
+                  /* @__PURE__ */ jsx63("text", { x: "320", y: "80", textAnchor: "middle", fill: "var(--warning)", fontSize: "10", opacity: "0.6", children: "Uselessness" }),
+                  report.metrics.map((m) => {
+                    const x = 40 + m.instability * 340;
+                    const y = 360 - m.abstractness * 340;
+                    const color = m.zone === "pain" ? "#ef4444" : m.zone === "uselessness" ? "#f59e0b" : m.zone === "main-sequence" ? "#10b981" : "#64748b";
+                    return /* @__PURE__ */ jsx63(
+                      "circle",
+                      {
+                        cx: x,
+                        cy: y,
+                        r: 5,
+                        fill: color,
+                        stroke: "#fff",
+                        strokeWidth: "1",
+                        opacity: m.distance > 0.5 ? 0.9 : 0.6,
+                        children: /* @__PURE__ */ jsxs60("title", { children: [
+                          m.domainId,
+                          "\n",
+                          "I=",
+                          m.instability.toFixed(2),
+                          " A=",
+                          m.abstractness.toFixed(2),
+                          " D=",
+                          m.distance.toFixed(2),
+                          "\n",
+                          "Ca=",
+                          m.ca,
+                          " Ce=",
+                          m.ce
+                        ] })
+                      },
+                      m.domainId
+                    );
+                  })
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxs60("div", { className: "martin-table-wrap", children: [
+                /* @__PURE__ */ jsxs60("div", { className: "martin-sort", children: [
+                  /* @__PURE__ */ jsx63("span", { children: "\u0421\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430:" }),
+                  [
+                    { key: "distance", label: "Distance" },
+                    { key: "instability", label: "Instability" },
+                    { key: "abstractness", label: "Abstractness" },
+                    { key: "ca", label: "Ca" },
+                    { key: "ce", label: "Ce" }
+                  ].map((opt) => /* @__PURE__ */ jsx63(
+                    "button",
+                    {
+                      className: "martin-sort-btn" + (sortBy === opt.key ? " active" : ""),
+                      onClick: () => setSortBy(opt.key),
+                      children: opt.label
+                    },
+                    opt.key
+                  ))
+                ] }),
+                /* @__PURE__ */ jsxs60("table", { className: "martin-table", children: [
+                  /* @__PURE__ */ jsx63("thead", { children: /* @__PURE__ */ jsxs60("tr", { children: [
+                    /* @__PURE__ */ jsx63("th", { children: "\u0414\u043E\u043C\u0435\u043D" }),
+                    /* @__PURE__ */ jsx63("th", { title: "Afferent coupling \u2014 \u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0437\u0430\u0432\u0438\u0441\u044F\u0442 \u043E\u0442 \u043D\u0435\u0433\u043E", children: "Ca" }),
+                    /* @__PURE__ */ jsx63("th", { title: "Efferent coupling \u2014 \u043E\u0442 \u0441\u043A\u043E\u043B\u044C\u043A\u0438\u0445 \u0437\u0430\u0432\u0438\u0441\u0438\u0442", children: "Ce" }),
+                    /* @__PURE__ */ jsx63("th", { title: "Instability = Ce / (Ca + Ce)", children: "I" }),
+                    /* @__PURE__ */ jsx63("th", { title: "Abstractness \u2014 \u0434\u043E\u043B\u044F \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u044B\u0445 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439", children: "A" }),
+                    /* @__PURE__ */ jsx63("th", { title: "Distance = |A + I - 1|", children: "D" }),
+                    /* @__PURE__ */ jsx63("th", { children: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" }),
+                    /* @__PURE__ */ jsx63("th", { children: "\u0417\u043E\u043D\u0430" })
+                  ] }) }),
+                  /* @__PURE__ */ jsx63("tbody", { children: sorted.slice(0, 100).map((m) => /* @__PURE__ */ jsxs60("tr", { className: "martin-row martin-row--" + m.zone, children: [
+                    /* @__PURE__ */ jsxs60("td", { children: [
+                      /* @__PURE__ */ jsx63("div", { className: "martin-row__domain", children: m.domainId }),
+                      m.domainName !== m.domainId && /* @__PURE__ */ jsx63("div", { className: "martin-row__name", children: m.domainName })
+                    ] }),
+                    /* @__PURE__ */ jsx63("td", { className: "martin-row__num", children: m.ca }),
+                    /* @__PURE__ */ jsx63("td", { className: "martin-row__num", children: m.ce }),
+                    /* @__PURE__ */ jsx63("td", { className: "martin-row__num", children: m.instability.toFixed(2) }),
+                    /* @__PURE__ */ jsx63("td", { className: "martin-row__num", children: m.abstractness.toFixed(2) }),
+                    /* @__PURE__ */ jsx63("td", { className: "martin-row__num martin-row__num--d", children: m.distance.toFixed(2) }),
+                    /* @__PURE__ */ jsxs60("td", { className: "martin-row__num", children: [
+                      m.entitiesAbstract,
+                      "/",
+                      m.entitiesTotal
+                    ] }),
+                    /* @__PURE__ */ jsx63("td", { children: /* @__PURE__ */ jsx63("span", { className: "martin-zone-tag martin-zone-tag--" + m.zone, children: m.zone === "pain" ? "\u0431\u043E\u043B\u044C" : m.zone === "uselessness" ? "\u0431\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u043E\u0441\u0442\u044C" : m.zone === "main-sequence" ? "\u043D\u043E\u0440\u043C\u0430" : "\u2014" }) })
+                  ] }, m.domainId)) })
+                ] })
+              ] })
+            ] })
+          ]
+        }
+      )
+    }
+  );
+}
+var init_MartinMetricsModal = __esm({
+  "src/web/components/modals/MartinMetricsModal.tsx"() {
+    "use strict";
+    init_useGraphStore();
+    init_useModelIndex();
+    init_ModalHelp();
+  }
+});
+
+// src/web/lib/model/domain-compare.ts
+function buildDomainSide(index, domainId) {
+  const entities = index.entities.filter((e) => e.domainId === domainId);
+  const attributeCount = entities.reduce((s, e) => {
+    let c = e.attributes.length;
+    e.attributes.forEach((a) => {
+      if (a.nestedAttributes)
+        c += a.nestedAttributes.length;
+    });
+    return s + c;
+  }, 0);
+  const linkageCount = index.entityLinkages.filter(
+    (l) => l.domainId === domainId
+  ).length;
+  const dataTypeCount = index.dataTypes.filter(
+    (d) => d.domainId === domainId
+  ).length;
+  const domainMeta = index.domains.find((d) => d.id === domainId);
+  const sonar = index.lint?.sonar?.byDomain[domainId];
+  const totalRefs = entities.reduce(
+    (sum, e) => sum + (index.entityChildrenByFqid[e.fqid] || []).length + e.attributes.filter((a) => a.referenceEntity || a.itemReferenceEntity).length,
+    0
+  );
+  return {
+    domainId,
+    domainName: domainMeta?.name || domainId,
+    version: domainMeta?.version || "",
+    entities,
+    entityCount: entities.length,
+    attributeCount,
+    linkageCount,
+    dataTypeCount,
+    sonarScore: sonar ? sonar.score : null,
+    totalRefs
+  };
+}
+function compareDomains(index, domainAId, domainBId) {
+  const sideA = buildDomainSide(index, domainAId);
+  const sideB = buildDomainSide(index, domainBId);
+  const mapA = new Map(sideA.entities.map((e) => [e.entityId, e]));
+  const mapB = new Map(sideB.entities.map((e) => [e.entityId, e]));
+  const onlyInA = [];
+  const onlyInB = [];
+  const shared = [];
+  mapA.forEach((eA, id) => {
+    const eB = mapB.get(id);
+    if (!eB) {
+      onlyInA.push(eA);
+      return;
+    }
+    const attrMapA = new Map(eA.attributes.map((a) => [a.id, a]));
+    const attrMapB = new Map(eB.attributes.map((a) => [a.id, a]));
+    const attrsOnlyInA = [];
+    const attrsOnlyInB = [];
+    const attrsDifferentType = [];
+    attrMapA.forEach((aA, aid) => {
+      const aB = attrMapB.get(aid);
+      if (!aB) {
+        attrsOnlyInA.push(aid);
+        return;
+      }
+      if (aA.dataType !== aB.dataType) {
+        attrsDifferentType.push({
+          id: aid,
+          typeA: aA.dataType,
+          typeB: aB.dataType
+        });
+      }
+    });
+    attrMapB.forEach((_aB, aid) => {
+      if (!attrMapA.has(aid))
+        attrsOnlyInB.push(aid);
+    });
+    shared.push({
+      entityA: eA,
+      entityB: eB,
+      attrsOnlyInA,
+      attrsOnlyInB,
+      attrsDifferentType,
+      inheritsChanged: eA.inherits !== eB.inherits,
+      nameChanged: eA.name !== eB.name
+    });
+  });
+  mapB.forEach((eB, id) => {
+    if (!mapA.has(id))
+      onlyInB.push(eB);
+  });
+  const attributeDiff = Math.abs(sideA.attributeCount - sideB.attributeCount) + shared.reduce(
+    (s, sh) => s + sh.attrsOnlyInA.length + sh.attrsOnlyInB.length,
+    0
+  );
+  return {
+    domainA: sideA,
+    domainB: sideB,
+    entities: {
+      onlyInA: onlyInA.sort((a, b) => a.entityId.localeCompare(b.entityId)),
+      onlyInB: onlyInB.sort((a, b) => a.entityId.localeCompare(b.entityId)),
+      shared: shared.sort(
+        (a, b) => a.entityA.entityId.localeCompare(b.entityB.entityId)
+      )
+    },
+    metrics: {
+      entityDiff: Math.abs(sideA.entityCount - sideB.entityCount),
+      attributeDiff,
+      commonEntities: shared.length
+    }
+  };
+}
+var init_domain_compare = __esm({
+  "src/web/lib/model/domain-compare.ts"() {
+    "use strict";
+  }
+});
+
+// src/web/components/modals/DomainCompareModal.tsx
+import { useMemo as useMemo36, useState as useState27 } from "react";
+import { Fragment as Fragment12, jsx as jsx64, jsxs as jsxs61 } from "react/jsx-runtime";
+function DomainCompareModal() {
+  const store = useGraphStore();
+  const { index, loading, error } = useModelIndex();
+  const { goto } = useNavigation();
+  const open = store.domainCompareOpen;
+  const [domainA, setDomainA] = useState27("");
+  const [domainB, setDomainB] = useState27("");
+  const allDomains = useMemo36(() => {
+    if (!index)
+      return [];
+    const map = /* @__PURE__ */ new Map();
+    index.entities.forEach((e) => {
+      map.set(e.domainId, (map.get(e.domainId) || 0) + 1);
+    });
+    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
+  }, [index]);
+  const result = useMemo36(() => {
+    if (!index || !domainA || !domainB || domainA === domainB)
+      return null;
+    return compareDomains(index, domainA, domainB);
+  }, [index, domainA, domainB]);
+  const openEntity = (fqid) => {
+    store.setDomainCompareOpen(false);
+    store.setEntityCatalogInitialFqid(fqid);
+    store.setEntityCatalogOpen(true);
+  };
+  if (!open)
+    return null;
+  return /* @__PURE__ */ jsx64(
+    "div",
+    {
+      className: "help-overlay help-overlay--fullscreen",
+      onMouseDown: () => store.setDomainCompareOpen(false),
+      children: /* @__PURE__ */ jsxs61(
+        "div",
+        {
+          className: "help-modal entity-hierarchy-modal",
+          onMouseDown: (e) => e.stopPropagation(),
+          children: [
+            /* @__PURE__ */ jsxs61("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsx64("div", { className: "help-modal__title", children: "\u{1F500} \u0421\u0440\u0430\u0432\u043D\u0435\u043D\u0438\u0435 \u0434\u043E\u043C\u0435\u043D\u043E\u0432" }),
+              /* @__PURE__ */ jsx64(
+                "button",
+                {
+                  className: "help-modal__close",
+                  onClick: () => store.setDomainCompareOpen(false),
+                  children: "\u2715"
+                }
+              )
+            ] }),
+            loading && /* @__PURE__ */ jsx64("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx64("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
+            index && /* @__PURE__ */ jsxs61("div", { className: "help-modal__body help-modal__body--flush", children: [
+              /* @__PURE__ */ jsxs61("div", { className: "compare-selectors", children: [
+                /* @__PURE__ */ jsxs61("div", { className: "compare-selector", children: [
+                  /* @__PURE__ */ jsx64("div", { className: "compare-selector__label", children: "\u0414\u043E\u043C\u0435\u043D A" }),
+                  /* @__PURE__ */ jsx64(
+                    DomainCombobox,
+                    {
+                      value: domainA,
+                      onChange: setDomainA,
+                      domains: allDomains,
+                      placeholder: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u043E\u043C\u0435\u043D A..."
+                    }
+                  )
+                ] }),
+                /* @__PURE__ */ jsx64("div", { className: "compare-selector__swap", children: /* @__PURE__ */ jsx64(MIcon, { name: "compare_arrows" }) }),
+                /* @__PURE__ */ jsxs61("div", { className: "compare-selector", children: [
+                  /* @__PURE__ */ jsx64("div", { className: "compare-selector__label", children: "\u0414\u043E\u043C\u0435\u043D B" }),
+                  /* @__PURE__ */ jsx64(
+                    DomainCombobox,
+                    {
+                      value: domainB,
+                      onChange: setDomainB,
+                      domains: allDomains,
+                      placeholder: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u043E\u043C\u0435\u043D B..."
+                    }
+                  )
+                ] })
+              ] }),
+              !domainA || !domainB ? /* @__PURE__ */ jsx64("div", { className: "compare-empty", children: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u0432\u0430 \u0434\u043E\u043C\u0435\u043D\u0430" }) : domainA === domainB ? /* @__PURE__ */ jsx64("div", { className: "compare-empty", children: "\u0414\u043E\u043C\u0435\u043D\u044B \u0434\u043E\u043B\u0436\u043D\u044B \u0431\u044B\u0442\u044C \u0440\u0430\u0437\u043D\u044B\u043C\u0438" }) : result ? /* @__PURE__ */ jsxs61(Fragment12, { children: [
+                /* @__PURE__ */ jsxs61("div", { className: "compare-summary", children: [
+                  /* @__PURE__ */ jsxs61("div", { className: "compare-side compare-side--a", children: [
+                    /* @__PURE__ */ jsx64("div", { className: "compare-side__id", children: result.domainA.domainId }),
+                    /* @__PURE__ */ jsx64("div", { className: "compare-side__name", children: result.domainA.domainName }),
+                    /* @__PURE__ */ jsxs61("div", { className: "compare-side__metrics", children: [
+                      /* @__PURE__ */ jsxs61("span", { children: [
+                        result.domainA.entityCount,
+                        " \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439"
+                      ] }),
+                      /* @__PURE__ */ jsxs61("span", { children: [
+                        result.domainA.attributeCount,
+                        " \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432"
+                      ] }),
+                      result.domainA.sonarScore != null && /* @__PURE__ */ jsxs61("span", { children: [
+                        "Sonar: ",
+                        result.domainA.sonarScore
+                      ] })
+                    ] })
+                  ] }),
+                  /* @__PURE__ */ jsxs61("div", { className: "compare-side compare-side--b", children: [
+                    /* @__PURE__ */ jsx64("div", { className: "compare-side__id", children: result.domainB.domainId }),
+                    /* @__PURE__ */ jsx64("div", { className: "compare-side__name", children: result.domainB.domainName }),
+                    /* @__PURE__ */ jsxs61("div", { className: "compare-side__metrics", children: [
+                      /* @__PURE__ */ jsxs61("span", { children: [
+                        result.domainB.entityCount,
+                        " \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439"
+                      ] }),
+                      /* @__PURE__ */ jsxs61("span", { children: [
+                        result.domainB.attributeCount,
+                        " \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432"
+                      ] }),
+                      result.domainB.sonarScore != null && /* @__PURE__ */ jsxs61("span", { children: [
+                        "Sonar: ",
+                        result.domainB.sonarScore
+                      ] })
+                    ] })
+                  ] })
+                ] }),
+                result.entities.onlyInA.length > 0 && /* @__PURE__ */ jsxs61("div", { className: "compare-section compare-section--a", children: [
+                  /* @__PURE__ */ jsxs61("div", { className: "compare-section__title", children: [
+                    "\u0422\u043E\u043B\u044C\u043A\u043E \u0432 A (",
+                    result.entities.onlyInA.length,
+                    ")"
+                  ] }),
+                  result.entities.onlyInA.map((e) => /* @__PURE__ */ jsxs61(
+                    "button",
+                    {
+                      className: "compare-item compare-item--link",
+                      onClick: () => openEntity(e.fqid),
+                      children: [
+                        /* @__PURE__ */ jsx64("code", { children: e.entityId }),
+                        /* @__PURE__ */ jsx64("span", { children: e.name }),
+                        /* @__PURE__ */ jsxs61("span", { className: "compare-item__meta", children: [
+                          e.attributes.length,
+                          " \u0430\u0442\u0440."
+                        ] })
+                      ]
+                    },
+                    e.fqid
+                  ))
+                ] }),
+                result.entities.onlyInB.length > 0 && /* @__PURE__ */ jsxs61("div", { className: "compare-section compare-section--b", children: [
+                  /* @__PURE__ */ jsxs61("div", { className: "compare-section__title", children: [
+                    "\u0422\u043E\u043B\u044C\u043A\u043E \u0432 B (",
+                    result.entities.onlyInB.length,
+                    ")"
+                  ] }),
+                  result.entities.onlyInB.map((e) => /* @__PURE__ */ jsxs61(
+                    "button",
+                    {
+                      className: "compare-item compare-item--link",
+                      onClick: () => openEntity(e.fqid),
+                      children: [
+                        /* @__PURE__ */ jsx64("code", { children: e.entityId }),
+                        /* @__PURE__ */ jsx64("span", { children: e.name }),
+                        /* @__PURE__ */ jsxs61("span", { className: "compare-item__meta", children: [
+                          e.attributes.length,
+                          " \u0430\u0442\u0440."
+                        ] })
+                      ]
+                    },
+                    e.fqid
+                  ))
+                ] }),
+                result.entities.shared.filter(
+                  (s) => s.attrsOnlyInA.length > 0 || s.attrsOnlyInB.length > 0 || s.attrsDifferentType.length > 0 || s.inheritsChanged || s.nameChanged
+                ).length > 0 && /* @__PURE__ */ jsxs61("div", { className: "compare-section compare-section--shared", children: [
+                  /* @__PURE__ */ jsxs61("div", { className: "compare-section__title", children: [
+                    "\u041E\u0431\u0449\u0438\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0441 \u0440\u0430\u0437\u043B\u0438\u0447\u0438\u044F\u043C\u0438 (",
+                    result.entities.shared.filter(
+                      (s) => s.attrsOnlyInA.length > 0 || s.attrsOnlyInB.length > 0 || s.attrsDifferentType.length > 0 || s.inheritsChanged || s.nameChanged
+                    ).length,
+                    ")"
+                  ] }),
+                  result.entities.shared.filter(
+                    (s) => s.attrsOnlyInA.length > 0 || s.attrsOnlyInB.length > 0 || s.attrsDifferentType.length > 0 || s.inheritsChanged || s.nameChanged
+                  ).map((s) => /* @__PURE__ */ jsxs61("div", { className: "compare-shared-item", children: [
+                    /* @__PURE__ */ jsxs61("div", { className: "compare-shared-item__head", children: [
+                      /* @__PURE__ */ jsx64("code", { children: s.entityA.entityId }),
+                      s.nameChanged && /* @__PURE__ */ jsx64("span", { className: "compare-change-badge", children: "name \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u043E\u0441\u044C" }),
+                      s.inheritsChanged && /* @__PURE__ */ jsxs61("span", { className: "compare-change-badge", children: [
+                        "inherits: ",
+                        s.entityA.inherits || "\u2014",
+                        " \u2192 ",
+                        s.entityB.inherits || "\u2014"
+                      ] })
+                    ] }),
+                    s.attrsOnlyInA.length > 0 && /* @__PURE__ */ jsxs61("div", { className: "compare-attrs", children: [
+                      /* @__PURE__ */ jsx64("span", { className: "compare-attrs__label", children: "\u0422\u043E\u043B\u044C\u043A\u043E \u0432 A:" }),
+                      s.attrsOnlyInA.map((aid) => /* @__PURE__ */ jsx64("code", { className: "compare-attr compare-attr--a", children: aid }, aid))
+                    ] }),
+                    s.attrsOnlyInB.length > 0 && /* @__PURE__ */ jsxs61("div", { className: "compare-attrs", children: [
+                      /* @__PURE__ */ jsx64("span", { className: "compare-attrs__label", children: "\u0422\u043E\u043B\u044C\u043A\u043E \u0432 B:" }),
+                      s.attrsOnlyInB.map((aid) => /* @__PURE__ */ jsx64("code", { className: "compare-attr compare-attr--b", children: aid }, aid))
+                    ] }),
+                    s.attrsDifferentType.length > 0 && /* @__PURE__ */ jsxs61("div", { className: "compare-attrs", children: [
+                      /* @__PURE__ */ jsx64("span", { className: "compare-attrs__label", children: "\u0420\u0430\u0437\u043D\u044B\u0435 \u0442\u0438\u043F\u044B:" }),
+                      s.attrsDifferentType.map((d) => /* @__PURE__ */ jsxs61("span", { className: "compare-difftype", children: [
+                        /* @__PURE__ */ jsx64("code", { children: d.id }),
+                        /* @__PURE__ */ jsx64("span", { className: "compare-difftype__a", children: d.typeA }),
+                        /* @__PURE__ */ jsx64("span", { className: "compare-difftype__arrow", children: "\u2192" }),
+                        /* @__PURE__ */ jsx64("span", { className: "compare-difftype__b", children: d.typeB })
+                      ] }, d.id))
+                    ] })
+                  ] }, s.entityA.entityId))
+                ] }),
+                result.entities.onlyInA.length === 0 && result.entities.onlyInB.length === 0 && result.entities.shared.every(
+                  (s) => s.attrsOnlyInA.length === 0 && s.attrsOnlyInB.length === 0 && s.attrsDifferentType.length === 0 && !s.inheritsChanged && !s.nameChanged
+                ) && /* @__PURE__ */ jsxs61("div", { className: "compare-empty", children: [
+                  /* @__PURE__ */ jsx64("div", { style: { fontSize: 32, marginBottom: 8 }, children: "\u2705" }),
+                  "\u0414\u043E\u043C\u0435\u043D\u044B \u0438\u0434\u0435\u043D\u0442\u0438\u0447\u043D\u044B \u043F\u043E \u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0438 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432"
+                ] })
+              ] }) : null
+            ] })
+          ]
+        }
+      )
+    }
+  );
+}
+var init_DomainCompareModal = __esm({
+  "src/web/components/modals/DomainCompareModal.tsx"() {
+    "use strict";
+    init_useGraphStore();
+    init_useModelIndex();
+    init_useNavigation();
+    init_MIcon();
+    init_DomainCombobox();
+    init_domain_compare();
+  }
+});
+
+// src/web/lib/markdown/pii-markdown.ts
+function generatePiiMarkdown(report, index, options = {}) {
+  const lines = [];
+  const now = (/* @__PURE__ */ new Date()).toLocaleString("ru-RU");
+  const ignored = options.ignoredKeys || /* @__PURE__ */ new Set();
+  const hits = report.hits.filter((h) => !ignored.has(h.key));
+  lines.push("# \u041E\u0442\u0447\u0451\u0442 \u043F\u043E PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430\u043C");
+  lines.push("");
+  lines.push(`**\u0414\u0430\u0442\u0430 \u0433\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u0438:** ${now}`);
+  if (options.projectName) {
+    lines.push(`**\u041F\u0440\u043E\u0435\u043A\u0442:** ${options.projectName}`);
+  }
+  if (options.author) {
+    lines.push(`**\u041E\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0435\u043D\u043D\u044B\u0439:** ${options.author}`);
+  }
+  lines.push("");
+  lines.push("---");
+  lines.push("");
+  lines.push("## \u041D\u0430\u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0435 \u0434\u043E\u043A\u0443\u043C\u0435\u043D\u0442\u0430");
+  lines.push("");
+  lines.push(
+    "\u041E\u0442\u0447\u0451\u0442 \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u0442 \u043F\u0435\u0440\u0435\u0447\u0435\u043D\u044C \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u0441\u0445\u0435\u043C \u0434\u043E\u043C\u0435\u043D\u043E\u0432, \u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u043C\u043E\u0433\u0443\u0442 \u0441\u043E\u0434\u0435\u0440\u0436\u0430\u0442\u044C \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u043B\u044C\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435 (PII). \u0414\u043E\u043A\u0443\u043C\u0435\u043D\u0442 \u043F\u0440\u0435\u0434\u043D\u0430\u0437\u043D\u0430\u0447\u0435\u043D \u0434\u043B\u044F \u043E\u0446\u0435\u043D\u043A\u0438 \u0440\u0438\u0441\u043A\u043E\u0432 \u0438 \u043F\u043E\u0434\u0433\u043E\u0442\u043E\u0432\u043A\u0438 \u043C\u0435\u0440 \u0437\u0430\u0449\u0438\u0442\u044B \u0432 \u0441\u043E\u043E\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0438\u0438 \u0441 GDPR, 152-\u0424\u0417 \u0438 PCI DSS."
+  );
+  lines.push("");
+  lines.push(
+    "> **\u0412\u0430\u0436\u043D\u043E:** \u043F\u0435\u0440\u0435\u0447\u0435\u043D\u044C \u043F\u043E\u0441\u0442\u0440\u043E\u0435\u043D \u044D\u0432\u0440\u0438\u0441\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u2014 \u043F\u043E \u0438\u043C\u0435\u043D\u0430\u043C \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u0438 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u0443 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439. \u041E\u043D \u043D\u0435 \u044F\u0432\u043B\u044F\u0435\u0442\u0441\u044F \u044E\u0440\u0438\u0434\u0438\u0447\u0435\u0441\u043A\u0438\u043C \u0437\u0430\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435\u043C. \u041F\u0435\u0440\u0435\u0434 \u043F\u0440\u0438\u043D\u044F\u0442\u0438\u0435\u043C \u0440\u0435\u0448\u0435\u043D\u0438\u0439 \u0442\u0440\u0435\u0431\u0443\u0435\u0442\u0441\u044F \u0440\u0443\u0447\u043D\u0430\u044F \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F."
+  );
+  lines.push("");
+  lines.push("## \u0421\u0432\u043E\u0434\u043A\u0430");
+  lines.push("");
+  lines.push("| \u041C\u0435\u0442\u0440\u0438\u043A\u0430 | \u0417\u043D\u0430\u0447\u0435\u043D\u0438\u0435 |");
+  lines.push("| --- | ---: |");
+  lines.push(`| \u0412\u0441\u0435\u0433\u043E PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 | ${hits.length} |`);
+  lines.push(
+    `| \u0421\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0439 (critical) | ${hits.filter((h) => h.severity === "critical").length} |`
+  );
+  lines.push(
+    `| \u0412\u044B\u0441\u043E\u043A\u0430\u044F \u0447\u0443\u0432\u0441\u0442\u0432\u0438\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u044C | ${hits.filter((h) => h.severity === "high").length} |`
+  );
+  lines.push(
+    `| \u0422\u0440\u0435\u0431\u0443\u044E\u0442 \u0432\u043D\u0438\u043C\u0430\u043D\u0438\u044F | ${hits.filter((h) => h.severity === "medium").length} |`
+  );
+  lines.push(
+    `| \u041A\u043E\u0441\u0432\u0435\u043D\u043D\u044B\u0435 | ${hits.filter((h) => h.severity === "low").length} |`
+  );
+  lines.push(
+    `| \u0417\u0430\u0442\u0440\u043E\u043D\u0443\u0442\u043E \u0434\u043E\u043C\u0435\u043D\u043E\u0432 | ${new Set(hits.map((h) => h.entityFqid.split("/")[0])).size} |`
+  );
+  lines.push(
+    `| \u0417\u0430\u0442\u0440\u043E\u043D\u0443\u0442\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 | ${new Set(hits.map((h) => h.entityFqid)).size} |`
+  );
+  if (ignored.size > 0) {
+    lines.push(`| \u0418\u0441\u043A\u043B\u044E\u0447\u0435\u043D\u043E \u0432\u0440\u0443\u0447\u043D\u0443\u044E | ${ignored.size} |`);
+  }
+  lines.push("");
+  lines.push("## \u041D\u043E\u0440\u043C\u0430\u0442\u0438\u0432\u043D\u0430\u044F \u0431\u0430\u0437\u0430");
+  lines.push("");
+  lines.push("| \u0420\u0435\u0433\u0443\u043B\u044F\u0446\u0438\u044F | \u0427\u0442\u043E \u043E\u0442\u043D\u043E\u0441\u0438\u0442\u0441\u044F |");
+  lines.push("| --- | --- |");
+  lines.push(
+    "| **GDPR Art. 4** | \u041E\u0431\u0449\u0435\u0435 \u043E\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u0438\u0435 \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u043B\u044C\u043D\u044B\u0445 \u0434\u0430\u043D\u043D\u044B\u0445 (\u0438\u043C\u044F, email, \u0430\u0434\u0440\u0435\u0441, \u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440\u044B). |"
+  );
+  lines.push(
+    "| **GDPR Art. 9** | \u0421\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438: \u0437\u0434\u043E\u0440\u043E\u0432\u044C\u0435, \u0440\u0435\u043B\u0438\u0433\u0438\u044F, \u044D\u0442\u043D\u0438\u0447\u043D\u043E\u0441\u0442\u044C, \u043F\u043E\u043B\u0438\u0442\u0438\u0447\u0435\u0441\u043A\u0438\u0435 \u0432\u0437\u0433\u043B\u044F\u0434\u044B, \u0431\u0438\u043E\u043C\u0435\u0442\u0440\u0438\u044F, \u0441\u0435\u043A\u0441\u0443\u0430\u043B\u044C\u043D\u0430\u044F \u043E\u0440\u0438\u0435\u043D\u0442\u0430\u0446\u0438\u044F. |"
+  );
+  lines.push(
+    "| **152-\u0424\u0417** | \u0420\u043E\u0441\u0441\u0438\u0439\u0441\u043A\u043E\u0435 \u0437\u0430\u043A\u043E\u043D\u043E\u0434\u0430\u0442\u0435\u043B\u044C\u0441\u0442\u0432\u043E \u043E \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u043B\u044C\u043D\u044B\u0445 \u0434\u0430\u043D\u043D\u044B\u0445. |"
+  );
+  lines.push(
+    "| **PCI DSS** | \u041A\u0430\u0440\u0442\u043E\u0447\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435: PAN, CVV, expiry, \u0431\u0430\u043D\u043A\u043E\u0432\u0441\u043A\u0438\u0435 \u0441\u0447\u0435\u0442\u0430. |"
+  );
+  lines.push("");
+  SEVERITY_ORDER.forEach((sev) => {
+    const items = hits.filter((h) => h.severity === sev);
+    if (items.length === 0)
+      return;
+    lines.push(`## ${SEVERITY_LABELS[sev]} (${items.length})`);
+    lines.push("");
+    lines.push("| \u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C.\u0410\u0442\u0440\u0438\u0431\u0443\u0442 | \u0422\u0438\u043F | \u0414\u043E\u043C\u0435\u043D | \u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F | \u041E\u0441\u043D\u043E\u0432\u0430\u043D\u0438\u0435 |");
+    lines.push("| --- | --- | --- | --- | --- |");
+    items.forEach((h) => {
+      const [domainId, entityAndAttr] = h.entityFqid.split("/");
+      const attrRef = `\`${entityAndAttr}.${h.attributeId}\``;
+      lines.push(
+        `| ${attrRef} | \`${h.dataType}\` | \`${domainId}\` | ${CATEGORY_LABELS2[h.category]} | ${h.regulation || h.reasons[0]} |`
+      );
+    });
+    lines.push("");
+  });
+  const byDomain = /* @__PURE__ */ new Map();
+  hits.forEach((h) => {
+    const domainId = h.entityFqid.split("/")[0];
+    if (!byDomain.has(domainId))
+      byDomain.set(domainId, []);
+    byDomain.get(domainId).push(h);
+  });
+  if (byDomain.size > 0) {
+    lines.push("## \u0420\u0430\u0441\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u0438\u0435 \u043F\u043E \u0434\u043E\u043C\u0435\u043D\u0430\u043C");
+    lines.push("");
+    lines.push("| \u0414\u043E\u043C\u0435\u043D | \u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 | \u0412\u0441\u0435\u0433\u043E | Critical |");
+    lines.push("| --- | --- | ---: | ---: |");
+    Array.from(byDomain.entries()).map(([domainId, items]) => ({
+      domainId,
+      name: index.domains.find((d) => d.id === domainId)?.name || domainId,
+      total: items.length,
+      critical: items.filter((h) => h.severity === "critical").length
+    })).sort((a, b) => b.critical - a.critical || b.total - a.total).forEach((entry) => {
+      lines.push(
+        `| \`${entry.domainId}\` | ${entry.name} | ${entry.total} | ${entry.critical} |`
+      );
+    });
+    lines.push("");
+  }
+  const byCategory = /* @__PURE__ */ new Map();
+  hits.forEach((h) => {
+    if (!byCategory.has(h.category))
+      byCategory.set(h.category, []);
+    byCategory.get(h.category).push(h);
+  });
+  if (byCategory.size > 0) {
+    lines.push("## \u0420\u0430\u0441\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u0438\u0435 \u043F\u043E \u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F\u043C");
+    lines.push("");
+    lines.push("| \u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F | \u041A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E |");
+    lines.push("| --- | ---: |");
+    Array.from(byCategory.entries()).sort((a, b) => b[1].length - a[1].length).forEach(([cat, items]) => {
+      lines.push(`| ${CATEGORY_LABELS2[cat]} | ${items.length} |`);
+    });
+    lines.push("");
+  }
+  lines.push("## \u041F\u043E\u043B\u043D\u044B\u0439 \u0441\u043F\u0438\u0441\u043E\u043A");
+  lines.push("");
+  hits.slice().sort((a, b) => {
+    const sevDiff = SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity);
+    if (sevDiff !== 0)
+      return sevDiff;
+    return a.entityFqid.localeCompare(b.entityFqid);
+  }).forEach((h) => {
+    lines.push(`### \`${h.entityFqid}#${h.attributeId}\``);
+    lines.push("");
+    lines.push(`- **\u0410\u0442\u0440\u0438\u0431\u0443\u0442:** ${h.attributeName}`);
+    lines.push(`- **\u0422\u0438\u043F:** \`${h.dataType}\``);
+    lines.push(`- **\u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F:** ${CATEGORY_LABELS2[h.category]}`);
+    lines.push(`- **\u0421\u0435\u0440\u044C\u0451\u0437\u043D\u043E\u0441\u0442\u044C:** ${h.severity}`);
+    if (h.regulation)
+      lines.push(`- **\u0420\u0435\u0433\u0443\u043B\u044F\u0446\u0438\u044F:** ${h.regulation}`);
+    lines.push(`- **\u041F\u043E\u0447\u0435\u043C\u0443 \u0441\u0440\u0430\u0431\u043E\u0442\u0430\u043B\u043E:** ${h.reasons.join(", ")}`);
+    if (h.note)
+      lines.push(`- **\u0417\u0430\u043C\u0435\u0442\u043A\u0430:** ${h.note}`);
+    lines.push("");
+  });
+  lines.push("---");
+  lines.push("");
+  lines.push("## \u0420\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u0438");
+  lines.push("");
+  const criticalCount = hits.filter((h) => h.severity === "critical").length;
+  const highCount = hits.filter((h) => h.severity === "high").length;
+  if (criticalCount > 0) {
+    lines.push("### \u{1F534} \u041D\u0435\u043C\u0435\u0434\u043B\u0435\u043D\u043D\u043E");
+    lines.push("");
+    lines.push(
+      "- **\u0421\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438 \u0442\u0440\u0435\u0431\u0443\u044E\u0442 \u044F\u0432\u043D\u043E\u0433\u043E \u0441\u043E\u0433\u043B\u0430\u0441\u0438\u044F \u0441\u0443\u0431\u044A\u0435\u043A\u0442\u0430** (GDPR Art. 9, 152-\u0424\u0417)."
+    );
+    lines.push(
+      "- **\u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u0448\u0438\u0444\u0440\u043E\u0432\u0430\u043D\u0438\u0435** \u0432 \u0445\u0440\u0430\u043D\u0438\u043B\u0438\u0449\u0435 \u0434\u043B\u044F \u0432\u0441\u0435\u0445 critical-\u043F\u043E\u043B\u0435\u0439."
+    );
+    lines.push(
+      "- **\u041E\u0433\u0440\u0430\u043D\u0438\u0447\u0438\u0442\u044C \u0434\u043E\u0441\u0442\u0443\u043F** \u2014 \u0442\u043E\u043B\u044C\u043A\u043E \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u0438 \u0441 \u0441\u043E\u043E\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0443\u044E\u0449\u0435\u0439 \u0440\u043E\u043B\u044C\u044E."
+    );
+    lines.push(
+      "- **\u0417\u0430\u043F\u0440\u0435\u0442\u0438\u0442\u044C \u0432\u044B\u0433\u0440\u0443\u0437\u043A\u0443 \u0432 \u043B\u043E\u0433\u0438 \u0438 \u0442\u0435\u0441\u0442\u043E\u0432\u044B\u0435 \u0441\u0440\u0435\u0434\u044B** \u2014 \u043C\u0430\u0441\u043A\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435 \u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u043E."
+    );
+    lines.push("");
+  }
+  if (highCount > 0) {
+    lines.push("### \u{1F7E0} \u0412 \u0431\u043B\u0438\u0436\u0430\u0439\u0448\u0435\u0435 \u0432\u0440\u0435\u043C\u044F");
+    lines.push("");
+    lines.push(
+      "- \u041E\u043F\u0440\u0435\u0434\u0435\u043B\u0438\u0442\u044C **\u0441\u0440\u043E\u043A \u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F (retention)** \u0434\u043B\u044F \u0424\u0418\u041E, \u043A\u043E\u043D\u0442\u0430\u043A\u0442\u043E\u0432, \u0434\u043E\u043A\u0443\u043C\u0435\u043D\u0442\u043E\u0432."
+    );
+    lines.push(
+      "- \u041D\u0430\u0441\u0442\u0440\u043E\u0438\u0442\u044C **\u0430\u0443\u0434\u0438\u0442 \u0434\u043E\u0441\u0442\u0443\u043F\u0430** \u2014 \u043A\u0442\u043E \u0438 \u043A\u043E\u0433\u0434\u0430 \u0441\u043C\u043E\u0442\u0440\u0435\u043B \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u043B\u044C\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435."
+    );
+    lines.push(
+      "- \u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C **\u043F\u043E\u043B\u0438\u0442\u0438\u043A\u0443 \u043E\u0431\u0435\u0437\u043B\u0438\u0447\u0438\u0432\u0430\u043D\u0438\u044F** \u043F\u0435\u0440\u0435\u0434 \u043F\u0435\u0440\u0435\u0434\u0430\u0447\u0435\u0439 \u0432\u043E \u0432\u043D\u0435\u0448\u043D\u0438\u0435 \u0441\u0438\u0441\u0442\u0435\u043C\u044B."
+    );
+    lines.push(
+      "- \u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C **\u0441\u043E\u0433\u043B\u0430\u0441\u0438\u0435 \u043D\u0430 \u043E\u0431\u0440\u0430\u0431\u043E\u0442\u043A\u0443** \u0432 \u0431\u0438\u0437\u043D\u0435\u0441-\u043F\u0440\u043E\u0446\u0435\u0441\u0441\u044B, \u0433\u0434\u0435 \u043F\u043E\u044F\u0432\u043B\u044F\u044E\u0442\u0441\u044F \u044D\u0442\u0438 \u0434\u0430\u043D\u043D\u044B\u0435."
+    );
+    lines.push("");
+  }
+  lines.push("### \u041E\u0431\u0449\u0438\u0435");
+  lines.push("");
+  lines.push(
+    "- \u041F\u0440\u043E\u0432\u0435\u0441\u0442\u0438 **\u0440\u0443\u0447\u043D\u0443\u044E \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044E** \u043E\u0442\u0447\u0451\u0442\u0430: \u0447\u0430\u0441\u0442\u044C \u0437\u0430\u043F\u0438\u0441\u0435\u0439 \u043C\u043E\u0436\u0435\u0442 \u0431\u044B\u0442\u044C \u043B\u043E\u0436\u043D\u044B\u043C\u0438 \u0441\u0440\u0430\u0431\u0430\u0442\u044B\u0432\u0430\u043D\u0438\u044F\u043C\u0438."
+  );
+  lines.push(
+    "- \u0412\u043A\u043B\u044E\u0447\u0438\u0442\u044C **\u043C\u0430\u0441\u043A\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435** PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u0432 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F\u0445, \u0433\u0434\u0435 \u043F\u043E\u043B\u043D\u044B\u0435 \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u044F \u043D\u0435 \u043D\u0443\u0436\u043D\u044B."
+  );
+  lines.push(
+    "- **\u0414\u043E\u043A\u0443\u043C\u0435\u043D\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C** \u0440\u0435\u0448\u0435\u043D\u0438\u044F \u043F\u043E \u043A\u0430\u0436\u0434\u043E\u043C\u0443 critical-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0443: \u0437\u0430\u0447\u0435\u043C \u043E\u043D \u043D\u0443\u0436\u0435\u043D \u0438 \u043A\u0430\u043A \u0437\u0430\u0449\u0438\u0449\u0451\u043D."
+  );
+  lines.push(
+    "- \u041D\u0430\u0441\u0442\u0440\u043E\u0438\u0442\u044C **\u043C\u043E\u043D\u0438\u0442\u043E\u0440\u0438\u043D\u0433 \u0438\u043D\u0446\u0438\u0434\u0435\u043D\u0442\u043E\u0432** \u2014 \u043B\u044E\u0431\u043E\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0435 \u0441\u043E\u0441\u0442\u0430\u0432\u0430 PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u0434\u043E\u043B\u0436\u043D\u043E \u0431\u044B\u0442\u044C \u0432\u0438\u0434\u043D\u043E."
+  );
+  lines.push("");
+  lines.push("---");
+  lines.push("");
+  lines.push(`_\u041E\u0442\u0447\u0451\u0442 \u0441\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u043D Domain Graph Analyzer \u2014 ${now}_`);
+  lines.push("_\u042D\u0432\u0440\u0438\u0441\u0442\u0438\u0447\u0435\u0441\u043A\u0438\u0439 \u0430\u043D\u0430\u043B\u0438\u0437. \u0422\u0440\u0435\u0431\u0443\u0435\u0442 \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u0438 DPO._");
+  return lines.join("\n");
+}
+function downloadPiiMarkdown(markdown, filename) {
+  const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const safe = filename || `pii-report-${(/* @__PURE__ */ new Date()).toISOString().slice(0, 19).replace(/[:.]/g, "-")}.md`;
+  a.download = safe;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+var SEVERITY_LABELS, CATEGORY_LABELS2, SEVERITY_ORDER;
+var init_pii_markdown = __esm({
+  "src/web/lib/markdown/pii-markdown.ts"() {
+    "use strict";
+    SEVERITY_LABELS = {
+      critical: "\u{1F534} \u0421\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438 (GDPR Art. 9 / 152-\u0424\u0417 \u0441\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F)",
+      high: "\u{1F7E0} \u0412\u044B\u0441\u043E\u043A\u0430\u044F \u0447\u0443\u0432\u0441\u0442\u0432\u0438\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u044C",
+      medium: "\u{1F7E1} \u0422\u0440\u0435\u0431\u0443\u044E\u0442 \u0432\u043D\u0438\u043C\u0430\u043D\u0438\u044F",
+      low: "\u{1F7E2} \u041A\u043E\u0441\u0432\u0435\u043D\u043D\u043E"
+    };
+    CATEGORY_LABELS2 = {
+      identity: "\u0418\u0434\u0435\u043D\u0442\u0438\u0447\u043D\u043E\u0441\u0442\u044C",
+      contact: "\u041A\u043E\u043D\u0442\u0430\u043A\u0442\u044B",
+      document: "\u0414\u043E\u043A\u0443\u043C\u0435\u043D\u0442\u044B",
+      financial: "\u0424\u0438\u043D\u0430\u043D\u0441\u043E\u0432\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435",
+      biometric: "\u0411\u0438\u043E\u043C\u0435\u0442\u0440\u0438\u044F",
+      special: "\u0421\u043F\u0435\u0446\u0438\u0430\u043B\u044C\u043D\u044B\u0435 \u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438",
+      location: "\u041B\u043E\u043A\u0430\u0446\u0438\u044F",
+      technical: "\u0422\u0435\u0445\u043D\u0438\u0447\u0435\u0441\u043A\u0438\u0435",
+      custom: "\u041F\u0440\u043E\u0447\u0438\u0435"
+    };
+    SEVERITY_ORDER = ["critical", "high", "medium", "low"];
+  }
+});
+
+// src/web/components/modals/PiiModal.tsx
+import { useMemo as useMemo37, useState as useState28 } from "react";
+import { jsx as jsx65, jsxs as jsxs62 } from "react/jsx-runtime";
+function loadIgnored() {
+  try {
+    const raw = localStorage.getItem(IGNORED_KEY);
+    return raw ? new Set(JSON.parse(raw)) : /* @__PURE__ */ new Set();
+  } catch {
+    return /* @__PURE__ */ new Set();
+  }
+}
+function saveIgnored(s) {
+  try {
+    localStorage.setItem(IGNORED_KEY, JSON.stringify(Array.from(s)));
+  } catch {
+  }
+}
+function PiiModal() {
+  const store = useGraphStore();
+  const { index, loading, error } = useModelIndex();
+  const open = store.piiOpen;
+  const [ignored, setIgnored] = useState28(loadIgnored);
+  const [filterSeverity, setFilterSeverity] = useState28("");
+  const [filterCategory, setFilterCategory] = useState28("");
+  const [showHelp, setShowHelp] = useState28(false);
+  const report = index?.pii ?? null;
+  const visibleHits = useMemo37(() => {
+    if (!report)
+      return [];
+    return report.hits.filter((h) => {
+      if (ignored.has(h.key))
+        return false;
+      if (filterSeverity && h.severity !== filterSeverity)
+        return false;
+      if (filterCategory && h.category !== filterCategory)
+        return false;
+      return true;
+    });
+  }, [report, ignored, filterSeverity, filterCategory]);
+  const grouped = useMemo37(() => {
+    const map = /* @__PURE__ */ new Map();
+    SEVERITY_ORDER2.forEach((s) => map.set(s, []));
+    visibleHits.forEach((h) => {
+      map.get(h.severity).push(h);
+    });
+    return map;
+  }, [visibleHits]);
+  const toggleIgnored = (key) => {
+    setIgnored((prev) => {
+      const next = new Set(prev);
+      if (next.has(key))
+        next.delete(key);
+      else
+        next.add(key);
+      saveIgnored(next);
+      return next;
+    });
+  };
+  const openEntity = (fqid) => {
+    store.setPiiOpen(false);
+    store.setEntityCatalogInitialFqid(fqid);
+    store.setEntityCatalogOpen(true);
+  };
+  if (!open)
+    return null;
+  const visibleCount = visibleHits.length;
+  const ignoredCount = ignored.size;
+  return /* @__PURE__ */ jsx65(
+    "div",
+    {
+      className: "help-overlay help-overlay--fullscreen",
+      onMouseDown: () => store.setPiiOpen(false),
+      children: /* @__PURE__ */ jsxs62(
+        "div",
+        {
+          className: "help-modal entity-hierarchy-modal",
+          onMouseDown: (e) => e.stopPropagation(),
+          children: [
+            /* @__PURE__ */ jsxs62("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs62("div", { className: "help-modal__title", children: [
+                "\u{1F512} PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B (\u043F\u0435\u0440\u0441\u043E\u043D\u0430\u043B\u044C\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435)",
+                report && /* @__PURE__ */ jsx65("span", { className: "help-modal__badge", children: visibleCount })
+              ] }),
+              /* @__PURE__ */ jsxs62("div", { className: "help-modal__actions", children: [
+                /* @__PURE__ */ jsxs62(
+                  "button",
+                  {
+                    className: "help-modal__help-btn",
+                    onClick: () => {
+                      if (!report || !index)
+                        return;
+                      const md = generatePiiMarkdown(report, index, {
+                        ignoredKeys: ignored
+                      });
+                      downloadPiiMarkdown(md);
+                    },
+                    title: "\u0421\u043A\u0430\u0447\u0430\u0442\u044C \u043E\u0442\u0447\u0451\u0442 \u0434\u043B\u044F DPO",
+                    disabled: !report || report.hits.length === 0,
+                    children: [
+                      /* @__PURE__ */ jsx65(MIcon, { name: "download" }),
+                      /* @__PURE__ */ jsx65("span", { children: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442 \u043E\u0442\u0447\u0451\u0442\u0430" })
+                    ]
+                  }
+                ),
+                /* @__PURE__ */ jsxs62(
+                  "button",
+                  {
+                    className: "help-modal__help-btn" + (showHelp ? " active" : ""),
+                    onClick: () => setShowHelp(!showHelp),
+                    children: [
+                      /* @__PURE__ */ jsx65(MIcon, { name: "help" }),
+                      /* @__PURE__ */ jsx65("span", { children: showHelp ? "\u0421\u043A\u0440\u044B\u0442\u044C" : "\u0427\u0442\u043E \u044D\u0442\u043E?" })
+                    ]
+                  }
+                ),
+                /* @__PURE__ */ jsx65(
+                  "button",
+                  {
+                    className: "help-modal__close",
+                    onClick: () => store.setPiiOpen(false),
+                    children: "\u2715"
+                  }
+                )
+              ] })
+            ] }),
+            loading && /* @__PURE__ */ jsx65("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx65("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
+            error && /* @__PURE__ */ jsx65("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs62("div", { style: { color: "var(--danger)" }, children: [
+              "\u041E\u0448\u0438\u0431\u043A\u0430: ",
+              error
+            ] }) }),
+            index && report && /* @__PURE__ */ jsxs62("div", { className: "help-modal__body help-modal__body--flush", children: [
+              showHelp && /* @__PURE__ */ jsxs62("div", { className: "pii-help", children: [
+                /* @__PURE__ */ jsxs62("div", { className: "pii-help__section", children: [
+                  /* @__PURE__ */ jsx65("h3", { className: "pii-help__title", children: "\u0427\u0442\u043E \u0442\u0430\u043A\u043E\u0435 PII" }),
+                  /* @__PURE__ */ jsxs62("p", { className: "pii-help__text", children: [
+                    /* @__PURE__ */ jsx65("strong", { children: "PII (Personally Identifiable Information)" }),
+                    " \u2014 \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u043B\u044C\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435: \u043B\u044E\u0431\u044B\u0435 \u0441\u0432\u0435\u0434\u0435\u043D\u0438\u044F, \u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u043F\u0440\u044F\u043C\u043E \u0438\u043B\u0438 \u043A\u043E\u0441\u0432\u0435\u043D\u043D\u043E \u043F\u043E\u0437\u0432\u043E\u043B\u044F\u044E\u0442 \u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u0446\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0447\u0435\u043B\u043E\u0432\u0435\u043A\u0430. \u0412 \u0420\u0424 \u0440\u0435\u0433\u0443\u043B\u0438\u0440\u0443\u0435\u0442\u0441\u044F 152-\u0424\u0417, \u0432 \u0415\u0421 \u2014 GDPR. \u0421\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438 (\u0437\u0434\u043E\u0440\u043E\u0432\u044C\u0435, \u0440\u0435\u043B\u0438\u0433\u0438\u044F, \u0431\u0438\u043E\u043C\u0435\u0442\u0440\u0438\u044F) \u0442\u0440\u0435\u0431\u0443\u044E\u0442 \u043E\u0441\u043E\u0431\u043E\u0439 \u0437\u0430\u0449\u0438\u0442\u044B \u0438 \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u043E\u0433\u043E \u0441\u043E\u0433\u043B\u0430\u0441\u0438\u044F \u0441\u0443\u0431\u044A\u0435\u043A\u0442\u0430."
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxs62("div", { className: "pii-help__section", children: [
+                  /* @__PURE__ */ jsx65("h3", { className: "pii-help__title", children: "\u041A\u0430\u043A \u0447\u0438\u0442\u0430\u0442\u044C \u0440\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442\u044B" }),
+                  /* @__PURE__ */ jsxs62("ul", { className: "pii-help__list", children: [
+                    /* @__PURE__ */ jsxs62("li", { children: [
+                      /* @__PURE__ */ jsx65("strong", { children: "\u0421\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438" }),
+                      " \u2014 \u043A\u0440\u0438\u0442\u0438\u0447\u043D\u043E. GDPR Art. 9 / 152-\u0424\u0417 \u0441\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F."
+                    ] }),
+                    /* @__PURE__ */ jsxs62("li", { children: [
+                      /* @__PURE__ */ jsx65("strong", { children: "\u0412\u044B\u0441\u043E\u043A\u0430\u044F \u0447\u0443\u0432\u0441\u0442\u0432\u0438\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u044C" }),
+                      " \u2014 \u0424\u0418\u041E, email, \u0442\u0435\u043B\u0435\u0444\u043E\u043D, \u043F\u0430\u0441\u043F\u043E\u0440\u0442. \u0422\u0440\u0435\u0431\u0443\u0435\u0442 \u0437\u0430\u0449\u0438\u0442\u044B \u0438 \u043F\u043E\u043B\u0438\u0442\u0438\u043A\u0438 retention."
+                    ] }),
+                    /* @__PURE__ */ jsxs62("li", { children: [
+                      /* @__PURE__ */ jsx65("strong", { children: "\u0422\u0440\u0435\u0431\u0443\u044E\u0442 \u0432\u043D\u0438\u043C\u0430\u043D\u0438\u044F" }),
+                      " \u2014 IP, deviceId, cookie. PII \u0432 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u0435 \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u043B\u044C\u043D\u044B\u0445 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439."
+                    ] }),
+                    /* @__PURE__ */ jsxs62("li", { children: [
+                      /* @__PURE__ */ jsx65("strong", { children: "\u041A\u043E\u0441\u0432\u0435\u043D\u043D\u043E" }),
+                      " \u2014 \u0432\u043D\u0443\u0442\u0440\u0435\u043D\u043D\u0438\u0435 id, \u043A\u0432\u0430\u0437\u0438-\u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440\u044B. PII \u0432 \u043A\u043E\u043C\u0431\u0438\u043D\u0430\u0446\u0438\u0438 \u0441 \u0434\u0440\u0443\u0433\u0438\u043C\u0438 \u0434\u0430\u043D\u043D\u044B\u043C\u0438."
+                    ] })
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxs62("div", { className: "pii-help__section", children: [
+                  /* @__PURE__ */ jsx65("h3", { className: "pii-help__title", children: "\u041B\u043E\u0436\u043D\u044B\u0435 \u0441\u0440\u0430\u0431\u0430\u0442\u044B\u0432\u0430\u043D\u0438\u044F" }),
+                  /* @__PURE__ */ jsxs62("p", { className: "pii-help__text", children: [
+                    "\u042D\u0432\u0440\u0438\u0441\u0442\u0438\u043A\u0430 \u043F\u043E \u0438\u043C\u0435\u043D\u0430\u043C \u2014 \u043D\u0435 \u0438\u0434\u0435\u0430\u043B\u044C\u043D\u0430. \u041D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, ",
+                    /* @__PURE__ */ jsx65("code", { children: "name" }),
+                    " \u0432 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 ",
+                    /* @__PURE__ */ jsx65("code", { children: "Product" }),
+                    " \u2014 \u043D\u0435 PII, \u0430 \u0432 ",
+                    /* @__PURE__ */ jsx65("code", { children: "Employee" }),
+                    " \u2014 \u0434\u0430. \u041D\u0430\u0436\u043C\u0438\u0442\u0435 \u0438\u043A\u043E\u043D\u043A\u0443 \u2713 \u0440\u044F\u0434\u043E\u043C \u0441 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u043C, \u0447\u0442\u043E\u0431\u044B \u0438\u0441\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0435\u0433\u043E \u0438\u0437 \u0441\u043F\u0438\u0441\u043A\u0430. \u0420\u0435\u0448\u0435\u043D\u0438\u0435 \u0441\u043E\u0445\u0440\u0430\u043D\u044F\u0435\u0442\u0441\u044F \u0432 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0435."
+                  ] })
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxs62("div", { className: "pii-summary", children: [
+                SEVERITY_ORDER2.map((sev) => /* @__PURE__ */ jsxs62(
+                  "button",
+                  {
+                    className: "pii-summary-card pii-summary-card--" + sev + (filterSeverity === sev ? " active" : ""),
+                    onClick: () => setFilterSeverity(filterSeverity === sev ? "" : sev),
+                    children: [
+                      /* @__PURE__ */ jsx65("div", { className: "pii-summary-card__count", children: report.stats.bySeverity[sev] }),
+                      /* @__PURE__ */ jsx65("div", { className: "pii-summary-card__label", children: SEVERITY_LABELS2[sev] })
+                    ]
+                  },
+                  sev
+                )),
+                /* @__PURE__ */ jsxs62("div", { className: "pii-summary-card pii-summary-card--meta", children: [
+                  /* @__PURE__ */ jsx65("div", { className: "pii-summary-card__count", children: report.stats.affectedDomains }),
+                  /* @__PURE__ */ jsx65("div", { className: "pii-summary-card__label", children: "\u0434\u043E\u043C\u0435\u043D\u043E\u0432" })
+                ] }),
+                /* @__PURE__ */ jsxs62("div", { className: "pii-summary-card pii-summary-card--meta", children: [
+                  /* @__PURE__ */ jsx65("div", { className: "pii-summary-card__count", children: report.stats.affectedEntities }),
+                  /* @__PURE__ */ jsx65("div", { className: "pii-summary-card__label", children: "\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" })
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxs62("div", { className: "pii-filters", children: [
+                /* @__PURE__ */ jsxs62("label", { className: "entity-matrix-filter", children: [
+                  /* @__PURE__ */ jsx65("span", { children: "\u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F:" }),
+                  /* @__PURE__ */ jsxs62(
+                    "select",
+                    {
+                      value: filterCategory,
+                      onChange: (e) => setFilterCategory(e.target.value),
+                      children: [
+                        /* @__PURE__ */ jsx65("option", { value: "", children: "\u2014 \u0432\u0441\u0435 \u2014" }),
+                        Object.keys(CATEGORY_LABELS3).map((k) => {
+                          const count = report.stats.byCategory[k];
+                          if (count === 0)
+                            return null;
+                          return /* @__PURE__ */ jsxs62("option", { value: k, children: [
+                            CATEGORY_LABELS3[k],
+                            " (",
+                            count,
+                            ")"
+                          ] }, k);
+                        })
+                      ]
+                    }
+                  )
+                ] }),
+                (filterSeverity || filterCategory || ignoredCount > 0) && /* @__PURE__ */ jsxs62(
+                  "button",
+                  {
+                    className: "btn",
+                    onClick: () => {
+                      setFilterSeverity("");
+                      setFilterCategory("");
+                    },
+                    children: [
+                      "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0444\u0438\u043B\u044C\u0442\u0440\u044B",
+                      ignoredCount > 0 && ` \xB7 \u0438\u0433\u043D\u043E\u0440\u0438\u0440\u0443\u0435\u0442\u0441\u044F: ${ignoredCount}`
+                    ]
+                  }
+                )
+              ] }),
+              visibleCount === 0 ? /* @__PURE__ */ jsxs62("div", { className: "lint-empty", children: [
+                /* @__PURE__ */ jsx65("div", { className: "lint-empty__icon", children: "\u{1F6E1}\uFE0F" }),
+                /* @__PURE__ */ jsx65("div", { className: "lint-empty__title", children: report.stats.total === 0 ? "PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u043D\u0435 \u043E\u0431\u043D\u0430\u0440\u0443\u0436\u0435\u043D\u043E" : "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u043C" })
+              ] }) : /* @__PURE__ */ jsx65("div", { className: "pii-list", children: SEVERITY_ORDER2.map((sev) => {
+                const items = grouped.get(sev) || [];
+                if (items.length === 0)
+                  return null;
+                return /* @__PURE__ */ jsxs62("div", { className: "pii-group pii-group--" + sev, children: [
+                  /* @__PURE__ */ jsxs62("div", { className: "pii-group__title", children: [
+                    SEVERITY_LABELS2[sev],
+                    " (",
+                    items.length,
+                    ")"
+                  ] }),
+                  items.map((h) => /* @__PURE__ */ jsxs62("div", { className: "pii-item", children: [
+                    /* @__PURE__ */ jsxs62("div", { className: "pii-item__head", children: [
+                      /* @__PURE__ */ jsxs62("code", { className: "pii-item__id", children: [
+                        h.entityFqid.split("/")[1],
+                        ".",
+                        h.attributeId
+                      ] }),
+                      /* @__PURE__ */ jsx65("span", { className: "pii-item__name", children: h.attributeName }),
+                      /* @__PURE__ */ jsx65("span", { className: "pii-item__type", children: h.dataType }),
+                      /* @__PURE__ */ jsx65("span", { className: "pii-item__category", children: CATEGORY_LABELS3[h.category] }),
+                      /* @__PURE__ */ jsx65(
+                        "button",
+                        {
+                          className: "pii-item__ignore",
+                          onClick: () => toggleIgnored(h.key),
+                          title: "\u0421\u0447\u0438\u0442\u0430\u0442\u044C, \u0447\u0442\u043E \u044D\u0442\u043E \u043D\u0435 PII",
+                          children: /* @__PURE__ */ jsx65(MIcon, { name: "check_circle", size: "sm" })
+                        }
+                      )
+                    ] }),
+                    /* @__PURE__ */ jsxs62("div", { className: "pii-item__meta", children: [
+                      /* @__PURE__ */ jsx65("span", { className: "pii-item__domain", children: h.entityFqid.split("/")[0] }),
+                      /* @__PURE__ */ jsx65("span", { className: "pii-item__reason", children: h.reasons.join(" \xB7 ") }),
+                      h.regulation && /* @__PURE__ */ jsx65("span", { className: "pii-item__reg", children: h.regulation })
+                    ] }),
+                    /* @__PURE__ */ jsx65("div", { className: "pii-item__note", children: h.note }),
+                    /* @__PURE__ */ jsx65("div", { className: "pii-item__actions", children: /* @__PURE__ */ jsx65(
+                      "button",
+                      {
+                        className: "btn",
+                        onClick: () => openEntity(h.entityFqid),
+                        children: "\u{1F3AF} \u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C"
+                      }
+                    ) })
+                  ] }, h.key))
+                ] }, sev);
+              }) }),
+              ignoredCount > 0 && /* @__PURE__ */ jsxs62("div", { className: "pii-ignored-footer", children: [
+                /* @__PURE__ */ jsxs62("span", { children: [
+                  "\u0421\u043A\u0440\u044B\u0442\u043E \u043A\u0430\u043A \xAB\u043D\u0435 PII\xBB: ",
+                  /* @__PURE__ */ jsx65("strong", { children: ignoredCount }),
+                  /* @__PURE__ */ jsx65("span", { style: { marginLeft: 8, color: "var(--text-500)", fontSize: 11 }, children: "(\u0432 \u043E\u0442\u0447\u0451\u0442 \u043D\u0435 \u043F\u043E\u043F\u0430\u0434\u0443\u0442)" })
+                ] }),
+                /* @__PURE__ */ jsx65(
+                  "button",
+                  {
+                    className: "btn",
+                    onClick: () => {
+                      setIgnored(/* @__PURE__ */ new Set());
+                      saveIgnored(/* @__PURE__ */ new Set());
+                    },
+                    children: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C"
+                  }
+                )
+              ] })
+            ] })
+          ]
+        }
+      )
+    }
+  );
+}
+var SEVERITY_LABELS2, CATEGORY_LABELS3, SEVERITY_ORDER2, IGNORED_KEY;
+var init_PiiModal = __esm({
+  "src/web/components/modals/PiiModal.tsx"() {
+    "use strict";
+    init_useGraphStore();
+    init_useModelIndex();
+    init_MIcon();
+    init_pii_markdown();
+    SEVERITY_LABELS2 = {
+      critical: "\u0421\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438",
+      high: "\u0412\u044B\u0441\u043E\u043A\u0430\u044F \u0447\u0443\u0432\u0441\u0442\u0432\u0438\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u044C",
+      medium: "\u0422\u0440\u0435\u0431\u0443\u044E\u0442 \u0432\u043D\u0438\u043C\u0430\u043D\u0438\u044F",
+      low: "\u041A\u043E\u0441\u0432\u0435\u043D\u043D\u043E"
+    };
+    CATEGORY_LABELS3 = {
+      identity: "\u0418\u0434\u0435\u043D\u0442\u0438\u0447\u043D\u043E\u0441\u0442\u044C (\u0424\u0418\u041E, \u0434\u0430\u0442\u0430 \u0440\u043E\u0436\u0434\u0435\u043D\u0438\u044F)",
+      contact: "\u041A\u043E\u043D\u0442\u0430\u043A\u0442\u044B (email, \u0442\u0435\u043B\u0435\u0444\u043E\u043D, \u0430\u0434\u0440\u0435\u0441)",
+      document: "\u0414\u043E\u043A\u0443\u043C\u0435\u043D\u0442\u044B (\u043F\u0430\u0441\u043F\u043E\u0440\u0442, \u0418\u041D\u041D, \u0421\u041D\u0418\u041B\u0421)",
+      financial: "\u0424\u0438\u043D\u0430\u043D\u0441\u043E\u0432\u044B\u0435 (\u043A\u0430\u0440\u0442\u044B, \u0441\u0447\u0435\u0442\u0430)",
+      biometric: "\u0411\u0438\u043E\u043C\u0435\u0442\u0440\u0438\u044F",
+      special: "\u0421\u043F\u0435\u0446\u0438\u0430\u043B\u044C\u043D\u044B\u0435 \u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438 (\u0440\u0435\u043B\u0438\u0433\u0438\u044F, \u0437\u0434\u043E\u0440\u043E\u0432\u044C\u0435)",
+      location: "\u041B\u043E\u043A\u0430\u0446\u0438\u044F",
+      technical: "\u0422\u0435\u0445\u043D\u0438\u0447\u0435\u0441\u043A\u0438\u0435 (IP, deviceId)",
+      custom: "\u041F\u0440\u043E\u0447\u0438\u0435"
+    };
+    SEVERITY_ORDER2 = ["critical", "high", "medium", "low"];
+    IGNORED_KEY = "dg-pii-ignored";
+  }
+});
+
+// src/web/hooks/useYamlContent.ts
+import { useEffect as useEffect30, useState as useState29 } from "react";
+function useYamlContent(filePath) {
+  const [state, setState] = useState29({
+    content: "",
+    loading: !!filePath,
+    error: null
+  });
+  useEffect30(() => {
+    if (!filePath) {
+      setState({ content: "", loading: false, error: null });
+      return;
+    }
+    if (cache.has(filePath)) {
+      setState({ content: cache.get(filePath), loading: false, error: null });
+      return;
+    }
+    setState({ content: "", loading: true, error: null });
+    let cancelled = false;
+    fetch("/file?path=" + encodeURIComponent(filePath)).then((r) => {
+      if (!r.ok)
+        throw new Error(`HTTP ${r.status}`);
+      return r.text();
+    }).then((text) => {
+      cache.set(filePath, text);
+      if (!cancelled)
+        setState({ content: text, loading: false, error: null });
+    }).catch((err) => {
+      if (!cancelled)
+        setState({ content: "", loading: false, error: err.message });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [filePath]);
+  return state;
+}
+function invalidateYamlCache(filePath) {
+  if (filePath)
+    cache.delete(filePath);
+  else
+    cache.clear();
+}
+var cache;
+var init_useYamlContent = __esm({
+  "src/web/hooks/useYamlContent.ts"() {
+    "use strict";
+    cache = /* @__PURE__ */ new Map();
+  }
+});
+
+// src/web/hooks/useMonacoLoader.ts
+import { useEffect as useEffect31, useState as useState30 } from "react";
+function preloadMonaco() {
+  if (isLoaded)
+    return Promise.resolve();
+  if (loadPromise)
+    return loadPromise;
+  loadPromise = new Promise((resolve, reject) => {
+    const w = window;
+    if (w.monaco && w.monaco.editor) {
+      isLoaded = true;
+      resolve();
+      return;
+    }
+    const start = (attempt) => {
+      if (typeof w.require === "undefined") {
+        if (attempt > 100)
+          return reject(new Error("monaco loader \u043D\u0435 \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u043B\u0441\u044F"));
+        setTimeout(() => start(attempt + 1), 100);
+        return;
+      }
+      try {
+        w.require.config({
+          paths: {
+            vs: `https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/${MONACO_VERSION}/min/vs`
+          }
+        });
+      } catch {
+      }
+      w.require(
+        ["vs/editor/editor.main"],
+        () => {
+          if (w.monaco && w.monaco.editor) {
+            isLoaded = true;
+            resolve();
+          } else {
+            reject(new Error("monaco \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u043B\u0441\u044F, \u043D\u043E \u043E\u0431\u044A\u0435\u043A\u0442 \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u0435\u043D"));
+          }
+        },
+        (err) => reject(err instanceof Error ? err : new Error(String(err)))
+      );
+    };
+    start(0);
+  });
+  return loadPromise;
+}
+function useMonacoLoader() {
+  const [ready, setReady] = useState30(isLoaded);
+  const [error, setError] = useState30(null);
+  useEffect31(() => {
+    if (ready)
+      return;
+    let cancelled = false;
+    preloadMonaco().then(() => {
+      if (!cancelled)
+        setReady(true);
+    }).catch((err) => {
+      if (!cancelled)
+        setError(err.message || "\u043E\u0448\u0438\u0431\u043A\u0430 \u0437\u0430\u0433\u0440\u0443\u0437\u043A\u0438 Monaco");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [ready]);
+  return { ready, error };
+}
+var MONACO_VERSION, loadPromise, isLoaded;
+var init_useMonacoLoader = __esm({
+  "src/web/hooks/useMonacoLoader.ts"() {
+    "use strict";
+    MONACO_VERSION = "0.34.0";
+    loadPromise = null;
+    isLoaded = false;
+  }
+});
+
+// src/web/lib/yaml/line-context.ts
+function buildLineContexts(text) {
+  const lines = text.split("\n");
+  const result = /* @__PURE__ */ new Map();
+  let section = "";
+  let entityId = null;
+  let blockIndent = -1;
+  let ruleId;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) {
+      result.set(i + 1, { entityId, section, ruleId });
+      continue;
+    }
+    const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (indent === 0) {
+      const secMatch = line.match(/^([a-zA-Z][a-zA-Z0-9_]*)\s*:\s*(?:#.*)?$/);
+      if (secMatch) {
+        section = secMatch[1];
+        entityId = null;
+        blockIndent = -1;
+        ruleId = void 0;
+        result.set(i + 1, { entityId, section, ruleId });
+        continue;
+      }
+    }
+    const blockStart = line.match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
+    if (blockStart) {
+      const bIndent = blockStart[1].length;
+      if (blockIndent < 0 || bIndent <= blockIndent) {
+        blockIndent = bIndent;
+        entityId = null;
+        ruleId = blockStart[2];
+      }
+      result.set(i + 1, { entityId, section, ruleId });
+      continue;
+    }
+    const entityMatch = line.match(/^(\s+)(?:-\s+)?entity\s*:\s*([^\s#]+)/);
+    if (entityMatch) {
+      entityId = entityMatch[2].replace(/["']/g, "");
+      result.set(i + 1, { entityId, section, ruleId });
+      continue;
+    }
+    if (blockIndent >= 0 && indent < blockIndent) {
+      entityId = null;
+      blockIndent = -1;
+      ruleId = void 0;
+    }
+    result.set(i + 1, { entityId, section, ruleId });
+  }
+  return result;
+}
+var init_line_context = __esm({
+  "src/web/lib/yaml/line-context.ts"() {
+    "use strict";
+  }
+});
+
+// src/web/lib/yaml/line-map.ts
+function collectChildren(lines, startIdx, endIdx, parentIndent) {
+  const children = [];
+  const idRegex = /^(\s*)-\s+id:\s+([^\s#]+)/;
+  for (let i = startIdx + 1; i < endIdx; i++) {
+    const line = lines[i];
+    if (!line || !line.trim())
+      continue;
+    if (line.trim().startsWith("#"))
+      continue;
+    const indentMatch = line.match(/^(\s*)/);
+    const indent = indentMatch ? indentMatch[1].length : 0;
+    if (indent <= parentIndent)
+      break;
+    const containerMatch = line.match(
+      /^(\s+)([a-zA-Z][a-zA-Z0-9_]*)\s*:\s*(?:#.*)?$/
+    );
+    if (!containerMatch)
+      continue;
+    const containerName = containerMatch[2];
+    if (!CHILD_CONTAINERS.has(containerName))
+      continue;
+    const containerIndent = containerMatch[1].length;
+    for (let j = i + 1; j < endIdx; j++) {
+      const wLine = lines[j];
+      if (!wLine || !wLine.trim())
+        continue;
+      const wIndentMatch = wLine.match(/^(\s*)/);
+      const wIndent = wIndentMatch ? wIndentMatch[1].length : 0;
+      if (wIndent <= containerIndent)
+        break;
+      const idMatch = wLine.match(idRegex);
+      if (!idMatch)
+        continue;
+      const itemIndent = idMatch[1].length;
+      if (itemIndent <= containerIndent)
+        continue;
+      let itemEnd = j + 1;
+      for (let k = j + 1; k < endIdx; k++) {
+        const kLine = lines[k];
+        if (!kLine || !kLine.trim()) {
+          itemEnd = k + 1;
+          continue;
+        }
+        const kIndentMatch = kLine.match(/^(\s*)/);
+        const kIndent = kIndentMatch ? kIndentMatch[1].length : 0;
+        if (kIndent < itemIndent) {
+          itemEnd = k;
+          break;
+        }
+        if (kIndent === itemIndent && idRegex.test(kLine)) {
+          itemEnd = k;
+          break;
+        }
+        itemEnd = k + 1;
+      }
+      const grandchildren = collectChildren(lines, j, itemEnd, itemIndent);
+      let meta;
+      for (let k = j + 1; k < itemEnd; k++) {
+        const kLine = lines[k];
+        if (!kLine || !kLine.trim())
+          continue;
+        const kIndent = (kLine.match(/^(\s*)/) || ["", ""])[1].length;
+        if (kIndent < itemIndent)
+          break;
+        const m = kLine.match(/^\s*(dataType|type|kind):\s+(\S+)/);
+        if (m) {
+          meta = m[2].replace(/["']/g, "");
+          break;
+        }
+      }
+      children.push({
+        id: idMatch[2],
+        label: idMatch[2],
+        line: j + 1,
+        type: containerName.replace(/s$/, ""),
+        meta,
+        children: grandchildren.length > 0 ? grandchildren : void 0
+      });
+    }
+  }
+  return children;
+}
+function buildLineMap(text, schema) {
+  const lines = text.split("\n");
+  const sections = [];
+  const itemLines = /* @__PURE__ */ new Map();
+  const idRegex = /^(\s*)-\s+id:\s+([^\s#]+)/;
+  const sectionRegex = /^([a-zA-Z][a-zA-Z0-9_]*):\s*(?:#.*)?$/;
+  const sectionRanges = [];
+  let currentKey = null;
+  let currentStart = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const m = line.match(sectionRegex);
+    if (m) {
+      if (currentKey) {
+        sectionRanges.push({ key: currentKey, start: currentStart, end: i });
+      }
+      currentKey = m[1];
+      currentStart = i;
+    }
+  }
+  if (currentKey) {
+    sectionRanges.push({
+      key: currentKey,
+      start: currentStart,
+      end: lines.length
+    });
+  }
+  sectionRanges.forEach(({ key, start, end }) => {
+    const sectionSchema = schema.sections?.[key];
+    if (!sectionSchema)
+      return;
+    const knownIds = /* @__PURE__ */ new Set();
+    if (Array.isArray(sectionSchema.items)) {
+      sectionSchema.items.forEach((item) => {
+        if (item?.id)
+          knownIds.add(String(item.id));
+      });
+    }
+    let baseIndent = -1;
+    for (let i = start + 1; i < end; i++) {
+      const m = lines[i].match(idRegex);
+      if (m) {
+        baseIndent = m[1].length;
+        break;
+      }
+    }
+    if (baseIndent < 0)
+      return;
+    const nodes = [];
+    for (let i = start + 1; i < end; i++) {
+      const line = lines[i];
+      const m = line.match(idRegex);
+      if (!m)
+        continue;
+      if (m[1].length !== baseIndent)
+        continue;
+      const id = m[2];
+      if (knownIds.size > 0 && !knownIds.has(id))
+        continue;
+      let itemEnd = i + 1;
+      for (let k = i + 1; k < end; k++) {
+        const kLine = lines[k];
+        if (!kLine || !kLine.trim()) {
+          itemEnd = k + 1;
+          continue;
+        }
+        const kIndent = (kLine.match(/^(\s*)/) || ["", ""])[1].length;
+        if (kIndent < baseIndent) {
+          itemEnd = k;
+          break;
+        }
+        if (kIndent === baseIndent && idRegex.test(kLine)) {
+          itemEnd = k;
+          break;
+        }
+        itemEnd = k + 1;
+      }
+      const children = collectChildren(lines, i, itemEnd, baseIndent);
+      let meta;
+      const schemaItem = sectionSchema.items?.find?.((x) => x.id === id);
+      if (schemaItem) {
+        if (key === "entities" && schemaItem.attributesCount != null) {
+          meta = `${schemaItem.attributesCount} \u0430\u0442\u0440.`;
+        } else if (schemaItem.type) {
+          meta = schemaItem.type;
+        } else if (schemaItem.kind) {
+          meta = schemaItem.kind;
+        }
+      }
+      itemLines.set(`${key}#${id}`, i + 1);
+      nodes.push({
+        id,
+        label: schemaItem?.name || id,
+        line: i + 1,
+        type: key.replace(/s$/, ""),
+        meta,
+        children: children.length > 0 ? children : void 0
+      });
+      i = itemEnd - 1;
+    }
+    if (nodes.length > 0) {
+      sections.push({
+        key,
+        label: SECTION_LABELS2[key] || key,
+        line: start + 1,
+        count: nodes.length,
+        nodes
+      });
+    }
+  });
+  sections.sort((a, b) => a.line - b.line);
+  const lineContexts = buildLineContexts(text);
+  return { sections, itemLines, lineContexts };
+}
+function findAttributeInEntity(entityId, attributePath, lineMap) {
+  const section = lineMap.sections.find((s) => s.key === "entities");
+  if (!section)
+    return null;
+  const entity = section.nodes.find((n) => n.id === entityId);
+  if (!entity || !entity.children)
+    return null;
+  const segments = attributePath.split(".");
+  const first = segments[0];
+  const stack = [...entity.children];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (node.id === first) {
+      if (segments.length === 1)
+        return node.line;
+      let current = node;
+      for (let i = 1; i < segments.length; i++) {
+        const next = (current?.children || []).find((c) => c.id === segments[i]);
+        if (!next)
+          return node.line;
+        current = next;
+      }
+      return current?.line ?? null;
+    }
+    if (node.children)
+      stack.push(...node.children);
+  }
+  return null;
+}
+var SECTION_LABELS2, CHILD_CONTAINERS;
+var init_line_map = __esm({
+  "src/web/lib/yaml/line-map.ts"() {
+    "use strict";
+    init_line_context();
+    SECTION_LABELS2 = {
+      entities: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438",
+      linkages: "\u0421\u0432\u044F\u0437\u0438",
+      dataTypes: "\u0422\u0438\u043F\u044B \u0434\u0430\u043D\u043D\u044B\u0445",
+      sequences: "\u041F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u0438",
+      counterColorPattern: "\u0426\u0432\u0435\u0442\u043E\u0432\u044B\u0435 \u0441\u0445\u0435\u043C\u044B",
+      trees: "\u0414\u0435\u0440\u0435\u0432\u044C\u044F",
+      transitiveLinkages: "\u0422\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0438",
+      mixins: "\u041C\u0438\u043A\u0441\u0438\u043D\u044B",
+      dataRules: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0434\u0430\u043D\u043D\u044B\u0445",
+      exchangeSettings: "\u041E\u0431\u043C\u0435\u043D \u0434\u0430\u043D\u043D\u044B\u043C\u0438",
+      actions: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F",
+      medias: "\u0418\u043A\u043E\u043D\u043A\u0438",
+      views: "\u041F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F",
+      menus: "\u041C\u0435\u043D\u044E"
+    };
+    CHILD_CONTAINERS = /* @__PURE__ */ new Set([
+      // сущности
+      "attributes",
+      "sorting",
+      "projection",
+      "identification",
+      "reconciliation",
+      "searching",
+      // linkages
+      "attributes",
+      // views
+      "widgets",
+      "groups",
+      "views",
+      "tabs",
+      "menu",
+      "buttons",
+      "footer",
+      "actionPanel",
+      "menuOptions",
+      "items",
+      // dataTypes (enum / workflow / table)
+      "values",
+      "statuses",
+      // dataRules
+      "attributes",
+      "linkages",
+      "nested",
+      // transitive linkages
+      "joins",
+      // mixins
+      "change",
+      // actions (bulkSettings, prefixRules и т.п.)
+      "bulkSettings",
+      "prefixRules",
+      "transitions"
+    ]);
+  }
+});
+
+// src/web/lib/monaco/rql-check.ts
+function isBlockScalarIndicator(value) {
+  return /^[|>][+\-]?(?:\s+#.*)?$/.test(value);
+}
+function extractFromJoinAliases(expr) {
+  const aliases = /* @__PURE__ */ new Set();
+  const re = /(?:FROM|FROM_EXT|join|JOIN|JOIN_EXT|join_ext)\s*\(/gi;
+  let match;
+  while ((match = re.exec(expr)) !== null) {
+    let depth = 1;
+    let i = match.index + match[0].length;
+    const start = i;
+    while (i < expr.length && depth > 0) {
+      const ch = expr[i];
+      if (ch === "'" || ch === '"') {
+        const q = ch;
+        i++;
+        while (i < expr.length && expr[i] !== q) {
+          if (expr[i] === "\\")
+            i++;
+          i++;
+        }
+        i++;
+        continue;
+      }
+      if (ch === "(")
+        depth++;
+      else if (ch === ")")
+        depth--;
+      i++;
+    }
+    const inner = expr.slice(start, i - 1);
+    const innerRe = /@([a-zA-Z][a-zA-Z0-9_]*)/g;
+    let im;
+    while ((im = innerRe.exec(inner)) !== null) {
+      aliases.add(im[1]);
+    }
+  }
+  return aliases;
+}
+function checkRqlExpression(expr, startLine, ctx2) {
+  const issues = [];
+  const trimmed = expr.trim();
+  if (!trimmed) {
+    issues.push({
+      line: startLine,
+      column: 1,
+      length: 1,
+      message: "\u041F\u0443\u0441\u0442\u043E\u0435 RQL-\u0432\u044B\u0440\u0430\u0436\u0435\u043D\u0438\u0435",
+      severity: "error"
+    });
+    return issues;
+  }
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let inSingle = false;
+  let inDouble = false;
+  let escapeNext = false;
+  let quoteStart = -1;
+  for (let i = 0; i < trimmed.length; i++) {
+    const ch = trimmed[i];
+    if (escapeNext) {
+      escapeNext = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escapeNext = true;
+      continue;
+    }
+    if (inSingle) {
+      if (ch === "'")
+        inSingle = false;
+      continue;
+    }
+    if (inDouble) {
+      if (ch === '"')
+        inDouble = false;
+      continue;
+    }
+    if (ch === "'") {
+      inSingle = true;
+      quoteStart = i;
+      continue;
+    }
+    if (ch === '"') {
+      inDouble = true;
+      quoteStart = i;
+      continue;
+    }
+    if (ch === "(")
+      parenDepth++;
+    else if (ch === ")")
+      parenDepth--;
+    else if (ch === "[")
+      bracketDepth++;
+    else if (ch === "]")
+      bracketDepth--;
+    if (parenDepth < 0 || bracketDepth < 0) {
+      issues.push({
+        line: startLine,
+        column: i + 1,
+        length: 1,
+        message: `\u041B\u0438\u0448\u043D\u044F\u044F \u0437\u0430\u043A\u0440\u044B\u0432\u0430\u044E\u0449\u0430\u044F ${ch === ")" ? "\u0441\u043A\u043E\u0431\u043A\u0430" : "\u043A\u0432\u0430\u0434\u0440\u0430\u0442\u043D\u0430\u044F \u0441\u043A\u043E\u0431\u043A\u0430"}`,
+        severity: "error"
+      });
+      return issues;
+    }
+  }
+  if (inSingle || inDouble) {
+    issues.push({
+      line: startLine,
+      column: quoteStart + 1,
+      length: 1,
+      message: "\u041D\u0435\u0437\u0430\u043A\u0440\u044B\u0442\u0430\u044F \u043A\u0430\u0432\u044B\u0447\u043A\u0430",
+      severity: "error"
+    });
+  }
+  if (parenDepth > 0) {
+    issues.push({
+      line: startLine,
+      column: 1,
+      length: trimmed.length,
+      message: `\u041D\u0435\u0437\u0430\u043A\u0440\u044B\u0442\u044B\u0445 \u0441\u043A\u043E\u0431\u043E\u043A: ${parenDepth}`,
+      severity: "error"
+    });
+  }
+  if (bracketDepth > 0) {
+    issues.push({
+      line: startLine,
+      column: 1,
+      length: trimmed.length,
+      message: `\u041D\u0435\u0437\u0430\u043A\u0440\u044B\u0442\u044B\u0445 \u043A\u0432\u0430\u0434\u0440\u0430\u0442\u043D\u044B\u0445 \u0441\u043A\u043E\u0431\u043E\u043A: ${bracketDepth}`,
+      severity: "error"
+    });
+  }
+  if (/[\s(,+\-*\/=<>&|]$/.test(trimmed)) {
+    issues.push({
+      line: startLine,
+      column: trimmed.length,
+      length: 1,
+      message: "\u0412\u044B\u0440\u0430\u0436\u0435\u043D\u0438\u0435 \u043E\u043A\u0430\u043D\u0447\u0438\u0432\u0430\u0435\u0442\u0441\u044F \u043E\u043F\u0435\u0440\u0430\u0442\u043E\u0440\u043E\u043C \u2014 \u0432\u0435\u0440\u043E\u044F\u0442\u043D\u043E, \u043E\u0431\u0440\u0435\u0437\u0430\u043D\u043E",
+      severity: "warning"
+    });
+  }
+  const hasOperator = /[=<>!+\-*\/%]|\b(IS|IN|LIKE|AND|OR|NOT|BETWEEN|SELECT|FROM|WHERE|CAST|COUNT|SUM|AVG|MIN|MAX|JOIN|ON|EQ|FROM_EXT|ARRAY_AGG|JOIN_EXT)\b|\(|\)/i.test(
+    trimmed
+  );
+  const wordCount = trimmed.split(/\s+/).filter((w) => w.length > 0).length;
+  if (!hasOperator && wordCount >= 2) {
+    issues.push({
+      line: startLine,
+      column: 1,
+      length: trimmed.length,
+      message: "\u0412\u044B\u0440\u0430\u0436\u0435\u043D\u0438\u0435 \u043D\u0435 \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u0442 \u043E\u043F\u0435\u0440\u0430\u0442\u043E\u0440\u043E\u0432 RQL \u2014 \u0432\u0435\u0440\u043E\u044F\u0442\u043D\u043E \u043D\u0435\u043A\u043E\u0440\u0440\u0435\u043A\u0442\u043D\u043E",
+      severity: "warning"
+    });
+  }
+  if (!ctx2.modelIndex || !ctx2.entityId)
+    return issues;
+  let entity;
+  for (const e of ctx2.modelIndex.entities) {
+    if (e.entityId.toLowerCase() === ctx2.entityId.toLowerCase()) {
+      entity = e;
+      break;
+    }
+  }
+  if (!entity)
+    return issues;
+  const knownAttrs = /* @__PURE__ */ new Set();
+  const numericAttrs = /* @__PURE__ */ new Set();
+  const stringAttrs = /* @__PURE__ */ new Set();
+  let current = entity;
+  const visited = /* @__PURE__ */ new Set();
+  while (current && !visited.has(current.fqid)) {
+    visited.add(current.fqid);
+    current.attributes.forEach((a) => {
+      knownAttrs.add(a.id);
+      const dt = a.dataType;
+      if (dt === "Integer" || dt === "Decimal" || dt === "Float" || dt === "Calculation" || dt === "Counter") {
+        numericAttrs.add(a.id);
+      } else if (dt === "String" || dt === "Text" || dt === "URL" || dt === "Attachment") {
+        stringAttrs.add(a.id);
+      }
+    });
+    current = current.inherits ? ctx2.modelIndex.entitiesByFqid[current.inherits] : void 0;
+  }
+  const dataTypes = buildDataTypeIndex(ctx2.modelIndex);
+  const aliases = extractFromJoinAliases(trimmed);
+  const reportedRefs = /* @__PURE__ */ new Set();
+  const attrRegex = /@([a-zA-Z][a-zA-Z0-9_]*)/g;
+  let m;
+  while ((m = attrRegex.exec(trimmed)) !== null) {
+    const field = m[1];
+    if (/^Current/i.test(field))
+      continue;
+    if (SYSTEM_ATTRS.has(field))
+      continue;
+    if (/^(row|link|linkages|doc|user|documents|attributes|item|value)$/i.test(
+      field
+    ))
+      continue;
+    if (aliases.has(field))
+      continue;
+    if (knownAttrs.has(field))
+      continue;
+    if (dataTypes.has(field.toLowerCase()))
+      continue;
+    if (reportedRefs.has(field))
+      continue;
+    reportedRefs.add(field);
+    issues.push({
+      line: startLine,
+      column: trimmed.indexOf("@" + field) + 1,
+      length: field.length + 1,
+      message: `\u041F\u043E\u043B\u0435 @${field} \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u0432 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 ${ctx2.entityId} \u0438 \u043D\u0435 \u044F\u0432\u043B\u044F\u0435\u0442\u0441\u044F \u0438\u0437\u0432\u0435\u0441\u0442\u043D\u044B\u043C \u0442\u0438\u043F\u043E\u043C \u0434\u0430\u043D\u043D\u044B\u0445`,
+      severity: "warning"
+    });
+  }
+  const docAttrRegex = /@doc\.([a-zA-Z][a-zA-Z0-9_]*)/gi;
+  while ((m = docAttrRegex.exec(trimmed)) !== null) {
+    const attr = m[1];
+    if (SYSTEM_ATTRS.has(attr))
+      continue;
+    if (knownAttrs.has(attr))
+      continue;
+    issues.push({
+      line: startLine,
+      column: trimmed.indexOf(m[0]) + 1,
+      length: m[0].length,
+      message: `\u041F\u043E\u043B\u0435 @doc.${attr} \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u0432 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 ${ctx2.entityId}`,
+      severity: "warning"
+    });
+  }
+  const xDotYRegex = /@([a-zA-Z][a-zA-Z0-9_]*)\.([a-zA-Z][a-zA-Z0-9_]*)/g;
+  while ((m = xDotYRegex.exec(trimmed)) !== null) {
+    const base = m[1];
+    const field = m[2];
+    if (base.toLowerCase() === "doc")
+      continue;
+    if (/^Current/i.test(base))
+      continue;
+    if (/^(link|row|linkages|user|item|value|documents)$/i.test(base))
+      continue;
+    const dtInfo = dataTypes.get(base.toLowerCase());
+    if (dtInfo) {
+      if (!dtInfo.members.has(field.toLowerCase())) {
+        issues.push({
+          line: startLine,
+          column: trimmed.indexOf(m[0]) + 1,
+          length: m[0].length,
+          message: `\u0417\u043D\u0430\u0447\u0435\u043D\u0438\u0435 \xAB${field}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u0432 \u0442\u0438\u043F\u0435 ${base} (${dtInfo.kind})`,
+          severity: "warning"
+        });
+      }
+      continue;
+    }
+    if (aliases.has(base))
+      continue;
+    if (knownAttrs.has(base))
+      continue;
+    if (reportedRefs.has("." + base))
+      continue;
+    reportedRefs.add("." + base);
+    issues.push({
+      line: startLine,
+      column: trimmed.indexOf(m[0]) + 1,
+      length: m[0].length,
+      message: `\u0411\u0430\u0437\u0430 @${base} \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430 \u0432 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u0435 ${ctx2.entityId}`,
+      severity: "warning"
+    });
+  }
+  const assignRegex = /@([a-zA-Z][a-zA-Z0-9_]*)\s*=\s*(?:'([^']*)'|"([^"]*)"|(\d+(?:\.\d+)?))/g;
+  while ((m = assignRegex.exec(trimmed)) !== null) {
+    const field = m[1];
+    if (aliases.has(field))
+      continue;
+    if (/^Current/i.test(field))
+      continue;
+    if (dataTypes.has(field.toLowerCase()))
+      continue;
+    const strLit = m[2] !== void 0 || m[3] !== void 0;
+    const numLit = m[4] !== void 0;
+    if (strLit && numericAttrs.has(field)) {
+      issues.push({
+        line: startLine,
+        column: trimmed.indexOf("@" + field) + 1,
+        length: field.length + 1,
+        message: `@${field} \u0438\u043C\u0435\u0435\u0442 \u0447\u0438\u0441\u043B\u043E\u0432\u043E\u0439 \u0442\u0438\u043F, \u043D\u043E \u0441\u0440\u0430\u0432\u043D\u0438\u0432\u0430\u0435\u0442\u0441\u044F \u0441\u043E \u0441\u0442\u0440\u043E\u043A\u043E\u0439`,
+        severity: "warning"
+      });
+    }
+    if (numLit && stringAttrs.has(field)) {
+      issues.push({
+        line: startLine,
+        column: trimmed.indexOf("@" + field) + 1,
+        length: field.length + 1,
+        message: `@${field} \u0438\u043C\u0435\u0435\u0442 \u0441\u0442\u0440\u043E\u043A\u043E\u0432\u044B\u0439 \u0442\u0438\u043F, \u043D\u043E \u0441\u0440\u0430\u0432\u043D\u0438\u0432\u0430\u0435\u0442\u0441\u044F \u0441 \u0447\u0438\u0441\u043B\u043E\u043C`,
+        severity: "warning"
+      });
+    }
+  }
+  return issues;
+}
+function scanRqlInText(text, lineContexts, modelIndex) {
+  const lines = text.split("\n");
+  const all = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#"))
+      continue;
+    const fieldMatch = line.match(
+      /^(\s*)(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*(.*)$/
+    );
+    if (!fieldMatch)
+      continue;
+    const field = fieldMatch[2];
+    const value = fieldMatch[3].trim();
+    const rqlTagMatch = value.match(/^!rql\s*(.*)$/);
+    const hasRqlTag = !!rqlTagMatch;
+    const isRqlField = RQL_FIELDS.has(field);
+    if (!hasRqlTag && !isRqlField)
+      continue;
+    if (field === "condition" && !hasRqlTag) {
+      const v = value.replace(/["']/g, "").toLowerCase();
+      if (BOOLEAN_LITERALS.has(v))
+        continue;
+    }
+    let expr = "";
+    let endLine = i + 1;
+    const baseIndent = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    const collectBlock = () => {
+      const collected = [];
+      for (let j = i + 1; j < lines.length; j++) {
+        const next = lines[j];
+        if (!next.trim()) {
+          endLine = j + 1;
+          continue;
+        }
+        const nextIndent = (next.match(/^(\s*)/) || ["", ""])[1].length;
+        if (nextIndent <= baseIndent)
+          break;
+        const nextTrimmed = next.trim();
+        if (nextTrimmed.startsWith("#")) {
+          endLine = j + 1;
+          continue;
+        }
+        collected.push(nextTrimmed);
+        endLine = j + 1;
+      }
+      return collected.join(" ");
+    };
+    if (hasRqlTag) {
+      const afterTag = rqlTagMatch[1].trim();
+      expr = isBlockScalarIndicator(afterTag) ? collectBlock() : afterTag;
+    } else {
+      expr = isBlockScalarIndicator(value) ? collectBlock() : value;
+    }
+    if (!expr.trim()) {
+      all.push({
+        line: i + 1,
+        column: 1,
+        length: 1,
+        message: `\u041F\u0443\u0441\u0442\u043E\u0435 RQL-\u0432\u044B\u0440\u0430\u0436\u0435\u043D\u0438\u0435 \u0432 \u043F\u043E\u043B\u0435 ${field}`,
+        severity: "warning",
+        endLine: i + 1
+      });
+      continue;
+    }
+    const ctx2 = lineContexts.get(i + 1) || { entityId: null };
+    const issues = checkRqlExpression(expr, i + 1, {
+      entityId: ctx2.entityId,
+      modelIndex
+    });
+    issues.forEach(
+      (iss) => all.push({ ...iss, endLine: Math.min(endLine, iss.line) })
+    );
+  }
+  return all;
+}
+function buildDataTypeIndex(modelIndex) {
+  const idx = /* @__PURE__ */ new Map();
+  for (const dt of modelIndex.dataTypes) {
+    const members = /* @__PURE__ */ new Set();
+    if (Array.isArray(dt.values)) {
+      dt.values.forEach((v) => members.add(String(v).toLowerCase()));
+    }
+    if (Array.isArray(dt.statuses)) {
+      dt.statuses.forEach((v) => members.add(String(v).toLowerCase()));
+    }
+    if (Array.isArray(dt.columns)) {
+      dt.columns.forEach((v) => members.add(String(v).toLowerCase()));
+    }
+    const info = {
+      kind: dt.kind,
+      domainId: dt.domainId,
+      members
+    };
+    if (dt.id)
+      idx.set(dt.id.toLowerCase(), info);
+    if (dt.name && dt.name !== dt.id)
+      idx.set(dt.name.toLowerCase(), info);
+  }
+  return idx;
+}
+var RQL_FIELDS, BOOLEAN_LITERALS, SYSTEM_ATTRS;
+var init_rql_check = __esm({
+  "src/web/lib/monaco/rql-check.ts"() {
+    "use strict";
+    RQL_FIELDS = /* @__PURE__ */ new Set(["expression", "constraint", "condition"]);
+    BOOLEAN_LITERALS = /* @__PURE__ */ new Set(["true", "false", "yes", "no"]);
+    SYSTEM_ATTRS = /* @__PURE__ */ new Set([
+      "id",
+      "label",
+      "createdAt",
+      "updatedAt",
+      "createdBy",
+      "updatedBy",
+      "tenantId",
+      "domainId",
+      "entityId",
+      "entityName",
+      "organizationId",
+      "version"
+    ]);
+  }
+});
+
+// src/web/lib/monaco/monaco-providers.ts
+function updateProviderContext(partial) {
+  Object.assign(ctx, partial);
+}
+function resetProviderContext() {
+  ctx.lineMap = null;
+  ctx.currentFilePath = null;
+  ctx.currentDomainId = null;
+  ctx.onOpenFqid = void 0;
+}
+function findWordAtLine(lineText, column) {
+  const fieldMatch = lineText.match(
+    /^(\s*)(?:-\s+)?([a-zA-Z][a-zA-Z0-9_]*)\s*:\s*(.*)$/
+  );
+  if (!fieldMatch)
+    return null;
+  const field = fieldMatch[2];
+  const valueRaw = fieldMatch[3].trim();
+  if (!valueRaw || valueRaw.startsWith("#"))
+    return null;
+  const trimmedLine = lineText.replace(/\s+$/, "");
+  const valueStart = trimmedLine.length - valueRaw.length;
+  if (valueStart < 0)
+    return null;
+  const valueEnd = valueStart + valueRaw.length;
+  if (column < valueStart + 1 || column > valueEnd)
+    return null;
+  let value = valueRaw;
+  let quoteOffset = 0;
+  if (value.startsWith('"') && value.endsWith('"') || value.startsWith("'") && value.endsWith("'")) {
+    value = value.slice(1, -1);
+    quoteOffset = 1;
+  }
+  const relativeCol = column - 1 - valueStart - quoteOffset;
+  if (relativeCol < 0 || relativeCol > value.length)
+    return null;
+  if (field === "id") {
+    return { type: "id-def", value, field };
+  }
+  const isAttributeLike = ATTRIBUTE_LIKE_FIELDS.has(field);
+  const isRefField = REF_FIELDS.has(field);
+  if (!isAttributeLike && !isRefField)
+    return null;
+  const slashIdx = value.indexOf("/");
+  let domainPrefix = null;
+  let rest = value;
+  let restStart = 0;
+  if (slashIdx > 0) {
+    domainPrefix = value.slice(0, slashIdx).toLowerCase();
+    rest = value.slice(slashIdx + 1);
+    restStart = slashIdx + 1;
+  }
+  const dotIdx = rest.indexOf(".");
+  const isForeignDomain = !!domainPrefix && domainPrefix !== (ctx.currentDomainId || "").toLowerCase();
+  if (isAttributeLike && dotIdx > 0) {
+    const entityPart = rest.slice(0, dotIdx);
+    const attributePart = rest.slice(dotIdx + 1);
+    const entityEndInValue = restStart + entityPart.length;
+    const attrStartInValue = entityEndInValue + 1;
+    const attrEndInValue = attrStartInValue + attributePart.length;
+    if (relativeCol >= restStart && relativeCol <= entityEndInValue) {
+      if (isForeignDomain) {
+        return {
+          type: "ref-fqid-foreign",
+          value: entityPart,
+          domainPrefix,
+          fqid: domainPrefix + "/" + entityPart,
+          field
+        };
+      }
+      return {
+        type: "ref-entity",
+        value: entityPart,
+        domainPrefix,
+        fqid: (domainPrefix ? domainPrefix + "/" : "") + entityPart,
+        field
+      };
+    }
+    if (relativeCol >= attrStartInValue && relativeCol <= attrEndInValue) {
+      if (isForeignDomain) {
+        return {
+          type: "ref-fqid-foreign",
+          value: attributePart,
+          entityPart,
+          attributePart,
+          domainPrefix,
+          fqid: domainPrefix + "/" + entityPart + "." + attributePart,
+          field
+        };
+      }
+      return {
+        type: "ref-attribute",
+        value: attributePart,
+        entityPart,
+        attributePart,
+        domainPrefix,
+        field
+      };
+    }
+    return null;
+  }
+  if (isForeignDomain) {
+    return {
+      type: "ref-fqid-foreign",
+      value: rest,
+      domainPrefix,
+      fqid: domainPrefix + "/" + rest,
+      field
+    };
+  }
+  return {
+    type: "ref-item",
+    value: rest,
+    domainPrefix,
+    fqid: (domainPrefix ? domainPrefix + "/" : "") + rest,
+    field
+  };
+}
+function findEntityLine(entityId, lineMap) {
+  const section = lineMap.sections.find((s) => s.key === "entities");
+  if (!section)
+    return null;
+  const node = section.nodes.find((n) => n.id === entityId);
+  return node ? node.line : null;
+}
+function findItemLine(itemId, lineMap) {
+  for (const [key, line] of lineMap.itemLines.entries()) {
+    if (key.endsWith("#" + itemId))
+      return line;
+  }
+  const stack = [];
+  lineMap.sections.forEach((s) => stack.push(...s.nodes));
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (node.id === itemId)
+      return node.line;
+    if (node.children)
+      stack.push(...node.children);
+  }
+  return null;
+}
+function buildSymbols(monaco, lineMap) {
+  const { SymbolKind } = monaco.languages;
+  const SECTION_KIND = {
+    entities: SymbolKind.Class,
+    linkages: SymbolKind.Interface,
+    dataTypes: SymbolKind.Enum,
+    sequences: SymbolKind.Constant,
+    actions: SymbolKind.Function,
+    views: SymbolKind.Namespace,
+    menus: SymbolKind.Module,
+    mixins: SymbolKind.Struct,
+    dataRules: SymbolKind.Rule,
+    medias: SymbolKind.File
+  };
+  function toSymbol(node, sectionKey, depth) {
+    const kind = depth === 0 ? SECTION_KIND[sectionKey] || SymbolKind.Object : depth === 1 ? SymbolKind.Object : SymbolKind.Field;
+    const range = {
+      startLineNumber: node.line,
+      startColumn: 1,
+      endLineNumber: node.line,
+      endColumn: 1
+    };
+    return {
+      name: node.id,
+      detail: node.meta || node.label,
+      kind,
+      tags: [],
+      range,
+      selectionRange: range,
+      children: (node.children || []).map(
+        (c) => toSymbol(c, sectionKey, depth + 1)
+      )
+    };
+  }
+  return lineMap.sections.map((section) => ({
+    name: section.label,
+    detail: `${section.count} items`,
+    kind: SymbolKind.Namespace,
+    tags: [],
+    range: {
+      startLineNumber: section.line,
+      startColumn: 1,
+      endLineNumber: section.line,
+      endColumn: 1
+    },
+    selectionRange: {
+      startLineNumber: section.line,
+      startColumn: 1,
+      endLineNumber: section.line,
+      endColumn: 1
+    },
+    children: section.nodes.map((n) => toSymbol(n, section.key, 1))
+  }));
+}
+function makeLocation(model, line) {
+  return {
+    uri: model.uri,
+    range: {
+      startLineNumber: line,
+      startColumn: 1,
+      endLineNumber: line,
+      endColumn: 1
+    }
+  };
+}
+function provideDefinition(monaco, model, position) {
+  if (!ctx.lineMap)
+    return null;
+  const lineText = model.getLineContent(position.lineNumber);
+  const hit = findWordAtLine(lineText, position.column);
+  if (!hit)
+    return null;
+  if (hit.type === "id-def")
+    return null;
+  if (hit.type === "ref-entity") {
+    const entityLine = findEntityLine(hit.value, ctx.lineMap);
+    if (entityLine != null)
+      return [makeLocation(model, entityLine)];
+    const itemLine = findItemLine(hit.value, ctx.lineMap);
+    if (itemLine != null)
+      return [makeLocation(model, itemLine)];
+    return null;
+  }
+  if (hit.type === "ref-attribute") {
+    let entityId = hit.entityPart;
+    if (!entityId) {
+      const lc = ctx.lineMap.lineContexts.get(position.lineNumber);
+      entityId = lc?.entityId || void 0;
+    }
+    if (!entityId)
+      return null;
+    const attrLine = findAttributeInEntity(
+      entityId,
+      hit.attributePart || hit.value,
+      ctx.lineMap
+    );
+    if (attrLine != null)
+      return [makeLocation(model, attrLine)];
+    return null;
+  }
+  if (hit.type === "ref-item") {
+    const lc = ctx.lineMap.lineContexts.get(position.lineNumber);
+    if (lc?.entityId && (hit.field === "attribute" || hit.field === "by")) {
+      const attrLine = findAttributeInEntity(
+        lc.entityId,
+        hit.value,
+        ctx.lineMap
+      );
+      if (attrLine != null)
+        return [makeLocation(model, attrLine)];
+    }
+    const itemLine = findItemLine(hit.value, ctx.lineMap);
+    if (itemLine != null)
+      return [makeLocation(model, itemLine)];
+    const entityLine = findEntityLine(hit.value, ctx.lineMap);
+    if (entityLine != null)
+      return [makeLocation(model, entityLine)];
+    return null;
+  }
+  return null;
+}
+function registerMonacoProviders(monaco) {
+  if (providersRegistered)
+    return;
+  providersRegistered = true;
+  monaco.languages.registerDocumentSymbolProvider("yaml", {
+    provideDocumentSymbols: (model) => {
+      if (!ctx.lineMap)
+        return [];
+      try {
+        return buildSymbols(monaco, ctx.lineMap);
+      } catch {
+        return [];
+      }
+    }
+  });
+  monaco.languages.registerDefinitionProvider("yaml", {
+    provideDefinition: (model, position) => provideDefinition(monaco, model, position)
+  });
+  monaco.languages.registerHoverProvider("yaml", {
+    provideHover: (model, position) => {
+      try {
+        if (!ctx.lineMap || !ctx.modelIndex)
+          return null;
+        const lineText = model.getLineContent(position.lineNumber);
+        const hit = findWordAtLine(lineText, position.column);
+        if (!hit)
+          return null;
+        if (hit.type === "id-def" || hit.type === "ref-entity") {
+          const entityId = hit.value.toLowerCase();
+          let entity = null;
+          for (const e of ctx.modelIndex.entities) {
+            if (e.entityId.toLowerCase() === entityId) {
+              entity = e;
+              break;
+            }
+          }
+          if (!entity)
+            return null;
+          const contents = [
+            {
+              value: `**${entity.entityId}** ${entity.name && entity.name !== entity.entityId ? `\u2014 ${entity.name}` : ""}`
+            }
+          ];
+          if (entity.description) {
+            contents.push({ value: entity.description });
+          }
+          const stats = [`\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432: **${entity.attributes.length}**`];
+          if (entity.inherits)
+            stats.push(`\u041D\u0430\u0441\u043B\u0435\u0434\u0443\u0435\u0442: \`${entity.inherits}\``);
+          if (entity.referencedByInheritance.length > 0) {
+            stats.push(`\u041D\u0430\u0441\u043B\u0435\u0434\u043D\u0438\u043A\u043E\u0432: ${entity.referencedByInheritance.length}`);
+          }
+          contents.push({ value: stats.join(" \xB7 ") });
+          contents.push({ value: `\`${entity.fqid}\`` });
+          return {
+            range: {
+              startLineNumber: position.lineNumber,
+              startColumn: 1,
+              endLineNumber: position.lineNumber,
+              endColumn: lineText.length + 1
+            },
+            contents
+          };
+        }
+        if (hit.type === "ref-attribute" && hit.entityPart && hit.attributePart) {
+          let entity = null;
+          for (const e of ctx.modelIndex.entities) {
+            if (e.entityId.toLowerCase() === hit.entityPart.toLowerCase()) {
+              entity = e;
+              break;
+            }
+          }
+          if (!entity)
+            return null;
+          const attr = entity.attributes.find(
+            (a) => a.id === hit.attributePart
+          );
+          if (!attr)
+            return null;
+          const contents = [
+            {
+              value: `**${attr.id}** ${attr.name && attr.name !== attr.id ? `\u2014 ${attr.name}` : ""}`
+            }
+          ];
+          if (attr.description)
+            contents.push({ value: attr.description });
+          const meta = [`\u0422\u0438\u043F: \`${attr.dataType}\``];
+          if (attr.constraints.length > 0) {
+            meta.push(`\u041E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F: ${attr.constraints.join(", ")}`);
+          }
+          if (attr.referenceEntity) {
+            meta.push(`\u0421\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F \u043D\u0430: \`${attr.referenceEntity}\``);
+          }
+          contents.push({ value: meta.join(" \xB7 ") });
+          return {
+            range: {
+              startLineNumber: position.lineNumber,
+              startColumn: 1,
+              endLineNumber: position.lineNumber,
+              endColumn: lineText.length + 1
+            },
+            contents
+          };
+        }
+        return null;
+      } catch {
+        return null;
+      }
+    }
+  });
+  if (!monaco.editor.__dgCommandRegistered) {
+    monaco.editor.__dgCommandRegistered = true;
+    monaco.editor.registerCommand(
+      "dg-issue-action",
+      (_accessor, payload) => {
+        document.dispatchEvent(
+          new CustomEvent("dg:issue-action", { detail: payload })
+        );
+      }
+    );
+  }
+  monaco.languages.registerCodeActionProvider("yaml", {
+    provideCodeActions: (model, range, context) => {
+      const actions = [];
+      context.markers.forEach((marker) => {
+        if (marker.source !== "dg-linter" && marker.source !== "rql-check")
+          return;
+        actions.push({
+          title: "\u{1F4D6} \u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0441\u043F\u0440\u0430\u0432\u043A\u0443 \u043F\u043E \u043F\u0440\u0430\u0432\u0438\u043B\u0443",
+          kind: "quickfix",
+          diagnostics: [marker],
+          command: {
+            id: "dg-issue-action",
+            title: "Show help",
+            arguments: [
+              {
+                action: "help",
+                source: marker.source,
+                message: marker.message,
+                line: marker.startLineNumber
+              }
+            ]
+          }
+        });
+        actions.push({
+          title: "\u{1F507} \u0418\u0433\u043D\u043E\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u044D\u0442\u043E \u043F\u0440\u0430\u0432\u0438\u043B\u043E \u0432 \u0444\u0430\u0439\u043B\u0435",
+          kind: "quickfix",
+          diagnostics: [marker],
+          command: {
+            id: "dg-issue-action",
+            title: "Ignore rule",
+            arguments: [
+              {
+                action: "ignore",
+                source: marker.source,
+                message: marker.message,
+                line: marker.startLineNumber
+              }
+            ]
+          }
+        });
+        actions.push({
+          title: "\u{1F52C} \u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043B\u0438\u043D\u0442\u0435\u0440 \u0441\u0445\u0435\u043C",
+          kind: "quickfix",
+          diagnostics: [marker],
+          command: {
+            id: "dg-issue-action",
+            title: "Open lint",
+            arguments: [
+              {
+                action: "open-lint",
+                source: marker.source,
+                message: marker.message
+              }
+            ]
+          }
+        });
+      });
+      return { actions, dispose: () => {
+      } };
+    }
+  });
+}
+function applyRqlMarkers(monaco, model) {
+  try {
+    const text = model.getValue();
+    const lineContexts = ctx.lineMap?.lineContexts || /* @__PURE__ */ new Map();
+    const issues = scanRqlInText(text, lineContexts, ctx.modelIndex);
+    const markers = issues.map((p) => ({
+      severity: p.severity === "error" ? monaco.MarkerSeverity.Error : monaco.MarkerSeverity.Warning,
+      message: `RQL: ${p.message}`,
+      startLineNumber: p.line,
+      startColumn: p.column,
+      endLineNumber: p.line,
+      endColumn: p.column + p.length,
+      source: "rql-check"
+    }));
+    monaco.editor.setModelMarkers(model, "rql-check", markers);
+  } catch {
+  }
+}
+var providersRegistered, ctx, REF_FIELDS, ATTRIBUTE_LIKE_FIELDS;
+var init_monaco_providers = __esm({
+  "src/web/lib/monaco/monaco-providers.ts"() {
+    "use strict";
+    init_line_map();
+    init_rql_check();
+    providersRegistered = false;
+    ctx = {
+      lineMap: null,
+      currentFilePath: null,
+      currentDomainId: null,
+      modelIndex: null
+    };
+    REF_FIELDS = /* @__PURE__ */ new Set([
+      "inherits",
+      "entity",
+      "modal",
+      "panel",
+      "form",
+      "tab",
+      "list",
+      "view",
+      "page",
+      "addLinksView",
+      "fromView",
+      "linkage",
+      "key",
+      "value",
+      "widget",
+      "block",
+      "action",
+      "menu",
+      "node",
+      "source",
+      "join"
+    ]);
+    ATTRIBUTE_LIKE_FIELDS = /* @__PURE__ */ new Set([
+      "attribute",
+      "attributes",
+      "item",
+      "by",
+      "use",
+      "searching"
+    ]);
+  }
+});
+
+// src/web/lib/yaml/external-refs.ts
+function extractExternalRefs(content, currentDomainId) {
+  if (!content || !currentDomainId)
+    return [];
+  const refs = [];
+  const lines = content.split("\n");
+  const currentLower = currentDomainId.toLowerCase();
+  let blockScalarIndent = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (!trimmed)
+      continue;
+    const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (blockScalarIndent >= 0) {
+      if (indent > blockScalarIndent)
+        continue;
+      blockScalarIndent = -1;
+    }
+    if (trimmed.startsWith("#"))
+      continue;
+    const bsMatch = line.match(
+      /^(\s*)(?:-\s+)?[a-zA-Z_][\w]*\s*:\s*[|>][+\-]?\s*(?:#.*)?$/
+    );
+    if (bsMatch) {
+      blockScalarIndent = indent;
+      continue;
+    }
+    const m = line.match(/^(\s*)(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*(.+)$/);
+    if (!m)
+      continue;
+    const field = m[2];
+    let value = m[3].trim();
+    if (NON_REF_FIELDS.has(field))
+      continue;
+    if (!REF_FIELDS2.has(field))
+      continue;
+    const hashIdx = value.indexOf(" #");
+    if (hashIdx > 0)
+      value = value.slice(0, hashIdx).trim();
+    if (value.startsWith('"') && value.endsWith('"') || value.startsWith("'") && value.endsWith("'")) {
+      value = value.slice(1, -1);
+    }
+    if (!value)
+      continue;
+    const slashIdx = value.indexOf("/");
+    if (slashIdx <= 0 || slashIdx >= value.length - 1)
+      continue;
+    const domainPart = value.slice(0, slashIdx);
+    if (!FQID_DOMAIN_RE.test(domainPart))
+      continue;
+    if (domainPart.toLowerCase() === currentLower)
+      continue;
+    const targetPart = value.slice(slashIdx + 1).trim();
+    if (!targetPart)
+      continue;
+    refs.push({
+      line: i + 1,
+      field,
+      raw: value,
+      domain: domainPart.toLowerCase(),
+      target: targetPart,
+      lineText: line
+    });
+  }
+  return refs;
+}
+function groupExternalRefs(refs) {
+  const map = /* @__PURE__ */ new Map();
+  refs.forEach((r) => {
+    if (!map.has(r.domain))
+      map.set(r.domain, []);
+    map.get(r.domain).push(r);
+  });
+  const groups = [];
+  map.forEach((groupRefs, domain) => {
+    const unique = new Set(groupRefs.map((r) => r.target));
+    groups.push({
+      domain,
+      refs: groupRefs,
+      uniqueTargets: Array.from(unique).sort()
+    });
+  });
+  groups.sort((a, b) => b.refs.length - a.refs.length);
+  return groups;
+}
+var FQID_DOMAIN_RE, REF_FIELDS2, NON_REF_FIELDS;
+var init_external_refs = __esm({
+  "src/web/lib/yaml/external-refs.ts"() {
+    "use strict";
+    FQID_DOMAIN_RE = /^[a-z0-9][\w-]*(\.[a-z0-9][\w-]*)+$/i;
+    REF_FIELDS2 = /* @__PURE__ */ new Set([
+      "inherits",
+      "entity",
+      "linkage",
+      "side1",
+      "side2",
+      "view",
+      "modal",
+      "panel",
+      "form",
+      "tab",
+      "list",
+      "page",
+      "addLinksView",
+      "fromView",
+      "viewId",
+      "action",
+      "widget",
+      "block",
+      "attribute",
+      "key",
+      "value",
+      "join",
+      "entity_lists",
+      "source"
+    ]);
+    NON_REF_FIELDS = /* @__PURE__ */ new Set([
+      "id",
+      "name",
+      "label",
+      "description",
+      "message",
+      "help",
+      "template",
+      "route",
+      "type",
+      "kind",
+      "dataType",
+      "version",
+      "author",
+      "status",
+      "date",
+      "severity",
+      "defaultPrefix",
+      "incrementTemplate",
+      "regexp",
+      "mimeTypes",
+      "title"
+    ]);
+  }
+});
+
+// src/web/components/modals/YamlViewerHelp.tsx
+import { jsx as jsx66, jsxs as jsxs63 } from "react/jsx-runtime";
+function YamlViewerHelp({ onClose }) {
+  return /* @__PURE__ */ jsx66(
+    "div",
+    {
+      className: "help-overlay",
+      style: { zIndex: 600 },
+      onMouseDown: onClose,
+      children: /* @__PURE__ */ jsxs63(
+        "div",
+        {
+          className: "help-modal",
+          style: { width: 640, maxWidth: "90vw" },
+          onMouseDown: (e) => e.stopPropagation(),
+          children: [
+            /* @__PURE__ */ jsxs63("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsx66("div", { className: "help-modal__title", children: "\u{1F4D6} \u041D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044F \u0432 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0435" }),
+              /* @__PURE__ */ jsx66("button", { className: "help-modal__close", onClick: onClose, children: "\u2715" })
+            ] }),
+            /* @__PURE__ */ jsx66("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs63("div", { className: "modal-help", style: { padding: 0, background: "transparent", border: 0 }, children: [
+              /* @__PURE__ */ jsxs63("div", { className: "modal-help__section", children: [
+                /* @__PURE__ */ jsx66("h3", { className: "modal-help__title", children: "\u041D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044F \u043F\u043E \u043A\u043E\u0434\u0443" }),
+                /* @__PURE__ */ jsxs63("ul", { className: "modal-help__list", children: [
+                  /* @__PURE__ */ jsxs63("li", { children: [
+                    /* @__PURE__ */ jsx66("code", { children: "Ctrl+Shift+O" }),
+                    " \u2014 \u0441\u043F\u0438\u0441\u043E\u043A \u0432\u0441\u0435\u0445 \u0441\u0438\u043C\u0432\u043E\u043B\u043E\u0432 \u0444\u0430\u0439\u043B\u0430 (\u0441\u0435\u043A\u0446\u0438\u0438, \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438, \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B). \u041A\u043B\u0438\u043A \u043F\u043E \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u0443 \u2014 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u0441\u0442\u0440\u043E\u043A\u0435."
+                  ] }),
+                  /* @__PURE__ */ jsxs63("li", { children: [
+                    /* @__PURE__ */ jsx66("strong", { children: /* @__PURE__ */ jsx66("code", { children: "Ctrl+Click" }) }),
+                    " \u2014 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u043E\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u0438\u044E. \u0420\u0430\u0431\u043E\u0442\u0430\u0435\u0442 \u0434\u043B\u044F:",
+                    /* @__PURE__ */ jsxs63("ul", { children: [
+                      /* @__PURE__ */ jsxs63("li", { children: [
+                        /* @__PURE__ */ jsx66("code", { children: "id: Device" }),
+                        " \u2014 \u043A \u043E\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u0438\u044E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438;"
+                      ] }),
+                      /* @__PURE__ */ jsxs63("li", { children: [
+                        /* @__PURE__ */ jsx66("code", { children: "inherits: Device" }),
+                        " \u2014 \u043A \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438-\u0440\u043E\u0434\u0438\u0442\u0435\u043B\u044E;"
+                      ] }),
+                      /* @__PURE__ */ jsxs63("li", { children: [
+                        /* @__PURE__ */ jsx66("code", { children: "attribute: Requirement.identifier" }),
+                        " \u2014 Ctrl+Click \u043F\u043E ",
+                        /* @__PURE__ */ jsx66("code", { children: "Requirement" }),
+                        " \u2192 \u043A \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438, \u043F\u043E ",
+                        /* @__PURE__ */ jsx66("code", { children: "identifier" }),
+                        " \u2192 \u043A \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0443;"
+                      ] }),
+                      /* @__PURE__ */ jsxs63("li", { children: [
+                        /* @__PURE__ */ jsx66("code", { children: "action: some_action" }),
+                        ", ",
+                        /* @__PURE__ */ jsx66("code", { children: "view: list_x" }),
+                        ", ",
+                        /* @__PURE__ */ jsx66("code", { children: "linkage: link_y" }),
+                        " \u2014 \u043A \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u0443."
+                      ] })
+                    ] })
+                  ] }),
+                  /* @__PURE__ */ jsxs63("li", { children: [
+                    /* @__PURE__ */ jsx66("code", { children: "Ctrl+Shift+F12" }),
+                    " \u0438\u043B\u0438 ",
+                    /* @__PURE__ */ jsx66("code", { children: "Alt+F12" }),
+                    " \u2014 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u043E\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u0438\u044E (\u0430\u043B\u044C\u0442\u0435\u0440\u043D\u0430\u0442\u0438\u0432\u0430 F12, \u0442\u0430\u043A \u043A\u0430\u043A F12 \u0432 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0435 \u043E\u0442\u043A\u0440\u044B\u0432\u0430\u0435\u0442 DevTools)."
+                  ] }),
+                  /* @__PURE__ */ jsxs63("li", { children: [
+                    /* @__PURE__ */ jsx66("code", { children: "Ctrl+Alt+F12" }),
+                    " \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0438\u0437 \u0447\u0443\u0436\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430 (",
+                    /* @__PURE__ */ jsx66("code", { children: "other.domain/Entity" }),
+                    ") \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435."
+                  ] }),
+                  /* @__PURE__ */ jsxs63("li", { children: [
+                    /* @__PURE__ */ jsx66("em", { children: "\u0421\u043E\u0432\u0435\u0442:" }),
+                    " \u0435\u0441\u043B\u0438 F12 \u043F\u0440\u0438\u0432\u044B\u0447\u043D\u0435\u0435, \u0432 ",
+                    /* @__PURE__ */ jsx66("code", { children: "chrome://settings" }),
+                    " \u2192 DevTools \u043C\u043E\u0436\u043D\u043E \u043E\u0442\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0433\u043B\u043E\u0431\u0430\u043B\u044C\u043D\u0443\u044E \u043A\u043E\u043C\u0431\u0438\u043D\u0430\u0446\u0438\u044E, \u043D\u043E \u044D\u0442\u043E \u043D\u0435 \u0440\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0443\u0435\u0442\u0441\u044F."
+                  ] })
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxs63("div", { className: "modal-help__section", children: [
+                /* @__PURE__ */ jsx66("h3", { className: "modal-help__title", children: "\u041F\u043E\u0438\u0441\u043A \u0438 \u043F\u0435\u0440\u0435\u043C\u0435\u0449\u0435\u043D\u0438\u0435" }),
+                /* @__PURE__ */ jsxs63("ul", { className: "modal-help__list", children: [
+                  /* @__PURE__ */ jsxs63("li", { children: [
+                    /* @__PURE__ */ jsx66("code", { children: "Ctrl+F" }),
+                    " \u2014 \u043F\u043E\u0438\u0441\u043A \u043F\u043E \u0444\u0430\u0439\u043B\u0443."
+                  ] }),
+                  /* @__PURE__ */ jsxs63("li", { children: [
+                    /* @__PURE__ */ jsx66("code", { children: "Ctrl+G" }),
+                    " \u2014 \u043F\u0435\u0440\u0435\u0439\u0442\u0438 \u043A \u0441\u0442\u0440\u043E\u043A\u0435."
+                  ] }),
+                  /* @__PURE__ */ jsxs63("li", { children: [
+                    /* @__PURE__ */ jsx66("code", { children: "Alt+\u2191" }),
+                    " / ",
+                    /* @__PURE__ */ jsx66("code", { children: "Alt+\u2193" }),
+                    " \u2014 \u043F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0430\u044F / \u0441\u043B\u0435\u0434\u0443\u044E\u0449\u0430\u044F \u0441\u0442\u0440\u043E\u043A\u0430."
+                  ] }),
+                  /* @__PURE__ */ jsxs63("li", { children: [
+                    /* @__PURE__ */ jsx66("code", { children: "Ctrl+Home" }),
+                    " / ",
+                    /* @__PURE__ */ jsx66("code", { children: "Ctrl+End" }),
+                    " \u2014 \u043D\u0430\u0447\u0430\u043B\u043E / \u043A\u043E\u043D\u0435\u0446 \u0444\u0430\u0439\u043B\u0430."
+                  ] })
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxs63("div", { className: "modal-help__section", children: [
+                /* @__PURE__ */ jsx66("h3", { className: "modal-help__title", children: "\u041B\u0435\u0432\u0430\u044F \u043F\u0430\u043D\u0435\u043B\u044C \u043D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u0438" }),
+                /* @__PURE__ */ jsxs63("ul", { className: "modal-help__list", children: [
+                  /* @__PURE__ */ jsxs63("li", { children: [
+                    "\u041A\u043B\u0438\u043A \u043F\u043E \u0442\u0440\u0435\u0443\u0433\u043E\u043B\u044C\u043D\u0438\u043A\u0443 ",
+                    /* @__PURE__ */ jsx66("code", { children: "\u25B8" }),
+                    " \u2014 \u0441\u0432\u0435\u0440\u043D\u0443\u0442\u044C/\u0440\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0441\u0435\u043A\u0446\u0438\u044E."
+                  ] }),
+                  /* @__PURE__ */ jsxs63("li", { children: [
+                    "\u041A\u043B\u0438\u043A \u043F\u043E ",
+                    /* @__PURE__ */ jsx66("code", { children: "\u2192" }),
+                    " \u0441\u043F\u0440\u0430\u0432\u0430 \u043E\u0442 \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u044F \u0441\u0435\u043A\u0446\u0438\u0438 \u2014 \u043F\u0435\u0440\u0435\u0439\u0442\u0438 \u043A \u043D\u0430\u0447\u0430\u043B\u0443 \u0441\u0435\u043A\u0446\u0438\u0438."
+                  ] }),
+                  /* @__PURE__ */ jsx66("li", { children: "\u041F\u043E\u043B\u0435 \u043F\u043E\u0438\u0441\u043A\u0430 \u0441\u0432\u0435\u0440\u0445\u0443 \u2014 \u0444\u0438\u043B\u044C\u0442\u0440 \u043F\u043E id; \u0440\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442 \u2014 \u043F\u043B\u043E\u0441\u043A\u0438\u0439 \u0441\u043F\u0438\u0441\u043E\u043A \u0441 \u043D\u043E\u043C\u0435\u0440\u0430\u043C\u0438 \u0441\u0442\u0440\u043E\u043A." }),
+                  /* @__PURE__ */ jsxs63("li", { children: [
+                    "\u041A\u043D\u043E\u043F\u043A\u0438 ",
+                    /* @__PURE__ */ jsx66("code", { children: "\u2922 \u2921" }),
+                    " \u2014 \u0440\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C / \u0441\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0451."
+                  ] })
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxs63("div", { className: "modal-help__section", children: [
+                /* @__PURE__ */ jsx66("h3", { className: "modal-help__title", children: "\u041A\u043B\u0430\u0432\u0438\u0430\u0442\u0443\u0440\u0430 \u0432 \u043D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u0438" }),
+                /* @__PURE__ */ jsxs63("ul", { className: "modal-help__list", children: [
+                  /* @__PURE__ */ jsxs63("li", { children: [
+                    /* @__PURE__ */ jsx66("code", { children: "\u2191" }),
+                    " / ",
+                    /* @__PURE__ */ jsx66("code", { children: "\u2193" }),
+                    " \u2014 \u043D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044F \u043F\u043E \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u0430\u043C (\u043A\u043E\u0433\u0434\u0430 \u0444\u043E\u043A\u0443\u0441 \u043D\u0435 \u0432 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0435)."
+                  ] }),
+                  /* @__PURE__ */ jsxs63("li", { children: [
+                    /* @__PURE__ */ jsx66("code", { children: "Enter" }),
+                    " \u2014 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u043E\u043C\u0443 \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u0443."
+                  ] }),
+                  /* @__PURE__ */ jsxs63("li", { children: [
+                    /* @__PURE__ */ jsx66("code", { children: "\u2190" }),
+                    " \u2014 \u0441\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0430\u043A\u0442\u0438\u0432\u043D\u0443\u044E \u0441\u0435\u043A\u0446\u0438\u044E."
+                  ] }),
+                  /* @__PURE__ */ jsxs63("li", { children: [
+                    /* @__PURE__ */ jsx66("code", { children: "\u2192" }),
+                    " \u2014 \u0440\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0430\u043A\u0442\u0438\u0432\u043D\u0443\u044E \u0441\u0435\u043A\u0446\u0438\u044E."
+                  ] })
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxs63("div", { className: "modal-help__section", children: [
+                /* @__PURE__ */ jsx66("h3", { className: "modal-help__title", children: "\u041F\u0440\u0430\u0432\u0430\u044F \u043F\u0430\u043D\u0435\u043B\u044C" }),
+                /* @__PURE__ */ jsxs63("ul", { className: "modal-help__list", children: [
+                  /* @__PURE__ */ jsxs63("li", { children: [
+                    /* @__PURE__ */ jsx66("strong", { children: "\u041F\u0440\u043E\u0431\u043B\u0435\u043C\u044B" }),
+                    " \u2014 \u0432\u0441\u0435 lint-issues \u0434\u043E\u043C\u0435\u043D\u0430. \u041A\u043B\u0438\u043A \u043F\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0435 \u2014 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u0441\u0442\u0440\u043E\u043A\u0435."
+                  ] }),
+                  /* @__PURE__ */ jsxs63("li", { children: [
+                    /* @__PURE__ */ jsx66("strong", { children: "\u0421\u0441\u044B\u043B\u043A\u0438" }),
+                    " \u2014 \u0432\u0441\u0435 \u0441\u0441\u044B\u043B\u043A\u0438 \u0438\u0437 \u044D\u0442\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430 \u0432 \u0434\u0440\u0443\u0433\u0438\u0435 \u0434\u043E\u043C\u0435\u043D\u044B. \u041A\u043B\u0438\u043A \u2014 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u0441\u0442\u0440\u043E\u043A\u0435."
+                  ] })
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxs63("div", { className: "modal-help__section", children: [
+                /* @__PURE__ */ jsx66("h3", { className: "modal-help__title", children: "\u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435" }),
+                /* @__PURE__ */ jsxs63("ul", { className: "modal-help__list", children: [
+                  /* @__PURE__ */ jsxs63("li", { children: [
+                    /* @__PURE__ */ jsx66("code", { children: "\u{1F512}" }),
+                    " \u2014 \u0440\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0444\u0430\u0439\u043B \u0434\u043B\u044F \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F (\u043A\u043D\u043E\u043F\u043A\u0430 \u0432 \u0448\u0430\u043F\u043A\u0435)."
+                  ] }),
+                  /* @__PURE__ */ jsxs63("li", { children: [
+                    /* @__PURE__ */ jsx66("code", { children: "\u{1F4CB}" }),
+                    " \u2014 \u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u0435 \u0432 \u0431\u0443\u0444\u0435\u0440 \u043E\u0431\u043C\u0435\u043D\u0430."
+                  ] }),
+                  /* @__PURE__ */ jsxs63("li", { children: [
+                    /* @__PURE__ */ jsx66("code", { children: "\u{1F4BE}" }),
+                    " \u0438\u043B\u0438 ",
+                    /* @__PURE__ */ jsx66("code", { children: "Ctrl+S" }),
+                    " \u2014 \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F (\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E \u0442\u043E\u043B\u044C\u043A\u043E \u0432 \u043B\u043E\u043A\u0430\u043B\u044C\u043D\u043E\u043C \u0440\u0435\u0436\u0438\u043C\u0435)."
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxs63("p", { className: "modal-help__text", style: { marginTop: 8 }, children: [
+                  "\u0412 \u0440\u0435\u0436\u0438\u043C\u0435 ",
+                  /* @__PURE__ */ jsx66("code", { children: "--server" }),
+                  " \u0444\u0430\u0439\u043B\u044B \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u044B \u0442\u043E\u043B\u044C\u043A\u043E \u0434\u043B\u044F \u0447\u0442\u0435\u043D\u0438\u044F. \u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0439\u0442\u0435 \u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435, \u0447\u0442\u043E\u0431\u044B \u043F\u0435\u0440\u0435\u043D\u0435\u0441\u0442\u0438 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u0432\u0440\u0443\u0447\u043D\u0443\u044E."
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxs63("div", { className: "modal-help__section", children: [
+                /* @__PURE__ */ jsx66("h3", { className: "modal-help__title", children: "\u041F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0438 \u043F\u0440\u0438 \u043D\u0430\u0432\u0435\u0434\u0435\u043D\u0438\u0438" }),
+                /* @__PURE__ */ jsxs63("ul", { className: "modal-help__list", children: [
+                  /* @__PURE__ */ jsxs63("li", { children: [
+                    "\u041D\u0430\u0432\u0435\u0434\u0438\u0442\u0435 \u043D\u0430 ",
+                    /* @__PURE__ */ jsx66("code", { children: "id: Device" }),
+                    " \u2014 \u0442\u0443\u043B\u0442\u0438\u043F \u0441 \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u0435\u043C, \u043E\u043F\u0438\u0441\u0430\u043D\u0438\u0435\u043C, \u0447\u0438\u0441\u043B\u043E\u043C \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432, FQID."
+                  ] }),
+                  /* @__PURE__ */ jsxs63("li", { children: [
+                    "\u041D\u0430\u0432\u0435\u0434\u0438\u0442\u0435 \u043D\u0430 ",
+                    /* @__PURE__ */ jsx66("code", { children: "attribute: Requirement.identifier" }),
+                    " \u2014 \u0442\u0443\u043B\u0442\u0438\u043F \u0441 \u0442\u0438\u043F\u043E\u043C, \u043E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F\u043C\u0438, \u0441\u0441\u044B\u043B\u043A\u0430\u043C\u0438."
+                  ] })
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxs63("div", { className: "modal-help__section", children: [
+                /* @__PURE__ */ jsx66("h3", { className: "modal-help__title", children: "Code Actions (\u043B\u0430\u043C\u043F\u043E\u0447\u043A\u0430)" }),
+                /* @__PURE__ */ jsxs63("ul", { className: "modal-help__list", children: [
+                  /* @__PURE__ */ jsxs63("li", { children: [
+                    "\u041D\u0430 \u043C\u0430\u0440\u043A\u0435\u0440\u0435 \u043E\u0448\u0438\u0431\u043A\u0438/\u043F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u044F \u043A\u043B\u0438\u043A\u043D\u0438\u0442\u0435 \u043D\u0430 ",
+                    /* @__PURE__ */ jsx66("strong", { children: "\u{1F4A1} \u043B\u0430\u043C\u043F\u043E\u0447\u043A\u0443" }),
+                    " \u0441\u043B\u0435\u0432\u0430 \u043E\u0442 \u0441\u0442\u0440\u043E\u043A\u0438."
+                  ] }),
+                  /* @__PURE__ */ jsxs63("li", { children: [
+                    /* @__PURE__ */ jsx66("strong", { children: "\u{1F4D6} \u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0441\u043F\u0440\u0430\u0432\u043A\u0443" }),
+                    " \u2014 \u0442\u0435\u043A\u0441\u0442 \u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u0438 \u0440\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u044F."
+                  ] }),
+                  /* @__PURE__ */ jsxs63("li", { children: [
+                    /* @__PURE__ */ jsx66("strong", { children: "\u{1F507} \u0418\u0433\u043D\u043E\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C" }),
+                    " \u2014 \u0441\u043A\u0440\u044B\u0442\u044C \u044D\u0442\u043E \u043F\u0440\u0430\u0432\u0438\u043B\u043E \u0434\u043B\u044F \u0442\u0435\u043A\u0443\u0449\u0435\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430 (\u0441\u043E\u0445\u0440\u0430\u043D\u044F\u0435\u0442\u0441\u044F \u0432 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0435)."
+                  ] }),
+                  /* @__PURE__ */ jsxs63("li", { children: [
+                    /* @__PURE__ */ jsx66("strong", { children: "\u{1F52C} \u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043B\u0438\u043D\u0442\u0435\u0440" }),
+                    " \u2014 \u043F\u0435\u0440\u0435\u0439\u0442\u0438 \u043A \u0441\u043F\u0438\u0441\u043A\u0443 \u0432\u0441\u0435\u0445 \u043F\u0440\u043E\u0431\u043B\u0435\u043C \u0434\u043E\u043C\u0435\u043D\u0430."
+                  ] })
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxs63("div", { className: "modal-help__section", children: [
+                /* @__PURE__ */ jsx66("h3", { className: "modal-help__title", children: "Diff \u0441 \u043F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0438\u043C \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u0435\u043C" }),
+                /* @__PURE__ */ jsxs63("ul", { className: "modal-help__list", children: [
+                  /* @__PURE__ */ jsxs63("li", { children: [
+                    "\u041A\u043D\u043E\u043F\u043A\u0430 ",
+                    /* @__PURE__ */ jsx66("code", { children: "\u{1F50D} Diff" }),
+                    " \u0432 \u0448\u0430\u043F\u043A\u0435 \u043F\u043E\u044F\u0432\u043B\u044F\u0435\u0442\u0441\u044F, \u0435\u0441\u043B\u0438 \u0444\u0430\u0439\u043B \u0441\u043E\u0445\u0440\u0430\u043D\u044F\u043B\u0441\u044F \u0445\u043E\u0442\u044F \u0431\u044B \u0440\u0430\u0437."
+                  ] }),
+                  /* @__PURE__ */ jsx66("li", { children: "\u041F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 side-by-side \u0441\u0440\u0430\u0432\u043D\u0435\u043D\u0438\u0435 \u0441 \u043F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0435\u0439 \u0432\u0435\u0440\u0441\u0438\u0435\u0439 \u043D\u0430 \u0434\u0438\u0441\u043A\u0435." }),
+                  /* @__PURE__ */ jsx66("li", { children: "\u041F\u043E\u0441\u043B\u0435 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F \u2014 diff \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u043E\u0431\u043D\u043E\u0432\u0438\u0442\u0441\u044F." })
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxs63("div", { className: "modal-help__section", children: [
+                /* @__PURE__ */ jsx66("h3", { className: "modal-help__title", children: "\u041F\u0440\u043E\u0432\u0435\u0440\u043A\u0438 RQL" }),
+                /* @__PURE__ */ jsxs63("ul", { className: "modal-help__list", children: [
+                  /* @__PURE__ */ jsxs63("li", { children: [
+                    /* @__PURE__ */ jsx66("strong", { children: "\u0421\u0438\u043D\u0442\u0430\u043A\u0441\u0438\u0441" }),
+                    " \u2014 \u043D\u0435\u0437\u0430\u043A\u0440\u044B\u0442\u044B\u0435 \u0441\u043A\u043E\u0431\u043A\u0438, \u043A\u0430\u0432\u044B\u0447\u043A\u0438, \u043E\u0431\u0440\u0435\u0437\u0430\u043D\u043D\u044B\u0435 \u043E\u043F\u0435\u0440\u0430\u0442\u043E\u0440\u044B."
+                  ] }),
+                  /* @__PURE__ */ jsxs63("li", { children: [
+                    /* @__PURE__ */ jsx66("strong", { children: "\u041F\u043E\u043B\u044F" }),
+                    " \u2014 ",
+                    /* @__PURE__ */ jsx66("code", { children: "@field" }),
+                    " \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442\u0441\u044F \u043D\u0430 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u043E\u0432\u0430\u043D\u0438\u0435 \u0432 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u043D\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438."
+                  ] }),
+                  /* @__PURE__ */ jsxs63("li", { children: [
+                    /* @__PURE__ */ jsx66("strong", { children: "\u0422\u0438\u043F\u044B" }),
+                    " \u2014 \u0441\u0440\u0430\u0432\u043D\u0435\u043D\u0438\u0435 \u0441 \u0447\u0438\u0441\u043B\u043E\u043C \u0434\u043B\u044F \u0441\u0442\u0440\u043E\u043A\u043E\u0432\u043E\u0433\u043E \u043F\u043E\u043B\u044F \u0438 \u043D\u0430\u043E\u0431\u043E\u0440\u043E\u0442."
+                  ] }),
+                  /* @__PURE__ */ jsxs63("li", { children: [
+                    /* @__PURE__ */ jsx66("strong", { children: "FROM(...)" }),
+                    " \u2014 \u043F\u043E\u043B\u044F \u0432 ",
+                    /* @__PURE__ */ jsx66("code", { children: "IN SELECT(...)" }),
+                    " \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u044E\u0442\u0441\u044F \u0442\u0430\u043A \u0436\u0435."
+                  ] })
+                ] })
+              ] })
+            ] }) })
+          ]
+        }
+      )
+    }
+  );
+}
+var init_YamlViewerHelp = __esm({
+  "src/web/components/modals/YamlViewerHelp.tsx"() {
+    "use strict";
+  }
+});
+
+// src/web/components/modals/YamlViewerModal.tsx
+import React36, { useCallback as useCallback16, useEffect as useEffect32, useMemo as useMemo38, useRef as useRef12, useState as useState31 } from "react";
+import { Fragment as Fragment13, jsx as jsx67, jsxs as jsxs64 } from "react/jsx-runtime";
+function YamlViewerModal() {
+  const store = useGraphStore();
+  const { index } = useModelIndex();
+  const { ready: monacoReady, error: monacoError } = useMonacoLoader();
+  const open = store.yamlViewerOpen;
+  const filePath = store.yamlViewerFilePath;
+  const fqid = store.yamlViewerFqid;
+  const domainId = store.yamlViewerDomainId;
+  const remoteInfo = useMemo38(() => readRemoteInfo(), []);
+  const isRemoteMode = !!(remoteInfo && remoteInfo.server);
+  const { content: fetchedContent, loading, error: loadError } = useYamlContent(open ? filePath : null);
+  const [content, setContent] = useState31("");
+  const [savedContent, setSavedContent] = useState31("");
+  const [liveVersion, setLiveVersion] = useState31(0);
+  const liveDebounce = useRef12(null);
+  const [editorCreated, setEditorCreated] = useState31(false);
+  const [ignoredVersion, setIgnoredVersion] = useState31(0);
+  const [diffMode, setDiffMode] = useState31(false);
+  const [previousContent, setPreviousContent] = useState31(null);
+  const diffContainerRef = useRef12(null);
+  const diffEditorRef = useRef12(null);
+  const [contentForPath, setContentForPath] = useState31(null);
+  useEffect32(() => {
+    if (loading)
+      return;
+    if (fetchedContent === null || fetchedContent === void 0)
+      return;
+    setContent(fetchedContent);
+    setSavedContent(fetchedContent);
+    setContentForPath(filePath);
+  }, [loading, fetchedContent, filePath]);
+  useEffect32(() => {
+    if (!editorCreated || !editorRef.current)
+      return;
+    const handler = () => {
+      clearTimeout(liveDebounce.current);
+      liveDebounce.current = setTimeout(() => {
+        if (editorRef.current) {
+          setContent(editorRef.current.getValue());
+          setLiveVersion((v) => v + 1);
+        }
+      }, 300);
+    };
+    const sub = editorRef.current.onDidChangeModelContent(handler);
+    return () => {
+      clearTimeout(liveDebounce.current);
+      try {
+        sub?.dispose?.();
+      } catch {
+      }
+    };
+  }, [editorCreated]);
+  const [rightTab, setRightTab] = useState31("issues");
+  const [showHelp, setShowHelp] = useState31(false);
+  const [isLocked, setIsLocked] = useState31(true);
+  const isDirty = content !== savedContent;
+  const [isSaving, setIsSaving] = useState31(false);
+  const [saveError, setSaveError] = useState31(null);
+  const [copyFeedback, setCopyFeedback] = useState31(false);
+  const [saveFeedback, setSaveFeedback] = useState31(false);
+  const [expandedNodes, setExpandedNodes] = useState31(/* @__PURE__ */ new Set());
+  const [navQuery, setNavQuery] = useState31("");
+  const navListRef = useRef12(null);
+  const [activeNavIdx, setActiveNavIdx] = useState31(-1);
+  const editorRef = useRef12(null);
+  const containerRef = useRef12(null);
+  const saveRef = useRef12(() => {
+  });
+  const schema = useMemo38(() => {
+    if (!index || !domainId)
+      return null;
+    return index.schemasByDomain[domainId] || null;
+  }, [index, domainId]);
+  const lineMap = useMemo38(() => {
+    if (!content || !schema)
+      return null;
+    return buildLineMap(content, schema);
+  }, [content, schema]);
+  const domainIssues = useMemo38(() => {
+    if (!index || !domainId)
+      return [];
+    return index.lint.lintReport.issues.filter((i) => i.domainId === domainId);
+  }, [index, domainId]);
+  const allIssues = useMemo38(() => {
+    if (!lineMap || !content || !domainId)
+      return domainIssues;
+    const rqlIssues = scanRqlInText(content, lineMap.lineContexts, index || null);
+    const mapped = rqlIssues.map((r, idx) => ({
+      ruleId: "rql-check",
+      rule: r.message.length > 60 ? r.message.slice(0, 60) + "\u2026" : r.message,
+      severity: r.severity,
+      category: "validation",
+      message: r.message,
+      domainId,
+      line: r.line,
+      propertyPath: "",
+      __clientOnly: true,
+      __key: "rql-" + idx
+    }));
+    return [...domainIssues, ...mapped];
+  }, [domainIssues, lineMap, content, index, domainId]);
+  const [refsVersion, setRefsVersion] = useState31(0);
+  useEffect32(() => {
+    if (!editorCreated || !editorRef.current)
+      return;
+    const disposable = editorRef.current.onDidChangeModelContent(() => {
+      setRefsVersion((v) => v + 1);
+    });
+    return () => {
+      try {
+        disposable?.dispose?.();
+      } catch {
+      }
+    };
+  }, [editorCreated]);
+  const externalRefs = useMemo38(() => {
+    if (!content || !domainId)
+      return { refs: [], groups: [] };
+    const refs = extractExternalRefs(content, domainId);
+    return { refs, groups: groupExternalRefs(refs) };
+  }, [content, domainId, liveVersion]);
+  const flatNavNodes = useMemo38(() => {
+    if (!lineMap)
+      return [];
+    const result = [];
+    const walk = (node, sectionKey, depth) => {
+      const key = sectionKey + "#" + node.id;
+      const hasChildren = !!node.children && node.children.length > 0;
+      const expanded = expandedNodes.has(key);
+      result.push({
+        key,
+        label: node.id,
+        line: node.line,
+        depth,
+        sectionKey,
+        hasChildren,
+        expanded,
+        node
+      });
+      if (hasChildren && expanded) {
+        node.children.forEach((child) => walk(child, key, depth + 1));
+      }
+    };
+    lineMap.sections.forEach((s) => s.nodes.forEach((n) => walk(n, s.key, 0)));
+    return result;
+  }, [lineMap, expandedNodes]);
+  const filteredNavNodes = useMemo38(() => {
+    const q = navQuery.trim().toLowerCase();
+    if (!q)
+      return flatNavNodes;
+    return flatNavNodes.filter((n) => n.label.toLowerCase().indexOf(q) !== -1);
+  }, [flatNavNodes, navQuery]);
+  useEffect32(() => {
+    if (!open)
+      return;
+    if (!monacoReady)
+      return;
+    if (loading)
+      return;
+    if (!filePath)
+      return;
+    if (contentForPath !== filePath)
+      return;
+    if (!containerRef.current)
+      return;
+    if (editorRef.current)
+      return;
+    const m = window.monaco;
+    if (!m || !m.editor)
+      return;
+    try {
+      registerMonacoProviders(m);
+    } catch (err) {
+      console.error("[monaco] providers registration failed", err);
+    }
+    try {
+      m.editor.defineTheme("dg-dark", {
+        base: "vs-dark",
+        inherit: true,
+        rules: [],
+        colors: {
+          "editor.background": "#0d1424",
+          "editor.foreground": "#e2e8f0",
+          "editorLineNumber.foreground": "#475569",
+          "editorLineNumber.activeForeground": "#94a3b8"
+        }
+      });
+    } catch {
+    }
+    let editor = null;
+    let ro = null;
+    const layouts = [];
+    try {
+      editor = m.editor.create(containerRef.current, {
+        value: content,
+        language: "yaml",
+        theme: "dg-dark",
+        readOnly: isLocked,
+        automaticLayout: true,
+        fontSize: 13,
+        lineNumbers: "on",
+        minimap: { enabled: true },
+        scrollBeyondLastLine: false,
+        folding: true,
+        breadcrumbs: { enabled: true },
+        fontFamily: "JetBrains Mono, SF Mono, Monaco, monospace",
+        renderWhitespace: "selection",
+        wordWrap: "off",
+        scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
+        occurrencesHighlight: "off",
+        selectionHighlight: false
+      });
+      editorRef.current = editor;
+      setEditorCreated(true);
+      layouts.push(setTimeout(() => {
+        try {
+          editor?.layout();
+        } catch {
+        }
+      }, 0));
+      layouts.push(setTimeout(() => {
+        try {
+          editor?.layout();
+        } catch {
+        }
+      }, 100));
+      layouts.push(setTimeout(() => {
+        try {
+          editor?.layout();
+        } catch {
+        }
+      }, 350));
+      if (containerRef.current) {
+        ro = new ResizeObserver(() => {
+          try {
+            editor?.layout();
+          } catch {
+          }
+        });
+        ro.observe(containerRef.current);
+      }
+    } catch (e) {
+      console.error("[yaml-viewer] create failed", e);
+    }
+    return () => {
+      layouts.forEach(clearTimeout);
+      try {
+        ro?.disconnect();
+      } catch {
+      }
+      try {
+        editor?.dispose();
+      } catch {
+      }
+      if (editorRef.current === editor) {
+        editorRef.current = null;
+        setEditorCreated(false);
+      }
+    };
+  }, [open, monacoReady, filePath, loading, contentForPath]);
+  useEffect32(() => {
+    if (!editorCreated || !editorRef.current)
+      return;
+    if (contentForPath !== filePath)
+      return;
+    if (!content)
+      return;
+    const current = editorRef.current.getValue();
+    if (current !== content) {
+      editorRef.current.setValue(content);
+    }
+  }, [content, editorCreated, contentForPath, filePath]);
+  useEffect32(() => {
+    saveRef.current = handleSave;
+  });
+  useEffect32(() => {
+    if (!editorCreated || !editorRef.current)
+      return;
+    const m = window.monaco;
+    if (!m)
+      return;
+    const id = editorRef.current.addCommand(
+      m.KeyMod.CtrlCmd | m.KeyCode.KeyS,
+      () => saveRef.current()
+    );
+    return () => {
+    };
+  }, [editorCreated]);
+  useEffect32(() => {
+    if (!editorRef.current)
+      return;
+    try {
+      editorRef.current.updateOptions({ readOnly: isLocked });
+    } catch {
+    }
+  }, [isLocked, editorCreated]);
+  useEffect32(() => {
+    if (!monacoReady)
+      return;
+    updateProviderContext({
+      lineMap: lineMap || null,
+      currentFilePath: filePath,
+      currentDomainId: domainId,
+      modelIndex: index || null
+    });
+  }, [monacoReady, lineMap, filePath, domainId, index]);
+  useEffect32(() => {
+    if (open)
+      return;
+    resetProviderContext();
+  }, [open]);
+  useEffect32(() => {
+    if (!monacoReady || !editorCreated || !editorRef.current)
+      return;
+    const m = window.monaco;
+    if (!m)
+      return;
+    const model = editorRef.current.getModel();
+    if (!model)
+      return;
+    const t = setTimeout(() => applyRqlMarkers(m, model), 100);
+    return () => clearTimeout(t);
+  }, [monacoReady, editorCreated, lineMap]);
+  const ignored = useMemo38(() => {
+    try {
+      const key = `dg-yaml-ignored:${domainId}`;
+      const raw = localStorage.getItem(key);
+      return new Set(raw ? JSON.parse(raw) : []);
+    } catch {
+      return /* @__PURE__ */ new Set();
+    }
+  }, [domainId, ignoredVersion]);
+  useEffect32(() => {
+    if (!monacoReady || !editorCreated || !editorRef.current || !lineMap)
+      return;
+    const m = window.monaco;
+    const model = editorRef.current.getModel();
+    if (!m || !model)
+      return;
+    const markers = domainIssues.filter((issue) => !isIgnored(issue, ignored)).map((issue) => {
+      const line = findIssueLine(issue, lineMap);
+      if (line == null)
+        return null;
+      return {
+        severity: issue.severity === "error" ? m.MarkerSeverity.Error : issue.severity === "warning" ? m.MarkerSeverity.Warning : m.MarkerSeverity.Info,
+        message: `[${issue.rule}] ${issue.message}${issue.hint ? "\n\n\u{1F4A1} " + issue.hint : ""}`,
+        startLineNumber: line,
+        startColumn: 1,
+        endLineNumber: line,
+        endColumn: 1e6,
+        source: "dg-linter"
+      };
+    }).filter((x) => x !== null);
+    m.editor.setModelMarkers(model, "dg-linter", markers);
+    return () => {
+      try {
+        m.editor.setModelMarkers(model, "dg-linter", []);
+      } catch {
+      }
+    };
+  }, [monacoReady, editorCreated, lineMap, domainIssues]);
+  const jumpTo = useCallback16((line) => {
+    const editor = editorRef.current;
+    if (!editor)
+      return;
+    editor.revealLineInCenter(line);
+    editor.setPosition({ lineNumber: line, column: 1 });
+    editor.focus();
+  }, []);
+  useEffect32(() => {
+    if (!open || !lineMap || !fqid || !editorCreated)
+      return;
+    const entityId = fqid.split("/")[1];
+    if (!entityId)
+      return;
+    const line = lineMap.itemLines.get(`entities#${entityId}`);
+    if (!line)
+      return;
+    const sectionEl = document.querySelector(
+      '.yaml-nav-section[data-section-key="entities"]'
+    );
+    if (sectionEl)
+      sectionEl.open = true;
+    setTimeout(() => jumpTo(line), 200);
+  }, [open, lineMap, fqid, editorCreated, jumpTo]);
+  const toggleNode = useCallback16((key) => {
+    setExpandedNodes((prev) => {
+      const s = new Set(prev);
+      if (s.has(key))
+        s.delete(key);
+      else
+        s.add(key);
+      return s;
+    });
+  }, []);
+  const expandAll = useCallback16(() => {
+    if (!lineMap)
+      return;
+    const all = /* @__PURE__ */ new Set();
+    const walk = (node, sectionKey) => {
+      if (node.children && node.children.length > 0) {
+        const key = sectionKey + "#" + node.id;
+        all.add(key);
+        node.children.forEach((child) => walk(child, key));
+      }
+    };
+    lineMap.sections.forEach((s) => s.nodes.forEach((n) => walk(n, s.key)));
+    setExpandedNodes(all);
+    document.querySelectorAll(".yaml-nav-section").forEach((el) => {
+      el.open = true;
+    });
+  }, [lineMap]);
+  const collapseAll = useCallback16(() => {
+    setExpandedNodes(/* @__PURE__ */ new Set());
+    document.querySelectorAll(".yaml-nav-section").forEach((el) => {
+      el.open = false;
+    });
+  }, []);
+  const handleCopy = useCallback16(async () => {
+    const text = editorRef.current ? editorRef.current.getValue() : content;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyFeedback(true);
+      setTimeout(() => setCopyFeedback(false), 1500);
+    } catch (err) {
+      alert("\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0441\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C: " + err.message);
+    }
+  }, [content]);
+  const handleToggleLock = useCallback16(() => {
+    if (isLocked) {
+      setIsLocked(false);
+      setSaveError(null);
+    } else {
+      if (isDirty) {
+        if (!confirm("\u0415\u0441\u0442\u044C \u043D\u0435\u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D\u043D\u044B\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F. \u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0438\u0445 \u0438 \u0437\u0430\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0444\u0430\u0439\u043B?"))
+          return;
+        if (editorRef.current) {
+          editorRef.current.setValue(savedContent);
+        }
+        setContent(savedContent);
+      }
+      setIsLocked(true);
+    }
+  }, [isLocked, isDirty, savedContent]);
+  const handleSave = useCallback16(async () => {
+    if (isLocked || !editorRef.current)
+      return;
+    if (isRemoteMode)
+      return;
+    const currentValue = editorRef.current.getValue();
+    if (currentValue === savedContent) {
+      setSaveFeedback(true);
+      setTimeout(() => setSaveFeedback(false), 1500);
+      return;
+    }
+    setIsSaving(true);
+    setSaveError(null);
+    try {
+      const res = await fetch("/file", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: filePath, content: currentValue })
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        let errMsg = errText;
+        try {
+          const j = JSON.parse(errText);
+          if (j.error)
+            errMsg = j.error;
+        } catch {
+        }
+        throw new Error(errMsg);
+      }
+      invalidateYamlCache(filePath || void 0);
+      setSavedContent(currentValue);
+      setContent(currentValue);
+      setLiveVersion((v) => v + 1);
+      setSaveFeedback(true);
+      setTimeout(() => setSaveFeedback(false), 2e3);
+    } catch (err) {
+      setSaveError(err.message || "\u041E\u0448\u0438\u0431\u043A\u0430 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F");
+    } finally {
+      setIsSaving(false);
+    }
+  }, [isLocked, isRemoteMode, savedContent, filePath]);
+  const handleClose = useCallback16(() => {
+    if (isDirty && !isLocked) {
+      if (!confirm("\u0415\u0441\u0442\u044C \u043D\u0435\u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D\u043D\u044B\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F. \u0417\u0430\u043A\u0440\u044B\u0442\u044C \u0431\u0435\u0437 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F?"))
+        return;
+    }
+    store.setYamlViewerOpen(false);
+  }, [isDirty, isLocked, store]);
+  useEffect32(() => {
+    if (!open)
+      return;
+    const handler = (e) => {
+      const target = e.target;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable))
+        return;
+      if (editorRef.current && editorRef.current.hasTextFocus && editorRef.current.hasTextFocus())
+        return;
+      if (e.ctrlKey || e.metaKey || e.altKey)
+        return;
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setActiveNavIdx((prev) => Math.min(prev + 1, filteredNavNodes.length - 1));
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setActiveNavIdx((prev) => Math.max(prev - 1, 0));
+      } else if (e.key === "Enter" && activeNavIdx >= 0) {
+        e.preventDefault();
+        const node = filteredNavNodes[activeNavIdx];
+        if (node)
+          jumpTo(node.line);
+      } else if (e.key === "ArrowRight" && activeNavIdx >= 0) {
+        const node = filteredNavNodes[activeNavIdx];
+        if (node && node.hasChildren && !node.expanded) {
+          e.preventDefault();
+          toggleNode(node.key);
+        }
+      } else if (e.key === "ArrowLeft" && activeNavIdx >= 0) {
+        const node = filteredNavNodes[activeNavIdx];
+        if (node && node.hasChildren && node.expanded) {
+          e.preventDefault();
+          toggleNode(node.key);
+        }
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [open, filteredNavNodes, activeNavIdx, jumpTo, toggleNode]);
+  useEffect32(() => {
+    if (activeNavIdx < 0 || !navListRef.current)
+      return;
+    const el = navListRef.current.querySelector(".yaml-nav-item--active");
+    if (el)
+      el.scrollIntoView({ block: "nearest" });
+  }, [activeNavIdx]);
+  const STORAGE_KEY = useMemo38(
+    () => domainId ? `dg-yaml-nav-collapsed:${domainId}` : null,
+    [domainId]
+  );
+  useEffect32(() => {
+    if (!open || !STORAGE_KEY)
+      return;
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw)
+        return;
+      const data = JSON.parse(raw);
+      if (Array.isArray(data.collapsedSections)) {
+        requestAnimationFrame(() => {
+          document.querySelectorAll(".yaml-nav-section").forEach((el) => {
+            const key = el.dataset.sectionKey;
+            if (key)
+              el.open = !data.collapsedSections.includes(key);
+          });
+        });
+      }
+      if (Array.isArray(data.expandedNodes)) {
+        setExpandedNodes(new Set(data.expandedNodes));
+      }
+    } catch {
+    }
+  }, [open, STORAGE_KEY]);
+  useEffect32(() => {
+    if (open || !STORAGE_KEY)
+      return;
+    try {
+      const sections = Array.from(
+        document.querySelectorAll(".yaml-nav-section")
+      );
+      const collapsedSections = sections.filter((el) => !el.open).map((el) => el.dataset.sectionKey).filter(Boolean);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        collapsedSections,
+        expandedNodes: Array.from(expandedNodes)
+      }));
+    } catch {
+    }
+  }, [open, STORAGE_KEY, expandedNodes]);
+  useEffect32(() => {
+    if (!editorCreated || !editorRef.current)
+      return;
+    const w = window;
+    const m = w.monaco;
+    if (!m)
+      return;
+    if (editorRef.current.__dgActionsRegistered)
+      return;
+    editorRef.current.__dgActionsRegistered = true;
+    try {
+      editorRef.current.addAction({
+        id: "dg-go-to-definition",
+        label: "\u041F\u0435\u0440\u0435\u0439\u0442\u0438 \u043A \u043E\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u0438\u044E",
+        keybindings: [
+          // F12 обычно перехватывается браузером (DevTools),
+          // поэтому используем альтернативы
+          m.KeyMod.CtrlCmd | m.KeyMod.Shift | m.KeyCode.F12,
+          m.KeyMod.Alt | m.KeyCode.F12
+        ],
+        contextMenuGroupId: "navigation",
+        contextMenuOrder: 1,
+        run: (ed) => {
+          ed.trigger("dg", "editor.action.revealDefinition", {});
+        }
+      });
+      editorRef.current.addAction({
+        id: "dg-open-fqid-in-catalog",
+        label: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435 (FQID)",
+        keybindings: [
+          m.KeyMod.CtrlCmd | m.KeyMod.Alt | m.KeyCode.F12
+        ],
+        contextMenuGroupId: "navigation",
+        contextMenuOrder: 2,
+        run: (ed) => {
+          const pos = ed.getPosition();
+          if (!pos)
+            return;
+          const lineText = ed.getModel().getLineContent(pos.lineNumber);
+          const fqidMatch = lineText.match(/[a-zA-Z0-9][\w.\-]*\/[\w.\-]+/);
+          if (!fqidMatch)
+            return;
+          const fqid2 = fqidMatch[0].toLowerCase();
+          useGraphStore.getState().setEntityCatalogInitialFqid(fqid2);
+          useGraphStore.getState().setEntityCatalogOpen(true);
+        }
+      });
+    } catch (err) {
+      console.error("[yaml-viewer] addAction failed", err);
+    }
+  }, [editorCreated]);
+  useEffect32(() => {
+    setIsLocked(true);
+    setSaveError(null);
+    setSaveFeedback(false);
+  }, [filePath]);
+  useEffect32(() => {
+    const handler = (e) => {
+      const detail = e.detail;
+      if (!detail || !detail.action)
+        return;
+      if (detail.action === "help") {
+        alert(detail.message);
+      } else if (detail.action === "ignore") {
+        try {
+          const key = `dg-yaml-ignored:${domainId}`;
+          const raw = localStorage.getItem(key);
+          const arr = raw ? JSON.parse(raw) : [];
+          const sig = `${detail.source}|${detail.message}`;
+          if (!arr.includes(sig)) {
+            arr.push(sig);
+            localStorage.setItem(key, JSON.stringify(arr));
+          }
+          if (editorRef.current) {
+            const m = window.monaco;
+            const model = editorRef.current.getModel();
+            if (m && model) {
+              setIgnoredVersion((v) => v + 1);
+            }
+          }
+        } catch {
+        }
+      } else if (detail.action === "open-lint") {
+        store.setLintOpen(true);
+      }
+    };
+    document.addEventListener("dg:issue-action", handler);
+    return () => document.removeEventListener("dg:issue-action", handler);
+  }, [domainId, store]);
+  useEffect32(() => {
+    if (!open || !filePath) {
+      setPreviousContent(null);
+      return;
+    }
+    let cancelled = false;
+    fetch("/file/previous?path=" + encodeURIComponent(filePath)).then((r) => r.ok ? r.text() : null).then((text) => {
+      if (!cancelled)
+        setPreviousContent(text);
+    }).catch(() => {
+      if (!cancelled)
+        setPreviousContent(null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, filePath, saveFeedback]);
+  useEffect32(() => {
+    if (!diffMode || !monacoReady || !editorCreated || !diffContainerRef.current)
+      return;
+    if (previousContent == null)
+      return;
+    const w = window;
+    const m = w.monaco;
+    if (!m || !editorRef.current)
+      return;
+    const modifiedContent = editorRef.current.getValue();
+    const originalModel = m.editor.createModel(previousContent, "yaml");
+    const modifiedModel = m.editor.createModel(modifiedContent, "yaml");
+    const diffEditor = m.editor.createDiffEditor(diffContainerRef.current, {
+      readOnly: true,
+      automaticLayout: true,
+      renderSideBySide: true,
+      originalEditable: false,
+      renderOverviewRuler: true,
+      ignoreTrimWhitespace: false
+    });
+    diffEditor.setModel({ original: originalModel, modified: modifiedModel });
+    diffEditorRef.current = diffEditor;
+    return () => {
+      try {
+        diffEditor.dispose();
+      } catch {
+      }
+      try {
+        originalModel.dispose();
+      } catch {
+      }
+      try {
+        modifiedModel.dispose();
+      } catch {
+      }
+      diffEditorRef.current = null;
+    };
+  }, [diffMode, monacoReady, editorCreated, previousContent]);
+  useEffect32(() => {
+    if (!editorRef.current)
+      return;
+    try {
+      editorRef.current.updateOptions({ readOnly: isLocked });
+    } catch {
+    }
+  }, [isLocked, editorCreated]);
+  useEffect32(() => {
+    if (!editorCreated || !editorRef.current)
+      return;
+    if (contentForPath !== filePath)
+      return;
+    if (!content)
+      return;
+    if (!isLocked)
+      return;
+    const current = editorRef.current.getValue();
+    if (current !== content) {
+      editorRef.current.setValue(content);
+    }
+  }, [content, editorCreated, contentForPath, filePath, isLocked]);
+  if (!open)
+    return null;
+  const canSave = !isRemoteMode && !isLocked && isDirty;
+  const issueCount = allIssues.length;
+  const refsCount = externalRefs.refs.length;
+  return /* @__PURE__ */ jsxs64(
+    "div",
+    {
+      className: "help-overlay help-overlay--fullscreen",
+      onMouseDown: handleClose,
+      children: [
+        /* @__PURE__ */ jsxs64(
+          "div",
+          {
+            className: "help-modal yaml-viewer-modal",
+            onMouseDown: (e) => e.stopPropagation(),
+            children: [
+              /* @__PURE__ */ jsxs64("div", { className: "help-modal__header", children: [
+                /* @__PURE__ */ jsxs64("div", { className: "help-modal__title", children: [
+                  "\u{1F4C4} ",
+                  filePath?.split("/").pop() || "\u0424\u0430\u0439\u043B \u0441\u0445\u0435\u043C\u044B",
+                  domainId && /* @__PURE__ */ jsx67("span", { className: "help-modal__badge", children: domainId }),
+                  isDirty && /* @__PURE__ */ jsx67("span", { className: "help-modal__badge help-modal__badge--dirty", children: "\u25CF \u0438\u0437\u043C\u0435\u043D\u0451\u043D" }),
+                  saveFeedback && /* @__PURE__ */ jsx67("span", { className: "help-modal__badge help-modal__badge--ok", children: "\u2713 \u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D" })
+                ] }),
+                /* @__PURE__ */ jsxs64("div", { className: "help-modal__actions", children: [
+                  /* @__PURE__ */ jsx67(
+                    "button",
+                    {
+                      className: "help-modal__icon-btn" + (!isLocked ? " active" : ""),
+                      onClick: handleToggleLock,
+                      title: isLocked ? "\u0420\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0434\u043B\u044F \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F" : "\u0417\u0430\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u0442\u044C (\u0441\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F)",
+                      children: /* @__PURE__ */ jsx67(MIcon, { name: isLocked ? "lock" : "lock_open" })
+                    }
+                  ),
+                  /* @__PURE__ */ jsx67(
+                    "button",
+                    {
+                      className: "help-modal__icon-btn" + (copyFeedback ? " active" : ""),
+                      onClick: handleCopy,
+                      title: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u0435 \u0432 \u0431\u0443\u0444\u0435\u0440",
+                      children: /* @__PURE__ */ jsx67(MIcon, { name: copyFeedback ? "check" : "content_copy" })
+                    }
+                  ),
+                  /* @__PURE__ */ jsx67(
+                    "button",
+                    {
+                      className: "help-modal__icon-btn" + (saveFeedback ? " active" : ""),
+                      onClick: handleSave,
+                      disabled: !canSave || isSaving,
+                      title: isRemoteMode ? "\u0421\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u0435 \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E \u0432 \u0440\u0435\u0436\u0438\u043C\u0435 --server" : isLocked ? "\u0420\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u0443\u0439\u0442\u0435 \u0444\u0430\u0439\u043B \u0434\u043B\u044F \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F" : isDirty ? "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F (Ctrl+S)" : "\u041D\u0435\u0442 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439 \u0434\u043B\u044F \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F",
+                      children: /* @__PURE__ */ jsx67(MIcon, { name: isSaving ? "hourglass" : "save" })
+                    }
+                  ),
+                  previousContent != null && /* @__PURE__ */ jsx67(
+                    "button",
+                    {
+                      className: "help-modal__icon-btn" + (diffMode ? " active" : ""),
+                      onClick: () => setDiffMode(!diffMode),
+                      title: diffMode ? "\u0412\u0435\u0440\u043D\u0443\u0442\u044C\u0441\u044F \u043A \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0443" : "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C diff \u0441 \u043F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0438\u043C \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u0435\u043C",
+                      children: /* @__PURE__ */ jsx67(MIcon, { name: "difference" })
+                    }
+                  ),
+                  /* @__PURE__ */ jsx67(
+                    "button",
+                    {
+                      className: "help-modal__icon-btn",
+                      onClick: () => setShowHelp(true),
+                      title: "\u0421\u043F\u0440\u0430\u0432\u043A\u0430 \u043F\u043E \u043D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u0438",
+                      children: /* @__PURE__ */ jsx67(MIcon, { name: "help" })
+                    }
+                  ),
+                  /* @__PURE__ */ jsx67(
+                    "button",
+                    {
+                      className: "help-modal__close",
+                      onClick: handleClose,
+                      title: isDirty && !isLocked ? "\u0417\u0430\u043A\u0440\u044B\u0442\u044C \u0431\u0435\u0437 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F" : "\u0417\u0430\u043A\u0440\u044B\u0442\u044C",
+                      children: "\u2715"
+                    }
+                  )
+                ] })
+              ] }),
+              saveError && /* @__PURE__ */ jsxs64("div", { className: "yaml-save-error", children: [
+                "\u274C ",
+                saveError,
+                /* @__PURE__ */ jsx67("button", { onClick: () => setSaveError(null), children: "\u2715" })
+              ] }),
+              /* @__PURE__ */ jsxs64("div", { className: "yaml-viewer-body", children: [
+                /* @__PURE__ */ jsxs64("div", { className: "yaml-viewer-nav", children: [
+                  loading && /* @__PURE__ */ jsx67("div", { className: "yaml-viewer-nav__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430..." }),
+                  loadError && /* @__PURE__ */ jsx67("div", { className: "yaml-viewer-nav__error", children: loadError }),
+                  lineMap && /* @__PURE__ */ jsxs64(Fragment13, { children: [
+                    /* @__PURE__ */ jsxs64("div", { className: "yaml-viewer-nav__header", children: [
+                      /* @__PURE__ */ jsx67("span", { children: "\u041D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044F" }),
+                      /* @__PURE__ */ jsxs64("div", { className: "yaml-viewer-nav__actions", children: [
+                        /* @__PURE__ */ jsx67("button", { className: "yaml-viewer-nav__action", onClick: expandAll, title: "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0451", children: "\u2922" }),
+                        /* @__PURE__ */ jsx67("button", { className: "yaml-viewer-nav__action", onClick: collapseAll, title: "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0451", children: "\u2921" })
+                      ] })
+                    ] }),
+                    /* @__PURE__ */ jsxs64("div", { className: "yaml-viewer-nav__search", children: [
+                      /* @__PURE__ */ jsx67("span", { className: "yaml-viewer-nav__search-icon", children: "\u{1F50D}" }),
+                      /* @__PURE__ */ jsx67(
+                        "input",
+                        {
+                          type: "text",
+                          className: "yaml-viewer-nav__search-input",
+                          placeholder: "\u0424\u0438\u043B\u044C\u0442\u0440 \u043F\u043E id...",
+                          value: navQuery,
+                          onChange: (e) => {
+                            setNavQuery(e.target.value);
+                            setActiveNavIdx(-1);
+                          },
+                          spellCheck: false
+                        }
+                      ),
+                      navQuery && /* @__PURE__ */ jsx67(
+                        "button",
+                        {
+                          className: "yaml-viewer-nav__search-clear",
+                          onClick: () => setNavQuery(""),
+                          children: "\u2715"
+                        }
+                      )
+                    ] }),
+                    /* @__PURE__ */ jsx67("div", { className: "yaml-viewer-nav__list", ref: navListRef, children: navQuery.trim() !== "" ? /* @__PURE__ */ jsx67(
+                      FilteredNavList,
+                      {
+                        nodes: filteredNavNodes,
+                        activeIdx: activeNavIdx,
+                        onJump: jumpTo,
+                        onHover: setActiveNavIdx
+                      }
+                    ) : lineMap.sections.map((section) => /* @__PURE__ */ jsx67(
+                      SectionNav,
+                      {
+                        section,
+                        expandedNodes,
+                        onToggleNode: toggleNode,
+                        onJump: jumpTo,
+                        issues: allIssues,
+                        activeIdx: activeNavIdx,
+                        onSetActive: setActiveNavIdx,
+                        filteredNavNodes
+                      },
+                      section.key
+                    )) })
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxs64("div", { className: "yaml-viewer-editor", children: [
+                  /* @__PURE__ */ jsx67(
+                    "div",
+                    {
+                      ref: containerRef,
+                      style: { width: "100%", height: "100%" }
+                    },
+                    "monaco"
+                  ),
+                  (loading || !monacoReady && !monacoError) && /* @__PURE__ */ jsx67(
+                    "div",
+                    {
+                      className: "yaml-viewer-editor__loading",
+                      children: loading ? "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u0433\u043E..." : "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 Monaco..."
+                    },
+                    "loading"
+                  ),
+                  monacoError && /* @__PURE__ */ jsxs64("div", { className: "yaml-viewer-editor__error", children: [
+                    "\u041E\u0448\u0438\u0431\u043A\u0430 Monaco: ",
+                    monacoError
+                  ] }, "monaco-error"),
+                  loadError && /* @__PURE__ */ jsxs64("div", { className: "yaml-viewer-editor__error", children: [
+                    "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C \u0444\u0430\u0439\u043B: ",
+                    loadError
+                  ] }, "load-error"),
+                  !isLocked && /* @__PURE__ */ jsx67("div", { className: "yaml-viewer-editor__mode", children: "\u270F\uFE0F \u0420\u0435\u0436\u0438\u043C \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F" }, "mode")
+                ] }),
+                /* @__PURE__ */ jsxs64("div", { className: "yaml-viewer-issues", children: [
+                  /* @__PURE__ */ jsxs64("div", { className: "yaml-viewer-tabs", children: [
+                    /* @__PURE__ */ jsxs64(
+                      "button",
+                      {
+                        className: "yaml-viewer-tab" + (rightTab === "issues" ? " active" : ""),
+                        onClick: () => setRightTab("issues"),
+                        children: [
+                          /* @__PURE__ */ jsx67(MIcon, { name: "rule", size: "sm" }),
+                          /* @__PURE__ */ jsx67("span", { children: "\u041F\u0440\u043E\u0431\u043B\u0435\u043C\u044B" }),
+                          issueCount > 0 && /* @__PURE__ */ jsx67("span", { className: "yaml-viewer-tab__count", children: issueCount })
+                        ]
+                      }
+                    ),
+                    /* @__PURE__ */ jsxs64(
+                      "button",
+                      {
+                        className: "yaml-viewer-tab" + (rightTab === "refs" ? " active" : ""),
+                        onClick: () => setRightTab("refs"),
+                        children: [
+                          /* @__PURE__ */ jsx67(MIcon, { name: "link", size: "sm" }),
+                          /* @__PURE__ */ jsx67("span", { children: "\u0421\u0441\u044B\u043B\u043A\u0438" }),
+                          refsCount > 0 && /* @__PURE__ */ jsx67("span", { className: "yaml-viewer-tab__count", children: refsCount })
+                        ]
+                      }
+                    )
+                  ] }),
+                  rightTab === "issues" && /* @__PURE__ */ jsx67(IssuesPanel, { issues: allIssues, onJump: jumpTo, lineMap }),
+                  rightTab === "refs" && /* @__PURE__ */ jsx67(
+                    ExternalRefsPanel,
+                    {
+                      groups: externalRefs.groups,
+                      onJump: jumpTo,
+                      currentDomain: domainId || ""
+                    }
+                  )
+                ] })
+              ] })
+            ]
+          }
+        ),
+        showHelp && /* @__PURE__ */ jsx67(YamlViewerHelp, { onClose: () => setShowHelp(false) })
+      ]
+    }
+  );
+}
+function ExternalRefsPanel({
+  groups,
+  onJump,
+  currentDomain
+}) {
+  if (groups.length === 0) {
+    return /* @__PURE__ */ jsxs64("div", { className: "yaml-issues-empty", children: [
+      /* @__PURE__ */ jsx67("div", { style: { fontSize: 32, marginBottom: 8 }, children: "\u{1F517}" }),
+      /* @__PURE__ */ jsx67("div", { style: { color: "var(--text-400)", fontSize: 12 }, children: "\u041D\u0435\u0442 \u0441\u0441\u044B\u043B\u043E\u043A \u043D\u0430 \u0434\u0440\u0443\u0433\u0438\u0435 \u0434\u043E\u043C\u0435\u043D\u044B" }),
+      /* @__PURE__ */ jsx67("div", { style: { marginTop: 4, fontSize: 11, color: "var(--text-500)" }, children: "\u0414\u043E\u043C\u0435\u043D \u0438\u0437\u043E\u043B\u0438\u0440\u043E\u0432\u0430\u043D \u0432 \u0433\u0440\u0430\u0444\u0435 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0435\u0439" })
+    ] });
+  }
+  const totalRefs = groups.reduce((s, g) => s + g.refs.length, 0);
+  return /* @__PURE__ */ jsxs64("div", { className: "yaml-issues", children: [
+    /* @__PURE__ */ jsxs64("div", { className: "yaml-issues__header", children: [
+      "\u0412\u043D\u0435\u0448\u043D\u0438\u0435 \u0441\u0441\u044B\u043B\u043A\u0438 (",
+      totalRefs,
+      " \u2192 ",
+      groups.length,
+      " \u0434\u043E\u043C\u0435\u043D\u043E\u0432)"
+    ] }),
+    /* @__PURE__ */ jsx67("div", { className: "yaml-issues__list", children: groups.map((g) => /* @__PURE__ */ jsxs64("details", { className: "yaml-ext-refs-group", open: true, children: [
+      /* @__PURE__ */ jsxs64("summary", { className: "yaml-ext-refs-group__summary", children: [
+        /* @__PURE__ */ jsx67("span", { className: "yaml-ext-refs-group__chevron", "aria-hidden": "true" }),
+        /* @__PURE__ */ jsx67("code", { className: "yaml-ext-refs-group__domain", children: g.domain }),
+        /* @__PURE__ */ jsx67("span", { className: "yaml-ext-refs-group__count", children: g.refs.length })
+      ] }),
+      g.refs.map((r, i) => /* @__PURE__ */ jsxs64(
+        "button",
+        {
+          className: "yaml-ext-ref",
+          onClick: () => onJump(r.line),
+          title: `${r.lineText.trim()}
+
+${r.field}: ${r.raw}`,
+          children: [
+            /* @__PURE__ */ jsxs64("span", { className: "yaml-ext-ref__line", children: [
+              ":",
+              r.line
+            ] }),
+            /* @__PURE__ */ jsx67("span", { className: "yaml-ext-ref__field", children: r.field }),
+            /* @__PURE__ */ jsx67("code", { className: "yaml-ext-ref__target", children: r.target })
+          ]
+        },
+        i
+      ))
+    ] }, g.domain)) })
+  ] });
+}
+function isIgnored(issue, ignoredSet) {
+  const sig = `dg-linter|${issue.message || ""}`;
+  return ignoredSet.has(sig);
+}
+function findIssueLine(issue, lineMap) {
+  if (!lineMap)
+    return null;
+  if (issue.__clientOnly && typeof issue.line === "number" && issue.line > 0) {
+    return issue.line;
+  }
+  const path = (issue.propertyPath || "").toLowerCase();
+  const entityMatch = path.match(/entities\[([^\]]+)\]/);
+  if (entityMatch) {
+    const line = lineMap.itemLines.get(`entities#${entityMatch[1]}`);
+    if (line != null)
+      return line;
+  }
+  const sectionMatch = path.match(/([a-zA-Z]+)/);
+  if (sectionMatch) {
+    const sec = lineMap.sections.find((s) => s.key === sectionMatch[1]);
+    if (sec)
+      return sec.line;
+  }
+  return null;
+}
+function FilteredNavList({
+  nodes,
+  activeIdx,
+  onJump,
+  onHover
+}) {
+  if (nodes.length === 0) {
+    return /* @__PURE__ */ jsx67("div", { className: "yaml-viewer-nav__empty", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" });
+  }
+  return /* @__PURE__ */ jsx67("div", { className: "yaml-nav-filtered", children: nodes.map((n, i) => /* @__PURE__ */ jsxs64(
+    "button",
+    {
+      className: "yaml-nav-filtered-item" + (i === activeIdx ? " yaml-nav-filtered-item--active" : ""),
+      onClick: () => onJump(n.line),
+      onMouseEnter: () => onHover(i),
+      children: [
+        /* @__PURE__ */ jsx67("code", { className: "yaml-nav-filtered-item__id", children: n.label }),
+        /* @__PURE__ */ jsx67("span", { className: "yaml-nav-filtered-item__section", children: n.sectionKey }),
+        /* @__PURE__ */ jsxs64("span", { className: "yaml-nav-filtered-item__line", children: [
+          ":",
+          n.line
+        ] })
+      ]
+    },
+    n.key + "#" + i
+  )) });
+}
+function SectionNav({
+  section,
+  expandedNodes,
+  onToggleNode,
+  onJump,
+  issues,
+  activeIdx,
+  onSetActive,
+  filteredNavNodes
+}) {
+  const detailsRef = React36.useRef(null);
+  React36.useEffect(() => {
+    if (detailsRef.current && detailsRef.current.dataset.initialized !== "1") {
+      detailsRef.current.open = true;
+      detailsRef.current.dataset.initialized = "1";
+    }
+  }, []);
+  const sectionIssues = issues.filter(
+    (i) => (i.propertyPath || "").toLowerCase().indexOf(section.key.toLowerCase()) !== -1
+  );
+  return /* @__PURE__ */ jsxs64(
+    "details",
+    {
+      ref: detailsRef,
+      className: "yaml-nav-section",
+      "data-section-key": section.key,
+      children: [
+        /* @__PURE__ */ jsxs64("summary", { className: "yaml-nav-section__head", children: [
+          /* @__PURE__ */ jsx67("span", { className: "yaml-nav-section__chevron", "aria-hidden": "true" }),
+          /* @__PURE__ */ jsx67("span", { className: "yaml-nav-section__label", children: section.label }),
+          /* @__PURE__ */ jsx67("span", { className: "yaml-nav-section__count", children: section.count }),
+          sectionIssues.length > 0 && /* @__PURE__ */ jsxs64("span", { className: "yaml-nav-section__issues", children: [
+            "\u26A0 ",
+            sectionIssues.length
+          ] }),
+          /* @__PURE__ */ jsx67(
+            "button",
+            {
+              type: "button",
+              className: "yaml-nav-section__jump",
+              onClick: (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onJump(section.line);
+              },
+              title: "\u041F\u0435\u0440\u0435\u0439\u0442\u0438 \u043A \u0440\u0430\u0437\u0434\u0435\u043B\u0443",
+              children: "\u2192"
+            }
+          )
+        ] }),
+        section.nodes.length > 0 && /* @__PURE__ */ jsx67("div", { className: "yaml-nav-section__items", children: section.nodes.map((node) => /* @__PURE__ */ jsx67(
+          NavItem,
+          {
+            node,
+            parentKey: section.key,
+            depth: 0,
+            expandedNodes,
+            onToggleNode,
+            onJump,
+            activeIdx,
+            onSetActive,
+            filteredNavNodes
+          },
+          node.id
+        )) })
+      ]
+    }
+  );
+}
+function NavItem({
+  node,
+  parentKey,
+  depth,
+  expandedNodes,
+  onToggleNode,
+  onJump,
+  activeIdx,
+  onSetActive,
+  filteredNavNodes
+}) {
+  const key = parentKey + "#" + node.id;
+  const hasChildren = !!node.children && node.children.length > 0;
+  const expanded = expandedNodes.has(key);
+  const globalIdx = useMemo38(
+    () => filteredNavNodes.findIndex((n) => n.key === key),
+    [filteredNavNodes, key]
+  );
+  const isActive = globalIdx >= 0 && globalIdx === activeIdx;
+  return /* @__PURE__ */ jsxs64("div", { className: "yaml-nav-item yaml-nav-item--d" + Math.min(depth, 4), children: [
+    /* @__PURE__ */ jsxs64(
+      "div",
+      {
+        className: "yaml-nav-item__row" + (isActive ? " yaml-nav-item__row--active" : ""),
+        children: [
+          hasChildren ? /* @__PURE__ */ jsx67(
+            "button",
+            {
+              type: "button",
+              className: "yaml-nav-item__chevron-btn" + (expanded ? " yaml-nav-item__chevron-btn--expanded" : ""),
+              onClick: () => onToggleNode(key),
+              "aria-expanded": expanded,
+              title: expanded ? "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C" : "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C"
+            }
+          ) : /* @__PURE__ */ jsx67("span", { className: "yaml-nav-item__chevron-btn yaml-nav-item__chevron-btn--empty" }),
+          /* @__PURE__ */ jsxs64(
+            "button",
+            {
+              type: "button",
+              className: "yaml-nav-item__head",
+              onClick: () => {
+                onJump(node.line);
+                if (globalIdx >= 0)
+                  onSetActive(globalIdx);
+              },
+              onMouseEnter: () => globalIdx >= 0 && onSetActive(globalIdx),
+              children: [
+                /* @__PURE__ */ jsx67("code", { className: "yaml-nav-item__id", children: node.id }),
+                node.meta && /* @__PURE__ */ jsx67("span", { className: "yaml-nav-item__meta", children: node.meta })
+              ]
+            }
+          )
+        ]
+      }
+    ),
+    hasChildren && expanded && /* @__PURE__ */ jsx67("div", { className: "yaml-nav-item__children", children: node.children.map((child) => /* @__PURE__ */ jsx67(
+      NavItem,
+      {
+        node: child,
+        parentKey: key,
+        depth: depth + 1,
+        expandedNodes,
+        onToggleNode,
+        onJump,
+        activeIdx,
+        onSetActive,
+        filteredNavNodes
+      },
+      child.id
+    )) })
+  ] });
+}
+function IssuesPanel({
+  issues,
+  onJump,
+  lineMap
+}) {
+  const grouped = useMemo38(() => {
+    const map = /* @__PURE__ */ new Map();
+    issues.forEach((i) => {
+      if (!map.has(i.ruleId))
+        map.set(i.ruleId, []);
+      map.get(i.ruleId).push(i);
+    });
+    return Array.from(map.entries()).sort((a, b) => b[1].length - a[1].length);
+  }, [issues]);
+  if (issues.length === 0) {
+    return /* @__PURE__ */ jsxs64("div", { className: "yaml-issues-empty", children: [
+      /* @__PURE__ */ jsx67("div", { style: { fontSize: 32, marginBottom: 8 }, children: "\u2705" }),
+      "\u041F\u0440\u043E\u0431\u043B\u0435\u043C \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E"
+    ] });
+  }
+  return /* @__PURE__ */ jsxs64("div", { className: "yaml-issues", children: [
+    /* @__PURE__ */ jsxs64("div", { className: "yaml-issues__header", children: [
+      "\u041F\u0440\u043E\u0431\u043B\u0435\u043C\u044B (",
+      issues.length,
+      ")"
+    ] }),
+    /* @__PURE__ */ jsx67("div", { className: "yaml-issues__list", children: grouped.map(([ruleId, items]) => /* @__PURE__ */ jsx67(
+      IssuesGroup,
+      {
+        ruleId,
+        items,
+        lineMap,
+        onJump
+      },
+      ruleId
+    )) })
+  ] });
+}
+function IssuesGroup({
+  ruleId,
+  items,
+  lineMap,
+  onJump
+}) {
+  const detailsRef = React36.useRef(null);
+  React36.useEffect(() => {
+    if (detailsRef.current && detailsRef.current.dataset.initialized !== "1") {
+      detailsRef.current.open = true;
+      detailsRef.current.dataset.initialized = "1";
+    }
+  }, []);
+  return /* @__PURE__ */ jsxs64("details", { ref: detailsRef, className: "yaml-issues__group", children: [
+    /* @__PURE__ */ jsxs64("summary", { className: "yaml-issues__group-title", children: [
+      /* @__PURE__ */ jsx67("span", { className: "yaml-issues__group-chevron", "aria-hidden": "true" }),
+      /* @__PURE__ */ jsx67("span", { className: "yaml-issues__group-label", children: items[0].rule }),
+      /* @__PURE__ */ jsx67("span", { className: "yaml-issues__group-count", children: items.length })
+    ] }),
+    items.map((issue, i) => {
+      const line = findIssueLine(issue, lineMap);
+      return /* @__PURE__ */ jsxs64(
+        "button",
+        {
+          type: "button",
+          className: "yaml-issue yaml-issue--" + issue.severity,
+          onClick: () => line != null && onJump(line),
+          disabled: line == null,
+          children: [
+            /* @__PURE__ */ jsx67("span", { className: "yaml-issue__dot yaml-issue__dot--" + issue.severity }),
+            /* @__PURE__ */ jsx67("span", { className: "yaml-issue__text", children: issue.message }),
+            line != null && /* @__PURE__ */ jsxs64("span", { className: "yaml-issue__line", children: [
+              ":",
+              line
+            ] })
+          ]
+        },
+        i
+      );
+    })
+  ] });
+}
+var init_YamlViewerModal = __esm({
+  "src/web/components/modals/YamlViewerModal.tsx"() {
+    "use strict";
+    init_useGraphStore();
+    init_useModelIndex();
+    init_useYamlContent();
+    init_useMonacoLoader();
+    init_MIcon();
+    init_line_map();
+    init_monaco_providers();
+    init_external_refs();
+    init_YamlViewerHelp();
+    init_initial();
+    init_rql_check();
   }
 });
 
@@ -10949,39 +21018,56 @@ var init_modals = __esm({
     init_LearningPathModal();
     init_TourOverlay();
     init_EntityHierarchyModal();
-    init_EntityHierarchyGraph();
     init_RulesModal();
+    init_EntitiesCatalogModal();
+    init_AttributeFinderModal();
+    init_ImpactAnalysisPanel();
+    init_EntityMatrixModal();
+    init_ModelDiffModal();
+    init_ModelValidationModal();
+    init_GlossaryModal();
+    init_EntityGraphModal();
+    init_DomainSchemaModal();
+    init_LintModal();
+    init_AttributeMatrixModal();
+    init_MartinMetricsModal();
+    init_DomainCompareModal();
+    init_PiiModal();
+    init_YamlViewerModal();
   }
 });
 
 // src/web/components/layout/AppModals.tsx
-import { Fragment as Fragment6, jsx as jsx48, jsxs as jsxs44 } from "react/jsx-runtime";
+import { Fragment as Fragment14, jsx as jsx68, jsxs as jsxs65 } from "react/jsx-runtime";
 function AppModals(props) {
-  const store = useGraphStore();
-  return /* @__PURE__ */ jsxs44(Fragment6, { children: [
-    /* @__PURE__ */ jsx48(HoverTooltip, {}),
-    /* @__PURE__ */ jsx48(
+  const helpOpen = useGraphStore((s) => s.helpOpen);
+  const hotkeysOpen = useGraphStore((s) => s.hotkeysOpen);
+  const contextMenu = useGraphStore((s) => s.contextMenu);
+  const snackbar = useGraphStore((s) => s.snackbar);
+  return /* @__PURE__ */ jsxs65(Fragment14, { children: [
+    /* @__PURE__ */ jsx68(HoverTooltip, {}),
+    /* @__PURE__ */ jsx68(
       CommandPalette,
       {
         commands: props.commands,
         onOpenFile: (filePath, fqid) => openFileInEditor(filePath, fqid)
       }
     ),
-    /* @__PURE__ */ jsx48(
+    /* @__PURE__ */ jsx68(
       HelpModal,
       {
-        open: store.helpOpen,
-        onClose: () => store.setHelpOpen(false)
+        open: helpOpen,
+        onClose: () => useGraphStore.getState().setHelpOpen(false)
       }
     ),
-    /* @__PURE__ */ jsx48(
+    /* @__PURE__ */ jsx68(
       HotkeysModal,
       {
-        open: store.hotkeysOpen,
-        onClose: () => store.setHotkeysOpen(false)
+        open: hotkeysOpen,
+        onClose: () => useGraphStore.getState().setHotkeysOpen(false)
       }
     ),
-    /* @__PURE__ */ jsx48(
+    /* @__PURE__ */ jsx68(
       ValidationModal,
       {
         allDomains: props.allDomains,
@@ -10989,7 +21075,7 @@ function AppModals(props) {
         bookmarkedDomains: props.bookmarkedDomains
       }
     ),
-    /* @__PURE__ */ jsx48(
+    /* @__PURE__ */ jsx68(
       TopoSortModal,
       {
         allDomains: props.allDomains,
@@ -10997,7 +21083,7 @@ function AppModals(props) {
         bookmarkedDomains: props.bookmarkedDomains
       }
     ),
-    /* @__PURE__ */ jsx48(
+    /* @__PURE__ */ jsx68(
       LearningPathModal,
       {
         visibleDomains: props.visibleDomains,
@@ -11005,18 +21091,18 @@ function AppModals(props) {
         onStartTour: props.onStartTour
       }
     ),
-    /* @__PURE__ */ jsx48(TourOverlay, {}),
-    /* @__PURE__ */ jsx48(EntityHierarchyModal, { entities: props.entities }),
-    /* @__PURE__ */ jsx48(RulesModal, { violations: props.ruleViolations }),
-    /* @__PURE__ */ jsx48(
+    /* @__PURE__ */ jsx68(TourOverlay, {}),
+    /* @__PURE__ */ jsx68(EntityHierarchyModal, { entities: props.entities }),
+    /* @__PURE__ */ jsx68(RulesModal, { violations: props.ruleViolations }),
+    /* @__PURE__ */ jsx68(
       ContextMenu,
       {
-        menu: store.contextMenu,
-        onClose: () => store.setContextMenu(null),
+        menu: contextMenu,
+        onClose: () => useGraphStore.getState().setContextMenu(null),
         onAction: props.onContextAction
       }
     ),
-    props.toastVisible && props.remoteInfo?.fromCache && /* @__PURE__ */ jsx48(
+    props.toastVisible && props.remoteInfo?.fromCache && /* @__PURE__ */ jsx68(
       Toast,
       {
         message: "\u{1F4E6} \u0413\u0440\u0430\u0444 \u043F\u043E\u0441\u0442\u0440\u043E\u0435\u043D \u0438\u0437 <b>\u043A\u044D\u0448\u0430</b>" + (props.remoteInfo.fetchedAt ? " (\u043E\u0442 " + new Date(props.remoteInfo.fetchedAt).toLocaleString("ru-RU") + ")" : "") + ". \u0414\u0430\u043D\u043D\u044B\u0435 \u043C\u043E\u0433\u0443\u0442 \u0431\u044B\u0442\u044C \u0443\u0441\u0442\u0430\u0440\u0435\u0432\u0448\u0438\u043C\u0438.",
@@ -11025,7 +21111,21 @@ function AppModals(props) {
         onClose: props.onToastClose
       }
     ),
-    /* @__PURE__ */ jsx48(Snackbar, { snackbar: store.snackbar })
+    /* @__PURE__ */ jsx68(Snackbar, { snackbar }),
+    /* @__PURE__ */ jsx68(EntityGraphModal, {}),
+    /* @__PURE__ */ jsx68(ModelValidationModal, {}),
+    /* @__PURE__ */ jsx68(GlossaryModal, {}),
+    /* @__PURE__ */ jsx68(ModelDiffModal, {}),
+    /* @__PURE__ */ jsx68(EntitiesCatalogModal, {}),
+    /* @__PURE__ */ jsx68(AttributeFinderModal, {}),
+    /* @__PURE__ */ jsx68(EntityMatrixModal, {}),
+    /* @__PURE__ */ jsx68(AttributeMatrixModal, {}),
+    /* @__PURE__ */ jsx68(DomainSchemaModal, {}),
+    /* @__PURE__ */ jsx68(LintModal, {}),
+    /* @__PURE__ */ jsx68(MartinMetricsModal, {}),
+    /* @__PURE__ */ jsx68(DomainCompareModal, {}),
+    /* @__PURE__ */ jsx68(PiiModal, {}),
+    /* @__PURE__ */ jsx68(YamlViewerModal, {})
   ] });
 }
 var init_AppModals = __esm({
@@ -11038,26 +21138,39 @@ var init_AppModals = __esm({
     init_Toast();
     init_Snackbar();
     init_modals();
+    init_EntityMatrixModal();
+    init_ModelDiffModal();
+    init_ModelValidationModal();
+    init_GlossaryModal();
+    init_EntityGraphModal();
+    init_DomainSchemaModal();
+    init_LintModal();
+    init_AttributeMatrixModal();
+    init_MartinMetricsModal();
+    init_DomainCompareModal();
+    init_PiiModal();
+    init_YamlViewerModal();
   }
 });
 
 // src/web/App.tsx
-import React21, { useCallback as useCallback12, useEffect as useEffect24, useMemo as useMemo21, useRef as useRef12 } from "react";
-import { jsx as jsx49, jsxs as jsxs45 } from "react/jsx-runtime";
+import React37, { useCallback as useCallback17, useEffect as useEffect33, useMemo as useMemo39, useRef as useRef13 } from "react";
+import { jsx as jsx69, jsxs as jsxs66 } from "react/jsx-runtime";
 function App() {
-  const store = useGraphStore();
-  const didInit = useRef12(false);
-  useEffect24(() => {
+  const nodes = useGraphStore((s) => s.nodes);
+  const edges = useGraphStore((s) => s.edges);
+  const rules = useGraphStore((s) => s.rules);
+  const didInit = useRef13(false);
+  useEffect33(() => {
     if (didInit.current)
       return;
     didInit.current = true;
-    store.setNodes(buildInitialNodes(GRAPH_DATA));
-    store.setEdges(buildInitialEdges(GRAPH_DATA));
-    document.documentElement.setAttribute("data-theme", store.theme);
+    const st = useGraphStore.getState();
+    st.setNodes(buildInitialNodes(GRAPH_DATA));
+    st.setEdges(buildInitialEdges(GRAPH_DATA));
+    document.documentElement.setAttribute("data-theme", st.theme);
   }, []);
-  const [toastVisible, setToastVisible] = React21.useState(
-    !!REMOTE_INFO?.fromCache
-  );
+  const [toastVisible, setToastVisible] = React37.useState(!!REMOTE_INFO?.fromCache);
   const {
     displayNodes,
     displayEdges,
@@ -11067,30 +21180,28 @@ function App() {
     isolatedCount,
     filteredIdsHash
   } = useGraphFilters();
-  const edgesForFocus = useMemo21(() => {
+  const edgesForFocus = useMemo39(() => {
     const ids = new Set(filteredNodes.map((n) => n.id));
     return displayEdges.filter((e) => ids.has(e.source) && ids.has(e.target));
   }, [displayEdges, filteredNodes]);
   const highlight = useGraphHighlight(filteredEdges, edgesForFocus);
-  const cyclesInfo = useMemo21(
+  const cyclesInfo = useMemo39(
     () => findCycles(displayNodes, displayEdges),
     [displayNodes, displayEdges]
   );
-  const healthMap = useMemo21(() => {
+  const healthMap = useMemo39(() => {
     const map = /* @__PURE__ */ new Map();
     displayNodes.forEach((n) => {
-      map.set(
-        n.id,
-        computeHealth(n, displayEdges, displayNodes, cyclesInfo.cycleNodes, null)
-      );
+      const h = computeHealth(n, displayEdges, displayNodes, cyclesInfo.cycleNodes, null);
+      map.set(n.id, h);
     });
     return map;
   }, [displayNodes, displayEdges, cyclesInfo]);
-  const ruleViolations = useMemo21(
-    () => evaluateRules(displayEdges, displayNodes, store.rules),
-    [displayEdges, displayNodes, store.rules]
+  const ruleViolations = useMemo39(
+    () => evaluateRules(displayEdges, displayNodes, rules),
+    [displayEdges, displayNodes, rules]
   );
-  const violationsByEdge = useMemo21(() => {
+  const violationsByEdge = useMemo39(() => {
     const m = /* @__PURE__ */ new Map();
     ruleViolations.forEach((v) => {
       if (!m.has(v.edgeId))
@@ -11099,34 +21210,26 @@ function App() {
     });
     return m;
   }, [ruleViolations]);
-  const edgesForRender = useMemo21(() => {
+  const edgesForRender = useMemo39(() => {
     if (highlight && (highlight.type === "focus" || highlight.type === "cycle" || highlight.type === "path")) {
       return edgesForFocus;
     }
     return filteredEdges;
   }, [filteredEdges, edgesForFocus, highlight]);
   const heatmapValues = useHeatmapValues(displayNodes, displayEdges, healthMap);
-  const visibleNodes = useVisibleNodes(
-    filteredNodes,
-    highlight,
-    healthMap,
-    heatmapValues
-  );
-  const visibleEdges = useVisibleEdges(
-    edgesForRender,
-    highlight,
-    violationsByEdge
-  );
-  const perfMode = useMemo21(
+  const visibleNodes = useVisibleNodes(filteredNodes, highlight, healthMap, heatmapValues);
+  const visibleEdges = useVisibleEdges(edgesForRender, highlight, violationsByEdge);
+  const perfMode = useMemo39(
     () => filteredEdges.length > PERF_THRESHOLD,
     [filteredEdges.length]
   );
-  const displayEdgesForRender = useMemo21(() => {
-    const hideLabels = perfMode && !store.showEdgeLabels;
+  const showEdgeLabels = useGraphStore((s) => s.showEdgeLabels);
+  const displayEdgesForRender = useMemo39(() => {
+    const hideLabels = perfMode && !showEdgeLabels;
     if (!hideLabels)
       return visibleEdges;
     return visibleEdges.map((e) => e.label ? { ...e } : e);
-  }, [visibleEdges, perfMode, store.showEdgeLabels]);
+  }, [visibleEdges, perfMode, showEdgeLabels]);
   useHotkeys();
   const tooltip = useTooltip();
   const { goto, back, forward } = useNavigation();
@@ -11157,99 +21260,100 @@ function App() {
   const interactions = useNodeInteractions({ filteredEdges });
   useGraphEvents({ displayNodes, displayEdges });
   useGlobalClickDelegation(goto, tooltip.hide);
-  const handleResetAll = useCallback12(() => {
-    store.resetAll();
+  const handleResetAll = useCallback17(() => {
+    useGraphStore.getState().resetAll();
     invalidateLayout();
     setTimeout(() => {
-      if (store.rfInstance) {
+      const rf = useGraphStore.getState().rfInstance;
+      if (rf) {
         try {
-          store.rfInstance.fitView({ duration: 500, padding: 0.15 });
+          rf.fitView({ duration: 500, padding: 0.15 });
         } catch {
         }
       }
     }, 200);
-  }, [store, invalidateLayout]);
-  const startTour = useCallback12(
-    (path) => {
-      store.setTour({
-        stages: path.stages,
-        index: 0,
-        playing: false,
-        startedAt: Date.now()
-      });
-      store.setSelectedNodeId(null);
-      store.setFocusNode(null);
-      store.setCycleHighlight(null);
-      store.setPathResult(null);
-      store.setPathSel([]);
-    },
-    [store]
+  }, [invalidateLayout]);
+  const startTour = useCallback17((path) => {
+    const st = useGraphStore.getState();
+    st.setTour({
+      stages: path.stages,
+      index: 0,
+      playing: false,
+      startedAt: Date.now()
+    });
+    st.setSelectedNodeId(null);
+    st.setFocusNode(null);
+    st.setCycleHighlight(null);
+    st.setPathResult(null);
+    st.setPathSel([]);
+  }, []);
+  const allDomainsList = useMemo39(
+    () => nodes.filter((n) => n.data.nodeType === "domain").map((n) => ({ id: n.id, domainId: n.data.domainId })),
+    [nodes]
   );
-  const allDomainsList = useMemo21(
-    () => store.nodes.filter((n) => n.data.nodeType === "domain").map((n) => ({ id: n.id, domainId: n.data.domainId })),
-    [store.nodes]
-  );
-  const visibleDomainsList = useMemo21(
+  const visibleDomainsList = useMemo39(
     () => visibleNodes.filter((n) => n.data.nodeType === "domain").map((n) => ({ id: n.id, domainId: n.data.domainId })),
     [visibleNodes]
   );
-  const bookmarkedDomainsList = useMemo21(
-    () => store.nodes.filter(
-      (n) => store.bookmarks.has(n.id) && n.data.nodeType === "domain"
-    ).map((n) => ({ id: n.id, domainId: n.data.domainId })),
-    [store.nodes, store.bookmarks]
+  const bookmarks = useGraphStore((s) => s.bookmarks);
+  const bookmarkedDomainsList = useMemo39(
+    () => nodes.filter((n) => bookmarks.has(n.id) && n.data.nodeType === "domain").map((n) => ({ id: n.id, domainId: n.data.domainId })),
+    [nodes, bookmarks]
   );
-  const entityIndex = useMemo21(
-    () => buildEntityIndex(GRAPH_DATA.entities || []),
-    []
-  );
-  const activeFiltersCount = useMemo21(() => {
+  const entityIndex = useMemo39(() => buildEntityIndex(GRAPH_DATA.entities || []), []);
+  const filters = useGraphStore((s) => s.filters);
+  const namespaceFilter = useGraphStore((s) => s.namespaceFilter);
+  const tagFilters = useGraphStore((s) => s.tagFilters);
+  const isolatedOnly = useGraphStore((s) => s.isolatedOnly);
+  const bookmarksOnly = useGraphStore((s) => s.bookmarksOnly);
+  const onlyInvalid = useGraphStore((s) => s.onlyInvalid);
+  const hiddenNodeIds = useGraphStore((s) => s.hiddenNodeIds);
+  const activeFiltersCount = useMemo39(() => {
     let c = 0;
-    const f = store.filters;
-    if (!f.domain)
+    if (!filters.domain)
       c++;
-    if (!f.missing)
+    if (!filters.missing)
       c++;
-    if (!f.broken)
+    if (!filters.broken)
       c++;
-    if (!f.linkage)
+    if (!filters.linkage)
       c++;
-    if (!f.fqid)
+    if (!filters.fqid)
       c++;
-    if (store.namespaceFilter.trim())
+    if (namespaceFilter.trim())
       c++;
-    if (store.tagFilters.size > 0)
+    if (tagFilters.size > 0)
       c++;
-    if (store.isolatedOnly)
+    if (isolatedOnly)
       c++;
-    if (store.bookmarksOnly)
+    if (bookmarksOnly)
       c++;
-    if (store.onlyInvalid)
+    if (onlyInvalid)
       c++;
-    if (store.hiddenNodeIds.size > 0)
+    if (hiddenNodeIds.size > 0)
       c++;
     return c;
   }, [
-    store.filters,
-    store.namespaceFilter,
-    store.tagFilters,
-    store.isolatedOnly,
-    store.bookmarksOnly,
-    store.onlyInvalid,
-    store.hiddenNodeIds
+    filters,
+    namespaceFilter,
+    tagFilters,
+    isolatedOnly,
+    bookmarksOnly,
+    onlyInvalid,
+    hiddenNodeIds
   ]);
-  const closeToast = useCallback12(() => setToastVisible(false), []);
-  return /* @__PURE__ */ jsxs45("div", { className: "app", children: [
-    /* @__PURE__ */ jsx49(
+  return /* @__PURE__ */ jsxs66("div", { className: "app", children: [
+    /* @__PURE__ */ jsx69(
       Sidebar,
       {
         healthMap,
         cyclesCount: cyclesInfo.sccs.length,
         cacheDiff: GRAPH_DATA.cacheDiff || null,
         onFitView: () => {
-          if (store.rfInstance) {
+          const rf = useGraphStore.getState().rfInstance;
+          if (rf) {
             try {
-              store.rfInstance.fitView({ duration: 500, padding: 0.15 });
+              rf.fitView({ duration: 500, padding: 0.15 });
             } catch {
             }
           }
@@ -11257,33 +21361,35 @@ function App() {
         onExportStats: exportsApi.exportStats
       }
     ),
-    /* @__PURE__ */ jsxs45("main", { className: "main", children: [
-      /* @__PURE__ */ jsx49(
+    /* @__PURE__ */ jsxs66("main", { className: "main", children: [
+      /* @__PURE__ */ jsx69(
         Toolbar,
         {
           counts,
           visibleNodesCount: visibleNodes.length,
           visibleEdgesCount: visibleEdges.length,
-          totalNodesCount: store.nodes.length,
-          totalEdgesCount: store.edges.length,
+          totalNodesCount: nodes.length,
+          totalEdgesCount: edges.length,
           activeFiltersCount,
           remoteInfo: REMOTE_INFO,
-          cycleHighlight: store.cycleHighlight,
+          cycleHighlight: useGraphStore.getState().cycleHighlight,
           ruleViolationsCount: ruleViolations.length,
           onFindCycles: () => document.dispatchEvent(new CustomEvent(EVT_FIND_CYCLES)),
           onStartPathFinder: () => {
-            store.setPathMode({ anchorId: null });
-            store.setPathSel([]);
-            store.setPathResult(null);
+            const st = useGraphStore.getState();
+            st.setPathMode({ anchorId: null });
+            st.setPathSel([]);
+            st.setPathResult(null);
           },
-          onOpenTopo: () => store.setTopoOpen(true),
-          onOpenLearningPath: () => store.setLearningPathOpen(true),
-          onOpenRules: () => store.setRulesOpen(true),
+          onOpenTopo: () => useGraphStore.getState().setTopoOpen(true),
+          onOpenLearningPath: () => useGraphStore.getState().setLearningPathOpen(true),
+          onOpenRules: () => useGraphStore.getState().setRulesOpen(true),
           onOpenEntityHierarchy: () => {
-            store.setEntityHierarchyInitialKey(null);
-            store.setEntityHierarchyOpen(true);
+            const st = useGraphStore.getState();
+            st.setEntityHierarchyInitialKey(null);
+            st.setEntityHierarchyOpen(true);
           },
-          onOpenValidation: () => store.setValidationOpen(true),
+          onOpenValidation: () => useGraphStore.getState().setValidationOpen(true),
           onExportJSON: exportsApi.exportJSON,
           onExportMarkdown: exportsApi.exportMarkdown,
           onExportPNG: exportsApi.exportPNGFile,
@@ -11298,8 +21404,8 @@ function App() {
           onShowToast: () => setToastVisible(true)
         }
       ),
-      /* @__PURE__ */ jsx49(ActiveModesBar, { ruleViolationsCount: ruleViolations.length }),
-      /* @__PURE__ */ jsx49(
+      /* @__PURE__ */ jsx69(ActiveModesBar, { ruleViolationsCount: ruleViolations.length }),
+      /* @__PURE__ */ jsx69(
         GraphArea,
         {
           visibleNodes,
@@ -11312,14 +21418,15 @@ function App() {
           entityIndex,
           ruleViolations,
           onOpenEntityHierarchy: (key) => {
-            store.setEntityHierarchyInitialKey(key);
-            store.setEntityHierarchyOpen(true);
+            const st = useGraphStore.getState();
+            st.setEntityHierarchyInitialKey(key);
+            st.setEntityHierarchyOpen(true);
           },
           onResetAll: handleResetAll
         }
       )
     ] }),
-    /* @__PURE__ */ jsx49(
+    /* @__PURE__ */ jsx69(
       AppModals,
       {
         commands,
@@ -11333,7 +21440,7 @@ function App() {
         remoteInfo: REMOTE_INFO,
         refreshCommand: REFRESH_COMMAND,
         toastVisible,
-        onToastClose: closeToast
+        onToastClose: useCallback17(() => setToastVisible(false), [])
       }
     )
   ] });
@@ -11364,14 +21471,36 @@ var init_App = __esm({
 
 // src/web/entry.tsx
 import { createRoot } from "react-dom/client";
-import { jsx as jsx50 } from "react/jsx-runtime";
+import { jsx as jsx70 } from "react/jsx-runtime";
 var require_entry = __commonJS({
   "src/web/entry.tsx"() {
     init_App();
+    function markFontsReady() {
+      document.documentElement.classList.add("fonts-ready");
+    }
+    async function waitForIcons() {
+      try {
+        if (document.fonts && typeof document.fonts.load === "function") {
+          await document.fonts.load('24px "Material Symbols Outlined"');
+          markFontsReady();
+          return;
+        }
+      } catch {
+      }
+      if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(markFontsReady);
+      } else {
+        setTimeout(markFontsReady, 1e3);
+      }
+    }
+    var fallbackTimer = setTimeout(markFontsReady, 3500);
+    waitForIcons().then(() => {
+      clearTimeout(fallbackTimer);
+    });
     var container = document.getElementById("root");
     if (!container)
       throw new Error("#root not found");
-    createRoot(container).render(/* @__PURE__ */ jsx50(App, {}));
+    createRoot(container).render(/* @__PURE__ */ jsx70(App, {}));
   }
 });
 export default require_entry();
