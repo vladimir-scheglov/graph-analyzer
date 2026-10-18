@@ -4427,7 +4427,7 @@ tr.highlighted .entity-matrix-row-head {
 
 /* ISSUES */
 .yaml-viewer-issues {
-  width: 340px;
+  width: 400px;
   border-left: 1px solid var(--border);
   background: var(--bg-850);
   display: flex;

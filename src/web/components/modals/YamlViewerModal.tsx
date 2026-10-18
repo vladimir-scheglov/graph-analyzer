@@ -20,7 +20,7 @@ import { scanRqlInText } from '../../lib/monaco/rql-check';
 import { SECTION_LABELS } from '../../lib/consts';
 import yaml from "js-yaml";
 
-type RightTab = 'issues' | 'refs';
+type RightTab = 'issues' | 'refs' | 'server';
 
 export function YamlViewerModal() {
     const { index } = useModelIndex();
@@ -151,6 +151,15 @@ export function YamlViewerModal() {
     const [severityFilter, setSeverityFilter] = useState<Set<"error" | "warning" | "info">>(
         new Set(["error", "warning", "info"]),
     );
+
+    const [serverValidation, setServerValidation] = useState<{
+        isValid?: boolean;
+        diagnostics?: any[];
+        error?: string;
+        validatedAt?: string;
+    } | null>(null);
+    const [serverValidating, setServerValidating] = useState(false);
+    const [serverAvailable, setServerAvailable] = useState(false);
 
     const { goto: gotoDomain } = useNavigation();
 
@@ -470,6 +479,12 @@ export function YamlViewerModal() {
                 selectionHighlight: false,
                 renderValidationDecorations: 'on',
                 lightbulb: { enabled: 'on' },
+                quickSuggestions: {
+                    other: "on" as any,
+                    comments: "off" as any,
+                    strings: "off" as any,
+                },
+                suggestOnTriggerCharacters: true,
             });
             editorRef.current = editor;
             setContent(fetchedContent);
@@ -499,6 +514,14 @@ export function YamlViewerModal() {
                 editor.trigger('locked', 'undo', null);
                 isProgrammaticChange.current = false;
                 useGraphStore.getState().showSnackbar("Вставка в заблокированный файл запрещена.");
+            });
+
+            editor.onDidType((text: string) => {
+                if (!text || !/^[a-zA-Zа-яА-Я_\-]$/.test(text)) return;
+                setTimeout(() => {
+                    if (!editorRef.current) return;
+                    editorRef.current.trigger("yaml-viewer", "editor.action.triggerSuggest", {});
+                }, 20);
             });
 
             editor.onDidChangeCursorPosition((e: any) => {
@@ -676,6 +699,59 @@ export function YamlViewerModal() {
         };
     }, [monacoReady, editorCreated, index, domainId]);
 
+    useEffect(() => {
+        if (!monacoReady || !editorCreated || !editorRef.current) return;
+        const m = (window as any).monaco;
+        const model = editorRef.current.getModel();
+        if (!m || !model) return;
+
+        if (!serverValidation || serverValidation.isValid) {
+            m.editor.setModelMarkers(model, "server-validate", []);
+            return;
+        }
+
+        const diags = serverValidation.diagnostics || [];
+        const markers: any[] = [];
+        for (const d of diags) {
+            const label =
+                (d.labels || []).find((l: any) => l.primary) ||
+                (d.labels || [])[0];
+            const span = label?.span;
+            let line = 1;
+            let col = 1;
+            let endLine = 1;
+            let endCol = 1;
+            if (span && typeof span.start === "number") {
+                const startPos = model.getPositionAt(span.start);
+                line = startPos.lineNumber;
+                col = startPos.column;
+                const endPos = model.getPositionAt(
+                    typeof span.end === "number" ? span.end : span.start,
+                );
+                endLine = endPos.lineNumber;
+                endCol = endPos.column;
+            }
+            markers.push({
+                severity:
+                    d.severity === "ERROR"
+                        ? m.MarkerSeverity.Error
+                        : d.severity === "WARNING"
+                            ? m.MarkerSeverity.Warning
+                            : m.MarkerSeverity.Info,
+                message:
+                    d.message +
+                    (label?.message ? `\n${label.message}` : ""),
+                startLineNumber: line,
+                startColumn: col,
+                endLineNumber: endLine,
+                endColumn: Math.max(endCol, col + 1),
+                source: "server-validate",
+                code: d.severity || "R-VISION",
+            });
+        }
+        m.editor.setModelMarkers(model, "server-validate", markers);
+    }, [monacoReady, editorCreated, serverValidation]);
+
     // ============ Issue markers ============
     const ignored = useMemo(() => {
         try {
@@ -849,6 +925,39 @@ export function YamlViewerModal() {
     }, [isLocked, isDirty, savedContent]);
 
     // ============ Save ============
+    const handleServerValidate = useCallback(async () => {
+        if (!editorRef.current) return;
+        const sourceCode = editorRef.current.getValue();
+        setServerValidating(true);
+        setServerValidation(null);
+        setRightTab("server");
+        try {
+            const res = await fetch("/api/validate-single", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ sourceCode }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                setServerValidation({
+                    isValid: false,
+                    error: data?.error || `HTTP ${res.status}`,
+                    diagnostics: [],
+                });
+            } else {
+                setServerValidation(data);
+            }
+        } catch (e: any) {
+            setServerValidation({
+                isValid: false,
+                error: e.message || "Ошибка запроса",
+                diagnostics: [],
+            });
+        } finally {
+            setServerValidating(false);
+        }
+    }, []);
+
     const handleSave = useCallback(async () => {
         if (isLocked || !editorRef.current) return;
         if (isRemoteMode) return;
@@ -1284,6 +1393,18 @@ export function YamlViewerModal() {
         };
     }, [index, domainId]);
 
+    useEffect(() => {
+        if (!open) return;
+        fetch("/api/validation-available")
+            .then((r) => r.json())
+            .then((d) => setServerAvailable(!!d.available))
+            .catch(() => setServerAvailable(false));
+    }, [open]);
+
+    useEffect(() => {
+        setServerValidation(null);
+    }, [filePath, open]);
+
     if (!open) return null;
 
     const canSave = !isRemoteMode && !isLocked && isDirty;
@@ -1309,6 +1430,39 @@ export function YamlViewerModal() {
                     </div>
 
                     <div className="help-modal__actions">
+                        {serverAvailable && (
+                            <button
+                                className={
+                                    "help-modal__icon-btn" +
+                                    (serverValidating ? " active" : "") +
+                                    (serverValidation && !serverValidating
+                                        ? serverValidation.isValid
+                                            ? " help-modal__icon-btn--success"
+                                            : " help-modal__icon-btn--error"
+                                        : "")
+                                }
+                                onClick={handleServerValidate}
+                                disabled={serverValidating}
+                                title={
+                                    serverValidating
+                                        ? "Проверка на сервере..."
+                                        : "Проверить на сервере"
+                                }
+                            >
+                                <MIcon
+                                    name={
+                                        serverValidating
+                                            ? "hourglass_top"
+                                            : serverValidation
+                                                ? serverValidation.isValid
+                                                    ? "cloud_done"
+                                                    : "cloud_off"
+                                                : "cloud_upload"
+                                    }
+                                />
+                            </button>
+                        )}
+
                         <button
                             className="help-modal__icon-btn"
                             onClick={() => setLeftCollapsed(!leftCollapsed)}
@@ -1421,9 +1575,13 @@ export function YamlViewerModal() {
                             <button
                                 className="help-modal__icon-btn"
                                 onClick={() => {
-                                    useGraphStore.getState().setYamlViewerOpen(false);
-                                    useGraphStore.getState().setDomainSchemaDomainId(domainId);
-                                    useGraphStore.getState().setDomainSchemaOpen(true);
+                                    const st = useGraphStore.getState();
+                                    st.setYamlViewerOpen(false);
+                                    st.setDomainSchemaDomainId(domainId);
+                                    // Передаём текущий поиск и фильтр
+                                    if (navQuery.trim()) st.setDomainSchemaPrefillQuery(navQuery.trim());
+                                    if (onlyProblematic) st.setDomainSchemaPrefillOnlyProblematic(true);
+                                    st.setDomainSchemaOpen(true);
                                 }}
                                 title="Открыть структурированный обзор схемы"
                             >
@@ -1780,6 +1938,23 @@ export function YamlViewerModal() {
                                 <span>Ссылки</span>
                                 {refsCount > 0 && <span className="yaml-viewer-tab__count">{refsCount}</span>}
                             </button>
+                            <button
+                                className={"yaml-viewer-tab" + (rightTab === "server" ? " active" : "")}
+                                onClick={() => setRightTab("server")}
+                                disabled={!serverAvailable && !serverValidation}
+                                title={!serverAvailable ? "Серверная валидация недоступна в local режиме" : ""}
+                            >
+                                <MIcon name="cloud" size="sm" />
+                                <span>Сервер</span>
+                                {serverValidation && !serverValidation.isValid && (
+                                    <span className="yaml-viewer-tab__count yaml-viewer-tab__count--error">
+                                        {serverValidation.diagnostics?.length || "!"}
+                                    </span>
+                                )}
+                                {serverValidation && serverValidation.isValid && (
+                                    <span className="yaml-viewer-tab__count yaml-viewer-tab__count--ok">✓</span>
+                                )}
+                            </button>
                         </div>
 
                         {rightTab === 'issues' && (
@@ -1798,6 +1973,144 @@ export function YamlViewerModal() {
                                 onJump={jumpTo}
                                 currentDomain={domainId || ''}
                             />
+                        )}
+                        {rightTab === "server" && (
+                            <div className="yaml-issues">
+                                <div className="yaml-issues__header">
+                                    Серверная валидация
+                                </div>
+
+                                {!serverValidation && !serverValidating && (
+                                    <div className="yaml-issues-empty">
+                                        <div style={{ fontSize: 32, marginBottom: 8 }}>☁️</div>
+                                        <div style={{ fontSize: 12, color: "var(--text-400)", marginBottom: 12 }}>
+                                            Нажмите кнопку в шапке, чтобы отправить текущую схему на проверку в R-Vision.
+                                        </div>
+                                        <button className="btn btn--primary" onClick={handleServerValidate}>
+                                            <MIcon name="cloud_upload" size="sm" />
+                                            <span style={{ marginLeft: 6 }}>Проверить на сервере</span>
+                                        </button>
+                                    </div>
+                                )}
+
+                                {serverValidating && (
+                                    <div className="yaml-issues-empty">
+                                        <MIcon name="hourglass" size="xl" />
+                                        <div>Проверка на сервере...</div>
+                                    </div>
+                                )}
+
+                                {!serverValidating && serverValidation?.error && (
+                                    <div className="yaml-issues-empty" style={{ color: "var(--danger)" }}>
+                                        <div style={{ fontSize: 32, marginBottom: 8 }}>❌</div>
+                                        <div style={{ fontSize: 12, marginBottom: 12 }}>
+                                            {serverValidation.error}
+                                        </div>
+                                        <button className="btn" onClick={handleServerValidate}>
+                                            Повторить
+                                        </button>
+                                    </div>
+                                )}
+
+                                {!serverValidating && serverValidation?.isValid && (
+                                    <div className="yaml-issues-empty">
+                                        <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
+                                        <div style={{ color: "var(--success)", fontSize: 13, marginBottom: 4 }}>
+                                            Схема валидна
+                                        </div>
+                                        <div style={{ fontSize: 11, color: "var(--text-500)" }}>
+                                            Проверено:{" "}
+                                            {serverValidation.validatedAt
+                                                ? new Date(serverValidation.validatedAt).toLocaleTimeString("ru-RU")
+                                                : "только что"}
+                                        </div>
+                                        <button
+                                            className="btn"
+                                            onClick={handleServerValidate}
+                                            style={{ marginTop: 12 }}
+                                        >
+                                            Проверить снова
+                                        </button>
+                                    </div>
+                                )}
+
+                                {!serverValidating &&
+                                    serverValidation &&
+                                    !serverValidation.isValid &&
+                                    !serverValidation.error &&
+                                    (serverValidation.diagnostics?.length || 0) > 0 && (
+                                        <>
+                                            <div className="yaml-issues__header">
+                                                Ошибки сервера ({serverValidation.diagnostics!.length})
+                                            </div>
+                                            <div className="yaml-issues__list">
+                                                {serverValidation.diagnostics!.map((d: any, i: number) => {
+                                                    const label =
+                                                        (d.labels || []).find((l: any) => l.primary) ||
+                                                        (d.labels || [])[0];
+                                                    const span = label?.span;
+                                                    const isError = d.severity === "ERROR";
+                                                    return (
+                                                        <button
+                                                            key={i}
+                                                            className={
+                                                                "yaml-issue yaml-issue--" +
+                                                                (isError ? "error" : "warning")
+                                                            }
+                                                            onClick={() => {
+                                                                if (
+                                                                    span &&
+                                                                    typeof span.start === "number" &&
+                                                                    editorRef.current
+                                                                ) {
+                                                                    const model = editorRef.current.getModel();
+                                                                    if (model) {
+                                                                        const pos = model.getPositionAt(span.start);
+                                                                        jumpTo(pos.lineNumber);
+                                                                    }
+                                                                }
+                                                            }}
+                                                        >
+                                                            <span
+                                                                className={
+                                                                    "yaml-issue__dot yaml-issue__dot--" +
+                                                                    (isError ? "error" : "warning")
+                                                                }
+                                                            />
+                                                            <span className="yaml-issue__text">
+                                                                {d.message}
+                                                                {label?.message && (
+                                                                    <span
+                                                                        style={{
+                                                                            display: "block",
+                                                                            fontSize: 10,
+                                                                            color: "var(--text-500)",
+                                                                            marginTop: 2,
+                                                                        }}
+                                                                    >
+                                                                        {label.message}
+                                                                    </span>
+                                                                )}
+                                                            </span>
+                                                            {span &&
+                                                                typeof span.start === "number" &&
+                                                                editorRef.current?.getModel() && (
+                                                                    <span className="yaml-issue__line">
+                                                                        :{editorRef.current.getModel().getPositionAt(span.start).lineNumber}
+                                                                    </span>
+                                                                )}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                            <div style={{ padding: "8px 12px", textAlign: "center" }}>
+                                                <button className="btn" onClick={handleServerValidate}>
+                                                    Проверить снова
+                                                </button>
+                                            </div>
+                                        </>
+                                    )}
+                            </div>
                         )}
                     </div>
                 </div>

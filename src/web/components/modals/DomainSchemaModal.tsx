@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useGraphStore } from "../../state/useGraphStore";
 import { useModelIndex } from "../../hooks/useModelIndex";
 import { useNavigation } from "../../hooks/useNavigation";
@@ -35,6 +35,33 @@ export function DomainSchemaModal() {
     const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
     const [query, setQuery] = useState("");
     const [onlyProblematic, setOnlyProblematic] = useState(false);
+
+    const prefillQuery = useGraphStore((s) => s.domainSchemaPrefillQuery);
+    const prefillOnlyProblematic = useGraphStore((s) =>
+        s.domainSchemaPrefillOnlyProblematic,
+    );
+    const setPrefillQuery = useGraphStore((s) => s.setDomainSchemaPrefillQuery);
+    const setPrefillOnlyProblematic = useGraphStore(
+        (s) => s.setDomainSchemaPrefillOnlyProblematic,
+    );
+
+    useEffect(() => {
+        if (!open) return;
+        if (prefillQuery !== null) {
+            setQuery(prefillQuery);
+            setPrefillQuery(null);
+        }
+        if (prefillOnlyProblematic) {
+            setOnlyProblematic(true);
+            setPrefillOnlyProblematic(false);
+        }
+    }, [
+        open,
+        prefillQuery,
+        prefillOnlyProblematic,
+        setPrefillQuery,
+        setPrefillOnlyProblematic,
+    ]);
 
     const schema = useMemo(() => {
         if (!index || !domainId) return null;

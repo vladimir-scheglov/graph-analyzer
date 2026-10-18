@@ -7,6 +7,8 @@ import {
   ValidationContext,
 } from "../../core/validation/validate";
 import type { ServerState } from "../state";
+import { apiLogin } from "../../core/remote/auth";
+import { apiCheckRobject } from "../../core/remote/schemas-loader";
 
 export async function handleValidateStream(
   req: IncomingMessage,
@@ -100,4 +102,105 @@ export function handleValidationAvailable(
 ): void {
   res.writeHead(200, { "Content-Type": "application/json" });
   res.end(JSON.stringify({ available: !!state.credentials }));
+}
+
+export async function handleValidateSingle(
+  req: IncomingMessage,
+  res: ServerResponse,
+  state: ServerState,
+): Promise<void> {
+  if (!state.validation) {
+    res.writeHead(403, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        error: "Валидация доступна только в режиме --server (нужны креды)",
+      }),
+    );
+    return;
+  }
+
+  let body: any;
+  try {
+    body = await readJsonBody(req);
+  } catch (e: any) {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Некорректный JSON: " + e.message }));
+    return;
+  }
+
+  const sourceCode = body?.sourceCode;
+  if (typeof sourceCode !== "string") {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "sourceCode обязателен" }));
+    return;
+  }
+
+  const ctx = state.validation;
+
+  try {
+    // Логин, если токена нет
+    if (!ctx.credentials.token) {
+      ctx.credentials.token = await apiLogin(
+        ctx.credentials.loginUrl,
+        ctx.credentials.username,
+        ctx.credentials.password,
+        ctx.credentials.secure,
+      );
+    }
+
+    let response = await apiCheckRobject(
+      ctx.credentials.apiUrl,
+      ctx.credentials.token,
+      ctx.credentials.tenantId,
+      sourceCode,
+      ctx.credentials.secure,
+    );
+
+    // Перелогин при 401
+    if (response.status === 401) {
+      ctx.credentials.token = null;
+      ctx.credentials.token = await apiLogin(
+        ctx.credentials.loginUrl,
+        ctx.credentials.username,
+        ctx.credentials.password,
+        ctx.credentials.secure,
+      );
+      response = await apiCheckRobject(
+        ctx.credentials.apiUrl,
+        ctx.credentials.token,
+        ctx.credentials.tenantId,
+        sourceCode,
+        ctx.credentials.secure,
+      );
+    }
+
+    if (response.status !== 200) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          error: `HTTP ${response.status} от сервера валидации`,
+        }),
+      );
+      return;
+    }
+
+    const checkResult = response.json?.data?.checkRobject;
+    if (!checkResult) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Некорректный ответ от R-Vision" }));
+      return;
+    }
+
+    res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+    res.end(
+      JSON.stringify({
+        isValid: checkResult.isValid,
+        diagnostics: checkResult.diagnostics || [],
+        validatedAt: new Date().toISOString(),
+      }),
+    );
+  } catch (e: any) {
+    res.writeHead(500, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: e.message }));
+  }
 }

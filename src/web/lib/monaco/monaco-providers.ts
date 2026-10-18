@@ -502,6 +502,809 @@ function provideDefinition(monaco: any, model: any, position: any): any {
 
 // ============ Регистрация ============
 
+// ============ Определения полей YAML по контексту ============
+
+interface FieldDef {
+  name: string;
+  type: string;
+  description: string;
+  required?: boolean;
+}
+
+const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
+  entity: [
+    {
+      name: "id",
+      type: "string",
+      description: "Уникальный идентификатор сущности",
+      required: true,
+    },
+    { name: "name", type: "string", description: "Человекочитаемое название" },
+    {
+      name: "label",
+      type: "string",
+      description: 'Шаблон отображаемого имени: "{attr1} {attr2}"',
+    },
+    { name: "description", type: "string", description: "Описание сущности" },
+    {
+      name: "inherits",
+      type: "ref",
+      description: "Ссылка на родительскую сущность (Data ID или FQID)",
+    },
+    {
+      name: "attributes",
+      type: "array",
+      description: "Массив атрибутов сущности",
+    },
+    { name: "sorting", type: "array", description: "Правила сортировки" },
+    {
+      name: "searching",
+      type: "object",
+      description: "Набор атрибутов для поиска",
+    },
+    {
+      name: "identification",
+      type: "array",
+      description: "Правила идентификации",
+    },
+    {
+      name: "reconciliation",
+      type: "array",
+      description: "Правила реконсиляции",
+    },
+    {
+      name: "projection",
+      type: "array",
+      description: "Проекции через Reference",
+    },
+    {
+      name: "icons",
+      type: "ref",
+      description: "Иконка сущности для диаграммы",
+    },
+    {
+      name: "graphView",
+      type: "object",
+      description: "Настройки отображения на графе",
+    },
+    {
+      name: "scanTarget",
+      type: "boolean",
+      description: "Актив, предназначенный для сканирования",
+    },
+    {
+      name: "scanTargetGroup",
+      type: "boolean",
+      description: "Группа активов для сканирования",
+    },
+    {
+      name: "kind",
+      type: "enum",
+      description: "Вид сущности (по умолчанию regular)",
+    },
+  ],
+  attribute: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор атрибута (camelCase)",
+      required: true,
+    },
+    { name: "name", type: "string", description: "Название атрибута" },
+    { name: "description", type: "string", description: "Описание атрибута" },
+    {
+      name: "dataType",
+      type: "enum",
+      description: "Тип данных (String, Reference, Array и т.д.)",
+      required: true,
+    },
+    { name: "readonly", type: "boolean", description: "Только для чтения" },
+    {
+      name: "constraints",
+      type: "array",
+      description:
+        "Ограничения: required, length, range, regexp, size, mime_types, unique",
+    },
+    {
+      name: "entity",
+      type: "ref",
+      description: "Целевая сущность (для dataType: Reference)",
+    },
+    {
+      name: "item",
+      type: "object",
+      description: "Параметры элемента (для dataType: Array)",
+    },
+    {
+      name: "sequence",
+      type: "ref",
+      description: "Ссылка на последовательность (для Identifier)",
+    },
+    {
+      name: "template",
+      type: "string",
+      description: 'Шаблон идентификатора: "{@prefix}-{@YYYY}-{@inc}"',
+    },
+    {
+      name: "defaultPrefix",
+      type: "string",
+      description: "Префикс по умолчанию (для Identifier)",
+    },
+    {
+      name: "incrementTemplate",
+      type: "string",
+      description: "Количество цифр для ведущих нулей",
+    },
+    {
+      name: "segment",
+      type: "array",
+      description: "Сегменты переопределения шаблона",
+    },
+    {
+      name: "prefixRules",
+      type: "array",
+      description: "Правила подстановки префикса",
+    },
+    {
+      name: "calculation",
+      type: "object",
+      description: "Ссылка на расчёт (для dataType: Calculation)",
+    },
+    {
+      name: "comments",
+      type: "boolean",
+      description: "Разрешить комментарии (для dataType: Text)",
+    },
+  ],
+  linkage: [
+    {
+      name: "id",
+      type: "string",
+      description: "Уникальный идентификатор связи",
+      required: true,
+    },
+    { name: "name", type: "string", description: "Название связи" },
+    { name: "description", type: "string", description: "Описание связи" },
+    {
+      name: "side1",
+      type: "ref",
+      description: "Левая сторона связи (Data ID или FQID)",
+      required: true,
+    },
+    {
+      name: "side2",
+      type: "ref",
+      description: "Правая сторона связи",
+      required: true,
+    },
+    {
+      name: "type",
+      type: "enum",
+      description: "Тип связи: 1_1, 1_n, n_n",
+      required: true,
+    },
+    {
+      name: "undirected",
+      type: "boolean",
+      description: "Ненаправленная связь (только для n_n)",
+    },
+    {
+      name: "nameFrom",
+      type: "object",
+      description: "Глагольные формы сторон (side1/side2)",
+    },
+    {
+      name: "useForSearch",
+      type: "boolean",
+      description: "Использовать в поисковых запросах",
+    },
+    {
+      name: "attributes",
+      type: "array",
+      description: "Пользовательские атрибуты связи",
+    },
+    { name: "sorting", type: "array", description: "Сортировка связей" },
+    { name: "view", type: "object", description: "Цвет отображения на графе" },
+    {
+      name: "excludeOnGraph",
+      type: "enum",
+      description: "Скрытие на графе: true/false/off",
+    },
+  ],
+  linkageAttribute: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор атрибута связи",
+      required: true,
+    },
+    { name: "name", type: "string", description: "Название атрибута" },
+    { name: "description", type: "string", description: "Описание" },
+    {
+      name: "dataType",
+      type: "enum",
+      description: "Тип данных",
+      required: true,
+    },
+    { name: "constraints", type: "array", description: "Валидация атрибута" },
+    {
+      name: "searchable",
+      type: "boolean",
+      description: "Доступен для поиска (по умолчанию true)",
+    },
+  ],
+  action: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор действия (View ID)",
+      required: true,
+    },
+    { name: "name", type: "string", description: "Название действия" },
+    { name: "description", type: "string", description: "Описание действия" },
+    {
+      name: "type",
+      type: "enum",
+      description:
+        "Тип: open_panel, open_modal, open_page, remove, bulk, automation и др.",
+      required: true,
+    },
+    {
+      name: "entity",
+      type: "ref",
+      description: "Сущность, к которой применяется действие",
+    },
+    { name: "panel", type: "ref", description: "Панель (для open_panel)" },
+    { name: "modal", type: "ref", description: "Модалка (для open_modal)" },
+    {
+      name: "view",
+      type: "ref",
+      description: "View (для open_page, open_list, open_tree)",
+    },
+    {
+      name: "operation",
+      type: "enum",
+      description: "Операция: create, edit, view, remove",
+    },
+    {
+      name: "automation",
+      type: "object",
+      description: "Ссылка на автоматизацию",
+    },
+    { name: "scenario", type: "string", description: "Сценарий/скрипт" },
+    { name: "workerTag", type: "string", description: "Тег воркера сценария" },
+  ],
+  dataRule: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор правила",
+      required: true,
+    },
+    {
+      name: "name",
+      type: "string",
+      description: "Название правила",
+      required: true,
+    },
+    { name: "description", type: "string", description: "Описание" },
+    {
+      name: "target",
+      type: "enum",
+      description: "entity, entityAttribute или linkage",
+      required: true,
+    },
+    {
+      name: "entity",
+      type: "ref",
+      description: "Целевая сущность (для entity/entityAttribute)",
+    },
+    {
+      name: "attribute",
+      type: "ref",
+      description: "Целевой атрибут (для entityAttribute)",
+    },
+    {
+      name: "linkage",
+      type: "ref",
+      description: "Целевая связь (для linkage)",
+    },
+    {
+      name: "condition",
+      type: "rql",
+      description: "Условие правила (RQL или true)",
+      required: true,
+    },
+    {
+      name: "rule",
+      type: "object",
+      description: "Описание действия правила",
+      required: true,
+    },
+    { name: "message", type: "string", description: "Сообщение об ошибке" },
+    { name: "help", type: "string", description: "Справка при наведении" },
+  ],
+  dataRuleRule: [
+    {
+      name: "effect",
+      type: "enum",
+      description: "hidden, readonly, required, default, allowed",
+      required: true,
+    },
+    {
+      name: "attributes",
+      type: "array",
+      description: "Атрибуты, к которым применяется эффект",
+    },
+    {
+      name: "nested",
+      type: "object",
+      description: "Nested-эффект для Table/Array",
+    },
+    {
+      name: "linkages",
+      type: "array",
+      description: "Связи, к которым применяется эффект",
+    },
+  ],
+  view: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор view (View ID)",
+      required: true,
+    },
+    { name: "label", type: "string", description: "Заголовок" },
+    { name: "description", type: "string", description: "Описание" },
+    {
+      name: "type",
+      type: "enum",
+      description: "entity, list, tabs_list, tree, dashboard, dashboard_tree",
+      required: true,
+    },
+    {
+      name: "entity",
+      type: "ref",
+      description: "Целевая сущность (для entity)",
+    },
+    { name: "widgets", type: "array", description: "Виджеты представления" },
+    {
+      name: "groups",
+      type: "array",
+      description: "Группы (блоки, вкладки, формы)",
+    },
+    {
+      name: "views",
+      type: "array",
+      description: "Внутренние представления (для entity)",
+    },
+    {
+      name: "source",
+      type: "object",
+      description: "Источник данных (для list)",
+    },
+    {
+      name: "table",
+      type: "object",
+      description: "Табличное отображение (для list)",
+    },
+    {
+      name: "actionPanel",
+      type: "array",
+      description: "Панель действий (для list)",
+    },
+    { name: "isMixin", type: "boolean", description: "Использовать в примеси" },
+  ],
+  widget: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор виджета (View ID)",
+      required: true,
+    },
+    {
+      name: "type",
+      type: "enum",
+      description: "attribute, action, linkage, join, history и др.",
+      required: true,
+    },
+    { name: "description", type: "string", description: "Описание" },
+    {
+      name: "attribute",
+      type: "ref",
+      description: "Ссылка на атрибут (для type: attribute)",
+    },
+    { name: "control", type: "object", description: "Элемент управления" },
+    { name: "action", type: "ref", description: "Действие (для type: action)" },
+    {
+      name: "actions",
+      type: "array",
+      description: "Массив действий (для type: action)",
+    },
+    { name: "linkage", type: "ref", description: "Связь (для type: linkage)" },
+    { name: "side", type: "enum", description: "Сторона связи: 1 или 2" },
+    { name: "label", type: "string", description: "Заголовок виджета" },
+  ],
+  group: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор группы",
+      required: true,
+    },
+    {
+      name: "type",
+      type: "enum",
+      description: "block, form, tab, tabs, resizable_block_pair",
+      required: true,
+    },
+    { name: "description", type: "string", description: "Описание" },
+    { name: "label", type: "string", description: "Заголовок группы" },
+    { name: "layout", type: "object", description: "Расположение компонентов" },
+    { name: "components", type: "array", description: "Компоненты группы" },
+    {
+      name: "inherits",
+      type: "ref",
+      description: "Наследование от другой группы",
+    },
+  ],
+  mixin: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор примеси",
+      required: true,
+    },
+    {
+      name: "type",
+      type: "enum",
+      description: "linkage или view",
+      required: true,
+    },
+    { name: "name", type: "string", description: "Название примеси" },
+    { name: "description", type: "string", description: "Описание" },
+    { name: "entity", type: "ref", description: "Целевая сущность" },
+    {
+      name: "weight",
+      type: "number",
+      description: "Приоритет (меньше — выше)",
+    },
+    {
+      name: "useForChild",
+      type: "boolean",
+      description: "Наследовать дочерним сущностям (по умолчанию true)",
+    },
+    { name: "linkage", type: "ref", description: "Связь (для type: linkage)" },
+    {
+      name: "views",
+      type: "array",
+      description: "Подмешиваемые представления",
+    },
+  ],
+  sequence: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор последовательности",
+      required: true,
+    },
+    {
+      name: "startFrom",
+      type: "number",
+      description: "Начальное значение (по умолчанию 1)",
+    },
+    { name: "description", type: "string", description: "Описание" },
+  ],
+  enumValue: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор значения",
+      required: true,
+    },
+    { name: "name", type: "string", description: "Название" },
+    { name: "description", type: "string", description: "Описание" },
+    {
+      name: "hidden",
+      type: "boolean",
+      description: "Скрыть значение из выбора",
+    },
+  ],
+  searchingObject: [
+    { name: "attributes", type: "array", description: "Атрибуты для поиска" },
+  ],
+  sourceObject: [
+    {
+      name: "type",
+      type: "enum",
+      description: "operational (база данных системы)",
+      required: true,
+    },
+    {
+      name: "entity",
+      type: "ref",
+      description: "Сущность, чьи объекты отображаются",
+      required: true,
+    },
+    {
+      name: "joins",
+      type: "array",
+      description: "Связи для отображения данных",
+    },
+  ],
+};
+
+interface SnippetDef {
+  prefix: string;
+  description: string;
+  contexts: string[];
+  body: string;
+}
+
+const SNIPPETS: SnippetDef[] = [
+  {
+    prefix: "newentity",
+    description: "Новая сущность",
+    contexts: ["entityList", "entity"],
+    body: [
+      "- id: ${1:NewEntity}",
+      "  name: ${2:Новая сущность}",
+      '  label: "{${3:id}}"',
+      "  description: ${4:Описание сущности}",
+      "  attributes:",
+      "    - id: ${5:name}",
+      "      name: ${6:Имя}",
+      "      dataType: String",
+    ].join("\n"),
+  },
+  {
+    prefix: "newattr",
+    description: "Новый атрибут",
+    contexts: ["attributeList", "attribute"],
+    body: [
+      "- id: ${1:attrId}",
+      "  name: ${2:Новый атрибут}",
+      "  description: ${3:Описание атрибута}",
+      "  dataType: ${4:String}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newref",
+    description: "Атрибут-референс",
+    contexts: ["attributeList", "attribute"],
+    body: [
+      "- id: ${1:refAttr}",
+      "  name: ${2:Ссылка на сущность}",
+      "  dataType: Reference",
+      "  entity: ${3:TargetEntity}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newarr",
+    description: "Атрибут-массив",
+    contexts: ["attributeList", "attribute"],
+    body: [
+      "- id: ${1:arrayAttr}",
+      "  name: ${2:Массив}",
+      "  dataType: Array",
+      "  item:",
+      "    dataType: ${3:String}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newlinkage",
+    description: "Новая связь",
+    contexts: ["linkageList", "linkage"],
+    body: [
+      "- id: ${1:EntityA_EntityB}",
+      "  name: ${2:Связь сущностей}",
+      "  side1: ${3:EntityA}",
+      "  side2: ${4:EntityB}",
+      "  type: ${5:1_n}",
+      "  undirected: ${6:false}",
+      "  nameFrom:",
+      "    side1: ${7:Содержит}",
+      "    side2: ${8:Входит в}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newrule",
+    description: "Правило данных",
+    contexts: ["dataRuleList", "dataRule"],
+    body: [
+      "- id: ${1:dataR_newRule}",
+      "  name: ${2:Новое правило}",
+      "  target: entity",
+      "  entity: ${3:SomeEntity}",
+      "  condition: !rql ${4:someAttr IS NOT NULL}",
+      "  rule:",
+      "    effect: ${5:required}",
+      "    attributes:",
+      "      - attribute: ${6:targetAttr}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newaction",
+    description: "Действие открытия модалки",
+    contexts: ["actionList", "action"],
+    body: [
+      "- id: ${1:actions_newAction}",
+      "  name: ${2:Новое действие}",
+      "  type: open_modal",
+      "  modal: ${3:forms_newModal}",
+      "  entity: ${4:SomeEntity}",
+      "  operation: create",
+    ].join("\n"),
+  },
+];
+
+// ============ Определение контекста ============
+
+function detectContextAtPosition(
+  model: any,
+  position: any,
+  _lineContexts: Map<number, any>,
+): string | null {
+  const lineText = model.getLineContent(position.lineNumber);
+  const beforeCursor = lineText.slice(0, position.column - 1);
+
+  // Если пользователь уже набрал `key: value` — это значение, не поле
+  if (/^\s*(?:-\s+)?[a-zA-Z_][\w]*\s*:\s+\S/.test(beforeCursor)) return null;
+  if (/^\s*#/.test(beforeCursor)) return null;
+
+  const currentIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
+
+  // ============ 1. Определяем section (верхний уровень, indent 0) ============
+  let section = "";
+  for (let i = position.lineNumber - 1; i >= 1; i--) {
+    const pl = model.getLineContent(i);
+    const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
+    if (pIndent === 0) {
+      const m = pl.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (m) {
+        section = m[1];
+        break;
+      }
+    }
+  }
+
+  // ============ 2. Определяем ближайшего родителя ============
+  let parentKey: string | null = null;
+  let parentIndent = -1;
+  let parentLine = -1;
+
+  for (let i = position.lineNumber - 1; i >= 1; i--) {
+    const pl = model.getLineContent(i);
+    if (!pl.trim() || pl.trim().startsWith("#")) continue;
+    const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
+    if (pIndent >= currentIndent) continue;
+
+    const keyMatch = pl.match(/^\s*(?:-\s+)?([a-zA-Z_][\w]*)\s*:/);
+    if (keyMatch) parentKey = keyMatch[1];
+    else if (/^\s*-\s+id\s*:/.test(pl)) parentKey = "id";
+    else continue;
+    parentIndent = pIndent;
+    parentLine = i;
+    break;
+  }
+
+  if (!parentKey) return null;
+
+  // ============ 3. Секции верхнего уровня ============
+  const hasDash = /^\s*-\s*[a-zA-Z]*$/.test(beforeCursor);
+
+  if (parentKey === "entities") return hasDash ? "entity" : "entityList";
+  if (parentKey === "linkages") return hasDash ? "linkage" : "linkageList";
+  if (parentKey === "actions") return hasDash ? "action" : "actionList";
+  if (parentKey === "dataRules") return hasDash ? "dataRule" : "dataRuleList";
+  if (parentKey === "views") return hasDash ? "view" : "viewList";
+  if (parentKey === "mixins") return hasDash ? "mixin" : "mixinList";
+  if (parentKey === "menus") return hasDash ? "menu" : "menuList";
+  if (parentKey === "dataTypes") return hasDash ? "dataType" : "dataTypeList";
+  if (parentKey === "sequences") return hasDash ? "sequence" : "sequenceList";
+  if (parentKey === "medias") return hasDash ? "media" : "mediaList";
+  if (parentKey === "counterColorPattern") return "counterColorPattern";
+
+  // ============ 4. Вложенные контейнеры ============
+  if (parentKey === "attributes") {
+    return section === "linkages" ? "linkageAttribute" : "attribute";
+  }
+  if (parentKey === "constraints") return "constraintsItem";
+  if (parentKey === "item") return "arrayItem";
+  if (parentKey === "calculation") return "calculation";
+  if (parentKey === "prefixRules") return "prefixRule";
+  if (parentKey === "sorting") return "sortingItem";
+  if (parentKey === "by") return "sortingByItem";
+  if (parentKey === "identification") return "identificationItem";
+  if (parentKey === "reconciliation") return "reconciliationItem";
+  if (parentKey === "projection") return "projectionItem";
+  if (parentKey === "nameFrom") return "nameFrom";
+  if (parentKey === "control") return "widgetControl";
+  if (parentKey === "table") return "tableConfig";
+  if (parentKey === "values") return "enumValue";
+  if (parentKey === "statuses") return "workflowStatus";
+  if (parentKey === "transitions") return "transition";
+  if (parentKey === "items" && section === "menus") return "menuItem";
+  if (parentKey === "widgets") return "widget";
+  if (parentKey === "groups") return "group";
+  if (parentKey === "rule") {
+    return section === "dataRules" ? "dataRuleRule" : "identificationRule";
+  }
+
+  // ============ 5. Внутри `- id: ...` — определяем по section и наличию attributes выше ============
+  if (parentKey === "id") {
+    // Ищем `attributes:` выше — идём до начала сущности (предыдущий `- id:` с меньшим indent)
+    for (let i = parentLine - 1; i >= 1; i--) {
+      const l = model.getLineContent(i);
+      if (!l.trim() || l.trim().startsWith("#")) continue;
+      const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
+
+      if (/^\s*attributes\s*:/.test(l) && lIndent < parentIndent) {
+        return section === "linkages" ? "linkageAttribute" : "attribute";
+      }
+      if (/^\s*- id\s*:/.test(l) && lIndent < parentIndent) break;
+      if (lIndent === 0) break;
+    }
+
+    // Не нашли attributes — это сама сущность / связь / действие
+    if (section === "entities") return "entity";
+    if (section === "linkages") return "linkage";
+    if (section === "actions") return "action";
+    if (section === "dataRules") return "dataRule";
+    if (section === "views") return "view";
+    if (section === "mixins") return "mixin";
+    if (section === "sequences") return "sequence";
+    if (section === "dataTypes") return "dataType";
+  }
+
+  return null;
+}
+
+// ============ Хелпер для поля/сниппета ============
+
+function buildFieldSuggestion(monaco: any, field: FieldDef, range: any): any {
+  const isRequired = field.required === true;
+  return {
+    label: field.name,
+    kind: monaco.languages.CompletionItemKind.Field,
+    insertText: field.name,
+    filterText: field.name,
+    sortText: (isRequired ? "0_" : "1_") + field.name,
+    detail: `${field.type}${isRequired ? " · required" : ""}`,
+    documentation: field.description,
+    range,
+  };
+}
+
+function buildSnippetSuggestion(
+  monaco: any,
+  snippet: SnippetDef,
+  range: any,
+  currentIndent: string,
+  hasDash: boolean,
+): any {
+  let body = snippet.body;
+  if (hasDash && body.startsWith("- ")) {
+    body = body.slice(2);
+  }
+
+  const lines = body.split("\n");
+  const insertText = lines.map((line) => currentIndent + line).join("\n");
+
+  return {
+    label: `✨ ${snippet.prefix}`,
+    kind: monaco.languages.CompletionItemKind.Snippet,
+    insertText,
+    insertTextRules:
+      monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+    filterText: snippet.prefix,
+    sortText: "0_" + snippet.prefix,
+    detail: snippet.description,
+    documentation: `Snippet: ${snippet.description}`,
+    range,
+  };
+}
+
 export function registerMonacoProviders(monaco: any): void {
   if (providersRegistered) return;
   providersRegistered = true;
@@ -812,7 +1615,7 @@ export function registerMonacoProviders(monaco: any): void {
             const lineContent = model.getLineContent(marker.startLineNumber);
             const indentMatch = lineContent.match(/^(\s*)/);
             const baseIndent = indentMatch ? indentMatch[1] : "";
-            const indent = baseIndent + "  "; 
+            const indent = baseIndent + "  ";
             const insertCol = lineContent.length + 1;
 
             addActionOnce({
@@ -840,7 +1643,7 @@ export function registerMonacoProviders(monaco: any): void {
             const lineContent = model.getLineContent(marker.startLineNumber);
             const indentMatch = lineContent.match(/^(\s*)/);
             const baseIndent = indentMatch ? indentMatch[1] : "";
-            const indent = baseIndent + "  "; 
+            const indent = baseIndent + "  ";
             const insertCol = lineContent.length + 1;
 
             addActionOnce({
@@ -861,7 +1664,6 @@ export function registerMonacoProviders(monaco: any): void {
                 ],
               },
             });
-
           }
 
           // Стандартные действия
@@ -899,14 +1701,13 @@ export function registerMonacoProviders(monaco: any): void {
   );
 
   monaco.languages.registerCompletionItemProvider("yaml", {
-    triggerCharacters: [":", " "],
+    triggerCharacters: [":", " ", "/", ".", "-"],
     provideCompletionItems: (model: any, position: any) => {
       if (!ctx.modelIndex) return { suggestions: [] };
       const lineText = model.getLineContent(position.lineNumber);
       const beforeCursor = lineText.slice(0, position.column - 1);
       const wordAtPos = model.getWordUntilPosition(position);
 
-      // Явно задаем range, чтобы Monaco не ломался
       const range = {
         startLineNumber: position.lineNumber,
         startColumn: wordAtPos.startColumn,
@@ -914,37 +1715,38 @@ export function registerMonacoProviders(monaco: any): void {
         endColumn: wordAtPos.endColumn,
       };
 
-      // ---------- dataType ----------
+      const Kind = monaco.languages.CompletionItemKind;
+
+      // ============ 1. Контекст для значения ============
+
+      // dataType
       if (/(?:\s|^)(?:-\s+)?dataType\s*:\s*[\w]*$/.test(beforeCursor)) {
         const suggestions: any[] = [];
-
         BASE_DATA_TYPES_COMPLETION.forEach((t) => {
           suggestions.push({
             label: t,
-            kind: monaco.languages.CompletionItemKind.Value,
+            kind: Kind.Value,
             insertText: t,
             range,
           });
         });
-
         ctx.modelIndex.dataTypes.forEach((dt: any) => {
           suggestions.push({
             label: dt.id,
             kind:
               dt.kind === "Enum"
-                ? monaco.languages.CompletionItemKind.Enum
+                ? Kind.Enum
                 : dt.kind === "Workflow"
-                  ? monaco.languages.CompletionItemKind.Interface
-                  : monaco.languages.CompletionItemKind.Struct,
+                  ? Kind.Interface
+                  : Kind.Struct,
             insertText: dt.id,
             range,
           });
         });
-
         return { suggestions };
       }
 
-      // ---------- inherits / entity / side1 / side2 / linkage ----------
+      // inherits / entity / side1 / side2 / linkage
       if (
         /(?:\s|^)(?:-\s+)?(inherits|entity|side1|side2|linkage)\s*:\s*[\w./]*$/.test(
           beforeCursor,
@@ -952,23 +1754,68 @@ export function registerMonacoProviders(monaco: any): void {
       ) {
         const currentDomainLower = (ctx.currentDomainId || "").toLowerCase();
         const suggestions: any[] = [];
-
         ctx.modelIndex.entities.forEach((e: any) => {
           const isCurrent = e.domainId.toLowerCase() === currentDomainLower;
           const insert = isCurrent ? e.entityId : e.fqid;
-
           suggestions.push({
             label: insert,
-            kind: monaco.languages.CompletionItemKind.Class,
+            kind: Kind.Class,
             insertText: insert,
             range,
           });
         });
-
         return { suggestions };
       }
 
-      return { suggestions: [] };
+      // ============ 2. Snippets + поля по контексту ============
+
+      const context = detectContextAtPosition(
+        model,
+        position,
+        ctx.lineMap?.lineContexts || new Map(),
+      );
+
+      if (!context) return { suggestions: [] };
+
+      const rawIndent = (lineText.match(/^(\s*)/) || ["", ""])[1];
+      // Обрезаем до кратного 2 (типичный отступ YAML в R-Vision)
+      const currentIndent = "  ".repeat(Math.floor(rawIndent.length / 2));
+
+      const hasDash = /^\s*-/.test(beforeCursor);
+
+      const suggestions: any[] = [];
+
+      // Для сниппетов заменяем ВСЮ строку с колонки 1
+      const snippetRange = {
+        startLineNumber: position.lineNumber,
+        startColumn: 1,
+        endLineNumber: position.lineNumber,
+        endColumn: wordAtPos.endColumn,
+      };
+
+      SNIPPETS.forEach((sn) => {
+        if (sn.contexts.includes(context)) {
+          suggestions.push(
+            buildSnippetSuggestion(
+              monaco,
+              sn,
+              snippetRange,
+              currentIndent,
+              hasDash,
+            ),
+          );
+        }
+      });
+
+      // Поля — заменяют только текущее слово
+      const fields = FIELD_DEFINITIONS[context];
+      if (fields) {
+        fields.forEach((f) => {
+          suggestions.push(buildFieldSuggestion(monaco, f, range));
+        });
+      }
+
+      return { suggestions };
     },
   });
 }

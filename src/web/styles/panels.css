@@ -1475,3 +1475,37 @@
 .yaml-crossdomain-tooltip__link:hover .material-symbols-outlined {
     color: var(--accent-hover);
 }
+/* Snippets в автокомплите Monaco */
+.monaco-editor .suggest-widget .monaco-list-row .codicon-symbol-snippet::before {
+    color: #fbbf24 !important;
+}
+.monaco-editor .suggest-widget .monaco-list-row .codicon-symbol-field::before {
+    color: #6366f1 !important;
+}
+/* Кнопки с состоянием валидации */
+.help-modal__icon-btn--success {
+    color: var(--success) !important;
+    background: rgba(16, 185, 129, 0.12) !important;
+}
+.help-modal__icon-btn--error {
+    color: var(--danger) !important;
+    background: rgba(239, 68, 68, 0.12) !important;
+}
+.help-modal__icon-btn:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+
+/* Счётчики в табе */
+.yaml-viewer-tab__count--error {
+    background: rgba(239, 68, 68, 0.2) !important;
+    color: var(--danger) !important;
+}
+.yaml-viewer-tab__count--ok {
+    background: rgba(16, 185, 129, 0.2) !important;
+    color: var(--success) !important;
+}
+.yaml-viewer-tab:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}

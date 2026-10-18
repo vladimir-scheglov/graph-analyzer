@@ -344,6 +344,10 @@ export interface GraphState {
   setDomainSchemaOpen: (v: boolean) => void;
   domainSchemaDomainId: string | null;
   setDomainSchemaDomainId: (id: string | null) => void;
+  domainSchemaPrefillQuery: string | null;
+  setDomainSchemaPrefillQuery: (q: string | null) => void;
+  domainSchemaPrefillOnlyProblematic: boolean;
+  setDomainSchemaPrefillOnlyProblematic: (v: boolean) => void;
   lintOpen: boolean;
   setLintOpen: (v: boolean) => void;
   attributeMatrixOpen: boolean;
@@ -497,6 +501,11 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   setDomainSchemaOpen: (v) => set({ domainSchemaOpen: v }),
   domainSchemaDomainId: null,
   setDomainSchemaDomainId: (id) => set({ domainSchemaDomainId: id }),
+  domainSchemaPrefillQuery: null,
+  setDomainSchemaPrefillQuery: (q) => set({ domainSchemaPrefillQuery: q }),
+  domainSchemaPrefillOnlyProblematic: false,
+  setDomainSchemaPrefillOnlyProblematic: (v) =>
+    set({ domainSchemaPrefillOnlyProblematic: v }),
   lintOpen: false,
   setLintOpen: (v) => set({ lintOpen: v }),
   attributeMatrixOpen: false,

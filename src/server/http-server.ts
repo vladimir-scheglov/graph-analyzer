@@ -16,6 +16,7 @@ import {
   handleValidateCancel,
   handleValidationResults,
   handleValidationAvailable,
+  handleValidateSingle,
 } from "./routes/validation";
 import { ServerState, state } from "./state";
 import { buildModelIndex } from "../core/analyzer/model-builder";
@@ -201,6 +202,17 @@ export function startServer(opts: StartServerOptions): http.Server {
       handleValidationResults(req, res, rootDir);
     } else if (url === "/api/validation-available" && req.method === "GET") {
       handleValidationAvailable(req, res, state);
+    } else if (url === "/api/validate-single" && req.method === "POST") {
+      try {
+        await handleValidateSingle(req, res, state);
+      } catch (err: any) {
+        try {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: err.message }));
+        } catch {
+          /* ignore */
+        }
+      }
     }
 
     // ============ 404 ============
