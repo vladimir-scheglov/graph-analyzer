@@ -3,6 +3,8 @@ import { useGraphStore } from '../../state/useGraphStore';
 import { MIcon } from '../common/MIcon';
 import { formatSavedAt } from '../../lib/format';
 import { DIFF_ADDED, DIFF_REMOVED } from './diff-colors';
+import { useModelIndex } from '../../hooks/useModelIndex';
+import { exportEntityClassDiagram } from '../../lib/export';
 
 export interface DataMenuProps {
     close: () => void;

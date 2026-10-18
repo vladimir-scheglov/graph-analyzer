@@ -10,7 +10,7 @@ export function BookmarksSection() {
     if (store.bookmarks.size === 0) return null;
 
     return (
-        <Section id="bookmarks" title="Избранное" icon="star" badge={store.bookmarks.size}>
+        <Section id="bookmarks" title="Избранные домены" icon="folder_special" badge={store.bookmarks.size}>
             <div className="rank-list">
                 {Array.from(store.bookmarks)
                     .slice(0, store.sidebarCompact ? 5 : 15)

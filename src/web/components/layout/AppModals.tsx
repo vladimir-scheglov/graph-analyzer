@@ -46,6 +46,9 @@ export interface AppModalsProps {
     refreshCommand: string | null;
     toastVisible: boolean;
     onToastClose: () => void;
+    showDontShowAgain?: boolean;
+    dontShowCacheToast?: boolean;
+    onDontShowCacheToastChange?: (checked: boolean) => void;
 }
 
 export function AppModals(props: AppModalsProps) {
@@ -118,6 +121,16 @@ export function AppModals(props: AppModalsProps) {
                     }
                     duration={15000}
                     onClose={props.onToastClose}
+                    dontShowAgain={
+                        props.showDontShowAgain
+                            ? {
+                                checked: props.dontShowCacheToast || false,
+                                onChange:
+                                    props.onDontShowCacheToastChange || (() => { }),
+                                label: 'Больше не показывать для этого сервера',
+                            }
+                            : undefined
+                    }
                 />
             )}
 

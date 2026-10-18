@@ -22,6 +22,7 @@ import { buildEntityGraph, EntityEdgeKind } from '../../lib/model/entity-graph';
 import { DomainCombobox } from '../common/DomainCombobox';
 import { MIcon } from '../common';
 import { ModalHelp, HelpSection, HelpText, HelpList, HelpButton } from '../common/ModalHelp';
+import { downloadEntityClassDiagram } from '../../lib/export';
 
 const GRAPH_LIMIT = 200;
 const NODE_WIDTH = 180;
@@ -283,6 +284,23 @@ export function EntityGraphModal() {
         [store]
     );
 
+    const handleExportClassDiagram = useCallback(() => {
+        if (!graph) return;
+
+        downloadEntityClassDiagram(
+            graph,
+            {
+                includeStereotype: true,
+                maxAttributes: 30,
+            },
+            domainFilter || 'all'
+        );
+
+        store.showSnackbar(
+            `ClassDiagram: ${graph.nodes.length} классов`
+        );
+    }, [graph, domainFilter, store]);
+
     if (!open) return null;
 
     const sourcePosition: 'left' | 'right' | 'top' | 'bottom' =
@@ -372,6 +390,22 @@ export function EntityGraphModal() {
                                     domains={allDomains}
                                     placeholder="Выберите домен..."
                                 />
+
+                                <button
+                                    className="btn"
+                                    onClick={handleExportClassDiagram}
+                                    disabled={!graph || graph.nodes.length === 0}
+                                    title={
+                                        graph && graph.nodes.length > 0
+                                            ? `Скачать Mermaid classDiagram (${graph.nodes.length} классов)`
+                                            : 'Сначала выберите домен с сущностями'
+                                    }
+                                >
+                                    <MIcon name="account_tree" size="sm" />
+                                    <span style={{ marginLeft: 6 }}>
+                                        Экспорт classDiagram
+                                    </span>
+                                </button>
 
                                 {domainFilter && (
                                     <button

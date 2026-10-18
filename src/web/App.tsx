@@ -65,7 +65,33 @@ export default function App() {
         document.documentElement.setAttribute('data-theme', st.theme);
     }, []);
 
-    const [toastVisible, setToastVisible] = React.useState(!!REMOTE_INFO?.fromCache);
+    const CACHE_TOAST_KEY = REMOTE_INFO?.server
+        ? `dg-cache-toast-hidden:${REMOTE_INFO.server.replace(/\/+$/, '')}`
+        : null;
+
+    const [toastVisible, setToastVisible] = React.useState(() => {
+        if (!REMOTE_INFO?.fromCache) return false;
+        if (!CACHE_TOAST_KEY) return true;
+        try {
+            return localStorage.getItem(CACHE_TOAST_KEY) !== '1';
+        } catch {
+            return true;
+        }
+    });
+
+    const [dontShowCacheToast, setDontShowCacheToast] = React.useState(false);
+
+    const handleDontShowCacheToast = React.useCallback(
+        (checked: boolean) => {
+            setDontShowCacheToast(checked);
+            if (!CACHE_TOAST_KEY) return;
+            try {
+                if (checked) localStorage.setItem(CACHE_TOAST_KEY, '1');
+                else localStorage.removeItem(CACHE_TOAST_KEY);
+            } catch { }
+        },
+        [CACHE_TOAST_KEY]
+    );
 
     // ============ Фильтры/подсветка ============
     const {
@@ -372,6 +398,9 @@ export default function App() {
                 refreshCommand={REFRESH_COMMAND}
                 toastVisible={toastVisible}
                 onToastClose={useCallback(() => setToastVisible(false), [])}
+                showDontShowAgain={!!CACHE_TOAST_KEY}
+                dontShowCacheToast={dontShowCacheToast}
+                onDontShowCacheToastChange={handleDontShowCacheToast}
             />
         </div>
     );

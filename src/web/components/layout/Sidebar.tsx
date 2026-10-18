@@ -14,7 +14,10 @@ import {
     NamespacesSection,
     TagsSection,
     BookmarksSection,
-    LegendSection
+    LegendSection,
+    ProjectHealthSection,
+    RecentEntitiesSection,
+    EntityFavoritesSection
 } from './sections';
 
 export interface SidebarProps {
@@ -138,6 +141,8 @@ export function Sidebar(props: SidebarProps) {
 
                 <ActivitySection />
 
+                <ProjectHealthSection /> 
+
                 {hasProblems && (
                     <ProblemsSection
                         isolatedCount={stats.isolatedCount}
@@ -155,6 +160,8 @@ export function Sidebar(props: SidebarProps) {
                 <MissingRefsSection items={stats.topMissingRefs} />
                 <NamespacesSection items={stats.namespaces} />
                 <TagsSection items={stats.tagCloud} />
+                <RecentEntitiesSection />
+                <EntityFavoritesSection />
                 <BookmarksSection />
                 <LegendSection />
             </div>

@@ -772,3 +772,381 @@
   display: flex;
   gap: 6px;
 }
+/* ============ Здоровье модели (сводная панель) ============ */
+.project-health {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 4px 2px 2px;
+}
+
+.project-health__overall {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--bg-800);
+    border-radius: 8px;
+    border-left: 3px solid var(--accent);
+}
+
+.project-health__overall-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+}
+
+.project-health__score {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 32px;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: -1px;
+}
+
+.project-health__score--a { color: #10b981; }
+.project-health__score--b { color: #22c55e; }
+.project-health__score--c { color: #f59e0b; }
+.project-health__score--d { color: #f97316; }
+.project-health__score--e { color: #ef4444; }
+
+.project-health__grade {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+}
+
+.project-health__grade-badge {
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1.5;
+}
+
+.project-health__grade-badge--a { background: #10b981; }
+.project-health__grade-badge--b { background: #22c55e; }
+.project-health__grade-badge--c { background: #f59e0b; }
+.project-health__grade-badge--d { background: #f97316; }
+.project-health__grade-badge--e { background: #ef4444; }
+
+.project-health__grade-label {
+    font-size: 11px;
+    color: var(--text-500);
+}
+
+.project-health__bar {
+    height: 4px;
+    background: var(--bg-700);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.project-health__bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.3s ease;
+}
+
+.project-health__bar-fill--a { background: #10b981; }
+.project-health__bar-fill--b { background: #22c55e; }
+.project-health__bar-fill--c { background: #f59e0b; }
+.project-health__bar-fill--d { background: #f97316; }
+.project-health__bar-fill--e { background: #ef4444; }
+
+.project-health__rows {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.project-health__row {
+    display: grid;
+    grid-template-columns: 16px 1fr auto;
+    gap: 8px;
+    align-items: center;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: transparent;
+    border: none;
+    color: var(--text-300);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+    text-align: left;
+    transition: background-color 0.1s;
+    min-width: 0;
+}
+
+.project-health__row:hover {
+    background: var(--bg-800);
+}
+
+.project-health__row .material-symbols-outlined {
+    color: var(--text-500);
+    font-size: 14px;
+}
+
+.project-health__row--warn .material-symbols-outlined {
+    color: var(--warning);
+}
+
+.project-health__row--bad .material-symbols-outlined {
+    color: var(--danger);
+}
+
+.project-health__row--ok .material-symbols-outlined {
+    color: var(--success);
+}
+
+.project-health__row-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-300);
+}
+
+.project-health__row-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-200);
+    white-space: nowrap;
+}
+
+.project-health__row--ok .project-health__row-value {
+    color: var(--success);
+    opacity: 0.8;
+}
+
+.project-health__row--warn .project-health__row-value {
+    color: var(--warning);
+}
+
+.project-health__row--bad .project-health__row-value {
+    color: var(--danger);
+}
+
+/* Компактный режим */
+.sidebar--compact .project-health__score {
+    font-size: 24px;
+}
+
+.sidebar--compact .project-health__overall {
+    padding: 8px 10px;
+}
+
+.sidebar--compact .project-health__row {
+    padding: 4px 6px;
+    font-size: 11px;
+}
+/* ============ Недавние / Избранные сущности ============ */
+.recent-entities {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.recent-entity-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 8px;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: var(--text-300);
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    text-align: left;
+    transition: background-color 0.1s;
+    width: 100%;
+    min-width: 0;
+}
+
+.recent-entity-item:hover {
+    background: var(--bg-800);
+    color: var(--text-100);
+}
+
+.recent-entity-item > .material-symbols-outlined,
+.recent-entity-item__open > .material-symbols-outlined {
+    color: var(--text-500);
+    font-size: 13px;
+    flex-shrink: 0;
+}
+
+.recent-entity-item__id {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-100);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex-shrink: 1;
+    min-width: 0;
+}
+
+.recent-entity-item__domain {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5px;
+    color: var(--text-500);
+    margin-left: auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex-shrink: 2;
+    max-width: 55%;
+}
+
+/* ==== Обёртка для избранного (с крестиком удаления) ==== */
+.recent-entity-item--fav {
+    padding: 0;
+    background: transparent;
+    gap: 2px;
+    cursor: default;
+}
+
+.recent-entity-item--fav:hover {
+    background: var(--bg-800);
+}
+
+.recent-entity-item__open {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+    padding: 5px 8px;
+    background: transparent;
+    border: none;
+    color: inherit;
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    text-align: left;
+}
+
+.recent-entity-item__open:hover {
+    color: var(--accent-hover);
+}
+
+.recent-entity-item__open > .material-symbols-outlined {
+    color: #fbbf24;
+}
+
+.recent-entity-item__remove {
+    background: transparent;
+    border: none;
+    color: var(--text-500);
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    opacity: 0;
+    transition: opacity 0.15s;
+    flex-shrink: 0;
+}
+
+.recent-entity-item--fav:hover .recent-entity-item__remove {
+    opacity: 1;
+}
+
+.recent-entity-item__remove:hover {
+    color: var(--danger);
+    background: var(--bg-700);
+}
+
+/* ==== Кнопка «Очистить историю» ==== */
+.recent-entities__clear {
+    margin-top: 4px;
+    padding: 4px 8px;
+    background: transparent;
+    border: 1px dashed var(--border);
+    border-radius: 6px;
+    color: var(--text-500);
+    font-family: inherit;
+    font-size: 10.5px;
+    cursor: pointer;
+    transition: all 0.15s;
+    width: 100%;
+}
+
+.recent-entities__clear:hover {
+    background: var(--bg-800);
+    color: var(--danger);
+    border-color: var(--danger);
+    border-style: solid;
+}
+
+/* ==== Star toggle в каталоге ==== */
+.entity-catalog-cell-fav {
+    width: 32px;
+    text-align: center;
+    padding: 8px 4px !important;
+}
+
+.entity-catalog-fav {
+    background: transparent;
+    border: none;
+    color: var(--text-500);
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    transition: all 0.15s;
+    display: inline-flex;
+    align-items: center;
+}
+
+.entity-catalog-fav:hover {
+    color: #fbbf24;
+    background: rgba(251, 191, 36, 0.1);
+}
+
+.entity-catalog-fav.active {
+    color: #fbbf24;
+}
+
+/* ==== Кнопка «В избранное» в ImpactAnalysisPanel ==== */
+.impact-fav-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: var(--bg-750);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-300);
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.impact-fav-btn:hover {
+    background: var(--bg-700);
+    border-color: #fbbf24;
+    color: #fbbf24;
+}
+
+.impact-fav-btn.active {
+    background: rgba(251, 191, 36, 0.12);
+    border-color: #fbbf24;
+    color: #fbbf24;
+}
+
+/* Компактный режим */
+.sidebar--compact .recent-entity-item,
+.sidebar--compact .recent-entity-item__open {
+    padding: 3px 6px;
+    font-size: 11px;
+}
+
+.sidebar--compact .recent-entity-item__domain {
+    display: none;
+}

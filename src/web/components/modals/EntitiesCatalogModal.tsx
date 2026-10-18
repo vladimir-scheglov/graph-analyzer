@@ -20,14 +20,18 @@ interface EntityRowProps {
     entity: EntityRecord;
     index: ModelIndex;
     isOrphan: boolean;
+    isFav: boolean;
     onSelect: (fqid: string) => void;
+    onToggleFav: (fqid: string) => void;
 }
 
 const EntityRow = React.memo(function EntityRow({
     entity,
     index,
     isOrphan,
-    onSelect
+    isFav,
+    onSelect,
+    onToggleFav
 }: EntityRowProps) {
     const refs = countRefs(entity, index);
     return (
@@ -35,6 +39,18 @@ const EntityRow = React.memo(function EntityRow({
             className={'entity-catalog-row' + (isOrphan ? ' orphan' : '')}
             onClick={() => onSelect(entity.fqid)}
         >
+            <td className="entity-catalog-cell-fav">
+                <button
+                    className={'entity-catalog-fav' + (isFav ? ' active' : '')}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleFav(entity.fqid);
+                    }}
+                    title={isFav ? 'Убрать из избранного' : 'В избранное'}
+                >
+                    <MIcon name={isFav ? 'star' : 'star_border'} size="sm" fill={isFav} />
+                </button>
+            </td>
             <td>
                 <div className="entity-catalog-cell-id">{entity.entityId}</div>
                 {entity.name !== entity.entityId && (
@@ -81,6 +97,7 @@ export function EntitiesCatalogModal() {
     const [limit, setLimit] = useState(PAGE_SIZE);
 
     const open = store.entityCatalogOpen;
+    const entityFavorites = useGraphStore((s) => s.entityFavorites);
     const initialFqid = store.entityCatalogInitialFqid;
 
     // ============ Автовыбор сущности при открытии через «Открыть в каталоге» ============
@@ -92,6 +109,13 @@ export function EntitiesCatalogModal() {
         setSelectedFqid(initialFqid);
         store.setEntityCatalogInitialFqid(null);
     }, [open, initialFqid, index, store]);
+
+    // Трекинг «недавно открытых» — сюда стекаются все переходы
+    // через setEntityCatalogInitialFqid из других модалок.
+    useEffect(() => {
+        if (!selectedFqid) return;
+        useGraphStore.getState().pushRecentEntity(selectedFqid);
+    }, [selectedFqid]);
 
     // Сброс лимита при смене фильтров
     useEffect(() => {
@@ -140,6 +164,10 @@ export function EntitiesCatalogModal() {
     // ============ Стабильные колбэки для memo-строк ============
     const handleSelectRow = useCallback((fqid: string) => {
         setSelectedFqid(fqid);
+    }, []);
+
+    const handleToggleFav = useCallback((fqid: string) => {
+        useGraphStore.getState().toggleEntityFavorite(fqid);
     }, []);
 
     const handleBack = useCallback(() => {
@@ -357,6 +385,7 @@ export function EntitiesCatalogModal() {
                                     <table className="entity-catalog-table">
                                         <thead>
                                             <tr>
+                                                <th style={{ width: 32 }}></th>
                                                 <th>Сущность</th>
                                                 <th>Домен</th>
                                                 <th>Наследует</th>
@@ -374,6 +403,8 @@ export function EntitiesCatalogModal() {
                                                     index={index}
                                                     isOrphan={orphanSet.has(e.fqid)}
                                                     onSelect={handleSelectRow}
+                                                    isFav={entityFavorites.has(e.fqid)}
+                                                    onToggleFav={handleToggleFav}
                                                 />
                                             ))}
                                         </tbody>

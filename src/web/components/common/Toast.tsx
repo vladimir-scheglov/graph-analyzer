@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { MIcon } from './MIcon';
 
 export interface ToastAction {
     command?: string;
@@ -11,7 +12,25 @@ export interface ToastProps {
     duration?: number;
 }
 
-export function Toast({ message, actions = [], onClose, duration = 20000 }: ToastProps) {
+export interface ToastAction {
+    command?: string;
+}
+
+export interface ToastDontShowAgain {
+    label?: string;
+    checked: boolean;
+    onChange: (checked: boolean) => void;
+}
+
+export interface ToastProps {
+    message: string;
+    actions?: ToastAction[];
+    onClose?: () => void;
+    duration?: number;
+    dontShowAgain?: ToastDontShowAgain;
+}
+
+export function Toast({ message, actions = [], onClose, duration = 20000, dontShowAgain }: ToastProps) {
     const [visible, setVisible] = useState(true);
     const [copied, setCopied] = useState(false);
 
@@ -48,11 +67,21 @@ export function Toast({ message, actions = [], onClose, duration = 20000 }: Toas
                         {a.command && <code className="toast__command">{a.command}</code>}
                         {a.command && (
                             <button className="toast__btn" onClick={() => copyToClipboard(a.command!)}>
-                                {copied ? '✓ Скопировано' : '📋 Копировать'}
+                                {copied ? '✓ Скопировано' : <span><MIcon name="content_copy" size='sm' /> Копировать</span>}
                             </button>
                         )}
                     </div>
                 ))}
+                {dontShowAgain && (
+                    <label className="toast__dont-show">
+                        <input
+                            type="checkbox"
+                            checked={dontShowAgain.checked}
+                            onChange={(e) => dontShowAgain.onChange(e.target.checked)}
+                        />
+                        <span>{dontShowAgain.label || 'Больше не показывать'}</span>
+                    </label>
+                )}
             </div>
             <button
                 className="toast__close"

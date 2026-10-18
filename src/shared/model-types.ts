@@ -433,6 +433,8 @@ export interface EntityLinkage {
   type: string;
   /** true — связь симметричная (side1 === side2). */
   symmetric: boolean;
+  /** true — ненаправленная связь (только для type: n_n). */
+  undirected?: boolean;
 }
 export interface DomainSchemaMetadata {
   id: string;

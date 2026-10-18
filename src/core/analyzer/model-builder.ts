@@ -691,6 +691,7 @@ function parseEntityLinkages(domainId: string, raw: any): EntityLinkage[] {
       name: String(l.name || l.id),
       type: String(l.type || "n_n"),
       symmetric: side1Fqid === side2Fqid,
+      undirected: l.undirected === true,
     });
   }
 

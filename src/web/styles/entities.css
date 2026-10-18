@@ -3957,7 +3957,9 @@ tr.highlighted .entity-matrix-row-head {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 6px 4px 12px;
+  overflow-x: hidden;
+  padding: 6px 12px 12px 4px;
+  scrollbar-gutter: stable;
 }
 
 .yaml-nav-section {
@@ -4048,6 +4050,8 @@ tr.highlighted .entity-matrix-row-head {
   border-radius: 5px;
   transition: background-color 0.1s;
   min-width: 0;
+  padding-right: 4px;
+  overflow: hidden;
 }
 .yaml-nav-item__row:hover {
   background: var(--bg-800);
@@ -4623,7 +4627,7 @@ tr.highlighted .entity-matrix-row-head {
 .yaml-nav-item--d3 { padding-left: 30px; }
 .yaml-nav-item--d4 { padding-left: 40px; }
 .yaml-nav-filtered {
-  padding: 4px;
+  padding: 4px 8px 4px 4px;
 }
 .yaml-nav-filtered-item {
   display: flex;

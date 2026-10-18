@@ -9,3 +9,6 @@ export { NamespacesSection } from "./NamespacesSection";
 export { TagsSection } from "./TagsSection";
 export { BookmarksSection } from "./BookmarksSection";
 export { LegendSection } from "./LegendSection";
+export { ProjectHealthSection } from "./ProjectHealthSection";
+export { RecentEntitiesSection } from "./RecentEntitiesSection";
+export { EntityFavoritesSection } from "./EntityFavoritesSection";

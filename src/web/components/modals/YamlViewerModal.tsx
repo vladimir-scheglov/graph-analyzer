@@ -78,6 +78,7 @@ export function YamlViewerModal() {
     const [rightTab, setRightTab] = useState<RightTab>('issues');
     const [showHelp, setShowHelp] = useState(false);
     const [isLocked, setIsLocked] = useState(true);
+    const [onlyProblematic, setOnlyProblematic] = useState(false);
     const isDirty = content !== savedContent;
     const [isSaving, setIsSaving] = useState(false);
     const [saveError, setSaveError] = useState<string | null>(null);
@@ -110,6 +111,69 @@ export function YamlViewerModal() {
         if (!index || !domainId) return [];
         return index.lint.lintReport.issues.filter((i) => i.domainId === domainId);
     }, [index, domainId]);
+
+    // ============ Счётчики для шапки ============
+    const counters = useMemo(() => {
+        if (!schema) return null;
+        const totalAttrs = schema.sections.entities.items.reduce(
+            (s, x) => s + (x.attributesCount || 0),
+            0,
+        );
+        return {
+            entities: schema.sections.entities.count,
+            attributes: totalAttrs,
+            linkages: schema.sections.linkages.count,
+            views: schema.sections.views.count,
+            issues: domainIssues.length,
+        };
+    }, [schema, domainIssues]);
+
+    // ============ Issues для навигации ============
+    const issuesByEntity = useMemo(() => {
+        const m = new Map<string, any[]>();
+        domainIssues.forEach((issue) => {
+            if (!issue.entityFqid) return;
+            if (!m.has(issue.entityFqid)) m.set(issue.entityFqid, []);
+            m.get(issue.entityFqid)!.push(issue);
+        });
+        return m;
+    }, [domainIssues]);
+
+    const issuesByAttribute = useMemo(() => {
+        const m = new Map<string, any[]>();
+        domainIssues.forEach((issue) => {
+            if (!issue.entityFqid || !issue.attributeId) return;
+            const key = `${issue.entityFqid}#${issue.attributeId}`;
+            if (!m.has(key)) m.set(key, []);
+            m.get(key)!.push(issue);
+        });
+        return m;
+    }, [domainIssues]);
+
+    // ============ Maps для быстрого получения issues по узлу ============
+    const entityIssuesMap = useMemo(() => {
+        const m = new Map<string, any[]>();
+        domainIssues.forEach((issue) => {
+            if (!issue.entityFqid) return;
+            const parts = issue.entityFqid.split("/");
+            if (parts.length < 2) return;
+            const key = parts[1].toLowerCase();
+            if (!m.has(key)) m.set(key, []);
+            m.get(key)!.push(issue);
+        });
+        return m;
+    }, [domainIssues]);
+
+    const attrIssuesMap = useMemo(() => {
+        const m = new Map<string, any[]>();
+        domainIssues.forEach((issue) => {
+            if (!issue.attributeId) return;
+            const key = issue.attributeId.toLowerCase();
+            if (!m.has(key)) m.set(key, []);
+            m.get(key)!.push(issue);
+        });
+        return m;
+    }, [domainIssues]);
 
     /** Объединённые issues: серверный линтер + клиентский RQL-чек. */
     const allIssues = useMemo(() => {
@@ -164,11 +228,25 @@ export function YamlViewerModal() {
             hasChildren: boolean;
             expanded: boolean;
             node: NavNode;
+            hasIssues: boolean;
+            issuesPreview: string;
         }> = [];
         const walk = (node: NavNode, sectionKey: string, depth: number) => {
             const key = sectionKey + '#' + node.id;
             const hasChildren = !!node.children && node.children.length > 0;
             const expanded = expandedNodes.has(key);
+
+            let hasIssues = false;
+            let issuesPreview = "";
+            if (sectionKey === "entities") {
+                const list =
+                    depth === 0
+                        ? entityIssuesMap.get(node.id.toLowerCase())
+                        : attrIssuesMap.get(node.id.toLowerCase());
+                hasIssues = !!list && list.length > 0;
+                issuesPreview = buildIssuesPreview(list);
+            }
+
             result.push({
                 key,
                 label: node.id,
@@ -177,21 +255,30 @@ export function YamlViewerModal() {
                 sectionKey,
                 hasChildren,
                 expanded,
-                node
+                node,
+                hasIssues,
+                issuesPreview
             });
+
             if (hasChildren && expanded) {
                 node.children!.forEach((child) => walk(child, key, depth + 1));
             }
         };
         lineMap.sections.forEach((s) => s.nodes.forEach((n) => walk(n, s.key, 0)));
         return result;
-    }, [lineMap, expandedNodes]);
+    }, [lineMap, expandedNodes, entityIssuesMap, attrIssuesMap]);
 
     const filteredNavNodes = useMemo(() => {
+        let result = flatNavNodes;
+        if (onlyProblematic) {
+            result = result.filter((n) => n.hasIssues);
+        }
         const q = navQuery.trim().toLowerCase();
-        if (!q) return flatNavNodes;
-        return flatNavNodes.filter((n) => n.label.toLowerCase().indexOf(q) !== -1);
-    }, [flatNavNodes, navQuery]);
+        if (q) {
+            result = result.filter((n) => n.label.toLowerCase().indexOf(q) !== -1);
+        }
+        return result;
+    }, [flatNavNodes, navQuery, onlyProblematic]);
 
     // ============ Monaco: create ============
     useEffect(() => {
@@ -874,6 +961,20 @@ export function YamlViewerModal() {
                             </button>
                         )}
 
+                        {domainId && (
+                            <button
+                                className="help-modal__icon-btn"
+                                onClick={() => {
+                                    store.setYamlViewerOpen(false);
+                                    store.setDomainSchemaDomainId(domainId);
+                                    store.setDomainSchemaOpen(true);
+                                }}
+                                title="Открыть структурированный обзор схемы"
+                            >
+                                <MIcon name="menu_book" />
+                            </button>
+                        )}
+
                         <button
                             className="help-modal__icon-btn"
                             onClick={() => setShowHelp(true)}
@@ -891,6 +992,34 @@ export function YamlViewerModal() {
                         </button>
                     </div>
                 </div>
+
+                {/* Счётчики домена */}
+                {counters && (
+                    <div className="yaml-viewer-info">
+                        <span className="yaml-viewer-info__item">
+                            <strong>{counters.entities}</strong> сущностей
+                        </span>
+                        <span className="yaml-viewer-info__item">
+                            <strong>{counters.attributes}</strong> атрибутов
+                        </span>
+                        <span className="yaml-viewer-info__item">
+                            <strong>{counters.linkages}</strong> связей
+                        </span>
+                        <span className="yaml-viewer-info__item">
+                            <strong>{counters.views}</strong> views
+                        </span>
+                        {counters.issues > 0 && (
+                            <button
+                                className="yaml-viewer-info__item yaml-viewer-info__item--issues"
+                                onClick={() => setRightTab("issues")}
+                                title="Открыть список проблем"
+                            >
+                                <MIcon name="warning" size="sm" />
+                                <strong>{counters.issues}</strong> проблем
+                            </button>
+                        )}
+                    </div>
+                )}
 
                 {/* Save error */}
                 {saveError && (
@@ -910,6 +1039,22 @@ export function YamlViewerModal() {
                             <>
                                 <div className="yaml-viewer-nav__header">
                                     <span>Навигация</span>
+                                    <button
+                                        className={
+                                            "yaml-viewer-nav__toggle" +
+                                            (onlyProblematic ? " active" : "")
+                                        }
+                                        onClick={() => setOnlyProblematic(!onlyProblematic)}
+                                        title={
+                                            onlyProblematic
+                                                ? "Показать все элементы"
+                                                : "Показать только элементы с проблемами"
+                                        }
+                                        disabled={domainIssues.length === 0}
+                                    >
+                                        <MIcon name="warning" size="sm" />
+                                        {domainIssues.length}
+                                    </button>
                                     <div className="yaml-viewer-nav__actions">
                                         <button className="yaml-viewer-nav__action" onClick={expandAll} title="Развернуть всё">⤢</button>
                                         <button className="yaml-viewer-nav__action" onClick={collapseAll} title="Свернуть всё">⤡</button>
@@ -935,7 +1080,7 @@ export function YamlViewerModal() {
                                 </div>
 
                                 <div className="yaml-viewer-nav__list" ref={navListRef}>
-                                    {navQuery.trim() !== '' ? (
+                                    {navQuery.trim() !== '' || onlyProblematic ? (
                                         <FilteredNavList
                                             nodes={filteredNavNodes}
                                             activeIdx={activeNavIdx}
@@ -954,6 +1099,9 @@ export function YamlViewerModal() {
                                                 activeIdx={activeNavIdx}
                                                 onSetActive={setActiveNavIdx}
                                                 filteredNavNodes={filteredNavNodes}
+                                                sectionKey={section.key}
+                                                entityIssuesMap={entityIssuesMap}
+                                                attrIssuesMap={attrIssuesMap}
                                             />
                                         ))
                                     )}
@@ -1168,14 +1316,17 @@ function FilteredNavList({
 
     return (
         <div className="yaml-nav-filtered">
-            {nodes.map((n, i) => (
+            {nodes.map((n: any, i: number) => (
                 <button
                     key={n.key + '#' + i}
                     className={
-                        'yaml-nav-filtered-item' + (i === activeIdx ? ' yaml-nav-filtered-item--active' : '')
+                        'yaml-nav-filtered-item' +
+                        (i === activeIdx ? ' yaml-nav-filtered-item--active' : '') +
+                        (n.hasIssues ? ' yaml-nav-filtered-item--issues' : '')
                     }
                     onClick={() => onJump(n.line)}
                     onMouseEnter={() => onHover(i)}
+                    title={n.issuesPreview || undefined}
                 >
                     <code className="yaml-nav-filtered-item__id">
                         {n.label}
@@ -1183,6 +1334,14 @@ function FilteredNavList({
                     <span className="yaml-nav-filtered-item__section">
                         {n.sectionKey}
                     </span>
+                    {n.hasIssues && (
+                        <span
+                            className="yaml-nav-filtered-item__issues"
+                            title={n.issuesPreview || "Есть проблемы"}
+                        >
+                            <MIcon name="warning" size="sm" />
+                        </span>
+                    )}
                     <span className="yaml-nav-filtered-item__line">:{n.line}</span>
                 </button>
             ))}
@@ -1210,7 +1369,10 @@ function SectionNav({
     issues,
     activeIdx,
     onSetActive,
-    filteredNavNodes
+    filteredNavNodes,
+    sectionKey,
+    entityIssuesMap,
+    attrIssuesMap
 }: {
     section: SectionBlock;
     expandedNodes: Set<string>;
@@ -1220,6 +1382,9 @@ function SectionNav({
     activeIdx: number;
     onSetActive: (idx: number) => void;
     filteredNavNodes: Array<{ key: string; line: number }>;
+    sectionKey: string;
+    entityIssuesMap: Map<string, any[]>;
+    attrIssuesMap: Map<string, any[]>;
 }) {
     const detailsRef = React.useRef<HTMLDetailsElement>(null);
 
@@ -1263,20 +1428,31 @@ function SectionNav({
 
             {section.nodes.length > 0 && (
                 <div className="yaml-nav-section__items">
-                    {section.nodes.map((node) => (
-                        <NavItem
-                            key={node.id}
-                            node={node}
-                            parentKey={section.key}
-                            depth={0}
-                            expandedNodes={expandedNodes}
-                            onToggleNode={onToggleNode}
-                            onJump={onJump}
-                            activeIdx={activeIdx}
-                            onSetActive={onSetActive}
-                            filteredNavNodes={filteredNavNodes}
-                        />
-                    ))}
+                    {section.nodes.map((node) => {
+                        const issuesList =
+                            sectionKey === "entities"
+                                ? entityIssuesMap.get(node.id.toLowerCase())
+                                : undefined;
+                        return (
+                            <NavItem
+                                key={node.id}
+                                node={node}
+                                parentKey={section.key}
+                                depth={0}
+                                expandedNodes={expandedNodes}
+                                onToggleNode={onToggleNode}
+                                onJump={onJump}
+                                activeIdx={activeIdx}
+                                onSetActive={onSetActive}
+                                filteredNavNodes={filteredNavNodes}
+                                sectionKey={sectionKey}
+                                hasIssues={!!issuesList && issuesList.length > 0}
+                                issuesPreview={buildIssuesPreview(issuesList)}
+                                entityIssuesMap={entityIssuesMap}
+                                attrIssuesMap={attrIssuesMap}
+                            />
+                        );
+                    })}
                 </div>
             )}
         </details>
@@ -1292,7 +1468,12 @@ function NavItem({
     onJump,
     activeIdx,
     onSetActive,
-    filteredNavNodes
+    filteredNavNodes,
+    sectionKey,
+    hasIssues,
+    issuesPreview,
+    entityIssuesMap,
+    attrIssuesMap
 }: {
     node: NavNode;
     parentKey: string;
@@ -1303,6 +1484,11 @@ function NavItem({
     activeIdx: number;
     onSetActive: (idx: number) => void;
     filteredNavNodes: Array<{ key: string; line: number }>;
+    sectionKey: string;
+    hasIssues: boolean;
+    issuesPreview: string;
+    entityIssuesMap: Map<string, any[]>;
+    attrIssuesMap: Map<string, any[]>;
 }) {
     const key = parentKey + '#' + node.id;
     const hasChildren = !!node.children && node.children.length > 0;
@@ -1347,25 +1533,44 @@ function NavItem({
                 >
                     <code className="yaml-nav-item__id">{node.id}</code>
                     {node.meta && <span className="yaml-nav-item__meta">{node.meta}</span>}
+                    {hasIssues && (
+                        <span
+                            className="yaml-nav-item__issues"
+                            title={issuesPreview || "Есть проблемы"}
+                        >
+                            <MIcon name="warning" size="sm" />
+                        </span>
+                    )}
                 </button>
             </div>
 
             {hasChildren && expanded && (
                 <div className="yaml-nav-item__children">
-                    {node.children!.map((child) => (
-                        <NavItem
-                            key={child.id}
-                            node={child}
-                            parentKey={key}
-                            depth={depth + 1}
-                            expandedNodes={expandedNodes}
-                            onToggleNode={onToggleNode}
-                            onJump={onJump}
-                            activeIdx={activeIdx}
-                            onSetActive={onSetActive}
-                            filteredNavNodes={filteredNavNodes}
-                        />
-                    ))}
+                    {node.children!.map((child) => {
+                        const childIssues =
+                            sectionKey === "entities"
+                                ? attrIssuesMap.get(child.id.toLowerCase())
+                                : undefined;
+                        return (
+                            <NavItem
+                                key={child.id}
+                                node={child}
+                                parentKey={key}
+                                depth={depth + 1}
+                                expandedNodes={expandedNodes}
+                                onToggleNode={onToggleNode}
+                                onJump={onJump}
+                                activeIdx={activeIdx}
+                                onSetActive={onSetActive}
+                                filteredNavNodes={filteredNavNodes}
+                                sectionKey={sectionKey}
+                                hasIssues={!!childIssues && childIssues.length > 0}
+                                issuesPreview={buildIssuesPreview(childIssues)}
+                                entityIssuesMap={entityIssuesMap}
+                                attrIssuesMap={attrIssuesMap}
+                            />
+                        );
+                    })}
                 </div>
             )}
         </div>
@@ -1464,4 +1669,15 @@ function IssuesGroup({
             })}
         </details>
     );
+}
+
+function buildIssuesPreview(issues: any[] | undefined): string {
+    if (!issues || issues.length === 0) return "";
+    const lines = issues
+        .slice(0, 5)
+        .map((i) => `• [${i.severity}] ${i.rule}: ${i.message}`);
+    if (issues.length > 5) {
+        lines.push(`...и ещё ${issues.length - 5}`);
+    }
+    return lines.join("\n");
 }

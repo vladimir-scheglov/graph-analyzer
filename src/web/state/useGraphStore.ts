@@ -88,6 +88,13 @@ export interface SnackbarState {
   ts: number;
 }
 
+export interface RecentEntity {
+  /** FQID сущности: "domain.tld/entityid" (lowercase). */
+  fqid: string;
+  /** Timestamp последнего открытия. */
+  openedAt: number;
+}
+
 export interface ClusterBox {
   id: string;
   label: string;
@@ -237,6 +244,15 @@ export interface GraphState {
   // Закладки
   bookmarks: Set<string>;
   toggleBookmark: (nodeId: string) => void;
+
+  // Недавно открытые сущности (LRU, max 20)
+  recentEntities: RecentEntity[];
+  pushRecentEntity: (fqid: string) => void;
+  clearRecentEntities: () => void;
+
+  // Избранные сущности (FQID)
+  entityFavorites: Set<string>;
+  toggleEntityFavorite: (fqid: string) => void;
 
   // Правила
   rules: RuleDefinition[];
@@ -394,6 +410,21 @@ function readJSON<T>(key: string, fallback: T): T {
   }
 }
 
+function readRecentEntities(): RecentEntity[] {
+  try {
+    const raw = localStorage.getItem("dg-recent-entities");
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (x: any) =>
+        x && typeof x.fqid === "string" && typeof x.openedAt === "number",
+    );
+  } catch {
+    return [];
+  }
+}
+
 // ============ Updater helper ============
 
 function applyUpdater<T>(prev: T, updater: T | ((p: T) => T)): T {
@@ -480,6 +511,60 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   setYamlViewerFqid: (v) => set({ yamlViewerFqid: v }),
   yamlViewerDomainId: null,
   setYamlViewerDomainId: (v) => set({ yamlViewerDomainId: v }),
+
+  // Закладки
+  bookmarks: readSet("dg-bookmarks"),
+  toggleBookmark: (nodeId) =>
+    set((s) => {
+      const next = new Set(s.bookmarks);
+      if (next.has(nodeId)) next.delete(nodeId);
+      else next.add(nodeId);
+      try {
+        localStorage.setItem("dg-bookmarks", JSON.stringify(Array.from(next)));
+      } catch {}
+      return { bookmarks: next };
+    }),
+
+  // Недавние сущности
+  recentEntities: readRecentEntities(),
+  pushRecentEntity: (fqid) =>
+    set((s) => {
+      if (!fqid || typeof fqid !== "string") return s;
+      const normalized = fqid.toLowerCase();
+      const filtered = s.recentEntities.filter((r) => r.fqid !== normalized);
+      const next: RecentEntity[] = [
+        { fqid: normalized, openedAt: Date.now() },
+        ...filtered,
+      ].slice(0, 20);
+      try {
+        localStorage.setItem("dg-recent-entities", JSON.stringify(next));
+      } catch {}
+      return { recentEntities: next };
+    }),
+  clearRecentEntities: () => {
+    try {
+      localStorage.removeItem("dg-recent-entities");
+    } catch {}
+    set({ recentEntities: [] });
+  },
+
+  // Избранные сущности
+  entityFavorites: readSet("dg-entity-favorites"),
+  toggleEntityFavorite: (fqid) =>
+    set((s) => {
+      if (!fqid) return s;
+      const normalized = fqid.toLowerCase();
+      const next = new Set(s.entityFavorites);
+      if (next.has(normalized)) next.delete(normalized);
+      else next.add(normalized);
+      try {
+        localStorage.setItem(
+          "dg-entity-favorites",
+          JSON.stringify(Array.from(next)),
+        );
+      } catch {}
+      return { entityFavorites: next };
+    }),
 
   // Фильтры
   filters: {
@@ -570,6 +655,22 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     "violations",
     "validation",
     "sonar",
+
+    // === Левый Sidebar ===
+    // overview и project-health — раскрыты (ключевые сводки),
+    // остальные секции по умолчанию свёрнуты.
+    "project-health",
+    "problems",
+    "news",
+    "top",
+    "worst",
+    "missing-refs",
+    "namespaces",
+    "tags",
+    "recent-entities",
+    "entity-favorites",
+    "bookmarks",
+    "legend",
   ]),
   toggleCollapsedSection: (id, isCollapsed) =>
     set((s) => {
@@ -661,19 +762,6 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       return {
         navStack: { items: s.navStack.items, index: s.navStack.index + 1 },
       };
-    }),
-
-  // Закладки
-  bookmarks: readSet("dg-bookmarks"),
-  toggleBookmark: (nodeId) =>
-    set((s) => {
-      const next = new Set(s.bookmarks);
-      if (next.has(nodeId)) next.delete(nodeId);
-      else next.add(nodeId);
-      try {
-        localStorage.setItem("dg-bookmarks", JSON.stringify(Array.from(next)));
-      } catch {}
-      return { bookmarks: next };
     }),
 
   // Правила

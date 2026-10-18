@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { MIcon } from '../common/MIcon';
 import { computeImpact } from '../../lib/model/impact-analysis';
 import type { ModelIndex } from '../../../shared/model-types';
+import { useGraphStore } from '../../state/useGraphStore';
 
 export interface ImpactAnalysisPanelProps {
     fqid: string;
@@ -12,6 +13,9 @@ export interface ImpactAnalysisPanelProps {
 }
 
 export function ImpactAnalysisPanel(props: ImpactAnalysisPanelProps) {
+    const entityFavorites = useGraphStore((s) => s.entityFavorites);
+    const isFav = entityFavorites.has(props.fqid);
+    const toggleFav = useGraphStore((s) => s.toggleEntityFavorite);
     const impact = useMemo(() => computeImpact(props.fqid, props.index), [props.fqid, props.index]);
 
     if (!impact) {
@@ -48,7 +52,16 @@ export function ImpactAnalysisPanel(props: ImpactAnalysisPanelProps) {
                         className="btn btn--primary"
                         onClick={() => props.onGotoDomain(entity.domainId)}
                     >
-                        🎯 Перейти к домену
+                        <MIcon name='my_location' size="sm" />
+                        <span className="icon-label">Перейти к домену</span> 
+                    </button>
+                    <button
+                        className={'impact-fav-btn' + (isFav ? ' active' : '')}
+                        onClick={() => toggleFav(props.fqid)}
+                        title={isFav ? 'Убрать из избранного' : 'В избранное'}
+                    >
+                        <MIcon name={isFav ? 'star' : 'star_border'} fill={isFav} size="sm" />
+                        {isFav ? 'В избранном' : 'В избранное'}
                     </button>
                     <span className="impact-stat">Ссылок: {refsTotal}</span>
                     <span className="impact-stat">Атрибутов: {entity.attributes.length}</span>

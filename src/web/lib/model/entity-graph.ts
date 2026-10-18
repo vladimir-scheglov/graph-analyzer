@@ -25,6 +25,8 @@ export interface EntityGraphEdge {
   viaAttribute?: string;
   linkageId?: string;
   title?: string;
+  /** Только для kind: "linkage". true — связь ненаправленная. */
+  undirected?: boolean;
 }
 
 export interface EntityGraphResult {
@@ -186,27 +188,26 @@ export function buildEntityGraph(
     });
   }
 
-  if (showLinkages) {
-    for (const l of index.entityLinkages) {
-      if (!selectedSet.has(l.side1Fqid) || !selectedSet.has(l.side2Fqid))
-        continue;
-      const arrow = l.symmetric ? "↔" : "→";
-      addEdge({
-        id: `lnk:${l.domainId}#${l.id}`,
-        source: l.side1Fqid,
-        target: l.side2Fqid,
-        kind: "linkage",
-        label: l.name,
-        linkageId: l.id,
-        title:
-          `${l.name}\n` +
-          `Тип: ${l.type}${l.symmetric ? " (симметрричная)" : ""}\n` +
-          `${shortEntityId(l.side1Fqid)} ${arrow} ${shortEntityId(l.side2Fqid)}`
-          /*`${l.side1Fqid}\n` +
-          `${l.side2Fqid}`,*/
-      });
+    if (showLinkages) {
+      for (const l of index.entityLinkages) {
+        if (!selectedSet.has(l.side1Fqid) || !selectedSet.has(l.side2Fqid))
+          continue;
+        const arrow = l.symmetric ? "↔" : l.undirected ? "—" : "→";
+        addEdge({
+          id: `lnk:${l.domainId}#${l.id}`,
+          source: l.side1Fqid,
+          target: l.side2Fqid,
+          kind: "linkage",
+          label: l.name,
+          linkageId: l.id,
+          undirected: l.undirected === true,
+          title:
+            `${l.name}\n` +
+            `Тип: ${l.type}${l.symmetric ? " (симметричная)" : l.undirected ? " (ненаправленная)" : ""}\n` +
+            `${shortEntityId(l.side1Fqid)} ${arrow} ${shortEntityId(l.side2Fqid)}`,
+        });
+      }
     }
-  }
 
   // ============ 5. Статистика ============
   const byKind: Record<EntityEdgeKind, number> = {
