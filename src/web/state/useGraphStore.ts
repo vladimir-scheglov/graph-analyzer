@@ -364,6 +364,8 @@ export interface GraphState {
   setYamlViewerFqid: (v: string | null) => void;
   yamlViewerDomainId: string | null;
   setYamlViewerDomainId: (v: string | null) => void;
+  modelVersion: number;
+  bumpModelVersion: () => void;
 }
 
 // ============ Хелперы для чтения localStorage ============
@@ -515,6 +517,8 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   setYamlViewerFqid: (v) => set({ yamlViewerFqid: v }),
   yamlViewerDomainId: null,
   setYamlViewerDomainId: (v) => set({ yamlViewerDomainId: v }),
+  modelVersion: 0,
+  bumpModelVersion: () => set((s) => ({ modelVersion: s.modelVersion + 1 })),
 
   // Закладки
   bookmarks: readSet("dg-bookmarks"),

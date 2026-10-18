@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useGraphStore } from "../state/useGraphStore";
 import type { ModelIndex } from "../../shared/model-types";
 
 interface ModelIndexState {
@@ -9,10 +10,12 @@ interface ModelIndexState {
 
 let cachedPromise: Promise<ModelIndex> | null = null;
 
-/**
- * Загружает ModelIndex с сервера. Кэшируется на весь lifetime страницы.
- */
+export function invalidateModelIndexCache(): void {
+  cachedPromise = null;
+}
+
 export function useModelIndex(): ModelIndexState {
+  const modelVersion = useGraphStore((s) => s.modelVersion);
   const [state, setState] = useState<ModelIndexState>({
     index: null,
     loading: true,
@@ -20,17 +23,17 @@ export function useModelIndex(): ModelIndexState {
   });
 
   useEffect(() => {
-    if (!cachedPromise) {
-      cachedPromise = fetch("/api/model")
-        .then((r) => {
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          return r.json();
-        })
-        .catch((err) => {
-          cachedPromise = null;
-          throw err;
-        });
-    }
+    // На каждое изменение modelVersion сбрасываем кэш
+    cachedPromise = null;
+    cachedPromise = fetch("/api/model")
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .catch((err) => {
+        cachedPromise = null;
+        throw err;
+      });
 
     let cancelled = false;
     cachedPromise
@@ -41,16 +44,10 @@ export function useModelIndex(): ModelIndexState {
         if (!cancelled)
           setState({ index: null, loading: false, error: err.message });
       });
-
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [modelVersion]);
 
   return state;
-}
-
-/** Ручная инвалидация кэша — на случай refresh. */
-export function invalidateModelIndexCache(): void {
-  cachedPromise = null;
 }

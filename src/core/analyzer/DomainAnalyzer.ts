@@ -67,6 +67,21 @@ export class DomainAnalyzer {
     return this.buildGraphData();
   }
 
+  reset(): void {
+    this.domains.clear();
+    this.links = [];
+    this.brokenDomains.clear();
+    this.missingDomains.clear();
+    this.fqidReferences = [];
+    this.stats.totalFiles = 0;
+    this.stats.processedFiles = 0;
+    this.stats.skippedFiles = 0;
+    this.stats.brokenFiles = 0;
+    this.stats.domains = 0;
+    this.stats.links = 0;
+    this.stats.fqidReferences = 0;
+  }
+
   private loadMetadata(): void {
     try {
       const indexPath = path.join(this.rootDir, "_index.json");

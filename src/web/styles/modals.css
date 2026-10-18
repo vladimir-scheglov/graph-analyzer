@@ -187,3 +187,7 @@
   border-top: 1px solid var(--border);
   margin: 24px 0;
 }
+
+.help-overlay--above-yaml {
+    z-index: 450 !important;
+}

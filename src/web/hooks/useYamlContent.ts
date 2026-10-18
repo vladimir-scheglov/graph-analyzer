@@ -6,9 +6,10 @@ interface YamlContentState {
   error: string | null;
 }
 
-const cache = new Map<string, string>();
-
-export function useYamlContent(filePath: string | null): YamlContentState {
+export function useYamlContent(
+  filePath: string | null,
+  reloadKey: number = 0,
+): YamlContentState {
   const [state, setState] = useState<YamlContentState>({
     content: "",
     loading: !!filePath,
@@ -20,11 +21,7 @@ export function useYamlContent(filePath: string | null): YamlContentState {
       setState({ content: "", loading: false, error: null });
       return;
     }
-    if (cache.has(filePath)) {
-      setState({ content: cache.get(filePath)!, loading: false, error: null });
-      return;
-    }
-    setState({ content: "", loading: true, error: null });
+    setState((prev) => ({ ...prev, loading: true, error: null }));
     let cancelled = false;
     fetch("/file?path=" + encodeURIComponent(filePath))
       .then((r) => {
@@ -32,7 +29,6 @@ export function useYamlContent(filePath: string | null): YamlContentState {
         return r.text();
       })
       .then((text) => {
-        cache.set(filePath, text);
         if (!cancelled)
           setState({ content: text, loading: false, error: null });
       })
@@ -43,12 +39,11 @@ export function useYamlContent(filePath: string | null): YamlContentState {
     return () => {
       cancelled = true;
     };
-  }, [filePath]);
+  }, [filePath, reloadKey]);
 
   return state;
 }
 
-export function invalidateYamlCache(filePath?: string): void {
-  if (filePath) cache.delete(filePath);
-  else cache.clear();
+export function invalidateYamlCache(_filePath?: string): void {
+  // No-op — кэш убран, каждый fetch идёт на сервер
 }

@@ -247,13 +247,6 @@ export function buildLineMap(
     const sectionSchema = (schema.sections as any)?.[key];
     if (!sectionSchema) return;
 
-    const knownIds = new Set<string>();
-    if (Array.isArray(sectionSchema.items)) {
-      sectionSchema.items.forEach((item: any) => {
-        if (item?.id) knownIds.add(String(item.id));
-      });
-    }
-
     // Находим базовый отступ items
     let baseIndent = -1;
     for (let i = start + 1; i < end; i++) {

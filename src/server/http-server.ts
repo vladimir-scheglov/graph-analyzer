@@ -145,6 +145,19 @@ export function startServer(opts: StartServerOptions): http.Server {
     } else if (url.startsWith("/file") && req.method === "POST") {
       try {
         await handleFileSave(req, res, rootDir, !!remoteInfo?.server);
+        // Асинхронный ребилд модели в фоне (ответ клиенту уже отправлен)
+        setImmediate(() => {
+          try {
+            analyzer.reset();
+            (analyzer as any).__graphData = analyzer.analyze();
+            const rawDomains = analyzer.getRawDomainsForModelIndex();
+            const newIndex = buildModelIndex(rawDomains);
+            setModelIndex(newIndex);
+            console.log("[rebuild] model rebuilt after file save");
+          } catch (e) {
+            console.error("[rebuild] failed:", e);
+          }
+        });
       } catch (err: any) {
         try {
           res.writeHead(500, { "Content-Type": "application/json" });

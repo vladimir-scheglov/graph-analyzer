@@ -166,7 +166,7 @@ export function DomainSchemaModal() {
 
     return (
         <div
-            className="help-overlay help-overlay--fullscreen"
+            className="help-overlay help-overlay--fullscreen help-overlay--above-yaml"
             onMouseDown={() => store.setDomainSchemaOpen(false)}
         >
             <div

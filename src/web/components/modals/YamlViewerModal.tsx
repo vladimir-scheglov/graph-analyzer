@@ -18,6 +18,7 @@ import { YamlViewerHelp } from './YamlViewerHelp';
 import { readRemoteInfo } from '../../state/initial';
 import { scanRqlInText } from '../../lib/monaco/rql-check';
 import { SECTION_LABELS } from '../../lib/consts';
+import yaml from "js-yaml";
 
 type RightTab = 'issues' | 'refs';
 
@@ -33,7 +34,16 @@ export function YamlViewerModal() {
     const remoteInfo = useMemo(() => readRemoteInfo(), []);
     const isRemoteMode = !!(remoteInfo && remoteInfo.server);
 
-    const { content: fetchedContent, loading, error: loadError } = useYamlContent(filePath);
+    const [reloadKey, setReloadKey] = useState(0);
+
+    useEffect(() => {
+        if (open) setReloadKey((k) => k + 1);
+    }, [open]);
+
+    const { content: fetchedContent, loading, error: loadError } = useYamlContent(
+        open ? filePath : null,
+        reloadKey,
+    );
 
     const [content, setContent] = useState('');
     const [savedContent, setSavedContent] = useState('');
@@ -49,6 +59,7 @@ export function YamlViewerModal() {
     const [cursorLine, setCursorLine] = useState(1);
     const [leftWidth, setLeftWidth] = useState(280);
     const isDraggingLeft = useRef(false);
+    const decorationsCollection = useRef<any>(null);
 
     const startResizingLeft = (e: React.MouseEvent) => {
         e.preventDefault();
@@ -177,6 +188,35 @@ export function YamlViewerModal() {
         return index.lint.lintReport.issues.filter((i) => i.domainId === domainId);
     }, [index, domainId]);
 
+    // Проверка синтаксиса YAML (включая отступы)
+    const yamlSyntaxIssue = useMemo(() => {
+        if (!content) return null;
+        try {
+            // Убираем кастомные теги !rql, чтобы js-yaml не ругался на них
+            const textToValidate = content.replace(/!rql/g, "");
+            yaml.load(textToValidate);
+            return null;
+        } catch (e: any) {
+            const errLine = e.mark?.line !== undefined ? e.mark.line + 1 : 1;
+            const errCol = e.mark?.column !== undefined ? e.mark.column + 1 : 1;
+            const errMsg = e.reason || e.message.split('\n')[0] || "Ошибка синтаксиса YAML";
+
+            return {
+                ruleId: "yaml-syntax",
+                rule: "Синтаксис YAML",
+                severity: "error" as const,
+                category: "validation",
+                message: errMsg,
+                domainId,
+                line: errLine,
+                column: errCol,
+                propertyPath: "",
+                __clientOnly: true,
+                __key: "yaml-syntax",
+            };
+        }
+    }, [content, domainId]);
+
     // ============ Счётчики для шапки ============
     const counters = useMemo(() => {
         if (!schema) return null;
@@ -263,8 +303,15 @@ export function YamlViewerModal() {
             __key: 'rql-' + idx
         }));
 
-        return [...domainIssues, ...mapped];
-    }, [domainIssues, lineMap, content, index, domainId]);
+        const combined = [...domainIssues, ...mapped];
+
+        // Добавляем ошибку синтаксиса YAML самой первой
+        if (yamlSyntaxIssue) {
+            combined.unshift(yamlSyntaxIssue as any);
+        }
+
+        return combined;
+    }, [domainIssues, lineMap, content, index, domainId, yamlSyntaxIssue]);
 
     const filteredIssues = useMemo(
         () => allIssues.filter((i: any) => severityFilter.has(i.severity)),
@@ -410,6 +457,7 @@ export function YamlViewerModal() {
                 automaticLayout: false,
                 fontSize: 13,
                 minimap: { enabled: false },
+                overviewRulerLanes: 0,
                 lineNumbers: 'on',
                 scrollBeyondLastLine: false,
                 folding: true,
@@ -645,7 +693,7 @@ export function YamlViewerModal() {
 
         const currentText = model.getValue();
         const markers = domainIssues
-            .filter((issue) => severityFilter.has(issue.severity)) 
+            .filter((issue) => severityFilter.has(issue.severity))
             .filter((issue) => !isIgnored(issue, ignored))
             .filter((issue) => isIssueStillPresent(issue, currentText, lineMap))
             .map((issue) => {
@@ -669,7 +717,30 @@ export function YamlViewerModal() {
             })
             .filter((x): x is NonNullable<typeof x> => x !== null);
 
+        // Устанавливаем маркеры для линтера
         m.editor.setModelMarkers(model, 'dg-linter', markers);
+
+        // Устанавливаем маркер для синтаксической ошибки YAML
+        if (yamlSyntaxIssue) {
+            let maxCol = 1000;
+            try {
+                if (yamlSyntaxIssue.line <= model.getLineCount()) {
+                    maxCol = model.getLineMaxColumn(yamlSyntaxIssue.line);
+                }
+            } catch (e) { }
+
+            m.editor.setModelMarkers(model, "yaml-syntax", [{
+                severity: m.MarkerSeverity.Error,
+                message: `YAML Syntax Error: ${yamlSyntaxIssue.message}`,
+                startLineNumber: yamlSyntaxIssue.line,
+                startColumn: 1,
+                endLineNumber: yamlSyntaxIssue.line,
+                endColumn: maxCol,
+                source: "yaml-syntax"
+            }]);
+        } else {
+            m.editor.setModelMarkers(model, "yaml-syntax", []);
+        }
 
         // Принудительный layout ПОСЛЕ установки маркеров.
         // Без этого при readOnly: true Monaco кэширует viewport=0×0 и не рисует
@@ -821,6 +892,14 @@ export function YamlViewerModal() {
             }
 
             invalidateYamlCache(filePath || undefined);
+
+            // Триггерим перезапрос /api/model
+            useGraphStore.getState().bumpModelVersion();
+
+            // Небольшая задержка, чтобы сервер успел ребилдить
+            setTimeout(() => {
+                useGraphStore.getState().bumpModelVersion();
+            }, 800);
 
             // Обновляем savedContent и content одновременно
             setSavedContent(currentValue);
@@ -1091,6 +1170,120 @@ export function YamlViewerModal() {
         }
     }, [open]);
 
+    useEffect(() => {
+        if (!monacoReady || !editorCreated || !editorRef.current) return;
+        if (!lineMap || !content) return;
+        const m = (window as any).monaco;
+        const model = editorRef.current.getModel();
+        if (!m || !model) return;
+
+        // Убираем комментарии, чтобы не считать их за использования
+        const textWithoutComments = content.replace(/#[^\n]*/g, "");
+        const newDecorations: any[] = [];
+
+        const entitiesSection = lineMap.sections.find((s) => s.key === "entities");
+        if (entitiesSection) {
+            entitiesSection.nodes.forEach((entityNode) => {
+                if (!entityNode.children) return;
+                entityNode.children.forEach((attrNode) => {
+                    const attrId = attrNode.id;
+                    const escaped = attrId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+                    // 1. Считаем, сколько раз этот ID вообще встречается в тексте (как отдельное слово)
+                    const wordRegex = new RegExp(`\\b${escaped}\\b`, "g");
+                    const allMatches = textWithoutComments.match(wordRegex)?.length || 0;
+
+                    // 2. Считаем, сколько раз он встречается как "id: attrId" (т.е. само объявление)
+                    const defRegex = new RegExp(`id:\\s*['"]?${escaped}['"]?`, "g");
+                    const defMatches = textWithoutComments.match(defRegex)?.length || 0;
+
+                    // 3. Если упоминаний больше, чем объявлений — значит атрибут где-то используется
+                    const usages = allMatches - defMatches;
+
+                    if (usages <= 0) {
+                        newDecorations.push({
+                            range: new m.Range(attrNode.line, 1, attrNode.line, 1),
+                            options: {
+                                isWholeLine: true,
+                                className: "unused-attribute-line",
+                                inlineClassName: "unused-attribute-text", // <--- Красим сам текст
+                                hoverMessage: {
+                                    value: `⚠️ Атрибут «${attrId}» не используется ни в представлениях, ни в правилах данных`,
+                                },
+                            },
+                        });
+                    }
+                });
+            });
+        }
+
+        if (decorationsCollection.current) decorationsCollection.current.clear();
+        decorationsCollection.current = editorRef.current.createDecorationsCollection(newDecorations);
+
+        return () => {
+            if (decorationsCollection.current) decorationsCollection.current.clear();
+        };
+    }, [monacoReady, editorCreated, lineMap, content, liveVersion]);
+
+    const crossDomainStats = useMemo(() => {
+        if (!index || !domainId) return null;
+        const currentDomainLower = domainId.toLowerCase();
+
+        let incoming = 0;
+        let outgoing = 0;
+        const incomingDomains = new Set<string>();
+        const outgoingDomains = new Set<string>();
+
+        // Исходящие (текущий домен -> другие)
+        const currentEntities = index.entities.filter(e => e.domainId.toLowerCase() === currentDomainLower);
+        currentEntities.forEach(e => {
+            e.attributes.forEach(a => {
+                const target = a.referenceEntity || a.itemReferenceEntity;
+                if (target) {
+                    const targetDomain = target.split('/')[0];
+                    if (targetDomain !== currentDomainLower) {
+                        outgoing++;
+                        outgoingDomains.add(targetDomain);
+                    }
+                }
+            });
+            if (e.inherits) {
+                const targetDomain = e.inherits.split('/')[0];
+                if (targetDomain !== currentDomainLower) {
+                    outgoing++;
+                    outgoingDomains.add(targetDomain);
+                }
+            }
+        });
+
+        // Входящие (другие -> текущий домен)
+        index.entities.forEach(e => {
+            if (e.domainId.toLowerCase() === currentDomainLower) return;
+            e.attributes.forEach(a => {
+                const target = a.referenceEntity || a.itemReferenceEntity;
+                if (target) {
+                    const targetDomain = target.split('/')[0];
+                    if (targetDomain === currentDomainLower) {
+                        incoming++;
+                        incomingDomains.add(e.domainId);
+                    }
+                }
+            });
+            if (e.inherits) {
+                const targetDomain = e.inherits.split('/')[0];
+                if (targetDomain === currentDomainLower) {
+                    incoming++;
+                    incomingDomains.add(e.domainId);
+                }
+            }
+        });
+
+        return {
+            incoming, outgoing, incomingDomainList: Array.from(incomingDomains).sort(),
+            outgoingDomainList: Array.from(outgoingDomains).sort(),
+        };
+    }, [index, domainId]);
+
     if (!open) return null;
 
     const canSave = !isRemoteMode && !isLocked && isDirty;
@@ -1271,6 +1464,39 @@ export function YamlViewerModal() {
                         <span className="yaml-viewer-info__item">
                             <strong>{counters.views}</strong> views
                         </span>
+                        {crossDomainStats &&
+                            (crossDomainStats.incoming > 0 || crossDomainStats.outgoing > 0) && (
+                                <div className="yaml-viewer-info__crossdomain">
+                                    {crossDomainStats.outgoing > 0 && (
+                                        <CrossDomainBadge
+                                            direction="out"
+                                            count={crossDomainStats.outgoing}
+                                            domains={crossDomainStats.outgoingDomainList}
+                                            label="исх."
+                                            onDomainClick={(d) => {
+                                                useGraphStore
+                                                    .getState()
+                                                    .setDomainSchemaDomainId(d);
+                                                useGraphStore.getState().setDomainSchemaOpen(true);
+                                            }}
+                                        />
+                                    )}
+                                    {crossDomainStats.incoming > 0 && (
+                                        <CrossDomainBadge
+                                            direction="in"
+                                            count={crossDomainStats.incoming}
+                                            domains={crossDomainStats.incomingDomainList}
+                                            label="вх."
+                                            onDomainClick={(d) => {
+                                                useGraphStore
+                                                    .getState()
+                                                    .setDomainSchemaDomainId(d);
+                                                useGraphStore.getState().setDomainSchemaOpen(true);
+                                            }}
+                                        />
+                                    )}
+                                </div>
+                            )}
                         {counters.sonar && (
                             <button
                                 className={
@@ -1493,6 +1719,39 @@ export function YamlViewerModal() {
                                 </div>
                             )}
                         </div>
+
+                        {/* Карта секций */}
+                        {lineMap && (
+                            <div className="yaml-section-minimap">
+                                {lineMap.sections.map((s) => {
+                                    const totalLines = lineMap.sections.reduce((acc, curr) => acc + curr.linesCount, 0);
+                                    const heightPercent = (s.linesCount / totalLines) * 100;
+
+                                    // Используем filteredIssues, чтобы учитывать фильтр
+                                    const sectionIssues = filteredIssues.filter((i) => {
+                                        const line = findIssueLine(i, lineMap);
+                                        return line && line >= s.line && line <= s.line + s.linesCount;
+                                    });
+                                    const hasError = sectionIssues.some((i) => i.severity === "error");
+                                    const hasWarning = sectionIssues.some((i) => i.severity === "warning");
+
+                                    return (
+                                        <div
+                                            key={s.key}
+                                            className={
+                                                "yaml-section-minimap__block " +
+                                                (hasError ? "yaml-section-minimap__block--error" :
+                                                    hasWarning ? "yaml-section-minimap__block--warning" :
+                                                        "yaml-section-minimap__block--ok")
+                                            }
+                                            style={{ height: `${heightPercent}%` }}
+                                            onClick={() => jumpTo(s.line)}
+                                            title={`${s.label} (${s.count})${sectionIssues.length > 0 ? ` — ${sectionIssues.length} проблем` : ""}`}
+                                        />
+                                    );
+                                })}
+                            </div>
+                        )}
 
                         {!isLocked && (
                             <div className="yaml-viewer-editor__mode">
@@ -2311,4 +2570,72 @@ function buildIssuesPreview(issues: any[] | undefined): string {
         lines.push(`...и ещё ${issues.length - 5}`);
     }
     return lines.join("\n");
+}
+
+function CrossDomainBadge({
+    direction,
+    count,
+    domains,
+    label,
+    onDomainClick,
+}: {
+    direction: "in" | "out";
+    count: number;
+    domains: string[];
+    label: string;
+    onDomainClick: (d: string) => void;
+}) {
+    const [open, setOpen] = useState(false);
+    const closeTimer = useRef<any>(null);
+
+    const onEnter = () => {
+        if (closeTimer.current) clearTimeout(closeTimer.current);
+        setOpen(true);
+    };
+    const onLeave = () => {
+        closeTimer.current = setTimeout(() => setOpen(false), 200);
+    };
+
+    return (
+        <span
+            className="yaml-viewer-info__item yaml-viewer-info__item--cross"
+            onMouseEnter={onEnter}
+            onMouseLeave={onLeave}
+            style={{ position: "relative" }}
+        >
+            <strong>
+                {direction === "out" ? "→" : "←"} {count}
+            </strong>{" "}
+            {label}
+            {open && (
+                <div
+                    className="yaml-crossdomain-tooltip"
+                    onMouseEnter={onEnter}
+                    onMouseLeave={onLeave}
+                >
+                    <div className="yaml-crossdomain-tooltip__title">
+                        {direction === "out"
+                            ? "Ссылается на домены"
+                            : "Ссылаются домены"}{" "}
+                        ({domains.length}):
+                    </div>
+                    <div className="yaml-crossdomain-tooltip__list">
+                        {domains.map((d) => (
+                            <button
+                                key={d}
+                                className="yaml-crossdomain-tooltip__link"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onDomainClick(d);
+                                }}
+                            >
+                                <MIcon name="menu_book" size="sm" />
+                                {d}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
+        </span>
+    );
 }
