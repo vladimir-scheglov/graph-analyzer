@@ -1,12 +1,9 @@
 import { useGraphStore } from "../state/useGraphStore";
 
-/**
- * Открыть файл схемы в модалке YamlViewer.
- * fqid — опционально, чтобы сразу проскроллить к нужной сущности.
- */
 export function openFileInEditor(
   filePath: string,
   fqid: string | null = null,
+  domainIdHint: string | null = null,
 ): void {
   if (!filePath) return;
 
@@ -14,15 +11,34 @@ export function openFileInEditor(
   store.setYamlViewerFilePath(filePath);
   store.setYamlViewerFqid(fqid);
 
-  // Определяем domainId из индекса
-  let domainId: string | null = null;
-  const nodes = store.nodes;
-  for (const n of nodes) {
-    if (n.data?.filePath === filePath) {
-      domainId = n.data.domainId || null;
-      break;
+  // 1. Явный hint
+  let domainId: string | null = domainIdHint;
+
+  // 2. Из fqid (первый сегмент до /)
+  if (!domainId && fqid) {
+    const slash = fqid.indexOf("/");
+    if (slash > 0) domainId = fqid.slice(0, slash).toLowerCase();
+  }
+
+  // 3. По filePath из узлов
+  if (!domainId) {
+    for (const n of store.nodes) {
+      if (n.data?.filePath === filePath) {
+        domainId = n.data.domainId || null;
+        break;
+      }
     }
   }
+
+  // 4. По имени файла (обычно <domainId>.ro)
+  if (!domainId) {
+    const baseName = filePath.split(/[/\\]/).pop() || "";
+    const candidate = baseName.replace(/\.ro$/i, "");
+    if (candidate && candidate.includes(".") && candidate.includes("/") === false) {
+      domainId = candidate.toLowerCase();
+    }
+  }
+
   store.setYamlViewerDomainId(domainId);
   store.setYamlViewerOpen(true);
 }

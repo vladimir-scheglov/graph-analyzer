@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useGraphStore } from '../../state/useGraphStore';
 import { useModelIndex } from '../../hooks/useModelIndex';
 import { useNavigation } from '../../hooks/useNavigation';
@@ -15,6 +15,17 @@ export function DomainCompareModal() {
 
     const [domainA, setDomainA] = useState('');
     const [domainB, setDomainB] = useState('');
+
+    const prefillA = useGraphStore((s) => s.domainComparePrefillA);
+    const setPrefillA = useGraphStore((s) => s.setDomainComparePrefillA);
+
+    useEffect(() => {
+        if (!open) return;
+        if (prefillA) {
+            setDomainA(prefillA);
+            setPrefillA(null);
+        }
+    }, [open, prefillA, setPrefillA]);
 
     const allDomains = useMemo(() => {
         if (!index) return [] as Array<[string, number]>;

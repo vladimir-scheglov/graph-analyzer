@@ -71,6 +71,16 @@ export async function handleFileSave(
     res.end(JSON.stringify({ error: "Путь вне корневой директории" }));
     return;
   }
+  // Запрещаем сохранять файлы внутри .previous
+  if (resolved.includes(path.sep + PREVIOUS_DIR + path.sep)) {
+    res.writeHead(403, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        error: "Сохранение файлов внутри .previous запрещено",
+      }),
+    );
+    return;
+  }
   if (!resolved.endsWith(".ro")) {
     res.writeHead(400, { "Content-Type": "application/json" });
     res.end(
@@ -123,8 +133,9 @@ export function handleFilePrevious(
 
   const prevPath = resolvePreviousPath(rootResolved, resolved);
   if (!fs.existsSync(prevPath)) {
-    res.writeHead(404, { "Content-Type": "text/plain" });
-    res.end("No previous version");
+    // Отдаём 204 No Content вместо 404, чтобы браузер не сыпал ошибками в консоль
+    res.writeHead(204);
+    res.end();
     return;
   }
 

@@ -9,42 +9,76 @@ import {
     registerMonacoProviders,
     updateProviderContext,
     resetProviderContext,
-    applyRqlMarkers
+    applyRqlMarkers,
+    applyFqidMarkers,
 } from '../../lib/monaco/monaco-providers';
+import { useNavigation } from '../../hooks/useNavigation';
 import { extractExternalRefs, groupExternalRefs, ExternalRefGroup } from '../../lib/yaml/external-refs';
 import { YamlViewerHelp } from './YamlViewerHelp';
 import { readRemoteInfo } from '../../state/initial';
 import { scanRqlInText } from '../../lib/monaco/rql-check';
+import { SECTION_LABELS } from '../../lib/consts';
 
 type RightTab = 'issues' | 'refs';
 
 export function YamlViewerModal() {
-    const store = useGraphStore();
     const { index } = useModelIndex();
     const { ready: monacoReady, error: monacoError } = useMonacoLoader();
 
-    const open = store.yamlViewerOpen;
-    const filePath = store.yamlViewerFilePath;
-    const fqid = store.yamlViewerFqid;
-    const domainId = store.yamlViewerDomainId;
+    const open = useGraphStore((s) => s.yamlViewerOpen);
+    const filePath = useGraphStore((s) => s.yamlViewerFilePath);
+    const fqid = useGraphStore((s) => s.yamlViewerFqid);
+    const domainId = useGraphStore((s) => s.yamlViewerDomainId);
 
     const remoteInfo = useMemo(() => readRemoteInfo(), []);
     const isRemoteMode = !!(remoteInfo && remoteInfo.server);
 
-    const { content: fetchedContent, loading, error: loadError } = useYamlContent(open ? filePath : null);
+    const { content: fetchedContent, loading, error: loadError } = useYamlContent(filePath);
 
     const [content, setContent] = useState('');
     const [savedContent, setSavedContent] = useState('');
     const [liveVersion, setLiveVersion] = useState(0);
     const liveDebounce = useRef<any>(null);
+    const skipNextEffect = useRef(false);
     const [editorCreated, setEditorCreated] = useState(false);
     const [ignoredVersion, setIgnoredVersion] = useState(0);
     const [diffMode, setDiffMode] = useState(false);
     const [previousContent, setPreviousContent] = useState<string | null>(null);
     const diffContainerRef = useRef<HTMLDivElement>(null);
     const diffEditorRef = useRef<any>(null);
-    const [contentForPath, setContentForPath] = useState<string | null>(null);
+    const [cursorLine, setCursorLine] = useState(1);
+    const [leftWidth, setLeftWidth] = useState(280);
+    const isDraggingLeft = useRef(false);
 
+    const startResizingLeft = (e: React.MouseEvent) => {
+        e.preventDefault();
+        isDraggingLeft.current = true;
+        document.body.style.cursor = 'col-resize';
+    };
+
+    useEffect(() => {
+        const onMouseMove = (e: MouseEvent) => {
+            if (!isDraggingLeft.current) return;
+            // Ограничиваем ширину от 180 до 600 пикселей
+            const newWidth = Math.max(180, Math.min(600, e.clientX));
+            setLeftWidth(newWidth);
+        };
+        const onMouseUp = () => {
+            if (isDraggingLeft.current) {
+                isDraggingLeft.current = false;
+                document.body.style.cursor = '';
+                if (editorRef.current) {
+                    try { editorRef.current.layout(); } catch { }
+                }
+            }
+        };
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+        return () => {
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        };
+    }, []);
 
     // При загрузке файла — сбросить оба
     useEffect(() => {
@@ -52,21 +86,32 @@ export function YamlViewerModal() {
         if (fetchedContent === null || fetchedContent === undefined) return;
         setContent(fetchedContent);
         setSavedContent(fetchedContent);
-        setContentForPath(filePath);   // ← фиксируем: контент именно для этого файла
     }, [loading, fetchedContent, filePath]);
 
     // Слушаем правки в редакторе → debounce → setContent
     useEffect(() => {
         if (!editorCreated || !editorRef.current) return;
+
         const handler = () => {
+            // Если изменение сделали мы программно (при загрузке файла) — игнорируем
+            if (isProgrammaticChange.current) return;
+
+            // Авто-разблокировка при редактировании (в т.ч. Quick Fix)
+            if (isLockedRef.current) {
+                setIsLocked(false);
+                useGraphStore.getState().showSnackbar("Файл автоматически разблокирован для применения изменений");
+            }
+
             clearTimeout(liveDebounce.current);
             liveDebounce.current = setTimeout(() => {
                 if (editorRef.current) {
+                    // skipNextEffect больше не нужен
                     setContent(editorRef.current.getValue());
                     setLiveVersion((v) => v + 1);
                 }
             }, 300);
         };
+
         const sub = editorRef.current.onDidChangeModelContent(handler);
         return () => {
             clearTimeout(liveDebounce.current);
@@ -90,10 +135,25 @@ export function YamlViewerModal() {
     const navListRef = useRef<HTMLDivElement>(null);
     const [activeNavIdx, setActiveNavIdx] = useState(-1);
 
+    const [leftCollapsed, setLeftCollapsed] = useState(false);
+    const [rightCollapsed, setRightCollapsed] = useState(false);
+    const [severityFilter, setSeverityFilter] = useState<Set<"error" | "warning" | "info">>(
+        new Set(["error", "warning", "info"]),
+    );
+
+    const { goto: gotoDomain } = useNavigation();
+
     // ============ Monaco refs ============
     const editorRef = useRef<any>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const saveRef = useRef<() => void>(() => { });
+    const toggleLockRef = useRef<() => void>(() => { });
+    const isLockedRef = useRef(isLocked);
+    const isProgrammaticChange = useRef(false);
+
+    useEffect(() => {
+        isLockedRef.current = isLocked;
+    }, [isLocked]);
 
     // ============ Line map / schema ============
     const schema = useMemo(() => {
@@ -105,6 +165,11 @@ export function YamlViewerModal() {
         if (!content || !schema) return null;
         return buildLineMap(content, schema);
     }, [content, schema]);
+
+    const currentContext = useMemo(() => {
+        if (!lineMap) return null;
+        return lineMap.lineContexts.get(cursorLine) || null;
+    }, [lineMap, cursorLine]);
 
     // ============ Issues ============
     const domainIssues = useMemo(() => {
@@ -119,14 +184,18 @@ export function YamlViewerModal() {
             (s, x) => s + (x.attributesCount || 0),
             0,
         );
+        const sonar = domainId
+            ? index?.lint?.sonar?.byDomain?.[domainId] || null
+            : null;
         return {
             entities: schema.sections.entities.count,
             attributes: totalAttrs,
             linkages: schema.sections.linkages.count,
             views: schema.sections.views.count,
             issues: domainIssues.length,
+            sonar,
         };
-    }, [schema, domainIssues]);
+    }, [schema, domainIssues, index, domainId]);
 
     // ============ Issues для навигации ============
     const issuesByEntity = useMemo(() => {
@@ -196,6 +265,11 @@ export function YamlViewerModal() {
 
         return [...domainIssues, ...mapped];
     }, [domainIssues, lineMap, content, index, domainId]);
+
+    const filteredIssues = useMemo(
+        () => allIssues.filter((i: any) => severityFilter.has(i.severity)),
+        [allIssues, severityFilter],
+    );
 
     // ============ External refs ============
     const [refsVersion, setRefsVersion] = useState(0);
@@ -286,7 +360,7 @@ export function YamlViewerModal() {
         if (!monacoReady) return;
         if (loading) return;
         if (!filePath) return;
-        if (contentForPath !== filePath) return;   // ← ключевая проверка: контент для ЭТОГО файла
+        if (!fetchedContent) return;
         if (!containerRef.current) return;
         if (editorRef.current) return;
 
@@ -308,7 +382,16 @@ export function YamlViewerModal() {
                     'editor.background': '#0d1424',
                     'editor.foreground': '#e2e8f0',
                     'editorLineNumber.foreground': '#475569',
-                    'editorLineNumber.activeForeground': '#94a3b8'
+                    'editorLineNumber.activeForeground': '#94a3b8',
+
+                    // === Цвета для автокомплита (Suggest Widget) ===
+                    'editorSuggestWidget.background': '#111827',
+                    'editorSuggestWidget.foreground': '#e2e8f0',
+                    'editorSuggestWidget.selectedBackground': '#1e293b',
+                    'editorSuggestWidget.highlightForeground': '#818cf8',
+                    'editorSuggestWidget.border': '#334155',
+                    'editorSuggestWidget.selectedForeground': '#f1f5f9',
+                    'editorSuggestWidget.focusHighlightForeground': '#a78bfa',
                 }
             });
         } catch { }
@@ -319,14 +402,15 @@ export function YamlViewerModal() {
 
         try {
             editor = m.editor.create(containerRef.current, {
-                value: content,
+                value: fetchedContent,
                 language: 'yaml',
                 theme: 'dg-dark',
-                readOnly: isLocked,
-                automaticLayout: true,
+                readOnly: false,
+                glyphMargin: true,
+                automaticLayout: false,
                 fontSize: 13,
+                minimap: { enabled: false },
                 lineNumbers: 'on',
-                minimap: { enabled: true },
                 scrollBeyondLastLine: false,
                 folding: true,
                 breadcrumbs: { enabled: true },
@@ -337,9 +421,41 @@ export function YamlViewerModal() {
                 occurrencesHighlight: 'off',
                 selectionHighlight: false,
                 renderValidationDecorations: 'on',
+                lightbulb: { enabled: 'on' },
             });
             editorRef.current = editor;
+            setContent(fetchedContent);
+            setSavedContent(fetchedContent);
             setEditorCreated(true);
+
+            // Блокируем ввод, если файл заблокирован
+            editor.onKeyDown((e: any) => {
+                if (!isLockedRef.current) return;
+
+                // Разрешаем навигацию и Escape
+                const navKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End', 'Escape', 'Tab'];
+                if (navKeys.includes(e.browserEvent.key)) return;
+
+                // Разрешаем системные шорткаты (Ctrl+C, Ctrl+F, Ctrl+S, Ctrl+Z)
+                if (e.ctrlKey || e.metaKey) return;
+
+                // Блокируем ввод (буквы, Backspace, Delete, Enter)
+                e.preventDefault();
+                e.stopPropagation();
+                useGraphStore.getState().showSnackbar("Файл заблокирован. Нажмите 🔒 для редактирования.");
+            });
+
+            editor.onDidPaste(() => {
+                if (!isLockedRef.current) return;
+                isProgrammaticChange.current = true; // Чтобы не триггерить авто-разблокировку
+                editor.trigger('locked', 'undo', null);
+                isProgrammaticChange.current = false;
+                useGraphStore.getState().showSnackbar("Вставка в заблокированный файл запрещена.");
+            });
+
+            editor.onDidChangeCursorPosition((e: any) => {
+                setCursorLine(e.position.lineNumber);
+            });
 
             setTimeout(() => {
                 if (!editorRef.current) return;
@@ -356,8 +472,12 @@ export function YamlViewerModal() {
             layouts.push(setTimeout(() => { try { editor?.layout(); } catch { } }, 350));
 
             if (containerRef.current) {
+                let roTimer: any = null;
                 ro = new ResizeObserver(() => {
-                    try { editor?.layout(); } catch { }
+                    clearTimeout(roTimer);
+                    roTimer = setTimeout(() => {
+                        try { editor?.layout(); } catch { }
+                    }, 50);
                 });
                 ro.observe(containerRef.current);
             }
@@ -375,25 +495,65 @@ export function YamlViewerModal() {
             }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [open, monacoReady, filePath, loading, contentForPath]);
+    }, [open, monacoReady, filePath, loading, fetchedContent]);
 
     useEffect(() => {
-        if (!editorCreated || !editorRef.current) return;
-        // Ждём, пока контент будет соответствовать текущему файлу
-        if (contentForPath !== filePath) return;
-        if (!content) return;
-
-        const current = editorRef.current.getValue();
-        // Ставим только если реально отличается — иначе слетает позиция курсора
-        if (current !== content) {
-            editorRef.current.setValue(content);
-        }
-    }, [content, editorCreated, contentForPath, filePath]);
+        if (!editorRef.current) return;
+        const t = setTimeout(() => {
+            try { editorRef.current?.layout(); } catch { }
+        }, 250); // 250мс — совпадает с длительностью CSS-анимации
+        return () => clearTimeout(t);
+    }, [leftCollapsed, rightCollapsed]);
 
     // ============ Ctrl+S ============
     useEffect(() => {
         saveRef.current = handleSave;
+        toggleLockRef.current = handleToggleLock;
     });
+
+    // Двойной Shift → переключение режима редактирования
+    useEffect(() => {
+        if (!open) return;
+
+        let lastShiftRelease = 0;
+        let pendingShiftDown = 0;
+        let hadOtherKey = false;
+
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.ctrlKey || e.altKey || e.metaKey) {
+                if (pendingShiftDown > 0) hadOtherKey = true;
+                return;
+            }
+            if (e.key === "Shift") {
+                if (lastShiftRelease > 0 && Date.now() - lastShiftRelease < 400) {
+                    pendingShiftDown = Date.now();
+                    hadOtherKey = false;
+                }
+            } else if (pendingShiftDown > 0) {
+                hadOtherKey = true;
+            }
+        };
+
+        const onKeyUp = (e: KeyboardEvent) => {
+            if (e.key === "Shift" && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                if (pendingShiftDown > 0 && !hadOtherKey) {
+                    pendingShiftDown = 0;
+                    lastShiftRelease = 0;
+                    toggleLockRef.current();
+                    return;
+                }
+                pendingShiftDown = 0;
+                lastShiftRelease = Date.now();
+            }
+        };
+
+        document.addEventListener("keydown", onKeyDown);
+        document.addEventListener("keyup", onKeyUp);
+        return () => {
+            document.removeEventListener("keydown", onKeyDown);
+            document.removeEventListener("keyup", onKeyUp);
+        };
+    }, [open]);
 
     useEffect(() => {
         if (!editorCreated || !editorRef.current) return;
@@ -407,14 +567,6 @@ export function YamlViewerModal() {
             // Monaco не всегда отдаёт dispose — очистим при dispose редактора
         };
     }, [editorCreated]);
-
-    // ============ Lock state sync ============
-    useEffect(() => {
-        if (!editorRef.current) return;
-        try {
-            editorRef.current.updateOptions({ readOnly: isLocked });
-        } catch { }
-    }, [isLocked, editorCreated]);
 
     // ============ Provider context ============
     useEffect(() => {
@@ -449,6 +601,33 @@ export function YamlViewerModal() {
         return () => clearTimeout(t);
     }, [monacoReady, editorCreated, lineMap]);
 
+    useEffect(() => {
+        if (!monacoReady || !editorCreated || !editorRef.current) return;
+        if (!index || !domainId) return;
+        const m = (window as any).monaco;
+        const model = editorRef.current.getModel();
+        if (!m || !model) return;
+
+        let timer: any = null;
+        const runMarkers = () => {
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(() => {
+                applyFqidMarkers(m, model, index, domainId);
+            }, 300); // Дебаунс 300мс
+        };
+
+        // Слушаем изменения модели напрямую, а не через React-стейт content
+        const disposable = editorRef.current.onDidChangeModelContent(runMarkers);
+
+        // Первый запуск
+        runMarkers();
+
+        return () => {
+            if (timer) clearTimeout(timer);
+            try { disposable?.dispose?.(); } catch { }
+        };
+    }, [monacoReady, editorCreated, index, domainId]);
+
     // ============ Issue markers ============
     const ignored = useMemo(() => {
         try {
@@ -464,8 +643,11 @@ export function YamlViewerModal() {
         const model = editorRef.current.getModel();
         if (!m || !model) return;
 
+        const currentText = model.getValue();
         const markers = domainIssues
+            .filter((issue) => severityFilter.has(issue.severity)) 
             .filter((issue) => !isIgnored(issue, ignored))
+            .filter((issue) => isIssueStillPresent(issue, currentText, lineMap))
             .map((issue) => {
                 const line = findIssueLine(issue, lineMap);
                 if (line == null) return null;
@@ -481,7 +663,8 @@ export function YamlViewerModal() {
                     startColumn: 1,
                     endLineNumber: line,
                     endColumn: 1_000_000,
-                    source: 'dg-linter'
+                    source: 'dg-linter',
+                    code: issue.ruleId
                 };
             })
             .filter((x): x is NonNullable<typeof x> => x !== null);
@@ -505,7 +688,7 @@ export function YamlViewerModal() {
         return () => {
             try { m.editor.setModelMarkers(model, 'dg-linter', []); } catch { }
         };
-    }, [monacoReady, editorCreated, lineMap, domainIssues, isLocked]);
+    }, [monacoReady, editorCreated, lineMap, domainIssues, isLocked, content, severityFilter]);
 
     // ============ Jump ============
     const jumpTo = useCallback((line: number) => {
@@ -584,7 +767,9 @@ export function YamlViewerModal() {
             if (isDirty) {
                 if (!confirm('Есть несохранённые изменения. Сбросить их и заблокировать файл?')) return;
                 if (editorRef.current) {
-                    editorRef.current.setValue(savedContent);   // ← откат к последнему сохранённому
+                    isProgrammaticChange.current = true;
+                    editorRef.current.setValue(savedContent);
+                    isProgrammaticChange.current = false;
                 }
                 setContent(savedContent);
             }
@@ -603,6 +788,16 @@ export function YamlViewerModal() {
             setSaveFeedback(true);
             setTimeout(() => setSaveFeedback(false), 1500);
             return;
+        }
+
+        // Предупреждение при наличии errors
+        const errorCount = domainIssues.filter((i) => i.severity === "error").length;
+        if (errorCount > 0) {
+            const ok = confirm(
+                `В схеме ${errorCount} ${errorCount === 1 ? "ошибка" : "ошибок"}. ` +
+                `Всё равно сохранить? Ошибки могут привести к поломке домена.`,
+            );
+            if (!ok) return;
         }
 
         setIsSaving(true);
@@ -632,6 +827,10 @@ export function YamlViewerModal() {
             setContent(currentValue);
             setLiveVersion((v) => v + 1);
 
+            try {
+                editorRef.current?.pushUndoStop();
+            } catch { }
+
             setSaveFeedback(true);
             setTimeout(() => setSaveFeedback(false), 2000);
         } catch (err: any) {
@@ -646,8 +845,8 @@ export function YamlViewerModal() {
         if (isDirty && !isLocked) {
             if (!confirm('Есть несохранённые изменения. Закрыть без сохранения?')) return;
         }
-        store.setYamlViewerOpen(false);
-    }, [isDirty, isLocked, store]);
+        useGraphStore.getState().setYamlViewerOpen(false);
+    }, [isDirty, isLocked]);
 
     // ============ Keyboard nav ============
     useEffect(() => {
@@ -792,11 +991,14 @@ export function YamlViewerModal() {
         }
     }, [editorCreated]);
 
+    // Сбрасываем в read-only при смене файла ИЛИ при закрытии модалки
     useEffect(() => {
-        setIsLocked(true);
+        if (!open) {
+            setIsLocked(true);
+        }
         setSaveError(null);
         setSaveFeedback(false);
-    }, [filePath]);
+    }, [filePath, open]);
 
     useEffect(() => {
         const handler = (e: Event) => {
@@ -827,18 +1029,18 @@ export function YamlViewerModal() {
                     }
                 } catch { }
             } else if (detail.action === 'open-lint') {
-                store.setLintOpen(true);
+                useGraphStore.getState().setLintOpen(true);
             }
         };
         document.addEventListener('dg:issue-action', handler);
         return () => document.removeEventListener('dg:issue-action', handler);
-    }, [domainId, store]);
+    }, [domainId]);
 
     useEffect(() => {
         if (!open || !filePath) { setPreviousContent(null); return; }
         let cancelled = false;
         fetch('/file/previous?path=' + encodeURIComponent(filePath))
-            .then((r) => (r.ok ? r.text() : null))
+            .then((r) => (r.status === 204 ? null : r.text()))
             .then((text) => { if (!cancelled) setPreviousContent(text); })
             .catch(() => { if (!cancelled) setPreviousContent(null); });
         return () => { cancelled = true; };
@@ -880,18 +1082,14 @@ export function YamlViewerModal() {
     }, [isLocked, editorCreated]);
 
     useEffect(() => {
-        if (!editorCreated || !editorRef.current) return;
-        if (contentForPath !== filePath) return;
-        if (!content) return;
-
-        // Если редактор разблокирован — пользователь работает, не трогаем
-        if (!isLocked) return;
-
-        const current = editorRef.current.getValue();
-        if (current !== content) {
-            editorRef.current.setValue(content);
+        if (!open) {
+            if (editorRef.current) {
+                try { editorRef.current.dispose(); } catch { }
+                editorRef.current = null;
+                setEditorCreated(false);
+            }
         }
-    }, [content, editorCreated, contentForPath, filePath, isLocked]);
+    }, [open]);
 
     if (!open) return null;
 
@@ -918,6 +1116,71 @@ export function YamlViewerModal() {
                     </div>
 
                     <div className="help-modal__actions">
+                        <button
+                            className="help-modal__icon-btn"
+                            onClick={() => setLeftCollapsed(!leftCollapsed)}
+                            title={leftCollapsed ? "Развернуть навигацию" : "Свернуть навигацию"}
+                        >
+                            <MIcon name={leftCollapsed ? "chevron_right" : "chevron_left"} />
+                        </button>
+
+                        <button
+                            className="help-modal__icon-btn"
+                            onClick={() => setRightCollapsed(!rightCollapsed)}
+                            title={
+                                rightCollapsed
+                                    ? "Развернуть панель проблем"
+                                    : "Свернуть панель проблем"
+                            }
+                        >
+                            <MIcon name={rightCollapsed ? "chevron_left" : "chevron_right"} />
+                        </button>
+                        {index?.pii?.byDomain?.some((d: any) => d.domainId === domainId) && (
+                            <button
+                                className="help-modal__icon-btn"
+                                onClick={() => {
+                                    useGraphStore.getState().setYamlViewerOpen(false);
+                                    useGraphStore.getState().setPiiOpen(true);
+                                }}
+                                title="PII-атрибуты в домене"
+                            >
+                                <MIcon name="shield_lock" />
+                            </button>
+                        )}
+
+                        <button
+                            className="help-modal__icon-btn"
+                            onClick={() => {
+                                if (!domainId) {
+                                    useGraphStore.getState().showSnackbar("Домен не определён для этого файла");
+                                    return;
+                                }
+
+                                useGraphStore.getState().setYamlViewerOpen(false);
+                                useGraphStore.getState().setDomainComparePrefillA(domainId);
+                                useGraphStore.getState().setDomainCompareOpen(true);
+                            }}
+                            title="Сравнить домены"
+                        >
+                            <MIcon name="compare_arrows" />
+                        </button>
+
+                        <button
+                            className="help-modal__icon-btn"
+                            onClick={() => {
+                                if (!domainId) {
+                                    useGraphStore.getState().showSnackbar("Домен не определён для этого файла");
+                                    return;
+                                }
+
+                                useGraphStore.getState().setYamlViewerOpen(false);
+                                gotoDomain(domainId);
+                            }}
+                            title="Показать на графе"
+                        >
+                            <MIcon name="my_location" />
+                        </button>
+
                         <button
                             className={'help-modal__icon-btn' + (!isLocked ? ' active' : '')}
                             onClick={handleToggleLock}
@@ -965,9 +1228,9 @@ export function YamlViewerModal() {
                             <button
                                 className="help-modal__icon-btn"
                                 onClick={() => {
-                                    store.setYamlViewerOpen(false);
-                                    store.setDomainSchemaDomainId(domainId);
-                                    store.setDomainSchemaOpen(true);
+                                    useGraphStore.getState().setYamlViewerOpen(false);
+                                    useGraphStore.getState().setDomainSchemaDomainId(domainId);
+                                    useGraphStore.getState().setDomainSchemaOpen(true);
                                 }}
                                 title="Открыть структурированный обзор схемы"
                             >
@@ -1008,6 +1271,21 @@ export function YamlViewerModal() {
                         <span className="yaml-viewer-info__item">
                             <strong>{counters.views}</strong> views
                         </span>
+                        {counters.sonar && (
+                            <button
+                                className={
+                                    "yaml-viewer-info__item yaml-viewer-info__item--sonar " +
+                                    "yaml-viewer-info__sonar-" + counters.sonar.grade.toLowerCase()
+                                }
+                                onClick={() => useGraphStore.getState().setLintOpen(true)}
+                                title="Sonar-оценка домена — открыть линтер"
+                            >
+                                <strong>{counters.sonar.score}</strong>
+                                <span className="yaml-viewer-info__sonar-grade">
+                                    {counters.sonar.grade}
+                                </span>
+                            </button>
+                        )}
                         {counters.issues > 0 && (
                             <button
                                 className="yaml-viewer-info__item yaml-viewer-info__item--issues"
@@ -1032,7 +1310,10 @@ export function YamlViewerModal() {
                 {/* ============ BODY ============ */}
                 <div className="yaml-viewer-body">
                     {/* Nav */}
-                    <div className="yaml-viewer-nav">
+                    <div
+                        className={"yaml-viewer-nav" + (leftCollapsed ? " yaml-viewer-nav--collapsed" : "")}
+                        style={{ width: leftCollapsed ? 0 : leftWidth }}
+                    >
                         {loading && <div className="yaml-viewer-nav__loading">Загрузка...</div>}
                         {loadError && <div className="yaml-viewer-nav__error">{loadError}</div>}
                         {lineMap && (
@@ -1110,60 +1391,119 @@ export function YamlViewerModal() {
                         )}
                     </div>
 
+                    {!leftCollapsed && (
+                        <div className="yaml-viewer-resizer" onMouseDown={startResizingLeft} />
+                    )}
+
                     {/* Editor */}
                     <div className="yaml-viewer-editor">
-                        {/* Контейнер Monaco — ВСЕГДА первый и единственный в потоке.
-      Условные overlay'и — absolute поверх, не влияют на reconciliation. */}
-                        <div
-                            key="monaco"
-                            ref={containerRef}
-                            style={{ width: '100%', height: '100%' }}
-                        />
+                        {/* Новая панель: Breadcrumbs (слева) + Quick Jumps (справа) */}
+                        <div className="yaml-viewer-editor__toolbar">
+                            <div className="yaml-viewer-breadcrumbs">
+                                {currentContext ? (
+                                    <>
+                                        {currentContext.section && (
+                                            <span className="yaml-viewer-breadcrumbs__item">
+                                                {currentContext.section}
+                                            </span>
+                                        )}
+                                        {currentContext.entityId && (
+                                            <>
+                                                <span className="yaml-viewer-breadcrumbs__sep">›</span>
+                                                <span className="yaml-viewer-breadcrumbs__item yaml-viewer-breadcrumbs__item--entity">
+                                                    {currentContext.entityId}
+                                                </span>
+                                            </>
+                                        )}
+                                        {currentContext.ruleId && !currentContext.entityId && (
+                                            <>
+                                                <span className="yaml-viewer-breadcrumbs__sep">›</span>
+                                                <span className="yaml-viewer-breadcrumbs__item">
+                                                    {currentContext.ruleId}
+                                                </span>
+                                            </>
+                                        )}
+                                        <span className="yaml-viewer-breadcrumbs__line">:{cursorLine}</span>
+                                    </>
+                                ) : (
+                                    <span className="yaml-viewer-breadcrumbs__item">—</span>
+                                )}
+                            </div>
 
-                        {/* Diff-контейнер — рендерится только в diff-режиме */}
-                        {diffMode && (
+                            {lineMap && (
+                                <div className="yaml-viewer-quickjumps">
+                                    {lineMap.sections.map((s) => {
+                                        const icon = s.key === 'entities' ? 'category'
+                                            : s.key === 'linkages' ? 'link'
+                                                : s.key === 'dataTypes' ? 'data_object'
+                                                    : s.key === 'actions' ? 'bolt'
+                                                        : s.key === 'views' ? 'visibility'
+                                                            : s.key === 'menus' ? 'menu'
+                                                                : s.key === 'mixins' ? 'merge'
+                                                                    : s.key === 'dataRules' ? 'rule'
+                                                                        : s.key === 'medias' ? 'image'
+                                                                            : 'arrow_right';
+
+                                        return (
+                                            <button
+                                                key={s.key}
+                                                className="yaml-viewer-quickjump"
+                                                onClick={() => jumpTo(s.line)}
+                                                title={`${s.label} (${s.count})`}
+                                            >
+                                                <MIcon name={icon} size="sm" />
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Обертка для Monaco */}
+                        <div className="yaml-viewer-editor__canvas" style={{ width: '100%', height: '100%' }}>
                             <div
-                                ref={diffContainerRef}
-                                style={{
-                                    position: 'absolute',
-                                    top: 0,
-                                    left: 0,
-                                    right: 0,
-                                    bottom: 0
-                                }}
+                                key="monaco"
+                                ref={containerRef}
+                                style={{ width: '100%', height: '100%' }}
                             />
-                        )}
 
-                        {(loading || (!monacoReady && !monacoError)) && (
-                            <div
-                                key="loading"
-                                className="yaml-viewer-editor__loading"
-                            >
-                                {loading ? 'Загрузка содержимого...' : 'Загрузка Monaco...'}
-                            </div>
-                        )}
+                            {/* Diff-контейнер — рендерится только в diff-режиме */}
+                            {diffMode && (
+                                <div
+                                    ref={diffContainerRef}
+                                    style={{
+                                        position: 'absolute',
+                                        top: 0,
+                                        left: 0,
+                                        right: 0,
+                                        bottom: 0
+                                    }}
+                                />
+                            )}
 
-                        {monacoError && (
-                            <div key="monaco-error" className="yaml-viewer-editor__error">
-                                Ошибка Monaco: {monacoError}
-                            </div>
-                        )}
+                            {(loading || (!monacoReady && !monacoError)) && (
+                                <div className="yaml-viewer-editor__loading">
+                                    {loading ? 'Загрузка содержимого...' : 'Загрузка Monaco...'}
+                                </div>
+                            )}
 
-                        {loadError && (
-                            <div key="load-error" className="yaml-viewer-editor__error">
-                                Не удалось загрузить файл: {loadError}
-                            </div>
-                        )}
+                            {monacoError && (
+                                <div className="yaml-viewer-editor__error">
+                                    Ошибка Monaco: {monacoError}
+                                </div>
+                            )}
+                        </div>
 
                         {!isLocked && (
-                            <div key="mode" className="yaml-viewer-editor__mode">
-                                ✏️ Режим редактирования
+                            <div className="yaml-viewer-editor__mode">
+                                <MIcon name="edit" size="sm" />
+                                <span className="icon-label">Режим редактирования</span>
                             </div>
                         )}
                     </div>
 
                     {/* Right panel with tabs */}
-                    <div className="yaml-viewer-issues">
+                    <div className={"yaml-viewer-issues" + (rightCollapsed ? " yaml-viewer-issues--collapsed" : "")}>
                         <div className="yaml-viewer-tabs">
                             <button
                                 className={'yaml-viewer-tab' + (rightTab === 'issues' ? ' active' : '')}
@@ -1184,7 +1524,14 @@ export function YamlViewerModal() {
                         </div>
 
                         {rightTab === 'issues' && (
-                            <IssuesPanel issues={allIssues} onJump={jumpTo} lineMap={lineMap} />
+                            <IssuesPanel
+                                issues={filteredIssues}
+                                allIssuesCount={allIssues.length}
+                                onJump={jumpTo}
+                                lineMap={lineMap}
+                                severityFilter={severityFilter}
+                                setSeverityFilter={setSeverityFilter}
+                            />
                         )}
                         {rightTab === 'refs' && (
                             <ExternalRefsPanel
@@ -1268,25 +1615,246 @@ function isIgnored(issue: any, ignoredSet: Set<string>): boolean {
 }
 
 // ============ SectionNav / NavItem / FilteredNavList / IssuesPanel ============
-// (остались из предыдущей итерации, только замените ссылки на yaml-nav-item--active если ещё не)
+function hasFieldInEntityBlock(
+    fieldName: string,
+    entityLine: number,
+    lines: string[],
+): boolean {
+    const startIdx = entityLine - 1;
+    const baseLine = lines[startIdx];
+    if (!baseLine) return false;
+    const entityIndent = (baseLine.match(/^(\s*)/) || ["", ""])[1].length;
 
-// findIssueLine — тоже из предыдущей итерации
+    // Находим отступ прямых дочерних элементов
+    let childIndent = -1;
+    for (let i = startIdx + 1; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line.trim()) continue;
+        const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
+        if (indent <= entityIndent) return false;
+        childIndent = indent;
+        break;
+    }
+    if (childIndent === -1) return false;
+
+    // Ищем только на уровне childIndent
+    for (let i = startIdx + 1; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line.trim()) continue;
+        const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
+        if (indent < childIndent) break;
+
+        if (indent === childIndent) {
+            const trimmed = line.trim();
+            if (trimmed.startsWith("-") || trimmed.startsWith("#")) continue;
+            const re = new RegExp(`^${fieldName}\\s*:`);
+            if (re.test(trimmed)) return true;
+        }
+    }
+    return false;
+}
+
+function hasFieldInAttributeBlock(
+    fieldName: string,
+    attrLine: number,
+    lines: string[],
+): boolean {
+    const startIdx = attrLine - 1;
+    const baseLine = lines[startIdx];
+    if (!baseLine) return false;
+
+    // Отступ текущего атрибута (позиция дефиса)
+    const attrIndent = (baseLine.match(/^(\s*)/) || ["", ""])[1].length;
+
+    for (let i = startIdx + 1; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line.trim()) continue;
+
+        const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
+        const trimmed = line.trim();
+
+        // Если наткнулись на следующий атрибут (с таким же отступом и дефисом) - выходим
+        if (indent === attrIndent && trimmed.startsWith("-")) break;
+
+        // Если вышли из сущности - выходим
+        if (indent < attrIndent) break;
+
+        // Проверяем само поле
+        const re = new RegExp(`^${fieldName}\\s*:`);
+        if (re.test(trimmed)) return true;
+    }
+    return false;
+}
+
+function isIssueStillPresent(
+    issue: any,
+    currentText: string,
+    lineMap: LineMap | null,
+): boolean {
+    if (issue.__clientOnly) return true;
+    if (!lineMap) return true;
+
+    const ruleId = String(issue.ruleId || "").toLowerCase();
+    const lines = currentText.split("\n");
+
+    const getEntityLine = (entityId: string): number | null => {
+        const key = `entities#${entityId}`.toLowerCase();
+        for (const [k, line] of lineMap.itemLines.entries()) {
+            if (k.toLowerCase() === key) return line;
+        }
+        return null;
+    };
+
+    // Хелпер: поиск атрибута с фоллбэком на camelCase
+    const getAttributeLine = (entityId: string, attrId: string): number | null => {
+        // 1. Пытаемся найти через lineMap
+        let line = findAttributeInEntity(entityId, attrId, lineMap);
+        if (line) return line;
+
+        // 2. Пробуем camelCase-версию
+        const parts = attrId.split(/[_\-]+/);
+        const camel = parts
+            .map((p, i) => i === 0 ? p.charAt(0).toLowerCase() + p.slice(1) : p.charAt(0).toUpperCase() + p.slice(1))
+            .join("");
+        line = findAttributeInEntity(entityId, camel, lineMap);
+        if (line) return line;
+
+        // 3. ФОЛЛБЭК: ищем строку с `- id: attrId` напрямую в тексте
+        const re = new RegExp(`-\\s+id:\\s*['"]?${attrId}['"]?\\s*$`);
+        for (let i = 0; i < lines.length; i++) {
+            if (re.test(lines[i])) return i + 1;
+        }
+
+        return null;
+    };
+
+    // --- Entity: label ---
+    if (ruleId.includes("entity-label") && issue.entityFqid) {
+        const entityId = issue.entityFqid.split("/").pop();
+        if (!entityId) return true;
+        const entityLine = getEntityLine(entityId);
+        if (!entityLine) return true;
+        return !hasFieldInEntityBlock("label", entityLine, lines);
+    }
+
+    // --- Entity: description ---
+    if (ruleId.includes("entity-description") && issue.entityFqid) {
+        const entityId = issue.entityFqid.split("/").pop();
+        if (!entityId) return true;
+        const entityLine = getEntityLine(entityId);
+        if (!entityLine) return true;
+        return !hasFieldInEntityBlock("description", entityLine, lines);
+    }
+
+    // --- Attribute: description ---
+    if (ruleId.includes("attribute-description") && issue.entityFqid && issue.attributeId) {
+        const entityId = issue.entityFqid.split("/").pop();
+        if (!entityId) return true;
+
+        const attrLine = getAttributeLine(entityId, issue.attributeId);
+        if (!attrLine) return true; // Атрибут не найден даже с camelCase
+
+        return !hasFieldInAttributeBlock("description", attrLine, lines);
+    }
+
+    // --- Attribute: camelCase ---
+    if (ruleId.includes("attribute-camelcase") && issue.attributeId) {
+        const entityId = issue.entityFqid?.split("/").pop();
+        if (entityId) {
+            const attrLine = getAttributeLine(entityId, issue.attributeId);
+            if (attrLine) {
+                const line = lines[attrLine - 1] || "";
+                const match = line.match(/id:\s*([a-zA-Z0-9_\-]+)/);
+                if (match && match[1]) {
+                    return !/^[a-z][a-zA-Z0-9]*$/.test(match[1]);
+                }
+            }
+        }
+        return !/^[a-z][a-zA-Z0-9]*$/.test(issue.attributeId);
+    }
+
+    // --- Entity: camelCase ---
+    if (ruleId.includes("entity-camelcase") && issue.entityFqid) {
+        const entityId = issue.entityFqid.split("/").pop() || "";
+        if (/^[A-Z][a-zA-Z0-9]*$/.test(entityId)) return false;
+
+        const parts = entityId.split(/[_\-]+/);
+        const pascal = parts.map((p: string) => p.charAt(0).toUpperCase() + p.slice(1)).join("");
+        if (getEntityLine(pascal)) return false;
+
+        return true;
+    }
+
+    return true;
+}
+
 function findIssueLine(issue: any, lineMap: LineMap | null): number | null {
     if (!lineMap) return null;
 
-    // Client-side issue уже содержит готовый номер строки
+    // 1. Клиентские ошибки RQL
     if (issue.__clientOnly && typeof issue.line === 'number' && issue.line > 0) {
         return issue.line;
     }
 
-    // Server-side: из propertyPath
-    const path = (issue.propertyPath || '').toLowerCase();
-    const entityMatch = path.match(/entities\[([^\]]+)\]/);
-    if (entityMatch) {
-        const line = lineMap.itemLines.get(`entities#${entityMatch[1]}`);
-        if (line != null) return line;
+    // 2. Поиск по propertyPath (если есть)
+    if (issue.propertyPath) {
+        const path = issue.propertyPath;
+        const entityMatch = path.match(/entities\[([^\]]+)\]/);
+        if (entityMatch) {
+            const entityId = entityMatch[1];
+            const attrMatch = path.match(/attributes\[([^\]]+)\]/);
+            if (attrMatch) {
+                const line = findAttributeInEntity(entityId, attrMatch[1], lineMap);
+                if (line != null) return line;
+            }
+            const line = lineMap.itemLines.get(`entities#${entityId}`);
+            if (line != null) return line;
+        }
+        const sectionItemMatch = path.match(/^([a-zA-Z]+)\[([^\]]+)\]/);
+        if (sectionItemMatch) {
+            const line = lineMap.itemLines.get(`${sectionItemMatch[1]}#${sectionItemMatch[2]}`);
+            if (line != null) return line;
+        }
     }
-    const sectionMatch = path.match(/([a-zA-Z]+)/);
+
+    // 3. Поиск по entityFqid (для проблем без propertyPath — description, label и т.д.)
+    if (issue.entityFqid) {
+        const entityId = issue.entityFqid.split("/")[1]; // регистр может быть любым
+        const entitiesSection = lineMap.sections.find((s) => s.key === "entities");
+
+        if (entitiesSection) {
+            // Ищем сущность без учета регистра
+            const entityNode = entitiesSection.nodes.find(
+                (n) => n.id.toLowerCase() === entityId.toLowerCase()
+            );
+
+            if (entityNode) {
+                // Если проблема на конкретном атрибуте
+                if (issue.attributeId && entityNode.children) {
+                    const findAttrRecursive = (nodes: NavNode[], attrId: string): number | null => {
+                        for (const child of nodes) {
+                            if (child.id.toLowerCase() === attrId.toLowerCase()) {
+                                return child.line;
+                            }
+                            if (child.children) {
+                                const res = findAttrRecursive(child.children, attrId);
+                                if (res) return res;
+                            }
+                        }
+                        return null;
+                    };
+                    const attrLine = findAttrRecursive(entityNode.children, issue.attributeId);
+                    if (attrLine != null) return attrLine;
+                }
+
+                // Если атрибут не указан или не найден — возвращаем строку сущности
+                return entityNode.line;
+            }
+        }
+    }
+
+    // 4. Фоллбэк по секции
+    const sectionMatch = (issue.propertyPath || '').match(/^([a-zA-Z]+)/);
     if (sectionMatch) {
         const sec = lineMap.sections.find((s) => s.key === sectionMatch[1]);
         if (sec) return sec.line;
@@ -1407,7 +1975,10 @@ function SectionNav({
         >
             <summary className="yaml-nav-section__head">
                 <span className="yaml-nav-section__chevron" aria-hidden="true" />
-                <span className="yaml-nav-section__label">{section.label}</span>
+                <span className="yaml-nav-section__label" title={`${section.linesCount} строк в секции`}>
+                    {section.label}
+                    <span className="yaml-nav-section__lines">~{section.linesCount}</span>
+                </span>
                 <span className="yaml-nav-section__count">{section.count}</span>
                 {sectionIssues.length > 0 && (
                     <span className="yaml-nav-section__issues">⚠ {sectionIssues.length}</span>
@@ -1581,56 +2152,116 @@ function NavItem({
 
 function IssuesPanel({
     issues,
+    allIssuesCount,
     onJump,
-    lineMap
+    lineMap,
+    severityFilter,
+    setSeverityFilter,
 }: {
     issues: any[];
+    allIssuesCount: number;
     onJump: (line: number) => void;
     lineMap: LineMap | null;
+    severityFilter: Set<"error" | "warning" | "info">;
+    setSeverityFilter: (s: Set<"error" | "warning" | "info">) => void;
 }) {
+    const [issueGroupMode, setIssueGroupMode] = useState<"rule" | "entity">("rule");
+
     const grouped = useMemo(() => {
         const map = new Map<string, any[]>();
         issues.forEach((i) => {
-            if (!map.has(i.ruleId)) map.set(i.ruleId, []);
-            map.get(i.ruleId)!.push(i);
+            // Группируем либо по правилу, либо по сущности
+            const key = issueGroupMode === "rule"
+                ? i.ruleId
+                : (i.entityFqid ? i.entityFqid.split("/")[1] : "Без сущности");
+            if (!map.has(key)) map.set(key, []);
+            map.get(key)!.push(i);
         });
         return Array.from(map.entries()).sort((a, b) => b[1].length - a[1].length);
-    }, [issues]);
+    }, [issues, issueGroupMode]);
 
-    if (issues.length === 0) {
-        return (
-            <div className="yaml-issues-empty">
-                <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
-                Проблем не найдено
-            </div>
-        );
-    }
+    const toggleSeverity = (sev: "error" | "warning" | "info") => {
+        const next = new Set(severityFilter);
+        if (next.has(sev)) next.delete(sev);
+        else next.add(sev);
+        setSeverityFilter(next);
+    };
 
     return (
         <div className="yaml-issues">
-            <div className="yaml-issues__header">Проблемы ({issues.length})</div>
-            <div className="yaml-issues__list">
-                {grouped.map(([ruleId, items]) => (
-                    <IssuesGroup
-                        key={ruleId}
-                        ruleId={ruleId}
-                        items={items}
-                        lineMap={lineMap}
-                        onJump={onJump}
-                    />
+            <div className="yaml-issues__severity">
+                {(["error", "warning", "info"] as const).map((sev) => (
+                    <button
+                        key={sev}
+                        className={
+                            "yaml-issues__severity-btn yaml-issues__severity-btn--" +
+                            sev +
+                            (severityFilter.has(sev) ? " active" : "")
+                        }
+                        onClick={() => toggleSeverity(sev)}
+                        title={`Показать/скрыть ${sev}`}
+                    >
+                        <span className="yaml-issues__severity-dot" />
+                        {sev === "error" ? "Ошибки" : sev === "warning" ? "Предупр." : "Инфо"}
+                    </button>
                 ))}
             </div>
+
+            <div className="yaml-issues__toolbar">
+                <span style={{ fontSize: 11, color: "var(--text-500)" }}>Группировка:</span>
+                <button
+                    className={"yaml-issues__group-btn" + (issueGroupMode === "rule" ? " active" : "")}
+                    onClick={() => setIssueGroupMode("rule")}
+                >
+                    По правилу
+                </button>
+                <button
+                    className={"yaml-issues__group-btn" + (issueGroupMode === "entity" ? " active" : "")}
+                    onClick={() => setIssueGroupMode("entity")}
+                >
+                    По сущности
+                </button>
+            </div>
+
+            <div className="yaml-issues__header">
+                Проблемы ({issues.length}
+                {issues.length !== allIssuesCount ? ` / ${allIssuesCount}` : ""})
+            </div>
+
+            {issues.length === 0 ? (
+                <div className="yaml-issues-empty">
+                    <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
+                    {allIssuesCount > 0
+                        ? "Нет проблем с выбранной severity"
+                        : "Проблем не найдено"}
+                </div>
+            ) : (
+                <div className="yaml-issues__list">
+                    {grouped.map(([ruleId, items]) => (
+                        <IssuesGroup
+                            key={ruleId}
+                            title={issueGroupMode === "rule" ? items[0].rule : ruleId}
+                            ruleId={ruleId}
+                            items={items}
+                            lineMap={lineMap}
+                            onJump={onJump}
+                        />
+                    ))}
+                </div>
+            )}
         </div>
     );
 }
 
 function IssuesGroup({
     ruleId,
+    title,
     items,
     lineMap,
     onJump
 }: {
     ruleId: string;
+    title: string;
     items: any[];
     lineMap: LineMap | null;
     onJump: (line: number) => void;
@@ -1648,7 +2279,7 @@ function IssuesGroup({
         <details ref={detailsRef} className="yaml-issues__group">
             <summary className="yaml-issues__group-title">
                 <span className="yaml-issues__group-chevron" aria-hidden="true" />
-                <span className="yaml-issues__group-label">{items[0].rule}</span>
+                <span className="yaml-issues__group-label">{title}</span>
                 <span className="yaml-issues__group-count">{items.length}</span>
             </summary>
             {items.map((issue, i) => {

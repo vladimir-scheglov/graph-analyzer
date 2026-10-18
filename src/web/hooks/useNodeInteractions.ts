@@ -199,7 +199,7 @@ export function useNodeInteractions({
           s.setPathResult(null);
           break;
         case "open-file":
-          if (node.data.filePath) openFileInEditor(node.data.filePath, null);
+          if (node.data.filePath) openFileInEditor(node.data.filePath, null, node.data.domainId);
           break;
         case "copy-id":
           navigator.clipboard.writeText(node.data.domainId);

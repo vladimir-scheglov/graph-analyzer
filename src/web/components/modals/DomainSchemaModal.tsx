@@ -4,15 +4,14 @@ import { useModelIndex } from "../../hooks/useModelIndex";
 import { useNavigation } from "../../hooks/useNavigation";
 import { MIcon } from "../common/MIcon";
 import { openFileInEditor } from "../../lib/open-file";
-import type { DomainSchemaSummary } from "../../../shared/model-types";
+import type { DomainSchemaSummary, SectionKey } from "../../../shared/model-types";
 import type { LintIssue } from "../../../shared/lint-types";
 import {
     generateDomainMarkdown,
     downloadDomainMarkdown,
 } from "../../lib/markdown/domain-markdown";
 import {
-    SectionItems,
-    SectionKey,
+    SectionItems
 } from "./DomainSchemaSectionItems";
 import {
     matchesQuery,
@@ -20,22 +19,7 @@ import {
     searchableStringsForDataType,
     searchableStringsForGeneric,
 } from "./DomainSchemaHelpers";
-
-const SECTION_LABELS: Record<
-    SectionKey,
-    { label: string; icon: string }
-> = {
-    entities: { label: "Сущности", icon: "category" },
-    linkages: { label: "Связи", icon: "link" },
-    dataTypes: { label: "Типы данных", icon: "data_object" },
-    sequences: { label: "Последовательности", icon: "linear_scale" },
-    actions: { label: "Действия", icon: "bolt" },
-    views: { label: "Представления", icon: "visibility" },
-    menus: { label: "Меню", icon: "menu" },
-    mixins: { label: "Миксины", icon: "merge" },
-    dataRules: { label: "Правила данных", icon: "rule" },
-    medias: { label: "Иконки", icon: "image" },
-};
+import { SECTION_LABELS } from "../../lib/consts";
 
 export function DomainSchemaModal() {
     const store = useGraphStore();
@@ -318,7 +302,7 @@ export function DomainSchemaModal() {
                                             (n) => n.data.domainId === schema.domainId,
                                         );
                                         if (node?.data.filePath) {
-                                            openFileInEditor(node.data.filePath, null);
+                                            openFileInEditor(node.data.filePath, null, node.data.domainId);
                                             store.setDomainSchemaOpen(false);
                                         }
                                     }}

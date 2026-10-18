@@ -40,6 +40,9 @@ const REF_FIELDS = new Set([
   "join",
   "entity_lists",
   "source",
+  "dataType",
+  "sequence",
+  "target",
 ]);
 
 const NON_REF_FIELDS = new Set([

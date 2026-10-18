@@ -542,3 +542,5 @@ export interface DomainSchemaSummary {
     hasCounterColorPattern: boolean;
   };
 }
+
+export type SectionKey = keyof DomainSchemaSummary["sections"];

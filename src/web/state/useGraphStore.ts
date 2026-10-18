@@ -352,6 +352,8 @@ export interface GraphState {
   setMartinOpen: (v: boolean) => void;
   domainCompareOpen: boolean;
   setDomainCompareOpen: (v: boolean) => void;
+  domainComparePrefillA: string | null;
+  setDomainComparePrefillA: (id: string | null) => void;
   piiOpen: boolean;
   setPiiOpen: (v: boolean) => void;
   yamlViewerOpen: boolean;
@@ -501,6 +503,8 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   setMartinOpen: (v) => set({ martinOpen: v }),
   domainCompareOpen: false,
   setDomainCompareOpen: (v) => set({ domainCompareOpen: v }),
+  domainComparePrefillA: null,
+  setDomainComparePrefillA: (id) => set({ domainComparePrefillA: id }),
   piiOpen: false,
   setPiiOpen: (v) => set({ piiOpen: v }),
   yamlViewerOpen: false,

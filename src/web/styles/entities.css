@@ -3919,12 +3919,22 @@ tr.highlighted .entity-matrix-row-head {
 
 /* NAV */
 .yaml-viewer-nav {
-  width: 280px;
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   background: var(--bg-850);
   min-height: 0;
+}
+.yaml-viewer-resizer {
+    width: 4px;
+    cursor: col-resize;
+    background: var(--border);
+    flex-shrink: 0;
+    transition: background 0.15s;
+}
+.yaml-viewer-resizer:hover,
+.yaml-viewer-resizer:active {
+    background: var(--accent);
 }
 .yaml-viewer-nav__loading,
 .yaml-viewer-nav__error {
@@ -4736,7 +4746,7 @@ tr.highlighted .entity-matrix-row-head {
 /* Индикатор режима редактирования */
 .yaml-viewer-editor__mode {
   position: absolute;
-  top: 8px;
+  top: 40px;
   right: 16px;
   padding: 4px 10px;
   background: rgba(251, 191, 36, 0.15);

@@ -18,6 +18,7 @@ export interface SectionBlock {
   label: string;
   line: number;
   count: number;
+  linesCount: number;
   nodes: NavNode[];
 }
 
@@ -273,9 +274,6 @@ export function buildLineMap(
       if (m[1].length !== baseIndent) continue;
 
       const id = m[2];
-      // Пропускаем, если id не из схемы (защита от ложных совпадений)
-      if (knownIds.size > 0 && !knownIds.has(id)) continue;
-
       // Определяем диапазон
       let itemEnd = i + 1;
       for (let k = i + 1; k < end; k++) {
@@ -331,6 +329,7 @@ export function buildLineMap(
         label: SECTION_LABELS[key] || key,
         line: start + 1,
         count: nodes.length,
+        linesCount: end - start,
         nodes,
       });
     }

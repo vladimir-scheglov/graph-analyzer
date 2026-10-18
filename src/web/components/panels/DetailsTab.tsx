@@ -85,7 +85,7 @@ export function DetailsTab({ node, allNodes, allEdges, ruleViolations }: Details
                     {node.data.filePath && (
                         <button
                             className="btn"
-                            onClick={() => openFileInEditor(node.data.filePath, null)}
+                            onClick={() => openFileInEditor(node.data.filePath, null, node.data.domainId)}
                         >
                             <MIcon name="description" size="sm" /> 
                             Открыть файл

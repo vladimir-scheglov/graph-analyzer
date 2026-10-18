@@ -2,7 +2,7 @@ import React, { useMemo } from "react";
 import { MIcon } from "../common/MIcon";
 import { useGraphStore } from "../../state/useGraphStore";
 import type {
-    DomainSchemaSummary,
+    SectionKey,
     ModelIndex,
 } from "../../../shared/model-types";
 import type { LintIssue } from "../../../shared/lint-types";
@@ -11,8 +11,6 @@ import {
     maxSeverity,
     pluralAttrs,
 } from "./DomainSchemaHelpers";
-
-export type SectionKey = keyof DomainSchemaSummary["sections"];
 
 // ============ IssueBadge ============
 

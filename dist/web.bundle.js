@@ -123,6 +123,8 @@ var init_useGraphStore = __esm({
       setMartinOpen: (v) => set({ martinOpen: v }),
       domainCompareOpen: false,
       setDomainCompareOpen: (v) => set({ domainCompareOpen: v }),
+      domainComparePrefillA: null,
+      setDomainComparePrefillA: (id) => set({ domainComparePrefillA: id }),
       piiOpen: false,
       setPiiOpen: (v) => set({ piiOpen: v }),
       yamlViewerOpen: false,
@@ -4172,18 +4174,31 @@ var init_tooltip_builders = __esm({
 });
 
 // src/web/lib/open-file.ts
-function openFileInEditor(filePath, fqid = null) {
+function openFileInEditor(filePath, fqid = null, domainIdHint = null) {
   if (!filePath)
     return;
   const store = useGraphStore.getState();
   store.setYamlViewerFilePath(filePath);
   store.setYamlViewerFqid(fqid);
-  let domainId = null;
-  const nodes = store.nodes;
-  for (const n of nodes) {
-    if (n.data?.filePath === filePath) {
-      domainId = n.data.domainId || null;
-      break;
+  let domainId = domainIdHint;
+  if (!domainId && fqid) {
+    const slash = fqid.indexOf("/");
+    if (slash > 0)
+      domainId = fqid.slice(0, slash).toLowerCase();
+  }
+  if (!domainId) {
+    for (const n of store.nodes) {
+      if (n.data?.filePath === filePath) {
+        domainId = n.data.domainId || null;
+        break;
+      }
+    }
+  }
+  if (!domainId) {
+    const baseName = filePath.split(/[/\\]/).pop() || "";
+    const candidate = baseName.replace(/\.ro$/i, "");
+    if (candidate && candidate.includes(".") && candidate.includes("/") === false) {
+      domainId = candidate.toLowerCase();
     }
   }
   store.setYamlViewerDomainId(domainId);
@@ -4359,7 +4374,7 @@ function useNodeInteractions({
           break;
         case "open-file":
           if (node.data.filePath)
-            openFileInEditor(node.data.filePath, null);
+            openFileInEditor(node.data.filePath, null, node.data.domainId);
           break;
         case "copy-id":
           navigator.clipboard.writeText(node.data.domainId);
@@ -8193,7 +8208,7 @@ function DetailsTab({ node, allNodes, allEdges, ruleViolations }) {
         "button",
         {
           className: "btn",
-          onClick: () => openFileInEditor(node.data.filePath, null),
+          onClick: () => openFileInEditor(node.data.filePath, null, node.data.domainId),
           children: [
             /* @__PURE__ */ jsx33(MIcon, { name: "description", size: "sm" }),
             "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0444\u0430\u0439\u043B"
@@ -16847,6 +16862,26 @@ var init_DomainSchemaSectionItems = __esm({
   }
 });
 
+// src/web/lib/consts.ts
+var SECTION_LABELS;
+var init_consts = __esm({
+  "src/web/lib/consts.ts"() {
+    "use strict";
+    SECTION_LABELS = {
+      entities: { label: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438", icon: "category" },
+      linkages: { label: "\u0421\u0432\u044F\u0437\u0438", icon: "link" },
+      dataTypes: { label: "\u0422\u0438\u043F\u044B \u0434\u0430\u043D\u043D\u044B\u0445", icon: "data_object" },
+      sequences: { label: "\u041F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u0438", icon: "linear_scale" },
+      actions: { label: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F", icon: "bolt" },
+      views: { label: "\u041F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F", icon: "visibility" },
+      menus: { label: "\u041C\u0435\u043D\u044E", icon: "menu" },
+      mixins: { label: "\u041C\u0438\u043A\u0441\u0438\u043D\u044B", icon: "merge" },
+      dataRules: { label: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0434\u0430\u043D\u043D\u044B\u0445", icon: "rule" },
+      medias: { label: "\u0418\u043A\u043E\u043D\u043A\u0438", icon: "image" }
+    };
+  }
+});
+
 // src/web/components/modals/DomainSchemaModal.tsx
 import { useMemo as useMemo34, useState as useState23 } from "react";
 import { jsx as jsx64, jsxs as jsxs61 } from "react/jsx-runtime";
@@ -17112,7 +17147,7 @@ function DomainSchemaModal() {
                           (n) => n.data.domainId === schema.domainId
                         );
                         if (node?.data.filePath) {
-                          openFileInEditor(node.data.filePath, null);
+                          openFileInEditor(node.data.filePath, null, node.data.domainId);
                           store.setDomainSchemaOpen(false);
                         }
                       },
@@ -17261,7 +17296,6 @@ function DomainSchemaModal() {
     }
   );
 }
-var SECTION_LABELS;
 var init_DomainSchemaModal = __esm({
   "src/web/components/modals/DomainSchemaModal.tsx"() {
     "use strict";
@@ -17273,18 +17307,7 @@ var init_DomainSchemaModal = __esm({
     init_domain_markdown();
     init_DomainSchemaSectionItems();
     init_DomainSchemaHelpers();
-    SECTION_LABELS = {
-      entities: { label: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438", icon: "category" },
-      linkages: { label: "\u0421\u0432\u044F\u0437\u0438", icon: "link" },
-      dataTypes: { label: "\u0422\u0438\u043F\u044B \u0434\u0430\u043D\u043D\u044B\u0445", icon: "data_object" },
-      sequences: { label: "\u041F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u0438", icon: "linear_scale" },
-      actions: { label: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F", icon: "bolt" },
-      views: { label: "\u041F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F", icon: "visibility" },
-      menus: { label: "\u041C\u0435\u043D\u044E", icon: "menu" },
-      mixins: { label: "\u041C\u0438\u043A\u0441\u0438\u043D\u044B", icon: "merge" },
-      dataRules: { label: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0434\u0430\u043D\u043D\u044B\u0445", icon: "rule" },
-      medias: { label: "\u0418\u043A\u043E\u043D\u043A\u0438", icon: "image" }
-    };
+    init_consts();
   }
 });
 
@@ -18327,7 +18350,7 @@ var init_domain_compare = __esm({
 });
 
 // src/web/components/modals/DomainCompareModal.tsx
-import { useMemo as useMemo38, useState as useState27 } from "react";
+import { useEffect as useEffect30, useMemo as useMemo38, useState as useState27 } from "react";
 import { Fragment as Fragment12, jsx as jsx68, jsxs as jsxs65 } from "react/jsx-runtime";
 function DomainCompareModal() {
   const store = useGraphStore();
@@ -18336,6 +18359,16 @@ function DomainCompareModal() {
   const open = store.domainCompareOpen;
   const [domainA, setDomainA] = useState27("");
   const [domainB, setDomainB] = useState27("");
+  const prefillA = useGraphStore((s) => s.domainComparePrefillA);
+  const setPrefillA = useGraphStore((s) => s.setDomainComparePrefillA);
+  useEffect30(() => {
+    if (!open)
+      return;
+    if (prefillA) {
+      setDomainA(prefillA);
+      setPrefillA(null);
+    }
+  }, [open, prefillA, setPrefillA]);
   const allDomains = useMemo38(() => {
     if (!index)
       return [];
@@ -19149,14 +19182,14 @@ var init_PiiModal = __esm({
 });
 
 // src/web/hooks/useYamlContent.ts
-import { useEffect as useEffect30, useState as useState29 } from "react";
+import { useEffect as useEffect31, useState as useState29 } from "react";
 function useYamlContent(filePath) {
   const [state, setState] = useState29({
     content: "",
     loading: !!filePath,
     error: null
   });
-  useEffect30(() => {
+  useEffect31(() => {
     if (!filePath) {
       setState({ content: "", loading: false, error: null });
       return;
@@ -19200,7 +19233,7 @@ var init_useYamlContent = __esm({
 });
 
 // src/web/hooks/useMonacoLoader.ts
-import { useEffect as useEffect31, useState as useState30 } from "react";
+import { useEffect as useEffect32, useState as useState30 } from "react";
 function preloadMonaco() {
   if (isLoaded)
     return Promise.resolve();
@@ -19248,7 +19281,7 @@ function preloadMonaco() {
 function useMonacoLoader() {
   const [ready, setReady] = useState30(isLoaded);
   const [error, setError] = useState30(null);
-  useEffect31(() => {
+  useEffect32(() => {
     if (ready)
       return;
     let cancelled = false;
@@ -19281,7 +19314,7 @@ function buildLineContexts(text) {
   const result = /* @__PURE__ */ new Map();
   let section = "";
   let entityId = null;
-  let blockIndent = -1;
+  let entityIndent = -1;
   let ruleId;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -19296,8 +19329,8 @@ function buildLineContexts(text) {
       if (secMatch) {
         section = secMatch[1];
         entityId = null;
-        blockIndent = -1;
         ruleId = void 0;
+        entityIndent = -1;
         result.set(i + 1, { entityId, section, ruleId });
         continue;
       }
@@ -19305,24 +19338,25 @@ function buildLineContexts(text) {
     const blockStart = line.match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
     if (blockStart) {
       const bIndent = blockStart[1].length;
-      if (blockIndent < 0 || bIndent <= blockIndent) {
-        blockIndent = bIndent;
-        entityId = null;
-        ruleId = blockStart[2];
+      const newId = blockStart[2].replace(/["']/g, "");
+      if (section === "entities") {
+        if (entityIndent < 0 || bIndent <= entityIndent) {
+          entityId = newId;
+          entityIndent = bIndent;
+        }
+      } else {
+        ruleId = newId;
+        if (entityIndent >= 0 && bIndent <= entityIndent) {
+          entityId = null;
+          entityIndent = -1;
+        }
       }
       result.set(i + 1, { entityId, section, ruleId });
       continue;
     }
-    const entityMatch = line.match(/^(\s+)(?:-\s+)?entity\s*:\s*([^\s#]+)/);
-    if (entityMatch) {
-      entityId = entityMatch[2].replace(/["']/g, "");
-      result.set(i + 1, { entityId, section, ruleId });
-      continue;
-    }
-    if (blockIndent >= 0 && indent < blockIndent) {
+    if (entityId && entityIndent >= 0 && indent < entityIndent) {
       entityId = null;
-      blockIndent = -1;
-      ruleId = void 0;
+      entityIndent = -1;
     }
     result.set(i + 1, { entityId, section, ruleId });
   }
@@ -19474,8 +19508,6 @@ function buildLineMap(text, schema) {
       if (m[1].length !== baseIndent)
         continue;
       const id = m[2];
-      if (knownIds.size > 0 && !knownIds.has(id))
-        continue;
       let itemEnd = i + 1;
       for (let k = i + 1; k < end; k++) {
         const kLine = lines[k];
@@ -19523,6 +19555,7 @@ function buildLineMap(text, schema) {
         label: SECTION_LABELS2[key] || key,
         line: start + 1,
         count: nodes.length,
+        linesCount: end - start,
         nodes
       });
     }
@@ -20088,6 +20121,11 @@ function findWordAtLine(lineText, column) {
   if (field === "id") {
     return { type: "id-def", value, field };
   }
+  if (field === "dataType" || field === "item" && value.startsWith("dataType")) {
+  }
+  if (field === "dataType") {
+    return { type: "ref-datatype", value, field };
+  }
   const isAttributeLike = ATTRIBUTE_LIKE_FIELDS.has(field);
   const isRefField = REF_FIELDS.has(field);
   if (!isAttributeLike && !isRefField)
@@ -20315,6 +20353,32 @@ function registerMonacoProviders(monaco) {
   if (providersRegistered)
     return;
   providersRegistered = true;
+  if (!monaco.editor.__dgApplyEditRegistered) {
+    monaco.editor.__dgApplyEditRegistered = true;
+    monaco.editor.registerCommand(
+      "dg-apply-edit",
+      (_accessor, args) => {
+        const editors = monaco.editor.getEditors();
+        if (!editors || editors.length === 0)
+          return;
+        const editor = editors.find((e) => e.hasTextFocus()) || editors[0];
+        if (!editor)
+          return;
+        editor.executeEdits("quickfix", [
+          {
+            range: {
+              startLineNumber: args.startLineNumber,
+              startColumn: args.startColumn,
+              endLineNumber: args.endLineNumber,
+              endColumn: args.endColumn
+            },
+            text: args.text
+          }
+        ]);
+        editor.focus();
+      }
+    );
+  }
   monaco.languages.registerDocumentSymbolProvider("yaml", {
     provideDocumentSymbols: (model) => {
       if (!ctx.lineMap)
@@ -20338,82 +20402,133 @@ function registerMonacoProviders(monaco) {
         const hit = findWordAtLine(lineText, position.column);
         if (!hit)
           return null;
-        if (hit.type === "id-def" || hit.type === "ref-entity") {
-          const entityId = hit.value.toLowerCase();
-          let entity = null;
-          for (const e of ctx.modelIndex.entities) {
-            if (e.entityId.toLowerCase() === entityId) {
-              entity = e;
-              break;
+        const buildRange = () => ({
+          startLineNumber: position.lineNumber,
+          startColumn: 1,
+          endLineNumber: position.lineNumber,
+          endColumn: lineText.length + 1
+        });
+        if (hit.type === "ref-datatype") {
+          const dt = ctx.modelIndex.dataTypes.find(
+            (d) => d.id === hit.value
+          );
+          if (!dt) {
+            const base = [
+              "String",
+              "Integer",
+              "Decimal",
+              "Float",
+              "Bool",
+              "Uuid",
+              "Timestamp",
+              "Date",
+              "Time",
+              "TimestampRange",
+              "Text",
+              "MAC",
+              "IpAddress",
+              "CIDR",
+              "URL",
+              "Attachment",
+              "Identifier",
+              "Counter",
+              "Calculation",
+              "Configuration",
+              "Variable",
+              "RQL",
+              "Automation",
+              "Reference",
+              "Array",
+              "Table",
+              "Enum",
+              "Workflow"
+            ];
+            if (base.includes(hit.value)) {
+              return {
+                range: buildRange(),
+                contents: [{ value: `**${hit.value}** \u2014 \u0431\u0430\u0437\u043E\u0432\u044B\u0439 \u0442\u0438\u043F` }]
+              };
             }
+            return null;
+          }
+          const contents = [];
+          contents.push({
+            value: `**${dt.id}**${dt.name && dt.name !== dt.id ? ` \u2014 ${dt.name}` : ""}`
+          });
+          if (dt.kind)
+            contents.push({ value: `\u0422\u0438\u043F: \`${dt.kind}\`` });
+          if (dt.values && dt.values.length > 0) {
+            const shown = dt.values.slice(0, 25);
+            contents.push({
+              value: `**\u0417\u043D\u0430\u0447\u0435\u043D\u0438\u044F** (${dt.values.length}): ` + shown.map((v) => `\`${v}\``).join(", ") + (dt.values.length > 25 ? "\u2026" : "")
+            });
+          }
+          if (dt.statuses && dt.statuses.length > 0) {
+            const shown = dt.statuses.slice(0, 25);
+            contents.push({
+              value: `**\u0421\u0442\u0430\u0442\u0443\u0441\u044B** (${dt.statuses.length}): ` + shown.map((v) => `\`${v}\``).join(", ") + (dt.statuses.length > 25 ? "\u2026" : "")
+            });
+          }
+          if (dt.columns && dt.columns.length > 0) {
+            contents.push({
+              value: `**\u041A\u043E\u043B\u043E\u043D\u043A\u0438** (${dt.columns.length}): ${dt.columns.slice(0, 15).join(", ")}`
+            });
+          }
+          return { range: buildRange(), contents };
+        }
+        const isEntityLike = hit.type === "id-def" || hit.type === "ref-entity" || hit.type === "ref-item" || hit.type === "ref-fqid-foreign";
+        if (isEntityLike) {
+          let entity = null;
+          if (hit.fqid) {
+            entity = ctx.modelIndex.entitiesByFqid[hit.fqid.toLowerCase()];
+          }
+          if (!entity) {
+            const currentDomain = (ctx.currentDomainId || "").toLowerCase();
+            const candidate = `${currentDomain}/${hit.value}`.toLowerCase();
+            entity = ctx.modelIndex.entitiesByFqid[candidate];
+          }
+          if (!entity) {
+            const target = hit.value.toLowerCase();
+            entity = (ctx.modelIndex.entities || []).find(
+              (e) => e.entityId.toLowerCase() === target
+            );
           }
           if (!entity)
             return null;
-          const contents = [
-            {
-              value: `**${entity.entityId}** ${entity.name && entity.name !== entity.entityId ? `\u2014 ${entity.name}` : ""}`
-            }
-          ];
+          const contents = [];
+          contents.push({
+            value: `**${entity.entityId}**${entity.name && entity.name !== entity.entityId ? ` \u2014 ${entity.name}` : ""}`
+          });
           if (entity.description) {
             contents.push({ value: entity.description });
           }
           const stats = [`\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432: **${entity.attributes.length}**`];
-          if (entity.inherits)
-            stats.push(`\u041D\u0430\u0441\u043B\u0435\u0434\u0443\u0435\u0442: \`${entity.inherits}\``);
           if (entity.referencedByInheritance.length > 0) {
             stats.push(`\u041D\u0430\u0441\u043B\u0435\u0434\u043D\u0438\u043A\u043E\u0432: ${entity.referencedByInheritance.length}`);
           }
           contents.push({ value: stats.join(" \xB7 ") });
           contents.push({ value: `\`${entity.fqid}\`` });
-          return {
-            range: {
-              startLineNumber: position.lineNumber,
-              startColumn: 1,
-              endLineNumber: position.lineNumber,
-              endColumn: lineText.length + 1
-            },
-            contents
-          };
-        }
-        if (hit.type === "ref-attribute" && hit.entityPart && hit.attributePart) {
-          let entity = null;
-          for (const e of ctx.modelIndex.entities) {
-            if (e.entityId.toLowerCase() === hit.entityPart.toLowerCase()) {
-              entity = e;
-              break;
-            }
+          const chain = [];
+          let cur = entity.inherits ? ctx.modelIndex.entitiesByFqid[entity.inherits] : null;
+          const seen = /* @__PURE__ */ new Set();
+          while (cur && !seen.has(cur.fqid) && chain.length < 10) {
+            chain.unshift(cur.entityId);
+            seen.add(cur.fqid);
+            cur = cur.inherits ? ctx.modelIndex.entitiesByFqid[cur.inherits] : null;
           }
-          if (!entity)
-            return null;
-          const attr = entity.attributes.find(
-            (a) => a.id === hit.attributePart
-          );
-          if (!attr)
-            return null;
-          const contents = [
-            {
-              value: `**${attr.id}** ${attr.name && attr.name !== attr.id ? `\u2014 ${attr.name}` : ""}`
-            }
-          ];
-          if (attr.description)
-            contents.push({ value: attr.description });
-          const meta = [`\u0422\u0438\u043F: \`${attr.dataType}\``];
-          if (attr.constraints.length > 0) {
-            meta.push(`\u041E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F: ${attr.constraints.join(", ")}`);
+          if (chain.length > 0) {
+            contents.push({
+              value: `\u041D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435: \`${chain.join(" \u2192 ")} \u2192 ${entity.entityId}\``
+            });
           }
-          if (attr.referenceEntity) {
-            meta.push(`\u0421\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F \u043D\u0430: \`${attr.referenceEntity}\``);
+          const childrenFqids = ctx.modelIndex.entityChildrenByFqid[entity.fqid] || [];
+          if (childrenFqids.length > 0) {
+            const childIds = childrenFqids.slice(0, 10).map((f) => f.split("/")[1]);
+            contents.push({
+              value: `**\u041D\u0430\u0441\u043B\u0435\u0434\u043D\u0438\u043A\u0438** (${childrenFqids.length}): ` + childIds.map((c) => `\`${c}\``).join(", ") + (childrenFqids.length > 10 ? "\u2026" : "")
+            });
           }
-          contents.push({ value: meta.join(" \xB7 ") });
-          return {
-            range: {
-              startLineNumber: position.lineNumber,
-              startColumn: 1,
-              endLineNumber: position.lineNumber,
-              endColumn: lineText.length + 1
-            },
-            contents
-          };
+          return { range: buildRange(), contents };
         }
         return null;
       } catch {
@@ -20432,65 +20547,192 @@ function registerMonacoProviders(monaco) {
       }
     );
   }
-  monaco.languages.registerCodeActionProvider("yaml", {
-    provideCodeActions: (model, range, context) => {
-      const actions = [];
-      context.markers.forEach((marker) => {
-        if (marker.source !== "dg-linter" && marker.source !== "rql-check")
-          return;
-        actions.push({
-          title: "\u{1F4D6} \u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0441\u043F\u0440\u0430\u0432\u043A\u0443 \u043F\u043E \u043F\u0440\u0430\u0432\u0438\u043B\u0443",
-          kind: "quickfix",
-          diagnostics: [marker],
-          command: {
-            id: "dg-issue-action",
-            title: "Show help",
-            arguments: [
-              {
-                action: "help",
-                source: marker.source,
-                message: marker.message,
-                line: marker.startLineNumber
-              }
-            ]
+  monaco.languages.registerCodeActionProvider(
+    "yaml",
+    {
+      provideCodeActions: (model, range, context) => {
+        const actions = [];
+        const seenTitles = /* @__PURE__ */ new Set();
+        const addActionOnce = (action) => {
+          if (seenTitles.has(action.title))
+            return;
+          seenTitles.add(action.title);
+          actions.push(action);
+        };
+        context.markers.forEach((marker) => {
+          if (marker.source !== "dg-linter")
+            return;
+          if (marker.message.includes("camelCase")) {
+            const isAttribute = marker.message.includes("\u0430\u0442\u0440\u0438\u0431\u0443\u0442");
+            const lineText = model.getLineContent(marker.startLineNumber);
+            const idMatch = lineText.match(/id:\s*([a-zA-Z0-9_\-]+)/);
+            if (idMatch && idMatch[1]) {
+              const oldId = idMatch[1];
+              const parts = oldId.split(/[_\-]+/);
+              const camel = parts.map((p, idx) => {
+                if (idx === 0) {
+                  return isAttribute ? p.charAt(0).toLowerCase() + p.slice(1) : p.charAt(0).toUpperCase() + p.slice(1);
+                }
+                return p.charAt(0).toUpperCase() + p.slice(1);
+              }).join("");
+              const startCol = lineText.indexOf(oldId) + 1;
+              const endCol = startCol + oldId.length;
+              addActionOnce({
+                title: `\u{1F42B} \u041F\u0435\u0440\u0435\u0438\u043C\u0435\u043D\u043E\u0432\u0430\u0442\u044C \u0432 \xAB${camel}\xBB`,
+                kind: "quickfix",
+                diagnostics: [marker],
+                isPreferred: true,
+                command: {
+                  id: "dg-apply-edit",
+                  title: "Apply",
+                  arguments: [
+                    {
+                      startLineNumber: marker.startLineNumber,
+                      startColumn: startCol,
+                      endLineNumber: marker.startLineNumber,
+                      endColumn: endCol,
+                      text: camel
+                    }
+                  ]
+                }
+              });
+            }
           }
-        });
-        actions.push({
-          title: "\u{1F507} \u0418\u0433\u043D\u043E\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u044D\u0442\u043E \u043F\u0440\u0430\u0432\u0438\u043B\u043E \u0432 \u0444\u0430\u0439\u043B\u0435",
-          kind: "quickfix",
-          diagnostics: [marker],
-          command: {
-            id: "dg-issue-action",
-            title: "Ignore rule",
-            arguments: [
-              {
-                action: "ignore",
-                source: marker.source,
-                message: marker.message,
-                line: marker.startLineNumber
+          if (marker.message.includes("\u043D\u0435\u0442 label")) {
+            const lineContent = model.getLineContent(marker.startLineNumber);
+            const indentMatch = lineContent.match(/^(\s*)/);
+            const baseIndent = indentMatch ? indentMatch[1] : "";
+            const indent = baseIndent + "  ";
+            const insertCol = lineContent.length + 1;
+            addActionOnce({
+              title: `\u{1F3F7}\uFE0F \u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C label (\u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E)`,
+              kind: "quickfix",
+              diagnostics: [marker],
+              command: {
+                id: "dg-apply-edit",
+                title: "Apply",
+                arguments: [
+                  {
+                    startLineNumber: marker.startLineNumber,
+                    startColumn: insertCol,
+                    endLineNumber: marker.startLineNumber,
+                    endColumn: insertCol,
+                    text: `
+${indent}label: "{id}"`
+                  }
+                ]
               }
-            ]
+            });
           }
-        });
-        actions.push({
-          title: "\u{1F52C} \u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043B\u0438\u043D\u0442\u0435\u0440 \u0441\u0445\u0435\u043C",
-          kind: "quickfix",
-          diagnostics: [marker],
-          command: {
-            id: "dg-issue-action",
-            title: "Open lint",
-            arguments: [
-              {
-                action: "open-lint",
-                source: marker.source,
-                message: marker.message
+          if (marker.message.includes("\u043D\u0435\u0442 description")) {
+            const lineContent = model.getLineContent(marker.startLineNumber);
+            const indentMatch = lineContent.match(/^(\s*)/);
+            const baseIndent = indentMatch ? indentMatch[1] : "";
+            const indent = baseIndent + "  ";
+            const insertCol = lineContent.length + 1;
+            addActionOnce({
+              title: `\u{1F4DD} \u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u043F\u0443\u0441\u0442\u043E\u0439 description`,
+              kind: "quickfix",
+              diagnostics: [marker],
+              command: {
+                id: "dg-apply-edit",
+                title: "Apply",
+                arguments: [
+                  {
+                    startLineNumber: marker.startLineNumber,
+                    startColumn: insertCol,
+                    endLineNumber: marker.startLineNumber,
+                    endColumn: insertCol,
+                    text: `
+${indent}description: ""`
+                  }
+                ]
               }
-            ]
+            });
           }
+          addActionOnce({
+            title: "\u{1F4D6} \u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0441\u043F\u0440\u0430\u0432\u043A\u0443 \u043F\u043E \u043F\u0440\u0430\u0432\u0438\u043B\u0443",
+            kind: "quickfix",
+            diagnostics: [marker],
+            command: {
+              id: "dg-issue-action",
+              title: "Show help",
+              arguments: [{ action: "help", message: marker.message }]
+            }
+          });
+          addActionOnce({
+            title: "\u{1F52C} \u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043B\u0438\u043D\u0442\u0435\u0440 \u0441\u0445\u0435\u043C",
+            kind: "quickfix",
+            diagnostics: [marker],
+            command: {
+              id: "dg-issue-action",
+              title: "Open lint",
+              arguments: [{ action: "open-lint", message: marker.message }]
+            }
+          });
         });
-      });
-      return { actions, dispose: () => {
-      } };
+        return { actions, dispose: () => {
+        } };
+      }
+    },
+    {
+      providedCodeActionKinds: [
+        monaco.languages.CodeActionKind?.QuickFix || "quickfix"
+      ]
+    }
+  );
+  monaco.languages.registerCompletionItemProvider("yaml", {
+    triggerCharacters: [":", " "],
+    provideCompletionItems: (model, position) => {
+      if (!ctx.modelIndex)
+        return { suggestions: [] };
+      const lineText = model.getLineContent(position.lineNumber);
+      const beforeCursor = lineText.slice(0, position.column - 1);
+      const wordAtPos = model.getWordUntilPosition(position);
+      const range = {
+        startLineNumber: position.lineNumber,
+        startColumn: wordAtPos.startColumn,
+        endLineNumber: position.lineNumber,
+        endColumn: wordAtPos.endColumn
+      };
+      if (/(?:\s|^)(?:-\s+)?dataType\s*:\s*[\w]*$/.test(beforeCursor)) {
+        const suggestions = [];
+        BASE_DATA_TYPES_COMPLETION.forEach((t) => {
+          suggestions.push({
+            label: t,
+            kind: monaco.languages.CompletionItemKind.Value,
+            insertText: t,
+            range
+          });
+        });
+        ctx.modelIndex.dataTypes.forEach((dt) => {
+          suggestions.push({
+            label: dt.id,
+            kind: dt.kind === "Enum" ? monaco.languages.CompletionItemKind.Enum : dt.kind === "Workflow" ? monaco.languages.CompletionItemKind.Interface : monaco.languages.CompletionItemKind.Struct,
+            insertText: dt.id,
+            range
+          });
+        });
+        return { suggestions };
+      }
+      if (/(?:\s|^)(?:-\s+)?(inherits|entity|side1|side2|linkage)\s*:\s*[\w./]*$/.test(
+        beforeCursor
+      )) {
+        const currentDomainLower = (ctx.currentDomainId || "").toLowerCase();
+        const suggestions = [];
+        ctx.modelIndex.entities.forEach((e) => {
+          const isCurrent = e.domainId.toLowerCase() === currentDomainLower;
+          const insert = isCurrent ? e.entityId : e.fqid;
+          suggestions.push({
+            label: insert,
+            kind: monaco.languages.CompletionItemKind.Class,
+            insertText: insert,
+            range
+          });
+        });
+        return { suggestions };
+      }
+      return { suggestions: [] };
     }
   });
 }
@@ -20512,7 +20754,104 @@ function applyRqlMarkers(monaco, model) {
   } catch {
   }
 }
-var providersRegistered, ctx, REF_FIELDS, ATTRIBUTE_LIKE_FIELDS;
+function applyFqidMarkers(monaco, model, index, currentDomainId) {
+  try {
+    const text = model.getValue();
+    const lines = text.split("\n");
+    const markers = [];
+    const domainIds = /* @__PURE__ */ new Set();
+    (index?.domains || []).forEach(
+      (d) => domainIds.add(String(d.id).toLowerCase())
+    );
+    const entityFqids = /* @__PURE__ */ new Set();
+    const entityIdsByDomain = /* @__PURE__ */ new Map();
+    (index?.entities || []).forEach((e) => {
+      const fqid = String(e.fqid).toLowerCase();
+      entityFqids.add(fqid);
+      const domLower = String(e.domainId).toLowerCase();
+      if (!entityIdsByDomain.has(domLower)) {
+        entityIdsByDomain.set(domLower, /* @__PURE__ */ new Set());
+      }
+      entityIdsByDomain.get(domLower).add(String(e.entityId).toLowerCase());
+    });
+    const REF_FIELD_PATTERN = /^\s*(?:-\s+)?(inherits|entity|side1|side2|linkage|view|modal|panel|form|tab|list|page|attribute|item|source|fromView|addLinksView)\s*:\s*(.+)$/;
+    const FQID_IN_VALUE = /([a-z0-9][\w.\-]*\.[a-z0-9][\w.\-]*)\/([\w\-]+)/gi;
+    const LOCAL_ENTITY_VALUE = /^([A-Z][\w]*)$/;
+    const currentLower = (currentDomainId || "").toLowerCase();
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const fieldMatch = line.match(REF_FIELD_PATTERN);
+      if (!fieldMatch)
+        continue;
+      const rawValue = fieldMatch[2];
+      const valueWithoutComment = rawValue.split(" #")[0].trim();
+      let normalizedValue = valueWithoutComment;
+      if (normalizedValue.startsWith('"') && normalizedValue.endsWith('"') || normalizedValue.startsWith("'") && normalizedValue.endsWith("'")) {
+        normalizedValue = normalizedValue.slice(1, -1);
+      }
+      const valueStartInLine = line.indexOf(rawValue);
+      const quoteOffset = valueWithoutComment.length !== normalizedValue.length ? 1 : 0;
+      FQID_IN_VALUE.lastIndex = 0;
+      let fqidFound = false;
+      let m;
+      while ((m = FQID_IN_VALUE.exec(normalizedValue)) !== null) {
+        fqidFound = true;
+        const full = m[0];
+        const domainPart = m[1];
+        const entityPart = m[2];
+        const colInValue = m.index + 1;
+        const startColumn = valueStartInLine + quoteOffset + colInValue;
+        const domainLower = domainPart.toLowerCase();
+        const fullLower = full.toLowerCase();
+        if (!domainIds.has(domainLower)) {
+          markers.push({
+            severity: monaco.MarkerSeverity.Error,
+            message: `\u0414\u043E\u043C\u0435\u043D \xAB${domainPart}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D \u0432 \u0438\u043D\u0434\u0435\u043A\u0441\u0435`,
+            startLineNumber: i + 1,
+            startColumn,
+            endLineNumber: i + 1,
+            endColumn: startColumn + full.length,
+            source: "fqid-validator"
+          });
+        } else if (!entityFqids.has(fullLower)) {
+          markers.push({
+            severity: monaco.MarkerSeverity.Warning,
+            message: `\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C \xAB${entityPart}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430 \u0432 \u0434\u043E\u043C\u0435\u043D\u0435 ${domainPart}`,
+            startLineNumber: i + 1,
+            startColumn,
+            endLineNumber: i + 1,
+            endColumn: startColumn + full.length,
+            source: "fqid-validator"
+          });
+        }
+      }
+      if (!fqidFound && currentLower) {
+        const field = fieldMatch[1];
+        if (field === "inherits" || field === "entity" || field === "side1" || field === "side2") {
+          if (LOCAL_ENTITY_VALUE.test(normalizedValue)) {
+            const localSet = entityIdsByDomain.get(currentLower);
+            if (localSet && !localSet.has(normalizedValue.toLowerCase())) {
+              const startColumn = valueStartInLine + quoteOffset + 1;
+              markers.push({
+                severity: monaco.MarkerSeverity.Warning,
+                message: `\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C \xAB${normalizedValue}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430 \u0432 \u0434\u043E\u043C\u0435\u043D\u0435 ${currentDomainId}`,
+                startLineNumber: i + 1,
+                startColumn,
+                endLineNumber: i + 1,
+                endColumn: startColumn + normalizedValue.length,
+                source: "fqid-validator"
+              });
+            }
+          }
+        }
+      }
+    }
+    monaco.editor.setModelMarkers(model, "fqid-validator", markers);
+  } catch (err) {
+    console.warn("[fqid-validator]", err);
+  }
+}
+var providersRegistered, ctx, REF_FIELDS, ATTRIBUTE_LIKE_FIELDS, BASE_DATA_TYPES_COMPLETION;
 var init_monaco_providers = __esm({
   "src/web/lib/monaco/monaco-providers.ts"() {
     "use strict";
@@ -20546,7 +20885,8 @@ var init_monaco_providers = __esm({
       "menu",
       "node",
       "source",
-      "join"
+      "join",
+      "dataType"
     ]);
     ATTRIBUTE_LIKE_FIELDS = /* @__PURE__ */ new Set([
       "attribute",
@@ -20556,6 +20896,36 @@ var init_monaco_providers = __esm({
       "use",
       "searching"
     ]);
+    BASE_DATA_TYPES_COMPLETION = [
+      "String",
+      "Integer",
+      "Decimal",
+      "Float",
+      "Bool",
+      "Uuid",
+      "Timestamp",
+      "Date",
+      "Time",
+      "TimestampRange",
+      "Text",
+      "MAC",
+      "IpAddress",
+      "CIDR",
+      "URL",
+      "Attachment",
+      "Identifier",
+      "Counter",
+      "Calculation",
+      "Configuration",
+      "Variable",
+      "RQL",
+      "Automation",
+      "Reference",
+      "Array",
+      "Table",
+      "Enum",
+      "Workflow"
+    ];
   }
 });
 
@@ -20674,7 +21044,10 @@ var init_external_refs = __esm({
       "value",
       "join",
       "entity_lists",
-      "source"
+      "source",
+      "dataType",
+      "sequence",
+      "target"
     ]);
     NON_REF_FIELDS = /* @__PURE__ */ new Set([
       "id",
@@ -20974,43 +21347,81 @@ var init_YamlViewerHelp = __esm({
 });
 
 // src/web/components/modals/YamlViewerModal.tsx
-import React38, { useCallback as useCallback16, useEffect as useEffect32, useMemo as useMemo40, useRef as useRef12, useState as useState31 } from "react";
+import React38, { useCallback as useCallback16, useEffect as useEffect33, useMemo as useMemo40, useRef as useRef12, useState as useState31 } from "react";
 import { Fragment as Fragment13, jsx as jsx71, jsxs as jsxs68 } from "react/jsx-runtime";
 function YamlViewerModal() {
-  const store = useGraphStore();
   const { index } = useModelIndex();
   const { ready: monacoReady, error: monacoError } = useMonacoLoader();
-  const open = store.yamlViewerOpen;
-  const filePath = store.yamlViewerFilePath;
-  const fqid = store.yamlViewerFqid;
-  const domainId = store.yamlViewerDomainId;
+  const open = useGraphStore((s) => s.yamlViewerOpen);
+  const filePath = useGraphStore((s) => s.yamlViewerFilePath);
+  const fqid = useGraphStore((s) => s.yamlViewerFqid);
+  const domainId = useGraphStore((s) => s.yamlViewerDomainId);
   const remoteInfo = useMemo40(() => readRemoteInfo(), []);
   const isRemoteMode = !!(remoteInfo && remoteInfo.server);
-  const { content: fetchedContent, loading, error: loadError } = useYamlContent(open ? filePath : null);
+  const { content: fetchedContent, loading, error: loadError } = useYamlContent(filePath);
   const [content, setContent] = useState31("");
   const [savedContent, setSavedContent] = useState31("");
   const [liveVersion, setLiveVersion] = useState31(0);
   const liveDebounce = useRef12(null);
+  const skipNextEffect = useRef12(false);
   const [editorCreated, setEditorCreated] = useState31(false);
   const [ignoredVersion, setIgnoredVersion] = useState31(0);
   const [diffMode, setDiffMode] = useState31(false);
   const [previousContent, setPreviousContent] = useState31(null);
   const diffContainerRef = useRef12(null);
   const diffEditorRef = useRef12(null);
-  const [contentForPath, setContentForPath] = useState31(null);
-  useEffect32(() => {
+  const [cursorLine, setCursorLine] = useState31(1);
+  const [leftWidth, setLeftWidth] = useState31(280);
+  const isDraggingLeft = useRef12(false);
+  const startResizingLeft = (e) => {
+    e.preventDefault();
+    isDraggingLeft.current = true;
+    document.body.style.cursor = "col-resize";
+  };
+  useEffect33(() => {
+    const onMouseMove = (e) => {
+      if (!isDraggingLeft.current)
+        return;
+      const newWidth = Math.max(180, Math.min(600, e.clientX));
+      setLeftWidth(newWidth);
+    };
+    const onMouseUp = () => {
+      if (isDraggingLeft.current) {
+        isDraggingLeft.current = false;
+        document.body.style.cursor = "";
+        if (editorRef.current) {
+          try {
+            editorRef.current.layout();
+          } catch {
+          }
+        }
+      }
+    };
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+    return () => {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
+  useEffect33(() => {
     if (loading)
       return;
     if (fetchedContent === null || fetchedContent === void 0)
       return;
     setContent(fetchedContent);
     setSavedContent(fetchedContent);
-    setContentForPath(filePath);
   }, [loading, fetchedContent, filePath]);
-  useEffect32(() => {
+  useEffect33(() => {
     if (!editorCreated || !editorRef.current)
       return;
     const handler = () => {
+      if (isProgrammaticChange.current)
+        return;
+      if (isLockedRef.current) {
+        setIsLocked(false);
+        useGraphStore.getState().showSnackbar("\u0424\u0430\u0439\u043B \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u0440\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043D \u0434\u043B\u044F \u043F\u0440\u0438\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439");
+      }
       clearTimeout(liveDebounce.current);
       liveDebounce.current = setTimeout(() => {
         if (editorRef.current) {
@@ -21041,10 +21452,23 @@ function YamlViewerModal() {
   const [navQuery, setNavQuery] = useState31("");
   const navListRef = useRef12(null);
   const [activeNavIdx, setActiveNavIdx] = useState31(-1);
+  const [leftCollapsed, setLeftCollapsed] = useState31(false);
+  const [rightCollapsed, setRightCollapsed] = useState31(false);
+  const [severityFilter, setSeverityFilter] = useState31(
+    /* @__PURE__ */ new Set(["error", "warning", "info"])
+  );
+  const { goto: gotoDomain } = useNavigation();
   const editorRef = useRef12(null);
   const containerRef = useRef12(null);
   const saveRef = useRef12(() => {
   });
+  const toggleLockRef = useRef12(() => {
+  });
+  const isLockedRef = useRef12(isLocked);
+  const isProgrammaticChange = useRef12(false);
+  useEffect33(() => {
+    isLockedRef.current = isLocked;
+  }, [isLocked]);
   const schema = useMemo40(() => {
     if (!index || !domainId)
       return null;
@@ -21055,6 +21479,11 @@ function YamlViewerModal() {
       return null;
     return buildLineMap(content, schema);
   }, [content, schema]);
+  const currentContext = useMemo40(() => {
+    if (!lineMap)
+      return null;
+    return lineMap.lineContexts.get(cursorLine) || null;
+  }, [lineMap, cursorLine]);
   const domainIssues = useMemo40(() => {
     if (!index || !domainId)
       return [];
@@ -21067,14 +21496,16 @@ function YamlViewerModal() {
       (s, x) => s + (x.attributesCount || 0),
       0
     );
+    const sonar = domainId ? index?.lint?.sonar?.byDomain?.[domainId] || null : null;
     return {
       entities: schema.sections.entities.count,
       attributes: totalAttrs,
       linkages: schema.sections.linkages.count,
       views: schema.sections.views.count,
-      issues: domainIssues.length
+      issues: domainIssues.length,
+      sonar
     };
-  }, [schema, domainIssues]);
+  }, [schema, domainIssues, index, domainId]);
   const issuesByEntity = useMemo40(() => {
     const m = /* @__PURE__ */ new Map();
     domainIssues.forEach((issue) => {
@@ -21143,8 +21574,12 @@ function YamlViewerModal() {
     }));
     return [...domainIssues, ...mapped];
   }, [domainIssues, lineMap, content, index, domainId]);
+  const filteredIssues = useMemo40(
+    () => allIssues.filter((i) => severityFilter.has(i.severity)),
+    [allIssues, severityFilter]
+  );
   const [refsVersion, setRefsVersion] = useState31(0);
-  useEffect32(() => {
+  useEffect33(() => {
     if (!editorCreated || !editorRef.current)
       return;
     const disposable = editorRef.current.onDidChangeModelContent(() => {
@@ -21208,7 +21643,7 @@ function YamlViewerModal() {
     }
     return result;
   }, [flatNavNodes, navQuery, onlyProblematic]);
-  useEffect32(() => {
+  useEffect33(() => {
     if (!open)
       return;
     if (!monacoReady)
@@ -21217,7 +21652,7 @@ function YamlViewerModal() {
       return;
     if (!filePath)
       return;
-    if (contentForPath !== filePath)
+    if (!fetchedContent)
       return;
     if (!containerRef.current)
       return;
@@ -21240,7 +21675,15 @@ function YamlViewerModal() {
           "editor.background": "#0d1424",
           "editor.foreground": "#e2e8f0",
           "editorLineNumber.foreground": "#475569",
-          "editorLineNumber.activeForeground": "#94a3b8"
+          "editorLineNumber.activeForeground": "#94a3b8",
+          // === Цвета для автокомплита (Suggest Widget) ===
+          "editorSuggestWidget.background": "#111827",
+          "editorSuggestWidget.foreground": "#e2e8f0",
+          "editorSuggestWidget.selectedBackground": "#1e293b",
+          "editorSuggestWidget.highlightForeground": "#818cf8",
+          "editorSuggestWidget.border": "#334155",
+          "editorSuggestWidget.selectedForeground": "#f1f5f9",
+          "editorSuggestWidget.focusHighlightForeground": "#a78bfa"
         }
       });
     } catch {
@@ -21250,14 +21693,15 @@ function YamlViewerModal() {
     const layouts = [];
     try {
       editor = m.editor.create(containerRef.current, {
-        value: content,
+        value: fetchedContent,
         language: "yaml",
         theme: "dg-dark",
-        readOnly: isLocked,
-        automaticLayout: true,
+        readOnly: false,
+        glyphMargin: true,
+        automaticLayout: false,
         fontSize: 13,
+        minimap: { enabled: false },
         lineNumbers: "on",
-        minimap: { enabled: true },
         scrollBeyondLastLine: false,
         folding: true,
         breadcrumbs: { enabled: true },
@@ -21267,10 +21711,36 @@ function YamlViewerModal() {
         scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
         occurrencesHighlight: "off",
         selectionHighlight: false,
-        renderValidationDecorations: "on"
+        renderValidationDecorations: "on",
+        lightbulb: { enabled: "on" }
       });
       editorRef.current = editor;
+      setContent(fetchedContent);
+      setSavedContent(fetchedContent);
       setEditorCreated(true);
+      editor.onKeyDown((e) => {
+        if (!isLockedRef.current)
+          return;
+        const navKeys = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "Home", "End", "Escape", "Tab"];
+        if (navKeys.includes(e.browserEvent.key))
+          return;
+        if (e.ctrlKey || e.metaKey)
+          return;
+        e.preventDefault();
+        e.stopPropagation();
+        useGraphStore.getState().showSnackbar("\u0424\u0430\u0439\u043B \u0437\u0430\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043D. \u041D\u0430\u0436\u043C\u0438\u0442\u0435 \u{1F512} \u0434\u043B\u044F \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F.");
+      });
+      editor.onDidPaste(() => {
+        if (!isLockedRef.current)
+          return;
+        isProgrammaticChange.current = true;
+        editor.trigger("locked", "undo", null);
+        isProgrammaticChange.current = false;
+        useGraphStore.getState().showSnackbar("\u0412\u0441\u0442\u0430\u0432\u043A\u0430 \u0432 \u0437\u0430\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0439 \u0444\u0430\u0439\u043B \u0437\u0430\u043F\u0440\u0435\u0449\u0435\u043D\u0430.");
+      });
+      editor.onDidChangeCursorPosition((e) => {
+        setCursorLine(e.position.lineNumber);
+      });
       setTimeout(() => {
         if (!editorRef.current)
           return;
@@ -21301,11 +21771,15 @@ function YamlViewerModal() {
         }
       }, 350));
       if (containerRef.current) {
+        let roTimer = null;
         ro = new ResizeObserver(() => {
-          try {
-            editor?.layout();
-          } catch {
-          }
+          clearTimeout(roTimer);
+          roTimer = setTimeout(() => {
+            try {
+              editor?.layout();
+            } catch {
+            }
+          }, 50);
         });
         ro.observe(containerRef.current);
       }
@@ -21327,23 +21801,63 @@ function YamlViewerModal() {
         setEditorCreated(false);
       }
     };
-  }, [open, monacoReady, filePath, loading, contentForPath]);
-  useEffect32(() => {
-    if (!editorCreated || !editorRef.current)
+  }, [open, monacoReady, filePath, loading, fetchedContent]);
+  useEffect33(() => {
+    if (!editorRef.current)
       return;
-    if (contentForPath !== filePath)
-      return;
-    if (!content)
-      return;
-    const current = editorRef.current.getValue();
-    if (current !== content) {
-      editorRef.current.setValue(content);
-    }
-  }, [content, editorCreated, contentForPath, filePath]);
-  useEffect32(() => {
+    const t = setTimeout(() => {
+      try {
+        editorRef.current?.layout();
+      } catch {
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [leftCollapsed, rightCollapsed]);
+  useEffect33(() => {
     saveRef.current = handleSave;
+    toggleLockRef.current = handleToggleLock;
   });
-  useEffect32(() => {
+  useEffect33(() => {
+    if (!open)
+      return;
+    let lastShiftRelease = 0;
+    let pendingShiftDown = 0;
+    let hadOtherKey = false;
+    const onKeyDown = (e) => {
+      if (e.ctrlKey || e.altKey || e.metaKey) {
+        if (pendingShiftDown > 0)
+          hadOtherKey = true;
+        return;
+      }
+      if (e.key === "Shift") {
+        if (lastShiftRelease > 0 && Date.now() - lastShiftRelease < 400) {
+          pendingShiftDown = Date.now();
+          hadOtherKey = false;
+        }
+      } else if (pendingShiftDown > 0) {
+        hadOtherKey = true;
+      }
+    };
+    const onKeyUp = (e) => {
+      if (e.key === "Shift" && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        if (pendingShiftDown > 0 && !hadOtherKey) {
+          pendingShiftDown = 0;
+          lastShiftRelease = 0;
+          toggleLockRef.current();
+          return;
+        }
+        pendingShiftDown = 0;
+        lastShiftRelease = Date.now();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("keyup", onKeyUp);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("keyup", onKeyUp);
+    };
+  }, [open]);
+  useEffect33(() => {
     if (!editorCreated || !editorRef.current)
       return;
     const m = window.monaco;
@@ -21356,15 +21870,7 @@ function YamlViewerModal() {
     return () => {
     };
   }, [editorCreated]);
-  useEffect32(() => {
-    if (!editorRef.current)
-      return;
-    try {
-      editorRef.current.updateOptions({ readOnly: isLocked });
-    } catch {
-    }
-  }, [isLocked, editorCreated]);
-  useEffect32(() => {
+  useEffect33(() => {
     if (!monacoReady)
       return;
     updateProviderContext({
@@ -21374,12 +21880,12 @@ function YamlViewerModal() {
       modelIndex: index || null
     });
   }, [monacoReady, lineMap, filePath, domainId, index]);
-  useEffect32(() => {
+  useEffect33(() => {
     if (open)
       return;
     resetProviderContext();
   }, [open]);
-  useEffect32(() => {
+  useEffect33(() => {
     if (!monacoReady || !editorCreated || !editorRef.current)
       return;
     const m = window.monaco;
@@ -21401,6 +21907,34 @@ function YamlViewerModal() {
     }, 100);
     return () => clearTimeout(t);
   }, [monacoReady, editorCreated, lineMap]);
+  useEffect33(() => {
+    if (!monacoReady || !editorCreated || !editorRef.current)
+      return;
+    if (!index || !domainId)
+      return;
+    const m = window.monaco;
+    const model = editorRef.current.getModel();
+    if (!m || !model)
+      return;
+    let timer = null;
+    const runMarkers = () => {
+      if (timer)
+        clearTimeout(timer);
+      timer = setTimeout(() => {
+        applyFqidMarkers(m, model, index, domainId);
+      }, 300);
+    };
+    const disposable = editorRef.current.onDidChangeModelContent(runMarkers);
+    runMarkers();
+    return () => {
+      if (timer)
+        clearTimeout(timer);
+      try {
+        disposable?.dispose?.();
+      } catch {
+      }
+    };
+  }, [monacoReady, editorCreated, index, domainId]);
   const ignored = useMemo40(() => {
     try {
       const key = `dg-yaml-ignored:${domainId}`;
@@ -21410,14 +21944,15 @@ function YamlViewerModal() {
       return /* @__PURE__ */ new Set();
     }
   }, [domainId, ignoredVersion]);
-  useEffect32(() => {
+  useEffect33(() => {
     if (!monacoReady || !editorCreated || !editorRef.current || !lineMap)
       return;
     const m = window.monaco;
     const model = editorRef.current.getModel();
     if (!m || !model)
       return;
-    const markers = domainIssues.filter((issue) => !isIgnored(issue, ignored)).map((issue) => {
+    const currentText = model.getValue();
+    const markers = domainIssues.filter((issue) => severityFilter.has(issue.severity)).filter((issue) => !isIgnored(issue, ignored)).filter((issue) => isIssueStillPresent(issue, currentText, lineMap)).map((issue) => {
       const line = findIssueLine(issue, lineMap);
       if (line == null)
         return null;
@@ -21428,7 +21963,8 @@ function YamlViewerModal() {
         startColumn: 1,
         endLineNumber: line,
         endColumn: 1e6,
-        source: "dg-linter"
+        source: "dg-linter",
+        code: issue.ruleId
       };
     }).filter((x) => x !== null);
     m.editor.setModelMarkers(model, "dg-linter", markers);
@@ -21454,7 +21990,7 @@ function YamlViewerModal() {
       } catch {
       }
     };
-  }, [monacoReady, editorCreated, lineMap, domainIssues, isLocked]);
+  }, [monacoReady, editorCreated, lineMap, domainIssues, isLocked, content, severityFilter]);
   const jumpTo = useCallback16((line) => {
     const editor = editorRef.current;
     if (!editor)
@@ -21463,7 +21999,7 @@ function YamlViewerModal() {
     editor.setPosition({ lineNumber: line, column: 1 });
     editor.focus();
   }, []);
-  useEffect32(() => {
+  useEffect33(() => {
     if (!open || !lineMap || !fqid || !editorCreated)
       return;
     const entityId = fqid.split("/")[1];
@@ -21531,7 +22067,9 @@ function YamlViewerModal() {
         if (!confirm("\u0415\u0441\u0442\u044C \u043D\u0435\u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D\u043D\u044B\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F. \u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0438\u0445 \u0438 \u0437\u0430\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0444\u0430\u0439\u043B?"))
           return;
         if (editorRef.current) {
+          isProgrammaticChange.current = true;
           editorRef.current.setValue(savedContent);
+          isProgrammaticChange.current = false;
         }
         setContent(savedContent);
       }
@@ -21548,6 +22086,14 @@ function YamlViewerModal() {
       setSaveFeedback(true);
       setTimeout(() => setSaveFeedback(false), 1500);
       return;
+    }
+    const errorCount = domainIssues.filter((i) => i.severity === "error").length;
+    if (errorCount > 0) {
+      const ok = confirm(
+        `\u0412 \u0441\u0445\u0435\u043C\u0435 ${errorCount} ${errorCount === 1 ? "\u043E\u0448\u0438\u0431\u043A\u0430" : "\u043E\u0448\u0438\u0431\u043E\u043A"}. \u0412\u0441\u0451 \u0440\u0430\u0432\u043D\u043E \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C? \u041E\u0448\u0438\u0431\u043A\u0438 \u043C\u043E\u0433\u0443\u0442 \u043F\u0440\u0438\u0432\u0435\u0441\u0442\u0438 \u043A \u043F\u043E\u043B\u043E\u043C\u043A\u0435 \u0434\u043E\u043C\u0435\u043D\u0430.`
+      );
+      if (!ok)
+        return;
     }
     setIsSaving(true);
     setSaveError(null);
@@ -21572,6 +22118,10 @@ function YamlViewerModal() {
       setSavedContent(currentValue);
       setContent(currentValue);
       setLiveVersion((v) => v + 1);
+      try {
+        editorRef.current?.pushUndoStop();
+      } catch {
+      }
       setSaveFeedback(true);
       setTimeout(() => setSaveFeedback(false), 2e3);
     } catch (err) {
@@ -21585,9 +22135,9 @@ function YamlViewerModal() {
       if (!confirm("\u0415\u0441\u0442\u044C \u043D\u0435\u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D\u043D\u044B\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F. \u0417\u0430\u043A\u0440\u044B\u0442\u044C \u0431\u0435\u0437 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F?"))
         return;
     }
-    store.setYamlViewerOpen(false);
-  }, [isDirty, isLocked, store]);
-  useEffect32(() => {
+    useGraphStore.getState().setYamlViewerOpen(false);
+  }, [isDirty, isLocked]);
+  useEffect33(() => {
     if (!open)
       return;
     const handler = (e) => {
@@ -21626,7 +22176,7 @@ function YamlViewerModal() {
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, [open, filteredNavNodes, activeNavIdx, jumpTo, toggleNode]);
-  useEffect32(() => {
+  useEffect33(() => {
     if (activeNavIdx < 0 || !navListRef.current)
       return;
     const el = navListRef.current.querySelector(".yaml-nav-item--active");
@@ -21637,7 +22187,7 @@ function YamlViewerModal() {
     () => domainId ? `dg-yaml-nav-collapsed:${domainId}` : null,
     [domainId]
   );
-  useEffect32(() => {
+  useEffect33(() => {
     if (!open || !STORAGE_KEY)
       return;
     try {
@@ -21660,7 +22210,7 @@ function YamlViewerModal() {
     } catch {
     }
   }, [open, STORAGE_KEY]);
-  useEffect32(() => {
+  useEffect33(() => {
     if (open || !STORAGE_KEY)
       return;
     try {
@@ -21675,7 +22225,7 @@ function YamlViewerModal() {
     } catch {
     }
   }, [open, STORAGE_KEY, expandedNodes]);
-  useEffect32(() => {
+  useEffect33(() => {
     if (!editorCreated || !editorRef.current)
       return;
     const w = window;
@@ -21726,12 +22276,14 @@ function YamlViewerModal() {
       console.error("[yaml-viewer] addAction failed", err);
     }
   }, [editorCreated]);
-  useEffect32(() => {
-    setIsLocked(true);
+  useEffect33(() => {
+    if (!open) {
+      setIsLocked(true);
+    }
     setSaveError(null);
     setSaveFeedback(false);
-  }, [filePath]);
-  useEffect32(() => {
+  }, [filePath, open]);
+  useEffect33(() => {
     const handler = (e) => {
       const detail = e.detail;
       if (!detail || !detail.action)
@@ -21758,19 +22310,19 @@ function YamlViewerModal() {
         } catch {
         }
       } else if (detail.action === "open-lint") {
-        store.setLintOpen(true);
+        useGraphStore.getState().setLintOpen(true);
       }
     };
     document.addEventListener("dg:issue-action", handler);
     return () => document.removeEventListener("dg:issue-action", handler);
-  }, [domainId, store]);
-  useEffect32(() => {
+  }, [domainId]);
+  useEffect33(() => {
     if (!open || !filePath) {
       setPreviousContent(null);
       return;
     }
     let cancelled = false;
-    fetch("/file/previous?path=" + encodeURIComponent(filePath)).then((r) => r.ok ? r.text() : null).then((text) => {
+    fetch("/file/previous?path=" + encodeURIComponent(filePath)).then((r) => r.status === 204 ? null : r.text()).then((text) => {
       if (!cancelled)
         setPreviousContent(text);
     }).catch(() => {
@@ -21781,7 +22333,7 @@ function YamlViewerModal() {
       cancelled = true;
     };
   }, [open, filePath, saveFeedback]);
-  useEffect32(() => {
+  useEffect33(() => {
     if (!diffMode || !monacoReady || !editorCreated || !diffContainerRef.current)
       return;
     if (previousContent == null)
@@ -21819,7 +22371,7 @@ function YamlViewerModal() {
       diffEditorRef.current = null;
     };
   }, [diffMode, monacoReady, editorCreated, previousContent]);
-  useEffect32(() => {
+  useEffect33(() => {
     if (!editorRef.current)
       return;
     try {
@@ -21827,20 +22379,18 @@ function YamlViewerModal() {
     } catch {
     }
   }, [isLocked, editorCreated]);
-  useEffect32(() => {
-    if (!editorCreated || !editorRef.current)
-      return;
-    if (contentForPath !== filePath)
-      return;
-    if (!content)
-      return;
-    if (!isLocked)
-      return;
-    const current = editorRef.current.getValue();
-    if (current !== content) {
-      editorRef.current.setValue(content);
+  useEffect33(() => {
+    if (!open) {
+      if (editorRef.current) {
+        try {
+          editorRef.current.dispose();
+        } catch {
+        }
+        editorRef.current = null;
+        setEditorCreated(false);
+      }
     }
-  }, [content, editorCreated, contentForPath, filePath, isLocked]);
+  }, [open]);
   if (!open)
     return null;
   const canSave = !isRemoteMode && !isLocked && isDirty;
@@ -21867,6 +22417,69 @@ function YamlViewerModal() {
                   saveFeedback && /* @__PURE__ */ jsx71("span", { className: "help-modal__badge help-modal__badge--ok", children: "\u2713 \u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D" })
                 ] }),
                 /* @__PURE__ */ jsxs68("div", { className: "help-modal__actions", children: [
+                  /* @__PURE__ */ jsx71(
+                    "button",
+                    {
+                      className: "help-modal__icon-btn",
+                      onClick: () => setLeftCollapsed(!leftCollapsed),
+                      title: leftCollapsed ? "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u043D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044E" : "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u043D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044E",
+                      children: /* @__PURE__ */ jsx71(MIcon, { name: leftCollapsed ? "chevron_right" : "chevron_left" })
+                    }
+                  ),
+                  /* @__PURE__ */ jsx71(
+                    "button",
+                    {
+                      className: "help-modal__icon-btn",
+                      onClick: () => setRightCollapsed(!rightCollapsed),
+                      title: rightCollapsed ? "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u043F\u0430\u043D\u0435\u043B\u044C \u043F\u0440\u043E\u0431\u043B\u0435\u043C" : "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u043F\u0430\u043D\u0435\u043B\u044C \u043F\u0440\u043E\u0431\u043B\u0435\u043C",
+                      children: /* @__PURE__ */ jsx71(MIcon, { name: rightCollapsed ? "chevron_left" : "chevron_right" })
+                    }
+                  ),
+                  index?.pii?.byDomain?.some((d) => d.domainId === domainId) && /* @__PURE__ */ jsx71(
+                    "button",
+                    {
+                      className: "help-modal__icon-btn",
+                      onClick: () => {
+                        useGraphStore.getState().setYamlViewerOpen(false);
+                        useGraphStore.getState().setPiiOpen(true);
+                      },
+                      title: "PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0432 \u0434\u043E\u043C\u0435\u043D\u0435",
+                      children: /* @__PURE__ */ jsx71(MIcon, { name: "shield_lock" })
+                    }
+                  ),
+                  /* @__PURE__ */ jsx71(
+                    "button",
+                    {
+                      className: "help-modal__icon-btn",
+                      onClick: () => {
+                        if (!domainId) {
+                          useGraphStore.getState().showSnackbar("\u0414\u043E\u043C\u0435\u043D \u043D\u0435 \u043E\u043F\u0440\u0435\u0434\u0435\u043B\u0451\u043D \u0434\u043B\u044F \u044D\u0442\u043E\u0433\u043E \u0444\u0430\u0439\u043B\u0430");
+                          return;
+                        }
+                        useGraphStore.getState().setYamlViewerOpen(false);
+                        useGraphStore.getState().setDomainComparePrefillA(domainId);
+                        useGraphStore.getState().setDomainCompareOpen(true);
+                      },
+                      title: "\u0421\u0440\u0430\u0432\u043D\u0438\u0442\u044C \u0434\u043E\u043C\u0435\u043D\u044B",
+                      children: /* @__PURE__ */ jsx71(MIcon, { name: "compare_arrows" })
+                    }
+                  ),
+                  /* @__PURE__ */ jsx71(
+                    "button",
+                    {
+                      className: "help-modal__icon-btn",
+                      onClick: () => {
+                        if (!domainId) {
+                          useGraphStore.getState().showSnackbar("\u0414\u043E\u043C\u0435\u043D \u043D\u0435 \u043E\u043F\u0440\u0435\u0434\u0435\u043B\u0451\u043D \u0434\u043B\u044F \u044D\u0442\u043E\u0433\u043E \u0444\u0430\u0439\u043B\u0430");
+                          return;
+                        }
+                        useGraphStore.getState().setYamlViewerOpen(false);
+                        gotoDomain(domainId);
+                      },
+                      title: "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u043D\u0430 \u0433\u0440\u0430\u0444\u0435",
+                      children: /* @__PURE__ */ jsx71(MIcon, { name: "my_location" })
+                    }
+                  ),
                   /* @__PURE__ */ jsx71(
                     "button",
                     {
@@ -21909,9 +22522,9 @@ function YamlViewerModal() {
                     {
                       className: "help-modal__icon-btn",
                       onClick: () => {
-                        store.setYamlViewerOpen(false);
-                        store.setDomainSchemaDomainId(domainId);
-                        store.setDomainSchemaOpen(true);
+                        useGraphStore.getState().setYamlViewerOpen(false);
+                        useGraphStore.getState().setDomainSchemaDomainId(domainId);
+                        useGraphStore.getState().setDomainSchemaOpen(true);
                       },
                       title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0439 \u043E\u0431\u0437\u043E\u0440 \u0441\u0445\u0435\u043C\u044B",
                       children: /* @__PURE__ */ jsx71(MIcon, { name: "menu_book" })
@@ -21954,6 +22567,18 @@ function YamlViewerModal() {
                   /* @__PURE__ */ jsx71("strong", { children: counters.views }),
                   " views"
                 ] }),
+                counters.sonar && /* @__PURE__ */ jsxs68(
+                  "button",
+                  {
+                    className: "yaml-viewer-info__item yaml-viewer-info__item--sonar yaml-viewer-info__sonar-" + counters.sonar.grade.toLowerCase(),
+                    onClick: () => useGraphStore.getState().setLintOpen(true),
+                    title: "Sonar-\u043E\u0446\u0435\u043D\u043A\u0430 \u0434\u043E\u043C\u0435\u043D\u0430 \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u043B\u0438\u043D\u0442\u0435\u0440",
+                    children: [
+                      /* @__PURE__ */ jsx71("strong", { children: counters.sonar.score }),
+                      /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-info__sonar-grade", children: counters.sonar.grade })
+                    ]
+                  }
+                ),
                 counters.issues > 0 && /* @__PURE__ */ jsxs68(
                   "button",
                   {
@@ -21974,123 +22599,155 @@ function YamlViewerModal() {
                 /* @__PURE__ */ jsx71("button", { onClick: () => setSaveError(null), children: "\u2715" })
               ] }),
               /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-body", children: [
-                /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-nav", children: [
-                  loading && /* @__PURE__ */ jsx71("div", { className: "yaml-viewer-nav__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430..." }),
-                  loadError && /* @__PURE__ */ jsx71("div", { className: "yaml-viewer-nav__error", children: loadError }),
-                  lineMap && /* @__PURE__ */ jsxs68(Fragment13, { children: [
-                    /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-nav__header", children: [
-                      /* @__PURE__ */ jsx71("span", { children: "\u041D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044F" }),
-                      /* @__PURE__ */ jsxs68(
-                        "button",
-                        {
-                          className: "yaml-viewer-nav__toggle" + (onlyProblematic ? " active" : ""),
-                          onClick: () => setOnlyProblematic(!onlyProblematic),
-                          title: onlyProblematic ? "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0432\u0441\u0435 \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u044B" : "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0442\u043E\u043B\u044C\u043A\u043E \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u044B \u0441 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0430\u043C\u0438",
-                          disabled: domainIssues.length === 0,
-                          children: [
-                            /* @__PURE__ */ jsx71(MIcon, { name: "warning", size: "sm" }),
-                            domainIssues.length
-                          ]
-                        }
-                      ),
-                      /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-nav__actions", children: [
-                        /* @__PURE__ */ jsx71("button", { className: "yaml-viewer-nav__action", onClick: expandAll, title: "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0451", children: "\u2922" }),
-                        /* @__PURE__ */ jsx71("button", { className: "yaml-viewer-nav__action", onClick: collapseAll, title: "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0451", children: "\u2921" })
-                      ] })
-                    ] }),
-                    /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-nav__search", children: [
-                      /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-nav__search-icon", children: "\u{1F50D}" }),
-                      /* @__PURE__ */ jsx71(
-                        "input",
-                        {
-                          type: "text",
-                          className: "yaml-viewer-nav__search-input",
-                          placeholder: "\u0424\u0438\u043B\u044C\u0442\u0440 \u043F\u043E id...",
-                          value: navQuery,
-                          onChange: (e) => {
-                            setNavQuery(e.target.value);
-                            setActiveNavIdx(-1);
+                /* @__PURE__ */ jsxs68(
+                  "div",
+                  {
+                    className: "yaml-viewer-nav" + (leftCollapsed ? " yaml-viewer-nav--collapsed" : ""),
+                    style: { width: leftCollapsed ? 0 : leftWidth },
+                    children: [
+                      loading && /* @__PURE__ */ jsx71("div", { className: "yaml-viewer-nav__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430..." }),
+                      loadError && /* @__PURE__ */ jsx71("div", { className: "yaml-viewer-nav__error", children: loadError }),
+                      lineMap && /* @__PURE__ */ jsxs68(Fragment13, { children: [
+                        /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-nav__header", children: [
+                          /* @__PURE__ */ jsx71("span", { children: "\u041D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044F" }),
+                          /* @__PURE__ */ jsxs68(
+                            "button",
+                            {
+                              className: "yaml-viewer-nav__toggle" + (onlyProblematic ? " active" : ""),
+                              onClick: () => setOnlyProblematic(!onlyProblematic),
+                              title: onlyProblematic ? "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0432\u0441\u0435 \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u044B" : "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0442\u043E\u043B\u044C\u043A\u043E \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u044B \u0441 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0430\u043C\u0438",
+                              disabled: domainIssues.length === 0,
+                              children: [
+                                /* @__PURE__ */ jsx71(MIcon, { name: "warning", size: "sm" }),
+                                domainIssues.length
+                              ]
+                            }
+                          ),
+                          /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-nav__actions", children: [
+                            /* @__PURE__ */ jsx71("button", { className: "yaml-viewer-nav__action", onClick: expandAll, title: "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0451", children: "\u2922" }),
+                            /* @__PURE__ */ jsx71("button", { className: "yaml-viewer-nav__action", onClick: collapseAll, title: "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0451", children: "\u2921" })
+                          ] })
+                        ] }),
+                        /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-nav__search", children: [
+                          /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-nav__search-icon", children: "\u{1F50D}" }),
+                          /* @__PURE__ */ jsx71(
+                            "input",
+                            {
+                              type: "text",
+                              className: "yaml-viewer-nav__search-input",
+                              placeholder: "\u0424\u0438\u043B\u044C\u0442\u0440 \u043F\u043E id...",
+                              value: navQuery,
+                              onChange: (e) => {
+                                setNavQuery(e.target.value);
+                                setActiveNavIdx(-1);
+                              },
+                              spellCheck: false
+                            }
+                          ),
+                          navQuery && /* @__PURE__ */ jsx71(
+                            "button",
+                            {
+                              className: "yaml-viewer-nav__search-clear",
+                              onClick: () => setNavQuery(""),
+                              children: "\u2715"
+                            }
+                          )
+                        ] }),
+                        /* @__PURE__ */ jsx71("div", { className: "yaml-viewer-nav__list", ref: navListRef, children: navQuery.trim() !== "" || onlyProblematic ? /* @__PURE__ */ jsx71(
+                          FilteredNavList,
+                          {
+                            nodes: filteredNavNodes,
+                            activeIdx: activeNavIdx,
+                            onJump: jumpTo,
+                            onHover: setActiveNavIdx
+                          }
+                        ) : lineMap.sections.map((section) => /* @__PURE__ */ jsx71(
+                          SectionNav,
+                          {
+                            section,
+                            expandedNodes,
+                            onToggleNode: toggleNode,
+                            onJump: jumpTo,
+                            issues: allIssues,
+                            activeIdx: activeNavIdx,
+                            onSetActive: setActiveNavIdx,
+                            filteredNavNodes,
+                            sectionKey: section.key,
+                            entityIssuesMap,
+                            attrIssuesMap
                           },
-                          spellCheck: false
-                        }
-                      ),
-                      navQuery && /* @__PURE__ */ jsx71(
+                          section.key
+                        )) })
+                      ] })
+                    ]
+                  }
+                ),
+                !leftCollapsed && /* @__PURE__ */ jsx71("div", { className: "yaml-viewer-resizer", onMouseDown: startResizingLeft }),
+                /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-editor", children: [
+                  /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-editor__toolbar", children: [
+                    /* @__PURE__ */ jsx71("div", { className: "yaml-viewer-breadcrumbs", children: currentContext ? /* @__PURE__ */ jsxs68(Fragment13, { children: [
+                      currentContext.section && /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-breadcrumbs__item", children: currentContext.section }),
+                      currentContext.entityId && /* @__PURE__ */ jsxs68(Fragment13, { children: [
+                        /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-breadcrumbs__sep", children: "\u203A" }),
+                        /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-breadcrumbs__item yaml-viewer-breadcrumbs__item--entity", children: currentContext.entityId })
+                      ] }),
+                      currentContext.ruleId && !currentContext.entityId && /* @__PURE__ */ jsxs68(Fragment13, { children: [
+                        /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-breadcrumbs__sep", children: "\u203A" }),
+                        /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-breadcrumbs__item", children: currentContext.ruleId })
+                      ] }),
+                      /* @__PURE__ */ jsxs68("span", { className: "yaml-viewer-breadcrumbs__line", children: [
+                        ":",
+                        cursorLine
+                      ] })
+                    ] }) : /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-breadcrumbs__item", children: "\u2014" }) }),
+                    lineMap && /* @__PURE__ */ jsx71("div", { className: "yaml-viewer-quickjumps", children: lineMap.sections.map((s) => {
+                      const icon = s.key === "entities" ? "category" : s.key === "linkages" ? "link" : s.key === "dataTypes" ? "data_object" : s.key === "actions" ? "bolt" : s.key === "views" ? "visibility" : s.key === "menus" ? "menu" : s.key === "mixins" ? "merge" : s.key === "dataRules" ? "rule" : s.key === "medias" ? "image" : "arrow_right";
+                      return /* @__PURE__ */ jsx71(
                         "button",
                         {
-                          className: "yaml-viewer-nav__search-clear",
-                          onClick: () => setNavQuery(""),
-                          children: "\u2715"
-                        }
-                      )
-                    ] }),
-                    /* @__PURE__ */ jsx71("div", { className: "yaml-viewer-nav__list", ref: navListRef, children: navQuery.trim() !== "" || onlyProblematic ? /* @__PURE__ */ jsx71(
-                      FilteredNavList,
+                          className: "yaml-viewer-quickjump",
+                          onClick: () => jumpTo(s.line),
+                          title: `${s.label} (${s.count})`,
+                          children: /* @__PURE__ */ jsx71(MIcon, { name: icon, size: "sm" })
+                        },
+                        s.key
+                      );
+                    }) })
+                  ] }),
+                  /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-editor__canvas", style: { width: "100%", height: "100%" }, children: [
+                    /* @__PURE__ */ jsx71(
+                      "div",
                       {
-                        nodes: filteredNavNodes,
-                        activeIdx: activeNavIdx,
-                        onJump: jumpTo,
-                        onHover: setActiveNavIdx
-                      }
-                    ) : lineMap.sections.map((section) => /* @__PURE__ */ jsx71(
-                      SectionNav,
-                      {
-                        section,
-                        expandedNodes,
-                        onToggleNode: toggleNode,
-                        onJump: jumpTo,
-                        issues: allIssues,
-                        activeIdx: activeNavIdx,
-                        onSetActive: setActiveNavIdx,
-                        filteredNavNodes,
-                        sectionKey: section.key,
-                        entityIssuesMap,
-                        attrIssuesMap
+                        ref: containerRef,
+                        style: { width: "100%", height: "100%" }
                       },
-                      section.key
-                    )) })
+                      "monaco"
+                    ),
+                    diffMode && /* @__PURE__ */ jsx71(
+                      "div",
+                      {
+                        ref: diffContainerRef,
+                        style: {
+                          position: "absolute",
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          bottom: 0
+                        }
+                      }
+                    ),
+                    (loading || !monacoReady && !monacoError) && /* @__PURE__ */ jsx71("div", { className: "yaml-viewer-editor__loading", children: loading ? "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u0433\u043E..." : "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 Monaco..." }),
+                    monacoError && /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-editor__error", children: [
+                      "\u041E\u0448\u0438\u0431\u043A\u0430 Monaco: ",
+                      monacoError
+                    ] })
+                  ] }),
+                  !isLocked && /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-editor__mode", children: [
+                    /* @__PURE__ */ jsx71(MIcon, { name: "edit", size: "sm" }),
+                    /* @__PURE__ */ jsx71("span", { className: "icon-label", children: "\u0420\u0435\u0436\u0438\u043C \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F" })
                   ] })
                 ] }),
-                /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-editor", children: [
-                  /* @__PURE__ */ jsx71(
-                    "div",
-                    {
-                      ref: containerRef,
-                      style: { width: "100%", height: "100%" }
-                    },
-                    "monaco"
-                  ),
-                  diffMode && /* @__PURE__ */ jsx71(
-                    "div",
-                    {
-                      ref: diffContainerRef,
-                      style: {
-                        position: "absolute",
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        bottom: 0
-                      }
-                    }
-                  ),
-                  (loading || !monacoReady && !monacoError) && /* @__PURE__ */ jsx71(
-                    "div",
-                    {
-                      className: "yaml-viewer-editor__loading",
-                      children: loading ? "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u0433\u043E..." : "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 Monaco..."
-                    },
-                    "loading"
-                  ),
-                  monacoError && /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-editor__error", children: [
-                    "\u041E\u0448\u0438\u0431\u043A\u0430 Monaco: ",
-                    monacoError
-                  ] }, "monaco-error"),
-                  loadError && /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-editor__error", children: [
-                    "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C \u0444\u0430\u0439\u043B: ",
-                    loadError
-                  ] }, "load-error"),
-                  !isLocked && /* @__PURE__ */ jsx71("div", { className: "yaml-viewer-editor__mode", children: "\u270F\uFE0F \u0420\u0435\u0436\u0438\u043C \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F" }, "mode")
-                ] }),
-                /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-issues", children: [
+                /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-issues" + (rightCollapsed ? " yaml-viewer-issues--collapsed" : ""), children: [
                   /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-tabs", children: [
                     /* @__PURE__ */ jsxs68(
                       "button",
@@ -22117,7 +22774,17 @@ function YamlViewerModal() {
                       }
                     )
                   ] }),
-                  rightTab === "issues" && /* @__PURE__ */ jsx71(IssuesPanel, { issues: allIssues, onJump: jumpTo, lineMap }),
+                  rightTab === "issues" && /* @__PURE__ */ jsx71(
+                    IssuesPanel,
+                    {
+                      issues: filteredIssues,
+                      allIssuesCount: allIssues.length,
+                      onJump: jumpTo,
+                      lineMap,
+                      severityFilter,
+                      setSeverityFilter
+                    }
+                  ),
                   rightTab === "refs" && /* @__PURE__ */ jsx71(
                     ExternalRefsPanel,
                     {
@@ -22189,20 +22856,208 @@ function isIgnored(issue, ignoredSet) {
   const sig = `dg-linter|${issue.message || ""}`;
   return ignoredSet.has(sig);
 }
+function hasFieldInEntityBlock(fieldName, entityLine, lines) {
+  const startIdx = entityLine - 1;
+  const baseLine = lines[startIdx];
+  if (!baseLine)
+    return false;
+  const entityIndent = (baseLine.match(/^(\s*)/) || ["", ""])[1].length;
+  let childIndent = -1;
+  for (let i = startIdx + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim())
+      continue;
+    const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (indent <= entityIndent)
+      return false;
+    childIndent = indent;
+    break;
+  }
+  if (childIndent === -1)
+    return false;
+  for (let i = startIdx + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim())
+      continue;
+    const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (indent < childIndent)
+      break;
+    if (indent === childIndent) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith("-") || trimmed.startsWith("#"))
+        continue;
+      const re = new RegExp(`^${fieldName}\\s*:`);
+      if (re.test(trimmed))
+        return true;
+    }
+  }
+  return false;
+}
+function hasFieldInAttributeBlock(fieldName, attrLine, lines) {
+  const startIdx = attrLine - 1;
+  const baseLine = lines[startIdx];
+  if (!baseLine)
+    return false;
+  const attrIndent = (baseLine.match(/^(\s*)/) || ["", ""])[1].length;
+  for (let i = startIdx + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim())
+      continue;
+    const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    const trimmed = line.trim();
+    if (indent === attrIndent && trimmed.startsWith("-"))
+      break;
+    if (indent < attrIndent)
+      break;
+    const re = new RegExp(`^${fieldName}\\s*:`);
+    if (re.test(trimmed))
+      return true;
+  }
+  return false;
+}
+function isIssueStillPresent(issue, currentText, lineMap) {
+  if (issue.__clientOnly)
+    return true;
+  if (!lineMap)
+    return true;
+  const ruleId = String(issue.ruleId || "").toLowerCase();
+  const lines = currentText.split("\n");
+  const getEntityLine = (entityId) => {
+    const key = `entities#${entityId}`.toLowerCase();
+    for (const [k, line] of lineMap.itemLines.entries()) {
+      if (k.toLowerCase() === key)
+        return line;
+    }
+    return null;
+  };
+  const getAttributeLine = (entityId, attrId) => {
+    let line = findAttributeInEntity(entityId, attrId, lineMap);
+    if (line)
+      return line;
+    const parts = attrId.split(/[_\-]+/);
+    const camel = parts.map((p, i) => i === 0 ? p.charAt(0).toLowerCase() + p.slice(1) : p.charAt(0).toUpperCase() + p.slice(1)).join("");
+    line = findAttributeInEntity(entityId, camel, lineMap);
+    if (line)
+      return line;
+    const re = new RegExp(`-\\s+id:\\s*['"]?${attrId}['"]?\\s*$`);
+    for (let i = 0; i < lines.length; i++) {
+      if (re.test(lines[i]))
+        return i + 1;
+    }
+    return null;
+  };
+  if (ruleId.includes("entity-label") && issue.entityFqid) {
+    const entityId = issue.entityFqid.split("/").pop();
+    if (!entityId)
+      return true;
+    const entityLine = getEntityLine(entityId);
+    if (!entityLine)
+      return true;
+    return !hasFieldInEntityBlock("label", entityLine, lines);
+  }
+  if (ruleId.includes("entity-description") && issue.entityFqid) {
+    const entityId = issue.entityFqid.split("/").pop();
+    if (!entityId)
+      return true;
+    const entityLine = getEntityLine(entityId);
+    if (!entityLine)
+      return true;
+    return !hasFieldInEntityBlock("description", entityLine, lines);
+  }
+  if (ruleId.includes("attribute-description") && issue.entityFqid && issue.attributeId) {
+    const entityId = issue.entityFqid.split("/").pop();
+    if (!entityId)
+      return true;
+    const attrLine = getAttributeLine(entityId, issue.attributeId);
+    if (!attrLine)
+      return true;
+    return !hasFieldInAttributeBlock("description", attrLine, lines);
+  }
+  if (ruleId.includes("attribute-camelcase") && issue.attributeId) {
+    const entityId = issue.entityFqid?.split("/").pop();
+    if (entityId) {
+      const attrLine = getAttributeLine(entityId, issue.attributeId);
+      if (attrLine) {
+        const line = lines[attrLine - 1] || "";
+        const match = line.match(/id:\s*([a-zA-Z0-9_\-]+)/);
+        if (match && match[1]) {
+          return !/^[a-z][a-zA-Z0-9]*$/.test(match[1]);
+        }
+      }
+    }
+    return !/^[a-z][a-zA-Z0-9]*$/.test(issue.attributeId);
+  }
+  if (ruleId.includes("entity-camelcase") && issue.entityFqid) {
+    const entityId = issue.entityFqid.split("/").pop() || "";
+    if (/^[A-Z][a-zA-Z0-9]*$/.test(entityId))
+      return false;
+    const parts = entityId.split(/[_\-]+/);
+    const pascal = parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join("");
+    if (getEntityLine(pascal))
+      return false;
+    return true;
+  }
+  return true;
+}
 function findIssueLine(issue, lineMap) {
   if (!lineMap)
     return null;
   if (issue.__clientOnly && typeof issue.line === "number" && issue.line > 0) {
     return issue.line;
   }
-  const path = (issue.propertyPath || "").toLowerCase();
-  const entityMatch = path.match(/entities\[([^\]]+)\]/);
-  if (entityMatch) {
-    const line = lineMap.itemLines.get(`entities#${entityMatch[1]}`);
-    if (line != null)
-      return line;
+  if (issue.propertyPath) {
+    const path = issue.propertyPath;
+    const entityMatch = path.match(/entities\[([^\]]+)\]/);
+    if (entityMatch) {
+      const entityId = entityMatch[1];
+      const attrMatch = path.match(/attributes\[([^\]]+)\]/);
+      if (attrMatch) {
+        const line2 = findAttributeInEntity(entityId, attrMatch[1], lineMap);
+        if (line2 != null)
+          return line2;
+      }
+      const line = lineMap.itemLines.get(`entities#${entityId}`);
+      if (line != null)
+        return line;
+    }
+    const sectionItemMatch = path.match(/^([a-zA-Z]+)\[([^\]]+)\]/);
+    if (sectionItemMatch) {
+      const line = lineMap.itemLines.get(`${sectionItemMatch[1]}#${sectionItemMatch[2]}`);
+      if (line != null)
+        return line;
+    }
   }
-  const sectionMatch = path.match(/([a-zA-Z]+)/);
+  if (issue.entityFqid) {
+    const entityId = issue.entityFqid.split("/")[1];
+    const entitiesSection = lineMap.sections.find((s) => s.key === "entities");
+    if (entitiesSection) {
+      const entityNode = entitiesSection.nodes.find(
+        (n) => n.id.toLowerCase() === entityId.toLowerCase()
+      );
+      if (entityNode) {
+        if (issue.attributeId && entityNode.children) {
+          const findAttrRecursive = (nodes, attrId) => {
+            for (const child of nodes) {
+              if (child.id.toLowerCase() === attrId.toLowerCase()) {
+                return child.line;
+              }
+              if (child.children) {
+                const res = findAttrRecursive(child.children, attrId);
+                if (res)
+                  return res;
+              }
+            }
+            return null;
+          };
+          const attrLine = findAttrRecursive(entityNode.children, issue.attributeId);
+          if (attrLine != null)
+            return attrLine;
+        }
+        return entityNode.line;
+      }
+    }
+  }
+  const sectionMatch = (issue.propertyPath || "").match(/^([a-zA-Z]+)/);
   if (sectionMatch) {
     const sec = lineMap.sections.find((s) => s.key === sectionMatch[1]);
     if (sec)
@@ -22278,7 +23133,13 @@ function SectionNav({
       children: [
         /* @__PURE__ */ jsxs68("summary", { className: "yaml-nav-section__head", children: [
           /* @__PURE__ */ jsx71("span", { className: "yaml-nav-section__chevron", "aria-hidden": "true" }),
-          /* @__PURE__ */ jsx71("span", { className: "yaml-nav-section__label", children: section.label }),
+          /* @__PURE__ */ jsxs68("span", { className: "yaml-nav-section__label", title: `${section.linesCount} \u0441\u0442\u0440\u043E\u043A \u0432 \u0441\u0435\u043A\u0446\u0438\u0438`, children: [
+            section.label,
+            /* @__PURE__ */ jsxs68("span", { className: "yaml-nav-section__lines", children: [
+              "~",
+              section.linesCount
+            ] })
+          ] }),
           /* @__PURE__ */ jsx71("span", { className: "yaml-nav-section__count", children: section.count }),
           sectionIssues.length > 0 && /* @__PURE__ */ jsxs68("span", { className: "yaml-nav-section__issues", children: [
             "\u26A0 ",
@@ -22421,33 +23282,77 @@ function NavItem({
 }
 function IssuesPanel({
   issues,
+  allIssuesCount,
   onJump,
-  lineMap
+  lineMap,
+  severityFilter,
+  setSeverityFilter
 }) {
+  const [issueGroupMode, setIssueGroupMode] = useState31("rule");
   const grouped = useMemo40(() => {
     const map = /* @__PURE__ */ new Map();
     issues.forEach((i) => {
-      if (!map.has(i.ruleId))
-        map.set(i.ruleId, []);
-      map.get(i.ruleId).push(i);
+      const key = issueGroupMode === "rule" ? i.ruleId : i.entityFqid ? i.entityFqid.split("/")[1] : "\u0411\u0435\u0437 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438";
+      if (!map.has(key))
+        map.set(key, []);
+      map.get(key).push(i);
     });
     return Array.from(map.entries()).sort((a, b) => b[1].length - a[1].length);
-  }, [issues]);
-  if (issues.length === 0) {
-    return /* @__PURE__ */ jsxs68("div", { className: "yaml-issues-empty", children: [
-      /* @__PURE__ */ jsx71("div", { style: { fontSize: 32, marginBottom: 8 }, children: "\u2705" }),
-      "\u041F\u0440\u043E\u0431\u043B\u0435\u043C \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E"
-    ] });
-  }
+  }, [issues, issueGroupMode]);
+  const toggleSeverity = (sev) => {
+    const next = new Set(severityFilter);
+    if (next.has(sev))
+      next.delete(sev);
+    else
+      next.add(sev);
+    setSeverityFilter(next);
+  };
   return /* @__PURE__ */ jsxs68("div", { className: "yaml-issues", children: [
+    /* @__PURE__ */ jsx71("div", { className: "yaml-issues__severity", children: ["error", "warning", "info"].map((sev) => /* @__PURE__ */ jsxs68(
+      "button",
+      {
+        className: "yaml-issues__severity-btn yaml-issues__severity-btn--" + sev + (severityFilter.has(sev) ? " active" : ""),
+        onClick: () => toggleSeverity(sev),
+        title: `\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C/\u0441\u043A\u0440\u044B\u0442\u044C ${sev}`,
+        children: [
+          /* @__PURE__ */ jsx71("span", { className: "yaml-issues__severity-dot" }),
+          sev === "error" ? "\u041E\u0448\u0438\u0431\u043A\u0438" : sev === "warning" ? "\u041F\u0440\u0435\u0434\u0443\u043F\u0440." : "\u0418\u043D\u0444\u043E"
+        ]
+      },
+      sev
+    )) }),
+    /* @__PURE__ */ jsxs68("div", { className: "yaml-issues__toolbar", children: [
+      /* @__PURE__ */ jsx71("span", { style: { fontSize: 11, color: "var(--text-500)" }, children: "\u0413\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u043A\u0430:" }),
+      /* @__PURE__ */ jsx71(
+        "button",
+        {
+          className: "yaml-issues__group-btn" + (issueGroupMode === "rule" ? " active" : ""),
+          onClick: () => setIssueGroupMode("rule"),
+          children: "\u041F\u043E \u043F\u0440\u0430\u0432\u0438\u043B\u0443"
+        }
+      ),
+      /* @__PURE__ */ jsx71(
+        "button",
+        {
+          className: "yaml-issues__group-btn" + (issueGroupMode === "entity" ? " active" : ""),
+          onClick: () => setIssueGroupMode("entity"),
+          children: "\u041F\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438"
+        }
+      )
+    ] }),
     /* @__PURE__ */ jsxs68("div", { className: "yaml-issues__header", children: [
       "\u041F\u0440\u043E\u0431\u043B\u0435\u043C\u044B (",
       issues.length,
+      issues.length !== allIssuesCount ? ` / ${allIssuesCount}` : "",
       ")"
     ] }),
-    /* @__PURE__ */ jsx71("div", { className: "yaml-issues__list", children: grouped.map(([ruleId, items]) => /* @__PURE__ */ jsx71(
+    issues.length === 0 ? /* @__PURE__ */ jsxs68("div", { className: "yaml-issues-empty", children: [
+      /* @__PURE__ */ jsx71("div", { style: { fontSize: 32, marginBottom: 8 }, children: "\u2705" }),
+      allIssuesCount > 0 ? "\u041D\u0435\u0442 \u043F\u0440\u043E\u0431\u043B\u0435\u043C \u0441 \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u043E\u0439 severity" : "\u041F\u0440\u043E\u0431\u043B\u0435\u043C \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E"
+    ] }) : /* @__PURE__ */ jsx71("div", { className: "yaml-issues__list", children: grouped.map(([ruleId, items]) => /* @__PURE__ */ jsx71(
       IssuesGroup,
       {
+        title: issueGroupMode === "rule" ? items[0].rule : ruleId,
         ruleId,
         items,
         lineMap,
@@ -22459,6 +23364,7 @@ function IssuesPanel({
 }
 function IssuesGroup({
   ruleId,
+  title,
   items,
   lineMap,
   onJump
@@ -22473,7 +23379,7 @@ function IssuesGroup({
   return /* @__PURE__ */ jsxs68("details", { ref: detailsRef, className: "yaml-issues__group", children: [
     /* @__PURE__ */ jsxs68("summary", { className: "yaml-issues__group-title", children: [
       /* @__PURE__ */ jsx71("span", { className: "yaml-issues__group-chevron", "aria-hidden": "true" }),
-      /* @__PURE__ */ jsx71("span", { className: "yaml-issues__group-label", children: items[0].rule }),
+      /* @__PURE__ */ jsx71("span", { className: "yaml-issues__group-label", children: title }),
       /* @__PURE__ */ jsx71("span", { className: "yaml-issues__group-count", children: items.length })
     ] }),
     items.map((issue, i) => {
@@ -22518,6 +23424,7 @@ var init_YamlViewerModal = __esm({
     init_MIcon();
     init_line_map();
     init_monaco_providers();
+    init_useNavigation();
     init_external_refs();
     init_YamlViewerHelp();
     init_initial();
@@ -22679,14 +23586,14 @@ var init_AppModals = __esm({
 });
 
 // src/web/App.tsx
-import React39, { useCallback as useCallback17, useEffect as useEffect33, useMemo as useMemo41, useRef as useRef13 } from "react";
+import React39, { useCallback as useCallback17, useEffect as useEffect34, useMemo as useMemo41, useRef as useRef13 } from "react";
 import { jsx as jsx73, jsxs as jsxs70 } from "react/jsx-runtime";
 function App() {
   const nodes = useGraphStore((s) => s.nodes);
   const edges = useGraphStore((s) => s.edges);
   const rules = useGraphStore((s) => s.rules);
   const didInit = useRef13(false);
-  useEffect33(() => {
+  useEffect34(() => {
     if (didInit.current)
       return;
     didInit.current = true;
