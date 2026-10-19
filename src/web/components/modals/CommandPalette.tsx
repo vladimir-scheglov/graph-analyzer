@@ -174,7 +174,13 @@ export function CommandPalette({ commands, onOpenFile }: CommandPaletteProps) {
 
     useEffect(() => {
         if (open) {
-            setTimeout(() => inputRef.current?.focus(), 50);
+            setTimeout(() => {
+                const input = inputRef.current;
+                if (!input) return;
+                input.focus();
+                // Выделяем весь текст, чтобы при печати он заменился
+                input.setSelectionRange(0, input.value.length);
+            }, 50);
         }
     }, [open]);
 

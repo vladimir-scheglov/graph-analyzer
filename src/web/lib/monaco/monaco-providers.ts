@@ -948,39 +948,6 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "Наследование от другой группы",
     },
   ],
-  mixin: [
-    {
-      name: "id",
-      type: "string",
-      description: "Идентификатор примеси",
-      required: true,
-    },
-    {
-      name: "type",
-      type: "enum",
-      description: "linkage или view",
-      required: true,
-    },
-    { name: "name", type: "string", description: "Название примеси" },
-    { name: "description", type: "string", description: "Описание" },
-    { name: "entity", type: "ref", description: "Целевая сущность" },
-    {
-      name: "weight",
-      type: "number",
-      description: "Приоритет (меньше — выше)",
-    },
-    {
-      name: "useForChild",
-      type: "boolean",
-      description: "Наследовать дочерним сущностям (по умолчанию true)",
-    },
-    { name: "linkage", type: "ref", description: "Связь (для type: linkage)" },
-    {
-      name: "views",
-      type: "array",
-      description: "Подмешиваемые представления",
-    },
-  ],
   sequence: [
     {
       name: "id",
@@ -1032,6 +999,1491 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "Связи для отображения данных",
     },
   ],
+  // ============ trees ============
+  tree: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор дерева (Data ID)",
+      required: true,
+    },
+    {
+      name: "type",
+      type: "enum",
+      description: "ordinary | orderable | multiparent",
+    },
+    {
+      name: "maxDepth",
+      type: "number",
+      description: "Максимальная вложенность от корня",
+    },
+    {
+      name: "hierarchy",
+      type: "object",
+      description: "Иерархия сущностей в дереве",
+      required: true,
+    },
+    {
+      name: "sorting",
+      type: "array",
+      description: "Правила сортировки по уровням",
+    },
+  ],
+  treeHierarchy: [
+    {
+      name: "entity",
+      type: "ref",
+      description: "Корневая сущность дерева",
+      required: true,
+    },
+    {
+      name: "maxInstances",
+      type: "number",
+      description: "Максимум объектов в корне",
+    },
+    {
+      name: "maxChildren",
+      type: "number",
+      description: "Максимум дочерних через связь",
+    },
+    { name: "children", type: "array", description: "Дочерние узлы" },
+  ],
+  treeChildren: [
+    {
+      name: "linkage",
+      type: "ref",
+      description: "Связь между родителем и потомком",
+      required: true,
+    },
+    {
+      name: "entity",
+      type: "ref",
+      description: "Дочерняя сущность",
+      required: true,
+    },
+    {
+      name: "maxInstances",
+      type: "number",
+      description: "Максимум объектов сущности",
+    },
+    {
+      name: "maxChildren",
+      type: "number",
+      description: "Максимум дочерних через связь",
+    },
+    {
+      name: "side",
+      type: "number",
+      description: "Сторона связи с родителем (1 или 2)",
+    },
+    { name: "children", type: "array", description: "Вложенные дочерние узлы" },
+  ],
+  treeSorting: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор правила",
+      required: true,
+    },
+    { name: "name", type: "string", description: "Название правила" },
+    {
+      name: "by",
+      type: "array",
+      description: "Сортировка по сущностям и атрибутам",
+      required: true,
+    },
+  ],
+  treeSortingBy: [
+    {
+      name: "entity",
+      type: "ref",
+      description: "Сущность, для которой задаётся сортировка",
+      required: true,
+    },
+    {
+      name: "by",
+      type: "array",
+      description: "Атрибуты и направления",
+      required: true,
+    },
+  ],
+  treeSortingByBy: [
+    {
+      name: "attribute",
+      type: "ref",
+      description: "Атрибут для сортировки",
+      required: true,
+    },
+    {
+      name: "direction",
+      type: "enum",
+      description: "asc или desc (по умолчанию desc)",
+    },
+  ],
+
+  // ============ transitiveLinkages ============
+  transitiveLinkage: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор дерева транзитивных связей",
+      required: true,
+    },
+    {
+      name: "entity",
+      type: "ref",
+      description: "Сущность, для которой строится дерево",
+      required: true,
+    },
+    { name: "description", type: "string", description: "Описание" },
+    {
+      name: "joins",
+      type: "array",
+      description: "Список связей в цепочке",
+      required: true,
+    },
+  ],
+  transitiveJoin: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор присоединения",
+      required: true,
+    },
+    {
+      name: "linkage",
+      type: "ref",
+      description: "Связь с сущностью",
+      required: true,
+    },
+    { name: "search", type: "object", description: "Настройки поиска по узлу" },
+    { name: "joins", type: "array", description: "Следующие связи в цепочке" },
+  ],
+  transitiveJoinSearch: [
+    {
+      name: "enable",
+      type: "boolean",
+      description: "Включить поиск по узлу",
+      required: true,
+    },
+    {
+      name: "mode",
+      type: "enum",
+      description: "entity | linkage | both (по умолчанию both)",
+    },
+  ],
+
+  // ============ uiRules ============
+  uiRule: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор правила (Data ID)",
+      required: true,
+    },
+    { name: "name", type: "string", description: "Название правила" },
+    { name: "description", type: "string", description: "Описание" },
+    {
+      name: "target",
+      type: "enum",
+      description: "list_view | entity_view | entity_attribute",
+      required: true,
+    },
+    {
+      name: "view",
+      type: "ref",
+      description:
+        "Представление, в котором применяются правила (list / entity)",
+      required: true,
+    },
+    {
+      name: "context",
+      type: "object",
+      description: "Контекст применения (views[])",
+    },
+    {
+      name: "condition",
+      type: "rql",
+      description: "Условие срабатывания (RQL)",
+    },
+    {
+      name: "rule",
+      type: "object",
+      description: "Описание эффекта правила",
+      required: true,
+    },
+    { name: "message", type: "string", description: "Сообщение пользователю" },
+    { name: "help", type: "string", description: "Текст справки" },
+  ],
+  uiRuleContext: [
+    {
+      name: "views",
+      type: "array",
+      description:
+        "Список view-id, в которых применяется (необязательно, для entity_view)",
+    },
+  ],
+  uiRuleRule: [
+    {
+      name: "effect",
+      type: "enum",
+      description:
+        "hidden | show | hiddenEmpty | readonly | editable | inherit | variant",
+      required: true,
+    },
+    {
+      name: "widgets",
+      type: "array",
+      description: "Виджеты, к которым применяется эффект",
+    },
+    {
+      name: "groups",
+      type: "array",
+      description: "Группы, к которым применяется эффект",
+    },
+    {
+      name: "columns",
+      type: "array",
+      description: "Колонки списка (для list_view)",
+    },
+    {
+      name: "presets",
+      type: "array",
+      description: "Пресеты стилей (для effect: variant)",
+    },
+  ],
+  uiRuleWidget: [
+    {
+      name: "widget",
+      type: "ref",
+      description: "Идентификатор виджета (View ID)",
+      required: true,
+    },
+    {
+      name: "nested",
+      type: "object",
+      description: "Nested-эффект для Array/Table-виджетов",
+    },
+    { name: "presets", type: "array", description: "Пресеты стилей" },
+  ],
+  uiRuleGroup: [
+    {
+      name: "group",
+      type: "ref",
+      description: "Идентификатор группы",
+      required: true,
+    },
+    { name: "presets", type: "array", description: "Пресеты стилей" },
+  ],
+  uiRuleColumn: [
+    {
+      name: "column",
+      type: "ref",
+      description: "Идентификатор колонки (View ID)",
+      required: true,
+    },
+    { name: "presets", type: "array", description: "Пресеты стилей" },
+  ],
+  uiRuleNested: [
+    {
+      name: "type",
+      type: "enum",
+      description: "array или table",
+      required: true,
+    },
+    {
+      name: "attributes",
+      type: "array",
+      description: "Колонки таблицы (для type: table)",
+    },
+    {
+      name: "items",
+      type: "array",
+      description: "Элементы массива (для type: array)",
+    },
+  ],
+  uiRuleNestedAttribute: [
+    {
+      name: "attribute",
+      type: "ref",
+      description: "Идентификатор колонки таблицы",
+      required: true,
+    },
+  ],
+  uiRuleNestedItem: [
+    {
+      name: "item",
+      type: "string",
+      description: "Индекс элемента массива (0, 1, ... или '*')",
+      required: true,
+    },
+  ],
+
+  // ============ uiPresets ============
+  uiPreset: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор пресета (Data ID)",
+      required: true,
+    },
+    { name: "description", type: "string", description: "Описание" },
+    {
+      name: "props",
+      type: "object",
+      description: "Свойства стиля (color, font-weight, background, ...)",
+    },
+  ],
+  // ============ actions: расширение ============
+  actionBulk: [
+    {
+      name: "operation",
+      type: "enum",
+      description: "remove | edit | edit_attribute",
+      required: true,
+    },
+    {
+      name: "attributes",
+      type: "array",
+      description: "Атрибуты для массового редактирования (operation: edit)",
+    },
+    {
+      name: "linkages",
+      type: "array",
+      description: "Связи для массового редактирования (operation: edit)",
+    },
+    {
+      name: "values",
+      type: "array",
+      description: "Значения атрибутов (operation: edit_attribute)",
+    },
+    {
+      name: "control",
+      type: "object",
+      description:
+        "Настройки bool-поля (operation: edit_attribute + bool-атрибут)",
+    },
+  ],
+  actionBulkAttributes: [
+    {
+      name: "type",
+      type: "enum",
+      description: "Всегда specific",
+      required: true,
+    },
+    {
+      name: "use",
+      type: "array",
+      description: "Массив ссылок на атрибуты (attribute: <id>)",
+    },
+  ],
+  actionBulkAttributeUse: [
+    {
+      name: "attribute",
+      type: "ref",
+      description: "Data ID Ref атрибута сущности",
+      required: true,
+    },
+  ],
+  actionBulkLinkages: [
+    {
+      name: "type",
+      type: "enum",
+      description: "Всегда specific",
+      required: true,
+    },
+    {
+      name: "use",
+      type: "array",
+      description: "Массив ссылок на виджеты связей (widget: <id>)",
+    },
+  ],
+  actionBulkLinkageUse: [
+    {
+      name: "widget",
+      type: "ref",
+      description: "View ID виджета связи (сторона N)",
+      required: true,
+    },
+  ],
+  actionValue: [
+    {
+      name: "attribute",
+      type: "ref",
+      description: "Идентификатор атрибута",
+      required: true,
+    },
+    { name: "value", type: "string", description: "Устанавливаемое значение" },
+  ],
+  actionControl: [
+    {
+      name: "type",
+      type: "string",
+      description: "Тип редактора (опционально)",
+    },
+    {
+      name: "trueText",
+      type: "string",
+      description: "Отображаемый текст для True",
+      required: true,
+    },
+    {
+      name: "falseText",
+      type: "string",
+      description: "Отображаемый текст для False",
+      required: true,
+    },
+  ],
+  actionAutomation: [
+    {
+      name: "id",
+      type: "string",
+      description: "UUID автоматизации (3c521909-cc55-4b0c-b645-f79eb0263296)",
+      required: true,
+    },
+  ],
+  // ============ views: list-view ============
+  viewSource: [
+    {
+      name: "type",
+      type: "enum",
+      description: "operational (БД системы)",
+      required: true,
+    },
+    {
+      name: "entity",
+      type: "ref",
+      description: "Сущность, чьи объекты отображаются в списке",
+      required: true,
+    },
+    {
+      name: "joins",
+      type: "array",
+      description: "Связи для отображения данных связанных сущностей",
+    },
+  ],
+  viewSourceJoin: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор связи (Data ID)",
+      required: true,
+    },
+    {
+      name: "linkage",
+      type: "ref",
+      description: "Связь с другой сущностью",
+      required: true,
+    },
+    { name: "side", type: "enum", description: "Сторона связи: 1 или 2" },
+    { name: "description", type: "string", description: "Описание связи" },
+  ],
+  viewTable: [
+    {
+      name: "columns",
+      type: "array",
+      description: "Столбцы таблицы",
+      required: true,
+    },
+    { name: "filter", type: "object", description: "Настройки фильтрации" },
+    { name: "sortingBy", type: "object", description: "Правила сортировки" },
+    { name: "paging", type: "object", description: "Пагинация" },
+    { name: "refresh", type: "object", description: "Обновление данных" },
+    {
+      name: "selection",
+      type: "boolean",
+      description: "Возможность выбора строк",
+    },
+    {
+      name: "actions",
+      type: "array",
+      description: "Действия при клике на строку",
+    },
+    { name: "empty", type: "object", description: "Текст при пустой таблице" },
+  ],
+  viewTableColumn: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор столбца (View ID)",
+      required: true,
+    },
+    {
+      name: "attribute",
+      type: "ref",
+      description: "Атрибут для отображения (Data ID Ref / FQID)",
+    },
+    {
+      name: "label",
+      type: "string",
+      description: "Отображаемое название столбца",
+    },
+    {
+      name: "layout",
+      type: "object",
+      description: "Размер и видимость столбца",
+    },
+    { name: "control", type: "object", description: "Тип редактора в столбце" },
+    {
+      name: "join",
+      type: "ref",
+      description: "Транзитивная связь для колонки",
+    },
+    { name: "use", type: "array", description: "Атрибуты атрибута-таблицы" },
+    { name: "aggregate", type: "object", description: "Агрегация (count)" },
+    {
+      name: "counterColorPattern",
+      type: "ref",
+      description: "Цветовая схема счётчика",
+    },
+    {
+      name: "actions",
+      type: "array",
+      description: "Действия при hover на ячейку",
+    },
+  ],
+  viewTableColumnLayout: [
+    {
+      name: "visible",
+      type: "boolean",
+      description: "Видимость столбца (по умолчанию true)",
+    },
+    { name: "width", type: "object", description: "Настройки ширины" },
+  ],
+  viewTableColumnWidth: [
+    {
+      name: "default",
+      type: "number",
+      description: "Ширина по умолчанию (px)",
+      required: true,
+    },
+    {
+      name: "min",
+      type: "number",
+      description: "Минимальная ширина (px)",
+      required: true,
+    },
+    {
+      name: "max",
+      type: "number",
+      description: "Максимальная ширина (px)",
+      required: true,
+    },
+  ],
+  viewTableColumnControl: [
+    {
+      name: "type",
+      type: "string",
+      description:
+        "text | text_area | select | radio | tag | level | bool_text | timestamp | tree_path и др.",
+    },
+    {
+      name: "trueText",
+      type: "string",
+      description: "Отображаемый текст для True (для bool_text)",
+    },
+    {
+      name: "falseText",
+      type: "string",
+      description: "Отображаемый текст для False (для bool_text)",
+    },
+    {
+      name: "tree",
+      type: "ref",
+      description: "Дерево для отображения пути (для type: tree_path)",
+    },
+  ],
+  viewTableColumnAggregate: [
+    { name: "type", type: "enum", description: "count", required: true },
+    {
+      name: "condition",
+      type: "rql",
+      description: "RQL-условие фильтрации связанных объектов",
+    },
+  ],
+  viewTableFilter: [
+    {
+      name: "attributes",
+      type: "object",
+      description: "Фильтрация по атрибутам сущности",
+    },
+    { name: "linkages", type: "object", description: "Фильтрация по связям" },
+  ],
+  viewTableFilterAttributes: [
+    {
+      name: "type",
+      type: "enum",
+      description: "specific | all",
+      required: true,
+    },
+    {
+      name: "use",
+      type: "array",
+      description: "Массив атрибутов для фильтрации (при type: specific)",
+    },
+  ],
+  viewTableFilterAttributesUse: [
+    {
+      name: "attribute",
+      type: "ref",
+      description: "Атрибут для фильтрации",
+      required: true,
+    },
+    { name: "use", type: "array", description: "Атрибуты атрибута-таблицы" },
+  ],
+  viewTableFilterLinkages: [
+    {
+      name: "type",
+      type: "enum",
+      description: "specific | all",
+      required: true,
+    },
+    {
+      name: "use",
+      type: "array",
+      description: "Массив связей для фильтрации (при type: specific)",
+    },
+  ],
+  viewTableFilterLinkagesUse: [
+    { name: "linkage", type: "ref", description: "Связь для фильтрации" },
+    {
+      name: "join",
+      type: "ref",
+      description: "Транзитивная связь для фильтрации",
+    },
+    {
+      name: "link_attributes",
+      type: "array",
+      description: "Атрибуты связи для фильтрации",
+    },
+    {
+      name: "linkedEntity",
+      type: "array",
+      description: "Атрибуты связанной сущности для фильтрации",
+    },
+  ],
+  viewTableSortingBy: [
+    {
+      name: "columns",
+      type: "array",
+      description: "Столбцы для сортировки",
+      required: true,
+    },
+    {
+      name: "defaults",
+      type: "object",
+      description: "Сортировка по умолчанию",
+    },
+  ],
+  viewTableSortingByColumn: [
+    {
+      name: "column",
+      type: "ref",
+      description: "Столбец (View ID)",
+      required: true,
+    },
+    {
+      name: "sorting",
+      type: "ref",
+      description: "Правило сортировки (Data ID)",
+      required: true,
+    },
+  ],
+  viewTableSortingByDefault: [
+    {
+      name: "column",
+      type: "ref",
+      description: "Столбец по умолчанию",
+      required: true,
+    },
+    {
+      name: "direction",
+      type: "enum",
+      description: "asc | desc",
+      required: true,
+    },
+  ],
+  viewTablePaging: [
+    {
+      name: "sizes",
+      type: "array",
+      description: "Варианты количества записей (например, [10, 50, 100])",
+      required: true,
+    },
+    {
+      name: "defaultSize",
+      type: "number",
+      description: "Количество записей по умолчанию",
+      required: true,
+    },
+  ],
+  viewTableRefresh: [
+    {
+      name: "mode",
+      type: "enum",
+      description: "manual | auto | all",
+      required: true,
+    },
+    {
+      name: "defaults",
+      type: "object",
+      description: "Настройки автообновления",
+    },
+  ],
+  viewTableRefreshDefaults: [
+    {
+      name: "enabled",
+      type: "boolean",
+      description: "Автообновление включено",
+      required: true,
+    },
+    {
+      name: "unit",
+      type: "enum",
+      description: "second | minute | hour",
+      required: true,
+    },
+    {
+      name: "interval",
+      type: "number",
+      description: "Интервал в указанных единицах",
+      required: true,
+    },
+  ],
+  viewTableAction: [
+    {
+      name: "type",
+      type: "enum",
+      description: "row_click | row_double_click | row_context_menu",
+      required: true,
+    },
+    {
+      name: "action",
+      type: "ref",
+      description: "Действие при клике (для row_click, row_double_click)",
+    },
+    {
+      name: "items",
+      type: "array",
+      description: "Действия контекстного меню (для row_context_menu)",
+    },
+  ],
+  viewTableActionItem: [
+    {
+      name: "action",
+      type: "ref",
+      description: "Действие (View ID)",
+      required: true,
+    },
+    { name: "label", type: "string", description: "Отображаемое название" },
+    { name: "icon", type: "ref", description: "Иконка (View ID медиа)" },
+  ],
+  viewTableEmpty: [
+    {
+      name: "message",
+      type: "string",
+      description: "Текст при отсутствии данных",
+      required: true,
+    },
+  ],
+  // ============ views: entity-view ============
+  viewWidgetControl: [
+    {
+      name: "type",
+      type: "string",
+      description:
+        "Тип редактора: text, text_area, select, radio, tag, level, switch, checkbox, bool_text, timestamp, date, time, tree_path, drag_drop_area, file, slider, link и др.",
+    },
+    {
+      name: "text",
+      type: "string",
+      description: "Текст области перетаскивания (для drag_drop_area)",
+    },
+    {
+      name: "trueText",
+      type: "string",
+      description: "Отображаемый текст для True (для bool_text)",
+    },
+    {
+      name: "falseText",
+      type: "string",
+      description: "Отображаемый текст для False (для bool_text)",
+    },
+    { name: "step", type: "number", description: "Шаг ползунка (для slider)" },
+    {
+      name: "icon",
+      type: "ref",
+      description: "Иконка (для action-виджета, regular_button)",
+    },
+  ],
+  viewWidgetLinkageControl: [
+    {
+      name: "type",
+      type: "enum",
+      description: "select | multi_select | table",
+      required: true,
+    },
+    {
+      name: "addLinksView",
+      type: "ref",
+      description:
+        "Список для выбора связанных объектов (модалка создания связи)",
+    },
+    {
+      name: "displayMode",
+      type: "enum",
+      description: "grouped | flat (для транзитивных связей)",
+    },
+    {
+      name: "columns",
+      type: "array",
+      description: "Столбцы таблицы (только для type: table)",
+    },
+    { name: "sortingBy", type: "array", description: "Правила сортировки" },
+    { name: "paging", type: "object", description: "Пагинация" },
+  ],
+  viewWidgetLinkageColumn: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор столбца",
+      required: true,
+    },
+    {
+      name: "attribute",
+      type: "ref",
+      description: "Атрибут связанного объекта или связи",
+    },
+    {
+      name: "join",
+      type: "ref",
+      description: "Транзитивная связь для колонки (нельзя вместе с linkage)",
+    },
+    {
+      name: "linkage",
+      type: "ref",
+      description: "Связь для колонки (нельзя вместе с join)",
+    },
+  ],
+  viewWidgetLinkageAttributes: [
+    {
+      name: "attribute",
+      type: "ref",
+      description: "Атрибут связи",
+      required: true,
+    },
+    { name: "label", type: "string", description: "Название атрибута в UI" },
+    { name: "control", type: "object", description: "Элемент управления" },
+  ],
+  viewWidgetLinkageAttributeControl: [
+    {
+      name: "type",
+      type: "string",
+      description: "Тип редактора (соответствует типу данных)",
+    },
+    {
+      name: "view",
+      type: "ref",
+      description: "Представление выбора сущностей (для Reference)",
+    },
+    {
+      name: "editable",
+      type: "boolean",
+      description: "Разрешить редактирование (по умолчанию true)",
+    },
+  ],
+  viewWidgetConversation: [
+    {
+      name: "linkage",
+      type: "ref",
+      description: "Связь с сущностью Message из domain.comm.rvision.ru",
+      required: true,
+    },
+    {
+      name: "conversationTransports",
+      type: "array",
+      description: "Ограничение доступных транспортов",
+    },
+  ],
+  viewGroupLayout: [
+    {
+      name: "direction",
+      type: "enum",
+      description: "column (вертикально) — единственное доступное значение",
+    },
+    {
+      name: "expandable",
+      type: "boolean",
+      description: "Возможность сворачивания (для block)",
+    },
+    {
+      name: "minHeight",
+      type: "string",
+      description: "Мин. высота секции (для resizable_block_pair)",
+    },
+    {
+      name: "maxHeight",
+      type: "string",
+      description: "Макс. высота секции (для resizable_block_pair)",
+    },
+    {
+      name: "sizeRatio",
+      type: "object",
+      description: "Соотношение ширины секций (для resizable_block_pair)",
+    },
+  ],
+  viewGroupComponent: [
+    {
+      name: "inherit",
+      type: "object",
+      description: "Настройки наследования от родительской группы",
+    },
+    { name: "widget", type: "ref", description: "Ссылка на виджет" },
+    { name: "block", type: "ref", description: "Ссылка на вложенный блок" },
+  ],
+  viewNested: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор карточки (View ID)",
+      required: true,
+    },
+    { name: "description", type: "string", description: "Описание" },
+    {
+      name: "type",
+      type: "enum",
+      description: "panel | modal | page",
+      required: true,
+    },
+    {
+      name: "inherit",
+      type: "ref",
+      description: "Наследование от другой карточки",
+    },
+    { name: "label", type: "string", description: "Заголовок карточки" },
+    { name: "menu", type: "array", description: "Действия в меню (для panel)" },
+    { name: "tabs", type: "array", description: "Вкладки (для panel)" },
+    {
+      name: "footer",
+      type: "array",
+      description: "Нижняя секция с действиями",
+    },
+    {
+      name: "onView",
+      type: "array",
+      description: "Действия при открытии (только set_attribute_value)",
+    },
+    {
+      name: "form",
+      type: "ref",
+      description: "Ссылка на группу form (для modal)",
+    },
+    {
+      name: "buttons",
+      type: "array",
+      description: "Кнопки submit/close (для modal)",
+    },
+    {
+      name: "menuItem",
+      type: "ref",
+      description: "Ссылка на пункт меню (для page)",
+    },
+    {
+      name: "actionPanel",
+      type: "array",
+      description: "Панель действий (для page)",
+    },
+    {
+      name: "block",
+      type: "ref",
+      description: "Единый блок в карточке (для page, без tabs)",
+    },
+    {
+      name: "pinnedView",
+      type: "object",
+      description: "Закреплённый блок (для page)",
+    },
+  ],
+  viewButton: [
+    {
+      name: "type",
+      type: "enum",
+      description: "submit | close",
+      required: true,
+    },
+    { name: "label", type: "string", description: "Название кнопки" },
+    { name: "control", type: "object", description: "Элемент управления" },
+    {
+      name: "actions",
+      type: "array",
+      description: "Действия при сохранении (для type: submit)",
+    },
+    {
+      name: "hidden",
+      type: "boolean",
+      description: "Скрыть кнопку (для type: submit)",
+    },
+  ],
+  viewButtonControl: [
+    {
+      name: "type",
+      type: "enum",
+      description: "regular_button",
+      required: true,
+    },
+    { name: "icon", type: "ref", description: "Иконка кнопки" },
+  ],
+  viewButtonAction: [
+    {
+      name: "action",
+      type: "ref",
+      description: "Действие (только set_attribute_value)",
+      required: true,
+    },
+  ],
+  viewMenuAction: [
+    {
+      name: "action",
+      type: "ref",
+      description: "Действие (View ID)",
+      required: true,
+    },
+    {
+      name: "inherit",
+      type: "object",
+      description: "Настройки наследования меню",
+    },
+  ],
+  viewFooterAction: [
+    {
+      name: "action",
+      type: "ref",
+      description: "Действие (только automation / scenario)",
+      required: true,
+    },
+    {
+      name: "behavior",
+      type: "enum",
+      description: "run | run_close | run_submit",
+      required: true,
+    },
+    { name: "control", type: "object", description: "Элемент управления" },
+  ],
+  viewActionPanelItem: [
+    {
+      name: "widget",
+      type: "ref",
+      description: "Виджет действия (View ID)",
+      required: true,
+    },
+    { name: "inherit", type: "object", description: "Настройки наследования" },
+  ],
+  viewTab: [
+    {
+      name: "tab",
+      type: "ref",
+      description: "Вкладка (View ID группы типа tab)",
+      required: true,
+    },
+    {
+      name: "inherit",
+      type: "object",
+      description: "Настройки наследования вкладок",
+    },
+  ],
+  viewPinnedView: [
+    {
+      name: "block",
+      type: "ref",
+      description: "Закреплённый блок (View ID)",
+      required: true,
+    },
+    { name: "position", type: "enum", description: "top | bottom" },
+    {
+      name: "minHeight",
+      type: "string",
+      description: "Мин. высота (например, 25% или 200px)",
+    },
+    { name: "maxHeight", type: "string", description: "Макс. высота" },
+    {
+      name: "height",
+      type: "string",
+      description: "Высота (по умолчанию 30%)",
+    },
+  ],
+  inheritSettings: [
+    {
+      name: "type",
+      type: "enum",
+      description: "append | override | except",
+      required: true,
+    },
+    {
+      name: "except",
+      type: "array",
+      description: "Список id для исключения (при type: except)",
+    },
+  ],
+  // ============ menus ============
+  menuRoot: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор корневой группы",
+      required: true,
+    },
+    {
+      name: "route",
+      type: "string",
+      description: "Путь в URL (например, /assets)",
+      required: true,
+    },
+    {
+      name: "label",
+      type: "string",
+      description: "Заголовок раздела в меню",
+      required: true,
+    },
+    { name: "description", type: "string", description: "Описание" },
+    { name: "icon", type: "ref", description: "Ссылка на медиа-ресурс" },
+    {
+      name: "type",
+      type: "enum",
+      description: "root_group или root_menu",
+      required: true,
+    },
+    {
+      name: "placement",
+      type: "enum",
+      description: "top (главное меню) или settings (настройки)",
+      required: true,
+    },
+    {
+      name: "priority",
+      type: "number",
+      description: "Приоритет (≥1000, больше = выше)",
+    },
+    {
+      name: "view",
+      type: "ref",
+      description: "Ссылка на представление (для root_menu)",
+    },
+    { name: "items", type: "array", description: "Дочерние элементы меню" },
+  ],
+  menuItem: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор пункта",
+      required: true,
+    },
+    {
+      name: "route",
+      type: "string",
+      description: "Путь в URL (после пути раздела)",
+      required: true,
+    },
+    {
+      name: "label",
+      type: "string",
+      description: "Заголовок пункта",
+      required: true,
+    },
+    { name: "description", type: "string", description: "Описание" },
+    {
+      name: "type",
+      type: "enum",
+      description: "Устанавливается menu",
+      required: true,
+    },
+    {
+      name: "view",
+      type: "ref",
+      description: "Ссылка на представление (список или вкладки)",
+      required: true,
+    },
+    { name: "priority", type: "number", description: "Приоритет (≥1000)" },
+  ],
+
+  // ============ medias ============
+  media: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор иконки (View ID)",
+      required: true,
+    },
+    { name: "description", type: "string", description: "Описание" },
+    { name: "type", type: "enum", description: "icon_name", required: true },
+    {
+      name: "iconName",
+      type: "string",
+      description: "Идентификатор в библиотеке иконок",
+      required: true,
+    },
+  ],
+
+  // ============ mixins ============
+  mixin: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор примеси",
+      required: true,
+    },
+    { name: "name", type: "string", description: "Наименование примеси" },
+    { name: "description", type: "string", description: "Описание" },
+    {
+      name: "weight",
+      type: "number",
+      description: "Приоритет (меньше = выше)",
+    },
+    {
+      name: "useForChild",
+      type: "boolean",
+      description: "Наследовать дочерним сущностям (по умолчанию true)",
+    },
+    {
+      name: "type",
+      type: "enum",
+      description: "linkage или view",
+      required: true,
+    },
+    {
+      name: "entity",
+      type: "object",
+      description: "Направление примеси (from → to)",
+      required: true,
+    },
+    { name: "linkage", type: "ref", description: "Связь (для type: linkage)" },
+    {
+      name: "views",
+      type: "array",
+      description: "Подмешиваемые представления",
+      required: true,
+    },
+  ],
+  mixinEntity: [
+    {
+      name: "from",
+      type: "ref",
+      description: "Источник примеси (сущность, из которой берутся данные)",
+    },
+    {
+      name: "to",
+      type: "ref",
+      description: "Целевая сущность (в которую встраивается)",
+    },
+  ],
+  mixinView: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор примеси компонентов",
+      required: true,
+    },
+    {
+      name: "type",
+      type: "enum",
+      description: "form | tab | panel | page | list",
+      required: true,
+    },
+    {
+      name: "fromView",
+      type: "ref",
+      description: "Источник компонентов (для type: view)",
+    },
+    {
+      name: "to",
+      type: "object",
+      description: "Целевое представление",
+      required: true,
+    },
+    {
+      name: "change",
+      type: "object",
+      description: "Изменения целевого представления (add / delete)",
+    },
+    {
+      name: "replace",
+      type: "object",
+      description: "Замена компонентов (для type: view)",
+    },
+  ],
+  mixinViewTo: [
+    {
+      name: "panel",
+      type: "ref",
+      description: "Целевая панель (для type: panel)",
+    },
+    {
+      name: "tab",
+      type: "ref",
+      description: "Целевая вкладка (для type: tab)",
+    },
+    {
+      name: "form",
+      type: "ref",
+      description: "Целевая форма (для type: form)",
+    },
+    {
+      name: "list",
+      type: "ref",
+      description: "Целевой список (для type: list)",
+    },
+    {
+      name: "page",
+      type: "ref",
+      description: "Целевая страница (для type: page)",
+    },
+  ],
+  mixinChange: [
+    { name: "add", type: "object", description: "Добавляемые компоненты" },
+    { name: "delete", type: "object", description: "Удаляемые компоненты" },
+  ],
+  mixinChangeAdd: [
+    {
+      name: "components",
+      type: "array",
+      description: "Виджеты и блоки для добавления",
+    },
+    {
+      name: "tabs",
+      type: "object",
+      description: "Вкладки для добавления (для type: panel)",
+    },
+    {
+      name: "menu",
+      type: "object",
+      description: "Действия для добавления в меню",
+    },
+    {
+      name: "form",
+      type: "ref",
+      description: "Форма для добавления (для type: form)",
+    },
+    {
+      name: "list",
+      type: "ref",
+      description: "Список для добавления (для type: list)",
+    },
+    {
+      name: "block",
+      type: "ref",
+      description: "Блок для добавления (для type: page)",
+    },
+    {
+      name: "position",
+      type: "object",
+      description: "Расположение (begin | after | end)",
+    },
+  ],
+  mixinPosition: [
+    {
+      name: "type",
+      type: "enum",
+      description: "begin | after | end (по умолчанию end)",
+    },
+    {
+      name: "after",
+      type: "object",
+      description: "Компонент, после которого вставлять (для type: after)",
+    },
+  ],
+
+  // ============ exchangeSettings ============
+  exchangeSettings: [
+    {
+      name: "description",
+      type: "string",
+      description: "Описание требований к обмену данными",
+    },
+    {
+      name: "enable",
+      type: "boolean",
+      description: "Включить обмен (по умолчанию true)",
+    },
+    {
+      name: "label",
+      type: "string",
+      description: "Название домена в выпадающем списке импорта/экспорта",
+    },
+    {
+      name: "noCmsSync",
+      type: "boolean",
+      description: "Отключить sdk.cms.sync для создания/обновления",
+    },
+    {
+      name: "attributeFormats",
+      type: "object",
+      description:
+        "Форматы даты/времени (Date, Time, Timestamp, TimestampRange)",
+    },
+    {
+      name: "entities",
+      type: "object",
+      description: "Настройки обмена по сущностям",
+    },
+  ],
+  exchangeAttributeFormats: [
+    {
+      name: "Date",
+      type: "string",
+      description: "Формат Date (например, DD-MM-YYYY)",
+    },
+    {
+      name: "Time",
+      type: "string",
+      description: "Формат Time (например, HH:mm:ss)",
+    },
+    {
+      name: "Timestamp",
+      type: "string",
+      description: "Формат Timestamp (например, DD-MM-YYYYTHH:mm:ss)",
+    },
+    {
+      name: "TimestampRange",
+      type: "string",
+      description: "Формат TimestampRange",
+    },
+  ],
+  exchangeEntitySettings: [
+    {
+      name: "domainLabel",
+      type: "string",
+      description: "Переопределение отображаемого названия домена",
+    },
+    {
+      name: "enable",
+      type: "boolean",
+      description: "Включить обмен для этой сущности (по умолчанию true)",
+    },
+    {
+      name: "label",
+      type: "string",
+      description: "Название сущности в списке",
+    },
+    {
+      name: "forExport",
+      type: "ref",
+      description: "Атрибут-идентификатор для Reference",
+    },
+    {
+      name: "upsertWith",
+      type: "string",
+      description: "Атрибуты/связи для идентификации при обновлении",
+    },
+    {
+      name: "ignoreAttributes",
+      type: "string",
+      description: "Игнорируемые атрибуты (id через запятую)",
+    },
+    {
+      name: "exportSystemAttributes",
+      type: "string",
+      description: "Системные атрибуты для экспорта (id или all)",
+    },
+  ],
 };
 
 interface SnippetDef {
@@ -1060,7 +2512,7 @@ const SNIPPETS: SnippetDef[] = [
   {
     prefix: "newattr",
     description: "Новый атрибут",
-    contexts: ["attributeList", "attribute"],
+    contexts: ["attribute"],
     body: [
       "- id: ${1:attrId}",
       "  name: ${2:Новый атрибут}",
@@ -1070,8 +2522,8 @@ const SNIPPETS: SnippetDef[] = [
   },
   {
     prefix: "newref",
-    description: "Атрибут-референс",
-    contexts: ["attributeList", "attribute"],
+    description: "Атрибут-Reference",
+    contexts: ["attribute"],
     body: [
       "- id: ${1:refAttr}",
       "  name: ${2:Ссылка на сущность}",
@@ -1081,14 +2533,27 @@ const SNIPPETS: SnippetDef[] = [
   },
   {
     prefix: "newarr",
-    description: "Атрибут-массив",
-    contexts: ["attributeList", "attribute"],
+    description: "Атрибут-Array",
+    contexts: ["attribute"],
     body: [
       "- id: ${1:arrayAttr}",
       "  name: ${2:Массив}",
       "  dataType: Array",
       "  item:",
       "    dataType: ${3:String}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newidentifier",
+    description: "Атрибут-Identifier (шаблон + префикс)",
+    contexts: ["attribute"],
+    body: [
+      "- id: ${1:iocId}",
+      "  name: ${2:Идентификатор}",
+      "  dataType: Identifier",
+      '  template: "{@prefix}-{@YYYY}-{@MM}-{@inc}"',
+      "  defaultPrefix: ${3:INC}",
+      '  incrementTemplate: "0000"',
     ].join("\n"),
   },
   {
@@ -1134,6 +2599,926 @@ const SNIPPETS: SnippetDef[] = [
       "  modal: ${3:forms_newModal}",
       "  entity: ${4:SomeEntity}",
       "  operation: create",
+    ].join("\n"),
+  },
+  {
+    prefix: "newview",
+    description: "Entity-view с виджетами и блоком",
+    contexts: ["viewList", "view"],
+    body: [
+      "- id: ${1:viewMyEntity}",
+      "  type: entity",
+      "  entity: ${2:MyEntity}",
+      "  widgets:",
+      "    - id: ${3:editors_id}",
+      "      type: attribute",
+      "      attribute: ${4:id}",
+      "  groups:",
+      "    - id: ${5:blocks_info}",
+      "      type: block",
+      "      layout:",
+      "        direction: column",
+      "      components:",
+      "        - widget: ${6:editors_id}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newlist",
+    description: "List-view (список объектов)",
+    contexts: ["viewList", "view"],
+    body: [
+      "- id: ${1:lists_MyEntity}",
+      "  type: list",
+      "  source:",
+      "    type: operational",
+      "    entity: ${2:MyEntity}",
+      "  table:",
+      "    columns:",
+      "      - id: ${3:name}",
+      "        attribute: ${4:id}",
+      "        label: ${5:Название}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newwidget",
+    description: "Виджет атрибута",
+    contexts: ["widget"],
+    body: [
+      "- id: ${1:editors_attr}",
+      "  type: attribute",
+      "  attribute: ${2:attrId}",
+      "  description: ${3:Поле для редактирования}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newgroup",
+    description: "Группа типа block",
+    contexts: ["group"],
+    body: [
+      "- id: ${1:blocks_info}",
+      "  type: block",
+      "  description: ${2:Блок информации}",
+      "  layout:",
+      "    direction: column",
+      "  components:",
+      "    - widget: ${3:editors_id}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newsequence",
+    description: "Последовательность",
+    contexts: ["sequenceList", "sequence"],
+    body: [
+      "- id: ${1:MySequence}",
+      "  startFrom: ${2:1}",
+      "  description: ${3:Описание последовательности}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newmixin",
+    description: "Миксин на панель",
+    contexts: ["mixinList", "mixin"],
+    body: [
+      "- id: ${1:mixin_new}",
+      "  type: view",
+      "  entity: ${2:TargetEntity}",
+      "  views:",
+      "    - id: ${3:mixin_view}",
+      "      type: tab",
+      "      to:",
+      "        tab: ${4:tabs_info}",
+      "      change:",
+      "        add:",
+      "          components:",
+      "            - widget: ${5:editors_id}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newmenu",
+    description: "Пункт меню с подпунктом",
+    contexts: ["menuList", "menu", "menuItem"],
+    body: [
+      "- id: ${1:menus_root}",
+      '  label: "${2:Название раздела}"',
+      "  route: ${3:/my-domain}",
+      "  type: root_group",
+      "  placement: top",
+      "  items:",
+      "    - id: ${4:menu_item}",
+      "      label: ${5:Пункт меню}",
+      "      route: ${6:/my-domain/item}",
+      "      type: menu",
+      "      view: ${7:lists_MyEntity}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newmedia",
+    description: "Иконка",
+    contexts: ["mediaList", "media"],
+    body: [
+      "- id: ${1:iconsMyIcon}",
+      "  description: ${2:Иконка для ...}",
+      "  type: icon_name",
+      "  iconName: ${3:folder}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newenum",
+    description: "Enum-тип данных",
+    contexts: ["dataTypeList", "dataType"],
+    body: [
+      "- id: ${1:enumMyType}",
+      "  name: ${2:Новый enum}",
+      "  dataType: Enum",
+      "  values:",
+      "    - id: ${3:value1}",
+      "      name: ${4:Значение 1}",
+      "    - id: ${5:value2}",
+      "      name: ${6:Значение 2}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newworkflow",
+    description: "Workflow-тип данных",
+    contexts: ["dataTypeList", "dataType"],
+    body: [
+      "- id: ${1:workflowMyProcess}",
+      "  name: ${2:Новый workflow}",
+      "  dataType: Workflow",
+      "  initial: ${3:New}",
+      "  statuses:",
+      "    - id: ${4:New}",
+      "      name: ${5:Новый}",
+      "    - id: ${6:Done}",
+      "      name: ${7:Завершён}",
+      "  transitions:",
+      "    - from: ${8:New}",
+      "      to: ${9:Done}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newtable",
+    description: "Table-тип данных",
+    contexts: ["dataTypeList", "dataType"],
+    body: [
+      "- id: ${1:tableMyTable}",
+      "  name: ${2:Новая таблица}",
+      "  dataType: Table",
+      "  maxRows: ${3:100}",
+      "  attributes:",
+      "    - id: ${4:col1}",
+      "      name: ${5:Колонка 1}",
+      "      dataType: String",
+    ].join("\n"),
+  },
+  {
+    prefix: "newenumvalue",
+    description: "Значение Enum",
+    contexts: ["enumValue"],
+    body: ["- id: ${1:value1}", "  name: ${2:Значение 1}"].join("\n"),
+  },
+  {
+    prefix: "newworkflowstatus",
+    description: "Статус Workflow",
+    contexts: ["workflowStatus"],
+    body: [
+      "- id: ${1:status1}",
+      "  name: ${2:Статус 1}",
+      "  description: ${3:Описание}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newtransition",
+    description: "Переход Workflow",
+    contexts: ["transition"],
+    body: ["- from: ${1:StatusA}", "  to: ${2:StatusB}"].join("\n"),
+  },
+  {
+    prefix: "newconstraint",
+    description: "Constraint (required / range / regexp...)",
+    contexts: ["constraintsItem"],
+    body: ["- kind: ${1:required}", "  message: ${2:Текст ошибки}"].join("\n"),
+  },
+  {
+    prefix: "newconstraintlen",
+    description: "Constraint: length с min/max",
+    contexts: ["constraintsItem"],
+    body: [
+      "- kind: length",
+      "  min: ${1:1}",
+      "  max: ${2:255}",
+      "  message: ${3:Недопустимая длина}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newprefixrule",
+    description: "Правило подстановки префикса",
+    contexts: ["prefixRule"],
+    body: [
+      "- id: ${1:Rule_1}",
+      "  attribute: ${2:attrId}",
+      "  source:",
+      "    entity: ${3:SomeDict}",
+      "    key: ${4:fullName}",
+      "    value: ${5:shortCode}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newprojection",
+    description: "Проекция сущности",
+    contexts: ["entity"],
+    body: [
+      "projection:",
+      "  - attribute: ${1:name}",
+      "  - attribute: ${2:description}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newsearching",
+    description: "Правила поиска сущности",
+    contexts: ["entity"],
+    body: [
+      "searching:",
+      "  attributes:",
+      "    - ${1:id}",
+      "    - ${2:name}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newcountercolor",
+    description: "Цветовая схема счётчика",
+    contexts: ["counterColorPattern"],
+    body: [
+      "- id: ${1:counterColorTime}",
+      "  red: ${2:60%}",
+      "  yellow: ${3:40%}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newtree",
+    description: "Дерево связей (1 уровень)",
+    contexts: ["treeList", "tree"],
+    body: [
+      "- id: ${1:MyTree}",
+      "  type: ordinary",
+      "  maxDepth: ${2:5}",
+      "  hierarchy:",
+      "    entity: ${3:RootEntity}",
+      "    maxInstances: ${4:1}",
+      "    children:",
+      "      - linkage: ${5:RootToChild}",
+      "        entity: ${6:ChildEntity}",
+      "        side: ${7:1}",
+      "  sorting:",
+      "    - id: ${8:sorting_name}",
+      "      name: ${9:По наименованию}",
+      "      by:",
+      "        - entity: ${10:RootEntity}",
+      "          by:",
+      "            - attribute: ${11:name}",
+      "              direction: asc",
+    ].join("\n"),
+  },
+  {
+    prefix: "newtransitive",
+    description: "Транзитивная связь (1 хоп)",
+    contexts: ["transitiveLinkageList", "transitiveLinkage"],
+    body: [
+      "- id: ${1:MyTransitiveTree}",
+      "  entity: ${2:StartEntity}",
+      "  description: ${3:Цепочка связей}",
+      "  joins:",
+      "    - id: ${4:join1}",
+      "      linkage: ${5:StartToMiddle}",
+      "      search:",
+      "        enable: true",
+      "        mode: both",
+    ].join("\n"),
+  },
+  {
+    prefix: "newjoins",
+    description: "Следующий хоп в транзитивной связи",
+    contexts: ["transitiveJoin"],
+    body: [
+      "- id: ${1:join_next}",
+      "  linkage: ${2:NextLinkage}",
+      "  search:",
+      "    enable: ${3:true}",
+      "    mode: ${4:both}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newuirule",
+    description: "UI Rule: скрыть виджет",
+    contexts: ["uiRuleList", "uiRule"],
+    body: [
+      "- id: ${1:hiddenWidget}",
+      "  name: ${2:Скрыть виджет}",
+      "  target: entity_view",
+      "  view: ${3:entityView}",
+      "  condition: !rql ${4:true}",
+      "  rule:",
+      "    effect: hidden",
+      "    widgets:",
+      "      - widget: ${5:editors_id}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newuirulevariant",
+    description: "UI Rule: вариант с пресетами",
+    contexts: ["uiRuleList", "uiRule"],
+    body: [
+      "- id: ${1:variantRule}",
+      "  name: ${2:Цветовая вариация}",
+      "  target: entity_view",
+      "  view: ${3:entityView}",
+      '  condition: !rql ${4:@doc.status = "CRITICAL"}',
+      "  rule:",
+      "    effect: variant",
+      "    widgets:",
+      "      - widget: ${5:editors_status}",
+      "        presets:",
+      "          - ${6:redPreset}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newuirulenested",
+    description: "UI Rule: скрыть колонку таблицы",
+    contexts: ["uiRuleList", "uiRule"],
+    body: [
+      "- id: ${1:hiddenTableColumn}",
+      "  name: ${2:Скрыть колонку в таблице}",
+      "  target: entity_attribute",
+      "  view: ${3:entityView}",
+      "  condition: !rql ${4:true}",
+      "  rule:",
+      "    effect: hidden",
+      "    widgets:",
+      "      - widget: ${5:editors_table}",
+      "        nested:",
+      "          type: table",
+      "          attributes:",
+      "            - attribute: ${6:col1}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newuipreset",
+    description: "UI Preset (стили)",
+    contexts: ["uiPresetList", "uiPreset"],
+    body: [
+      "- id: ${1:redPreset}",
+      "  description: ${2:Красный фон}",
+      "  props:",
+      "    color: ${3:#ff0000}",
+      "    font-weight: ${4:bold}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newpresetref",
+    description: "Ссылка на пресет в widgets/groups/columns",
+    contexts: ["uiRuleWidget", "uiRuleGroup", "uiRuleColumn"],
+    body: ["presets:", "  - ${1:redPreset}"].join("\n"),
+  },
+  {
+    prefix: "newbulkdelete",
+    description: "Массовое действие: удаление",
+    contexts: ["actionList", "action"],
+    body: [
+      "- id: ${1:actions_bulkRemove}",
+      "  name: ${2:Удалить}",
+      "  type: bulk",
+      "  entity: ${3:SomeEntity}",
+      "  operation: remove",
+    ].join("\n"),
+  },
+  {
+    prefix: "newbulkedit",
+    description: "Массовое действие: редактирование атрибутов",
+    contexts: ["actionList", "action"],
+    body: [
+      "- id: ${1:actions_bulkEdit}",
+      "  name: ${2:Изменить}",
+      "  type: bulk",
+      "  entity: ${3:SomeEntity}",
+      "  operation: edit",
+      "  attributes:",
+      "    type: specific",
+      "    use:",
+      "      - attribute: ${4:attr1}",
+      "      - attribute: ${5:attr2}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newbulkattr",
+    description: "Массовое действие: изменить атрибут (bool/workflow)",
+    contexts: ["actionList", "action"],
+    body: [
+      "- id: ${1:actions_bulkSetBool}",
+      "  name: ${2:Установить флаг}",
+      "  type: bulk",
+      "  entity: ${3:SomeEntity}",
+      "  operation: edit_attribute",
+      "  values:",
+      "    - attribute: ${4:isActive}",
+      "      value: ${5:true}",
+      "  control:",
+      "    type: ${6:bool_text}",
+      '    trueText: "${7:Активен}"',
+      '    falseText: "${8:Неактивен}"',
+    ].join("\n"),
+  },
+  {
+    prefix: "newautomationaction",
+    description: "Действие запуска автоматизации",
+    contexts: ["actionList", "action"],
+    body: [
+      "- id: ${1:actions_runAutomation}",
+      "  name: ${2:Запустить автоматизацию}",
+      "  type: automation",
+      "  entity: ${3:SomeEntity}",
+      "  automation:",
+      "    id: ${4:3c521909-cc55-4b0c-b645-f79eb0263296}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newscenarioaction",
+    description: "Действие запуска сценария",
+    contexts: ["actionList", "action"],
+    body: [
+      "- id: ${1:actions_runScenario}",
+      "  name: ${2:Запустить сценарий}",
+      "  type: scenario",
+      "  entity: ${3:SomeEntity}",
+      "  scenario: ${4:MyScenario}",
+      "  workerTag: ${5:default}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newlisttable",
+    description: "Таблица с 3 колонками",
+    contexts: ["viewList", "view"],
+    body: [
+      "table:",
+      "  columns:",
+      "    - id: ${1:id}",
+      "      attribute: ${2:id}",
+      "      label: ${3:Идентификатор}",
+      "      layout:",
+      "        width:",
+      "          default: ${4:100}",
+      "          min: 50",
+      "          max: 200",
+      "    - id: ${5:name}",
+      "      attribute: ${6:name}",
+      "      label: ${7:Название}",
+      "    - id: ${8:createdAt}",
+      "      attribute: createdAt",
+      "      label: Дата создания",
+      "      control:",
+      "        type: timestamp",
+    ].join("\n"),
+  },
+  {
+    prefix: "newtablecolumn",
+    description: "Колонка таблицы",
+    contexts: ["viewTable"],
+    body: [
+      "- id: ${1:colId}",
+      "  attribute: ${2:attrId}",
+      "  label: ${3:Название колонки}",
+      "  layout:",
+      "    width:",
+      "      default: ${4:150}",
+      "      min: 50",
+      "      max: 300",
+    ].join("\n"),
+  },
+  {
+    prefix: "newtablefilter",
+    description: "Настройка фильтрации таблицы",
+    contexts: ["viewTable"],
+    body: [
+      "filter:",
+      "  attributes:",
+      "    type: ${1:all}",
+      "  linkages:",
+      "    type: ${2:all}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newtablesorting",
+    description: "Сортировка по колонке",
+    contexts: ["viewTable"],
+    body: [
+      "sortingBy:",
+      "  columns:",
+      "    - column: ${1:colId}",
+      "      sorting: ${2:sortingId}",
+      "  defaults:",
+      "    column: ${3:colId}",
+      "    direction: ${4:asc}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newtablepaging",
+    description: "Пагинация таблицы",
+    contexts: ["viewTable"],
+    body: [
+      "paging:",
+      "  sizes:",
+      "    - 10",
+      "    - 50",
+      "    - 100",
+      "  defaultSize: ${1:20}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newtablerefresh",
+    description: "Автообновление таблицы",
+    contexts: ["viewTable"],
+    body: [
+      "refresh:",
+      "  mode: ${1:auto}",
+      "  defaults:",
+      "    enabled: ${2:true}",
+      "    unit: ${3:minute}",
+      "    interval: ${4:5}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newtablerowclick",
+    description: "Действие при клике на строку",
+    contexts: ["viewTable"],
+    body: [
+      "actions:",
+      "  - type: row_click",
+      "    action: ${1:actions_openPanel}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newtablecontextmenu",
+    description: "Контекстное меню строки",
+    contexts: ["viewTable"],
+    body: [
+      "actions:",
+      "  - type: row_context_menu",
+      "    items:",
+      "      - action: ${1:actions_edit}",
+      "        label: ${2:Изменить}",
+      "      - action: ${3:actions_remove}",
+      "        label: ${4:Удалить}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newtableaggregate",
+    description: "Колонка с агрегацией (count)",
+    contexts: ["viewTable"],
+    body: [
+      "- id: ${1:linkedCount}",
+      "  label: ${2:Связанных}",
+      "  join: ${3:my_join_id}",
+      "  aggregate:",
+      "    type: count",
+      "    condition: !rql ${4:true}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newlistfull",
+    description: "Полный list-view с таблицей и фильтрами",
+    contexts: ["viewList", "view"],
+    body: [
+      "- id: ${1:lists_MyEntity}",
+      "  type: list",
+      "  label: ${2:Список MyEntity}",
+      "  source:",
+      "    type: operational",
+      "    entity: ${3:MyEntity}",
+      "  table:",
+      "    columns:",
+      "      - id: ${4:id}",
+      "        attribute: id",
+      "        label: Идентификатор",
+      "      - id: ${5:name}",
+      "        attribute: name",
+      "        label: Название",
+      "    filter:",
+      "      attributes:",
+      "        type: all",
+      "      linkages:",
+      "        type: all",
+      "    sortingBy:",
+      "      defaults:",
+      "        column: ${6:name}",
+      "        direction: asc",
+      "    paging:",
+      "      sizes: [10, 50, 100]",
+      "      defaultSize: 20",
+      "    selection: true",
+      "    actions:",
+      "      - type: row_click",
+      "        action: ${7:actions_openPanel}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newentityview",
+    description: "Entity-view с панелью и модалкой",
+    contexts: ["viewList", "view"],
+    body: [
+      "- id: ${1:viewMyEntity}",
+      "  type: entity",
+      "  entity: ${2:MyEntity}",
+      "  widgets:",
+      "    - id: ${3:editors_id}",
+      "      type: attribute",
+      "      attribute: ${4:id}",
+      "    - id: ${5:editors_name}",
+      "      type: attribute",
+      "      attribute: ${6:name}",
+      "  groups:",
+      "    - id: ${7:blocks_info}",
+      "      type: block",
+      "      layout:",
+      "        direction: column",
+      "      components:",
+      "        - widget: ${8:editors_id}",
+      "        - widget: ${9:editors_name}",
+      "    - id: ${10:tabs_info}",
+      "      type: tab",
+      "      label: ${11:Детали}",
+      "      components:",
+      "        - block: ${12:blocks_info}",
+      "    - id: ${13:blocks_forms_new}",
+      "      type: form",
+      "      layout:",
+      "        direction: column",
+      "      components:",
+      "        - widget: ${14:editors_id}",
+      "        - widget: ${15:editors_name}",
+      "  views:",
+      "    - id: ${16:panels_info}",
+      "      type: panel",
+      "      label: ${17:Детали}",
+      "      tabs:",
+      "        - tab: ${18:tabs_info}",
+      "    - id: ${19:forms_new}",
+      "      type: modal",
+      "      form: ${20:blocks_forms_new}",
+      "      label: ${21:Добавление}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newwidgetattr",
+    description: "Виджет атрибута с контролом",
+    contexts: ["widget"],
+    body: [
+      "- id: ${1:editors_attr}",
+      "  type: attribute",
+      "  attribute: ${2:attrId}",
+      "  description: ${3:Поле для редактирования}",
+      "  control:",
+      "    type: ${4:text}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newwidgetlinkage",
+    description: "Виджет связи с таблицей",
+    contexts: ["widget"],
+    body: [
+      "- id: ${1:editors_linkage}",
+      "  type: linkage",
+      "  linkage: ${2:my_linkage_id}",
+      "  label: ${3:Связанные объекты}",
+      "  side: ${4:2}",
+      "  control:",
+      "    type: table",
+      "    addLinksView: ${5:lists_MyEntity}",
+      "    columns:",
+      "      - id: ${6:name}",
+      "        attribute: name",
+    ].join("\n"),
+  },
+  {
+    prefix: "newwidgetjoin",
+    description: "Виджет транзитивной связи",
+    contexts: ["widget"],
+    body: [
+      "- id: ${1:widget_join}",
+      "  type: join",
+      "  joinId: ${2:my_join_id}",
+      "  attribute: ${3:Name}",
+      "  label: ${4:Связанные}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newblock",
+    description: "Группа типа block",
+    contexts: ["group"],
+    body: [
+      "- id: ${1:blocks_info}",
+      "  type: block",
+      "  label: ${2:Информация}",
+      "  layout:",
+      "    direction: column",
+      "    expandable: false",
+      "  components:",
+      "    - widget: ${3:editors_id}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newtab",
+    description: "Вкладка",
+    contexts: ["group"],
+    body: [
+      "- id: ${1:tabs_info}",
+      "  type: tab",
+      "  label: ${2:Детали}",
+      "  components:",
+      "    - block: ${3:blocks_info}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newform",
+    description: "Форма (modal form)",
+    contexts: ["group"],
+    body: [
+      "- id: ${1:blocks_forms_new}",
+      "  type: form",
+      "  layout:",
+      "    direction: column",
+      "  components:",
+      "    - widget: ${2:editors_id}",
+      "    - widget: ${3:editors_name}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newpanel",
+    description: "Панель (компактное представление)",
+    contexts: ["viewNested"],
+    body: [
+      "- id: ${1:panels_info}",
+      "  type: panel",
+      "  label: ${2:Детали}",
+      "  menu:",
+      "    - action: ${3:actions_edit}",
+      "  tabs:",
+      "    - tab: ${4:tabs_info}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newmodal",
+    description: "Модальное окно",
+    contexts: ["viewNested"],
+    body: [
+      "- id: ${1:forms_new}",
+      "  type: modal",
+      "  form: ${2:blocks_forms_new}",
+      "  label: ${3:Добавление}",
+      "  buttons:",
+      "    - type: submit",
+      "      label: ${4:Создать}",
+      "    - type: close",
+      "      label: ${5:Отмена}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newpage",
+    description: "Полноэкранная карточка",
+    contexts: ["viewNested"],
+    body: [
+      "- id: ${1:pages_info}",
+      "  type: page",
+      "  menuItem: ${2:menu_item_id}",
+      "  actionPanel:",
+      "    - widget: ${3:buttons_edit}",
+      "  tabs:",
+      "    - tab: ${4:tabs_info}",
+      "  pinnedView:",
+      "    block: ${5:blocks_header}",
+      "    position: top",
+      "    height: 30%",
+    ].join("\n"),
+  },
+  {
+    prefix: "newinherit",
+    description: "Наследование группы / меню",
+    contexts: ["inheritSettings"],
+    body: ["inherit:", "  type: ${1:append}"].join("\n"),
+  },
+  {
+    prefix: "newmenuroot",
+    description: "Корневая группа меню с подпунктом",
+    contexts: ["menuRootList", "menuRoot"],
+    body: [
+      "- id: ${1:menus_root}",
+      "  route: ${2:/my-domain}",
+      '  label: "${3:Название раздела}"',
+      "  type: root_group",
+      "  placement: top",
+      "  priority: ${4:1000}",
+      "  items:",
+      "    - id: ${5:menu_item}",
+      "      route: ${6:/my-domain/item}",
+      "      label: ${7:Пункт меню}",
+      "      type: menu",
+      "      view: ${8:lists_MyEntity}",
+      "      priority: ${9:1000}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newmenuitem",
+    description: "Пункт меню",
+    contexts: ["menuItemList", "menuItem"],
+    body: [
+      "- id: ${1:menu_item}",
+      "  route: ${2:/my-domain/item}",
+      "  label: ${3:Пункт меню}",
+      "  type: menu",
+      "  view: ${4:lists_MyEntity}",
+      "  priority: ${5:1000}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newmedia",
+    description: "Иконка",
+    contexts: ["mediaList", "media"],
+    body: [
+      "- id: ${1:iconsMyIcon}",
+      "  description: ${2:Иконка для ...}",
+      "  type: icon_name",
+      "  iconName: ${3:folder}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newmixinview",
+    description: "Миксин на вкладку (тип view)",
+    contexts: ["mixinList", "mixin"],
+    body: [
+      "- id: ${1:mixin_tab}",
+      "  name: ${2:Примесь вкладки}",
+      "  type: view",
+      "  entity: ${3:TargetEntity}",
+      "  views:",
+      "    - id: ${4:mixin_view}",
+      "      type: tab",
+      "      fromView: ${5:views_source}",
+      "      to:",
+      "        tab: ${6:tabs_info}",
+      "      change:",
+      "        add:",
+      "          components:",
+      "            - widget: ${7:editors_id}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newmixinlinkage",
+    description: "Миксин на основе связи (тип linkage)",
+    contexts: ["mixinList", "mixin"],
+    body: [
+      "- id: ${1:mixin_linkage}",
+      "  type: linkage",
+      "  entity:",
+      "    to: ${2:TargetEntity}",
+      "    from: ${3:SourceEntity}",
+      "  linkage: ${4:my_linkage_id}",
+      "  views:",
+      "    - id: ${5:mixin_panel}",
+      "      type: panel",
+      "      to:",
+      "        panel: ${6:panels_info}",
+      "      change:",
+      "        add:",
+      "          tabs:",
+      "            tabs:",
+      "              - tab: ${7:tabs_mixin}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newexchange",
+    description: "Настройки обмена данными",
+    contexts: ["exchangeSettings"],
+    body: [
+      "exchangeSettings:",
+      "  enable: ${1:true}",
+      "  label: ${2:Обмен данными}",
+      "  attributeFormats:",
+      "    Date: DD-MM-YYYY",
+      "    Time: HH:mm:ss",
+      "    Timestamp: DD-MM-YYYYTHH:mm:ss",
+      "  entities:",
+      "    ${3:MyEntity}:",
+      "      enable: true",
+      "      forExport: ${4:id}",
+    ].join("\n"),
+  },
+  {
+    prefix: "newexchangeentity",
+    description: "Настройки обмена для сущности",
+    contexts: ["exchangeEntitySettings"],
+    body: [
+      "enable: ${1:true}",
+      "label: ${2:MyEntity}",
+      "forExport: ${3:id}",
+      "upsertWith: ${4:name}",
     ].join("\n"),
   },
 ];
@@ -1193,22 +3578,99 @@ function detectContextAtPosition(
   // ============ 3. Секции верхнего уровня ============
   const hasDash = /^\s*-\s*[a-zA-Z]*$/.test(beforeCursor);
 
+  if (parentKey === "menus") return hasDash ? "menuRoot" : "menuRootList";
+  if (parentKey === "medias") return hasDash ? "media" : "mediaList";
+  if (parentKey === "mixins") return hasDash ? "mixin" : "mixinList";
+  if (parentKey === "exchangeSettings") return "exchangeSettings";
+
   if (parentKey === "entities") return hasDash ? "entity" : "entityList";
   if (parentKey === "linkages") return hasDash ? "linkage" : "linkageList";
   if (parentKey === "actions") return hasDash ? "action" : "actionList";
   if (parentKey === "dataRules") return hasDash ? "dataRule" : "dataRuleList";
   if (parentKey === "views") return hasDash ? "view" : "viewList";
-  if (parentKey === "mixins") return hasDash ? "mixin" : "mixinList";
-  if (parentKey === "menus") return hasDash ? "menu" : "menuList";
   if (parentKey === "dataTypes") return hasDash ? "dataType" : "dataTypeList";
   if (parentKey === "sequences") return hasDash ? "sequence" : "sequenceList";
-  if (parentKey === "medias") return hasDash ? "media" : "mediaList";
   if (parentKey === "counterColorPattern") return "counterColorPattern";
+  if (parentKey === "trees") return hasDash ? "tree" : "treeList";
+  if (parentKey === "transitiveLinkages")
+    return hasDash ? "transitiveLinkage" : "transitiveLinkageList";
+  if (parentKey === "uiRules") return hasDash ? "uiRule" : "uiRuleList";
+  if (parentKey === "uiPresets") return hasDash ? "uiPreset" : "uiPresetList";
 
   // ============ 4. Вложенные контейнеры ============
   if (parentKey === "attributes") {
     return section === "linkages" ? "linkageAttribute" : "attribute";
   }
+
+  // ============ menus ============
+  if (section === "menus") {
+    if (parentKey === "items") {
+      return hasDash ? "menuItem" : "menuItemList";
+    }
+  }
+
+  // ============ mixins ============
+  if (section === "mixins") {
+    if (parentKey === "entity") {
+      // Примесь direction
+      const beforeEntity = model.getLineContent(parentLine).slice(0, 20);
+      return "mixinEntity";
+    }
+    if (parentKey === "views") {
+      return hasDash ? "mixinView" : "mixinViewList";
+    }
+    if (parentKey === "to") {
+      // to: может быть внутри mixinView — уточняем родителя
+      return "mixinViewTo";
+    }
+    if (parentKey === "change") return "mixinChange";
+    if (parentKey === "add") return "mixinChangeAdd";
+    if (parentKey === "position") return "mixinPosition";
+    if (parentKey === "components") {
+      // Компоненты внутри mixin change.add
+      return "viewGroupComponent";
+    }
+  }
+
+  // ============ exchangeSettings ============
+  if (section === "exchangeSettings") {
+    if (parentKey === "attributeFormats") return "exchangeAttributeFormats";
+    if (parentKey === "entities") {
+      // entities — это объект, ключи которого сущности
+      // Но detectContextAtPosition работает по parentKey. Здесь entities содержит ключи-сущности.
+      // Возвращаем exchangeEntitySettings если находимся внутри одной из сущностей
+      return "exchangeEntitySettings";
+    }
+  }
+
+  // ============ actions: расширение ============
+  if (section === "actions") {
+    if (parentKey === "bulk") return "actionBulk";
+    if (parentKey === "automation") return "actionAutomation";
+    if (parentKey === "values") return "actionValue";
+    if (parentKey === "control") return "actionControl";
+    if (parentKey === "attributes") {
+      // Различаем атрибуты сущности и bulk-атрибуты действия
+      return "actionBulkAttributes";
+    }
+    if (parentKey === "linkages") return "actionBulkLinkages";
+    if (parentKey === "use") {
+      // use может быть в attributes или linkages bulk-действия
+      let useContext: string | null = null;
+      for (let j = parentLine - 1; j >= 1; j--) {
+        const l = model.getLineContent(j);
+        const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
+        if (lIndent < parentIndent) {
+          const keyM = l.match(/^\s*(attributes|linkages)\s*:/);
+          if (keyM) useContext = keyM[1];
+          break;
+        }
+      }
+      if (useContext === "attributes") return "actionBulkAttributeUse";
+      if (useContext === "linkages") return "actionBulkLinkageUse";
+    }
+  }
+
   if (parentKey === "constraints") return "constraintsItem";
   if (parentKey === "item") return "arrayItem";
   if (parentKey === "calculation") return "calculation";
@@ -1220,7 +3682,174 @@ function detectContextAtPosition(
   if (parentKey === "projection") return "projectionItem";
   if (parentKey === "nameFrom") return "nameFrom";
   if (parentKey === "control") return "widgetControl";
-  if (parentKey === "table") return "tableConfig";
+  // ============ views: list-view ============
+  if (section === "views") {
+    // widgets[]
+    if (parentKey === "widgets") {
+      // Внутри виджета мы уже в контексте widget, это поле control/linkage...
+      return "widget";
+    }
+    if (parentKey === "control") {
+      // Контекст зависит от родителя: linkage.control или widgets[].control
+      let controlParent: "linkage" | "widget" | "attribute" | null = null;
+      for (let j = parentLine - 1; j >= 1; j--) {
+        const l = model.getLineContent(j);
+        const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
+        if (lInd < parentIndent) {
+          const km = l.match(/^\s*(linkage|widget|attribute)\s*:/);
+          if (km) controlParent = km[1] as any;
+          break;
+        }
+      }
+      if (controlParent === "linkage") return "viewWidgetLinkageControl";
+      if (controlParent === "attribute")
+        return "viewWidgetLinkageAttributeControl";
+      return "viewWidgetControl";
+    }
+    if (parentKey === "linkage") {
+      // linkage: <ref> — это может быть внутри widget или отдельный linkage. Уточняем:
+      // Если внутри views.widgets[] — это виджет, а не атрибут ссылки
+      let insideWidget = false;
+      for (let j = parentLine - 1; j >= 1; j--) {
+        const l = model.getLineContent(j);
+        const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
+        if (lInd < parentIndent) {
+          if (/^\s*widgets\s*:/.test(l)) insideWidget = true;
+          break;
+        }
+      }
+      // если это внутри widgets[] — это свойство widget, не отдельный контекст
+      // (parentKey = "id" выше — уже покрывает)
+      if (!insideWidget) return "linkage";
+    }
+    if (parentKey === "columns") {
+      // Внутри widget.linkage.control.columns
+      let insideLinkage = false;
+      for (let j = parentLine - 1; j >= 1; j--) {
+        const l = model.getLineContent(j);
+        const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
+        if (lInd < parentIndent) {
+          if (/^\s*linkage\s*:/.test(l)) insideLinkage = true;
+          break;
+        }
+      }
+      if (insideLinkage) return "viewWidgetLinkageColumn";
+      return "viewTableColumn";
+    }
+    if (parentKey === "attributes") {
+      // Внутри widget.linkage.attributes
+      let insideLinkageWidget = false;
+      for (let j = parentLine - 1; j >= 1; j--) {
+        const l = model.getLineContent(j);
+        const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
+        if (lInd < parentIndent) {
+          if (/^\s*linkage\s*:/.test(l)) insideLinkageWidget = true;
+          break;
+        }
+      }
+      if (insideLinkageWidget) return "viewWidgetLinkageAttributes";
+      return "attribute"; // обычные атрибуты сущности
+    }
+
+    // groups
+    if (parentKey === "groups") {
+      return "group";
+    }
+    if (parentKey === "layout") return "viewGroupLayout";
+    if (parentKey === "components") return "viewGroupComponent";
+    if (parentKey === "inherit" || parentKey === "inherits")
+      return "inheritSettings";
+
+    // views[] внутри views (nested cards)
+    if (parentKey === "views") return "viewNested";
+    if (parentKey === "menu" || parentKey === "actionPanel") {
+      // menu в panel, actionPanel в page — оба массивы action
+      return parentKey === "actionPanel"
+        ? "viewActionPanelItem"
+        : "viewMenuAction";
+    }
+    if (parentKey === "tabs") return "viewTab";
+    if (parentKey === "buttons") return "viewButton";
+    if (parentKey === "footer") return "viewFooterAction";
+    if (parentKey === "pinnedView") return "viewPinnedView";
+    if (parentKey === "onView") {
+      // onView — массив action, но только set_attribute_value
+      return "viewButtonAction";
+    }
+    if (parentKey === "conversationTransports") {
+      // conversation widget
+      return "viewWidgetConversation";
+    }
+    if (parentKey === "source") return "viewSource";
+    if (parentKey === "joins") return "viewSourceJoin";
+    if (parentKey === "table") return "viewTable";
+    if (parentKey === "columns") {
+      // Различаем viewTable.columns и views.widgets.linkage.control.columns
+      // по ближайшему контейнеру выше
+      let colParent: "table" | "widget" | null = null;
+      for (let j = parentLine - 1; j >= 1; j--) {
+        const l = model.getLineContent(j);
+        const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
+        if (lInd < parentIndent) {
+          const km = l.match(/^\s*(table|control|widgets|linkage|join)\s*:/);
+          if (km) {
+            if (km[1] === "table") colParent = "table";
+            else colParent = "widget";
+          }
+          break;
+        }
+      }
+      // Если находимся в views.widgets[].control.columns — это колонки виджета связи
+      // Но для простоты возвращаем viewTableColumn — подойдёт для обоих
+      return "viewTableColumn";
+    }
+    if (parentKey === "layout") return "viewTableColumnLayout";
+    if (parentKey === "width") return "viewTableColumnWidth";
+    if (parentKey === "aggregate") return "viewTableColumnAggregate";
+    if (parentKey === "filter") return "viewTableFilter";
+    if (parentKey === "use") {
+      // use может быть в attributes или linkages filter
+      let useParent: "attributes" | "linkages" | null = null;
+      for (let j = parentLine - 1; j >= 1; j--) {
+        const l = model.getLineContent(j);
+        const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
+        if (lInd < parentIndent) {
+          const km = l.match(/^\s*(attributes|linkages)\s*:/);
+          if (km) useParent = km[1] as any;
+          break;
+        }
+      }
+      if (useParent === "attributes") return "viewTableFilterAttributesUse";
+      if (useParent === "linkages") return "viewTableFilterLinkagesUse";
+    }
+    if (parentKey === "sortingBy") return "viewTableSortingBy";
+    if (parentKey === "defaults") {
+      // defaults может быть в sortingBy или refresh
+      let defParent: "sortingBy" | "refresh" | null = null;
+      for (let j = parentLine - 1; j >= 1; j--) {
+        const l = model.getLineContent(j);
+        const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
+        if (lInd < parentIndent) {
+          const km = l.match(/^\s*(sortingBy|refresh)\s*:/);
+          if (km) defParent = km[1] as any;
+          break;
+        }
+      }
+      return defParent === "refresh"
+        ? "viewTableRefreshDefaults"
+        : "viewTableSortingByDefault";
+    }
+    if (parentKey === "paging") return "viewTablePaging";
+    if (parentKey === "refresh") return "viewTableRefresh";
+    if (parentKey === "actions") return "viewTableAction";
+    if (parentKey === "items") return "viewTableActionItem";
+    if (parentKey === "empty") return "viewTableEmpty";
+    if (parentKey === "actionPanel") return "viewActionPanelItem";
+    if (parentKey === "control") return "viewTableColumnControl";
+  }
+
+  // Старый fallback для table (если views-контекст не распознан)
+  if (parentKey === "table") return "viewTable";
   if (parentKey === "values") return "enumValue";
   if (parentKey === "statuses") return "workflowStatus";
   if (parentKey === "transitions") return "transition";
@@ -1228,8 +3857,57 @@ function detectContextAtPosition(
   if (parentKey === "widgets") return "widget";
   if (parentKey === "groups") return "group";
   if (parentKey === "rule") {
-    return section === "dataRules" ? "dataRuleRule" : "identificationRule";
+    if (section === "dataRules") return "dataRuleRule";
+    if (section === "uiRules") return "uiRuleRule";
+    return "identificationRule";
   }
+  // ============ trees ============
+  if (parentKey === "hierarchy") return "treeHierarchy";
+  if (parentKey === "children") return "treeChildren";
+  if (parentKey === "sorting" && section === "trees") {
+    // Различаем treeSorting и treeSortingBy:
+    // если выше есть `by:` — значит это уже внутри by[].by[]
+    return hasDash ? "treeSorting" : "treeSortingList";
+  }
+  if (parentKey === "by" && section === "trees") {
+    // Определяем уровень: внешний (entity + by) или внутренний (attribute + direction)
+    // Смотрим, что было перед нашим `by:` — `- id:` или `- entity:`
+    let byParentKind: "id" | "entity" | null = null;
+    for (let i = parentLine - 1; i >= 1; i--) {
+      const l = model.getLineContent(i);
+      const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
+      if (lIndent >= parentIndent) continue;
+      if (/^\s*-\s+id\s*:/.test(l)) {
+        byParentKind = "id";
+        break;
+      }
+      if (/^\s*-\s+entity\s*:/.test(l)) {
+        byParentKind = "entity";
+        break;
+      }
+      if (lIndent === 0) break;
+    }
+    if (byParentKind === "entity") return "treeSortingByBy";
+    return "treeSortingBy";
+  }
+
+  // ============ transitiveLinkages ============
+  if (parentKey === "joins" && section === "transitiveLinkages")
+    return "transitiveJoin";
+  if (parentKey === "search" && section === "transitiveLinkages")
+    return "transitiveJoinSearch";
+
+  // ============ uiRules ============
+  if (parentKey === "rule" && section === "uiRules") return "uiRuleRule";
+  if (parentKey === "context" && section === "uiRules") return "uiRuleContext";
+  if (parentKey === "widgets" && section === "uiRules") return "uiRuleWidget";
+  if (parentKey === "groups" && section === "uiRules") return "uiRuleGroup";
+  if (parentKey === "columns" && section === "uiRules") return "uiRuleColumn";
+  if (parentKey === "nested" && section === "uiRules") return "uiRuleNested";
+  if (parentKey === "attributes" && section === "uiRules")
+    return "uiRuleNestedAttribute";
+  if (parentKey === "items" && section === "uiRules") return "uiRuleNestedItem";
+  if (parentKey === "props" && section === "uiPresets") return "uiPresetProps";
 
   // ============ 5. Внутри `- id: ...` — определяем по section и наличию attributes выше ============
   if (parentKey === "id") {
@@ -1717,6 +4395,210 @@ export function registerMonacoProviders(monaco: any): void {
 
       const Kind = monaco.languages.CompletionItemKind;
 
+      // ============ operation: — значения по type action ============
+      if (/^\s*(?:-\s+)?operation\s*:\s*[\w]*$/.test(beforeCursor)) {
+        let actionType: string | null = null;
+        let idLine = -1;
+        let idIndent = -1;
+
+        // 1. Находим ближайший - id: выше
+        for (let i = position.lineNumber - 1; i >= 1; i--) {
+          const l = model.getLineContent(i);
+          if (!l.trim() || l.trim().startsWith("#")) continue;
+          const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
+          if (lInd === 0) break; // граница секции
+          const idm = l.match(/^(\s*)-\s+id\s*:/);
+          if (idm) {
+            idLine = i;
+            idIndent = idm[1].length;
+            break;
+          }
+        }
+
+        // 2. Ищем type: между - id: и курсором
+        if (idLine !== -1) {
+          for (let i = idLine + 1; i < position.lineNumber; i++) {
+            const l = model.getLineContent(i);
+            const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
+            if (lInd <= idIndent) break;
+            const tm = l.match(/^\s*type\s*:\s*([^\s#]+)/);
+            if (tm) {
+              actionType = tm[1].replace(/["']/g, "");
+              break;
+            }
+          }
+        }
+
+        const opsByType: Record<string, string[]> = {
+          open_modal: ["create", "edit"],
+          open_page: ["create", "edit", "view"],
+          bulk: ["remove", "edit", "edit_attribute"],
+        };
+
+        const allowed = actionType ? opsByType[actionType] || [] : [];
+
+        if (allowed.length > 0) {
+          return {
+            suggestions: allowed.map((op) => ({
+              label: op,
+              kind: Kind.Value,
+              insertText: op,
+              filterText: op,
+              sortText: op,
+              range,
+            })),
+          };
+        }
+        return { suggestions: [] };
+      }
+
+      // ============ Умные значения для enum-полей views ============
+      if (
+        /^\s*refresh\s*:\s*[\w]*$/.test(beforeCursor) ||
+        /^\s*mode\s*:\s*[\w]*$/.test(beforeCursor)
+      ) {
+        // Только внутри refresh
+        const isRefreshMode =
+          /refresh\s*:/i.test(model.getLineContent(position.lineNumber)) ||
+          (() => {
+            for (let i = position.lineNumber - 1; i >= 1; i--) {
+              const l = model.getLineContent(i);
+              if (/^\s*refresh\s*:/.test(l)) return true;
+              if (/^\s*[a-zA-Z_]\w*\s*:/.test(l)) return false;
+            }
+            return false;
+          })();
+        if (isRefreshMode) {
+          return {
+            suggestions: ["manual", "auto", "all"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+      }
+
+      if (/^\s*unit\s*:\s*[\w]*$/.test(beforeCursor)) {
+        return {
+          suggestions: ["second", "minute", "hour"].map((v) => ({
+            label: v,
+            kind: Kind.Value,
+            insertText: v,
+            range,
+          })),
+        };
+      }
+
+      if (/^\s*direction\s*:\s*[\w]*$/.test(beforeCursor)) {
+        return {
+          suggestions: ["asc", "desc"].map((v) => ({
+            label: v,
+            kind: Kind.Value,
+            insertText: v,
+            range,
+          })),
+        };
+      }
+
+      if (/^\s*type\s*:\s*[\w]*$/.test(beforeCursor)) {
+        // Контекстно: внутри filter.attributes / filter.linkages
+        const lineCtx = model.getLineContent(position.lineNumber);
+        const ctx2 = detectContextAtPosition(
+          model,
+          position,
+          ctx.lineMap?.lineContexts || new Map(),
+        );
+        if (
+          ctx2 === "viewTableFilterAttributes" ||
+          ctx2 === "viewTableFilterLinkages"
+        ) {
+          return {
+            suggestions: ["specific", "all"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+        if (ctx2 === "viewTableAction") {
+          return {
+            suggestions: [
+              "row_click",
+              "row_double_click",
+              "row_context_menu",
+            ].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+        if (ctx2 === "viewSource") {
+          return {
+            suggestions: ["operational"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+        if (ctx2 === "viewTableColumnAggregate") {
+          return {
+            suggestions: ["count"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+      }
+
+      // ============ 0. Верхний уровень — секции и метаданные домена ============
+      const lineIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
+      if (lineIndent === 0 && /^[a-zA-Z_]*$/.test(beforeCursor)) {
+        const rootItems: Array<{ id: string; desc: string }> = [
+          { id: "id", desc: "Уникальный идентификатор домена (FQDN)" },
+          { id: "name", desc: "Название домена" },
+          { id: "version", desc: "Версия схемы (SemVer)" },
+          { id: "type", desc: "Тип элемента экспертизы (domain)" },
+          { id: "description", desc: "Описание домена" },
+          { id: "tags", desc: "Теги для классификации" },
+          { id: "author", desc: "Автор схемы" },
+          { id: "entities", desc: "Сущности домена" },
+          { id: "dataTypes", desc: "Кастомные типы (Enum, Workflow, Table)" },
+          { id: "linkages", desc: "Связи сущностей" },
+          { id: "sequences", desc: "Последовательности для Identifier" },
+          { id: "counterColorPattern", desc: "Цветовые схемы счётчиков" },
+          { id: "trees", desc: "Древовидные связи" },
+          { id: "transitiveLinkages", desc: "Транзитивные связи" },
+          { id: "mixins", desc: "Примеси (расширение сущностей)" },
+          { id: "dataRules", desc: "Правила данных" },
+          { id: "exchangeSettings", desc: "Настройки обмена данными" },
+          { id: "actions", desc: "Действия с объектами" },
+          { id: "medias", desc: "Иконки" },
+          { id: "views", desc: "Представления (панели, модалки, списки)" },
+          { id: "menus", desc: "Меню домена" },
+          { id: "uiRules", desc: "Правила представлений (UI Rules)" },
+          { id: "uiPresets", desc: "Пресеты стилей для UI Rules" },
+        ];
+        const suggestions = rootItems.map((it) => ({
+          label: it.id,
+          kind: Kind.Module,
+          insertText: it.id + ":",
+          filterText: it.id,
+          sortText: it.id,
+          detail: it.desc,
+          range,
+        }));
+        return { suggestions };
+      }
+
       // ============ 1. Контекст для значения ============
 
       // dataType
@@ -1767,6 +4649,118 @@ export function registerMonacoProviders(monaco: any): void {
         return { suggestions };
       }
 
+      // ============ Значения внутри uiRules ============
+      // view: <viewId>
+      if (/(?:\s|^)view\s*:\s*[\w.]*$/.test(beforeCursor)) {
+        const suggestions: any[] = [];
+        if (ctx.modelIndex?.schemasByDomain) {
+          Object.entries(ctx.modelIndex.schemasByDomain).forEach(
+            ([domainId, schema]: [string, any]) => {
+              schema?.sections?.views?.items?.forEach((v: any) => {
+                if (!v?.id) return;
+                suggestions.push({
+                  label: v.id,
+                  kind: Kind.Reference,
+                  insertText: v.id,
+                  detail: `${v.type} · ${domainId}`,
+                  range,
+                });
+              });
+            },
+          );
+        }
+        return { suggestions };
+      }
+
+      // widget: <widgetId>
+      if (/(?:\s|^)-\s+widget\s*:\s*[\w.]*$/.test(beforeCursor)) {
+        const suggestions: any[] = [];
+        if (ctx.modelIndex?.schemasByDomain) {
+          Object.entries(ctx.modelIndex.schemasByDomain).forEach(
+            ([domainId, schema]: [string, any]) => {
+              schema?.sections?.views?.items?.forEach((v: any) => {
+                if (!v?.id) return;
+                suggestions.push({
+                  label: v.id,
+                  kind: Kind.Reference,
+                  insertText: v.id,
+                  detail: `view · ${domainId}`,
+                  range,
+                });
+              });
+            },
+          );
+        }
+        return { suggestions };
+      }
+
+      // - group: <groupId>
+      if (/(?:\s|^)-\s+group\s*:\s*[\w.]*$/.test(beforeCursor)) {
+        const suggestions: any[] = [];
+        if (ctx.modelIndex?.schemasByDomain) {
+          Object.entries(ctx.modelIndex.schemasByDomain).forEach(
+            ([domainId, schema]: [string, any]) => {
+              schema?.sections?.views?.items?.forEach((v: any) => {
+                if (!v?.id) return;
+                suggestions.push({
+                  label: v.id,
+                  kind: Kind.Reference,
+                  insertText: v.id,
+                  detail: `view · ${domainId}`,
+                  range,
+                });
+              });
+            },
+          );
+        }
+        return { suggestions };
+      }
+
+      // - column: <columnId>
+      if (/(?:\s|^)-\s+column\s*:\s*[\w.]*$/.test(beforeCursor)) {
+        const suggestions: any[] = [];
+        if (ctx.modelIndex?.schemasByDomain) {
+          Object.entries(ctx.modelIndex.schemasByDomain).forEach(
+            ([domainId, schema]: [string, any]) => {
+              schema?.sections?.views?.items?.forEach((v: any) => {
+                if (!v?.id) return;
+                suggestions.push({
+                  label: v.id,
+                  kind: Kind.Reference,
+                  insertText: v.id,
+                  detail: `view · ${domainId}`,
+                  range,
+                });
+              });
+            },
+          );
+        }
+        return { suggestions };
+      }
+
+      // - preset: <presetId>
+      if (/(?:\s|^)-\s+preset\s*:\s*[\w.]*$/.test(beforeCursor)) {
+        const suggestions: any[] = [];
+        if (ctx.modelIndex?.schemasByDomain) {
+          Object.entries(ctx.modelIndex.schemasByDomain).forEach(
+            ([domainId, schema]: [string, any]) => {
+              schema?.sections?.uiPresets?.items?.forEach((p: any) => {
+                if (!p?.id) return;
+                suggestions.push({
+                  label: p.id,
+                  kind: Kind.EnumMember,
+                  insertText: p.id,
+                  detail: `preset · ${domainId}`,
+                  documentation: p.description,
+                  range,
+                });
+              });
+            },
+          );
+        }
+        return { suggestions };
+      }
+
       // ============ 2. Snippets + поля по контексту ============
 
       const context = detectContextAtPosition(
@@ -1778,7 +4772,7 @@ export function registerMonacoProviders(monaco: any): void {
       if (!context) return { suggestions: [] };
 
       const rawIndent = (lineText.match(/^(\s*)/) || ["", ""])[1];
-      // Обрезаем до кратного 2 (типичный отступ YAML в R-Vision)
+      // Обрезаем до кратного 2 (типичный отступ YAML)
       const currentIndent = "  ".repeat(Math.floor(rawIndent.length / 2));
 
       const hasDash = /^\s*-/.test(beforeCursor);
@@ -1815,8 +4809,705 @@ export function registerMonacoProviders(monaco: any): void {
         });
       }
 
+      // ============ Enum-значения для entity-view ============
+      // control.type
+      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
+        const ctxNow = detectContextAtPosition(
+          model,
+          position,
+          ctx.lineMap?.lineContexts || new Map(),
+        );
+        if (
+          ctxNow === "viewWidgetControl" ||
+          ctxNow === "viewTableColumnControl"
+        ) {
+          return {
+            suggestions: [
+              "text",
+              "text_area",
+              "select",
+              "radio",
+              "tag",
+              "level",
+              "switch",
+              "checkbox",
+              "bool_text",
+              "timestamp",
+              "date",
+              "time",
+              "tree_path",
+              "drag_drop_area",
+              "file",
+              "slider",
+              "link",
+              "uuid",
+              "mac",
+              "ip",
+              "cidr",
+              "timestamp_range",
+            ].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+        if (ctxNow === "viewWidgetLinkageControl") {
+          return {
+            suggestions: ["select", "multi_select", "table"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+        if (ctxNow === "viewNested") {
+          return {
+            suggestions: ["panel", "modal", "page"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+        if (ctxNow === "viewButton") {
+          return {
+            suggestions: ["submit", "close"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+        if (ctxNow === "viewFooterAction") {
+          return {
+            suggestions: ["run", "run_close", "run_submit"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+      }
+
+      // group.type
+      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
+        const ctxNow = detectContextAtPosition(
+          model,
+          position,
+          ctx.lineMap?.lineContexts || new Map(),
+        );
+        if (ctxNow === "group") {
+          return {
+            suggestions: [
+              "block",
+              "form",
+              "tab",
+              "tabs",
+              "resizable_block_pair",
+            ].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+      }
+
+      // layout.direction
+      if (/^\s*direction\s*:\s*[\w]*$/.test(beforeCursor)) {
+        return {
+          suggestions: ["column"].map((v) => ({
+            label: v,
+            kind: Kind.Value,
+            insertText: v,
+            range,
+          })),
+        };
+      }
+
+      // pinnedView.position
+      if (/^\s*position\s*:\s*[\w]*$/.test(beforeCursor)) {
+        return {
+          suggestions: ["top", "bottom"].map((v) => ({
+            label: v,
+            kind: Kind.Value,
+            insertText: v,
+            range,
+          })),
+        };
+      }
+
+      // inherit.type
+      if (/^\s*type\s*:\s*[\w]*$/.test(beforeCursor)) {
+        const ctxNow = detectContextAtPosition(
+          model,
+          position,
+          ctx.lineMap?.lineContexts || new Map(),
+        );
+        if (ctxNow === "inheritSettings") {
+          return {
+            suggestions: ["append", "override", "except"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+      }
+
+      // ============ Enum-значения для entity-view ============
+      // control.type
+      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
+        const ctxNow = detectContextAtPosition(
+          model,
+          position,
+          ctx.lineMap?.lineContexts || new Map(),
+        );
+        if (
+          ctxNow === "viewWidgetControl" ||
+          ctxNow === "viewTableColumnControl"
+        ) {
+          return {
+            suggestions: [
+              "text",
+              "text_area",
+              "select",
+              "radio",
+              "tag",
+              "level",
+              "switch",
+              "checkbox",
+              "bool_text",
+              "timestamp",
+              "date",
+              "time",
+              "tree_path",
+              "drag_drop_area",
+              "file",
+              "slider",
+              "link",
+              "uuid",
+              "mac",
+              "ip",
+              "cidr",
+              "timestamp_range",
+            ].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+        if (ctxNow === "viewWidgetLinkageControl") {
+          return {
+            suggestions: ["select", "multi_select", "table"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+        if (ctxNow === "viewNested") {
+          return {
+            suggestions: ["panel", "modal", "page"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+        if (ctxNow === "viewButton") {
+          return {
+            suggestions: ["submit", "close"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+        if (ctxNow === "viewFooterAction") {
+          return {
+            suggestions: ["run", "run_close", "run_submit"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+      }
+
+      // group.type
+      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
+        const ctxNow = detectContextAtPosition(
+          model,
+          position,
+          ctx.lineMap?.lineContexts || new Map(),
+        );
+        if (ctxNow === "group") {
+          return {
+            suggestions: [
+              "block",
+              "form",
+              "tab",
+              "tabs",
+              "resizable_block_pair",
+            ].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+      }
+
+      // layout.direction
+      if (/^\s*direction\s*:\s*[\w]*$/.test(beforeCursor)) {
+        return {
+          suggestions: ["column"].map((v) => ({
+            label: v,
+            kind: Kind.Value,
+            insertText: v,
+            range,
+          })),
+        };
+      }
+
+      // pinnedView.position
+      if (/^\s*position\s*:\s*[\w]*$/.test(beforeCursor)) {
+        return {
+          suggestions: ["top", "bottom"].map((v) => ({
+            label: v,
+            kind: Kind.Value,
+            insertText: v,
+            range,
+          })),
+        };
+      }
+
+      // inherit.type
+      if (/^\s*type\s*:\s*[\w]*$/.test(beforeCursor)) {
+        const ctxNow = detectContextAtPosition(
+          model,
+          position,
+          ctx.lineMap?.lineContexts || new Map(),
+        );
+        if (ctxNow === "inheritSettings") {
+          return {
+            suggestions: ["append", "override", "except"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+      }
+
+      // ============ Enum-значения для entity-view ============
+      // control.type
+      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
+        const ctxNow = detectContextAtPosition(
+          model,
+          position,
+          ctx.lineMap?.lineContexts || new Map(),
+        );
+        if (
+          ctxNow === "viewWidgetControl" ||
+          ctxNow === "viewTableColumnControl"
+        ) {
+          return {
+            suggestions: [
+              "text",
+              "text_area",
+              "select",
+              "radio",
+              "tag",
+              "level",
+              "switch",
+              "checkbox",
+              "bool_text",
+              "timestamp",
+              "date",
+              "time",
+              "tree_path",
+              "drag_drop_area",
+              "file",
+              "slider",
+              "link",
+              "uuid",
+              "mac",
+              "ip",
+              "cidr",
+              "timestamp_range",
+            ].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+        if (ctxNow === "viewWidgetLinkageControl") {
+          return {
+            suggestions: ["select", "multi_select", "table"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+        if (ctxNow === "viewNested") {
+          return {
+            suggestions: ["panel", "modal", "page"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+        if (ctxNow === "viewButton") {
+          return {
+            suggestions: ["submit", "close"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+        if (ctxNow === "viewFooterAction") {
+          return {
+            suggestions: ["run", "run_close", "run_submit"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+      }
+
+      // group.type
+      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
+        const ctxNow = detectContextAtPosition(
+          model,
+          position,
+          ctx.lineMap?.lineContexts || new Map(),
+        );
+        if (ctxNow === "group") {
+          return {
+            suggestions: [
+              "block",
+              "form",
+              "tab",
+              "tabs",
+              "resizable_block_pair",
+            ].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+      }
+
+      // layout.direction
+      if (/^\s*direction\s*:\s*[\w]*$/.test(beforeCursor)) {
+        return {
+          suggestions: ["column"].map((v) => ({
+            label: v,
+            kind: Kind.Value,
+            insertText: v,
+            range,
+          })),
+        };
+      }
+
+      // pinnedView.position
+      if (/^\s*position\s*:\s*[\w]*$/.test(beforeCursor)) {
+        return {
+          suggestions: ["top", "bottom"].map((v) => ({
+            label: v,
+            kind: Kind.Value,
+            insertText: v,
+            range,
+          })),
+        };
+      }
+
+      // inherit.type
+      if (/^\s*type\s*:\s*[\w]*$/.test(beforeCursor)) {
+        const ctxNow = detectContextAtPosition(
+          model,
+          position,
+          ctx.lineMap?.lineContexts || new Map(),
+        );
+        if (ctxNow === "inheritSettings") {
+          return {
+            suggestions: ["append", "override", "except"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+      }
+
+      // ============ Enum-значения для entity-view ============
+      // control.type
+      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
+        const ctxNow = detectContextAtPosition(
+          model,
+          position,
+          ctx.lineMap?.lineContexts || new Map(),
+        );
+        if (
+          ctxNow === "viewWidgetControl" ||
+          ctxNow === "viewTableColumnControl"
+        ) {
+          return {
+            suggestions: [
+              "text",
+              "text_area",
+              "select",
+              "radio",
+              "tag",
+              "level",
+              "switch",
+              "checkbox",
+              "bool_text",
+              "timestamp",
+              "date",
+              "time",
+              "tree_path",
+              "drag_drop_area",
+              "file",
+              "slider",
+              "link",
+              "uuid",
+              "mac",
+              "ip",
+              "cidr",
+              "timestamp_range",
+            ].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+        if (ctxNow === "viewWidgetLinkageControl") {
+          return {
+            suggestions: ["select", "multi_select", "table"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+        if (ctxNow === "viewNested") {
+          return {
+            suggestions: ["panel", "modal", "page"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+        if (ctxNow === "viewButton") {
+          return {
+            suggestions: ["submit", "close"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+        if (ctxNow === "viewFooterAction") {
+          return {
+            suggestions: ["run", "run_close", "run_submit"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+      }
+
+      // group.type
+      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
+        const ctxNow = detectContextAtPosition(
+          model,
+          position,
+          ctx.lineMap?.lineContexts || new Map(),
+        );
+        if (ctxNow === "group") {
+          return {
+            suggestions: [
+              "block",
+              "form",
+              "tab",
+              "tabs",
+              "resizable_block_pair",
+            ].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+      }
+
+      // layout.direction
+      if (/^\s*direction\s*:\s*[\w]*$/.test(beforeCursor)) {
+        return {
+          suggestions: ["column"].map((v) => ({
+            label: v,
+            kind: Kind.Value,
+            insertText: v,
+            range,
+          })),
+        };
+      }
+
+      // pinnedView.position
+      if (/^\s*position\s*:\s*[\w]*$/.test(beforeCursor)) {
+        return {
+          suggestions: ["top", "bottom"].map((v) => ({
+            label: v,
+            kind: Kind.Value,
+            insertText: v,
+            range,
+          })),
+        };
+      }
+
+      // inherit.type
+      if (/^\s*type\s*:\s*[\w]*$/.test(beforeCursor)) {
+        const ctxNow = detectContextAtPosition(
+          model,
+          position,
+          ctx.lineMap?.lineContexts || new Map(),
+        );
+        if (ctxNow === "inheritSettings") {
+          return {
+            suggestions: ["append", "override", "except"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+      }
+
+      // ============ Enum-значения для menus/medias/mixins ============
+      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
+        const ctxNow = detectContextAtPosition(
+          model,
+          position,
+          ctx.lineMap?.lineContexts || new Map(),
+        );
+        if (ctxNow === "menuRoot") {
+          return {
+            suggestions: ["root_group", "root_menu"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+        if (ctxNow === "menuItem") {
+          return {
+            suggestions: ["menu"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+        if (ctxNow === "media") {
+          return {
+            suggestions: ["icon_name"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+        if (ctxNow === "mixin") {
+          return {
+            suggestions: ["linkage", "view"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+        if (ctxNow === "mixinView") {
+          return {
+            suggestions: ["form", "tab", "panel", "page", "list"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+        if (ctxNow === "mixinPosition") {
+          return {
+            suggestions: ["begin", "after", "end"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range,
+            })),
+          };
+        }
+      }
+
+      // placement
+      if (/^\s*placement\s*:\s*[\w]*$/.test(beforeCursor)) {
+        return {
+          suggestions: ["top", "settings"].map((v) => ({
+            label: v,
+            kind: Kind.Value,
+            insertText: v,
+            range,
+          })),
+        };
+      }
+
       return { suggestions };
-    },
+    }
   });
 }
 
@@ -1972,6 +5663,570 @@ export function applyFqidMarkers(
               });
             }
           }
+        }
+      }
+    }
+
+    // ============ Проверка linkage в transitiveLinkages / trees ============
+    const knownLinkages = new Set<string>();
+    (index?.domains || []).forEach((d: any) => {
+      // linkages собираются в rawData домена, но мы можем достать их из entityLinkages
+    });
+    // Проще: из индекса
+    (index as any)?.entityLinkages?.forEach((l: any) => {
+      knownLinkages.add(String(l.id).toLowerCase());
+    });
+    if (index?.schemasByDomain) {
+      Object.values(index.schemasByDomain).forEach((s: any) => {
+        s?.sections?.linkages?.items?.forEach((l: any) => {
+          if (l?.id) knownLinkages.add(String(l.id).toLowerCase());
+        });
+      });
+    }
+
+    // Ищем все строки `linkage: X`
+    const linkageRegex = /^\s*linkage\s*:\s*([^\s#]+)/;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const m = line.match(linkageRegex);
+      if (!m) continue;
+      const linkageId = m[1].replace(/["']/g, "");
+      if (!knownLinkages.has(linkageId.toLowerCase())) {
+        const startCol = line.indexOf(linkageId) + 1;
+        markers.push({
+          severity: monaco.MarkerSeverity.Warning,
+          message: `Связь «${linkageId}» не найдена в домене`,
+          startLineNumber: i + 1,
+          startColumn: startCol,
+          endLineNumber: i + 1,
+          endColumn: startCol + linkageId.length,
+          source: "fqid-validator",
+        });
+      }
+    }
+
+    // ============ Проверка ссылок UI Rules ============
+    // Собираем все существующие id из текущего YAML (или ModelIndex)
+    const knownViews = new Set<string>();
+    const knownWidgets = new Set<string>();
+    const knownGroups = new Set<string>();
+    const knownColumns = new Set<string>();
+    const knownPresets = new Set<string>();
+    const knownUiRules = new Set<string>();
+
+    if (index?.schemasByDomain) {
+      Object.values(index.schemasByDomain).forEach((s: any) => {
+        s?.sections?.views?.items?.forEach((v: any) => {
+          if (v?.id) knownViews.add(String(v.id).toLowerCase());
+        });
+        s?.sections?.uiPresets?.items?.forEach((p: any) => {
+          if (p?.id) knownPresets.add(String(p.id).toLowerCase());
+        });
+        s?.sections?.uiRules?.items?.forEach((r: any) => {
+          if (r?.id) knownUiRules.add(String(r.id).toLowerCase());
+        });
+      });
+    }
+    // Из entity — достаём виджеты, группы (эти id в View'ах)
+    (index?.entities || []).forEach(() => {
+      // widgets/groups живут в rawData, но их id мы уже видели в lines
+    });
+
+    // Парсим текущий текст для получения widget/group/column/preset id
+    const widgetDefRegex = /^\s*-\s+id\s*:\s*([^\s#]+)\s*$/;
+    let lastSection = "";
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const sectionM = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (sectionM) lastSection = sectionM[1];
+
+      const idm = line.match(widgetDefRegex);
+      if (idm) {
+        const id = idm[1].toLowerCase();
+        if (lastSection === "uiPresets") knownPresets.add(id);
+        if (lastSection === "views") {
+          // внутри views widgets/groups — грубо берём всё
+          // Точнее не нужно — id уникален в рамках схемы
+          knownWidgets.add(id);
+          knownGroups.add(id);
+          knownColumns.add(id);
+        }
+      }
+    }
+
+    // Ищем `view:`, `widget:`, `group:`, `column:` в uiRules
+    const uiRuleRefs: Array<{
+      kind: "view" | "widget" | "group" | "column";
+      id: string;
+    }> = [];
+    let inUiRules = false;
+    let uiRuleIndent = -1;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const sectionM = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (sectionM) {
+        inUiRules = sectionM[1] === "uiRules";
+        continue;
+      }
+      if (!inUiRules) continue;
+
+      const viewM = line.match(/^\s*view\s*:\s*([^\s#]+)/);
+      if (viewM && lastSection === "uiRules") {
+        const id = viewM[1].replace(/["']/g, "");
+        const startCol = line.indexOf(id) + 1;
+        if (!knownViews.has(id.toLowerCase())) {
+          markers.push({
+            severity: monaco.MarkerSeverity.Warning,
+            message: `View «${id}» не найден в домене`,
+            startLineNumber: i + 1,
+            startColumn: startCol,
+            endLineNumber: i + 1,
+            endColumn: startCol + id.length,
+            source: "fqid-validator",
+          });
+        }
+      }
+
+      const widgetM = line.match(/^\s*-\s*widget\s*:\s*([^\s#]+)/);
+      if (widgetM) {
+        const id = widgetM[1].replace(/["']/g, "");
+        const startCol = line.indexOf(id) + 1;
+        if (
+          !knownWidgets.has(id.toLowerCase()) &&
+          !knownViews.has(id.toLowerCase())
+        ) {
+          markers.push({
+            severity: monaco.MarkerSeverity.Warning,
+            message: `Виджет «${id}» не найден в домене`,
+            startLineNumber: i + 1,
+            startColumn: startCol,
+            endLineNumber: i + 1,
+            endColumn: startCol + id.length,
+            source: "fqid-validator",
+          });
+        }
+      }
+
+      const groupM = line.match(/^\s*-\s*group\s*:\s*([^\s#]+)/);
+      if (groupM) {
+        const id = groupM[1].replace(/["']/g, "");
+        const startCol = line.indexOf(id) + 1;
+        if (!knownGroups.has(id.toLowerCase())) {
+          markers.push({
+            severity: monaco.MarkerSeverity.Warning,
+            message: `Группа «${id}» не найдена в домене`,
+            startLineNumber: i + 1,
+            startColumn: startCol,
+            endLineNumber: i + 1,
+            endColumn: startCol + id.length,
+            source: "fqid-validator",
+          });
+        }
+      }
+
+      const columnM = line.match(/^\s*-\s*column\s*:\s*([^\s#]+)/);
+      if (columnM) {
+        const id = columnM[1].replace(/["']/g, "");
+        const startCol = line.indexOf(id) + 1;
+        if (!knownColumns.has(id.toLowerCase())) {
+          markers.push({
+            severity: monaco.MarkerSeverity.Warning,
+            message: `Колонка «${id}» не найдена в домене`,
+            startLineNumber: i + 1,
+            startColumn: startCol,
+            endLineNumber: i + 1,
+            endColumn: startCol + id.length,
+            source: "fqid-validator",
+          });
+        }
+      }
+
+      const presetM = line.match(/^\s*-\s*preset\s*:\s*([^\s#]+)/);
+      if (presetM) {
+        const id = presetM[1].replace(/["']/g, "");
+        const startCol = line.indexOf(id) + 1;
+        if (!knownPresets.has(id.toLowerCase())) {
+          markers.push({
+            severity: monaco.MarkerSeverity.Warning,
+            message: `Пресет «${id}» не найден в домене`,
+            startLineNumber: i + 1,
+            startColumn: startCol,
+            endLineNumber: i + 1,
+            endColumn: startCol + id.length,
+            source: "fqid-validator",
+          });
+        }
+      }
+    }
+
+    // ============ Валидация actions ============
+    const knownViewsForAction = new Set<string>();
+
+    // 1. Из ModelIndex (верхний уровень views)
+    if (index?.schemasByDomain) {
+      Object.values(index.schemasByDomain).forEach((s: any) => {
+        s?.sections?.views?.items?.forEach((v: any) => {
+          if (v?.id) knownViewsForAction.add(String(v.id).toLowerCase());
+        });
+      });
+    }
+
+    // 2. Из ТЕКУЩЕГО YAML — все `- id:` внутри секции views
+    //    (views[], views[].views[], views[].groups[], views[].widgets[])
+    {
+      let inViewsSection = false;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const sectionM = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+        if (sectionM) {
+          inViewsSection = sectionM[1] === "views";
+          continue;
+        }
+        if (!inViewsSection) continue;
+        const idM = line.match(/^\s*-\s+id\s*:\s*([^\s#]+)/);
+        if (idM) {
+          const id = idM[1].replace(/["']/g, "").toLowerCase();
+          knownViewsForAction.add(id);
+        }
+      }
+    }
+
+    let inActionsSection = false;
+    let actionEntity: string | null = null;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const sectionM = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (sectionM) {
+        inActionsSection = sectionM[1] === "actions";
+        actionEntity = null;
+        continue;
+      }
+      if (!inActionsSection) continue;
+
+      // Текущий action entity
+      const idm = line.match(/^\s*-\s+id\s*:/);
+      if (idm) {
+        actionEntity = null;
+      }
+      const entityM = line.match(/^\s*entity\s*:\s*([^\s#]+)/);
+      if (entityM) {
+        actionEntity = entityM[1].replace(/["']/g, "");
+      }
+
+      // modal / panel / view — существующий view?
+      const refM = line.match(/^\s*(modal|panel|view)\s*:\s*([^\s#]+)/);
+      if (refM) {
+        const id = refM[2].replace(/["']/g, "");
+        if (id && !knownViewsForAction.has(id.toLowerCase())) {
+          const startCol = line.indexOf(id) + 1;
+          markers.push({
+            severity: monaco.MarkerSeverity.Warning,
+            message: `View «${id}» не найден в домене`,
+            startLineNumber: i + 1,
+            startColumn: startCol,
+            endLineNumber: i + 1,
+            endColumn: startCol + id.length,
+            source: "fqid-validator",
+          });
+        }
+      }
+
+      // automation.id — должен быть UUID
+      const automationIdM = line.match(/^\s*id\s*:\s*([^\s#]+)/);
+      if (automationIdM) {
+        // Проверяем только внутри automation блока
+        let insideAutomation = false;
+        for (let j = i - 1; j >= 1; j--) {
+          const pl = model.getLineContent(j);
+          if (/^\s*automation\s*:/.test(pl)) {
+            insideAutomation = true;
+            break;
+          }
+          if (/^\s*-\s*id\s*:/.test(pl)) break;
+          if (
+            /^\s*[a-zA-Z_]\w*\s*:/.test(pl) &&
+            !/^\s*(automation|name|description)\s*:/.test(pl)
+          )
+            break;
+        }
+        if (insideAutomation) {
+          const uuid = automationIdM[1].replace(/["']/g, "");
+          if (
+            !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+              uuid,
+            )
+          ) {
+            const startCol = line.indexOf(uuid) + 1;
+            markers.push({
+              severity: monaco.MarkerSeverity.Warning,
+              message: `Ожидается UUID автоматизации (вида xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)`,
+              startLineNumber: i + 1,
+              startColumn: startCol,
+              endLineNumber: i + 1,
+              endColumn: startCol + uuid.length,
+              source: "fqid-validator",
+            });
+          }
+        }
+      }
+
+      // values[].attribute — существующий атрибут сущности действия?
+      const valueAttrM = line.match(/^\s*-\s+attribute\s*:\s*([^\s#]+)/);
+      if (valueAttrM && actionEntity && index) {
+        const attrId = valueAttrM[1].replace(/["']/g, "");
+        const domainPrefix = (currentDomainId || "").toLowerCase() + "/";
+        let entityFqid = actionEntity.includes("/")
+          ? actionEntity.toLowerCase()
+          : (domainPrefix + actionEntity).toLowerCase();
+        const entity = index.entitiesByFqid?.[entityFqid];
+        if (entity) {
+          const known = entity.attributes.some(
+            (a: any) => a.id.toLowerCase() === attrId.toLowerCase(),
+          );
+          if (!known) {
+            const startCol = line.indexOf(attrId) + 1;
+            markers.push({
+              severity: monaco.MarkerSeverity.Warning,
+              message: `Атрибут «${attrId}» не найден в сущности ${actionEntity}`,
+              startLineNumber: i + 1,
+              startColumn: startCol,
+              endLineNumber: i + 1,
+              endColumn: startCol + attrId.length,
+              source: "fqid-validator",
+            });
+          }
+        }
+      }
+
+      // operation: должен соответствовать type
+      const opM = line.match(/^\s*operation\s*:\s*([^\s#]+)/);
+      if (opM) {
+        const opValue = opM[1].replace(/["']/g, "");
+
+        let idLine = -1;
+        let idIndent = -1;
+        for (let j = i - 1; j >= 0; j--) {
+          const l = lines[j];
+          if (!l.trim() || l.trim().startsWith("#")) continue;
+          const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
+          if (lInd === 0) break;
+          const idm = l.match(/^(\s*)-\s+id\s*:/);
+          if (idm) {
+            idLine = j;
+            idIndent = idm[1].length;
+            break;
+          }
+        }
+        if (idLine === -1) continue;
+
+        let typeVal: string | null = null;
+        for (let j = idLine + 1; j < i; j++) {
+          const l = lines[j];
+          const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
+          if (lInd <= idIndent) break;
+          const tm = l.match(/^\s*type\s*:\s*([^\s#]+)/);
+          if (tm) {
+            typeVal = tm[1].replace(/["']/g, "");
+            break;
+          }
+        }
+        if (!typeVal) continue;
+
+        const opsByType: Record<string, string[]> = {
+          open_modal: ["create", "edit"],
+          open_page: ["create", "edit", "view"],
+          bulk: ["remove", "edit", "edit_attribute"],
+        };
+        const allowed = opsByType[typeVal] || [];
+
+        if (allowed.length > 0 && !allowed.includes(opValue)) {
+          const startCol = line.indexOf(opValue) + 1;
+          markers.push({
+            severity: monaco.MarkerSeverity.Warning,
+            message: `Недопустимое operation для type: ${typeVal}. Ожидается: ${allowed.join(" | ")}`,
+            startLineNumber: i + 1,
+            startColumn: startCol,
+            endLineNumber: i + 1,
+            endColumn: startCol + opValue.length,
+            source: "fqid-validator",
+          });
+        }
+      }
+    }
+
+    // ============ Валидация list-view ============
+    {
+      // Извлекаем все id колонок внутри views.table.columns
+      const columnIds = new Set<string>();
+      const sortingIds = new Set<string>();
+      const actionIds = new Set<string>();
+      const viewIds = new Set<string>();
+
+      // Из текущего YAML
+      let inViews = false;
+      let inColumns = false;
+      let inSortingBy = false;
+      let inActions = false;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const sectionM = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+        if (sectionM) {
+          inViews = sectionM[1] === "views";
+          inColumns = false;
+          inSortingBy = false;
+          inActions = false;
+          continue;
+        }
+        if (!inViews) continue;
+
+        if (/^\s*columns\s*:\s*$/.test(line)) inColumns = true;
+        else if (/^\s*sortingBy\s*:\s*$/.test(line)) inSortingBy = true;
+        else if (/^\s*actions\s*:\s*$/.test(line)) inActions = true;
+        else if (
+          /^\s*[a-zA-Z_]\w*\s*:\s*$/.test(line) &&
+          !/^\s*(filter|paging|refresh|empty)\s*:/.test(line)
+        ) {
+          // Другой контейнер — закрываем предыдущий
+        }
+
+        const idM = line.match(/^\s*-\s+id\s*:\s*([^\s#]+)/);
+        if (idM) {
+          const id = idM[1].replace(/["']/g, "").toLowerCase();
+          viewIds.add(id);
+          if (inColumns) columnIds.add(id);
+        }
+        const sortingM = line.match(/^\s*-\s+id\s*:\s*([^\s#]+)/);
+      }
+
+      // Из ModelIndex (sorting IDs)
+      if (index?.entities) {
+        // sorting идёт из entities[].sorting[].id, но сейчас не собираем — пропускаем
+      }
+
+      // Проверяем ссылки column: / sorting: / action: / widget: в views
+      let currentSortingSection = false;
+      inViews = false;
+      inSortingBy = false;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const sectionM = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+        if (sectionM) {
+          inViews = sectionM[1] === "views";
+          inSortingBy = false;
+          continue;
+        }
+        if (!inViews) continue;
+
+        if (/^\s*sortingBy\s*:\s*$/.test(line)) inSortingBy = true;
+
+        // column: <colId> внутри sortingBy
+        const colM = line.match(/^\s*column\s*:\s*([^\s#]+)/);
+        if (colM && inSortingBy) {
+          const id = colM[1].replace(/["']/g, "");
+          if (!columnIds.has(id.toLowerCase())) {
+            const startCol = line.indexOf(id) + 1;
+            markers.push({
+              severity: monaco.MarkerSeverity.Warning,
+              message: `Столбец «${id}» не найден среди columns[].id`,
+              startLineNumber: i + 1,
+              startColumn: startCol,
+              endLineNumber: i + 1,
+              endColumn: startCol + id.length,
+              source: "fqid-validator",
+            });
+          }
+        }
+
+        // sorting: <sortingId>
+        const sortM = line.match(/^\s*sorting\s*:\s*([^\s#]+)/);
+        if (sortM) {
+          const id = sortM[1].replace(/["']/g, "");
+          const startCol = line.indexOf(id) + 1;
+          // sortingID должен быть в entities[].sorting[].id — пропускаем без проверки
+          // (это вне views, лень тащить)
+        }
+      }
+    }
+
+    // ============ Валидация mixins ============
+    let inMixins = false;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const sectionM = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (sectionM) {
+        inMixins = sectionM[1] === "mixins";
+        continue;
+      }
+      if (!inMixins) continue;
+
+      // linkage: <ref> — должен быть в известных linkage
+      const linkageM = line.match(/^\s*linkage\s*:\s*([^\s#]+)/);
+      if (linkageM) {
+        const id = linkageM[1].replace(/["']/g, "");
+        const knownLinkageIds = new Set<string>();
+        (index as any)?.entityLinkages?.forEach((l: any) => {
+          knownLinkageIds.add(String(l.id).toLowerCase());
+        });
+        if (index?.schemasByDomain) {
+          Object.values(index.schemasByDomain).forEach((s: any) => {
+            s?.sections?.linkages?.items?.forEach((l: any) => {
+              if (l?.id) knownLinkageIds.add(String(l.id).toLowerCase());
+            });
+          });
+        }
+        if (!knownLinkageIds.has(id.toLowerCase())) {
+          const startCol = line.indexOf(id) + 1;
+          markers.push({
+            severity: monaco.MarkerSeverity.Warning,
+            message: `Связь «${id}» не найдена в домене`,
+            startLineNumber: i + 1,
+            startColumn: startCol,
+            endLineNumber: i + 1,
+            endColumn: startCol + id.length,
+            source: "fqid-validator",
+          });
+        }
+      }
+
+      // fromView: <viewId> — должен быть в views
+      const fromViewM = line.match(/^\s*fromView\s*:\s*([^\s#]+)/);
+      if (fromViewM) {
+        const id = fromViewM[1].replace(/["']/g, "");
+        const knownViews = new Set<string>();
+        if (index?.schemasByDomain) {
+          Object.values(index.schemasByDomain).forEach((s: any) => {
+            s?.sections?.views?.items?.forEach((v: any) => {
+              if (v?.id) knownViews.add(String(v.id).toLowerCase());
+            });
+          });
+        }
+        // Также из текущего YAML
+        let currentViewsSection = false;
+        for (let j = 0; j < lines.length; j++) {
+          const l = lines[j];
+          const sm = l.match(/^([a-zA-Z_][\w]*)\s*:/);
+          if (sm) {
+            currentViewsSection = sm[1] === "views";
+            continue;
+          }
+          if (!currentViewsSection) continue;
+          const idm = l.match(/^\s*-\s+id\s*:\s*([^\s#]+)/);
+          if (idm) knownViews.add(idm[1].replace(/["']/g, "").toLowerCase());
+        }
+        if (!knownViews.has(id.toLowerCase())) {
+          const startCol = line.indexOf(id) + 1;
+          markers.push({
+            severity: monaco.MarkerSeverity.Warning,
+            message: `View «${id}» не найден в домене`,
+            startLineNumber: i + 1,
+            startColumn: startCol,
+            endLineNumber: i + 1,
+            endColumn: startCol + id.length,
+            source: "fqid-validator",
+          });
         }
       }
     }

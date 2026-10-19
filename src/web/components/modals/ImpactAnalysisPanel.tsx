@@ -3,6 +3,7 @@ import { MIcon } from '../common/MIcon';
 import { computeImpact } from '../../lib/model/impact-analysis';
 import type { ModelIndex } from '../../../shared/model-types';
 import { useGraphStore } from '../../state/useGraphStore';
+import { openFileInEditor } from "../../lib/open-file";
 
 export interface ImpactAnalysisPanelProps {
     fqid: string;
@@ -42,7 +43,22 @@ export function ImpactAnalysisPanel(props: ImpactAnalysisPanelProps) {
             </button>
 
             <div className="impact-header">
-                <div className="impact-header__fqid">{entity.fqid}</div>
+                <div className="impact-header__fqid-row">
+                    <div className="impact-header__fqid">
+                        {entity.domainId}/{entity.entityId}
+                    </div>
+                    <button
+                        className="impact-header__copy"
+                        onClick={() => {
+                            const fullFqid = `${entity.domainId}/${entity.entityId}`;
+                            navigator.clipboard.writeText(fullFqid);
+                            useGraphStore.getState().showSnackbar("FQID скопирован");
+                        }}
+                        title="Копировать FQID"
+                    >
+                        <MIcon name="content_copy" size="sm" />
+                    </button>
+                </div>
                 <div className="impact-header__name">{entity.name}</div>
                 {entity.description && (
                     <div className="impact-header__desc">{entity.description}</div>
@@ -52,19 +68,39 @@ export function ImpactAnalysisPanel(props: ImpactAnalysisPanelProps) {
                         className="btn btn--primary"
                         onClick={() => props.onGotoDomain(entity.domainId)}
                     >
-                        <MIcon name='my_location' size="sm" />
-                        <span className="icon-label">Перейти к домену</span> 
+                        <MIcon name="menu_book" size="sm" />
+                        Схема домена
                     </button>
                     <button
-                        className={'impact-fav-btn' + (isFav ? ' active' : '')}
-                        onClick={() => toggleFav(props.fqid)}
-                        title={isFav ? 'Убрать из избранного' : 'В избранное'}
+                        className="btn"
+                        onClick={() => {
+                            const nodes = useGraphStore.getState().nodes;
+                            const node = nodes.find(
+                                (n) =>
+                                    (n.data.domainId || "").toLowerCase() ===
+                                    entity.domainId.toLowerCase(),
+                            );
+                            if (node?.data.filePath) {
+                                openFileInEditor(
+                                    node.data.filePath,
+                                    entity.fqid,
+                                    entity.domainId,
+                                );
+                            } else {
+                                useGraphStore
+                                    .getState()
+                                    .showSnackbar("Файл схемы не найден");
+                            }
+                        }}
+                        title="Открыть YAML-файл с переходом к сущности"
                     >
-                        <MIcon name={isFav ? 'star' : 'star_border'} fill={isFav} size="sm" />
-                        {isFav ? 'В избранном' : 'В избранное'}
+                        <MIcon name="description" size="sm" />
+                        Открыть файл
                     </button>
                     <span className="impact-stat">Ссылок: {refsTotal}</span>
-                    <span className="impact-stat">Атрибутов: {entity.attributes.length}</span>
+                    <span className="impact-stat">
+                        Атрибутов: {entity.attributes.length}
+                    </span>
                 </div>
             </div>
 

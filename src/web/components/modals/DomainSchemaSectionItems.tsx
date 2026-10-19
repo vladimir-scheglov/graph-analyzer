@@ -599,5 +599,32 @@ export function SectionItems({
         );
     }
 
-    return null;
+    // Fallback для новых секций (trees, transitiveLinkages, uiRules, uiPresets, counterColorPattern)
+    return (
+        <div className="domain-schema-list">
+            {items.map((item: any) => (
+                <div key={item.id} className="domain-schema-item">
+                    <code className="domain-schema-item__id">{item.id}</code>
+                    {item.name && item.name !== item.id && (
+                        <span className="domain-schema-item__name">{item.name}</span>
+                    )}
+                    <span className="domain-schema-item__meta">
+                        {item.type && (
+                            <span className="domain-schema-item__badge">{item.type}</span>
+                        )}
+                        {item.target && (
+                            <span className="domain-schema-item__badge">{item.target}</span>
+                        )}
+                        {item.effect && (
+                            <span className="domain-schema-item__badge">{item.effect}</span>
+                        )}
+                        {item.rootEntity && ` · корень: ${item.rootEntity}`}
+                        {item.joinsCount != null && ` · ${item.joinsCount} связей`}
+                        {item.red && ` · red: ${item.red}`}
+                        {item.yellow && ` · yellow: ${item.yellow}`}
+                    </span>
+                </div>
+            ))}
+        </div>
+    );
 }

@@ -9,6 +9,11 @@ import type {
   DomainSchemaMenuItem,
   DomainSchemaMixinItem,
   DomainSchemaDataRuleItem,
+  DomainSchemaCounterColorItem,
+  DomainSchemaUiPresetItem,
+  DomainSchemaUiRuleItem,
+  DomainSchemaTransitiveItem,
+  DomainSchemaTreeNode,
 } from "../../shared/model-types";
 
 function asArray(x: any): any[] {
@@ -176,6 +181,64 @@ export function buildDomainSchemaSummary(
     }))
     .filter((x) => x.id);
 
+  // ============ Trees ============
+  const treesRaw = asArray(raw.trees);
+  const trees: DomainSchemaTreeNode[] = treesRaw
+    .map((t: any) => {
+      const item: DomainSchemaTreeNode = {
+        id: asString(t?.id),
+        name: asString(t?.name || t?.id),
+        type: asString(t?.type || "ordinary"),
+      };
+      if (t?.maxDepth != null) item.maxDepth = Number(t.maxDepth);
+      if (t?.hierarchy?.entity) item.rootEntity = String(t.hierarchy.entity);
+      return item;
+    })
+    .filter((x) => x.id);
+
+  // ============ Transitive Linkages ============
+  const transitiveRaw = asArray(raw.transitiveLinkages);
+  const transitiveLinkages: DomainSchemaTransitiveItem[] = transitiveRaw
+    .map((t: any) => ({
+      id: asString(t?.id),
+      name: asString(t?.name || t?.id),
+      entity: t?.entity ? String(t.entity) : undefined,
+      joinsCount: Array.isArray(t?.joins) ? t.joins.length : 0,
+    }))
+    .filter((x) => x.id);
+
+  // ============ UI Rules ============
+  const uiRulesRaw = asArray(raw.uiRules);
+  const uiRules: DomainSchemaUiRuleItem[] = uiRulesRaw
+    .map((r: any) => ({
+      id: asString(r?.id),
+      name: asString(r?.name || r?.id),
+      target: asString(r?.target || ""),
+      view: r?.view ? String(r.view) : undefined,
+      effect: r?.rule?.effect ? String(r.rule.effect) : undefined,
+    }))
+    .filter((x) => x.id);
+
+  // ============ UI Presets ============
+  const uiPresetsRaw = asArray(raw.uiPresets);
+  const uiPresets: DomainSchemaUiPresetItem[] = uiPresetsRaw
+    .map((p: any) => ({
+      id: asString(p?.id),
+      name: asString(p?.name || p?.id),
+      description: asString(p?.description || ""),
+    }))
+    .filter((x) => x.id);
+
+  // ============ Counter Color Pattern ============
+  const counterColorRaw = asArray(raw.counterColorPattern);
+  const counterColorPattern: DomainSchemaCounterColorItem[] = counterColorRaw
+    .map((c: any) => ({
+      id: asString(c?.id),
+      red: asString(c?.red || ""),
+      yellow: asString(c?.yellow || ""),
+    }))
+    .filter((x) => x.id);
+
   return {
     domainId,
     metadata,
@@ -190,6 +253,17 @@ export function buildDomainSchemaSummary(
       mixins: { count: mixins.length, items: mixins },
       dataRules: { count: dataRules.length, items: dataRules },
       medias: { count: medias.length, items: medias },
+      trees: { count: trees.length, items: trees },
+      transitiveLinkages: {
+        count: transitiveLinkages.length,
+        items: transitiveLinkages,
+      },
+      uiRules: { count: uiRules.length, items: uiRules },
+      uiPresets: { count: uiPresets.length, items: uiPresets },
+      counterColorPattern: {
+        count: counterColorPattern.length,
+        items: counterColorPattern,
+      },
     },
     flags: {
       hasExchangeSettings: raw.exchangeSettings != null,

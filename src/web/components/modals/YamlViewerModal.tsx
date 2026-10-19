@@ -20,7 +20,7 @@ import { scanRqlInText } from '../../lib/monaco/rql-check';
 import { SECTION_LABELS } from '../../lib/consts';
 import yaml from "js-yaml";
 
-type RightTab = 'issues' | 'refs' | 'server';
+type RightTab = 'issues' | 'refs' | 'backlinks' | 'server';
 
 export function YamlViewerModal() {
     const { index } = useModelIndex();
@@ -327,6 +327,25 @@ export function YamlViewerModal() {
         [allIssues, severityFilter],
     );
 
+    const backlinks = useMemo(() => {
+        if (!content) return { entity: [] as Backlink[], attribute: [] as Backlink[], target: null as CursorTarget | null };
+        const lines = content.split("\n");
+        const target = detectCursorTarget(lines, cursorLine);
+        if (!target) return { entity: [], attribute: [], target };
+
+        const entity: Backlink[] = [];
+        const attribute: Backlink[] = [];
+
+        if (target.type === "entity" && target.id) {
+            entity.push(...resolveEntityBacklinks(lines, target.id));
+        } else if (target.type === "attribute" && target.id && target.parentId) {
+            entity.push(...resolveEntityBacklinks(lines, target.parentId));
+            attribute.push(...resolveAttributeBacklinks(lines, target.parentId, target.id));
+        }
+
+        return { entity, attribute, target };
+    }, [content, cursorLine]);
+
     // ============ External refs ============
     const [refsVersion, setRefsVersion] = useState(0);
 
@@ -491,6 +510,27 @@ export function YamlViewerModal() {
             setSavedContent(fetchedContent);
             setEditorCreated(true);
 
+            // Многократный layout — Monaco должен узнать свою реальную высоту
+            // после того, как toolbar и соседние панели отрендерились
+            const forceLayout = () => {
+                if (!editorRef.current) return;
+                try { editorRef.current.layout(); } catch { }
+            };
+            setTimeout(forceLayout, 0);
+            setTimeout(forceLayout, 50);
+            setTimeout(forceLayout, 150);
+            setTimeout(forceLayout, 400);
+            setTimeout(forceLayout, 1000);
+
+            // Пересчитываем после загрузки Material Symbols (иконки в тулбаре меняют высоту)
+            if (document.fonts && document.fonts.ready) {
+                document.fonts.ready.then(() => {
+                    if (editorRef.current) {
+                        try { editorRef.current.layout(); } catch { }
+                    }
+                });
+            }
+
             // Блокируем ввод, если файл заблокирован
             editor.onKeyDown((e: any) => {
                 if (!isLockedRef.current) return;
@@ -517,11 +557,24 @@ export function YamlViewerModal() {
             });
 
             editor.onDidType((text: string) => {
-                if (!text || !/^[a-zA-Zа-яА-Я_\-]$/.test(text)) return;
+                if (!text) return;
+                if (!/^[a-zA-Z0-9_\-а-яА-Я ]$/.test(text)) return;
+
                 setTimeout(() => {
                     if (!editorRef.current) return;
-                    editorRef.current.trigger("yaml-viewer", "editor.action.triggerSuggest", {});
-                }, 20);
+                    const pos = editorRef.current.getPosition();
+                    const model = editorRef.current.getModel();
+                    if (!pos || !model) return;
+                    const lineText = model.getLineContent(pos.lineNumber);
+                    const before = lineText.slice(0, pos.column - 1);
+
+                    // Триггерим, если:
+                    // - пользователь набрал букву (ввод значения)
+                    // - только что набрал пробел после ":" (начало значения)
+                    if (/[a-zA-Z0-9_\-а-яА-Я]$/.test(before) || /:\s$/.test(before)) {
+                        editorRef.current.trigger("yaml-viewer", "editor.action.triggerSuggest", {});
+                    }
+                }, 10);
             });
 
             editor.onDidChangeCursorPosition((e: any) => {
@@ -548,7 +601,7 @@ export function YamlViewerModal() {
                     clearTimeout(roTimer);
                     roTimer = setTimeout(() => {
                         try { editor?.layout(); } catch { }
-                    }, 50);
+                    }, 10);
                 });
                 ro.observe(containerRef.current);
             }
@@ -746,7 +799,7 @@ export function YamlViewerModal() {
                 endLineNumber: endLine,
                 endColumn: Math.max(endCol, col + 1),
                 source: "server-validate",
-                code: d.severity || "R-VISION",
+                code: d.severity,
             });
         }
         m.editor.setModelMarkers(model, "server-validate", markers);
@@ -848,16 +901,50 @@ export function YamlViewerModal() {
 
     // ============ Auto-jump ============
     useEffect(() => {
-        if (!open || !lineMap || !fqid || !editorCreated) return;
+        if (!open || !lineMap || !fqid || !editorCreated || !editorRef.current) return;
         const entityId = fqid.split('/')[1];
         if (!entityId) return;
-        const line = lineMap.itemLines.get(`entities#${entityId}`);
+
+        // Поиск без учёта регистра — fqid в нижнем регистре, а ключи в lineMap в оригинальном
+        let line: number | null = null;
+        const targetKey = `entities#${entityId}`.toLowerCase();
+        for (const [key, value] of lineMap.itemLines.entries()) {
+            if (key.toLowerCase() === targetKey) {
+                line = value;
+                break;
+            }
+        }
+
+        if (!line) {
+            // Fallback: ищем строку с "- id: <entityId>" прямо в тексте
+            const model = editorRef.current.getModel();
+            if (model) {
+                const escaped = entityId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+                const re = new RegExp(`^\\s*-\\s+id\\s*:\\s*["']?${escaped}["']?\\s*(?:#.*)?$`, "i");
+                const lineCount = model.getLineCount();
+                for (let i = 1; i <= lineCount; i++) {
+                    if (re.test(model.getLineContent(i))) {
+                        line = i;
+                        break;
+                    }
+                }
+            }
+        }
+
         if (!line) return;
+
         const sectionEl = document.querySelector(
             '.yaml-nav-section[data-section-key="entities"]'
         ) as HTMLDetailsElement | null;
         if (sectionEl) sectionEl.open = true;
-        setTimeout(() => jumpTo(line), 200);
+
+        // Задержка 400мс — Monaco должен успеть отрисоваться и получить размеры
+        const t = setTimeout(() => {
+            if (editorRef.current) {
+                try { jumpTo(line!); } catch { }
+            }
+        }, 400);
+        return () => clearTimeout(t);
     }, [open, lineMap, fqid, editorCreated, jumpTo]);
 
     // ============ Toggle helpers ============
@@ -1498,35 +1585,37 @@ export function YamlViewerModal() {
                         <button
                             className="help-modal__icon-btn"
                             onClick={() => {
-                                if (!domainId) {
-                                    useGraphStore.getState().showSnackbar("Домен не определён для этого файла");
-                                    return;
-                                }
-
                                 useGraphStore.getState().setYamlViewerOpen(false);
                                 useGraphStore.getState().setDomainComparePrefillA(domainId);
                                 useGraphStore.getState().setDomainCompareOpen(true);
                             }}
-                            title="Сравнить домены"
+                            disabled={isDirty}
+                            title={
+                                isDirty
+                                    ? "Сохраните или отмените изменения перед переходом"
+                                    : "Сравнить домены"
+                            }
                         >
                             <MIcon name="compare_arrows" />
                         </button>
 
-                        <button
-                            className="help-modal__icon-btn"
-                            onClick={() => {
-                                if (!domainId) {
-                                    useGraphStore.getState().showSnackbar("Домен не определён для этого файла");
-                                    return;
+                        {domainId ? (
+                            <button
+                                className="help-modal__icon-btn"
+                                onClick={() => {
+                                    useGraphStore.getState().setYamlViewerOpen(false);
+                                    gotoDomain(domainId);
+                                }}
+                                disabled={isDirty}
+                                title={
+                                    isDirty
+                                        ? "Сохраните или отмените изменения перед переходом"
+                                        : "Показать на графе"
                                 }
-
-                                useGraphStore.getState().setYamlViewerOpen(false);
-                                gotoDomain(domainId);
-                            }}
-                            title="Показать на графе"
-                        >
-                            <MIcon name="my_location" />
-                        </button>
+                            >
+                                <MIcon name="my_location" />
+                            </button>
+                        ) : null}
 
                         <button
                             className={'help-modal__icon-btn' + (!isLocked ? ' active' : '')}
@@ -1576,14 +1665,12 @@ export function YamlViewerModal() {
                                 className="help-modal__icon-btn"
                                 onClick={() => {
                                     const st = useGraphStore.getState();
-                                    st.setYamlViewerOpen(false);
                                     st.setDomainSchemaDomainId(domainId);
-                                    // Передаём текущий поиск и фильтр
                                     if (navQuery.trim()) st.setDomainSchemaPrefillQuery(navQuery.trim());
                                     if (onlyProblematic) st.setDomainSchemaPrefillOnlyProblematic(true);
                                     st.setDomainSchemaOpen(true);
                                 }}
-                                title="Открыть структурированный обзор схемы"
+                                title="Структурированный обзор схемы"
                             >
                                 <MIcon name="menu_book" />
                             </button>
@@ -1784,29 +1871,23 @@ export function YamlViewerModal() {
                         {/* Новая панель: Breadcrumbs (слева) + Quick Jumps (справа) */}
                         <div className="yaml-viewer-editor__toolbar">
                             <div className="yaml-viewer-breadcrumbs">
-                                {currentContext ? (
+                                {currentContext && currentContext.breadcrumbs.length > 0 ? (
                                     <>
-                                        {currentContext.section && (
-                                            <span className="yaml-viewer-breadcrumbs__item">
-                                                {currentContext.section}
-                                            </span>
-                                        )}
-                                        {currentContext.entityId && (
-                                            <>
-                                                <span className="yaml-viewer-breadcrumbs__sep">›</span>
-                                                <span className="yaml-viewer-breadcrumbs__item yaml-viewer-breadcrumbs__item--entity">
-                                                    {currentContext.entityId}
-                                                </span>
-                                            </>
-                                        )}
-                                        {currentContext.ruleId && !currentContext.entityId && (
-                                            <>
-                                                <span className="yaml-viewer-breadcrumbs__sep">›</span>
-                                                <span className="yaml-viewer-breadcrumbs__item">
-                                                    {currentContext.ruleId}
-                                                </span>
-                                            </>
-                                        )}
+                                        {currentContext.breadcrumbs.map((item, idx) => (
+                                            <React.Fragment key={`bc-${idx}-${item.line}`}>
+                                                {idx > 0 && (
+                                                    <span className="yaml-viewer-breadcrumbs__sep">›</span>
+                                                )}
+                                                <button
+                                                    type="button"
+                                                    className={`yaml-viewer-breadcrumbs__item yaml-viewer-breadcrumbs__item--${item.type}`}
+                                                    onClick={() => jumpTo(item.line)}
+                                                    title={`${item.type}: ${item.id} — строка ${item.line}`}
+                                                >
+                                                    {item.id}
+                                                </button>
+                                            </React.Fragment>
+                                        ))}
                                         <span className="yaml-viewer-breadcrumbs__line">:{cursorLine}</span>
                                     </>
                                 ) : (
@@ -1844,7 +1925,7 @@ export function YamlViewerModal() {
                         </div>
 
                         {/* Обертка для Monaco */}
-                        <div className="yaml-viewer-editor__canvas" style={{ width: '100%', height: '100%' }}>
+                        <div className="yaml-viewer-editor__canvas">
                             <div
                                 key="monaco"
                                 ref={containerRef}
@@ -1923,38 +2004,84 @@ export function YamlViewerModal() {
                     <div className={"yaml-viewer-issues" + (rightCollapsed ? " yaml-viewer-issues--collapsed" : "")}>
                         <div className="yaml-viewer-tabs">
                             <button
-                                className={'yaml-viewer-tab' + (rightTab === 'issues' ? ' active' : '')}
-                                onClick={() => setRightTab('issues')}
+                                className={"yaml-viewer-tab" + (rightTab === "issues" ? " active" : "")}
+                                onClick={() => setRightTab("issues")}
+                                title={`Проблемы${issueCount > 0 ? ` (${issueCount})` : ""}`}
                             >
                                 <MIcon name="rule" size="sm" />
-                                <span>Проблемы</span>
-                                {issueCount > 0 && <span className="yaml-viewer-tab__count">{issueCount}</span>}
+                                {issueCount > 0 && (
+                                    <span className="yaml-viewer-tab__badge">{issueCount}</span>
+                                )}
                             </button>
                             <button
-                                className={'yaml-viewer-tab' + (rightTab === 'refs' ? ' active' : '')}
-                                onClick={() => setRightTab('refs')}
+                                className={"yaml-viewer-tab" + (rightTab === "refs" ? " active" : "")}
+                                onClick={() => setRightTab("refs")}
+                                title={`Ссылки${refsCount > 0 ? ` (${refsCount})` : ""}`}
                             >
                                 <MIcon name="link" size="sm" />
-                                <span>Ссылки</span>
-                                {refsCount > 0 && <span className="yaml-viewer-tab__count">{refsCount}</span>}
+                                {refsCount > 0 && (
+                                    <span className="yaml-viewer-tab__badge">{refsCount}</span>
+                                )}
                             </button>
                             <button
-                                className={"yaml-viewer-tab" + (rightTab === "server" ? " active" : "")}
-                                onClick={() => setRightTab("server")}
-                                disabled={!serverAvailable && !serverValidation}
-                                title={!serverAvailable ? "Серверная валидация недоступна в local режиме" : ""}
+                                className={"yaml-viewer-tab" + (rightTab === "backlinks" ? " active" : "")}
+                                onClick={() => setRightTab("backlinks")}
+                                title={`Используется${backlinks.entity.length + backlinks.attribute.length > 0
+                                    ? ` (${backlinks.entity.length + backlinks.attribute.length})`
+                                    : ""
+                                    }`}
                             >
-                                <MIcon name="cloud" size="sm" />
-                                <span>Сервер</span>
-                                {serverValidation && !serverValidation.isValid && (
-                                    <span className="yaml-viewer-tab__count yaml-viewer-tab__count--error">
-                                        {serverValidation.diagnostics?.length || "!"}
+                                <MIcon name="call_received" size="sm" />
+                                {backlinks.entity.length + backlinks.attribute.length > 0 && (
+                                    <span className="yaml-viewer-tab__badge">
+                                        {backlinks.entity.length + backlinks.attribute.length}
                                     </span>
                                 )}
-                                {serverValidation && serverValidation.isValid && (
-                                    <span className="yaml-viewer-tab__count yaml-viewer-tab__count--ok">✓</span>
-                                )}
                             </button>
+                            {serverAvailable && (
+                                <button
+                                    className={
+                                        "yaml-viewer-tab" +
+                                        (rightTab === "server" ? " active" : "") +
+                                        (serverValidation && !serverValidating
+                                            ? serverValidation.isValid
+                                                ? " yaml-viewer-tab--ok"
+                                                : " yaml-viewer-tab--err"
+                                            : "")
+                                    }
+                                    onClick={() => setRightTab("server")}
+                                    title={
+                                        serverValidation?.isValid
+                                            ? "Сервер: схема валидна"
+                                            : serverValidation && !serverValidation.isValid
+                                                ? `Сервер: ${serverValidation.diagnostics?.length || "!"} ошибок`
+                                                : "Серверная валидация"
+                                    }
+                                >
+                                    <MIcon
+                                        name={
+                                            serverValidating
+                                                ? "hourglass_top"
+                                                : serverValidation?.isValid
+                                                    ? "cloud_done"
+                                                    : serverValidation && !serverValidation.isValid
+                                                        ? "cloud_off"
+                                                        : "cloud"
+                                        }
+                                        size="sm"
+                                    />
+                                    {serverValidation && !serverValidation.isValid && (
+                                        <span className="yaml-viewer-tab__badge yaml-viewer-tab__badge--err">
+                                            {serverValidation.diagnostics?.length || "!"}
+                                        </span>
+                                    )}
+                                    {serverValidation?.isValid && (
+                                        <span className="yaml-viewer-tab__badge yaml-viewer-tab__badge--ok">
+                                            ✓
+                                        </span>
+                                    )}
+                                </button>
+                            )}
                         </div>
 
                         {rightTab === 'issues' && (
@@ -1974,6 +2101,74 @@ export function YamlViewerModal() {
                                 currentDomain={domainId || ''}
                             />
                         )}
+                        {rightTab === "backlinks" && (
+                            <div className="yaml-issues">
+                                <div className="yaml-issues__header">
+                                    Используется{" "}
+                                    {backlinks.target?.id && (
+                                        <span style={{ color: "var(--accent-hover)", fontFamily: "'JetBrains Mono', monospace", marginLeft: 6 }}>
+                                            {backlinks.target.type === "attribute" && backlinks.target.parentId
+                                                ? `${backlinks.target.parentId}.${backlinks.target.id}`
+                                                : backlinks.target.id}
+                                        </span>
+                                    )}
+                                </div>
+
+                                {!backlinks.target && (
+                                    <div className="yaml-issues-empty">
+                                        <div style={{ fontSize: 32, marginBottom: 8 }}>🎯</div>
+                                        Поставьте курсор на сущность или атрибут, чтобы увидеть входящие ссылки
+                                    </div>
+                                )}
+
+                                {backlinks.target &&
+                                    backlinks.entity.length === 0 &&
+                                    backlinks.attribute.length === 0 && (
+                                        <div className="yaml-issues-empty">
+                                            <div style={{ fontSize: 32, marginBottom: 8 }}>🔍</div>
+                                            На {backlinks.target.type === "attribute" ? "этот атрибут" : "эту сущность"} ничего не ссылается
+                                        </div>
+                                    )}
+
+                                {backlinks.entity.length > 0 && (
+                                    <>
+                                        <div className="yaml-issues__header" style={{ fontSize: 10 }}>
+                                            На сущность {backlinks.target?.type === "attribute" ? backlinks.target.parentId : backlinks.target?.id} ({backlinks.entity.length})
+                                        </div>
+                                        <div className="yaml-issues__list">
+                                            {backlinks.entity.map((bl, idx) => (
+                                                <button key={`e-${idx}`} className="yaml-backlink" onClick={() => jumpTo(bl.line)}>
+                                                    <MIcon name={bl.icon} size="sm" />
+                                                    <span className="yaml-backlink__kind">{BACKLINK_KIND_LABELS[bl.kind]}</span>
+                                                    <code className="yaml-backlink__id">{bl.label}</code>
+                                                    {bl.detail && <span className="yaml-backlink__detail">{bl.detail}</span>}
+                                                    <span className="yaml-backlink__line">:{bl.line}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </>
+                                )}
+
+                                {backlinks.attribute.length > 0 && (
+                                    <>
+                                        <div className="yaml-issues__header" style={{ fontSize: 10 }}>
+                                            На атрибут {backlinks.target?.id} ({backlinks.attribute.length})
+                                        </div>
+                                        <div className="yaml-issues__list">
+                                            {backlinks.attribute.map((bl, idx) => (
+                                                <button key={`a-${idx}`} className="yaml-backlink" onClick={() => jumpTo(bl.line)}>
+                                                    <MIcon name={bl.icon} size="sm" />
+                                                    <span className="yaml-backlink__kind">{BACKLINK_KIND_LABELS[bl.kind]}</span>
+                                                    <code className="yaml-backlink__id">{bl.label}</code>
+                                                    {bl.detail && <span className="yaml-backlink__detail">{bl.detail}</span>}
+                                                    <span className="yaml-backlink__line">:{bl.line}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        )}
                         {rightTab === "server" && (
                             <div className="yaml-issues">
                                 <div className="yaml-issues__header">
@@ -1984,7 +2179,7 @@ export function YamlViewerModal() {
                                     <div className="yaml-issues-empty">
                                         <div style={{ fontSize: 32, marginBottom: 8 }}>☁️</div>
                                         <div style={{ fontSize: 12, color: "var(--text-400)", marginBottom: 12 }}>
-                                            Нажмите кнопку в шапке, чтобы отправить текущую схему на проверку в R-Vision.
+                                            Нажмите кнопку в шапке, чтобы отправить текущую схему на проверку.
                                         </div>
                                         <button className="btn btn--primary" onClick={handleServerValidate}>
                                             <MIcon name="cloud_upload" size="sm" />
@@ -2951,4 +3146,377 @@ function CrossDomainBadge({
             )}
         </span>
     );
+}
+// ============ Backlinks ============
+
+interface CursorTarget {
+    type: 'entity' | 'attribute' | 'linkage' | 'action' | 'view' | 'dataRule' | 'mixin' | null;
+    id: string | null;
+    parentId?: string;
+    section?: string;
+}
+
+interface Backlink {
+    kind: 'inheritance' | 'reference' | 'linkage' | 'view' | 'dataRule' | 'mixin' | 'action' | 'widget';
+    line: number;
+    label: string;
+    detail?: string;
+    icon: string;
+}
+
+const BACKLINK_KIND_LABELS: Record<Backlink['kind'], string> = {
+    inheritance: 'наследование',
+    reference: 'reference',
+    linkage: 'связь',
+    view: 'view',
+    dataRule: 'правило',
+    mixin: 'примесь',
+    action: 'действие',
+    widget: 'виджет',
+};
+
+function detectCursorTarget(lines: string[], cursorLine: number): CursorTarget | null {
+    if (cursorLine < 1 || cursorLine > lines.length) return null;
+
+    // Ближайшая непустая строка (не комментарий)
+    let effectiveLine = cursorLine;
+    while (effectiveLine > 1) {
+        const l = lines[effectiveLine - 1];
+        if (l && l.trim() && !l.trim().startsWith("#")) break;
+        effectiveLine--;
+    }
+
+    // Секция (indent 0)
+    let section = "";
+    for (let i = effectiveLine - 1; i >= 0; i--) {
+        const m = lines[i].match(/^([a-zA-Z_][\w]*)\s*:/);
+        if (m) {
+            section = m[1];
+            break;
+        }
+    }
+    if (!section) return null;
+
+    // Цепочка - id: от корня к курсору
+    interface IdNode {
+        id: string;
+        indent: number;
+        line: number;
+    }
+    const chain: IdNode[] = [];
+
+    for (let i = effectiveLine - 1; i >= 0; i--) {
+        const line = lines[i];
+        if (!line.trim() || line.trim().startsWith("#")) continue;
+        const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
+
+        // Вышли из секции верхнего уровня
+        if (indent === 0) break;
+
+        const idm = line.match(/^\s*-\s+id\s*:\s*([^\s#]+)/);
+        if (!idm) continue;
+
+        const id = idm[1].replace(/["']/g, "");
+
+        // unshift - только если это родитель (indent меньше текущего корня цепочки).
+        // Siblings и потомки пропускаются.
+        if (chain.length === 0 || indent < chain[0].indent) {
+            chain.unshift({ id, indent, line: i });
+        }
+    }
+
+    if (chain.length === 0) return null;
+
+    const root = chain[0];
+    const inner = chain[chain.length - 1];
+
+    // Если в цепочке 2+ уровня и между ними есть `attributes:` — это атрибут
+    if (chain.length >= 2 && inner.line > root.line) {
+        const attrSectionRegex = /^\s*attributes\s*:\s*$/;
+        for (let i = root.line + 1; i < inner.line; i++) {
+            if (attrSectionRegex.test(lines[i])) {
+                return {
+                    type: "attribute",
+                    id: inner.id,
+                    parentId: root.id,
+                    section,
+                };
+            }
+        }
+    }
+
+    if (section === "entities") return { type: "entity", id: root.id, section };
+    if (section === "linkages") return { type: "linkage", id: root.id, section };
+    if (section === "actions") return { type: "action", id: root.id, section };
+    if (section === "views") return { type: "view", id: root.id, section };
+    if (section === "dataRules") return { type: "dataRule", id: root.id, section };
+    if (section === "mixins") return { type: "mixin", id: root.id, section };
+    return null;
+}
+
+function resolveEntityBacklinks(lines: string[], entityId: string): Backlink[] {
+    const out: Backlink[] = [];
+
+    const matches = (val: string): boolean => {
+        if (val === entityId) return true;
+        const slash = val.indexOf('/');
+        return slash > 0 && val.slice(slash + 1) === entityId;
+    };
+
+    interface Block { id: string; indent: number; section: string; isAttribute: boolean; attrSectionIndent?: number; }
+    const stack: Block[] = [];
+    let section = '';
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line.trim() || line.trim().startsWith('#')) continue;
+        const indent = (line.match(/^(\s*)/) || ['', ''])[1].length;
+
+        if (indent === 0) {
+            const sm = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+            if (sm) section = sm[1];
+            stack.length = 0;
+            continue;
+        }
+
+        const attrsMatch = line.match(/^(\s*)attributes\s*:\s*$/);
+        if (attrsMatch) {
+            const attrsIndent = attrsMatch[1].length;
+            for (let j = stack.length - 1; j >= 0; j--) {
+                if (stack[j].indent < attrsIndent) {
+                    stack[j].attrSectionIndent = attrsIndent;
+                    break;
+                }
+            }
+            continue;
+        }
+
+        const idm = line.match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
+        if (idm) {
+            const idIndent = idm[1].length;
+            const id = idm[2].replace(/["']/g, '');
+            while (stack.length && stack[stack.length - 1].indent >= idIndent) stack.pop();
+            const parent = stack[stack.length - 1];
+            const isAttribute =
+                !!parent && parent.attrSectionIndent !== undefined && idIndent > parent.attrSectionIndent;
+            stack.push({ id, indent: idIndent, section, isAttribute });
+            continue;
+        }
+
+        const fm = line.match(/^\s*(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*(.+)$/);
+        if (!fm) continue;
+        const field = fm[1];
+        let value = fm[2].split(' #')[0].trim();
+        if ((value.startsWith('"') && value.endsWith('"')) ||
+            (value.startsWith("'") && value.endsWith("'"))) {
+            value = value.slice(1, -1);
+        }
+
+        const top = stack[stack.length - 1];
+        if (!top) continue;
+
+        if (field === 'inherits' && matches(value) && top.section === 'entities' && !top.isAttribute) {
+            out.push({ kind: 'inheritance', line: i + 1, label: top.id, detail: 'наследует', icon: 'account_tree' });
+        }
+
+        if (field === 'entity' && matches(value)) {
+            if (top.section === 'entities' && top.isAttribute) {
+                out.push({ kind: 'reference', line: i + 1, label: top.id, detail: 'Reference', icon: 'link' });
+            } else if (top.section === 'views' && !top.isAttribute) {
+                out.push({ kind: 'view', line: i + 1, label: top.id, detail: 'view сущности', icon: 'visibility' });
+            } else if (top.section === 'dataRules' && !top.isAttribute) {
+                out.push({ kind: 'dataRule', line: i + 1, label: top.id, detail: 'правило данных', icon: 'rule' });
+            } else if (top.section === 'mixins' && !top.isAttribute) {
+                out.push({ kind: 'mixin', line: i + 1, label: top.id, detail: 'примесь', icon: 'merge' });
+            } else if (top.section === 'actions' && !top.isAttribute) {
+                out.push({ kind: 'action', line: i + 1, label: top.id, detail: 'действие', icon: 'bolt' });
+            }
+        }
+
+        // uiRules — ссылки из condition (проверяем, упоминается ли сущность в RQL)
+        if (
+            top.section === "uiRules" &&
+            field === "condition" &&
+            new RegExp(`\\b${entityId}\\b`).test(value)
+        ) {
+            out.push({
+                kind: "dataRule",
+                line: i + 1,
+                label: top.id,
+                detail: "UI Rule",
+                icon: "rule",
+            });
+        }
+
+        if ((field === 'side1' || field === 'side2') && matches(value) && top.section === 'linkages') {
+            out.push({ kind: 'linkage', line: i + 1, label: top.id, detail: field, icon: 'link' });
+        }
+    }
+
+    return out;
+}
+
+function resolveAttributeBacklinks(
+    lines: string[],
+    targetEntity: string,
+    targetAttr: string,
+): Backlink[] {
+    const out: Backlink[] = [];
+
+    const matches = (val: string): boolean => {
+        if (val === targetEntity) return true;
+        const slash = val.indexOf('/');
+        return slash > 0 && val.slice(slash + 1) === targetEntity;
+    };
+
+    interface Block { id: string; indent: number; section: string; entityContext: string | null; }
+    const stack: Block[] = [];
+    let section = '';
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line.trim() || line.trim().startsWith('#')) continue;
+        const indent = (line.match(/^(\s*)/) || ['', ''])[1].length;
+
+        if (indent === 0) {
+            const sm = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+            if (sm) section = sm[1];
+            stack.length = 0;
+            continue;
+        }
+
+        const idm = line.match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
+        if (idm) {
+            const idIndent = idm[1].length;
+            const id = idm[2].replace(/["']/g, '');
+            while (stack.length && stack[stack.length - 1].indent >= idIndent) stack.pop();
+            const parent = stack[stack.length - 1];
+            stack.push({ id, indent: idIndent, section, entityContext: parent?.entityContext || null });
+            continue;
+        }
+
+        const fm = line.match(/^\s*(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*(.+)$/);
+        if (!fm) continue;
+        const field = fm[1];
+        let value = fm[2].split(' #')[0].trim();
+        if ((value.startsWith('"') && value.endsWith('"')) ||
+            (value.startsWith("'") && value.endsWith("'"))) {
+            value = value.slice(1, -1);
+        }
+
+        const top = stack[stack.length - 1];
+        if (!top) continue;
+
+        if (field === 'entity' &&
+            (top.section === 'views' || top.section === 'dataRules') &&
+            matches(value)) {
+            top.entityContext = targetEntity;
+            continue;
+        }
+
+        if (field === 'attribute' && value === targetAttr) {
+            // Ищем ближайший блок с нужным entityContext
+            let contextIdx = -1;
+            for (let j = stack.length - 1; j >= 0; j--) {
+                if (stack[j].entityContext === targetEntity) {
+                    contextIdx = j;
+                    break;
+                }
+            }
+            if (contextIdx === -1) continue;
+
+            // Поднимаемся до top-level (view или dataRule)
+            let topLevelIdx = contextIdx;
+            for (let j = contextIdx - 1; j >= 0; j--) {
+                if (stack[j].section === 'views' || stack[j].section === 'dataRules') {
+                    topLevelIdx = j;
+                    break;
+                }
+            }
+
+            const immediate = stack[contextIdx];
+            const topLevel = stack[topLevelIdx];
+            const isWidget = topLevel.id !== immediate.id && topLevel.section === 'views';
+
+            out.push({
+                kind: isWidget ? 'widget' : 'dataRule',
+                line: i + 1,
+                label: topLevel.id,
+                detail: isWidget ? `виджет ${immediate.id}` : 'правило',
+                icon: isWidget ? 'widgets' : 'rule',
+            });
+        }
+
+        // uiRules: attribute упоминается в условии через @doc.attr
+        if (
+            top.section === "uiRules" &&
+            field === "condition" &&
+            new RegExp(`@doc\\.${targetAttr}\\b`).test(value)
+        ) {
+            // Ищем top-level uiRule
+            let topLevelIdx = -1;
+            for (let j = stack.length - 1; j >= 0; j--) {
+                if (stack[j].section === "uiRules") {
+                    topLevelIdx = j;
+                    break;
+                }
+            }
+            if (topLevelIdx !== -1) {
+                out.push({
+                    kind: "dataRule",
+                    line: i + 1,
+                    label: stack[topLevelIdx].id,
+                    detail: "UI Rule по атрибуту",
+                    icon: "rule",
+                });
+            }
+        }
+
+        // uiRules: attribute упоминается через `- widget: editors_<attr>` или `attribute: <attr>`
+        if (top.section === "uiRules" && field === "widget" && value.startsWith("editors_")) {
+            const attrFromWidget = value.replace(/^editors_/, "");
+            if (attrFromWidget === targetAttr) {
+                // Ищем top-level uiRule
+                let topLevelIdx = -1;
+                for (let j = stack.length - 1; j >= 0; j--) {
+                    if (stack[j].section === "uiRules") {
+                        topLevelIdx = j;
+                        break;
+                    }
+                }
+                if (topLevelIdx !== -1) {
+                    out.push({
+                        kind: "widget",
+                        line: i + 1,
+                        label: stack[topLevelIdx].id,
+                        detail: "UI Rule по виджету",
+                        icon: "rule",
+                    });
+                }
+            }
+        }
+
+        // actions.values[] — ссылается на атрибут
+        if (top.section === "actions" && field === "attribute" && value === targetAttr) {
+            // Ищем top-level action
+            let topLevelIdx = -1;
+            for (let j = stack.length - 1; j >= 0; j--) {
+                if (stack[j].section === "actions") {
+                    topLevelIdx = j;
+                    break;
+                }
+            }
+            if (topLevelIdx !== -1) {
+                out.push({
+                    kind: "action",
+                    line: i + 1,
+                    label: stack[topLevelIdx].id,
+                    detail: "массовое действие",
+                    icon: "bolt",
+                });
+            }
+        }
+    }
+
+    return out;
 }

@@ -181,6 +181,16 @@ export function DomainSchemaModal() {
         return result;
     }, [schema, query, onlyProblematic, index, domainId, issuesByEntity]);
 
+    // При включении «Только проблемные» — раскрываем все секции с результатами
+    useEffect(() => {
+        if (!onlyProblematic) return;
+        setExpanded((prev) => {
+            const next = new Set(prev);
+            next.add("entities");
+            return next;
+        });
+    }, [onlyProblematic]);
+
     if (!open) return null;
 
     const showFiltered = filteredSections !== null;
@@ -381,7 +391,9 @@ export function DomainSchemaModal() {
 
                         {noResults && (
                             <div className="domain-schema-no-results">
-                                Ничего не найдено по текущему фильтру
+                                {onlyProblematic && !query.trim()
+                                    ? "В этом домене нет проблемных элементов"
+                                    : "Ничего не найдено по текущему фильтру"}
                             </div>
                         )}
 

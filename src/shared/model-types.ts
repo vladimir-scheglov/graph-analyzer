@@ -518,6 +518,41 @@ export interface DomainSchemaSection<T> {
   items: T[];
 }
 
+export interface DomainSchemaTreeNode {
+  id: string;
+  name: string;
+  type: string;
+  maxDepth?: number;
+  rootEntity?: string;
+}
+
+export interface DomainSchemaTransitiveItem {
+  id: string;
+  name: string;
+  entity?: string;
+  joinsCount: number;
+}
+
+export interface DomainSchemaUiRuleItem {
+  id: string;
+  name: string;
+  target: string;
+  view?: string;
+  effect?: string;
+}
+
+export interface DomainSchemaUiPresetItem {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface DomainSchemaCounterColorItem {
+  id: string;
+  red: string;
+  yellow: string;
+}
+
 export interface DomainSchemaSummary {
   domainId: string;
   metadata: DomainSchemaMetadata;
@@ -536,6 +571,11 @@ export interface DomainSchemaSummary {
       type: string;
       iconName?: string;
     }>;
+    trees: DomainSchemaSection<DomainSchemaTreeNode>;
+    transitiveLinkages: DomainSchemaSection<DomainSchemaTransitiveItem>;
+    uiRules: DomainSchemaSection<DomainSchemaUiRuleItem>;
+    uiPresets: DomainSchemaSection<DomainSchemaUiPresetItem>;
+    counterColorPattern: DomainSchemaSection<DomainSchemaCounterColorItem>;
   };
   flags: {
     hasExchangeSettings: boolean;

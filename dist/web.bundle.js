@@ -9289,7 +9289,13 @@ function CommandPalette({ commands, onOpenFile }) {
   const inputRef = useRef10(null);
   useEffect19(() => {
     if (open) {
-      setTimeout(() => inputRef.current?.focus(), 50);
+      setTimeout(() => {
+        const input = inputRef.current;
+        if (!input)
+          return;
+        input.focus();
+        input.setSelectionRange(0, input.value.length);
+      }, 50);
     }
   }, [open]);
   const filteredCommands = useMemo18(() => {
@@ -12314,7 +12320,26 @@ function ImpactAnalysisPanel(props) {
   return /* @__PURE__ */ jsxs50("div", { className: "impact-panel", children: [
     /* @__PURE__ */ jsx53("button", { className: "entity-graph-back", onClick: props.onBack, children: "\u2190 \u041D\u0430\u0437\u0430\u0434 \u043A \u0441\u043F\u0438\u0441\u043A\u0443" }),
     /* @__PURE__ */ jsxs50("div", { className: "impact-header", children: [
-      /* @__PURE__ */ jsx53("div", { className: "impact-header__fqid", children: entity.fqid }),
+      /* @__PURE__ */ jsxs50("div", { className: "impact-header__fqid-row", children: [
+        /* @__PURE__ */ jsxs50("div", { className: "impact-header__fqid", children: [
+          entity.domainId,
+          "/",
+          entity.entityId
+        ] }),
+        /* @__PURE__ */ jsx53(
+          "button",
+          {
+            className: "impact-header__copy",
+            onClick: () => {
+              const fullFqid = `${entity.domainId}/${entity.entityId}`;
+              navigator.clipboard.writeText(fullFqid);
+              useGraphStore.getState().showSnackbar("FQID \u0441\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D");
+            },
+            title: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C FQID",
+            children: /* @__PURE__ */ jsx53(MIcon, { name: "content_copy", size: "sm" })
+          }
+        )
+      ] }),
       /* @__PURE__ */ jsx53("div", { className: "impact-header__name", children: entity.name }),
       entity.description && /* @__PURE__ */ jsx53("div", { className: "impact-header__desc", children: entity.description }),
       /* @__PURE__ */ jsxs50("div", { className: "impact-header__badges", children: [
@@ -12324,20 +12349,34 @@ function ImpactAnalysisPanel(props) {
             className: "btn btn--primary",
             onClick: () => props.onGotoDomain(entity.domainId),
             children: [
-              /* @__PURE__ */ jsx53(MIcon, { name: "my_location", size: "sm" }),
-              /* @__PURE__ */ jsx53("span", { className: "icon-label", children: "\u041F\u0435\u0440\u0435\u0439\u0442\u0438 \u043A \u0434\u043E\u043C\u0435\u043D\u0443" })
+              /* @__PURE__ */ jsx53(MIcon, { name: "menu_book", size: "sm" }),
+              "\u0421\u0445\u0435\u043C\u0430 \u0434\u043E\u043C\u0435\u043D\u0430"
             ]
           }
         ),
         /* @__PURE__ */ jsxs50(
           "button",
           {
-            className: "impact-fav-btn" + (isFav ? " active" : ""),
-            onClick: () => toggleFav(props.fqid),
-            title: isFav ? "\u0423\u0431\u0440\u0430\u0442\u044C \u0438\u0437 \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u043E\u0433\u043E" : "\u0412 \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u043E\u0435",
+            className: "btn",
+            onClick: () => {
+              const nodes = useGraphStore.getState().nodes;
+              const node = nodes.find(
+                (n) => (n.data.domainId || "").toLowerCase() === entity.domainId.toLowerCase()
+              );
+              if (node?.data.filePath) {
+                openFileInEditor(
+                  node.data.filePath,
+                  entity.fqid,
+                  entity.domainId
+                );
+              } else {
+                useGraphStore.getState().showSnackbar("\u0424\u0430\u0439\u043B \u0441\u0445\u0435\u043C\u044B \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D");
+              }
+            },
+            title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C YAML-\u0444\u0430\u0439\u043B \u0441 \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u043E\u043C \u043A \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438",
             children: [
-              /* @__PURE__ */ jsx53(MIcon, { name: isFav ? "star" : "star_border", fill: isFav, size: "sm" }),
-              isFav ? "\u0412 \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u043E\u043C" : "\u0412 \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u043E\u0435"
+              /* @__PURE__ */ jsx53(MIcon, { name: "description", size: "sm" }),
+              "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0444\u0430\u0439\u043B"
             ]
           }
         ),
@@ -12503,6 +12542,7 @@ var init_ImpactAnalysisPanel = __esm({
     init_MIcon();
     init_impact_analysis();
     init_useGraphStore();
+    init_open_file();
   }
 });
 
@@ -12526,6 +12566,8 @@ function EntitiesCatalogModal() {
       return;
     if (!index)
       return;
+    setFilters(EMPTY_FILTERS);
+    setLimit(PAGE_SIZE);
     setSelectedFqid(initialFqid);
     store.setEntityCatalogInitialFqid(null);
   }, [open, initialFqid, index, store]);
@@ -12582,10 +12624,11 @@ function EntitiesCatalogModal() {
   }, []);
   const handleGotoDomain = useCallback13(
     (domainId) => {
-      goto(domainId);
       store.setEntityCatalogOpen(false);
+      store.setDomainSchemaDomainId(domainId);
+      store.setDomainSchemaOpen(true);
     },
-    [goto, store]
+    [store]
   );
   const handleSelectFromImpact = useCallback13((fqid) => {
     setSelectedFqid(fqid);
@@ -16858,7 +16901,19 @@ function SectionItems({
       ] })
     ] }, m.id)) });
   }
-  return null;
+  return /* @__PURE__ */ jsx63("div", { className: "domain-schema-list", children: items.map((item) => /* @__PURE__ */ jsxs60("div", { className: "domain-schema-item", children: [
+    /* @__PURE__ */ jsx63("code", { className: "domain-schema-item__id", children: item.id }),
+    item.name && item.name !== item.id && /* @__PURE__ */ jsx63("span", { className: "domain-schema-item__name", children: item.name }),
+    /* @__PURE__ */ jsxs60("span", { className: "domain-schema-item__meta", children: [
+      item.type && /* @__PURE__ */ jsx63("span", { className: "domain-schema-item__badge", children: item.type }),
+      item.target && /* @__PURE__ */ jsx63("span", { className: "domain-schema-item__badge", children: item.target }),
+      item.effect && /* @__PURE__ */ jsx63("span", { className: "domain-schema-item__badge", children: item.effect }),
+      item.rootEntity && ` \xB7 \u043A\u043E\u0440\u0435\u043D\u044C: ${item.rootEntity}`,
+      item.joinsCount != null && ` \xB7 ${item.joinsCount} \u0441\u0432\u044F\u0437\u0435\u0439`,
+      item.red && ` \xB7 red: ${item.red}`,
+      item.yellow && ` \xB7 yellow: ${item.yellow}`
+    ] })
+  ] }, item.id)) });
 }
 var init_DomainSchemaSectionItems = __esm({
   "src/web/components/modals/DomainSchemaSectionItems.tsx"() {
@@ -16884,7 +16939,12 @@ var init_consts = __esm({
       menus: { label: "\u041C\u0435\u043D\u044E", icon: "menu" },
       mixins: { label: "\u041C\u0438\u043A\u0441\u0438\u043D\u044B", icon: "merge" },
       dataRules: { label: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0434\u0430\u043D\u043D\u044B\u0445", icon: "rule" },
-      medias: { label: "\u0418\u043A\u043E\u043D\u043A\u0438", icon: "image" }
+      medias: { label: "\u0418\u043A\u043E\u043D\u043A\u0438", icon: "image" },
+      trees: { label: "\u0414\u0435\u0440\u0435\u0432\u044C\u044F", icon: "account_tree" },
+      transitiveLinkages: { label: "\u0422\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0438", icon: "link" },
+      uiRules: { label: "UI Rules", icon: "rule_folder" },
+      uiPresets: { label: "UI Presets", icon: "palette" },
+      counterColorPattern: { label: "\u0426\u0432\u0435\u0442\u043E\u0432\u044B\u0435 \u0441\u0445\u0435\u043C\u044B", icon: "timelapse" }
     };
   }
 });
@@ -17052,6 +17112,15 @@ function DomainSchemaModal() {
     });
     return result;
   }, [schema2, query, onlyProblematic, index, domainId, issuesByEntity]);
+  useEffect30(() => {
+    if (!onlyProblematic)
+      return;
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.add("entities");
+      return next;
+    });
+  }, [onlyProblematic]);
   if (!open)
     return null;
   const showFiltered = filteredSections !== null;
@@ -17242,7 +17311,7 @@ function DomainSchemaModal() {
                   ] })
                 ] })
               ] }),
-              noResults && /* @__PURE__ */ jsx64("div", { className: "domain-schema-no-results", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0442\u0435\u043A\u0443\u0449\u0435\u043C\u0443 \u0444\u0438\u043B\u044C\u0442\u0440\u0443" }),
+              noResults && /* @__PURE__ */ jsx64("div", { className: "domain-schema-no-results", children: onlyProblematic && !query.trim() ? "\u0412 \u044D\u0442\u043E\u043C \u0434\u043E\u043C\u0435\u043D\u0435 \u043D\u0435\u0442 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0445 \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u043E\u0432" : "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0442\u0435\u043A\u0443\u0449\u0435\u043C\u0443 \u0444\u0438\u043B\u044C\u0442\u0440\u0443" }),
               /* @__PURE__ */ jsx64("div", { className: "domain-schema-sections", children: Object.keys(SECTION_LABELS).map((key) => {
                 const section = schema2.sections[key];
                 const meta = SECTION_LABELS[key];
@@ -17449,7 +17518,7 @@ function LintModal() {
             ] }) }),
             index && report && /* @__PURE__ */ jsxs62("div", { className: "help-modal__body help-modal__body--flush", children: [
               /* @__PURE__ */ jsxs62(ModalHelp, { visible: showHelp, children: [
-                /* @__PURE__ */ jsx65(HelpSection, { title: "\u0427\u0442\u043E \u044D\u0442\u043E", children: /* @__PURE__ */ jsx65(HelpText, { children: "\u041B\u0438\u043D\u0442\u0435\u0440 \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442 \u0441\u0445\u0435\u043C\u044B \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u043D\u0430 \u0441\u043E\u043E\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0438\u0435 \u0441\u043E\u0433\u043B\u0430\u0448\u0435\u043D\u0438\u044F\u043C R-Vision: \u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u0438\u043C\u0435\u043D\u043E\u0432\u0430\u043D\u0438\u044F, \u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u044B\u0435 \u043F\u043E\u043B\u044F, \u0441\u0441\u044B\u043B\u043E\u0447\u043D\u0443\u044E \u0446\u0435\u043B\u043E\u0441\u0442\u043D\u043E\u0441\u0442\u044C, \u0442\u0438\u043F\u044B \u0434\u0430\u043D\u043D\u044B\u0445 \u0438 \u0441\u0435\u043C\u0430\u043D\u0442\u0438\u043A\u0443. \u0412\u0441\u0451, \u0447\u0442\u043E \u043D\u0430\u0440\u0443\u0448\u0430\u0435\u0442 \u043D\u043E\u0440\u043C\u0443, \u043F\u043E\u043F\u0430\u0434\u0430\u0435\u0442 \u0432 \u043E\u0442\u0447\u0451\u0442." }) }),
+                /* @__PURE__ */ jsx65(HelpSection, { title: "\u0427\u0442\u043E \u044D\u0442\u043E", children: /* @__PURE__ */ jsx65(HelpText, { children: "\u041B\u0438\u043D\u0442\u0435\u0440 \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442 \u0441\u0445\u0435\u043C\u044B \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u043D\u0430 \u0441\u043E\u043E\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0438\u0435 \u0441\u043E\u0433\u043B\u0430\u0448\u0435\u043D\u0438\u044F\u043C: \u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u0438\u043C\u0435\u043D\u043E\u0432\u0430\u043D\u0438\u044F, \u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u044B\u0435 \u043F\u043E\u043B\u044F, \u0441\u0441\u044B\u043B\u043E\u0447\u043D\u0443\u044E \u0446\u0435\u043B\u043E\u0441\u0442\u043D\u043E\u0441\u0442\u044C, \u0442\u0438\u043F\u044B \u0434\u0430\u043D\u043D\u044B\u0445 \u0438 \u0441\u0435\u043C\u0430\u043D\u0442\u0438\u043A\u0443. \u0412\u0441\u0451, \u0447\u0442\u043E \u043D\u0430\u0440\u0443\u0448\u0430\u0435\u0442 \u043D\u043E\u0440\u043C\u0443, \u043F\u043E\u043F\u0430\u0434\u0430\u0435\u0442 \u0432 \u043E\u0442\u0447\u0451\u0442." }) }),
                 /* @__PURE__ */ jsx65(HelpSection, { title: "\u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438 \u043F\u0440\u0430\u0432\u0438\u043B", children: /* @__PURE__ */ jsxs62(HelpList, { children: [
                   /* @__PURE__ */ jsxs62("li", { children: [
                     /* @__PURE__ */ jsx65("strong", { children: "\u0421\u0441\u044B\u043B\u043E\u0447\u043D\u0430\u044F \u0446\u0435\u043B\u043E\u0441\u0442\u043D\u043E\u0441\u0442\u044C" }),
@@ -19331,62 +19400,134 @@ var init_useMonacoLoader = __esm({
 });
 
 // src/web/lib/yaml/line-context.ts
+function containerType(key) {
+  return CONTAINER_TYPE_MAP[key] || "item";
+}
 function buildLineContexts(text) {
   const lines = text.split("\n");
   const result = /* @__PURE__ */ new Map();
+  const stack = [];
   let section = "";
-  let entityId = null;
-  let entityIndent = -1;
-  let ruleId;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const trimmed = line.trim();
+    const lineNum = i + 1;
+    const save = () => {
+      const breadcrumbs = [];
+      let entityId = null;
+      for (const s of stack) {
+        if (s.type === "container")
+          continue;
+        breadcrumbs.push({ type: s.type, id: s.id, line: s.line });
+        if (s.type === "entity" && entityId === null)
+          entityId = s.id;
+      }
+      result.set(lineNum, { section, entityId, breadcrumbs });
+    };
     if (!trimmed || trimmed.startsWith("#")) {
-      result.set(i + 1, { entityId, section, ruleId });
+      save();
       continue;
     }
     const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
     if (indent === 0) {
-      const secMatch = line.match(/^([a-zA-Z][a-zA-Z0-9_]*)\s*:\s*(?:#.*)?$/);
-      if (secMatch) {
-        section = secMatch[1];
-        entityId = null;
-        ruleId = void 0;
-        entityIndent = -1;
-        result.set(i + 1, { entityId, section, ruleId });
+      const sm = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (sm) {
+        section = sm[1];
+        stack.length = 0;
+        stack.push({
+          indent: 0,
+          key: section,
+          id: section,
+          line: lineNum,
+          type: "section",
+          isId: false
+        });
+        save();
         continue;
       }
     }
-    const blockStart = line.match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
-    if (blockStart) {
-      const bIndent = blockStart[1].length;
-      const newId = blockStart[2].replace(/["']/g, "");
-      if (section === "entities") {
-        if (entityIndent < 0 || bIndent <= entityIndent) {
-          entityId = newId;
-          entityIndent = bIndent;
+    while (stack.length > 0 && stack[stack.length - 1].indent >= indent && stack[stack.length - 1].type !== "section") {
+      stack.pop();
+    }
+    const idMatch = line.match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
+    if (idMatch) {
+      const id = idMatch[2].replace(/["']/g, "");
+      let type2 = "";
+      for (let j = stack.length - 1; j >= 0; j--) {
+        if (stack[j].type === "section") {
+          type2 = containerType(stack[j].key);
+          break;
         }
-      } else {
-        ruleId = newId;
-        if (entityIndent >= 0 && bIndent <= entityIndent) {
-          entityId = null;
-          entityIndent = -1;
-        }
+        if (stack[j].isId)
+          continue;
+        type2 = containerType(stack[j].key);
+        break;
       }
-      result.set(i + 1, { entityId, section, ruleId });
+      if (!type2)
+        type2 = "item";
+      stack.push({ indent, key: "id", id, line: lineNum, type: type2, isId: true });
+      save();
       continue;
     }
-    if (entityId && entityIndent >= 0 && indent < entityIndent) {
-      entityId = null;
-      entityIndent = -1;
+    const containerMatch = line.match(/^(\s*)([a-zA-Z_][\w]*)\s*:\s*$/);
+    if (containerMatch) {
+      const key = containerMatch[2];
+      stack.push({
+        indent,
+        key,
+        id: key,
+        line: lineNum,
+        type: "container",
+        isId: false
+      });
+      save();
+      continue;
     }
-    result.set(i + 1, { entityId, section, ruleId });
+    save();
   }
   return result;
 }
+var CONTAINER_TYPE_MAP;
 var init_line_context = __esm({
   "src/web/lib/yaml/line-context.ts"() {
     "use strict";
+    CONTAINER_TYPE_MAP = {
+      entities: "entity",
+      linkages: "linkage",
+      attributes: "attribute",
+      widgets: "widget",
+      groups: "group",
+      views: "view",
+      actions: "action",
+      dataRules: "dataRule",
+      mixins: "mixin",
+      sequences: "sequence",
+      dataTypes: "dataType",
+      menus: "menu",
+      medias: "media",
+      values: "enumValue",
+      statuses: "workflowStatus",
+      transitions: "transition",
+      items: "menuItem",
+      joins: "join",
+      sorting: "sorting",
+      identification: "identification",
+      reconciliation: "reconciliation",
+      projection: "projection",
+      prefixRules: "prefixRule",
+      rule: "rule",
+      columns: "column",
+      by: "sortingByItem",
+      nested: "nested",
+      calculation: "calculation",
+      prefixRule: "prefixRule",
+      trees: "tree",
+      transitiveLinkages: "transitiveLinkage",
+      hierarchy: "hierarchy",
+      uiRules: "uiRule",
+      uiPresets: "uiPreset",
+      props: "props"
+    };
   }
 });
 
@@ -19477,7 +19618,7 @@ function buildLineMap(text, schema2) {
   const lines = text.split("\n");
   const sections = [];
   const itemLines = /* @__PURE__ */ new Map();
-  const idRegex = /^(\s*)-\s+id:\s+([^\s#]+)/;
+  const idRegex = /^(\s*)-\s+id:\s*([^\s#]+)/;
   const sectionRegex = /^([a-zA-Z][a-zA-Z0-9_]*):\s*(?:#.*)?$/;
   const sectionRanges = [];
   let currentKey = null;
@@ -19501,6 +19642,48 @@ function buildLineMap(text, schema2) {
     });
   }
   sectionRanges.forEach(({ key, start, end }) => {
+    if (key === "trees") {
+      const nodes2 = parseTreesSection(lines, start, end);
+      if (nodes2.length > 0) {
+        sections.push({
+          key,
+          label: SECTION_LABELS2[key] || key,
+          line: start + 1,
+          count: nodes2.length,
+          linesCount: end - start,
+          nodes: nodes2
+        });
+        nodes2.forEach((n) => {
+          itemLines.set(`trees#${n.id}`, n.line);
+          (n.children || []).forEach(
+            (c) => itemLines.set(`trees#${c.id}`, c.line)
+          );
+        });
+      }
+      return;
+    }
+    if (key === "transitiveLinkages") {
+      const nodes2 = parseTransitiveSection(lines, start, end);
+      if (nodes2.length > 0) {
+        sections.push({
+          key,
+          label: SECTION_LABELS2[key] || key,
+          line: start + 1,
+          count: nodes2.length,
+          linesCount: end - start,
+          nodes: nodes2
+        });
+        const collect = (arr) => {
+          arr.forEach((n) => {
+            itemLines.set(`transitiveLinkages#${n.id}`, n.line);
+            if (n.children)
+              collect(n.children);
+          });
+        };
+        collect(nodes2);
+      }
+      return;
+    }
     const sectionSchema = schema2.sections?.[key];
     if (!sectionSchema)
       return;
@@ -19551,6 +19734,10 @@ function buildLineMap(text, schema2) {
           meta = schemaItem.type;
         } else if (schemaItem.kind) {
           meta = schemaItem.kind;
+        } else if (schemaItem.target) {
+          meta = schemaItem.target;
+        } else if (schemaItem.effect) {
+          meta = schemaItem.effect;
         }
       }
       itemLines.set(`${key}#${id}`, i + 1);
@@ -19608,6 +19795,279 @@ function findAttributeInEntity(entityId, attributePath, lineMap) {
   }
   return null;
 }
+function findRangeInLines(lines, startIdx, endIdx, indent) {
+  for (let i = startIdx + 1; i < endIdx; i++) {
+    const line = lines[i];
+    if (!line || !line.trim())
+      continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind <= indent)
+      return i;
+  }
+  return endIdx;
+}
+function parseTreesSection(lines, start, end) {
+  const trees = [];
+  const idRegex = /^(\s*)-\s+id\s*:\s*([^\s#]+)/;
+  let treeIndent = -1;
+  for (let i = start + 1; i < end; i++) {
+    const m = lines[i].match(idRegex);
+    if (m) {
+      treeIndent = m[1].length;
+      break;
+    }
+  }
+  if (treeIndent < 0)
+    return [];
+  for (let i = start + 1; i < end; i++) {
+    const m = lines[i].match(idRegex);
+    if (!m || m[1].length !== treeIndent)
+      continue;
+    const treeId = m[2];
+    const treeEnd = findRangeInLines(lines, i, end, treeIndent);
+    let hierarchyLine = -1;
+    let hierarchyIndent = -1;
+    for (let j = i + 1; j < treeEnd; j++) {
+      const lm = lines[j].match(/^(\s*)hierarchy\s*:\s*$/);
+      if (lm) {
+        hierarchyLine = j;
+        hierarchyIndent = lm[1].length;
+        break;
+      }
+    }
+    const children = [];
+    if (hierarchyLine >= 0) {
+      const hierarchyEnd = findRangeInLines(
+        lines,
+        hierarchyLine,
+        treeEnd,
+        hierarchyIndent
+      );
+      let rootEntity = null;
+      let rootEntityLine = -1;
+      for (let j = hierarchyLine + 1; j < hierarchyEnd; j++) {
+        const lm = lines[j].match(/^\s*entity\s*:\s*([^\s#]+)/);
+        if (lm) {
+          rootEntity = lm[1].replace(/["']/g, "");
+          rootEntityLine = j;
+          break;
+        }
+      }
+      let rootChildren = [];
+      for (let j = hierarchyLine + 1; j < hierarchyEnd; j++) {
+        const lm = lines[j].match(/^(\s*)children\s*:\s*$/);
+        if (!lm)
+          continue;
+        const childrenIndent = lm[1].length;
+        if (childrenIndent <= hierarchyIndent)
+          continue;
+        const childrenEnd = findRangeInLines(
+          lines,
+          j,
+          hierarchyEnd,
+          childrenIndent
+        );
+        const childNodes = parseTreeChildren(
+          lines,
+          j,
+          childrenEnd,
+          rootEntity,
+          1
+        );
+        rootChildren.push(...childNodes);
+        break;
+      }
+      if (rootEntity) {
+        children.push({
+          id: rootEntity,
+          label: rootEntity,
+          line: rootEntityLine + 1,
+          type: "entity",
+          meta: "\u043A\u043E\u0440\u0435\u043D\u044C",
+          children: rootChildren.length > 0 ? rootChildren : void 0
+        });
+      } else if (rootChildren.length > 0) {
+        children.push(...rootChildren);
+      }
+    }
+    trees.push({
+      id: treeId,
+      label: treeId,
+      line: i + 1,
+      type: "tree",
+      children: children.length > 0 ? children : void 0
+    });
+    i = treeEnd - 1;
+  }
+  return trees;
+}
+function parseTreeChildren(lines, childrenLine, childrenEnd, parentEntity, depth) {
+  const result = [];
+  if (depth > 10)
+    return result;
+  const childStartRegex = /^(\s*)-\s+(linkage|entity)\s*:\s*([^\s#]+)/;
+  let childIndent = -1;
+  for (let i = childrenLine + 1; i < childrenEnd; i++) {
+    const m = lines[i].match(childStartRegex);
+    if (m) {
+      childIndent = m[1].length;
+      break;
+    }
+  }
+  if (childIndent < 0)
+    return result;
+  for (let i = childrenLine + 1; i < childrenEnd; i++) {
+    const m = lines[i].match(childStartRegex);
+    if (!m || m[1].length !== childIndent)
+      continue;
+    const childEnd = findRangeInLines(lines, i, childrenEnd, childIndent);
+    let linkage = m[2] === "linkage" ? m[3] : null;
+    let entity = m[2] === "entity" ? m[3] : null;
+    for (let j = i + 1; j < childEnd; j++) {
+      const lm = lines[j].match(/^\s*(linkage|entity)\s*:\s*([^\s#]+)/);
+      if (lm) {
+        const val = lm[2].replace(/["']/g, "");
+        if (lm[1] === "linkage" && !linkage)
+          linkage = val;
+        else if (lm[1] === "entity" && !entity)
+          entity = val;
+      }
+    }
+    let nestedChildren = [];
+    for (let j = i + 1; j < childEnd; j++) {
+      const lm = lines[j].match(/^(\s*)children\s*:\s*$/);
+      if (!lm)
+        continue;
+      const nestedIndent = lm[1].length;
+      const nestedEnd = findRangeInLines(lines, j, childEnd, nestedIndent);
+      nestedChildren = parseTreeChildren(
+        lines,
+        j,
+        nestedEnd,
+        entity,
+        depth + 1
+      );
+      break;
+    }
+    const displayId = entity || linkage || `child_${i}`;
+    const meta = linkage ? `${linkage}${entity ? "" : ""}` : entity ? "\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C" : "";
+    result.push({
+      id: displayId,
+      label: displayId,
+      line: i + 1,
+      type: "entity",
+      meta: meta || void 0,
+      children: nestedChildren.length > 0 ? nestedChildren : void 0
+    });
+    i = childEnd - 1;
+  }
+  return result;
+}
+function parseTransitiveSection(lines, start, end) {
+  const trees = [];
+  const idRegex = /^(\s*)-\s+id\s*:\s*([^\s#]+)/;
+  let treeIndent = -1;
+  for (let i = start + 1; i < end; i++) {
+    const m = lines[i].match(idRegex);
+    if (m) {
+      treeIndent = m[1].length;
+      break;
+    }
+  }
+  if (treeIndent < 0)
+    return [];
+  for (let i = start + 1; i < end; i++) {
+    const m = lines[i].match(idRegex);
+    if (!m || m[1].length !== treeIndent)
+      continue;
+    const treeId = m[2];
+    const treeEnd = findRangeInLines(lines, i, end, treeIndent);
+    let rootEntity = null;
+    for (let j = i + 1; j < treeEnd; j++) {
+      const lm = lines[j].match(/^\s*entity\s*:\s*([^\s#]+)/);
+      if (lm) {
+        rootEntity = lm[1].replace(/["']/g, "");
+        break;
+      }
+    }
+    let joinsLine = -1;
+    let joinsIndent = -1;
+    for (let j = i + 1; j < treeEnd; j++) {
+      const lm = lines[j].match(/^(\s*)joins\s*:\s*$/);
+      if (lm) {
+        joinsLine = j;
+        joinsIndent = lm[1].length;
+        break;
+      }
+    }
+    let children = [];
+    if (joinsLine >= 0) {
+      const joinsEnd = findRangeInLines(lines, joinsLine, treeEnd, joinsIndent);
+      children = parseJoins(lines, joinsLine, joinsEnd, 1);
+    }
+    trees.push({
+      id: treeId,
+      label: treeId,
+      line: i + 1,
+      type: "transitiveLinkage",
+      meta: rootEntity || void 0,
+      children: children.length > 0 ? children : void 0
+    });
+    i = treeEnd - 1;
+  }
+  return trees;
+}
+function parseJoins(lines, joinsLine, joinsEnd, depth) {
+  const result = [];
+  if (depth > 8)
+    return result;
+  const idRegex = /^(\s*)-\s+id\s*:\s*([^\s#]+)/;
+  let joinIndent = -1;
+  for (let i = joinsLine + 1; i < joinsEnd; i++) {
+    const m = lines[i].match(idRegex);
+    if (m) {
+      joinIndent = m[1].length;
+      break;
+    }
+  }
+  if (joinIndent < 0)
+    return result;
+  for (let i = joinsLine + 1; i < joinsEnd; i++) {
+    const m = lines[i].match(idRegex);
+    if (!m || m[1].length !== joinIndent)
+      continue;
+    const joinId = m[2];
+    const joinEnd = findRangeInLines(lines, i, joinsEnd, joinIndent);
+    let linkage = null;
+    for (let j = i + 1; j < joinEnd; j++) {
+      const lm = lines[j].match(/^\s*linkage\s*:\s*([^\s#]+)/);
+      if (lm) {
+        linkage = lm[1].replace(/["']/g, "");
+        break;
+      }
+    }
+    let nestedChildren = [];
+    for (let j = i + 1; j < joinEnd; j++) {
+      const lm = lines[j].match(/^(\s*)joins\s*:\s*$/);
+      if (!lm)
+        continue;
+      const nestedJoinsIndent = lm[1].length;
+      const nestedJoinsEnd = findRangeInLines(lines, j, joinEnd, nestedJoinsIndent);
+      nestedChildren = parseJoins(lines, j, nestedJoinsEnd, depth + 1);
+      break;
+    }
+    result.push({
+      id: joinId,
+      label: joinId,
+      line: i + 1,
+      type: "join",
+      meta: linkage || void 0,
+      children: nestedChildren.length > 0 ? nestedChildren : void 0
+    });
+    i = joinEnd - 1;
+  }
+  return result;
+}
 var SECTION_LABELS2, CHILD_CONTAINERS;
 var init_line_map = __esm({
   "src/web/lib/yaml/line-map.ts"() {
@@ -19627,7 +20087,9 @@ var init_line_map = __esm({
       actions: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F",
       medias: "\u0418\u043A\u043E\u043D\u043A\u0438",
       views: "\u041F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F",
-      menus: "\u041C\u0435\u043D\u044E"
+      menus: "\u041C\u0435\u043D\u044E",
+      uiRules: "UI Rules",
+      uiPresets: "UI Presets"
     };
     CHILD_CONTAINERS = /* @__PURE__ */ new Set([
       // сущности
@@ -20408,6 +20870,14 @@ function detectContextAtPosition(model, position, _lineContexts) {
   if (!parentKey)
     return null;
   const hasDash = /^\s*-\s*[a-zA-Z]*$/.test(beforeCursor);
+  if (parentKey === "menus")
+    return hasDash ? "menuRoot" : "menuRootList";
+  if (parentKey === "medias")
+    return hasDash ? "media" : "mediaList";
+  if (parentKey === "mixins")
+    return hasDash ? "mixin" : "mixinList";
+  if (parentKey === "exchangeSettings")
+    return "exchangeSettings";
   if (parentKey === "entities")
     return hasDash ? "entity" : "entityList";
   if (parentKey === "linkages")
@@ -20418,20 +20888,87 @@ function detectContextAtPosition(model, position, _lineContexts) {
     return hasDash ? "dataRule" : "dataRuleList";
   if (parentKey === "views")
     return hasDash ? "view" : "viewList";
-  if (parentKey === "mixins")
-    return hasDash ? "mixin" : "mixinList";
-  if (parentKey === "menus")
-    return hasDash ? "menu" : "menuList";
   if (parentKey === "dataTypes")
     return hasDash ? "dataType" : "dataTypeList";
   if (parentKey === "sequences")
     return hasDash ? "sequence" : "sequenceList";
-  if (parentKey === "medias")
-    return hasDash ? "media" : "mediaList";
   if (parentKey === "counterColorPattern")
     return "counterColorPattern";
+  if (parentKey === "trees")
+    return hasDash ? "tree" : "treeList";
+  if (parentKey === "transitiveLinkages")
+    return hasDash ? "transitiveLinkage" : "transitiveLinkageList";
+  if (parentKey === "uiRules")
+    return hasDash ? "uiRule" : "uiRuleList";
+  if (parentKey === "uiPresets")
+    return hasDash ? "uiPreset" : "uiPresetList";
   if (parentKey === "attributes") {
     return section === "linkages" ? "linkageAttribute" : "attribute";
+  }
+  if (section === "menus") {
+    if (parentKey === "items") {
+      return hasDash ? "menuItem" : "menuItemList";
+    }
+  }
+  if (section === "mixins") {
+    if (parentKey === "entity") {
+      const beforeEntity = model.getLineContent(parentLine).slice(0, 20);
+      return "mixinEntity";
+    }
+    if (parentKey === "views") {
+      return hasDash ? "mixinView" : "mixinViewList";
+    }
+    if (parentKey === "to") {
+      return "mixinViewTo";
+    }
+    if (parentKey === "change")
+      return "mixinChange";
+    if (parentKey === "add")
+      return "mixinChangeAdd";
+    if (parentKey === "position")
+      return "mixinPosition";
+    if (parentKey === "components") {
+      return "viewGroupComponent";
+    }
+  }
+  if (section === "exchangeSettings") {
+    if (parentKey === "attributeFormats")
+      return "exchangeAttributeFormats";
+    if (parentKey === "entities") {
+      return "exchangeEntitySettings";
+    }
+  }
+  if (section === "actions") {
+    if (parentKey === "bulk")
+      return "actionBulk";
+    if (parentKey === "automation")
+      return "actionAutomation";
+    if (parentKey === "values")
+      return "actionValue";
+    if (parentKey === "control")
+      return "actionControl";
+    if (parentKey === "attributes") {
+      return "actionBulkAttributes";
+    }
+    if (parentKey === "linkages")
+      return "actionBulkLinkages";
+    if (parentKey === "use") {
+      let useContext = null;
+      for (let j = parentLine - 1; j >= 1; j--) {
+        const l = model.getLineContent(j);
+        const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
+        if (lIndent < parentIndent) {
+          const keyM = l.match(/^\s*(attributes|linkages)\s*:/);
+          if (keyM)
+            useContext = keyM[1];
+          break;
+        }
+      }
+      if (useContext === "attributes")
+        return "actionBulkAttributeUse";
+      if (useContext === "linkages")
+        return "actionBulkLinkageUse";
+    }
   }
   if (parentKey === "constraints")
     return "constraintsItem";
@@ -20455,8 +20992,182 @@ function detectContextAtPosition(model, position, _lineContexts) {
     return "nameFrom";
   if (parentKey === "control")
     return "widgetControl";
+  if (section === "views") {
+    if (parentKey === "widgets") {
+      return "widget";
+    }
+    if (parentKey === "control") {
+      let controlParent = null;
+      for (let j = parentLine - 1; j >= 1; j--) {
+        const l = model.getLineContent(j);
+        const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
+        if (lInd < parentIndent) {
+          const km = l.match(/^\s*(linkage|widget|attribute)\s*:/);
+          if (km)
+            controlParent = km[1];
+          break;
+        }
+      }
+      if (controlParent === "linkage")
+        return "viewWidgetLinkageControl";
+      if (controlParent === "attribute")
+        return "viewWidgetLinkageAttributeControl";
+      return "viewWidgetControl";
+    }
+    if (parentKey === "linkage") {
+      let insideWidget = false;
+      for (let j = parentLine - 1; j >= 1; j--) {
+        const l = model.getLineContent(j);
+        const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
+        if (lInd < parentIndent) {
+          if (/^\s*widgets\s*:/.test(l))
+            insideWidget = true;
+          break;
+        }
+      }
+      if (!insideWidget)
+        return "linkage";
+    }
+    if (parentKey === "columns") {
+      let insideLinkage = false;
+      for (let j = parentLine - 1; j >= 1; j--) {
+        const l = model.getLineContent(j);
+        const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
+        if (lInd < parentIndent) {
+          if (/^\s*linkage\s*:/.test(l))
+            insideLinkage = true;
+          break;
+        }
+      }
+      if (insideLinkage)
+        return "viewWidgetLinkageColumn";
+      return "viewTableColumn";
+    }
+    if (parentKey === "attributes") {
+      let insideLinkageWidget = false;
+      for (let j = parentLine - 1; j >= 1; j--) {
+        const l = model.getLineContent(j);
+        const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
+        if (lInd < parentIndent) {
+          if (/^\s*linkage\s*:/.test(l))
+            insideLinkageWidget = true;
+          break;
+        }
+      }
+      if (insideLinkageWidget)
+        return "viewWidgetLinkageAttributes";
+      return "attribute";
+    }
+    if (parentKey === "groups") {
+      return "group";
+    }
+    if (parentKey === "layout")
+      return "viewGroupLayout";
+    if (parentKey === "components")
+      return "viewGroupComponent";
+    if (parentKey === "inherit" || parentKey === "inherits")
+      return "inheritSettings";
+    if (parentKey === "views")
+      return "viewNested";
+    if (parentKey === "menu" || parentKey === "actionPanel") {
+      return parentKey === "actionPanel" ? "viewActionPanelItem" : "viewMenuAction";
+    }
+    if (parentKey === "tabs")
+      return "viewTab";
+    if (parentKey === "buttons")
+      return "viewButton";
+    if (parentKey === "footer")
+      return "viewFooterAction";
+    if (parentKey === "pinnedView")
+      return "viewPinnedView";
+    if (parentKey === "onView") {
+      return "viewButtonAction";
+    }
+    if (parentKey === "conversationTransports") {
+      return "viewWidgetConversation";
+    }
+    if (parentKey === "source")
+      return "viewSource";
+    if (parentKey === "joins")
+      return "viewSourceJoin";
+    if (parentKey === "table")
+      return "viewTable";
+    if (parentKey === "columns") {
+      let colParent = null;
+      for (let j = parentLine - 1; j >= 1; j--) {
+        const l = model.getLineContent(j);
+        const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
+        if (lInd < parentIndent) {
+          const km = l.match(/^\s*(table|control|widgets|linkage|join)\s*:/);
+          if (km) {
+            if (km[1] === "table")
+              colParent = "table";
+            else
+              colParent = "widget";
+          }
+          break;
+        }
+      }
+      return "viewTableColumn";
+    }
+    if (parentKey === "layout")
+      return "viewTableColumnLayout";
+    if (parentKey === "width")
+      return "viewTableColumnWidth";
+    if (parentKey === "aggregate")
+      return "viewTableColumnAggregate";
+    if (parentKey === "filter")
+      return "viewTableFilter";
+    if (parentKey === "use") {
+      let useParent = null;
+      for (let j = parentLine - 1; j >= 1; j--) {
+        const l = model.getLineContent(j);
+        const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
+        if (lInd < parentIndent) {
+          const km = l.match(/^\s*(attributes|linkages)\s*:/);
+          if (km)
+            useParent = km[1];
+          break;
+        }
+      }
+      if (useParent === "attributes")
+        return "viewTableFilterAttributesUse";
+      if (useParent === "linkages")
+        return "viewTableFilterLinkagesUse";
+    }
+    if (parentKey === "sortingBy")
+      return "viewTableSortingBy";
+    if (parentKey === "defaults") {
+      let defParent = null;
+      for (let j = parentLine - 1; j >= 1; j--) {
+        const l = model.getLineContent(j);
+        const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
+        if (lInd < parentIndent) {
+          const km = l.match(/^\s*(sortingBy|refresh)\s*:/);
+          if (km)
+            defParent = km[1];
+          break;
+        }
+      }
+      return defParent === "refresh" ? "viewTableRefreshDefaults" : "viewTableSortingByDefault";
+    }
+    if (parentKey === "paging")
+      return "viewTablePaging";
+    if (parentKey === "refresh")
+      return "viewTableRefresh";
+    if (parentKey === "actions")
+      return "viewTableAction";
+    if (parentKey === "items")
+      return "viewTableActionItem";
+    if (parentKey === "empty")
+      return "viewTableEmpty";
+    if (parentKey === "actionPanel")
+      return "viewActionPanelItem";
+    if (parentKey === "control")
+      return "viewTableColumnControl";
+  }
   if (parentKey === "table")
-    return "tableConfig";
+    return "viewTable";
   if (parentKey === "values")
     return "enumValue";
   if (parentKey === "statuses")
@@ -20470,8 +21181,63 @@ function detectContextAtPosition(model, position, _lineContexts) {
   if (parentKey === "groups")
     return "group";
   if (parentKey === "rule") {
-    return section === "dataRules" ? "dataRuleRule" : "identificationRule";
+    if (section === "dataRules")
+      return "dataRuleRule";
+    if (section === "uiRules")
+      return "uiRuleRule";
+    return "identificationRule";
   }
+  if (parentKey === "hierarchy")
+    return "treeHierarchy";
+  if (parentKey === "children")
+    return "treeChildren";
+  if (parentKey === "sorting" && section === "trees") {
+    return hasDash ? "treeSorting" : "treeSortingList";
+  }
+  if (parentKey === "by" && section === "trees") {
+    let byParentKind = null;
+    for (let i = parentLine - 1; i >= 1; i--) {
+      const l = model.getLineContent(i);
+      const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
+      if (lIndent >= parentIndent)
+        continue;
+      if (/^\s*-\s+id\s*:/.test(l)) {
+        byParentKind = "id";
+        break;
+      }
+      if (/^\s*-\s+entity\s*:/.test(l)) {
+        byParentKind = "entity";
+        break;
+      }
+      if (lIndent === 0)
+        break;
+    }
+    if (byParentKind === "entity")
+      return "treeSortingByBy";
+    return "treeSortingBy";
+  }
+  if (parentKey === "joins" && section === "transitiveLinkages")
+    return "transitiveJoin";
+  if (parentKey === "search" && section === "transitiveLinkages")
+    return "transitiveJoinSearch";
+  if (parentKey === "rule" && section === "uiRules")
+    return "uiRuleRule";
+  if (parentKey === "context" && section === "uiRules")
+    return "uiRuleContext";
+  if (parentKey === "widgets" && section === "uiRules")
+    return "uiRuleWidget";
+  if (parentKey === "groups" && section === "uiRules")
+    return "uiRuleGroup";
+  if (parentKey === "columns" && section === "uiRules")
+    return "uiRuleColumn";
+  if (parentKey === "nested" && section === "uiRules")
+    return "uiRuleNested";
+  if (parentKey === "attributes" && section === "uiRules")
+    return "uiRuleNestedAttribute";
+  if (parentKey === "items" && section === "uiRules")
+    return "uiRuleNestedItem";
+  if (parentKey === "props" && section === "uiPresets")
+    return "uiPresetProps";
   if (parentKey === "id") {
     for (let i = parentLine - 1; i >= 1; i--) {
       const l = model.getLineContent(i);
@@ -20884,6 +21650,189 @@ ${indent}description: ""`
         endColumn: wordAtPos.endColumn
       };
       const Kind = monaco.languages.CompletionItemKind;
+      if (/^\s*(?:-\s+)?operation\s*:\s*[\w]*$/.test(beforeCursor)) {
+        let actionType = null;
+        let idLine = -1;
+        let idIndent = -1;
+        for (let i = position.lineNumber - 1; i >= 1; i--) {
+          const l = model.getLineContent(i);
+          if (!l.trim() || l.trim().startsWith("#"))
+            continue;
+          const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
+          if (lInd === 0)
+            break;
+          const idm = l.match(/^(\s*)-\s+id\s*:/);
+          if (idm) {
+            idLine = i;
+            idIndent = idm[1].length;
+            break;
+          }
+        }
+        if (idLine !== -1) {
+          for (let i = idLine + 1; i < position.lineNumber; i++) {
+            const l = model.getLineContent(i);
+            const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
+            if (lInd <= idIndent)
+              break;
+            const tm = l.match(/^\s*type\s*:\s*([^\s#]+)/);
+            if (tm) {
+              actionType = tm[1].replace(/["']/g, "");
+              break;
+            }
+          }
+        }
+        const opsByType = {
+          open_modal: ["create", "edit"],
+          open_page: ["create", "edit", "view"],
+          bulk: ["remove", "edit", "edit_attribute"]
+        };
+        const allowed = actionType ? opsByType[actionType] || [] : [];
+        if (allowed.length > 0) {
+          return {
+            suggestions: allowed.map((op) => ({
+              label: op,
+              kind: Kind.Value,
+              insertText: op,
+              filterText: op,
+              sortText: op,
+              range
+            }))
+          };
+        }
+        return { suggestions: [] };
+      }
+      if (/^\s*refresh\s*:\s*[\w]*$/.test(beforeCursor) || /^\s*mode\s*:\s*[\w]*$/.test(beforeCursor)) {
+        const isRefreshMode = /refresh\s*:/i.test(model.getLineContent(position.lineNumber)) || (() => {
+          for (let i = position.lineNumber - 1; i >= 1; i--) {
+            const l = model.getLineContent(i);
+            if (/^\s*refresh\s*:/.test(l))
+              return true;
+            if (/^\s*[a-zA-Z_]\w*\s*:/.test(l))
+              return false;
+          }
+          return false;
+        })();
+        if (isRefreshMode) {
+          return {
+            suggestions: ["manual", "auto", "all"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+      }
+      if (/^\s*unit\s*:\s*[\w]*$/.test(beforeCursor)) {
+        return {
+          suggestions: ["second", "minute", "hour"].map((v) => ({
+            label: v,
+            kind: Kind.Value,
+            insertText: v,
+            range
+          }))
+        };
+      }
+      if (/^\s*direction\s*:\s*[\w]*$/.test(beforeCursor)) {
+        return {
+          suggestions: ["asc", "desc"].map((v) => ({
+            label: v,
+            kind: Kind.Value,
+            insertText: v,
+            range
+          }))
+        };
+      }
+      if (/^\s*type\s*:\s*[\w]*$/.test(beforeCursor)) {
+        const lineCtx = model.getLineContent(position.lineNumber);
+        const ctx2 = detectContextAtPosition(
+          model,
+          position,
+          ctx.lineMap?.lineContexts || /* @__PURE__ */ new Map()
+        );
+        if (ctx2 === "viewTableFilterAttributes" || ctx2 === "viewTableFilterLinkages") {
+          return {
+            suggestions: ["specific", "all"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+        if (ctx2 === "viewTableAction") {
+          return {
+            suggestions: [
+              "row_click",
+              "row_double_click",
+              "row_context_menu"
+            ].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+        if (ctx2 === "viewSource") {
+          return {
+            suggestions: ["operational"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+        if (ctx2 === "viewTableColumnAggregate") {
+          return {
+            suggestions: ["count"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+      }
+      const lineIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
+      if (lineIndent === 0 && /^[a-zA-Z_]*$/.test(beforeCursor)) {
+        const rootItems = [
+          { id: "id", desc: "\u0423\u043D\u0438\u043A\u0430\u043B\u044C\u043D\u044B\u0439 \u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0434\u043E\u043C\u0435\u043D\u0430 (FQDN)" },
+          { id: "name", desc: "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0434\u043E\u043C\u0435\u043D\u0430" },
+          { id: "version", desc: "\u0412\u0435\u0440\u0441\u0438\u044F \u0441\u0445\u0435\u043C\u044B (SemVer)" },
+          { id: "type", desc: "\u0422\u0438\u043F \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u0430 \u044D\u043A\u0441\u043F\u0435\u0440\u0442\u0438\u0437\u044B (domain)" },
+          { id: "description", desc: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435 \u0434\u043E\u043C\u0435\u043D\u0430" },
+          { id: "tags", desc: "\u0422\u0435\u0433\u0438 \u0434\u043B\u044F \u043A\u043B\u0430\u0441\u0441\u0438\u0444\u0438\u043A\u0430\u0446\u0438\u0438" },
+          { id: "author", desc: "\u0410\u0432\u0442\u043E\u0440 \u0441\u0445\u0435\u043C\u044B" },
+          { id: "entities", desc: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0434\u043E\u043C\u0435\u043D\u0430" },
+          { id: "dataTypes", desc: "\u041A\u0430\u0441\u0442\u043E\u043C\u043D\u044B\u0435 \u0442\u0438\u043F\u044B (Enum, Workflow, Table)" },
+          { id: "linkages", desc: "\u0421\u0432\u044F\u0437\u0438 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" },
+          { id: "sequences", desc: "\u041F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u0438 \u0434\u043B\u044F Identifier" },
+          { id: "counterColorPattern", desc: "\u0426\u0432\u0435\u0442\u043E\u0432\u044B\u0435 \u0441\u0445\u0435\u043C\u044B \u0441\u0447\u0451\u0442\u0447\u0438\u043A\u043E\u0432" },
+          { id: "trees", desc: "\u0414\u0440\u0435\u0432\u043E\u0432\u0438\u0434\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0438" },
+          { id: "transitiveLinkages", desc: "\u0422\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0438" },
+          { id: "mixins", desc: "\u041F\u0440\u0438\u043C\u0435\u0441\u0438 (\u0440\u0430\u0441\u0448\u0438\u0440\u0435\u043D\u0438\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439)" },
+          { id: "dataRules", desc: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0434\u0430\u043D\u043D\u044B\u0445" },
+          { id: "exchangeSettings", desc: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u043E\u0431\u043C\u0435\u043D\u0430 \u0434\u0430\u043D\u043D\u044B\u043C\u0438" },
+          { id: "actions", desc: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u0441 \u043E\u0431\u044A\u0435\u043A\u0442\u0430\u043C\u0438" },
+          { id: "medias", desc: "\u0418\u043A\u043E\u043D\u043A\u0438" },
+          { id: "views", desc: "\u041F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F (\u043F\u0430\u043D\u0435\u043B\u0438, \u043C\u043E\u0434\u0430\u043B\u043A\u0438, \u0441\u043F\u0438\u0441\u043A\u0438)" },
+          { id: "menus", desc: "\u041C\u0435\u043D\u044E \u0434\u043E\u043C\u0435\u043D\u0430" },
+          { id: "uiRules", desc: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0439 (UI Rules)" },
+          { id: "uiPresets", desc: "\u041F\u0440\u0435\u0441\u0435\u0442\u044B \u0441\u0442\u0438\u043B\u0435\u0439 \u0434\u043B\u044F UI Rules" }
+        ];
+        const suggestions2 = rootItems.map((it) => ({
+          label: it.id,
+          kind: Kind.Module,
+          insertText: it.id + ":",
+          filterText: it.id,
+          sortText: it.id,
+          detail: it.desc,
+          range
+        }));
+        return { suggestions: suggestions2 };
+      }
       if (/(?:\s|^)(?:-\s+)?dataType\s*:\s*[\w]*$/.test(beforeCursor)) {
         const suggestions2 = [];
         BASE_DATA_TYPES_COMPLETION.forEach((t) => {
@@ -20921,6 +21870,112 @@ ${indent}description: ""`
         });
         return { suggestions: suggestions2 };
       }
+      if (/(?:\s|^)view\s*:\s*[\w.]*$/.test(beforeCursor)) {
+        const suggestions2 = [];
+        if (ctx.modelIndex?.schemasByDomain) {
+          Object.entries(ctx.modelIndex.schemasByDomain).forEach(
+            ([domainId, schema2]) => {
+              schema2?.sections?.views?.items?.forEach((v) => {
+                if (!v?.id)
+                  return;
+                suggestions2.push({
+                  label: v.id,
+                  kind: Kind.Reference,
+                  insertText: v.id,
+                  detail: `${v.type} \xB7 ${domainId}`,
+                  range
+                });
+              });
+            }
+          );
+        }
+        return { suggestions: suggestions2 };
+      }
+      if (/(?:\s|^)-\s+widget\s*:\s*[\w.]*$/.test(beforeCursor)) {
+        const suggestions2 = [];
+        if (ctx.modelIndex?.schemasByDomain) {
+          Object.entries(ctx.modelIndex.schemasByDomain).forEach(
+            ([domainId, schema2]) => {
+              schema2?.sections?.views?.items?.forEach((v) => {
+                if (!v?.id)
+                  return;
+                suggestions2.push({
+                  label: v.id,
+                  kind: Kind.Reference,
+                  insertText: v.id,
+                  detail: `view \xB7 ${domainId}`,
+                  range
+                });
+              });
+            }
+          );
+        }
+        return { suggestions: suggestions2 };
+      }
+      if (/(?:\s|^)-\s+group\s*:\s*[\w.]*$/.test(beforeCursor)) {
+        const suggestions2 = [];
+        if (ctx.modelIndex?.schemasByDomain) {
+          Object.entries(ctx.modelIndex.schemasByDomain).forEach(
+            ([domainId, schema2]) => {
+              schema2?.sections?.views?.items?.forEach((v) => {
+                if (!v?.id)
+                  return;
+                suggestions2.push({
+                  label: v.id,
+                  kind: Kind.Reference,
+                  insertText: v.id,
+                  detail: `view \xB7 ${domainId}`,
+                  range
+                });
+              });
+            }
+          );
+        }
+        return { suggestions: suggestions2 };
+      }
+      if (/(?:\s|^)-\s+column\s*:\s*[\w.]*$/.test(beforeCursor)) {
+        const suggestions2 = [];
+        if (ctx.modelIndex?.schemasByDomain) {
+          Object.entries(ctx.modelIndex.schemasByDomain).forEach(
+            ([domainId, schema2]) => {
+              schema2?.sections?.views?.items?.forEach((v) => {
+                if (!v?.id)
+                  return;
+                suggestions2.push({
+                  label: v.id,
+                  kind: Kind.Reference,
+                  insertText: v.id,
+                  detail: `view \xB7 ${domainId}`,
+                  range
+                });
+              });
+            }
+          );
+        }
+        return { suggestions: suggestions2 };
+      }
+      if (/(?:\s|^)-\s+preset\s*:\s*[\w.]*$/.test(beforeCursor)) {
+        const suggestions2 = [];
+        if (ctx.modelIndex?.schemasByDomain) {
+          Object.entries(ctx.modelIndex.schemasByDomain).forEach(
+            ([domainId, schema2]) => {
+              schema2?.sections?.uiPresets?.items?.forEach((p) => {
+                if (!p?.id)
+                  return;
+                suggestions2.push({
+                  label: p.id,
+                  kind: Kind.EnumMember,
+                  insertText: p.id,
+                  detail: `preset \xB7 ${domainId}`,
+                  documentation: p.description,
+                  range
+                });
+              });
+            }
+          );
+        }
+        return { suggestions: suggestions2 };
+      }
       const context = detectContextAtPosition(
         model,
         position,
@@ -20956,6 +22011,643 @@ ${indent}description: ""`
         fields.forEach((f) => {
           suggestions.push(buildFieldSuggestion(monaco, f, range));
         });
+      }
+      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
+        const ctxNow = detectContextAtPosition(
+          model,
+          position,
+          ctx.lineMap?.lineContexts || /* @__PURE__ */ new Map()
+        );
+        if (ctxNow === "viewWidgetControl" || ctxNow === "viewTableColumnControl") {
+          return {
+            suggestions: [
+              "text",
+              "text_area",
+              "select",
+              "radio",
+              "tag",
+              "level",
+              "switch",
+              "checkbox",
+              "bool_text",
+              "timestamp",
+              "date",
+              "time",
+              "tree_path",
+              "drag_drop_area",
+              "file",
+              "slider",
+              "link",
+              "uuid",
+              "mac",
+              "ip",
+              "cidr",
+              "timestamp_range"
+            ].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+        if (ctxNow === "viewWidgetLinkageControl") {
+          return {
+            suggestions: ["select", "multi_select", "table"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+        if (ctxNow === "viewNested") {
+          return {
+            suggestions: ["panel", "modal", "page"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+        if (ctxNow === "viewButton") {
+          return {
+            suggestions: ["submit", "close"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+        if (ctxNow === "viewFooterAction") {
+          return {
+            suggestions: ["run", "run_close", "run_submit"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+      }
+      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
+        const ctxNow = detectContextAtPosition(
+          model,
+          position,
+          ctx.lineMap?.lineContexts || /* @__PURE__ */ new Map()
+        );
+        if (ctxNow === "group") {
+          return {
+            suggestions: [
+              "block",
+              "form",
+              "tab",
+              "tabs",
+              "resizable_block_pair"
+            ].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+      }
+      if (/^\s*direction\s*:\s*[\w]*$/.test(beforeCursor)) {
+        return {
+          suggestions: ["column"].map((v) => ({
+            label: v,
+            kind: Kind.Value,
+            insertText: v,
+            range
+          }))
+        };
+      }
+      if (/^\s*position\s*:\s*[\w]*$/.test(beforeCursor)) {
+        return {
+          suggestions: ["top", "bottom"].map((v) => ({
+            label: v,
+            kind: Kind.Value,
+            insertText: v,
+            range
+          }))
+        };
+      }
+      if (/^\s*type\s*:\s*[\w]*$/.test(beforeCursor)) {
+        const ctxNow = detectContextAtPosition(
+          model,
+          position,
+          ctx.lineMap?.lineContexts || /* @__PURE__ */ new Map()
+        );
+        if (ctxNow === "inheritSettings") {
+          return {
+            suggestions: ["append", "override", "except"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+      }
+      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
+        const ctxNow = detectContextAtPosition(
+          model,
+          position,
+          ctx.lineMap?.lineContexts || /* @__PURE__ */ new Map()
+        );
+        if (ctxNow === "viewWidgetControl" || ctxNow === "viewTableColumnControl") {
+          return {
+            suggestions: [
+              "text",
+              "text_area",
+              "select",
+              "radio",
+              "tag",
+              "level",
+              "switch",
+              "checkbox",
+              "bool_text",
+              "timestamp",
+              "date",
+              "time",
+              "tree_path",
+              "drag_drop_area",
+              "file",
+              "slider",
+              "link",
+              "uuid",
+              "mac",
+              "ip",
+              "cidr",
+              "timestamp_range"
+            ].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+        if (ctxNow === "viewWidgetLinkageControl") {
+          return {
+            suggestions: ["select", "multi_select", "table"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+        if (ctxNow === "viewNested") {
+          return {
+            suggestions: ["panel", "modal", "page"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+        if (ctxNow === "viewButton") {
+          return {
+            suggestions: ["submit", "close"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+        if (ctxNow === "viewFooterAction") {
+          return {
+            suggestions: ["run", "run_close", "run_submit"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+      }
+      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
+        const ctxNow = detectContextAtPosition(
+          model,
+          position,
+          ctx.lineMap?.lineContexts || /* @__PURE__ */ new Map()
+        );
+        if (ctxNow === "group") {
+          return {
+            suggestions: [
+              "block",
+              "form",
+              "tab",
+              "tabs",
+              "resizable_block_pair"
+            ].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+      }
+      if (/^\s*direction\s*:\s*[\w]*$/.test(beforeCursor)) {
+        return {
+          suggestions: ["column"].map((v) => ({
+            label: v,
+            kind: Kind.Value,
+            insertText: v,
+            range
+          }))
+        };
+      }
+      if (/^\s*position\s*:\s*[\w]*$/.test(beforeCursor)) {
+        return {
+          suggestions: ["top", "bottom"].map((v) => ({
+            label: v,
+            kind: Kind.Value,
+            insertText: v,
+            range
+          }))
+        };
+      }
+      if (/^\s*type\s*:\s*[\w]*$/.test(beforeCursor)) {
+        const ctxNow = detectContextAtPosition(
+          model,
+          position,
+          ctx.lineMap?.lineContexts || /* @__PURE__ */ new Map()
+        );
+        if (ctxNow === "inheritSettings") {
+          return {
+            suggestions: ["append", "override", "except"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+      }
+      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
+        const ctxNow = detectContextAtPosition(
+          model,
+          position,
+          ctx.lineMap?.lineContexts || /* @__PURE__ */ new Map()
+        );
+        if (ctxNow === "viewWidgetControl" || ctxNow === "viewTableColumnControl") {
+          return {
+            suggestions: [
+              "text",
+              "text_area",
+              "select",
+              "radio",
+              "tag",
+              "level",
+              "switch",
+              "checkbox",
+              "bool_text",
+              "timestamp",
+              "date",
+              "time",
+              "tree_path",
+              "drag_drop_area",
+              "file",
+              "slider",
+              "link",
+              "uuid",
+              "mac",
+              "ip",
+              "cidr",
+              "timestamp_range"
+            ].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+        if (ctxNow === "viewWidgetLinkageControl") {
+          return {
+            suggestions: ["select", "multi_select", "table"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+        if (ctxNow === "viewNested") {
+          return {
+            suggestions: ["panel", "modal", "page"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+        if (ctxNow === "viewButton") {
+          return {
+            suggestions: ["submit", "close"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+        if (ctxNow === "viewFooterAction") {
+          return {
+            suggestions: ["run", "run_close", "run_submit"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+      }
+      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
+        const ctxNow = detectContextAtPosition(
+          model,
+          position,
+          ctx.lineMap?.lineContexts || /* @__PURE__ */ new Map()
+        );
+        if (ctxNow === "group") {
+          return {
+            suggestions: [
+              "block",
+              "form",
+              "tab",
+              "tabs",
+              "resizable_block_pair"
+            ].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+      }
+      if (/^\s*direction\s*:\s*[\w]*$/.test(beforeCursor)) {
+        return {
+          suggestions: ["column"].map((v) => ({
+            label: v,
+            kind: Kind.Value,
+            insertText: v,
+            range
+          }))
+        };
+      }
+      if (/^\s*position\s*:\s*[\w]*$/.test(beforeCursor)) {
+        return {
+          suggestions: ["top", "bottom"].map((v) => ({
+            label: v,
+            kind: Kind.Value,
+            insertText: v,
+            range
+          }))
+        };
+      }
+      if (/^\s*type\s*:\s*[\w]*$/.test(beforeCursor)) {
+        const ctxNow = detectContextAtPosition(
+          model,
+          position,
+          ctx.lineMap?.lineContexts || /* @__PURE__ */ new Map()
+        );
+        if (ctxNow === "inheritSettings") {
+          return {
+            suggestions: ["append", "override", "except"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+      }
+      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
+        const ctxNow = detectContextAtPosition(
+          model,
+          position,
+          ctx.lineMap?.lineContexts || /* @__PURE__ */ new Map()
+        );
+        if (ctxNow === "viewWidgetControl" || ctxNow === "viewTableColumnControl") {
+          return {
+            suggestions: [
+              "text",
+              "text_area",
+              "select",
+              "radio",
+              "tag",
+              "level",
+              "switch",
+              "checkbox",
+              "bool_text",
+              "timestamp",
+              "date",
+              "time",
+              "tree_path",
+              "drag_drop_area",
+              "file",
+              "slider",
+              "link",
+              "uuid",
+              "mac",
+              "ip",
+              "cidr",
+              "timestamp_range"
+            ].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+        if (ctxNow === "viewWidgetLinkageControl") {
+          return {
+            suggestions: ["select", "multi_select", "table"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+        if (ctxNow === "viewNested") {
+          return {
+            suggestions: ["panel", "modal", "page"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+        if (ctxNow === "viewButton") {
+          return {
+            suggestions: ["submit", "close"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+        if (ctxNow === "viewFooterAction") {
+          return {
+            suggestions: ["run", "run_close", "run_submit"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+      }
+      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
+        const ctxNow = detectContextAtPosition(
+          model,
+          position,
+          ctx.lineMap?.lineContexts || /* @__PURE__ */ new Map()
+        );
+        if (ctxNow === "group") {
+          return {
+            suggestions: [
+              "block",
+              "form",
+              "tab",
+              "tabs",
+              "resizable_block_pair"
+            ].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+      }
+      if (/^\s*direction\s*:\s*[\w]*$/.test(beforeCursor)) {
+        return {
+          suggestions: ["column"].map((v) => ({
+            label: v,
+            kind: Kind.Value,
+            insertText: v,
+            range
+          }))
+        };
+      }
+      if (/^\s*position\s*:\s*[\w]*$/.test(beforeCursor)) {
+        return {
+          suggestions: ["top", "bottom"].map((v) => ({
+            label: v,
+            kind: Kind.Value,
+            insertText: v,
+            range
+          }))
+        };
+      }
+      if (/^\s*type\s*:\s*[\w]*$/.test(beforeCursor)) {
+        const ctxNow = detectContextAtPosition(
+          model,
+          position,
+          ctx.lineMap?.lineContexts || /* @__PURE__ */ new Map()
+        );
+        if (ctxNow === "inheritSettings") {
+          return {
+            suggestions: ["append", "override", "except"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+      }
+      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
+        const ctxNow = detectContextAtPosition(
+          model,
+          position,
+          ctx.lineMap?.lineContexts || /* @__PURE__ */ new Map()
+        );
+        if (ctxNow === "menuRoot") {
+          return {
+            suggestions: ["root_group", "root_menu"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+        if (ctxNow === "menuItem") {
+          return {
+            suggestions: ["menu"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+        if (ctxNow === "media") {
+          return {
+            suggestions: ["icon_name"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+        if (ctxNow === "mixin") {
+          return {
+            suggestions: ["linkage", "view"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+        if (ctxNow === "mixinView") {
+          return {
+            suggestions: ["form", "tab", "panel", "page", "list"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+        if (ctxNow === "mixinPosition") {
+          return {
+            suggestions: ["begin", "after", "end"].map((v) => ({
+              label: v,
+              kind: Kind.Value,
+              insertText: v,
+              range
+            }))
+          };
+        }
+      }
+      if (/^\s*placement\s*:\s*[\w]*$/.test(beforeCursor)) {
+        return {
+          suggestions: ["top", "settings"].map((v) => ({
+            label: v,
+            kind: Kind.Value,
+            insertText: v,
+            range
+          }))
+        };
       }
       return { suggestions };
     }
@@ -21068,6 +22760,506 @@ function applyFqidMarkers(monaco, model, index, currentDomainId) {
               });
             }
           }
+        }
+      }
+    }
+    const knownLinkages = /* @__PURE__ */ new Set();
+    (index?.domains || []).forEach((d) => {
+    });
+    index?.entityLinkages?.forEach((l) => {
+      knownLinkages.add(String(l.id).toLowerCase());
+    });
+    if (index?.schemasByDomain) {
+      Object.values(index.schemasByDomain).forEach((s) => {
+        s?.sections?.linkages?.items?.forEach((l) => {
+          if (l?.id)
+            knownLinkages.add(String(l.id).toLowerCase());
+        });
+      });
+    }
+    const linkageRegex = /^\s*linkage\s*:\s*([^\s#]+)/;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const m = line.match(linkageRegex);
+      if (!m)
+        continue;
+      const linkageId = m[1].replace(/["']/g, "");
+      if (!knownLinkages.has(linkageId.toLowerCase())) {
+        const startCol = line.indexOf(linkageId) + 1;
+        markers.push({
+          severity: monaco.MarkerSeverity.Warning,
+          message: `\u0421\u0432\u044F\u0437\u044C \xAB${linkageId}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430 \u0432 \u0434\u043E\u043C\u0435\u043D\u0435`,
+          startLineNumber: i + 1,
+          startColumn: startCol,
+          endLineNumber: i + 1,
+          endColumn: startCol + linkageId.length,
+          source: "fqid-validator"
+        });
+      }
+    }
+    const knownViews = /* @__PURE__ */ new Set();
+    const knownWidgets = /* @__PURE__ */ new Set();
+    const knownGroups = /* @__PURE__ */ new Set();
+    const knownColumns = /* @__PURE__ */ new Set();
+    const knownPresets = /* @__PURE__ */ new Set();
+    const knownUiRules = /* @__PURE__ */ new Set();
+    if (index?.schemasByDomain) {
+      Object.values(index.schemasByDomain).forEach((s) => {
+        s?.sections?.views?.items?.forEach((v) => {
+          if (v?.id)
+            knownViews.add(String(v.id).toLowerCase());
+        });
+        s?.sections?.uiPresets?.items?.forEach((p) => {
+          if (p?.id)
+            knownPresets.add(String(p.id).toLowerCase());
+        });
+        s?.sections?.uiRules?.items?.forEach((r) => {
+          if (r?.id)
+            knownUiRules.add(String(r.id).toLowerCase());
+        });
+      });
+    }
+    (index?.entities || []).forEach(() => {
+    });
+    const widgetDefRegex = /^\s*-\s+id\s*:\s*([^\s#]+)\s*$/;
+    let lastSection = "";
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const sectionM = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (sectionM)
+        lastSection = sectionM[1];
+      const idm = line.match(widgetDefRegex);
+      if (idm) {
+        const id = idm[1].toLowerCase();
+        if (lastSection === "uiPresets")
+          knownPresets.add(id);
+        if (lastSection === "views") {
+          knownWidgets.add(id);
+          knownGroups.add(id);
+          knownColumns.add(id);
+        }
+      }
+    }
+    const uiRuleRefs = [];
+    let inUiRules = false;
+    let uiRuleIndent = -1;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const sectionM = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (sectionM) {
+        inUiRules = sectionM[1] === "uiRules";
+        continue;
+      }
+      if (!inUiRules)
+        continue;
+      const viewM = line.match(/^\s*view\s*:\s*([^\s#]+)/);
+      if (viewM && lastSection === "uiRules") {
+        const id = viewM[1].replace(/["']/g, "");
+        const startCol = line.indexOf(id) + 1;
+        if (!knownViews.has(id.toLowerCase())) {
+          markers.push({
+            severity: monaco.MarkerSeverity.Warning,
+            message: `View \xAB${id}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D \u0432 \u0434\u043E\u043C\u0435\u043D\u0435`,
+            startLineNumber: i + 1,
+            startColumn: startCol,
+            endLineNumber: i + 1,
+            endColumn: startCol + id.length,
+            source: "fqid-validator"
+          });
+        }
+      }
+      const widgetM = line.match(/^\s*-\s*widget\s*:\s*([^\s#]+)/);
+      if (widgetM) {
+        const id = widgetM[1].replace(/["']/g, "");
+        const startCol = line.indexOf(id) + 1;
+        if (!knownWidgets.has(id.toLowerCase()) && !knownViews.has(id.toLowerCase())) {
+          markers.push({
+            severity: monaco.MarkerSeverity.Warning,
+            message: `\u0412\u0438\u0434\u0436\u0435\u0442 \xAB${id}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D \u0432 \u0434\u043E\u043C\u0435\u043D\u0435`,
+            startLineNumber: i + 1,
+            startColumn: startCol,
+            endLineNumber: i + 1,
+            endColumn: startCol + id.length,
+            source: "fqid-validator"
+          });
+        }
+      }
+      const groupM = line.match(/^\s*-\s*group\s*:\s*([^\s#]+)/);
+      if (groupM) {
+        const id = groupM[1].replace(/["']/g, "");
+        const startCol = line.indexOf(id) + 1;
+        if (!knownGroups.has(id.toLowerCase())) {
+          markers.push({
+            severity: monaco.MarkerSeverity.Warning,
+            message: `\u0413\u0440\u0443\u043F\u043F\u0430 \xAB${id}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430 \u0432 \u0434\u043E\u043C\u0435\u043D\u0435`,
+            startLineNumber: i + 1,
+            startColumn: startCol,
+            endLineNumber: i + 1,
+            endColumn: startCol + id.length,
+            source: "fqid-validator"
+          });
+        }
+      }
+      const columnM = line.match(/^\s*-\s*column\s*:\s*([^\s#]+)/);
+      if (columnM) {
+        const id = columnM[1].replace(/["']/g, "");
+        const startCol = line.indexOf(id) + 1;
+        if (!knownColumns.has(id.toLowerCase())) {
+          markers.push({
+            severity: monaco.MarkerSeverity.Warning,
+            message: `\u041A\u043E\u043B\u043E\u043D\u043A\u0430 \xAB${id}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430 \u0432 \u0434\u043E\u043C\u0435\u043D\u0435`,
+            startLineNumber: i + 1,
+            startColumn: startCol,
+            endLineNumber: i + 1,
+            endColumn: startCol + id.length,
+            source: "fqid-validator"
+          });
+        }
+      }
+      const presetM = line.match(/^\s*-\s*preset\s*:\s*([^\s#]+)/);
+      if (presetM) {
+        const id = presetM[1].replace(/["']/g, "");
+        const startCol = line.indexOf(id) + 1;
+        if (!knownPresets.has(id.toLowerCase())) {
+          markers.push({
+            severity: monaco.MarkerSeverity.Warning,
+            message: `\u041F\u0440\u0435\u0441\u0435\u0442 \xAB${id}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D \u0432 \u0434\u043E\u043C\u0435\u043D\u0435`,
+            startLineNumber: i + 1,
+            startColumn: startCol,
+            endLineNumber: i + 1,
+            endColumn: startCol + id.length,
+            source: "fqid-validator"
+          });
+        }
+      }
+    }
+    const knownViewsForAction = /* @__PURE__ */ new Set();
+    if (index?.schemasByDomain) {
+      Object.values(index.schemasByDomain).forEach((s) => {
+        s?.sections?.views?.items?.forEach((v) => {
+          if (v?.id)
+            knownViewsForAction.add(String(v.id).toLowerCase());
+        });
+      });
+    }
+    {
+      let inViewsSection = false;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const sectionM = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+        if (sectionM) {
+          inViewsSection = sectionM[1] === "views";
+          continue;
+        }
+        if (!inViewsSection)
+          continue;
+        const idM = line.match(/^\s*-\s+id\s*:\s*([^\s#]+)/);
+        if (idM) {
+          const id = idM[1].replace(/["']/g, "").toLowerCase();
+          knownViewsForAction.add(id);
+        }
+      }
+    }
+    let inActionsSection = false;
+    let actionEntity = null;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const sectionM = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (sectionM) {
+        inActionsSection = sectionM[1] === "actions";
+        actionEntity = null;
+        continue;
+      }
+      if (!inActionsSection)
+        continue;
+      const idm = line.match(/^\s*-\s+id\s*:/);
+      if (idm) {
+        actionEntity = null;
+      }
+      const entityM = line.match(/^\s*entity\s*:\s*([^\s#]+)/);
+      if (entityM) {
+        actionEntity = entityM[1].replace(/["']/g, "");
+      }
+      const refM = line.match(/^\s*(modal|panel|view)\s*:\s*([^\s#]+)/);
+      if (refM) {
+        const id = refM[2].replace(/["']/g, "");
+        if (id && !knownViewsForAction.has(id.toLowerCase())) {
+          const startCol = line.indexOf(id) + 1;
+          markers.push({
+            severity: monaco.MarkerSeverity.Warning,
+            message: `View \xAB${id}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D \u0432 \u0434\u043E\u043C\u0435\u043D\u0435`,
+            startLineNumber: i + 1,
+            startColumn: startCol,
+            endLineNumber: i + 1,
+            endColumn: startCol + id.length,
+            source: "fqid-validator"
+          });
+        }
+      }
+      const automationIdM = line.match(/^\s*id\s*:\s*([^\s#]+)/);
+      if (automationIdM) {
+        let insideAutomation = false;
+        for (let j = i - 1; j >= 1; j--) {
+          const pl = model.getLineContent(j);
+          if (/^\s*automation\s*:/.test(pl)) {
+            insideAutomation = true;
+            break;
+          }
+          if (/^\s*-\s*id\s*:/.test(pl))
+            break;
+          if (/^\s*[a-zA-Z_]\w*\s*:/.test(pl) && !/^\s*(automation|name|description)\s*:/.test(pl))
+            break;
+        }
+        if (insideAutomation) {
+          const uuid = automationIdM[1].replace(/["']/g, "");
+          if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+            uuid
+          )) {
+            const startCol = line.indexOf(uuid) + 1;
+            markers.push({
+              severity: monaco.MarkerSeverity.Warning,
+              message: `\u041E\u0436\u0438\u0434\u0430\u0435\u0442\u0441\u044F UUID \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0437\u0430\u0446\u0438\u0438 (\u0432\u0438\u0434\u0430 xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)`,
+              startLineNumber: i + 1,
+              startColumn: startCol,
+              endLineNumber: i + 1,
+              endColumn: startCol + uuid.length,
+              source: "fqid-validator"
+            });
+          }
+        }
+      }
+      const valueAttrM = line.match(/^\s*-\s+attribute\s*:\s*([^\s#]+)/);
+      if (valueAttrM && actionEntity && index) {
+        const attrId = valueAttrM[1].replace(/["']/g, "");
+        const domainPrefix = (currentDomainId || "").toLowerCase() + "/";
+        let entityFqid = actionEntity.includes("/") ? actionEntity.toLowerCase() : (domainPrefix + actionEntity).toLowerCase();
+        const entity = index.entitiesByFqid?.[entityFqid];
+        if (entity) {
+          const known = entity.attributes.some(
+            (a) => a.id.toLowerCase() === attrId.toLowerCase()
+          );
+          if (!known) {
+            const startCol = line.indexOf(attrId) + 1;
+            markers.push({
+              severity: monaco.MarkerSeverity.Warning,
+              message: `\u0410\u0442\u0440\u0438\u0431\u0443\u0442 \xAB${attrId}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D \u0432 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 ${actionEntity}`,
+              startLineNumber: i + 1,
+              startColumn: startCol,
+              endLineNumber: i + 1,
+              endColumn: startCol + attrId.length,
+              source: "fqid-validator"
+            });
+          }
+        }
+      }
+      const opM = line.match(/^\s*operation\s*:\s*([^\s#]+)/);
+      if (opM) {
+        const opValue = opM[1].replace(/["']/g, "");
+        let idLine = -1;
+        let idIndent = -1;
+        for (let j = i - 1; j >= 0; j--) {
+          const l = lines[j];
+          if (!l.trim() || l.trim().startsWith("#"))
+            continue;
+          const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
+          if (lInd === 0)
+            break;
+          const idm2 = l.match(/^(\s*)-\s+id\s*:/);
+          if (idm2) {
+            idLine = j;
+            idIndent = idm2[1].length;
+            break;
+          }
+        }
+        if (idLine === -1)
+          continue;
+        let typeVal = null;
+        for (let j = idLine + 1; j < i; j++) {
+          const l = lines[j];
+          const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
+          if (lInd <= idIndent)
+            break;
+          const tm = l.match(/^\s*type\s*:\s*([^\s#]+)/);
+          if (tm) {
+            typeVal = tm[1].replace(/["']/g, "");
+            break;
+          }
+        }
+        if (!typeVal)
+          continue;
+        const opsByType = {
+          open_modal: ["create", "edit"],
+          open_page: ["create", "edit", "view"],
+          bulk: ["remove", "edit", "edit_attribute"]
+        };
+        const allowed = opsByType[typeVal] || [];
+        if (allowed.length > 0 && !allowed.includes(opValue)) {
+          const startCol = line.indexOf(opValue) + 1;
+          markers.push({
+            severity: monaco.MarkerSeverity.Warning,
+            message: `\u041D\u0435\u0434\u043E\u043F\u0443\u0441\u0442\u0438\u043C\u043E\u0435 operation \u0434\u043B\u044F type: ${typeVal}. \u041E\u0436\u0438\u0434\u0430\u0435\u0442\u0441\u044F: ${allowed.join(" | ")}`,
+            startLineNumber: i + 1,
+            startColumn: startCol,
+            endLineNumber: i + 1,
+            endColumn: startCol + opValue.length,
+            source: "fqid-validator"
+          });
+        }
+      }
+    }
+    {
+      const columnIds = /* @__PURE__ */ new Set();
+      const sortingIds = /* @__PURE__ */ new Set();
+      const actionIds = /* @__PURE__ */ new Set();
+      const viewIds = /* @__PURE__ */ new Set();
+      let inViews = false;
+      let inColumns = false;
+      let inSortingBy = false;
+      let inActions = false;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const sectionM = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+        if (sectionM) {
+          inViews = sectionM[1] === "views";
+          inColumns = false;
+          inSortingBy = false;
+          inActions = false;
+          continue;
+        }
+        if (!inViews)
+          continue;
+        if (/^\s*columns\s*:\s*$/.test(line))
+          inColumns = true;
+        else if (/^\s*sortingBy\s*:\s*$/.test(line))
+          inSortingBy = true;
+        else if (/^\s*actions\s*:\s*$/.test(line))
+          inActions = true;
+        else if (/^\s*[a-zA-Z_]\w*\s*:\s*$/.test(line) && !/^\s*(filter|paging|refresh|empty)\s*:/.test(line)) {
+        }
+        const idM = line.match(/^\s*-\s+id\s*:\s*([^\s#]+)/);
+        if (idM) {
+          const id = idM[1].replace(/["']/g, "").toLowerCase();
+          viewIds.add(id);
+          if (inColumns)
+            columnIds.add(id);
+        }
+        const sortingM = line.match(/^\s*-\s+id\s*:\s*([^\s#]+)/);
+      }
+      if (index?.entities) {
+      }
+      let currentSortingSection = false;
+      inViews = false;
+      inSortingBy = false;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const sectionM = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+        if (sectionM) {
+          inViews = sectionM[1] === "views";
+          inSortingBy = false;
+          continue;
+        }
+        if (!inViews)
+          continue;
+        if (/^\s*sortingBy\s*:\s*$/.test(line))
+          inSortingBy = true;
+        const colM = line.match(/^\s*column\s*:\s*([^\s#]+)/);
+        if (colM && inSortingBy) {
+          const id = colM[1].replace(/["']/g, "");
+          if (!columnIds.has(id.toLowerCase())) {
+            const startCol = line.indexOf(id) + 1;
+            markers.push({
+              severity: monaco.MarkerSeverity.Warning,
+              message: `\u0421\u0442\u043E\u043B\u0431\u0435\u0446 \xAB${id}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D \u0441\u0440\u0435\u0434\u0438 columns[].id`,
+              startLineNumber: i + 1,
+              startColumn: startCol,
+              endLineNumber: i + 1,
+              endColumn: startCol + id.length,
+              source: "fqid-validator"
+            });
+          }
+        }
+        const sortM = line.match(/^\s*sorting\s*:\s*([^\s#]+)/);
+        if (sortM) {
+          const id = sortM[1].replace(/["']/g, "");
+          const startCol = line.indexOf(id) + 1;
+        }
+      }
+    }
+    let inMixins = false;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const sectionM = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (sectionM) {
+        inMixins = sectionM[1] === "mixins";
+        continue;
+      }
+      if (!inMixins)
+        continue;
+      const linkageM = line.match(/^\s*linkage\s*:\s*([^\s#]+)/);
+      if (linkageM) {
+        const id = linkageM[1].replace(/["']/g, "");
+        const knownLinkageIds = /* @__PURE__ */ new Set();
+        index?.entityLinkages?.forEach((l) => {
+          knownLinkageIds.add(String(l.id).toLowerCase());
+        });
+        if (index?.schemasByDomain) {
+          Object.values(index.schemasByDomain).forEach((s) => {
+            s?.sections?.linkages?.items?.forEach((l) => {
+              if (l?.id)
+                knownLinkageIds.add(String(l.id).toLowerCase());
+            });
+          });
+        }
+        if (!knownLinkageIds.has(id.toLowerCase())) {
+          const startCol = line.indexOf(id) + 1;
+          markers.push({
+            severity: monaco.MarkerSeverity.Warning,
+            message: `\u0421\u0432\u044F\u0437\u044C \xAB${id}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430 \u0432 \u0434\u043E\u043C\u0435\u043D\u0435`,
+            startLineNumber: i + 1,
+            startColumn: startCol,
+            endLineNumber: i + 1,
+            endColumn: startCol + id.length,
+            source: "fqid-validator"
+          });
+        }
+      }
+      const fromViewM = line.match(/^\s*fromView\s*:\s*([^\s#]+)/);
+      if (fromViewM) {
+        const id = fromViewM[1].replace(/["']/g, "");
+        const knownViews2 = /* @__PURE__ */ new Set();
+        if (index?.schemasByDomain) {
+          Object.values(index.schemasByDomain).forEach((s) => {
+            s?.sections?.views?.items?.forEach((v) => {
+              if (v?.id)
+                knownViews2.add(String(v.id).toLowerCase());
+            });
+          });
+        }
+        let currentViewsSection = false;
+        for (let j = 0; j < lines.length; j++) {
+          const l = lines[j];
+          const sm = l.match(/^([a-zA-Z_][\w]*)\s*:/);
+          if (sm) {
+            currentViewsSection = sm[1] === "views";
+            continue;
+          }
+          if (!currentViewsSection)
+            continue;
+          const idm = l.match(/^\s*-\s+id\s*:\s*([^\s#]+)/);
+          if (idm)
+            knownViews2.add(idm[1].replace(/["']/g, "").toLowerCase());
+        }
+        if (!knownViews2.has(id.toLowerCase())) {
+          const startCol = line.indexOf(id) + 1;
+          markers.push({
+            severity: monaco.MarkerSeverity.Warning,
+            message: `View \xAB${id}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D \u0432 \u0434\u043E\u043C\u0435\u043D\u0435`,
+            startLineNumber: i + 1,
+            startColumn: startCol,
+            endLineNumber: i + 1,
+            endColumn: startCol + id.length,
+            source: "fqid-validator"
+          });
         }
       }
     }
@@ -21586,39 +23778,6 @@ var init_monaco_providers = __esm({
           description: "\u041D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435 \u043E\u0442 \u0434\u0440\u0443\u0433\u043E\u0439 \u0433\u0440\u0443\u043F\u043F\u044B"
         }
       ],
-      mixin: [
-        {
-          name: "id",
-          type: "string",
-          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u043F\u0440\u0438\u043C\u0435\u0441\u0438",
-          required: true
-        },
-        {
-          name: "type",
-          type: "enum",
-          description: "linkage \u0438\u043B\u0438 view",
-          required: true
-        },
-        { name: "name", type: "string", description: "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u043F\u0440\u0438\u043C\u0435\u0441\u0438" },
-        { name: "description", type: "string", description: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" },
-        { name: "entity", type: "ref", description: "\u0426\u0435\u043B\u0435\u0432\u0430\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C" },
-        {
-          name: "weight",
-          type: "number",
-          description: "\u041F\u0440\u0438\u043E\u0440\u0438\u0442\u0435\u0442 (\u043C\u0435\u043D\u044C\u0448\u0435 \u2014 \u0432\u044B\u0448\u0435)"
-        },
-        {
-          name: "useForChild",
-          type: "boolean",
-          description: "\u041D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u044C \u0434\u043E\u0447\u0435\u0440\u043D\u0438\u043C \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u043C (\u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E true)"
-        },
-        { name: "linkage", type: "ref", description: "\u0421\u0432\u044F\u0437\u044C (\u0434\u043B\u044F type: linkage)" },
-        {
-          name: "views",
-          type: "array",
-          description: "\u041F\u043E\u0434\u043C\u0435\u0448\u0438\u0432\u0430\u0435\u043C\u044B\u0435 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F"
-        }
-      ],
       sequence: [
         {
           name: "id",
@@ -21669,6 +23828,1477 @@ var init_monaco_providers = __esm({
           type: "array",
           description: "\u0421\u0432\u044F\u0437\u0438 \u0434\u043B\u044F \u043E\u0442\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u044F \u0434\u0430\u043D\u043D\u044B\u0445"
         }
+      ],
+      // ============ trees ============
+      tree: [
+        {
+          name: "id",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0434\u0435\u0440\u0435\u0432\u0430 (Data ID)",
+          required: true
+        },
+        {
+          name: "type",
+          type: "enum",
+          description: "ordinary | orderable | multiparent"
+        },
+        {
+          name: "maxDepth",
+          type: "number",
+          description: "\u041C\u0430\u043A\u0441\u0438\u043C\u0430\u043B\u044C\u043D\u0430\u044F \u0432\u043B\u043E\u0436\u0435\u043D\u043D\u043E\u0441\u0442\u044C \u043E\u0442 \u043A\u043E\u0440\u043D\u044F"
+        },
+        {
+          name: "hierarchy",
+          type: "object",
+          description: "\u0418\u0435\u0440\u0430\u0440\u0445\u0438\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0432 \u0434\u0435\u0440\u0435\u0432\u0435",
+          required: true
+        },
+        {
+          name: "sorting",
+          type: "array",
+          description: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0438 \u043F\u043E \u0443\u0440\u043E\u0432\u043D\u044F\u043C"
+        }
+      ],
+      treeHierarchy: [
+        {
+          name: "entity",
+          type: "ref",
+          description: "\u041A\u043E\u0440\u043D\u0435\u0432\u0430\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0434\u0435\u0440\u0435\u0432\u0430",
+          required: true
+        },
+        {
+          name: "maxInstances",
+          type: "number",
+          description: "\u041C\u0430\u043A\u0441\u0438\u043C\u0443\u043C \u043E\u0431\u044A\u0435\u043A\u0442\u043E\u0432 \u0432 \u043A\u043E\u0440\u043D\u0435"
+        },
+        {
+          name: "maxChildren",
+          type: "number",
+          description: "\u041C\u0430\u043A\u0441\u0438\u043C\u0443\u043C \u0434\u043E\u0447\u0435\u0440\u043D\u0438\u0445 \u0447\u0435\u0440\u0435\u0437 \u0441\u0432\u044F\u0437\u044C"
+        },
+        { name: "children", type: "array", description: "\u0414\u043E\u0447\u0435\u0440\u043D\u0438\u0435 \u0443\u0437\u043B\u044B" }
+      ],
+      treeChildren: [
+        {
+          name: "linkage",
+          type: "ref",
+          description: "\u0421\u0432\u044F\u0437\u044C \u043C\u0435\u0436\u0434\u0443 \u0440\u043E\u0434\u0438\u0442\u0435\u043B\u0435\u043C \u0438 \u043F\u043E\u0442\u043E\u043C\u043A\u043E\u043C",
+          required: true
+        },
+        {
+          name: "entity",
+          type: "ref",
+          description: "\u0414\u043E\u0447\u0435\u0440\u043D\u044F\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C",
+          required: true
+        },
+        {
+          name: "maxInstances",
+          type: "number",
+          description: "\u041C\u0430\u043A\u0441\u0438\u043C\u0443\u043C \u043E\u0431\u044A\u0435\u043A\u0442\u043E\u0432 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438"
+        },
+        {
+          name: "maxChildren",
+          type: "number",
+          description: "\u041C\u0430\u043A\u0441\u0438\u043C\u0443\u043C \u0434\u043E\u0447\u0435\u0440\u043D\u0438\u0445 \u0447\u0435\u0440\u0435\u0437 \u0441\u0432\u044F\u0437\u044C"
+        },
+        {
+          name: "side",
+          type: "number",
+          description: "\u0421\u0442\u043E\u0440\u043E\u043D\u0430 \u0441\u0432\u044F\u0437\u0438 \u0441 \u0440\u043E\u0434\u0438\u0442\u0435\u043B\u0435\u043C (1 \u0438\u043B\u0438 2)"
+        },
+        { name: "children", type: "array", description: "\u0412\u043B\u043E\u0436\u0435\u043D\u043D\u044B\u0435 \u0434\u043E\u0447\u0435\u0440\u043D\u0438\u0435 \u0443\u0437\u043B\u044B" }
+      ],
+      treeSorting: [
+        {
+          name: "id",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u043F\u0440\u0430\u0432\u0438\u043B\u0430",
+          required: true
+        },
+        { name: "name", type: "string", description: "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u043F\u0440\u0430\u0432\u0438\u043B\u0430" },
+        {
+          name: "by",
+          type: "array",
+          description: "\u0421\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430 \u043F\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u043C \u0438 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430\u043C",
+          required: true
+        }
+      ],
+      treeSortingBy: [
+        {
+          name: "entity",
+          type: "ref",
+          description: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C, \u0434\u043B\u044F \u043A\u043E\u0442\u043E\u0440\u043E\u0439 \u0437\u0430\u0434\u0430\u0451\u0442\u0441\u044F \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430",
+          required: true
+        },
+        {
+          name: "by",
+          type: "array",
+          description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0438 \u043D\u0430\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u0438\u044F",
+          required: true
+        }
+      ],
+      treeSortingByBy: [
+        {
+          name: "attribute",
+          type: "ref",
+          description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442 \u0434\u043B\u044F \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0438",
+          required: true
+        },
+        {
+          name: "direction",
+          type: "enum",
+          description: "asc \u0438\u043B\u0438 desc (\u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E desc)"
+        }
+      ],
+      // ============ transitiveLinkages ============
+      transitiveLinkage: [
+        {
+          name: "id",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0434\u0435\u0440\u0435\u0432\u0430 \u0442\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u044B\u0445 \u0441\u0432\u044F\u0437\u0435\u0439",
+          required: true
+        },
+        {
+          name: "entity",
+          type: "ref",
+          description: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C, \u0434\u043B\u044F \u043A\u043E\u0442\u043E\u0440\u043E\u0439 \u0441\u0442\u0440\u043E\u0438\u0442\u0441\u044F \u0434\u0435\u0440\u0435\u0432\u043E",
+          required: true
+        },
+        { name: "description", type: "string", description: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" },
+        {
+          name: "joins",
+          type: "array",
+          description: "\u0421\u043F\u0438\u0441\u043E\u043A \u0441\u0432\u044F\u0437\u0435\u0439 \u0432 \u0446\u0435\u043F\u043E\u0447\u043A\u0435",
+          required: true
+        }
+      ],
+      transitiveJoin: [
+        {
+          name: "id",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u043F\u0440\u0438\u0441\u043E\u0435\u0434\u0438\u043D\u0435\u043D\u0438\u044F",
+          required: true
+        },
+        {
+          name: "linkage",
+          type: "ref",
+          description: "\u0421\u0432\u044F\u0437\u044C \u0441 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C\u044E",
+          required: true
+        },
+        { name: "search", type: "object", description: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u043F\u043E\u0438\u0441\u043A\u0430 \u043F\u043E \u0443\u0437\u043B\u0443" },
+        { name: "joins", type: "array", description: "\u0421\u043B\u0435\u0434\u0443\u044E\u0449\u0438\u0435 \u0441\u0432\u044F\u0437\u0438 \u0432 \u0446\u0435\u043F\u043E\u0447\u043A\u0435" }
+      ],
+      transitiveJoinSearch: [
+        {
+          name: "enable",
+          type: "boolean",
+          description: "\u0412\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u043F\u043E\u0438\u0441\u043A \u043F\u043E \u0443\u0437\u043B\u0443",
+          required: true
+        },
+        {
+          name: "mode",
+          type: "enum",
+          description: "entity | linkage | both (\u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E both)"
+        }
+      ],
+      // ============ uiRules ============
+      uiRule: [
+        {
+          name: "id",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u043F\u0440\u0430\u0432\u0438\u043B\u0430 (Data ID)",
+          required: true
+        },
+        { name: "name", type: "string", description: "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u043F\u0440\u0430\u0432\u0438\u043B\u0430" },
+        { name: "description", type: "string", description: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" },
+        {
+          name: "target",
+          type: "enum",
+          description: "list_view | entity_view | entity_attribute",
+          required: true
+        },
+        {
+          name: "view",
+          type: "ref",
+          description: "\u041F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0435, \u0432 \u043A\u043E\u0442\u043E\u0440\u043E\u043C \u043F\u0440\u0438\u043C\u0435\u043D\u044F\u044E\u0442\u0441\u044F \u043F\u0440\u0430\u0432\u0438\u043B\u0430 (list / entity)",
+          required: true
+        },
+        {
+          name: "context",
+          type: "object",
+          description: "\u041A\u043E\u043D\u0442\u0435\u043A\u0441\u0442 \u043F\u0440\u0438\u043C\u0435\u043D\u0435\u043D\u0438\u044F (views[])"
+        },
+        {
+          name: "condition",
+          type: "rql",
+          description: "\u0423\u0441\u043B\u043E\u0432\u0438\u0435 \u0441\u0440\u0430\u0431\u0430\u0442\u044B\u0432\u0430\u043D\u0438\u044F (RQL)"
+        },
+        {
+          name: "rule",
+          type: "object",
+          description: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435 \u044D\u0444\u0444\u0435\u043A\u0442\u0430 \u043F\u0440\u0430\u0432\u0438\u043B\u0430",
+          required: true
+        },
+        { name: "message", type: "string", description: "\u0421\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435 \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044E" },
+        { name: "help", type: "string", description: "\u0422\u0435\u043A\u0441\u0442 \u0441\u043F\u0440\u0430\u0432\u043A\u0438" }
+      ],
+      uiRuleContext: [
+        {
+          name: "views",
+          type: "array",
+          description: "\u0421\u043F\u0438\u0441\u043E\u043A view-id, \u0432 \u043A\u043E\u0442\u043E\u0440\u044B\u0445 \u043F\u0440\u0438\u043C\u0435\u043D\u044F\u0435\u0442\u0441\u044F (\u043D\u0435\u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u043E, \u0434\u043B\u044F entity_view)"
+        }
+      ],
+      uiRuleRule: [
+        {
+          name: "effect",
+          type: "enum",
+          description: "hidden | show | hiddenEmpty | readonly | editable | inherit | variant",
+          required: true
+        },
+        {
+          name: "widgets",
+          type: "array",
+          description: "\u0412\u0438\u0434\u0436\u0435\u0442\u044B, \u043A \u043A\u043E\u0442\u043E\u0440\u044B\u043C \u043F\u0440\u0438\u043C\u0435\u043D\u044F\u0435\u0442\u0441\u044F \u044D\u0444\u0444\u0435\u043A\u0442"
+        },
+        {
+          name: "groups",
+          type: "array",
+          description: "\u0413\u0440\u0443\u043F\u043F\u044B, \u043A \u043A\u043E\u0442\u043E\u0440\u044B\u043C \u043F\u0440\u0438\u043C\u0435\u043D\u044F\u0435\u0442\u0441\u044F \u044D\u0444\u0444\u0435\u043A\u0442"
+        },
+        {
+          name: "columns",
+          type: "array",
+          description: "\u041A\u043E\u043B\u043E\u043D\u043A\u0438 \u0441\u043F\u0438\u0441\u043A\u0430 (\u0434\u043B\u044F list_view)"
+        },
+        {
+          name: "presets",
+          type: "array",
+          description: "\u041F\u0440\u0435\u0441\u0435\u0442\u044B \u0441\u0442\u0438\u043B\u0435\u0439 (\u0434\u043B\u044F effect: variant)"
+        }
+      ],
+      uiRuleWidget: [
+        {
+          name: "widget",
+          type: "ref",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0432\u0438\u0434\u0436\u0435\u0442\u0430 (View ID)",
+          required: true
+        },
+        {
+          name: "nested",
+          type: "object",
+          description: "Nested-\u044D\u0444\u0444\u0435\u043A\u0442 \u0434\u043B\u044F Array/Table-\u0432\u0438\u0434\u0436\u0435\u0442\u043E\u0432"
+        },
+        { name: "presets", type: "array", description: "\u041F\u0440\u0435\u0441\u0435\u0442\u044B \u0441\u0442\u0438\u043B\u0435\u0439" }
+      ],
+      uiRuleGroup: [
+        {
+          name: "group",
+          type: "ref",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0433\u0440\u0443\u043F\u043F\u044B",
+          required: true
+        },
+        { name: "presets", type: "array", description: "\u041F\u0440\u0435\u0441\u0435\u0442\u044B \u0441\u0442\u0438\u043B\u0435\u0439" }
+      ],
+      uiRuleColumn: [
+        {
+          name: "column",
+          type: "ref",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u043A\u043E\u043B\u043E\u043D\u043A\u0438 (View ID)",
+          required: true
+        },
+        { name: "presets", type: "array", description: "\u041F\u0440\u0435\u0441\u0435\u0442\u044B \u0441\u0442\u0438\u043B\u0435\u0439" }
+      ],
+      uiRuleNested: [
+        {
+          name: "type",
+          type: "enum",
+          description: "array \u0438\u043B\u0438 table",
+          required: true
+        },
+        {
+          name: "attributes",
+          type: "array",
+          description: "\u041A\u043E\u043B\u043E\u043D\u043A\u0438 \u0442\u0430\u0431\u043B\u0438\u0446\u044B (\u0434\u043B\u044F type: table)"
+        },
+        {
+          name: "items",
+          type: "array",
+          description: "\u042D\u043B\u0435\u043C\u0435\u043D\u0442\u044B \u043C\u0430\u0441\u0441\u0438\u0432\u0430 (\u0434\u043B\u044F type: array)"
+        }
+      ],
+      uiRuleNestedAttribute: [
+        {
+          name: "attribute",
+          type: "ref",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u043A\u043E\u043B\u043E\u043D\u043A\u0438 \u0442\u0430\u0431\u043B\u0438\u0446\u044B",
+          required: true
+        }
+      ],
+      uiRuleNestedItem: [
+        {
+          name: "item",
+          type: "string",
+          description: "\u0418\u043D\u0434\u0435\u043A\u0441 \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u0430 \u043C\u0430\u0441\u0441\u0438\u0432\u0430 (0, 1, ... \u0438\u043B\u0438 '*')",
+          required: true
+        }
+      ],
+      // ============ uiPresets ============
+      uiPreset: [
+        {
+          name: "id",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u043F\u0440\u0435\u0441\u0435\u0442\u0430 (Data ID)",
+          required: true
+        },
+        { name: "description", type: "string", description: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" },
+        {
+          name: "props",
+          type: "object",
+          description: "\u0421\u0432\u043E\u0439\u0441\u0442\u0432\u0430 \u0441\u0442\u0438\u043B\u044F (color, font-weight, background, ...)"
+        }
+      ],
+      // ============ actions: расширение ============
+      actionBulk: [
+        {
+          name: "operation",
+          type: "enum",
+          description: "remove | edit | edit_attribute",
+          required: true
+        },
+        {
+          name: "attributes",
+          type: "array",
+          description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0434\u043B\u044F \u043C\u0430\u0441\u0441\u043E\u0432\u043E\u0433\u043E \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F (operation: edit)"
+        },
+        {
+          name: "linkages",
+          type: "array",
+          description: "\u0421\u0432\u044F\u0437\u0438 \u0434\u043B\u044F \u043C\u0430\u0441\u0441\u043E\u0432\u043E\u0433\u043E \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F (operation: edit)"
+        },
+        {
+          name: "values",
+          type: "array",
+          description: "\u0417\u043D\u0430\u0447\u0435\u043D\u0438\u044F \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 (operation: edit_attribute)"
+        },
+        {
+          name: "control",
+          type: "object",
+          description: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 bool-\u043F\u043E\u043B\u044F (operation: edit_attribute + bool-\u0430\u0442\u0440\u0438\u0431\u0443\u0442)"
+        }
+      ],
+      actionBulkAttributes: [
+        {
+          name: "type",
+          type: "enum",
+          description: "\u0412\u0441\u0435\u0433\u0434\u0430 specific",
+          required: true
+        },
+        {
+          name: "use",
+          type: "array",
+          description: "\u041C\u0430\u0441\u0441\u0438\u0432 \u0441\u0441\u044B\u043B\u043E\u043A \u043D\u0430 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B (attribute: <id>)"
+        }
+      ],
+      actionBulkAttributeUse: [
+        {
+          name: "attribute",
+          type: "ref",
+          description: "Data ID Ref \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438",
+          required: true
+        }
+      ],
+      actionBulkLinkages: [
+        {
+          name: "type",
+          type: "enum",
+          description: "\u0412\u0441\u0435\u0433\u0434\u0430 specific",
+          required: true
+        },
+        {
+          name: "use",
+          type: "array",
+          description: "\u041C\u0430\u0441\u0441\u0438\u0432 \u0441\u0441\u044B\u043B\u043E\u043A \u043D\u0430 \u0432\u0438\u0434\u0436\u0435\u0442\u044B \u0441\u0432\u044F\u0437\u0435\u0439 (widget: <id>)"
+        }
+      ],
+      actionBulkLinkageUse: [
+        {
+          name: "widget",
+          type: "ref",
+          description: "View ID \u0432\u0438\u0434\u0436\u0435\u0442\u0430 \u0441\u0432\u044F\u0437\u0438 (\u0441\u0442\u043E\u0440\u043E\u043D\u0430 N)",
+          required: true
+        }
+      ],
+      actionValue: [
+        {
+          name: "attribute",
+          type: "ref",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430",
+          required: true
+        },
+        { name: "value", type: "string", description: "\u0423\u0441\u0442\u0430\u043D\u0430\u0432\u043B\u0438\u0432\u0430\u0435\u043C\u043E\u0435 \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0435" }
+      ],
+      actionControl: [
+        {
+          name: "type",
+          type: "string",
+          description: "\u0422\u0438\u043F \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0430 (\u043E\u043F\u0446\u0438\u043E\u043D\u0430\u043B\u044C\u043D\u043E)"
+        },
+        {
+          name: "trueText",
+          type: "string",
+          description: "\u041E\u0442\u043E\u0431\u0440\u0430\u0436\u0430\u0435\u043C\u044B\u0439 \u0442\u0435\u043A\u0441\u0442 \u0434\u043B\u044F True",
+          required: true
+        },
+        {
+          name: "falseText",
+          type: "string",
+          description: "\u041E\u0442\u043E\u0431\u0440\u0430\u0436\u0430\u0435\u043C\u044B\u0439 \u0442\u0435\u043A\u0441\u0442 \u0434\u043B\u044F False",
+          required: true
+        }
+      ],
+      actionAutomation: [
+        {
+          name: "id",
+          type: "string",
+          description: "UUID \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0437\u0430\u0446\u0438\u0438 (3c521909-cc55-4b0c-b645-f79eb0263296)",
+          required: true
+        }
+      ],
+      // ============ views: list-view ============
+      viewSource: [
+        {
+          name: "type",
+          type: "enum",
+          description: "operational (\u0411\u0414 \u0441\u0438\u0441\u0442\u0435\u043C\u044B)",
+          required: true
+        },
+        {
+          name: "entity",
+          type: "ref",
+          description: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C, \u0447\u044C\u0438 \u043E\u0431\u044A\u0435\u043A\u0442\u044B \u043E\u0442\u043E\u0431\u0440\u0430\u0436\u0430\u044E\u0442\u0441\u044F \u0432 \u0441\u043F\u0438\u0441\u043A\u0435",
+          required: true
+        },
+        {
+          name: "joins",
+          type: "array",
+          description: "\u0421\u0432\u044F\u0437\u0438 \u0434\u043B\u044F \u043E\u0442\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u044F \u0434\u0430\u043D\u043D\u044B\u0445 \u0441\u0432\u044F\u0437\u0430\u043D\u043D\u044B\u0445 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439"
+        }
+      ],
+      viewSourceJoin: [
+        {
+          name: "id",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0441\u0432\u044F\u0437\u0438 (Data ID)",
+          required: true
+        },
+        {
+          name: "linkage",
+          type: "ref",
+          description: "\u0421\u0432\u044F\u0437\u044C \u0441 \u0434\u0440\u0443\u0433\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C\u044E",
+          required: true
+        },
+        { name: "side", type: "enum", description: "\u0421\u0442\u043E\u0440\u043E\u043D\u0430 \u0441\u0432\u044F\u0437\u0438: 1 \u0438\u043B\u0438 2" },
+        { name: "description", type: "string", description: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435 \u0441\u0432\u044F\u0437\u0438" }
+      ],
+      viewTable: [
+        {
+          name: "columns",
+          type: "array",
+          description: "\u0421\u0442\u043E\u043B\u0431\u0446\u044B \u0442\u0430\u0431\u043B\u0438\u0446\u044B",
+          required: true
+        },
+        { name: "filter", type: "object", description: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u0446\u0438\u0438" },
+        { name: "sortingBy", type: "object", description: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0438" },
+        { name: "paging", type: "object", description: "\u041F\u0430\u0433\u0438\u043D\u0430\u0446\u0438\u044F" },
+        { name: "refresh", type: "object", description: "\u041E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u0435 \u0434\u0430\u043D\u043D\u044B\u0445" },
+        {
+          name: "selection",
+          type: "boolean",
+          description: "\u0412\u043E\u0437\u043C\u043E\u0436\u043D\u043E\u0441\u0442\u044C \u0432\u044B\u0431\u043E\u0440\u0430 \u0441\u0442\u0440\u043E\u043A"
+        },
+        {
+          name: "actions",
+          type: "array",
+          description: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u043F\u0440\u0438 \u043A\u043B\u0438\u043A\u0435 \u043D\u0430 \u0441\u0442\u0440\u043E\u043A\u0443"
+        },
+        { name: "empty", type: "object", description: "\u0422\u0435\u043A\u0441\u0442 \u043F\u0440\u0438 \u043F\u0443\u0441\u0442\u043E\u0439 \u0442\u0430\u0431\u043B\u0438\u0446\u0435" }
+      ],
+      viewTableColumn: [
+        {
+          name: "id",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0441\u0442\u043E\u043B\u0431\u0446\u0430 (View ID)",
+          required: true
+        },
+        {
+          name: "attribute",
+          type: "ref",
+          description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442 \u0434\u043B\u044F \u043E\u0442\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u044F (Data ID Ref / FQID)"
+        },
+        {
+          name: "label",
+          type: "string",
+          description: "\u041E\u0442\u043E\u0431\u0440\u0430\u0436\u0430\u0435\u043C\u043E\u0435 \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0441\u0442\u043E\u043B\u0431\u0446\u0430"
+        },
+        {
+          name: "layout",
+          type: "object",
+          description: "\u0420\u0430\u0437\u043C\u0435\u0440 \u0438 \u0432\u0438\u0434\u0438\u043C\u043E\u0441\u0442\u044C \u0441\u0442\u043E\u043B\u0431\u0446\u0430"
+        },
+        { name: "control", type: "object", description: "\u0422\u0438\u043F \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0430 \u0432 \u0441\u0442\u043E\u043B\u0431\u0446\u0435" },
+        {
+          name: "join",
+          type: "ref",
+          description: "\u0422\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u0430\u044F \u0441\u0432\u044F\u0437\u044C \u0434\u043B\u044F \u043A\u043E\u043B\u043E\u043D\u043A\u0438"
+        },
+        { name: "use", type: "array", description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430-\u0442\u0430\u0431\u043B\u0438\u0446\u044B" },
+        { name: "aggregate", type: "object", description: "\u0410\u0433\u0440\u0435\u0433\u0430\u0446\u0438\u044F (count)" },
+        {
+          name: "counterColorPattern",
+          type: "ref",
+          description: "\u0426\u0432\u0435\u0442\u043E\u0432\u0430\u044F \u0441\u0445\u0435\u043C\u0430 \u0441\u0447\u0451\u0442\u0447\u0438\u043A\u0430"
+        },
+        {
+          name: "actions",
+          type: "array",
+          description: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u043F\u0440\u0438 hover \u043D\u0430 \u044F\u0447\u0435\u0439\u043A\u0443"
+        }
+      ],
+      viewTableColumnLayout: [
+        {
+          name: "visible",
+          type: "boolean",
+          description: "\u0412\u0438\u0434\u0438\u043C\u043E\u0441\u0442\u044C \u0441\u0442\u043E\u043B\u0431\u0446\u0430 (\u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E true)"
+        },
+        { name: "width", type: "object", description: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u0448\u0438\u0440\u0438\u043D\u044B" }
+      ],
+      viewTableColumnWidth: [
+        {
+          name: "default",
+          type: "number",
+          description: "\u0428\u0438\u0440\u0438\u043D\u0430 \u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E (px)",
+          required: true
+        },
+        {
+          name: "min",
+          type: "number",
+          description: "\u041C\u0438\u043D\u0438\u043C\u0430\u043B\u044C\u043D\u0430\u044F \u0448\u0438\u0440\u0438\u043D\u0430 (px)",
+          required: true
+        },
+        {
+          name: "max",
+          type: "number",
+          description: "\u041C\u0430\u043A\u0441\u0438\u043C\u0430\u043B\u044C\u043D\u0430\u044F \u0448\u0438\u0440\u0438\u043D\u0430 (px)",
+          required: true
+        }
+      ],
+      viewTableColumnControl: [
+        {
+          name: "type",
+          type: "string",
+          description: "text | text_area | select | radio | tag | level | bool_text | timestamp | tree_path \u0438 \u0434\u0440."
+        },
+        {
+          name: "trueText",
+          type: "string",
+          description: "\u041E\u0442\u043E\u0431\u0440\u0430\u0436\u0430\u0435\u043C\u044B\u0439 \u0442\u0435\u043A\u0441\u0442 \u0434\u043B\u044F True (\u0434\u043B\u044F bool_text)"
+        },
+        {
+          name: "falseText",
+          type: "string",
+          description: "\u041E\u0442\u043E\u0431\u0440\u0430\u0436\u0430\u0435\u043C\u044B\u0439 \u0442\u0435\u043A\u0441\u0442 \u0434\u043B\u044F False (\u0434\u043B\u044F bool_text)"
+        },
+        {
+          name: "tree",
+          type: "ref",
+          description: "\u0414\u0435\u0440\u0435\u0432\u043E \u0434\u043B\u044F \u043E\u0442\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u044F \u043F\u0443\u0442\u0438 (\u0434\u043B\u044F type: tree_path)"
+        }
+      ],
+      viewTableColumnAggregate: [
+        { name: "type", type: "enum", description: "count", required: true },
+        {
+          name: "condition",
+          type: "rql",
+          description: "RQL-\u0443\u0441\u043B\u043E\u0432\u0438\u0435 \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u0446\u0438\u0438 \u0441\u0432\u044F\u0437\u0430\u043D\u043D\u044B\u0445 \u043E\u0431\u044A\u0435\u043A\u0442\u043E\u0432"
+        }
+      ],
+      viewTableFilter: [
+        {
+          name: "attributes",
+          type: "object",
+          description: "\u0424\u0438\u043B\u044C\u0442\u0440\u0430\u0446\u0438\u044F \u043F\u043E \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430\u043C \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438"
+        },
+        { name: "linkages", type: "object", description: "\u0424\u0438\u043B\u044C\u0442\u0440\u0430\u0446\u0438\u044F \u043F\u043E \u0441\u0432\u044F\u0437\u044F\u043C" }
+      ],
+      viewTableFilterAttributes: [
+        {
+          name: "type",
+          type: "enum",
+          description: "specific | all",
+          required: true
+        },
+        {
+          name: "use",
+          type: "array",
+          description: "\u041C\u0430\u0441\u0441\u0438\u0432 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u0434\u043B\u044F \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u0446\u0438\u0438 (\u043F\u0440\u0438 type: specific)"
+        }
+      ],
+      viewTableFilterAttributesUse: [
+        {
+          name: "attribute",
+          type: "ref",
+          description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442 \u0434\u043B\u044F \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u0446\u0438\u0438",
+          required: true
+        },
+        { name: "use", type: "array", description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430-\u0442\u0430\u0431\u043B\u0438\u0446\u044B" }
+      ],
+      viewTableFilterLinkages: [
+        {
+          name: "type",
+          type: "enum",
+          description: "specific | all",
+          required: true
+        },
+        {
+          name: "use",
+          type: "array",
+          description: "\u041C\u0430\u0441\u0441\u0438\u0432 \u0441\u0432\u044F\u0437\u0435\u0439 \u0434\u043B\u044F \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u0446\u0438\u0438 (\u043F\u0440\u0438 type: specific)"
+        }
+      ],
+      viewTableFilterLinkagesUse: [
+        { name: "linkage", type: "ref", description: "\u0421\u0432\u044F\u0437\u044C \u0434\u043B\u044F \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u0446\u0438\u0438" },
+        {
+          name: "join",
+          type: "ref",
+          description: "\u0422\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u0430\u044F \u0441\u0432\u044F\u0437\u044C \u0434\u043B\u044F \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u0446\u0438\u0438"
+        },
+        {
+          name: "link_attributes",
+          type: "array",
+          description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0441\u0432\u044F\u0437\u0438 \u0434\u043B\u044F \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u0446\u0438\u0438"
+        },
+        {
+          name: "linkedEntity",
+          type: "array",
+          description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0441\u0432\u044F\u0437\u0430\u043D\u043D\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0434\u043B\u044F \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u0446\u0438\u0438"
+        }
+      ],
+      viewTableSortingBy: [
+        {
+          name: "columns",
+          type: "array",
+          description: "\u0421\u0442\u043E\u043B\u0431\u0446\u044B \u0434\u043B\u044F \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0438",
+          required: true
+        },
+        {
+          name: "defaults",
+          type: "object",
+          description: "\u0421\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430 \u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E"
+        }
+      ],
+      viewTableSortingByColumn: [
+        {
+          name: "column",
+          type: "ref",
+          description: "\u0421\u0442\u043E\u043B\u0431\u0435\u0446 (View ID)",
+          required: true
+        },
+        {
+          name: "sorting",
+          type: "ref",
+          description: "\u041F\u0440\u0430\u0432\u0438\u043B\u043E \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0438 (Data ID)",
+          required: true
+        }
+      ],
+      viewTableSortingByDefault: [
+        {
+          name: "column",
+          type: "ref",
+          description: "\u0421\u0442\u043E\u043B\u0431\u0435\u0446 \u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E",
+          required: true
+        },
+        {
+          name: "direction",
+          type: "enum",
+          description: "asc | desc",
+          required: true
+        }
+      ],
+      viewTablePaging: [
+        {
+          name: "sizes",
+          type: "array",
+          description: "\u0412\u0430\u0440\u0438\u0430\u043D\u0442\u044B \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u0430 \u0437\u0430\u043F\u0438\u0441\u0435\u0439 (\u043D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, [10, 50, 100])",
+          required: true
+        },
+        {
+          name: "defaultSize",
+          type: "number",
+          description: "\u041A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E \u0437\u0430\u043F\u0438\u0441\u0435\u0439 \u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E",
+          required: true
+        }
+      ],
+      viewTableRefresh: [
+        {
+          name: "mode",
+          type: "enum",
+          description: "manual | auto | all",
+          required: true
+        },
+        {
+          name: "defaults",
+          type: "object",
+          description: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u0430\u0432\u0442\u043E\u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F"
+        }
+      ],
+      viewTableRefreshDefaults: [
+        {
+          name: "enabled",
+          type: "boolean",
+          description: "\u0410\u0432\u0442\u043E\u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u0435 \u0432\u043A\u043B\u044E\u0447\u0435\u043D\u043E",
+          required: true
+        },
+        {
+          name: "unit",
+          type: "enum",
+          description: "second | minute | hour",
+          required: true
+        },
+        {
+          name: "interval",
+          type: "number",
+          description: "\u0418\u043D\u0442\u0435\u0440\u0432\u0430\u043B \u0432 \u0443\u043A\u0430\u0437\u0430\u043D\u043D\u044B\u0445 \u0435\u0434\u0438\u043D\u0438\u0446\u0430\u0445",
+          required: true
+        }
+      ],
+      viewTableAction: [
+        {
+          name: "type",
+          type: "enum",
+          description: "row_click | row_double_click | row_context_menu",
+          required: true
+        },
+        {
+          name: "action",
+          type: "ref",
+          description: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u043F\u0440\u0438 \u043A\u043B\u0438\u043A\u0435 (\u0434\u043B\u044F row_click, row_double_click)"
+        },
+        {
+          name: "items",
+          type: "array",
+          description: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u043D\u043E\u0433\u043E \u043C\u0435\u043D\u044E (\u0434\u043B\u044F row_context_menu)"
+        }
+      ],
+      viewTableActionItem: [
+        {
+          name: "action",
+          type: "ref",
+          description: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0435 (View ID)",
+          required: true
+        },
+        { name: "label", type: "string", description: "\u041E\u0442\u043E\u0431\u0440\u0430\u0436\u0430\u0435\u043C\u043E\u0435 \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u0435" },
+        { name: "icon", type: "ref", description: "\u0418\u043A\u043E\u043D\u043A\u0430 (View ID \u043C\u0435\u0434\u0438\u0430)" }
+      ],
+      viewTableEmpty: [
+        {
+          name: "message",
+          type: "string",
+          description: "\u0422\u0435\u043A\u0441\u0442 \u043F\u0440\u0438 \u043E\u0442\u0441\u0443\u0442\u0441\u0442\u0432\u0438\u0438 \u0434\u0430\u043D\u043D\u044B\u0445",
+          required: true
+        }
+      ],
+      // ============ views: entity-view ============
+      viewWidgetControl: [
+        {
+          name: "type",
+          type: "string",
+          description: "\u0422\u0438\u043F \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0430: text, text_area, select, radio, tag, level, switch, checkbox, bool_text, timestamp, date, time, tree_path, drag_drop_area, file, slider, link \u0438 \u0434\u0440."
+        },
+        {
+          name: "text",
+          type: "string",
+          description: "\u0422\u0435\u043A\u0441\u0442 \u043E\u0431\u043B\u0430\u0441\u0442\u0438 \u043F\u0435\u0440\u0435\u0442\u0430\u0441\u043A\u0438\u0432\u0430\u043D\u0438\u044F (\u0434\u043B\u044F drag_drop_area)"
+        },
+        {
+          name: "trueText",
+          type: "string",
+          description: "\u041E\u0442\u043E\u0431\u0440\u0430\u0436\u0430\u0435\u043C\u044B\u0439 \u0442\u0435\u043A\u0441\u0442 \u0434\u043B\u044F True (\u0434\u043B\u044F bool_text)"
+        },
+        {
+          name: "falseText",
+          type: "string",
+          description: "\u041E\u0442\u043E\u0431\u0440\u0430\u0436\u0430\u0435\u043C\u044B\u0439 \u0442\u0435\u043A\u0441\u0442 \u0434\u043B\u044F False (\u0434\u043B\u044F bool_text)"
+        },
+        { name: "step", type: "number", description: "\u0428\u0430\u0433 \u043F\u043E\u043B\u0437\u0443\u043D\u043A\u0430 (\u0434\u043B\u044F slider)" },
+        {
+          name: "icon",
+          type: "ref",
+          description: "\u0418\u043A\u043E\u043D\u043A\u0430 (\u0434\u043B\u044F action-\u0432\u0438\u0434\u0436\u0435\u0442\u0430, regular_button)"
+        }
+      ],
+      viewWidgetLinkageControl: [
+        {
+          name: "type",
+          type: "enum",
+          description: "select | multi_select | table",
+          required: true
+        },
+        {
+          name: "addLinksView",
+          type: "ref",
+          description: "\u0421\u043F\u0438\u0441\u043E\u043A \u0434\u043B\u044F \u0432\u044B\u0431\u043E\u0440\u0430 \u0441\u0432\u044F\u0437\u0430\u043D\u043D\u044B\u0445 \u043E\u0431\u044A\u0435\u043A\u0442\u043E\u0432 (\u043C\u043E\u0434\u0430\u043B\u043A\u0430 \u0441\u043E\u0437\u0434\u0430\u043D\u0438\u044F \u0441\u0432\u044F\u0437\u0438)"
+        },
+        {
+          name: "displayMode",
+          type: "enum",
+          description: "grouped | flat (\u0434\u043B\u044F \u0442\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u044B\u0445 \u0441\u0432\u044F\u0437\u0435\u0439)"
+        },
+        {
+          name: "columns",
+          type: "array",
+          description: "\u0421\u0442\u043E\u043B\u0431\u0446\u044B \u0442\u0430\u0431\u043B\u0438\u0446\u044B (\u0442\u043E\u043B\u044C\u043A\u043E \u0434\u043B\u044F type: table)"
+        },
+        { name: "sortingBy", type: "array", description: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0438" },
+        { name: "paging", type: "object", description: "\u041F\u0430\u0433\u0438\u043D\u0430\u0446\u0438\u044F" }
+      ],
+      viewWidgetLinkageColumn: [
+        {
+          name: "id",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0441\u0442\u043E\u043B\u0431\u0446\u0430",
+          required: true
+        },
+        {
+          name: "attribute",
+          type: "ref",
+          description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442 \u0441\u0432\u044F\u0437\u0430\u043D\u043D\u043E\u0433\u043E \u043E\u0431\u044A\u0435\u043A\u0442\u0430 \u0438\u043B\u0438 \u0441\u0432\u044F\u0437\u0438"
+        },
+        {
+          name: "join",
+          type: "ref",
+          description: "\u0422\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u0430\u044F \u0441\u0432\u044F\u0437\u044C \u0434\u043B\u044F \u043A\u043E\u043B\u043E\u043D\u043A\u0438 (\u043D\u0435\u043B\u044C\u0437\u044F \u0432\u043C\u0435\u0441\u0442\u0435 \u0441 linkage)"
+        },
+        {
+          name: "linkage",
+          type: "ref",
+          description: "\u0421\u0432\u044F\u0437\u044C \u0434\u043B\u044F \u043A\u043E\u043B\u043E\u043D\u043A\u0438 (\u043D\u0435\u043B\u044C\u0437\u044F \u0432\u043C\u0435\u0441\u0442\u0435 \u0441 join)"
+        }
+      ],
+      viewWidgetLinkageAttributes: [
+        {
+          name: "attribute",
+          type: "ref",
+          description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442 \u0441\u0432\u044F\u0437\u0438",
+          required: true
+        },
+        { name: "label", type: "string", description: "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430 \u0432 UI" },
+        { name: "control", type: "object", description: "\u042D\u043B\u0435\u043C\u0435\u043D\u0442 \u0443\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u0438\u044F" }
+      ],
+      viewWidgetLinkageAttributeControl: [
+        {
+          name: "type",
+          type: "string",
+          description: "\u0422\u0438\u043F \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0430 (\u0441\u043E\u043E\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0443\u0435\u0442 \u0442\u0438\u043F\u0443 \u0434\u0430\u043D\u043D\u044B\u0445)"
+        },
+        {
+          name: "view",
+          type: "ref",
+          description: "\u041F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0435 \u0432\u044B\u0431\u043E\u0440\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 (\u0434\u043B\u044F Reference)"
+        },
+        {
+          name: "editable",
+          type: "boolean",
+          description: "\u0420\u0430\u0437\u0440\u0435\u0448\u0438\u0442\u044C \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435 (\u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E true)"
+        }
+      ],
+      viewWidgetConversation: [
+        {
+          name: "linkage",
+          type: "ref",
+          description: "\u0421\u0432\u044F\u0437\u044C \u0441 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C\u044E Message \u0438\u0437 domain.comm.rvision.ru",
+          required: true
+        },
+        {
+          name: "conversationTransports",
+          type: "array",
+          description: "\u041E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u0435 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u044B\u0445 \u0442\u0440\u0430\u043D\u0441\u043F\u043E\u0440\u0442\u043E\u0432"
+        }
+      ],
+      viewGroupLayout: [
+        {
+          name: "direction",
+          type: "enum",
+          description: "column (\u0432\u0435\u0440\u0442\u0438\u043A\u0430\u043B\u044C\u043D\u043E) \u2014 \u0435\u0434\u0438\u043D\u0441\u0442\u0432\u0435\u043D\u043D\u043E\u0435 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E\u0435 \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0435"
+        },
+        {
+          name: "expandable",
+          type: "boolean",
+          description: "\u0412\u043E\u0437\u043C\u043E\u0436\u043D\u043E\u0441\u0442\u044C \u0441\u0432\u043E\u0440\u0430\u0447\u0438\u0432\u0430\u043D\u0438\u044F (\u0434\u043B\u044F block)"
+        },
+        {
+          name: "minHeight",
+          type: "string",
+          description: "\u041C\u0438\u043D. \u0432\u044B\u0441\u043E\u0442\u0430 \u0441\u0435\u043A\u0446\u0438\u0438 (\u0434\u043B\u044F resizable_block_pair)"
+        },
+        {
+          name: "maxHeight",
+          type: "string",
+          description: "\u041C\u0430\u043A\u0441. \u0432\u044B\u0441\u043E\u0442\u0430 \u0441\u0435\u043A\u0446\u0438\u0438 (\u0434\u043B\u044F resizable_block_pair)"
+        },
+        {
+          name: "sizeRatio",
+          type: "object",
+          description: "\u0421\u043E\u043E\u0442\u043D\u043E\u0448\u0435\u043D\u0438\u0435 \u0448\u0438\u0440\u0438\u043D\u044B \u0441\u0435\u043A\u0446\u0438\u0439 (\u0434\u043B\u044F resizable_block_pair)"
+        }
+      ],
+      viewGroupComponent: [
+        {
+          name: "inherit",
+          type: "object",
+          description: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F \u043E\u0442 \u0440\u043E\u0434\u0438\u0442\u0435\u043B\u044C\u0441\u043A\u043E\u0439 \u0433\u0440\u0443\u043F\u043F\u044B"
+        },
+        { name: "widget", type: "ref", description: "\u0421\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 \u0432\u0438\u0434\u0436\u0435\u0442" },
+        { name: "block", type: "ref", description: "\u0421\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 \u0432\u043B\u043E\u0436\u0435\u043D\u043D\u044B\u0439 \u0431\u043B\u043E\u043A" }
+      ],
+      viewNested: [
+        {
+          name: "id",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0438 (View ID)",
+          required: true
+        },
+        { name: "description", type: "string", description: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" },
+        {
+          name: "type",
+          type: "enum",
+          description: "panel | modal | page",
+          required: true
+        },
+        {
+          name: "inherit",
+          type: "ref",
+          description: "\u041D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435 \u043E\u0442 \u0434\u0440\u0443\u0433\u043E\u0439 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0438"
+        },
+        { name: "label", type: "string", description: "\u0417\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0438" },
+        { name: "menu", type: "array", description: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u0432 \u043C\u0435\u043D\u044E (\u0434\u043B\u044F panel)" },
+        { name: "tabs", type: "array", description: "\u0412\u043A\u043B\u0430\u0434\u043A\u0438 (\u0434\u043B\u044F panel)" },
+        {
+          name: "footer",
+          type: "array",
+          description: "\u041D\u0438\u0436\u043D\u044F\u044F \u0441\u0435\u043A\u0446\u0438\u044F \u0441 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F\u043C\u0438"
+        },
+        {
+          name: "onView",
+          type: "array",
+          description: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u043F\u0440\u0438 \u043E\u0442\u043A\u0440\u044B\u0442\u0438\u0438 (\u0442\u043E\u043B\u044C\u043A\u043E set_attribute_value)"
+        },
+        {
+          name: "form",
+          type: "ref",
+          description: "\u0421\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 \u0433\u0440\u0443\u043F\u043F\u0443 form (\u0434\u043B\u044F modal)"
+        },
+        {
+          name: "buttons",
+          type: "array",
+          description: "\u041A\u043D\u043E\u043F\u043A\u0438 submit/close (\u0434\u043B\u044F modal)"
+        },
+        {
+          name: "menuItem",
+          type: "ref",
+          description: "\u0421\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 \u043F\u0443\u043D\u043A\u0442 \u043C\u0435\u043D\u044E (\u0434\u043B\u044F page)"
+        },
+        {
+          name: "actionPanel",
+          type: "array",
+          description: "\u041F\u0430\u043D\u0435\u043B\u044C \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0439 (\u0434\u043B\u044F page)"
+        },
+        {
+          name: "block",
+          type: "ref",
+          description: "\u0415\u0434\u0438\u043D\u044B\u0439 \u0431\u043B\u043E\u043A \u0432 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0435 (\u0434\u043B\u044F page, \u0431\u0435\u0437 tabs)"
+        },
+        {
+          name: "pinnedView",
+          type: "object",
+          description: "\u0417\u0430\u043A\u0440\u0435\u043F\u043B\u0451\u043D\u043D\u044B\u0439 \u0431\u043B\u043E\u043A (\u0434\u043B\u044F page)"
+        }
+      ],
+      viewButton: [
+        {
+          name: "type",
+          type: "enum",
+          description: "submit | close",
+          required: true
+        },
+        { name: "label", type: "string", description: "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u043A\u043D\u043E\u043F\u043A\u0438" },
+        { name: "control", type: "object", description: "\u042D\u043B\u0435\u043C\u0435\u043D\u0442 \u0443\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u0438\u044F" },
+        {
+          name: "actions",
+          type: "array",
+          description: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u043F\u0440\u0438 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u0438 (\u0434\u043B\u044F type: submit)"
+        },
+        {
+          name: "hidden",
+          type: "boolean",
+          description: "\u0421\u043A\u0440\u044B\u0442\u044C \u043A\u043D\u043E\u043F\u043A\u0443 (\u0434\u043B\u044F type: submit)"
+        }
+      ],
+      viewButtonControl: [
+        {
+          name: "type",
+          type: "enum",
+          description: "regular_button",
+          required: true
+        },
+        { name: "icon", type: "ref", description: "\u0418\u043A\u043E\u043D\u043A\u0430 \u043A\u043D\u043E\u043F\u043A\u0438" }
+      ],
+      viewButtonAction: [
+        {
+          name: "action",
+          type: "ref",
+          description: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0435 (\u0442\u043E\u043B\u044C\u043A\u043E set_attribute_value)",
+          required: true
+        }
+      ],
+      viewMenuAction: [
+        {
+          name: "action",
+          type: "ref",
+          description: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0435 (View ID)",
+          required: true
+        },
+        {
+          name: "inherit",
+          type: "object",
+          description: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F \u043C\u0435\u043D\u044E"
+        }
+      ],
+      viewFooterAction: [
+        {
+          name: "action",
+          type: "ref",
+          description: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0435 (\u0442\u043E\u043B\u044C\u043A\u043E automation / scenario)",
+          required: true
+        },
+        {
+          name: "behavior",
+          type: "enum",
+          description: "run | run_close | run_submit",
+          required: true
+        },
+        { name: "control", type: "object", description: "\u042D\u043B\u0435\u043C\u0435\u043D\u0442 \u0443\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u0438\u044F" }
+      ],
+      viewActionPanelItem: [
+        {
+          name: "widget",
+          type: "ref",
+          description: "\u0412\u0438\u0434\u0436\u0435\u0442 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F (View ID)",
+          required: true
+        },
+        { name: "inherit", type: "object", description: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F" }
+      ],
+      viewTab: [
+        {
+          name: "tab",
+          type: "ref",
+          description: "\u0412\u043A\u043B\u0430\u0434\u043A\u0430 (View ID \u0433\u0440\u0443\u043F\u043F\u044B \u0442\u0438\u043F\u0430 tab)",
+          required: true
+        },
+        {
+          name: "inherit",
+          type: "object",
+          description: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F \u0432\u043A\u043B\u0430\u0434\u043E\u043A"
+        }
+      ],
+      viewPinnedView: [
+        {
+          name: "block",
+          type: "ref",
+          description: "\u0417\u0430\u043A\u0440\u0435\u043F\u043B\u0451\u043D\u043D\u044B\u0439 \u0431\u043B\u043E\u043A (View ID)",
+          required: true
+        },
+        { name: "position", type: "enum", description: "top | bottom" },
+        {
+          name: "minHeight",
+          type: "string",
+          description: "\u041C\u0438\u043D. \u0432\u044B\u0441\u043E\u0442\u0430 (\u043D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, 25% \u0438\u043B\u0438 200px)"
+        },
+        { name: "maxHeight", type: "string", description: "\u041C\u0430\u043A\u0441. \u0432\u044B\u0441\u043E\u0442\u0430" },
+        {
+          name: "height",
+          type: "string",
+          description: "\u0412\u044B\u0441\u043E\u0442\u0430 (\u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E 30%)"
+        }
+      ],
+      inheritSettings: [
+        {
+          name: "type",
+          type: "enum",
+          description: "append | override | except",
+          required: true
+        },
+        {
+          name: "except",
+          type: "array",
+          description: "\u0421\u043F\u0438\u0441\u043E\u043A id \u0434\u043B\u044F \u0438\u0441\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u044F (\u043F\u0440\u0438 type: except)"
+        }
+      ],
+      // ============ menus ============
+      menuRoot: [
+        {
+          name: "id",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u043A\u043E\u0440\u043D\u0435\u0432\u043E\u0439 \u0433\u0440\u0443\u043F\u043F\u044B",
+          required: true
+        },
+        {
+          name: "route",
+          type: "string",
+          description: "\u041F\u0443\u0442\u044C \u0432 URL (\u043D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, /assets)",
+          required: true
+        },
+        {
+          name: "label",
+          type: "string",
+          description: "\u0417\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A \u0440\u0430\u0437\u0434\u0435\u043B\u0430 \u0432 \u043C\u0435\u043D\u044E",
+          required: true
+        },
+        { name: "description", type: "string", description: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" },
+        { name: "icon", type: "ref", description: "\u0421\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 \u043C\u0435\u0434\u0438\u0430-\u0440\u0435\u0441\u0443\u0440\u0441" },
+        {
+          name: "type",
+          type: "enum",
+          description: "root_group \u0438\u043B\u0438 root_menu",
+          required: true
+        },
+        {
+          name: "placement",
+          type: "enum",
+          description: "top (\u0433\u043B\u0430\u0432\u043D\u043E\u0435 \u043C\u0435\u043D\u044E) \u0438\u043B\u0438 settings (\u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438)",
+          required: true
+        },
+        {
+          name: "priority",
+          type: "number",
+          description: "\u041F\u0440\u0438\u043E\u0440\u0438\u0442\u0435\u0442 (\u22651000, \u0431\u043E\u043B\u044C\u0448\u0435 = \u0432\u044B\u0448\u0435)"
+        },
+        {
+          name: "view",
+          type: "ref",
+          description: "\u0421\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0435 (\u0434\u043B\u044F root_menu)"
+        },
+        { name: "items", type: "array", description: "\u0414\u043E\u0447\u0435\u0440\u043D\u0438\u0435 \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u044B \u043C\u0435\u043D\u044E" }
+      ],
+      menuItem: [
+        {
+          name: "id",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u043F\u0443\u043D\u043A\u0442\u0430",
+          required: true
+        },
+        {
+          name: "route",
+          type: "string",
+          description: "\u041F\u0443\u0442\u044C \u0432 URL (\u043F\u043E\u0441\u043B\u0435 \u043F\u0443\u0442\u0438 \u0440\u0430\u0437\u0434\u0435\u043B\u0430)",
+          required: true
+        },
+        {
+          name: "label",
+          type: "string",
+          description: "\u0417\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A \u043F\u0443\u043D\u043A\u0442\u0430",
+          required: true
+        },
+        { name: "description", type: "string", description: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" },
+        {
+          name: "type",
+          type: "enum",
+          description: "\u0423\u0441\u0442\u0430\u043D\u0430\u0432\u043B\u0438\u0432\u0430\u0435\u0442\u0441\u044F menu",
+          required: true
+        },
+        {
+          name: "view",
+          type: "ref",
+          description: "\u0421\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0435 (\u0441\u043F\u0438\u0441\u043E\u043A \u0438\u043B\u0438 \u0432\u043A\u043B\u0430\u0434\u043A\u0438)",
+          required: true
+        },
+        { name: "priority", type: "number", description: "\u041F\u0440\u0438\u043E\u0440\u0438\u0442\u0435\u0442 (\u22651000)" }
+      ],
+      // ============ medias ============
+      media: [
+        {
+          name: "id",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0438\u043A\u043E\u043D\u043A\u0438 (View ID)",
+          required: true
+        },
+        { name: "description", type: "string", description: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" },
+        { name: "type", type: "enum", description: "icon_name", required: true },
+        {
+          name: "iconName",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0432 \u0431\u0438\u0431\u043B\u0438\u043E\u0442\u0435\u043A\u0435 \u0438\u043A\u043E\u043D\u043E\u043A",
+          required: true
+        }
+      ],
+      // ============ mixins ============
+      mixin: [
+        {
+          name: "id",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u043F\u0440\u0438\u043C\u0435\u0441\u0438",
+          required: true
+        },
+        { name: "name", type: "string", description: "\u041D\u0430\u0438\u043C\u0435\u043D\u043E\u0432\u0430\u043D\u0438\u0435 \u043F\u0440\u0438\u043C\u0435\u0441\u0438" },
+        { name: "description", type: "string", description: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" },
+        {
+          name: "weight",
+          type: "number",
+          description: "\u041F\u0440\u0438\u043E\u0440\u0438\u0442\u0435\u0442 (\u043C\u0435\u043D\u044C\u0448\u0435 = \u0432\u044B\u0448\u0435)"
+        },
+        {
+          name: "useForChild",
+          type: "boolean",
+          description: "\u041D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u044C \u0434\u043E\u0447\u0435\u0440\u043D\u0438\u043C \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u043C (\u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E true)"
+        },
+        {
+          name: "type",
+          type: "enum",
+          description: "linkage \u0438\u043B\u0438 view",
+          required: true
+        },
+        {
+          name: "entity",
+          type: "object",
+          description: "\u041D\u0430\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u0438\u0435 \u043F\u0440\u0438\u043C\u0435\u0441\u0438 (from \u2192 to)",
+          required: true
+        },
+        { name: "linkage", type: "ref", description: "\u0421\u0432\u044F\u0437\u044C (\u0434\u043B\u044F type: linkage)" },
+        {
+          name: "views",
+          type: "array",
+          description: "\u041F\u043E\u0434\u043C\u0435\u0448\u0438\u0432\u0430\u0435\u043C\u044B\u0435 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F",
+          required: true
+        }
+      ],
+      mixinEntity: [
+        {
+          name: "from",
+          type: "ref",
+          description: "\u0418\u0441\u0442\u043E\u0447\u043D\u0438\u043A \u043F\u0440\u0438\u043C\u0435\u0441\u0438 (\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C, \u0438\u0437 \u043A\u043E\u0442\u043E\u0440\u043E\u0439 \u0431\u0435\u0440\u0443\u0442\u0441\u044F \u0434\u0430\u043D\u043D\u044B\u0435)"
+        },
+        {
+          name: "to",
+          type: "ref",
+          description: "\u0426\u0435\u043B\u0435\u0432\u0430\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C (\u0432 \u043A\u043E\u0442\u043E\u0440\u0443\u044E \u0432\u0441\u0442\u0440\u0430\u0438\u0432\u0430\u0435\u0442\u0441\u044F)"
+        }
+      ],
+      mixinView: [
+        {
+          name: "id",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u043F\u0440\u0438\u043C\u0435\u0441\u0438 \u043A\u043E\u043C\u043F\u043E\u043D\u0435\u043D\u0442\u043E\u0432",
+          required: true
+        },
+        {
+          name: "type",
+          type: "enum",
+          description: "form | tab | panel | page | list",
+          required: true
+        },
+        {
+          name: "fromView",
+          type: "ref",
+          description: "\u0418\u0441\u0442\u043E\u0447\u043D\u0438\u043A \u043A\u043E\u043C\u043F\u043E\u043D\u0435\u043D\u0442\u043E\u0432 (\u0434\u043B\u044F type: view)"
+        },
+        {
+          name: "to",
+          type: "object",
+          description: "\u0426\u0435\u043B\u0435\u0432\u043E\u0435 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0435",
+          required: true
+        },
+        {
+          name: "change",
+          type: "object",
+          description: "\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u0446\u0435\u043B\u0435\u0432\u043E\u0433\u043E \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F (add / delete)"
+        },
+        {
+          name: "replace",
+          type: "object",
+          description: "\u0417\u0430\u043C\u0435\u043D\u0430 \u043A\u043E\u043C\u043F\u043E\u043D\u0435\u043D\u0442\u043E\u0432 (\u0434\u043B\u044F type: view)"
+        }
+      ],
+      mixinViewTo: [
+        {
+          name: "panel",
+          type: "ref",
+          description: "\u0426\u0435\u043B\u0435\u0432\u0430\u044F \u043F\u0430\u043D\u0435\u043B\u044C (\u0434\u043B\u044F type: panel)"
+        },
+        {
+          name: "tab",
+          type: "ref",
+          description: "\u0426\u0435\u043B\u0435\u0432\u0430\u044F \u0432\u043A\u043B\u0430\u0434\u043A\u0430 (\u0434\u043B\u044F type: tab)"
+        },
+        {
+          name: "form",
+          type: "ref",
+          description: "\u0426\u0435\u043B\u0435\u0432\u0430\u044F \u0444\u043E\u0440\u043C\u0430 (\u0434\u043B\u044F type: form)"
+        },
+        {
+          name: "list",
+          type: "ref",
+          description: "\u0426\u0435\u043B\u0435\u0432\u043E\u0439 \u0441\u043F\u0438\u0441\u043E\u043A (\u0434\u043B\u044F type: list)"
+        },
+        {
+          name: "page",
+          type: "ref",
+          description: "\u0426\u0435\u043B\u0435\u0432\u0430\u044F \u0441\u0442\u0440\u0430\u043D\u0438\u0446\u0430 (\u0434\u043B\u044F type: page)"
+        }
+      ],
+      mixinChange: [
+        { name: "add", type: "object", description: "\u0414\u043E\u0431\u0430\u0432\u043B\u044F\u0435\u043C\u044B\u0435 \u043A\u043E\u043C\u043F\u043E\u043D\u0435\u043D\u0442\u044B" },
+        { name: "delete", type: "object", description: "\u0423\u0434\u0430\u043B\u044F\u0435\u043C\u044B\u0435 \u043A\u043E\u043C\u043F\u043E\u043D\u0435\u043D\u0442\u044B" }
+      ],
+      mixinChangeAdd: [
+        {
+          name: "components",
+          type: "array",
+          description: "\u0412\u0438\u0434\u0436\u0435\u0442\u044B \u0438 \u0431\u043B\u043E\u043A\u0438 \u0434\u043B\u044F \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u0438\u044F"
+        },
+        {
+          name: "tabs",
+          type: "object",
+          description: "\u0412\u043A\u043B\u0430\u0434\u043A\u0438 \u0434\u043B\u044F \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u0438\u044F (\u0434\u043B\u044F type: panel)"
+        },
+        {
+          name: "menu",
+          type: "object",
+          description: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u0434\u043B\u044F \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u0438\u044F \u0432 \u043C\u0435\u043D\u044E"
+        },
+        {
+          name: "form",
+          type: "ref",
+          description: "\u0424\u043E\u0440\u043C\u0430 \u0434\u043B\u044F \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u0438\u044F (\u0434\u043B\u044F type: form)"
+        },
+        {
+          name: "list",
+          type: "ref",
+          description: "\u0421\u043F\u0438\u0441\u043E\u043A \u0434\u043B\u044F \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u0438\u044F (\u0434\u043B\u044F type: list)"
+        },
+        {
+          name: "block",
+          type: "ref",
+          description: "\u0411\u043B\u043E\u043A \u0434\u043B\u044F \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u0438\u044F (\u0434\u043B\u044F type: page)"
+        },
+        {
+          name: "position",
+          type: "object",
+          description: "\u0420\u0430\u0441\u043F\u043E\u043B\u043E\u0436\u0435\u043D\u0438\u0435 (begin | after | end)"
+        }
+      ],
+      mixinPosition: [
+        {
+          name: "type",
+          type: "enum",
+          description: "begin | after | end (\u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E end)"
+        },
+        {
+          name: "after",
+          type: "object",
+          description: "\u041A\u043E\u043C\u043F\u043E\u043D\u0435\u043D\u0442, \u043F\u043E\u0441\u043B\u0435 \u043A\u043E\u0442\u043E\u0440\u043E\u0433\u043E \u0432\u0441\u0442\u0430\u0432\u043B\u044F\u0442\u044C (\u0434\u043B\u044F type: after)"
+        }
+      ],
+      // ============ exchangeSettings ============
+      exchangeSettings: [
+        {
+          name: "description",
+          type: "string",
+          description: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435 \u0442\u0440\u0435\u0431\u043E\u0432\u0430\u043D\u0438\u0439 \u043A \u043E\u0431\u043C\u0435\u043D\u0443 \u0434\u0430\u043D\u043D\u044B\u043C\u0438"
+        },
+        {
+          name: "enable",
+          type: "boolean",
+          description: "\u0412\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u043E\u0431\u043C\u0435\u043D (\u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E true)"
+        },
+        {
+          name: "label",
+          type: "string",
+          description: "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0434\u043E\u043C\u0435\u043D\u0430 \u0432 \u0432\u044B\u043F\u0430\u0434\u0430\u044E\u0449\u0435\u043C \u0441\u043F\u0438\u0441\u043A\u0435 \u0438\u043C\u043F\u043E\u0440\u0442\u0430/\u044D\u043A\u0441\u043F\u043E\u0440\u0442\u0430"
+        },
+        {
+          name: "noCmsSync",
+          type: "boolean",
+          description: "\u041E\u0442\u043A\u043B\u044E\u0447\u0438\u0442\u044C sdk.cms.sync \u0434\u043B\u044F \u0441\u043E\u0437\u0434\u0430\u043D\u0438\u044F/\u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F"
+        },
+        {
+          name: "attributeFormats",
+          type: "object",
+          description: "\u0424\u043E\u0440\u043C\u0430\u0442\u044B \u0434\u0430\u0442\u044B/\u0432\u0440\u0435\u043C\u0435\u043D\u0438 (Date, Time, Timestamp, TimestampRange)"
+        },
+        {
+          name: "entities",
+          type: "object",
+          description: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u043E\u0431\u043C\u0435\u043D\u0430 \u043F\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u043C"
+        }
+      ],
+      exchangeAttributeFormats: [
+        {
+          name: "Date",
+          type: "string",
+          description: "\u0424\u043E\u0440\u043C\u0430\u0442 Date (\u043D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, DD-MM-YYYY)"
+        },
+        {
+          name: "Time",
+          type: "string",
+          description: "\u0424\u043E\u0440\u043C\u0430\u0442 Time (\u043D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, HH:mm:ss)"
+        },
+        {
+          name: "Timestamp",
+          type: "string",
+          description: "\u0424\u043E\u0440\u043C\u0430\u0442 Timestamp (\u043D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, DD-MM-YYYYTHH:mm:ss)"
+        },
+        {
+          name: "TimestampRange",
+          type: "string",
+          description: "\u0424\u043E\u0440\u043C\u0430\u0442 TimestampRange"
+        }
+      ],
+      exchangeEntitySettings: [
+        {
+          name: "domainLabel",
+          type: "string",
+          description: "\u041F\u0435\u0440\u0435\u043E\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u0438\u0435 \u043E\u0442\u043E\u0431\u0440\u0430\u0436\u0430\u0435\u043C\u043E\u0433\u043E \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u044F \u0434\u043E\u043C\u0435\u043D\u0430"
+        },
+        {
+          name: "enable",
+          type: "boolean",
+          description: "\u0412\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u043E\u0431\u043C\u0435\u043D \u0434\u043B\u044F \u044D\u0442\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 (\u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E true)"
+        },
+        {
+          name: "label",
+          type: "string",
+          description: "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0432 \u0441\u043F\u0438\u0441\u043A\u0435"
+        },
+        {
+          name: "forExport",
+          type: "ref",
+          description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442-\u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0434\u043B\u044F Reference"
+        },
+        {
+          name: "upsertWith",
+          type: "string",
+          description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u044B/\u0441\u0432\u044F\u0437\u0438 \u0434\u043B\u044F \u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0446\u0438\u0438 \u043F\u0440\u0438 \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u0438"
+        },
+        {
+          name: "ignoreAttributes",
+          type: "string",
+          description: "\u0418\u0433\u043D\u043E\u0440\u0438\u0440\u0443\u0435\u043C\u044B\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B (id \u0447\u0435\u0440\u0435\u0437 \u0437\u0430\u043F\u044F\u0442\u0443\u044E)"
+        },
+        {
+          name: "exportSystemAttributes",
+          type: "string",
+          description: "\u0421\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0434\u043B\u044F \u044D\u043A\u0441\u043F\u043E\u0440\u0442\u0430 (id \u0438\u043B\u0438 all)"
+        }
       ]
     };
     SNIPPETS = [
@@ -21690,7 +25320,7 @@ var init_monaco_providers = __esm({
       {
         prefix: "newattr",
         description: "\u041D\u043E\u0432\u044B\u0439 \u0430\u0442\u0440\u0438\u0431\u0443\u0442",
-        contexts: ["attributeList", "attribute"],
+        contexts: ["attribute"],
         body: [
           "- id: ${1:attrId}",
           "  name: ${2:\u041D\u043E\u0432\u044B\u0439 \u0430\u0442\u0440\u0438\u0431\u0443\u0442}",
@@ -21700,8 +25330,8 @@ var init_monaco_providers = __esm({
       },
       {
         prefix: "newref",
-        description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442-\u0440\u0435\u0444\u0435\u0440\u0435\u043D\u0441",
-        contexts: ["attributeList", "attribute"],
+        description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442-Reference",
+        contexts: ["attribute"],
         body: [
           "- id: ${1:refAttr}",
           "  name: ${2:\u0421\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C}",
@@ -21711,14 +25341,27 @@ var init_monaco_providers = __esm({
       },
       {
         prefix: "newarr",
-        description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442-\u043C\u0430\u0441\u0441\u0438\u0432",
-        contexts: ["attributeList", "attribute"],
+        description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442-Array",
+        contexts: ["attribute"],
         body: [
           "- id: ${1:arrayAttr}",
           "  name: ${2:\u041C\u0430\u0441\u0441\u0438\u0432}",
           "  dataType: Array",
           "  item:",
           "    dataType: ${3:String}"
+        ].join("\n")
+      },
+      {
+        prefix: "newidentifier",
+        description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442-Identifier (\u0448\u0430\u0431\u043B\u043E\u043D + \u043F\u0440\u0435\u0444\u0438\u043A\u0441)",
+        contexts: ["attribute"],
+        body: [
+          "- id: ${1:iocId}",
+          "  name: ${2:\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440}",
+          "  dataType: Identifier",
+          '  template: "{@prefix}-{@YYYY}-{@MM}-{@inc}"',
+          "  defaultPrefix: ${3:INC}",
+          '  incrementTemplate: "0000"'
         ].join("\n")
       },
       {
@@ -21764,6 +25407,926 @@ var init_monaco_providers = __esm({
           "  modal: ${3:forms_newModal}",
           "  entity: ${4:SomeEntity}",
           "  operation: create"
+        ].join("\n")
+      },
+      {
+        prefix: "newview",
+        description: "Entity-view \u0441 \u0432\u0438\u0434\u0436\u0435\u0442\u0430\u043C\u0438 \u0438 \u0431\u043B\u043E\u043A\u043E\u043C",
+        contexts: ["viewList", "view"],
+        body: [
+          "- id: ${1:viewMyEntity}",
+          "  type: entity",
+          "  entity: ${2:MyEntity}",
+          "  widgets:",
+          "    - id: ${3:editors_id}",
+          "      type: attribute",
+          "      attribute: ${4:id}",
+          "  groups:",
+          "    - id: ${5:blocks_info}",
+          "      type: block",
+          "      layout:",
+          "        direction: column",
+          "      components:",
+          "        - widget: ${6:editors_id}"
+        ].join("\n")
+      },
+      {
+        prefix: "newlist",
+        description: "List-view (\u0441\u043F\u0438\u0441\u043E\u043A \u043E\u0431\u044A\u0435\u043A\u0442\u043E\u0432)",
+        contexts: ["viewList", "view"],
+        body: [
+          "- id: ${1:lists_MyEntity}",
+          "  type: list",
+          "  source:",
+          "    type: operational",
+          "    entity: ${2:MyEntity}",
+          "  table:",
+          "    columns:",
+          "      - id: ${3:name}",
+          "        attribute: ${4:id}",
+          "        label: ${5:\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435}"
+        ].join("\n")
+      },
+      {
+        prefix: "newwidget",
+        description: "\u0412\u0438\u0434\u0436\u0435\u0442 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430",
+        contexts: ["widget"],
+        body: [
+          "- id: ${1:editors_attr}",
+          "  type: attribute",
+          "  attribute: ${2:attrId}",
+          "  description: ${3:\u041F\u043E\u043B\u0435 \u0434\u043B\u044F \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F}"
+        ].join("\n")
+      },
+      {
+        prefix: "newgroup",
+        description: "\u0413\u0440\u0443\u043F\u043F\u0430 \u0442\u0438\u043F\u0430 block",
+        contexts: ["group"],
+        body: [
+          "- id: ${1:blocks_info}",
+          "  type: block",
+          "  description: ${2:\u0411\u043B\u043E\u043A \u0438\u043D\u0444\u043E\u0440\u043C\u0430\u0446\u0438\u0438}",
+          "  layout:",
+          "    direction: column",
+          "  components:",
+          "    - widget: ${3:editors_id}"
+        ].join("\n")
+      },
+      {
+        prefix: "newsequence",
+        description: "\u041F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u044C",
+        contexts: ["sequenceList", "sequence"],
+        body: [
+          "- id: ${1:MySequence}",
+          "  startFrom: ${2:1}",
+          "  description: ${3:\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435 \u043F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u0438}"
+        ].join("\n")
+      },
+      {
+        prefix: "newmixin",
+        description: "\u041C\u0438\u043A\u0441\u0438\u043D \u043D\u0430 \u043F\u0430\u043D\u0435\u043B\u044C",
+        contexts: ["mixinList", "mixin"],
+        body: [
+          "- id: ${1:mixin_new}",
+          "  type: view",
+          "  entity: ${2:TargetEntity}",
+          "  views:",
+          "    - id: ${3:mixin_view}",
+          "      type: tab",
+          "      to:",
+          "        tab: ${4:tabs_info}",
+          "      change:",
+          "        add:",
+          "          components:",
+          "            - widget: ${5:editors_id}"
+        ].join("\n")
+      },
+      {
+        prefix: "newmenu",
+        description: "\u041F\u0443\u043D\u043A\u0442 \u043C\u0435\u043D\u044E \u0441 \u043F\u043E\u0434\u043F\u0443\u043D\u043A\u0442\u043E\u043C",
+        contexts: ["menuList", "menu", "menuItem"],
+        body: [
+          "- id: ${1:menus_root}",
+          '  label: "${2:\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0440\u0430\u0437\u0434\u0435\u043B\u0430}"',
+          "  route: ${3:/my-domain}",
+          "  type: root_group",
+          "  placement: top",
+          "  items:",
+          "    - id: ${4:menu_item}",
+          "      label: ${5:\u041F\u0443\u043D\u043A\u0442 \u043C\u0435\u043D\u044E}",
+          "      route: ${6:/my-domain/item}",
+          "      type: menu",
+          "      view: ${7:lists_MyEntity}"
+        ].join("\n")
+      },
+      {
+        prefix: "newmedia",
+        description: "\u0418\u043A\u043E\u043D\u043A\u0430",
+        contexts: ["mediaList", "media"],
+        body: [
+          "- id: ${1:iconsMyIcon}",
+          "  description: ${2:\u0418\u043A\u043E\u043D\u043A\u0430 \u0434\u043B\u044F ...}",
+          "  type: icon_name",
+          "  iconName: ${3:folder}"
+        ].join("\n")
+      },
+      {
+        prefix: "newenum",
+        description: "Enum-\u0442\u0438\u043F \u0434\u0430\u043D\u043D\u044B\u0445",
+        contexts: ["dataTypeList", "dataType"],
+        body: [
+          "- id: ${1:enumMyType}",
+          "  name: ${2:\u041D\u043E\u0432\u044B\u0439 enum}",
+          "  dataType: Enum",
+          "  values:",
+          "    - id: ${3:value1}",
+          "      name: ${4:\u0417\u043D\u0430\u0447\u0435\u043D\u0438\u0435 1}",
+          "    - id: ${5:value2}",
+          "      name: ${6:\u0417\u043D\u0430\u0447\u0435\u043D\u0438\u0435 2}"
+        ].join("\n")
+      },
+      {
+        prefix: "newworkflow",
+        description: "Workflow-\u0442\u0438\u043F \u0434\u0430\u043D\u043D\u044B\u0445",
+        contexts: ["dataTypeList", "dataType"],
+        body: [
+          "- id: ${1:workflowMyProcess}",
+          "  name: ${2:\u041D\u043E\u0432\u044B\u0439 workflow}",
+          "  dataType: Workflow",
+          "  initial: ${3:New}",
+          "  statuses:",
+          "    - id: ${4:New}",
+          "      name: ${5:\u041D\u043E\u0432\u044B\u0439}",
+          "    - id: ${6:Done}",
+          "      name: ${7:\u0417\u0430\u0432\u0435\u0440\u0448\u0451\u043D}",
+          "  transitions:",
+          "    - from: ${8:New}",
+          "      to: ${9:Done}"
+        ].join("\n")
+      },
+      {
+        prefix: "newtable",
+        description: "Table-\u0442\u0438\u043F \u0434\u0430\u043D\u043D\u044B\u0445",
+        contexts: ["dataTypeList", "dataType"],
+        body: [
+          "- id: ${1:tableMyTable}",
+          "  name: ${2:\u041D\u043E\u0432\u0430\u044F \u0442\u0430\u0431\u043B\u0438\u0446\u0430}",
+          "  dataType: Table",
+          "  maxRows: ${3:100}",
+          "  attributes:",
+          "    - id: ${4:col1}",
+          "      name: ${5:\u041A\u043E\u043B\u043E\u043D\u043A\u0430 1}",
+          "      dataType: String"
+        ].join("\n")
+      },
+      {
+        prefix: "newenumvalue",
+        description: "\u0417\u043D\u0430\u0447\u0435\u043D\u0438\u0435 Enum",
+        contexts: ["enumValue"],
+        body: ["- id: ${1:value1}", "  name: ${2:\u0417\u043D\u0430\u0447\u0435\u043D\u0438\u0435 1}"].join("\n")
+      },
+      {
+        prefix: "newworkflowstatus",
+        description: "\u0421\u0442\u0430\u0442\u0443\u0441 Workflow",
+        contexts: ["workflowStatus"],
+        body: [
+          "- id: ${1:status1}",
+          "  name: ${2:\u0421\u0442\u0430\u0442\u0443\u0441 1}",
+          "  description: ${3:\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435}"
+        ].join("\n")
+      },
+      {
+        prefix: "newtransition",
+        description: "\u041F\u0435\u0440\u0435\u0445\u043E\u0434 Workflow",
+        contexts: ["transition"],
+        body: ["- from: ${1:StatusA}", "  to: ${2:StatusB}"].join("\n")
+      },
+      {
+        prefix: "newconstraint",
+        description: "Constraint (required / range / regexp...)",
+        contexts: ["constraintsItem"],
+        body: ["- kind: ${1:required}", "  message: ${2:\u0422\u0435\u043A\u0441\u0442 \u043E\u0448\u0438\u0431\u043A\u0438}"].join("\n")
+      },
+      {
+        prefix: "newconstraintlen",
+        description: "Constraint: length \u0441 min/max",
+        contexts: ["constraintsItem"],
+        body: [
+          "- kind: length",
+          "  min: ${1:1}",
+          "  max: ${2:255}",
+          "  message: ${3:\u041D\u0435\u0434\u043E\u043F\u0443\u0441\u0442\u0438\u043C\u0430\u044F \u0434\u043B\u0438\u043D\u0430}"
+        ].join("\n")
+      },
+      {
+        prefix: "newprefixrule",
+        description: "\u041F\u0440\u0430\u0432\u0438\u043B\u043E \u043F\u043E\u0434\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438 \u043F\u0440\u0435\u0444\u0438\u043A\u0441\u0430",
+        contexts: ["prefixRule"],
+        body: [
+          "- id: ${1:Rule_1}",
+          "  attribute: ${2:attrId}",
+          "  source:",
+          "    entity: ${3:SomeDict}",
+          "    key: ${4:fullName}",
+          "    value: ${5:shortCode}"
+        ].join("\n")
+      },
+      {
+        prefix: "newprojection",
+        description: "\u041F\u0440\u043E\u0435\u043A\u0446\u0438\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438",
+        contexts: ["entity"],
+        body: [
+          "projection:",
+          "  - attribute: ${1:name}",
+          "  - attribute: ${2:description}"
+        ].join("\n")
+      },
+      {
+        prefix: "newsearching",
+        description: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u043F\u043E\u0438\u0441\u043A\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438",
+        contexts: ["entity"],
+        body: [
+          "searching:",
+          "  attributes:",
+          "    - ${1:id}",
+          "    - ${2:name}"
+        ].join("\n")
+      },
+      {
+        prefix: "newcountercolor",
+        description: "\u0426\u0432\u0435\u0442\u043E\u0432\u0430\u044F \u0441\u0445\u0435\u043C\u0430 \u0441\u0447\u0451\u0442\u0447\u0438\u043A\u0430",
+        contexts: ["counterColorPattern"],
+        body: [
+          "- id: ${1:counterColorTime}",
+          "  red: ${2:60%}",
+          "  yellow: ${3:40%}"
+        ].join("\n")
+      },
+      {
+        prefix: "newtree",
+        description: "\u0414\u0435\u0440\u0435\u0432\u043E \u0441\u0432\u044F\u0437\u0435\u0439 (1 \u0443\u0440\u043E\u0432\u0435\u043D\u044C)",
+        contexts: ["treeList", "tree"],
+        body: [
+          "- id: ${1:MyTree}",
+          "  type: ordinary",
+          "  maxDepth: ${2:5}",
+          "  hierarchy:",
+          "    entity: ${3:RootEntity}",
+          "    maxInstances: ${4:1}",
+          "    children:",
+          "      - linkage: ${5:RootToChild}",
+          "        entity: ${6:ChildEntity}",
+          "        side: ${7:1}",
+          "  sorting:",
+          "    - id: ${8:sorting_name}",
+          "      name: ${9:\u041F\u043E \u043D\u0430\u0438\u043C\u0435\u043D\u043E\u0432\u0430\u043D\u0438\u044E}",
+          "      by:",
+          "        - entity: ${10:RootEntity}",
+          "          by:",
+          "            - attribute: ${11:name}",
+          "              direction: asc"
+        ].join("\n")
+      },
+      {
+        prefix: "newtransitive",
+        description: "\u0422\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u0430\u044F \u0441\u0432\u044F\u0437\u044C (1 \u0445\u043E\u043F)",
+        contexts: ["transitiveLinkageList", "transitiveLinkage"],
+        body: [
+          "- id: ${1:MyTransitiveTree}",
+          "  entity: ${2:StartEntity}",
+          "  description: ${3:\u0426\u0435\u043F\u043E\u0447\u043A\u0430 \u0441\u0432\u044F\u0437\u0435\u0439}",
+          "  joins:",
+          "    - id: ${4:join1}",
+          "      linkage: ${5:StartToMiddle}",
+          "      search:",
+          "        enable: true",
+          "        mode: both"
+        ].join("\n")
+      },
+      {
+        prefix: "newjoins",
+        description: "\u0421\u043B\u0435\u0434\u0443\u044E\u0449\u0438\u0439 \u0445\u043E\u043F \u0432 \u0442\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u043E\u0439 \u0441\u0432\u044F\u0437\u0438",
+        contexts: ["transitiveJoin"],
+        body: [
+          "- id: ${1:join_next}",
+          "  linkage: ${2:NextLinkage}",
+          "  search:",
+          "    enable: ${3:true}",
+          "    mode: ${4:both}"
+        ].join("\n")
+      },
+      {
+        prefix: "newuirule",
+        description: "UI Rule: \u0441\u043A\u0440\u044B\u0442\u044C \u0432\u0438\u0434\u0436\u0435\u0442",
+        contexts: ["uiRuleList", "uiRule"],
+        body: [
+          "- id: ${1:hiddenWidget}",
+          "  name: ${2:\u0421\u043A\u0440\u044B\u0442\u044C \u0432\u0438\u0434\u0436\u0435\u0442}",
+          "  target: entity_view",
+          "  view: ${3:entityView}",
+          "  condition: !rql ${4:true}",
+          "  rule:",
+          "    effect: hidden",
+          "    widgets:",
+          "      - widget: ${5:editors_id}"
+        ].join("\n")
+      },
+      {
+        prefix: "newuirulevariant",
+        description: "UI Rule: \u0432\u0430\u0440\u0438\u0430\u043D\u0442 \u0441 \u043F\u0440\u0435\u0441\u0435\u0442\u0430\u043C\u0438",
+        contexts: ["uiRuleList", "uiRule"],
+        body: [
+          "- id: ${1:variantRule}",
+          "  name: ${2:\u0426\u0432\u0435\u0442\u043E\u0432\u0430\u044F \u0432\u0430\u0440\u0438\u0430\u0446\u0438\u044F}",
+          "  target: entity_view",
+          "  view: ${3:entityView}",
+          '  condition: !rql ${4:@doc.status = "CRITICAL"}',
+          "  rule:",
+          "    effect: variant",
+          "    widgets:",
+          "      - widget: ${5:editors_status}",
+          "        presets:",
+          "          - ${6:redPreset}"
+        ].join("\n")
+      },
+      {
+        prefix: "newuirulenested",
+        description: "UI Rule: \u0441\u043A\u0440\u044B\u0442\u044C \u043A\u043E\u043B\u043E\u043D\u043A\u0443 \u0442\u0430\u0431\u043B\u0438\u0446\u044B",
+        contexts: ["uiRuleList", "uiRule"],
+        body: [
+          "- id: ${1:hiddenTableColumn}",
+          "  name: ${2:\u0421\u043A\u0440\u044B\u0442\u044C \u043A\u043E\u043B\u043E\u043D\u043A\u0443 \u0432 \u0442\u0430\u0431\u043B\u0438\u0446\u0435}",
+          "  target: entity_attribute",
+          "  view: ${3:entityView}",
+          "  condition: !rql ${4:true}",
+          "  rule:",
+          "    effect: hidden",
+          "    widgets:",
+          "      - widget: ${5:editors_table}",
+          "        nested:",
+          "          type: table",
+          "          attributes:",
+          "            - attribute: ${6:col1}"
+        ].join("\n")
+      },
+      {
+        prefix: "newuipreset",
+        description: "UI Preset (\u0441\u0442\u0438\u043B\u0438)",
+        contexts: ["uiPresetList", "uiPreset"],
+        body: [
+          "- id: ${1:redPreset}",
+          "  description: ${2:\u041A\u0440\u0430\u0441\u043D\u044B\u0439 \u0444\u043E\u043D}",
+          "  props:",
+          "    color: ${3:#ff0000}",
+          "    font-weight: ${4:bold}"
+        ].join("\n")
+      },
+      {
+        prefix: "newpresetref",
+        description: "\u0421\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 \u043F\u0440\u0435\u0441\u0435\u0442 \u0432 widgets/groups/columns",
+        contexts: ["uiRuleWidget", "uiRuleGroup", "uiRuleColumn"],
+        body: ["presets:", "  - ${1:redPreset}"].join("\n")
+      },
+      {
+        prefix: "newbulkdelete",
+        description: "\u041C\u0430\u0441\u0441\u043E\u0432\u043E\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435: \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435",
+        contexts: ["actionList", "action"],
+        body: [
+          "- id: ${1:actions_bulkRemove}",
+          "  name: ${2:\u0423\u0434\u0430\u043B\u0438\u0442\u044C}",
+          "  type: bulk",
+          "  entity: ${3:SomeEntity}",
+          "  operation: remove"
+        ].join("\n")
+      },
+      {
+        prefix: "newbulkedit",
+        description: "\u041C\u0430\u0441\u0441\u043E\u0432\u043E\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435: \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432",
+        contexts: ["actionList", "action"],
+        body: [
+          "- id: ${1:actions_bulkEdit}",
+          "  name: ${2:\u0418\u0437\u043C\u0435\u043D\u0438\u0442\u044C}",
+          "  type: bulk",
+          "  entity: ${3:SomeEntity}",
+          "  operation: edit",
+          "  attributes:",
+          "    type: specific",
+          "    use:",
+          "      - attribute: ${4:attr1}",
+          "      - attribute: ${5:attr2}"
+        ].join("\n")
+      },
+      {
+        prefix: "newbulkattr",
+        description: "\u041C\u0430\u0441\u0441\u043E\u0432\u043E\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435: \u0438\u0437\u043C\u0435\u043D\u0438\u0442\u044C \u0430\u0442\u0440\u0438\u0431\u0443\u0442 (bool/workflow)",
+        contexts: ["actionList", "action"],
+        body: [
+          "- id: ${1:actions_bulkSetBool}",
+          "  name: ${2:\u0423\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C \u0444\u043B\u0430\u0433}",
+          "  type: bulk",
+          "  entity: ${3:SomeEntity}",
+          "  operation: edit_attribute",
+          "  values:",
+          "    - attribute: ${4:isActive}",
+          "      value: ${5:true}",
+          "  control:",
+          "    type: ${6:bool_text}",
+          '    trueText: "${7:\u0410\u043A\u0442\u0438\u0432\u0435\u043D}"',
+          '    falseText: "${8:\u041D\u0435\u0430\u043A\u0442\u0438\u0432\u0435\u043D}"'
+        ].join("\n")
+      },
+      {
+        prefix: "newautomationaction",
+        description: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u0437\u0430\u043F\u0443\u0441\u043A\u0430 \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0437\u0430\u0446\u0438\u0438",
+        contexts: ["actionList", "action"],
+        body: [
+          "- id: ${1:actions_runAutomation}",
+          "  name: ${2:\u0417\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u044C \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0437\u0430\u0446\u0438\u044E}",
+          "  type: automation",
+          "  entity: ${3:SomeEntity}",
+          "  automation:",
+          "    id: ${4:3c521909-cc55-4b0c-b645-f79eb0263296}"
+        ].join("\n")
+      },
+      {
+        prefix: "newscenarioaction",
+        description: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u0437\u0430\u043F\u0443\u0441\u043A\u0430 \u0441\u0446\u0435\u043D\u0430\u0440\u0438\u044F",
+        contexts: ["actionList", "action"],
+        body: [
+          "- id: ${1:actions_runScenario}",
+          "  name: ${2:\u0417\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u044C \u0441\u0446\u0435\u043D\u0430\u0440\u0438\u0439}",
+          "  type: scenario",
+          "  entity: ${3:SomeEntity}",
+          "  scenario: ${4:MyScenario}",
+          "  workerTag: ${5:default}"
+        ].join("\n")
+      },
+      {
+        prefix: "newlisttable",
+        description: "\u0422\u0430\u0431\u043B\u0438\u0446\u0430 \u0441 3 \u043A\u043E\u043B\u043E\u043D\u043A\u0430\u043C\u0438",
+        contexts: ["viewList", "view"],
+        body: [
+          "table:",
+          "  columns:",
+          "    - id: ${1:id}",
+          "      attribute: ${2:id}",
+          "      label: ${3:\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440}",
+          "      layout:",
+          "        width:",
+          "          default: ${4:100}",
+          "          min: 50",
+          "          max: 200",
+          "    - id: ${5:name}",
+          "      attribute: ${6:name}",
+          "      label: ${7:\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435}",
+          "    - id: ${8:createdAt}",
+          "      attribute: createdAt",
+          "      label: \u0414\u0430\u0442\u0430 \u0441\u043E\u0437\u0434\u0430\u043D\u0438\u044F",
+          "      control:",
+          "        type: timestamp"
+        ].join("\n")
+      },
+      {
+        prefix: "newtablecolumn",
+        description: "\u041A\u043E\u043B\u043E\u043D\u043A\u0430 \u0442\u0430\u0431\u043B\u0438\u0446\u044B",
+        contexts: ["viewTable"],
+        body: [
+          "- id: ${1:colId}",
+          "  attribute: ${2:attrId}",
+          "  label: ${3:\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u043A\u043E\u043B\u043E\u043D\u043A\u0438}",
+          "  layout:",
+          "    width:",
+          "      default: ${4:150}",
+          "      min: 50",
+          "      max: 300"
+        ].join("\n")
+      },
+      {
+        prefix: "newtablefilter",
+        description: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0430 \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u0446\u0438\u0438 \u0442\u0430\u0431\u043B\u0438\u0446\u044B",
+        contexts: ["viewTable"],
+        body: [
+          "filter:",
+          "  attributes:",
+          "    type: ${1:all}",
+          "  linkages:",
+          "    type: ${2:all}"
+        ].join("\n")
+      },
+      {
+        prefix: "newtablesorting",
+        description: "\u0421\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430 \u043F\u043E \u043A\u043E\u043B\u043E\u043D\u043A\u0435",
+        contexts: ["viewTable"],
+        body: [
+          "sortingBy:",
+          "  columns:",
+          "    - column: ${1:colId}",
+          "      sorting: ${2:sortingId}",
+          "  defaults:",
+          "    column: ${3:colId}",
+          "    direction: ${4:asc}"
+        ].join("\n")
+      },
+      {
+        prefix: "newtablepaging",
+        description: "\u041F\u0430\u0433\u0438\u043D\u0430\u0446\u0438\u044F \u0442\u0430\u0431\u043B\u0438\u0446\u044B",
+        contexts: ["viewTable"],
+        body: [
+          "paging:",
+          "  sizes:",
+          "    - 10",
+          "    - 50",
+          "    - 100",
+          "  defaultSize: ${1:20}"
+        ].join("\n")
+      },
+      {
+        prefix: "newtablerefresh",
+        description: "\u0410\u0432\u0442\u043E\u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u0435 \u0442\u0430\u0431\u043B\u0438\u0446\u044B",
+        contexts: ["viewTable"],
+        body: [
+          "refresh:",
+          "  mode: ${1:auto}",
+          "  defaults:",
+          "    enabled: ${2:true}",
+          "    unit: ${3:minute}",
+          "    interval: ${4:5}"
+        ].join("\n")
+      },
+      {
+        prefix: "newtablerowclick",
+        description: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u043F\u0440\u0438 \u043A\u043B\u0438\u043A\u0435 \u043D\u0430 \u0441\u0442\u0440\u043E\u043A\u0443",
+        contexts: ["viewTable"],
+        body: [
+          "actions:",
+          "  - type: row_click",
+          "    action: ${1:actions_openPanel}"
+        ].join("\n")
+      },
+      {
+        prefix: "newtablecontextmenu",
+        description: "\u041A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u043D\u043E\u0435 \u043C\u0435\u043D\u044E \u0441\u0442\u0440\u043E\u043A\u0438",
+        contexts: ["viewTable"],
+        body: [
+          "actions:",
+          "  - type: row_context_menu",
+          "    items:",
+          "      - action: ${1:actions_edit}",
+          "        label: ${2:\u0418\u0437\u043C\u0435\u043D\u0438\u0442\u044C}",
+          "      - action: ${3:actions_remove}",
+          "        label: ${4:\u0423\u0434\u0430\u043B\u0438\u0442\u044C}"
+        ].join("\n")
+      },
+      {
+        prefix: "newtableaggregate",
+        description: "\u041A\u043E\u043B\u043E\u043D\u043A\u0430 \u0441 \u0430\u0433\u0440\u0435\u0433\u0430\u0446\u0438\u0435\u0439 (count)",
+        contexts: ["viewTable"],
+        body: [
+          "- id: ${1:linkedCount}",
+          "  label: ${2:\u0421\u0432\u044F\u0437\u0430\u043D\u043D\u044B\u0445}",
+          "  join: ${3:my_join_id}",
+          "  aggregate:",
+          "    type: count",
+          "    condition: !rql ${4:true}"
+        ].join("\n")
+      },
+      {
+        prefix: "newlistfull",
+        description: "\u041F\u043E\u043B\u043D\u044B\u0439 list-view \u0441 \u0442\u0430\u0431\u043B\u0438\u0446\u0435\u0439 \u0438 \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u043C\u0438",
+        contexts: ["viewList", "view"],
+        body: [
+          "- id: ${1:lists_MyEntity}",
+          "  type: list",
+          "  label: ${2:\u0421\u043F\u0438\u0441\u043E\u043A MyEntity}",
+          "  source:",
+          "    type: operational",
+          "    entity: ${3:MyEntity}",
+          "  table:",
+          "    columns:",
+          "      - id: ${4:id}",
+          "        attribute: id",
+          "        label: \u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440",
+          "      - id: ${5:name}",
+          "        attribute: name",
+          "        label: \u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435",
+          "    filter:",
+          "      attributes:",
+          "        type: all",
+          "      linkages:",
+          "        type: all",
+          "    sortingBy:",
+          "      defaults:",
+          "        column: ${6:name}",
+          "        direction: asc",
+          "    paging:",
+          "      sizes: [10, 50, 100]",
+          "      defaultSize: 20",
+          "    selection: true",
+          "    actions:",
+          "      - type: row_click",
+          "        action: ${7:actions_openPanel}"
+        ].join("\n")
+      },
+      {
+        prefix: "newentityview",
+        description: "Entity-view \u0441 \u043F\u0430\u043D\u0435\u043B\u044C\u044E \u0438 \u043C\u043E\u0434\u0430\u043B\u043A\u043E\u0439",
+        contexts: ["viewList", "view"],
+        body: [
+          "- id: ${1:viewMyEntity}",
+          "  type: entity",
+          "  entity: ${2:MyEntity}",
+          "  widgets:",
+          "    - id: ${3:editors_id}",
+          "      type: attribute",
+          "      attribute: ${4:id}",
+          "    - id: ${5:editors_name}",
+          "      type: attribute",
+          "      attribute: ${6:name}",
+          "  groups:",
+          "    - id: ${7:blocks_info}",
+          "      type: block",
+          "      layout:",
+          "        direction: column",
+          "      components:",
+          "        - widget: ${8:editors_id}",
+          "        - widget: ${9:editors_name}",
+          "    - id: ${10:tabs_info}",
+          "      type: tab",
+          "      label: ${11:\u0414\u0435\u0442\u0430\u043B\u0438}",
+          "      components:",
+          "        - block: ${12:blocks_info}",
+          "    - id: ${13:blocks_forms_new}",
+          "      type: form",
+          "      layout:",
+          "        direction: column",
+          "      components:",
+          "        - widget: ${14:editors_id}",
+          "        - widget: ${15:editors_name}",
+          "  views:",
+          "    - id: ${16:panels_info}",
+          "      type: panel",
+          "      label: ${17:\u0414\u0435\u0442\u0430\u043B\u0438}",
+          "      tabs:",
+          "        - tab: ${18:tabs_info}",
+          "    - id: ${19:forms_new}",
+          "      type: modal",
+          "      form: ${20:blocks_forms_new}",
+          "      label: ${21:\u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u0438\u0435}"
+        ].join("\n")
+      },
+      {
+        prefix: "newwidgetattr",
+        description: "\u0412\u0438\u0434\u0436\u0435\u0442 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430 \u0441 \u043A\u043E\u043D\u0442\u0440\u043E\u043B\u043E\u043C",
+        contexts: ["widget"],
+        body: [
+          "- id: ${1:editors_attr}",
+          "  type: attribute",
+          "  attribute: ${2:attrId}",
+          "  description: ${3:\u041F\u043E\u043B\u0435 \u0434\u043B\u044F \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F}",
+          "  control:",
+          "    type: ${4:text}"
+        ].join("\n")
+      },
+      {
+        prefix: "newwidgetlinkage",
+        description: "\u0412\u0438\u0434\u0436\u0435\u0442 \u0441\u0432\u044F\u0437\u0438 \u0441 \u0442\u0430\u0431\u043B\u0438\u0446\u0435\u0439",
+        contexts: ["widget"],
+        body: [
+          "- id: ${1:editors_linkage}",
+          "  type: linkage",
+          "  linkage: ${2:my_linkage_id}",
+          "  label: ${3:\u0421\u0432\u044F\u0437\u0430\u043D\u043D\u044B\u0435 \u043E\u0431\u044A\u0435\u043A\u0442\u044B}",
+          "  side: ${4:2}",
+          "  control:",
+          "    type: table",
+          "    addLinksView: ${5:lists_MyEntity}",
+          "    columns:",
+          "      - id: ${6:name}",
+          "        attribute: name"
+        ].join("\n")
+      },
+      {
+        prefix: "newwidgetjoin",
+        description: "\u0412\u0438\u0434\u0436\u0435\u0442 \u0442\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u043E\u0439 \u0441\u0432\u044F\u0437\u0438",
+        contexts: ["widget"],
+        body: [
+          "- id: ${1:widget_join}",
+          "  type: join",
+          "  joinId: ${2:my_join_id}",
+          "  attribute: ${3:Name}",
+          "  label: ${4:\u0421\u0432\u044F\u0437\u0430\u043D\u043D\u044B\u0435}"
+        ].join("\n")
+      },
+      {
+        prefix: "newblock",
+        description: "\u0413\u0440\u0443\u043F\u043F\u0430 \u0442\u0438\u043F\u0430 block",
+        contexts: ["group"],
+        body: [
+          "- id: ${1:blocks_info}",
+          "  type: block",
+          "  label: ${2:\u0418\u043D\u0444\u043E\u0440\u043C\u0430\u0446\u0438\u044F}",
+          "  layout:",
+          "    direction: column",
+          "    expandable: false",
+          "  components:",
+          "    - widget: ${3:editors_id}"
+        ].join("\n")
+      },
+      {
+        prefix: "newtab",
+        description: "\u0412\u043A\u043B\u0430\u0434\u043A\u0430",
+        contexts: ["group"],
+        body: [
+          "- id: ${1:tabs_info}",
+          "  type: tab",
+          "  label: ${2:\u0414\u0435\u0442\u0430\u043B\u0438}",
+          "  components:",
+          "    - block: ${3:blocks_info}"
+        ].join("\n")
+      },
+      {
+        prefix: "newform",
+        description: "\u0424\u043E\u0440\u043C\u0430 (modal form)",
+        contexts: ["group"],
+        body: [
+          "- id: ${1:blocks_forms_new}",
+          "  type: form",
+          "  layout:",
+          "    direction: column",
+          "  components:",
+          "    - widget: ${2:editors_id}",
+          "    - widget: ${3:editors_name}"
+        ].join("\n")
+      },
+      {
+        prefix: "newpanel",
+        description: "\u041F\u0430\u043D\u0435\u043B\u044C (\u043A\u043E\u043C\u043F\u0430\u043A\u0442\u043D\u043E\u0435 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0435)",
+        contexts: ["viewNested"],
+        body: [
+          "- id: ${1:panels_info}",
+          "  type: panel",
+          "  label: ${2:\u0414\u0435\u0442\u0430\u043B\u0438}",
+          "  menu:",
+          "    - action: ${3:actions_edit}",
+          "  tabs:",
+          "    - tab: ${4:tabs_info}"
+        ].join("\n")
+      },
+      {
+        prefix: "newmodal",
+        description: "\u041C\u043E\u0434\u0430\u043B\u044C\u043D\u043E\u0435 \u043E\u043A\u043D\u043E",
+        contexts: ["viewNested"],
+        body: [
+          "- id: ${1:forms_new}",
+          "  type: modal",
+          "  form: ${2:blocks_forms_new}",
+          "  label: ${3:\u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u0438\u0435}",
+          "  buttons:",
+          "    - type: submit",
+          "      label: ${4:\u0421\u043E\u0437\u0434\u0430\u0442\u044C}",
+          "    - type: close",
+          "      label: ${5:\u041E\u0442\u043C\u0435\u043D\u0430}"
+        ].join("\n")
+      },
+      {
+        prefix: "newpage",
+        description: "\u041F\u043E\u043B\u043D\u043E\u044D\u043A\u0440\u0430\u043D\u043D\u0430\u044F \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0430",
+        contexts: ["viewNested"],
+        body: [
+          "- id: ${1:pages_info}",
+          "  type: page",
+          "  menuItem: ${2:menu_item_id}",
+          "  actionPanel:",
+          "    - widget: ${3:buttons_edit}",
+          "  tabs:",
+          "    - tab: ${4:tabs_info}",
+          "  pinnedView:",
+          "    block: ${5:blocks_header}",
+          "    position: top",
+          "    height: 30%"
+        ].join("\n")
+      },
+      {
+        prefix: "newinherit",
+        description: "\u041D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435 \u0433\u0440\u0443\u043F\u043F\u044B / \u043C\u0435\u043D\u044E",
+        contexts: ["inheritSettings"],
+        body: ["inherit:", "  type: ${1:append}"].join("\n")
+      },
+      {
+        prefix: "newmenuroot",
+        description: "\u041A\u043E\u0440\u043D\u0435\u0432\u0430\u044F \u0433\u0440\u0443\u043F\u043F\u0430 \u043C\u0435\u043D\u044E \u0441 \u043F\u043E\u0434\u043F\u0443\u043D\u043A\u0442\u043E\u043C",
+        contexts: ["menuRootList", "menuRoot"],
+        body: [
+          "- id: ${1:menus_root}",
+          "  route: ${2:/my-domain}",
+          '  label: "${3:\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0440\u0430\u0437\u0434\u0435\u043B\u0430}"',
+          "  type: root_group",
+          "  placement: top",
+          "  priority: ${4:1000}",
+          "  items:",
+          "    - id: ${5:menu_item}",
+          "      route: ${6:/my-domain/item}",
+          "      label: ${7:\u041F\u0443\u043D\u043A\u0442 \u043C\u0435\u043D\u044E}",
+          "      type: menu",
+          "      view: ${8:lists_MyEntity}",
+          "      priority: ${9:1000}"
+        ].join("\n")
+      },
+      {
+        prefix: "newmenuitem",
+        description: "\u041F\u0443\u043D\u043A\u0442 \u043C\u0435\u043D\u044E",
+        contexts: ["menuItemList", "menuItem"],
+        body: [
+          "- id: ${1:menu_item}",
+          "  route: ${2:/my-domain/item}",
+          "  label: ${3:\u041F\u0443\u043D\u043A\u0442 \u043C\u0435\u043D\u044E}",
+          "  type: menu",
+          "  view: ${4:lists_MyEntity}",
+          "  priority: ${5:1000}"
+        ].join("\n")
+      },
+      {
+        prefix: "newmedia",
+        description: "\u0418\u043A\u043E\u043D\u043A\u0430",
+        contexts: ["mediaList", "media"],
+        body: [
+          "- id: ${1:iconsMyIcon}",
+          "  description: ${2:\u0418\u043A\u043E\u043D\u043A\u0430 \u0434\u043B\u044F ...}",
+          "  type: icon_name",
+          "  iconName: ${3:folder}"
+        ].join("\n")
+      },
+      {
+        prefix: "newmixinview",
+        description: "\u041C\u0438\u043A\u0441\u0438\u043D \u043D\u0430 \u0432\u043A\u043B\u0430\u0434\u043A\u0443 (\u0442\u0438\u043F view)",
+        contexts: ["mixinList", "mixin"],
+        body: [
+          "- id: ${1:mixin_tab}",
+          "  name: ${2:\u041F\u0440\u0438\u043C\u0435\u0441\u044C \u0432\u043A\u043B\u0430\u0434\u043A\u0438}",
+          "  type: view",
+          "  entity: ${3:TargetEntity}",
+          "  views:",
+          "    - id: ${4:mixin_view}",
+          "      type: tab",
+          "      fromView: ${5:views_source}",
+          "      to:",
+          "        tab: ${6:tabs_info}",
+          "      change:",
+          "        add:",
+          "          components:",
+          "            - widget: ${7:editors_id}"
+        ].join("\n")
+      },
+      {
+        prefix: "newmixinlinkage",
+        description: "\u041C\u0438\u043A\u0441\u0438\u043D \u043D\u0430 \u043E\u0441\u043D\u043E\u0432\u0435 \u0441\u0432\u044F\u0437\u0438 (\u0442\u0438\u043F linkage)",
+        contexts: ["mixinList", "mixin"],
+        body: [
+          "- id: ${1:mixin_linkage}",
+          "  type: linkage",
+          "  entity:",
+          "    to: ${2:TargetEntity}",
+          "    from: ${3:SourceEntity}",
+          "  linkage: ${4:my_linkage_id}",
+          "  views:",
+          "    - id: ${5:mixin_panel}",
+          "      type: panel",
+          "      to:",
+          "        panel: ${6:panels_info}",
+          "      change:",
+          "        add:",
+          "          tabs:",
+          "            tabs:",
+          "              - tab: ${7:tabs_mixin}"
+        ].join("\n")
+      },
+      {
+        prefix: "newexchange",
+        description: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u043E\u0431\u043C\u0435\u043D\u0430 \u0434\u0430\u043D\u043D\u044B\u043C\u0438",
+        contexts: ["exchangeSettings"],
+        body: [
+          "exchangeSettings:",
+          "  enable: ${1:true}",
+          "  label: ${2:\u041E\u0431\u043C\u0435\u043D \u0434\u0430\u043D\u043D\u044B\u043C\u0438}",
+          "  attributeFormats:",
+          "    Date: DD-MM-YYYY",
+          "    Time: HH:mm:ss",
+          "    Timestamp: DD-MM-YYYYTHH:mm:ss",
+          "  entities:",
+          "    ${3:MyEntity}:",
+          "      enable: true",
+          "      forExport: ${4:id}"
+        ].join("\n")
+      },
+      {
+        prefix: "newexchangeentity",
+        description: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u043E\u0431\u043C\u0435\u043D\u0430 \u0434\u043B\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438",
+        contexts: ["exchangeEntitySettings"],
+        body: [
+          "enable: ${1:true}",
+          "label: ${2:MyEntity}",
+          "forExport: ${3:id}",
+          "upsertWith: ${4:name}"
         ].join("\n")
       }
     ];
@@ -21918,268 +26481,1555 @@ var init_external_refs = __esm({
 
 // src/web/components/modals/YamlViewerHelp.tsx
 import { jsx as jsx70, jsxs as jsxs67 } from "react/jsx-runtime";
+function Section2({ title, children }) {
+  return /* @__PURE__ */ jsxs67("div", { className: "modal-help__section", children: [
+    /* @__PURE__ */ jsx70("h3", { className: "modal-help__title", children: title }),
+    children
+  ] });
+}
+function List({ children }) {
+  return /* @__PURE__ */ jsx70("ul", { className: "modal-help__list", children });
+}
+function P({ children }) {
+  return /* @__PURE__ */ jsx70("p", { className: "modal-help__text", children });
+}
 function YamlViewerHelp({ onClose }) {
-  return /* @__PURE__ */ jsx70(
-    "div",
-    {
-      className: "help-overlay",
-      style: { zIndex: 600 },
-      onMouseDown: onClose,
-      children: /* @__PURE__ */ jsxs67(
-        "div",
-        {
-          className: "help-modal",
-          style: { width: 640, maxWidth: "90vw" },
-          onMouseDown: (e) => e.stopPropagation(),
-          children: [
-            /* @__PURE__ */ jsxs67("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsx70("div", { className: "help-modal__title", children: "\u{1F4D6} \u041D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044F \u0432 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0435" }),
-              /* @__PURE__ */ jsx70("button", { className: "help-modal__close", onClick: onClose, children: "\u2715" })
+  return /* @__PURE__ */ jsx70("div", { className: "help-overlay", style: { zIndex: 600 }, onMouseDown: onClose, children: /* @__PURE__ */ jsxs67("div", { className: "help-modal", style: { width: 720, maxWidth: "92vw" }, onMouseDown: (e) => e.stopPropagation(), children: [
+    /* @__PURE__ */ jsxs67("div", { className: "help-modal__header", children: [
+      /* @__PURE__ */ jsx70("div", { className: "help-modal__title", children: "\u{1F4D6} \u0421\u043F\u0440\u0430\u0432\u043A\u0430 \u043F\u043E \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0443 \u0441\u0445\u0435\u043C" }),
+      /* @__PURE__ */ jsx70("button", { className: "help-modal__close", onClick: onClose, children: "\u2715" })
+    ] }),
+    /* @__PURE__ */ jsx70("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs67("div", { className: "modal-help", style: { padding: 0, background: "transparent", border: 0 }, children: [
+      /* @__PURE__ */ jsxs67(Section2, { title: "\u0425\u043B\u0435\u0431\u043D\u044B\u0435 \u043A\u0440\u043E\u0448\u043A\u0438 \u0438 \u0431\u044B\u0441\u0442\u0440\u044B\u0435 \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u044B", children: [
+        /* @__PURE__ */ jsxs67(P, { children: [
+          "\u041D\u0430\u0434 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u043E\u043C \u0431\u0435\u0436\u0438\u0442 \u043F\u043E\u043B\u043E\u0441\u0430 \u0441 \u0442\u0435\u043A\u0443\u0449\u0435\u0439 \u043F\u043E\u0437\u0438\u0446\u0438\u0435\u0439 \u043A\u0443\u0440\u0441\u043E\u0440\u0430:",
+          /* @__PURE__ */ jsx70("code", { children: " entities \u203A Device \u203A hostname :42" }),
+          ". \u041A\u0430\u0436\u0434\u044B\u0439 \u0441\u0435\u0433\u043C\u0435\u043D\u0442 \u043A\u043B\u0438\u043A\u0430\u0431\u0435\u043B\u044C\u043D\u044B\u0439 \u2014 \u043A\u043B\u0438\u043A \u043F\u0435\u0440\u0435\u0431\u0440\u0430\u0441\u044B\u0432\u0430\u0435\u0442 \u043A \u0441\u0442\u0440\u043E\u043A\u0435 \u043E\u0431\u044A\u044F\u0432\u043B\u0435\u043D\u0438\u044F."
+        ] }),
+        /* @__PURE__ */ jsxs67(List, { children: [
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "\u0421\u0435\u043A\u0446\u0438\u0438" }),
+            " (entities, views, dataRules) \u2014 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u043D\u0430\u0447\u0430\u043B\u0443 \u0441\u0435\u043A\u0446\u0438\u0438."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438/\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B/\u0432\u0438\u0434\u0436\u0435\u0442\u044B" }),
+            " \u2014 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u0441\u0442\u0440\u043E\u043A\u0435 \u0438\u0445 \u043E\u0431\u044A\u044F\u0432\u043B\u0435\u043D\u0438\u044F."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "\u041D\u043E\u043C\u0435\u0440 \u0441\u0442\u0440\u043E\u043A\u0438" }),
+            " \u0441\u043F\u0440\u0430\u0432\u0430 \u2014 \u0442\u0435\u043A\u0443\u0449\u0430\u044F \u043F\u043E\u0437\u0438\u0446\u0438\u044F \u043A\u0443\u0440\u0441\u043E\u0440\u0430."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "Quick Jumps" }),
+            " (\u0438\u043A\u043E\u043D\u043A\u0438 \u0441\u043F\u0440\u0430\u0432\u0430 \u043E\u0442 \u043A\u0440\u043E\u0448\u0435\u043A) \u2014 \u0431\u044B\u0441\u0442\u0440\u044B\u0439 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u0441\u0435\u043A\u0446\u0438\u044F\u043C (",
+            /* @__PURE__ */ jsx70("code", { children: "\u{1F4E6} entities" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "\u{1F517} linkages" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "\u{1F441} views" }),
+            ", \u0438 \u0442.\u0434.)."
+          ] })
+        ] })
+      ] }),
+      /* @__PURE__ */ jsx70(Section2, { title: "\u041D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044F \u043F\u043E \u043A\u043E\u0434\u0443", children: /* @__PURE__ */ jsxs67(List, { children: [
+        /* @__PURE__ */ jsxs67("li", { children: [
+          /* @__PURE__ */ jsx70("code", { children: "Ctrl+Shift+O" }),
+          " \u2014 \u0441\u043F\u0438\u0441\u043E\u043A \u0432\u0441\u0435\u0445 \u0441\u0438\u043C\u0432\u043E\u043B\u043E\u0432 (\u0441\u0435\u043A\u0446\u0438\u0438, \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438, \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B)."
+        ] }),
+        /* @__PURE__ */ jsxs67("li", { children: [
+          /* @__PURE__ */ jsx70("strong", { children: /* @__PURE__ */ jsx70("code", { children: "Ctrl+Click" }) }),
+          " \u2014 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u043E\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u0438\u044E. \u0420\u0430\u0431\u043E\u0442\u0430\u0435\u0442 \u0434\u043B\u044F ",
+          /* @__PURE__ */ jsx70("code", { children: "inherits" }),
+          ", ",
+          /* @__PURE__ */ jsx70("code", { children: "entity" }),
+          ", ",
+          /* @__PURE__ */ jsx70("code", { children: "attribute" }),
+          ", ",
+          /* @__PURE__ */ jsx70("code", { children: "view" }),
+          ", ",
+          /* @__PURE__ */ jsx70("code", { children: "action" }),
+          ", ",
+          /* @__PURE__ */ jsx70("code", { children: "linkage" }),
+          "."
+        ] }),
+        /* @__PURE__ */ jsxs67("li", { children: [
+          /* @__PURE__ */ jsx70("code", { children: "Ctrl+Shift+F12" }),
+          " \u0438\u043B\u0438 ",
+          /* @__PURE__ */ jsx70("code", { children: "Alt+F12" }),
+          " \u2014 \u0430\u043B\u044C\u0442\u0435\u0440\u043D\u0430\u0442\u0438\u0432\u0430 Ctrl+Click (F12 \u0432 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0435 \u043E\u0442\u043A\u0440\u044B\u0432\u0430\u0435\u0442 DevTools, \u043F\u043E\u044D\u0442\u043E\u043C\u0443 \u043E\u0441\u043D\u043E\u0432\u043D\u044B\u0435 \u0445\u043E\u0442\u043A\u0435\u0438 \u2014 \u044D\u0442\u0438)."
+        ] }),
+        /* @__PURE__ */ jsxs67("li", { children: [
+          /* @__PURE__ */ jsx70("code", { children: "Ctrl+Alt+F12" }),
+          " \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0438\u0437 \u0447\u0443\u0436\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430 (",
+          /* @__PURE__ */ jsx70("code", { children: "other.domain/Entity" }),
+          ") \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435."
+        ] })
+      ] }) }),
+      /* @__PURE__ */ jsx70(Section2, { title: "\u041F\u043E\u0438\u0441\u043A \u0438 \u043F\u0435\u0440\u0435\u043C\u0435\u0449\u0435\u043D\u0438\u0435", children: /* @__PURE__ */ jsxs67(List, { children: [
+        /* @__PURE__ */ jsxs67("li", { children: [
+          /* @__PURE__ */ jsx70("code", { children: "Ctrl+F" }),
+          " \u2014 \u043F\u043E\u0438\u0441\u043A \u043F\u043E \u0444\u0430\u0439\u043B\u0443."
+        ] }),
+        /* @__PURE__ */ jsxs67("li", { children: [
+          /* @__PURE__ */ jsx70("code", { children: "Ctrl+G" }),
+          " \u2014 \u043F\u0435\u0440\u0435\u0439\u0442\u0438 \u043A \u0441\u0442\u0440\u043E\u043A\u0435."
+        ] }),
+        /* @__PURE__ */ jsxs67("li", { children: [
+          /* @__PURE__ */ jsx70("code", { children: "Alt+\u2191" }),
+          " / ",
+          /* @__PURE__ */ jsx70("code", { children: "Alt+\u2193" }),
+          " \u2014 \u043F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0430\u044F / \u0441\u043B\u0435\u0434\u0443\u044E\u0449\u0430\u044F \u0441\u0442\u0440\u043E\u043A\u0430."
+        ] }),
+        /* @__PURE__ */ jsxs67("li", { children: [
+          /* @__PURE__ */ jsx70("code", { children: "Ctrl+Home" }),
+          " / ",
+          /* @__PURE__ */ jsx70("code", { children: "Ctrl+End" }),
+          " \u2014 \u043D\u0430\u0447\u0430\u043B\u043E / \u043A\u043E\u043D\u0435\u0446 \u0444\u0430\u0439\u043B\u0430."
+        ] })
+      ] }) }),
+      /* @__PURE__ */ jsx70(Section2, { title: "\u041B\u0435\u0432\u0430\u044F \u043F\u0430\u043D\u0435\u043B\u044C \u043D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u0438", children: /* @__PURE__ */ jsxs67(List, { children: [
+        /* @__PURE__ */ jsx70("li", { children: "\u041A\u043B\u0438\u043A \u043F\u043E \u0442\u0440\u0435\u0443\u0433\u043E\u043B\u044C\u043D\u0438\u043A\u0443 \u2014 \u0441\u0432\u0435\u0440\u043D\u0443\u0442\u044C/\u0440\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0441\u0435\u043A\u0446\u0438\u044E." }),
+        /* @__PURE__ */ jsxs67("li", { children: [
+          "\u041A\u043B\u0438\u043A \u043F\u043E ",
+          /* @__PURE__ */ jsx70("code", { children: "\u2192" }),
+          " \u2014 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u043D\u0430\u0447\u0430\u043B\u0443 \u0441\u0435\u043A\u0446\u0438\u0438."
+        ] }),
+        /* @__PURE__ */ jsxs67("li", { children: [
+          "\u0420\u044F\u0434\u043E\u043C \u0441 \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u0435\u043C \u0441\u0435\u043A\u0446\u0438\u0438 \u2014 ",
+          /* @__PURE__ */ jsx70("code", { children: "~N" }),
+          " \u0441\u0442\u0440\u043E\u043A \u0438 \u0441\u0447\u0451\u0442\u0447\u0438\u043A \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u043E\u0432."
+        ] }),
+        /* @__PURE__ */ jsxs67("li", { children: [
+          "\u041A\u043D\u043E\u043F\u043A\u0430 ",
+          /* @__PURE__ */ jsx70("code", { children: "\u26A0 N" }),
+          " \u0440\u044F\u0434\u043E\u043C \u0441 \xAB\u041D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044F\xBB \u2014 toggle \xAB\u0442\u043E\u043B\u044C\u043A\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0435\xBB. \u041F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0438 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0441 issues."
+        ] }),
+        /* @__PURE__ */ jsxs67("li", { children: [
+          "\u0411\u0435\u0439\u0434\u0436\u0438 ",
+          /* @__PURE__ */ jsx70("code", { children: "\u26A0" }),
+          " \u043D\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u0445 \u0438 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430\u0445 \u2014 \u043D\u0430\u0432\u0435\u0434\u0438\u0442\u0435, \u0447\u0442\u043E\u0431\u044B \u0443\u0432\u0438\u0434\u0435\u0442\u044C, \u043A\u0430\u043A\u0438\u0435 \u0438\u043C\u0435\u043D\u043D\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B (\u0434\u043E 5 + \xAB...\u0438 \u0435\u0449\u0451 N\xBB)."
+        ] }),
+        /* @__PURE__ */ jsx70("li", { children: "\u041F\u043E\u043B\u0435 \u043F\u043E\u0438\u0441\u043A\u0430 \u0441\u0432\u0435\u0440\u0445\u0443 \u2014 \u0444\u0438\u043B\u044C\u0442\u0440 \u043F\u043E id." }),
+        /* @__PURE__ */ jsxs67("li", { children: [
+          "\u041A\u043D\u043E\u043F\u043A\u0438 ",
+          /* @__PURE__ */ jsx70("code", { children: "\u2922 \u2921" }),
+          " \u2014 \u0440\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C / \u0441\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0451."
+        ] }),
+        /* @__PURE__ */ jsx70("li", { children: "\u0420\u0435\u0441\u0430\u0439\u0437: \u043F\u043E\u0442\u044F\u043D\u0438\u0442\u0435 \u0437\u0430 \u043F\u0440\u0430\u0432\u0443\u044E \u0433\u0440\u0430\u043D\u0438\u0446\u0443 \u043F\u0430\u043D\u0435\u043B\u0438 \u2014 \u0448\u0438\u0440\u0438\u043D\u0430 \u0437\u0430\u043F\u043E\u043C\u0438\u043D\u0430\u0435\u0442\u0441\u044F (180\u2013600px)." })
+      ] }) }),
+      /* @__PURE__ */ jsxs67(Section2, { title: "\u041C\u0438\u043D\u0438-\u043A\u0430\u0440\u0442\u0430 \u0441\u0435\u043A\u0446\u0438\u0439", children: [
+        /* @__PURE__ */ jsx70(P, { children: "\u0421\u043F\u0440\u0430\u0432\u0430 \u043E\u0442 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0430 \u2014 \u0443\u0437\u043A\u0430\u044F \u043F\u043E\u043B\u043E\u0441\u0430. \u041A\u0430\u0436\u0434\u044B\u0439 \u0441\u0435\u0433\u043C\u0435\u043D\u0442 \u2014 \u043E\u0434\u043D\u0430 \u0441\u0435\u043A\u0446\u0438\u044F, \u043F\u0440\u043E\u043F\u043E\u0440\u0446\u0438\u043E\u043D\u0430\u043B\u044C\u043D\u044B\u0439 \u0435\u0451 \u0434\u043B\u0438\u043D\u0435." }),
+        /* @__PURE__ */ jsxs67(List, { children: [
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { style: { color: "#6366f1" }, children: "\u0421\u0438\u043D\u0438\u0439" }),
+            " \u2014 \u0441\u0435\u043A\u0446\u0438\u044F \u0431\u0435\u0437 \u043F\u0440\u043E\u0431\u043B\u0435\u043C."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { style: { color: "#f59e0b" }, children: "\u0416\u0451\u043B\u0442\u044B\u0439" }),
+            " \u2014 \u0435\u0441\u0442\u044C warning."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { style: { color: "#ef4444" }, children: "\u041A\u0440\u0430\u0441\u043D\u044B\u0439" }),
+            " \u2014 \u0435\u0441\u0442\u044C error."
+          ] }),
+          /* @__PURE__ */ jsx70("li", { children: "\u041A\u043B\u0438\u043A \u043F\u043E \u0441\u0435\u0433\u043C\u0435\u043D\u0442\u0443 \u2014 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u0441\u0435\u043A\u0446\u0438\u0438." }),
+          /* @__PURE__ */ jsx70("li", { children: "\u0423\u0447\u0438\u0442\u044B\u0432\u0430\u0435\u0442 \u0444\u0438\u043B\u044C\u0442\u0440 severity \u0432 \u043F\u0430\u043D\u0435\u043B\u0438 \xAB\u041F\u0440\u043E\u0431\u043B\u0435\u043C\u044B\xBB." })
+        ] })
+      ] }),
+      /* @__PURE__ */ jsx70(Section2, { title: "\u041F\u0440\u0430\u0432\u0430\u044F \u043F\u0430\u043D\u0435\u043B\u044C \u2014 4 \u0442\u0430\u0431\u0430", children: /* @__PURE__ */ jsxs67(List, { children: [
+        /* @__PURE__ */ jsxs67("li", { children: [
+          /* @__PURE__ */ jsx70("strong", { children: "\u{1F527} \u041F\u0440\u043E\u0431\u043B\u0435\u043C\u044B" }),
+          " \u2014 issues \u0438\u0437 \u043B\u0438\u043D\u0442\u0435\u0440\u0430. \u0421 \u0444\u0438\u043B\u044C\u0442\u0440\u043E\u043C severity (\u041E\u0448\u0438\u0431\u043A\u0438 / \u041F\u0440\u0435\u0434\u0443\u043F\u0440. / \u0418\u043D\u0444\u043E) \u0438 \u043F\u0435\u0440\u0435\u043A\u043B\u044E\u0447\u0430\u0442\u0435\u043B\u0435\u043C \u0433\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u043A\u0438 \xAB\u041F\u043E \u043F\u0440\u0430\u0432\u0438\u043B\u0443 / \u041F\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438\xBB."
+        ] }),
+        /* @__PURE__ */ jsxs67("li", { children: [
+          /* @__PURE__ */ jsx70("strong", { children: "\u{1F517} \u0421\u0441\u044B\u043B\u043A\u0438" }),
+          " \u2014 \u0438\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u0435 FQID-\u0441\u0441\u044B\u043B\u043A\u0438 (\u043D\u0430 \u0434\u0440\u0443\u0433\u0438\u0435 \u0434\u043E\u043C\u0435\u043D\u044B), \u0441\u0433\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0435 \u043F\u043E \u0434\u043E\u043C\u0435\u043D\u0443."
+        ] }),
+        /* @__PURE__ */ jsxs67("li", { children: [
+          /* @__PURE__ */ jsx70("strong", { children: "\u{1F4E5} \u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F" }),
+          " (backlinks) \u2014 \u043A\u0442\u043E \u0441\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F \u043D\u0430 \u0442\u0435\u043A\u0443\u0449\u0443\u044E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0438\u043B\u0438 \u0430\u0442\u0440\u0438\u0431\u0443\u0442. \u041F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442:",
+          /* @__PURE__ */ jsxs67("ul", { style: { marginTop: 4, marginBottom: 0 }, children: [
+            /* @__PURE__ */ jsxs67("li", { children: [
+              /* @__PURE__ */ jsx70("strong", { children: "\u041D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435" }),
+              " \u2014 \u043A\u0442\u043E \u043D\u0430\u0441\u043B\u0435\u0434\u0443\u0435\u0442 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C;"
             ] }),
-            /* @__PURE__ */ jsx70("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs67("div", { className: "modal-help", style: { padding: 0, background: "transparent", border: 0 }, children: [
-              /* @__PURE__ */ jsxs67("div", { className: "modal-help__section", children: [
-                /* @__PURE__ */ jsx70("h3", { className: "modal-help__title", children: "\u041D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044F \u043F\u043E \u043A\u043E\u0434\u0443" }),
-                /* @__PURE__ */ jsxs67("ul", { className: "modal-help__list", children: [
-                  /* @__PURE__ */ jsxs67("li", { children: [
-                    /* @__PURE__ */ jsx70("code", { children: "Ctrl+Shift+O" }),
-                    " \u2014 \u0441\u043F\u0438\u0441\u043E\u043A \u0432\u0441\u0435\u0445 \u0441\u0438\u043C\u0432\u043E\u043B\u043E\u0432 \u0444\u0430\u0439\u043B\u0430 (\u0441\u0435\u043A\u0446\u0438\u0438, \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438, \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B). \u041A\u043B\u0438\u043A \u043F\u043E \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u0443 \u2014 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u0441\u0442\u0440\u043E\u043A\u0435."
-                  ] }),
-                  /* @__PURE__ */ jsxs67("li", { children: [
-                    /* @__PURE__ */ jsx70("strong", { children: /* @__PURE__ */ jsx70("code", { children: "Ctrl+Click" }) }),
-                    " \u2014 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u043E\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u0438\u044E. \u0420\u0430\u0431\u043E\u0442\u0430\u0435\u0442 \u0434\u043B\u044F:",
-                    /* @__PURE__ */ jsxs67("ul", { children: [
-                      /* @__PURE__ */ jsxs67("li", { children: [
-                        /* @__PURE__ */ jsx70("code", { children: "id: Device" }),
-                        " \u2014 \u043A \u043E\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u0438\u044E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438;"
-                      ] }),
-                      /* @__PURE__ */ jsxs67("li", { children: [
-                        /* @__PURE__ */ jsx70("code", { children: "inherits: Device" }),
-                        " \u2014 \u043A \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438-\u0440\u043E\u0434\u0438\u0442\u0435\u043B\u044E;"
-                      ] }),
-                      /* @__PURE__ */ jsxs67("li", { children: [
-                        /* @__PURE__ */ jsx70("code", { children: "attribute: Requirement.identifier" }),
-                        " \u2014 Ctrl+Click \u043F\u043E ",
-                        /* @__PURE__ */ jsx70("code", { children: "Requirement" }),
-                        " \u2192 \u043A \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438, \u043F\u043E ",
-                        /* @__PURE__ */ jsx70("code", { children: "identifier" }),
-                        " \u2192 \u043A \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0443;"
-                      ] }),
-                      /* @__PURE__ */ jsxs67("li", { children: [
-                        /* @__PURE__ */ jsx70("code", { children: "action: some_action" }),
-                        ", ",
-                        /* @__PURE__ */ jsx70("code", { children: "view: list_x" }),
-                        ", ",
-                        /* @__PURE__ */ jsx70("code", { children: "linkage: link_y" }),
-                        " \u2014 \u043A \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u0443."
-                      ] })
-                    ] })
-                  ] }),
-                  /* @__PURE__ */ jsxs67("li", { children: [
-                    /* @__PURE__ */ jsx70("code", { children: "Ctrl+Shift+F12" }),
-                    " \u0438\u043B\u0438 ",
-                    /* @__PURE__ */ jsx70("code", { children: "Alt+F12" }),
-                    " \u2014 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u043E\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u0438\u044E (\u0430\u043B\u044C\u0442\u0435\u0440\u043D\u0430\u0442\u0438\u0432\u0430 F12, \u0442\u0430\u043A \u043A\u0430\u043A F12 \u0432 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0435 \u043E\u0442\u043A\u0440\u044B\u0432\u0430\u0435\u0442 DevTools)."
-                  ] }),
-                  /* @__PURE__ */ jsxs67("li", { children: [
-                    /* @__PURE__ */ jsx70("code", { children: "Ctrl+Alt+F12" }),
-                    " \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0438\u0437 \u0447\u0443\u0436\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430 (",
-                    /* @__PURE__ */ jsx70("code", { children: "other.domain/Entity" }),
-                    ") \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435."
-                  ] }),
-                  /* @__PURE__ */ jsxs67("li", { children: [
-                    /* @__PURE__ */ jsx70("em", { children: "\u0421\u043E\u0432\u0435\u0442:" }),
-                    " \u0435\u0441\u043B\u0438 F12 \u043F\u0440\u0438\u0432\u044B\u0447\u043D\u0435\u0435, \u0432 ",
-                    /* @__PURE__ */ jsx70("code", { children: "chrome://settings" }),
-                    " \u2192 DevTools \u043C\u043E\u0436\u043D\u043E \u043E\u0442\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0433\u043B\u043E\u0431\u0430\u043B\u044C\u043D\u0443\u044E \u043A\u043E\u043C\u0431\u0438\u043D\u0430\u0446\u0438\u044E, \u043D\u043E \u044D\u0442\u043E \u043D\u0435 \u0440\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0443\u0435\u0442\u0441\u044F."
-                  ] })
-                ] })
+            /* @__PURE__ */ jsxs67("li", { children: [
+              /* @__PURE__ */ jsx70("strong", { children: "Reference" }),
+              " \u2014 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B, \u0441\u0441\u044B\u043B\u0430\u044E\u0449\u0438\u0435\u0441\u044F \u043D\u0430 \u043D\u0435\u0451;"
+            ] }),
+            /* @__PURE__ */ jsxs67("li", { children: [
+              /* @__PURE__ */ jsx70("strong", { children: "View" }),
+              " \u2014 \u0433\u0434\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0443\u043F\u043E\u043C\u044F\u043D\u0443\u0442\u0430 \u043A\u0430\u043A ",
+              /* @__PURE__ */ jsx70("code", { children: "entity:" }),
+              ";"
+            ] }),
+            /* @__PURE__ */ jsxs67("li", { children: [
+              /* @__PURE__ */ jsx70("strong", { children: "DataRule" }),
+              " \u2014 \u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u0434\u0430\u043D\u043D\u044B\u0445;"
+            ] }),
+            /* @__PURE__ */ jsxs67("li", { children: [
+              /* @__PURE__ */ jsx70("strong", { children: "Widget" }),
+              " \u2014 \u0432\u0438\u0434\u0436\u0435\u0442\u044B, \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u044E\u0449\u0438\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442;"
+            ] }),
+            /* @__PURE__ */ jsxs67("li", { children: [
+              /* @__PURE__ */ jsx70("strong", { children: "Linkage" }),
+              " \u2014 \u0441\u0432\u044F\u0437\u0438 (side1/side2);"
+            ] }),
+            /* @__PURE__ */ jsxs67("li", { children: [
+              /* @__PURE__ */ jsx70("strong", { children: "Mixin / Action" }),
+              " \u2014 \u043F\u0440\u0438\u043C\u0435\u0441\u0438 \u0438 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F."
+            ] })
+          ] }),
+          "\u0412\u0441\u0435 \u043F\u0443\u043D\u043A\u0442\u044B \u043A\u043B\u0438\u043A\u0430\u0431\u0435\u043B\u044C\u043D\u044B\u0435 \u2014 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u0441\u0442\u0440\u043E\u043A\u0435."
+        ] }),
+        /* @__PURE__ */ jsxs67("li", { children: [
+          /* @__PURE__ */ jsx70("strong", { children: "\u2601 \u0421\u0435\u0440\u0432\u0435\u0440" }),
+          " \u2014 \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u0447\u0435\u0440\u0435\u0437 R-Vision (\u0442\u043E\u043B\u044C\u043A\u043E \u0432 \u0440\u0435\u0436\u0438\u043C\u0435 ",
+          /* @__PURE__ */ jsx70("code", { children: "--server" }),
+          ")."
+        ] })
+      ] }) }),
+      /* @__PURE__ */ jsxs67(Section2, { title: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F (actions)", children: [
+        /* @__PURE__ */ jsx70(P, { children: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u2014 \u043E\u043F\u0435\u0440\u0430\u0446\u0438\u0438 \u043D\u0430\u0434 \u043E\u0431\u044A\u0435\u043A\u0442\u0430\u043C\u0438 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438. \u0411\u044B\u0432\u0430\u044E\u0442 \u043F\u0440\u043E\u0441\u0442\u044B\u0435 (\u043E\u0442\u043A\u0440\u044B\u0442\u0438\u0435 \u043F\u0430\u043D\u0435\u043B\u0438 / \u043C\u043E\u0434\u0430\u043B\u043A\u0438), \u043C\u0430\u0441\u0441\u043E\u0432\u044B\u0435 (bulk) \u0438 \u0438\u043D\u0442\u0435\u0433\u0440\u0430\u0446\u0438\u043E\u043D\u043D\u044B\u0435 (automation, scenario)." }),
+        /* @__PURE__ */ jsx70("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u041F\u0440\u043E\u0441\u0442\u044B\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F" }),
+        /* @__PURE__ */ jsxs67(List, { children: [
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "open_panel" }),
+            " \u2014 ",
+            /* @__PURE__ */ jsx70("code", { children: "panel: <viewId>" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "entity" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "open_modal" }),
+            " \u2014 ",
+            /* @__PURE__ */ jsx70("code", { children: "modal: <viewId>" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "entity" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "operation: create | edit" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "open_page" }),
+            " \u2014 ",
+            /* @__PURE__ */ jsx70("code", { children: "view: <viewId>" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "entity" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "operation" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "open_list" }),
+            " \u2014 ",
+            /* @__PURE__ */ jsx70("code", { children: "view" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "contextPin" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "page" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "remove" }),
+            " \u2014 \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435 \u043E\u0431\u044A\u0435\u043A\u0442\u0430, \u043D\u0443\u0436\u0435\u043D \u0442\u043E\u043B\u044C\u043A\u043E ",
+            /* @__PURE__ */ jsx70("code", { children: "entity" }),
+            "."
+          ] })
+        ] }),
+        /* @__PURE__ */ jsx70("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u041C\u0430\u0441\u0441\u043E\u0432\u044B\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F (type: bulk)" }),
+        /* @__PURE__ */ jsxs67(List, { children: [
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "operation: remove" }),
+            " \u2014 \u0443\u0434\u0430\u043B\u0438\u0442\u044C \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u044B\u0435 \u043E\u0431\u044A\u0435\u043A\u0442\u044B."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "operation: edit" }),
+            " \u2014 \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u044B\u0445. \u0422\u0440\u0435\u0431\u0443\u0435\u0442:",
+            /* @__PURE__ */ jsxs67("ul", { style: { marginTop: 4, marginBottom: 0 }, children: [
+              /* @__PURE__ */ jsx70("li", { children: /* @__PURE__ */ jsx70("code", { children: "attributes.type: specific" }) }),
+              /* @__PURE__ */ jsxs67("li", { children: [
+                /* @__PURE__ */ jsx70("code", { children: "attributes.use[]" }),
+                " \u2014 \u0441\u043F\u0438\u0441\u043E\u043A \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 (",
+                /* @__PURE__ */ jsx70("code", { children: "attribute: attrId" }),
+                ")"
               ] }),
-              /* @__PURE__ */ jsxs67("div", { className: "modal-help__section", children: [
-                /* @__PURE__ */ jsx70("h3", { className: "modal-help__title", children: "\u041F\u043E\u0438\u0441\u043A \u0438 \u043F\u0435\u0440\u0435\u043C\u0435\u0449\u0435\u043D\u0438\u0435" }),
-                /* @__PURE__ */ jsxs67("ul", { className: "modal-help__list", children: [
-                  /* @__PURE__ */ jsxs67("li", { children: [
-                    /* @__PURE__ */ jsx70("code", { children: "Ctrl+F" }),
-                    " \u2014 \u043F\u043E\u0438\u0441\u043A \u043F\u043E \u0444\u0430\u0439\u043B\u0443."
-                  ] }),
-                  /* @__PURE__ */ jsxs67("li", { children: [
-                    /* @__PURE__ */ jsx70("code", { children: "Ctrl+G" }),
-                    " \u2014 \u043F\u0435\u0440\u0435\u0439\u0442\u0438 \u043A \u0441\u0442\u0440\u043E\u043A\u0435."
-                  ] }),
-                  /* @__PURE__ */ jsxs67("li", { children: [
-                    /* @__PURE__ */ jsx70("code", { children: "Alt+\u2191" }),
-                    " / ",
-                    /* @__PURE__ */ jsx70("code", { children: "Alt+\u2193" }),
-                    " \u2014 \u043F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0430\u044F / \u0441\u043B\u0435\u0434\u0443\u044E\u0449\u0430\u044F \u0441\u0442\u0440\u043E\u043A\u0430."
-                  ] }),
-                  /* @__PURE__ */ jsxs67("li", { children: [
-                    /* @__PURE__ */ jsx70("code", { children: "Ctrl+Home" }),
-                    " / ",
-                    /* @__PURE__ */ jsx70("code", { children: "Ctrl+End" }),
-                    " \u2014 \u043D\u0430\u0447\u0430\u043B\u043E / \u043A\u043E\u043D\u0435\u0446 \u0444\u0430\u0439\u043B\u0430."
-                  ] })
-                ] })
-              ] }),
-              /* @__PURE__ */ jsxs67("div", { className: "modal-help__section", children: [
-                /* @__PURE__ */ jsx70("h3", { className: "modal-help__title", children: "\u041B\u0435\u0432\u0430\u044F \u043F\u0430\u043D\u0435\u043B\u044C \u043D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u0438" }),
-                /* @__PURE__ */ jsxs67("ul", { className: "modal-help__list", children: [
-                  /* @__PURE__ */ jsxs67("li", { children: [
-                    "\u041A\u043B\u0438\u043A \u043F\u043E \u0442\u0440\u0435\u0443\u0433\u043E\u043B\u044C\u043D\u0438\u043A\u0443 ",
-                    /* @__PURE__ */ jsx70("code", { children: "\u25B8" }),
-                    " \u2014 \u0441\u0432\u0435\u0440\u043D\u0443\u0442\u044C/\u0440\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0441\u0435\u043A\u0446\u0438\u044E."
-                  ] }),
-                  /* @__PURE__ */ jsxs67("li", { children: [
-                    "\u041A\u043B\u0438\u043A \u043F\u043E ",
-                    /* @__PURE__ */ jsx70("code", { children: "\u2192" }),
-                    " \u0441\u043F\u0440\u0430\u0432\u0430 \u043E\u0442 \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u044F \u0441\u0435\u043A\u0446\u0438\u0438 \u2014 \u043F\u0435\u0440\u0435\u0439\u0442\u0438 \u043A \u043D\u0430\u0447\u0430\u043B\u0443 \u0441\u0435\u043A\u0446\u0438\u0438."
-                  ] }),
-                  /* @__PURE__ */ jsx70("li", { children: "\u041F\u043E\u043B\u0435 \u043F\u043E\u0438\u0441\u043A\u0430 \u0441\u0432\u0435\u0440\u0445\u0443 \u2014 \u0444\u0438\u043B\u044C\u0442\u0440 \u043F\u043E id; \u0440\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442 \u2014 \u043F\u043B\u043E\u0441\u043A\u0438\u0439 \u0441\u043F\u0438\u0441\u043E\u043A \u0441 \u043D\u043E\u043C\u0435\u0440\u0430\u043C\u0438 \u0441\u0442\u0440\u043E\u043A." }),
-                  /* @__PURE__ */ jsxs67("li", { children: [
-                    "\u041A\u043D\u043E\u043F\u043A\u0438 ",
-                    /* @__PURE__ */ jsx70("code", { children: "\u2922 \u2921" }),
-                    " \u2014 \u0440\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C / \u0441\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0451."
-                  ] })
-                ] })
-              ] }),
-              /* @__PURE__ */ jsxs67("div", { className: "modal-help__section", children: [
-                /* @__PURE__ */ jsx70("h3", { className: "modal-help__title", children: "\u041A\u043B\u0430\u0432\u0438\u0430\u0442\u0443\u0440\u0430 \u0432 \u043D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u0438" }),
-                /* @__PURE__ */ jsxs67("ul", { className: "modal-help__list", children: [
-                  /* @__PURE__ */ jsxs67("li", { children: [
-                    /* @__PURE__ */ jsx70("code", { children: "\u2191" }),
-                    " / ",
-                    /* @__PURE__ */ jsx70("code", { children: "\u2193" }),
-                    " \u2014 \u043D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044F \u043F\u043E \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u0430\u043C (\u043A\u043E\u0433\u0434\u0430 \u0444\u043E\u043A\u0443\u0441 \u043D\u0435 \u0432 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0435)."
-                  ] }),
-                  /* @__PURE__ */ jsxs67("li", { children: [
-                    /* @__PURE__ */ jsx70("code", { children: "Enter" }),
-                    " \u2014 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u043E\u043C\u0443 \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u0443."
-                  ] }),
-                  /* @__PURE__ */ jsxs67("li", { children: [
-                    /* @__PURE__ */ jsx70("code", { children: "\u2190" }),
-                    " \u2014 \u0441\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0430\u043A\u0442\u0438\u0432\u043D\u0443\u044E \u0441\u0435\u043A\u0446\u0438\u044E."
-                  ] }),
-                  /* @__PURE__ */ jsxs67("li", { children: [
-                    /* @__PURE__ */ jsx70("code", { children: "\u2192" }),
-                    " \u2014 \u0440\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0430\u043A\u0442\u0438\u0432\u043D\u0443\u044E \u0441\u0435\u043A\u0446\u0438\u044E."
-                  ] })
-                ] })
-              ] }),
-              /* @__PURE__ */ jsxs67("div", { className: "modal-help__section", children: [
-                /* @__PURE__ */ jsx70("h3", { className: "modal-help__title", children: "\u041F\u0440\u0430\u0432\u0430\u044F \u043F\u0430\u043D\u0435\u043B\u044C" }),
-                /* @__PURE__ */ jsxs67("ul", { className: "modal-help__list", children: [
-                  /* @__PURE__ */ jsxs67("li", { children: [
-                    /* @__PURE__ */ jsx70("strong", { children: "\u041F\u0440\u043E\u0431\u043B\u0435\u043C\u044B" }),
-                    " \u2014 \u0432\u0441\u0435 lint-issues \u0434\u043E\u043C\u0435\u043D\u0430. \u041A\u043B\u0438\u043A \u043F\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0435 \u2014 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u0441\u0442\u0440\u043E\u043A\u0435."
-                  ] }),
-                  /* @__PURE__ */ jsxs67("li", { children: [
-                    /* @__PURE__ */ jsx70("strong", { children: "\u0421\u0441\u044B\u043B\u043A\u0438" }),
-                    " \u2014 \u0432\u0441\u0435 \u0441\u0441\u044B\u043B\u043A\u0438 \u0438\u0437 \u044D\u0442\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430 \u0432 \u0434\u0440\u0443\u0433\u0438\u0435 \u0434\u043E\u043C\u0435\u043D\u044B. \u041A\u043B\u0438\u043A \u2014 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u0441\u0442\u0440\u043E\u043A\u0435."
-                  ] })
-                ] })
-              ] }),
-              /* @__PURE__ */ jsxs67("div", { className: "modal-help__section", children: [
-                /* @__PURE__ */ jsx70("h3", { className: "modal-help__title", children: "\u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435" }),
-                /* @__PURE__ */ jsxs67("ul", { className: "modal-help__list", children: [
-                  /* @__PURE__ */ jsxs67("li", { children: [
-                    /* @__PURE__ */ jsx70("code", { children: "\u{1F512}" }),
-                    " \u2014 \u0440\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0444\u0430\u0439\u043B \u0434\u043B\u044F \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F (\u043A\u043D\u043E\u043F\u043A\u0430 \u0432 \u0448\u0430\u043F\u043A\u0435)."
-                  ] }),
-                  /* @__PURE__ */ jsxs67("li", { children: [
-                    /* @__PURE__ */ jsx70("code", { children: "\u{1F4CB}" }),
-                    " \u2014 \u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u0435 \u0432 \u0431\u0443\u0444\u0435\u0440 \u043E\u0431\u043C\u0435\u043D\u0430."
-                  ] }),
-                  /* @__PURE__ */ jsxs67("li", { children: [
-                    /* @__PURE__ */ jsx70("code", { children: "\u{1F4BE}" }),
-                    " \u0438\u043B\u0438 ",
-                    /* @__PURE__ */ jsx70("code", { children: "Ctrl+S" }),
-                    " \u2014 \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F (\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E \u0442\u043E\u043B\u044C\u043A\u043E \u0432 \u043B\u043E\u043A\u0430\u043B\u044C\u043D\u043E\u043C \u0440\u0435\u0436\u0438\u043C\u0435)."
-                  ] })
-                ] }),
-                /* @__PURE__ */ jsxs67("p", { className: "modal-help__text", style: { marginTop: 8 }, children: [
-                  "\u0412 \u0440\u0435\u0436\u0438\u043C\u0435 ",
-                  /* @__PURE__ */ jsx70("code", { children: "--server" }),
-                  " \u0444\u0430\u0439\u043B\u044B \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u044B \u0442\u043E\u043B\u044C\u043A\u043E \u0434\u043B\u044F \u0447\u0442\u0435\u043D\u0438\u044F. \u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0439\u0442\u0435 \u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435, \u0447\u0442\u043E\u0431\u044B \u043F\u0435\u0440\u0435\u043D\u0435\u0441\u0442\u0438 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u0432\u0440\u0443\u0447\u043D\u0443\u044E."
-                ] })
-              ] }),
-              /* @__PURE__ */ jsxs67("div", { className: "modal-help__section", children: [
-                /* @__PURE__ */ jsx70("h3", { className: "modal-help__title", children: "\u041F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0438 \u043F\u0440\u0438 \u043D\u0430\u0432\u0435\u0434\u0435\u043D\u0438\u0438" }),
-                /* @__PURE__ */ jsxs67("ul", { className: "modal-help__list", children: [
-                  /* @__PURE__ */ jsxs67("li", { children: [
-                    "\u041D\u0430\u0432\u0435\u0434\u0438\u0442\u0435 \u043D\u0430 ",
-                    /* @__PURE__ */ jsx70("code", { children: "id: Device" }),
-                    " \u2014 \u0442\u0443\u043B\u0442\u0438\u043F \u0441 \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u0435\u043C, \u043E\u043F\u0438\u0441\u0430\u043D\u0438\u0435\u043C, \u0447\u0438\u0441\u043B\u043E\u043C \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432, FQID."
-                  ] }),
-                  /* @__PURE__ */ jsxs67("li", { children: [
-                    "\u041D\u0430\u0432\u0435\u0434\u0438\u0442\u0435 \u043D\u0430 ",
-                    /* @__PURE__ */ jsx70("code", { children: "attribute: Requirement.identifier" }),
-                    " \u2014 \u0442\u0443\u043B\u0442\u0438\u043F \u0441 \u0442\u0438\u043F\u043E\u043C, \u043E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F\u043C\u0438, \u0441\u0441\u044B\u043B\u043A\u0430\u043C\u0438."
-                  ] })
-                ] })
-              ] }),
-              /* @__PURE__ */ jsxs67("div", { className: "modal-help__section", children: [
-                /* @__PURE__ */ jsx70("h3", { className: "modal-help__title", children: "Code Actions (\u043B\u0430\u043C\u043F\u043E\u0447\u043A\u0430)" }),
-                /* @__PURE__ */ jsxs67("ul", { className: "modal-help__list", children: [
-                  /* @__PURE__ */ jsxs67("li", { children: [
-                    "\u041D\u0430 \u043C\u0430\u0440\u043A\u0435\u0440\u0435 \u043E\u0448\u0438\u0431\u043A\u0438/\u043F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u044F \u043A\u043B\u0438\u043A\u043D\u0438\u0442\u0435 \u043D\u0430 ",
-                    /* @__PURE__ */ jsx70("strong", { children: "\u{1F4A1} \u043B\u0430\u043C\u043F\u043E\u0447\u043A\u0443" }),
-                    " \u0441\u043B\u0435\u0432\u0430 \u043E\u0442 \u0441\u0442\u0440\u043E\u043A\u0438."
-                  ] }),
-                  /* @__PURE__ */ jsxs67("li", { children: [
-                    /* @__PURE__ */ jsx70("strong", { children: "\u{1F4D6} \u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0441\u043F\u0440\u0430\u0432\u043A\u0443" }),
-                    " \u2014 \u0442\u0435\u043A\u0441\u0442 \u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u0438 \u0440\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u044F."
-                  ] }),
-                  /* @__PURE__ */ jsxs67("li", { children: [
-                    /* @__PURE__ */ jsx70("strong", { children: "\u{1F507} \u0418\u0433\u043D\u043E\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C" }),
-                    " \u2014 \u0441\u043A\u0440\u044B\u0442\u044C \u044D\u0442\u043E \u043F\u0440\u0430\u0432\u0438\u043B\u043E \u0434\u043B\u044F \u0442\u0435\u043A\u0443\u0449\u0435\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430 (\u0441\u043E\u0445\u0440\u0430\u043D\u044F\u0435\u0442\u0441\u044F \u0432 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0435)."
-                  ] }),
-                  /* @__PURE__ */ jsxs67("li", { children: [
-                    /* @__PURE__ */ jsx70("strong", { children: "\u{1F52C} \u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043B\u0438\u043D\u0442\u0435\u0440" }),
-                    " \u2014 \u043F\u0435\u0440\u0435\u0439\u0442\u0438 \u043A \u0441\u043F\u0438\u0441\u043A\u0443 \u0432\u0441\u0435\u0445 \u043F\u0440\u043E\u0431\u043B\u0435\u043C \u0434\u043E\u043C\u0435\u043D\u0430."
-                  ] })
-                ] })
-              ] }),
-              /* @__PURE__ */ jsxs67("div", { className: "modal-help__section", children: [
-                /* @__PURE__ */ jsx70("h3", { className: "modal-help__title", children: "Diff \u0441 \u043F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0438\u043C \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u0435\u043C" }),
-                /* @__PURE__ */ jsxs67("ul", { className: "modal-help__list", children: [
-                  /* @__PURE__ */ jsxs67("li", { children: [
-                    "\u041A\u043D\u043E\u043F\u043A\u0430 ",
-                    /* @__PURE__ */ jsx70("code", { children: "\u{1F50D} Diff" }),
-                    " \u0432 \u0448\u0430\u043F\u043A\u0435 \u043F\u043E\u044F\u0432\u043B\u044F\u0435\u0442\u0441\u044F, \u0435\u0441\u043B\u0438 \u0444\u0430\u0439\u043B \u0441\u043E\u0445\u0440\u0430\u043D\u044F\u043B\u0441\u044F \u0445\u043E\u0442\u044F \u0431\u044B \u0440\u0430\u0437."
-                  ] }),
-                  /* @__PURE__ */ jsx70("li", { children: "\u041F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 side-by-side \u0441\u0440\u0430\u0432\u043D\u0435\u043D\u0438\u0435 \u0441 \u043F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0435\u0439 \u0432\u0435\u0440\u0441\u0438\u0435\u0439 \u043D\u0430 \u0434\u0438\u0441\u043A\u0435." }),
-                  /* @__PURE__ */ jsx70("li", { children: "\u041F\u043E\u0441\u043B\u0435 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F \u2014 diff \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u043E\u0431\u043D\u043E\u0432\u0438\u0442\u0441\u044F." })
-                ] })
-              ] }),
-              /* @__PURE__ */ jsxs67("div", { className: "modal-help__section", children: [
-                /* @__PURE__ */ jsx70("h3", { className: "modal-help__title", children: "\u041F\u0440\u043E\u0432\u0435\u0440\u043A\u0438 RQL" }),
-                /* @__PURE__ */ jsxs67("ul", { className: "modal-help__list", children: [
-                  /* @__PURE__ */ jsxs67("li", { children: [
-                    /* @__PURE__ */ jsx70("strong", { children: "\u0421\u0438\u043D\u0442\u0430\u043A\u0441\u0438\u0441" }),
-                    " \u2014 \u043D\u0435\u0437\u0430\u043A\u0440\u044B\u0442\u044B\u0435 \u0441\u043A\u043E\u0431\u043A\u0438, \u043A\u0430\u0432\u044B\u0447\u043A\u0438, \u043E\u0431\u0440\u0435\u0437\u0430\u043D\u043D\u044B\u0435 \u043E\u043F\u0435\u0440\u0430\u0442\u043E\u0440\u044B."
-                  ] }),
-                  /* @__PURE__ */ jsxs67("li", { children: [
-                    /* @__PURE__ */ jsx70("strong", { children: "\u041F\u043E\u043B\u044F" }),
-                    " \u2014 ",
-                    /* @__PURE__ */ jsx70("code", { children: "@field" }),
-                    " \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442\u0441\u044F \u043D\u0430 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u043E\u0432\u0430\u043D\u0438\u0435 \u0432 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u043D\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438."
-                  ] }),
-                  /* @__PURE__ */ jsxs67("li", { children: [
-                    /* @__PURE__ */ jsx70("strong", { children: "\u0422\u0438\u043F\u044B" }),
-                    " \u2014 \u0441\u0440\u0430\u0432\u043D\u0435\u043D\u0438\u0435 \u0441 \u0447\u0438\u0441\u043B\u043E\u043C \u0434\u043B\u044F \u0441\u0442\u0440\u043E\u043A\u043E\u0432\u043E\u0433\u043E \u043F\u043E\u043B\u044F \u0438 \u043D\u0430\u043E\u0431\u043E\u0440\u043E\u0442."
-                  ] }),
-                  /* @__PURE__ */ jsxs67("li", { children: [
-                    /* @__PURE__ */ jsx70("strong", { children: "FROM(...)" }),
-                    " \u2014 \u043F\u043E\u043B\u044F \u0432 ",
-                    /* @__PURE__ */ jsx70("code", { children: "IN SELECT(...)" }),
-                    " \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u044E\u0442\u0441\u044F \u0442\u0430\u043A \u0436\u0435."
-                  ] })
-                ] })
+              /* @__PURE__ */ jsxs67("li", { children: [
+                "\u043E\u043F\u0446\u0438\u043E\u043D\u0430\u043B\u044C\u043D\u043E ",
+                /* @__PURE__ */ jsx70("code", { children: "linkages[]" }),
+                " \u2014 \u0434\u043B\u044F \u043C\u0430\u0441\u0441\u043E\u0432\u043E\u0433\u043E \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F \u0441\u0432\u044F\u0437\u0435\u0439 (",
+                /* @__PURE__ */ jsx70("code", { children: "widget: widgetId" }),
+                ")"
               ] })
-            ] }) })
-          ]
-        }
-      )
-    }
-  );
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "operation: edit_attribute" }),
+            " \u2014 \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430 (bool / workflow). \u0422\u0440\u0435\u0431\u0443\u0435\u0442:",
+            /* @__PURE__ */ jsxs67("ul", { style: { marginTop: 4, marginBottom: 0 }, children: [
+              /* @__PURE__ */ jsxs67("li", { children: [
+                /* @__PURE__ */ jsx70("code", { children: "values[]" }),
+                " \u2014 ",
+                /* @__PURE__ */ jsx70("code", { children: "attribute" }),
+                " + ",
+                /* @__PURE__ */ jsx70("code", { children: "value" })
+              ] }),
+              /* @__PURE__ */ jsxs67("li", { children: [
+                /* @__PURE__ */ jsx70("code", { children: "control" }),
+                " \u2014 \u0434\u043B\u044F bool-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432: ",
+                /* @__PURE__ */ jsx70("code", { children: "type" }),
+                ", ",
+                /* @__PURE__ */ jsx70("code", { children: "trueText" }),
+                ", ",
+                /* @__PURE__ */ jsx70("code", { children: "falseText" })
+              ] })
+            ] })
+          ] })
+        ] }),
+        /* @__PURE__ */ jsx70("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0418\u043D\u0442\u0435\u0433\u0440\u0430\u0446\u0438\u043E\u043D\u043D\u044B\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F" }),
+        /* @__PURE__ */ jsxs67(List, { children: [
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "automation" }),
+            " \u2014 \u0437\u0430\u043F\u0443\u0441\u043A \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0437\u0430\u0446\u0438\u0438. \u0423\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442\u0441\u044F ",
+            /* @__PURE__ */ jsx70("code", { children: "automation.id" }),
+            " (UUID)."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "scenario" }),
+            " \u2014 \u0437\u0430\u043F\u0443\u0441\u043A \u0441\u0446\u0435\u043D\u0430\u0440\u0438\u044F/\u0441\u043A\u0440\u0438\u043F\u0442\u0430: ",
+            /* @__PURE__ */ jsx70("code", { children: "scenario" }),
+            " (id) + ",
+            /* @__PURE__ */ jsx70("code", { children: "workerTag" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "generate_qr_code" }),
+            " \u2014 \u0433\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u044F QR, \u0442\u043E\u043B\u044C\u043A\u043E ",
+            /* @__PURE__ */ jsx70("code", { children: "entity" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "copy_entity_link" }),
+            " \u2014 \u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C URL \u043E\u0431\u044A\u0435\u043A\u0442\u0430."
+          ] })
+        ] }),
+        /* @__PURE__ */ jsx70("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F" }),
+        /* @__PURE__ */ jsxs67(List, { children: [
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "modal" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "panel" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "view" }),
+            " \u2014 \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442\u0441\u044F, \u0447\u0442\u043E view \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u0435\u0442 \u0432 \u0434\u043E\u043C\u0435\u043D\u0435."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "automation.id" }),
+            " \u2014 \u043F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u0435, \u0435\u0441\u043B\u0438 \u043D\u0435 UUID."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "values[].attribute" }),
+            " \u2014 \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442\u0441\u044F, \u0447\u0442\u043E \u0430\u0442\u0440\u0438\u0431\u0443\u0442 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u0435\u0442 \u0432 ",
+            /* @__PURE__ */ jsx70("code", { children: "entity" }),
+            " \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F."
+          ] })
+        ] }),
+        /* @__PURE__ */ jsx70("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0421\u043D\u0438\u043F\u043F\u0435\u0442\u044B" }),
+        /* @__PURE__ */ jsxs67(List, { children: [
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "\u2728 newbulkdelete" }),
+            " \u2014 \u043C\u0430\u0441\u0441\u043E\u0432\u043E\u0435 \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "\u2728 newbulkedit" }),
+            " \u2014 \u043C\u0430\u0441\u0441\u043E\u0432\u043E\u0435 \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "\u2728 newbulkattr" }),
+            " \u2014 \u0438\u0437\u043C\u0435\u043D\u0438\u0442\u044C bool-\u0430\u0442\u0440\u0438\u0431\u0443\u0442 \u0443 \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u044B\u0445."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "\u2728 newautomationaction" }),
+            " \u2014 \u0437\u0430\u043F\u0443\u0441\u043A \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0437\u0430\u0446\u0438\u0438 \u043F\u043E UUID."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "\u2728 newscenarioaction" }),
+            " \u2014 \u0437\u0430\u043F\u0443\u0441\u043A \u0441\u0446\u0435\u043D\u0430\u0440\u0438\u044F."
+          ] })
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxs67(Section2, { title: "Views: List-view", children: [
+        /* @__PURE__ */ jsx70(P, { children: "\u0421\u043F\u0438\u0441\u043E\u043A \u043E\u0431\u044A\u0435\u043A\u0442\u043E\u0432 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438. \u041E\u0434\u0438\u043D \u0438\u0437 \u0441\u0430\u043C\u044B\u0445 \u0431\u043E\u043B\u044C\u0448\u0438\u0445 \u0440\u0430\u0437\u0434\u0435\u043B\u043E\u0432 \u0441\u0445\u0435\u043C\u044B \u2014 \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u0442 \u0442\u0430\u0431\u043B\u0438\u0446\u0443, \u0444\u0438\u043B\u044C\u0442\u0440\u044B, \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0438 \u0438 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F." }),
+        /* @__PURE__ */ jsx70("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0411\u0430\u0437\u043E\u0432\u044B\u0435 \u043F\u043E\u043B\u044F" }),
+        /* @__PURE__ */ jsxs67(List, { children: [
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "source.type" }),
+            ": ",
+            /* @__PURE__ */ jsx70("code", { children: "operational" }),
+            " (\u0411\u0414 \u0441\u0438\u0441\u0442\u0435\u043C\u044B)."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "source.entity" }),
+            ": \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C, \u0447\u044C\u0438 \u043E\u0431\u044A\u0435\u043A\u0442\u044B \u043E\u0442\u043E\u0431\u0440\u0430\u0436\u0430\u044E\u0442\u0441\u044F."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "source.joins[]" }),
+            ": \u0441\u0432\u044F\u0437\u0438 \u0434\u043B\u044F \u043E\u0442\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u044F \u0441\u0432\u044F\u0437\u0430\u043D\u043D\u044B\u0445 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439."
+          ] })
+        ] }),
+        /* @__PURE__ */ jsx70("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0422\u0430\u0431\u043B\u0438\u0446\u0430 (table)" }),
+        /* @__PURE__ */ jsxs67(List, { children: [
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "columns[]" }),
+            ": \u0441\u0442\u043E\u043B\u0431\u0446\u044B \u2014 ",
+            /* @__PURE__ */ jsx70("code", { children: "id" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "attribute" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "label" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "layout.width" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "control" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "aggregate" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "filter" }),
+            ": \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u0446\u0438\u044F \u2014 ",
+            /* @__PURE__ */ jsx70("code", { children: "attributes" }),
+            " (type: specific|all, use[]) \u0438 ",
+            /* @__PURE__ */ jsx70("code", { children: "linkages" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "sortingBy" }),
+            ": \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430 \u2014 ",
+            /* @__PURE__ */ jsx70("code", { children: "columns[]" }),
+            " (column + sorting) \u0438 ",
+            /* @__PURE__ */ jsx70("code", { children: "defaults" }),
+            " (column + direction)."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "paging" }),
+            ": ",
+            /* @__PURE__ */ jsx70("code", { children: "sizes[]" }),
+            " + ",
+            /* @__PURE__ */ jsx70("code", { children: "defaultSize" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "refresh" }),
+            ": ",
+            /* @__PURE__ */ jsx70("code", { children: "mode" }),
+            " (manual/auto/all) + ",
+            /* @__PURE__ */ jsx70("code", { children: "defaults" }),
+            " (unit, interval, enabled)."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "selection" }),
+            ": \u0432\u043E\u0437\u043C\u043E\u0436\u043D\u043E\u0441\u0442\u044C \u0432\u044B\u0431\u043E\u0440\u0430 \u0441\u0442\u0440\u043E\u043A \u0434\u043B\u044F \u043C\u0430\u0441\u0441\u043E\u0432\u044B\u0445 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0439."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "actions[]" }),
+            ": \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u043F\u0440\u0438 \u043A\u043B\u0438\u043A\u0435 \u2014 ",
+            /* @__PURE__ */ jsx70("code", { children: "row_click" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "row_double_click" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "row_context_menu" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "empty.message" }),
+            ": \u0442\u0435\u043A\u0441\u0442 \u043F\u0440\u0438 \u043E\u0442\u0441\u0443\u0442\u0441\u0442\u0432\u0438\u0438 \u0434\u0430\u043D\u043D\u044B\u0445."
+          ] })
+        ] }),
+        /* @__PURE__ */ jsx70("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0422\u0438\u043F\u044B \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u043E\u0432 \u0432 \u043A\u043E\u043B\u043E\u043D\u043A\u0435" }),
+        /* @__PURE__ */ jsxs67(List, { children: [
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "text" }),
+            " / ",
+            /* @__PURE__ */ jsx70("strong", { children: "text_area" }),
+            " \u2014 \u043E\u0434\u043D\u043E\u0441\u0442\u0440\u043E\u0447\u043D\u043E\u0435 / \u043C\u043D\u043E\u0433\u043E\u0441\u0442\u0440\u043E\u0447\u043D\u043E\u0435 \u043F\u043E\u043B\u0435."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "select" }),
+            " / ",
+            /* @__PURE__ */ jsx70("strong", { children: "radio" }),
+            " \u2014 \u0432\u044B\u043F\u0430\u0434\u0430\u044E\u0449\u0438\u0439 \u0441\u043F\u0438\u0441\u043E\u043A / \u0440\u0430\u0434\u0438\u043E\u043A\u043D\u043E\u043F\u043A\u0438 (\u0434\u043B\u044F Enum, Workflow)."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "tag" }),
+            " / ",
+            /* @__PURE__ */ jsx70("strong", { children: "level" }),
+            " \u2014 \u0442\u0435\u0433 / \u0443\u0440\u043E\u0432\u0435\u043D\u044C."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "bool_text" }),
+            " \u2014 \u0442\u0435\u043A\u0441\u0442 \u0432\u043C\u0435\u0441\u0442\u043E true/false (\u043D\u0443\u0436\u043D\u044B ",
+            /* @__PURE__ */ jsx70("code", { children: "trueText" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "falseText" }),
+            ")."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "timestamp" }),
+            " / ",
+            /* @__PURE__ */ jsx70("strong", { children: "date" }),
+            " / ",
+            /* @__PURE__ */ jsx70("strong", { children: "time" }),
+            " \u2014 \u0444\u043E\u0440\u043C\u0430\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435 \u0434\u0430\u0442."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "tree_path" }),
+            " \u2014 \u043F\u0443\u0442\u044C \u0432 \u0434\u0435\u0440\u0435\u0432\u0435 (\u043D\u0443\u0436\u0435\u043D ",
+            /* @__PURE__ */ jsx70("code", { children: "tree" }),
+            ")."
+          ] })
+        ] }),
+        /* @__PURE__ */ jsx70("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0421\u043D\u0438\u043F\u043F\u0435\u0442\u044B" }),
+        /* @__PURE__ */ jsxs67(List, { children: [
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "\u2728 newlisttable" }),
+            " \u2014 \u0442\u0430\u0431\u043B\u0438\u0446\u0430 \u0441 3 \u043A\u043E\u043B\u043E\u043D\u043A\u0430\u043C\u0438."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "\u2728 newtablecolumn" }),
+            " \u2014 \u043E\u0434\u043D\u0430 \u043A\u043E\u043B\u043E\u043D\u043A\u0430 \u0441 width."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "\u2728 newtablefilter" }),
+            " \u2014 \u0444\u0438\u043B\u044C\u0442\u0440 attributes+linkages (type: all)."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "\u2728 newtablesorting" }),
+            " \u2014 \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430 \u043F\u043E \u043A\u043E\u043B\u043E\u043D\u043A\u0435."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "\u2728 newtablepaging" }),
+            " \u2014 \u043F\u0430\u0433\u0438\u043D\u0430\u0446\u0438\u044F 10/50/100."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "\u2728 newtablerefresh" }),
+            " \u2014 \u0430\u0432\u0442\u043E\u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u0435 5 \u043C\u0438\u043D\u0443\u0442."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "\u2728 newtablerowclick" }),
+            " \u2014 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u043F\u043E \u043A\u043B\u0438\u043A\u0443 \u043D\u0430 \u0441\u0442\u0440\u043E\u043A\u0443."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "\u2728 newtablecontextmenu" }),
+            " \u2014 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u043D\u043E\u0435 \u043C\u0435\u043D\u044E."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "\u2728 newtableaggregate" }),
+            " \u2014 \u043A\u043E\u043B\u043E\u043D\u043A\u0430 \u0441 count \u043F\u043E \u0441\u0432\u044F\u0437\u0438."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "\u2728 newlistfull" }),
+            " \u2014 \u043F\u043E\u043B\u043D\u044B\u0439 list-view \u0441 \u0442\u0430\u0431\u043B\u0438\u0446\u0435\u0439, \u0444\u0438\u043B\u044C\u0442\u0440\u043E\u043C, \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u043E\u0439, \u043F\u0430\u0433\u0438\u043D\u0430\u0446\u0438\u0435\u0439."
+          ] })
+        ] }),
+        /* @__PURE__ */ jsx70("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F" }),
+        /* @__PURE__ */ jsx70(List, { children: /* @__PURE__ */ jsxs67("li", { children: [
+          /* @__PURE__ */ jsx70("code", { children: "column:" }),
+          " \u0432 ",
+          /* @__PURE__ */ jsx70("code", { children: "sortingBy" }),
+          " \u2014 \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442\u0441\u044F, \u0447\u0442\u043E \u0441\u0442\u043E\u043B\u0431\u0435\u0446 \u0435\u0441\u0442\u044C \u0432 ",
+          /* @__PURE__ */ jsx70("code", { children: "columns[]" }),
+          "."
+        ] }) })
+      ] }),
+      /* @__PURE__ */ jsxs67(Section2, { title: "Views: Entity-view", children: [
+        /* @__PURE__ */ jsx70(P, { children: "\u041A\u0430\u0440\u0442\u043E\u0447\u043A\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438. \u0421\u043E\u0434\u0435\u0440\u0436\u0438\u0442 \u0432\u0438\u0434\u0436\u0435\u0442\u044B, \u0433\u0440\u0443\u043F\u043F\u044B (\u0431\u043B\u043E\u043A\u0438/\u0432\u043A\u043B\u0430\u0434\u043A\u0438/\u0444\u043E\u0440\u043C\u044B) \u0438 \u0432\u043B\u043E\u0436\u0435\u043D\u043D\u044B\u0435 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0438 (\u043F\u0430\u043D\u0435\u043B\u0438, \u043C\u043E\u0434\u0430\u043B\u043A\u0438, \u043F\u043E\u043B\u043D\u043E\u044D\u043A\u0440\u0430\u043D\u043D\u044B\u0435 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F)." }),
+        /* @__PURE__ */ jsx70("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0412\u0438\u0434\u0436\u0435\u0442\u044B (widgets[])" }),
+        /* @__PURE__ */ jsxs67(List, { children: [
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "attribute" }),
+            " \u2014 \u0432\u0438\u0434\u0436\u0435\u0442 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430 (\u043D\u0443\u0436\u0435\u043D ",
+            /* @__PURE__ */ jsx70("code", { children: "attribute" }),
+            " + ",
+            /* @__PURE__ */ jsx70("code", { children: "control.type" }),
+            ")."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "action" }),
+            " \u2014 \u0432\u0438\u0434\u0436\u0435\u0442 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F (\u043D\u0443\u0436\u0435\u043D ",
+            /* @__PURE__ */ jsx70("code", { children: "action" }),
+            " \u0438\u043B\u0438 ",
+            /* @__PURE__ */ jsx70("code", { children: "actions[]" }),
+            ")."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "linkage" }),
+            " \u2014 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440 \u0441\u0432\u044F\u0437\u0435\u0439 (\u043D\u0443\u0436\u043D\u044B ",
+            /* @__PURE__ */ jsx70("code", { children: "linkage" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "side" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "control" }),
+            ")."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "join" }),
+            " \u2014 \u0442\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u0430\u044F \u0441\u0432\u044F\u0437\u044C (\u043D\u0443\u0436\u043D\u044B ",
+            /* @__PURE__ */ jsx70("code", { children: "joinId" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "attribute" }),
+            " / ",
+            /* @__PURE__ */ jsx70("code", { children: "aggregate" }),
+            ")."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "history" }),
+            " \u2014 \u0438\u0441\u0442\u043E\u0440\u0438\u044F \u0441\u043E\u0431\u044B\u0442\u0438\u0439 (",
+            /* @__PURE__ */ jsx70("code", { children: "eventStorageId" }),
+            ")."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "runs_history" }),
+            " \u2014 \u0438\u0441\u0442\u043E\u0440\u0438\u044F \u0437\u0430\u043F\u0443\u0441\u043A\u043E\u0432 \u0441\u0446\u0435\u043D\u0430\u0440\u0438\u0435\u0432."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "comments" }),
+            ", ",
+            /* @__PURE__ */ jsx70("strong", { children: "conversation" }),
+            ", ",
+            /* @__PURE__ */ jsx70("strong", { children: "card" }),
+            ", ",
+            /* @__PURE__ */ jsx70("strong", { children: "visualization" }),
+            ", ",
+            /* @__PURE__ */ jsx70("strong", { children: "linked_objects_groups" }),
+            " \u0438 \u0434\u0440."
+          ] })
+        ] }),
+        /* @__PURE__ */ jsx70("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0420\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u044B \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 (control.type)" }),
+        /* @__PURE__ */ jsxs67(List, { children: [
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "text" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "text_area" }),
+            " \u2014 \u043E\u0434\u043D\u043E\u0441\u0442\u0440\u043E\u0447\u043D\u044B\u0439 / \u043C\u043D\u043E\u0433\u043E\u0441\u0442\u0440\u043E\u0447\u043D\u044B\u0439."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "select" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "radio" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "tag" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "level" }),
+            " \u2014 \u0434\u043B\u044F Enum/Workflow."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "switch" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "checkbox" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "bool_text" }),
+            " \u2014 \u0434\u043B\u044F Bool."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "timestamp" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "date" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "time" }),
+            " \u2014 \u0434\u043B\u044F \u0434\u0430\u0442."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "link" }),
+            " \u2014 \u0434\u043B\u044F URL."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "file" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "drag_drop_area" }),
+            " \u2014 \u0434\u043B\u044F Attachment."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "slider" }),
+            " \u2014 \u0434\u043B\u044F \u0447\u0438\u0441\u043B\u043E\u0432\u044B\u0445 \u0441 \u0448\u0430\u0433\u043E\u043C."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "tree_path" }),
+            " \u2014 \u043F\u0443\u0442\u044C \u0432 \u0434\u0435\u0440\u0435\u0432\u0435 (\u043D\u0443\u0436\u0435\u043D ",
+            /* @__PURE__ */ jsx70("code", { children: "tree" }),
+            ")."
+          ] })
+        ] }),
+        /* @__PURE__ */ jsx70("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0420\u0435\u0434\u0430\u043A\u0442\u043E\u0440 \u0441\u0432\u044F\u0437\u0435\u0439 (widgets[].control)" }),
+        /* @__PURE__ */ jsxs67(List, { children: [
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "select" }),
+            " \u2014 \u0434\u043B\u044F side: 1 (\u043E\u0434\u0438\u043D \u043E\u0431\u044A\u0435\u043A\u0442)."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "multi_select" }),
+            " \u2014 \u043A\u043E\u043C\u043F\u0430\u043A\u0442\u043D\u044B\u0439 \u0441\u043F\u0438\u0441\u043E\u043A \u0442\u0435\u0433\u043E\u0432 (side: 2)."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "table" }),
+            " \u2014 \u0440\u0430\u0441\u0448\u0438\u0440\u0435\u043D\u043D\u0430\u044F \u0442\u0430\u0431\u043B\u0438\u0446\u0430 (side: 2). \u041D\u0443\u0436\u043D\u044B ",
+            /* @__PURE__ */ jsx70("code", { children: "columns[]" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "addLinksView" }),
+            "."
+          ] })
+        ] }),
+        /* @__PURE__ */ jsx70("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0413\u0440\u0443\u043F\u043F\u044B (groups[])" }),
+        /* @__PURE__ */ jsxs67(List, { children: [
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "block" }),
+            " \u2014 \u0431\u043B\u043E\u043A \u0441 ",
+            /* @__PURE__ */ jsx70("code", { children: "layout.direction: column" }),
+            " \u0438 ",
+            /* @__PURE__ */ jsx70("code", { children: "components[]" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "tab" }),
+            " \u2014 \u0432\u043A\u043B\u0430\u0434\u043A\u0430, \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u0442 \u0431\u043B\u043E\u043A\u0438 (",
+            /* @__PURE__ */ jsx70("code", { children: "components[].block" }),
+            ")."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "form" }),
+            " \u2014 \u0444\u043E\u0440\u043C\u0430 \u0441\u043E\u0437\u0434\u0430\u043D\u0438\u044F/\u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F (\u0434\u043B\u044F \u043C\u043E\u0434\u0430\u043B\u043A\u0438)."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "tabs" }),
+            " \u2014 \u043F\u0430\u043D\u0435\u043B\u044C \u0432\u043A\u043B\u0430\u0434\u043E\u043A (\u0434\u043B\u044F \u043F\u043E\u043B\u043D\u043E\u044D\u043A\u0440\u0430\u043D\u043D\u043E\u0439 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0438)."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "resizable_block_pair" }),
+            " \u2014 \u0434\u0432\u0435 \u0441\u0435\u043A\u0446\u0438\u0438 \u0441 \u0440\u0435\u0441\u0430\u0439\u0437\u043E\u043C (",
+            /* @__PURE__ */ jsx70("code", { children: "sizeRatio" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "minHeight" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "maxHeight" }),
+            ")."
+          ] })
+        ] }),
+        /* @__PURE__ */ jsx70("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0412\u043B\u043E\u0436\u0435\u043D\u043D\u044B\u0435 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0438 (views[].views[])" }),
+        /* @__PURE__ */ jsxs67(List, { children: [
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "panel" }),
+            " \u2014 \u043A\u043E\u043C\u043F\u0430\u043A\u0442\u043D\u043E\u0435 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0435, ",
+            /* @__PURE__ */ jsx70("code", { children: "tabs[]" }),
+            " + ",
+            /* @__PURE__ */ jsx70("code", { children: "menu[]" }),
+            " + ",
+            /* @__PURE__ */ jsx70("code", { children: "onView[]" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "modal" }),
+            " \u2014 \u043C\u043E\u0434\u0430\u043B\u043A\u0430, ",
+            /* @__PURE__ */ jsx70("code", { children: "form" }),
+            " + ",
+            /* @__PURE__ */ jsx70("code", { children: "buttons[]" }),
+            " + ",
+            /* @__PURE__ */ jsx70("code", { children: "footer[]" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "page" }),
+            " \u2014 \u043F\u043E\u043B\u043D\u043E\u044D\u043A\u0440\u0430\u043D\u043D\u0430\u044F \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0430, ",
+            /* @__PURE__ */ jsx70("code", { children: "actionPanel[]" }),
+            " + ",
+            /* @__PURE__ */ jsx70("code", { children: "tabs[]" }),
+            " / ",
+            /* @__PURE__ */ jsx70("code", { children: "block" }),
+            " + ",
+            /* @__PURE__ */ jsx70("code", { children: "pinnedView" }),
+            "."
+          ] })
+        ] }),
+        /* @__PURE__ */ jsx70("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0421\u043D\u0438\u043F\u043F\u0435\u0442\u044B" }),
+        /* @__PURE__ */ jsxs67(List, { children: [
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "\u2728 newentityview" }),
+            " \u2014 \u043F\u043E\u043B\u043D\u044B\u0439 entity-view (widgets, groups, panel, modal)."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "\u2728 newwidgetattr" }),
+            " \u2014 \u0432\u0438\u0434\u0436\u0435\u0442 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430 \u0441 control."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "\u2728 newwidgetlinkage" }),
+            " \u2014 \u0432\u0438\u0434\u0436\u0435\u0442 \u0441\u0432\u044F\u0437\u0438 \u0441 \u0442\u0430\u0431\u043B\u0438\u0446\u0435\u0439."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "\u2728 newwidgetjoin" }),
+            " \u2014 \u0442\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u0430\u044F \u0441\u0432\u044F\u0437\u044C."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "\u2728 newblock" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "\u2728 newtab" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "\u2728 newform" }),
+            " \u2014 \u0433\u0440\u0443\u043F\u043F\u044B."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "\u2728 newpanel" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "\u2728 newmodal" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "\u2728 newpage" }),
+            " \u2014 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0438."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("code", { children: "\u2728 newinherit" }),
+            " \u2014 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435 \u0433\u0440\u0443\u043F\u043F\u044B/\u043C\u0435\u043D\u044E/\u0432\u043A\u043B\u0430\u0434\u043E\u043A."
+          ] })
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxs67(Section2, { title: "\u0421\u0435\u0440\u0432\u0435\u0440\u043D\u0430\u044F \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F", children: [
+        /* @__PURE__ */ jsxs67(P, { children: [
+          "\u041A\u043D\u043E\u043F\u043A\u0430 ",
+          /* @__PURE__ */ jsx70("code", { children: "\u2601" }),
+          " \u0432 \u0448\u0430\u043F\u043A\u0435 \u043E\u0442\u043F\u0440\u0430\u0432\u043B\u044F\u0435\u0442 ",
+          /* @__PURE__ */ jsx70("strong", { children: "\u0442\u0435\u043A\u0443\u0449\u0443\u044E" }),
+          " \u0441\u0445\u0435\u043C\u0443 (\u0432\u043A\u043B\u044E\u0447\u0430\u044F \u043D\u0435\u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D\u043D\u044B\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F) \u043D\u0430 \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0443 \u0432 R-Vision."
+        ] }),
+        /* @__PURE__ */ jsxs67(List, { children: [
+          /* @__PURE__ */ jsxs67("li", { children: [
+            "\u0420\u0430\u0431\u043E\u0442\u0430\u0435\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u0432 \u0440\u0435\u0436\u0438\u043C\u0435 ",
+            /* @__PURE__ */ jsx70("code", { children: "--server" }),
+            " (\u043D\u0443\u0436\u043D\u044B \u043A\u0440\u0435\u0434\u044B)."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            "\u041F\u043E\u0441\u043B\u0435 \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0438: \u0437\u0435\u043B\u0451\u043D\u0430\u044F \u0438\u043A\u043E\u043D\u043A\u0430 ",
+            /* @__PURE__ */ jsx70("code", { children: "\u2601\u2713" }),
+            " \u2014 \u0432\u0430\u043B\u0438\u0434\u043D\u0430; \u043A\u0440\u0430\u0441\u043D\u0430\u044F",
+            /* @__PURE__ */ jsx70("code", { children: "\u2601\u2717" }),
+            " \u2014 \u0435\u0441\u0442\u044C \u043E\u0448\u0438\u0431\u043A\u0438."
+          ] }),
+          /* @__PURE__ */ jsx70("li", { children: "\u041E\u0448\u0438\u0431\u043A\u0438 \u0441\u0435\u0440\u0432\u0435\u0440\u0430 \u043F\u043E\u0434\u0441\u0432\u0435\u0447\u0438\u0432\u0430\u044E\u0442\u0441\u044F \u0432 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0435 (\u043A\u0440\u0430\u0441\u043D\u044B\u0435/\u0436\u0451\u043B\u0442\u044B\u0435 \u043C\u0430\u0440\u043A\u0435\u0440\u044B \u043F\u043E\u0432\u0435\u0440\u0445 \u043B\u043E\u043A\u0430\u043B\u044C\u043D\u043E\u0433\u043E \u043B\u0438\u043D\u0442\u0435\u0440\u0430)." }),
+          /* @__PURE__ */ jsx70("li", { children: "\u041A\u043B\u0438\u043A \u043F\u043E \u043E\u0448\u0438\u0431\u043A\u0435 \u0432 \u043F\u0430\u043D\u0435\u043B\u0438 \xAB\u0421\u0435\u0440\u0432\u0435\u0440\xBB \u2192 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u0441\u0442\u0440\u043E\u043A\u0435." })
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxs67(Section2, { title: "\u0410\u0432\u0442\u043E\u043A\u043E\u043C\u043F\u043B\u0438\u0442 \u043F\u043E\u043B\u0435\u0439", children: [
+        /* @__PURE__ */ jsx70(P, { children: "\u0412 \u043B\u044E\u0431\u043E\u043C \u043C\u0435\u0441\u0442\u0435 YAML \u043F\u0440\u0438 \u043D\u0430\u0431\u043E\u0440\u0435 \u0431\u0443\u043A\u0432\u044B \u043F\u043E\u044F\u0432\u043B\u044F\u0435\u0442\u0441\u044F \u043F\u0430\u043D\u0435\u043B\u044C \u043F\u043E\u0434\u0441\u043A\u0430\u0437\u043E\u043A \u0441 \u043F\u043E\u043B\u044F\u043C\u0438, \u0440\u0435\u043B\u0435\u0432\u0430\u043D\u0442\u043D\u044B\u043C\u0438 \u0442\u0435\u043A\u0443\u0449\u0435\u043C\u0443 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u0443." }),
+        /* @__PURE__ */ jsxs67(List, { children: [
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "\u041F\u043E\u043B\u044F" }),
+            " \u2014 ",
+            /* @__PURE__ */ jsx70("code", { children: "id" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "name" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "dataType" }),
+            ",",
+            /* @__PURE__ */ jsx70("code", { children: "description" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "constraints" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "readonly" }),
+            " \u0438 \u0442.\u0434. \u041F\u043E\u0440\u044F\u0434\u043E\u043A: \u0441\u043D\u0430\u0447\u0430\u043B\u0430 \u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u044B\u0435 (",
+            /* @__PURE__ */ jsx70("code", { children: "required" }),
+            ")."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "\u0417\u043D\u0430\u0447\u0435\u043D\u0438\u044F" }),
+            " \u2014 ",
+            /* @__PURE__ */ jsx70("code", { children: "dataType: " }),
+            " \u2192 \u0431\u0430\u0437\u043E\u0432\u044B\u0435 \u0438 \u043A\u0430\u0441\u0442\u043E\u043C\u043D\u044B\u0435 \u0442\u0438\u043F\u044B;",
+            /* @__PURE__ */ jsx70("code", { children: "inherits: " }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "entity: " }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "side1/side2: " }),
+            " \u2014 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "\u0421\u043D\u0438\u043F\u043F\u0435\u0442\u044B" }),
+            " \u2014 \u043F\u0440\u0435\u0444\u0438\u043A\u0441 ",
+            /* @__PURE__ */ jsx70("code", { children: "new*" }),
+            " \u2192 \u0448\u0430\u0431\u043B\u043E\u043D \u0431\u043B\u043E\u043A\u0430 (\u0441\u043C. \u043D\u0438\u0436\u0435)."
+          ] }),
+          /* @__PURE__ */ jsx70("li", { children: "\u041D\u0430\u0432\u0435\u0434\u0438\u0442\u0435 \u043D\u0430 \u043F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0443 \u2014 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442\u0441\u044F \u0442\u0438\u043F, required-\u0441\u0442\u0430\u0442\u0443\u0441, \u043E\u043F\u0438\u0441\u0430\u043D\u0438\u0435." })
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxs67(Section2, { title: "\u0421\u043D\u0438\u043F\u043F\u0435\u0442\u044B \u2014 \u0448\u0430\u0431\u043B\u043E\u043D\u044B \u0431\u043B\u043E\u043A\u043E\u0432", children: [
+        /* @__PURE__ */ jsxs67(P, { children: [
+          "\u041D\u0430\u0431\u0435\u0440\u0438\u0442\u0435 \u043F\u0440\u0435\u0444\u0438\u043A\u0441 \u0432 \u043D\u0443\u0436\u043D\u043E\u043C \u043C\u0435\u0441\u0442\u0435 (\u043F\u043E\u0434 \u0441\u0435\u043A\u0446\u0438\u0435\u0439 \u0438\u043B\u0438 \u0432\u043D\u0443\u0442\u0440\u0438 \u043D\u0435\u0451) \u0438 \u0432\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u043F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0443 \u0441 \u0438\u043A\u043E\u043D\u043A\u043E\u0439 ",
+          /* @__PURE__ */ jsx70("code", { children: "\u2728" }),
+          ". \u0421\u043D\u0438\u043F\u043F\u0435\u0442 \u0432\u0441\u0442\u0430\u0432\u0438\u0442 \u0433\u043E\u0442\u043E\u0432\u044B\u0439 \u0431\u043B\u043E\u043A \u0441 \u043A\u043E\u0440\u0440\u0435\u043A\u0442\u043D\u044B\u043C\u0438 \u043E\u0442\u0441\u0442\u0443\u043F\u0430\u043C\u0438."
+        ] }),
+        /* @__PURE__ */ jsxs67("div", { className: "snippets-table", children: [
+          /* @__PURE__ */ jsxs67("div", { className: "snippets-table__head", children: [
+            /* @__PURE__ */ jsx70("span", { children: "\u041F\u0440\u0435\u0444\u0438\u043A\u0441" }),
+            /* @__PURE__ */ jsx70("span", { children: "\u0427\u0442\u043E \u0432\u0441\u0442\u0430\u0432\u043B\u044F\u0435\u0442" }),
+            /* @__PURE__ */ jsx70("span", { children: "\u0413\u0434\u0435" })
+          ] }),
+          [
+            ["newentity", "\u041D\u043E\u0432\u0430\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0441 \u043F\u0440\u0438\u043C\u0435\u0440\u043E\u043C \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430", "entities"],
+            ["newattr", "\u041D\u043E\u0432\u044B\u0439 \u0430\u0442\u0440\u0438\u0431\u0443\u0442", "entities[].attributes"],
+            ["newref", "\u0410\u0442\u0440\u0438\u0431\u0443\u0442-Reference", "entities[].attributes"],
+            ["newarr", "\u0410\u0442\u0440\u0438\u0431\u0443\u0442-Array", "entities[].attributes"],
+            ["newidentifier", "\u0410\u0442\u0440\u0438\u0431\u0443\u0442-Identifier (\u0448\u0430\u0431\u043B\u043E\u043D + \u043F\u0440\u0435\u0444\u0438\u043A\u0441)", "entities[].attributes"],
+            ["newlinkage", "\u041D\u043E\u0432\u0430\u044F \u0441\u0432\u044F\u0437\u044C 1_n \u0441 nameFrom", "linkages"],
+            ["newaction", "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0435 open_modal", "actions"],
+            ["newrule", "\u041F\u0440\u0430\u0432\u0438\u043B\u043E \u0434\u0430\u043D\u043D\u044B\u0445 \u0441 RQL-\u0443\u0441\u043B\u043E\u0432\u0438\u0435\u043C", "dataRules"],
+            ["newview", "Entity-view \u0441 \u0432\u0438\u0434\u0436\u0435\u0442\u0430\u043C\u0438 \u0438 \u0431\u043B\u043E\u043A\u043E\u043C", "views"],
+            ["newlist", "List-view (\u0441\u043F\u0438\u0441\u043E\u043A \u043E\u0431\u044A\u0435\u043A\u0442\u043E\u0432)", "views"],
+            ["newwidget", "\u0412\u0438\u0434\u0436\u0435\u0442 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430", "views[].widgets"],
+            ["newgroup", "\u0413\u0440\u0443\u043F\u043F\u0430 \u0442\u0438\u043F\u0430 block", "views[].groups"],
+            ["newmixin", "\u041C\u0438\u043A\u0441\u0438\u043D \u043D\u0430 \u043F\u0430\u043D\u0435\u043B\u044C", "mixins"],
+            ["newmenu", "\u041F\u0443\u043D\u043A\u0442 \u043C\u0435\u043D\u044E \u0441 \u043F\u043E\u0434\u043F\u0443\u043D\u043A\u0442\u043E\u043C", "menus"],
+            ["newmedia", "\u0418\u043A\u043E\u043D\u043A\u0430", "medias"],
+            ["newsequence", "\u041F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u044C \u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440\u0430", "sequences"],
+            ["newenum", "Enum-\u0442\u0438\u043F \u0434\u0430\u043D\u043D\u044B\u0445 \u0441 \u043F\u0440\u0438\u043C\u0435\u0440\u0430\u043C\u0438 \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0439", "dataTypes"],
+            ["newworkflow", "Workflow-\u0442\u0438\u043F \u0441 \u043D\u0430\u0447\u0430\u043B\u044C\u043D\u044B\u043C \u0441\u0442\u0430\u0442\u0443\u0441\u043E\u043C \u0438 \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u0430\u043C\u0438", "dataTypes"],
+            ["newtable", "Table-\u0442\u0438\u043F \u0441 \u043A\u043E\u043B\u043E\u043D\u043A\u043E\u0439", "dataTypes"],
+            ["newenumvalue", "\u0417\u043D\u0430\u0447\u0435\u043D\u0438\u0435 Enum", "dataTypes[].values"],
+            ["newworkflowstatus", "\u0421\u0442\u0430\u0442\u0443\u0441 Workflow", "dataTypes[].statuses"],
+            ["newtransition", "\u041F\u0435\u0440\u0435\u0445\u043E\u0434 Workflow", "dataTypes[].transitions"],
+            ["newconstraint", "Constraint (required / range / regexp...)", "entities[].attributes[].constraints"],
+            ["newconstraintlen", "Constraint: length \u0441 min/max", "entities[].attributes[].constraints"],
+            ["newprefixrule", "\u041F\u0440\u0430\u0432\u0438\u043B\u043E \u043F\u043E\u0434\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438 \u043F\u0440\u0435\u0444\u0438\u043A\u0441\u0430", "entities[].attributes[].prefixRules"],
+            ["newprojection", "\u041F\u0440\u043E\u0435\u043A\u0446\u0438\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438", "entities (root)"],
+            ["newsearching", "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u043F\u043E\u0438\u0441\u043A\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438", "entities (root)"],
+            ["newcountercolor", "\u0426\u0432\u0435\u0442\u043E\u0432\u0430\u044F \u0441\u0445\u0435\u043C\u0430 \u0441\u0447\u0451\u0442\u0447\u0438\u043A\u0430", "counterColorPattern"],
+            ["newtree", "\u0414\u0435\u0440\u0435\u0432\u043E \u0441\u0432\u044F\u0437\u0435\u0439 \u0441 1 \u0443\u0440\u043E\u0432\u043D\u0435\u043C \u0432\u043B\u043E\u0436\u0435\u043D\u043D\u043E\u0441\u0442\u0438", "trees"],
+            ["newtransitive", "\u0422\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u0430\u044F \u0441\u0432\u044F\u0437\u044C (1 \u0445\u043E\u043F)", "transitiveLinkages"],
+            ["newjoins", "\u0421\u043B\u0435\u0434\u0443\u044E\u0449\u0438\u0439 \u0445\u043E\u043F \u0446\u0435\u043F\u043E\u0447\u043A\u0438", "transitiveLinkages[].joins"],
+            ["newuirule", "UI Rule: \u0441\u043A\u0440\u044B\u0442\u044C \u0432\u0438\u0434\u0436\u0435\u0442", "uiRules"],
+            ["newuirulevariant", "UI Rule: \u0432\u0430\u0440\u0438\u0430\u043D\u0442 \u0441 \u043F\u0440\u0435\u0441\u0435\u0442\u043E\u043C", "uiRules"],
+            ["newuirulenested", "UI Rule: \u0441\u043A\u0440\u044B\u0442\u044C \u043A\u043E\u043B\u043E\u043D\u043A\u0443 \u0442\u0430\u0431\u043B\u0438\u0446\u044B", "uiRules"],
+            ["newuipreset", "UI Preset (\u0441\u0442\u0438\u043B\u0438)", "uiPresets"],
+            ["newpresetref", "\u0421\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 \u043F\u0440\u0435\u0441\u0435\u0442 \u0432 widgets/groups/columns", "uiRules[].rule.*"],
+            ["newbulkdelete", "\u041C\u0430\u0441\u0441\u043E\u0432\u043E\u0435 \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435 \u043E\u0431\u044A\u0435\u043A\u0442\u043E\u0432", "actions"],
+            ["newbulkedit", "\u041C\u0430\u0441\u0441\u043E\u0432\u043E\u0435 \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432", "actions"],
+            ["newbulkattr", "\u0418\u0437\u043C\u0435\u043D\u0438\u0442\u044C bool-\u0430\u0442\u0440\u0438\u0431\u0443\u0442 \u0443 \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u044B\u0445", "actions"],
+            ["newautomationaction", "\u0417\u0430\u043F\u0443\u0441\u043A \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0437\u0430\u0446\u0438\u0438 (UUID)", "actions"],
+            ["newscenarioaction", "\u0417\u0430\u043F\u0443\u0441\u043A \u0441\u0446\u0435\u043D\u0430\u0440\u0438\u044F/\u0441\u043A\u0440\u0438\u043F\u0442\u0430", "actions"],
+            ["newlisttable", "\u0422\u0430\u0431\u043B\u0438\u0446\u0430 \u0441 3 \u043A\u043E\u043B\u043E\u043D\u043A\u0430\u043C\u0438", "views[].table"],
+            ["newtablecolumn", "\u041A\u043E\u043B\u043E\u043D\u043A\u0430 \u0442\u0430\u0431\u043B\u0438\u0446\u044B", "views[].table.columns"],
+            ["newtablefilter", "\u0424\u0438\u043B\u044C\u0442\u0440 \u043F\u043E \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430\u043C \u0438 \u0441\u0432\u044F\u0437\u044F\u043C", "views[].table"],
+            ["newtablesorting", "\u0421\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430 \u043F\u043E \u043A\u043E\u043B\u043E\u043D\u043A\u0435", "views[].table"],
+            ["newtablepaging", "\u041F\u0430\u0433\u0438\u043D\u0430\u0446\u0438\u044F \u0442\u0430\u0431\u043B\u0438\u0446\u044B", "views[].table"],
+            ["newtablerefresh", "\u0410\u0432\u0442\u043E\u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u0435 \u0442\u0430\u0431\u043B\u0438\u0446\u044B", "views[].table"],
+            ["newtablerowclick", "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u043F\u0440\u0438 \u043A\u043B\u0438\u043A\u0435 \u043D\u0430 \u0441\u0442\u0440\u043E\u043A\u0443", "views[].table"],
+            ["newtablecontextmenu", "\u041A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u043D\u043E\u0435 \u043C\u0435\u043D\u044E \u0441\u0442\u0440\u043E\u043A\u0438", "views[].table"],
+            ["newtableaggregate", "\u041A\u043E\u043B\u043E\u043D\u043A\u0430 \u0441 \u0430\u0433\u0440\u0435\u0433\u0430\u0446\u0438\u0435\u0439 count", "views[].table"],
+            ["newlistfull", "\u041F\u043E\u043B\u043D\u044B\u0439 list-view \u0441 \u0442\u0430\u0431\u043B\u0438\u0446\u0435\u0439", "views"],
+            ["newentityview", "\u041F\u043E\u043B\u043D\u044B\u0439 entity-view (panel + modal)", "views"],
+            ["newwidgetattr", "\u0412\u0438\u0434\u0436\u0435\u0442 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430 \u0441 control", "views[].widgets"],
+            ["newwidgetlinkage", "\u0412\u0438\u0434\u0436\u0435\u0442 \u0441\u0432\u044F\u0437\u0438 (table)", "views[].widgets"],
+            ["newwidgetjoin", "\u0412\u0438\u0434\u0436\u0435\u0442 \u0442\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u043E\u0439 \u0441\u0432\u044F\u0437\u0438", "views[].widgets"],
+            ["newblock", "\u0413\u0440\u0443\u043F\u043F\u0430 block", "views[].groups"],
+            ["newtab", "\u0412\u043A\u043B\u0430\u0434\u043A\u0430", "views[].groups"],
+            ["newform", "\u0413\u0440\u0443\u043F\u043F\u0430 form", "views[].groups"],
+            ["newpanel", "\u041F\u0430\u043D\u0435\u043B\u044C (\u043A\u043E\u043C\u043F\u0430\u043A\u0442\u043D\u043E\u0435)", "views[].views"],
+            ["newmodal", "\u041C\u043E\u0434\u0430\u043B\u044C\u043D\u043E\u0435 \u043E\u043A\u043D\u043E", "views[].views"],
+            ["newpage", "\u041F\u043E\u043B\u043D\u043E\u044D\u043A\u0440\u0430\u043D\u043D\u0430\u044F \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0430", "views[].views"],
+            ["newinherit", "\u041D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435 \u0433\u0440\u0443\u043F\u043F\u044B/\u043C\u0435\u043D\u044E", "views[].groups[].components"],
+            ["newmenuroot", "\u041A\u043E\u0440\u043D\u0435\u0432\u0430\u044F \u0433\u0440\u0443\u043F\u043F\u0430 \u043C\u0435\u043D\u044E \u0441 \u043F\u043E\u0434\u043F\u0443\u043D\u043A\u0442\u043E\u043C", "menus"],
+            ["newmenuitem", "\u041F\u0443\u043D\u043A\u0442 \u043C\u0435\u043D\u044E", "menus[].items"],
+            ["newmedia", "\u0418\u043A\u043E\u043D\u043A\u0430", "medias"],
+            ["newmixinview", "\u041C\u0438\u043A\u0441\u0438\u043D \u0432\u043A\u043B\u0430\u0434\u043A\u0438 (type: view)", "mixins"],
+            ["newmixinlinkage", "\u041C\u0438\u043A\u0441\u0438\u043D \u043D\u0430 \u0441\u0432\u044F\u0437\u0438 (type: linkage)", "mixins"],
+            ["newexchange", "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u043E\u0431\u043C\u0435\u043D\u0430 \u0434\u0430\u043D\u043D\u044B\u043C\u0438", "exchangeSettings"],
+            ["newexchangeentity", "\u041E\u0431\u043C\u0435\u043D \u0434\u043B\u044F \u043E\u0434\u043D\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438", "exchangeSettings.entities"]
+          ].map(([prefix, desc, ctx2]) => /* @__PURE__ */ jsxs67("div", { className: "snippets-table__row", children: [
+            /* @__PURE__ */ jsxs67("code", { children: [
+              "\u2728 ",
+              prefix
+            ] }),
+            /* @__PURE__ */ jsx70("span", { children: desc }),
+            /* @__PURE__ */ jsx70("code", { className: "snippets-table__ctx", children: ctx2 })
+          ] }, prefix))
+        ] })
+      ] }),
+      /* @__PURE__ */ jsx70(Section2, { title: "\u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435 \u0438 \u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u043A\u0430", children: /* @__PURE__ */ jsxs67(List, { children: [
+        /* @__PURE__ */ jsxs67("li", { children: [
+          /* @__PURE__ */ jsx70("code", { children: "\u{1F512}" }),
+          " \u2014 \u0444\u0430\u0439\u043B \u0437\u0430\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043D (read-only). \u041A\u043D\u043E\u043F\u043A\u0430 \u0432 \u0448\u0430\u043F\u043A\u0435. \u041B\u0430\u043C\u043F\u043E\u0447\u043A\u0438 Quick Fix \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u044B \u0438 \u0432 \u044D\u0442\u043E\u043C \u0440\u0435\u0436\u0438\u043C\u0435: \u043F\u0440\u0438 \u043F\u0440\u0438\u043C\u0435\u043D\u0435\u043D\u0438\u0438 \u0444\u0438\u043A\u0441\u0430 \u0444\u0430\u0439\u043B \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u0440\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u0443\u0435\u0442\u0441\u044F."
+        ] }),
+        /* @__PURE__ */ jsxs67("li", { children: [
+          /* @__PURE__ */ jsx70("strong", { children: "\u0414\u0432\u043E\u0439\u043D\u043E\u0439 Shift" }),
+          " \u2014 \u0431\u044B\u0441\u0442\u0440\u0430\u044F \u0440\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u043A\u0430 / \u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u043A\u0430. \u0421\u0440\u0430\u0431\u0430\u0442\u044B\u0432\u0430\u0435\u0442, \u0435\u0441\u043B\u0438 \u043C\u0435\u0436\u0434\u0443 \u0434\u0432\u0443\u043C\u044F \u043D\u0430\u0436\u0430\u0442\u0438\u044F\u043C\u0438 Shift \u043D\u0435 \u0431\u044B\u043B\u043E \u0434\u0440\u0443\u0433\u0438\u0445 \u043A\u043B\u0430\u0432\u0438\u0448."
+        ] }),
+        /* @__PURE__ */ jsxs67("li", { children: [
+          /* @__PURE__ */ jsx70("code", { children: "\u{1F4CB}" }),
+          " \u2014 \u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u0435 \u0432 \u0431\u0443\u0444\u0435\u0440."
+        ] }),
+        /* @__PURE__ */ jsxs67("li", { children: [
+          /* @__PURE__ */ jsx70("code", { children: "\u{1F4BE}" }),
+          " \u0438\u043B\u0438 ",
+          /* @__PURE__ */ jsx70("code", { children: "Ctrl+S" }),
+          " \u2014 \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C (\u0442\u043E\u043B\u044C\u043A\u043E \u0432 \u043B\u043E\u043A\u0430\u043B\u044C\u043D\u043E\u043C \u0440\u0435\u0436\u0438\u043C\u0435)."
+        ] })
+      ] }) }),
+      /* @__PURE__ */ jsxs67(Section2, { title: "\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F YAML", children: [
+        /* @__PURE__ */ jsxs67(P, { children: [
+          "\u0421\u0445\u0435\u043C\u0430 \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442\u0441\u044F \u043D\u0430 \u0441\u0438\u043D\u0442\u0430\u043A\u0441\u0438\u0441 \u043F\u0440\u044F\u043C\u043E \u0432 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0435 \u0447\u0435\u0440\u0435\u0437 ",
+          /* @__PURE__ */ jsx70("code", { children: "js-yaml" }),
+          ". \u041E\u0448\u0438\u0431\u043A\u0438 YAML (\u043D\u0435\u0432\u0435\u0440\u043D\u044B\u0435 \u043E\u0442\u0441\u0442\u0443\u043F\u044B, \u0442\u0430\u0431\u044B, \u0434\u0443\u0431\u043B\u0438\u043A\u0430\u0442\u044B \u043A\u043B\u044E\u0447\u0435\u0439, \u043D\u0435\u0437\u0430\u043A\u0440\u044B\u0442\u044B\u0435 \u043A\u0430\u0432\u044B\u0447\u043A\u0438) \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u044E\u0442\u0441\u044F \u043A\u0440\u0430\u0441\u043D\u044B\u043C \u043C\u0430\u0440\u043A\u0435\u0440\u043E\u043C \u0432 \u0441\u0442\u0440\u043E\u043A\u0435."
+        ] }),
+        /* @__PURE__ */ jsxs67(List, { children: [
+          /* @__PURE__ */ jsxs67("li", { children: [
+            "\u041E\u0448\u0438\u0431\u043A\u0430 \u043F\u043E\u044F\u0432\u043B\u044F\u0435\u0442\u0441\u044F \u043F\u0435\u0440\u0432\u043E\u0439 \u0432 \u043F\u0430\u043D\u0435\u043B\u0438 \xAB\u041F\u0440\u043E\u0431\u043B\u0435\u043C\u044B\xBB \u0441 \u0438\u0441\u0442\u043E\u0447\u043D\u0438\u043A\u043E\u043C ",
+            /* @__PURE__ */ jsx70("code", { children: "yaml-syntax" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsx70("li", { children: "\u041F\u0440\u0438 \u043F\u043E\u043F\u044B\u0442\u043A\u0435 \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u0444\u0430\u0439\u043B \u0441 errors \u2014 \u043F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u0435 \u0432 \u043C\u043E\u0434\u0430\u043B\u043A\u0435: \xAB\u0412 \u0441\u0445\u0435\u043C\u0435 N \u043E\u0448\u0438\u0431\u043E\u043A. \u0412\u0441\u0451 \u0440\u0430\u0432\u043D\u043E \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C?\xBB." })
+        ] })
+      ] }),
+      /* @__PURE__ */ jsx70(Section2, { title: "\u041F\u0440\u043E\u0432\u0435\u0440\u043A\u0438 RQL", children: /* @__PURE__ */ jsxs67(List, { children: [
+        /* @__PURE__ */ jsxs67("li", { children: [
+          /* @__PURE__ */ jsx70("strong", { children: "\u0421\u0438\u043D\u0442\u0430\u043A\u0441\u0438\u0441" }),
+          " \u2014 \u043D\u0435\u0437\u0430\u043A\u0440\u044B\u0442\u044B\u0435 \u0441\u043A\u043E\u0431\u043A\u0438, \u043A\u0430\u0432\u044B\u0447\u043A\u0438, \u043E\u0431\u0440\u0435\u0437\u0430\u043D\u043D\u044B\u0435 \u043E\u043F\u0435\u0440\u0430\u0442\u043E\u0440\u044B."
+        ] }),
+        /* @__PURE__ */ jsxs67("li", { children: [
+          /* @__PURE__ */ jsx70("strong", { children: "\u041F\u043E\u043B\u044F" }),
+          " \u2014 ",
+          /* @__PURE__ */ jsx70("code", { children: "@field" }),
+          " \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442\u0441\u044F \u043D\u0430 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u043E\u0432\u0430\u043D\u0438\u0435 \u0432 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u043D\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438."
+        ] }),
+        /* @__PURE__ */ jsxs67("li", { children: [
+          /* @__PURE__ */ jsx70("strong", { children: "\u0422\u0438\u043F\u044B" }),
+          " \u2014 \u0441\u0440\u0430\u0432\u043D\u0435\u043D\u0438\u0435 \u0441\u0442\u0440\u043E\u043A\u0438 \u0441 \u0447\u0438\u0441\u043B\u043E\u043C, \u0447\u0438\u0441\u043B\u0430 \u0441\u043E \u0441\u0442\u0440\u043E\u043A\u043E\u0439."
+        ] }),
+        /* @__PURE__ */ jsxs67("li", { children: [
+          /* @__PURE__ */ jsx70("strong", { children: "@doc.attr" }),
+          " \u2014 \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442\u0441\u044F \u043D\u0430\u043B\u0438\u0447\u0438\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430 \u0432 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438."
+        ] }),
+        /* @__PURE__ */ jsxs67("li", { children: [
+          /* @__PURE__ */ jsx70("strong", { children: "@DataType.value" }),
+          " \u2014 \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442\u0441\u044F \u0447\u043B\u0435\u043D\u0441\u0442\u0432\u043E \u0432 Enum/Workflow."
+        ] }),
+        /* @__PURE__ */ jsxs67("li", { children: [
+          /* @__PURE__ */ jsx70("strong", { children: "FROM(...)" }),
+          " / ",
+          /* @__PURE__ */ jsx70("strong", { children: "join(...)" }),
+          " \u2014 \u043F\u043E\u043B\u044F \u0432\u043D\u0443\u0442\u0440\u0438 \u0430\u043B\u0438\u0430\u0441\u043E\u0432 \u043D\u0435 \u043B\u043E\u043C\u0430\u044E\u0442 \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0443."
+        ] })
+      ] }) }),
+      /* @__PURE__ */ jsxs67(Section2, { title: "Code Actions (\u043B\u0430\u043C\u043F\u043E\u0447\u043A\u0438) \u0438 Quick Fix", children: [
+        /* @__PURE__ */ jsxs67(P, { children: [
+          "\u0412 \u0441\u0442\u0440\u043E\u043A\u0430\u0445 \u0441 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043E\u0439 \u0441\u043B\u0435\u0432\u0430 \u043F\u043E\u044F\u0432\u043B\u044F\u0435\u0442\u0441\u044F ",
+          /* @__PURE__ */ jsx70("strong", { children: "\u{1F4A1} \u043B\u0430\u043C\u043F\u043E\u0447\u043A\u0430" }),
+          ". \u041A\u043B\u0438\u043A \u0438\u043B\u0438 ",
+          /* @__PURE__ */ jsx70("code", { children: "Ctrl+." }),
+          " / ",
+          /* @__PURE__ */ jsx70("code", { children: "Alt+Enter" }),
+          " \u043E\u0442\u043A\u0440\u044B\u0432\u0430\u0435\u0442 \u0431\u044B\u0441\u0442\u0440\u044B\u0435 \u0444\u0438\u043A\u0441\u044B."
+        ] }),
+        /* @__PURE__ */ jsxs67(List, { children: [
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "\u{1F42B} \u041F\u0435\u0440\u0435\u0438\u043C\u0435\u043D\u043E\u0432\u0430\u0442\u044C \u0432 camelCase" }),
+            " \u2014 ",
+            /* @__PURE__ */ jsx70("code", { children: "device_config" }),
+            " \u2192 ",
+            /* @__PURE__ */ jsx70("code", { children: "deviceConfig" }),
+            ",",
+            /* @__PURE__ */ jsx70("code", { children: "Device_Config" }),
+            " \u2192 ",
+            /* @__PURE__ */ jsx70("code", { children: "DeviceConfig" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "\u{1F3F7}\uFE0F \u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C label" }),
+            " \u2014 \u0432\u0441\u0442\u0430\u0432\u043B\u044F\u0435\u0442 ",
+            /* @__PURE__ */ jsx70("code", { children: 'label: "{id}"' }),
+            " \u043F\u043E\u0434 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C\u044E."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "\u{1F4DD} \u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C description" }),
+            " \u2014 \u0432\u0441\u0442\u0430\u0432\u043B\u044F\u0435\u0442 ",
+            /* @__PURE__ */ jsx70("code", { children: 'description: ""' }),
+            " \u0432 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0438\u043B\u0438 \u0430\u0442\u0440\u0438\u0431\u0443\u0442 (\u0441 \u043A\u043E\u0440\u0440\u0435\u043A\u0442\u043D\u044B\u043C \u043E\u0442\u0441\u0442\u0443\u043F\u043E\u043C)."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "\u{1F4D6} \u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0441\u043F\u0440\u0430\u0432\u043A\u0443" }),
+            " \u2014 \u0442\u0435\u043A\u0441\u0442 \u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u0438 \u0440\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u044F."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "\u{1F52C} \u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043B\u0438\u043D\u0442\u0435\u0440" }),
+            " \u2014 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u0441\u043F\u0438\u0441\u043A\u0443 \u0432\u0441\u0435\u0445 \u043F\u0440\u043E\u0431\u043B\u0435\u043C \u0434\u043E\u043C\u0435\u043D\u0430."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "\u{1F507} \u0418\u0433\u043D\u043E\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C" }),
+            " \u2014 \u0441\u043A\u0440\u044B\u0442\u044C \u044D\u0442\u043E \u043F\u0440\u0430\u0432\u0438\u043B\u043E (\u0441\u043E\u0445\u0440\u0430\u043D\u044F\u0435\u0442\u0441\u044F \u0432 localStorage, \u0442\u043E\u043B\u044C\u043A\u043E \u0434\u043B\u044F \u0442\u0435\u043A\u0443\u0449\u0435\u0433\u043E \u0444\u0430\u0439\u043B\u0430)."
+          ] })
+        ] })
+      ] }),
+      /* @__PURE__ */ jsx70(Section2, { title: "Diff \u0441 \u043F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0438\u043C \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u0435\u043C", children: /* @__PURE__ */ jsxs67(List, { children: [
+        /* @__PURE__ */ jsxs67("li", { children: [
+          "\u041A\u043D\u043E\u043F\u043A\u0430 ",
+          /* @__PURE__ */ jsx70("code", { children: "\u{1F50D} Diff" }),
+          " \u0432 \u0448\u0430\u043F\u043A\u0435 \u043F\u043E\u044F\u0432\u043B\u044F\u0435\u0442\u0441\u044F, \u0435\u0441\u043B\u0438 \u0444\u0430\u0439\u043B \u0441\u043E\u0445\u0440\u0430\u043D\u044F\u043B\u0441\u044F \u0445\u043E\u0442\u044F \u0431\u044B \u0440\u0430\u0437."
+        ] }),
+        /* @__PURE__ */ jsx70("li", { children: "\u041F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 side-by-side \u0441\u0440\u0430\u0432\u043D\u0435\u043D\u0438\u0435 \u0441 \u043F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0435\u0439 \u0432\u0435\u0440\u0441\u0438\u0435\u0439 \u043D\u0430 \u0434\u0438\u0441\u043A\u0435." }),
+        /* @__PURE__ */ jsx70("li", { children: "\u041F\u043E\u0441\u043B\u0435 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F \u2014 diff \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u043E\u0431\u043D\u043E\u0432\u0438\u0442\u0441\u044F." })
+      ] }) }),
+      /* @__PURE__ */ jsxs67(Section2, { title: "Cross-domain \u0441\u0447\u0451\u0442\u0447\u0438\u043A\u0438", children: [
+        /* @__PURE__ */ jsxs67(P, { children: [
+          "\u0412 \u0441\u0442\u0440\u043E\u043A\u0435 \u0441\u0447\u0451\u0442\u0447\u0438\u043A\u043E\u0432 \u043F\u043E\u0434 \u0448\u0430\u043F\u043A\u043E\u0439 \u2014 \u0431\u0435\u0439\u0434\u0436\u0438 ",
+          /* @__PURE__ */ jsx70("code", { children: "\u2192 N \u0438\u0441\u0445." }),
+          " \u0438 ",
+          /* @__PURE__ */ jsx70("code", { children: "\u2190 M \u0432\u0445." }),
+          ". \u042D\u0442\u043E \u0441\u0441\u044B\u043B\u043A\u0438 \u043D\u0430 \u0434\u0440\u0443\u0433\u0438\u0435 \u0434\u043E\u043C\u0435\u043D\u044B \u0447\u0435\u0440\u0435\u0437 ",
+          /* @__PURE__ */ jsx70("code", { children: "Reference" }),
+          " \u0438 ",
+          /* @__PURE__ */ jsx70("code", { children: "inherits" }),
+          "."
+        ] }),
+        /* @__PURE__ */ jsxs67(List, { children: [
+          /* @__PURE__ */ jsx70("li", { children: "\u041D\u0430\u0432\u0435\u0434\u0438\u0442\u0435 \u043D\u0430 \u0431\u0435\u0439\u0434\u0436 \u2014 \u0442\u0443\u043B\u0442\u0438\u043F \u0441\u043E \u0441\u043F\u0438\u0441\u043A\u043E\u043C \u0434\u043E\u043C\u0435\u043D\u043E\u0432." }),
+          /* @__PURE__ */ jsx70("li", { children: "\u041A\u043B\u0438\u043A \u043F\u043E \u0434\u043E\u043C\u0435\u043D\u0443 \u0432 \u0442\u0443\u043B\u0442\u0438\u043F\u0435 \u2014 \u043E\u0442\u043A\u0440\u044B\u0432\u0430\u0435\u0442\u0441\u044F \u0441\u0445\u0435\u043C\u0430 \u044D\u0442\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430 \u043F\u043E\u0432\u0435\u0440\u0445 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0430." }),
+          /* @__PURE__ */ jsx70("li", { children: "\u041F\u043E\u0441\u043B\u0435 \u0437\u0430\u043A\u0440\u044B\u0442\u0438\u044F \u0441\u0445\u0435\u043C\u044B \u2014 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440 \u043E\u0441\u0442\u0430\u0451\u0442\u0441\u044F \u043D\u0430 \u043C\u0435\u0441\u0442\u0435 (\u0441 \u043A\u0443\u0440\u0441\u043E\u0440\u043E\u043C \u0438 \u0438\u0441\u0442\u043E\u0440\u0438\u0435\u0439)." })
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxs67(Section2, { title: "\u041D\u0435\u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u043C\u044B\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B", children: [
+        /* @__PURE__ */ jsxs67(P, { children: [
+          "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u044B, \u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u043D\u0435 \u0443\u043F\u043E\u043C\u044F\u043D\u0443\u0442\u044B \u043D\u0438 \u0432 ",
+          /* @__PURE__ */ jsx70("code", { children: "views[].widgets[].attribute" }),
+          ", \u043D\u0438 \u0432 ",
+          /* @__PURE__ */ jsx70("code", { children: "dataRules[].attributes[].attribute" }),
+          ", \u043F\u043E\u0434\u0441\u0432\u0435\u0447\u0438\u0432\u0430\u044E\u0442\u0441\u044F:"
+        ] }),
+        /* @__PURE__ */ jsxs67(List, { children: [
+          /* @__PURE__ */ jsx70("li", { children: "\u0421\u043B\u0435\u0432\u0430 \u2014 \u0436\u0451\u043B\u0442\u0430\u044F \u0432\u0435\u0440\u0442\u0438\u043A\u0430\u043B\u044C\u043D\u0430\u044F \u043F\u043E\u043B\u043E\u0441\u0430." }),
+          /* @__PURE__ */ jsx70("li", { children: "\u0422\u0435\u043A\u0441\u0442 \u2014 \u0441\u0435\u0440\u044B\u0439 \u043A\u0443\u0440\u0441\u0438\u0432." }),
+          /* @__PURE__ */ jsx70("li", { children: "\u041D\u0430\u0432\u0435\u0434\u0435\u043D\u0438\u0435 \u2014 tooltip \xAB\u0410\u0442\u0440\u0438\u0431\u0443\u0442 \u043D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u043D\u0438 \u0432 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F\u0445, \u043D\u0438 \u0432 \u043F\u0440\u0430\u0432\u0438\u043B\u0430\u0445 \u0434\u0430\u043D\u043D\u044B\u0445\xBB." })
+        ] })
+      ] }),
+      /* @__PURE__ */ jsx70(Section2, { title: "\u041F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0438 \u043F\u0440\u0438 \u043D\u0430\u0432\u0435\u0434\u0435\u043D\u0438\u0438", children: /* @__PURE__ */ jsxs67(List, { children: [
+        /* @__PURE__ */ jsxs67("li", { children: [
+          "\u041D\u0430\u0432\u0435\u0434\u0438\u0442\u0435 \u043D\u0430 ",
+          /* @__PURE__ */ jsx70("code", { children: "id: Device" }),
+          " \u0438\u043B\u0438 ",
+          /* @__PURE__ */ jsx70("code", { children: "inherits: Device" }),
+          " \u2014 \u0442\u0443\u043B\u0442\u0438\u043F \u0441 \u043F\u043E\u043B\u043D\u043E\u0439 \u0446\u0435\u043F\u043E\u0447\u043A\u043E\u0439 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F \u0438 \u0441\u043F\u0438\u0441\u043A\u043E\u043C \u043D\u0430\u0441\u043B\u0435\u0434\u043D\u0438\u043A\u043E\u0432."
+        ] }),
+        /* @__PURE__ */ jsxs67("li", { children: [
+          "\u041D\u0430\u0432\u0435\u0434\u0438\u0442\u0435 \u043D\u0430 ",
+          /* @__PURE__ */ jsx70("code", { children: "dataType: enumIocTypes" }),
+          " \u2014 \u0442\u0438\u043F, \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u044F (\u0434\u043B\u044F Enum), \u0441\u0442\u0430\u0442\u0443\u0441\u044B (\u0434\u043B\u044F Workflow), \u043A\u043E\u043B\u043E\u043D\u043A\u0438 (\u0434\u043B\u044F Table)."
+        ] }),
+        /* @__PURE__ */ jsxs67("li", { children: [
+          "\u041D\u0430\u0432\u0435\u0434\u0438\u0442\u0435 \u043D\u0430 ",
+          /* @__PURE__ */ jsx70("code", { children: "attribute: Requirement.identifier" }),
+          " \u2014 \u0442\u0438\u043F, \u043E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F, \u0441\u0441\u044B\u043B\u043A\u0438."
+        ] })
+      ] }) }),
+      /* @__PURE__ */ jsx70(Section2, { title: "\u0420\u0435\u0441\u0430\u0439\u0437 \u043F\u0430\u043D\u0435\u043B\u0435\u0439", children: /* @__PURE__ */ jsxs67(List, { children: [
+        /* @__PURE__ */ jsx70("li", { children: "\u041B\u0435\u0432\u0430\u044F \u043F\u0430\u043D\u0435\u043B\u044C \u043D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u0438 \u2014 \u0442\u044F\u043D\u0438\u0442\u0435 \u0437\u0430 \u043F\u0440\u0430\u0432\u0443\u044E \u0433\u0440\u0430\u043D\u0438\u0446\u0443 (180\u2013600px)." }),
+        /* @__PURE__ */ jsxs67("li", { children: [
+          "\u041A\u043D\u043E\u043F\u043A\u0438 ",
+          /* @__PURE__ */ jsx70("code", { children: "\u2039 \u203A" }),
+          " \u0432 \u0448\u0430\u043F\u043A\u0435 \u2014 \u0441\u0432\u0435\u0440\u043D\u0443\u0442\u044C / \u0440\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u043B\u0435\u0432\u0443\u044E \u0438 \u043F\u0440\u0430\u0432\u0443\u044E \u043F\u0430\u043D\u0435\u043B\u0438."
+        ] })
+      ] }) }),
+      /* @__PURE__ */ jsxs67(Section2, { title: "\u0414\u0435\u0440\u0435\u0432\u044C\u044F (trees)", children: [
+        /* @__PURE__ */ jsx70(P, { children: "\u0414\u0440\u0435\u0432\u043E\u0432\u0438\u0434\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0438 \u2014 \u0438\u0435\u0440\u0430\u0440\u0445\u0438\u0438 \u0442\u0438\u043F\u0430 \xAB\u041A\u0430\u0442\u0430\u043B\u043E\u0433\xBB, \xAB\u0421\u0442\u0430\u043D\u0434\u0430\u0440\u0442\u044B\xBB, \xAB\u041E\u0440\u0433\u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0430\xBB. \u041E\u043F\u0438\u0441\u044B\u0432\u0430\u044E\u0442 \u0432\u043B\u043E\u0436\u0435\u043D\u043D\u043E\u0441\u0442\u044C \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0447\u0435\u0440\u0435\u0437 \u0441\u0432\u044F\u0437\u0438 \u0441 \u043E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F\u043C\u0438 \u043F\u043E \u0433\u043B\u0443\u0431\u0438\u043D\u0435 \u0438 \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u0443." }),
+        /* @__PURE__ */ jsxs67(List, { children: [
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "type" }),
+            ": ",
+            /* @__PURE__ */ jsx70("code", { children: "ordinary" }),
+            " | ",
+            /* @__PURE__ */ jsx70("code", { children: "orderable" }),
+            " (\u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430) | ",
+            /* @__PURE__ */ jsx70("code", { children: "multiparent" }),
+            " (\u043B\u0438\u0441\u0442 \u0432 \u043D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u0438\u0445 \u0433\u0440\u0443\u043F\u043F\u0430\u0445)."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "hierarchy" }),
+            " \u2014 \u043A\u043E\u0440\u043D\u0435\u0432\u0430\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0438 \u0440\u0435\u043A\u0443\u0440\u0441\u0438\u0432\u043D\u043E\u0435 \u0434\u0435\u0440\u0435\u0432\u043E ",
+            /* @__PURE__ */ jsx70("code", { children: "children" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "sorting" }),
+            " \u2014 \u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0438 \u043F\u043E \u0443\u0440\u043E\u0432\u043D\u044F\u043C (\u0441\u0432\u043E\u044F \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430 \u0434\u043B\u044F \u043A\u0430\u0436\u0434\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0432 \u0434\u0435\u0440\u0435\u0432\u0435)."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            "\u0412\u043B\u043E\u0436\u0435\u043D\u043D\u043E\u0441\u0442\u044C: ",
+            /* @__PURE__ */ jsx70("code", { children: "sorting[].by[]" }),
+            " \u043C\u043E\u0436\u0435\u0442 \u0431\u044B\u0442\u044C \u0434\u0432\u0443\u0445\u0443\u0440\u043E\u0432\u043D\u0435\u0432\u044B\u043C \u2014 \u0432\u043D\u0435\u0448\u043D\u0438\u0439 \u043E\u043F\u0438\u0441\u044B\u0432\u0430\u0435\u0442 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C, \u0432\u043D\u0443\u0442\u0440\u0435\u043D\u043D\u0438\u0439 \u2014 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B."
+          ] })
+        ] }),
+        /* @__PURE__ */ jsxs67(P, { children: [
+          "\u0421\u043D\u0438\u043F\u043F\u0435\u0442: ",
+          /* @__PURE__ */ jsx70("code", { children: "\u2728 newtree" }),
+          " \u2014 \u0434\u0435\u0440\u0435\u0432\u043E \u0441 1 \u0443\u0440\u043E\u0432\u043D\u0435\u043C \u0432\u043B\u043E\u0436\u0435\u043D\u043D\u043E\u0441\u0442\u0438 \u0438 \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u043E\u0439."
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxs67(Section2, { title: "\u0422\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0438 (transitiveLinkages)", children: [
+        /* @__PURE__ */ jsx70(P, { children: "\u0426\u0435\u043F\u043E\u0447\u043A\u0438 \u0441\u0432\u044F\u0437\u0435\u0439 \u0447\u0435\u0440\u0435\u0437 \u043F\u0440\u043E\u043C\u0435\u0436\u0443\u0442\u043E\u0447\u043D\u044B\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438. \u041F\u043E\u0437\u0432\u043E\u043B\u044F\u044E\u0442 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0442\u044C \u0434\u0430\u043D\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0430\u043D\u043D\u044B\u0445 \u043E\u0431\u044A\u0435\u043A\u0442\u043E\u0432 \u0447\u0435\u0440\u0435\u0437 \u043D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0445\u043E\u043F\u043E\u0432 (Equipment \u2192 City \u2192 Office \u2192 Country) \u0432 \u0441\u043F\u0438\u0441\u043A\u0430\u0445 \u0438 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0430\u0445." }),
+        /* @__PURE__ */ jsxs67(List, { children: [
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "entity" }),
+            " \u2014 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C-\u043A\u043E\u0440\u0435\u043D\u044C, \u0434\u043B\u044F \u043A\u043E\u0442\u043E\u0440\u043E\u0439 \u0441\u0442\u0440\u043E\u0438\u0442\u0441\u044F \u0434\u0435\u0440\u0435\u0432\u043E."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "joins[]" }),
+            " \u2014 \u0446\u0435\u043F\u043E\u0447\u043A\u0430 \u0441\u0432\u044F\u0437\u0435\u0439. \u0412\u043B\u043E\u0436\u0435\u043D\u043D\u043E\u0441\u0442\u044C \u0447\u0435\u0440\u0435\u0437 ",
+            /* @__PURE__ */ jsx70("code", { children: "joins[].joins[]" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "search" }),
+            " \u2014 \u0432\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u043F\u043E\u0438\u0441\u043A \u043F\u043E \u0443\u0437\u043B\u0443 (",
+            /* @__PURE__ */ jsx70("code", { children: "entity" }),
+            " / ",
+            /* @__PURE__ */ jsx70("code", { children: "linkage" }),
+            " / ",
+            /* @__PURE__ */ jsx70("code", { children: "both" }),
+            ")."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            "\u0412 \u0441\u043F\u0438\u0441\u043E\u0447\u043D\u044B\u0445 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F\u0445 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u0447\u0435\u0440\u0435\u0437 ",
+            /* @__PURE__ */ jsx70("code", { children: "join:" }),
+            " \u0432 \u043A\u043E\u043B\u043E\u043D\u043A\u0430\u0445 \u0438 \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u0445."
+          ] })
+        ] }),
+        /* @__PURE__ */ jsxs67(P, { children: [
+          "\u0421\u043D\u0438\u043F\u043F\u0435\u0442\u044B: ",
+          /* @__PURE__ */ jsx70("code", { children: "\u2728 newtransitive" }),
+          " (1 \u0445\u043E\u043F), ",
+          /* @__PURE__ */ jsx70("code", { children: "\u2728 newjoins" }),
+          " (\u0441\u043B\u0435\u0434\u0443\u044E\u0449\u0438\u0439 \u0445\u043E\u043F)."
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxs67(Section2, { title: "UI Rules (uiRules + uiPresets)", children: [
+        /* @__PURE__ */ jsx70(P, { children: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0439 \u2014 \u0443\u0441\u043B\u043E\u0432\u043D\u043E\u0435 \u0441\u043A\u0440\u044B\u0442\u0438\u0435, \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0435 \u0441\u0442\u0438\u043B\u0435\u0439 \u0438 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E\u0441\u0442\u0438 \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u043E\u0432 UI \u0432 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438 \u043E\u0442 \u0440\u043E\u043B\u0438 \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044F, \u0434\u0430\u043D\u043D\u044B\u0445 \u043E\u0431\u044A\u0435\u043A\u0442\u0430 \u0438\u043B\u0438 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u0430." }),
+        /* @__PURE__ */ jsxs67(List, { children: [
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "target" }),
+            ": ",
+            /* @__PURE__ */ jsx70("code", { children: "list_view" }),
+            " (\u0441\u043F\u0438\u0441\u043E\u0447\u043D\u043E\u0435), ",
+            /* @__PURE__ */ jsx70("code", { children: "entity_view" }),
+            " (\u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0430/\u043C\u043E\u0434\u0430\u043B\u043A\u0430), ",
+            /* @__PURE__ */ jsx70("code", { children: "entity_attribute" }),
+            " (\u043A\u043E\u043B\u043E\u043D\u043A\u0438 \u0442\u0430\u0431\u043B\u0438\u0446/\u044D\u043B\u0435\u043C\u0435\u043D\u0442\u044B \u043C\u0430\u0441\u0441\u0438\u0432\u043E\u0432)."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "view" }),
+            " \u2014 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0435, \u043A \u043A\u043E\u0442\u043E\u0440\u043E\u043C\u0443 \u043F\u0440\u0438\u043C\u0435\u043D\u044F\u0435\u0442\u0441\u044F \u043F\u0440\u0430\u0432\u0438\u043B\u043E."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "context.views[]" }),
+            " \u2014 \u043E\u0433\u0440\u0430\u043D\u0438\u0447\u0438\u0442\u044C \u043F\u0440\u0438\u043C\u0435\u043D\u0435\u043D\u0438\u0435 \u043F\u0440\u0430\u0432\u0438\u043B\u043E\u043C \u0442\u043E\u043B\u044C\u043A\u043E \u043F\u0435\u0440\u0435\u0447\u0438\u0441\u043B\u0435\u043D\u043D\u044B\u043C\u0438 view (\u0434\u043B\u044F entity_view)."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "condition" }),
+            " \u2014 RQL-\u0443\u0441\u043B\u043E\u0432\u0438\u0435. \u0415\u0441\u043B\u0438 true \u2014 \u043F\u0440\u0430\u0432\u0438\u043B\u043E \u0441\u0440\u0430\u0431\u0430\u0442\u044B\u0432\u0430\u0435\u0442."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "rule.effect" }),
+            ": ",
+            /* @__PURE__ */ jsx70("code", { children: "hidden" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "show" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "hiddenEmpty" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "readonly" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "editable" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "inherit" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "variant" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "rule.widgets[]" }),
+            ", ",
+            /* @__PURE__ */ jsx70("strong", { children: "rule.groups[]" }),
+            ", ",
+            /* @__PURE__ */ jsx70("strong", { children: "rule.columns[]" }),
+            " \u2014 \u043D\u0430 \u0447\u0442\u043E \u0434\u0435\u0439\u0441\u0442\u0432\u0443\u0435\u0442."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "nested" }),
+            " \u2014 \u0434\u043B\u044F \u0432\u0438\u0434\u0436\u0435\u0442\u043E\u0432 Array/Table: \u043F\u0440\u0438\u043C\u0435\u043D\u0438\u0442\u044C \u043A \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u044B\u043C \u043A\u043E\u043B\u043E\u043D\u043A\u0430\u043C/\u044D\u043B\u0435\u043C\u0435\u043D\u0442\u0430\u043C."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "presets" }),
+            " \u2014 \u043F\u0440\u0438\u043C\u0435\u043D\u0438\u0442\u044C ",
+            /* @__PURE__ */ jsx70("code", { children: "uiPresets" }),
+            " (\u0446\u0432\u0435\u0442, \u0448\u0440\u0438\u0444\u0442, \u0441\u0432\u0451\u0440\u043D\u0443\u0442\u043E\u0441\u0442\u044C)."
+          ] })
+        ] }),
+        /* @__PURE__ */ jsxs67(P, { children: [
+          /* @__PURE__ */ jsx70("strong", { children: "uiPresets" }),
+          " \u2014 \u0438\u043C\u0435\u043D\u043E\u0432\u0430\u043D\u043D\u044B\u0435 \u043D\u0430\u0431\u043E\u0440\u044B CSS-\u0441\u0432\u043E\u0439\u0441\u0442\u0432: ",
+          /* @__PURE__ */ jsx70("code", { children: "color" }),
+          ", ",
+          /* @__PURE__ */ jsx70("code", { children: "font-weight" }),
+          ",",
+          /* @__PURE__ */ jsx70("code", { children: "background-color" }),
+          ", ",
+          /* @__PURE__ */ jsx70("code", { children: "collapsed" }),
+          " \u0438 \u0442.\u0434."
+        ] }),
+        /* @__PURE__ */ jsxs67(P, { children: [
+          "\u0421\u043D\u0438\u043F\u043F\u0435\u0442\u044B: ",
+          /* @__PURE__ */ jsx70("code", { children: "\u2728 newuirule" }),
+          " (hidden), ",
+          /* @__PURE__ */ jsx70("code", { children: "\u2728 newuirulevariant" }),
+          " (\u0441 \u043F\u0440\u0435\u0441\u0435\u0442\u043E\u043C),",
+          /* @__PURE__ */ jsx70("code", { children: "\u2728 newuirulenested" }),
+          " (\u043A\u043E\u043B\u043E\u043D\u043A\u0430 \u0442\u0430\u0431\u043B\u0438\u0446\u044B), ",
+          /* @__PURE__ */ jsx70("code", { children: "\u2728 newuipreset" }),
+          ",",
+          /* @__PURE__ */ jsx70("code", { children: "\u2728 newpresetref" }),
+          "."
+        ] }),
+        /* @__PURE__ */ jsxs67(P, { children: [
+          /* @__PURE__ */ jsx70("strong", { children: "\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F:" }),
+          " \u0435\u0441\u043B\u0438 \u0432 \u043F\u0440\u0430\u0432\u0438\u043B\u0435 \u0443\u043A\u0430\u0437\u0430\u043D\u0430 \u0441\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 \u043D\u0435\u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0439 view / widget / group / column / preset, \u0441\u0442\u0440\u043E\u043A\u0430 \u043F\u043E\u0434\u0441\u0432\u0435\u0447\u0438\u0432\u0430\u0435\u0442\u0441\u044F \u0436\u0451\u043B\u0442\u044B\u043C \u043C\u0430\u0440\u043A\u0435\u0440\u043E\u043C."
+        ] }),
+        /* @__PURE__ */ jsxs67(P, { children: [
+          /* @__PURE__ */ jsx70("strong", { children: "\u0410\u0432\u0442\u043E\u043A\u043E\u043C\u043F\u043B\u0438\u0442:" }),
+          " \u0432 \u043F\u043E\u043B\u044F\u0445 ",
+          /* @__PURE__ */ jsx70("code", { children: "view:" }),
+          ", ",
+          /* @__PURE__ */ jsx70("code", { children: "- widget:" }),
+          ", ",
+          /* @__PURE__ */ jsx70("code", { children: "- group:" }),
+          ", ",
+          /* @__PURE__ */ jsx70("code", { children: "- column:" }),
+          ", ",
+          /* @__PURE__ */ jsx70("code", { children: "- preset:" }),
+          "\u043F\u043E\u0434\u0441\u043A\u0430\u0437\u044B\u0432\u0430\u044E\u0442\u0441\u044F \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0435 id \u0438\u0437 \u0442\u0435\u043A\u0443\u0449\u0435\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430 \u0438 \u0438\u043D\u0434\u0435\u043A\u0441\u0430."
+        ] }),
+        /* @__PURE__ */ jsxs67(P, { children: [
+          /* @__PURE__ */ jsx70("strong", { children: "Backlinks:" }),
+          " \u0435\u0441\u043B\u0438 \u043A\u0443\u0440\u0441\u043E\u0440 \u043D\u0430 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0435, \u043A\u043E\u0442\u043E\u0440\u044B\u0439 \u0443\u043F\u043E\u043C\u0438\u043D\u0430\u0435\u0442\u0441\u044F \u0432 ",
+          /* @__PURE__ */ jsx70("code", { children: "uiRules[].condition" }),
+          " (\u0447\u0435\u0440\u0435\u0437 ",
+          /* @__PURE__ */ jsx70("code", { children: "@doc.attr" }),
+          ") \u0438\u043B\u0438 \u0432 ",
+          /* @__PURE__ */ jsx70("code", { children: "uiRules[].rule.widgets" }),
+          " (\u0432\u0438\u0434\u0436\u0435\u0442 ",
+          /* @__PURE__ */ jsx70("code", { children: "editors_attr" }),
+          "), \u044D\u0442\u043E \u043F\u0440\u0430\u0432\u0438\u043B\u043E \u0432\u0438\u0434\u043D\u043E \u0432\u043E \u0432\u043A\u043B\u0430\u0434\u043A\u0435 \xAB\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F\xBB."
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxs67(Section2, { title: "\u041C\u0435\u043D\u044E (menus)", children: [
+        /* @__PURE__ */ jsxs67(P, { children: [
+          "\u041B\u0435\u0432\u0430\u044F \u043D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u043E\u043D\u043D\u0430\u044F \u043F\u0430\u043D\u0435\u043B\u044C. \u041C\u043E\u0436\u0435\u0442 \u0441\u043E\u0434\u0435\u0440\u0436\u0430\u0442\u044C ",
+          /* @__PURE__ */ jsx70("code", { children: "root_group" }),
+          "(\u0440\u0430\u0441\u043A\u0440\u044B\u0432\u0430\u044E\u0449\u0438\u0439\u0441\u044F \u0440\u0430\u0437\u0434\u0435\u043B) \u0441 ",
+          /* @__PURE__ */ jsx70("code", { children: "items[]" }),
+          " \u2014 \u043F\u0443\u043D\u043A\u0442\u0430\u043C\u0438 \u043C\u0435\u043D\u044E, \u043A\u0430\u0436\u0434\u044B\u0439 \u0438\u0437 \u043A\u043E\u0442\u043E\u0440\u044B\u0445 \u043E\u0442\u043A\u0440\u044B\u0432\u0430\u0435\u0442 \u0441\u0432\u043E\u0439 ",
+          /* @__PURE__ */ jsx70("code", { children: "view" }),
+          "."
+        ] }),
+        /* @__PURE__ */ jsxs67(List, { children: [
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "type" }),
+            ": ",
+            /* @__PURE__ */ jsx70("code", { children: "root_group" }),
+            " (\u0440\u0430\u0437\u0434\u0435\u043B \u0441 \u043F\u043E\u0434\u0440\u0430\u0437\u0434\u0435\u043B\u0430\u043C\u0438) \u0438\u043B\u0438 ",
+            /* @__PURE__ */ jsx70("code", { children: "root_menu" }),
+            " (\u043F\u0443\u043D\u043A\u0442 \u0431\u0435\u0437 \u043F\u043E\u0434\u0440\u0430\u0437\u0434\u0435\u043B\u043E\u0432)."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "route" }),
+            ": \u043F\u0443\u0442\u044C \u0432 URL, \u0443\u043D\u0438\u043A\u0430\u043B\u0435\u043D \u0432 \u0441\u0438\u0441\u0442\u0435\u043C\u0435."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "placement" }),
+            ": ",
+            /* @__PURE__ */ jsx70("code", { children: "top" }),
+            " (\u0433\u043B\u0430\u0432\u043D\u043E\u0435 \u043C\u0435\u043D\u044E) \u0438\u043B\u0438 ",
+            /* @__PURE__ */ jsx70("code", { children: "settings" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "priority" }),
+            ": \u22651000, \u0431\u043E\u043B\u044C\u0448\u0435 = \u0432\u044B\u0448\u0435 \u0432 \u0441\u043F\u0438\u0441\u043A\u0435."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "view" }),
+            ": \u0441\u043F\u0438\u0441\u043E\u0447\u043D\u043E\u0435 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0435 \u0438\u043B\u0438 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0435 \u0441 \u0432\u043A\u043B\u0430\u0434\u043A\u0430\u043C\u0438."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "items[]" }),
+            ": \u0434\u043E\u0447\u0435\u0440\u043D\u0438\u0435 \u043F\u0443\u043D\u043A\u0442\u044B (\u0434\u043B\u044F root_group), \u043A\u0430\u0436\u0434\u044B\u0439 \u0442\u0440\u0435\u0431\u0443\u0435\u0442 ",
+            /* @__PURE__ */ jsx70("code", { children: "view" }),
+            "."
+          ] })
+        ] }),
+        /* @__PURE__ */ jsxs67(P, { children: [
+          "\u0421\u043D\u0438\u043F\u043F\u0435\u0442\u044B: ",
+          /* @__PURE__ */ jsx70("code", { children: "\u2728 newmenuroot" }),
+          " (\u043A\u043E\u0440\u043D\u0435\u0432\u0430\u044F \u0433\u0440\u0443\u043F\u043F\u0430 \u0441 \u043F\u043E\u0434\u043F\u0443\u043D\u043A\u0442\u043E\u043C),",
+          /* @__PURE__ */ jsx70("code", { children: "\u2728 newmenuitem" }),
+          " (\u043F\u0443\u043D\u043A\u0442)."
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxs67(Section2, { title: "\u0418\u043A\u043E\u043D\u043A\u0438 (medias)", children: [
+        /* @__PURE__ */ jsxs67(P, { children: [
+          "\u041C\u0435\u0434\u0438\u0430-\u0440\u0435\u0441\u0443\u0440\u0441\u044B: \u0438\u043A\u043E\u043D\u043A\u0438 \u0434\u043B\u044F \u0432\u0438\u0434\u0436\u0435\u0442\u043E\u0432 \u0438 \u043C\u0435\u043D\u044E. \u0412 \u0442\u0435\u043A\u0443\u0449\u0435\u0439 \u0440\u0435\u0430\u043B\u0438\u0437\u0430\u0446\u0438\u0438 \u043F\u043E\u0434\u0434\u0435\u0440\u0436\u0438\u0432\u0430\u0435\u0442\u0441\u044F \u0442\u043E\u043B\u044C\u043A\u043E ",
+          /* @__PURE__ */ jsx70("code", { children: "type: icon_name" }),
+          " \u2014 \u0438\u043C\u0435\u043D\u043E\u0432\u0430\u043D\u043D\u0430\u044F \u0438\u043A\u043E\u043D\u043A\u0430 \u0438\u0437 \u0434\u0438\u0437\u0430\u0439\u043D-\u0441\u0438\u0441\u0442\u0435\u043C\u044B."
+        ] }),
+        /* @__PURE__ */ jsxs67(List, { children: [
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "id" }),
+            ": View ID (\u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u0432 ",
+            /* @__PURE__ */ jsx70("code", { children: "icon:" }),
+            " \u0432 \u0433\u0440\u0443\u043F\u043F\u0430\u0445/\u043C\u0435\u043D\u044E/\u043A\u043D\u043E\u043F\u043A\u0430\u0445)."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "iconName" }),
+            ": \u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0432 \u0431\u0438\u0431\u043B\u0438\u043E\u0442\u0435\u043A\u0435 \u0438\u043A\u043E\u043D\u043E\u043A (",
+            /* @__PURE__ */ jsx70("code", { children: "folder" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "star" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "device" }),
+            " \u0438 \u0442.\u0434.)."
+          ] })
+        ] }),
+        /* @__PURE__ */ jsxs67(P, { children: [
+          "\u0421\u043D\u0438\u043F\u043F\u0435\u0442: ",
+          /* @__PURE__ */ jsx70("code", { children: "\u2728 newmedia" }),
+          "."
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxs67(Section2, { title: "\u041F\u0440\u0438\u043C\u0435\u0441\u0438 (mixins)", children: [
+        /* @__PURE__ */ jsx70(P, { children: "\u041C\u0435\u0445\u0430\u043D\u0438\u0437\u043C \u0440\u0430\u0441\u0448\u0438\u0440\u0435\u043D\u0438\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0434\u0430\u043D\u043D\u044B\u043C\u0438 \u0438\u0437 \u0434\u0440\u0443\u0433\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430. \u041F\u043E\u0437\u0432\u043E\u043B\u044F\u0435\u0442 \u043F\u0435\u0440\u0435\u0438\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u044C \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F \u0438 \u043B\u043E\u0433\u0438\u043A\u0443 \u0431\u0435\u0437 \u0434\u0443\u0431\u043B\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F \u043A\u043E\u0434\u0430." }),
+        /* @__PURE__ */ jsxs67(List, { children: [
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "type: linkage" }),
+            " \u2014 \u043F\u0440\u0438\u043C\u0435\u0441\u044C \u043D\u0430 \u043E\u0441\u043D\u043E\u0432\u0435 \u0441\u0432\u044F\u0437\u0438, \u0440\u0430\u0441\u0448\u0438\u0440\u044F\u0435\u0442 \u0447\u0435\u0440\u0435\u0437 \u0441\u0432\u044F\u0437\u0430\u043D\u043D\u044B\u0439 \u043E\u0431\u044A\u0435\u043A\u0442. \u0422\u0440\u0435\u0431\u0443\u0435\u0442 ",
+            /* @__PURE__ */ jsx70("code", { children: "linkage" }),
+            " (1_1 \u0438\u043B\u0438 1_n) + ",
+            /* @__PURE__ */ jsx70("code", { children: "entity: { from, to }" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "type: view" }),
+            " \u2014 \u043F\u0440\u0438\u043C\u0435\u0441\u044C \u043A\u043E\u043C\u043F\u043E\u043D\u0435\u043D\u0442\u043E\u0432 \u0438\u043D\u0442\u0435\u0440\u0444\u0435\u0439\u0441\u0430. \u0422\u0440\u0435\u0431\u0443\u0435\u0442 ",
+            /* @__PURE__ */ jsx70("code", { children: "entity" }),
+            " + ",
+            /* @__PURE__ */ jsx70("code", { children: "views[]" }),
+            " \u0441 ",
+            /* @__PURE__ */ jsx70("code", { children: "fromView" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "weight" }),
+            ": \u043F\u0440\u0438\u043E\u0440\u0438\u0442\u0435\u0442 (\u043C\u0435\u043D\u044C\u0448\u0435 = \u0432\u044B\u0448\u0435). \u041F\u0440\u0438 \u0440\u0430\u0432\u043D\u044B\u0445 \u2014 \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430 \u043F\u043E id, \u0437\u0430\u0442\u0435\u043C type:view \u0432\u043F\u0435\u0440\u0451\u0434."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "useForChild" }),
+            ": \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u044C \u043F\u0440\u0438\u043C\u0435\u0441\u044C \u0434\u043E\u0447\u0435\u0440\u043D\u0438\u043C \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u043C (\u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E true)."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "views[].change.add" }),
+            ": \u0447\u0442\u043E \u0434\u043E\u0431\u0430\u0432\u0438\u0442\u044C (",
+            /* @__PURE__ */ jsx70("code", { children: "components" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "tabs" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "menu" }),
+            ")."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "views[].change.delete" }),
+            ": \u0447\u0442\u043E \u0443\u0434\u0430\u043B\u0438\u0442\u044C \u0438\u0437 \u0446\u0435\u043B\u0435\u0432\u043E\u0433\u043E \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "views[].replace" }),
+            ": \u043F\u043E\u043B\u043D\u0430\u044F \u0437\u0430\u043C\u0435\u043D\u0430 \u043A\u043E\u043C\u043F\u043E\u043D\u0435\u043D\u0442\u043E\u0432."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "position.type" }),
+            ": ",
+            /* @__PURE__ */ jsx70("code", { children: "begin" }),
+            " / ",
+            /* @__PURE__ */ jsx70("code", { children: "after" }),
+            " / ",
+            /* @__PURE__ */ jsx70("code", { children: "end" }),
+            " \u2014 \u0433\u0434\u0435 \u0432\u0441\u0442\u0430\u0432\u0438\u0442\u044C."
+          ] })
+        ] }),
+        /* @__PURE__ */ jsxs67(P, { children: [
+          "\u0421\u043D\u0438\u043F\u043F\u0435\u0442\u044B: ",
+          /* @__PURE__ */ jsx70("code", { children: "\u2728 newmixinview" }),
+          " (\u043F\u0440\u0438\u043C\u0435\u0441\u044C \u0432\u043A\u043B\u0430\u0434\u043A\u0438), ",
+          /* @__PURE__ */ jsx70("code", { children: "\u2728 newmixinlinkage" }),
+          "(\u043F\u0440\u0438\u043C\u0435\u0441\u044C \u043D\u0430 \u0441\u0432\u044F\u0437\u0438)."
+        ] }),
+        /* @__PURE__ */ jsxs67(P, { children: [
+          "\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F: ",
+          /* @__PURE__ */ jsx70("code", { children: "linkage" }),
+          " \u0438 ",
+          /* @__PURE__ */ jsx70("code", { children: "fromView" }),
+          " \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u044E\u0442\u0441\u044F \u043D\u0430 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u043E\u0432\u0430\u043D\u0438\u0435 \u0432 \u0434\u043E\u043C\u0435\u043D\u0435."
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxs67(Section2, { title: "\u041E\u0431\u043C\u0435\u043D \u0434\u0430\u043D\u043D\u044B\u043C\u0438 (exchangeSettings)", children: [
+        /* @__PURE__ */ jsx70(P, { children: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u0438\u043C\u043F\u043E\u0440\u0442\u0430/\u044D\u043A\u0441\u043F\u043E\u0440\u0442\u0430 \u043E\u0431\u044A\u0435\u043A\u0442\u043E\u0432 \u0434\u043E\u043C\u0435\u043D\u0430. \u041F\u043E\u0437\u0432\u043E\u043B\u044F\u044E\u0442 \u0443\u043F\u0440\u0430\u0432\u043B\u044F\u0442\u044C, \u043A\u0430\u043A \u043E\u0431\u044A\u0435\u043A\u0442\u044B \u0441\u043E\u0437\u0434\u0430\u044E\u0442\u0441\u044F \u0438 \u043E\u0431\u043D\u043E\u0432\u043B\u044F\u044E\u0442\u0441\u044F \u0447\u0435\u0440\u0435\u0437 API." }),
+        /* @__PURE__ */ jsxs67(List, { children: [
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "enable" }),
+            ": \u0433\u043B\u043E\u0431\u0430\u043B\u044C\u043D\u044B\u0439 \u043F\u0435\u0440\u0435\u043A\u043B\u044E\u0447\u0430\u0442\u0435\u043B\u044C (\u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E true)."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "attributeFormats" }),
+            ": \u0444\u043E\u0440\u043C\u0430\u0442\u044B \u0434\u0430\u0442 (Moment-\u0441\u0438\u043D\u0442\u0430\u043A\u0441\u0438\u0441) \u2014 ",
+            /* @__PURE__ */ jsx70("code", { children: "Date" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "Time" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "Timestamp" }),
+            ", ",
+            /* @__PURE__ */ jsx70("code", { children: "TimestampRange" }),
+            "."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "entities" }),
+            ": \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u043F\u043E \u043A\u0430\u0436\u0434\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 (\u043F\u0435\u0440\u0435\u043E\u043F\u0440\u0435\u0434\u0435\u043B\u044F\u044E\u0442 \u0433\u043B\u043E\u0431\u0430\u043B\u044C\u043D\u044B\u0435)."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "forExport" }),
+            ": \u0430\u0442\u0440\u0438\u0431\u0443\u0442-\u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0434\u043B\u044F Reference (\u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E \u0438\u0449\u0435\u0442\u0441\u044F identifier, \u043F\u043E\u0442\u043E\u043C name)."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "upsertWith" }),
+            ": \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0434\u043B\u044F \u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0446\u0438\u0438 \u043F\u0440\u0438 \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u0438 (\u0435\u0441\u043B\u0438 \u043D\u0435 \u0443\u043A\u0430\u0437\u0430\u043D \u2014 \u0441\u043E\u0437\u0434\u0430\u0451\u0442\u0441\u044F \u043D\u043E\u0432\u0430\u044F \u0437\u0430\u043F\u0438\u0441\u044C)."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "ignoreAttributes" }),
+            ": \u0441\u043F\u0438\u0441\u043E\u043A \u0438\u0433\u043D\u043E\u0440\u0438\u0440\u0443\u0435\u043C\u044B\u0445 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 (id \u0447\u0435\u0440\u0435\u0437 \u0437\u0430\u043F\u044F\u0442\u0443\u044E)."
+          ] }),
+          /* @__PURE__ */ jsxs67("li", { children: [
+            /* @__PURE__ */ jsx70("strong", { children: "exportSystemAttributes" }),
+            ": id \u0441\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0445 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u0434\u043B\u044F \u044D\u043A\u0441\u043F\u043E\u0440\u0442\u0430 \u0438\u043B\u0438 ",
+            /* @__PURE__ */ jsx70("code", { children: "all" }),
+            "."
+          ] })
+        ] }),
+        /* @__PURE__ */ jsxs67(P, { children: [
+          "\u0421\u043D\u0438\u043F\u043F\u0435\u0442\u044B: ",
+          /* @__PURE__ */ jsx70("code", { children: "\u2728 newexchange" }),
+          " (\u0433\u043B\u043E\u0431\u0430\u043B\u044C\u043D\u044B\u0435 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438), ",
+          /* @__PURE__ */ jsx70("code", { children: "\u2728 newexchangeentity" }),
+          "(\u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u0434\u043B\u044F \u043E\u0434\u043D\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438)."
+        ] })
+      ] })
+    ] }) })
+  ] }) });
 }
 var init_YamlViewerHelp = __esm({
   "src/web/components/modals/YamlViewerHelp.tsx"() {
@@ -25580,6 +31430,23 @@ function YamlViewerModal() {
     () => allIssues.filter((i) => severityFilter.has(i.severity)),
     [allIssues, severityFilter]
   );
+  const backlinks = useMemo40(() => {
+    if (!content)
+      return { entity: [], attribute: [], target: null };
+    const lines = content.split("\n");
+    const target = detectCursorTarget(lines, cursorLine);
+    if (!target)
+      return { entity: [], attribute: [], target };
+    const entity = [];
+    const attribute = [];
+    if (target.type === "entity" && target.id) {
+      entity.push(...resolveEntityBacklinks(lines, target.id));
+    } else if (target.type === "attribute" && target.id && target.parentId) {
+      entity.push(...resolveEntityBacklinks(lines, target.parentId));
+      attribute.push(...resolveAttributeBacklinks(lines, target.parentId, target.id));
+    }
+    return { entity, attribute, target };
+  }, [content, cursorLine]);
   const [refsVersion, setRefsVersion] = useState31(0);
   useEffect34(() => {
     if (!editorCreated || !editorRef.current)
@@ -25727,6 +31594,29 @@ function YamlViewerModal() {
       setContent(fetchedContent);
       setSavedContent(fetchedContent);
       setEditorCreated(true);
+      const forceLayout2 = () => {
+        if (!editorRef.current)
+          return;
+        try {
+          editorRef.current.layout();
+        } catch {
+        }
+      };
+      setTimeout(forceLayout2, 0);
+      setTimeout(forceLayout2, 50);
+      setTimeout(forceLayout2, 150);
+      setTimeout(forceLayout2, 400);
+      setTimeout(forceLayout2, 1e3);
+      if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(() => {
+          if (editorRef.current) {
+            try {
+              editorRef.current.layout();
+            } catch {
+            }
+          }
+        });
+      }
       editor.onKeyDown((e) => {
         if (!isLockedRef.current)
           return;
@@ -25748,13 +31638,23 @@ function YamlViewerModal() {
         useGraphStore.getState().showSnackbar("\u0412\u0441\u0442\u0430\u0432\u043A\u0430 \u0432 \u0437\u0430\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0439 \u0444\u0430\u0439\u043B \u0437\u0430\u043F\u0440\u0435\u0449\u0435\u043D\u0430.");
       });
       editor.onDidType((text) => {
-        if (!text || !/^[a-zA-Zа-яА-Я_\-]$/.test(text))
+        if (!text)
+          return;
+        if (!/^[a-zA-Z0-9_\-а-яА-Я ]$/.test(text))
           return;
         setTimeout(() => {
           if (!editorRef.current)
             return;
-          editorRef.current.trigger("yaml-viewer", "editor.action.triggerSuggest", {});
-        }, 20);
+          const pos = editorRef.current.getPosition();
+          const model = editorRef.current.getModel();
+          if (!pos || !model)
+            return;
+          const lineText = model.getLineContent(pos.lineNumber);
+          const before = lineText.slice(0, pos.column - 1);
+          if (/[a-zA-Z0-9_\-а-яА-Я]$/.test(before) || /:\s$/.test(before)) {
+            editorRef.current.trigger("yaml-viewer", "editor.action.triggerSuggest", {});
+          }
+        }, 10);
       });
       editor.onDidChangeCursorPosition((e) => {
         setCursorLine(e.position.lineNumber);
@@ -25797,7 +31697,7 @@ function YamlViewerModal() {
               editor?.layout();
             } catch {
             }
-          }, 50);
+          }, 10);
         });
         ro.observe(containerRef.current);
       }
@@ -25992,7 +31892,7 @@ ${label.message}` : ""),
         endLineNumber: endLine,
         endColumn: Math.max(endCol, col + 1),
         source: "server-validate",
-        code: d.severity || "R-VISION"
+        code: d.severity
       });
     }
     m.editor.setModelMarkers(model, "server-validate", markers);
@@ -26082,12 +31982,33 @@ ${label.message}` : ""),
     editor.focus();
   }, []);
   useEffect34(() => {
-    if (!open || !lineMap || !fqid || !editorCreated)
+    if (!open || !lineMap || !fqid || !editorCreated || !editorRef.current)
       return;
     const entityId = fqid.split("/")[1];
     if (!entityId)
       return;
-    const line = lineMap.itemLines.get(`entities#${entityId}`);
+    let line = null;
+    const targetKey = `entities#${entityId}`.toLowerCase();
+    for (const [key, value] of lineMap.itemLines.entries()) {
+      if (key.toLowerCase() === targetKey) {
+        line = value;
+        break;
+      }
+    }
+    if (!line) {
+      const model = editorRef.current.getModel();
+      if (model) {
+        const escaped = entityId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const re = new RegExp(`^\\s*-\\s+id\\s*:\\s*["']?${escaped}["']?\\s*(?:#.*)?$`, "i");
+        const lineCount = model.getLineCount();
+        for (let i = 1; i <= lineCount; i++) {
+          if (re.test(model.getLineContent(i))) {
+            line = i;
+            break;
+          }
+        }
+      }
+    }
     if (!line)
       return;
     const sectionEl = document.querySelector(
@@ -26095,7 +32016,15 @@ ${label.message}` : ""),
     );
     if (sectionEl)
       sectionEl.open = true;
-    setTimeout(() => jumpTo(line), 200);
+    const t = setTimeout(() => {
+      if (editorRef.current) {
+        try {
+          jumpTo(line);
+        } catch {
+        }
+      }
+    }, 400);
+    return () => clearTimeout(t);
   }, [open, lineMap, fqid, editorCreated, jumpTo]);
   const toggleNode = useCallback16((key) => {
     setExpandedNodes((prev) => {
@@ -26699,34 +32628,28 @@ ${label.message}` : ""),
                     {
                       className: "help-modal__icon-btn",
                       onClick: () => {
-                        if (!domainId) {
-                          useGraphStore.getState().showSnackbar("\u0414\u043E\u043C\u0435\u043D \u043D\u0435 \u043E\u043F\u0440\u0435\u0434\u0435\u043B\u0451\u043D \u0434\u043B\u044F \u044D\u0442\u043E\u0433\u043E \u0444\u0430\u0439\u043B\u0430");
-                          return;
-                        }
                         useGraphStore.getState().setYamlViewerOpen(false);
                         useGraphStore.getState().setDomainComparePrefillA(domainId);
                         useGraphStore.getState().setDomainCompareOpen(true);
                       },
-                      title: "\u0421\u0440\u0430\u0432\u043D\u0438\u0442\u044C \u0434\u043E\u043C\u0435\u043D\u044B",
+                      disabled: isDirty,
+                      title: isDirty ? "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u0435 \u0438\u043B\u0438 \u043E\u0442\u043C\u0435\u043D\u0438\u0442\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u043F\u0435\u0440\u0435\u0434 \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u043E\u043C" : "\u0421\u0440\u0430\u0432\u043D\u0438\u0442\u044C \u0434\u043E\u043C\u0435\u043D\u044B",
                       children: /* @__PURE__ */ jsx71(MIcon, { name: "compare_arrows" })
                     }
                   ),
-                  /* @__PURE__ */ jsx71(
+                  domainId ? /* @__PURE__ */ jsx71(
                     "button",
                     {
                       className: "help-modal__icon-btn",
                       onClick: () => {
-                        if (!domainId) {
-                          useGraphStore.getState().showSnackbar("\u0414\u043E\u043C\u0435\u043D \u043D\u0435 \u043E\u043F\u0440\u0435\u0434\u0435\u043B\u0451\u043D \u0434\u043B\u044F \u044D\u0442\u043E\u0433\u043E \u0444\u0430\u0439\u043B\u0430");
-                          return;
-                        }
                         useGraphStore.getState().setYamlViewerOpen(false);
                         gotoDomain(domainId);
                       },
-                      title: "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u043D\u0430 \u0433\u0440\u0430\u0444\u0435",
+                      disabled: isDirty,
+                      title: isDirty ? "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u0435 \u0438\u043B\u0438 \u043E\u0442\u043C\u0435\u043D\u0438\u0442\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u043F\u0435\u0440\u0435\u0434 \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u043E\u043C" : "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u043D\u0430 \u0433\u0440\u0430\u0444\u0435",
                       children: /* @__PURE__ */ jsx71(MIcon, { name: "my_location" })
                     }
-                  ),
+                  ) : null,
                   /* @__PURE__ */ jsx71(
                     "button",
                     {
@@ -26770,7 +32693,6 @@ ${label.message}` : ""),
                       className: "help-modal__icon-btn",
                       onClick: () => {
                         const st = useGraphStore.getState();
-                        st.setYamlViewerOpen(false);
                         st.setDomainSchemaDomainId(domainId);
                         if (navQuery.trim())
                           st.setDomainSchemaPrefillQuery(navQuery.trim());
@@ -26778,7 +32700,7 @@ ${label.message}` : ""),
                           st.setDomainSchemaPrefillOnlyProblematic(true);
                         st.setDomainSchemaOpen(true);
                       },
-                      title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0439 \u043E\u0431\u0437\u043E\u0440 \u0441\u0445\u0435\u043C\u044B",
+                      title: "\u0421\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0439 \u043E\u0431\u0437\u043E\u0440 \u0441\u0445\u0435\u043C\u044B",
                       children: /* @__PURE__ */ jsx71(MIcon, { name: "menu_book" })
                     }
                   ),
@@ -26965,16 +32887,20 @@ ${label.message}` : ""),
                 !leftCollapsed && /* @__PURE__ */ jsx71("div", { className: "yaml-viewer-resizer", onMouseDown: startResizingLeft }),
                 /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-editor", children: [
                   /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-editor__toolbar", children: [
-                    /* @__PURE__ */ jsx71("div", { className: "yaml-viewer-breadcrumbs", children: currentContext ? /* @__PURE__ */ jsxs68(Fragment13, { children: [
-                      currentContext.section && /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-breadcrumbs__item", children: currentContext.section }),
-                      currentContext.entityId && /* @__PURE__ */ jsxs68(Fragment13, { children: [
-                        /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-breadcrumbs__sep", children: "\u203A" }),
-                        /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-breadcrumbs__item yaml-viewer-breadcrumbs__item--entity", children: currentContext.entityId })
-                      ] }),
-                      currentContext.ruleId && !currentContext.entityId && /* @__PURE__ */ jsxs68(Fragment13, { children: [
-                        /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-breadcrumbs__sep", children: "\u203A" }),
-                        /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-breadcrumbs__item", children: currentContext.ruleId })
-                      ] }),
+                    /* @__PURE__ */ jsx71("div", { className: "yaml-viewer-breadcrumbs", children: currentContext && currentContext.breadcrumbs.length > 0 ? /* @__PURE__ */ jsxs68(Fragment13, { children: [
+                      currentContext.breadcrumbs.map((item, idx) => /* @__PURE__ */ jsxs68(React38.Fragment, { children: [
+                        idx > 0 && /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-breadcrumbs__sep", children: "\u203A" }),
+                        /* @__PURE__ */ jsx71(
+                          "button",
+                          {
+                            type: "button",
+                            className: `yaml-viewer-breadcrumbs__item yaml-viewer-breadcrumbs__item--${item.type}`,
+                            onClick: () => jumpTo(item.line),
+                            title: `${item.type}: ${item.id} \u2014 \u0441\u0442\u0440\u043E\u043A\u0430 ${item.line}`,
+                            children: item.id
+                          }
+                        )
+                      ] }, `bc-${idx}-${item.line}`)),
                       /* @__PURE__ */ jsxs68("span", { className: "yaml-viewer-breadcrumbs__line", children: [
                         ":",
                         cursorLine
@@ -26994,7 +32920,7 @@ ${label.message}` : ""),
                       );
                     }) })
                   ] }),
-                  /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-editor__canvas", style: { width: "100%", height: "100%" }, children: [
+                  /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-editor__canvas", children: [
                     /* @__PURE__ */ jsx71(
                       "div",
                       {
@@ -27054,10 +32980,10 @@ ${label.message}` : ""),
                       {
                         className: "yaml-viewer-tab" + (rightTab === "issues" ? " active" : ""),
                         onClick: () => setRightTab("issues"),
+                        title: `\u041F\u0440\u043E\u0431\u043B\u0435\u043C\u044B${issueCount > 0 ? ` (${issueCount})` : ""}`,
                         children: [
                           /* @__PURE__ */ jsx71(MIcon, { name: "rule", size: "sm" }),
-                          /* @__PURE__ */ jsx71("span", { children: "\u041F\u0440\u043E\u0431\u043B\u0435\u043C\u044B" }),
-                          issueCount > 0 && /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-tab__count", children: issueCount })
+                          issueCount > 0 && /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-tab__badge", children: issueCount })
                         ]
                       }
                     ),
@@ -27066,25 +32992,41 @@ ${label.message}` : ""),
                       {
                         className: "yaml-viewer-tab" + (rightTab === "refs" ? " active" : ""),
                         onClick: () => setRightTab("refs"),
+                        title: `\u0421\u0441\u044B\u043B\u043A\u0438${refsCount > 0 ? ` (${refsCount})` : ""}`,
                         children: [
                           /* @__PURE__ */ jsx71(MIcon, { name: "link", size: "sm" }),
-                          /* @__PURE__ */ jsx71("span", { children: "\u0421\u0441\u044B\u043B\u043A\u0438" }),
-                          refsCount > 0 && /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-tab__count", children: refsCount })
+                          refsCount > 0 && /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-tab__badge", children: refsCount })
                         ]
                       }
                     ),
                     /* @__PURE__ */ jsxs68(
                       "button",
                       {
-                        className: "yaml-viewer-tab" + (rightTab === "server" ? " active" : ""),
-                        onClick: () => setRightTab("server"),
-                        disabled: !serverAvailable && !serverValidation,
-                        title: !serverAvailable ? "\u0421\u0435\u0440\u0432\u0435\u0440\u043D\u0430\u044F \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u0430 \u0432 local \u0440\u0435\u0436\u0438\u043C\u0435" : "",
+                        className: "yaml-viewer-tab" + (rightTab === "backlinks" ? " active" : ""),
+                        onClick: () => setRightTab("backlinks"),
+                        title: `\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F${backlinks.entity.length + backlinks.attribute.length > 0 ? ` (${backlinks.entity.length + backlinks.attribute.length})` : ""}`,
                         children: [
-                          /* @__PURE__ */ jsx71(MIcon, { name: "cloud", size: "sm" }),
-                          /* @__PURE__ */ jsx71("span", { children: "\u0421\u0435\u0440\u0432\u0435\u0440" }),
-                          serverValidation && !serverValidation.isValid && /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-tab__count yaml-viewer-tab__count--error", children: serverValidation.diagnostics?.length || "!" }),
-                          serverValidation && serverValidation.isValid && /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-tab__count yaml-viewer-tab__count--ok", children: "\u2713" })
+                          /* @__PURE__ */ jsx71(MIcon, { name: "call_received", size: "sm" }),
+                          backlinks.entity.length + backlinks.attribute.length > 0 && /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-tab__badge", children: backlinks.entity.length + backlinks.attribute.length })
+                        ]
+                      }
+                    ),
+                    serverAvailable && /* @__PURE__ */ jsxs68(
+                      "button",
+                      {
+                        className: "yaml-viewer-tab" + (rightTab === "server" ? " active" : "") + (serverValidation && !serverValidating ? serverValidation.isValid ? " yaml-viewer-tab--ok" : " yaml-viewer-tab--err" : ""),
+                        onClick: () => setRightTab("server"),
+                        title: serverValidation?.isValid ? "\u0421\u0435\u0440\u0432\u0435\u0440: \u0441\u0445\u0435\u043C\u0430 \u0432\u0430\u043B\u0438\u0434\u043D\u0430" : serverValidation && !serverValidation.isValid ? `\u0421\u0435\u0440\u0432\u0435\u0440: ${serverValidation.diagnostics?.length || "!"} \u043E\u0448\u0438\u0431\u043E\u043A` : "\u0421\u0435\u0440\u0432\u0435\u0440\u043D\u0430\u044F \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F",
+                        children: [
+                          /* @__PURE__ */ jsx71(
+                            MIcon,
+                            {
+                              name: serverValidating ? "hourglass_top" : serverValidation?.isValid ? "cloud_done" : serverValidation && !serverValidation.isValid ? "cloud_off" : "cloud",
+                              size: "sm"
+                            }
+                          ),
+                          serverValidation && !serverValidation.isValid && /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-tab__badge yaml-viewer-tab__badge--err", children: serverValidation.diagnostics?.length || "!" }),
+                          serverValidation?.isValid && /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-tab__badge yaml-viewer-tab__badge--ok", children: "\u2713" })
                         ]
                       }
                     )
@@ -27108,18 +33050,73 @@ ${label.message}` : ""),
                       currentDomain: domainId || ""
                     }
                   ),
+                  rightTab === "backlinks" && /* @__PURE__ */ jsxs68("div", { className: "yaml-issues", children: [
+                    /* @__PURE__ */ jsxs68("div", { className: "yaml-issues__header", children: [
+                      "\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F",
+                      " ",
+                      backlinks.target?.id && /* @__PURE__ */ jsx71("span", { style: { color: "var(--accent-hover)", fontFamily: "'JetBrains Mono', monospace", marginLeft: 6 }, children: backlinks.target.type === "attribute" && backlinks.target.parentId ? `${backlinks.target.parentId}.${backlinks.target.id}` : backlinks.target.id })
+                    ] }),
+                    !backlinks.target && /* @__PURE__ */ jsxs68("div", { className: "yaml-issues-empty", children: [
+                      /* @__PURE__ */ jsx71("div", { style: { fontSize: 32, marginBottom: 8 }, children: "\u{1F3AF}" }),
+                      "\u041F\u043E\u0441\u0442\u0430\u0432\u044C\u0442\u0435 \u043A\u0443\u0440\u0441\u043E\u0440 \u043D\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0438\u043B\u0438 \u0430\u0442\u0440\u0438\u0431\u0443\u0442, \u0447\u0442\u043E\u0431\u044B \u0443\u0432\u0438\u0434\u0435\u0442\u044C \u0432\u0445\u043E\u0434\u044F\u0449\u0438\u0435 \u0441\u0441\u044B\u043B\u043A\u0438"
+                    ] }),
+                    backlinks.target && backlinks.entity.length === 0 && backlinks.attribute.length === 0 && /* @__PURE__ */ jsxs68("div", { className: "yaml-issues-empty", children: [
+                      /* @__PURE__ */ jsx71("div", { style: { fontSize: 32, marginBottom: 8 }, children: "\u{1F50D}" }),
+                      "\u041D\u0430 ",
+                      backlinks.target.type === "attribute" ? "\u044D\u0442\u043E\u0442 \u0430\u0442\u0440\u0438\u0431\u0443\u0442" : "\u044D\u0442\u0443 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C",
+                      " \u043D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u0441\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F"
+                    ] }),
+                    backlinks.entity.length > 0 && /* @__PURE__ */ jsxs68(Fragment13, { children: [
+                      /* @__PURE__ */ jsxs68("div", { className: "yaml-issues__header", style: { fontSize: 10 }, children: [
+                        "\u041D\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C ",
+                        backlinks.target?.type === "attribute" ? backlinks.target.parentId : backlinks.target?.id,
+                        " (",
+                        backlinks.entity.length,
+                        ")"
+                      ] }),
+                      /* @__PURE__ */ jsx71("div", { className: "yaml-issues__list", children: backlinks.entity.map((bl, idx) => /* @__PURE__ */ jsxs68("button", { className: "yaml-backlink", onClick: () => jumpTo(bl.line), children: [
+                        /* @__PURE__ */ jsx71(MIcon, { name: bl.icon, size: "sm" }),
+                        /* @__PURE__ */ jsx71("span", { className: "yaml-backlink__kind", children: BACKLINK_KIND_LABELS[bl.kind] }),
+                        /* @__PURE__ */ jsx71("code", { className: "yaml-backlink__id", children: bl.label }),
+                        bl.detail && /* @__PURE__ */ jsx71("span", { className: "yaml-backlink__detail", children: bl.detail }),
+                        /* @__PURE__ */ jsxs68("span", { className: "yaml-backlink__line", children: [
+                          ":",
+                          bl.line
+                        ] })
+                      ] }, `e-${idx}`)) })
+                    ] }),
+                    backlinks.attribute.length > 0 && /* @__PURE__ */ jsxs68(Fragment13, { children: [
+                      /* @__PURE__ */ jsxs68("div", { className: "yaml-issues__header", style: { fontSize: 10 }, children: [
+                        "\u041D\u0430 \u0430\u0442\u0440\u0438\u0431\u0443\u0442 ",
+                        backlinks.target?.id,
+                        " (",
+                        backlinks.attribute.length,
+                        ")"
+                      ] }),
+                      /* @__PURE__ */ jsx71("div", { className: "yaml-issues__list", children: backlinks.attribute.map((bl, idx) => /* @__PURE__ */ jsxs68("button", { className: "yaml-backlink", onClick: () => jumpTo(bl.line), children: [
+                        /* @__PURE__ */ jsx71(MIcon, { name: bl.icon, size: "sm" }),
+                        /* @__PURE__ */ jsx71("span", { className: "yaml-backlink__kind", children: BACKLINK_KIND_LABELS[bl.kind] }),
+                        /* @__PURE__ */ jsx71("code", { className: "yaml-backlink__id", children: bl.label }),
+                        bl.detail && /* @__PURE__ */ jsx71("span", { className: "yaml-backlink__detail", children: bl.detail }),
+                        /* @__PURE__ */ jsxs68("span", { className: "yaml-backlink__line", children: [
+                          ":",
+                          bl.line
+                        ] })
+                      ] }, `a-${idx}`)) })
+                    ] })
+                  ] }),
                   rightTab === "server" && /* @__PURE__ */ jsxs68("div", { className: "yaml-issues", children: [
                     /* @__PURE__ */ jsx71("div", { className: "yaml-issues__header", children: "\u0421\u0435\u0440\u0432\u0435\u0440\u043D\u0430\u044F \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F" }),
                     !serverValidation && !serverValidating && /* @__PURE__ */ jsxs68("div", { className: "yaml-issues-empty", children: [
                       /* @__PURE__ */ jsx71("div", { style: { fontSize: 32, marginBottom: 8 }, children: "\u2601\uFE0F" }),
-                      /* @__PURE__ */ jsx71("div", { style: { fontSize: 12, color: "var(--text-400)", marginBottom: 12 }, children: "\u041D\u0430\u0436\u043C\u0438\u0442\u0435 \u043A\u043D\u043E\u043F\u043A\u0443 \u0432 \u0448\u0430\u043F\u043A\u0435, \u0447\u0442\u043E\u0431\u044B \u043E\u0442\u043F\u0440\u0430\u0432\u0438\u0442\u044C \u0442\u0435\u043A\u0443\u0449\u0443\u044E \u0441\u0445\u0435\u043C\u0443 \u043D\u0430 \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0443 \u0432 R-Vision." }),
+                      /* @__PURE__ */ jsx71("div", { style: { fontSize: 12, color: "var(--text-400)", marginBottom: 12 }, children: "\u041D\u0430\u0436\u043C\u0438\u0442\u0435 \u043A\u043D\u043E\u043F\u043A\u0443 \u0432 \u0448\u0430\u043F\u043A\u0435, \u0447\u0442\u043E\u0431\u044B \u043E\u0442\u043F\u0440\u0430\u0432\u0438\u0442\u044C \u0442\u0435\u043A\u0443\u0449\u0443\u044E \u0441\u0445\u0435\u043C\u0443 \u043D\u0430 \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0443." }),
                       /* @__PURE__ */ jsxs68("button", { className: "btn btn--primary", onClick: handleServerValidate, children: [
                         /* @__PURE__ */ jsx71(MIcon, { name: "cloud_upload", size: "sm" }),
                         /* @__PURE__ */ jsx71("span", { style: { marginLeft: 6 }, children: "\u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435" })
                       ] })
                     ] }),
                     serverValidating && /* @__PURE__ */ jsxs68("div", { className: "yaml-issues-empty", children: [
-                      /* @__PURE__ */ jsx71(MIcon, { name: "hourglass_top", size: "xl" }),
+                      /* @__PURE__ */ jsx71(MIcon, { name: "hourglass", size: "xl" }),
                       /* @__PURE__ */ jsx71("div", { children: "\u041F\u0440\u043E\u0432\u0435\u0440\u043A\u0430 \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435..." })
                     ] }),
                     !serverValidating && serverValidation?.error && /* @__PURE__ */ jsxs68("div", { className: "yaml-issues-empty", style: { color: "var(--danger)" }, children: [
@@ -27891,6 +33888,295 @@ function CrossDomainBadge({
     }
   );
 }
+function detectCursorTarget(lines, cursorLine) {
+  if (cursorLine < 1 || cursorLine > lines.length)
+    return null;
+  let effectiveLine = cursorLine;
+  while (effectiveLine > 1) {
+    const l = lines[effectiveLine - 1];
+    if (l && l.trim() && !l.trim().startsWith("#"))
+      break;
+    effectiveLine--;
+  }
+  let section = "";
+  for (let i = effectiveLine - 1; i >= 0; i--) {
+    const m = lines[i].match(/^([a-zA-Z_][\w]*)\s*:/);
+    if (m) {
+      section = m[1];
+      break;
+    }
+  }
+  if (!section)
+    return null;
+  const chain = [];
+  for (let i = effectiveLine - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (!line.trim() || line.trim().startsWith("#"))
+      continue;
+    const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (indent === 0)
+      break;
+    const idm = line.match(/^\s*-\s+id\s*:\s*([^\s#]+)/);
+    if (!idm)
+      continue;
+    const id = idm[1].replace(/["']/g, "");
+    if (chain.length === 0 || indent < chain[0].indent) {
+      chain.unshift({ id, indent, line: i });
+    }
+  }
+  if (chain.length === 0)
+    return null;
+  const root = chain[0];
+  const inner = chain[chain.length - 1];
+  if (chain.length >= 2 && inner.line > root.line) {
+    const attrSectionRegex = /^\s*attributes\s*:\s*$/;
+    for (let i = root.line + 1; i < inner.line; i++) {
+      if (attrSectionRegex.test(lines[i])) {
+        return {
+          type: "attribute",
+          id: inner.id,
+          parentId: root.id,
+          section
+        };
+      }
+    }
+  }
+  if (section === "entities")
+    return { type: "entity", id: root.id, section };
+  if (section === "linkages")
+    return { type: "linkage", id: root.id, section };
+  if (section === "actions")
+    return { type: "action", id: root.id, section };
+  if (section === "views")
+    return { type: "view", id: root.id, section };
+  if (section === "dataRules")
+    return { type: "dataRule", id: root.id, section };
+  if (section === "mixins")
+    return { type: "mixin", id: root.id, section };
+  return null;
+}
+function resolveEntityBacklinks(lines, entityId) {
+  const out = [];
+  const matches = (val) => {
+    if (val === entityId)
+      return true;
+    const slash = val.indexOf("/");
+    return slash > 0 && val.slice(slash + 1) === entityId;
+  };
+  const stack = [];
+  let section = "";
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim() || line.trim().startsWith("#"))
+      continue;
+    const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (indent === 0) {
+      const sm = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (sm)
+        section = sm[1];
+      stack.length = 0;
+      continue;
+    }
+    const attrsMatch = line.match(/^(\s*)attributes\s*:\s*$/);
+    if (attrsMatch) {
+      const attrsIndent = attrsMatch[1].length;
+      for (let j = stack.length - 1; j >= 0; j--) {
+        if (stack[j].indent < attrsIndent) {
+          stack[j].attrSectionIndent = attrsIndent;
+          break;
+        }
+      }
+      continue;
+    }
+    const idm = line.match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
+    if (idm) {
+      const idIndent = idm[1].length;
+      const id = idm[2].replace(/["']/g, "");
+      while (stack.length && stack[stack.length - 1].indent >= idIndent)
+        stack.pop();
+      const parent = stack[stack.length - 1];
+      const isAttribute = !!parent && parent.attrSectionIndent !== void 0 && idIndent > parent.attrSectionIndent;
+      stack.push({ id, indent: idIndent, section, isAttribute });
+      continue;
+    }
+    const fm = line.match(/^\s*(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*(.+)$/);
+    if (!fm)
+      continue;
+    const field = fm[1];
+    let value = fm[2].split(" #")[0].trim();
+    if (value.startsWith('"') && value.endsWith('"') || value.startsWith("'") && value.endsWith("'")) {
+      value = value.slice(1, -1);
+    }
+    const top = stack[stack.length - 1];
+    if (!top)
+      continue;
+    if (field === "inherits" && matches(value) && top.section === "entities" && !top.isAttribute) {
+      out.push({ kind: "inheritance", line: i + 1, label: top.id, detail: "\u043D\u0430\u0441\u043B\u0435\u0434\u0443\u0435\u0442", icon: "account_tree" });
+    }
+    if (field === "entity" && matches(value)) {
+      if (top.section === "entities" && top.isAttribute) {
+        out.push({ kind: "reference", line: i + 1, label: top.id, detail: "Reference", icon: "link" });
+      } else if (top.section === "views" && !top.isAttribute) {
+        out.push({ kind: "view", line: i + 1, label: top.id, detail: "view \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438", icon: "visibility" });
+      } else if (top.section === "dataRules" && !top.isAttribute) {
+        out.push({ kind: "dataRule", line: i + 1, label: top.id, detail: "\u043F\u0440\u0430\u0432\u0438\u043B\u043E \u0434\u0430\u043D\u043D\u044B\u0445", icon: "rule" });
+      } else if (top.section === "mixins" && !top.isAttribute) {
+        out.push({ kind: "mixin", line: i + 1, label: top.id, detail: "\u043F\u0440\u0438\u043C\u0435\u0441\u044C", icon: "merge" });
+      } else if (top.section === "actions" && !top.isAttribute) {
+        out.push({ kind: "action", line: i + 1, label: top.id, detail: "\u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435", icon: "bolt" });
+      }
+    }
+    if (top.section === "uiRules" && field === "condition" && new RegExp(`\\b${entityId}\\b`).test(value)) {
+      out.push({
+        kind: "dataRule",
+        line: i + 1,
+        label: top.id,
+        detail: "UI Rule",
+        icon: "rule"
+      });
+    }
+    if ((field === "side1" || field === "side2") && matches(value) && top.section === "linkages") {
+      out.push({ kind: "linkage", line: i + 1, label: top.id, detail: field, icon: "link" });
+    }
+  }
+  return out;
+}
+function resolveAttributeBacklinks(lines, targetEntity, targetAttr) {
+  const out = [];
+  const matches = (val) => {
+    if (val === targetEntity)
+      return true;
+    const slash = val.indexOf("/");
+    return slash > 0 && val.slice(slash + 1) === targetEntity;
+  };
+  const stack = [];
+  let section = "";
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim() || line.trim().startsWith("#"))
+      continue;
+    const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (indent === 0) {
+      const sm = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (sm)
+        section = sm[1];
+      stack.length = 0;
+      continue;
+    }
+    const idm = line.match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
+    if (idm) {
+      const idIndent = idm[1].length;
+      const id = idm[2].replace(/["']/g, "");
+      while (stack.length && stack[stack.length - 1].indent >= idIndent)
+        stack.pop();
+      const parent = stack[stack.length - 1];
+      stack.push({ id, indent: idIndent, section, entityContext: parent?.entityContext || null });
+      continue;
+    }
+    const fm = line.match(/^\s*(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*(.+)$/);
+    if (!fm)
+      continue;
+    const field = fm[1];
+    let value = fm[2].split(" #")[0].trim();
+    if (value.startsWith('"') && value.endsWith('"') || value.startsWith("'") && value.endsWith("'")) {
+      value = value.slice(1, -1);
+    }
+    const top = stack[stack.length - 1];
+    if (!top)
+      continue;
+    if (field === "entity" && (top.section === "views" || top.section === "dataRules") && matches(value)) {
+      top.entityContext = targetEntity;
+      continue;
+    }
+    if (field === "attribute" && value === targetAttr) {
+      let contextIdx = -1;
+      for (let j = stack.length - 1; j >= 0; j--) {
+        if (stack[j].entityContext === targetEntity) {
+          contextIdx = j;
+          break;
+        }
+      }
+      if (contextIdx === -1)
+        continue;
+      let topLevelIdx = contextIdx;
+      for (let j = contextIdx - 1; j >= 0; j--) {
+        if (stack[j].section === "views" || stack[j].section === "dataRules") {
+          topLevelIdx = j;
+          break;
+        }
+      }
+      const immediate = stack[contextIdx];
+      const topLevel = stack[topLevelIdx];
+      const isWidget = topLevel.id !== immediate.id && topLevel.section === "views";
+      out.push({
+        kind: isWidget ? "widget" : "dataRule",
+        line: i + 1,
+        label: topLevel.id,
+        detail: isWidget ? `\u0432\u0438\u0434\u0436\u0435\u0442 ${immediate.id}` : "\u043F\u0440\u0430\u0432\u0438\u043B\u043E",
+        icon: isWidget ? "widgets" : "rule"
+      });
+    }
+    if (top.section === "uiRules" && field === "condition" && new RegExp(`@doc\\.${targetAttr}\\b`).test(value)) {
+      let topLevelIdx = -1;
+      for (let j = stack.length - 1; j >= 0; j--) {
+        if (stack[j].section === "uiRules") {
+          topLevelIdx = j;
+          break;
+        }
+      }
+      if (topLevelIdx !== -1) {
+        out.push({
+          kind: "dataRule",
+          line: i + 1,
+          label: stack[topLevelIdx].id,
+          detail: "UI Rule \u043F\u043E \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0443",
+          icon: "rule"
+        });
+      }
+    }
+    if (top.section === "uiRules" && field === "widget" && value.startsWith("editors_")) {
+      const attrFromWidget = value.replace(/^editors_/, "");
+      if (attrFromWidget === targetAttr) {
+        let topLevelIdx = -1;
+        for (let j = stack.length - 1; j >= 0; j--) {
+          if (stack[j].section === "uiRules") {
+            topLevelIdx = j;
+            break;
+          }
+        }
+        if (topLevelIdx !== -1) {
+          out.push({
+            kind: "widget",
+            line: i + 1,
+            label: stack[topLevelIdx].id,
+            detail: "UI Rule \u043F\u043E \u0432\u0438\u0434\u0436\u0435\u0442\u0443",
+            icon: "rule"
+          });
+        }
+      }
+    }
+    if (top.section === "actions" && field === "attribute" && value === targetAttr) {
+      let topLevelIdx = -1;
+      for (let j = stack.length - 1; j >= 0; j--) {
+        if (stack[j].section === "actions") {
+          topLevelIdx = j;
+          break;
+        }
+      }
+      if (topLevelIdx !== -1) {
+        out.push({
+          kind: "action",
+          line: i + 1,
+          label: stack[topLevelIdx].id,
+          detail: "\u043C\u0430\u0441\u0441\u043E\u0432\u043E\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435",
+          icon: "bolt"
+        });
+      }
+    }
+  }
+  return out;
+}
+var BACKLINK_KIND_LABELS;
 var init_YamlViewerModal = __esm({
   "src/web/components/modals/YamlViewerModal.tsx"() {
     "use strict";
@@ -27907,6 +34193,16 @@ var init_YamlViewerModal = __esm({
     init_initial();
     init_rql_check();
     init_js_yaml();
+    BACKLINK_KIND_LABELS = {
+      inheritance: "\u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435",
+      reference: "reference",
+      linkage: "\u0441\u0432\u044F\u0437\u044C",
+      view: "view",
+      dataRule: "\u043F\u0440\u0430\u0432\u0438\u043B\u043E",
+      mixin: "\u043F\u0440\u0438\u043C\u0435\u0441\u044C",
+      action: "\u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435",
+      widget: "\u0432\u0438\u0434\u0436\u0435\u0442"
+    };
   }
 });
 

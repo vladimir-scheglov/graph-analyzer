@@ -187,7 +187,7 @@ export async function handleValidateSingle(
     const checkResult = response.json?.data?.checkRobject;
     if (!checkResult) {
       res.writeHead(500, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "Некорректный ответ от R-Vision" }));
+      res.end(JSON.stringify({ error: "Некорректный ответ от сервера" }));
       return;
     }
 

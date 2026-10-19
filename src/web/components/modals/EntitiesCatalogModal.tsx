@@ -105,7 +105,9 @@ export function EntitiesCatalogModal() {
         if (!open) return;
         if (!initialFqid) return;
         if (!index) return;
-
+        // Сбрасываем поиск и фильтры, чтобы целевая сущность была видна
+        setFilters(EMPTY_FILTERS);
+        setLimit(PAGE_SIZE);
         setSelectedFqid(initialFqid);
         store.setEntityCatalogInitialFqid(null);
     }, [open, initialFqid, index, store]);
@@ -176,10 +178,11 @@ export function EntitiesCatalogModal() {
 
     const handleGotoDomain = useCallback(
         (domainId: string) => {
-            goto(domainId);
             store.setEntityCatalogOpen(false);
+            store.setDomainSchemaDomainId(domainId);
+            store.setDomainSchemaOpen(true);
         },
-        [goto, store]
+        [store]
     );
 
     const handleSelectFromImpact = useCallback((fqid: string) => {

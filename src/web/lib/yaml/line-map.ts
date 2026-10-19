@@ -49,12 +49,14 @@ const SECTION_LABELS: Record<string, string> = {
   medias: "Иконки",
   views: "Представления",
   menus: "Меню",
+  uiRules: "UI Rules",
+  uiPresets: "UI Presets",
 };
 
 /** Контейнеры, внутри которых ищем вложенные `- id:`. */
 /**
  * Ключи, внутри которых лежат `- id:`-объекты, которые надо показать в дереве.
- * Покрывает все секции R-Vision схемы.
+ * Покрывает все секции схемы.
  */
 const CHILD_CONTAINERS = new Set([
   // сущности
@@ -215,10 +217,9 @@ export function buildLineMap(
   const sections: SectionBlock[] = [];
   const itemLines = new Map<string, number>();
 
-  const idRegex = /^(\s*)-\s+id:\s+([^\s#]+)/;
+  const idRegex = /^(\s*)-\s+id:\s*([^\s#]+)/;
   const sectionRegex = /^([a-zA-Z][a-zA-Z0-9_]*):\s*(?:#.*)?$/;
 
-  // ============ Ищем секции ============
   const sectionRanges: Array<{ key: string; start: number; end: number }> = [];
   let currentKey: string | null = null;
   let currentStart = 0;
@@ -242,12 +243,56 @@ export function buildLineMap(
     });
   }
 
-  // ============ Для каждой известной секции собираем items ============
   sectionRanges.forEach(({ key, start, end }) => {
+    // ============ Специальная обработка: trees ============
+    if (key === "trees") {
+      const nodes = parseTreesSection(lines, start, end);
+      if (nodes.length > 0) {
+        sections.push({
+          key,
+          label: SECTION_LABELS[key] || key,
+          line: start + 1,
+          count: nodes.length,
+          linesCount: end - start,
+          nodes,
+        });
+        nodes.forEach((n) => {
+          itemLines.set(`trees#${n.id}`, n.line);
+          (n.children || []).forEach((c) =>
+            itemLines.set(`trees#${c.id}`, c.line),
+          );
+        });
+      }
+      return;
+    }
+
+    // ============ Специальная обработка: transitiveLinkages ============
+    if (key === "transitiveLinkages") {
+      const nodes = parseTransitiveSection(lines, start, end);
+      if (nodes.length > 0) {
+        sections.push({
+          key,
+          label: SECTION_LABELS[key] || key,
+          line: start + 1,
+          count: nodes.length,
+          linesCount: end - start,
+          nodes,
+        });
+        const collect = (arr: NavNode[]): void => {
+          arr.forEach((n) => {
+            itemLines.set(`transitiveLinkages#${n.id}`, n.line);
+            if (n.children) collect(n.children);
+          });
+        };
+        collect(nodes);
+      }
+      return;
+    }
+
+    // ============ Обычная обработка ============
     const sectionSchema = (schema.sections as any)?.[key];
     if (!sectionSchema) return;
 
-    // Находим базовый отступ items
     let baseIndent = -1;
     for (let i = start + 1; i < end; i++) {
       const m = lines[i].match(idRegex);
@@ -267,7 +312,7 @@ export function buildLineMap(
       if (m[1].length !== baseIndent) continue;
 
       const id = m[2];
-      // Определяем диапазон
+
       let itemEnd = i + 1;
       for (let k = i + 1; k < end; k++) {
         const kLine = lines[k];
@@ -289,7 +334,6 @@ export function buildLineMap(
 
       const children = collectChildren(lines, i, itemEnd, baseIndent);
 
-      // Метаданные
       let meta: string | undefined;
       const schemaItem = sectionSchema.items?.find?.((x: any) => x.id === id);
       if (schemaItem) {
@@ -299,6 +343,10 @@ export function buildLineMap(
           meta = schemaItem.type;
         } else if (schemaItem.kind) {
           meta = schemaItem.kind;
+        } else if (schemaItem.target) {
+          meta = schemaItem.target;
+        } else if (schemaItem.effect) {
+          meta = schemaItem.effect;
         }
       }
 
@@ -366,4 +414,347 @@ export function findAttributeInEntity(
     if (node.children) stack.push(...node.children);
   }
   return null;
+}
+
+// ============ Специальные парсеры ============
+
+function findRangeInLines(
+  lines: string[],
+  startIdx: number,
+  endIdx: number,
+  indent: number,
+): number {
+  for (let i = startIdx + 1; i < endIdx; i++) {
+    const line = lines[i];
+    if (!line || !line.trim()) continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind <= indent) return i;
+  }
+  return endIdx;
+}
+
+/** Парсит секцию trees: дерево, hierarchy, children (рекурсивно). */
+function parseTreesSection(
+  lines: string[],
+  start: number,
+  end: number,
+): NavNode[] {
+  const trees: NavNode[] = [];
+  const idRegex = /^(\s*)-\s+id\s*:\s*([^\s#]+)/;
+
+  let treeIndent = -1;
+  for (let i = start + 1; i < end; i++) {
+    const m = lines[i].match(idRegex);
+    if (m) {
+      treeIndent = m[1].length;
+      break;
+    }
+  }
+  if (treeIndent < 0) return [];
+
+  for (let i = start + 1; i < end; i++) {
+    const m = lines[i].match(idRegex);
+    if (!m || m[1].length !== treeIndent) continue;
+
+    const treeId = m[2];
+    const treeEnd = findRangeInLines(lines, i, end, treeIndent);
+
+    // Ищем hierarchy
+    let hierarchyLine = -1;
+    let hierarchyIndent = -1;
+    for (let j = i + 1; j < treeEnd; j++) {
+      const lm = lines[j].match(/^(\s*)hierarchy\s*:\s*$/);
+      if (lm) {
+        hierarchyLine = j;
+        hierarchyIndent = lm[1].length;
+        break;
+      }
+    }
+
+    const children: NavNode[] = [];
+
+    if (hierarchyLine >= 0) {
+      const hierarchyEnd = findRangeInLines(
+        lines,
+        hierarchyLine,
+        treeEnd,
+        hierarchyIndent,
+      );
+
+      // Корневая сущность hierarchy.entity — как первый child
+      let rootEntity: string | null = null;
+      let rootEntityLine = -1;
+      for (let j = hierarchyLine + 1; j < hierarchyEnd; j++) {
+        const lm = lines[j].match(/^\s*entity\s*:\s*([^\s#]+)/);
+        if (lm) {
+          rootEntity = lm[1].replace(/["']/g, "");
+          rootEntityLine = j;
+          break;
+        }
+      }
+
+      let rootChildren: NavNode[] = [];
+
+      // Ищем children внутри hierarchy (глубина 1)
+      for (let j = hierarchyLine + 1; j < hierarchyEnd; j++) {
+        const lm = lines[j].match(/^(\s*)children\s*:\s*$/);
+        if (!lm) continue;
+        const childrenIndent = lm[1].length;
+        if (childrenIndent <= hierarchyIndent) continue;
+
+        const childrenEnd = findRangeInLines(
+          lines,
+          j,
+          hierarchyEnd,
+          childrenIndent,
+        );
+        const childNodes = parseTreeChildren(
+          lines,
+          j,
+          childrenEnd,
+          rootEntity,
+          1,
+        );
+        rootChildren.push(...childNodes);
+        break;
+      }
+
+      if (rootEntity) {
+        children.push({
+          id: rootEntity,
+          label: rootEntity,
+          line: rootEntityLine + 1,
+          type: "entity",
+          meta: "корень",
+          children: rootChildren.length > 0 ? rootChildren : undefined,
+        });
+      } else if (rootChildren.length > 0) {
+        children.push(...rootChildren);
+      }
+    }
+
+    trees.push({
+      id: treeId,
+      label: treeId,
+      line: i + 1,
+      type: "tree",
+      children: children.length > 0 ? children : undefined,
+    });
+
+    i = treeEnd - 1;
+  }
+
+  return trees;
+}
+
+function parseTreeChildren(
+  lines: string[],
+  childrenLine: number,
+  childrenEnd: number,
+  parentEntity: string | null,
+  depth: number,
+): NavNode[] {
+  const result: NavNode[] = [];
+  if (depth > 10) return result;
+
+  // Регекспы для child: `- linkage: X` или `- entity: X`
+  const childStartRegex = /^(\s*)-\s+(linkage|entity)\s*:\s*([^\s#]+)/;
+
+  let childIndent = -1;
+  for (let i = childrenLine + 1; i < childrenEnd; i++) {
+    const m = lines[i].match(childStartRegex);
+    if (m) {
+      childIndent = m[1].length;
+      break;
+    }
+  }
+  if (childIndent < 0) return result;
+
+  for (let i = childrenLine + 1; i < childrenEnd; i++) {
+    const m = lines[i].match(childStartRegex);
+    if (!m || m[1].length !== childIndent) continue;
+
+    // Определяем границы текущего child (до следующего `- linkage:` / `- entity:` с тем же indent)
+    const childEnd = findRangeInLines(lines, i, childrenEnd, childIndent);
+
+    // Извлекаем linkage и entity
+    let linkage: string | null = m[2] === "linkage" ? m[3] : null;
+    let entity: string | null = m[2] === "entity" ? m[3] : null;
+
+    for (let j = i + 1; j < childEnd; j++) {
+      const lm = lines[j].match(/^\s*(linkage|entity)\s*:\s*([^\s#]+)/);
+      if (lm) {
+        const val = lm[2].replace(/["']/g, "");
+        if (lm[1] === "linkage" && !linkage) linkage = val;
+        else if (lm[1] === "entity" && !entity) entity = val;
+      }
+    }
+
+    // Вложенные children
+    let nestedChildren: NavNode[] = [];
+    for (let j = i + 1; j < childEnd; j++) {
+      const lm = lines[j].match(/^(\s*)children\s*:\s*$/);
+      if (!lm) continue;
+      const nestedIndent = lm[1].length;
+      const nestedEnd = findRangeInLines(lines, j, childEnd, nestedIndent);
+      nestedChildren = parseTreeChildren(
+        lines,
+        j,
+        nestedEnd,
+        entity,
+        depth + 1,
+      );
+      break;
+    }
+
+    // Идентификатор узла: если есть entity — используем его, иначе linkage
+    const displayId = entity || linkage || `child_${i}`;
+    const meta = linkage
+      ? `${linkage}${entity ? "" : ""}`
+      : entity
+        ? "сущность"
+        : "";
+
+    result.push({
+      id: displayId,
+      label: displayId,
+      line: i + 1,
+      type: "entity",
+      meta: meta || undefined,
+      children: nestedChildren.length > 0 ? nestedChildren : undefined,
+    });
+
+    i = childEnd - 1;
+  }
+
+  return result;
+}
+
+/** Парсит transitiveLinkages: дерево, joins (рекурсивно). */
+function parseTransitiveSection(lines: string[], start: number, end: number): NavNode[] {
+  const trees: NavNode[] = [];
+  const idRegex = /^(\s*)-\s+id\s*:\s*([^\s#]+)/;
+
+  let treeIndent = -1;
+  for (let i = start + 1; i < end; i++) {
+    const m = lines[i].match(idRegex);
+    if (m) {
+      treeIndent = m[1].length;
+      break;
+    }
+  }
+  if (treeIndent < 0) return [];
+
+  for (let i = start + 1; i < end; i++) {
+    const m = lines[i].match(idRegex);
+    if (!m || m[1].length !== treeIndent) continue;
+
+    const treeId = m[2];
+    const treeEnd = findRangeInLines(lines, i, end, treeIndent);
+
+    // entity — корень
+    let rootEntity: string | null = null;
+    for (let j = i + 1; j < treeEnd; j++) {
+      const lm = lines[j].match(/^\s*entity\s*:\s*([^\s#]+)/);
+      if (lm) {
+        rootEntity = lm[1].replace(/["']/g, "");
+        break;
+      }
+    }
+
+    // joins
+    let joinsLine = -1;
+    let joinsIndent = -1;
+    for (let j = i + 1; j < treeEnd; j++) {
+      const lm = lines[j].match(/^(\s*)joins\s*:\s*$/);
+      if (lm) {
+        joinsLine = j;
+        joinsIndent = lm[1].length;
+        break;
+      }
+    }
+
+    let children: NavNode[] = [];
+    if (joinsLine >= 0) {
+      const joinsEnd = findRangeInLines(lines, joinsLine, treeEnd, joinsIndent);
+      children = parseJoins(lines, joinsLine, joinsEnd, 1);
+    }
+
+    trees.push({
+      id: treeId,
+      label: treeId,
+      line: i + 1,
+      type: "transitiveLinkage",
+      meta: rootEntity || undefined,
+      children: children.length > 0 ? children : undefined,
+    });
+
+    i = treeEnd - 1;
+  }
+
+  return trees;
+}
+
+function parseJoins(
+  lines: string[],
+  joinsLine: number,
+  joinsEnd: number,
+  depth: number,
+): NavNode[] {
+  const result: NavNode[] = [];
+  if (depth > 8) return result;
+
+  const idRegex = /^(\s*)-\s+id\s*:\s*([^\s#]+)/;
+
+  let joinIndent = -1;
+  for (let i = joinsLine + 1; i < joinsEnd; i++) {
+    const m = lines[i].match(idRegex);
+    if (m) {
+      joinIndent = m[1].length;
+      break;
+    }
+  }
+  if (joinIndent < 0) return result;
+
+  for (let i = joinsLine + 1; i < joinsEnd; i++) {
+    const m = lines[i].match(idRegex);
+    if (!m || m[1].length !== joinIndent) continue;
+
+    const joinId = m[2];
+    const joinEnd = findRangeInLines(lines, i, joinsEnd, joinIndent);
+
+    // Извлекаем linkage
+    let linkage: string | null = null;
+    for (let j = i + 1; j < joinEnd; j++) {
+      const lm = lines[j].match(/^\s*linkage\s*:\s*([^\s#]+)/);
+      if (lm) {
+        linkage = lm[1].replace(/["']/g, "");
+        break;
+      }
+    }
+
+    // Ищем вложенные joins
+    let nestedChildren: NavNode[] = [];
+    for (let j = i + 1; j < joinEnd; j++) {
+      const lm = lines[j].match(/^(\s*)joins\s*:\s*$/);
+      if (!lm) continue;
+      const nestedJoinsIndent = lm[1].length;
+      const nestedJoinsEnd = findRangeInLines(lines, j, joinEnd, nestedJoinsIndent);
+      nestedChildren = parseJoins(lines, j, nestedJoinsEnd, depth + 1);
+      break;
+    }
+
+    result.push({
+      id: joinId,
+      label: joinId,
+      line: i + 1,
+      type: "join",
+      meta: linkage || undefined,
+      children: nestedChildren.length > 0 ? nestedChildren : undefined,
+    });
+
+    i = joinEnd - 1;
+  }
+
+  return result;
 }
