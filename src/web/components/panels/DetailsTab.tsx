@@ -79,7 +79,7 @@ export function DetailsTab({ node, allNodes, allEdges, ruleViolations }: Details
                             setDomainSchemaOpen(true);
                         }}
                     >
-                        <MIcon name="menu_book" size="sm"/>
+                        <MIcon name="menu_book" size="sm" />
                         Схема домена
                     </button>
                     {node.data.filePath && (
@@ -87,10 +87,22 @@ export function DetailsTab({ node, allNodes, allEdges, ruleViolations }: Details
                             className="btn"
                             onClick={() => openFileInEditor(node.data.filePath, null, node.data.domainId)}
                         >
-                            <MIcon name="description" size="sm" /> 
+                            <MIcon name="description" size="sm" />
                             Открыть файл
                         </button>
                     )}
+                    <button
+                        className="btn"
+                        onClick={() => {
+                            const st = useGraphStore.getState();
+                            st.setViewMode("graph");
+                            setTimeout(() => goto(node.data.domainId), 350);
+                        }}
+                        title="Центрировать на графе"
+                    >
+                        <MIcon name="my_location" size="sm" />
+                        На графе
+                    </button>
                 </div>
             )}
 

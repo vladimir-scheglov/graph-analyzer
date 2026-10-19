@@ -89,3 +89,22 @@ export function sourceColor(source: string | null | undefined): string {
   if (source === "fs") return "var(--warning)";
   return "var(--text-500)";
 }
+
+export function relativeTimeShort(iso: string | null | undefined): string {
+  if (!iso) return "";
+  try {
+    const diffMs = Date.now() - new Date(iso).getTime();
+    const min = Math.floor(diffMs / 60000);
+    if (min < 1) return "только что";
+    if (min < 60) return `${min}м`;
+    const h = Math.floor(min / 60);
+    if (h < 24) return `${h}ч`;
+    const d = Math.floor(h / 24);
+    if (d < 7) return `${d}д`;
+    if (d < 30) return `${Math.floor(d / 7)}н`;
+    if (d < 365) return `${Math.floor(d / 30)}м`;
+    return `${Math.floor(d / 365)}г`;
+  } catch {
+    return "";
+  }
+}

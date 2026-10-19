@@ -141,6 +141,36 @@ var init_useGraphStore = __esm({
       setYamlViewerDomainId: (v) => set2({ yamlViewerDomainId: v }),
       modelVersion: 0,
       bumpModelVersion: () => set2((s) => ({ modelVersion: s.modelVersion + 1 })),
+      viewMode: readString("dg-view-mode", "list"),
+      setViewMode: (m) => {
+        try {
+          localStorage.setItem("dg-view-mode", m);
+        } catch {
+        }
+        set2((s) => ({
+          viewMode: m,
+          // Если переключились в list и открыт таб edge — переключаем на details
+          panelTab: m === "list" && s.panelTab === "edge" ? "details" : s.panelTab
+        }));
+      },
+      listSearchQuery: "",
+      setListSearchQuery: (q) => set2({ listSearchQuery: q }),
+      listGrouping: readString("dg-list-grouping", "flat"),
+      setListGrouping: (g) => {
+        try {
+          localStorage.setItem("dg-list-grouping", g);
+        } catch {
+        }
+        set2({ listGrouping: g });
+      },
+      listSort: readString("dg-list-sort", "default"),
+      setListSort: (s) => {
+        try {
+          localStorage.setItem("dg-list-sort", s);
+        } catch {
+        }
+        set2({ listSort: s });
+      },
       // Закладки
       bookmarks: readSet("dg-bookmarks"),
       toggleBookmark: (nodeId) => set2((s) => {
@@ -2382,25 +2412,32 @@ function useNavigation() {
     (domainId) => {
       if (!domainId)
         return;
+      const st = useGraphStore.getState();
       const map2 = domainToNodeId();
       const nodeId = map2.get(domainId.toLowerCase());
-      if (!nodeId || !rfInstance)
+      if (!nodeId)
         return;
-      const node = nodes.find((n) => n.id === nodeId);
-      if (!node)
-        return;
-      const NODE_WIDTH5 = 300;
-      const NODE_HEIGHT5 = 88;
-      const NODE_COMPACT2 = 42;
-      const w = compact ? NODE_COMPACT2 : NODE_WIDTH5;
-      const h = compact ? NODE_COMPACT2 : NODE_HEIGHT5;
-      const cx = node.position.x + w / 2;
-      const cy = node.position.y + h / 2;
-      const z = Math.max(rfInstance.getZoom(), 1.2);
-      rfInstance.setCenter(cx, cy, { zoom: z, duration: 500 });
-      setSelectedNodeId(nodeId);
+      st.setSelectedNodeId(nodeId);
+      st.setPanelNodeId(nodeId);
+      st.setPanelTab("details");
+      st.setPanelOpen(true);
+      if (st.viewMode === "graph" && st.rfInstance) {
+        const node = st.nodes.find((n) => n.id === nodeId);
+        if (!node)
+          return;
+        const w = st.compact ? 42 : 300;
+        const h = st.compact ? 42 : 88;
+        try {
+          st.rfInstance.setCenter(
+            node.position.x + w / 2,
+            node.position.y + h / 2,
+            { zoom: Math.max(st.rfInstance.getZoom(), 1.2), duration: 500 }
+          );
+        } catch {
+        }
+      }
     },
-    [domainToNodeId, nodes, compact, rfInstance, setSelectedNodeId]
+    [domainToNodeId]
   );
   const goto = useCallback3(
     (domainId) => {
@@ -3487,6 +3524,31 @@ function sourceColor(source) {
   if (source === "fs")
     return "var(--warning)";
   return "var(--text-500)";
+}
+function relativeTimeShort(iso) {
+  if (!iso)
+    return "";
+  try {
+    const diffMs = Date.now() - new Date(iso).getTime();
+    const min = Math.floor(diffMs / 6e4);
+    if (min < 1)
+      return "\u0442\u043E\u043B\u044C\u043A\u043E \u0447\u0442\u043E";
+    if (min < 60)
+      return `${min}\u043C`;
+    const h = Math.floor(min / 60);
+    if (h < 24)
+      return `${h}\u0447`;
+    const d = Math.floor(h / 24);
+    if (d < 7)
+      return `${d}\u0434`;
+    if (d < 30)
+      return `${Math.floor(d / 7)}\u043D`;
+    if (d < 365)
+      return `${Math.floor(d / 30)}\u043C`;
+    return `${Math.floor(d / 365)}\u0433`;
+  } catch {
+    return "";
+  }
 }
 var init_format = __esm({
   "src/web/lib/format.ts"() {
@@ -4907,11 +4969,16 @@ var init_FilterMenu = __esm({
 });
 
 // src/web/components/popovers/AnalysisMenu.tsx
-import { jsx as jsx4, jsxs as jsxs3 } from "react/jsx-runtime";
+import { Fragment, jsx as jsx4, jsxs as jsxs3 } from "react/jsx-runtime";
 function AnalysisMenu(props) {
-  const store = useGraphStore();
+  const viewMode = useGraphStore((s) => s.viewMode);
+  const pathMode = useGraphStore((s) => s.pathMode);
+  const isolatedOnly = useGraphStore((s) => s.isolatedOnly);
+  const nsMode = useGraphStore((s) => s.isolatedOnly);
+  const focusDepth = useGraphStore((s) => s.focusDepth);
+  const focusNode = useGraphStore((s) => s.focusNode);
   return /* @__PURE__ */ jsxs3("div", { className: "menu", children: [
-    /* @__PURE__ */ jsxs3(
+    viewMode === "graph" && /* @__PURE__ */ jsxs3(
       "button",
       {
         className: "menu__item" + (props.cycleHighlight ? " menu__item--active" : ""),
@@ -4926,10 +4993,10 @@ function AnalysisMenu(props) {
         ]
       }
     ),
-    /* @__PURE__ */ jsxs3(
+    viewMode === "graph" && /* @__PURE__ */ jsxs3(
       "button",
       {
-        className: "menu__item" + (store.pathMode ? " menu__item--active" : ""),
+        className: "menu__item" + (pathMode ? " menu__item--active" : ""),
         onClick: () => {
           props.onStartPathFinder();
           props.close();
@@ -4940,12 +5007,12 @@ function AnalysisMenu(props) {
         ]
       }
     ),
-    /* @__PURE__ */ jsxs3(
+    viewMode === "graph" && /* @__PURE__ */ jsxs3(
       "button",
       {
-        className: "menu__item" + (store.isolatedOnly ? " menu__item--active" : ""),
+        className: "menu__item" + (isolatedOnly ? " menu__item--active" : ""),
         onClick: () => {
-          store.setIsolatedOnly((v) => !v);
+          useGraphStore.getState().setIsolatedOnly((v) => !v);
           props.close();
         },
         children: [
@@ -4954,12 +5021,12 @@ function AnalysisMenu(props) {
         ]
       }
     ),
-    /* @__PURE__ */ jsxs3(
+    viewMode === "graph" && /* @__PURE__ */ jsxs3(
       "button",
       {
-        className: "menu__item" + (store.nsMode ? " menu__item--active" : ""),
+        className: "menu__item" + (nsMode ? " menu__item--active" : ""),
         onClick: () => {
-          store.setNsMode((v) => !v);
+          useGraphStore.getState().setNsMode((v) => !v);
           props.close();
         },
         children: [
@@ -4969,36 +5036,7 @@ function AnalysisMenu(props) {
       }
     ),
     /* @__PURE__ */ jsx4("div", { className: "menu__divider" }),
-    /* @__PURE__ */ jsxs3(
-      "button",
-      {
-        className: "menu__item",
-        onClick: () => {
-          props.onOpenTopo();
-          props.close();
-        },
-        children: [
-          /* @__PURE__ */ jsx4("span", { className: "menu__icon", children: "\u{1F4E6}" }),
-          /* @__PURE__ */ jsx4("span", { className: "menu__text", children: "\u041F\u043E\u0440\u044F\u0434\u043E\u043A \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438" })
-        ]
-      }
-    ),
-    /* @__PURE__ */ jsxs3(
-      "button",
-      {
-        className: "menu__item",
-        onClick: () => {
-          props.onOpenLearningPath();
-          props.close();
-        },
-        children: [
-          /* @__PURE__ */ jsx4("span", { className: "menu__icon", children: "\u{1F4D6}" }),
-          /* @__PURE__ */ jsx4("span", { className: "menu__text", children: "\u041F\u0443\u0442\u044C \u0438\u0437\u0443\u0447\u0435\u043D\u0438\u044F" })
-        ]
-      }
-    ),
-    /* @__PURE__ */ jsx4("div", { className: "menu__divider" }),
-    /* @__PURE__ */ jsxs3(
+    viewMode === "graph" && /* @__PURE__ */ jsxs3(
       "button",
       {
         className: "menu__item" + (props.ruleViolationsCount > 0 ? " menu__item--active" : ""),
@@ -5013,56 +5051,44 @@ function AnalysisMenu(props) {
         ]
       }
     ),
-    /* @__PURE__ */ jsxs3(
-      "button",
-      {
-        className: "menu__item",
-        onClick: () => {
-          props.onOpenEntityHierarchy();
-          props.close();
-        },
-        children: [
-          /* @__PURE__ */ jsx4("span", { className: "menu__icon", children: "\u{1F9EC}" }),
-          /* @__PURE__ */ jsx4("span", { className: "menu__text", children: "\u0418\u0435\u0440\u0430\u0440\u0445\u0438\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" })
-        ]
-      }
-    ),
-    /* @__PURE__ */ jsx4("div", { className: "menu__divider" }),
-    /* @__PURE__ */ jsxs3("div", { className: "menu__row", children: [
-      /* @__PURE__ */ jsx4("span", { style: { fontSize: 12, color: "var(--text-400)", minWidth: 100 }, children: "\u0413\u043B\u0443\u0431\u0438\u043D\u0430 \u0444\u043E\u043A\u0443\u0441\u0430:" }),
-      /* @__PURE__ */ jsx4(
-        "input",
-        {
-          className: "menu__slider",
-          type: "range",
-          min: 1,
-          max: 4,
-          value: store.focusDepth,
-          onChange: (e) => store.setFocusDepth(parseInt(e.target.value, 10))
-        }
-      ),
-      /* @__PURE__ */ jsx4(
-        "span",
-        {
-          style: {
-            fontSize: 12,
-            fontWeight: 700,
-            color: "var(--accent-hover)",
-            minWidth: 12,
-            textAlign: "center"
-          },
-          children: store.focusDepth
-        }
-      )
+    viewMode === "graph" && /* @__PURE__ */ jsxs3(Fragment, { children: [
+      /* @__PURE__ */ jsx4("div", { className: "menu__divider" }),
+      /* @__PURE__ */ jsxs3("div", { className: "menu__row", children: [
+        /* @__PURE__ */ jsx4("span", { style: { fontSize: 12, color: "var(--text-400)", minWidth: 100 }, children: "\u0413\u043B\u0443\u0431\u0438\u043D\u0430 \u0444\u043E\u043A\u0443\u0441\u0430:" }),
+        /* @__PURE__ */ jsx4(
+          "input",
+          {
+            className: "menu__slider",
+            type: "range",
+            min: 1,
+            max: 4,
+            value: focusDepth,
+            onChange: (e) => useGraphStore.getState().setFocusDepth(parseInt(e.target.value, 10))
+          }
+        ),
+        /* @__PURE__ */ jsx4(
+          "span",
+          {
+            style: {
+              fontSize: 12,
+              fontWeight: 700,
+              color: "var(--accent-hover)",
+              minWidth: 12,
+              textAlign: "center"
+            },
+            children: focusDepth
+          }
+        )
+      ] })
     ] }),
-    store.focusNode && /* @__PURE__ */ jsxs3(
+    viewMode === "graph" && focusNode && /* @__PURE__ */ jsxs3(
       "button",
       {
         className: "menu__item menu__item--danger",
         onClick: () => {
-          store.setFocusNode(null);
-          store.setSelectedNodeId(null);
-          store.setSelectedEdgeId(null);
+          useGraphStore.getState().setFocusNode(null);
+          useGraphStore.getState().setSelectedNodeId(null);
+          useGraphStore.getState().setSelectedEdgeId(null);
           props.close();
         },
         children: [
@@ -5218,70 +5244,75 @@ var init_diff_colors = __esm({
 
 // src/web/components/popovers/DataMenu.tsx
 import { useRef as useRef6 } from "react";
-import { Fragment, jsx as jsx6, jsxs as jsxs5 } from "react/jsx-runtime";
+import { Fragment as Fragment2, jsx as jsx6, jsxs as jsxs5 } from "react/jsx-runtime";
 function DataMenu(props) {
-  const store = useGraphStore();
+  const viewMode = useGraphStore((s) => s.viewMode);
+  const diffMode = useGraphStore((s) => s.diffMode);
   const fileInputRef = useRef6(null);
-  const diffMode = store.diffMode;
+  const snapshotA = useGraphStore((s) => s.snapshotA);
+  const snapshotB = useGraphStore((s) => s.snapshotB);
+  const validationAvailable = useGraphStore((s) => s.validationAvailable);
   return /* @__PURE__ */ jsxs5("div", { className: "menu", children: [
-    /* @__PURE__ */ jsx6("div", { className: "menu__label", style: { paddingLeft: 12, paddingTop: 6 }, children: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442" }),
-    /* @__PURE__ */ jsxs5(
-      "button",
-      {
-        className: "menu__item",
-        onClick: () => {
-          props.onExportJSON();
-          props.close();
-        },
-        children: [
-          /* @__PURE__ */ jsx6("span", { className: "menu__icon", children: "\u{1F4BE}" }),
-          /* @__PURE__ */ jsx6("span", { className: "menu__text", children: "\u0413\u0440\u0430\u0444 \u0432 JSON" })
-        ]
-      }
-    ),
-    /* @__PURE__ */ jsxs5(
-      "button",
-      {
-        className: "menu__item",
-        onClick: () => {
-          props.onExportMarkdown();
-          props.close();
-        },
-        children: [
-          /* @__PURE__ */ jsx6("span", { className: "menu__icon", children: "\u{1F4DD}" }),
-          /* @__PURE__ */ jsx6("span", { className: "menu__text", children: "\u041E\u0442\u0447\u0451\u0442 \u0432 Markdown" })
-        ]
-      }
-    ),
-    /* @__PURE__ */ jsxs5(
-      "button",
-      {
-        className: "menu__item",
-        onClick: () => {
-          props.onExportPNG();
-          props.close();
-        },
-        children: [
-          /* @__PURE__ */ jsx6("span", { className: "menu__icon", children: "\u{1F5BC}\uFE0F" }),
-          /* @__PURE__ */ jsx6("span", { className: "menu__text", children: "\u0413\u0440\u0430\u0444 \u0432 PNG" })
-        ]
-      }
-    ),
-    /* @__PURE__ */ jsxs5(
-      "button",
-      {
-        className: "menu__item",
-        onClick: () => {
-          props.onExportMermaid();
-          props.close();
-        },
-        children: [
-          /* @__PURE__ */ jsx6("span", { className: "menu__icon", children: /* @__PURE__ */ jsx6(MIcon, { name: "schema", size: "sm" }) }),
-          /* @__PURE__ */ jsx6("span", { className: "menu__text", children: "\u0414\u0438\u0430\u0433\u0440\u0430\u043C\u043C\u0430 Mermaid" })
-        ]
-      }
-    ),
-    /* @__PURE__ */ jsx6("div", { className: "menu__divider" }),
+    viewMode === "graph" && /* @__PURE__ */ jsxs5(Fragment2, { children: [
+      /* @__PURE__ */ jsx6("div", { className: "menu__label", style: { paddingLeft: 12, paddingTop: 6 }, children: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442" }),
+      /* @__PURE__ */ jsxs5(
+        "button",
+        {
+          className: "menu__item",
+          onClick: () => {
+            props.onExportJSON();
+            props.close();
+          },
+          children: [
+            /* @__PURE__ */ jsx6("span", { className: "menu__icon", children: "\u{1F4BE}" }),
+            /* @__PURE__ */ jsx6("span", { className: "menu__text", children: "\u0413\u0440\u0430\u0444 \u0432 JSON" })
+          ]
+        }
+      ),
+      /* @__PURE__ */ jsxs5(
+        "button",
+        {
+          className: "menu__item",
+          onClick: () => {
+            props.onExportMarkdown();
+            props.close();
+          },
+          children: [
+            /* @__PURE__ */ jsx6("span", { className: "menu__icon", children: "\u{1F4DD}" }),
+            /* @__PURE__ */ jsx6("span", { className: "menu__text", children: "\u041E\u0442\u0447\u0451\u0442 \u0432 Markdown" })
+          ]
+        }
+      ),
+      /* @__PURE__ */ jsxs5(
+        "button",
+        {
+          className: "menu__item",
+          onClick: () => {
+            props.onExportPNG();
+            props.close();
+          },
+          children: [
+            /* @__PURE__ */ jsx6("span", { className: "menu__icon", children: "\u{1F5BC}\uFE0F" }),
+            /* @__PURE__ */ jsx6("span", { className: "menu__text", children: "\u0413\u0440\u0430\u0444 \u0432 PNG" })
+          ]
+        }
+      ),
+      /* @__PURE__ */ jsxs5(
+        "button",
+        {
+          className: "menu__item",
+          onClick: () => {
+            props.onExportMermaid();
+            props.close();
+          },
+          children: [
+            /* @__PURE__ */ jsx6("span", { className: "menu__icon", children: /* @__PURE__ */ jsx6(MIcon, { name: "schema", size: "sm" }) }),
+            /* @__PURE__ */ jsx6("span", { className: "menu__text", children: "\u0414\u0438\u0430\u0433\u0440\u0430\u043C\u043C\u0430 Mermaid" })
+          ]
+        }
+      ),
+      /* @__PURE__ */ jsx6("div", { className: "menu__divider" })
+    ] }),
     /* @__PURE__ */ jsx6("div", { className: "menu__label", style: { paddingLeft: 12, paddingTop: 6 }, children: "\u041C\u043E\u0434\u0435\u043B\u044C" }),
     /* @__PURE__ */ jsxs5(
       "button",
@@ -5328,12 +5359,12 @@ function DataMenu(props) {
     /* @__PURE__ */ jsxs5("div", { className: "snap-slot", children: [
       /* @__PURE__ */ jsxs5("div", { className: "snap-slot__info", children: [
         /* @__PURE__ */ jsx6("span", { className: "snap-slot__badge snap-slot__badge--a", children: "A" }),
-        store.snapshotA ? /* @__PURE__ */ jsxs5("div", { className: "snap-slot__meta", children: [
-          /* @__PURE__ */ jsx6("div", { className: "snap-slot__time", children: formatSavedAt(store.snapshotA.savedAt) }),
+        snapshotA ? /* @__PURE__ */ jsxs5("div", { className: "snap-slot__meta", children: [
+          /* @__PURE__ */ jsx6("div", { className: "snap-slot__time", children: formatSavedAt(snapshotA.savedAt) }),
           /* @__PURE__ */ jsxs5("div", { className: "snap-slot__stats", children: [
-            store.snapshotA.stats.nodes,
+            snapshotA.stats.nodes,
             " \u0443\u0437\u043B\u043E\u0432 \xB7 ",
-            store.snapshotA.stats.edges,
+            snapshotA.stats.edges,
             " \u0441\u0432\u044F\u0437\u0435\u0439"
           ] })
         ] }) : /* @__PURE__ */ jsx6("div", { className: "snap-slot__empty", children: "\u043F\u0443\u0441\u0442\u043E" })
@@ -5348,7 +5379,7 @@ function DataMenu(props) {
             children: /* @__PURE__ */ jsx6(MIcon, { name: "save", size: "sm" })
           }
         ),
-        store.snapshotA && /* @__PURE__ */ jsx6(
+        snapshotA && /* @__PURE__ */ jsx6(
           "button",
           {
             className: "snap-btn snap-btn--primary",
@@ -5360,7 +5391,7 @@ function DataMenu(props) {
             children: /* @__PURE__ */ jsx6(MIcon, { name: "compare_arrows", size: "sm" })
           }
         ),
-        store.snapshotA && /* @__PURE__ */ jsx6(
+        snapshotA && /* @__PURE__ */ jsx6(
           "button",
           {
             className: "snap-btn snap-btn--danger",
@@ -5374,12 +5405,12 @@ function DataMenu(props) {
     /* @__PURE__ */ jsxs5("div", { className: "snap-slot", children: [
       /* @__PURE__ */ jsxs5("div", { className: "snap-slot__info", children: [
         /* @__PURE__ */ jsx6("span", { className: "snap-slot__badge snap-slot__badge--b", children: "B" }),
-        store.snapshotB ? /* @__PURE__ */ jsxs5("div", { className: "snap-slot__meta", children: [
-          /* @__PURE__ */ jsx6("div", { className: "snap-slot__time", children: formatSavedAt(store.snapshotB.savedAt) }),
+        snapshotB ? /* @__PURE__ */ jsxs5("div", { className: "snap-slot__meta", children: [
+          /* @__PURE__ */ jsx6("div", { className: "snap-slot__time", children: formatSavedAt(snapshotB.savedAt) }),
           /* @__PURE__ */ jsxs5("div", { className: "snap-slot__stats", children: [
-            store.snapshotB.stats.nodes,
+            snapshotB.stats.nodes,
             " \u0443\u0437\u043B\u043E\u0432 \xB7 ",
-            store.snapshotB.stats.edges,
+            snapshotB.stats.edges,
             " \u0441\u0432\u044F\u0437\u0435\u0439"
           ] })
         ] }) : /* @__PURE__ */ jsx6("div", { className: "snap-slot__empty", children: "\u043F\u0443\u0441\u0442\u043E" })
@@ -5394,7 +5425,7 @@ function DataMenu(props) {
             children: /* @__PURE__ */ jsx6(MIcon, { name: "save", size: "sm" })
           }
         ),
-        store.snapshotB && /* @__PURE__ */ jsx6(
+        snapshotB && /* @__PURE__ */ jsx6(
           "button",
           {
             className: "snap-btn snap-btn--primary",
@@ -5406,7 +5437,7 @@ function DataMenu(props) {
             children: /* @__PURE__ */ jsx6(MIcon, { name: "compare_arrows", size: "sm" })
           }
         ),
-        store.snapshotB && /* @__PURE__ */ jsx6(
+        snapshotB && /* @__PURE__ */ jsx6(
           "button",
           {
             className: "snap-btn snap-btn--danger",
@@ -5453,27 +5484,9 @@ function DataMenu(props) {
         "button",
         {
           className: "diff-legend__close",
-          onClick: () => store.setDiffMode(null),
+          onClick: () => useGraphStore.getState().setDiffMode(null),
           title: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C diff",
           children: /* @__PURE__ */ jsx6(MIcon, { name: "close", size: "sm" })
-        }
-      )
-    ] }),
-    store.validationAvailable && /* @__PURE__ */ jsxs5(Fragment, { children: [
-      /* @__PURE__ */ jsx6("div", { className: "menu__divider" }),
-      /* @__PURE__ */ jsx6("div", { className: "menu__label", style: { paddingLeft: 12, paddingTop: 6 }, children: "\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F" }),
-      /* @__PURE__ */ jsxs5(
-        "button",
-        {
-          className: "menu__item",
-          onClick: () => {
-            props.onOpenValidation();
-            props.close();
-          },
-          children: [
-            /* @__PURE__ */ jsx6("span", { className: "menu__icon", children: "\u{1F50D}" }),
-            /* @__PURE__ */ jsx6("span", { className: "menu__text", children: "\u041C\u0430\u0441\u0441\u043E\u0432\u0430\u044F \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u0434\u043E\u043C\u0435\u043D\u043E\u0432" })
-          ]
         }
       )
     ] })
@@ -5564,6 +5577,66 @@ function ModelMenu({ close }) {
           /* @__PURE__ */ jsx7("span", { className: "menu__icon", children: /* @__PURE__ */ jsx7(MIcon, { name: "account_tree", size: "sm" }) }),
           /* @__PURE__ */ jsx7("span", { className: "menu__text", children: "\u0413\u0440\u0430\u0444 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" }),
           /* @__PURE__ */ jsx7("kbd", { className: "menu__hotkey", children: "\u21E7\u2318K" })
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsx7("div", { className: "menu__divider" }),
+    /* @__PURE__ */ jsx7("div", { className: "menu__label", style: { paddingLeft: 12, paddingTop: 6 }, children: "\u0410\u043D\u0430\u043B\u0438\u0437" }),
+    /* @__PURE__ */ jsxs6(
+      "button",
+      {
+        className: "menu__item",
+        onClick: () => {
+          useGraphStore.getState().setTopoOpen(true);
+          close();
+        },
+        children: [
+          /* @__PURE__ */ jsx7("span", { className: "menu__icon", children: /* @__PURE__ */ jsx7(MIcon, { name: "inventory_2", size: "sm" }) }),
+          /* @__PURE__ */ jsx7("span", { className: "menu__text", children: "\u041F\u043E\u0440\u044F\u0434\u043E\u043A \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438" })
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsxs6(
+      "button",
+      {
+        className: "menu__item",
+        onClick: () => {
+          useGraphStore.getState().setLearningPathOpen(true);
+          close();
+        },
+        children: [
+          /* @__PURE__ */ jsx7("span", { className: "menu__icon", children: /* @__PURE__ */ jsx7(MIcon, { name: "menu_book", size: "sm" }) }),
+          /* @__PURE__ */ jsx7("span", { className: "menu__text", children: "\u041F\u0443\u0442\u044C \u0438\u0437\u0443\u0447\u0435\u043D\u0438\u044F" })
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsxs6(
+      "button",
+      {
+        className: "menu__item",
+        onClick: () => {
+          const st = useGraphStore.getState();
+          st.setEntityHierarchyInitialKey(null);
+          st.setEntityHierarchyOpen(true);
+          close();
+        },
+        children: [
+          /* @__PURE__ */ jsx7("span", { className: "menu__icon", children: /* @__PURE__ */ jsx7(MIcon, { name: "account_tree", size: "sm" }) }),
+          /* @__PURE__ */ jsx7("span", { className: "menu__text", children: "\u0418\u0435\u0440\u0430\u0440\u0445\u0438\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" })
+        ]
+      }
+    ),
+    useGraphStore.getState().validationAvailable && /* @__PURE__ */ jsxs6(
+      "button",
+      {
+        className: "menu__item",
+        onClick: () => {
+          useGraphStore.getState().setValidationOpen(true);
+          close();
+        },
+        children: [
+          /* @__PURE__ */ jsx7("span", { className: "menu__icon", children: /* @__PURE__ */ jsx7(MIcon, { name: "cloud_upload", size: "sm" }) }),
+          /* @__PURE__ */ jsx7("span", { className: "menu__text", children: "\u041C\u0430\u0441\u0441\u043E\u0432\u0430\u044F \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F" })
         ]
       }
     ),
@@ -5684,220 +5757,220 @@ var init_popovers = __esm({
 });
 
 // src/web/components/layout/Toolbar.tsx
-import { jsx as jsx8, jsxs as jsxs7 } from "react/jsx-runtime";
+import { Fragment as Fragment3, jsx as jsx8, jsxs as jsxs7 } from "react/jsx-runtime";
 function Toolbar(props) {
-  const store = useGraphStore();
   const { back, forward, navStack } = useNavigation();
+  const viewMode = useGraphStore((s) => s.viewMode);
+  const isolatedOnly = useGraphStore((s) => s.isolatedOnly);
+  const nsMode = useGraphStore((s) => s.nsMode);
+  const focusNode = useGraphStore((s) => s.focusNode);
+  const diffMode = useGraphStore((s) => s.diffMode);
+  const rfInstance = useGraphStore((s) => s.rfInstance);
+  const theme = useGraphStore((s) => s.theme);
+  const setViewMode = useGraphStore((s) => s.setViewMode);
   const cycleActive = !!props.cycleHighlight;
-  const analysisActive = cycleActive || store.isolatedOnly || store.nsMode || !!store.focusNode;
-  const dataActive = !!store.diffMode;
-  return /* @__PURE__ */ jsxs7("div", { className: "toolbar", children: [
-    /* @__PURE__ */ jsxs7("div", { className: "toolbar__group", children: [
-      /* @__PURE__ */ jsx8(
+  const analysisActive = cycleActive || isolatedOnly || nsMode || !!focusNode;
+  const dataActive = !!diffMode;
+  return /* @__PURE__ */ jsxs7(Fragment3, { children: [
+    /* @__PURE__ */ jsxs7("div", { className: "toolbar", children: [
+      /* @__PURE__ */ jsxs7("div", { className: "toolbar__group", children: [
+        viewMode === "graph" && /* @__PURE__ */ jsxs7(Fragment3, { children: [
+          /* @__PURE__ */ jsx8("button", { className: "btn btn--icon", onClick: () => rfInstance?.fitView({ duration: 500 }), title: "\u0412\u043F\u0438\u0441\u0430\u0442\u044C (F)", children: /* @__PURE__ */ jsx8(MIcon, { name: "fit_screen" }) }),
+          /* @__PURE__ */ jsx8("button", { className: "btn btn--icon", onClick: props.onRelayout, title: "\u041F\u0435\u0440\u0435\u0443\u043B\u043E\u0436\u0438\u0442\u044C", children: /* @__PURE__ */ jsx8(MIcon, { name: "refresh" }) }),
+          /* @__PURE__ */ jsx8("button", { className: "btn btn--icon", onClick: () => {
+          }, title: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0440\u0430\u0441\u043A\u043B\u0430\u0434\u043A\u0443", children: /* @__PURE__ */ jsx8(MIcon, { name: "restart_alt" }) })
+        ] }),
+        viewMode === "graph" && /* @__PURE__ */ jsx8(
+          "button",
+          {
+            className: "btn btn--icon",
+            onClick: () => {
+              if (!confirm("\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0432\u0441\u0435 \u0444\u0438\u043B\u044C\u0442\u0440\u044B, \u0440\u0435\u0436\u0438\u043C\u044B \u0438 \u0432\u044B\u0434\u0435\u043B\u0435\u043D\u0438\u044F?"))
+                return;
+              props.onResetAll();
+            },
+            title: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0432\u0441\u0451",
+            children: /* @__PURE__ */ jsx8(MIcon, { name: "restart_alt" })
+          }
+        ),
+        /* @__PURE__ */ jsx8("button", { className: "btn btn--icon", onClick: back, disabled: navStack.index <= 0, title: "\u041D\u0430\u0437\u0430\u0434 (Alt+\u2190)", children: /* @__PURE__ */ jsx8(MIcon, { name: "arrow_back" }) }),
+        /* @__PURE__ */ jsx8("button", { className: "btn btn--icon", onClick: forward, disabled: navStack.index >= navStack.items.length - 1, title: "\u0412\u043F\u0435\u0440\u0451\u0434 (Alt+\u2192)", children: /* @__PURE__ */ jsx8(MIcon, { name: "arrow_forward" }) })
+      ] }),
+      /* @__PURE__ */ jsxs7(
         "button",
         {
-          className: "btn btn--icon",
-          onClick: () => store.rfInstance?.fitView({ duration: 500 }),
-          title: "\u0412\u043F\u0438\u0441\u0430\u0442\u044C (F)",
-          children: /* @__PURE__ */ jsx8(MIcon, { name: "fit_screen" })
-        }
-      ),
-      /* @__PURE__ */ jsx8("button", { className: "btn btn--icon", onClick: props.onRelayout, title: "\u041F\u0435\u0440\u0435\u0443\u043B\u043E\u0436\u0438\u0442\u044C", children: /* @__PURE__ */ jsx8(MIcon, { name: "refresh" }) }),
-      /* @__PURE__ */ jsx8(
-        "button",
-        {
-          className: "btn btn--icon",
-          onClick: () => {
-            if (!confirm("\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0440\u0430\u0441\u043A\u043B\u0430\u0434\u043A\u0443 \u0438 \u0432\u044B\u0434\u0435\u043B\u0435\u043D\u0438\u044F?"))
-              return;
-            store.setLayoutType("LR");
-            store.setCompact(false);
-            store.setSelectedNodeId(null);
-            store.setFocusNode(null);
-            store.setCycleHighlight(null);
-            store.setPathResult(null);
-            store.setPathSel([]);
-            setTimeout(() => store.rfInstance?.fitView({ duration: 500 }), 200);
-          },
-          title: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0440\u0430\u0441\u043A\u043B\u0430\u0434\u043A\u0443",
-          children: /* @__PURE__ */ jsx8(MIcon, { name: "restart_alt" })
-        }
-      ),
-      /* @__PURE__ */ jsx8(
-        "button",
-        {
-          className: "btn btn--icon",
-          onClick: () => {
-            if (!confirm("\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0432\u0441\u0435 \u0444\u0438\u043B\u044C\u0442\u0440\u044B, \u0440\u0435\u0436\u0438\u043C\u044B \u0438 \u0432\u044B\u0434\u0435\u043B\u0435\u043D\u0438\u044F?"))
-              return;
-            props.onResetAll();
-          },
-          title: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0432\u0441\u0451",
-          children: /* @__PURE__ */ jsx8(MIcon, { name: "restart_alt" })
+          className: "btn",
+          onClick: () => useGraphStore.getState().setSearchOpen(true),
+          title: "\u041F\u043E\u0438\u0441\u043A (Shift+Tab)",
+          children: [
+            /* @__PURE__ */ jsx8(MIcon, { name: "search" }),
+            /* @__PURE__ */ jsx8("kbd", { className: "btn-kbd", children: "\u21E7 Tab" })
+          ]
         }
       ),
       /* @__PURE__ */ jsx8(
-        "button",
+        Popover,
         {
-          className: "btn btn--icon",
-          onClick: back,
-          disabled: navStack.index <= 0,
-          style: { opacity: navStack.index <= 0 ? 0.4 : 1 },
-          title: "\u041D\u0430\u0437\u0430\u0434 (Alt+\u2190)",
-          children: /* @__PURE__ */ jsx8(MIcon, { name: "arrow_back" })
+          width: 280,
+          trigger: (open) => /* @__PURE__ */ jsxs7("button", { className: "btn" + (open ? " btn--active" : ""), children: [
+            /* @__PURE__ */ jsx8(MIcon, { name: "psychology" }),
+            "\u041C\u043E\u0434\u0435\u043B\u044C"
+          ] }),
+          children: (close) => /* @__PURE__ */ jsx8(ModelMenu, { close })
+        }
+      ),
+      viewMode === "graph" && /* @__PURE__ */ jsx8(
+        Popover,
+        {
+          width: 320,
+          trigger: (open) => /* @__PURE__ */ jsxs7("button", { className: "btn" + (open || props.activeFiltersCount > 0 ? " btn--active" : ""), children: [
+            /* @__PURE__ */ jsx8(MIcon, { name: "tune" }),
+            /* @__PURE__ */ jsx8("span", { style: { marginLeft: 6 }, children: "\u0424\u0438\u043B\u044C\u0442\u0440\u044B" }),
+            props.activeFiltersCount > 0 && /* @__PURE__ */ jsx8("span", { className: "btn__badge", children: props.activeFiltersCount })
+          ] }),
+          children: /* @__PURE__ */ jsx8(FilterMenu, { counts: props.counts })
+        }
+      ),
+      viewMode === "graph" && /* @__PURE__ */ jsx8(
+        Popover,
+        {
+          width: 280,
+          trigger: (open) => /* @__PURE__ */ jsxs7("button", { className: "btn" + (open || analysisActive ? " btn--active" : ""), children: [
+            /* @__PURE__ */ jsx8(MIcon, { name: "bar_chart" }),
+            "\u0410\u043D\u0430\u043B\u0438\u0437"
+          ] }),
+          children: (close) => /* @__PURE__ */ jsx8(
+            AnalysisMenu,
+            {
+              cycleHighlight: props.cycleHighlight,
+              onFindCycles: props.onFindCycles,
+              onStartPathFinder: props.onStartPathFinder,
+              onOpenTopo: props.onOpenTopo,
+              onOpenLearningPath: props.onOpenLearningPath,
+              onOpenRules: props.onOpenRules,
+              onOpenEntityHierarchy: props.onOpenEntityHierarchy,
+              ruleViolationsCount: props.ruleViolationsCount,
+              close
+            }
+          )
+        }
+      ),
+      viewMode === "graph" && /* @__PURE__ */ jsx8(
+        Popover,
+        {
+          width: 300,
+          trigger: (open) => /* @__PURE__ */ jsxs7("button", { className: "btn" + (open ? " btn--active" : ""), children: [
+            /* @__PURE__ */ jsx8(MIcon, { name: "palette" }),
+            "\u0412\u0438\u0434"
+          ] }),
+          children: (close) => /* @__PURE__ */ jsx8(ViewMenu, { close })
+        }
+      ),
+      /* @__PURE__ */ jsx8(
+        Popover,
+        {
+          width: 260,
+          trigger: (open) => /* @__PURE__ */ jsxs7("button", { className: "btn" + (open || dataActive ? " btn--active" : ""), children: [
+            /* @__PURE__ */ jsx8(MIcon, { name: "save" }),
+            "\u0414\u0430\u043D\u043D\u044B\u0435"
+          ] }),
+          children: (close) => /* @__PURE__ */ jsx8(
+            DataMenu,
+            {
+              close,
+              onExportJSON: props.onExportJSON,
+              onExportMarkdown: props.onExportMarkdown,
+              onExportPNG: props.onExportPNG,
+              onExportMermaid: props.onExportMermaid,
+              onSaveSnapshot: props.onSaveSnapshot,
+              onLoadSnapshot: props.onLoadSnapshot,
+              onClearSnapshot: props.onClearSnapshot,
+              onSnapshotUpload: props.onSnapshotUpload,
+              onOpenValidation: props.onOpenValidation
+            }
+          )
+        }
+      ),
+      /* @__PURE__ */ jsx8("div", { className: "toolbar__spacer" }),
+      props.remoteInfo?.server && props.remoteInfo?.fetchedAt && /* @__PURE__ */ jsxs7(
+        "div",
+        {
+          className: "toolbar__cache",
+          title: "\u0418\u0441\u0442\u043E\u0447\u043D\u0438\u043A: " + props.remoteInfo.server + "\n\u041E\u0431\u043D\u043E\u0432\u043B\u0451\u043D: " + new Date(props.remoteInfo.fetchedAt).toLocaleString("ru-RU"),
+          onClick: props.onShowToast,
+          children: [
+            /* @__PURE__ */ jsx8(MIcon, { name: "database" }),
+            /* @__PURE__ */ jsxs7("span", { children: [
+              "\u041F\u043E\u043B\u0443\u0447\u0435\u043D\u043E ",
+              relativeTime(props.remoteInfo.fetchedAt)
+            ] })
+          ]
         }
       ),
       /* @__PURE__ */ jsx8(
         "button",
         {
           className: "btn btn--icon",
-          onClick: forward,
-          disabled: navStack.index >= navStack.items.length - 1,
-          style: { opacity: navStack.index >= navStack.items.length - 1 ? 0.4 : 1 },
-          title: "\u0412\u043F\u0435\u0440\u0451\u0434 (Alt+\u2192)",
-          children: /* @__PURE__ */ jsx8(MIcon, { name: "arrow_forward" })
+          onClick: () => useGraphStore.getState().setTheme(theme === "dark" ? "light" : "dark"),
+          title: theme === "dark" ? "\u0421\u0432\u0435\u0442\u043B\u0430\u044F \u0442\u0435\u043C\u0430" : "\u0422\u0451\u043C\u043D\u0430\u044F \u0442\u0435\u043C\u0430",
+          children: /* @__PURE__ */ jsx8(MIcon, { name: theme === "dark" ? "light_mode" : "dark_mode" })
+        }
+      ),
+      /* @__PURE__ */ jsx8(
+        "button",
+        {
+          className: "btn btn--icon",
+          onClick: () => useGraphStore.getState().setHotkeysOpen(true),
+          title: "\u0413\u043E\u0440\u044F\u0447\u0438\u0435 \u043A\u043B\u0430\u0432\u0438\u0448\u0438 (?)",
+          children: /* @__PURE__ */ jsx8(MIcon, { name: "keyboard" })
+        }
+      ),
+      /* @__PURE__ */ jsx8(
+        "button",
+        {
+          className: "btn btn--icon",
+          onClick: () => useGraphStore.getState().setHelpOpen(true),
+          title: "\u0420\u0443\u043A\u043E\u0432\u043E\u0434\u0441\u0442\u0432\u043E \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044F (F1)",
+          children: /* @__PURE__ */ jsx8(MIcon, { name: "menu_book" })
+        }
+      ),
+      /* @__PURE__ */ jsxs7("div", { className: "toolbar__stats", children: [
+        props.visibleNodesCount,
+        " / ",
+        props.totalNodesCount,
+        " \u0443\u0437\u043B\u043E\u0432 \xB7 ",
+        props.visibleEdgesCount,
+        " /",
+        " ",
+        props.totalEdgesCount,
+        " \u0441\u0432\u044F\u0437\u0435\u0439"
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxs7("div", { className: "toolbar__mode-toggle", children: [
+      /* @__PURE__ */ jsxs7(
+        "button",
+        {
+          className: "toolbar__mode-btn" + (viewMode === "list" ? " toolbar__mode-btn--active" : ""),
+          onClick: () => setViewMode("list"),
+          title: "\u0421\u043F\u0438\u0441\u043E\u043A \u0434\u043E\u043C\u0435\u043D\u043E\u0432",
+          children: [
+            /* @__PURE__ */ jsx8(MIcon, { name: "list", size: "sm" }),
+            /* @__PURE__ */ jsx8("span", { children: "\u0421\u043F\u0438\u0441\u043E\u043A" })
+          ]
+        }
+      ),
+      /* @__PURE__ */ jsxs7(
+        "button",
+        {
+          className: "toolbar__mode-btn" + (viewMode === "graph" ? " toolbar__mode-btn--active" : ""),
+          onClick: () => setViewMode("graph"),
+          title: "\u0413\u0440\u0430\u0444 \u0434\u043E\u043C\u0435\u043D\u043E\u0432",
+          children: [
+            /* @__PURE__ */ jsx8(MIcon, { name: "schema", size: "sm" }),
+            /* @__PURE__ */ jsx8("span", { children: "\u0413\u0440\u0430\u0444" })
+          ]
         }
       )
-    ] }),
-    /* @__PURE__ */ jsxs7(
-      "button",
-      {
-        className: "btn",
-        onClick: () => store.setSearchOpen(true),
-        title: "\u041F\u043E\u0438\u0441\u043A (Shift+Tab)",
-        children: [
-          /* @__PURE__ */ jsx8(MIcon, { name: "search" }),
-          /* @__PURE__ */ jsx8("kbd", { className: "btn-kbd", children: "\u21E7 Tab" })
-        ]
-      }
-    ),
-    /* @__PURE__ */ jsx8(
-      Popover,
-      {
-        width: 280,
-        trigger: (open) => /* @__PURE__ */ jsxs7("button", { className: "btn" + (open ? " btn--active" : ""), children: [
-          /* @__PURE__ */ jsx8(MIcon, { name: "psychology" }),
-          "\u041C\u043E\u0434\u0435\u043B\u044C"
-        ] }),
-        children: (close) => /* @__PURE__ */ jsx8(ModelMenu, { close })
-      }
-    ),
-    /* @__PURE__ */ jsx8(
-      Popover,
-      {
-        width: 320,
-        trigger: (open) => /* @__PURE__ */ jsxs7("button", { className: "btn" + (open || props.activeFiltersCount > 0 ? " btn--active" : ""), children: [
-          /* @__PURE__ */ jsx8(MIcon, { name: "tune" }),
-          /* @__PURE__ */ jsx8("span", { style: { marginLeft: 6 }, children: "\u0424\u0438\u043B\u044C\u0442\u0440\u044B" }),
-          props.activeFiltersCount > 0 && /* @__PURE__ */ jsx8("span", { className: "btn__badge", children: props.activeFiltersCount })
-        ] }),
-        children: /* @__PURE__ */ jsx8(FilterMenu, { counts: props.counts })
-      }
-    ),
-    /* @__PURE__ */ jsx8(
-      Popover,
-      {
-        width: 280,
-        trigger: (open) => /* @__PURE__ */ jsxs7("button", { className: "btn" + (open || analysisActive ? " btn--active" : ""), children: [
-          /* @__PURE__ */ jsx8(MIcon, { name: "bar_chart" }),
-          "\u0410\u043D\u0430\u043B\u0438\u0437"
-        ] }),
-        children: (close) => /* @__PURE__ */ jsx8(
-          AnalysisMenu,
-          {
-            cycleHighlight: props.cycleHighlight,
-            onFindCycles: props.onFindCycles,
-            onStartPathFinder: props.onStartPathFinder,
-            onOpenTopo: props.onOpenTopo,
-            onOpenLearningPath: props.onOpenLearningPath,
-            onOpenRules: props.onOpenRules,
-            onOpenEntityHierarchy: props.onOpenEntityHierarchy,
-            ruleViolationsCount: props.ruleViolationsCount,
-            close
-          }
-        )
-      }
-    ),
-    /* @__PURE__ */ jsx8(
-      Popover,
-      {
-        width: 300,
-        trigger: (open) => /* @__PURE__ */ jsxs7("button", { className: "btn" + (open ? " btn--active" : ""), children: [
-          /* @__PURE__ */ jsx8(MIcon, { name: "palette" }),
-          "\u0412\u0438\u0434"
-        ] }),
-        children: (close) => /* @__PURE__ */ jsx8(ViewMenu, { close })
-      }
-    ),
-    /* @__PURE__ */ jsx8(
-      Popover,
-      {
-        width: 260,
-        trigger: (open) => /* @__PURE__ */ jsxs7("button", { className: "btn" + (open || dataActive ? " btn--active" : ""), children: [
-          /* @__PURE__ */ jsx8(MIcon, { name: "save" }),
-          "\u0414\u0430\u043D\u043D\u044B\u0435"
-        ] }),
-        children: (close) => /* @__PURE__ */ jsx8(
-          DataMenu,
-          {
-            close,
-            onExportJSON: props.onExportJSON,
-            onExportMarkdown: props.onExportMarkdown,
-            onExportPNG: props.onExportPNG,
-            onExportMermaid: props.onExportMermaid,
-            onSaveSnapshot: props.onSaveSnapshot,
-            onLoadSnapshot: props.onLoadSnapshot,
-            onClearSnapshot: props.onClearSnapshot,
-            onSnapshotUpload: props.onSnapshotUpload,
-            onOpenValidation: props.onOpenValidation
-          }
-        )
-      }
-    ),
-    /* @__PURE__ */ jsx8("div", { className: "toolbar__spacer" }),
-    props.remoteInfo?.server && props.remoteInfo?.fetchedAt && /* @__PURE__ */ jsxs7(
-      "div",
-      {
-        className: "toolbar__cache",
-        title: "\u0418\u0441\u0442\u043E\u0447\u043D\u0438\u043A: " + props.remoteInfo.server + "\n\u041E\u0431\u043D\u043E\u0432\u043B\u0451\u043D: " + new Date(props.remoteInfo.fetchedAt).toLocaleString("ru-RU"),
-        onClick: props.onShowToast,
-        children: [
-          /* @__PURE__ */ jsx8(MIcon, { name: "database" }),
-          /* @__PURE__ */ jsxs7("span", { children: [
-            "\u041F\u043E\u043B\u0443\u0447\u0435\u043D\u043E ",
-            relativeTime(props.remoteInfo.fetchedAt)
-          ] })
-        ]
-      }
-    ),
-    /* @__PURE__ */ jsx8(
-      "button",
-      {
-        className: "btn btn--icon",
-        onClick: () => store.setHotkeysOpen(true),
-        title: "\u0413\u043E\u0440\u044F\u0447\u0438\u0435 \u043A\u043B\u0430\u0432\u0438\u0448\u0438 (?)",
-        children: /* @__PURE__ */ jsx8(MIcon, { name: "keyboard" })
-      }
-    ),
-    /* @__PURE__ */ jsx8(
-      "button",
-      {
-        className: "btn btn--icon",
-        onClick: () => store.setHelpOpen(true),
-        title: "\u0420\u0443\u043A\u043E\u0432\u043E\u0434\u0441\u0442\u0432\u043E \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044F (F1)",
-        children: /* @__PURE__ */ jsx8(MIcon, { name: "menu_book" })
-      }
-    ),
-    /* @__PURE__ */ jsxs7("div", { className: "toolbar__stats", children: [
-      props.visibleNodesCount,
-      " / ",
-      props.totalNodesCount,
-      " \u0443\u0437\u043B\u043E\u0432 \xB7 ",
-      props.visibleEdgesCount,
-      " /",
-      " ",
-      props.totalEdgesCount,
-      " \u0441\u0432\u044F\u0437\u0435\u0439"
     ] })
   ] });
 }
@@ -6271,97 +6344,148 @@ var init_Section = __esm({
 import { jsx as jsx11, jsxs as jsxs10 } from "react/jsx-runtime";
 function OverviewSection(props) {
   const store = useGraphStore();
-  const { goto } = useNavigation();
+  const viewMode = store.viewMode;
+  const bookmarks = store.bookmarks;
+  const validationResults = store.validationResults;
+  if (viewMode === "graph") {
+    return /* @__PURE__ */ jsxs10(Section, { id: "overview", title: "\u041E\u0431\u0437\u043E\u0440", icon: "insights", children: [
+      /* @__PURE__ */ jsxs10("div", { className: "stats-grid", children: [
+        /* @__PURE__ */ jsxs10("div", { className: "stat-card stat-card--accent stat-card--clickable", onClick: props.onFitView, children: [
+          /* @__PURE__ */ jsx11("div", { className: "stat-card__value", children: store.nodes.length }),
+          /* @__PURE__ */ jsx11("div", { className: "stat-card__label", children: "\u0412\u0441\u0435\u0433\u043E \u0443\u0437\u043B\u043E\u0432" })
+        ] }),
+        /* @__PURE__ */ jsxs10("div", { className: "stat-card stat-card--success stat-card--clickable", onClick: props.onFitView, children: [
+          /* @__PURE__ */ jsx11("div", { className: "stat-card__value", children: store.edges.length }),
+          /* @__PURE__ */ jsx11("div", { className: "stat-card__label", children: "\u0421\u0432\u044F\u0437\u0435\u0439" })
+        ] }),
+        /* @__PURE__ */ jsxs10(
+          "div",
+          {
+            className: "stat-card stat-card--warning stat-card--clickable" + (props.counts.missing === 0 ? " stat-card--empty" : ""),
+            onClick: () => props.counts.missing > 0 && props.onFilterMissing(),
+            children: [
+              /* @__PURE__ */ jsx11("div", { className: "stat-card__value", children: props.counts.missing }),
+              /* @__PURE__ */ jsx11("div", { className: "stat-card__label", children: "Missing" })
+            ]
+          }
+        ),
+        /* @__PURE__ */ jsxs10(
+          "div",
+          {
+            className: "stat-card stat-card--danger stat-card--clickable" + (props.counts.broken === 0 ? " stat-card--empty" : ""),
+            onClick: () => props.counts.broken > 0 && props.onFilterBroken(),
+            children: [
+              /* @__PURE__ */ jsx11("div", { className: "stat-card__value", children: props.counts.broken }),
+              /* @__PURE__ */ jsx11("div", { className: "stat-card__label", children: "Broken" })
+            ]
+          }
+        )
+      ] }),
+      /* @__PURE__ */ jsxs10("div", { className: "quick-actions", children: [
+        /* @__PURE__ */ jsxs10(
+          "button",
+          {
+            className: "quick-action",
+            onClick: () => store.setIsolatedOnly(true),
+            disabled: props.isolatedCount === 0,
+            children: [
+              /* @__PURE__ */ jsx11(MIcon, { name: "radio_button_unchecked", size: "sm" }),
+              /* @__PURE__ */ jsx11("span", { children: "\u0418\u0437\u043E\u043B\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0435" }),
+              /* @__PURE__ */ jsx11("span", { className: "quick-action__count", children: props.isolatedCount })
+            ]
+          }
+        ),
+        /* @__PURE__ */ jsxs10(
+          "button",
+          {
+            className: "quick-action",
+            onClick: () => store.setOnlyInvalid(true),
+            disabled: props.problemDomainsCount === 0,
+            children: [
+              /* @__PURE__ */ jsx11(MIcon, { name: "cancel", size: "sm" }),
+              /* @__PURE__ */ jsx11("span", { children: "\u041D\u0435\u0432\u0430\u043B\u0438\u0434\u043D\u044B\u0435" }),
+              /* @__PURE__ */ jsx11("span", { className: "quick-action__count", children: props.problemDomainsCount })
+            ]
+          }
+        ),
+        /* @__PURE__ */ jsxs10(
+          "button",
+          {
+            className: "quick-action",
+            onClick: () => {
+              if (props.cyclesCount > 0) {
+                document.dispatchEvent(new CustomEvent("dg:find-cycles"));
+              }
+            },
+            disabled: props.cyclesCount === 0,
+            children: [
+              /* @__PURE__ */ jsx11(MIcon, { name: "cycle", size: "sm" }),
+              /* @__PURE__ */ jsx11("span", { children: "\u0426\u0438\u043A\u043B\u044B" }),
+              /* @__PURE__ */ jsx11("span", { className: "quick-action__count", children: props.cyclesCount })
+            ]
+          }
+        ),
+        bookmarks.size > 0 && /* @__PURE__ */ jsxs10("button", { className: "quick-action", onClick: () => store.setBookmarksOnly(true), children: [
+          /* @__PURE__ */ jsx11(MIcon, { name: "star", size: "sm", fill: true }),
+          /* @__PURE__ */ jsx11("span", { children: "\u0418\u0437\u0431\u0440\u0430\u043D\u043D\u044B\u0435" }),
+          /* @__PURE__ */ jsx11("span", { className: "quick-action__count", children: bookmarks.size })
+        ] })
+      ] })
+    ] });
+  }
+  const domainNodes = store.nodes.filter((n) => n.data.nodeType === "domain");
+  const problematic = store.nodes.filter((n) => n.data.nodeType !== "domain");
+  const invalidCount = validationResults ? domainNodes.filter((n) => {
+    const v = validationResults.get(n.data.domainId);
+    return v && v.status === "invalid";
+  }).length : 0;
+  const totalEntities = domainNodes.reduce(
+    (s, n) => s + (n.data.entitiesCount || 0),
+    0
+  );
   return /* @__PURE__ */ jsxs10(Section, { id: "overview", title: "\u041E\u0431\u0437\u043E\u0440", icon: "insights", children: [
     /* @__PURE__ */ jsxs10("div", { className: "stats-grid", children: [
-      /* @__PURE__ */ jsxs10("div", { className: "stat-card stat-card--accent stat-card--clickable", onClick: props.onFitView, children: [
-        /* @__PURE__ */ jsx11("div", { className: "stat-card__value", children: store.nodes.length }),
-        /* @__PURE__ */ jsx11("div", { className: "stat-card__label", children: "\u0412\u0441\u0435\u0433\u043E \u0443\u0437\u043B\u043E\u0432" })
+      /* @__PURE__ */ jsxs10("div", { className: "stat-card stat-card--accent", children: [
+        /* @__PURE__ */ jsx11("div", { className: "stat-card__value", children: domainNodes.length }),
+        /* @__PURE__ */ jsx11("div", { className: "stat-card__label", children: "\u0414\u043E\u043C\u0435\u043D\u043E\u0432" })
       ] }),
-      /* @__PURE__ */ jsxs10("div", { className: "stat-card stat-card--success stat-card--clickable", onClick: props.onFitView, children: [
-        /* @__PURE__ */ jsx11("div", { className: "stat-card__value", children: store.edges.length }),
-        /* @__PURE__ */ jsx11("div", { className: "stat-card__label", children: "\u0421\u0432\u044F\u0437\u0435\u0439" })
+      /* @__PURE__ */ jsxs10("div", { className: "stat-card stat-card--warning", children: [
+        /* @__PURE__ */ jsx11("div", { className: "stat-card__value", children: totalEntities }),
+        /* @__PURE__ */ jsx11("div", { className: "stat-card__label", children: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" })
       ] }),
       /* @__PURE__ */ jsxs10(
         "div",
         {
-          className: "stat-card stat-card--warning stat-card--clickable" + (props.counts.missing === 0 ? " stat-card--empty" : ""),
-          onClick: () => props.counts.missing > 0 && props.onFilterMissing(),
+          className: "stat-card stat-card--danger" + (problematic.length === 0 ? " stat-card--empty" : ""),
           children: [
-            /* @__PURE__ */ jsx11("div", { className: "stat-card__value", children: props.counts.missing }),
-            /* @__PURE__ */ jsx11("div", { className: "stat-card__label", children: "Missing" })
+            /* @__PURE__ */ jsx11("div", { className: "stat-card__value", children: problematic.length }),
+            /* @__PURE__ */ jsx11("div", { className: "stat-card__label", children: "\u041F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0445" })
           ]
         }
       ),
-      /* @__PURE__ */ jsxs10(
-        "div",
-        {
-          className: "stat-card stat-card--danger stat-card--clickable" + (props.counts.broken === 0 ? " stat-card--empty" : ""),
-          onClick: () => props.counts.broken > 0 && props.onFilterBroken(),
-          children: [
-            /* @__PURE__ */ jsx11("div", { className: "stat-card__value", children: props.counts.broken }),
-            /* @__PURE__ */ jsx11("div", { className: "stat-card__label", children: "Broken" })
-          ]
-        }
-      )
-    ] }),
-    /* @__PURE__ */ jsxs10("div", { className: "quick-actions", children: [
-      /* @__PURE__ */ jsxs10(
-        "button",
-        {
-          className: "quick-action",
-          onClick: () => store.setIsolatedOnly(true),
-          disabled: props.isolatedCount === 0,
-          children: [
-            /* @__PURE__ */ jsx11(MIcon, { name: "radio_button_unchecked", size: "sm" }),
-            /* @__PURE__ */ jsx11("span", { children: "\u0418\u0437\u043E\u043B\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0435" }),
-            /* @__PURE__ */ jsx11("span", { className: "quick-action__count", children: props.isolatedCount })
-          ]
-        }
-      ),
-      /* @__PURE__ */ jsxs10(
-        "button",
-        {
-          className: "quick-action",
-          onClick: () => store.setOnlyInvalid(true),
-          disabled: props.problemDomainsCount === 0,
-          children: [
-            /* @__PURE__ */ jsx11(MIcon, { name: "cancel", size: "sm" }),
-            /* @__PURE__ */ jsx11("span", { children: "\u041D\u0435\u0432\u0430\u043B\u0438\u0434\u043D\u044B\u0435" }),
-            /* @__PURE__ */ jsx11("span", { className: "quick-action__count", children: props.problemDomainsCount })
-          ]
-        }
-      ),
-      /* @__PURE__ */ jsxs10(
-        "button",
-        {
-          className: "quick-action",
-          onClick: () => {
-            if (props.cyclesCount > 0) {
-              document.dispatchEvent(new CustomEvent("dg:find-cycles"));
-            }
-          },
-          disabled: props.cyclesCount === 0,
-          children: [
-            /* @__PURE__ */ jsx11(MIcon, { name: "cycle", size: "sm" }),
-            /* @__PURE__ */ jsx11("span", { children: "\u0426\u0438\u043A\u043B\u044B" }),
-            /* @__PURE__ */ jsx11("span", { className: "quick-action__count", children: props.cyclesCount })
-          ]
-        }
-      ),
-      store.bookmarks.size > 0 && /* @__PURE__ */ jsxs10("button", { className: "quick-action", onClick: () => store.setBookmarksOnly(true), children: [
-        /* @__PURE__ */ jsx11(MIcon, { name: "star", size: "sm", fill: true }),
-        /* @__PURE__ */ jsx11("span", { children: "\u0418\u0437\u0431\u0440\u0430\u043D\u043D\u044B\u0435" }),
-        /* @__PURE__ */ jsx11("span", { className: "quick-action__count", children: store.bookmarks.size })
+      /* @__PURE__ */ jsxs10("div", { className: "stat-card stat-card--success", children: [
+        /* @__PURE__ */ jsx11("div", { className: "stat-card__value", children: bookmarks.size }),
+        /* @__PURE__ */ jsx11("div", { className: "stat-card__label", children: "\u0412 \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u043E\u043C" })
       ] })
-    ] })
+    ] }),
+    (invalidCount > 0 || store.onlyInvalid) && /* @__PURE__ */ jsx11("div", { className: "quick-actions", children: /* @__PURE__ */ jsxs10(
+      "button",
+      {
+        className: "quick-action",
+        onClick: () => store.setOnlyInvalid(!store.onlyInvalid),
+        children: [
+          /* @__PURE__ */ jsx11(MIcon, { name: store.onlyInvalid ? "undo" : "cancel", size: "sm" }),
+          /* @__PURE__ */ jsx11("span", { children: store.onlyInvalid ? "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0444\u0438\u043B\u044C\u0442\u0440" : "\u0422\u043E\u043B\u044C\u043A\u043E \u043D\u0435\u0432\u0430\u043B\u0438\u0434\u043D\u044B\u0435" }),
+          /* @__PURE__ */ jsx11("span", { className: "quick-action__count", children: invalidCount })
+        ]
+      }
+    ) })
   ] });
 }
 var init_OverviewSection = __esm({
   "src/web/components/layout/sections/OverviewSection.tsx"() {
     "use strict";
     init_useGraphStore();
-    init_useNavigation();
     init_MIcon();
     init_Section();
   }
@@ -6481,6 +6605,7 @@ import { jsx as jsx14, jsxs as jsxs13 } from "react/jsx-runtime";
 function ProblemsSection(props) {
   const store = useGraphStore();
   const { goto } = useNavigation();
+  const viewMode = store.viewMode;
   return /* @__PURE__ */ jsxs13(Section, { id: "problems", title: "\u041F\u0440\u043E\u0431\u043B\u0435\u043C\u044B", icon: "warning", badge: props.totalProblems, children: [
     props.problemDomains.length > 0 && /* @__PURE__ */ jsxs13("div", { className: "problems-group", children: [
       /* @__PURE__ */ jsxs13("div", { className: "problems-group__title", children: [
@@ -6493,7 +6618,15 @@ function ProblemsSection(props) {
         "button",
         {
           className: "rank-item",
-          onClick: () => goto(item.node.data.domainId),
+          onClick: () => {
+            if (viewMode === "list") {
+              store.setDomainSchemaDomainId(item.node.data.domainId);
+              store.setDomainSchemaPrefillOnlyProblematic(true);
+              store.setDomainSchemaOpen(true);
+            } else {
+              goto(item.node.data.domainId);
+            }
+          },
           children: [
             /* @__PURE__ */ jsx14("span", { className: "rank-item__label", children: item.node.data.domainId }),
             /* @__PURE__ */ jsx14("span", { className: "rank-item__value", style: { color: "var(--danger)" }, children: item.count })
@@ -6522,7 +6655,7 @@ function ProblemsSection(props) {
         item.node.id
       ))
     ] }),
-    props.isolatedCount > 0 && /* @__PURE__ */ jsxs13("div", { className: "problems-group", children: [
+    viewMode === "graph" && props.isolatedCount > 0 && /* @__PURE__ */ jsxs13("div", { className: "problems-group", children: [
       /* @__PURE__ */ jsxs13("div", { className: "problems-group__title", children: [
         /* @__PURE__ */ jsx14(MIcon, { name: "radio_button_unchecked", size: "sm" }),
         " \u0418\u0437\u043E\u043B\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0435 (",
@@ -6538,7 +6671,7 @@ function ProblemsSection(props) {
         }
       )
     ] }),
-    props.cyclesCount > 0 && /* @__PURE__ */ jsxs13("div", { className: "problems-group", children: [
+    viewMode === "graph" && props.cyclesCount > 0 && /* @__PURE__ */ jsxs13("div", { className: "problems-group", children: [
       /* @__PURE__ */ jsxs13("div", { className: "problems-group__title", children: [
         /* @__PURE__ */ jsx14(MIcon, { name: "cycle", size: "sm" }),
         " \u0426\u0438\u043A\u043B\u044B (",
@@ -6782,17 +6915,27 @@ var init_MissingRefsSection = __esm({
 // src/web/components/layout/sections/NamespacesSection.tsx
 import { jsx as jsx19, jsxs as jsxs18 } from "react/jsx-runtime";
 function NamespacesSection({ items }) {
+  const viewMode = useGraphStore((s) => s.viewMode);
   const setNamespaceFilter = useGraphStore((s) => s.setNamespaceFilter);
+  const setListSearchQuery = useGraphStore((s) => s.setListSearchQuery);
+  const listQuery = useGraphStore((s) => s.listSearchQuery);
   if (items.length === 0)
     return null;
   const max = items[0][1];
   return /* @__PURE__ */ jsx19(Section, { id: "namespaces", title: "\u041D\u0435\u0439\u043C\u0441\u043F\u0435\u0439\u0441\u044B", icon: "category", children: /* @__PURE__ */ jsx19("div", { className: "bar-list", children: items.map((entry) => {
     const [ns, count] = entry;
+    const isActive = viewMode === "list" ? listQuery === ns : false;
     return /* @__PURE__ */ jsxs18(
       "button",
       {
-        className: "bar-item",
-        onClick: () => setNamespaceFilter(ns),
+        className: "bar-item" + (isActive ? " bar-item--active" : ""),
+        onClick: () => {
+          if (viewMode === "list") {
+            setListSearchQuery(isActive ? "" : ns);
+          } else {
+            setNamespaceFilter(ns);
+          }
+        },
         children: [
           /* @__PURE__ */ jsx19("span", { className: "bar-item__label", children: ns }),
           /* @__PURE__ */ jsx19("span", { className: "bar-item__value", children: count }),
@@ -6823,31 +6966,29 @@ function TagsSection({ items }) {
   const store = useGraphStore();
   if (items.length === 0)
     return null;
-  return /* @__PURE__ */ jsx20(
-    Section,
-    {
-      id: "tags",
-      title: "\u0422\u0435\u0433\u0438",
-      icon: "label",
-      badge: store.tagFilters.size > 0 ? store.tagFilters.size : null,
-      children: /* @__PURE__ */ jsx20("div", { className: "tag-cloud", children: items.map((entry) => {
-        const [tag, count] = entry;
-        const active = store.tagFilters.has(tag);
-        return /* @__PURE__ */ jsxs19(
-          "button",
-          {
-            className: "tag" + (active ? " tag--active" : ""),
-            onClick: () => store.toggleTagFilter(tag),
-            children: [
-              tag,
-              /* @__PURE__ */ jsx20("span", { className: "tag__count", children: count })
-            ]
-          },
-          tag
-        );
-      }) })
-    }
-  );
+  const badge = store.viewMode === "list" ? store.listSearchQuery && items.some(([t]) => t === store.listSearchQuery) ? 1 : null : store.tagFilters.size > 0 ? store.tagFilters.size : null;
+  return /* @__PURE__ */ jsx20(Section, { id: "tags", title: "\u0422\u0435\u0433\u0438", icon: "label", badge, children: /* @__PURE__ */ jsx20("div", { className: "tag-cloud", children: items.map((entry) => {
+    const [tag, count] = entry;
+    const active = store.viewMode === "list" ? store.listSearchQuery === tag : store.tagFilters.has(tag);
+    return /* @__PURE__ */ jsxs19(
+      "button",
+      {
+        className: "tag" + (active ? " tag--active" : ""),
+        onClick: () => {
+          if (store.viewMode === "list") {
+            store.setListSearchQuery(active ? "" : tag);
+          } else {
+            store.toggleTagFilter(tag);
+          }
+        },
+        children: [
+          tag,
+          /* @__PURE__ */ jsx20("span", { className: "tag__count", children: count })
+        ]
+      },
+      tag
+    );
+  }) }) });
 }
 var init_TagsSection = __esm({
   "src/web/components/layout/sections/TagsSection.tsx"() {
@@ -6864,7 +7005,7 @@ function BookmarksSection() {
   const { goto } = useNavigation();
   if (store.bookmarks.size === 0)
     return null;
-  return /* @__PURE__ */ jsx21(Section, { id: "bookmarks", title: "\u0418\u0437\u0431\u0440\u0430\u043D\u043D\u044B\u0435 \u0434\u043E\u043C\u0435\u043D\u044B", icon: "folder_special", badge: store.bookmarks.size, children: /* @__PURE__ */ jsx21("div", { className: "rank-list", children: Array.from(store.bookmarks).slice(0, store.sidebarCompact ? 5 : 15).map((id) => {
+  return /* @__PURE__ */ jsx21(Section, { id: "bookmarks", title: "\u0418\u0437\u0431\u0440\u0430\u043D\u043D\u044B\u0435 \u0434\u043E\u043C\u0435\u043D\u044B", icon: "star", badge: store.bookmarks.size, children: /* @__PURE__ */ jsx21("div", { className: "rank-list", children: Array.from(store.bookmarks).slice(0, store.sidebarCompact ? 5 : 15).map((id) => {
     const n = store.nodes.find((x) => x.id === id);
     if (!n)
       return null;
@@ -7343,30 +7484,34 @@ var init_sections = __esm({
 
 // src/web/components/layout/Sidebar.tsx
 import { useMemo as useMemo14 } from "react";
-import { jsx as jsx26, jsxs as jsxs25 } from "react/jsx-runtime";
+import { Fragment as Fragment4, jsx as jsx26, jsxs as jsxs25 } from "react/jsx-runtime";
 function Sidebar(props) {
-  const store = useGraphStore();
   const stats = useSidebarStats(props.healthMap);
+  const viewMode = useGraphStore((s) => s.viewMode);
+  const validationResults = useGraphStore((s) => s.validationResults);
+  const nodes = useGraphStore((s) => s.nodes);
+  const sidebarCollapsed = useGraphStore((s) => s.sidebarCollapsed);
+  const sidebarCompact = useGraphStore((s) => s.sidebarCompact);
   const problemDomains = useMemo14(() => {
-    if (!store.validationResults)
+    if (!validationResults)
       return [];
     const result = [];
-    store.nodes.forEach((n) => {
-      const v = store.validationResults.get(n.data.domainId);
+    nodes.forEach((n) => {
+      const v = validationResults.get(n.data.domainId);
       if (v && v.status === "invalid") {
         result.push({ node: n, count: (v.diagnostics || []).length });
       }
     });
     return result.sort((a, b) => b.count - a.count).slice(0, 5);
-  }, [store.nodes, store.validationResults]);
+  }, [nodes, validationResults]);
   const brokenRefsDomains = useMemo14(() => {
     const result = [];
     const domainIds = /* @__PURE__ */ new Set();
-    store.nodes.forEach((n) => {
+    nodes.forEach((n) => {
       if (n.data.nodeType === "domain")
         domainIds.add(n.data.domainId.toLowerCase());
     });
-    store.nodes.forEach((n) => {
+    nodes.forEach((n) => {
       if (n.data.nodeType !== "domain")
         return;
       const refs = n.data.fqidRefs || [];
@@ -7377,35 +7522,35 @@ function Sidebar(props) {
         result.push({ node: n, count: broken.length });
     });
     return result.sort((a, b) => b.count - a.count).slice(0, 5);
-  }, [store.nodes]);
+  }, [nodes]);
   const hasNews = !!props.cacheDiff;
   const hasProblems = problemDomains.length > 0 || brokenRefsDomains.length > 0 || stats.isolatedCount > 0 || stats.counts.broken > 0 || props.cyclesCount > 0;
   const totalProblems = stats.counts.missing + stats.counts.broken + problemDomains.length + props.cyclesCount;
-  if (store.sidebarCollapsed) {
+  if (sidebarCollapsed) {
     return /* @__PURE__ */ jsx26("aside", { className: "sidebar sidebar--collapsed", children: /* @__PURE__ */ jsx26(
       "button",
       {
         className: "sidebar__expand",
-        onClick: () => store.setSidebarCollapsed(false),
+        onClick: () => useGraphStore.getState().setSidebarCollapsed(false),
         title: "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u043F\u0430\u043D\u0435\u043B\u044C",
         children: /* @__PURE__ */ jsx26(MIcon, { name: "chevron_right" })
       }
     ) });
   }
-  return /* @__PURE__ */ jsxs25("aside", { className: "sidebar" + (store.sidebarCompact ? " sidebar--compact" : ""), children: [
+  return /* @__PURE__ */ jsxs25("aside", { className: "sidebar" + (sidebarCompact ? " sidebar--compact" : ""), children: [
     /* @__PURE__ */ jsxs25("div", { className: "sidebar__header", children: [
       /* @__PURE__ */ jsx26("div", { className: "sidebar__logo", children: /* @__PURE__ */ jsx26(MIcon, { name: "hub" }) }),
       /* @__PURE__ */ jsxs25("div", { style: { flex: 1, minWidth: 0 }, children: [
-        /* @__PURE__ */ jsx26("div", { className: "sidebar__title", children: "Domain Graph" }),
+        /* @__PURE__ */ jsx26("div", { className: "sidebar__title", children: "Domains" }),
         /* @__PURE__ */ jsx26("div", { className: "sidebar__subtitle", children: "Analyzer" })
       ] }),
       /* @__PURE__ */ jsx26(
         "button",
         {
           className: "sidebar__icon-btn",
-          onClick: () => store.setSidebarCompact(!store.sidebarCompact),
-          title: store.sidebarCompact ? "\u041F\u043E\u043B\u043D\u044B\u0439 \u0440\u0435\u0436\u0438\u043C" : "\u041A\u043E\u043C\u043F\u0430\u043A\u0442\u043D\u044B\u0439 \u0440\u0435\u0436\u0438\u043C",
-          children: /* @__PURE__ */ jsx26(MIcon, { name: store.sidebarCompact ? "view_sidebar" : "view_compact", size: "sm" })
+          onClick: () => useGraphStore.getState().setSidebarCompact(!sidebarCompact),
+          title: sidebarCompact ? "\u041F\u043E\u043B\u043D\u044B\u0439 \u0440\u0435\u0436\u0438\u043C" : "\u041A\u043E\u043C\u043F\u0430\u043A\u0442\u043D\u044B\u0439 \u0440\u0435\u0436\u0438\u043C",
+          children: /* @__PURE__ */ jsx26(MIcon, { name: sidebarCompact ? "view_sidebar" : "view_compact", size: "sm" })
         }
       ),
       /* @__PURE__ */ jsx26(
@@ -7421,7 +7566,7 @@ function Sidebar(props) {
         "button",
         {
           className: "sidebar__icon-btn",
-          onClick: () => store.setSidebarCollapsed(true),
+          onClick: () => useGraphStore.getState().setSidebarCollapsed(true),
           title: "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u043F\u0430\u043D\u0435\u043B\u044C",
           children: /* @__PURE__ */ jsx26(MIcon, { name: "chevron_left", size: "sm" })
         }
@@ -7436,8 +7581,8 @@ function Sidebar(props) {
           problemDomainsCount: problemDomains.length,
           cyclesCount: props.cyclesCount,
           onFitView: props.onFitView,
-          onFilterMissing: () => store.setFilters((f) => ({ ...f, domain: false, broken: false, missing: true })),
-          onFilterBroken: () => store.setFilters((f) => ({ ...f, domain: false, missing: false, broken: true }))
+          onFilterMissing: () => useGraphStore.getState().setFilters((f) => ({ ...f, domain: false, broken: false, missing: true })),
+          onFilterBroken: () => useGraphStore.getState().setFilters((f) => ({ ...f, domain: false, missing: false, broken: true }))
         }
       ),
       /* @__PURE__ */ jsx26(ActivitySection, {}),
@@ -7453,15 +7598,17 @@ function Sidebar(props) {
         }
       ),
       hasNews && /* @__PURE__ */ jsx26(NewsSection, { cacheDiff: props.cacheDiff }),
-      /* @__PURE__ */ jsx26(TopConnectedSection, { items: stats.topConnected }),
-      /* @__PURE__ */ jsx26(WorstHealthSection, { items: stats.worstHealth }),
-      /* @__PURE__ */ jsx26(MissingRefsSection, { items: stats.topMissingRefs }),
+      viewMode === "graph" && /* @__PURE__ */ jsxs25(Fragment4, { children: [
+        /* @__PURE__ */ jsx26(TopConnectedSection, { items: stats.topConnected }),
+        /* @__PURE__ */ jsx26(WorstHealthSection, { items: stats.worstHealth }),
+        /* @__PURE__ */ jsx26(MissingRefsSection, { items: stats.topMissingRefs })
+      ] }),
       /* @__PURE__ */ jsx26(NamespacesSection, { items: stats.namespaces }),
       /* @__PURE__ */ jsx26(TagsSection, { items: stats.tagCloud }),
       /* @__PURE__ */ jsx26(RecentEntitiesSection, {}),
       /* @__PURE__ */ jsx26(EntityFavoritesSection, {}),
       /* @__PURE__ */ jsx26(BookmarksSection, {}),
-      /* @__PURE__ */ jsx26(LegendSection, {})
+      viewMode === "graph" && /* @__PURE__ */ jsx26(LegendSection, {})
     ] })
   ] });
 }
@@ -7477,7 +7624,7 @@ var init_Sidebar = __esm({
 
 // src/web/components/graph/DomainNode.tsx
 import { Handle, Position } from "reactflow";
-import { Fragment as Fragment2, jsx as jsx27, jsxs as jsxs26 } from "react/jsx-runtime";
+import { Fragment as Fragment5, jsx as jsx27, jsxs as jsxs26 } from "react/jsx-runtime";
 function DomainNode({ data, selected }) {
   if (data.__compact) {
     const cls2 = "rf-compact rf-compact--" + data.nodeType + (selected ? " rf-compact--selected" : "");
@@ -7488,7 +7635,7 @@ function DomainNode({ data, selected }) {
       style.borderColor = data.__heatColor;
       style.color = "#ffffff";
     }
-    return /* @__PURE__ */ jsxs26(Fragment2, { children: [
+    return /* @__PURE__ */ jsxs26(Fragment5, { children: [
       /* @__PURE__ */ jsx27(Handle, { type: "target", position: Position.Left, className: "rf-handle" }),
       /* @__PURE__ */ jsx27("div", { className: cls2, style, title: data.domainId, children: initial }),
       /* @__PURE__ */ jsx27(Handle, { type: "source", position: Position.Right, className: "rf-handle" })
@@ -7564,7 +7711,7 @@ function DomainNode({ data, selected }) {
       }
     );
   }
-  return /* @__PURE__ */ jsxs26(Fragment2, { children: [
+  return /* @__PURE__ */ jsxs26(Fragment5, { children: [
     /* @__PURE__ */ jsx27(Handle, { type: "target", position: Position.Left, className: "rf-handle" }),
     /* @__PURE__ */ jsxs26("div", { className: cls.join(" "), style: nodeStyle, children: [
       /* @__PURE__ */ jsx27("div", { className: "rf-node__icon", children: icon }),
@@ -8221,6 +8368,22 @@ function DetailsTab({ node, allNodes, allEdges, ruleViolations }) {
             "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0444\u0430\u0439\u043B"
           ]
         }
+      ),
+      /* @__PURE__ */ jsxs32(
+        "button",
+        {
+          className: "btn",
+          onClick: () => {
+            const st = useGraphStore.getState();
+            st.setViewMode("graph");
+            setTimeout(() => goto(node.data.domainId), 350);
+          },
+          title: "\u0426\u0435\u043D\u0442\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u043D\u0430 \u0433\u0440\u0430\u0444\u0435",
+          children: [
+            /* @__PURE__ */ jsx33(MIcon, { name: "my_location", size: "sm" }),
+            "\u041D\u0430 \u0433\u0440\u0430\u0444\u0435"
+          ]
+        }
       )
     ] }),
     node.data.updatedAt && /* @__PURE__ */ jsxs32("div", { className: "details__field", children: [
@@ -8692,7 +8855,7 @@ function SidePanel(props) {
             children: "\u{1F4CB} \u0414\u0435\u0442\u0430\u043B\u0438"
           }
         ),
-        /* @__PURE__ */ jsx36(
+        store.viewMode === "graph" && /* @__PURE__ */ jsx36(
           "button",
           {
             className: "side-panel__tab" + (store.panelTab === "edge" ? " active" : ""),
@@ -8770,17 +8933,566 @@ var init_SidePanel = __esm({
   }
 });
 
-// src/web/components/layout/GraphArea.tsx
-import { applyEdgeChanges, applyNodeChanges } from "reactflow";
-import { jsx as jsx37, jsxs as jsxs36 } from "react/jsx-runtime";
-function GraphArea(props) {
-  const store = useGraphStore();
+// src/web/components/layout/DomainListRow.tsx
+import { Fragment as Fragment6, jsx as jsx37, jsxs as jsxs36 } from "react/jsx-runtime";
+function DomainListRow({
+  node,
+  isSelected,
+  isFavorite,
+  isFocused,
+  onSelect
+}) {
+  const d = node.data;
+  const isProblematic = d.nodeType !== "domain";
+  const handleSchema = (e) => {
+    e.stopPropagation();
+    if (isProblematic)
+      return;
+    const st = useGraphStore.getState();
+    st.setDomainSchemaDomainId(d.domainId);
+    st.setDomainSchemaOpen(true);
+  };
+  const handleFile = (e) => {
+    e.stopPropagation();
+    if (!d.filePath)
+      return;
+    openFileInEditor(d.filePath, null, d.domainId);
+  };
+  const handleGraph = (e) => {
+    e.stopPropagation();
+    if (isProblematic)
+      return;
+    const st = useGraphStore.getState();
+    st.setViewMode("graph");
+    setTimeout(() => {
+      const nav = useGraphStore.getState();
+      if (!nav.rfInstance)
+        return;
+      const target = nav.nodes.find((n) => n.id === node.id);
+      if (!target)
+        return;
+      nav.pushNav(d.domainId);
+      nav.setSelectedNodeId(node.id);
+      nav.setFocusNode(node.id);
+      try {
+        nav.rfInstance.setCenter(
+          target.position.x + 150,
+          target.position.y + 44,
+          { zoom: 1.2, duration: 500 }
+        );
+      } catch {
+      }
+    }, 350);
+  };
+  const className = [
+    "domain-list-row",
+    isSelected ? "domain-list-row--selected" : "",
+    isFocused ? "domain-list-row--focused" : "",
+    isProblematic ? "domain-list-row--problematic" : "",
+    isFavorite ? "domain-list-row--fav" : ""
+  ].filter(Boolean).join(" ");
   return /* @__PURE__ */ jsxs36(
     "div",
     {
-      className: "graph-container" + (store.showEdgeLabels ? " show-labels" : ""),
+      className,
+      onClick: () => !isProblematic && onSelect(node.id, d.domainId),
+      title: d.description || void 0,
+      "data-node-id": node.id,
       children: [
-        /* @__PURE__ */ jsx37(
+        /* @__PURE__ */ jsx37("div", { className: "domain-list-row__star", children: isFavorite && /* @__PURE__ */ jsx37(MIcon, { name: "star", size: "sm", fill: true }) }),
+        /* @__PURE__ */ jsxs36("div", { className: "domain-list-row__main", children: [
+          /* @__PURE__ */ jsxs36("div", { className: "domain-list-row__name", children: [
+            d.name || d.domainId,
+            isProblematic && /* @__PURE__ */ jsx37(
+              "span",
+              {
+                className: "domain-list-row__badge domain-list-row__badge--" + d.nodeType,
+                children: d.nodeType === "missing" ? "missing" : "broken"
+              }
+            )
+          ] }),
+          /* @__PURE__ */ jsxs36("div", { className: "domain-list-row__id-row", children: [
+            /* @__PURE__ */ jsx37("span", { className: "domain-list-row__id", children: d.domainId }),
+            d.updatedAt && /* @__PURE__ */ jsxs36(
+              "span",
+              {
+                className: "domain-list-row__updated",
+                title: d.updatedAt ? new Date(d.updatedAt).toLocaleString("ru-RU") : "",
+                children: [
+                  /* @__PURE__ */ jsx37(MIcon, { name: "schedule", size: "sm" }),
+                  relativeTimeShort(d.updatedAt)
+                ]
+              }
+            )
+          ] })
+        ] }),
+        /* @__PURE__ */ jsxs36("div", { className: "domain-list-row__meta", children: [
+          d.author && /* @__PURE__ */ jsxs36(
+            "div",
+            {
+              className: "domain-list-row__author",
+              title: `\u0410\u0432\u0442\u043E\u0440: ${d.author}`,
+              children: [
+                /* @__PURE__ */ jsx37(MIcon, { name: "person", size: "sm" }),
+                /* @__PURE__ */ jsx37("span", { children: d.author })
+              ]
+            }
+          ),
+          d.tags && d.tags.length > 0 && /* @__PURE__ */ jsxs36("div", { className: "domain-list-row__tags", children: [
+            d.tags.slice(0, 2).map((t) => /* @__PURE__ */ jsx37("span", { className: "domain-list-row__tag", children: t }, t)),
+            d.tags.length > 2 && /* @__PURE__ */ jsxs36("span", { className: "domain-list-row__tag", children: [
+              "+",
+              d.tags.length - 2
+            ] })
+          ] }),
+          d.entitiesCount != null && !isProblematic && /* @__PURE__ */ jsxs36("div", { className: "domain-list-row__entities", children: [
+            d.entitiesCount,
+            " ",
+            plural(d.entitiesCount, "\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C", "\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439")
+          ] })
+        ] }),
+        /* @__PURE__ */ jsx37("div", { className: "domain-list-row__version", children: d.version ? `v${d.version}` : "" }),
+        /* @__PURE__ */ jsx37("div", { className: "domain-list-row__actions", children: !isProblematic && /* @__PURE__ */ jsxs36(Fragment6, { children: [
+          /* @__PURE__ */ jsx37("button", { onClick: handleSchema, title: "\u0421\u0445\u0435\u043C\u0430 \u0434\u043E\u043C\u0435\u043D\u0430", children: /* @__PURE__ */ jsx37(MIcon, { name: "menu_book", size: "sm" }) }),
+          d.filePath && /* @__PURE__ */ jsx37("button", { onClick: handleFile, title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0444\u0430\u0439\u043B", children: /* @__PURE__ */ jsx37(MIcon, { name: "description", size: "sm" }) }),
+          /* @__PURE__ */ jsx37("button", { onClick: handleGraph, title: "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u043D\u0430 \u0433\u0440\u0430\u0444\u0435", children: /* @__PURE__ */ jsx37(MIcon, { name: "my_location", size: "sm" }) })
+        ] }) })
+      ]
+    }
+  );
+}
+var init_DomainListRow = __esm({
+  "src/web/components/layout/DomainListRow.tsx"() {
+    "use strict";
+    init_useGraphStore();
+    init_MIcon();
+    init_open_file();
+    init_format();
+  }
+});
+
+// src/web/components/layout/DomainList.tsx
+import React11, { useCallback as useCallback8, useEffect as useEffect14, useMemo as useMemo18, useRef as useRef8 } from "react";
+import { jsx as jsx38, jsxs as jsxs37 } from "react/jsx-runtime";
+function sortNodes(nodes, sort) {
+  if (sort === "default")
+    return nodes;
+  const copy = [...nodes];
+  copy.sort((a, b) => {
+    const da = a.data;
+    const db = b.data;
+    if (sort === "name") {
+      const an = (da.name || da.domainId || "").toLowerCase();
+      const bn = (db.name || db.domainId || "").toLowerCase();
+      return an.localeCompare(bn);
+    }
+    if (sort === "version") {
+      const av = da.version || "";
+      const bv = db.version || "";
+      return bv.localeCompare(av);
+    }
+    if (sort === "updated") {
+      const at = da.updatedAt ? new Date(da.updatedAt).getTime() : 0;
+      const bt = db.updatedAt ? new Date(db.updatedAt).getTime() : 0;
+      return bt - at;
+    }
+    if (sort === "entities") {
+      return (db.entitiesCount || 0) - (da.entitiesCount || 0);
+    }
+    return 0;
+  });
+  return copy;
+}
+function exportCSV(rows) {
+  const header = ["id", "name", "version", "author", "tags", "entities", "updatedAt"];
+  const lines = [header.join(",")];
+  for (const n of rows) {
+    const d = n.data;
+    const cell = (v) => {
+      if (v == null)
+        return "";
+      const s = String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    lines.push(
+      [
+        cell(d.domainId),
+        cell(d.name),
+        cell(d.version),
+        cell(d.author),
+        cell((d.tags || []).join("; ")),
+        cell(d.entitiesCount),
+        cell(d.updatedAt)
+      ].join(",")
+    );
+  }
+  const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `domains-${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+function DomainList() {
+  const nodes = useGraphStore((s) => s.nodes);
+  const query = useGraphStore((s) => s.listSearchQuery);
+  const setQuery = useGraphStore((s) => s.setListSearchQuery);
+  const grouping = useGraphStore((s) => s.listGrouping);
+  const setGrouping = useGraphStore((s) => s.setListGrouping);
+  const sort = useGraphStore((s) => s.listSort);
+  const setSort = useGraphStore((s) => s.setListSort);
+  const bookmarks = useGraphStore((s) => s.bookmarks);
+  const bookmarksOnly = useGraphStore((s) => s.bookmarksOnly);
+  const setBookmarksOnly = useGraphStore((s) => s.setBookmarksOnly);
+  const panelNodeId = useGraphStore((s) => s.panelNodeId);
+  const onlyInvalid = useGraphStore((s) => s.onlyInvalid);
+  const setOnlyInvalid = useGraphStore((s) => s.setOnlyInvalid);
+  const validationResults = useGraphStore((s) => s.validationResults);
+  const domainNodes = useMemo18(
+    () => nodes.filter((n) => n.data.nodeType === "domain"),
+    [nodes]
+  );
+  const problematicNodes = useMemo18(
+    () => nodes.filter((n) => n.data.nodeType !== "domain"),
+    [nodes]
+  );
+  const filtered = useMemo18(() => {
+    let result = domainNodes;
+    if (bookmarksOnly) {
+      result = result.filter((n) => bookmarks.has(n.id));
+    }
+    if (onlyInvalid && validationResults) {
+      result = result.filter((n) => {
+        const v = validationResults.get(n.data.domainId);
+        return v && v.status === "invalid";
+      });
+    }
+    if (query.trim()) {
+      const q = query.toLowerCase();
+      result = result.filter((n) => {
+        const d = n.data;
+        const hay = [
+          d.domainId,
+          d.name,
+          d.description,
+          d.author,
+          ...d.tags || []
+        ].map(String).map((s) => s.toLowerCase()).join(" ");
+        return hay.includes(q);
+      });
+    }
+    return sortNodes(result, sort);
+  }, [domainNodes, query, onlyInvalid, validationResults, sort, bookmarksOnly, bookmarks]);
+  const favorites = useMemo18(
+    () => filtered.filter((n) => bookmarks.has(n.id)),
+    [filtered, bookmarks]
+  );
+  const others = useMemo18(
+    () => filtered.filter((n) => !bookmarks.has(n.id)),
+    [filtered, bookmarks]
+  );
+  const groups = useMemo18(() => {
+    if (grouping === "flat") {
+      return [{ key: "all", label: "\u0412\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B", nodes: others }];
+    }
+    const map2 = /* @__PURE__ */ new Map();
+    for (const n of others) {
+      const key = grouping === "namespace" ? n.data.domainId.split(".").slice(0, 2).join(".") || n.data.domainId : n.data.folderPath?.join("/") || "(\u043A\u043E\u0440\u0435\u043D\u044C)";
+      if (!map2.has(key))
+        map2.set(key, []);
+      map2.get(key).push(n);
+    }
+    return Array.from(map2.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([key, ns]) => ({ key, label: key, nodes: ns }));
+  }, [others, grouping]);
+  const flatRows = useMemo18(() => {
+    const rows = [];
+    favorites.forEach((n) => rows.push({ node: n, isFav: true }));
+    groups.forEach((g) => {
+      g.nodes.forEach((n) => rows.push({ node: n, isFav: false }));
+    });
+    return rows;
+  }, [favorites, groups]);
+  const [focusedIdx, setFocusedIdx] = React11.useState(-1);
+  const bodyRef = useRef8(null);
+  const onSelect = useCallback8((nodeId, domainId) => {
+    const st = useGraphStore.getState();
+    st.setSelectedNodeId(nodeId);
+    st.setSelectedEdgeId(null);
+    st.setPanelNodeId(nodeId);
+    st.setPanelTab("details");
+    st.setPanelOpen(true);
+    st.pushNav(domainId);
+  }, []);
+  useEffect14(() => {
+    if (!panelNodeId)
+      return;
+    const t = setTimeout(() => {
+      const el = document.querySelector(
+        `.domain-list-row[data-node-id="${panelNodeId}"]`
+      );
+      if (el)
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 60);
+    return () => clearTimeout(t);
+  }, [panelNodeId]);
+  useEffect14(() => {
+    setFocusedIdx(-1);
+  }, [query, grouping, sort, bookmarksOnly, onlyInvalid]);
+  const onKeyDown = (e) => {
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement)
+      return;
+    if (e.key === "ArrowDown" || e.key === "j") {
+      e.preventDefault();
+      setFocusedIdx((i) => Math.min(i + 1, flatRows.length - 1));
+    } else if (e.key === "ArrowUp" || e.key === "k") {
+      e.preventDefault();
+      setFocusedIdx((i) => Math.max(i - 1, 0));
+    } else if (e.key === "Enter" && focusedIdx >= 0) {
+      const row = flatRows[focusedIdx];
+      if (row)
+        onSelect(row.node.id, row.node.data.domainId);
+    } else if (e.key === " " && focusedIdx >= 0) {
+      e.preventDefault();
+      const row = flatRows[focusedIdx];
+      if (row) {
+        useGraphStore.getState().toggleBookmark(row.node.id);
+      }
+    }
+  };
+  useEffect14(() => {
+    if (focusedIdx < 0)
+      return;
+    const row = flatRows[focusedIdx];
+    if (!row)
+      return;
+    const el = document.querySelector(
+      `.domain-list-row[data-node-id="${row.node.id}"]`
+    );
+    if (el)
+      el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [focusedIdx, flatRows]);
+  const hasAnyFilter = !!query.trim() || bookmarksOnly || onlyInvalid;
+  const clearAllFilters = () => {
+    setQuery("");
+    setBookmarksOnly(false);
+    setOnlyInvalid(false);
+  };
+  return /* @__PURE__ */ jsxs37("div", { className: "domain-list", onKeyDown, tabIndex: 0, children: [
+    /* @__PURE__ */ jsxs37("div", { className: "domain-list__header", children: [
+      /* @__PURE__ */ jsxs37("div", { className: "domain-list__search", children: [
+        /* @__PURE__ */ jsx38(MIcon, { name: "search", size: "sm" }),
+        /* @__PURE__ */ jsx38(
+          "input",
+          {
+            type: "text",
+            placeholder: "\u041F\u043E\u0438\u0441\u043A \u043F\u043E id, \u0438\u043C\u0435\u043D\u0438, \u043E\u043F\u0438\u0441\u0430\u043D\u0438\u044E, \u0442\u0435\u0433\u0430\u043C, \u0430\u0432\u0442\u043E\u0440\u0443...",
+            value: query,
+            onChange: (e) => setQuery(e.target.value),
+            spellCheck: false
+          }
+        ),
+        query && /* @__PURE__ */ jsx38(
+          "button",
+          {
+            className: "domain-list__search-clear",
+            onClick: () => setQuery(""),
+            title: "\u041E\u0447\u0438\u0441\u0442\u0438\u0442\u044C",
+            children: "\u2715"
+          }
+        )
+      ] }),
+      /* @__PURE__ */ jsxs37("div", { className: "domain-list__grouping", children: [
+        /* @__PURE__ */ jsx38(
+          "button",
+          {
+            className: grouping === "flat" ? "active" : "",
+            onClick: () => setGrouping("flat"),
+            title: "\u041F\u043B\u043E\u0441\u043A\u0438\u0439 \u0441\u043F\u0438\u0441\u043E\u043A",
+            children: "\u041F\u043B\u043E\u0441\u043A\u0438\u0439"
+          }
+        ),
+        /* @__PURE__ */ jsx38(
+          "button",
+          {
+            className: grouping === "namespace" ? "active" : "",
+            onClick: () => setGrouping("namespace"),
+            title: "\u041F\u043E \u043D\u0435\u0439\u043C\u0441\u043F\u0435\u0439\u0441\u0430\u043C",
+            children: "\u041D\u0435\u0439\u043C\u0441\u043F\u0435\u0439\u0441\u044B"
+          }
+        ),
+        /* @__PURE__ */ jsx38(
+          "button",
+          {
+            className: grouping === "folder" ? "active" : "",
+            onClick: () => setGrouping("folder"),
+            title: "\u041F\u043E \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0430\u043C",
+            children: "\u041A\u0430\u0442\u0430\u043B\u043E\u0433\u0438"
+          }
+        )
+      ] }),
+      /* @__PURE__ */ jsx38("div", { className: "domain-list__grouping domain-list__grouping--sort", children: /* @__PURE__ */ jsx38(
+        "select",
+        {
+          value: sort,
+          onChange: (e) => setSort(e.target.value),
+          title: "\u0421\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430",
+          children: SORT_OPTIONS.map((o) => /* @__PURE__ */ jsx38("option", { value: o.value, children: o.label }, o.value))
+        }
+      ) }),
+      /* @__PURE__ */ jsx38(
+        "button",
+        {
+          className: "domain-list__toolbar-btn" + (bookmarksOnly ? " active" : ""),
+          onClick: () => setBookmarksOnly(!bookmarksOnly),
+          title: "\u0422\u043E\u043B\u044C\u043A\u043E \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u044B\u0435",
+          children: /* @__PURE__ */ jsx38(MIcon, { name: bookmarksOnly ? "star" : "star_border", size: "sm", fill: bookmarksOnly })
+        }
+      ),
+      hasAnyFilter && /* @__PURE__ */ jsx38(
+        "button",
+        {
+          className: "domain-list__toolbar-btn domain-list__toolbar-btn--clear",
+          onClick: clearAllFilters,
+          title: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0444\u0438\u043B\u044C\u0442\u0440\u044B",
+          children: /* @__PURE__ */ jsx38(MIcon, { name: "filter_alt_off", size: "sm" })
+        }
+      ),
+      /* @__PURE__ */ jsx38(
+        "button",
+        {
+          className: "domain-list__toolbar-btn",
+          onClick: () => exportCSV(filtered),
+          title: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442 \u0441\u043F\u0438\u0441\u043A\u0430 \u0432 CSV",
+          children: /* @__PURE__ */ jsx38(MIcon, { name: "download", size: "sm" })
+        }
+      ),
+      /* @__PURE__ */ jsxs37("div", { className: "domain-list__stats", children: [
+        filtered.length,
+        " ",
+        plural(filtered.length, "\u0434\u043E\u043C\u0435\u043D", "\u0434\u043E\u043C\u0435\u043D\u043E\u0432")
+      ] })
+    ] }),
+    hasAnyFilter && /* @__PURE__ */ jsxs37("div", { className: "domain-list__chips", children: [
+      query && /* @__PURE__ */ jsxs37("div", { className: "domain-list__chip", children: [
+        /* @__PURE__ */ jsx38(MIcon, { name: "search", size: "sm" }),
+        /* @__PURE__ */ jsx38("span", { children: query }),
+        /* @__PURE__ */ jsx38("button", { onClick: () => setQuery(""), title: "\u0421\u043D\u044F\u0442\u044C", children: "\u2715" })
+      ] }),
+      bookmarksOnly && /* @__PURE__ */ jsxs37("div", { className: "domain-list__chip domain-list__chip--fav", children: [
+        /* @__PURE__ */ jsx38(MIcon, { name: "star", size: "sm", fill: true }),
+        /* @__PURE__ */ jsx38("span", { children: "\u0422\u043E\u043B\u044C\u043A\u043E \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u044B\u0435" }),
+        /* @__PURE__ */ jsx38("button", { onClick: () => setBookmarksOnly(false), title: "\u0421\u043D\u044F\u0442\u044C", children: "\u2715" })
+      ] }),
+      onlyInvalid && /* @__PURE__ */ jsxs37("div", { className: "domain-list__chip domain-list__chip--warn", children: [
+        /* @__PURE__ */ jsx38(MIcon, { name: "cancel", size: "sm" }),
+        /* @__PURE__ */ jsx38("span", { children: "\u0422\u043E\u043B\u044C\u043A\u043E \u043D\u0435\u0432\u0430\u043B\u0438\u0434\u043D\u044B\u0435" }),
+        /* @__PURE__ */ jsx38("button", { onClick: () => setOnlyInvalid(false), title: "\u0421\u043D\u044F\u0442\u044C", children: "\u2715" })
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxs37("div", { className: "domain-list__body", ref: bodyRef, children: [
+      favorites.length > 0 && !bookmarksOnly && /* @__PURE__ */ jsxs37("div", { className: "domain-list__section domain-list__section--fav", children: [
+        /* @__PURE__ */ jsxs37("div", { className: "domain-list__section-title", children: [
+          /* @__PURE__ */ jsx38(MIcon, { name: "star", size: "sm", fill: true }),
+          "\u0418\u0437\u0431\u0440\u0430\u043D\u043D\u043E\u0435 (",
+          favorites.length,
+          ")"
+        ] }),
+        favorites.map((n) => /* @__PURE__ */ jsx38(
+          DomainListRow,
+          {
+            node: n,
+            isSelected: panelNodeId === n.id,
+            isFavorite: true,
+            isFocused: focusedIdx >= 0 && flatRows[focusedIdx]?.node.id === n.id,
+            onSelect
+          },
+          n.id
+        ))
+      ] }),
+      bookmarksOnly && favorites.length === 0 && /* @__PURE__ */ jsxs37("div", { className: "domain-list__empty", children: [
+        /* @__PURE__ */ jsx38(MIcon, { name: "star_border", size: "lg" }),
+        /* @__PURE__ */ jsxs37("div", { children: [
+          "\u041D\u0435\u0442 \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u044B\u0445 \u0434\u043E\u043C\u0435\u043D\u043E\u0432",
+          query ? " \u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443" : ""
+        ] })
+      ] }),
+      !bookmarksOnly && groups.map((g) => /* @__PURE__ */ jsxs37("div", { className: "domain-list__section", children: [
+        grouping !== "flat" && /* @__PURE__ */ jsxs37("div", { className: "domain-list__section-title", children: [
+          /* @__PURE__ */ jsx38("code", { className: "domain-list__section-key", children: g.label }),
+          /* @__PURE__ */ jsx38("span", { className: "domain-list__section-count", children: g.nodes.length })
+        ] }),
+        g.nodes.map((n) => /* @__PURE__ */ jsx38(
+          DomainListRow,
+          {
+            node: n,
+            isSelected: panelNodeId === n.id,
+            isFavorite: false,
+            isFocused: focusedIdx >= 0 && flatRows[focusedIdx]?.node.id === n.id,
+            onSelect
+          },
+          n.id
+        ))
+      ] }, g.key)),
+      problematicNodes.length > 0 && /* @__PURE__ */ jsxs37("div", { className: "domain-list__section domain-list__section--problematic", children: [
+        /* @__PURE__ */ jsxs37("div", { className: "domain-list__section-title", children: [
+          /* @__PURE__ */ jsx38(MIcon, { name: "warning", size: "sm" }),
+          "\u041F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0435 (",
+          problematicNodes.length,
+          ")"
+        ] }),
+        problematicNodes.map((n) => /* @__PURE__ */ jsx38(
+          DomainListRow,
+          {
+            node: n,
+            isSelected: panelNodeId === n.id,
+            isFavorite: false,
+            isFocused: false,
+            onSelect
+          },
+          n.id
+        ))
+      ] }),
+      filtered.length === 0 && !query.trim() && !hasAnyFilter && /* @__PURE__ */ jsxs37("div", { className: "domain-list__empty", children: [
+        /* @__PURE__ */ jsx38(MIcon, { name: "folder_off", size: "lg" }),
+        /* @__PURE__ */ jsx38("div", { children: "\u041D\u0435\u0442 \u0434\u043E\u043C\u0435\u043D\u043E\u0432" })
+      ] }),
+      filtered.length === 0 && hasAnyFilter && /* @__PURE__ */ jsxs37("div", { className: "domain-list__empty", children: [
+        /* @__PURE__ */ jsx38(MIcon, { name: "search_off", size: "lg" }),
+        /* @__PURE__ */ jsx38("div", { children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0442\u0435\u043A\u0443\u0449\u0438\u043C \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u043C" })
+      ] })
+    ] })
+  ] });
+}
+var SORT_OPTIONS;
+var init_DomainList = __esm({
+  "src/web/components/layout/DomainList.tsx"() {
+    "use strict";
+    init_useGraphStore();
+    init_MIcon();
+    init_format();
+    init_DomainListRow();
+    SORT_OPTIONS = [
+      { value: "default", label: "\u041F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E" },
+      { value: "name", label: "\u041F\u043E \u0438\u043C\u0435\u043D\u0438" },
+      { value: "version", label: "\u041F\u043E \u0432\u0435\u0440\u0441\u0438\u0438" },
+      { value: "updated", label: "\u041F\u043E \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044E" },
+      { value: "entities", label: "\u041F\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u043C" }
+    ];
+  }
+});
+
+// src/web/components/layout/GraphArea.tsx
+import { applyEdgeChanges, applyNodeChanges } from "reactflow";
+import { jsx as jsx39, jsxs as jsxs38 } from "react/jsx-runtime";
+function GraphArea(props) {
+  const store = useGraphStore();
+  return /* @__PURE__ */ jsxs38(
+    "div",
+    {
+      className: "graph-container" + (store.viewMode === "list" ? " graph-container--list" : "") + (store.showEdgeLabels ? " show-labels" : ""),
+      children: [
+        store.viewMode === "list" ? /* @__PURE__ */ jsx39(DomainList, {}) : /* @__PURE__ */ jsx39(
           GraphView,
           {
             nodes: props.visibleNodes,
@@ -8806,12 +9518,12 @@ function GraphArea(props) {
             perfMode: props.perfMode
           }
         ),
-        props.visibleNodes.length === 0 && /* @__PURE__ */ jsxs36("div", { className: "empty-state", children: [
-          /* @__PURE__ */ jsx37("div", { className: "empty-state__icon", children: /* @__PURE__ */ jsx37("span", { className: "material-symbols-outlined mi-xl", children: "search_off" }) }),
-          /* @__PURE__ */ jsx37("div", { className: "empty-state__title", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" }),
-          /* @__PURE__ */ jsx37("div", { className: "empty-state__text", children: "\u041F\u043E\u0434 \u0442\u0435\u043A\u0443\u0449\u0438\u0435 \u0444\u0438\u043B\u044C\u0442\u0440\u044B \u043D\u0435 \u043F\u043E\u0434\u0445\u043E\u0434\u0438\u0442 \u043D\u0438 \u043E\u0434\u0438\u043D \u0434\u043E\u043C\u0435\u043D." }),
-          /* @__PURE__ */ jsxs36("div", { className: "empty-state__actions", children: [
-            store.namespaceFilter && /* @__PURE__ */ jsx37(
+        store.viewMode === "graph" && props.visibleNodes.length === 0 && /* @__PURE__ */ jsxs38("div", { className: "empty-state", children: [
+          /* @__PURE__ */ jsx39("div", { className: "empty-state__icon", children: /* @__PURE__ */ jsx39("span", { className: "material-symbols-outlined mi-xl", children: "search_off" }) }),
+          /* @__PURE__ */ jsx39("div", { className: "empty-state__title", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" }),
+          /* @__PURE__ */ jsx39("div", { className: "empty-state__text", children: "\u041F\u043E\u0434 \u0442\u0435\u043A\u0443\u0449\u0438\u0435 \u0444\u0438\u043B\u044C\u0442\u0440\u044B \u043D\u0435 \u043F\u043E\u0434\u0445\u043E\u0434\u0438\u0442 \u043D\u0438 \u043E\u0434\u0438\u043D \u0434\u043E\u043C\u0435\u043D." }),
+          /* @__PURE__ */ jsxs38("div", { className: "empty-state__actions", children: [
+            store.namespaceFilter && /* @__PURE__ */ jsx39(
               "button",
               {
                 className: "btn",
@@ -8819,7 +9531,7 @@ function GraphArea(props) {
                 children: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C namespace"
               }
             ),
-            store.tagFilters.size > 0 && /* @__PURE__ */ jsx37(
+            store.tagFilters.size > 0 && /* @__PURE__ */ jsx39(
               "button",
               {
                 className: "btn",
@@ -8827,20 +9539,20 @@ function GraphArea(props) {
                 children: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0442\u0435\u0433\u0438"
               }
             ),
-            /* @__PURE__ */ jsx37("button", { className: "btn btn--primary", onClick: props.onResetAll, children: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0432\u0441\u0451" })
+            /* @__PURE__ */ jsx39("button", { className: "btn btn--primary", onClick: props.onResetAll, children: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0432\u0441\u0451" })
           ] })
         ] }),
-        store.heatmap !== "none" && props.heatmapValues && /* @__PURE__ */ jsxs36("div", { className: "heat-legend", children: [
-          /* @__PURE__ */ jsxs36("div", { className: "heat-legend__title", children: [
+        store.heatmap !== "none" && props.heatmapValues && /* @__PURE__ */ jsxs38("div", { className: "heat-legend", children: [
+          /* @__PURE__ */ jsxs38("div", { className: "heat-legend__title", children: [
             "Heatmap: ",
             props.heatmapValues.scheme.label
           ] }),
-          /* @__PURE__ */ jsx37("div", { className: "heat-legend__bar" }),
-          /* @__PURE__ */ jsxs36("div", { className: "heat-legend__labels", children: [
-            /* @__PURE__ */ jsx37("span", { children: props.heatmapValues.min }),
-            /* @__PURE__ */ jsx37("span", { children: props.heatmapValues.max })
+          /* @__PURE__ */ jsx39("div", { className: "heat-legend__bar" }),
+          /* @__PURE__ */ jsxs38("div", { className: "heat-legend__labels", children: [
+            /* @__PURE__ */ jsx39("span", { children: props.heatmapValues.min }),
+            /* @__PURE__ */ jsx39("span", { children: props.heatmapValues.max })
           ] }),
-          /* @__PURE__ */ jsx37(
+          /* @__PURE__ */ jsx39(
             "button",
             {
               className: "heat-legend__close",
@@ -8849,7 +9561,7 @@ function GraphArea(props) {
             }
           )
         ] }),
-        /* @__PURE__ */ jsx37(
+        /* @__PURE__ */ jsx39(
           SidePanel,
           {
             allNodes: store.nodes,
@@ -8872,16 +9584,17 @@ var init_GraphArea = __esm({
     init_useGraphStore();
     init_GraphView();
     init_SidePanel();
+    init_DomainList();
   }
 });
 
 // src/web/components/common/HoverTooltip.tsx
-import { useEffect as useEffect14 } from "react";
-import { jsx as jsx38 } from "react/jsx-runtime";
+import { useEffect as useEffect15 } from "react";
+import { jsx as jsx40 } from "react/jsx-runtime";
 function HoverTooltip() {
   const tooltip = useGraphStore((s) => s.tooltip);
   const setTooltip = useGraphStore((s) => s.setTooltip);
-  useEffect14(() => {
+  useEffect15(() => {
     if (!tooltip)
       return;
     const el = document.querySelector(".tooltip");
@@ -8908,7 +9621,7 @@ function HoverTooltip() {
   }, [tooltip, setTooltip]);
   if (!tooltip)
     return null;
-  return /* @__PURE__ */ jsx38(
+  return /* @__PURE__ */ jsx40(
     "div",
     {
       className: "tooltip",
@@ -8921,7 +9634,7 @@ function HoverTooltip() {
       },
       onMouseDown: (e) => e.stopPropagation(),
       onClick: (e) => e.stopPropagation(),
-      children: /* @__PURE__ */ jsx38("div", { dangerouslySetInnerHTML: { __html: tooltip.html } })
+      children: /* @__PURE__ */ jsx40("div", { dangerouslySetInnerHTML: { __html: tooltip.html } })
     }
   );
 }
@@ -8933,11 +9646,11 @@ var init_HoverTooltip = __esm({
 });
 
 // src/web/components/common/ContextMenu.tsx
-import { useEffect as useEffect15, useRef as useRef8 } from "react";
-import { jsx as jsx39, jsxs as jsxs37 } from "react/jsx-runtime";
+import { useEffect as useEffect16, useRef as useRef9 } from "react";
+import { jsx as jsx41, jsxs as jsxs39 } from "react/jsx-runtime";
 function ContextMenu({ menu, onClose, onAction }) {
-  const ref = useRef8(null);
-  useEffect15(() => {
+  const ref = useRef9(null);
+  useEffect16(() => {
     if (!menu)
       return;
     const onDoc = (e) => {
@@ -8957,10 +9670,10 @@ function ContextMenu({ menu, onClose, onAction }) {
   }, [menu, onClose]);
   if (!menu)
     return null;
-  return /* @__PURE__ */ jsx39("div", { className: "ctx-menu", ref, style: { left: menu.x, top: menu.y }, children: ITEMS.map((it, i) => {
+  return /* @__PURE__ */ jsx41("div", { className: "ctx-menu", ref, style: { left: menu.x, top: menu.y }, children: ITEMS.map((it, i) => {
     if (it.type === "divider")
-      return /* @__PURE__ */ jsx39("div", { className: "ctx-menu__divider" }, i);
-    return /* @__PURE__ */ jsxs37(
+      return /* @__PURE__ */ jsx41("div", { className: "ctx-menu__divider" }, i);
+    return /* @__PURE__ */ jsxs39(
       "button",
       {
         className: "ctx-menu__item" + (it.danger ? " ctx-menu__item--danger" : ""),
@@ -8970,8 +9683,8 @@ function ContextMenu({ menu, onClose, onAction }) {
           onClose();
         },
         children: [
-          /* @__PURE__ */ jsx39("span", { className: "ctx-menu__icon", children: it.icon }),
-          /* @__PURE__ */ jsx39("span", { children: it.label })
+          /* @__PURE__ */ jsx41("span", { className: "ctx-menu__icon", children: it.icon }),
+          /* @__PURE__ */ jsx41("span", { children: it.label })
         ]
       },
       i
@@ -8997,16 +9710,16 @@ var init_ContextMenu = __esm({
 });
 
 // src/web/components/common/Toast.tsx
-import { useEffect as useEffect16, useRef as useRef9, useState as useState7 } from "react";
-import { jsx as jsx40, jsxs as jsxs38 } from "react/jsx-runtime";
+import { useEffect as useEffect17, useRef as useRef10, useState as useState7 } from "react";
+import { jsx as jsx42, jsxs as jsxs40 } from "react/jsx-runtime";
 function Toast({ message, actions = [], onClose, duration = 2e4, dontShowAgain }) {
   const [visible, setVisible] = useState7(true);
   const [copied, setCopied] = useState7(false);
-  const onCloseRef = useRef9(onClose);
-  useEffect16(() => {
+  const onCloseRef = useRef10(onClose);
+  useEffect17(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
-  useEffect16(() => {
+  useEffect17(() => {
     if (!duration)
       return;
     const t = setTimeout(() => {
@@ -9023,18 +9736,18 @@ function Toast({ message, actions = [], onClose, duration = 2e4, dontShowAgain }
       setTimeout(() => setCopied(false), 1500);
     });
   };
-  return /* @__PURE__ */ jsxs38("div", { className: "toast", children: [
-    /* @__PURE__ */ jsxs38("div", { className: "toast__body", children: [
-      /* @__PURE__ */ jsx40("div", { className: "toast__message", dangerouslySetInnerHTML: { __html: message } }),
-      actions.map((a, i) => /* @__PURE__ */ jsxs38("div", { className: "toast__action", children: [
-        a.command && /* @__PURE__ */ jsx40("code", { className: "toast__command", children: a.command }),
-        a.command && /* @__PURE__ */ jsx40("button", { className: "toast__btn", onClick: () => copyToClipboard(a.command), children: copied ? "\u2713 \u0421\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D\u043E" : /* @__PURE__ */ jsxs38("span", { children: [
-          /* @__PURE__ */ jsx40(MIcon, { name: "content_copy", size: "sm" }),
+  return /* @__PURE__ */ jsxs40("div", { className: "toast", children: [
+    /* @__PURE__ */ jsxs40("div", { className: "toast__body", children: [
+      /* @__PURE__ */ jsx42("div", { className: "toast__message", dangerouslySetInnerHTML: { __html: message } }),
+      actions.map((a, i) => /* @__PURE__ */ jsxs40("div", { className: "toast__action", children: [
+        a.command && /* @__PURE__ */ jsx42("code", { className: "toast__command", children: a.command }),
+        a.command && /* @__PURE__ */ jsx42("button", { className: "toast__btn", onClick: () => copyToClipboard(a.command), children: copied ? "\u2713 \u0421\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D\u043E" : /* @__PURE__ */ jsxs40("span", { children: [
+          /* @__PURE__ */ jsx42(MIcon, { name: "content_copy", size: "sm" }),
           " \u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C"
         ] }) })
       ] }, i)),
-      dontShowAgain && /* @__PURE__ */ jsxs38("label", { className: "toast__dont-show", children: [
-        /* @__PURE__ */ jsx40(
+      dontShowAgain && /* @__PURE__ */ jsxs40("label", { className: "toast__dont-show", children: [
+        /* @__PURE__ */ jsx42(
           "input",
           {
             type: "checkbox",
@@ -9042,10 +9755,10 @@ function Toast({ message, actions = [], onClose, duration = 2e4, dontShowAgain }
             onChange: (e) => dontShowAgain.onChange(e.target.checked)
           }
         ),
-        /* @__PURE__ */ jsx40("span", { children: dontShowAgain.label || "\u0411\u043E\u043B\u044C\u0448\u0435 \u043D\u0435 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0442\u044C" })
+        /* @__PURE__ */ jsx42("span", { children: dontShowAgain.label || "\u0411\u043E\u043B\u044C\u0448\u0435 \u043D\u0435 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0442\u044C" })
       ] })
     ] }),
-    /* @__PURE__ */ jsx40(
+    /* @__PURE__ */ jsx42(
       "button",
       {
         className: "toast__close",
@@ -9066,13 +9779,13 @@ var init_Toast = __esm({
 });
 
 // src/web/components/common/Snackbar.tsx
-import { jsx as jsx41, jsxs as jsxs39 } from "react/jsx-runtime";
+import { jsx as jsx43, jsxs as jsxs41 } from "react/jsx-runtime";
 function Snackbar({ snackbar }) {
   if (!snackbar)
     return null;
-  return /* @__PURE__ */ jsxs39("div", { className: "snackbar", children: [
-    /* @__PURE__ */ jsx41(MIcon, { name: "check_circle", size: "sm" }),
-    /* @__PURE__ */ jsx41("span", { children: snackbar.message })
+  return /* @__PURE__ */ jsxs41("div", { className: "snackbar", children: [
+    /* @__PURE__ */ jsx43(MIcon, { name: "check_circle", size: "sm" }),
+    /* @__PURE__ */ jsx43("span", { children: snackbar.message })
   ] });
 }
 var init_Snackbar = __esm({
@@ -9083,13 +9796,13 @@ var init_Snackbar = __esm({
 });
 
 // src/web/components/modals/HelpModal.tsx
-import { useEffect as useEffect17, useState as useState8 } from "react";
-import { jsx as jsx42, jsxs as jsxs40 } from "react/jsx-runtime";
+import { useEffect as useEffect18, useState as useState8 } from "react";
+import { jsx as jsx44, jsxs as jsxs42 } from "react/jsx-runtime";
 function HelpModal({ open, onClose }) {
   const [content, setContent] = useState8("");
   const [loading, setLoading] = useState8(false);
   const { parse, ready } = useMarked();
-  useEffect17(() => {
+  useEffect18(() => {
     if (!open || content)
       return;
     setLoading(true);
@@ -9099,44 +9812,12 @@ function HelpModal({ open, onClose }) {
       return r.text();
     }).then((md) => setContent(md)).catch((err) => setContent("# \u041E\u0448\u0438\u0431\u043A\u0430\n\n" + err.message)).finally(() => setLoading(false));
   }, [open, content]);
-  useEffect17(() => {
+  useEffect18(() => {
     if (!open || !content || !ready || !parse)
       return;
     if (loading)
       setLoading(false);
   }, [open, content, ready, parse, loading]);
-  useEffect17(() => {
-    if (!open)
-      return;
-    const onEsc = (e) => {
-      if (e.key === "Escape")
-        onClose();
-    };
-    document.addEventListener("keydown", onEsc, true);
-    return () => document.removeEventListener("keydown", onEsc, true);
-  }, [open, onClose]);
-  if (!open)
-    return null;
-  const html = ready && parse && content ? parse(content) : "";
-  return /* @__PURE__ */ jsx42("div", { className: "help-overlay", onMouseDown: onClose, children: /* @__PURE__ */ jsxs40("div", { className: "help-modal", onMouseDown: (e) => e.stopPropagation(), children: [
-    /* @__PURE__ */ jsxs40("div", { className: "help-modal__header", children: [
-      /* @__PURE__ */ jsx42("div", { className: "help-modal__title", children: "\u{1F4D6} \u0420\u0443\u043A\u043E\u0432\u043E\u0434\u0441\u0442\u0432\u043E \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044F" }),
-      /* @__PURE__ */ jsx42("button", { className: "help-modal__close", onClick: onClose, title: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C (Esc)", children: "\u2715" })
-    ] }),
-    /* @__PURE__ */ jsx42("div", { className: "help-modal__body", children: loading || !html ? /* @__PURE__ */ jsx42("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430..." }) : /* @__PURE__ */ jsx42("div", { className: "help-content", dangerouslySetInnerHTML: { __html: html } }) })
-  ] }) });
-}
-var init_HelpModal = __esm({
-  "src/web/components/modals/HelpModal.tsx"() {
-    "use strict";
-    init_useMarked();
-  }
-});
-
-// src/web/components/modals/HotkeysModal.tsx
-import React15, { useEffect as useEffect18 } from "react";
-import { jsx as jsx43, jsxs as jsxs41 } from "react/jsx-runtime";
-function HotkeysModal({ open, onClose }) {
   useEffect18(() => {
     if (!open)
       return;
@@ -9149,22 +9830,54 @@ function HotkeysModal({ open, onClose }) {
   }, [open, onClose]);
   if (!open)
     return null;
-  return /* @__PURE__ */ jsx43("div", { className: "help-overlay", onMouseDown: onClose, children: /* @__PURE__ */ jsxs41("div", { className: "help-modal hotkeys-modal", onMouseDown: (e) => e.stopPropagation(), children: [
-    /* @__PURE__ */ jsxs41("div", { className: "help-modal__header", children: [
-      /* @__PURE__ */ jsx43("div", { className: "help-modal__title", children: "\u2328\uFE0F \u0413\u043E\u0440\u044F\u0447\u0438\u0435 \u043A\u043B\u0430\u0432\u0438\u0448\u0438" }),
-      /* @__PURE__ */ jsx43("button", { className: "help-modal__close", onClick: onClose, children: "\u2715" })
+  const html = ready && parse && content ? parse(content) : "";
+  return /* @__PURE__ */ jsx44("div", { className: "help-overlay", onMouseDown: onClose, children: /* @__PURE__ */ jsxs42("div", { className: "help-modal", onMouseDown: (e) => e.stopPropagation(), children: [
+    /* @__PURE__ */ jsxs42("div", { className: "help-modal__header", children: [
+      /* @__PURE__ */ jsx44("div", { className: "help-modal__title", children: "\u{1F4D6} \u0420\u0443\u043A\u043E\u0432\u043E\u0434\u0441\u0442\u0432\u043E \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044F" }),
+      /* @__PURE__ */ jsx44("button", { className: "help-modal__close", onClick: onClose, title: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C (Esc)", children: "\u2715" })
     ] }),
-    /* @__PURE__ */ jsx43("div", { className: "hotkeys-body", children: GROUPS.map((g) => /* @__PURE__ */ jsxs41("div", { className: "hotkeys-group", children: [
-      /* @__PURE__ */ jsx43("div", { className: "hotkeys-group__title", children: g.title }),
-      /* @__PURE__ */ jsx43("div", { className: "hotkeys-group__items", children: g.items.map((item, i) => /* @__PURE__ */ jsxs41("div", { className: "hotkey-row", children: [
-        /* @__PURE__ */ jsx43("div", { className: "hotkey-row__keys", children: item.keys.map((k, ki) => /* @__PURE__ */ jsxs41(React15.Fragment, { children: [
-          ki > 0 && /* @__PURE__ */ jsx43("span", { className: "hotkey-plus", children: "+" }),
-          /* @__PURE__ */ jsx43("kbd", { className: "hotkey-key", children: k })
+    /* @__PURE__ */ jsx44("div", { className: "help-modal__body", children: loading || !html ? /* @__PURE__ */ jsx44("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430..." }) : /* @__PURE__ */ jsx44("div", { className: "help-content", dangerouslySetInnerHTML: { __html: html } }) })
+  ] }) });
+}
+var init_HelpModal = __esm({
+  "src/web/components/modals/HelpModal.tsx"() {
+    "use strict";
+    init_useMarked();
+  }
+});
+
+// src/web/components/modals/HotkeysModal.tsx
+import React16, { useEffect as useEffect19 } from "react";
+import { jsx as jsx45, jsxs as jsxs43 } from "react/jsx-runtime";
+function HotkeysModal({ open, onClose }) {
+  useEffect19(() => {
+    if (!open)
+      return;
+    const onEsc = (e) => {
+      if (e.key === "Escape")
+        onClose();
+    };
+    document.addEventListener("keydown", onEsc, true);
+    return () => document.removeEventListener("keydown", onEsc, true);
+  }, [open, onClose]);
+  if (!open)
+    return null;
+  return /* @__PURE__ */ jsx45("div", { className: "help-overlay", onMouseDown: onClose, children: /* @__PURE__ */ jsxs43("div", { className: "help-modal hotkeys-modal", onMouseDown: (e) => e.stopPropagation(), children: [
+    /* @__PURE__ */ jsxs43("div", { className: "help-modal__header", children: [
+      /* @__PURE__ */ jsx45("div", { className: "help-modal__title", children: "\u2328\uFE0F \u0413\u043E\u0440\u044F\u0447\u0438\u0435 \u043A\u043B\u0430\u0432\u0438\u0448\u0438" }),
+      /* @__PURE__ */ jsx45("button", { className: "help-modal__close", onClick: onClose, children: "\u2715" })
+    ] }),
+    /* @__PURE__ */ jsx45("div", { className: "hotkeys-body", children: GROUPS.map((g) => /* @__PURE__ */ jsxs43("div", { className: "hotkeys-group", children: [
+      /* @__PURE__ */ jsx45("div", { className: "hotkeys-group__title", children: g.title }),
+      /* @__PURE__ */ jsx45("div", { className: "hotkeys-group__items", children: g.items.map((item, i) => /* @__PURE__ */ jsxs43("div", { className: "hotkey-row", children: [
+        /* @__PURE__ */ jsx45("div", { className: "hotkey-row__keys", children: item.keys.map((k, ki) => /* @__PURE__ */ jsxs43(React16.Fragment, { children: [
+          ki > 0 && /* @__PURE__ */ jsx45("span", { className: "hotkey-plus", children: "+" }),
+          /* @__PURE__ */ jsx45("kbd", { className: "hotkey-key", children: k })
         ] }, ki)) }),
-        /* @__PURE__ */ jsx43("div", { className: "hotkey-row__label", children: item.label })
+        /* @__PURE__ */ jsx45("div", { className: "hotkey-row__label", children: item.label })
       ] }, i)) })
     ] }, g.title)) }),
-    /* @__PURE__ */ jsx43("div", { className: "hotkeys-footer", children: "\u0412\u0441\u0435 \u0433\u043E\u0440\u044F\u0447\u0438\u0435 \u043A\u043B\u0430\u0432\u0438\u0448\u0438 \u0440\u0430\u0431\u043E\u0442\u0430\u044E\u0442, \u043A\u043E\u0433\u0434\u0430 \u0444\u043E\u043A\u0443\u0441 \u043D\u0435 \u0432 \u043F\u043E\u043B\u0435 \u0432\u0432\u043E\u0434\u0430." })
+    /* @__PURE__ */ jsx45("div", { className: "hotkeys-footer", children: "\u0412\u0441\u0435 \u0433\u043E\u0440\u044F\u0447\u0438\u0435 \u043A\u043B\u0430\u0432\u0438\u0448\u0438 \u0440\u0430\u0431\u043E\u0442\u0430\u044E\u0442, \u043A\u043E\u0433\u0434\u0430 \u0444\u043E\u043A\u0443\u0441 \u043D\u0435 \u0432 \u043F\u043E\u043B\u0435 \u0432\u0432\u043E\u0434\u0430." })
   ] }) });
 }
 var GROUPS;
@@ -9241,14 +9954,14 @@ var init_HotkeysModal = __esm({
 });
 
 // src/web/components/common/HighlightedText.tsx
-import { Fragment as Fragment3, jsx as jsx44 } from "react/jsx-runtime";
+import { Fragment as Fragment7, jsx as jsx46 } from "react/jsx-runtime";
 function HighlightedText({ text, query }) {
   if (text === null || text === void 0)
     return null;
   const str2 = String(text);
   const q = (query || "").trim();
   if (!q)
-    return /* @__PURE__ */ jsx44(Fragment3, { children: str2 });
+    return /* @__PURE__ */ jsx46(Fragment7, { children: str2 });
   const lower = str2.toLowerCase();
   const qLower = q.toLowerCase();
   const parts = [];
@@ -9259,14 +9972,14 @@ function HighlightedText({ text, query }) {
     if (idx > pos)
       parts.push(str2.slice(pos, idx));
     parts.push(
-      /* @__PURE__ */ jsx44("mark", { className: "search-hl", children: str2.slice(idx, idx + q.length) }, "m" + key++)
+      /* @__PURE__ */ jsx46("mark", { className: "search-hl", children: str2.slice(idx, idx + q.length) }, "m" + key++)
     );
     pos = idx + q.length;
     idx = lower.indexOf(qLower, pos);
   }
   if (pos < str2.length)
     parts.push(str2.slice(pos));
-  return /* @__PURE__ */ jsx44(Fragment3, { children: parts });
+  return /* @__PURE__ */ jsx46(Fragment7, { children: parts });
 }
 var init_HighlightedText = __esm({
   "src/web/components/common/HighlightedText.tsx"() {
@@ -9275,8 +9988,8 @@ var init_HighlightedText = __esm({
 });
 
 // src/web/components/modals/CommandPalette.tsx
-import React16, { useCallback as useCallback8, useEffect as useEffect19, useMemo as useMemo18, useRef as useRef10 } from "react";
-import { jsx as jsx45, jsxs as jsxs42 } from "react/jsx-runtime";
+import React17, { useCallback as useCallback9, useEffect as useEffect20, useMemo as useMemo19, useRef as useRef11 } from "react";
+import { jsx as jsx47, jsxs as jsxs44 } from "react/jsx-runtime";
 function CommandPalette({ commands, onOpenFile }) {
   const open = useGraphStore((s) => s.searchOpen);
   const query = useGraphStore((s) => s.searchQuery);
@@ -9286,8 +9999,8 @@ function CommandPalette({ commands, onOpenFile }) {
   const setSearchIndex = useGraphStore((s) => s.setSearchIndex);
   const { goto } = useNavigation();
   const results = useSearch();
-  const inputRef = useRef10(null);
-  useEffect19(() => {
+  const inputRef = useRef11(null);
+  useEffect20(() => {
     if (open) {
       setTimeout(() => {
         const input = inputRef.current;
@@ -9298,7 +10011,7 @@ function CommandPalette({ commands, onOpenFile }) {
       }, 50);
     }
   }, [open]);
-  const filteredCommands = useMemo18(() => {
+  const filteredCommands = useMemo19(() => {
     const q = query.trim().toLowerCase();
     if (!q)
       return commands;
@@ -9307,7 +10020,7 @@ function CommandPalette({ commands, onOpenFile }) {
       return hay.indexOf(q) !== -1;
     });
   }, [query, commands]);
-  const commandsBySection = useMemo18(() => {
+  const commandsBySection = useMemo19(() => {
     const map2 = /* @__PURE__ */ new Map();
     filteredCommands.forEach((c) => {
       const s = c.section || "\u041F\u0440\u043E\u0447\u0435\u0435";
@@ -9319,8 +10032,8 @@ function CommandPalette({ commands, onOpenFile }) {
   }, [filteredCommands]);
   const totalItems = filteredCommands.length + results.length;
   const safeIndex = Math.min(index, Math.max(totalItems - 1, 0));
-  const close = useCallback8(() => setSearchOpen(false), [setSearchOpen]);
-  const handleHover = useCallback8(
+  const close = useCallback9(() => setSearchOpen(false), [setSearchOpen]);
+  const handleHover = useCallback9(
     (idx) => setSearchIndex(idx),
     [setSearchIndex]
   );
@@ -9355,10 +10068,10 @@ function CommandPalette({ commands, onOpenFile }) {
     return null;
   let cmdIdx = 0;
   const domainStartIdx = filteredCommands.length;
-  return /* @__PURE__ */ jsx45("div", { className: "search-overlay", onMouseDown: close, children: /* @__PURE__ */ jsxs42("div", { className: "search-modal search-modal--palette", onMouseDown: (e) => e.stopPropagation(), children: [
-    /* @__PURE__ */ jsxs42("div", { className: "search-modal__input-wrap", children: [
-      /* @__PURE__ */ jsx45("span", { className: "search-modal__icon", children: /* @__PURE__ */ jsx45(MIcon, { name: "search" }) }),
-      /* @__PURE__ */ jsx45(
+  return /* @__PURE__ */ jsx47("div", { className: "search-overlay", onMouseDown: close, children: /* @__PURE__ */ jsxs44("div", { className: "search-modal search-modal--palette", onMouseDown: (e) => e.stopPropagation(), children: [
+    /* @__PURE__ */ jsxs44("div", { className: "search-modal__input-wrap", children: [
+      /* @__PURE__ */ jsx47("span", { className: "search-modal__icon", children: /* @__PURE__ */ jsx47(MIcon, { name: "search" }) }),
+      /* @__PURE__ */ jsx47(
         "input",
         {
           ref: inputRef,
@@ -9372,20 +10085,20 @@ function CommandPalette({ commands, onOpenFile }) {
           spellCheck: false
         }
       ),
-      /* @__PURE__ */ jsx45("kbd", { className: "search-modal__kbd", children: "Esc" })
+      /* @__PURE__ */ jsx47("kbd", { className: "search-modal__kbd", children: "Esc" })
     ] }),
-    /* @__PURE__ */ jsxs42("div", { className: "search-modal__results", children: [
-      query.trim() === "" && filteredCommands.length === 0 && results.length === 0 && /* @__PURE__ */ jsx45("div", { className: "search-modal__hint", children: "\u041D\u0430\u0447\u043D\u0438\u0442\u0435 \u0432\u0432\u043E\u0434\u0438\u0442\u044C \u0438\u043C\u044F \u043A\u043E\u043C\u0430\u043D\u0434\u044B, \u0434\u043E\u043C\u0435\u043D \u0438\u043B\u0438 FQID" }),
-      query.trim() !== "" && filteredCommands.length === 0 && results.length === 0 && /* @__PURE__ */ jsxs42("div", { className: "search-modal__hint", children: [
+    /* @__PURE__ */ jsxs44("div", { className: "search-modal__results", children: [
+      query.trim() === "" && filteredCommands.length === 0 && results.length === 0 && /* @__PURE__ */ jsx47("div", { className: "search-modal__hint", children: "\u041D\u0430\u0447\u043D\u0438\u0442\u0435 \u0432\u0432\u043E\u0434\u0438\u0442\u044C \u0438\u043C\u044F \u043A\u043E\u043C\u0430\u043D\u0434\u044B, \u0434\u043E\u043C\u0435\u043D \u0438\u043B\u0438 FQID" }),
+      query.trim() !== "" && filteredCommands.length === 0 && results.length === 0 && /* @__PURE__ */ jsxs44("div", { className: "search-modal__hint", children: [
         "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443 \xAB",
         query,
         "\xBB"
       ] }),
-      filteredCommands.length > 0 && commandsBySection.map(([section, cmds]) => /* @__PURE__ */ jsxs42("div", { className: "palette-section", children: [
-        /* @__PURE__ */ jsx45("div", { className: "palette-section__title", children: section }),
+      filteredCommands.length > 0 && commandsBySection.map(([section, cmds]) => /* @__PURE__ */ jsxs44("div", { className: "palette-section", children: [
+        /* @__PURE__ */ jsx47("div", { className: "palette-section__title", children: section }),
         cmds.map((cmd) => {
           const itemIdx = cmdIdx++;
-          return /* @__PURE__ */ jsx45(
+          return /* @__PURE__ */ jsx47(
             CommandItem,
             {
               cmd,
@@ -9401,15 +10114,15 @@ function CommandPalette({ commands, onOpenFile }) {
           );
         })
       ] }, "sec-" + section)),
-      results.length > 0 && /* @__PURE__ */ jsxs42("div", { className: "palette-section", children: [
-        /* @__PURE__ */ jsxs42("div", { className: "palette-section__title", children: [
+      results.length > 0 && /* @__PURE__ */ jsxs44("div", { className: "palette-section", children: [
+        /* @__PURE__ */ jsxs44("div", { className: "palette-section__title", children: [
           "\u0414\u043E\u043C\u0435\u043D\u044B (",
           results.length,
           ")"
         ] }),
         results.map((item, i) => {
           const itemIdx = domainStartIdx + i;
-          return /* @__PURE__ */ jsx45(
+          return /* @__PURE__ */ jsx47(
             DomainItem,
             {
               item,
@@ -9432,18 +10145,18 @@ function CommandPalette({ commands, onOpenFile }) {
         })
       ] })
     ] }),
-    /* @__PURE__ */ jsxs42("div", { className: "search-modal__footer", children: [
-      /* @__PURE__ */ jsxs42("span", { children: [
-        /* @__PURE__ */ jsx45("kbd", { children: "\u2191" }),
-        /* @__PURE__ */ jsx45("kbd", { children: "\u2193" }),
+    /* @__PURE__ */ jsxs44("div", { className: "search-modal__footer", children: [
+      /* @__PURE__ */ jsxs44("span", { children: [
+        /* @__PURE__ */ jsx47("kbd", { children: "\u2191" }),
+        /* @__PURE__ */ jsx47("kbd", { children: "\u2193" }),
         " \u043D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044F"
       ] }),
-      /* @__PURE__ */ jsxs42("span", { children: [
-        /* @__PURE__ */ jsx45("kbd", { children: "Enter" }),
+      /* @__PURE__ */ jsxs44("span", { children: [
+        /* @__PURE__ */ jsx47("kbd", { children: "Enter" }),
         " \u0432\u044B\u0431\u0440\u0430\u0442\u044C"
       ] }),
-      /* @__PURE__ */ jsxs42("span", { children: [
-        /* @__PURE__ */ jsx45("kbd", { children: "Esc" }),
+      /* @__PURE__ */ jsxs44("span", { children: [
+        /* @__PURE__ */ jsx47("kbd", { children: "Esc" }),
         " \u0437\u0430\u043A\u0440\u044B\u0442\u044C"
       ] })
     ] })
@@ -9458,28 +10171,28 @@ var init_CommandPalette = __esm({
     init_useSearch();
     init_MIcon();
     init_HighlightedText();
-    CommandItem = React16.memo(function CommandItem2({
+    CommandItem = React17.memo(function CommandItem2({
       cmd,
       itemIdx,
       isActive,
       onHover,
       onSelect
     }) {
-      return /* @__PURE__ */ jsxs42(
+      return /* @__PURE__ */ jsxs44(
         "div",
         {
           className: "palette-item palette-item--command" + (isActive ? " active" : ""),
           onMouseEnter: () => onHover(itemIdx),
           onClick: onSelect,
           children: [
-            /* @__PURE__ */ jsx45("span", { className: "palette-item__icon", children: cmd.iconName ? /* @__PURE__ */ jsx45(MIcon, { name: cmd.iconName, size: "sm" }) : cmd.icon }),
-            /* @__PURE__ */ jsx45("span", { className: "palette-item__label", children: cmd.label }),
-            cmd.hotkey && /* @__PURE__ */ jsx45("kbd", { className: "palette-item__hotkey", children: cmd.hotkey })
+            /* @__PURE__ */ jsx47("span", { className: "palette-item__icon", children: cmd.iconName ? /* @__PURE__ */ jsx47(MIcon, { name: cmd.iconName, size: "sm" }) : cmd.icon }),
+            /* @__PURE__ */ jsx47("span", { className: "palette-item__label", children: cmd.label }),
+            cmd.hotkey && /* @__PURE__ */ jsx47("kbd", { className: "palette-item__hotkey", children: cmd.hotkey })
           ]
         }
       );
     });
-    DomainItem = React16.memo(function DomainItem2({
+    DomainItem = React17.memo(function DomainItem2({
       item,
       itemIdx,
       isActive,
@@ -9490,50 +10203,50 @@ var init_CommandPalette = __esm({
       onGoto
     }) {
       const n = item.node;
-      const matched = useMemo18(
+      const matched = useMemo19(
         () => new Set(item.matches.map((m) => m.field)),
         [item.matches]
       );
-      const fqidMatch = useMemo18(
+      const fqidMatch = useMemo19(
         () => item.matches.find((m) => m.field === "fqid"),
         [item.matches]
       );
-      return /* @__PURE__ */ jsxs42(
+      return /* @__PURE__ */ jsxs44(
         "div",
         {
           className: "palette-item" + (isActive ? " active" : ""),
           onMouseEnter: () => onHover(itemIdx),
           onClick: onSelect,
           children: [
-            /* @__PURE__ */ jsx45("span", { className: "palette-item__icon", children: /* @__PURE__ */ jsx45("span", { className: "search-result__dot search-result__dot--" + n.data.nodeType }) }),
-            /* @__PURE__ */ jsxs42("div", { className: "palette-item__content", children: [
-              /* @__PURE__ */ jsxs42("div", { className: "search-result__id", children: [
-                /* @__PURE__ */ jsx45(HighlightedText, { text: n.data.domainId, query }),
-                matched.has("id") && /* @__PURE__ */ jsx45("span", { className: "search-result__badge", children: "id" })
+            /* @__PURE__ */ jsx47("span", { className: "palette-item__icon", children: /* @__PURE__ */ jsx47("span", { className: "search-result__dot search-result__dot--" + n.data.nodeType }) }),
+            /* @__PURE__ */ jsxs44("div", { className: "palette-item__content", children: [
+              /* @__PURE__ */ jsxs44("div", { className: "search-result__id", children: [
+                /* @__PURE__ */ jsx47(HighlightedText, { text: n.data.domainId, query }),
+                matched.has("id") && /* @__PURE__ */ jsx47("span", { className: "search-result__badge", children: "id" })
               ] }),
-              n.data.name && n.data.name !== n.data.domainId && /* @__PURE__ */ jsxs42("div", { className: "search-result__label", children: [
-                /* @__PURE__ */ jsx45(HighlightedText, { text: n.data.name, query }),
-                matched.has("name") && /* @__PURE__ */ jsx45("span", { className: "search-result__badge", children: "name" })
+              n.data.name && n.data.name !== n.data.domainId && /* @__PURE__ */ jsxs44("div", { className: "search-result__label", children: [
+                /* @__PURE__ */ jsx47(HighlightedText, { text: n.data.name, query }),
+                matched.has("name") && /* @__PURE__ */ jsx47("span", { className: "search-result__badge", children: "name" })
               ] }),
-              n.data.description && /* @__PURE__ */ jsxs42("div", { className: "search-result__desc", children: [
-                /* @__PURE__ */ jsx45(HighlightedText, { text: n.data.description, query }),
-                matched.has("description") && /* @__PURE__ */ jsx45("span", { className: "search-result__badge", children: "description" })
+              n.data.description && /* @__PURE__ */ jsxs44("div", { className: "search-result__desc", children: [
+                /* @__PURE__ */ jsx47(HighlightedText, { text: n.data.description, query }),
+                matched.has("description") && /* @__PURE__ */ jsx47("span", { className: "search-result__badge", children: "description" })
               ] }),
-              Array.isArray(n.data.tags) && n.data.tags.length > 0 && /* @__PURE__ */ jsxs42("div", { className: "search-result__tags", children: [
-                n.data.tags.slice(0, 5).map((tag, ti) => /* @__PURE__ */ jsx45("span", { className: "search-result__tag", children: /* @__PURE__ */ jsx45(HighlightedText, { text: tag, query }) }, ti)),
-                matched.has("tags") && /* @__PURE__ */ jsx45("span", { className: "search-result__badge", children: "tags" })
+              Array.isArray(n.data.tags) && n.data.tags.length > 0 && /* @__PURE__ */ jsxs44("div", { className: "search-result__tags", children: [
+                n.data.tags.slice(0, 5).map((tag, ti) => /* @__PURE__ */ jsx47("span", { className: "search-result__tag", children: /* @__PURE__ */ jsx47(HighlightedText, { text: tag, query }) }, ti)),
+                matched.has("tags") && /* @__PURE__ */ jsx47("span", { className: "search-result__badge", children: "tags" })
               ] }),
-              fqidMatch && Array.isArray(fqidMatch.value) && fqidMatch.value.length > 0 && /* @__PURE__ */ jsxs42("div", { className: "search-result__fqid-block", children: [
-                /* @__PURE__ */ jsxs42("div", { className: "search-result__fqid-head", children: [
-                  /* @__PURE__ */ jsx45(MIcon, { name: "link", size: "sm" }),
-                  /* @__PURE__ */ jsxs42("span", { children: [
+              fqidMatch && Array.isArray(fqidMatch.value) && fqidMatch.value.length > 0 && /* @__PURE__ */ jsxs44("div", { className: "search-result__fqid-block", children: [
+                /* @__PURE__ */ jsxs44("div", { className: "search-result__fqid-head", children: [
+                  /* @__PURE__ */ jsx47(MIcon, { name: "link", size: "sm" }),
+                  /* @__PURE__ */ jsxs44("span", { children: [
                     "FQID-\u0441\u0441\u044B\u043B\u043A\u0438 (",
                     fqidMatch.value.length,
                     ")"
                   ] }),
-                  /* @__PURE__ */ jsx45("span", { className: "search-result__badge", children: "fqid" })
+                  /* @__PURE__ */ jsx47("span", { className: "search-result__badge", children: "fqid" })
                 ] }),
-                fqidMatch.value.slice(0, 3).map((f, fi) => /* @__PURE__ */ jsxs42(
+                fqidMatch.value.slice(0, 3).map((f, fi) => /* @__PURE__ */ jsxs44(
                   "div",
                   {
                     className: "search-result__fqid-item",
@@ -9547,13 +10260,13 @@ var init_CommandPalette = __esm({
                     },
                     title: onOpenFile ? "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0444\u0430\u0439\u043B \u043D\u0430 \u0441\u0442\u0440\u043E\u043A\u0435 \u0441 FQID" : "\u041F\u0435\u0440\u0435\u0439\u0442\u0438 \u043A \u0434\u043E\u043C\u0435\u043D\u0443",
                     children: [
-                      /* @__PURE__ */ jsx45(HighlightedText, { text: f.fullFQID, query }),
-                      f.propertyPath && /* @__PURE__ */ jsx45("span", { className: "search-result__fqid-path", children: f.propertyPath })
+                      /* @__PURE__ */ jsx47(HighlightedText, { text: f.fullFQID, query }),
+                      f.propertyPath && /* @__PURE__ */ jsx47("span", { className: "search-result__fqid-path", children: f.propertyPath })
                     ]
                   },
                   fi
                 )),
-                fqidMatch.value.length > 3 && /* @__PURE__ */ jsxs42("div", { className: "search-result__fqid-more", children: [
+                fqidMatch.value.length > 3 && /* @__PURE__ */ jsxs44("div", { className: "search-result__fqid-more", children: [
                   "...\u0438 \u0435\u0449\u0451 ",
                   fqidMatch.value.length - 3
                 ] })
@@ -9567,8 +10280,8 @@ var init_CommandPalette = __esm({
 });
 
 // src/web/components/modals/ValidationModal.tsx
-import { useMemo as useMemo19, useState as useState9 } from "react";
-import { jsx as jsx46, jsxs as jsxs43 } from "react/jsx-runtime";
+import { useMemo as useMemo20, useState as useState9 } from "react";
+import { jsx as jsx48, jsxs as jsxs45 } from "react/jsx-runtime";
 function downloadFile2(content, filename, mime) {
   const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
@@ -9596,7 +10309,7 @@ function ValidationModal(props) {
       return s;
     });
   };
-  const filteredLogs = useMemo19(() => {
+  const filteredLogs = useMemo20(() => {
     if (filter === "all")
       return v.logs;
     if (filter === "valid")
@@ -9651,13 +10364,13 @@ function ValidationModal(props) {
   if (!open)
     return null;
   const pct = v.progress.total > 0 ? Math.round(v.progress.current / v.progress.total * 100) : 0;
-  const scopeOption = (value, label, count) => /* @__PURE__ */ jsxs43("label", { className: "validation-scope__option" + (scope === value ? " active" : ""), children: [
-    /* @__PURE__ */ jsx46("input", { type: "radio", checked: scope === value, onChange: () => setScope(value) }),
-    /* @__PURE__ */ jsx46("span", { className: "validation-scope__radio" }),
-    /* @__PURE__ */ jsx46("span", { className: "validation-scope__text", children: label }),
-    /* @__PURE__ */ jsx46("span", { className: "validation-scope__count", children: count })
+  const scopeOption = (value, label, count) => /* @__PURE__ */ jsxs45("label", { className: "validation-scope__option" + (scope === value ? " active" : ""), children: [
+    /* @__PURE__ */ jsx48("input", { type: "radio", checked: scope === value, onChange: () => setScope(value) }),
+    /* @__PURE__ */ jsx48("span", { className: "validation-scope__radio" }),
+    /* @__PURE__ */ jsx48("span", { className: "validation-scope__text", children: label }),
+    /* @__PURE__ */ jsx48("span", { className: "validation-scope__count", children: count })
   ] });
-  return /* @__PURE__ */ jsx46(
+  return /* @__PURE__ */ jsx48(
     "div",
     {
       className: "help-overlay",
@@ -9667,10 +10380,10 @@ function ValidationModal(props) {
           v.reset();
         }
       },
-      children: /* @__PURE__ */ jsxs43("div", { className: "help-modal validation-modal", onMouseDown: (e) => e.stopPropagation(), children: [
-        /* @__PURE__ */ jsxs43("div", { className: "help-modal__header", children: [
-          /* @__PURE__ */ jsx46("div", { className: "help-modal__title", children: "\u{1F50D} \u041C\u0430\u0441\u0441\u043E\u0432\u0430\u044F \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u0434\u043E\u043C\u0435\u043D\u043E\u0432" }),
-          /* @__PURE__ */ jsx46(
+      children: /* @__PURE__ */ jsxs45("div", { className: "help-modal validation-modal", onMouseDown: (e) => e.stopPropagation(), children: [
+        /* @__PURE__ */ jsxs45("div", { className: "help-modal__header", children: [
+          /* @__PURE__ */ jsx48("div", { className: "help-modal__title", children: "\u{1F50D} \u041C\u0430\u0441\u0441\u043E\u0432\u0430\u044F \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u0434\u043E\u043C\u0435\u043D\u043E\u0432" }),
+          /* @__PURE__ */ jsx48(
             "button",
             {
               className: "help-modal__close",
@@ -9686,13 +10399,13 @@ function ValidationModal(props) {
             }
           )
         ] }),
-        /* @__PURE__ */ jsxs43("div", { className: "validation-modal__body", children: [
-          !v.started && /* @__PURE__ */ jsxs43("div", { className: "validation-scope", children: [
-            /* @__PURE__ */ jsx46("div", { className: "validation-scope__label", children: "\u041E\u0431\u043B\u0430\u0441\u0442\u044C \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u0438" }),
+        /* @__PURE__ */ jsxs45("div", { className: "validation-modal__body", children: [
+          !v.started && /* @__PURE__ */ jsxs45("div", { className: "validation-scope", children: [
+            /* @__PURE__ */ jsx48("div", { className: "validation-scope__label", children: "\u041E\u0431\u043B\u0430\u0441\u0442\u044C \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u0438" }),
             scopeOption("all", "\u0412\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B \u0432 \u043A\u044D\u0448\u0435", props.allDomains.length),
             scopeOption("visible", "\u0422\u043E\u043B\u044C\u043A\u043E \u0432\u0438\u0434\u0438\u043C\u044B\u0435 (\u043F\u043E\u0441\u043B\u0435 \u0444\u0438\u043B\u044C\u0442\u0440\u043E\u0432)", props.visibleDomains.length),
             scopeOption("bookmarked", "\u0422\u043E\u043B\u044C\u043A\u043E \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u044B\u0435", props.bookmarkedDomains.length),
-            /* @__PURE__ */ jsx46(
+            /* @__PURE__ */ jsx48(
               "button",
               {
                 className: "btn btn--primary",
@@ -9702,15 +10415,15 @@ function ValidationModal(props) {
               }
             )
           ] }),
-          v.started && /* @__PURE__ */ jsxs43("div", { className: "validation-progress", children: [
-            /* @__PURE__ */ jsx46("div", { className: "validation-progress__bar", children: /* @__PURE__ */ jsx46(
+          v.started && /* @__PURE__ */ jsxs45("div", { className: "validation-progress", children: [
+            /* @__PURE__ */ jsx48("div", { className: "validation-progress__bar", children: /* @__PURE__ */ jsx48(
               "div",
               {
                 className: "validation-progress__fill",
                 style: { width: pct + "%" }
               }
             ) }),
-            /* @__PURE__ */ jsxs43("div", { className: "validation-progress__text", children: [
+            /* @__PURE__ */ jsxs45("div", { className: "validation-progress__text", children: [
               v.progress.current,
               " / ",
               v.progress.total,
@@ -9720,7 +10433,7 @@ function ValidationModal(props) {
               v.running ? " \u2014 \u0438\u0434\u0451\u0442 \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F..." : v.cancelled ? " \u2014 \u043E\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u043E" : " \u2014 \u0437\u0430\u0432\u0435\u0440\u0448\u0435\u043D\u043E"
             ] })
           ] }),
-          v.started && /* @__PURE__ */ jsx46("div", { className: "validation-filters", children: ["problems", "all", "invalid", "errors", "valid"].map((f) => {
+          v.started && /* @__PURE__ */ jsx48("div", { className: "validation-filters", children: ["problems", "all", "invalid", "errors", "valid"].map((f) => {
             const labels = {
               problems: "\u0422\u043E\u043B\u044C\u043A\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0435",
               all: "\u0412\u0441\u0435",
@@ -9728,7 +10441,7 @@ function ValidationModal(props) {
               errors: "\u26A0\uFE0F \u041E\u0448\u0438\u0431\u043A\u0438",
               valid: "\u2705 \u0412\u0430\u043B\u0438\u0434\u043D\u044B\u0435"
             };
-            return /* @__PURE__ */ jsx46(
+            return /* @__PURE__ */ jsx48(
               "button",
               {
                 className: "validation-filter" + (filter === f ? " validation-filter--active" : ""),
@@ -9738,25 +10451,25 @@ function ValidationModal(props) {
               f
             );
           }) }),
-          v.started && /* @__PURE__ */ jsx46("div", { className: "validation-logs", children: filteredLogs.length === 0 ? /* @__PURE__ */ jsx46("div", { className: "validation-logs__empty", children: "\u041D\u0435\u0442 \u0437\u0430\u043F\u0438\u0441\u0435\u0439 \u043F\u043E \u0444\u0438\u043B\u044C\u0442\u0440\u0443" }) : filteredLogs.map((log, i) => {
+          v.started && /* @__PURE__ */ jsx48("div", { className: "validation-logs", children: filteredLogs.length === 0 ? /* @__PURE__ */ jsx48("div", { className: "validation-logs__empty", children: "\u041D\u0435\u0442 \u0437\u0430\u043F\u0438\u0441\u0435\u0439 \u043F\u043E \u0444\u0438\u043B\u044C\u0442\u0440\u0443" }) : filteredLogs.map((log, i) => {
             const icon = log.status === "valid" ? "\u2705" : log.status === "invalid" ? "\u274C" : "\u26A0\uFE0F";
             const isInvalid = log.status === "invalid";
             const hasDiag = isInvalid && log.diagnostics && log.diagnostics.length > 0;
             const isOpen = expanded.has(log.domainId);
-            return /* @__PURE__ */ jsxs43(
+            return /* @__PURE__ */ jsxs45(
               "div",
               {
                 className: "validation-log validation-log--" + log.status + (isOpen ? " validation-log--open" : ""),
                 children: [
-                  /* @__PURE__ */ jsxs43(
+                  /* @__PURE__ */ jsxs45(
                     "div",
                     {
                       className: "validation-log__head" + (hasDiag ? " validation-log__head--clickable" : ""),
                       onClick: hasDiag ? () => toggleExpanded(log.domainId) : void 0,
                       children: [
-                        hasDiag && /* @__PURE__ */ jsx46("span", { className: "validation-log__chevron", children: isOpen ? "\u25BE" : "\u25B8" }),
-                        /* @__PURE__ */ jsx46("span", { className: "validation-log__icon", children: icon }),
-                        /* @__PURE__ */ jsx46(
+                        hasDiag && /* @__PURE__ */ jsx48("span", { className: "validation-log__chevron", children: isOpen ? "\u25BE" : "\u25B8" }),
+                        /* @__PURE__ */ jsx48("span", { className: "validation-log__icon", children: icon }),
+                        /* @__PURE__ */ jsx48(
                           "a",
                           {
                             className: "validation-log__domain",
@@ -9768,22 +10481,22 @@ function ValidationModal(props) {
                             children: log.domainId
                           }
                         ),
-                        isInvalid && log.diagnostics && /* @__PURE__ */ jsxs43("span", { className: "validation-log__count", children: [
+                        isInvalid && log.diagnostics && /* @__PURE__ */ jsxs45("span", { className: "validation-log__count", children: [
                           log.diagnostics.length,
                           " ",
                           plural(log.diagnostics.length, "issue", "issues")
                         ] }),
-                        log.error && /* @__PURE__ */ jsx46("span", { className: "validation-log__error", children: log.error }),
-                        hasDiag && !isOpen && /* @__PURE__ */ jsx46("span", { className: "validation-log__hint", children: "\u043D\u0430\u0436\u043C\u0438\u0442\u0435, \u0447\u0442\u043E\u0431\u044B \u0440\u0430\u0441\u043A\u0440\u044B\u0442\u044C" })
+                        log.error && /* @__PURE__ */ jsx48("span", { className: "validation-log__error", children: log.error }),
+                        hasDiag && !isOpen && /* @__PURE__ */ jsx48("span", { className: "validation-log__hint", children: "\u043D\u0430\u0436\u043C\u0438\u0442\u0435, \u0447\u0442\u043E\u0431\u044B \u0440\u0430\u0441\u043A\u0440\u044B\u0442\u044C" })
                       ]
                     }
                   ),
-                  isOpen && hasDiag && /* @__PURE__ */ jsx46("div", { className: "validation-log__diag", children: log.diagnostics.map((d, di) => /* @__PURE__ */ jsxs43("div", { className: "validation-diag", children: [
-                    /* @__PURE__ */ jsx46("div", { className: "validation-diag__severity", children: d.severity }),
-                    /* @__PURE__ */ jsx46("div", { className: "validation-diag__message", children: d.message }),
-                    d.labels && d.labels.map((lb, li) => /* @__PURE__ */ jsxs43("div", { className: "validation-diag__label", children: [
+                  isOpen && hasDiag && /* @__PURE__ */ jsx48("div", { className: "validation-log__diag", children: log.diagnostics.map((d, di) => /* @__PURE__ */ jsxs45("div", { className: "validation-diag", children: [
+                    /* @__PURE__ */ jsx48("div", { className: "validation-diag__severity", children: d.severity }),
+                    /* @__PURE__ */ jsx48("div", { className: "validation-diag__message", children: d.message }),
+                    d.labels && d.labels.map((lb, li) => /* @__PURE__ */ jsxs45("div", { className: "validation-diag__label", children: [
                       lb.message,
-                      lb.span && /* @__PURE__ */ jsx46("span", { className: "validation-diag__span", children: " [" + lb.span.start + "-" + lb.span.end + "]" })
+                      lb.span && /* @__PURE__ */ jsx48("span", { className: "validation-diag__span", children: " [" + lb.span.start + "-" + lb.span.end + "]" })
                     ] }, li))
                   ] }, di)) })
                 ]
@@ -9792,29 +10505,29 @@ function ValidationModal(props) {
             );
           }) })
         ] }),
-        v.stats && /* @__PURE__ */ jsxs43("div", { className: "validation-footer", children: [
-          /* @__PURE__ */ jsxs43("div", { className: "validation-stats", children: [
-            /* @__PURE__ */ jsxs43("span", { className: "validation-stat validation-stat--ok", children: [
+        v.stats && /* @__PURE__ */ jsxs45("div", { className: "validation-footer", children: [
+          /* @__PURE__ */ jsxs45("div", { className: "validation-stats", children: [
+            /* @__PURE__ */ jsxs45("span", { className: "validation-stat validation-stat--ok", children: [
               "\u2705 ",
               v.stats.valid
             ] }),
-            /* @__PURE__ */ jsxs43("span", { className: "validation-stat validation-stat--err", children: [
+            /* @__PURE__ */ jsxs45("span", { className: "validation-stat validation-stat--err", children: [
               "\u274C ",
               v.stats.invalid
             ] }),
-            /* @__PURE__ */ jsxs43("span", { className: "validation-stat validation-stat--warn", children: [
+            /* @__PURE__ */ jsxs45("span", { className: "validation-stat validation-stat--warn", children: [
               "\u26A0\uFE0F ",
               v.stats.errors
             ] }),
-            /* @__PURE__ */ jsxs43("span", { className: "validation-stat", children: [
+            /* @__PURE__ */ jsxs45("span", { className: "validation-stat", children: [
               "\u23F1 ",
               formatDuration(v.stats.elapsedMs)
             ] })
           ] }),
-          /* @__PURE__ */ jsxs43("div", { className: "validation-footer__actions", children: [
-            /* @__PURE__ */ jsx46("button", { className: "btn", onClick: exportJSON, children: "\u{1F4BE} JSON" }),
-            /* @__PURE__ */ jsx46("button", { className: "btn", onClick: exportMD, children: "\u{1F4DD} Markdown" }),
-            /* @__PURE__ */ jsx46(
+          /* @__PURE__ */ jsxs45("div", { className: "validation-footer__actions", children: [
+            /* @__PURE__ */ jsx48("button", { className: "btn", onClick: exportJSON, children: "\u{1F4BE} JSON" }),
+            /* @__PURE__ */ jsx48("button", { className: "btn", onClick: exportMD, children: "\u{1F4DD} Markdown" }),
+            /* @__PURE__ */ jsx48(
               "button",
               {
                 className: "btn",
@@ -9983,8 +10696,8 @@ var init_topological = __esm({
 });
 
 // src/web/components/modals/TopoSortModal.tsx
-import { useCallback as useCallback9, useEffect as useEffect20, useState as useState10 } from "react";
-import { Fragment as Fragment4, jsx as jsx47, jsxs as jsxs44 } from "react/jsx-runtime";
+import { useCallback as useCallback10, useEffect as useEffect21, useState as useState10 } from "react";
+import { Fragment as Fragment8, jsx as jsx49, jsxs as jsxs46 } from "react/jsx-runtime";
 function downloadFile3(content, filename, mime) {
   const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
@@ -10007,14 +10720,14 @@ function TopoSortModal(props) {
   const [expandedLevels, setExpandedLevels] = useState10(/* @__PURE__ */ new Set());
   const [expandedDeps, setExpandedDeps] = useState10(/* @__PURE__ */ new Set());
   const open = store.topoOpen;
-  useEffect20(() => {
+  useEffect21(() => {
     if (!open) {
       setResult(null);
       setExpandedLevels(/* @__PURE__ */ new Set());
       setExpandedDeps(/* @__PURE__ */ new Set());
     }
   }, [open]);
-  const build = useCallback9(() => {
+  const build = useCallback10(() => {
     const nodeSet = scope === "visible" ? props.visibleDomains : scope === "bookmarked" ? props.bookmarkedDomains : props.allDomains;
     const restrictTo = new Set(nodeSet.map((d) => d.domainId));
     const excludedIds = /* @__PURE__ */ new Set();
@@ -10170,28 +10883,28 @@ function TopoSortModal(props) {
       return s;
     });
   };
-  const scopeOption = (value, label, count) => /* @__PURE__ */ jsxs44("label", { className: "validation-scope__option" + (scope === value ? " active" : ""), children: [
-    /* @__PURE__ */ jsx47("input", { type: "radio", checked: scope === value, onChange: () => setScope(value) }),
-    /* @__PURE__ */ jsx47("span", { className: "validation-scope__radio" }),
-    /* @__PURE__ */ jsx47("span", { className: "validation-scope__text", children: label }),
-    /* @__PURE__ */ jsx47("span", { className: "validation-scope__count", children: count })
+  const scopeOption = (value, label, count) => /* @__PURE__ */ jsxs46("label", { className: "validation-scope__option" + (scope === value ? " active" : ""), children: [
+    /* @__PURE__ */ jsx49("input", { type: "radio", checked: scope === value, onChange: () => setScope(value) }),
+    /* @__PURE__ */ jsx49("span", { className: "validation-scope__radio" }),
+    /* @__PURE__ */ jsx49("span", { className: "validation-scope__text", children: label }),
+    /* @__PURE__ */ jsx49("span", { className: "validation-scope__count", children: count })
   ] });
   if (!open)
     return null;
-  return /* @__PURE__ */ jsx47("div", { className: "help-overlay", onMouseDown: () => store.setTopoOpen(false), children: /* @__PURE__ */ jsxs44("div", { className: "help-modal topo-modal", onMouseDown: (e) => e.stopPropagation(), children: [
-    /* @__PURE__ */ jsxs44("div", { className: "help-modal__header", children: [
-      /* @__PURE__ */ jsx47("div", { className: "help-modal__title", children: "\u{1F4E6} \u041F\u043E\u0440\u044F\u0434\u043E\u043A \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438 \u0434\u043E\u043C\u0435\u043D\u043E\u0432" }),
-      /* @__PURE__ */ jsx47("button", { className: "help-modal__close", onClick: () => store.setTopoOpen(false), children: "\u2715" })
+  return /* @__PURE__ */ jsx49("div", { className: "help-overlay", onMouseDown: () => store.setTopoOpen(false), children: /* @__PURE__ */ jsxs46("div", { className: "help-modal topo-modal", onMouseDown: (e) => e.stopPropagation(), children: [
+    /* @__PURE__ */ jsxs46("div", { className: "help-modal__header", children: [
+      /* @__PURE__ */ jsx49("div", { className: "help-modal__title", children: "\u{1F4E6} \u041F\u043E\u0440\u044F\u0434\u043E\u043A \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438 \u0434\u043E\u043C\u0435\u043D\u043E\u0432" }),
+      /* @__PURE__ */ jsx49("button", { className: "help-modal__close", onClick: () => store.setTopoOpen(false), children: "\u2715" })
     ] }),
-    /* @__PURE__ */ jsxs44("div", { className: "validation-modal__body", children: [
-      !result && /* @__PURE__ */ jsxs44("div", { className: "validation-scope", children: [
-        /* @__PURE__ */ jsx47("div", { className: "validation-scope__label", children: "\u041E\u0431\u043B\u0430\u0441\u0442\u044C" }),
+    /* @__PURE__ */ jsxs46("div", { className: "validation-modal__body", children: [
+      !result && /* @__PURE__ */ jsxs46("div", { className: "validation-scope", children: [
+        /* @__PURE__ */ jsx49("div", { className: "validation-scope__label", children: "\u041E\u0431\u043B\u0430\u0441\u0442\u044C" }),
         scopeOption("all", "\u0412\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B", props.allDomains.length),
         scopeOption("visible", "\u0422\u043E\u043B\u044C\u043A\u043E \u0432\u0438\u0434\u0438\u043C\u044B\u0435", props.visibleDomains.length),
         scopeOption("bookmarked", "\u0422\u043E\u043B\u044C\u043A\u043E \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u044B\u0435", props.bookmarkedDomains.length),
-        /* @__PURE__ */ jsx47("div", { className: "validation-scope__label", style: { marginTop: 16 }, children: "\u0423\u0447\u0438\u0442\u044B\u0432\u0430\u0442\u044C \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438" }),
-        /* @__PURE__ */ jsxs44("label", { className: "menu__checkbox", children: [
-          /* @__PURE__ */ jsx47(
+        /* @__PURE__ */ jsx49("div", { className: "validation-scope__label", style: { marginTop: 16 }, children: "\u0423\u0447\u0438\u0442\u044B\u0432\u0430\u0442\u044C \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438" }),
+        /* @__PURE__ */ jsxs46("label", { className: "menu__checkbox", children: [
+          /* @__PURE__ */ jsx49(
             "input",
             {
               type: "checkbox",
@@ -10199,11 +10912,11 @@ function TopoSortModal(props) {
               onChange: () => setIncludeFqid(!includeFqid)
             }
           ),
-          /* @__PURE__ */ jsx47("span", { className: "menu__check" }),
-          /* @__PURE__ */ jsx47("span", { className: "menu__text", children: "FQID-\u0441\u0441\u044B\u043B\u043A\u0438" })
+          /* @__PURE__ */ jsx49("span", { className: "menu__check" }),
+          /* @__PURE__ */ jsx49("span", { className: "menu__text", children: "FQID-\u0441\u0441\u044B\u043B\u043A\u0438" })
         ] }),
-        /* @__PURE__ */ jsxs44("label", { className: "menu__checkbox", children: [
-          /* @__PURE__ */ jsx47(
+        /* @__PURE__ */ jsxs46("label", { className: "menu__checkbox", children: [
+          /* @__PURE__ */ jsx49(
             "input",
             {
               type: "checkbox",
@@ -10211,11 +10924,11 @@ function TopoSortModal(props) {
               onChange: () => setIncludeLinkage(!includeLinkage)
             }
           ),
-          /* @__PURE__ */ jsx47("span", { className: "menu__check" }),
-          /* @__PURE__ */ jsx47("span", { className: "menu__text", children: "Linkage-\u0441\u0432\u044F\u0437\u0438" })
+          /* @__PURE__ */ jsx49("span", { className: "menu__check" }),
+          /* @__PURE__ */ jsx49("span", { className: "menu__text", children: "Linkage-\u0441\u0432\u044F\u0437\u0438" })
         ] }),
-        /* @__PURE__ */ jsxs44("label", { className: "menu__checkbox", children: [
-          /* @__PURE__ */ jsx47(
+        /* @__PURE__ */ jsxs46("label", { className: "menu__checkbox", children: [
+          /* @__PURE__ */ jsx49(
             "input",
             {
               type: "checkbox",
@@ -10223,11 +10936,11 @@ function TopoSortModal(props) {
               onChange: () => setMissingAsSatisfied(!missingAsSatisfied)
             }
           ),
-          /* @__PURE__ */ jsx47("span", { className: "menu__check" }),
-          /* @__PURE__ */ jsx47("span", { className: "menu__text", children: "Missing-\u0434\u043E\u043C\u0435\u043D\u044B \u0441\u0447\u0438\u0442\u0430\u0442\u044C \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u043D\u044B\u043C\u0438" })
+          /* @__PURE__ */ jsx49("span", { className: "menu__check" }),
+          /* @__PURE__ */ jsx49("span", { className: "menu__text", children: "Missing-\u0434\u043E\u043C\u0435\u043D\u044B \u0441\u0447\u0438\u0442\u0430\u0442\u044C \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u043D\u044B\u043C\u0438" })
         ] }),
-        /* @__PURE__ */ jsxs44("label", { className: "menu__checkbox", children: [
-          /* @__PURE__ */ jsx47(
+        /* @__PURE__ */ jsxs46("label", { className: "menu__checkbox", children: [
+          /* @__PURE__ */ jsx49(
             "input",
             {
               type: "checkbox",
@@ -10235,12 +10948,12 @@ function TopoSortModal(props) {
               onChange: () => setAutoBreak(!autoBreak)
             }
           ),
-          /* @__PURE__ */ jsx47("span", { className: "menu__check" }),
-          /* @__PURE__ */ jsx47("span", { className: "menu__text", children: "\u0410\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u0440\u0430\u0437\u0440\u044B\u0432\u0430\u0442\u044C \u0446\u0438\u043A\u043B\u044B" })
+          /* @__PURE__ */ jsx49("span", { className: "menu__check" }),
+          /* @__PURE__ */ jsx49("span", { className: "menu__text", children: "\u0410\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u0440\u0430\u0437\u0440\u044B\u0432\u0430\u0442\u044C \u0446\u0438\u043A\u043B\u044B" })
         ] }),
-        /* @__PURE__ */ jsx47("div", { className: "menu__hint", children: autoBreak ? "\u0414\u043E\u043C\u0435\u043D\u044B \u0441 \u0446\u0438\u043A\u043B\u043E\u043C \u0431\u0443\u0434\u0443\u0442 \u0440\u0430\u0437\u043C\u0435\u0449\u0435\u043D\u044B \u0432 \u043F\u043E\u0440\u044F\u0434\u043A\u0435, \u0430 \u0440\u0430\u0437\u043E\u0440\u0432\u0430\u043D\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0438 \u2014 \u043F\u043E\u043C\u0435\u0447\u0435\u043D\u044B." : "\u0414\u043E\u043C\u0435\u043D\u044B \u0441 \u0446\u0438\u043A\u043B\u043E\u043C \u043F\u043E\u043F\u0430\u0434\u0443\u0442 \u0432 \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u044B\u0439 \u0431\u043B\u043E\u043A \xAB\u0422\u0440\u0435\u0431\u0443\u044E\u0442 \u0440\u0443\u0447\u043D\u043E\u0433\u043E \u0432\u043C\u0435\u0448\u0430\u0442\u0435\u043B\u044C\u0441\u0442\u0432\u0430\xBB." }),
-        /* @__PURE__ */ jsx47("div", { className: "validation-scope__label", style: { marginTop: 16 }, children: "\u0418\u0441\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0434\u043E\u043C\u0435\u043D\u044B \u043F\u043E \u043C\u0430\u0441\u043A\u0435" }),
-        /* @__PURE__ */ jsx47(
+        /* @__PURE__ */ jsx49("div", { className: "menu__hint", children: autoBreak ? "\u0414\u043E\u043C\u0435\u043D\u044B \u0441 \u0446\u0438\u043A\u043B\u043E\u043C \u0431\u0443\u0434\u0443\u0442 \u0440\u0430\u0437\u043C\u0435\u0449\u0435\u043D\u044B \u0432 \u043F\u043E\u0440\u044F\u0434\u043A\u0435, \u0430 \u0440\u0430\u0437\u043E\u0440\u0432\u0430\u043D\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0438 \u2014 \u043F\u043E\u043C\u0435\u0447\u0435\u043D\u044B." : "\u0414\u043E\u043C\u0435\u043D\u044B \u0441 \u0446\u0438\u043A\u043B\u043E\u043C \u043F\u043E\u043F\u0430\u0434\u0443\u0442 \u0432 \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u044B\u0439 \u0431\u043B\u043E\u043A \xAB\u0422\u0440\u0435\u0431\u0443\u044E\u0442 \u0440\u0443\u0447\u043D\u043E\u0433\u043E \u0432\u043C\u0435\u0448\u0430\u0442\u0435\u043B\u044C\u0441\u0442\u0432\u0430\xBB." }),
+        /* @__PURE__ */ jsx49("div", { className: "validation-scope__label", style: { marginTop: 16 }, children: "\u0418\u0441\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0434\u043E\u043C\u0435\u043D\u044B \u043F\u043E \u043C\u0430\u0441\u043A\u0435" }),
+        /* @__PURE__ */ jsx49(
           "input",
           {
             className: "menu__input",
@@ -10250,7 +10963,7 @@ function TopoSortModal(props) {
             onChange: (e) => setExcludePattern(e.target.value)
           }
         ),
-        /* @__PURE__ */ jsx47(
+        /* @__PURE__ */ jsx49(
           "button",
           {
             className: "btn btn--primary",
@@ -10260,18 +10973,18 @@ function TopoSortModal(props) {
           }
         )
       ] }),
-      result && /* @__PURE__ */ jsxs44("div", { className: "topo-result", children: [
-        (result.cyclic.length > 0 || result.broken.length > 0) && /* @__PURE__ */ jsxs44("div", { className: "topo-cyclic", children: [
-          result.cyclic.length > 0 && /* @__PURE__ */ jsxs44(Fragment4, { children: [
-            /* @__PURE__ */ jsxs44("div", { className: "topo-cyclic__header", children: [
-              /* @__PURE__ */ jsx47("span", { className: "topo-cyclic__icon", children: "\u26A0\uFE0F" }),
-              /* @__PURE__ */ jsxs44("span", { children: [
+      result && /* @__PURE__ */ jsxs46("div", { className: "topo-result", children: [
+        (result.cyclic.length > 0 || result.broken.length > 0) && /* @__PURE__ */ jsxs46("div", { className: "topo-cyclic", children: [
+          result.cyclic.length > 0 && /* @__PURE__ */ jsxs46(Fragment8, { children: [
+            /* @__PURE__ */ jsxs46("div", { className: "topo-cyclic__header", children: [
+              /* @__PURE__ */ jsx49("span", { className: "topo-cyclic__icon", children: "\u26A0\uFE0F" }),
+              /* @__PURE__ */ jsxs46("span", { children: [
                 "\u0422\u0440\u0435\u0431\u0443\u044E\u0442 \u0440\u0443\u0447\u043D\u043E\u0433\u043E \u0432\u043C\u0435\u0448\u0430\u0442\u0435\u043B\u044C\u0441\u0442\u0432\u0430 \u2014 \u0446\u0438\u043A\u043B (",
                 result.cyclic.length,
                 ")"
               ] })
             ] }),
-            /* @__PURE__ */ jsx47("div", { className: "topo-cyclic__body", children: result.cyclic.map((id) => /* @__PURE__ */ jsx47(
+            /* @__PURE__ */ jsx49("div", { className: "topo-cyclic__body", children: result.cyclic.map((id) => /* @__PURE__ */ jsx49(
               "a",
               {
                 className: "validation-log__domain",
@@ -10284,17 +10997,17 @@ function TopoSortModal(props) {
               id
             )) })
           ] }),
-          result.cyclic.length === 0 && result.broken.length > 0 && /* @__PURE__ */ jsxs44(Fragment4, { children: [
-            /* @__PURE__ */ jsxs44("div", { className: "topo-cyclic__header topo-cyclic__header--broken", children: [
-              /* @__PURE__ */ jsx47("span", { className: "topo-cyclic__icon", children: "\u{1F517}" }),
-              /* @__PURE__ */ jsxs44("span", { children: [
+          result.cyclic.length === 0 && result.broken.length > 0 && /* @__PURE__ */ jsxs46(Fragment8, { children: [
+            /* @__PURE__ */ jsxs46("div", { className: "topo-cyclic__header topo-cyclic__header--broken", children: [
+              /* @__PURE__ */ jsx49("span", { className: "topo-cyclic__icon", children: "\u{1F517}" }),
+              /* @__PURE__ */ jsxs46("span", { children: [
                 "\u0426\u0438\u043A\u043B\u044B \u0440\u0430\u0437\u043E\u0440\u0432\u0430\u043D\u044B \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 (",
                 result.broken.length,
                 ")"
               ] })
             ] }),
-            /* @__PURE__ */ jsx47("div", { className: "topo-cyclic__body", children: result.broken.map((b) => /* @__PURE__ */ jsxs44("div", { className: "topo-broken-item", children: [
-              /* @__PURE__ */ jsx47(
+            /* @__PURE__ */ jsx49("div", { className: "topo-cyclic__body", children: result.broken.map((b) => /* @__PURE__ */ jsxs46("div", { className: "topo-broken-item", children: [
+              /* @__PURE__ */ jsx49(
                 "a",
                 {
                   className: "validation-log__domain",
@@ -10305,11 +11018,11 @@ function TopoSortModal(props) {
                   children: b.id
                 }
               ),
-              /* @__PURE__ */ jsxs44("span", { className: "topo-broken-item__meta", children: [
+              /* @__PURE__ */ jsxs46("span", { className: "topo-broken-item__meta", children: [
                 "L",
                 b.level
               ] }),
-              b.brokenDeps.length > 0 && /* @__PURE__ */ jsxs44(
+              b.brokenDeps.length > 0 && /* @__PURE__ */ jsxs46(
                 "span",
                 {
                   className: "topo-broken-item__deps",
@@ -10325,35 +11038,35 @@ function TopoSortModal(props) {
         ] }),
         result.levels.map((level, idx) => {
           const isOpen = expandedLevels.has(idx);
-          return /* @__PURE__ */ jsxs44(
+          return /* @__PURE__ */ jsxs46(
             "div",
             {
               className: "topo-level" + (isOpen ? " topo-level--open" : ""),
               children: [
-                /* @__PURE__ */ jsxs44("div", { className: "topo-level__header", onClick: () => toggleLevel(idx), children: [
-                  /* @__PURE__ */ jsx47("span", { className: "validation-log__chevron", children: isOpen ? "\u25BE" : "\u25B8" }),
-                  /* @__PURE__ */ jsx47("span", { className: "topo-level__badge", children: idx + 1 }),
-                  /* @__PURE__ */ jsxs44("span", { className: "topo-level__title", children: [
+                /* @__PURE__ */ jsxs46("div", { className: "topo-level__header", onClick: () => toggleLevel(idx), children: [
+                  /* @__PURE__ */ jsx49("span", { className: "validation-log__chevron", children: isOpen ? "\u25BE" : "\u25B8" }),
+                  /* @__PURE__ */ jsx49("span", { className: "topo-level__badge", children: idx + 1 }),
+                  /* @__PURE__ */ jsxs46("span", { className: "topo-level__title", children: [
                     "\u0423\u0440\u043E\u0432\u0435\u043D\u044C ",
                     idx + 1
                   ] }),
-                  /* @__PURE__ */ jsxs44("span", { className: "topo-level__count", children: [
+                  /* @__PURE__ */ jsxs46("span", { className: "topo-level__count", children: [
                     level.length,
                     " ",
                     level.length === 1 ? "\u0434\u043E\u043C\u0435\u043D" : level.length < 5 ? "\u0434\u043E\u043C\u0435\u043D\u0430" : "\u0434\u043E\u043C\u0435\u043D\u043E\u0432"
                   ] })
                 ] }),
-                isOpen && /* @__PURE__ */ jsx47("div", { className: "topo-level__body", children: level.map((id) => {
+                isOpen && /* @__PURE__ */ jsx49("div", { className: "topo-level__body", children: level.map((id) => {
                   const isDepsOpen = expandedDeps.has(id);
                   const deps = findDeps(id, result.levelMap, store.edges, store.nodes);
                   const brokenInfo = result.broken.find((b) => b.id === id);
-                  return /* @__PURE__ */ jsxs44(
+                  return /* @__PURE__ */ jsxs46(
                     "div",
                     {
                       className: "topo-domain" + (brokenInfo ? " topo-domain--broken" : ""),
                       children: [
-                        /* @__PURE__ */ jsxs44("div", { className: "topo-domain__head", children: [
-                          deps.length > 0 ? /* @__PURE__ */ jsx47(
+                        /* @__PURE__ */ jsxs46("div", { className: "topo-domain__head", children: [
+                          deps.length > 0 ? /* @__PURE__ */ jsx49(
                             "span",
                             {
                               className: "validation-log__chevron",
@@ -10361,8 +11074,8 @@ function TopoSortModal(props) {
                               onClick: () => toggleDeps(id),
                               children: isDepsOpen ? "\u25BE" : "\u25B8"
                             }
-                          ) : /* @__PURE__ */ jsx47("span", { className: "validation-log__chevron", children: " " }),
-                          /* @__PURE__ */ jsx47(
+                          ) : /* @__PURE__ */ jsx49("span", { className: "validation-log__chevron", children: " " }),
+                          /* @__PURE__ */ jsx49(
                             "a",
                             {
                               className: "validation-log__domain",
@@ -10373,7 +11086,7 @@ function TopoSortModal(props) {
                               children: id
                             }
                           ),
-                          brokenInfo && /* @__PURE__ */ jsx47(
+                          brokenInfo && /* @__PURE__ */ jsx49(
                             "span",
                             {
                               className: "topo-broken-badge",
@@ -10382,12 +11095,12 @@ function TopoSortModal(props) {
                             }
                           )
                         ] }),
-                        isDepsOpen && deps.length > 0 && /* @__PURE__ */ jsx47("div", { className: "topo-domain__deps", children: deps.map((dep) => /* @__PURE__ */ jsxs44("div", { className: "topo-dep", children: [
-                          /* @__PURE__ */ jsxs44("span", { className: "topo-dep__level", children: [
+                        isDepsOpen && deps.length > 0 && /* @__PURE__ */ jsx49("div", { className: "topo-domain__deps", children: deps.map((dep) => /* @__PURE__ */ jsxs46("div", { className: "topo-dep", children: [
+                          /* @__PURE__ */ jsxs46("span", { className: "topo-dep__level", children: [
                             "L",
                             result.levelMap.get(dep)
                           ] }),
-                          /* @__PURE__ */ jsx47(
+                          /* @__PURE__ */ jsx49(
                             "a",
                             {
                               className: "validation-log__domain",
@@ -10411,35 +11124,35 @@ function TopoSortModal(props) {
         })
       ] })
     ] }),
-    result && /* @__PURE__ */ jsxs44("div", { className: "validation-footer", children: [
-      /* @__PURE__ */ jsxs44("div", { className: "validation-stats", children: [
-        /* @__PURE__ */ jsxs44("span", { className: "validation-stat", children: [
+    result && /* @__PURE__ */ jsxs46("div", { className: "validation-footer", children: [
+      /* @__PURE__ */ jsxs46("div", { className: "validation-stats", children: [
+        /* @__PURE__ */ jsxs46("span", { className: "validation-stat", children: [
           "\u{1F4E6} ",
           result.stats.total
         ] }),
-        /* @__PURE__ */ jsxs44("span", { className: "validation-stat validation-stat--ok", children: [
+        /* @__PURE__ */ jsxs46("span", { className: "validation-stat validation-stat--ok", children: [
           "\u{1F4CA} ",
           result.stats.levels,
           " \u0443\u0440\u043E\u0432\u043D\u0435\u0439"
         ] }),
-        /* @__PURE__ */ jsxs44("span", { className: "validation-stat validation-stat--warn", children: [
+        /* @__PURE__ */ jsxs46("span", { className: "validation-stat validation-stat--warn", children: [
           "\u23F1 ",
           result.stats.criticalPath,
           " \u0448\u0430\u0433\u043E\u0432"
         ] }),
-        result.stats.brokenCount > 0 && /* @__PURE__ */ jsxs44("span", { className: "validation-stat validation-stat--warn", children: [
+        result.stats.brokenCount > 0 && /* @__PURE__ */ jsxs46("span", { className: "validation-stat validation-stat--warn", children: [
           "\u{1F517} ",
           result.stats.brokenCount,
           " \u0440\u0430\u0437\u043E\u0440\u0432\u0430\u043D\u043E"
         ] }),
-        result.stats.cyclic > 0 && /* @__PURE__ */ jsxs44("span", { className: "validation-stat validation-stat--err", children: [
+        result.stats.cyclic > 0 && /* @__PURE__ */ jsxs46("span", { className: "validation-stat validation-stat--err", children: [
           "\u26A0\uFE0F ",
           result.stats.cyclic,
           " \u0446\u0438\u043A\u043B."
         ] })
       ] }),
-      /* @__PURE__ */ jsxs44("div", { className: "validation-footer__actions", children: [
-        /* @__PURE__ */ jsx47(
+      /* @__PURE__ */ jsxs46("div", { className: "validation-footer__actions", children: [
+        /* @__PURE__ */ jsx49(
           "button",
           {
             className: "btn",
@@ -10450,10 +11163,10 @@ function TopoSortModal(props) {
             children: "\u{1F3A8} \u041D\u0430 \u0433\u0440\u0430\u0444\u0435"
           }
         ),
-        /* @__PURE__ */ jsx47("button", { className: "btn", onClick: copyAsText, children: "\u{1F4CB} \u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C" }),
-        /* @__PURE__ */ jsx47("button", { className: "btn", onClick: exportJSON, children: "\u{1F4BE} JSON" }),
-        /* @__PURE__ */ jsx47("button", { className: "btn", onClick: exportMD, children: "\u{1F4DD} MD" }),
-        /* @__PURE__ */ jsx47("button", { className: "btn", onClick: () => setResult(null), children: "\u2190 \u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438" })
+        /* @__PURE__ */ jsx49("button", { className: "btn", onClick: copyAsText, children: "\u{1F4CB} \u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C" }),
+        /* @__PURE__ */ jsx49("button", { className: "btn", onClick: exportJSON, children: "\u{1F4BE} JSON" }),
+        /* @__PURE__ */ jsx49("button", { className: "btn", onClick: exportMD, children: "\u{1F4DD} MD" }),
+        /* @__PURE__ */ jsx49("button", { className: "btn", onClick: () => setResult(null), children: "\u2190 \u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438" })
       ] })
     ] })
   ] }) });
@@ -10560,8 +11273,8 @@ var init_learning_path = __esm({
 });
 
 // src/web/components/modals/LearningPathModal.tsx
-import { useCallback as useCallback10, useEffect as useEffect21, useState as useState11 } from "react";
-import { jsx as jsx48, jsxs as jsxs45 } from "react/jsx-runtime";
+import { useCallback as useCallback11, useEffect as useEffect22, useState as useState11 } from "react";
+import { jsx as jsx50, jsxs as jsxs47 } from "react/jsx-runtime";
 function downloadFile4(content, filename, mime) {
   const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
@@ -10578,13 +11291,13 @@ function LearningPathModal(props) {
   const [path, setPath] = useState11(null);
   const [expandedStages, setExpandedStages] = useState11(/* @__PURE__ */ new Set([0]));
   const open = store.learningPathOpen;
-  useEffect21(() => {
+  useEffect22(() => {
     if (!open) {
       setPath(null);
       setExpandedStages(/* @__PURE__ */ new Set([0]));
     }
   }, [open]);
-  const build = useCallback10(() => {
+  const build = useCallback11(() => {
     let restrictTo = null;
     if (scope === "visible") {
       restrictTo = new Set(props.visibleDomains.map((d) => d.id));
@@ -10646,23 +11359,23 @@ function LearningPathModal(props) {
       return s;
     });
   };
-  const scopeOption = (value, label, count) => /* @__PURE__ */ jsxs45("label", { className: "validation-scope__option" + (scope === value ? " active" : ""), children: [
-    /* @__PURE__ */ jsx48("input", { type: "radio", checked: scope === value, onChange: () => setScope(value) }),
-    /* @__PURE__ */ jsx48("span", { className: "validation-scope__radio" }),
-    /* @__PURE__ */ jsx48("span", { className: "validation-scope__text", children: label }),
-    /* @__PURE__ */ jsx48("span", { className: "validation-scope__count", children: count })
+  const scopeOption = (value, label, count) => /* @__PURE__ */ jsxs47("label", { className: "validation-scope__option" + (scope === value ? " active" : ""), children: [
+    /* @__PURE__ */ jsx50("input", { type: "radio", checked: scope === value, onChange: () => setScope(value) }),
+    /* @__PURE__ */ jsx50("span", { className: "validation-scope__radio" }),
+    /* @__PURE__ */ jsx50("span", { className: "validation-scope__text", children: label }),
+    /* @__PURE__ */ jsx50("span", { className: "validation-scope__count", children: count })
   ] });
   if (!open)
     return null;
-  return /* @__PURE__ */ jsx48("div", { className: "help-overlay", onMouseDown: () => store.setLearningPathOpen(false), children: /* @__PURE__ */ jsxs45(
+  return /* @__PURE__ */ jsx50("div", { className: "help-overlay", onMouseDown: () => store.setLearningPathOpen(false), children: /* @__PURE__ */ jsxs47(
     "div",
     {
       className: "help-modal learning-path-modal",
       onMouseDown: (e) => e.stopPropagation(),
       children: [
-        /* @__PURE__ */ jsxs45("div", { className: "help-modal__header", children: [
-          /* @__PURE__ */ jsx48("div", { className: "help-modal__title", children: "\u{1F4D6} \u041F\u0443\u0442\u044C \u0438\u0437\u0443\u0447\u0435\u043D\u0438\u044F \u0430\u0440\u0445\u0438\u0442\u0435\u043A\u0442\u0443\u0440\u044B" }),
-          /* @__PURE__ */ jsx48(
+        /* @__PURE__ */ jsxs47("div", { className: "help-modal__header", children: [
+          /* @__PURE__ */ jsx50("div", { className: "help-modal__title", children: "\u{1F4D6} \u041F\u0443\u0442\u044C \u0438\u0437\u0443\u0447\u0435\u043D\u0438\u044F \u0430\u0440\u0445\u0438\u0442\u0435\u043A\u0442\u0443\u0440\u044B" }),
+          /* @__PURE__ */ jsx50(
             "button",
             {
               className: "help-modal__close",
@@ -10671,9 +11384,9 @@ function LearningPathModal(props) {
             }
           )
         ] }),
-        /* @__PURE__ */ jsxs45("div", { className: "validation-modal__body", children: [
-          !path && /* @__PURE__ */ jsxs45("div", { className: "validation-scope", children: [
-            /* @__PURE__ */ jsx48("div", { className: "validation-scope__label", children: "\u041E\u0431\u043B\u0430\u0441\u0442\u044C" }),
+        /* @__PURE__ */ jsxs47("div", { className: "validation-modal__body", children: [
+          !path && /* @__PURE__ */ jsxs47("div", { className: "validation-scope", children: [
+            /* @__PURE__ */ jsx50("div", { className: "validation-scope__label", children: "\u041E\u0431\u043B\u0430\u0441\u0442\u044C" }),
             scopeOption(
               "all",
               "\u0412\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B",
@@ -10681,15 +11394,15 @@ function LearningPathModal(props) {
             ),
             scopeOption("visible", "\u0422\u043E\u043B\u044C\u043A\u043E \u0432\u0438\u0434\u0438\u043C\u044B\u0435", props.visibleDomains.length),
             scopeOption("bookmarked", "\u0422\u043E\u043B\u044C\u043A\u043E \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u044B\u0435", props.bookmarkedDomains.length),
-            /* @__PURE__ */ jsxs45("div", { className: "learning-path-hint", style: { marginTop: 20 }, children: [
-              /* @__PURE__ */ jsx48("div", { className: "learning-path-hint__title", children: "\u0427\u0442\u043E \u044D\u0442\u043E \u0434\u0430\u0451\u0442" }),
-              /* @__PURE__ */ jsxs45("ul", { className: "learning-path-hint__list", children: [
-                /* @__PURE__ */ jsx48("li", { children: "\u041F\u043E\u0440\u044F\u0434\u043E\u043A \u0447\u0442\u0435\u043D\u0438\u044F \u2014 \u043E\u0442 \xAB\u0444\u0443\u043D\u0434\u0430\u043C\u0435\u043D\u0442\u0430\xBB \u043A \u0432\u0435\u0440\u0445\u043D\u0438\u043C \u0441\u043B\u043E\u044F\u043C, \u0447\u0442\u043E\u0431\u044B \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438 \u0431\u044B\u043B\u0438 \u043F\u043E\u043D\u044F\u0442\u043D\u044B \u0441 \u0441\u0430\u043C\u043E\u0433\u043E \u043D\u0430\u0447\u0430\u043B\u0430." }),
-                /* @__PURE__ */ jsx48("li", { children: "\u0422\u043E\u0447\u043A\u0438 \u0432\u0445\u043E\u0434\u0430 \u2014 \u0434\u043E\u043C\u0435\u043D\u044B, \u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u043D\u0438\u043A\u0442\u043E \u043D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442: \u043E\u043D\u0438 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u044E\u0442 \u0444\u0443\u043D\u043A\u0446\u0438\u043E\u043D\u0430\u043B\u044C\u043D\u043E\u0441\u0442\u044C \u0432\u0435\u0440\u0445\u043D\u0435\u0433\u043E \u0443\u0440\u043E\u0432\u043D\u044F." }),
-                /* @__PURE__ */ jsx48("li", { children: "\u041A\u0430\u043C\u0435\u0440\u0430 \u044D\u043A\u0441\u043A\u0443\u0440\u0441\u0438\u0438 \u0432\u0435\u0434\u0451\u0442 \u043F\u043E \u044D\u0442\u0430\u043F\u0430\u043C, \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u044F \u043F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0438 \u043F\u043E \u043A\u0430\u0436\u0434\u043E\u043C\u0443 \u0434\u043E\u043C\u0435\u043D\u0443." })
+            /* @__PURE__ */ jsxs47("div", { className: "learning-path-hint", style: { marginTop: 20 }, children: [
+              /* @__PURE__ */ jsx50("div", { className: "learning-path-hint__title", children: "\u0427\u0442\u043E \u044D\u0442\u043E \u0434\u0430\u0451\u0442" }),
+              /* @__PURE__ */ jsxs47("ul", { className: "learning-path-hint__list", children: [
+                /* @__PURE__ */ jsx50("li", { children: "\u041F\u043E\u0440\u044F\u0434\u043E\u043A \u0447\u0442\u0435\u043D\u0438\u044F \u2014 \u043E\u0442 \xAB\u0444\u0443\u043D\u0434\u0430\u043C\u0435\u043D\u0442\u0430\xBB \u043A \u0432\u0435\u0440\u0445\u043D\u0438\u043C \u0441\u043B\u043E\u044F\u043C, \u0447\u0442\u043E\u0431\u044B \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438 \u0431\u044B\u043B\u0438 \u043F\u043E\u043D\u044F\u0442\u043D\u044B \u0441 \u0441\u0430\u043C\u043E\u0433\u043E \u043D\u0430\u0447\u0430\u043B\u0430." }),
+                /* @__PURE__ */ jsx50("li", { children: "\u0422\u043E\u0447\u043A\u0438 \u0432\u0445\u043E\u0434\u0430 \u2014 \u0434\u043E\u043C\u0435\u043D\u044B, \u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u043D\u0438\u043A\u0442\u043E \u043D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442: \u043E\u043D\u0438 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u044E\u0442 \u0444\u0443\u043D\u043A\u0446\u0438\u043E\u043D\u0430\u043B\u044C\u043D\u043E\u0441\u0442\u044C \u0432\u0435\u0440\u0445\u043D\u0435\u0433\u043E \u0443\u0440\u043E\u0432\u043D\u044F." }),
+                /* @__PURE__ */ jsx50("li", { children: "\u041A\u0430\u043C\u0435\u0440\u0430 \u044D\u043A\u0441\u043A\u0443\u0440\u0441\u0438\u0438 \u0432\u0435\u0434\u0451\u0442 \u043F\u043E \u044D\u0442\u0430\u043F\u0430\u043C, \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u044F \u043F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0438 \u043F\u043E \u043A\u0430\u0436\u0434\u043E\u043C\u0443 \u0434\u043E\u043C\u0435\u043D\u0443." })
               ] })
             ] }),
-            /* @__PURE__ */ jsx48(
+            /* @__PURE__ */ jsx50(
               "button",
               {
                 className: "btn btn--primary",
@@ -10699,19 +11412,19 @@ function LearningPathModal(props) {
               }
             )
           ] }),
-          path && /* @__PURE__ */ jsxs45("div", { className: "topo-result", children: [
-            path.entryPoints.length > 0 && /* @__PURE__ */ jsxs45("div", { className: "learning-entry-points", children: [
-              /* @__PURE__ */ jsxs45("div", { className: "learning-entry-points__header", children: [
-                /* @__PURE__ */ jsx48("span", { className: "learning-entry-points__icon", children: "\u{1F6AA}" }),
-                /* @__PURE__ */ jsxs45("span", { children: [
+          path && /* @__PURE__ */ jsxs47("div", { className: "topo-result", children: [
+            path.entryPoints.length > 0 && /* @__PURE__ */ jsxs47("div", { className: "learning-entry-points", children: [
+              /* @__PURE__ */ jsxs47("div", { className: "learning-entry-points__header", children: [
+                /* @__PURE__ */ jsx50("span", { className: "learning-entry-points__icon", children: "\u{1F6AA}" }),
+                /* @__PURE__ */ jsxs47("span", { children: [
                   "\u0422\u043E\u0447\u043A\u0438 \u0432\u0445\u043E\u0434\u0430 (",
                   path.entryPoints.length,
                   ")"
                 ] }),
-                /* @__PURE__ */ jsx48("span", { className: "learning-entry-points__hint", children: "\u2014 \u043D\u0438\u043A\u0442\u043E \u043D\u0435 \u0437\u0430\u0432\u0438\u0441\u0438\u0442 \u043E\u0442 \u043D\u0438\u0445, \u043D\u043E \u043E\u043D\u0438 \u0437\u0430\u0432\u0438\u0441\u044F\u0442 \u043E\u0442 \u0434\u0440\u0443\u0433\u0438\u0445" })
+                /* @__PURE__ */ jsx50("span", { className: "learning-entry-points__hint", children: "\u2014 \u043D\u0438\u043A\u0442\u043E \u043D\u0435 \u0437\u0430\u0432\u0438\u0441\u0438\u0442 \u043E\u0442 \u043D\u0438\u0445, \u043D\u043E \u043E\u043D\u0438 \u0437\u0430\u0432\u0438\u0441\u044F\u0442 \u043E\u0442 \u0434\u0440\u0443\u0433\u0438\u0445" })
               ] }),
-              /* @__PURE__ */ jsxs45("div", { className: "learning-entry-points__body", children: [
-                path.entryPoints.slice(0, 12).map((d) => /* @__PURE__ */ jsx48(
+              /* @__PURE__ */ jsxs47("div", { className: "learning-entry-points__body", children: [
+                path.entryPoints.slice(0, 12).map((d) => /* @__PURE__ */ jsx50(
                   "a",
                   {
                     className: "validation-log__domain",
@@ -10723,7 +11436,7 @@ function LearningPathModal(props) {
                   },
                   d.id
                 )),
-                path.entryPoints.length > 12 && /* @__PURE__ */ jsxs45("span", { style: { fontSize: 11, color: "var(--text-500)" }, children: [
+                path.entryPoints.length > 12 && /* @__PURE__ */ jsxs47("span", { style: { fontSize: 11, color: "var(--text-500)" }, children: [
                   "...\u0438 \u0435\u0449\u0451 ",
                   path.entryPoints.length - 12
                 ] })
@@ -10731,24 +11444,24 @@ function LearningPathModal(props) {
             ] }),
             path.stages.map((stage) => {
               const isOpen = expandedStages.has(stage.index);
-              return /* @__PURE__ */ jsxs45(
+              return /* @__PURE__ */ jsxs47(
                 "div",
                 {
                   className: "topo-level" + (isOpen ? " topo-level--open" : ""),
                   children: [
-                    /* @__PURE__ */ jsxs45(
+                    /* @__PURE__ */ jsxs47(
                       "div",
                       {
                         className: "topo-level__header",
                         onClick: () => toggleStage(stage.index),
                         children: [
-                          /* @__PURE__ */ jsx48("span", { className: "validation-log__chevron", children: isOpen ? "\u25BE" : "\u25B8" }),
-                          /* @__PURE__ */ jsx48("span", { className: "topo-level__badge learning-path-stage-badge", children: stage.index + 1 }),
-                          /* @__PURE__ */ jsxs45("span", { className: "topo-level__title", children: [
+                          /* @__PURE__ */ jsx50("span", { className: "validation-log__chevron", children: isOpen ? "\u25BE" : "\u25B8" }),
+                          /* @__PURE__ */ jsx50("span", { className: "topo-level__badge learning-path-stage-badge", children: stage.index + 1 }),
+                          /* @__PURE__ */ jsxs47("span", { className: "topo-level__title", children: [
                             "\u042D\u0442\u0430\u043F ",
                             stage.index + 1
                           ] }),
-                          /* @__PURE__ */ jsxs45("span", { className: "topo-level__count", children: [
+                          /* @__PURE__ */ jsxs47("span", { className: "topo-level__count", children: [
                             stage.domains.length,
                             " ",
                             plural(stage.domains.length, "\u0434\u043E\u043C\u0435\u043D", "\u0434\u043E\u043C\u0435\u043D\u043E\u0432")
@@ -10756,9 +11469,9 @@ function LearningPathModal(props) {
                         ]
                       }
                     ),
-                    isOpen && /* @__PURE__ */ jsx48("div", { className: "topo-level__body learning-stage-body", children: stage.domains.map((d) => /* @__PURE__ */ jsxs45("div", { className: "learning-domain-card", children: [
-                      /* @__PURE__ */ jsxs45("div", { className: "learning-domain-card__head", children: [
-                        /* @__PURE__ */ jsx48(
+                    isOpen && /* @__PURE__ */ jsx50("div", { className: "topo-level__body learning-stage-body", children: stage.domains.map((d) => /* @__PURE__ */ jsxs47("div", { className: "learning-domain-card", children: [
+                      /* @__PURE__ */ jsxs47("div", { className: "learning-domain-card__head", children: [
+                        /* @__PURE__ */ jsx50(
                           "a",
                           {
                             className: "validation-log__domain",
@@ -10769,25 +11482,25 @@ function LearningPathModal(props) {
                             children: d.domainId
                           }
                         ),
-                        d.label && d.label !== d.domainId && /* @__PURE__ */ jsx48("span", { className: "learning-domain-card__label", children: d.label })
+                        d.label && d.label !== d.domainId && /* @__PURE__ */ jsx50("span", { className: "learning-domain-card__label", children: d.label })
                       ] }),
-                      d.description && /* @__PURE__ */ jsx48("div", { className: "learning-domain-card__desc", children: d.description }),
-                      /* @__PURE__ */ jsxs45("div", { className: "learning-domain-card__stats", children: [
-                        d.fanIn > 0 && /* @__PURE__ */ jsxs45("span", { className: "learning-domain-stat", children: [
-                          /* @__PURE__ */ jsx48("span", { className: "learning-domain-stat__icon", children: "\u2191" }),
+                      d.description && /* @__PURE__ */ jsx50("div", { className: "learning-domain-card__desc", children: d.description }),
+                      /* @__PURE__ */ jsxs47("div", { className: "learning-domain-card__stats", children: [
+                        d.fanIn > 0 && /* @__PURE__ */ jsxs47("span", { className: "learning-domain-stat", children: [
+                          /* @__PURE__ */ jsx50("span", { className: "learning-domain-stat__icon", children: "\u2191" }),
                           d.fanIn,
                           " \u0432\u0445\u043E\u0434\u044F\u0449\u0438\u0445"
                         ] }),
-                        d.fanOut > 0 && /* @__PURE__ */ jsxs45("span", { className: "learning-domain-stat", children: [
-                          /* @__PURE__ */ jsx48("span", { className: "learning-domain-stat__icon", children: "\u2193" }),
+                        d.fanOut > 0 && /* @__PURE__ */ jsxs47("span", { className: "learning-domain-stat", children: [
+                          /* @__PURE__ */ jsx50("span", { className: "learning-domain-stat__icon", children: "\u2193" }),
                           d.fanOut,
                           " \u0438\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u0445"
                         ] }),
-                        d.entitiesCount != null && /* @__PURE__ */ jsxs45("span", { className: "learning-domain-stat", children: [
+                        d.entitiesCount != null && /* @__PURE__ */ jsxs47("span", { className: "learning-domain-stat", children: [
                           d.entitiesCount,
                           " entities"
                         ] }),
-                        d.tags && d.tags.length > 0 && /* @__PURE__ */ jsx48("span", { className: "learning-domain-stat learning-domain-stat--tags", children: d.tags.slice(0, 4).join(", ") })
+                        d.tags && d.tags.length > 0 && /* @__PURE__ */ jsx50("span", { className: "learning-domain-stat learning-domain-stat--tags", children: d.tags.slice(0, 4).join(", ") })
                       ] })
                     ] }, d.id)) })
                   ]
@@ -10795,16 +11508,16 @@ function LearningPathModal(props) {
                 stage.index
               );
             }),
-            path.unresolved.length > 0 && /* @__PURE__ */ jsxs45("div", { className: "topo-cyclic", children: [
-              /* @__PURE__ */ jsxs45("div", { className: "topo-cyclic__header", children: [
-                /* @__PURE__ */ jsx48("span", { className: "topo-cyclic__icon", children: "\u26A0\uFE0F" }),
-                /* @__PURE__ */ jsxs45("span", { children: [
+            path.unresolved.length > 0 && /* @__PURE__ */ jsxs47("div", { className: "topo-cyclic", children: [
+              /* @__PURE__ */ jsxs47("div", { className: "topo-cyclic__header", children: [
+                /* @__PURE__ */ jsx50("span", { className: "topo-cyclic__icon", children: "\u26A0\uFE0F" }),
+                /* @__PURE__ */ jsxs47("span", { children: [
                   "\u0412 \u0446\u0438\u043A\u043B\u0435 \u2014 \u0447\u0438\u0442\u0430\u0442\u044C \u043F\u043E\u0441\u043B\u0435 \u0432\u0441\u0435\u0445 (",
                   path.unresolved.length,
                   ")"
                 ] })
               ] }),
-              /* @__PURE__ */ jsx48("div", { className: "topo-cyclic__body", children: path.unresolved.map((d) => /* @__PURE__ */ jsx48(
+              /* @__PURE__ */ jsx50("div", { className: "topo-cyclic__body", children: path.unresolved.map((d) => /* @__PURE__ */ jsx50(
                 "a",
                 {
                   className: "validation-log__domain",
@@ -10819,26 +11532,26 @@ function LearningPathModal(props) {
             ] })
           ] })
         ] }),
-        path && /* @__PURE__ */ jsxs45("div", { className: "validation-footer", children: [
-          /* @__PURE__ */ jsxs45("div", { className: "validation-stats", children: [
-            /* @__PURE__ */ jsxs45("span", { className: "validation-stat", children: [
+        path && /* @__PURE__ */ jsxs47("div", { className: "validation-footer", children: [
+          /* @__PURE__ */ jsxs47("div", { className: "validation-stats", children: [
+            /* @__PURE__ */ jsxs47("span", { className: "validation-stat", children: [
               "\u{1F4D6} ",
               path.totalDomains,
               " \u0434\u043E\u043C\u0435\u043D\u043E\u0432"
             ] }),
-            /* @__PURE__ */ jsxs45("span", { className: "validation-stat validation-stat--ok", children: [
+            /* @__PURE__ */ jsxs47("span", { className: "validation-stat validation-stat--ok", children: [
               "\u{1F4CA} ",
               path.totalStages,
               " \u044D\u0442\u0430\u043F\u043E\u0432"
             ] }),
-            path.entryPoints.length > 0 && /* @__PURE__ */ jsxs45("span", { className: "validation-stat", children: [
+            path.entryPoints.length > 0 && /* @__PURE__ */ jsxs47("span", { className: "validation-stat", children: [
               "\u{1F6AA} ",
               path.entryPoints.length,
               " \u0432\u0445\u043E\u0434\u043E\u0432"
             ] })
           ] }),
-          /* @__PURE__ */ jsxs45("div", { className: "validation-footer__actions", children: [
-            /* @__PURE__ */ jsx48(
+          /* @__PURE__ */ jsxs47("div", { className: "validation-footer__actions", children: [
+            /* @__PURE__ */ jsx50(
               "button",
               {
                 className: "btn btn--primary",
@@ -10849,10 +11562,10 @@ function LearningPathModal(props) {
                 children: "\u25B6 \u041D\u0430\u0447\u0430\u0442\u044C \u044D\u043A\u0441\u043A\u0443\u0440\u0441\u0438\u044E"
               }
             ),
-            /* @__PURE__ */ jsx48("button", { className: "btn", onClick: copyAsText, children: "\u{1F4CB} \u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C" }),
-            /* @__PURE__ */ jsx48("button", { className: "btn", onClick: exportJSON, children: "\u{1F4BE} JSON" }),
-            /* @__PURE__ */ jsx48("button", { className: "btn", onClick: exportMD, children: "\u{1F4DD} MD" }),
-            /* @__PURE__ */ jsx48("button", { className: "btn", onClick: () => setPath(null), children: "\u2190 \u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438" })
+            /* @__PURE__ */ jsx50("button", { className: "btn", onClick: copyAsText, children: "\u{1F4CB} \u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C" }),
+            /* @__PURE__ */ jsx50("button", { className: "btn", onClick: exportJSON, children: "\u{1F4BE} JSON" }),
+            /* @__PURE__ */ jsx50("button", { className: "btn", onClick: exportMD, children: "\u{1F4DD} MD" }),
+            /* @__PURE__ */ jsx50("button", { className: "btn", onClick: () => setPath(null), children: "\u2190 \u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438" })
           ] })
         ] })
       ]
@@ -10871,12 +11584,12 @@ var init_LearningPathModal = __esm({
 });
 
 // src/web/components/modals/TourOverlay.tsx
-import { useEffect as useEffect22, useMemo as useMemo21 } from "react";
-import { jsx as jsx49, jsxs as jsxs46 } from "react/jsx-runtime";
+import { useEffect as useEffect23, useMemo as useMemo22 } from "react";
+import { jsx as jsx51, jsxs as jsxs48 } from "react/jsx-runtime";
 function TourOverlay() {
   const store = useGraphStore();
   const tour = store.tour;
-  const allItems = useMemo21(() => {
+  const allItems = useMemo22(() => {
     if (!tour)
       return [];
     const items = [];
@@ -10892,7 +11605,7 @@ function TourOverlay() {
     });
     return items;
   }, [tour]);
-  useEffect22(() => {
+  useEffect23(() => {
     if (!tour)
       return;
     const current2 = allItems[tour.index];
@@ -10911,7 +11624,7 @@ function TourOverlay() {
     store.rfInstance.setCenter(cx, cy, { zoom: 1.5, duration: 700 });
     store.setSelectedNodeId(current2.nodeId);
   }, [tour, tour?.index, allItems, store]);
-  useEffect22(() => {
+  useEffect23(() => {
     if (!tour || !tour.playing)
       return;
     if (tour.index >= allItems.length - 1) {
@@ -10938,42 +11651,42 @@ function TourOverlay() {
   const prev = () => store.setTour((p) => p && p.index > 0 ? { ...p, index: p.index - 1, playing: false } : p);
   const togglePlay = () => store.setTour((p) => p ? { ...p, playing: !p.playing } : null);
   const stop = () => store.setTour(null);
-  return /* @__PURE__ */ jsx49("div", { className: "tour-overlay", children: /* @__PURE__ */ jsxs46("div", { className: "tour-overlay__card", children: [
-    /* @__PURE__ */ jsxs46("div", { className: "tour-overlay__header", children: [
-      /* @__PURE__ */ jsxs46("span", { className: "tour-overlay__stage-badge", children: [
+  return /* @__PURE__ */ jsx51("div", { className: "tour-overlay", children: /* @__PURE__ */ jsxs48("div", { className: "tour-overlay__card", children: [
+    /* @__PURE__ */ jsxs48("div", { className: "tour-overlay__header", children: [
+      /* @__PURE__ */ jsxs48("span", { className: "tour-overlay__stage-badge", children: [
         "\u042D\u0442\u0430\u043F ",
         current.stageNumber
       ] }),
-      /* @__PURE__ */ jsxs46("span", { className: "tour-overlay__counter", children: [
+      /* @__PURE__ */ jsxs48("span", { className: "tour-overlay__counter", children: [
         tour.index + 1,
         " / ",
         allItems.length
       ] }),
-      /* @__PURE__ */ jsx49("button", { className: "tour-overlay__close", onClick: stop, title: "\u0417\u0430\u0432\u0435\u0440\u0448\u0438\u0442\u044C", children: "\u2715" })
+      /* @__PURE__ */ jsx51("button", { className: "tour-overlay__close", onClick: stop, title: "\u0417\u0430\u0432\u0435\u0440\u0448\u0438\u0442\u044C", children: "\u2715" })
     ] }),
-    /* @__PURE__ */ jsx49("div", { className: "tour-overlay__title", children: current.domainId }),
-    d.label && d.label !== current.domainId && /* @__PURE__ */ jsx49("div", { className: "tour-overlay__subtitle", children: d.label }),
-    d.description && /* @__PURE__ */ jsx49("div", { className: "tour-overlay__desc", children: d.description }),
-    /* @__PURE__ */ jsxs46("div", { className: "tour-overlay__stats", children: [
-      d.fanIn > 0 && /* @__PURE__ */ jsxs46("span", { className: "tour-stat", children: [
+    /* @__PURE__ */ jsx51("div", { className: "tour-overlay__title", children: current.domainId }),
+    d.label && d.label !== current.domainId && /* @__PURE__ */ jsx51("div", { className: "tour-overlay__subtitle", children: d.label }),
+    d.description && /* @__PURE__ */ jsx51("div", { className: "tour-overlay__desc", children: d.description }),
+    /* @__PURE__ */ jsxs48("div", { className: "tour-overlay__stats", children: [
+      d.fanIn > 0 && /* @__PURE__ */ jsxs48("span", { className: "tour-stat", children: [
         "\u2191 ",
         d.fanIn,
         " \u0432\u0445\u043E\u0434\u044F\u0449\u0438\u0445"
       ] }),
-      d.fanOut > 0 && /* @__PURE__ */ jsxs46("span", { className: "tour-stat", children: [
+      d.fanOut > 0 && /* @__PURE__ */ jsxs48("span", { className: "tour-stat", children: [
         "\u2193 ",
         d.fanOut,
         " \u0438\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u0445"
       ] }),
-      d.entitiesCount != null && /* @__PURE__ */ jsxs46("span", { className: "tour-stat", children: [
+      d.entitiesCount != null && /* @__PURE__ */ jsxs48("span", { className: "tour-stat", children: [
         d.entitiesCount,
         " entities"
       ] })
     ] }),
-    d.tags && d.tags.length > 0 && /* @__PURE__ */ jsx49("div", { className: "tour-overlay__tags", children: d.tags.slice(0, 6).map((t, i) => /* @__PURE__ */ jsx49("span", { className: "tag", style: { fontSize: 10 }, children: t }, i)) }),
-    /* @__PURE__ */ jsx49("div", { className: "tour-overlay__progress", children: /* @__PURE__ */ jsx49("div", { className: "tour-overlay__progress-bar", children: /* @__PURE__ */ jsx49("div", { className: "tour-overlay__progress-fill", style: { width: pct + "%" } }) }) }),
-    /* @__PURE__ */ jsxs46("div", { className: "tour-overlay__controls", children: [
-      /* @__PURE__ */ jsx49(
+    d.tags && d.tags.length > 0 && /* @__PURE__ */ jsx51("div", { className: "tour-overlay__tags", children: d.tags.slice(0, 6).map((t, i) => /* @__PURE__ */ jsx51("span", { className: "tag", style: { fontSize: 10 }, children: t }, i)) }),
+    /* @__PURE__ */ jsx51("div", { className: "tour-overlay__progress", children: /* @__PURE__ */ jsx51("div", { className: "tour-overlay__progress-bar", children: /* @__PURE__ */ jsx51("div", { className: "tour-overlay__progress-fill", style: { width: pct + "%" } }) }) }),
+    /* @__PURE__ */ jsxs48("div", { className: "tour-overlay__controls", children: [
+      /* @__PURE__ */ jsx51(
         "button",
         {
           className: "tour-btn",
@@ -10983,7 +11696,7 @@ function TourOverlay() {
           children: "\u25C0"
         }
       ),
-      /* @__PURE__ */ jsx49(
+      /* @__PURE__ */ jsx51(
         "button",
         {
           className: "tour-btn tour-btn--primary",
@@ -10992,7 +11705,7 @@ function TourOverlay() {
           children: tour.playing ? "\u275A\u275A" : "\u25B6"
         }
       ),
-      /* @__PURE__ */ jsx49(
+      /* @__PURE__ */ jsx51(
         "button",
         {
           className: "tour-btn",
@@ -11284,7 +11997,7 @@ var init_tree = __esm({
 });
 
 // src/web/components/modals/EntityHierarchyFlow.tsx
-import { useCallback as useCallback11, useEffect as useEffect23, useMemo as useMemo22 } from "react";
+import { useCallback as useCallback12, useEffect as useEffect24, useMemo as useMemo23 } from "react";
 import ReactFlow2, {
   Background as Background2,
   BackgroundVariant as BackgroundVariant2,
@@ -11300,7 +12013,7 @@ import {
   BaseEdge,
   getSmoothStepPath
 } from "reactflow";
-import { Fragment as Fragment5, jsx as jsx50, jsxs as jsxs47 } from "react/jsx-runtime";
+import { Fragment as Fragment9, jsx as jsx52, jsxs as jsxs49 } from "react/jsx-runtime";
 function EntityEdge({
   id,
   sourceX,
@@ -11325,9 +12038,9 @@ function EntityEdge({
   const kind = data && data.kind || "inheritance";
   const label = data && data.label || "";
   const title = kind === "inheritance" ? "\u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435" : kind === "reference" ? `\u0430\u0442\u0440\u0438\u0431\u0443\u0442: ${label}` : `\u0441\u0432\u044F\u0437\u044C: ${label}`;
-  return /* @__PURE__ */ jsxs47(Fragment5, { children: [
-    /* @__PURE__ */ jsx50(BaseEdge, { id, path: edgePath, style, markerEnd }),
-    /* @__PURE__ */ jsx50(
+  return /* @__PURE__ */ jsxs49(Fragment9, { children: [
+    /* @__PURE__ */ jsx52(BaseEdge, { id, path: edgePath, style, markerEnd }),
+    /* @__PURE__ */ jsx52(
       "path",
       {
         d: edgePath,
@@ -11335,7 +12048,7 @@ function EntityEdge({
         stroke: "transparent",
         strokeWidth: 18,
         style: { cursor: "pointer" },
-        children: /* @__PURE__ */ jsx50("title", { children: title })
+        children: /* @__PURE__ */ jsx52("title", { children: title })
       }
     )
   ] });
@@ -11350,17 +12063,17 @@ function EntityFlowNode({ data }) {
     cls.push("entity-flow-node--missing");
   if (data.isForeign)
     cls.push("entity-flow-node--foreign");
-  return /* @__PURE__ */ jsxs47(Fragment5, { children: [
-    /* @__PURE__ */ jsx50(Handle2, { type: "target", position: Position2.Top, className: "entity-flow-handle" }),
-    /* @__PURE__ */ jsxs47("div", { className: cls.join(" "), children: [
-      /* @__PURE__ */ jsxs47("div", { className: "entity-flow-node__id", children: [
+  return /* @__PURE__ */ jsxs49(Fragment9, { children: [
+    /* @__PURE__ */ jsx52(Handle2, { type: "target", position: Position2.Top, className: "entity-flow-handle" }),
+    /* @__PURE__ */ jsxs49("div", { className: cls.join(" "), children: [
+      /* @__PURE__ */ jsxs49("div", { className: "entity-flow-node__id", children: [
         data.missing && "\u26A0\uFE0F ",
         data.entityId
       ] }),
-      data.name && data.name !== data.entityId && /* @__PURE__ */ jsx50("div", { className: "entity-flow-node__name", children: data.name }),
-      /* @__PURE__ */ jsx50("div", { className: "entity-flow-node__domain", children: data.domainId })
+      data.name && data.name !== data.entityId && /* @__PURE__ */ jsx52("div", { className: "entity-flow-node__name", children: data.name }),
+      /* @__PURE__ */ jsx52("div", { className: "entity-flow-node__domain", children: data.domainId })
     ] }),
-    /* @__PURE__ */ jsx50(Handle2, { type: "source", position: Position2.Bottom, className: "entity-flow-handle" })
+    /* @__PURE__ */ jsx52(Handle2, { type: "source", position: Position2.Bottom, className: "entity-flow-handle" })
   ] });
 }
 function layoutWithDagre(nodes, edges) {
@@ -11396,7 +12109,7 @@ function layoutWithDagre(nodes, edges) {
 function EntityHierarchyFlowInner({ tree, onSelect }) {
   const rf = useReactFlow2();
   const rootDomainId = (tree.rootKey.split("/")[0] || "").toLowerCase();
-  const { flowNodes, flowEdges } = useMemo22(() => {
+  const { flowNodes, flowEdges } = useMemo23(() => {
     const initialNodes = tree.nodes.map((n) => {
       const isRoot = n.key === tree.rootKey;
       return {
@@ -11457,7 +12170,7 @@ function EntityHierarchyFlowInner({ tree, onSelect }) {
     });
     return { flowNodes: flowNodes2, flowEdges: flowEdges2 };
   }, [tree, rootDomainId]);
-  useEffect23(() => {
+  useEffect24(() => {
     if (flowNodes.length === 0)
       return;
     const t = setTimeout(() => {
@@ -11468,7 +12181,7 @@ function EntityHierarchyFlowInner({ tree, onSelect }) {
     }, 120);
     return () => clearTimeout(t);
   }, [flowNodes.length, flowEdges.length, rf]);
-  const handleNodeClick = useCallback11(
+  const handleNodeClick = useCallback12(
     (_, node) => {
       if (!node?.data)
         return;
@@ -11476,7 +12189,7 @@ function EntityHierarchyFlowInner({ tree, onSelect }) {
     },
     [onSelect]
   );
-  return /* @__PURE__ */ jsxs47(
+  return /* @__PURE__ */ jsxs49(
     ReactFlow2,
     {
       nodes: flowNodes,
@@ -11493,9 +12206,9 @@ function EntityHierarchyFlowInner({ tree, onSelect }) {
       elementsSelectable: true,
       onlyRenderVisibleElements: false,
       children: [
-        /* @__PURE__ */ jsx50(Background2, { variant: BackgroundVariant2.Dots, gap: 20, size: 1, color: "var(--graph-dots)" }),
-        /* @__PURE__ */ jsx50(Controls2, { position: "bottom-left" }),
-        /* @__PURE__ */ jsx50(
+        /* @__PURE__ */ jsx52(Background2, { variant: BackgroundVariant2.Dots, gap: 20, size: 1, color: "var(--graph-dots)" }),
+        /* @__PURE__ */ jsx52(Controls2, { position: "bottom-left" }),
+        /* @__PURE__ */ jsx52(
           MiniMap2,
           {
             position: "bottom-right",
@@ -11517,7 +12230,7 @@ function EntityHierarchyFlowInner({ tree, onSelect }) {
   );
 }
 function EntityHierarchyFlow(props) {
-  return /* @__PURE__ */ jsx50(ReactFlowProvider2, { children: /* @__PURE__ */ jsx50(EntityHierarchyFlowInner, { ...props }) });
+  return /* @__PURE__ */ jsx52(ReactFlowProvider2, { children: /* @__PURE__ */ jsx52(EntityHierarchyFlowInner, { ...props }) });
 }
 var edgeTypes, NODE_WIDTH3, NODE_HEIGHT3, ROOT_WIDTH, ROOT_HEIGHT, nodeTypes2;
 var init_EntityHierarchyFlow = __esm({
@@ -11533,8 +12246,8 @@ var init_EntityHierarchyFlow = __esm({
 });
 
 // src/web/components/modals/EntityHierarchyModal.tsx
-import { useCallback as useCallback12, useEffect as useEffect24, useMemo as useMemo23, useState as useState12 } from "react";
-import { Fragment as Fragment6, jsx as jsx51, jsxs as jsxs48 } from "react/jsx-runtime";
+import { useCallback as useCallback13, useEffect as useEffect25, useMemo as useMemo24, useState as useState12 } from "react";
+import { Fragment as Fragment10, jsx as jsx53, jsxs as jsxs50 } from "react/jsx-runtime";
 function EntityHierarchyModal({ entities }) {
   const setEntityHierarchyOpen = useGraphStore(
     (s) => s.setEntityHierarchyOpen
@@ -11555,22 +12268,22 @@ function EntityHierarchyModal({ entities }) {
   const [history, setHistory] = useState12([]);
   const open = entityHierarchyOpen;
   const initialKey = entityHierarchyInitialKey;
-  const index = useMemo23(() => buildEntityIndex(entities), [entities]);
-  useEffect24(() => {
+  const index = useMemo24(() => buildEntityIndex(entities), [entities]);
+  useEffect25(() => {
     if (open && initialKey) {
       setSelectedKey(initialKey);
       setHistory([]);
       setQuery("");
     }
   }, [open, initialKey]);
-  useEffect24(() => {
+  useEffect25(() => {
     if (!open) {
       setQuery("");
       setSelectedKey(null);
       setHistory([]);
     }
   }, [open]);
-  const handleBack = useCallback12(() => {
+  const handleBack = useCallback13(() => {
     setHistory((prev) => {
       if (prev.length === 0)
         return prev;
@@ -11579,7 +12292,7 @@ function EntityHierarchyModal({ entities }) {
       return prev.slice(0, -1);
     });
   }, []);
-  useEffect24(() => {
+  useEffect25(() => {
     if (!open)
       return;
     const onKey = (e) => {
@@ -11594,7 +12307,7 @@ function EntityHierarchyModal({ entities }) {
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
   }, [open, history, handleBack, setEntityHierarchyOpen]);
-  const searchResults = useMemo23(() => {
+  const searchResults = useMemo24(() => {
     const q = query.trim().toLowerCase();
     if (!q)
       return [];
@@ -11618,7 +12331,7 @@ function EntityHierarchyModal({ entities }) {
     });
     return results.sort((a, b) => a.rank - b.rank).slice(0, 200);
   }, [query, entities, index]);
-  const tree = useMemo23(() => {
+  const tree = useMemo24(() => {
     if (!selectedKey)
       return null;
     if (!modelIndex)
@@ -11632,7 +12345,7 @@ function EntityHierarchyModal({ entities }) {
       hideIsolated
     });
   }, [selectedKey, index, modelIndex, mode, depth, showInheritance, showReferences, showLinkages, hideIsolated]);
-  const handleSelect = useCallback12(
+  const handleSelect = useCallback13(
     (node) => {
       if (!node || node.missing)
         return;
@@ -11645,20 +12358,20 @@ function EntityHierarchyModal({ entities }) {
   );
   if (!open)
     return null;
-  return /* @__PURE__ */ jsx51(
+  return /* @__PURE__ */ jsx53(
     "div",
     {
       className: "help-overlay help-overlay--fullscreen",
       onMouseDown: () => setEntityHierarchyOpen(false),
-      children: /* @__PURE__ */ jsxs48(
+      children: /* @__PURE__ */ jsxs50(
         "div",
         {
           className: "help-modal entity-hierarchy-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
-            /* @__PURE__ */ jsxs48("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsx51("div", { className: "help-modal__title", children: "\u{1F9EC} \u0418\u0435\u0440\u0430\u0440\u0445\u0438\u044F \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" }),
-              /* @__PURE__ */ jsx51(
+            /* @__PURE__ */ jsxs50("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsx53("div", { className: "help-modal__title", children: "\u{1F9EC} \u0418\u0435\u0440\u0430\u0440\u0445\u0438\u044F \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" }),
+              /* @__PURE__ */ jsx53(
                 "button",
                 {
                   className: "help-modal__close",
@@ -11667,11 +12380,11 @@ function EntityHierarchyModal({ entities }) {
                 }
               )
             ] }),
-            /* @__PURE__ */ jsxs48("div", { className: "entity-hierarchy-body", children: [
-              /* @__PURE__ */ jsxs48("div", { className: "entity-search-panel", children: [
-                /* @__PURE__ */ jsxs48("div", { className: "entity-search-input-wrap", children: [
-                  /* @__PURE__ */ jsx51("span", { className: "entity-search-icon", children: "\u{1F50D}" }),
-                  /* @__PURE__ */ jsx51(
+            /* @__PURE__ */ jsxs50("div", { className: "entity-hierarchy-body", children: [
+              /* @__PURE__ */ jsxs50("div", { className: "entity-search-panel", children: [
+                /* @__PURE__ */ jsxs50("div", { className: "entity-search-input-wrap", children: [
+                  /* @__PURE__ */ jsx53("span", { className: "entity-search-icon", children: "\u{1F50D}" }),
+                  /* @__PURE__ */ jsx53(
                     "input",
                     {
                       className: "entity-search-input",
@@ -11682,12 +12395,12 @@ function EntityHierarchyModal({ entities }) {
                     }
                   )
                 ] }),
-                /* @__PURE__ */ jsx51("div", { className: "entity-search-results", children: query.trim() === "" ? /* @__PURE__ */ jsxs48("div", { className: "entity-search-hint", children: [
+                /* @__PURE__ */ jsx53("div", { className: "entity-search-results", children: query.trim() === "" ? /* @__PURE__ */ jsxs50("div", { className: "entity-search-hint", children: [
                   "\u0412\u0441\u0435\u0433\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439: ",
                   entities.length,
-                  /* @__PURE__ */ jsx51("br", {}),
-                  /* @__PURE__ */ jsx51("span", { style: { fontSize: 11 }, children: "\u041D\u0430\u0447\u043D\u0438\u0442\u0435 \u0432\u0432\u043E\u0434\u0438\u0442\u044C \u0434\u043B\u044F \u043F\u043E\u0438\u0441\u043A\u0430" })
-                ] }) : searchResults.length === 0 ? /* @__PURE__ */ jsx51("div", { className: "entity-search-hint", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" }) : searchResults.map((r) => /* @__PURE__ */ jsxs48(
+                  /* @__PURE__ */ jsx53("br", {}),
+                  /* @__PURE__ */ jsx53("span", { style: { fontSize: 11 }, children: "\u041D\u0430\u0447\u043D\u0438\u0442\u0435 \u0432\u0432\u043E\u0434\u0438\u0442\u044C \u0434\u043B\u044F \u043F\u043E\u0438\u0441\u043A\u0430" })
+                ] }) : searchResults.length === 0 ? /* @__PURE__ */ jsx53("div", { className: "entity-search-hint", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" }) : searchResults.map((r) => /* @__PURE__ */ jsxs50(
                   "div",
                   {
                     className: "entity-search-item" + (r.key === selectedKey ? " entity-search-item--active" : "") + (r.isOrphan ? " entity-search-item--orphan" : ""),
@@ -11698,24 +12411,24 @@ function EntityHierarchyModal({ entities }) {
                       setSelectedKey(r.key);
                     },
                     children: [
-                      /* @__PURE__ */ jsx51("div", { className: "entity-search-item__id", children: r.entity.entityId }),
-                      r.entity.name && r.entity.name !== r.entity.entityId && /* @__PURE__ */ jsx51("div", { className: "entity-search-item__name", children: r.entity.name }),
-                      /* @__PURE__ */ jsxs48("div", { className: "entity-search-item__meta", children: [
-                        /* @__PURE__ */ jsx51("span", { className: "entity-search-item__domain", children: r.entity.domainId }),
-                        r.isOrphan ? /* @__PURE__ */ jsx51("span", { className: "entity-search-item__badge", children: "\u0431\u0435\u0437 \u0438\u0435\u0440\u0430\u0440\u0445\u0438\u0438" }) : /* @__PURE__ */ jsx51("span", { className: "entity-search-item__badge entity-search-item__badge--ok", children: (r.hasParents ? "\u2191" : "\xB7") + (r.hasChildren ? "\u2193" : "\xB7") })
+                      /* @__PURE__ */ jsx53("div", { className: "entity-search-item__id", children: r.entity.entityId }),
+                      r.entity.name && r.entity.name !== r.entity.entityId && /* @__PURE__ */ jsx53("div", { className: "entity-search-item__name", children: r.entity.name }),
+                      /* @__PURE__ */ jsxs50("div", { className: "entity-search-item__meta", children: [
+                        /* @__PURE__ */ jsx53("span", { className: "entity-search-item__domain", children: r.entity.domainId }),
+                        r.isOrphan ? /* @__PURE__ */ jsx53("span", { className: "entity-search-item__badge", children: "\u0431\u0435\u0437 \u0438\u0435\u0440\u0430\u0440\u0445\u0438\u0438" }) : /* @__PURE__ */ jsx53("span", { className: "entity-search-item__badge entity-search-item__badge--ok", children: (r.hasParents ? "\u2191" : "\xB7") + (r.hasChildren ? "\u2193" : "\xB7") })
                       ] })
                     ]
                   },
                   r.key
                 )) })
               ] }),
-              /* @__PURE__ */ jsx51("div", { className: "entity-graph-panel", children: !selectedKey ? /* @__PURE__ */ jsxs48("div", { className: "entity-graph-empty", children: [
-                /* @__PURE__ */ jsx51("div", { className: "entity-graph-empty__icon", children: "\u{1F9EC}" }),
-                /* @__PURE__ */ jsx51("div", { className: "entity-graph-empty__title", children: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0441\u043B\u0435\u0432\u0430" }),
-                /* @__PURE__ */ jsx51("div", { className: "entity-graph-empty__hint", children: "\u0420\u043E\u0434\u0438\u0442\u0435\u043B\u0438 \u0441\u0432\u0435\u0440\u0445\u0443, \u043D\u0430\u0441\u043B\u0435\u0434\u043D\u0438\u043A\u0438 \u0441\u043D\u0438\u0437\u0443. \u0412\u043E \u0432\u0442\u043E\u0440\u043E\u043C \u0440\u0435\u0436\u0438\u043C\u0435 \u2014 \u0435\u0449\u0451 Reference \u0438 Linkage." })
-              ] }) : tree ? /* @__PURE__ */ jsxs48(Fragment6, { children: [
-                /* @__PURE__ */ jsxs48("div", { className: "entity-hierarchy-toolbar", children: [
-                  history.length > 0 && /* @__PURE__ */ jsx51(
+              /* @__PURE__ */ jsx53("div", { className: "entity-graph-panel", children: !selectedKey ? /* @__PURE__ */ jsxs50("div", { className: "entity-graph-empty", children: [
+                /* @__PURE__ */ jsx53("div", { className: "entity-graph-empty__icon", children: "\u{1F9EC}" }),
+                /* @__PURE__ */ jsx53("div", { className: "entity-graph-empty__title", children: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0441\u043B\u0435\u0432\u0430" }),
+                /* @__PURE__ */ jsx53("div", { className: "entity-graph-empty__hint", children: "\u0420\u043E\u0434\u0438\u0442\u0435\u043B\u0438 \u0441\u0432\u0435\u0440\u0445\u0443, \u043D\u0430\u0441\u043B\u0435\u0434\u043D\u0438\u043A\u0438 \u0441\u043D\u0438\u0437\u0443. \u0412\u043E \u0432\u0442\u043E\u0440\u043E\u043C \u0440\u0435\u0436\u0438\u043C\u0435 \u2014 \u0435\u0449\u0451 Reference \u0438 Linkage." })
+              ] }) : tree ? /* @__PURE__ */ jsxs50(Fragment10, { children: [
+                /* @__PURE__ */ jsxs50("div", { className: "entity-hierarchy-toolbar", children: [
+                  history.length > 0 && /* @__PURE__ */ jsx53(
                     "button",
                     {
                       className: "entity-hierarchy-back",
@@ -11724,34 +12437,34 @@ function EntityHierarchyModal({ entities }) {
                       children: "\u2190 \u041D\u0430\u0437\u0430\u0434"
                     }
                   ),
-                  /* @__PURE__ */ jsxs48("div", { className: "entity-hierarchy-toolbar__modes", children: [
-                    /* @__PURE__ */ jsxs48(
+                  /* @__PURE__ */ jsxs50("div", { className: "entity-hierarchy-toolbar__modes", children: [
+                    /* @__PURE__ */ jsxs50(
                       "button",
                       {
                         className: "entity-hierarchy-mode" + (mode === "inherits" ? " active" : ""),
                         onClick: () => setMode("inherits"),
                         children: [
-                          /* @__PURE__ */ jsx51("span", { className: "entity-hierarchy-mode__dot", style: { background: "#a78bfa" } }),
+                          /* @__PURE__ */ jsx53("span", { className: "entity-hierarchy-mode__dot", style: { background: "#a78bfa" } }),
                           "\u041D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435"
                         ]
                       }
                     ),
-                    /* @__PURE__ */ jsxs48(
+                    /* @__PURE__ */ jsxs50(
                       "button",
                       {
                         className: "entity-hierarchy-mode" + (mode === "all" ? " active" : ""),
                         onClick: () => setMode("all"),
                         children: [
-                          /* @__PURE__ */ jsx51("span", { className: "entity-hierarchy-mode__dot", style: { background: "#6366f1" } }),
+                          /* @__PURE__ */ jsx53("span", { className: "entity-hierarchy-mode__dot", style: { background: "#6366f1" } }),
                           "\u0412\u0441\u0435 \u0441\u0432\u044F\u0437\u0438"
                         ]
                       }
                     )
                   ] }),
-                  /* @__PURE__ */ jsxs48("div", { className: "entity-hierarchy-toolbar__filters", children: [
-                    mode === "all" && /* @__PURE__ */ jsxs48(Fragment6, { children: [
-                      /* @__PURE__ */ jsxs48("label", { className: "entity-hierarchy-filter", children: [
-                        /* @__PURE__ */ jsx51(
+                  /* @__PURE__ */ jsxs50("div", { className: "entity-hierarchy-toolbar__filters", children: [
+                    mode === "all" && /* @__PURE__ */ jsxs50(Fragment10, { children: [
+                      /* @__PURE__ */ jsxs50("label", { className: "entity-hierarchy-filter", children: [
+                        /* @__PURE__ */ jsx53(
                           "input",
                           {
                             type: "checkbox",
@@ -11759,11 +12472,11 @@ function EntityHierarchyModal({ entities }) {
                             onChange: () => setShowInheritance(!showInheritance)
                           }
                         ),
-                        /* @__PURE__ */ jsx51("span", { className: "entity-hierarchy-filter__dot", style: { background: "#a78bfa" } }),
+                        /* @__PURE__ */ jsx53("span", { className: "entity-hierarchy-filter__dot", style: { background: "#a78bfa" } }),
                         "\u041D\u0430\u0441\u043B\u0435\u0434."
                       ] }),
-                      /* @__PURE__ */ jsxs48("label", { className: "entity-hierarchy-filter", children: [
-                        /* @__PURE__ */ jsx51(
+                      /* @__PURE__ */ jsxs50("label", { className: "entity-hierarchy-filter", children: [
+                        /* @__PURE__ */ jsx53(
                           "input",
                           {
                             type: "checkbox",
@@ -11771,11 +12484,11 @@ function EntityHierarchyModal({ entities }) {
                             onChange: () => setShowReferences(!showReferences)
                           }
                         ),
-                        /* @__PURE__ */ jsx51("span", { className: "entity-hierarchy-filter__dot", style: { background: "#6366f1" } }),
+                        /* @__PURE__ */ jsx53("span", { className: "entity-hierarchy-filter__dot", style: { background: "#6366f1" } }),
                         "Reference"
                       ] }),
-                      /* @__PURE__ */ jsxs48("label", { className: "entity-hierarchy-filter", children: [
-                        /* @__PURE__ */ jsx51(
+                      /* @__PURE__ */ jsxs50("label", { className: "entity-hierarchy-filter", children: [
+                        /* @__PURE__ */ jsx53(
                           "input",
                           {
                             type: "checkbox",
@@ -11783,13 +12496,13 @@ function EntityHierarchyModal({ entities }) {
                             onChange: () => setShowLinkages(!showLinkages)
                           }
                         ),
-                        /* @__PURE__ */ jsx51("span", { className: "entity-hierarchy-filter__dot", style: { background: "#10b981" } }),
+                        /* @__PURE__ */ jsx53("span", { className: "entity-hierarchy-filter__dot", style: { background: "#10b981" } }),
                         "Linkage"
                       ] }),
-                      /* @__PURE__ */ jsx51("span", { className: "entity-hierarchy-toolbar__sep" })
+                      /* @__PURE__ */ jsx53("span", { className: "entity-hierarchy-toolbar__sep" })
                     ] }),
-                    /* @__PURE__ */ jsxs48("label", { className: "entity-hierarchy-filter", children: [
-                      /* @__PURE__ */ jsx51(
+                    /* @__PURE__ */ jsxs50("label", { className: "entity-hierarchy-filter", children: [
+                      /* @__PURE__ */ jsx53(
                         "input",
                         {
                           type: "checkbox",
@@ -11800,9 +12513,9 @@ function EntityHierarchyModal({ entities }) {
                       "\u0411\u0435\u0437 \u0441\u0432\u044F\u0437\u0435\u0439"
                     ] })
                   ] }),
-                  mode === "all" && /* @__PURE__ */ jsxs48("div", { className: "entity-hierarchy-toolbar__depth", children: [
-                    /* @__PURE__ */ jsx51("span", { children: "\u0413\u043B\u0443\u0431\u0438\u043D\u0430:" }),
-                    /* @__PURE__ */ jsx51(
+                  mode === "all" && /* @__PURE__ */ jsxs50("div", { className: "entity-hierarchy-toolbar__depth", children: [
+                    /* @__PURE__ */ jsx53("span", { children: "\u0413\u043B\u0443\u0431\u0438\u043D\u0430:" }),
+                    /* @__PURE__ */ jsx53(
                       "input",
                       {
                         type: "range",
@@ -11812,10 +12525,10 @@ function EntityHierarchyModal({ entities }) {
                         onChange: (e) => setDepth(parseInt(e.target.value, 10))
                       }
                     ),
-                    /* @__PURE__ */ jsx51("span", { className: "entity-hierarchy-depth-value", children: depth })
+                    /* @__PURE__ */ jsx53("span", { className: "entity-hierarchy-depth-value", children: depth })
                   ] })
                 ] }),
-                /* @__PURE__ */ jsx51(
+                /* @__PURE__ */ jsx53(
                   EntityHierarchyFlow,
                   {
                     tree,
@@ -11824,26 +12537,26 @@ function EntityHierarchyModal({ entities }) {
                 )
               ] }) : null })
             ] }),
-            tree && /* @__PURE__ */ jsxs48("div", { className: "validation-footer", children: [
-              /* @__PURE__ */ jsxs48("div", { className: "validation-stats", children: [
-                /* @__PURE__ */ jsxs48("span", { className: "validation-stat", children: [
+            tree && /* @__PURE__ */ jsxs50("div", { className: "validation-footer", children: [
+              /* @__PURE__ */ jsxs50("div", { className: "validation-stats", children: [
+                /* @__PURE__ */ jsxs50("span", { className: "validation-stat", children: [
                   "\u{1F9EC} ",
                   tree.nodes.length,
                   " \u0432 \u0433\u0440\u0430\u0444\u0435"
                 ] }),
-                /* @__PURE__ */ jsxs48("span", { className: "validation-stat validation-stat--ok", children: [
+                /* @__PURE__ */ jsxs50("span", { className: "validation-stat validation-stat--ok", children: [
                   "\u2191 ",
                   tree.parentKeys.size,
                   " \u0440\u043E\u0434\u0438\u0442\u0435\u043B\u0435\u0439"
                 ] }),
-                /* @__PURE__ */ jsxs48("span", { className: "validation-stat validation-stat--warn", children: [
+                /* @__PURE__ */ jsxs50("span", { className: "validation-stat validation-stat--warn", children: [
                   "\u2193 ",
                   tree.childKeys.size,
                   " \u043D\u0430\u0441\u043B\u0435\u0434\u043D\u0438\u043A\u043E\u0432"
                 ] }),
-                tree.cycleNodes.size > 0 && /* @__PURE__ */ jsx51("span", { className: "validation-stat validation-stat--err", children: "\u26A0\uFE0F \u0446\u0438\u043A\u043B" })
+                tree.cycleNodes.size > 0 && /* @__PURE__ */ jsx53("span", { className: "validation-stat validation-stat--err", children: "\u26A0\uFE0F \u0446\u0438\u043A\u043B" })
               ] }),
-              /* @__PURE__ */ jsx51("div", { className: "validation-footer__actions", children: /* @__PURE__ */ jsx51(
+              /* @__PURE__ */ jsx53("div", { className: "validation-footer__actions", children: /* @__PURE__ */ jsx53(
                 "button",
                 {
                   className: "btn",
@@ -11871,8 +12584,8 @@ var init_EntityHierarchyModal = __esm({
 });
 
 // src/web/components/modals/RulesModal.tsx
-import { useEffect as useEffect25, useState as useState13 } from "react";
-import { jsx as jsx52, jsxs as jsxs49 } from "react/jsx-runtime";
+import { useEffect as useEffect26, useState as useState13 } from "react";
+import { jsx as jsx54, jsxs as jsxs51 } from "react/jsx-runtime";
 function RulesModal({ violations }) {
   const store = useGraphStore();
   const { goto } = useNavigation();
@@ -11883,11 +12596,11 @@ function RulesModal({ violations }) {
     message: ""
   });
   const open = store.rulesOpen;
-  useEffect25(() => {
+  useEffect26(() => {
     if (!open)
       setDraft({ from: "", to: "", action: "warn", message: "" });
   }, [open]);
-  useEffect25(() => {
+  useEffect26(() => {
     if (!open)
       return;
     const onKey = (e) => {
@@ -11933,28 +12646,28 @@ function RulesModal({ violations }) {
       addRule();
     }
   };
-  return /* @__PURE__ */ jsx52("div", { className: "help-overlay", onMouseDown: () => store.setRulesOpen(false), children: /* @__PURE__ */ jsxs49("div", { className: "help-modal rules-modal", onMouseDown: (e) => e.stopPropagation(), children: [
-    /* @__PURE__ */ jsxs49("div", { className: "help-modal__header", children: [
-      /* @__PURE__ */ jsxs49("div", { className: "help-modal__title", children: [
-        /* @__PURE__ */ jsx52(MIcon, { name: "block" }),
-        /* @__PURE__ */ jsx52("span", { style: { marginLeft: 8 }, children: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0435\u0439" }),
-        violations.length > 0 && /* @__PURE__ */ jsx52("span", { className: "help-modal__badge", children: violations.length })
+  return /* @__PURE__ */ jsx54("div", { className: "help-overlay", onMouseDown: () => store.setRulesOpen(false), children: /* @__PURE__ */ jsxs51("div", { className: "help-modal rules-modal", onMouseDown: (e) => e.stopPropagation(), children: [
+    /* @__PURE__ */ jsxs51("div", { className: "help-modal__header", children: [
+      /* @__PURE__ */ jsxs51("div", { className: "help-modal__title", children: [
+        /* @__PURE__ */ jsx54(MIcon, { name: "block" }),
+        /* @__PURE__ */ jsx54("span", { style: { marginLeft: 8 }, children: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0435\u0439" }),
+        violations.length > 0 && /* @__PURE__ */ jsx54("span", { className: "help-modal__badge", children: violations.length })
       ] }),
-      /* @__PURE__ */ jsx52(
+      /* @__PURE__ */ jsx54(
         "button",
         {
           className: "help-modal__close",
           onClick: () => store.setRulesOpen(false),
           title: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C (Esc)",
-          children: /* @__PURE__ */ jsx52(MIcon, { name: "close" })
+          children: /* @__PURE__ */ jsx54(MIcon, { name: "close" })
         }
       )
     ] }),
-    /* @__PURE__ */ jsxs49("div", { className: "help-modal__body rules-modal__body", children: [
-      /* @__PURE__ */ jsxs49("div", { className: "rules-form", children: [
-        /* @__PURE__ */ jsx52("div", { className: "rules-form__label", children: "\u041D\u043E\u0432\u043E\u0435 \u043F\u0440\u0430\u0432\u0438\u043B\u043E" }),
-        /* @__PURE__ */ jsxs49("div", { className: "rules-form__row", children: [
-          /* @__PURE__ */ jsx52(
+    /* @__PURE__ */ jsxs51("div", { className: "help-modal__body rules-modal__body", children: [
+      /* @__PURE__ */ jsxs51("div", { className: "rules-form", children: [
+        /* @__PURE__ */ jsx54("div", { className: "rules-form__label", children: "\u041D\u043E\u0432\u043E\u0435 \u043F\u0440\u0430\u0432\u0438\u043B\u043E" }),
+        /* @__PURE__ */ jsxs51("div", { className: "rules-form__row", children: [
+          /* @__PURE__ */ jsx54(
             "input",
             {
               className: "rules-form__input",
@@ -11965,8 +12678,8 @@ function RulesModal({ violations }) {
               onKeyDown: onFormKeyDown
             }
           ),
-          /* @__PURE__ */ jsx52("span", { className: "rules-form__arrow", children: /* @__PURE__ */ jsx52(MIcon, { name: "arrow_forward", size: "sm" }) }),
-          /* @__PURE__ */ jsx52(
+          /* @__PURE__ */ jsx54("span", { className: "rules-form__arrow", children: /* @__PURE__ */ jsx54(MIcon, { name: "arrow_forward", size: "sm" }) }),
+          /* @__PURE__ */ jsx54(
             "input",
             {
               className: "rules-form__input",
@@ -11978,20 +12691,20 @@ function RulesModal({ violations }) {
             }
           )
         ] }),
-        /* @__PURE__ */ jsxs49("div", { className: "rules-form__row", children: [
-          /* @__PURE__ */ jsxs49(
+        /* @__PURE__ */ jsxs51("div", { className: "rules-form__row", children: [
+          /* @__PURE__ */ jsxs51(
             "select",
             {
               className: "rules-form__select",
               value: draft.action,
               onChange: (e) => setDraft({ ...draft, action: e.target.value }),
               children: [
-                /* @__PURE__ */ jsx52("option", { value: "warn", children: "\u26A0\uFE0F Warning" }),
-                /* @__PURE__ */ jsx52("option", { value: "forbid", children: "\u26D4 Forbid" })
+                /* @__PURE__ */ jsx54("option", { value: "warn", children: "\u26A0\uFE0F Warning" }),
+                /* @__PURE__ */ jsx54("option", { value: "forbid", children: "\u26D4 Forbid" })
               ]
             }
           ),
-          /* @__PURE__ */ jsx52(
+          /* @__PURE__ */ jsx54(
             "input",
             {
               className: "rules-form__input",
@@ -12002,54 +12715,54 @@ function RulesModal({ violations }) {
               onKeyDown: onFormKeyDown
             }
           ),
-          /* @__PURE__ */ jsxs49(
+          /* @__PURE__ */ jsxs51(
             "button",
             {
               className: "btn btn--primary",
               onClick: addRule,
               disabled: !draft.from.trim() || !draft.to.trim(),
               children: [
-                /* @__PURE__ */ jsx52(MIcon, { name: "add", size: "sm" }),
+                /* @__PURE__ */ jsx54(MIcon, { name: "add", size: "sm" }),
                 " \u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C"
               ]
             }
           )
         ] }),
-        /* @__PURE__ */ jsxs49("div", { className: "rules-form__hint", children: [
+        /* @__PURE__ */ jsxs51("div", { className: "rules-form__hint", children: [
           "\u041C\u0430\u0441\u043A\u0438: ",
-          /* @__PURE__ */ jsx52("code", { children: "sgrc.evo.*" }),
+          /* @__PURE__ */ jsx54("code", { children: "sgrc.evo.*" }),
           ", ",
-          /* @__PURE__ */ jsx52("code", { children: "ui.*" }),
+          /* @__PURE__ */ jsx54("code", { children: "ui.*" }),
           ", ",
-          /* @__PURE__ */ jsx52("code", { children: "!test.*" }),
+          /* @__PURE__ */ jsx54("code", { children: "!test.*" }),
           ". \u041F\u043E\u0434\u0434\u0435\u0440\u0436\u0438\u0432\u0430\u0435\u0442\u0441\u044F ",
-          /* @__PURE__ */ jsx52("b", { children: "*" }),
+          /* @__PURE__ */ jsx54("b", { children: "*" }),
           " \u0438 ",
-          /* @__PURE__ */ jsx52("b", { children: "!" }),
+          /* @__PURE__ */ jsx54("b", { children: "!" }),
           "."
         ] })
       ] }),
-      /* @__PURE__ */ jsxs49("div", { className: "rules-list", children: [
-        /* @__PURE__ */ jsxs49("div", { className: "rules-list__header", children: [
-          /* @__PURE__ */ jsxs49("span", { className: "rules-form__label", children: [
+      /* @__PURE__ */ jsxs51("div", { className: "rules-list", children: [
+        /* @__PURE__ */ jsxs51("div", { className: "rules-list__header", children: [
+          /* @__PURE__ */ jsxs51("span", { className: "rules-form__label", children: [
             "\u0410\u043A\u0442\u0438\u0432\u043D\u044B\u0435 \u043F\u0440\u0430\u0432\u0438\u043B\u0430 (",
             store.rules.length,
             ")"
           ] }),
-          store.rules.length > 0 && /* @__PURE__ */ jsx52("button", { className: "rules-list__clear", onClick: clearAllRules, children: "\u041E\u0447\u0438\u0441\u0442\u0438\u0442\u044C \u0432\u0441\u0435" })
+          store.rules.length > 0 && /* @__PURE__ */ jsx54("button", { className: "rules-list__clear", onClick: clearAllRules, children: "\u041E\u0447\u0438\u0441\u0442\u0438\u0442\u044C \u0432\u0441\u0435" })
         ] }),
-        store.rules.length === 0 ? /* @__PURE__ */ jsx52("div", { className: "rules-list__empty", children: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u043D\u0435 \u0437\u0430\u0434\u0430\u043D\u044B" }) : store.rules.map((rule) => /* @__PURE__ */ jsxs49(
+        store.rules.length === 0 ? /* @__PURE__ */ jsx54("div", { className: "rules-list__empty", children: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u043D\u0435 \u0437\u0430\u0434\u0430\u043D\u044B" }) : store.rules.map((rule) => /* @__PURE__ */ jsxs51(
           "div",
           {
             className: "rules-item rules-item--" + (rule.action || "warn"),
             children: [
-              /* @__PURE__ */ jsx52(
+              /* @__PURE__ */ jsx54(
                 "button",
                 {
                   className: "rules-item__action rules-item__action--" + (rule.action || "warn"),
                   onClick: () => toggleAction(rule.id),
                   title: rule.action === "forbid" ? "\u041D\u0430\u0436\u043C\u0438\u0442\u0435, \u0447\u0442\u043E\u0431\u044B \u0441\u0434\u0435\u043B\u0430\u0442\u044C Warning" : "\u041D\u0430\u0436\u043C\u0438\u0442\u0435, \u0447\u0442\u043E\u0431\u044B \u0441\u0434\u0435\u043B\u0430\u0442\u044C Forbid",
-                  children: /* @__PURE__ */ jsx52(
+                  children: /* @__PURE__ */ jsx54(
                     MIcon,
                     {
                       name: rule.action === "forbid" ? "block" : "warning",
@@ -12058,21 +12771,21 @@ function RulesModal({ violations }) {
                   )
                 }
               ),
-              /* @__PURE__ */ jsxs49("div", { className: "rules-item__body", children: [
-                /* @__PURE__ */ jsxs49("div", { className: "rules-item__pattern", children: [
-                  /* @__PURE__ */ jsx52("code", { children: rule.from }),
-                  /* @__PURE__ */ jsx52("span", { className: "rules-item__arrow", children: " \u2192 " }),
-                  /* @__PURE__ */ jsx52("code", { children: rule.to })
+              /* @__PURE__ */ jsxs51("div", { className: "rules-item__body", children: [
+                /* @__PURE__ */ jsxs51("div", { className: "rules-item__pattern", children: [
+                  /* @__PURE__ */ jsx54("code", { children: rule.from }),
+                  /* @__PURE__ */ jsx54("span", { className: "rules-item__arrow", children: " \u2192 " }),
+                  /* @__PURE__ */ jsx54("code", { children: rule.to })
                 ] }),
-                rule.message && /* @__PURE__ */ jsx52("div", { className: "rules-item__message", children: rule.message })
+                rule.message && /* @__PURE__ */ jsx54("div", { className: "rules-item__message", children: rule.message })
               ] }),
-              /* @__PURE__ */ jsx52(
+              /* @__PURE__ */ jsx54(
                 "button",
                 {
                   className: "rules-item__remove",
                   onClick: () => removeRule(rule.id),
                   title: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C",
-                  children: /* @__PURE__ */ jsx52(MIcon, { name: "close", size: "sm" })
+                  children: /* @__PURE__ */ jsx54(MIcon, { name: "close", size: "sm" })
                 }
               )
             ]
@@ -12080,9 +12793,9 @@ function RulesModal({ violations }) {
           rule.id
         ))
       ] }),
-      /* @__PURE__ */ jsxs49("div", { className: "rules-toggles", children: [
-        /* @__PURE__ */ jsxs49("label", { className: "rules-toggle", children: [
-          /* @__PURE__ */ jsx52(
+      /* @__PURE__ */ jsxs51("div", { className: "rules-toggles", children: [
+        /* @__PURE__ */ jsxs51("label", { className: "rules-toggle", children: [
+          /* @__PURE__ */ jsx54(
             "input",
             {
               type: "checkbox",
@@ -12090,11 +12803,11 @@ function RulesModal({ violations }) {
               onChange: () => store.setRulesHighlighted(!store.rulesHighlighted)
             }
           ),
-          /* @__PURE__ */ jsx52("span", { className: "rules-toggle__check" }),
-          /* @__PURE__ */ jsx52("span", { children: "\u041F\u043E\u0434\u0441\u0432\u0435\u0447\u0438\u0432\u0430\u0442\u044C \u043D\u0430\u0440\u0443\u0448\u0435\u043D\u0438\u044F \u043D\u0430 \u0433\u0440\u0430\u0444\u0435" })
+          /* @__PURE__ */ jsx54("span", { className: "rules-toggle__check" }),
+          /* @__PURE__ */ jsx54("span", { children: "\u041F\u043E\u0434\u0441\u0432\u0435\u0447\u0438\u0432\u0430\u0442\u044C \u043D\u0430\u0440\u0443\u0448\u0435\u043D\u0438\u044F \u043D\u0430 \u0433\u0440\u0430\u0444\u0435" })
         ] }),
-        /* @__PURE__ */ jsxs49("label", { className: "rules-toggle", children: [
-          /* @__PURE__ */ jsx52(
+        /* @__PURE__ */ jsxs51("label", { className: "rules-toggle", children: [
+          /* @__PURE__ */ jsx54(
             "input",
             {
               type: "checkbox",
@@ -12102,30 +12815,30 @@ function RulesModal({ violations }) {
               onChange: () => store.setShowViolationsOnly(!store.showViolationsOnly)
             }
           ),
-          /* @__PURE__ */ jsx52("span", { className: "rules-toggle__check" }),
-          /* @__PURE__ */ jsx52("span", { children: "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0442\u043E\u043B\u044C\u043A\u043E \u043D\u0430\u0440\u0443\u0448\u0435\u043D\u0438\u044F" })
+          /* @__PURE__ */ jsx54("span", { className: "rules-toggle__check" }),
+          /* @__PURE__ */ jsx54("span", { children: "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0442\u043E\u043B\u044C\u043A\u043E \u043D\u0430\u0440\u0443\u0448\u0435\u043D\u0438\u044F" })
         ] })
       ] }),
-      violations.length > 0 && /* @__PURE__ */ jsxs49("div", { className: "rules-violations", children: [
-        /* @__PURE__ */ jsxs49("div", { className: "rules-form__label", children: [
+      violations.length > 0 && /* @__PURE__ */ jsxs51("div", { className: "rules-violations", children: [
+        /* @__PURE__ */ jsxs51("div", { className: "rules-form__label", children: [
           "\u041D\u0430\u0439\u0434\u0435\u043D\u043D\u044B\u0435 \u043D\u0430\u0440\u0443\u0448\u0435\u043D\u0438\u044F (",
           violations.length,
           ")"
         ] }),
-        /* @__PURE__ */ jsxs49("div", { className: "rules-violations__list", children: [
-          violations.slice(0, 50).map((v, idx) => /* @__PURE__ */ jsxs49(
+        /* @__PURE__ */ jsxs51("div", { className: "rules-violations__list", children: [
+          violations.slice(0, 50).map((v, idx) => /* @__PURE__ */ jsxs51(
             "div",
             {
               className: "rules-violation rules-violation--" + (v.severity || "warn"),
               children: [
-                /* @__PURE__ */ jsx52(
+                /* @__PURE__ */ jsx54(
                   MIcon,
                   {
                     name: v.severity === "forbid" ? "block" : "warning",
                     size: "sm"
                   }
                 ),
-                /* @__PURE__ */ jsx52(
+                /* @__PURE__ */ jsx54(
                   "span",
                   {
                     className: "rules-violation__from",
@@ -12136,8 +12849,8 @@ function RulesModal({ violations }) {
                     children: v.fromId
                   }
                 ),
-                /* @__PURE__ */ jsx52("span", { className: "rules-violation__arrow", children: " \u2192 " }),
-                /* @__PURE__ */ jsx52(
+                /* @__PURE__ */ jsx54("span", { className: "rules-violation__arrow", children: " \u2192 " }),
+                /* @__PURE__ */ jsx54(
                   "span",
                   {
                     className: "rules-violation__to",
@@ -12148,25 +12861,25 @@ function RulesModal({ violations }) {
                     children: v.toId
                   }
                 ),
-                v.rule && v.rule.message && /* @__PURE__ */ jsx52("span", { className: "rules-violation__message", children: v.rule.message })
+                v.rule && v.rule.message && /* @__PURE__ */ jsx54("span", { className: "rules-violation__message", children: v.rule.message })
               ]
             },
             idx
           )),
-          violations.length > 50 && /* @__PURE__ */ jsxs49("div", { className: "rules-violations__more", children: [
+          violations.length > 50 && /* @__PURE__ */ jsxs51("div", { className: "rules-violations__more", children: [
             "...\u0438 \u0435\u0449\u0451 ",
             violations.length - 50
           ] })
         ] })
       ] })
     ] }),
-    /* @__PURE__ */ jsxs49("div", { className: "rules-modal__footer", children: [
-      /* @__PURE__ */ jsxs49("div", { className: "rules-modal__stats", children: [
+    /* @__PURE__ */ jsxs51("div", { className: "rules-modal__footer", children: [
+      /* @__PURE__ */ jsxs51("div", { className: "rules-modal__stats", children: [
         "\u041F\u0440\u0430\u0432\u0438\u043B: ",
         store.rules.length,
-        violations.length > 0 && /* @__PURE__ */ jsx52("span", { className: "rules-modal__stats--err", children: " \xB7 \u041D\u0430\u0440\u0443\u0448\u0435\u043D\u0438\u0439: " + violations.length })
+        violations.length > 0 && /* @__PURE__ */ jsx54("span", { className: "rules-modal__stats--err", children: " \xB7 \u041D\u0430\u0440\u0443\u0448\u0435\u043D\u0438\u0439: " + violations.length })
       ] }),
-      /* @__PURE__ */ jsx52("button", { className: "btn", onClick: () => store.setRulesOpen(false), children: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C" })
+      /* @__PURE__ */ jsx54("button", { className: "btn", onClick: () => store.setRulesOpen(false), children: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C" })
     ] })
   ] }) });
 }
@@ -12302,31 +13015,31 @@ var init_impact_analysis = __esm({
 });
 
 // src/web/components/modals/ImpactAnalysisPanel.tsx
-import { useMemo as useMemo24 } from "react";
-import { jsx as jsx53, jsxs as jsxs50 } from "react/jsx-runtime";
+import { useMemo as useMemo25 } from "react";
+import { jsx as jsx55, jsxs as jsxs52 } from "react/jsx-runtime";
 function ImpactAnalysisPanel(props) {
   const entityFavorites = useGraphStore((s) => s.entityFavorites);
   const isFav = entityFavorites.has(props.fqid);
   const toggleFav = useGraphStore((s) => s.toggleEntityFavorite);
-  const impact = useMemo24(() => computeImpact(props.fqid, props.index), [props.fqid, props.index]);
+  const impact = useMemo25(() => computeImpact(props.fqid, props.index), [props.fqid, props.index]);
   if (!impact) {
-    return /* @__PURE__ */ jsxs50("div", { className: "impact-panel", children: [
-      /* @__PURE__ */ jsx53("button", { className: "entity-graph-back", onClick: props.onBack, children: "\u2190 \u041D\u0430\u0437\u0430\u0434 \u043A \u0441\u043F\u0438\u0441\u043A\u0443" }),
-      /* @__PURE__ */ jsx53("div", { className: "entity-catalog-empty", style: { marginTop: 60 }, children: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430 \u0432 \u0438\u043D\u0434\u0435\u043A\u0441\u0435" })
+    return /* @__PURE__ */ jsxs52("div", { className: "impact-panel", children: [
+      /* @__PURE__ */ jsx55("button", { className: "entity-graph-back", onClick: props.onBack, children: "\u2190 \u041D\u0430\u0437\u0430\u0434 \u043A \u0441\u043F\u0438\u0441\u043A\u0443" }),
+      /* @__PURE__ */ jsx55("div", { className: "entity-catalog-empty", style: { marginTop: 60 }, children: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430 \u0432 \u0438\u043D\u0434\u0435\u043A\u0441\u0435" })
     ] });
   }
   const { entity } = impact;
   const refsTotal = impact.children.length + impact.referencedByAttributes.length + impact.mixins.length;
-  return /* @__PURE__ */ jsxs50("div", { className: "impact-panel", children: [
-    /* @__PURE__ */ jsx53("button", { className: "entity-graph-back", onClick: props.onBack, children: "\u2190 \u041D\u0430\u0437\u0430\u0434 \u043A \u0441\u043F\u0438\u0441\u043A\u0443" }),
-    /* @__PURE__ */ jsxs50("div", { className: "impact-header", children: [
-      /* @__PURE__ */ jsxs50("div", { className: "impact-header__fqid-row", children: [
-        /* @__PURE__ */ jsxs50("div", { className: "impact-header__fqid", children: [
+  return /* @__PURE__ */ jsxs52("div", { className: "impact-panel", children: [
+    /* @__PURE__ */ jsx55("button", { className: "entity-graph-back", onClick: props.onBack, children: "\u2190 \u041D\u0430\u0437\u0430\u0434 \u043A \u0441\u043F\u0438\u0441\u043A\u0443" }),
+    /* @__PURE__ */ jsxs52("div", { className: "impact-header", children: [
+      /* @__PURE__ */ jsxs52("div", { className: "impact-header__fqid-row", children: [
+        /* @__PURE__ */ jsxs52("div", { className: "impact-header__fqid", children: [
           entity.domainId,
           "/",
           entity.entityId
         ] }),
-        /* @__PURE__ */ jsx53(
+        /* @__PURE__ */ jsx55(
           "button",
           {
             className: "impact-header__copy",
@@ -12336,25 +13049,25 @@ function ImpactAnalysisPanel(props) {
               useGraphStore.getState().showSnackbar("FQID \u0441\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D");
             },
             title: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C FQID",
-            children: /* @__PURE__ */ jsx53(MIcon, { name: "content_copy", size: "sm" })
+            children: /* @__PURE__ */ jsx55(MIcon, { name: "content_copy", size: "sm" })
           }
         )
       ] }),
-      /* @__PURE__ */ jsx53("div", { className: "impact-header__name", children: entity.name }),
-      entity.description && /* @__PURE__ */ jsx53("div", { className: "impact-header__desc", children: entity.description }),
-      /* @__PURE__ */ jsxs50("div", { className: "impact-header__badges", children: [
-        /* @__PURE__ */ jsxs50(
+      /* @__PURE__ */ jsx55("div", { className: "impact-header__name", children: entity.name }),
+      entity.description && /* @__PURE__ */ jsx55("div", { className: "impact-header__desc", children: entity.description }),
+      /* @__PURE__ */ jsxs52("div", { className: "impact-header__badges", children: [
+        /* @__PURE__ */ jsxs52(
           "button",
           {
             className: "btn btn--primary",
             onClick: () => props.onGotoDomain(entity.domainId),
             children: [
-              /* @__PURE__ */ jsx53(MIcon, { name: "menu_book", size: "sm" }),
+              /* @__PURE__ */ jsx55(MIcon, { name: "menu_book", size: "sm" }),
               "\u0421\u0445\u0435\u043C\u0430 \u0434\u043E\u043C\u0435\u043D\u0430"
             ]
           }
         ),
-        /* @__PURE__ */ jsxs50(
+        /* @__PURE__ */ jsxs52(
           "button",
           {
             className: "btn",
@@ -12375,151 +13088,151 @@ function ImpactAnalysisPanel(props) {
             },
             title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C YAML-\u0444\u0430\u0439\u043B \u0441 \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u043E\u043C \u043A \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438",
             children: [
-              /* @__PURE__ */ jsx53(MIcon, { name: "description", size: "sm" }),
+              /* @__PURE__ */ jsx55(MIcon, { name: "description", size: "sm" }),
               "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0444\u0430\u0439\u043B"
             ]
           }
         ),
-        /* @__PURE__ */ jsxs50("span", { className: "impact-stat", children: [
+        /* @__PURE__ */ jsxs52("span", { className: "impact-stat", children: [
           "\u0421\u0441\u044B\u043B\u043E\u043A: ",
           refsTotal
         ] }),
-        /* @__PURE__ */ jsxs50("span", { className: "impact-stat", children: [
+        /* @__PURE__ */ jsxs52("span", { className: "impact-stat", children: [
           "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432: ",
           entity.attributes.length
         ] })
       ] })
     ] }),
-    /* @__PURE__ */ jsxs50("div", { className: "impact-body", children: [
-      /* @__PURE__ */ jsxs50("section", { className: "impact-section", children: [
-        /* @__PURE__ */ jsxs50("h3", { className: "impact-section__title", children: [
-          /* @__PURE__ */ jsx53(MIcon, { name: "account_tree", size: "sm" }),
+    /* @__PURE__ */ jsxs52("div", { className: "impact-body", children: [
+      /* @__PURE__ */ jsxs52("section", { className: "impact-section", children: [
+        /* @__PURE__ */ jsxs52("h3", { className: "impact-section__title", children: [
+          /* @__PURE__ */ jsx55(MIcon, { name: "account_tree", size: "sm" }),
           "\u041D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435"
         ] }),
-        impact.ancestors.length > 0 && /* @__PURE__ */ jsxs50("div", { className: "impact-row", children: [
-          /* @__PURE__ */ jsxs50("span", { className: "impact-row__label", children: [
+        impact.ancestors.length > 0 && /* @__PURE__ */ jsxs52("div", { className: "impact-row", children: [
+          /* @__PURE__ */ jsxs52("span", { className: "impact-row__label", children: [
             "\u0420\u043E\u0434\u0438\u0442\u0435\u043B\u0438 (",
             impact.ancestors.length,
             "):"
           ] }),
-          /* @__PURE__ */ jsx53("div", { className: "impact-row__links", children: impact.ancestors.map((a) => /* @__PURE__ */ jsxs50(
+          /* @__PURE__ */ jsx55("div", { className: "impact-row__links", children: impact.ancestors.map((a) => /* @__PURE__ */ jsxs52(
             "button",
             {
               className: "impact-link",
               onClick: () => props.onSelectEntity(a.fqid),
               children: [
                 a.entityId,
-                /* @__PURE__ */ jsx53("span", { className: "impact-link__domain", children: a.domainId })
+                /* @__PURE__ */ jsx55("span", { className: "impact-link__domain", children: a.domainId })
               ]
             },
             a.fqid
           )) })
         ] }),
-        impact.children.length > 0 ? /* @__PURE__ */ jsxs50("div", { className: "impact-row", children: [
-          /* @__PURE__ */ jsxs50("span", { className: "impact-row__label", children: [
+        impact.children.length > 0 ? /* @__PURE__ */ jsxs52("div", { className: "impact-row", children: [
+          /* @__PURE__ */ jsxs52("span", { className: "impact-row__label", children: [
             "\u041D\u0430\u0441\u043B\u0435\u0434\u043D\u0438\u043A\u0438 (",
             impact.children.length,
             "):"
           ] }),
-          /* @__PURE__ */ jsx53("div", { className: "impact-row__links", children: impact.children.map((c) => /* @__PURE__ */ jsxs50(
+          /* @__PURE__ */ jsx55("div", { className: "impact-row__links", children: impact.children.map((c) => /* @__PURE__ */ jsxs52(
             "button",
             {
               className: "impact-link",
               onClick: () => props.onSelectEntity(c.fqid),
               children: [
                 c.entityId,
-                /* @__PURE__ */ jsx53("span", { className: "impact-link__domain", children: c.domainId })
+                /* @__PURE__ */ jsx55("span", { className: "impact-link__domain", children: c.domainId })
               ]
             },
             c.fqid
           )) })
-        ] }) : /* @__PURE__ */ jsx53("div", { className: "impact-row impact-row--empty", children: "\u041D\u0430\u0441\u043B\u0435\u0434\u043D\u0438\u043A\u043E\u0432 \u043D\u0435\u0442" }),
-        !entity.inherits && impact.ancestors.length === 0 && /* @__PURE__ */ jsx53("div", { className: "impact-row impact-row--empty", children: "\u041D\u0435 \u043D\u0430\u0441\u043B\u0435\u0434\u0443\u0435\u0442 \u043E\u0442 \u0434\u0440\u0443\u0433\u0438\u0445 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" })
+        ] }) : /* @__PURE__ */ jsx55("div", { className: "impact-row impact-row--empty", children: "\u041D\u0430\u0441\u043B\u0435\u0434\u043D\u0438\u043A\u043E\u0432 \u043D\u0435\u0442" }),
+        !entity.inherits && impact.ancestors.length === 0 && /* @__PURE__ */ jsx55("div", { className: "impact-row impact-row--empty", children: "\u041D\u0435 \u043D\u0430\u0441\u043B\u0435\u0434\u0443\u0435\u0442 \u043E\u0442 \u0434\u0440\u0443\u0433\u0438\u0445 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" })
       ] }),
-      /* @__PURE__ */ jsxs50("section", { className: "impact-section", children: [
-        /* @__PURE__ */ jsxs50("h3", { className: "impact-section__title", children: [
-          /* @__PURE__ */ jsx53(MIcon, { name: "call_received", size: "sm" }),
+      /* @__PURE__ */ jsxs52("section", { className: "impact-section", children: [
+        /* @__PURE__ */ jsxs52("h3", { className: "impact-section__title", children: [
+          /* @__PURE__ */ jsx55(MIcon, { name: "call_received", size: "sm" }),
           "\u041D\u0430 \u043D\u0435\u0451 \u0441\u0441\u044B\u043B\u0430\u044E\u0442\u0441\u044F (",
           impact.referencedByAttributes.length,
           ")"
         ] }),
-        impact.referencedByAttributes.length === 0 ? /* @__PURE__ */ jsx53("div", { className: "impact-row impact-row--empty", children: "\u041D\u0438 \u043E\u0434\u043D\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u043D\u0435 \u0441\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F \u0447\u0435\u0440\u0435\u0437 \u0430\u0442\u0440\u0438\u0431\u0443\u0442 \u0442\u0438\u043F\u0430 Reference" }) : /* @__PURE__ */ jsx53("div", { className: "impact-refs", children: impact.referencedByAttributes.map(({ entity: refEntity, attributeId, attributeName }) => /* @__PURE__ */ jsxs50("div", { className: "impact-ref", children: [
-          /* @__PURE__ */ jsxs50(
+        impact.referencedByAttributes.length === 0 ? /* @__PURE__ */ jsx55("div", { className: "impact-row impact-row--empty", children: "\u041D\u0438 \u043E\u0434\u043D\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u043D\u0435 \u0441\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F \u0447\u0435\u0440\u0435\u0437 \u0430\u0442\u0440\u0438\u0431\u0443\u0442 \u0442\u0438\u043F\u0430 Reference" }) : /* @__PURE__ */ jsx55("div", { className: "impact-refs", children: impact.referencedByAttributes.map(({ entity: refEntity, attributeId, attributeName }) => /* @__PURE__ */ jsxs52("div", { className: "impact-ref", children: [
+          /* @__PURE__ */ jsxs52(
             "button",
             {
               className: "impact-link",
               onClick: () => props.onSelectEntity(refEntity.fqid),
               children: [
                 refEntity.entityId,
-                /* @__PURE__ */ jsx53("span", { className: "impact-link__domain", children: refEntity.domainId })
+                /* @__PURE__ */ jsx55("span", { className: "impact-link__domain", children: refEntity.domainId })
               ]
             }
           ),
-          /* @__PURE__ */ jsx53("span", { className: "impact-ref__arrow", children: "\u2192" }),
-          /* @__PURE__ */ jsx53("code", { className: "impact-ref__attr", children: attributeName })
+          /* @__PURE__ */ jsx55("span", { className: "impact-ref__arrow", children: "\u2192" }),
+          /* @__PURE__ */ jsx55("code", { className: "impact-ref__attr", children: attributeName })
         ] }, `${refEntity.fqid}#${attributeId}`)) })
       ] }),
-      /* @__PURE__ */ jsxs50("section", { className: "impact-section", children: [
-        /* @__PURE__ */ jsxs50("h3", { className: "impact-section__title", children: [
-          /* @__PURE__ */ jsx53(MIcon, { name: "call_made", size: "sm" }),
+      /* @__PURE__ */ jsxs52("section", { className: "impact-section", children: [
+        /* @__PURE__ */ jsxs52("h3", { className: "impact-section__title", children: [
+          /* @__PURE__ */ jsx55(MIcon, { name: "call_made", size: "sm" }),
           "\u0421\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F \u043D\u0430 \u0434\u0440\u0443\u0433\u0438\u0445 (",
           impact.referencesToOthers.length,
           ")"
         ] }),
-        impact.referencesToOthers.length === 0 ? /* @__PURE__ */ jsx53("div", { className: "impact-row impact-row--empty", children: "\u041D\u0435\u0442 \u0438\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u0445 FQID-\u0441\u0441\u044B\u043B\u043E\u043A" }) : /* @__PURE__ */ jsx53("div", { className: "impact-refs", children: impact.referencesToOthers.map(({ entity: refEntity, attributeId, attributeName }) => /* @__PURE__ */ jsxs50("div", { className: "impact-ref", children: [
-          /* @__PURE__ */ jsx53("code", { className: "impact-ref__attr", children: attributeName }),
-          /* @__PURE__ */ jsx53("span", { className: "impact-ref__arrow", children: "\u2192" }),
-          /* @__PURE__ */ jsxs50(
+        impact.referencesToOthers.length === 0 ? /* @__PURE__ */ jsx55("div", { className: "impact-row impact-row--empty", children: "\u041D\u0435\u0442 \u0438\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u0445 FQID-\u0441\u0441\u044B\u043B\u043E\u043A" }) : /* @__PURE__ */ jsx55("div", { className: "impact-refs", children: impact.referencesToOthers.map(({ entity: refEntity, attributeId, attributeName }) => /* @__PURE__ */ jsxs52("div", { className: "impact-ref", children: [
+          /* @__PURE__ */ jsx55("code", { className: "impact-ref__attr", children: attributeName }),
+          /* @__PURE__ */ jsx55("span", { className: "impact-ref__arrow", children: "\u2192" }),
+          /* @__PURE__ */ jsxs52(
             "button",
             {
               className: "impact-link",
               onClick: () => props.onSelectEntity(refEntity.fqid),
               children: [
                 refEntity.entityId,
-                /* @__PURE__ */ jsx53("span", { className: "impact-link__domain", children: refEntity.domainId })
+                /* @__PURE__ */ jsx55("span", { className: "impact-link__domain", children: refEntity.domainId })
               ]
             }
           )
         ] }, `${refEntity.fqid}#${attributeId}`)) })
       ] }),
-      impact.mixins.length > 0 && /* @__PURE__ */ jsxs50("section", { className: "impact-section", children: [
-        /* @__PURE__ */ jsxs50("h3", { className: "impact-section__title", children: [
-          /* @__PURE__ */ jsx53(MIcon, { name: "merge", size: "sm" }),
+      impact.mixins.length > 0 && /* @__PURE__ */ jsxs52("section", { className: "impact-section", children: [
+        /* @__PURE__ */ jsxs52("h3", { className: "impact-section__title", children: [
+          /* @__PURE__ */ jsx55(MIcon, { name: "merge", size: "sm" }),
           "\u0420\u0430\u0441\u0448\u0438\u0440\u044F\u0435\u0442\u0441\u044F \u043C\u0438\u043A\u0441\u0438\u043D\u0430\u043C\u0438 (",
           impact.mixins.length,
           ")"
         ] }),
-        /* @__PURE__ */ jsx53("div", { className: "impact-mixins", children: impact.mixins.map((m) => /* @__PURE__ */ jsxs50("div", { className: "impact-mixin", children: [
-          /* @__PURE__ */ jsxs50("div", { className: "impact-mixin__head", children: [
-            /* @__PURE__ */ jsx53("span", { className: "impact-mixin__domain", children: m.domainId }),
-            /* @__PURE__ */ jsx53("span", { className: "impact-mixin__id", children: m.id })
+        /* @__PURE__ */ jsx55("div", { className: "impact-mixins", children: impact.mixins.map((m) => /* @__PURE__ */ jsxs52("div", { className: "impact-mixin", children: [
+          /* @__PURE__ */ jsxs52("div", { className: "impact-mixin__head", children: [
+            /* @__PURE__ */ jsx55("span", { className: "impact-mixin__domain", children: m.domainId }),
+            /* @__PURE__ */ jsx55("span", { className: "impact-mixin__id", children: m.id })
           ] }),
-          m.targetPanel && /* @__PURE__ */ jsxs50("div", { className: "impact-mixin__target", children: [
+          m.targetPanel && /* @__PURE__ */ jsxs52("div", { className: "impact-mixin__target", children: [
             "\u2192 \u043F\u0430\u043D\u0435\u043B\u044C ",
-            /* @__PURE__ */ jsx53("code", { children: m.targetPanel })
+            /* @__PURE__ */ jsx55("code", { children: m.targetPanel })
           ] }),
-          m.addedTabs.length > 0 && /* @__PURE__ */ jsxs50("div", { className: "impact-mixin__adds", children: [
+          m.addedTabs.length > 0 && /* @__PURE__ */ jsxs52("div", { className: "impact-mixin__adds", children: [
             "+ \u0432\u043A\u043B\u0430\u0434\u043A\u0438: ",
-            m.addedTabs.map((t) => /* @__PURE__ */ jsx53("code", { children: t }, t))
+            m.addedTabs.map((t) => /* @__PURE__ */ jsx55("code", { children: t }, t))
           ] }),
-          m.addedComponents.length > 0 && /* @__PURE__ */ jsxs50("div", { className: "impact-mixin__adds", children: [
+          m.addedComponents.length > 0 && /* @__PURE__ */ jsxs52("div", { className: "impact-mixin__adds", children: [
             "+ \u043A\u043E\u043C\u043F\u043E\u043D\u0435\u043D\u0442\u044B: ",
             m.addedComponents.length
           ] })
         ] }, `${m.domainId}#${m.id}`)) })
       ] }),
-      /* @__PURE__ */ jsxs50("section", { className: "impact-section", children: [
-        /* @__PURE__ */ jsxs50("h3", { className: "impact-section__title", children: [
-          /* @__PURE__ */ jsx53(MIcon, { name: "list", size: "sm" }),
+      /* @__PURE__ */ jsxs52("section", { className: "impact-section", children: [
+        /* @__PURE__ */ jsxs52("h3", { className: "impact-section__title", children: [
+          /* @__PURE__ */ jsx55(MIcon, { name: "list", size: "sm" }),
           "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u044B (",
           entity.attributes.length,
           ")"
         ] }),
-        entity.attributes.length === 0 ? /* @__PURE__ */ jsx53("div", { className: "impact-row impact-row--empty", children: "\u0421\u043E\u0431\u0441\u0442\u0432\u0435\u043D\u043D\u044B\u0445 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u043D\u0435\u0442" }) : /* @__PURE__ */ jsx53("div", { className: "impact-attrs", children: entity.attributes.map((a) => /* @__PURE__ */ jsxs50("div", { className: "impact-attr", children: [
-          /* @__PURE__ */ jsx53("code", { className: "impact-attr__id", children: a.id }),
-          /* @__PURE__ */ jsx53("span", { className: "impact-attr__name", children: a.name }),
-          /* @__PURE__ */ jsx53("span", { className: "impact-attr__type", children: a.dataType }),
-          a.referenceEntity && /* @__PURE__ */ jsxs50(
+        entity.attributes.length === 0 ? /* @__PURE__ */ jsx55("div", { className: "impact-row impact-row--empty", children: "\u0421\u043E\u0431\u0441\u0442\u0432\u0435\u043D\u043D\u044B\u0445 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u043D\u0435\u0442" }) : /* @__PURE__ */ jsx55("div", { className: "impact-attrs", children: entity.attributes.map((a) => /* @__PURE__ */ jsxs52("div", { className: "impact-attr", children: [
+          /* @__PURE__ */ jsx55("code", { className: "impact-attr__id", children: a.id }),
+          /* @__PURE__ */ jsx55("span", { className: "impact-attr__name", children: a.name }),
+          /* @__PURE__ */ jsx55("span", { className: "impact-attr__type", children: a.dataType }),
+          a.referenceEntity && /* @__PURE__ */ jsxs52(
             "button",
             {
               className: "impact-attr__ref",
@@ -12530,7 +13243,7 @@ function ImpactAnalysisPanel(props) {
               ]
             }
           ),
-          a.constraints.length > 0 && /* @__PURE__ */ jsx53("span", { className: "impact-attr__constraints", children: a.constraints.map((c) => /* @__PURE__ */ jsx53("span", { className: "impact-attr__constraint", children: c }, c)) })
+          a.constraints.length > 0 && /* @__PURE__ */ jsx55("span", { className: "impact-attr__constraints", children: a.constraints.map((c) => /* @__PURE__ */ jsx55("span", { className: "impact-attr__constraint", children: c }, c)) })
         ] }, a.id)) })
       ] })
     ] })
@@ -12547,8 +13260,8 @@ var init_ImpactAnalysisPanel = __esm({
 });
 
 // src/web/components/modals/EntitiesCatalogModal.tsx
-import React24, { useCallback as useCallback13, useEffect as useEffect26, useMemo as useMemo25, useState as useState14 } from "react";
-import { jsx as jsx54, jsxs as jsxs51 } from "react/jsx-runtime";
+import React25, { useCallback as useCallback14, useEffect as useEffect27, useMemo as useMemo26, useState as useState14 } from "react";
+import { jsx as jsx56, jsxs as jsxs53 } from "react/jsx-runtime";
 function EntitiesCatalogModal() {
   const store = useGraphStore();
   const { goto } = useNavigation();
@@ -12559,7 +13272,7 @@ function EntitiesCatalogModal() {
   const open = store.entityCatalogOpen;
   const entityFavorites = useGraphStore((s) => s.entityFavorites);
   const initialFqid = store.entityCatalogInitialFqid;
-  useEffect26(() => {
+  useEffect27(() => {
     if (!open)
       return;
     if (!initialFqid)
@@ -12571,28 +13284,28 @@ function EntitiesCatalogModal() {
     setSelectedFqid(initialFqid);
     store.setEntityCatalogInitialFqid(null);
   }, [open, initialFqid, index, store]);
-  useEffect26(() => {
+  useEffect27(() => {
     if (!selectedFqid)
       return;
     useGraphStore.getState().pushRecentEntity(selectedFqid);
   }, [selectedFqid]);
-  useEffect26(() => {
+  useEffect27(() => {
     setLimit(PAGE_SIZE);
   }, [filters]);
-  const orphanSet = useMemo25(() => {
+  const orphanSet = useMemo26(() => {
     if (!index)
       return /* @__PURE__ */ new Set();
     return new Set(index.stats.orphanEntities);
   }, [index]);
-  const filtered = useMemo25(
+  const filtered = useMemo26(
     () => index ? filterEntities(index, filters) : [],
     [index, filters]
   );
-  const visibleRows = useMemo25(
+  const visibleRows = useMemo26(
     () => filtered.slice(0, limit),
     [filtered, limit]
   );
-  const allDomains = useMemo25(() => {
+  const allDomains = useMemo26(() => {
     if (!index)
       return [];
     const map2 = /* @__PURE__ */ new Map();
@@ -12601,7 +13314,7 @@ function EntitiesCatalogModal() {
     });
     return Array.from(map2.entries()).sort((a, b) => b[1] - a[1]);
   }, [index]);
-  const allTags = useMemo25(() => {
+  const allTags = useMemo26(() => {
     if (!index)
       return [];
     const map2 = /* @__PURE__ */ new Map();
@@ -12613,16 +13326,16 @@ function EntitiesCatalogModal() {
     });
     return Array.from(map2.entries()).sort((a, b) => b[1] - a[1]);
   }, [index]);
-  const handleSelectRow = useCallback13((fqid) => {
+  const handleSelectRow = useCallback14((fqid) => {
     setSelectedFqid(fqid);
   }, []);
-  const handleToggleFav = useCallback13((fqid) => {
+  const handleToggleFav = useCallback14((fqid) => {
     useGraphStore.getState().toggleEntityFavorite(fqid);
   }, []);
-  const handleBack = useCallback13(() => {
+  const handleBack = useCallback14(() => {
     setSelectedFqid(null);
   }, []);
-  const handleGotoDomain = useCallback13(
+  const handleGotoDomain = useCallback14(
     (domainId) => {
       store.setEntityCatalogOpen(false);
       store.setDomainSchemaDomainId(domainId);
@@ -12630,10 +13343,10 @@ function EntitiesCatalogModal() {
     },
     [store]
   );
-  const handleSelectFromImpact = useCallback13((fqid) => {
+  const handleSelectFromImpact = useCallback14((fqid) => {
     setSelectedFqid(fqid);
   }, []);
-  const toggleDomainFilter = useCallback13((domainId) => {
+  const toggleDomainFilter = useCallback14((domainId) => {
     setFilters((prev) => {
       const next = new Set(prev.domains);
       const key = domainId.toLowerCase();
@@ -12644,7 +13357,7 @@ function EntitiesCatalogModal() {
       return { ...prev, domains: next };
     });
   }, []);
-  const toggleTagFilter = useCallback13((tag) => {
+  const toggleTagFilter = useCallback14((tag) => {
     setFilters((prev) => {
       const next = new Set(prev.tags);
       if (next.has(tag))
@@ -12656,27 +13369,27 @@ function EntitiesCatalogModal() {
   }, []);
   if (!open)
     return null;
-  return /* @__PURE__ */ jsx54(
+  return /* @__PURE__ */ jsx56(
     "div",
     {
       className: "help-overlay help-overlay--fullscreen",
       onMouseDown: () => store.setEntityCatalogOpen(false),
-      children: /* @__PURE__ */ jsxs51(
+      children: /* @__PURE__ */ jsxs53(
         "div",
         {
           className: "help-modal entity-hierarchy-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
-            /* @__PURE__ */ jsxs51("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsxs51("div", { className: "help-modal__title", children: [
+            /* @__PURE__ */ jsxs53("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs53("div", { className: "help-modal__title", children: [
                 "\u{1F4D6} \u041A\u0430\u0442\u0430\u043B\u043E\u0433 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439",
-                index && /* @__PURE__ */ jsxs51("span", { className: "help-modal__badge", children: [
+                index && /* @__PURE__ */ jsxs53("span", { className: "help-modal__badge", children: [
                   filtered.length,
                   " / ",
                   index.entities.length
                 ] })
               ] }),
-              /* @__PURE__ */ jsx54(
+              /* @__PURE__ */ jsx56(
                 "button",
                 {
                   className: "help-modal__close",
@@ -12685,16 +13398,16 @@ function EntitiesCatalogModal() {
                 }
               )
             ] }),
-            loading && /* @__PURE__ */ jsx54("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx54("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
-            error && /* @__PURE__ */ jsx54("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs51("div", { style: { color: "var(--danger)" }, children: [
+            loading && /* @__PURE__ */ jsx56("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx56("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
+            error && /* @__PURE__ */ jsx56("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs53("div", { style: { color: "var(--danger)" }, children: [
               "\u041E\u0448\u0438\u0431\u043A\u0430: ",
               error
             ] }) }),
-            index && /* @__PURE__ */ jsxs51("div", { className: "entity-hierarchy-body", children: [
-              /* @__PURE__ */ jsxs51("div", { className: "entity-catalog-filters", children: [
-                /* @__PURE__ */ jsxs51("div", { className: "entity-search-input-wrap", children: [
-                  /* @__PURE__ */ jsx54("span", { className: "entity-search-icon", children: "\u{1F50D}" }),
-                  /* @__PURE__ */ jsx54(
+            index && /* @__PURE__ */ jsxs53("div", { className: "entity-hierarchy-body", children: [
+              /* @__PURE__ */ jsxs53("div", { className: "entity-catalog-filters", children: [
+                /* @__PURE__ */ jsxs53("div", { className: "entity-search-input-wrap", children: [
+                  /* @__PURE__ */ jsx56("span", { className: "entity-search-icon", children: "\u{1F50D}" }),
+                  /* @__PURE__ */ jsx56(
                     "input",
                     {
                       className: "entity-search-input",
@@ -12705,47 +13418,47 @@ function EntitiesCatalogModal() {
                     }
                   )
                 ] }),
-                /* @__PURE__ */ jsxs51("div", { className: "entity-catalog-filter-body", children: [
-                  /* @__PURE__ */ jsxs51("div", { className: "entity-catalog-group", children: [
-                    /* @__PURE__ */ jsx54("div", { className: "entity-catalog-group__title", children: "\u0414\u043E\u043C\u0435\u043D\u044B" }),
-                    /* @__PURE__ */ jsx54("div", { className: "entity-catalog-chips", children: allDomains.slice(0, 30).map(([domainId, count]) => {
+                /* @__PURE__ */ jsxs53("div", { className: "entity-catalog-filter-body", children: [
+                  /* @__PURE__ */ jsxs53("div", { className: "entity-catalog-group", children: [
+                    /* @__PURE__ */ jsx56("div", { className: "entity-catalog-group__title", children: "\u0414\u043E\u043C\u0435\u043D\u044B" }),
+                    /* @__PURE__ */ jsx56("div", { className: "entity-catalog-chips", children: allDomains.slice(0, 30).map(([domainId, count]) => {
                       const active = filters.domains.has(domainId.toLowerCase());
-                      return /* @__PURE__ */ jsxs51(
+                      return /* @__PURE__ */ jsxs53(
                         "button",
                         {
                           className: "entity-catalog-chip" + (active ? " active" : ""),
                           onClick: () => toggleDomainFilter(domainId),
                           children: [
                             domainId,
-                            /* @__PURE__ */ jsx54("span", { className: "entity-catalog-chip__count", children: count })
+                            /* @__PURE__ */ jsx56("span", { className: "entity-catalog-chip__count", children: count })
                           ]
                         },
                         domainId
                       );
                     }) })
                   ] }),
-                  allTags.length > 0 && /* @__PURE__ */ jsxs51("div", { className: "entity-catalog-group", children: [
-                    /* @__PURE__ */ jsx54("div", { className: "entity-catalog-group__title", children: "\u0422\u0435\u0433\u0438" }),
-                    /* @__PURE__ */ jsx54("div", { className: "entity-catalog-chips", children: allTags.slice(0, 20).map(([tag, count]) => {
+                  allTags.length > 0 && /* @__PURE__ */ jsxs53("div", { className: "entity-catalog-group", children: [
+                    /* @__PURE__ */ jsx56("div", { className: "entity-catalog-group__title", children: "\u0422\u0435\u0433\u0438" }),
+                    /* @__PURE__ */ jsx56("div", { className: "entity-catalog-chips", children: allTags.slice(0, 20).map(([tag, count]) => {
                       const active = filters.tags.has(tag);
-                      return /* @__PURE__ */ jsxs51(
+                      return /* @__PURE__ */ jsxs53(
                         "button",
                         {
                           className: "entity-catalog-chip" + (active ? " active" : ""),
                           onClick: () => toggleTagFilter(tag),
                           children: [
                             tag,
-                            /* @__PURE__ */ jsx54("span", { className: "entity-catalog-chip__count", children: count })
+                            /* @__PURE__ */ jsx56("span", { className: "entity-catalog-chip__count", children: count })
                           ]
                         },
                         tag
                       );
                     }) })
                   ] }),
-                  /* @__PURE__ */ jsxs51("div", { className: "entity-catalog-group", children: [
-                    /* @__PURE__ */ jsx54("div", { className: "entity-catalog-group__title", children: "\u0421\u0432\u043E\u0439\u0441\u0442\u0432\u0430" }),
-                    /* @__PURE__ */ jsxs51("label", { className: "entity-catalog-toggle", children: [
-                      /* @__PURE__ */ jsx54(
+                  /* @__PURE__ */ jsxs53("div", { className: "entity-catalog-group", children: [
+                    /* @__PURE__ */ jsx56("div", { className: "entity-catalog-group__title", children: "\u0421\u0432\u043E\u0439\u0441\u0442\u0432\u0430" }),
+                    /* @__PURE__ */ jsxs53("label", { className: "entity-catalog-toggle", children: [
+                      /* @__PURE__ */ jsx56(
                         "input",
                         {
                           type: "checkbox",
@@ -12755,8 +13468,8 @@ function EntitiesCatalogModal() {
                       ),
                       "\u0422\u043E\u043B\u044C\u043A\u043E \u0441 \u0440\u043E\u0434\u0438\u0442\u0435\u043B\u0435\u043C"
                     ] }),
-                    /* @__PURE__ */ jsxs51("label", { className: "entity-catalog-toggle", children: [
-                      /* @__PURE__ */ jsx54(
+                    /* @__PURE__ */ jsxs53("label", { className: "entity-catalog-toggle", children: [
+                      /* @__PURE__ */ jsx56(
                         "input",
                         {
                           type: "checkbox",
@@ -12766,8 +13479,8 @@ function EntitiesCatalogModal() {
                       ),
                       "\u0422\u043E\u043B\u044C\u043A\u043E \u0441 \u043C\u0438\u043A\u0441\u0438\u043D\u0430\u043C\u0438"
                     ] }),
-                    /* @__PURE__ */ jsxs51("label", { className: "entity-catalog-toggle", children: [
-                      /* @__PURE__ */ jsx54(
+                    /* @__PURE__ */ jsxs53("label", { className: "entity-catalog-toggle", children: [
+                      /* @__PURE__ */ jsx56(
                         "input",
                         {
                           type: "checkbox",
@@ -12780,12 +13493,12 @@ function EntitiesCatalogModal() {
                       ")"
                     ] })
                   ] }),
-                  /* @__PURE__ */ jsxs51("div", { className: "entity-catalog-group", children: [
-                    /* @__PURE__ */ jsxs51("div", { className: "entity-catalog-group__title", children: [
+                  /* @__PURE__ */ jsxs53("div", { className: "entity-catalog-group", children: [
+                    /* @__PURE__ */ jsxs53("div", { className: "entity-catalog-group__title", children: [
                       "\u041C\u0438\u043D\u0438\u043C\u0443\u043C \u0441\u0441\u044B\u043B\u043E\u043A: ",
                       filters.minRefs
                     ] }),
-                    /* @__PURE__ */ jsx54(
+                    /* @__PURE__ */ jsx56(
                       "input",
                       {
                         type: "range",
@@ -12797,7 +13510,7 @@ function EntitiesCatalogModal() {
                       }
                     )
                   ] }),
-                  /* @__PURE__ */ jsx54(
+                  /* @__PURE__ */ jsx56(
                     "button",
                     {
                       className: "btn",
@@ -12806,29 +13519,29 @@ function EntitiesCatalogModal() {
                       children: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0444\u0438\u043B\u044C\u0442\u0440\u044B"
                     }
                   ),
-                  index.stats.circularInheritance.length > 0 && /* @__PURE__ */ jsxs51("div", { className: "entity-catalog-alert entity-catalog-alert--warn", children: [
+                  index.stats.circularInheritance.length > 0 && /* @__PURE__ */ jsxs53("div", { className: "entity-catalog-alert entity-catalog-alert--warn", children: [
                     "\u26A0\uFE0F \u041D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435 \u0432 \u0446\u0438\u043A\u043B\u0435: ",
                     index.stats.circularInheritance.length
                   ] }),
-                  index.stats.unknownReferences.length > 0 && /* @__PURE__ */ jsxs51("div", { className: "entity-catalog-alert entity-catalog-alert--err", children: [
+                  index.stats.unknownReferences.length > 0 && /* @__PURE__ */ jsxs53("div", { className: "entity-catalog-alert entity-catalog-alert--err", children: [
                     "\u274C \u0411\u0438\u0442\u044B\u0445 \u0441\u0441\u044B\u043B\u043E\u043A: ",
                     index.stats.unknownReferences.length
                   ] })
                 ] })
               ] }),
-              /* @__PURE__ */ jsx54("div", { className: "entity-catalog-panel", children: !selectedFqid ? /* @__PURE__ */ jsxs51("div", { className: "entity-catalog-table-wrap", children: [
-                /* @__PURE__ */ jsxs51("table", { className: "entity-catalog-table", children: [
-                  /* @__PURE__ */ jsx54("thead", { children: /* @__PURE__ */ jsxs51("tr", { children: [
-                    /* @__PURE__ */ jsx54("th", { style: { width: 32 } }),
-                    /* @__PURE__ */ jsx54("th", { children: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C" }),
-                    /* @__PURE__ */ jsx54("th", { children: "\u0414\u043E\u043C\u0435\u043D" }),
-                    /* @__PURE__ */ jsx54("th", { children: "\u041D\u0430\u0441\u043B\u0435\u0434\u0443\u0435\u0442" }),
-                    /* @__PURE__ */ jsx54("th", { children: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432" }),
-                    /* @__PURE__ */ jsx54("th", { children: "\u0421\u0441\u044B\u043B\u043E\u043A" }),
-                    /* @__PURE__ */ jsx54("th", { children: "\u041C\u0438\u043A\u0441\u0438\u043D\u044B" }),
-                    /* @__PURE__ */ jsx54("th", { children: "\u0422\u0435\u0433\u0438" })
+              /* @__PURE__ */ jsx56("div", { className: "entity-catalog-panel", children: !selectedFqid ? /* @__PURE__ */ jsxs53("div", { className: "entity-catalog-table-wrap", children: [
+                /* @__PURE__ */ jsxs53("table", { className: "entity-catalog-table", children: [
+                  /* @__PURE__ */ jsx56("thead", { children: /* @__PURE__ */ jsxs53("tr", { children: [
+                    /* @__PURE__ */ jsx56("th", { style: { width: 32 } }),
+                    /* @__PURE__ */ jsx56("th", { children: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C" }),
+                    /* @__PURE__ */ jsx56("th", { children: "\u0414\u043E\u043C\u0435\u043D" }),
+                    /* @__PURE__ */ jsx56("th", { children: "\u041D\u0430\u0441\u043B\u0435\u0434\u0443\u0435\u0442" }),
+                    /* @__PURE__ */ jsx56("th", { children: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432" }),
+                    /* @__PURE__ */ jsx56("th", { children: "\u0421\u0441\u044B\u043B\u043E\u043A" }),
+                    /* @__PURE__ */ jsx56("th", { children: "\u041C\u0438\u043A\u0441\u0438\u043D\u044B" }),
+                    /* @__PURE__ */ jsx56("th", { children: "\u0422\u0435\u0433\u0438" })
                   ] }) }),
-                  /* @__PURE__ */ jsx54("tbody", { children: visibleRows.map((e) => /* @__PURE__ */ jsx54(
+                  /* @__PURE__ */ jsx56("tbody", { children: visibleRows.map((e) => /* @__PURE__ */ jsx56(
                     EntityRow,
                     {
                       entity: e,
@@ -12841,13 +13554,13 @@ function EntitiesCatalogModal() {
                     e.fqid
                   )) })
                 ] }),
-                filtered.length === 0 && /* @__PURE__ */ jsx54("div", { className: "entity-catalog-empty", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" }),
-                filtered.length > visibleRows.length && /* @__PURE__ */ jsxs51("div", { className: "entity-catalog-more", children: [
+                filtered.length === 0 && /* @__PURE__ */ jsx56("div", { className: "entity-catalog-empty", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" }),
+                filtered.length > visibleRows.length && /* @__PURE__ */ jsxs53("div", { className: "entity-catalog-more", children: [
                   "\u041F\u043E\u043A\u0430\u0437\u0430\u043D\u043E ",
                   visibleRows.length,
                   " \u0438\u0437 ",
                   filtered.length,
-                  /* @__PURE__ */ jsxs51(
+                  /* @__PURE__ */ jsxs53(
                     "button",
                     {
                       className: "btn",
@@ -12864,7 +13577,7 @@ function EntitiesCatalogModal() {
                     }
                   )
                 ] })
-              ] }) : /* @__PURE__ */ jsx54(
+              ] }) : /* @__PURE__ */ jsx56(
                 ImpactAnalysisPanel,
                 {
                   fqid: selectedFqid,
@@ -12892,7 +13605,7 @@ var init_EntitiesCatalogModal = __esm({
     init_entity_filters();
     init_ImpactAnalysisPanel();
     PAGE_SIZE = 300;
-    EntityRow = React24.memo(function EntityRow2({
+    EntityRow = React25.memo(function EntityRow2({
       entity,
       index,
       isOrphan,
@@ -12901,13 +13614,13 @@ var init_EntitiesCatalogModal = __esm({
       onToggleFav
     }) {
       const refs = countRefs(entity, index);
-      return /* @__PURE__ */ jsxs51(
+      return /* @__PURE__ */ jsxs53(
         "tr",
         {
           className: "entity-catalog-row" + (isOrphan ? " orphan" : ""),
           onClick: () => onSelect(entity.fqid),
           children: [
-            /* @__PURE__ */ jsx54("td", { className: "entity-catalog-cell-fav", children: /* @__PURE__ */ jsx54(
+            /* @__PURE__ */ jsx56("td", { className: "entity-catalog-cell-fav", children: /* @__PURE__ */ jsx56(
               "button",
               {
                 className: "entity-catalog-fav" + (isFav ? " active" : ""),
@@ -12916,19 +13629,19 @@ var init_EntitiesCatalogModal = __esm({
                   onToggleFav(entity.fqid);
                 },
                 title: isFav ? "\u0423\u0431\u0440\u0430\u0442\u044C \u0438\u0437 \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u043E\u0433\u043E" : "\u0412 \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u043E\u0435",
-                children: /* @__PURE__ */ jsx54(MIcon, { name: isFav ? "star" : "star_border", size: "sm", fill: isFav })
+                children: /* @__PURE__ */ jsx56(MIcon, { name: isFav ? "star" : "star_border", size: "sm", fill: isFav })
               }
             ) }),
-            /* @__PURE__ */ jsxs51("td", { children: [
-              /* @__PURE__ */ jsx54("div", { className: "entity-catalog-cell-id", children: entity.entityId }),
-              entity.name !== entity.entityId && /* @__PURE__ */ jsx54("div", { className: "entity-catalog-cell-name", children: entity.name })
+            /* @__PURE__ */ jsxs53("td", { children: [
+              /* @__PURE__ */ jsx56("div", { className: "entity-catalog-cell-id", children: entity.entityId }),
+              entity.name !== entity.entityId && /* @__PURE__ */ jsx56("div", { className: "entity-catalog-cell-name", children: entity.name })
             ] }),
-            /* @__PURE__ */ jsx54("td", { className: "entity-catalog-cell-mono", children: entity.domainId }),
-            /* @__PURE__ */ jsx54("td", { className: "entity-catalog-cell-mono", children: entity.inherits ? entity.inherits.split("/")[1] : "\u2014" }),
-            /* @__PURE__ */ jsx54("td", { className: "entity-catalog-cell-num", children: entity.attributes.length }),
-            /* @__PURE__ */ jsx54("td", { className: "entity-catalog-cell-num", children: /* @__PURE__ */ jsx54("span", { className: refs > 0 ? "ref-badge" : "ref-badge ref-badge--zero", children: refs }) }),
-            /* @__PURE__ */ jsx54("td", { className: "entity-catalog-cell-num", children: entity.mixinSources.length > 0 ? /* @__PURE__ */ jsx54("span", { className: "mixin-badge", children: entity.mixinSources.length }) : "\u2014" }),
-            /* @__PURE__ */ jsx54("td", { children: entity.domainTags.slice(0, 2).map((t) => /* @__PURE__ */ jsx54("span", { className: "entity-catalog-tag", children: t }, t)) })
+            /* @__PURE__ */ jsx56("td", { className: "entity-catalog-cell-mono", children: entity.domainId }),
+            /* @__PURE__ */ jsx56("td", { className: "entity-catalog-cell-mono", children: entity.inherits ? entity.inherits.split("/")[1] : "\u2014" }),
+            /* @__PURE__ */ jsx56("td", { className: "entity-catalog-cell-num", children: entity.attributes.length }),
+            /* @__PURE__ */ jsx56("td", { className: "entity-catalog-cell-num", children: /* @__PURE__ */ jsx56("span", { className: refs > 0 ? "ref-badge" : "ref-badge ref-badge--zero", children: refs }) }),
+            /* @__PURE__ */ jsx56("td", { className: "entity-catalog-cell-num", children: entity.mixinSources.length > 0 ? /* @__PURE__ */ jsx56("span", { className: "mixin-badge", children: entity.mixinSources.length }) : "\u2014" }),
+            /* @__PURE__ */ jsx56("td", { children: entity.domainTags.slice(0, 2).map((t) => /* @__PURE__ */ jsx56("span", { className: "entity-catalog-tag", children: t }, t)) })
           ]
         }
       );
@@ -13030,8 +13743,8 @@ var init_attribute_search = __esm({
 });
 
 // src/web/components/modals/AttributeFinderModal.tsx
-import React25, { useCallback as useCallback14, useMemo as useMemo26, useState as useState15 } from "react";
-import { Fragment as Fragment7, jsx as jsx55, jsxs as jsxs52 } from "react/jsx-runtime";
+import React26, { useCallback as useCallback15, useMemo as useMemo27, useState as useState15 } from "react";
+import { Fragment as Fragment11, jsx as jsx57, jsxs as jsxs54 } from "react/jsx-runtime";
 function AttributeFinderModal() {
   const store = useGraphStore();
   const { goto } = useNavigation();
@@ -13044,9 +13757,9 @@ function AttributeFinderModal() {
   const [showSummary, setShowSummary] = useState15(true);
   const [expandedKey, setExpandedKey] = useState15(null);
   const open = store.attributeFinderOpen;
-  const allTypes = useMemo26(() => index ? collectDataTypes(index) : [], [index]);
-  const allConstraints = useMemo26(() => index ? collectConstraints(index) : [], [index]);
-  const allDomains = useMemo26(() => {
+  const allTypes = useMemo27(() => index ? collectDataTypes(index) : [], [index]);
+  const allConstraints = useMemo27(() => index ? collectConstraints(index) : [], [index]);
+  const allDomains = useMemo27(() => {
     if (!index)
       return [];
     const map2 = /* @__PURE__ */ new Map();
@@ -13055,13 +13768,13 @@ function AttributeFinderModal() {
     });
     return Array.from(map2.entries()).sort((a, b) => b[1] - a[1]);
   }, [index]);
-  const toggleHit = useCallback14(
+  const toggleHit = useCallback15(
     (key) => {
       setExpandedKey((prev) => prev === key ? null : key);
     },
     []
   );
-  const openEntity = useCallback14(
+  const openEntity = useCallback15(
     (entity) => {
       goto(entity.domainId);
       store.setEntityCatalogInitialFqid(entity.fqid);
@@ -13071,7 +13784,7 @@ function AttributeFinderModal() {
     [goto, store]
   );
   const [limit, setLimit] = useState15(300);
-  const result = useMemo26(() => {
+  const result = useMemo27(() => {
     if (!index)
       return { hits: [], byName: [], totalHits: 0 };
     return searchAttributes(index, query, {
@@ -13081,12 +13794,12 @@ function AttributeFinderModal() {
       limit
     });
   }, [index, query, domainFilter, typeFilter, constraintFilter, limit]);
-  const piiKeys = useMemo26(() => {
+  const piiKeys = useMemo27(() => {
     if (!index)
       return /* @__PURE__ */ new Set();
     return new Set(index.pii.hits.map((h) => h.key));
   }, [index]);
-  const filteredHits = useMemo26(() => {
+  const filteredHits = useMemo27(() => {
     let hits = result.hits;
     if (onlyPii) {
       hits = hits.filter((h) => piiKeys.has(h.key));
@@ -13095,26 +13808,26 @@ function AttributeFinderModal() {
   }, [result.hits, onlyPii, piiKeys]);
   if (!open)
     return null;
-  return /* @__PURE__ */ jsx55(
+  return /* @__PURE__ */ jsx57(
     "div",
     {
       className: "help-overlay help-overlay--fullscreen",
       onMouseDown: () => store.setAttributeFinderOpen(false),
-      children: /* @__PURE__ */ jsxs52(
+      children: /* @__PURE__ */ jsxs54(
         "div",
         {
           className: "help-modal entity-hierarchy-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
-            /* @__PURE__ */ jsxs52("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsxs52("div", { className: "help-modal__title", children: [
+            /* @__PURE__ */ jsxs54("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs54("div", { className: "help-modal__title", children: [
                 "\u{1F50E} \u041F\u043E\u0438\u0441\u043A \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432",
-                index && /* @__PURE__ */ jsxs52("span", { className: "help-modal__badge", children: [
+                index && /* @__PURE__ */ jsxs54("span", { className: "help-modal__badge", children: [
                   result.totalHits,
                   " \u0441\u043E\u0432\u043F\u0430\u0434\u0435\u043D\u0438\u0439"
                 ] })
               ] }),
-              /* @__PURE__ */ jsx55(
+              /* @__PURE__ */ jsx57(
                 "button",
                 {
                   className: "help-modal__close",
@@ -13123,16 +13836,16 @@ function AttributeFinderModal() {
                 }
               )
             ] }),
-            loading && /* @__PURE__ */ jsx55("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx55("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
-            error && /* @__PURE__ */ jsx55("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs52("div", { style: { color: "var(--danger)" }, children: [
+            loading && /* @__PURE__ */ jsx57("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx57("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
+            error && /* @__PURE__ */ jsx57("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs54("div", { style: { color: "var(--danger)" }, children: [
               "\u041E\u0448\u0438\u0431\u043A\u0430: ",
               error
             ] }) }),
-            index && /* @__PURE__ */ jsxs52("div", { className: "entity-hierarchy-body", children: [
-              /* @__PURE__ */ jsxs52("div", { className: "attribute-filters", children: [
-                /* @__PURE__ */ jsxs52("div", { className: "entity-search-input-wrap", children: [
-                  /* @__PURE__ */ jsx55("span", { className: "entity-search-icon", children: "\u{1F50D}" }),
-                  /* @__PURE__ */ jsx55(
+            index && /* @__PURE__ */ jsxs54("div", { className: "entity-hierarchy-body", children: [
+              /* @__PURE__ */ jsxs54("div", { className: "attribute-filters", children: [
+                /* @__PURE__ */ jsxs54("div", { className: "entity-search-input-wrap", children: [
+                  /* @__PURE__ */ jsx57("span", { className: "entity-search-icon", children: "\u{1F50D}" }),
+                  /* @__PURE__ */ jsx57(
                     "input",
                     {
                       className: "entity-search-input",
@@ -13143,7 +13856,7 @@ function AttributeFinderModal() {
                       autoFocus: true
                     }
                   ),
-                  query && /* @__PURE__ */ jsx55(
+                  query && /* @__PURE__ */ jsx57(
                     "button",
                     {
                       className: "entity-search-clear",
@@ -13153,15 +13866,15 @@ function AttributeFinderModal() {
                     }
                   )
                 ] }),
-                /* @__PURE__ */ jsxs52("div", { className: "entity-catalog-filter-body", children: [
-                  /* @__PURE__ */ jsxs52("div", { className: "entity-catalog-group", children: [
-                    /* @__PURE__ */ jsxs52("div", { className: "entity-catalog-group__title", children: [
+                /* @__PURE__ */ jsxs54("div", { className: "entity-catalog-filter-body", children: [
+                  /* @__PURE__ */ jsxs54("div", { className: "entity-catalog-group", children: [
+                    /* @__PURE__ */ jsxs54("div", { className: "entity-catalog-group__title", children: [
                       "\u0422\u0438\u043F \u0434\u0430\u043D\u043D\u044B\u0445 ",
                       typeFilter.size > 0 && `(${typeFilter.size})`
                     ] }),
-                    /* @__PURE__ */ jsx55("div", { className: "entity-catalog-chips", children: allTypes.slice(0, 24).map(({ type: type2, count }) => {
+                    /* @__PURE__ */ jsx57("div", { className: "entity-catalog-chips", children: allTypes.slice(0, 24).map(({ type: type2, count }) => {
                       const active = typeFilter.has(type2);
-                      return /* @__PURE__ */ jsxs52(
+                      return /* @__PURE__ */ jsxs54(
                         "button",
                         {
                           className: "entity-catalog-chip" + (active ? " active" : ""),
@@ -13175,16 +13888,16 @@ function AttributeFinderModal() {
                           },
                           children: [
                             type2,
-                            /* @__PURE__ */ jsx55("span", { className: "entity-catalog-chip__count", children: count })
+                            /* @__PURE__ */ jsx57("span", { className: "entity-catalog-chip__count", children: count })
                           ]
                         },
                         type2
                       );
                     }) })
                   ] }),
-                  /* @__PURE__ */ jsxs52("div", { className: "entity-catalog-group", children: [
-                    /* @__PURE__ */ jsx55("div", { className: "entity-catalog-group__title", children: "\u041E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F" }),
-                    /* @__PURE__ */ jsxs52(
+                  /* @__PURE__ */ jsxs54("div", { className: "entity-catalog-group", children: [
+                    /* @__PURE__ */ jsx57("div", { className: "entity-catalog-group__title", children: "\u041E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F" }),
+                    /* @__PURE__ */ jsxs54(
                       "select",
                       {
                         className: "menu__input",
@@ -13192,8 +13905,8 @@ function AttributeFinderModal() {
                         value: constraintFilter,
                         onChange: (e) => setConstraintFilter(e.target.value),
                         children: [
-                          /* @__PURE__ */ jsx55("option", { value: "", children: "\u2014 \u0432\u0441\u0435 \u2014" }),
-                          allConstraints.map(({ kind, count }) => /* @__PURE__ */ jsxs52("option", { value: kind, children: [
+                          /* @__PURE__ */ jsx57("option", { value: "", children: "\u2014 \u0432\u0441\u0435 \u2014" }),
+                          allConstraints.map(({ kind, count }) => /* @__PURE__ */ jsxs54("option", { value: kind, children: [
                             kind,
                             " (",
                             count,
@@ -13203,14 +13916,14 @@ function AttributeFinderModal() {
                       }
                     )
                   ] }),
-                  /* @__PURE__ */ jsxs52("div", { className: "entity-catalog-group", children: [
-                    /* @__PURE__ */ jsxs52("div", { className: "entity-catalog-group__title", children: [
+                  /* @__PURE__ */ jsxs54("div", { className: "entity-catalog-group", children: [
+                    /* @__PURE__ */ jsxs54("div", { className: "entity-catalog-group__title", children: [
                       "\u0414\u043E\u043C\u0435\u043D\u044B ",
                       domainFilter.size > 0 && `(${domainFilter.size})`
                     ] }),
-                    /* @__PURE__ */ jsx55("div", { className: "entity-catalog-chips", children: allDomains.slice(0, 30).map(([domainId, count]) => {
+                    /* @__PURE__ */ jsx57("div", { className: "entity-catalog-chips", children: allDomains.slice(0, 30).map(([domainId, count]) => {
                       const active = domainFilter.has(domainId.toLowerCase());
-                      return /* @__PURE__ */ jsxs52(
+                      return /* @__PURE__ */ jsxs54(
                         "button",
                         {
                           className: "entity-catalog-chip" + (active ? " active" : ""),
@@ -13224,14 +13937,14 @@ function AttributeFinderModal() {
                           },
                           children: [
                             domainId,
-                            /* @__PURE__ */ jsx55("span", { className: "entity-catalog-chip__count", children: count })
+                            /* @__PURE__ */ jsx57("span", { className: "entity-catalog-chip__count", children: count })
                           ]
                         },
                         domainId
                       );
                     }) })
                   ] }),
-                  /* @__PURE__ */ jsx55(
+                  /* @__PURE__ */ jsx57(
                     "button",
                     {
                       className: "btn",
@@ -13247,9 +13960,9 @@ function AttributeFinderModal() {
                   )
                 ] })
               ] }),
-              /* @__PURE__ */ jsxs52("div", { className: "attribute-panel", children: [
-                query.trim() === "" && result.totalHits > 0 && /* @__PURE__ */ jsxs52("div", { className: "attribute-tabs", children: [
-                  /* @__PURE__ */ jsxs52(
+              /* @__PURE__ */ jsxs54("div", { className: "attribute-panel", children: [
+                query.trim() === "" && result.totalHits > 0 && /* @__PURE__ */ jsxs54("div", { className: "attribute-tabs", children: [
+                  /* @__PURE__ */ jsxs54(
                     "button",
                     {
                       className: "attribute-tab" + (showSummary ? " active" : ""),
@@ -13261,7 +13974,7 @@ function AttributeFinderModal() {
                       ]
                     }
                   ),
-                  /* @__PURE__ */ jsxs52(
+                  /* @__PURE__ */ jsxs54(
                     "button",
                     {
                       className: "attribute-tab" + (!showSummary ? " active" : ""),
@@ -13273,8 +13986,8 @@ function AttributeFinderModal() {
                       ]
                     }
                   ),
-                  /* @__PURE__ */ jsxs52("label", { className: "entity-graph-toggle", children: [
-                    /* @__PURE__ */ jsx55(
+                  /* @__PURE__ */ jsxs54("label", { className: "entity-graph-toggle", children: [
+                    /* @__PURE__ */ jsx57(
                       "input",
                       {
                         type: "checkbox",
@@ -13282,11 +13995,11 @@ function AttributeFinderModal() {
                         onChange: () => setOnlyPii(!onlyPii)
                       }
                     ),
-                    /* @__PURE__ */ jsx55(MIcon, { name: "shield_lock", size: "sm" }),
+                    /* @__PURE__ */ jsx57(MIcon, { name: "shield_lock", size: "sm" }),
                     "\u0422\u043E\u043B\u044C\u043A\u043E PII"
                   ] })
                 ] }),
-                query.trim() === "" && showSummary && result.byName.length > 0 && /* @__PURE__ */ jsx55("div", { className: "attribute-summary", children: result.byName.map(({ name, count, domains }) => /* @__PURE__ */ jsxs52(
+                query.trim() === "" && showSummary && result.byName.length > 0 && /* @__PURE__ */ jsx57("div", { className: "attribute-summary", children: result.byName.map(({ name, count, domains }) => /* @__PURE__ */ jsxs54(
                   "button",
                   {
                     className: "attribute-summary-item",
@@ -13295,11 +14008,11 @@ function AttributeFinderModal() {
                       setShowSummary(false);
                     },
                     children: [
-                      /* @__PURE__ */ jsx55("span", { className: "attribute-summary-item__name", children: name }),
-                      /* @__PURE__ */ jsx55("span", { className: "attribute-summary-item__count", children: count }),
-                      /* @__PURE__ */ jsxs52("span", { className: "attribute-summary-item__domains", children: [
-                        domains.slice(0, 3).map((d) => /* @__PURE__ */ jsx55("code", { children: d }, d)),
-                        domains.length > 3 && /* @__PURE__ */ jsxs52("span", { children: [
+                      /* @__PURE__ */ jsx57("span", { className: "attribute-summary-item__name", children: name }),
+                      /* @__PURE__ */ jsx57("span", { className: "attribute-summary-item__count", children: count }),
+                      /* @__PURE__ */ jsxs54("span", { className: "attribute-summary-item__domains", children: [
+                        domains.slice(0, 3).map((d) => /* @__PURE__ */ jsx57("code", { children: d }, d)),
+                        domains.length > 3 && /* @__PURE__ */ jsxs54("span", { children: [
                           "+",
                           domains.length - 3
                         ] })
@@ -13308,8 +14021,8 @@ function AttributeFinderModal() {
                   },
                   name
                 )) }),
-                (query.trim() !== "" || !showSummary) && /* @__PURE__ */ jsxs52("div", { className: "attribute-hits", children: [
-                  filteredHits.length === 0 ? /* @__PURE__ */ jsx55("div", { className: "entity-catalog-empty", children: query.trim() ? "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443" : "\u041D\u0435\u0442 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432" }) : filteredHits.map((hit) => /* @__PURE__ */ jsx55(
+                (query.trim() !== "" || !showSummary) && /* @__PURE__ */ jsxs54("div", { className: "attribute-hits", children: [
+                  filteredHits.length === 0 ? /* @__PURE__ */ jsx57("div", { className: "entity-catalog-empty", children: query.trim() ? "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443" : "\u041D\u0435\u0442 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432" }) : filteredHits.map((hit) => /* @__PURE__ */ jsx57(
                     AttributeHitRow,
                     {
                       hit,
@@ -13321,7 +14034,7 @@ function AttributeFinderModal() {
                     },
                     hit.key
                   )),
-                  result.totalHits > filteredHits.length && /* @__PURE__ */ jsx55("div", { style: { padding: 16, textAlign: "center" }, children: /* @__PURE__ */ jsxs52("button", { className: "btn", onClick: () => setLimit((n) => n + 300), children: [
+                  result.totalHits > filteredHits.length && /* @__PURE__ */ jsx57("div", { style: { padding: 16, textAlign: "center" }, children: /* @__PURE__ */ jsxs54("button", { className: "btn", onClick: () => setLimit((n) => n + 300), children: [
                     "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0435\u0449\u0451 300 (\u043E\u0441\u0442\u0430\u043B\u043E\u0441\u044C ",
                     result.totalHits - filteredHits.length,
                     ")"
@@ -13344,7 +14057,7 @@ var init_AttributeFinderModal = __esm({
     init_useModelIndex();
     init_MIcon();
     init_attribute_search();
-    AttributeHitRow = React25.memo(function AttributeHitRow2({ hit, query, expanded, isPii, onToggle, onOpenEntity }) {
+    AttributeHitRow = React26.memo(function AttributeHitRow2({ hit, query, expanded, isPii, onToggle, onOpenEntity }) {
       const { attribute, entity, matchedBy } = hit;
       const highlight = (text) => {
         if (!query)
@@ -13353,14 +14066,14 @@ var init_AttributeFinderModal = __esm({
         const idx = text.toLowerCase().indexOf(q);
         if (idx === -1)
           return text;
-        return /* @__PURE__ */ jsxs52(Fragment7, { children: [
+        return /* @__PURE__ */ jsxs54(Fragment11, { children: [
           text.slice(0, idx),
-          /* @__PURE__ */ jsx55("mark", { className: "search-hl", children: text.slice(idx, idx + q.length) }),
+          /* @__PURE__ */ jsx57("mark", { className: "search-hl", children: text.slice(idx, idx + q.length) }),
           text.slice(idx + q.length)
         ] });
       };
-      return /* @__PURE__ */ jsxs52("div", { className: "attribute-hit" + (expanded ? " attribute-hit--expanded" : ""), children: [
-        /* @__PURE__ */ jsxs52(
+      return /* @__PURE__ */ jsxs54("div", { className: "attribute-hit" + (expanded ? " attribute-hit--expanded" : ""), children: [
+        /* @__PURE__ */ jsxs54(
           "div",
           {
             className: "attribute-hit__head",
@@ -13374,16 +14087,16 @@ var init_AttributeFinderModal = __esm({
               }
             },
             children: [
-              /* @__PURE__ */ jsx55("code", { className: "attribute-hit__id", children: highlight(attribute.id) }),
-              /* @__PURE__ */ jsx55("span", { className: "attribute-hit__name", children: highlight(attribute.name) }),
-              matchedBy === "description" && /* @__PURE__ */ jsx55("span", { className: "attribute-hit__match-badge", children: "\u043F\u043E \u043E\u043F\u0438\u0441\u0430\u043D\u0438\u044E" }),
-              /* @__PURE__ */ jsx55("span", { className: "attribute-hit__toggle-hint", children: expanded ? "\u0441\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u25B4" : "\u0434\u0435\u0442\u0430\u043B\u0438 \u25BE" })
+              /* @__PURE__ */ jsx57("code", { className: "attribute-hit__id", children: highlight(attribute.id) }),
+              /* @__PURE__ */ jsx57("span", { className: "attribute-hit__name", children: highlight(attribute.name) }),
+              matchedBy === "description" && /* @__PURE__ */ jsx57("span", { className: "attribute-hit__match-badge", children: "\u043F\u043E \u043E\u043F\u0438\u0441\u0430\u043D\u0438\u044E" }),
+              /* @__PURE__ */ jsx57("span", { className: "attribute-hit__toggle-hint", children: expanded ? "\u0441\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u25B4" : "\u0434\u0435\u0442\u0430\u043B\u0438 \u25BE" })
             ]
           }
         ),
-        /* @__PURE__ */ jsxs52("div", { className: "attribute-hit__meta", children: [
-          isPii && /* @__PURE__ */ jsx55("span", { className: "pii-badge", title: "PII", children: /* @__PURE__ */ jsx55(MIcon, { name: "lock", size: "sm" }) }),
-          /* @__PURE__ */ jsxs52(
+        /* @__PURE__ */ jsxs54("div", { className: "attribute-hit__meta", children: [
+          isPii && /* @__PURE__ */ jsx57("span", { className: "pii-badge", title: "PII", children: /* @__PURE__ */ jsx57(MIcon, { name: "lock", size: "sm" }) }),
+          /* @__PURE__ */ jsxs54(
             "button",
             {
               className: "attribute-hit__entity",
@@ -13393,64 +14106,64 @@ var init_AttributeFinderModal = __esm({
               },
               title: `\u041E\u0442\u043A\u0440\u044B\u0442\u044C ${entity.fqid} \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435`,
               children: [
-                /* @__PURE__ */ jsx55(MIcon, { name: "hub", size: "sm" }),
-                /* @__PURE__ */ jsx55("span", { children: entity.entityId }),
-                /* @__PURE__ */ jsx55("span", { className: "attribute-hit__domain", children: entity.domainId })
+                /* @__PURE__ */ jsx57(MIcon, { name: "hub", size: "sm" }),
+                /* @__PURE__ */ jsx57("span", { children: entity.entityId }),
+                /* @__PURE__ */ jsx57("span", { className: "attribute-hit__domain", children: entity.domainId })
               ]
             }
           ),
-          /* @__PURE__ */ jsx55("span", { className: "attribute-hit__type", children: attribute.dataType }),
-          attribute.referenceEntity && /* @__PURE__ */ jsxs52("span", { className: "attribute-hit__ref", children: [
+          /* @__PURE__ */ jsx57("span", { className: "attribute-hit__type", children: attribute.dataType }),
+          attribute.referenceEntity && /* @__PURE__ */ jsxs54("span", { className: "attribute-hit__ref", children: [
             "\u2192 ",
             attribute.referenceEntity.split("/")[1]
           ] }),
-          attribute.constraints.length > 0 && /* @__PURE__ */ jsx55("span", { className: "attribute-hit__constraints", children: attribute.constraints.map((c) => /* @__PURE__ */ jsx55("span", { className: "impact-attr__constraint", children: c }, c)) })
+          attribute.constraints.length > 0 && /* @__PURE__ */ jsx57("span", { className: "attribute-hit__constraints", children: attribute.constraints.map((c) => /* @__PURE__ */ jsx57("span", { className: "impact-attr__constraint", children: c }, c)) })
         ] }),
-        expanded && /* @__PURE__ */ jsxs52("div", { className: "attribute-hit__details", children: [
-          attribute.description ? /* @__PURE__ */ jsxs52("div", { className: "attribute-hit__detail-row", children: [
-            /* @__PURE__ */ jsx55("span", { className: "attribute-hit__detail-label", children: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" }),
-            /* @__PURE__ */ jsx55("span", { className: "attribute-hit__detail-value", children: highlight(attribute.description) })
-          ] }) : /* @__PURE__ */ jsxs52("div", { className: "attribute-hit__detail-row", children: [
-            /* @__PURE__ */ jsx55("span", { className: "attribute-hit__detail-label", children: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" }),
-            /* @__PURE__ */ jsx55("span", { className: "attribute-hit__detail-value attribute-hit__detail-value--muted", children: "\u043D\u0435\u0442" })
+        expanded && /* @__PURE__ */ jsxs54("div", { className: "attribute-hit__details", children: [
+          attribute.description ? /* @__PURE__ */ jsxs54("div", { className: "attribute-hit__detail-row", children: [
+            /* @__PURE__ */ jsx57("span", { className: "attribute-hit__detail-label", children: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" }),
+            /* @__PURE__ */ jsx57("span", { className: "attribute-hit__detail-value", children: highlight(attribute.description) })
+          ] }) : /* @__PURE__ */ jsxs54("div", { className: "attribute-hit__detail-row", children: [
+            /* @__PURE__ */ jsx57("span", { className: "attribute-hit__detail-label", children: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" }),
+            /* @__PURE__ */ jsx57("span", { className: "attribute-hit__detail-value attribute-hit__detail-value--muted", children: "\u043D\u0435\u0442" })
           ] }),
-          /* @__PURE__ */ jsxs52("div", { className: "attribute-hit__detail-row", children: [
-            /* @__PURE__ */ jsx55("span", { className: "attribute-hit__detail-label", children: "\u041F\u043E\u043B\u043D\u044B\u0439 ID" }),
-            /* @__PURE__ */ jsx55("code", { className: "attribute-hit__detail-value", children: hit.key })
+          /* @__PURE__ */ jsxs54("div", { className: "attribute-hit__detail-row", children: [
+            /* @__PURE__ */ jsx57("span", { className: "attribute-hit__detail-label", children: "\u041F\u043E\u043B\u043D\u044B\u0439 ID" }),
+            /* @__PURE__ */ jsx57("code", { className: "attribute-hit__detail-value", children: hit.key })
           ] }),
-          attribute.itemDataType && /* @__PURE__ */ jsxs52("div", { className: "attribute-hit__detail-row", children: [
-            /* @__PURE__ */ jsx55("span", { className: "attribute-hit__detail-label", children: "\u042D\u043B\u0435\u043C\u0435\u043D\u0442 \u043C\u0430\u0441\u0441\u0438\u0432\u0430" }),
-            /* @__PURE__ */ jsx55("code", { className: "attribute-hit__detail-value", children: attribute.itemDataType })
+          attribute.itemDataType && /* @__PURE__ */ jsxs54("div", { className: "attribute-hit__detail-row", children: [
+            /* @__PURE__ */ jsx57("span", { className: "attribute-hit__detail-label", children: "\u042D\u043B\u0435\u043C\u0435\u043D\u0442 \u043C\u0430\u0441\u0441\u0438\u0432\u0430" }),
+            /* @__PURE__ */ jsx57("code", { className: "attribute-hit__detail-value", children: attribute.itemDataType })
           ] }),
-          attribute.itemReferenceEntity && /* @__PURE__ */ jsxs52("div", { className: "attribute-hit__detail-row", children: [
-            /* @__PURE__ */ jsx55("span", { className: "attribute-hit__detail-label", children: "\u0421\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F \u043D\u0430" }),
-            /* @__PURE__ */ jsx55("code", { className: "attribute-hit__detail-value", children: attribute.itemReferenceEntity })
+          attribute.itemReferenceEntity && /* @__PURE__ */ jsxs54("div", { className: "attribute-hit__detail-row", children: [
+            /* @__PURE__ */ jsx57("span", { className: "attribute-hit__detail-label", children: "\u0421\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F \u043D\u0430" }),
+            /* @__PURE__ */ jsx57("code", { className: "attribute-hit__detail-value", children: attribute.itemReferenceEntity })
           ] }),
-          attribute.nestedAttributes && attribute.nestedAttributes.length > 0 && /* @__PURE__ */ jsxs52("div", { className: "attribute-hit__detail-row", children: [
-            /* @__PURE__ */ jsxs52("span", { className: "attribute-hit__detail-label", children: [
+          attribute.nestedAttributes && attribute.nestedAttributes.length > 0 && /* @__PURE__ */ jsxs54("div", { className: "attribute-hit__detail-row", children: [
+            /* @__PURE__ */ jsxs54("span", { className: "attribute-hit__detail-label", children: [
               "\u0412\u043B\u043E\u0436\u0435\u043D\u043D\u044B\u0435 (",
               attribute.nestedAttributes.length,
               ")"
             ] }),
-            /* @__PURE__ */ jsx55("span", { className: "attribute-hit__detail-value", children: attribute.nestedAttributes.map((n, i) => /* @__PURE__ */ jsxs52("span", { children: [
+            /* @__PURE__ */ jsx57("span", { className: "attribute-hit__detail-value", children: attribute.nestedAttributes.map((n, i) => /* @__PURE__ */ jsxs54("span", { children: [
               i > 0 && ", ",
-              /* @__PURE__ */ jsx55("code", { children: n.id }),
-              /* @__PURE__ */ jsxs52("span", { style: { color: "var(--text-500)" }, children: [
+              /* @__PURE__ */ jsx57("code", { children: n.id }),
+              /* @__PURE__ */ jsxs54("span", { style: { color: "var(--text-500)" }, children: [
                 ": ",
                 n.dataType
               ] })
             ] }, n.id)) })
           ] }),
-          attribute.usedInViews > 0 && /* @__PURE__ */ jsxs52("div", { className: "attribute-hit__detail-row", children: [
-            /* @__PURE__ */ jsx55("span", { className: "attribute-hit__detail-label", children: "\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F" }),
-            /* @__PURE__ */ jsxs52("span", { className: "attribute-hit__detail-value", children: [
+          attribute.usedInViews > 0 && /* @__PURE__ */ jsxs54("div", { className: "attribute-hit__detail-row", children: [
+            /* @__PURE__ */ jsx57("span", { className: "attribute-hit__detail-label", children: "\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F" }),
+            /* @__PURE__ */ jsxs54("span", { className: "attribute-hit__detail-value", children: [
               "\u0432 ",
               attribute.usedInViews,
               " \u0432\u0438\u0434\u0436\u0435\u0442",
               attribute.usedInViews === 1 ? "\u0435" : "\u0430\u0445"
             ] })
           ] }),
-          /* @__PURE__ */ jsx55("div", { className: "attribute-hit__actions", children: /* @__PURE__ */ jsx55("button", { className: "btn btn--primary", onClick: () => onOpenEntity(entity), children: "\u{1F3AF} \u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435" }) })
+          /* @__PURE__ */ jsx57("div", { className: "attribute-hit__actions", children: /* @__PURE__ */ jsx57("button", { className: "btn btn--primary", onClick: () => onOpenEntity(entity), children: "\u{1F3AF} \u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435" }) })
         ] })
       ] });
     });
@@ -13589,9 +14302,9 @@ var init_entity_matrix = __esm({
 });
 
 // src/web/components/common/ModalHelp.tsx
-import { jsx as jsx56, jsxs as jsxs53 } from "react/jsx-runtime";
+import { jsx as jsx58, jsxs as jsxs55 } from "react/jsx-runtime";
 function HelpButton({ open, onToggle, label = "\u0427\u0442\u043E \u044D\u0442\u043E?" }) {
-  return /* @__PURE__ */ jsxs53(
+  return /* @__PURE__ */ jsxs55(
     "button",
     {
       type: "button",
@@ -13599,8 +14312,8 @@ function HelpButton({ open, onToggle, label = "\u0427\u0442\u043E \u044D\u0442\u
       onClick: onToggle,
       title: open ? "\u0421\u043A\u0440\u044B\u0442\u044C \u0441\u043F\u0440\u0430\u0432\u043A\u0443" : label,
       children: [
-        /* @__PURE__ */ jsx56(MIcon, { name: "help" }),
-        /* @__PURE__ */ jsx56("span", { children: open ? "\u0421\u043A\u0440\u044B\u0442\u044C" : label })
+        /* @__PURE__ */ jsx58(MIcon, { name: "help" }),
+        /* @__PURE__ */ jsx58("span", { children: open ? "\u0421\u043A\u0440\u044B\u0442\u044C" : label })
       ]
     }
   );
@@ -13608,19 +14321,19 @@ function HelpButton({ open, onToggle, label = "\u0427\u0442\u043E \u044D\u0442\u
 function ModalHelp({ visible, children }) {
   if (!visible)
     return null;
-  return /* @__PURE__ */ jsx56("div", { className: "modal-help", children });
+  return /* @__PURE__ */ jsx58("div", { className: "modal-help", children });
 }
 function HelpSection({ title, children }) {
-  return /* @__PURE__ */ jsxs53("div", { className: "modal-help__section", children: [
-    /* @__PURE__ */ jsx56("h3", { className: "modal-help__title", children: title }),
+  return /* @__PURE__ */ jsxs55("div", { className: "modal-help__section", children: [
+    /* @__PURE__ */ jsx58("h3", { className: "modal-help__title", children: title }),
     children
   ] });
 }
 function HelpText({ children }) {
-  return /* @__PURE__ */ jsx56("p", { className: "modal-help__text", children });
+  return /* @__PURE__ */ jsx58("p", { className: "modal-help__text", children });
 }
 function HelpList({ children }) {
-  return /* @__PURE__ */ jsx56("ul", { className: "modal-help__list", children });
+  return /* @__PURE__ */ jsx58("ul", { className: "modal-help__list", children });
 }
 function HelpCard({
   letter,
@@ -13629,26 +14342,26 @@ function HelpCard({
   wide,
   children
 }) {
-  return /* @__PURE__ */ jsxs53("div", { className: "modal-help__card" + (wide ? " modal-help__card--wide" : ""), children: [
-    /* @__PURE__ */ jsxs53("div", { className: "modal-help__card-head", children: [
-      letter && /* @__PURE__ */ jsx56("span", { className: "modal-help__letter", children: letter }),
-      /* @__PURE__ */ jsx56("span", { className: "modal-help__name", children: title })
+  return /* @__PURE__ */ jsxs55("div", { className: "modal-help__card" + (wide ? " modal-help__card--wide" : ""), children: [
+    /* @__PURE__ */ jsxs55("div", { className: "modal-help__card-head", children: [
+      letter && /* @__PURE__ */ jsx58("span", { className: "modal-help__letter", children: letter }),
+      /* @__PURE__ */ jsx58("span", { className: "modal-help__name", children: title })
     ] }),
-    formula && /* @__PURE__ */ jsx56("div", { className: "modal-help__formula", children: formula }),
-    /* @__PURE__ */ jsx56("div", { className: "modal-help__desc", children })
+    formula && /* @__PURE__ */ jsx58("div", { className: "modal-help__formula", children: formula }),
+    /* @__PURE__ */ jsx58("div", { className: "modal-help__desc", children })
   ] });
 }
 function HelpZones({ children }) {
-  return /* @__PURE__ */ jsx56("div", { className: "modal-help__zones", children });
+  return /* @__PURE__ */ jsx58("div", { className: "modal-help__zones", children });
 }
 function HelpZone({
   color,
   title,
   children
 }) {
-  return /* @__PURE__ */ jsxs53("div", { className: "modal-help__zone modal-help__zone--" + color, children: [
-    /* @__PURE__ */ jsx56("div", { className: "modal-help__zone-title", children: title }),
-    /* @__PURE__ */ jsx56("div", { className: "modal-help__zone-desc", children })
+  return /* @__PURE__ */ jsxs55("div", { className: "modal-help__zone modal-help__zone--" + color, children: [
+    /* @__PURE__ */ jsx58("div", { className: "modal-help__zone-title", children: title }),
+    /* @__PURE__ */ jsx58("div", { className: "modal-help__zone-desc", children })
   ] });
 }
 var init_ModalHelp = __esm({
@@ -13674,8 +14387,8 @@ var init_common = __esm({
 });
 
 // src/web/components/modals/EntityMatrixModal.tsx
-import { useMemo as useMemo27, useState as useState16 } from "react";
-import { jsx as jsx57, jsxs as jsxs54 } from "react/jsx-runtime";
+import { useMemo as useMemo28, useState as useState16 } from "react";
+import { jsx as jsx59, jsxs as jsxs56 } from "react/jsx-runtime";
 function EntityMatrixModal() {
   const store = useGraphStore();
   const { index, loading, error } = useModelIndex();
@@ -13684,7 +14397,7 @@ function EntityMatrixModal() {
   const [hoveredRow, setHoveredRow] = useState16(null);
   const [hoveredCol, setHoveredCol] = useState16(null);
   const open = store.entityMatrixOpen;
-  const allDomains = useMemo27(() => {
+  const allDomains = useMemo28(() => {
     if (!index)
       return [];
     const map2 = /* @__PURE__ */ new Map();
@@ -13693,7 +14406,7 @@ function EntityMatrixModal() {
     });
     return Array.from(map2.entries()).sort((a, b) => b[1] - a[1]);
   }, [index]);
-  const matrix = useMemo27(() => {
+  const matrix = useMemo28(() => {
     if (!index)
       return null;
     const domains = domainFilter ? /* @__PURE__ */ new Set([domainFilter.toLowerCase()]) : void 0;
@@ -13701,30 +14414,30 @@ function EntityMatrixModal() {
   }, [index, domainFilter]);
   if (!open)
     return null;
-  return /* @__PURE__ */ jsx57(
+  return /* @__PURE__ */ jsx59(
     "div",
     {
       className: "help-overlay help-overlay--fullscreen",
       onMouseDown: () => store.setEntityMatrixOpen(false),
-      children: /* @__PURE__ */ jsxs54(
+      children: /* @__PURE__ */ jsxs56(
         "div",
         {
           className: "help-modal entity-matrix-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
-            /* @__PURE__ */ jsxs54("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsxs54("div", { className: "help-modal__title", children: [
-                /* @__PURE__ */ jsx57(MIcon, { name: "calculate", size: "sm" }),
-                /* @__PURE__ */ jsx57("span", { className: "icon-label", children: "\u041C\u0430\u0442\u0440\u0438\u0446\u0430 \u0441\u0432\u044F\u0437\u0435\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" }),
-                matrix && /* @__PURE__ */ jsxs54("span", { className: "help-modal__badge", children: [
+            /* @__PURE__ */ jsxs56("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs56("div", { className: "help-modal__title", children: [
+                /* @__PURE__ */ jsx59(MIcon, { name: "calculate", size: "sm" }),
+                /* @__PURE__ */ jsx59("span", { className: "icon-label", children: "\u041C\u0430\u0442\u0440\u0438\u0446\u0430 \u0441\u0432\u044F\u0437\u0435\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" }),
+                matrix && /* @__PURE__ */ jsxs56("span", { className: "help-modal__badge", children: [
                   matrix.stats.totalEntities,
                   " \xD7 ",
                   matrix.stats.totalEntities
                 ] })
               ] }),
-              /* @__PURE__ */ jsxs54("div", { className: "help-modal__actions", children: [
-                /* @__PURE__ */ jsx57(HelpButton, { open: showHelp, onToggle: () => setShowHelp(!showHelp), label: "\u041A\u0430\u043A \u0447\u0438\u0442\u0430\u0442\u044C?" }),
-                /* @__PURE__ */ jsx57(
+              /* @__PURE__ */ jsxs56("div", { className: "help-modal__actions", children: [
+                /* @__PURE__ */ jsx59(HelpButton, { open: showHelp, onToggle: () => setShowHelp(!showHelp), label: "\u041A\u0430\u043A \u0447\u0438\u0442\u0430\u0442\u044C?" }),
+                /* @__PURE__ */ jsx59(
                   "button",
                   {
                     className: "help-modal__close",
@@ -13734,44 +14447,44 @@ function EntityMatrixModal() {
                 )
               ] })
             ] }),
-            loading && /* @__PURE__ */ jsx57("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx57("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
-            error && /* @__PURE__ */ jsx57("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs54("div", { style: { color: "var(--danger)" }, children: [
+            loading && /* @__PURE__ */ jsx59("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx59("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
+            error && /* @__PURE__ */ jsx59("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs56("div", { style: { color: "var(--danger)" }, children: [
               "\u041E\u0448\u0438\u0431\u043A\u0430: ",
               error
             ] }) }),
-            index && matrix && /* @__PURE__ */ jsxs54("div", { className: "entity-matrix-body", children: [
-              /* @__PURE__ */ jsxs54(ModalHelp, { visible: showHelp, children: [
-                /* @__PURE__ */ jsx57(HelpSection, { title: "\u041A\u0430\u043A \u0447\u0438\u0442\u0430\u0442\u044C \u043C\u0430\u0442\u0440\u0438\u0446\u0443", children: /* @__PURE__ */ jsx57(HelpText, { children: "\u0421\u0442\u0440\u043E\u043A\u0438 \u0438 \u0441\u0442\u043E\u043B\u0431\u0446\u044B \u2014 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438. \u042F\u0447\u0435\u0439\u043A\u0430 \u043D\u0430 \u043F\u0435\u0440\u0435\u0441\u0435\u0447\u0435\u043D\u0438\u0438 \u2014 \u0435\u0441\u0442\u044C \u043B\u0438 \u0441\u0432\u044F\u0437\u044C \u043E\u0442 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0432 \u0441\u0442\u0440\u043E\u043A\u0435 \u043A \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0432 \u0441\u0442\u043E\u043B\u0431\u0446\u0435. \u041F\u043B\u043E\u0442\u043D\u044B\u0435 \u0431\u043B\u043E\u043A\u0438 \u2014 \u043A\u043B\u0430\u0441\u0442\u0435\u0440\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439, \u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u0430\u043A\u0442\u0438\u0432\u043D\u043E \u043E\u0431\u0449\u0430\u044E\u0442\u0441\u044F \u043C\u0435\u0436\u0434\u0443 \u0441\u043E\u0431\u043E\u0439." }) }),
-                /* @__PURE__ */ jsx57(HelpSection, { title: "\u0426\u0432\u0435\u0442\u0430", children: /* @__PURE__ */ jsxs54(HelpList, { children: [
-                  /* @__PURE__ */ jsxs54("li", { children: [
-                    /* @__PURE__ */ jsx57("strong", { style: { color: "#a78bfa" }, children: "\u0424\u0438\u043E\u043B\u0435\u0442\u043E\u0432\u044B\u0439" }),
+            index && matrix && /* @__PURE__ */ jsxs56("div", { className: "entity-matrix-body", children: [
+              /* @__PURE__ */ jsxs56(ModalHelp, { visible: showHelp, children: [
+                /* @__PURE__ */ jsx59(HelpSection, { title: "\u041A\u0430\u043A \u0447\u0438\u0442\u0430\u0442\u044C \u043C\u0430\u0442\u0440\u0438\u0446\u0443", children: /* @__PURE__ */ jsx59(HelpText, { children: "\u0421\u0442\u0440\u043E\u043A\u0438 \u0438 \u0441\u0442\u043E\u043B\u0431\u0446\u044B \u2014 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438. \u042F\u0447\u0435\u0439\u043A\u0430 \u043D\u0430 \u043F\u0435\u0440\u0435\u0441\u0435\u0447\u0435\u043D\u0438\u0438 \u2014 \u0435\u0441\u0442\u044C \u043B\u0438 \u0441\u0432\u044F\u0437\u044C \u043E\u0442 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0432 \u0441\u0442\u0440\u043E\u043A\u0435 \u043A \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0432 \u0441\u0442\u043E\u043B\u0431\u0446\u0435. \u041F\u043B\u043E\u0442\u043D\u044B\u0435 \u0431\u043B\u043E\u043A\u0438 \u2014 \u043A\u043B\u0430\u0441\u0442\u0435\u0440\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439, \u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u0430\u043A\u0442\u0438\u0432\u043D\u043E \u043E\u0431\u0449\u0430\u044E\u0442\u0441\u044F \u043C\u0435\u0436\u0434\u0443 \u0441\u043E\u0431\u043E\u0439." }) }),
+                /* @__PURE__ */ jsx59(HelpSection, { title: "\u0426\u0432\u0435\u0442\u0430", children: /* @__PURE__ */ jsxs56(HelpList, { children: [
+                  /* @__PURE__ */ jsxs56("li", { children: [
+                    /* @__PURE__ */ jsx59("strong", { style: { color: "#a78bfa" }, children: "\u0424\u0438\u043E\u043B\u0435\u0442\u043E\u0432\u044B\u0439" }),
                     " \u2014 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435 (inherits)."
                   ] }),
-                  /* @__PURE__ */ jsxs54("li", { children: [
-                    /* @__PURE__ */ jsx57("strong", { style: { color: "#6366f1" }, children: "\u0421\u0438\u043D\u0438\u0439" }),
+                  /* @__PURE__ */ jsxs56("li", { children: [
+                    /* @__PURE__ */ jsx59("strong", { style: { color: "#6366f1" }, children: "\u0421\u0438\u043D\u0438\u0439" }),
                     " \u2014 Reference-\u0430\u0442\u0440\u0438\u0431\u0443\u0442."
                   ] }),
-                  /* @__PURE__ */ jsxs54("li", { children: [
-                    /* @__PURE__ */ jsx57("strong", { style: { color: "#10b981" }, children: "\u0417\u0435\u043B\u0451\u043D\u044B\u0439" }),
+                  /* @__PURE__ */ jsxs56("li", { children: [
+                    /* @__PURE__ */ jsx59("strong", { style: { color: "#10b981" }, children: "\u0417\u0435\u043B\u0451\u043D\u044B\u0439" }),
                     " \u2014 linkage."
                   ] }),
-                  /* @__PURE__ */ jsx57("li", { children: "\u0427\u0438\u0441\u043B\u043E \u0432 \u044F\u0447\u0435\u0439\u043A\u0435 \u2014 \u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0441\u0432\u044F\u0437\u0435\u0439 \u044D\u0442\u043E\u0433\u043E \u0442\u0438\u043F\u0430 \u043C\u0435\u0436\u0434\u0443 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u043C\u0438." })
+                  /* @__PURE__ */ jsx59("li", { children: "\u0427\u0438\u0441\u043B\u043E \u0432 \u044F\u0447\u0435\u0439\u043A\u0435 \u2014 \u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0441\u0432\u044F\u0437\u0435\u0439 \u044D\u0442\u043E\u0433\u043E \u0442\u0438\u043F\u0430 \u043C\u0435\u0436\u0434\u0443 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u043C\u0438." })
                 ] }) }),
-                /* @__PURE__ */ jsx57(HelpSection, { title: "\u0417\u0430\u0447\u0435\u043C", children: /* @__PURE__ */ jsx57(HelpText, { children: "\u041D\u0435\u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u0441\u0432\u044F\u0437\u0438 \u0437\u0430\u043C\u0435\u0442\u043D\u044B \u0442\u043E\u043B\u044C\u043A\u043E \u0432 \u043C\u0430\u0442\u0440\u0438\u0447\u043D\u043E\u043C \u0432\u0438\u0434\u0435, \u0430 \u043D\u0435 \u043D\u0430 \u0433\u0440\u0430\u0444\u0435. \u0425\u043E\u0440\u043E\u0448\u043E \u0432\u0438\u0434\u043D\u043E \xAB\u0434\u0438\u0430\u0433\u043E\u043D\u0430\u043B\u044C\u043D\u043E\u0435\xBB \u043F\u043E\u0432\u0435\u0434\u0435\u043D\u0438\u0435 \u2014 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C A \u0441\u0432\u044F\u0437\u0430\u043D\u0430 \u0441 B, B \u0441 C, \u043D\u043E \u043D\u0435 A \u0441 C \u2014 \u043A\u043B\u0430\u0441\u0442\u0435\u0440\u044B \u0432\u044B\u0434\u0435\u043B\u044F\u044E\u0442\u0441\u044F \u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u043D\u043E." }) }),
-                /* @__PURE__ */ jsx57(HelpSection, { title: "\u041E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F", children: /* @__PURE__ */ jsx57(HelpText, { children: "\u041C\u0430\u0442\u0440\u0438\u0446\u0430 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 \u0442\u043E\u043F-60 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u043F\u043E \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u0443 \u0441\u0432\u044F\u0437\u0435\u0439. \u0414\u043B\u044F \u0431\u043E\u043B\u044C\u0448\u0438\u0445 \u0433\u0440\u0430\u0444\u043E\u0432 \u0443\u0442\u043E\u0447\u043D\u044F\u0439\u0442\u0435 \u0447\u0435\u0440\u0435\u0437 \u0444\u0438\u043B\u044C\u0442\u0440 \u043F\u043E \u0434\u043E\u043C\u0435\u043D\u0443." }) })
+                /* @__PURE__ */ jsx59(HelpSection, { title: "\u0417\u0430\u0447\u0435\u043C", children: /* @__PURE__ */ jsx59(HelpText, { children: "\u041D\u0435\u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u0441\u0432\u044F\u0437\u0438 \u0437\u0430\u043C\u0435\u0442\u043D\u044B \u0442\u043E\u043B\u044C\u043A\u043E \u0432 \u043C\u0430\u0442\u0440\u0438\u0447\u043D\u043E\u043C \u0432\u0438\u0434\u0435, \u0430 \u043D\u0435 \u043D\u0430 \u0433\u0440\u0430\u0444\u0435. \u0425\u043E\u0440\u043E\u0448\u043E \u0432\u0438\u0434\u043D\u043E \xAB\u0434\u0438\u0430\u0433\u043E\u043D\u0430\u043B\u044C\u043D\u043E\u0435\xBB \u043F\u043E\u0432\u0435\u0434\u0435\u043D\u0438\u0435 \u2014 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C A \u0441\u0432\u044F\u0437\u0430\u043D\u0430 \u0441 B, B \u0441 C, \u043D\u043E \u043D\u0435 A \u0441 C \u2014 \u043A\u043B\u0430\u0441\u0442\u0435\u0440\u044B \u0432\u044B\u0434\u0435\u043B\u044F\u044E\u0442\u0441\u044F \u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u043D\u043E." }) }),
+                /* @__PURE__ */ jsx59(HelpSection, { title: "\u041E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F", children: /* @__PURE__ */ jsx59(HelpText, { children: "\u041C\u0430\u0442\u0440\u0438\u0446\u0430 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 \u0442\u043E\u043F-60 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u043F\u043E \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u0443 \u0441\u0432\u044F\u0437\u0435\u0439. \u0414\u043B\u044F \u0431\u043E\u043B\u044C\u0448\u0438\u0445 \u0433\u0440\u0430\u0444\u043E\u0432 \u0443\u0442\u043E\u0447\u043D\u044F\u0439\u0442\u0435 \u0447\u0435\u0440\u0435\u0437 \u0444\u0438\u043B\u044C\u0442\u0440 \u043F\u043E \u0434\u043E\u043C\u0435\u043D\u0443." }) })
               ] }),
-              /* @__PURE__ */ jsxs54("div", { className: "entity-matrix-toolbar", children: [
-                /* @__PURE__ */ jsxs54("div", { className: "entity-matrix-toolbar__filters", children: [
-                  /* @__PURE__ */ jsxs54("label", { className: "entity-matrix-filter", children: [
-                    /* @__PURE__ */ jsx57("span", { children: "\u0414\u043E\u043C\u0435\u043D:" }),
-                    /* @__PURE__ */ jsxs54(
+              /* @__PURE__ */ jsxs56("div", { className: "entity-matrix-toolbar", children: [
+                /* @__PURE__ */ jsxs56("div", { className: "entity-matrix-toolbar__filters", children: [
+                  /* @__PURE__ */ jsxs56("label", { className: "entity-matrix-filter", children: [
+                    /* @__PURE__ */ jsx59("span", { children: "\u0414\u043E\u043C\u0435\u043D:" }),
+                    /* @__PURE__ */ jsxs56(
                       "select",
                       {
                         value: domainFilter,
                         onChange: (e) => setDomainFilter(e.target.value),
                         children: [
-                          /* @__PURE__ */ jsx57("option", { value: "", children: "\u2014 \u0432\u0441\u0435 \u2014" }),
-                          allDomains.map(([d, count]) => /* @__PURE__ */ jsxs54("option", { value: d, children: [
+                          /* @__PURE__ */ jsx59("option", { value: "", children: "\u2014 \u0432\u0441\u0435 \u2014" }),
+                          allDomains.map(([d, count]) => /* @__PURE__ */ jsxs56("option", { value: d, children: [
                             d,
                             " (",
                             count,
@@ -13781,60 +14494,60 @@ function EntityMatrixModal() {
                       }
                     )
                   ] }),
-                  /* @__PURE__ */ jsxs54("span", { className: "entity-matrix-hint", children: [
+                  /* @__PURE__ */ jsxs56("span", { className: "entity-matrix-hint", children: [
                     "\u041F\u043E\u043A\u0430\u0437\u0430\u043D\u043E \u0442\u043E\u043F-",
                     MATRIX_LIMIT,
                     " \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u043F\u043E \u0438\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u043C \u0441\u0432\u044F\u0437\u044F\u043C"
                   ] })
                 ] }),
-                /* @__PURE__ */ jsxs54("div", { className: "entity-matrix-toolbar__legend", children: [
-                  /* @__PURE__ */ jsxs54("span", { className: "entity-matrix-legend-item", children: [
-                    /* @__PURE__ */ jsx57("span", { className: "entity-matrix-legend-cell entity-matrix-legend-cell--reference" }),
+                /* @__PURE__ */ jsxs56("div", { className: "entity-matrix-toolbar__legend", children: [
+                  /* @__PURE__ */ jsxs56("span", { className: "entity-matrix-legend-item", children: [
+                    /* @__PURE__ */ jsx59("span", { className: "entity-matrix-legend-cell entity-matrix-legend-cell--reference" }),
                     "Reference (",
                     matrix.stats.byKind.reference,
                     ")"
                   ] }),
-                  /* @__PURE__ */ jsxs54("span", { className: "entity-matrix-legend-item", children: [
-                    /* @__PURE__ */ jsx57("span", { className: "entity-matrix-legend-cell entity-matrix-legend-cell--inheritance" }),
+                  /* @__PURE__ */ jsxs56("span", { className: "entity-matrix-legend-item", children: [
+                    /* @__PURE__ */ jsx59("span", { className: "entity-matrix-legend-cell entity-matrix-legend-cell--inheritance" }),
                     "\u041D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435 (",
                     matrix.stats.byKind.inheritance,
                     ")"
                   ] }),
-                  /* @__PURE__ */ jsxs54("span", { className: "entity-matrix-legend-item", children: [
-                    /* @__PURE__ */ jsx57("span", { className: "entity-matrix-legend-cell entity-matrix-legend-cell--linkage" }),
+                  /* @__PURE__ */ jsxs56("span", { className: "entity-matrix-legend-item", children: [
+                    /* @__PURE__ */ jsx59("span", { className: "entity-matrix-legend-cell entity-matrix-legend-cell--linkage" }),
                     "Linkage (",
                     matrix.stats.byKind.linkage,
                     ")"
                   ] }),
-                  /* @__PURE__ */ jsxs54("span", { className: "entity-matrix-toolbar__total", children: [
+                  /* @__PURE__ */ jsxs56("span", { className: "entity-matrix-toolbar__total", children: [
                     "\u0412\u0441\u0435\u0433\u043E \u0441\u0432\u044F\u0437\u0435\u0439: ",
                     matrix.stats.totalLinks
                   ] })
                 ] })
               ] }),
-              matrix.rows.length === 0 ? /* @__PURE__ */ jsx57("div", { className: "entity-matrix-empty", children: "\u041D\u0435\u0442 \u0434\u0430\u043D\u043D\u044B\u0445 \u0434\u043B\u044F \u043E\u0442\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u044F" }) : /* @__PURE__ */ jsx57("div", { className: "entity-matrix-scroll", children: /* @__PURE__ */ jsxs54("table", { className: "entity-matrix-table", children: [
-                /* @__PURE__ */ jsx57("thead", { children: /* @__PURE__ */ jsxs54("tr", { children: [
-                  /* @__PURE__ */ jsx57("th", { className: "entity-matrix-corner", children: /* @__PURE__ */ jsx57("span", { className: "entity-matrix-corner__arrow", children: "\u2198" }) }),
+              matrix.rows.length === 0 ? /* @__PURE__ */ jsx59("div", { className: "entity-matrix-empty", children: "\u041D\u0435\u0442 \u0434\u0430\u043D\u043D\u044B\u0445 \u0434\u043B\u044F \u043E\u0442\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u044F" }) : /* @__PURE__ */ jsx59("div", { className: "entity-matrix-scroll", children: /* @__PURE__ */ jsxs56("table", { className: "entity-matrix-table", children: [
+                /* @__PURE__ */ jsx59("thead", { children: /* @__PURE__ */ jsxs56("tr", { children: [
+                  /* @__PURE__ */ jsx59("th", { className: "entity-matrix-corner", children: /* @__PURE__ */ jsx59("span", { className: "entity-matrix-corner__arrow", children: "\u2198" }) }),
                   matrix.entityFqids.map((fqid, idx) => {
                     const e = matrix.rows[idx].entity;
                     const isHovered = hoveredCol === idx;
-                    return /* @__PURE__ */ jsx57(
+                    return /* @__PURE__ */ jsx59(
                       "th",
                       {
                         className: "entity-matrix-col-head" + (isHovered ? " highlighted" : ""),
                         onMouseEnter: () => setHoveredCol(idx),
                         onMouseLeave: () => setHoveredCol(null),
                         title: fqid,
-                        children: /* @__PURE__ */ jsx57("span", { className: "entity-matrix-col-head__text", children: shortLabel(fqid) })
+                        children: /* @__PURE__ */ jsx59("span", { className: "entity-matrix-col-head__text", children: shortLabel(fqid) })
                       },
                       fqid
                     );
                   })
                 ] }) }),
-                /* @__PURE__ */ jsx57("tbody", { children: matrix.rows.map((row, rowIdx) => {
+                /* @__PURE__ */ jsx59("tbody", { children: matrix.rows.map((row, rowIdx) => {
                   const isRowHovered = hoveredRow === rowIdx;
-                  return /* @__PURE__ */ jsxs54("tr", { className: isRowHovered ? "highlighted" : "", children: [
-                    /* @__PURE__ */ jsxs54(
+                  return /* @__PURE__ */ jsxs56("tr", { className: isRowHovered ? "highlighted" : "", children: [
+                    /* @__PURE__ */ jsxs56(
                       "th",
                       {
                         className: "entity-matrix-row-head",
@@ -13842,8 +14555,8 @@ function EntityMatrixModal() {
                         onMouseLeave: () => setHoveredRow(null),
                         title: row.entity.fqid,
                         children: [
-                          /* @__PURE__ */ jsx57("span", { className: "entity-matrix-row-head__text", children: shortLabel(row.entity.fqid) }),
-                          /* @__PURE__ */ jsx57("span", { className: "entity-matrix-row-head__count", children: row.totalOutgoing })
+                          /* @__PURE__ */ jsx59("span", { className: "entity-matrix-row-head__text", children: shortLabel(row.entity.fqid) }),
+                          /* @__PURE__ */ jsx59("span", { className: "entity-matrix-row-head__count", children: row.totalOutgoing })
                         ]
                       }
                     ),
@@ -13852,7 +14565,7 @@ function EntityMatrixModal() {
                       const isHoveredRow = hoveredRow === rowIdx;
                       const isHoveredCol = hoveredCol === colIdx;
                       if (!cell) {
-                        return /* @__PURE__ */ jsx57(
+                        return /* @__PURE__ */ jsx59(
                           "td",
                           {
                             className: "entity-matrix-cell entity-matrix-cell--empty" + (isHoveredRow || isHoveredCol ? " in-row-col" : ""),
@@ -13869,7 +14582,7 @@ function EntityMatrixModal() {
                         );
                       }
                       const kindClass = "entity-matrix-cell--" + cell.kind;
-                      return /* @__PURE__ */ jsx57(
+                      return /* @__PURE__ */ jsx59(
                         "td",
                         {
                           className: "entity-matrix-cell " + kindClass + (isHoveredRow || isHoveredCol ? " in-row-col" : ""),
@@ -13882,7 +14595,7 @@ function EntityMatrixModal() {
                             setHoveredCol(null);
                           },
                           title: shortLabel(row.entity.fqid) + " \u2192 " + shortLabel(colFqid) + "\n" + cell.details.map((d) => d.via + (d.reverse ? " (reverse)" : "")).join("\n"),
-                          children: /* @__PURE__ */ jsx57("span", { className: "entity-matrix-cell__count", children: cell.count })
+                          children: /* @__PURE__ */ jsx59("span", { className: "entity-matrix-cell__count", children: cell.count })
                         },
                         colFqid
                       );
@@ -13911,7 +14624,7 @@ var init_EntityMatrixModal = __esm({
 });
 
 // src/web/hooks/useModelDiff.ts
-import { useEffect as useEffect27, useState as useState17 } from "react";
+import { useEffect as useEffect28, useState as useState17 } from "react";
 function useModelDiff() {
   const [state, setState] = useState17({
     diff: null,
@@ -13919,7 +14632,7 @@ function useModelDiff() {
     loading: true,
     error: null
   });
-  useEffect27(() => {
+  useEffect28(() => {
     if (!cachedPromise2) {
       cachedPromise2 = fetch("/api/model/diff").then((r) => {
         if (!r.ok)
@@ -13965,8 +14678,8 @@ var init_useModelDiff = __esm({
 });
 
 // src/web/components/modals/ModelDiffModal.tsx
-import { useMemo as useMemo28, useState as useState18 } from "react";
-import { Fragment as Fragment8, jsx as jsx58, jsxs as jsxs55 } from "react/jsx-runtime";
+import { useMemo as useMemo29, useState as useState18 } from "react";
+import { Fragment as Fragment12, jsx as jsx60, jsxs as jsxs57 } from "react/jsx-runtime";
 function ModelDiffModal() {
   const store = useGraphStore();
   const { diff, hasSnapshot, loading, error } = useModelDiff();
@@ -13975,7 +14688,7 @@ function ModelDiffModal() {
   );
   const [domainFilter, setDomainFilter] = useState18("");
   const [viewMode, setViewMode] = useState18("domain");
-  const byDomainFiltered = useMemo28(() => {
+  const byDomainFiltered = useMemo29(() => {
     if (!diff)
       return [];
     if (!domainFilter)
@@ -13994,7 +14707,7 @@ function ModelDiffModal() {
       return s;
     });
   };
-  const filtered = useMemo28(() => {
+  const filtered = useMemo29(() => {
     if (!diff)
       return null;
     if (!domainFilter)
@@ -14022,7 +14735,7 @@ function ModelDiffModal() {
       }
     };
   }, [diff, domainFilter]);
-  const allDomains = useMemo28(() => {
+  const allDomains = useMemo29(() => {
     if (!diff)
       return [];
     const set2 = /* @__PURE__ */ new Set();
@@ -14033,7 +14746,7 @@ function ModelDiffModal() {
     diff.mixins.removed.forEach((m) => set2.add(m.domainId));
     return Array.from(set2).sort();
   }, [diff]);
-  const totalChanges = useMemo28(() => {
+  const totalChanges = useMemo29(() => {
     if (!diff)
       return 0;
     const s = diff.stats;
@@ -14041,23 +14754,23 @@ function ModelDiffModal() {
   }, [diff]);
   if (!open)
     return null;
-  return /* @__PURE__ */ jsx58(
+  return /* @__PURE__ */ jsx60(
     "div",
     {
       className: "help-overlay",
       onMouseDown: () => store.setModelDiffOpen(false),
-      children: /* @__PURE__ */ jsxs55(
+      children: /* @__PURE__ */ jsxs57(
         "div",
         {
           className: "help-modal model-diff-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
-            /* @__PURE__ */ jsxs55("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsxs55("div", { className: "help-modal__title", children: [
+            /* @__PURE__ */ jsxs57("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs57("div", { className: "help-modal__title", children: [
                 "\u{1F4CB} \u0427\u0442\u043E \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u043E\u0441\u044C \u0432 \u043C\u043E\u0434\u0435\u043B\u0438",
-                diff && totalChanges > 0 && /* @__PURE__ */ jsx58("span", { className: "help-modal__badge", children: totalChanges })
+                diff && totalChanges > 0 && /* @__PURE__ */ jsx60("span", { className: "help-modal__badge", children: totalChanges })
               ] }),
-              /* @__PURE__ */ jsx58(
+              /* @__PURE__ */ jsx60(
                 "button",
                 {
                   className: "help-modal__close",
@@ -14066,31 +14779,31 @@ function ModelDiffModal() {
                 }
               )
             ] }),
-            /* @__PURE__ */ jsxs55("div", { className: "help-modal__body", children: [
-              loading && /* @__PURE__ */ jsx58("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 diff..." }),
-              error && /* @__PURE__ */ jsxs55("div", { style: { color: "var(--danger)" }, children: [
+            /* @__PURE__ */ jsxs57("div", { className: "help-modal__body", children: [
+              loading && /* @__PURE__ */ jsx60("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 diff..." }),
+              error && /* @__PURE__ */ jsxs57("div", { style: { color: "var(--danger)" }, children: [
                 "\u041E\u0448\u0438\u0431\u043A\u0430: ",
                 error
               ] }),
-              !loading && !error && !hasSnapshot && /* @__PURE__ */ jsxs55("div", { className: "model-diff-empty", children: [
-                /* @__PURE__ */ jsx58("div", { className: "model-diff-empty__icon", children: "\u{1F4F8}" }),
-                /* @__PURE__ */ jsx58("div", { className: "model-diff-empty__title", children: "\u0421\u043D\u0430\u043F\u0448\u043E\u0442 \u043C\u043E\u0434\u0435\u043B\u0438 \u0441\u043E\u0437\u0434\u0430\u043D" }),
-                /* @__PURE__ */ jsxs55("div", { className: "model-diff-empty__hint", children: [
+              !loading && !error && !hasSnapshot && /* @__PURE__ */ jsxs57("div", { className: "model-diff-empty", children: [
+                /* @__PURE__ */ jsx60("div", { className: "model-diff-empty__icon", children: "\u{1F4F8}" }),
+                /* @__PURE__ */ jsx60("div", { className: "model-diff-empty__title", children: "\u0421\u043D\u0430\u043F\u0448\u043E\u0442 \u043C\u043E\u0434\u0435\u043B\u0438 \u0441\u043E\u0437\u0434\u0430\u043D" }),
+                /* @__PURE__ */ jsxs57("div", { className: "model-diff-empty__hint", children: [
                   "\u042D\u0442\u043E \u043F\u0435\u0440\u0432\u044B\u0439 \u0437\u0430\u043F\u0443\u0441\u043A. \u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u0441\u0442\u0430\u043D\u0443\u0442 \u0432\u0438\u0434\u043D\u044B \u043F\u043E\u0441\u043B\u0435 \u0441\u043B\u0435\u0434\u0443\u044E\u0449\u0435\u0433\u043E \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F \u0434\u043E\u043C\u0435\u043D\u043E\u0432 (",
-                  /* @__PURE__ */ jsx58("code", { children: "--refresh" }),
+                  /* @__PURE__ */ jsx60("code", { children: "--refresh" }),
                   ") \u0438\u043B\u0438 \u043F\u0440\u0430\u0432\u043E\u043A \u0432 \u0441\u0445\u0435\u043C\u0430\u0445."
                 ] })
               ] }),
-              !loading && !error && hasSnapshot && !diff && /* @__PURE__ */ jsxs55("div", { className: "model-diff-empty", children: [
-                /* @__PURE__ */ jsx58("div", { className: "model-diff-empty__icon", children: "\u2705" }),
-                /* @__PURE__ */ jsx58("div", { className: "model-diff-empty__title", children: "\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439 \u043D\u0435\u0442" }),
-                /* @__PURE__ */ jsx58("div", { className: "model-diff-empty__hint", children: "\u0421\u043D\u0430\u043F\u0448\u043E\u0442 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u0435\u0442, \u043D\u043E \u0441 \u043C\u043E\u043C\u0435\u043D\u0442\u0430 \u043F\u043E\u0441\u043B\u0435\u0434\u043D\u0435\u0433\u043E \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u043C\u043E\u0434\u0435\u043B\u0438 \u043D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043F\u0440\u043E\u0438\u0441\u0445\u043E\u0434\u0438\u043B\u043E." })
+              !loading && !error && hasSnapshot && !diff && /* @__PURE__ */ jsxs57("div", { className: "model-diff-empty", children: [
+                /* @__PURE__ */ jsx60("div", { className: "model-diff-empty__icon", children: "\u2705" }),
+                /* @__PURE__ */ jsx60("div", { className: "model-diff-empty__title", children: "\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439 \u043D\u0435\u0442" }),
+                /* @__PURE__ */ jsx60("div", { className: "model-diff-empty__hint", children: "\u0421\u043D\u0430\u043F\u0448\u043E\u0442 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u0435\u0442, \u043D\u043E \u0441 \u043C\u043E\u043C\u0435\u043D\u0442\u0430 \u043F\u043E\u0441\u043B\u0435\u0434\u043D\u0435\u0433\u043E \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u043C\u043E\u0434\u0435\u043B\u0438 \u043D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043F\u0440\u043E\u0438\u0441\u0445\u043E\u0434\u0438\u043B\u043E." })
               ] }),
-              !loading && !error && hasSnapshot && diff && /* @__PURE__ */ jsxs55(Fragment8, { children: [
-                /* @__PURE__ */ jsxs55("div", { className: "model-diff-versions", children: [
-                  /* @__PURE__ */ jsxs55("div", { className: "model-diff-version", children: [
-                    /* @__PURE__ */ jsx58("div", { className: "model-diff-version__label", children: "\u0411\u044B\u043B\u043E" }),
-                    /* @__PURE__ */ jsx58("div", { className: "model-diff-version__date", children: new Date(diff.previousGeneratedAt).toLocaleString("ru-RU", {
+              !loading && !error && hasSnapshot && diff && /* @__PURE__ */ jsxs57(Fragment12, { children: [
+                /* @__PURE__ */ jsxs57("div", { className: "model-diff-versions", children: [
+                  /* @__PURE__ */ jsxs57("div", { className: "model-diff-version", children: [
+                    /* @__PURE__ */ jsx60("div", { className: "model-diff-version__label", children: "\u0411\u044B\u043B\u043E" }),
+                    /* @__PURE__ */ jsx60("div", { className: "model-diff-version__date", children: new Date(diff.previousGeneratedAt).toLocaleString("ru-RU", {
                       day: "2-digit",
                       month: "short",
                       year: "numeric",
@@ -14098,10 +14811,10 @@ function ModelDiffModal() {
                       minute: "2-digit"
                     }) })
                   ] }),
-                  /* @__PURE__ */ jsx58("div", { className: "model-diff-version__arrow", children: "\u2192" }),
-                  /* @__PURE__ */ jsxs55("div", { className: "model-diff-version", children: [
-                    /* @__PURE__ */ jsx58("div", { className: "model-diff-version__label", children: "\u0421\u0442\u0430\u043B\u043E" }),
-                    /* @__PURE__ */ jsx58("div", { className: "model-diff-version__date", children: new Date(diff.currentGeneratedAt).toLocaleString("ru-RU", {
+                  /* @__PURE__ */ jsx60("div", { className: "model-diff-version__arrow", children: "\u2192" }),
+                  /* @__PURE__ */ jsxs57("div", { className: "model-diff-version", children: [
+                    /* @__PURE__ */ jsx60("div", { className: "model-diff-version__label", children: "\u0421\u0442\u0430\u043B\u043E" }),
+                    /* @__PURE__ */ jsx60("div", { className: "model-diff-version__date", children: new Date(diff.currentGeneratedAt).toLocaleString("ru-RU", {
                       day: "2-digit",
                       month: "short",
                       year: "numeric",
@@ -14110,9 +14823,9 @@ function ModelDiffModal() {
                     }) })
                   ] })
                 ] }),
-                totalChanges > 0 && /* @__PURE__ */ jsxs55("div", { style: { display: "flex", flexDirection: "row", gap: 10 }, children: [
-                  /* @__PURE__ */ jsxs55("div", { className: "model-diff-view-mode", children: [
-                    /* @__PURE__ */ jsxs55(
+                totalChanges > 0 && /* @__PURE__ */ jsxs57("div", { style: { display: "flex", flexDirection: "row", gap: 10 }, children: [
+                  /* @__PURE__ */ jsxs57("div", { className: "model-diff-view-mode", children: [
+                    /* @__PURE__ */ jsxs57(
                       "button",
                       {
                         className: "model-diff-view-btn" + (viewMode === "domain" ? " active" : ""),
@@ -14124,7 +14837,7 @@ function ModelDiffModal() {
                         ]
                       }
                     ),
-                    /* @__PURE__ */ jsx58(
+                    /* @__PURE__ */ jsx60(
                       "button",
                       {
                         className: "model-diff-view-btn" + (viewMode === "kind" ? " active" : ""),
@@ -14133,29 +14846,29 @@ function ModelDiffModal() {
                       }
                     )
                   ] }),
-                  allDomains.length > 0 && /* @__PURE__ */ jsx58("div", { className: "model-diff-filter", children: /* @__PURE__ */ jsxs55("label", { children: [
-                    /* @__PURE__ */ jsx58("span", { children: "\u0414\u043E\u043C\u0435\u043D:" }),
-                    /* @__PURE__ */ jsxs55(
+                  allDomains.length > 0 && /* @__PURE__ */ jsx60("div", { className: "model-diff-filter", children: /* @__PURE__ */ jsxs57("label", { children: [
+                    /* @__PURE__ */ jsx60("span", { children: "\u0414\u043E\u043C\u0435\u043D:" }),
+                    /* @__PURE__ */ jsxs57(
                       "select",
                       {
                         value: domainFilter,
                         onChange: (e) => setDomainFilter(e.target.value),
                         children: [
-                          /* @__PURE__ */ jsxs55("option", { value: "", children: [
+                          /* @__PURE__ */ jsxs57("option", { value: "", children: [
                             "\u2014 \u0432\u0441\u0435 (",
                             allDomains.length,
                             ") \u2014"
                           ] }),
-                          allDomains.map((d) => /* @__PURE__ */ jsx58("option", { value: d, children: d }, d))
+                          allDomains.map((d) => /* @__PURE__ */ jsx60("option", { value: d, children: d }, d))
                         ]
                       }
                     )
                   ] }) })
                 ] }),
-                totalChanges === 0 && /* @__PURE__ */ jsx58("div", { className: "model-diff-no-changes", children: "\u2705 \u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439 \u043D\u0435\u0442" }),
-                viewMode === "domain" && totalChanges > 0 && /* @__PURE__ */ jsx58("div", { className: "model-diff-domains", children: byDomainFiltered.map((s) => /* @__PURE__ */ jsx58(DomainChangeCard, { summary: s }, s.domainId)) }),
-                viewMode === "kind" && totalChanges > 0 && filtered && /* @__PURE__ */ jsx58("div", { className: "model-diff-sections", children: totalChanges > 0 && filtered && /* @__PURE__ */ jsxs55("div", { className: "model-diff-sections", children: [
-                  filtered.domains.changed.length > 0 && /* @__PURE__ */ jsx58(
+                totalChanges === 0 && /* @__PURE__ */ jsx60("div", { className: "model-diff-no-changes", children: "\u2705 \u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439 \u043D\u0435\u0442" }),
+                viewMode === "domain" && totalChanges > 0 && /* @__PURE__ */ jsx60("div", { className: "model-diff-domains", children: byDomainFiltered.map((s) => /* @__PURE__ */ jsx60(DomainChangeCard, { summary: s }, s.domainId)) }),
+                viewMode === "kind" && totalChanges > 0 && filtered && /* @__PURE__ */ jsx60("div", { className: "model-diff-sections", children: totalChanges > 0 && filtered && /* @__PURE__ */ jsxs57("div", { className: "model-diff-sections", children: [
+                  filtered.domains.changed.length > 0 && /* @__PURE__ */ jsx60(
                     DiffSection,
                     {
                       id: "domains",
@@ -14164,24 +14877,24 @@ function ModelDiffModal() {
                       color: "changed",
                       open: openSections.has("domains"),
                       onToggle: () => toggle("domains"),
-                      children: filtered.domains.changed.map((d) => /* @__PURE__ */ jsxs55("div", { className: "model-diff-change", children: [
-                        /* @__PURE__ */ jsxs55("div", { className: "model-diff-change__head", children: [
-                          /* @__PURE__ */ jsx58("code", { className: "model-diff-domain__id", children: d.domainId }),
-                          d.name && d.name !== d.domainId && /* @__PURE__ */ jsx58("span", { className: "model-diff-entity__name", children: d.name })
+                      children: filtered.domains.changed.map((d) => /* @__PURE__ */ jsxs57("div", { className: "model-diff-change", children: [
+                        /* @__PURE__ */ jsxs57("div", { className: "model-diff-change__head", children: [
+                          /* @__PURE__ */ jsx60("code", { className: "model-diff-domain__id", children: d.domainId }),
+                          d.name && d.name !== d.domainId && /* @__PURE__ */ jsx60("span", { className: "model-diff-entity__name", children: d.name })
                         ] }),
-                        /* @__PURE__ */ jsx58("div", { className: "model-diff-change__body", children: d.changes.map((c, i) => /* @__PURE__ */ jsxs55("div", { className: "model-diff-change__row", children: [
-                          /* @__PURE__ */ jsxs55("span", { className: "model-diff-change__label", children: [
+                        /* @__PURE__ */ jsx60("div", { className: "model-diff-change__body", children: d.changes.map((c, i) => /* @__PURE__ */ jsxs57("div", { className: "model-diff-change__row", children: [
+                          /* @__PURE__ */ jsxs57("span", { className: "model-diff-change__label", children: [
                             c.field,
                             ":"
                           ] }),
-                          /* @__PURE__ */ jsx58("span", { className: "model-diff-change__from", children: formatValue(c.from) }),
-                          /* @__PURE__ */ jsx58("span", { className: "model-diff-change__arrow", children: "\u2192" }),
-                          /* @__PURE__ */ jsx58("span", { className: "model-diff-change__to", children: formatValue(c.to) })
+                          /* @__PURE__ */ jsx60("span", { className: "model-diff-change__from", children: formatValue(c.from) }),
+                          /* @__PURE__ */ jsx60("span", { className: "model-diff-change__arrow", children: "\u2192" }),
+                          /* @__PURE__ */ jsx60("span", { className: "model-diff-change__to", children: formatValue(c.to) })
                         ] }, i)) })
                       ] }, d.domainId))
                     }
                   ),
-                  filtered.entities.added.length > 0 && /* @__PURE__ */ jsx58(
+                  filtered.entities.added.length > 0 && /* @__PURE__ */ jsx60(
                     DiffSection,
                     {
                       id: "added",
@@ -14190,10 +14903,10 @@ function ModelDiffModal() {
                       color: "added",
                       open: openSections.has("added"),
                       onToggle: () => toggle("added"),
-                      children: filtered.entities.added.map((e) => /* @__PURE__ */ jsx58(DiffEntityRow, { entity: e }, e.fqid))
+                      children: filtered.entities.added.map((e) => /* @__PURE__ */ jsx60(DiffEntityRow, { entity: e }, e.fqid))
                     }
                   ),
-                  filtered.entities.removed.length > 0 && /* @__PURE__ */ jsx58(
+                  filtered.entities.removed.length > 0 && /* @__PURE__ */ jsx60(
                     DiffSection,
                     {
                       id: "removed",
@@ -14202,10 +14915,10 @@ function ModelDiffModal() {
                       color: "removed",
                       open: openSections.has("removed"),
                       onToggle: () => toggle("removed"),
-                      children: filtered.entities.removed.map((e) => /* @__PURE__ */ jsx58(DiffEntityRow, { entity: e }, e.fqid))
+                      children: filtered.entities.removed.map((e) => /* @__PURE__ */ jsx60(DiffEntityRow, { entity: e }, e.fqid))
                     }
                   ),
-                  filtered.entities.changed.length > 0 && /* @__PURE__ */ jsx58(
+                  filtered.entities.changed.length > 0 && /* @__PURE__ */ jsx60(
                     DiffSection,
                     {
                       id: "changed",
@@ -14214,10 +14927,10 @@ function ModelDiffModal() {
                       color: "changed",
                       open: openSections.has("changed"),
                       onToggle: () => toggle("changed"),
-                      children: filtered.entities.changed.map((c) => /* @__PURE__ */ jsx58(DiffChangedEntity, { change: c }, c.fqid))
+                      children: filtered.entities.changed.map((c) => /* @__PURE__ */ jsx60(DiffChangedEntity, { change: c }, c.fqid))
                     }
                   ),
-                  (filtered.mixins.added.length > 0 || filtered.mixins.removed.length > 0) && /* @__PURE__ */ jsxs55(
+                  (filtered.mixins.added.length > 0 || filtered.mixins.removed.length > 0) && /* @__PURE__ */ jsxs57(
                     DiffSection,
                     {
                       id: "mixins",
@@ -14227,19 +14940,19 @@ function ModelDiffModal() {
                       open: openSections.has("mixins"),
                       onToggle: () => toggle("mixins"),
                       children: [
-                        filtered.mixins.added.map((m) => /* @__PURE__ */ jsxs55("div", { className: "model-diff-item model-diff-item--added", children: [
-                          /* @__PURE__ */ jsx58("span", { className: "model-diff-item__sign", children: "+" }),
-                          /* @__PURE__ */ jsx58("code", { children: m.id }),
-                          /* @__PURE__ */ jsxs55("span", { className: "model-diff-item__meta", children: [
+                        filtered.mixins.added.map((m) => /* @__PURE__ */ jsxs57("div", { className: "model-diff-item model-diff-item--added", children: [
+                          /* @__PURE__ */ jsx60("span", { className: "model-diff-item__sign", children: "+" }),
+                          /* @__PURE__ */ jsx60("code", { children: m.id }),
+                          /* @__PURE__ */ jsxs57("span", { className: "model-diff-item__meta", children: [
                             m.domainId,
                             " \u2192 ",
                             m.targetEntityFqid.split("/")[1]
                           ] })
                         ] }, `+${m.domainId}#${m.id}`)),
-                        filtered.mixins.removed.map((m) => /* @__PURE__ */ jsxs55("div", { className: "model-diff-item model-diff-item--removed", children: [
-                          /* @__PURE__ */ jsx58("span", { className: "model-diff-item__sign", children: "\u2212" }),
-                          /* @__PURE__ */ jsx58("code", { children: m.id }),
-                          /* @__PURE__ */ jsxs55("span", { className: "model-diff-item__meta", children: [
+                        filtered.mixins.removed.map((m) => /* @__PURE__ */ jsxs57("div", { className: "model-diff-item model-diff-item--removed", children: [
+                          /* @__PURE__ */ jsx60("span", { className: "model-diff-item__sign", children: "\u2212" }),
+                          /* @__PURE__ */ jsx60("code", { children: m.id }),
+                          /* @__PURE__ */ jsxs57("span", { className: "model-diff-item__meta", children: [
                             m.domainId,
                             " \u2192 ",
                             m.targetEntityFqid.split("/")[1]
@@ -14266,21 +14979,21 @@ function DiffSection({
   onToggle,
   children
 }) {
-  return /* @__PURE__ */ jsxs55("div", { className: "model-diff-section model-diff-section--" + color, children: [
-    /* @__PURE__ */ jsxs55("button", { className: "model-diff-section__header", onClick: onToggle, children: [
-      /* @__PURE__ */ jsx58(MIcon, { name: open ? "expand_more" : "chevron_right", size: "sm" }),
-      /* @__PURE__ */ jsx58("span", { className: "model-diff-section__title", children: title }),
-      /* @__PURE__ */ jsx58("span", { className: "model-diff-section__count", children: count })
+  return /* @__PURE__ */ jsxs57("div", { className: "model-diff-section model-diff-section--" + color, children: [
+    /* @__PURE__ */ jsxs57("button", { className: "model-diff-section__header", onClick: onToggle, children: [
+      /* @__PURE__ */ jsx60(MIcon, { name: open ? "expand_more" : "chevron_right", size: "sm" }),
+      /* @__PURE__ */ jsx60("span", { className: "model-diff-section__title", children: title }),
+      /* @__PURE__ */ jsx60("span", { className: "model-diff-section__count", children: count })
     ] }),
-    open && /* @__PURE__ */ jsx58("div", { className: "model-diff-section__body", children })
+    open && /* @__PURE__ */ jsx60("div", { className: "model-diff-section__body", children })
   ] });
 }
 function DiffEntityRow({ entity }) {
   const setModelDiffOpen = useGraphStore((s) => s.setModelDiffOpen);
   const setEntityCatalogInitialFqid = useGraphStore((s) => s.setEntityCatalogInitialFqid);
   const setEntityCatalogOpen = useGraphStore((s) => s.setEntityCatalogOpen);
-  return /* @__PURE__ */ jsxs55("div", { className: "model-diff-entity", children: [
-    /* @__PURE__ */ jsx58(
+  return /* @__PURE__ */ jsxs57("div", { className: "model-diff-entity", children: [
+    /* @__PURE__ */ jsx60(
       "button",
       {
         className: "model-diff-entity__id",
@@ -14292,17 +15005,17 @@ function DiffEntityRow({ entity }) {
         children: entity.entityId
       }
     ),
-    /* @__PURE__ */ jsx58("span", { className: "model-diff-entity__domain", children: entity.domainId }),
-    entity.name !== entity.entityId && /* @__PURE__ */ jsx58("span", { className: "model-diff-entity__name", children: entity.name })
+    /* @__PURE__ */ jsx60("span", { className: "model-diff-entity__domain", children: entity.domainId }),
+    entity.name !== entity.entityId && /* @__PURE__ */ jsx60("span", { className: "model-diff-entity__name", children: entity.name })
   ] });
 }
 function DiffChangedEntity({ change }) {
   const setModelDiffOpen = useGraphStore((s) => s.setModelDiffOpen);
   const setEntityCatalogInitialFqid = useGraphStore((s) => s.setEntityCatalogInitialFqid);
   const setEntityCatalogOpen = useGraphStore((s) => s.setEntityCatalogOpen);
-  return /* @__PURE__ */ jsxs55("div", { className: "model-diff-change", children: [
-    /* @__PURE__ */ jsxs55("div", { className: "model-diff-change__head", children: [
-      /* @__PURE__ */ jsx58(
+  return /* @__PURE__ */ jsxs57("div", { className: "model-diff-change", children: [
+    /* @__PURE__ */ jsxs57("div", { className: "model-diff-change__head", children: [
+      /* @__PURE__ */ jsx60(
         "button",
         {
           className: "model-diff-entity__id",
@@ -14314,44 +15027,44 @@ function DiffChangedEntity({ change }) {
           children: change.entityId
         }
       ),
-      /* @__PURE__ */ jsx58("span", { className: "model-diff-entity__domain", children: change.domainId })
+      /* @__PURE__ */ jsx60("span", { className: "model-diff-entity__domain", children: change.domainId })
     ] }),
-    /* @__PURE__ */ jsxs55("div", { className: "model-diff-change__body", children: [
-      change.inheritsChange && /* @__PURE__ */ jsxs55("div", { className: "model-diff-change__row", children: [
-        /* @__PURE__ */ jsx58("span", { className: "model-diff-change__label", children: "inherits:" }),
-        /* @__PURE__ */ jsx58("code", { className: "model-diff-change__from", children: change.inheritsChange.from || "\u2014" }),
-        /* @__PURE__ */ jsx58("span", { className: "model-diff-change__arrow", children: "\u2192" }),
-        /* @__PURE__ */ jsx58("code", { className: "model-diff-change__to", children: change.inheritsChange.to || "\u2014" })
+    /* @__PURE__ */ jsxs57("div", { className: "model-diff-change__body", children: [
+      change.inheritsChange && /* @__PURE__ */ jsxs57("div", { className: "model-diff-change__row", children: [
+        /* @__PURE__ */ jsx60("span", { className: "model-diff-change__label", children: "inherits:" }),
+        /* @__PURE__ */ jsx60("code", { className: "model-diff-change__from", children: change.inheritsChange.from || "\u2014" }),
+        /* @__PURE__ */ jsx60("span", { className: "model-diff-change__arrow", children: "\u2192" }),
+        /* @__PURE__ */ jsx60("code", { className: "model-diff-change__to", children: change.inheritsChange.to || "\u2014" })
       ] }),
-      change.nameChange && /* @__PURE__ */ jsxs55("div", { className: "model-diff-change__row", children: [
-        /* @__PURE__ */ jsx58("span", { className: "model-diff-change__label", children: "name:" }),
-        /* @__PURE__ */ jsx58("span", { className: "model-diff-change__from", children: change.nameChange.from }),
-        /* @__PURE__ */ jsx58("span", { className: "model-diff-change__arrow", children: "\u2192" }),
-        /* @__PURE__ */ jsx58("span", { className: "model-diff-change__to", children: change.nameChange.to })
+      change.nameChange && /* @__PURE__ */ jsxs57("div", { className: "model-diff-change__row", children: [
+        /* @__PURE__ */ jsx60("span", { className: "model-diff-change__label", children: "name:" }),
+        /* @__PURE__ */ jsx60("span", { className: "model-diff-change__from", children: change.nameChange.from }),
+        /* @__PURE__ */ jsx60("span", { className: "model-diff-change__arrow", children: "\u2192" }),
+        /* @__PURE__ */ jsx60("span", { className: "model-diff-change__to", children: change.nameChange.to })
       ] }),
-      change.attributesAdded.length > 0 && /* @__PURE__ */ jsxs55("div", { className: "model-diff-change__row model-diff-change__row--stack", children: [
-        /* @__PURE__ */ jsx58("span", { className: "model-diff-change__label", children: "+ \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B:" }),
-        /* @__PURE__ */ jsx58("div", { className: "model-diff-change__chips", children: change.attributesAdded.map((a) => /* @__PURE__ */ jsxs55("code", { className: "model-diff-chip model-diff-chip--added", children: [
+      change.attributesAdded.length > 0 && /* @__PURE__ */ jsxs57("div", { className: "model-diff-change__row model-diff-change__row--stack", children: [
+        /* @__PURE__ */ jsx60("span", { className: "model-diff-change__label", children: "+ \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B:" }),
+        /* @__PURE__ */ jsx60("div", { className: "model-diff-change__chips", children: change.attributesAdded.map((a) => /* @__PURE__ */ jsxs57("code", { className: "model-diff-chip model-diff-chip--added", children: [
           a.id,
-          /* @__PURE__ */ jsx58("span", { className: "model-diff-chip__type", children: a.dataType })
+          /* @__PURE__ */ jsx60("span", { className: "model-diff-chip__type", children: a.dataType })
         ] }, a.id)) })
       ] }),
-      change.attributesRemoved.length > 0 && /* @__PURE__ */ jsxs55("div", { className: "model-diff-change__row model-diff-change__row--stack", children: [
-        /* @__PURE__ */ jsx58("span", { className: "model-diff-change__label", children: "\u2212 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B:" }),
-        /* @__PURE__ */ jsx58("div", { className: "model-diff-change__chips", children: change.attributesRemoved.map((a) => /* @__PURE__ */ jsx58("code", { className: "model-diff-chip model-diff-chip--removed", children: a.id }, a.id)) })
+      change.attributesRemoved.length > 0 && /* @__PURE__ */ jsxs57("div", { className: "model-diff-change__row model-diff-change__row--stack", children: [
+        /* @__PURE__ */ jsx60("span", { className: "model-diff-change__label", children: "\u2212 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B:" }),
+        /* @__PURE__ */ jsx60("div", { className: "model-diff-change__chips", children: change.attributesRemoved.map((a) => /* @__PURE__ */ jsx60("code", { className: "model-diff-chip model-diff-chip--removed", children: a.id }, a.id)) })
       ] }),
-      change.attributesChanged.length > 0 && /* @__PURE__ */ jsxs55("div", { className: "model-diff-change__row model-diff-change__row--stack", children: [
-        /* @__PURE__ */ jsx58("span", { className: "model-diff-change__label", children: "~ \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B:" }),
-        /* @__PURE__ */ jsx58("div", { className: "model-diff-change__attr-changes", children: change.attributesChanged.map((ac) => /* @__PURE__ */ jsxs55("div", { className: "model-diff-attr-change", children: [
-          /* @__PURE__ */ jsx58("code", { className: "model-diff-attr-change__id", children: ac.id }),
-          /* @__PURE__ */ jsx58("div", { className: "model-diff-attr-change__fields", children: Object.entries(ac.changes).map(([field, { from, to }]) => /* @__PURE__ */ jsxs55("div", { className: "model-diff-field-change", children: [
-            /* @__PURE__ */ jsxs55("span", { className: "model-diff-field-change__name", children: [
+      change.attributesChanged.length > 0 && /* @__PURE__ */ jsxs57("div", { className: "model-diff-change__row model-diff-change__row--stack", children: [
+        /* @__PURE__ */ jsx60("span", { className: "model-diff-change__label", children: "~ \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B:" }),
+        /* @__PURE__ */ jsx60("div", { className: "model-diff-change__attr-changes", children: change.attributesChanged.map((ac) => /* @__PURE__ */ jsxs57("div", { className: "model-diff-attr-change", children: [
+          /* @__PURE__ */ jsx60("code", { className: "model-diff-attr-change__id", children: ac.id }),
+          /* @__PURE__ */ jsx60("div", { className: "model-diff-attr-change__fields", children: Object.entries(ac.changes).map(([field, { from, to }]) => /* @__PURE__ */ jsxs57("div", { className: "model-diff-field-change", children: [
+            /* @__PURE__ */ jsxs57("span", { className: "model-diff-field-change__name", children: [
               field,
               ":"
             ] }),
-            /* @__PURE__ */ jsx58("span", { className: "model-diff-field-change__from", children: formatValue(from) }),
-            /* @__PURE__ */ jsx58("span", { className: "model-diff-field-change__arrow", children: "\u2192" }),
-            /* @__PURE__ */ jsx58("span", { className: "model-diff-field-change__to", children: formatValue(to) })
+            /* @__PURE__ */ jsx60("span", { className: "model-diff-field-change__from", children: formatValue(from) }),
+            /* @__PURE__ */ jsx60("span", { className: "model-diff-field-change__arrow", children: "\u2192" }),
+            /* @__PURE__ */ jsx60("span", { className: "model-diff-field-change__to", children: formatValue(to) })
           ] }, field)) })
         ] }, ac.id)) })
       ] })
@@ -14369,45 +15082,45 @@ function DomainChangeCard({ summary }) {
     setEntityCatalogInitialFqid(fqid);
     setEntityCatalogOpen(true);
   };
-  return /* @__PURE__ */ jsxs55("div", { className: "model-diff-domain", children: [
-    /* @__PURE__ */ jsxs55(
+  return /* @__PURE__ */ jsxs57("div", { className: "model-diff-domain", children: [
+    /* @__PURE__ */ jsxs57(
       "button",
       {
         className: "model-diff-domain__head",
         onClick: () => setOpen(!open),
         children: [
-          /* @__PURE__ */ jsx58(MIcon, { name: open ? "expand_more" : "chevron_right", size: "sm" }),
-          /* @__PURE__ */ jsx58("code", { className: "model-diff-domain__id", children: summary.domainId }),
-          summary.version && /* @__PURE__ */ jsxs55("span", { className: "model-diff-domain__version", children: [
+          /* @__PURE__ */ jsx60(MIcon, { name: open ? "expand_more" : "chevron_right", size: "sm" }),
+          /* @__PURE__ */ jsx60("code", { className: "model-diff-domain__id", children: summary.domainId }),
+          summary.version && /* @__PURE__ */ jsxs57("span", { className: "model-diff-domain__version", children: [
             "v",
             summary.version
           ] }),
-          /* @__PURE__ */ jsx58("span", { className: "model-diff-domain__count", children: summary.totalChanges })
+          /* @__PURE__ */ jsx60("span", { className: "model-diff-domain__count", children: summary.totalChanges })
         ]
       }
     ),
-    open && /* @__PURE__ */ jsxs55("div", { className: "model-diff-domain__body", children: [
-      summary.metadataChanges.length > 0 && /* @__PURE__ */ jsxs55("div", { className: "model-diff-domain__group", children: [
-        /* @__PURE__ */ jsx58("div", { className: "model-diff-domain__group-title", children: "\u041C\u0435\u0442\u0430\u0434\u0430\u043D\u043D\u044B\u0435" }),
-        summary.metadataChanges.map((c, i) => /* @__PURE__ */ jsxs55("div", { className: "model-diff-change__row", children: [
-          /* @__PURE__ */ jsxs55("span", { className: "model-diff-change__label", children: [
+    open && /* @__PURE__ */ jsxs57("div", { className: "model-diff-domain__body", children: [
+      summary.metadataChanges.length > 0 && /* @__PURE__ */ jsxs57("div", { className: "model-diff-domain__group", children: [
+        /* @__PURE__ */ jsx60("div", { className: "model-diff-domain__group-title", children: "\u041C\u0435\u0442\u0430\u0434\u0430\u043D\u043D\u044B\u0435" }),
+        summary.metadataChanges.map((c, i) => /* @__PURE__ */ jsxs57("div", { className: "model-diff-change__row", children: [
+          /* @__PURE__ */ jsxs57("span", { className: "model-diff-change__label", children: [
             c.field,
             ":"
           ] }),
-          /* @__PURE__ */ jsx58("span", { className: "model-diff-change__from", children: formatValue(c.from) }),
-          /* @__PURE__ */ jsx58("span", { className: "model-diff-change__arrow", children: "\u2192" }),
-          /* @__PURE__ */ jsx58("span", { className: "model-diff-change__to", children: formatValue(c.to) })
+          /* @__PURE__ */ jsx60("span", { className: "model-diff-change__from", children: formatValue(c.from) }),
+          /* @__PURE__ */ jsx60("span", { className: "model-diff-change__arrow", children: "\u2192" }),
+          /* @__PURE__ */ jsx60("span", { className: "model-diff-change__to", children: formatValue(c.to) })
         ] }, i))
       ] }),
-      summary.entitiesAdded.length > 0 && /* @__PURE__ */ jsxs55("div", { className: "model-diff-domain__group", children: [
-        /* @__PURE__ */ jsxs55("div", { className: "model-diff-domain__group-title model-diff-domain__group-title--added", children: [
+      summary.entitiesAdded.length > 0 && /* @__PURE__ */ jsxs57("div", { className: "model-diff-domain__group", children: [
+        /* @__PURE__ */ jsxs57("div", { className: "model-diff-domain__group-title model-diff-domain__group-title--added", children: [
           "+ \u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 (",
           summary.entitiesAdded.length,
           ")"
         ] }),
-        summary.entitiesAdded.map((e) => /* @__PURE__ */ jsxs55("div", { className: "model-diff-item model-diff-item--added", children: [
-          /* @__PURE__ */ jsx58("span", { className: "model-diff-item__sign", children: "+" }),
-          /* @__PURE__ */ jsx58(
+        summary.entitiesAdded.map((e) => /* @__PURE__ */ jsxs57("div", { className: "model-diff-item model-diff-item--added", children: [
+          /* @__PURE__ */ jsx60("span", { className: "model-diff-item__sign", children: "+" }),
+          /* @__PURE__ */ jsx60(
             "button",
             {
               className: "model-diff-entity__id",
@@ -14415,53 +15128,53 @@ function DomainChangeCard({ summary }) {
               children: e.entityId
             }
           ),
-          e.name !== e.entityId && /* @__PURE__ */ jsx58("span", { className: "model-diff-item__meta", children: e.name })
+          e.name !== e.entityId && /* @__PURE__ */ jsx60("span", { className: "model-diff-item__meta", children: e.name })
         ] }, e.fqid))
       ] }),
-      summary.entitiesRemoved.length > 0 && /* @__PURE__ */ jsxs55("div", { className: "model-diff-domain__group", children: [
-        /* @__PURE__ */ jsxs55("div", { className: "model-diff-domain__group-title model-diff-domain__group-title--removed", children: [
+      summary.entitiesRemoved.length > 0 && /* @__PURE__ */ jsxs57("div", { className: "model-diff-domain__group", children: [
+        /* @__PURE__ */ jsxs57("div", { className: "model-diff-domain__group-title model-diff-domain__group-title--removed", children: [
           "\u2212 \u0423\u0434\u0430\u043B\u0435\u043D\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 (",
           summary.entitiesRemoved.length,
           ")"
         ] }),
-        summary.entitiesRemoved.map((e) => /* @__PURE__ */ jsxs55("div", { className: "model-diff-item model-diff-item--removed", children: [
-          /* @__PURE__ */ jsx58("span", { className: "model-diff-item__sign", children: "\u2212" }),
-          /* @__PURE__ */ jsx58("span", { className: "model-diff-entity__id", style: { textDecoration: "line-through", opacity: 0.7 }, children: e.entityId })
+        summary.entitiesRemoved.map((e) => /* @__PURE__ */ jsxs57("div", { className: "model-diff-item model-diff-item--removed", children: [
+          /* @__PURE__ */ jsx60("span", { className: "model-diff-item__sign", children: "\u2212" }),
+          /* @__PURE__ */ jsx60("span", { className: "model-diff-entity__id", style: { textDecoration: "line-through", opacity: 0.7 }, children: e.entityId })
         ] }, e.fqid))
       ] }),
-      summary.entitiesChanged.length > 0 && /* @__PURE__ */ jsxs55("div", { className: "model-diff-domain__group", children: [
-        /* @__PURE__ */ jsxs55("div", { className: "model-diff-domain__group-title model-diff-domain__group-title--changed", children: [
+      summary.entitiesChanged.length > 0 && /* @__PURE__ */ jsxs57("div", { className: "model-diff-domain__group", children: [
+        /* @__PURE__ */ jsxs57("div", { className: "model-diff-domain__group-title model-diff-domain__group-title--changed", children: [
           "~ \u0418\u0437\u043C\u0435\u043D\u0435\u043D\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 (",
           summary.entitiesChanged.length,
           ")"
         ] }),
-        summary.entitiesChanged.map((c) => /* @__PURE__ */ jsx58(DiffChangedEntity, { change: c }, c.fqid))
+        summary.entitiesChanged.map((c) => /* @__PURE__ */ jsx60(DiffChangedEntity, { change: c }, c.fqid))
       ] }),
-      (summary.mixinsAdded.length > 0 || summary.mixinsRemoved.length > 0) && /* @__PURE__ */ jsxs55("div", { className: "model-diff-domain__group", children: [
-        /* @__PURE__ */ jsx58("div", { className: "model-diff-domain__group-title", children: "\u041C\u0438\u043A\u0441\u0438\u043D\u044B" }),
-        summary.mixinsAdded.map((m) => /* @__PURE__ */ jsxs55("div", { className: "model-diff-item model-diff-item--added", children: [
-          /* @__PURE__ */ jsx58("span", { className: "model-diff-item__sign", children: "+" }),
-          /* @__PURE__ */ jsx58("code", { children: m.id }),
-          /* @__PURE__ */ jsxs55("span", { className: "model-diff-item__meta", children: [
+      (summary.mixinsAdded.length > 0 || summary.mixinsRemoved.length > 0) && /* @__PURE__ */ jsxs57("div", { className: "model-diff-domain__group", children: [
+        /* @__PURE__ */ jsx60("div", { className: "model-diff-domain__group-title", children: "\u041C\u0438\u043A\u0441\u0438\u043D\u044B" }),
+        summary.mixinsAdded.map((m) => /* @__PURE__ */ jsxs57("div", { className: "model-diff-item model-diff-item--added", children: [
+          /* @__PURE__ */ jsx60("span", { className: "model-diff-item__sign", children: "+" }),
+          /* @__PURE__ */ jsx60("code", { children: m.id }),
+          /* @__PURE__ */ jsxs57("span", { className: "model-diff-item__meta", children: [
             "\u2192 ",
             m.targetEntityFqid.split("/")[1]
           ] })
         ] }, "+" + m.id)),
-        summary.mixinsRemoved.map((m) => /* @__PURE__ */ jsxs55("div", { className: "model-diff-item model-diff-item--removed", children: [
-          /* @__PURE__ */ jsx58("span", { className: "model-diff-item__sign", children: "\u2212" }),
-          /* @__PURE__ */ jsx58("code", { children: m.id })
+        summary.mixinsRemoved.map((m) => /* @__PURE__ */ jsxs57("div", { className: "model-diff-item model-diff-item--removed", children: [
+          /* @__PURE__ */ jsx60("span", { className: "model-diff-item__sign", children: "\u2212" }),
+          /* @__PURE__ */ jsx60("code", { children: m.id })
         ] }, "-" + m.id))
       ] }),
-      (summary.dataTypesAdded.length > 0 || summary.dataTypesRemoved.length > 0) && /* @__PURE__ */ jsxs55("div", { className: "model-diff-domain__group", children: [
-        /* @__PURE__ */ jsx58("div", { className: "model-diff-domain__group-title", children: "\u0422\u0438\u043F\u044B \u0434\u0430\u043D\u043D\u044B\u0445" }),
-        summary.dataTypesAdded.map((d) => /* @__PURE__ */ jsxs55("div", { className: "model-diff-item model-diff-item--added", children: [
-          /* @__PURE__ */ jsx58("span", { className: "model-diff-item__sign", children: "+" }),
-          /* @__PURE__ */ jsx58("code", { children: d.id }),
-          /* @__PURE__ */ jsx58("span", { className: "model-diff-item__meta", children: d.kind })
+      (summary.dataTypesAdded.length > 0 || summary.dataTypesRemoved.length > 0) && /* @__PURE__ */ jsxs57("div", { className: "model-diff-domain__group", children: [
+        /* @__PURE__ */ jsx60("div", { className: "model-diff-domain__group-title", children: "\u0422\u0438\u043F\u044B \u0434\u0430\u043D\u043D\u044B\u0445" }),
+        summary.dataTypesAdded.map((d) => /* @__PURE__ */ jsxs57("div", { className: "model-diff-item model-diff-item--added", children: [
+          /* @__PURE__ */ jsx60("span", { className: "model-diff-item__sign", children: "+" }),
+          /* @__PURE__ */ jsx60("code", { children: d.id }),
+          /* @__PURE__ */ jsx60("span", { className: "model-diff-item__meta", children: d.kind })
         ] }, "+" + d.id)),
-        summary.dataTypesRemoved.map((d) => /* @__PURE__ */ jsxs55("div", { className: "model-diff-item model-diff-item--removed", children: [
-          /* @__PURE__ */ jsx58("span", { className: "model-diff-item__sign", children: "\u2212" }),
-          /* @__PURE__ */ jsx58("code", { children: d.id })
+        summary.dataTypesRemoved.map((d) => /* @__PURE__ */ jsxs57("div", { className: "model-diff-item model-diff-item--removed", children: [
+          /* @__PURE__ */ jsx60("span", { className: "model-diff-item__sign", children: "\u2212" }),
+          /* @__PURE__ */ jsx60("code", { children: d.id })
         ] }, "-" + d.id))
       ] })
     ] })
@@ -14644,15 +15357,15 @@ var init_validation = __esm({
 });
 
 // src/web/components/modals/ModelValidationModal.tsx
-import { useMemo as useMemo29, useState as useState19 } from "react";
-import { Fragment as Fragment9, jsx as jsx59, jsxs as jsxs56 } from "react/jsx-runtime";
+import { useMemo as useMemo30, useState as useState19 } from "react";
+import { Fragment as Fragment13, jsx as jsx61, jsxs as jsxs58 } from "react/jsx-runtime";
 function ModelValidationModal() {
   const store = useGraphStore();
   const { index, loading, error } = useModelIndex();
   const [showHelp, setShowHelp] = useState19(false);
   const [expanded, setExpanded] = useState19(/* @__PURE__ */ new Set());
   const open = store.modelValidationOpen;
-  const summary = useMemo29(
+  const summary = useMemo30(
     () => index ? summarizeValidation(index.stats, index.orphans) : null,
     [index]
   );
@@ -14676,26 +15389,26 @@ function ModelValidationModal() {
   const errors = summary?.issues.filter((i) => i.severity === "error") ?? [];
   const warnings = summary?.issues.filter((i) => i.severity === "warning") ?? [];
   const infos = summary?.issues.filter((i) => i.severity === "info") ?? [];
-  return /* @__PURE__ */ jsx59(
+  return /* @__PURE__ */ jsx61(
     "div",
     {
       className: "help-overlay",
       onMouseDown: () => store.setModelValidationOpen(false),
-      children: /* @__PURE__ */ jsxs56(
+      children: /* @__PURE__ */ jsxs58(
         "div",
         {
           className: "help-modal model-validation-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
-            /* @__PURE__ */ jsxs56("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsxs56("div", { className: "help-modal__title", children: [
-                /* @__PURE__ */ jsx59(MIcon, { name: "science", size: "sm" }),
-                /* @__PURE__ */ jsx59("span", { className: "icon-label", children: "\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u043C\u043E\u0434\u0435\u043B\u0438" }),
-                summary && summary.totalIssues > 0 && /* @__PURE__ */ jsx59("span", { className: "help-modal__badge", children: summary.totalIssues })
+            /* @__PURE__ */ jsxs58("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs58("div", { className: "help-modal__title", children: [
+                /* @__PURE__ */ jsx61(MIcon, { name: "science", size: "sm" }),
+                /* @__PURE__ */ jsx61("span", { className: "icon-label", children: "\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u043C\u043E\u0434\u0435\u043B\u0438" }),
+                summary && summary.totalIssues > 0 && /* @__PURE__ */ jsx61("span", { className: "help-modal__badge", children: summary.totalIssues })
               ] }),
-              /* @__PURE__ */ jsxs56("div", { className: "help-modal__actions", children: [
-                /* @__PURE__ */ jsx59(HelpButton, { open: showHelp, onToggle: () => setShowHelp(!showHelp), label: "\u0427\u0442\u043E \u044D\u0442\u043E?" }),
-                /* @__PURE__ */ jsx59(
+              /* @__PURE__ */ jsxs58("div", { className: "help-modal__actions", children: [
+                /* @__PURE__ */ jsx61(HelpButton, { open: showHelp, onToggle: () => setShowHelp(!showHelp), label: "\u0427\u0442\u043E \u044D\u0442\u043E?" }),
+                /* @__PURE__ */ jsx61(
                   "button",
                   {
                     className: "help-modal__close",
@@ -14705,67 +15418,67 @@ function ModelValidationModal() {
                 )
               ] })
             ] }),
-            /* @__PURE__ */ jsxs56("div", { className: "help-modal__body", children: [
-              loading && /* @__PURE__ */ jsx59("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }),
-              error && /* @__PURE__ */ jsxs56("div", { style: { color: "var(--danger)" }, children: [
+            /* @__PURE__ */ jsxs58("div", { className: "help-modal__body", children: [
+              loading && /* @__PURE__ */ jsx61("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }),
+              error && /* @__PURE__ */ jsxs58("div", { style: { color: "var(--danger)" }, children: [
                 "\u041E\u0448\u0438\u0431\u043A\u0430: ",
                 error
               ] }),
-              index && summary && /* @__PURE__ */ jsxs56(Fragment9, { children: [
-                /* @__PURE__ */ jsxs56(ModalHelp, { visible: showHelp, children: [
-                  /* @__PURE__ */ jsx59(HelpSection, { title: "\u0427\u0442\u043E \u044D\u0442\u043E", children: /* @__PURE__ */ jsxs56(HelpText, { children: [
+              index && summary && /* @__PURE__ */ jsxs58(Fragment13, { children: [
+                /* @__PURE__ */ jsxs58(ModalHelp, { visible: showHelp, children: [
+                  /* @__PURE__ */ jsx61(HelpSection, { title: "\u0427\u0442\u043E \u044D\u0442\u043E", children: /* @__PURE__ */ jsxs58(HelpText, { children: [
                     "\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u2014 \u044D\u0442\u043E \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438\u0439 \u043E\u0431\u0445\u043E\u0434 \u0432\u0441\u0435\u0439 \u043C\u043E\u0434\u0435\u043B\u0438 \u0438 \u043F\u043E\u0438\u0441\u043A \u043F\u0440\u043E\u0431\u043B\u0435\u043C: \u0446\u0438\u043A\u043B\u043E\u0432, \u0431\u0438\u0442\u044B\u0445 \u0441\u0441\u044B\u043B\u043E\u043A, \u0434\u0443\u0431\u043B\u0435\u0439, \u0441\u0438\u0440\u043E\u0442, \u043A\u043E\u043D\u0444\u043B\u0438\u043A\u0442\u043E\u0432 \u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432. \u041E\u0442\u043B\u0438\u0447\u0430\u0435\u0442\u0441\u044F \u043E\u0442 \u043B\u0438\u043D\u0442\u0435\u0440\u0430: \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u0438\u0449\u0435\u0442 ",
-                    /* @__PURE__ */ jsx59("em", { children: "\u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u043D\u044B\u0435" }),
+                    /* @__PURE__ */ jsx61("em", { children: "\u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u043D\u044B\u0435" }),
                     " \u043E\u0448\u0438\u0431\u043A\u0438, \u043B\u0438\u043D\u0442\u0435\u0440 \u2014 ",
-                    /* @__PURE__ */ jsx59("em", { children: "\u0441\u0442\u0438\u043B\u0435\u0432\u044B\u0435" }),
+                    /* @__PURE__ */ jsx61("em", { children: "\u0441\u0442\u0438\u043B\u0435\u0432\u044B\u0435" }),
                     "."
                   ] }) }),
-                  /* @__PURE__ */ jsx59(HelpSection, { title: "\u0423\u0440\u043E\u0432\u043D\u0438 \u043F\u0440\u043E\u0431\u043B\u0435\u043C", children: /* @__PURE__ */ jsxs56(HelpList, { children: [
-                    /* @__PURE__ */ jsxs56("li", { children: [
-                      /* @__PURE__ */ jsx59("strong", { children: "\u041E\u0448\u0438\u0431\u043A\u0438" }),
+                  /* @__PURE__ */ jsx61(HelpSection, { title: "\u0423\u0440\u043E\u0432\u043D\u0438 \u043F\u0440\u043E\u0431\u043B\u0435\u043C", children: /* @__PURE__ */ jsxs58(HelpList, { children: [
+                    /* @__PURE__ */ jsxs58("li", { children: [
+                      /* @__PURE__ */ jsx61("strong", { children: "\u041E\u0448\u0438\u0431\u043A\u0438" }),
                       " \u2014 \u043C\u043E\u0434\u0435\u043B\u044C \u0441\u043B\u043E\u043C\u0430\u043D\u0430: \u0446\u0438\u043A\u043B\u044B \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F, \u0441\u0441\u044B\u043B\u043A\u0438 \u043D\u0430 \u043D\u0435\u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438, \u0434\u0443\u0431\u043B\u0438\u043A\u0430\u0442\u044B entityId."
                     ] }),
-                    /* @__PURE__ */ jsxs56("li", { children: [
-                      /* @__PURE__ */ jsx59("strong", { children: "\u041F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u044F" }),
+                    /* @__PURE__ */ jsxs58("li", { children: [
+                      /* @__PURE__ */ jsx61("strong", { children: "\u041F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u044F" }),
                       " \u2014 \u043C\u043E\u0434\u0435\u043B\u044C \u0440\u0430\u0431\u043E\u0442\u0430\u0435\u0442, \u043D\u043E \u0435\u0441\u0442\u044C \u043F\u043E\u0442\u0435\u043D\u0446\u0438\u0430\u043B\u044C\u043D\u044B\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B: \u0441\u0438\u0440\u043E\u0442\u044B, \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0431\u0435\u0437 views, \u043A\u043E\u043D\u0444\u043B\u0438\u043A\u0442\u044B \u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432."
                     ] }),
-                    /* @__PURE__ */ jsxs56("li", { children: [
-                      /* @__PURE__ */ jsx59("strong", { children: "\u0418\u043D\u0444\u043E\u0440\u043C\u0430\u0446\u0438\u044F" }),
+                    /* @__PURE__ */ jsxs58("li", { children: [
+                      /* @__PURE__ */ jsx61("strong", { children: "\u0418\u043D\u0444\u043E\u0440\u043C\u0430\u0446\u0438\u044F" }),
                       " \u2014 \u043D\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0430, \u0430 \u0444\u0430\u043A\u0442: \u043F\u0443\u0441\u0442\u044B\u0435 \u0434\u043E\u043C\u0435\u043D\u044B (\u044D\u0442\u043E \u043D\u043E\u0440\u043C\u0430 \u0434\u043B\u044F \u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432), \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0431\u0435\u0437 \u0441\u043E\u0431\u0441\u0442\u0432\u0435\u043D\u043D\u044B\u0445 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432."
                     ] })
                   ] }) }),
-                  /* @__PURE__ */ jsx59(HelpSection, { title: "\u041F\u0440\u0438\u043C\u0435\u0440\u044B", children: /* @__PURE__ */ jsxs56(HelpText, { children: [
-                    /* @__PURE__ */ jsx59("strong", { children: "\u0426\u0438\u043A\u043B:" }),
+                  /* @__PURE__ */ jsx61(HelpSection, { title: "\u041F\u0440\u0438\u043C\u0435\u0440\u044B", children: /* @__PURE__ */ jsxs58(HelpText, { children: [
+                    /* @__PURE__ */ jsx61("strong", { children: "\u0426\u0438\u043A\u043B:" }),
                     " A \u043D\u0430\u0441\u043B\u0435\u0434\u0443\u0435\u0442 B, B \u043D\u0430\u0441\u043B\u0435\u0434\u0443\u0435\u0442 A \u2014 \u0441\u043B\u043E\u043C\u0430\u0435\u0442\u0441\u044F \u043B\u043E\u0433\u0438\u043A\u0430 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F.",
                     " ",
-                    /* @__PURE__ */ jsx59("strong", { children: "\u0411\u0438\u0442\u0430\u044F \u0441\u0441\u044B\u043B\u043A\u0430:" }),
+                    /* @__PURE__ */ jsx61("strong", { children: "\u0411\u0438\u0442\u0430\u044F \u0441\u0441\u044B\u043B\u043A\u0430:" }),
                     " \u0430\u0442\u0440\u0438\u0431\u0443\u0442 ",
-                    /* @__PURE__ */ jsx59("code", { children: "Reference" }),
+                    /* @__PURE__ */ jsx61("code", { children: "Reference" }),
                     " \u0443\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 \u043D\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C, \u043A\u043E\u0442\u043E\u0440\u043E\u0439 \u043D\u0435\u0442 \u0432 \u0438\u043D\u0434\u0435\u043A\u0441\u0435. ",
-                    /* @__PURE__ */ jsx59("strong", { children: "\u041E\u0441\u0438\u0440\u043E\u0442\u0435\u0432\u0448\u0438\u0439 view:" }),
+                    /* @__PURE__ */ jsx61("strong", { children: "\u041E\u0441\u0438\u0440\u043E\u0442\u0435\u0432\u0448\u0438\u0439 view:" }),
                     " \u043E\u0431\u044A\u044F\u0432\u043B\u0435\u043D, \u043D\u043E \u043D\u0435 \u0432\u044B\u0437\u044B\u0432\u0430\u0435\u0442\u0441\u044F \u043D\u0438 \u0438\u0437 \u043C\u0435\u043D\u044E, \u043D\u0438 \u0438\u0437 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F."
                   ] }) })
                 ] }),
-                /* @__PURE__ */ jsxs56("div", { className: "model-validation-summary", children: [
-                  /* @__PURE__ */ jsxs56("div", { className: "model-validation-stat model-validation-stat--error", children: [
-                    /* @__PURE__ */ jsx59("div", { className: "model-validation-stat__value", children: summary.counts.error }),
-                    /* @__PURE__ */ jsx59("div", { className: "model-validation-stat__label", children: "\u041E\u0448\u0438\u0431\u043E\u043A" })
+                /* @__PURE__ */ jsxs58("div", { className: "model-validation-summary", children: [
+                  /* @__PURE__ */ jsxs58("div", { className: "model-validation-stat model-validation-stat--error", children: [
+                    /* @__PURE__ */ jsx61("div", { className: "model-validation-stat__value", children: summary.counts.error }),
+                    /* @__PURE__ */ jsx61("div", { className: "model-validation-stat__label", children: "\u041E\u0448\u0438\u0431\u043E\u043A" })
                   ] }),
-                  /* @__PURE__ */ jsxs56("div", { className: "model-validation-stat model-validation-stat--warning", children: [
-                    /* @__PURE__ */ jsx59("div", { className: "model-validation-stat__value", children: summary.counts.warning }),
-                    /* @__PURE__ */ jsx59("div", { className: "model-validation-stat__label", children: "\u041F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u0439" })
+                  /* @__PURE__ */ jsxs58("div", { className: "model-validation-stat model-validation-stat--warning", children: [
+                    /* @__PURE__ */ jsx61("div", { className: "model-validation-stat__value", children: summary.counts.warning }),
+                    /* @__PURE__ */ jsx61("div", { className: "model-validation-stat__label", children: "\u041F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u0439" })
                   ] }),
-                  /* @__PURE__ */ jsxs56("div", { className: "model-validation-stat model-validation-stat--info", children: [
-                    /* @__PURE__ */ jsx59("div", { className: "model-validation-stat__value", children: summary.counts.info }),
-                    /* @__PURE__ */ jsx59("div", { className: "model-validation-stat__label", children: "\u0417\u0430\u043C\u0435\u0447\u0430\u043D\u0438\u0439" })
+                  /* @__PURE__ */ jsxs58("div", { className: "model-validation-stat model-validation-stat--info", children: [
+                    /* @__PURE__ */ jsx61("div", { className: "model-validation-stat__value", children: summary.counts.info }),
+                    /* @__PURE__ */ jsx61("div", { className: "model-validation-stat__label", children: "\u0417\u0430\u043C\u0435\u0447\u0430\u043D\u0438\u0439" })
                   ] })
                 ] }),
-                summary.totalIssues === 0 && /* @__PURE__ */ jsxs56("div", { className: "model-validation-empty", children: [
-                  /* @__PURE__ */ jsx59("div", { className: "model-validation-empty__icon", children: "\u2705" }),
-                  /* @__PURE__ */ jsx59("div", { className: "model-validation-empty__title", children: "\u041C\u043E\u0434\u0435\u043B\u044C \u043F\u0440\u043E\u0448\u043B\u0430 \u0432\u0441\u0435 \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0438" }),
-                  /* @__PURE__ */ jsx59("div", { className: "model-validation-empty__hint", children: "\u0426\u0438\u043A\u043B\u043E\u0432, \u0431\u0438\u0442\u044B\u0445 \u0441\u0441\u044B\u043B\u043E\u043A, \u0441\u0438\u0440\u043E\u0442 \u0438 \u0434\u0443\u0431\u043B\u0438\u043A\u0430\u0442\u043E\u0432 \u043D\u0435 \u043E\u0431\u043D\u0430\u0440\u0443\u0436\u0435\u043D\u043E." })
+                summary.totalIssues === 0 && /* @__PURE__ */ jsxs58("div", { className: "model-validation-empty", children: [
+                  /* @__PURE__ */ jsx61("div", { className: "model-validation-empty__icon", children: "\u2705" }),
+                  /* @__PURE__ */ jsx61("div", { className: "model-validation-empty__title", children: "\u041C\u043E\u0434\u0435\u043B\u044C \u043F\u0440\u043E\u0448\u043B\u0430 \u0432\u0441\u0435 \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0438" }),
+                  /* @__PURE__ */ jsx61("div", { className: "model-validation-empty__hint", children: "\u0426\u0438\u043A\u043B\u043E\u0432, \u0431\u0438\u0442\u044B\u0445 \u0441\u0441\u044B\u043B\u043E\u043A, \u0441\u0438\u0440\u043E\u0442 \u0438 \u0434\u0443\u0431\u043B\u0438\u043A\u0430\u0442\u043E\u0432 \u043D\u0435 \u043E\u0431\u043D\u0430\u0440\u0443\u0436\u0435\u043D\u043E." })
                 ] }),
-                errors.length > 0 && /* @__PURE__ */ jsx59(
+                errors.length > 0 && /* @__PURE__ */ jsx61(
                   IssueSection,
                   {
                     severity: "error",
@@ -14776,7 +15489,7 @@ function ModelValidationModal() {
                     onOpenEntity: openEntity
                   }
                 ),
-                warnings.length > 0 && /* @__PURE__ */ jsx59(
+                warnings.length > 0 && /* @__PURE__ */ jsx61(
                   IssueSection,
                   {
                     severity: "warning",
@@ -14787,7 +15500,7 @@ function ModelValidationModal() {
                     onOpenEntity: openEntity
                   }
                 ),
-                infos.length > 0 && /* @__PURE__ */ jsx59(
+                infos.length > 0 && /* @__PURE__ */ jsx61(
                   IssueSection,
                   {
                     severity: "info",
@@ -14814,39 +15527,39 @@ function IssueSection({
   onToggle,
   onOpenEntity
 }) {
-  return /* @__PURE__ */ jsxs56("div", { className: "model-validation-group model-validation-group--" + severity, children: [
-    /* @__PURE__ */ jsx59("div", { className: "model-validation-group__title", children: label }),
+  return /* @__PURE__ */ jsxs58("div", { className: "model-validation-group model-validation-group--" + severity, children: [
+    /* @__PURE__ */ jsx61("div", { className: "model-validation-group__title", children: label }),
     issues.map((issue) => {
       const isOpen = expanded.has(issue.title);
-      return /* @__PURE__ */ jsxs56("div", { className: "model-validation-issue", children: [
-        /* @__PURE__ */ jsxs56(
+      return /* @__PURE__ */ jsxs58("div", { className: "model-validation-issue", children: [
+        /* @__PURE__ */ jsxs58(
           "button",
           {
             className: "model-validation-issue__head",
             onClick: () => onToggle(issue.title),
             children: [
-              /* @__PURE__ */ jsx59(
+              /* @__PURE__ */ jsx61(
                 MIcon,
                 {
                   name: isOpen ? "expand_more" : "chevron_right",
                   size: "sm"
                 }
               ),
-              /* @__PURE__ */ jsx59("span", { className: "model-validation-issue__title", children: issue.title }),
-              /* @__PURE__ */ jsx59("span", { className: "model-validation-issue__count", children: issue.count })
+              /* @__PURE__ */ jsx61("span", { className: "model-validation-issue__title", children: issue.title }),
+              /* @__PURE__ */ jsx61("span", { className: "model-validation-issue__count", children: issue.count })
             ]
           }
         ),
-        /* @__PURE__ */ jsx59("div", { className: "model-validation-issue__desc", children: issue.description }),
-        /* @__PURE__ */ jsxs56("div", { className: "model-validation-issue__hint", children: [
-          /* @__PURE__ */ jsx59(MIcon, { name: "lightbulb", size: "sm" }),
-          /* @__PURE__ */ jsx59("span", { children: issue.hint })
+        /* @__PURE__ */ jsx61("div", { className: "model-validation-issue__desc", children: issue.description }),
+        /* @__PURE__ */ jsxs58("div", { className: "model-validation-issue__hint", children: [
+          /* @__PURE__ */ jsx61(MIcon, { name: "lightbulb", size: "sm" }),
+          /* @__PURE__ */ jsx61("span", { children: issue.hint })
         ] }),
-        isOpen && issue.samples.length > 0 && /* @__PURE__ */ jsxs56("div", { className: "model-validation-issue__samples", children: [
+        isOpen && issue.samples.length > 0 && /* @__PURE__ */ jsxs58("div", { className: "model-validation-issue__samples", children: [
           issue.samples.map((s, i) => {
             const isFqid = /^[a-z0-9.-]+\/[a-z0-9_-]+$/i.test(s);
             if (isFqid) {
-              return /* @__PURE__ */ jsx59(
+              return /* @__PURE__ */ jsx61(
                 "button",
                 {
                   className: "model-validation-sample model-validation-sample--link",
@@ -14856,9 +15569,9 @@ function IssueSection({
                 i
               );
             }
-            return /* @__PURE__ */ jsx59("div", { className: "model-validation-sample", children: s }, i);
+            return /* @__PURE__ */ jsx61("div", { className: "model-validation-sample", children: s }, i);
           }),
-          issue.count > issue.samples.length && /* @__PURE__ */ jsxs56("div", { className: "model-validation-sample model-validation-sample--more", children: [
+          issue.count > issue.samples.length && /* @__PURE__ */ jsxs58("div", { className: "model-validation-sample model-validation-sample--more", children: [
             "...\u0438 \u0435\u0449\u0451 ",
             issue.count - issue.samples.length
           ] })
@@ -14965,15 +15678,15 @@ var init_glossary = __esm({
 });
 
 // src/web/components/modals/GlossaryModal.tsx
-import { useMemo as useMemo30, useState as useState20 } from "react";
-import { Fragment as Fragment10, jsx as jsx60, jsxs as jsxs57 } from "react/jsx-runtime";
+import { useMemo as useMemo31, useState as useState20 } from "react";
+import { Fragment as Fragment14, jsx as jsx62, jsxs as jsxs59 } from "react/jsx-runtime";
 function GlossaryModal() {
   const store = useGraphStore();
   const { index, loading, error } = useModelIndex();
   const [tab, setTab] = useState20("entity");
   const [query, setQuery] = useState20("");
   const open = store.glossaryOpen;
-  const sections = useMemo30(() => {
+  const sections = useMemo31(() => {
     if (!index)
       return [];
     if (tab === "entity")
@@ -14982,15 +15695,15 @@ function GlossaryModal() {
       return buildAttributeGlossary(index);
     return buildDataTypeGlossary(index);
   }, [index, tab]);
-  const filtered = useMemo30(
+  const filtered = useMemo31(
     () => filterGlossarySections(sections, query),
     [sections, query]
   );
-  const totalCount = useMemo30(
+  const totalCount = useMemo31(
     () => sections.reduce((s, sec) => s + sec.entries.length, 0),
     [sections]
   );
-  const filteredCount = useMemo30(
+  const filteredCount = useMemo31(
     () => filtered.reduce((s, sec) => s + sec.entries.length, 0),
     [filtered]
   );
@@ -15007,27 +15720,27 @@ function GlossaryModal() {
   if (!open)
     return null;
   const availableLetters = filtered.map((s) => s.letter);
-  return /* @__PURE__ */ jsx60(
+  return /* @__PURE__ */ jsx62(
     "div",
     {
       className: "help-overlay help-overlay--fullscreen",
       onMouseDown: () => store.setGlossaryOpen(false),
-      children: /* @__PURE__ */ jsxs57(
+      children: /* @__PURE__ */ jsxs59(
         "div",
         {
           className: "help-modal glossary-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
-            /* @__PURE__ */ jsxs57("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsxs57("div", { className: "help-modal__title", children: [
+            /* @__PURE__ */ jsxs59("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs59("div", { className: "help-modal__title", children: [
                 "\u{1F4DA} \u0413\u043B\u043E\u0441\u0441\u0430\u0440\u0438\u0439",
-                index && /* @__PURE__ */ jsxs57("span", { className: "help-modal__badge", children: [
+                index && /* @__PURE__ */ jsxs59("span", { className: "help-modal__badge", children: [
                   filteredCount,
                   " / ",
                   totalCount
                 ] })
               ] }),
-              /* @__PURE__ */ jsx60(
+              /* @__PURE__ */ jsx62(
                 "button",
                 {
                   className: "help-modal__close",
@@ -15036,15 +15749,15 @@ function GlossaryModal() {
                 }
               )
             ] }),
-            loading && /* @__PURE__ */ jsx60("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx60("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
-            error && /* @__PURE__ */ jsx60("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs57("div", { style: { color: "var(--danger)" }, children: [
+            loading && /* @__PURE__ */ jsx62("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx62("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
+            error && /* @__PURE__ */ jsx62("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs59("div", { style: { color: "var(--danger)" }, children: [
               "\u041E\u0448\u0438\u0431\u043A\u0430: ",
               error
             ] }) }),
-            index && /* @__PURE__ */ jsxs57("div", { className: "glossary-body", children: [
-              /* @__PURE__ */ jsxs57("div", { className: "glossary-sidebar", children: [
-                /* @__PURE__ */ jsxs57("div", { className: "glossary-tabs", children: [
-                  /* @__PURE__ */ jsx60(
+            index && /* @__PURE__ */ jsxs59("div", { className: "glossary-body", children: [
+              /* @__PURE__ */ jsxs59("div", { className: "glossary-sidebar", children: [
+                /* @__PURE__ */ jsxs59("div", { className: "glossary-tabs", children: [
+                  /* @__PURE__ */ jsx62(
                     "button",
                     {
                       className: "glossary-tab" + (tab === "entity" ? " active" : ""),
@@ -15055,7 +15768,7 @@ function GlossaryModal() {
                       children: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438"
                     }
                   ),
-                  /* @__PURE__ */ jsx60(
+                  /* @__PURE__ */ jsx62(
                     "button",
                     {
                       className: "glossary-tab" + (tab === "attribute" ? " active" : ""),
@@ -15066,7 +15779,7 @@ function GlossaryModal() {
                       children: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u044B"
                     }
                   ),
-                  /* @__PURE__ */ jsx60(
+                  /* @__PURE__ */ jsx62(
                     "button",
                     {
                       className: "glossary-tab" + (tab === "dataType" ? " active" : ""),
@@ -15078,12 +15791,12 @@ function GlossaryModal() {
                     }
                   )
                 ] }),
-                /* @__PURE__ */ jsxs57("div", { className: "glossary-index", children: [
-                  /* @__PURE__ */ jsx60("div", { className: "glossary-index__title", children: "\u0423\u043A\u0430\u0437\u0430\u0442\u0435\u043B\u044C" }),
-                  /* @__PURE__ */ jsxs57("div", { className: "glossary-index__letters", children: [
+                /* @__PURE__ */ jsxs59("div", { className: "glossary-index", children: [
+                  /* @__PURE__ */ jsx62("div", { className: "glossary-index__title", children: "\u0423\u043A\u0430\u0437\u0430\u0442\u0435\u043B\u044C" }),
+                  /* @__PURE__ */ jsxs59("div", { className: "glossary-index__letters", children: [
                     "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map((L) => {
                       const has = availableLetters.includes(L);
-                      return /* @__PURE__ */ jsx60(
+                      return /* @__PURE__ */ jsx62(
                         "button",
                         {
                           className: "glossary-letter" + (has ? "" : " disabled"),
@@ -15094,7 +15807,7 @@ function GlossaryModal() {
                         L
                       );
                     }),
-                    /* @__PURE__ */ jsx60(
+                    /* @__PURE__ */ jsx62(
                       "button",
                       {
                         className: "glossary-letter" + (availableLetters.includes("#") ? "" : " disabled"),
@@ -15106,10 +15819,10 @@ function GlossaryModal() {
                   ] })
                 ] })
               ] }),
-              /* @__PURE__ */ jsxs57("div", { className: "glossary-content", children: [
-                /* @__PURE__ */ jsxs57("div", { className: "glossary-search-wrap", children: [
-                  /* @__PURE__ */ jsx60("span", { className: "entity-search-icon", children: "\u{1F50D}" }),
-                  /* @__PURE__ */ jsx60(
+              /* @__PURE__ */ jsxs59("div", { className: "glossary-content", children: [
+                /* @__PURE__ */ jsxs59("div", { className: "glossary-search-wrap", children: [
+                  /* @__PURE__ */ jsx62("span", { className: "entity-search-icon", children: "\u{1F50D}" }),
+                  /* @__PURE__ */ jsx62(
                     "input",
                     {
                       className: "entity-search-input",
@@ -15120,7 +15833,7 @@ function GlossaryModal() {
                       autoFocus: true
                     }
                   ),
-                  query && /* @__PURE__ */ jsx60(
+                  query && /* @__PURE__ */ jsx62(
                     "button",
                     {
                       className: "entity-search-clear",
@@ -15129,14 +15842,14 @@ function GlossaryModal() {
                     }
                   )
                 ] }),
-                /* @__PURE__ */ jsx60("div", { className: "glossary-list", children: filtered.length === 0 ? /* @__PURE__ */ jsx60("div", { className: "glossary-empty", children: query ? `\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443 \xAB${query}\xBB` : "\u041D\u0435\u0442 \u0434\u0430\u043D\u043D\u044B\u0445" }) : filtered.map((section) => /* @__PURE__ */ jsxs57(
+                /* @__PURE__ */ jsx62("div", { className: "glossary-list", children: filtered.length === 0 ? /* @__PURE__ */ jsx62("div", { className: "glossary-empty", children: query ? `\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443 \xAB${query}\xBB` : "\u041D\u0435\u0442 \u0434\u0430\u043D\u043D\u044B\u0445" }) : filtered.map((section) => /* @__PURE__ */ jsxs59(
                   "div",
                   {
                     id: "glossary-section-" + section.letter,
                     className: "glossary-section",
                     children: [
-                      /* @__PURE__ */ jsx60("div", { className: "glossary-section__letter", children: section.letter }),
-                      section.entries.map((entry) => /* @__PURE__ */ jsx60(
+                      /* @__PURE__ */ jsx62("div", { className: "glossary-section__letter", children: section.letter }),
+                      section.entries.map((entry) => /* @__PURE__ */ jsx62(
                         GlossaryEntryCard,
                         {
                           entry,
@@ -15169,17 +15882,17 @@ function GlossaryEntryCard({
     const idx = text.toLowerCase().indexOf(q);
     if (idx === -1)
       return text;
-    return /* @__PURE__ */ jsxs57(Fragment10, { children: [
+    return /* @__PURE__ */ jsxs59(Fragment14, { children: [
       text.slice(0, idx),
-      /* @__PURE__ */ jsx60("mark", { className: "search-hl", children: text.slice(idx, idx + q.length) }),
+      /* @__PURE__ */ jsx62("mark", { className: "search-hl", children: text.slice(idx, idx + q.length) }),
       text.slice(idx + q.length)
     ] });
   };
   if (entry.kind === "entity") {
     const e = entry.entity;
-    return /* @__PURE__ */ jsxs57("div", { className: "glossary-entry", children: [
-      /* @__PURE__ */ jsxs57("div", { className: "glossary-entry__head", children: [
-        /* @__PURE__ */ jsx60(
+    return /* @__PURE__ */ jsxs59("div", { className: "glossary-entry", children: [
+      /* @__PURE__ */ jsxs59("div", { className: "glossary-entry__head", children: [
+        /* @__PURE__ */ jsx62(
           "button",
           {
             className: "glossary-entry__name",
@@ -15188,10 +15901,10 @@ function GlossaryEntryCard({
             children: highlight(e.name || e.entityId)
           }
         ),
-        /* @__PURE__ */ jsx60("span", { className: "glossary-entry__id", children: e.entityId })
+        /* @__PURE__ */ jsx62("span", { className: "glossary-entry__id", children: e.entityId })
       ] }),
-      /* @__PURE__ */ jsxs57("div", { className: "glossary-entry__meta", children: [
-        /* @__PURE__ */ jsx60(
+      /* @__PURE__ */ jsxs59("div", { className: "glossary-entry__meta", children: [
+        /* @__PURE__ */ jsx62(
           "button",
           {
             className: "glossary-entry__domain",
@@ -15199,24 +15912,24 @@ function GlossaryEntryCard({
             children: e.domainId
           }
         ),
-        /* @__PURE__ */ jsxs57("span", { className: "glossary-entry__tags", children: [
+        /* @__PURE__ */ jsxs59("span", { className: "glossary-entry__tags", children: [
           e.attributes.length,
           " \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432"
         ] }),
-        e.inherits && /* @__PURE__ */ jsxs57("span", { className: "glossary-entry__inherits", children: [
+        e.inherits && /* @__PURE__ */ jsxs59("span", { className: "glossary-entry__inherits", children: [
           "\u21B3 ",
           e.inherits.split("/")[1]
         ] })
       ] }),
-      e.description && /* @__PURE__ */ jsx60("div", { className: "glossary-entry__desc", children: highlight(e.description) })
+      e.description && /* @__PURE__ */ jsx62("div", { className: "glossary-entry__desc", children: highlight(e.description) })
     ] });
   }
   if (entry.kind === "attribute") {
     const a = entry.attribute;
     const e = entry.entity;
-    return /* @__PURE__ */ jsxs57("div", { className: "glossary-entry", children: [
-      /* @__PURE__ */ jsxs57("div", { className: "glossary-entry__head", children: [
-        /* @__PURE__ */ jsx60(
+    return /* @__PURE__ */ jsxs59("div", { className: "glossary-entry", children: [
+      /* @__PURE__ */ jsxs59("div", { className: "glossary-entry__head", children: [
+        /* @__PURE__ */ jsx62(
           "button",
           {
             className: "glossary-entry__name",
@@ -15225,15 +15938,15 @@ function GlossaryEntryCard({
             children: highlight(a.name || a.id)
           }
         ),
-        /* @__PURE__ */ jsx60("code", { className: "glossary-entry__attr-id", children: a.id }),
-        /* @__PURE__ */ jsx60("span", { className: "glossary-entry__type", children: a.dataType })
+        /* @__PURE__ */ jsx62("code", { className: "glossary-entry__attr-id", children: a.id }),
+        /* @__PURE__ */ jsx62("span", { className: "glossary-entry__type", children: a.dataType })
       ] }),
-      /* @__PURE__ */ jsxs57("div", { className: "glossary-entry__meta", children: [
-        /* @__PURE__ */ jsxs57("span", { className: "glossary-entry__context", children: [
+      /* @__PURE__ */ jsxs59("div", { className: "glossary-entry__meta", children: [
+        /* @__PURE__ */ jsxs59("span", { className: "glossary-entry__context", children: [
           "\u0432 ",
-          /* @__PURE__ */ jsx60("strong", { children: e.entityId })
+          /* @__PURE__ */ jsx62("strong", { children: e.entityId })
         ] }),
-        /* @__PURE__ */ jsx60(
+        /* @__PURE__ */ jsx62(
           "button",
           {
             className: "glossary-entry__domain",
@@ -15241,23 +15954,23 @@ function GlossaryEntryCard({
             children: e.domainId
           }
         ),
-        a.referenceEntity && /* @__PURE__ */ jsxs57("span", { className: "glossary-entry__ref", children: [
+        a.referenceEntity && /* @__PURE__ */ jsxs59("span", { className: "glossary-entry__ref", children: [
           "\u2192 ",
           a.referenceEntity.split("/")[1]
         ] })
       ] }),
-      a.description && /* @__PURE__ */ jsx60("div", { className: "glossary-entry__desc", children: highlight(a.description) })
+      a.description && /* @__PURE__ */ jsx62("div", { className: "glossary-entry__desc", children: highlight(a.description) })
     ] });
   }
   const d = entry.dataType;
-  return /* @__PURE__ */ jsxs57("div", { className: "glossary-entry", children: [
-    /* @__PURE__ */ jsxs57("div", { className: "glossary-entry__head", children: [
-      /* @__PURE__ */ jsx60("span", { className: "glossary-entry__name", children: highlight(d.name || d.id) }),
-      /* @__PURE__ */ jsx60("code", { className: "glossary-entry__attr-id", children: d.id }),
-      /* @__PURE__ */ jsx60("span", { className: "glossary-entry__type", children: d.kind })
+  return /* @__PURE__ */ jsxs59("div", { className: "glossary-entry", children: [
+    /* @__PURE__ */ jsxs59("div", { className: "glossary-entry__head", children: [
+      /* @__PURE__ */ jsx62("span", { className: "glossary-entry__name", children: highlight(d.name || d.id) }),
+      /* @__PURE__ */ jsx62("code", { className: "glossary-entry__attr-id", children: d.id }),
+      /* @__PURE__ */ jsx62("span", { className: "glossary-entry__type", children: d.kind })
     ] }),
-    /* @__PURE__ */ jsxs57("div", { className: "glossary-entry__meta", children: [
-      /* @__PURE__ */ jsx60(
+    /* @__PURE__ */ jsxs59("div", { className: "glossary-entry__meta", children: [
+      /* @__PURE__ */ jsx62(
         "button",
         {
           className: "glossary-entry__domain",
@@ -15265,12 +15978,12 @@ function GlossaryEntryCard({
           children: d.domainId
         }
       ),
-      d.valuesCount != null && /* @__PURE__ */ jsxs57("span", { className: "glossary-entry__tags", children: [
+      d.valuesCount != null && /* @__PURE__ */ jsxs59("span", { className: "glossary-entry__tags", children: [
         d.valuesCount,
         " \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0439"
       ] })
     ] }),
-    d.description && /* @__PURE__ */ jsx60("div", { className: "glossary-entry__desc", children: highlight(d.description) })
+    d.description && /* @__PURE__ */ jsx62("div", { className: "glossary-entry__desc", children: highlight(d.description) })
   ] });
 }
 var init_GlossaryModal = __esm({
@@ -15440,8 +16153,8 @@ var init_entity_graph = __esm({
 });
 
 // src/web/components/common/DomainCombobox.tsx
-import { useEffect as useEffect28, useMemo as useMemo31, useRef as useRef11, useState as useState21 } from "react";
-import { jsx as jsx61, jsxs as jsxs58 } from "react/jsx-runtime";
+import { useEffect as useEffect29, useMemo as useMemo32, useRef as useRef12, useState as useState21 } from "react";
+import { jsx as jsx63, jsxs as jsxs60 } from "react/jsx-runtime";
 function DomainCombobox({
   value,
   onChange,
@@ -15451,16 +16164,16 @@ function DomainCombobox({
   const [open, setOpen] = useState21(false);
   const [query, setQuery] = useState21("");
   const [activeIdx, setActiveIdx] = useState21(0);
-  const wrapRef = useRef11(null);
-  const inputRef = useRef11(null);
-  const listRef = useRef11(null);
-  const filtered = useMemo31(() => {
+  const wrapRef = useRef12(null);
+  const inputRef = useRef12(null);
+  const listRef = useRef12(null);
+  const filtered = useMemo32(() => {
     const q = query.trim().toLowerCase();
     if (!q)
       return domains;
     return domains.filter(([d]) => d.toLowerCase().indexOf(q) !== -1);
   }, [domains, query]);
-  useEffect28(() => {
+  useEffect29(() => {
     if (open) {
       setQuery(value || "");
       setActiveIdx(0);
@@ -15469,7 +16182,7 @@ function DomainCombobox({
       setQuery("");
     }
   }, [open, value]);
-  useEffect28(() => {
+  useEffect29(() => {
     if (!open)
       return;
     const onDoc = (e) => {
@@ -15479,7 +16192,7 @@ function DomainCombobox({
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open]);
-  useEffect28(() => {
+  useEffect29(() => {
     if (!open || !listRef.current)
       return;
     const el = listRef.current.querySelector(".domain-combobox__option--active");
@@ -15506,25 +16219,25 @@ function DomainCombobox({
     }
   };
   const current = domains.find(([d]) => d === value);
-  return /* @__PURE__ */ jsxs58("div", { className: "domain-combobox", ref: wrapRef, children: [
-    /* @__PURE__ */ jsxs58(
+  return /* @__PURE__ */ jsxs60("div", { className: "domain-combobox", ref: wrapRef, children: [
+    /* @__PURE__ */ jsxs60(
       "button",
       {
         type: "button",
         className: "domain-combobox__trigger" + (open ? " open" : ""),
         onClick: () => setOpen(!open),
         children: [
-          /* @__PURE__ */ jsx61(MIcon, { name: "folder", size: "sm" }),
-          /* @__PURE__ */ jsx61("span", { className: "domain-combobox__trigger-text", children: current ? current[0] : placeholder }),
-          current && /* @__PURE__ */ jsx61("span", { className: "domain-combobox__trigger-count", children: current[1] }),
-          /* @__PURE__ */ jsx61(MIcon, { name: open ? "expand_less" : "expand_more", size: "sm" })
+          /* @__PURE__ */ jsx63(MIcon, { name: "folder", size: "sm" }),
+          /* @__PURE__ */ jsx63("span", { className: "domain-combobox__trigger-text", children: current ? current[0] : placeholder }),
+          current && /* @__PURE__ */ jsx63("span", { className: "domain-combobox__trigger-count", children: current[1] }),
+          /* @__PURE__ */ jsx63(MIcon, { name: open ? "expand_less" : "expand_more", size: "sm" })
         ]
       }
     ),
-    open && /* @__PURE__ */ jsxs58("div", { className: "domain-combobox__dropdown", children: [
-      /* @__PURE__ */ jsxs58("div", { className: "domain-combobox__search", children: [
-        /* @__PURE__ */ jsx61(MIcon, { name: "search", size: "sm" }),
-        /* @__PURE__ */ jsx61(
+    open && /* @__PURE__ */ jsxs60("div", { className: "domain-combobox__dropdown", children: [
+      /* @__PURE__ */ jsxs60("div", { className: "domain-combobox__search", children: [
+        /* @__PURE__ */ jsx63(MIcon, { name: "search", size: "sm" }),
+        /* @__PURE__ */ jsx63(
           "input",
           {
             ref: inputRef,
@@ -15540,7 +16253,7 @@ function DomainCombobox({
             autoComplete: "off"
           }
         ),
-        query && /* @__PURE__ */ jsx61(
+        query && /* @__PURE__ */ jsx63(
           "button",
           {
             type: "button",
@@ -15554,7 +16267,7 @@ function DomainCombobox({
           }
         )
       ] }),
-      /* @__PURE__ */ jsx61("div", { className: "domain-combobox__list", ref: listRef, children: filtered.length === 0 ? /* @__PURE__ */ jsx61("div", { className: "domain-combobox__empty", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" }) : filtered.map(([d, count], idx) => /* @__PURE__ */ jsxs58(
+      /* @__PURE__ */ jsx63("div", { className: "domain-combobox__list", ref: listRef, children: filtered.length === 0 ? /* @__PURE__ */ jsx63("div", { className: "domain-combobox__empty", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" }) : filtered.map(([d, count], idx) => /* @__PURE__ */ jsxs60(
         "button",
         {
           type: "button",
@@ -15565,8 +16278,8 @@ function DomainCombobox({
             setOpen(false);
           },
           children: [
-            /* @__PURE__ */ jsx61("span", { className: "domain-combobox__option-name", children: d }),
-            /* @__PURE__ */ jsx61("span", { className: "domain-combobox__option-count", children: count })
+            /* @__PURE__ */ jsx63("span", { className: "domain-combobox__option-name", children: d }),
+            /* @__PURE__ */ jsx63("span", { className: "domain-combobox__option-count", children: count })
           ]
         },
         d
@@ -15582,7 +16295,7 @@ var init_DomainCombobox = __esm({
 });
 
 // src/web/components/modals/EntityGraphModal.tsx
-import { useCallback as useCallback15, useEffect as useEffect29, useMemo as useMemo32, useState as useState22 } from "react";
+import { useCallback as useCallback16, useEffect as useEffect30, useMemo as useMemo33, useState as useState22 } from "react";
 import ReactFlow3, {
   Background as Background3,
   BackgroundVariant as BackgroundVariant3,
@@ -15596,11 +16309,11 @@ import ReactFlow3, {
   useReactFlow as useReactFlow3
 } from "reactflow";
 import dagre3 from "dagre";
-import { Fragment as Fragment11, jsx as jsx62, jsxs as jsxs59 } from "react/jsx-runtime";
+import { Fragment as Fragment15, jsx as jsx64, jsxs as jsxs61 } from "react/jsx-runtime";
 function EntityNode({ data }) {
   const domainHue = data.__domainHue ?? 220;
-  return /* @__PURE__ */ jsxs59(Fragment11, { children: [
-    /* @__PURE__ */ jsx62(
+  return /* @__PURE__ */ jsxs61(Fragment15, { children: [
+    /* @__PURE__ */ jsx64(
       Handle3,
       {
         type: "target",
@@ -15608,7 +16321,7 @@ function EntityNode({ data }) {
         className: "entity-node-handle"
       }
     ),
-    /* @__PURE__ */ jsxs59(
+    /* @__PURE__ */ jsxs61(
       "div",
       {
         className: "entity-graph-node-card",
@@ -15617,12 +16330,12 @@ function EntityNode({ data }) {
 ${data.domainId}
 ${data.attributeCount} \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432`,
         children: [
-          /* @__PURE__ */ jsx62("div", { className: "entity-graph-node-card__id", children: data.entityId }),
-          /* @__PURE__ */ jsx62("div", { className: "entity-graph-node-card__domain", children: data.domainId })
+          /* @__PURE__ */ jsx64("div", { className: "entity-graph-node-card__id", children: data.entityId }),
+          /* @__PURE__ */ jsx64("div", { className: "entity-graph-node-card__domain", children: data.domainId })
         ]
       }
     ),
-    /* @__PURE__ */ jsx62(
+    /* @__PURE__ */ jsx64(
       Handle3,
       {
         type: "source",
@@ -15680,11 +16393,11 @@ function EntityGraphInner({
   onNodeClick
 }) {
   const rf = useReactFlow3();
-  const positionedNodes = useMemo32(
+  const positionedNodes = useMemo33(
     () => nodes.map((n) => ({ ...n, sourcePosition, targetPosition })),
     [nodes, sourcePosition, targetPosition]
   );
-  useEffect29(() => {
+  useEffect30(() => {
     if (nodes.length === 0)
       return;
     const t = setTimeout(() => {
@@ -15695,7 +16408,7 @@ function EntityGraphInner({
     }, 120);
     return () => clearTimeout(t);
   }, [nodes.length, edges.length, rf]);
-  return /* @__PURE__ */ jsxs59(
+  return /* @__PURE__ */ jsxs61(
     ReactFlow3,
     {
       nodes: positionedNodes,
@@ -15712,9 +16425,9 @@ function EntityGraphInner({
       elementsSelectable: true,
       onlyRenderVisibleElements: false,
       children: [
-        /* @__PURE__ */ jsx62(Background3, { variant: BackgroundVariant3.Dots, gap: 20, size: 1, color: "var(--graph-dots)" }),
-        /* @__PURE__ */ jsx62(Controls3, { position: "bottom-left" }),
-        /* @__PURE__ */ jsx62(
+        /* @__PURE__ */ jsx64(Background3, { variant: BackgroundVariant3.Dots, gap: 20, size: 1, color: "var(--graph-dots)" }),
+        /* @__PURE__ */ jsx64(Controls3, { position: "bottom-left" }),
+        /* @__PURE__ */ jsx64(
           MiniMap3,
           {
             position: "bottom-right",
@@ -15732,7 +16445,7 @@ function EntityGraphModal() {
   const { index, loading, error } = useModelIndex();
   const [showHelp, setShowHelp] = useState22(false);
   const open = store.entityGraphOpen;
-  const allDomains = useMemo32(() => {
+  const allDomains = useMemo33(() => {
     if (!index)
       return [];
     const map2 = /* @__PURE__ */ new Map();
@@ -15741,7 +16454,7 @@ function EntityGraphModal() {
     });
     return Array.from(map2.entries()).sort((a, b) => b[1] - a[1]);
   }, [index]);
-  useEffect29(() => {
+  useEffect30(() => {
     if (!open)
       return;
     if (!index)
@@ -15757,7 +16470,7 @@ function EntityGraphModal() {
   const showInheritance = store.entityGraphShowInheritance;
   const showReferences = store.entityGraphShowReferences;
   const showLinkages = store.entityGraphShowLinkages;
-  const graph = useMemo32(() => {
+  const graph = useMemo33(() => {
     if (!index || !domainFilter)
       return null;
     const domains = /* @__PURE__ */ new Set([domainFilter.toLowerCase()]);
@@ -15769,7 +16482,7 @@ function EntityGraphModal() {
       limit: GRAPH_LIMIT
     });
   }, [index, domainFilter, showInheritance, showReferences, showLinkages]);
-  const rfNodes = useMemo32(() => {
+  const rfNodes = useMemo33(() => {
     if (!graph)
       return [];
     return graph.nodes.map((n) => ({
@@ -15786,7 +16499,7 @@ function EntityGraphModal() {
       height: NODE_HEIGHT4
     }));
   }, [graph]);
-  const rfEdges = useMemo32(() => {
+  const rfEdges = useMemo33(() => {
     if (!graph)
       return [];
     return graph.edges.map((e) => {
@@ -15818,18 +16531,18 @@ function EntityGraphModal() {
       };
     });
   }, [graph]);
-  const laidNodes = useMemo32(
+  const laidNodes = useMemo33(
     () => layoutGraph(rfNodes, rfEdges, rankdir),
     [rfNodes, rfEdges, rankdir]
   );
-  const handleNodeClick = useCallback15(
+  const handleNodeClick = useCallback16(
     (fqid) => {
       store.setEntityCatalogInitialFqid(fqid);
       store.setEntityCatalogOpen(true);
     },
     [store]
   );
-  const handleExportClassDiagram = useCallback15(() => {
+  const handleExportClassDiagram = useCallback16(() => {
     if (!graph)
       return;
     downloadEntityClassDiagram(
@@ -15849,33 +16562,33 @@ function EntityGraphModal() {
   const sourcePosition = rankdir === "LR" ? "right" : "bottom";
   const targetPosition = rankdir === "LR" ? "left" : "top";
   const domainCount = allDomains.find(([d]) => d === domainFilter)?.[1] ?? 0;
-  return /* @__PURE__ */ jsx62(
+  return /* @__PURE__ */ jsx64(
     "div",
     {
       className: "help-overlay help-overlay--fullscreen",
       style: { zIndex: 400 },
       onMouseDown: () => store.setEntityGraphOpen(false),
-      children: /* @__PURE__ */ jsxs59(
+      children: /* @__PURE__ */ jsxs61(
         "div",
         {
           className: "help-modal entity-matrix-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
-            /* @__PURE__ */ jsxs59("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsxs59("div", { className: "help-modal__title", children: [
-                /* @__PURE__ */ jsx62(MIcon, { name: "hub", size: "sm" }),
+            /* @__PURE__ */ jsxs61("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs61("div", { className: "help-modal__title", children: [
+                /* @__PURE__ */ jsx64(MIcon, { name: "hub", size: "sm" }),
                 " ",
-                /* @__PURE__ */ jsx62("span", { className: "icon-label", children: "\u0413\u0440\u0430\u0444 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" }),
-                graph && /* @__PURE__ */ jsxs59("span", { className: "help-modal__badge", children: [
+                /* @__PURE__ */ jsx64("span", { className: "icon-label", children: "\u0413\u0440\u0430\u0444 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" }),
+                graph && /* @__PURE__ */ jsxs61("span", { className: "help-modal__badge", children: [
                   graph.stats.totalNodes,
                   " \u0443\u0437\u043B\u043E\u0432 \xB7 ",
                   graph.edges.length,
                   " \u0441\u0432\u044F\u0437\u0435\u0439"
                 ] })
               ] }),
-              /* @__PURE__ */ jsxs59("div", { className: "help-modal__actions", children: [
-                /* @__PURE__ */ jsx62(HelpButton, { open: showHelp, onToggle: () => setShowHelp(!showHelp), label: "\u041A\u0430\u043A \u0447\u0438\u0442\u0430\u0442\u044C?" }),
-                /* @__PURE__ */ jsx62(
+              /* @__PURE__ */ jsxs61("div", { className: "help-modal__actions", children: [
+                /* @__PURE__ */ jsx64(HelpButton, { open: showHelp, onToggle: () => setShowHelp(!showHelp), label: "\u041A\u0430\u043A \u0447\u0438\u0442\u0430\u0442\u044C?" }),
+                /* @__PURE__ */ jsx64(
                   "button",
                   {
                     className: "help-modal__close",
@@ -15885,42 +16598,42 @@ function EntityGraphModal() {
                 )
               ] })
             ] }),
-            loading && /* @__PURE__ */ jsx62("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx62("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
-            error && /* @__PURE__ */ jsx62("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs59("div", { style: { color: "var(--danger)" }, children: [
+            loading && /* @__PURE__ */ jsx64("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx64("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
+            error && /* @__PURE__ */ jsx64("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs61("div", { style: { color: "var(--danger)" }, children: [
               "\u041E\u0448\u0438\u0431\u043A\u0430: ",
               error
             ] }) }),
-            index && graph && /* @__PURE__ */ jsxs59("div", { className: "entity-graph-modal-body", children: [
-              /* @__PURE__ */ jsxs59(ModalHelp, { visible: showHelp, children: [
-                /* @__PURE__ */ jsx62(HelpSection, { title: "\u0427\u0442\u043E \u044D\u0442\u043E", children: /* @__PURE__ */ jsxs59(HelpText, { children: [
+            index && graph && /* @__PURE__ */ jsxs61("div", { className: "entity-graph-modal-body", children: [
+              /* @__PURE__ */ jsxs61(ModalHelp, { visible: showHelp, children: [
+                /* @__PURE__ */ jsx64(HelpSection, { title: "\u0427\u0442\u043E \u044D\u0442\u043E", children: /* @__PURE__ */ jsxs61(HelpText, { children: [
                   "\u041F\u0440\u043E\u043C\u0435\u0436\u0443\u0442\u043E\u0447\u043D\u044B\u0439 \u0443\u0440\u043E\u0432\u0435\u043D\u044C \u0432\u0438\u0437\u0443\u0430\u043B\u0438\u0437\u0430\u0446\u0438\u0438 \u043C\u0435\u0436\u0434\u0443 \u0433\u0440\u0430\u0444\u043E\u043C \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u0438 \u043C\u0430\u0442\u0440\u0438\u0446\u0435\u0439: \u0437\u0434\u0435\u0441\u044C \u0443\u0437\u043B\u044B \u2014 ",
-                  /* @__PURE__ */ jsx62("strong", { children: "\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438" }),
+                  /* @__PURE__ */ jsx64("strong", { children: "\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438" }),
                   ", \u0430 \u0440\u0451\u0431\u0440\u0430 \u2014 \u0442\u0440\u0438 \u0442\u0438\u043F\u0430 \u0441\u0432\u044F\u0437\u0435\u0439 \u043C\u0435\u0436\u0434\u0443 \u043D\u0438\u043C\u0438. \u041F\u043E\u043B\u0435\u0437\u043D\u043E \u0434\u043B\u044F \u043E\u0446\u0435\u043D\u043A\u0438 \u043F\u043B\u043E\u0442\u043D\u043E\u0441\u0442\u0438 \u0438 \xAB\u043A\u043B\u0430\u0441\u0442\u0435\u0440\u043E\u0432\xBB \u0432 \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u043E\u043C \u0434\u043E\u043C\u0435\u043D\u0435."
                 ] }) }),
-                /* @__PURE__ */ jsx62(HelpSection, { title: "\u0426\u0432\u0435\u0442\u0430 \u0440\u0451\u0431\u0435\u0440", children: /* @__PURE__ */ jsxs59(HelpList, { children: [
-                  /* @__PURE__ */ jsxs59("li", { children: [
-                    /* @__PURE__ */ jsx62("strong", { style: { color: "#a78bfa" }, children: "\u0424\u0438\u043E\u043B\u0435\u0442\u043E\u0432\u044B\u0435 \u0442\u043E\u043B\u0441\u0442\u044B\u0435" }),
+                /* @__PURE__ */ jsx64(HelpSection, { title: "\u0426\u0432\u0435\u0442\u0430 \u0440\u0451\u0431\u0435\u0440", children: /* @__PURE__ */ jsxs61(HelpList, { children: [
+                  /* @__PURE__ */ jsxs61("li", { children: [
+                    /* @__PURE__ */ jsx64("strong", { style: { color: "#a78bfa" }, children: "\u0424\u0438\u043E\u043B\u0435\u0442\u043E\u0432\u044B\u0435 \u0442\u043E\u043B\u0441\u0442\u044B\u0435" }),
                     " \u2014 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435. \u0421\u0442\u0440\u0435\u043B\u043A\u0430 \u0438\u0434\u0451\u0442 \u043E\u0442 \u0440\u043E\u0434\u0438\u0442\u0435\u043B\u044F \u043A \u043D\u0430\u0441\u043B\u0435\u0434\u043D\u0438\u043A\u0443."
                   ] }),
-                  /* @__PURE__ */ jsxs59("li", { children: [
-                    /* @__PURE__ */ jsx62("strong", { style: { color: "#6366f1" }, children: "\u0421\u0438\u043D\u0438\u0435 \u043F\u0443\u043D\u043A\u0442\u0438\u0440\u043D\u044B\u0435" }),
+                  /* @__PURE__ */ jsxs61("li", { children: [
+                    /* @__PURE__ */ jsx64("strong", { style: { color: "#6366f1" }, children: "\u0421\u0438\u043D\u0438\u0435 \u043F\u0443\u043D\u043A\u0442\u0438\u0440\u043D\u044B\u0435" }),
                     " \u2014 Reference-\u0430\u0442\u0440\u0438\u0431\u0443\u0442 (\u043E\u0434\u043D\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0441\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F \u043D\u0430 \u0434\u0440\u0443\u0433\u0443\u044E)."
                   ] }),
-                  /* @__PURE__ */ jsxs59("li", { children: [
-                    /* @__PURE__ */ jsx62("strong", { style: { color: "#10b981" }, children: "\u0417\u0435\u043B\u0451\u043D\u044B\u0435 \u0441\u043F\u043B\u043E\u0448\u043D\u044B\u0435" }),
+                  /* @__PURE__ */ jsxs61("li", { children: [
+                    /* @__PURE__ */ jsx64("strong", { style: { color: "#10b981" }, children: "\u0417\u0435\u043B\u0451\u043D\u044B\u0435 \u0441\u043F\u043B\u043E\u0448\u043D\u044B\u0435" }),
                     " \u2014 linkage (\u043E\u0431\u044A\u044F\u0432\u043B\u0435\u043D\u043D\u0430\u044F \u0441\u0432\u044F\u0437\u044C \u043C\u0435\u0436\u0434\u0443 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u043C\u0438)."
                   ] })
                 ] }) }),
-                /* @__PURE__ */ jsx62(HelpSection, { title: "\u0426\u0432\u0435\u0442 \u043F\u043E\u043B\u043E\u0441\u044B \u0441\u043B\u0435\u0432\u0430", children: /* @__PURE__ */ jsxs59(HelpText, { children: [
+                /* @__PURE__ */ jsx64(HelpSection, { title: "\u0426\u0432\u0435\u0442 \u043F\u043E\u043B\u043E\u0441\u044B \u0441\u043B\u0435\u0432\u0430", children: /* @__PURE__ */ jsxs61(HelpText, { children: [
                   "\u041F\u043E\u043B\u043E\u0441\u0430 \u0441\u043B\u0435\u0432\u0430 \u0443 \u043A\u0430\u0436\u0434\u043E\u0433\u043E \u0443\u0437\u043B\u0430 \u043A\u043E\u0434\u0438\u0440\u0443\u0435\u0442 ",
-                  /* @__PURE__ */ jsx62("strong", { children: "\u0434\u043E\u043C\u0435\u043D" }),
+                  /* @__PURE__ */ jsx64("strong", { children: "\u0434\u043E\u043C\u0435\u043D" }),
                   ", \u043A \u043A\u043E\u0442\u043E\u0440\u043E\u043C\u0443 \u043E\u0442\u043D\u043E\u0441\u0438\u0442\u0441\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C. \u0412\u0441\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0438\u0437 \u043E\u0434\u043D\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430 \u2014 \u043E\u0434\u043D\u043E\u0433\u043E \u043E\u0442\u0442\u0435\u043D\u043A\u0430. \u041B\u0435\u0433\u043A\u043E \u0443\u0432\u0438\u0434\u0435\u0442\u044C \xAB\u043A\u043B\u0430\u0441\u0442\u0435\u0440\u044B\xBB \u0438 \xAB\u043C\u043E\u0441\u0442\u044B\xBB \u043C\u0435\u0436\u0434\u0443 \u0434\u043E\u043C\u0435\u043D\u0430\u043C\u0438."
                 ] }) }),
-                /* @__PURE__ */ jsx62(HelpSection, { title: "\u0427\u0442\u043E \u0432\u0430\u0436\u043D\u043E", children: /* @__PURE__ */ jsx62(HelpText, { children: "\u0413\u0440\u0430\u0444 \u043E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D \u043E\u0434\u043D\u0438\u043C \u0434\u043E\u043C\u0435\u043D\u043E\u043C \u2014 \u0442\u0430\u043A \u0438\u0437\u0431\u0435\u0433\u0430\u0435\u043C \u043A\u0430\u0448\u0438 \u0438\u0437 \u0441\u043E\u0442\u0435\u043D \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439. \u041F\u0435\u0440\u0435\u043A\u043B\u044E\u0447\u0430\u0439\u0442\u0435 \u0434\u043E\u043C\u0435\u043D \u0447\u0435\u0440\u0435\u0437 \u0441\u0435\u043B\u0435\u043A\u0442 \u0441\u0432\u0435\u0440\u0445\u0443. \u0420\u0430\u0437\u043D\u044B\u0435 \u0442\u0438\u043F\u044B \u0440\u0451\u0431\u0435\u0440 \u043C\u043E\u0436\u043D\u043E \u0441\u043A\u0440\u044B\u0432\u0430\u0442\u044C \u0447\u0435\u043A\u0431\u043E\u043A\u0441\u0430\u043C\u0438, \u0447\u0442\u043E\u0431\u044B \u0441\u0444\u043E\u043A\u0443\u0441\u0438\u0440\u043E\u0432\u0430\u0442\u044C\u0441\u044F \u043D\u0430 \u043E\u0434\u043D\u043E\u043C \u0432\u0438\u0434\u0435 \u0441\u0432\u044F\u0437\u0438." }) })
+                /* @__PURE__ */ jsx64(HelpSection, { title: "\u0427\u0442\u043E \u0432\u0430\u0436\u043D\u043E", children: /* @__PURE__ */ jsx64(HelpText, { children: "\u0413\u0440\u0430\u0444 \u043E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D \u043E\u0434\u043D\u0438\u043C \u0434\u043E\u043C\u0435\u043D\u043E\u043C \u2014 \u0442\u0430\u043A \u0438\u0437\u0431\u0435\u0433\u0430\u0435\u043C \u043A\u0430\u0448\u0438 \u0438\u0437 \u0441\u043E\u0442\u0435\u043D \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439. \u041F\u0435\u0440\u0435\u043A\u043B\u044E\u0447\u0430\u0439\u0442\u0435 \u0434\u043E\u043C\u0435\u043D \u0447\u0435\u0440\u0435\u0437 \u0441\u0435\u043B\u0435\u043A\u0442 \u0441\u0432\u0435\u0440\u0445\u0443. \u0420\u0430\u0437\u043D\u044B\u0435 \u0442\u0438\u043F\u044B \u0440\u0451\u0431\u0435\u0440 \u043C\u043E\u0436\u043D\u043E \u0441\u043A\u0440\u044B\u0432\u0430\u0442\u044C \u0447\u0435\u043A\u0431\u043E\u043A\u0441\u0430\u043C\u0438, \u0447\u0442\u043E\u0431\u044B \u0441\u0444\u043E\u043A\u0443\u0441\u0438\u0440\u043E\u0432\u0430\u0442\u044C\u0441\u044F \u043D\u0430 \u043E\u0434\u043D\u043E\u043C \u0432\u0438\u0434\u0435 \u0441\u0432\u044F\u0437\u0438." }) })
               ] }),
-              /* @__PURE__ */ jsxs59("div", { className: "entity-graph-toolbar", children: [
-                /* @__PURE__ */ jsxs59("div", { className: "entity-graph-toolbar__filters", children: [
-                  /* @__PURE__ */ jsx62(
+              /* @__PURE__ */ jsxs61("div", { className: "entity-graph-toolbar", children: [
+                /* @__PURE__ */ jsxs61("div", { className: "entity-graph-toolbar__filters", children: [
+                  /* @__PURE__ */ jsx64(
                     DomainCombobox,
                     {
                       value: domainFilter,
@@ -15929,7 +16642,7 @@ function EntityGraphModal() {
                       placeholder: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u043E\u043C\u0435\u043D..."
                     }
                   ),
-                  /* @__PURE__ */ jsxs59(
+                  /* @__PURE__ */ jsxs61(
                     "button",
                     {
                       className: "btn",
@@ -15937,12 +16650,12 @@ function EntityGraphModal() {
                       disabled: !graph || graph.nodes.length === 0,
                       title: graph && graph.nodes.length > 0 ? `\u0421\u043A\u0430\u0447\u0430\u0442\u044C Mermaid classDiagram (${graph.nodes.length} \u043A\u043B\u0430\u0441\u0441\u043E\u0432)` : "\u0421\u043D\u0430\u0447\u0430\u043B\u0430 \u0432\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u043E\u043C\u0435\u043D \u0441 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u043C\u0438",
                       children: [
-                        /* @__PURE__ */ jsx62(MIcon, { name: "account_tree", size: "sm" }),
-                        /* @__PURE__ */ jsx62("span", { style: { marginLeft: 6 }, children: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442 classDiagram" })
+                        /* @__PURE__ */ jsx64(MIcon, { name: "account_tree", size: "sm" }),
+                        /* @__PURE__ */ jsx64("span", { style: { marginLeft: 6 }, children: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442 classDiagram" })
                       ]
                     }
                   ),
-                  domainFilter && /* @__PURE__ */ jsxs59(
+                  domainFilter && /* @__PURE__ */ jsxs61(
                     "button",
                     {
                       className: "btn",
@@ -15952,29 +16665,29 @@ function EntityGraphModal() {
                       },
                       title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0443 \u0441\u0445\u0435\u043C\u044B \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430",
                       children: [
-                        /* @__PURE__ */ jsx62(MIcon, { name: "description", size: "sm" }),
-                        /* @__PURE__ */ jsx62("span", { style: { marginLeft: 6 }, children: "\u0421\u0445\u0435\u043C\u0430 \u0434\u043E\u043C\u0435\u043D\u0430" })
+                        /* @__PURE__ */ jsx64(MIcon, { name: "description", size: "sm" }),
+                        /* @__PURE__ */ jsx64("span", { style: { marginLeft: 6 }, children: "\u0421\u0445\u0435\u043C\u0430 \u0434\u043E\u043C\u0435\u043D\u0430" })
                       ]
                     }
                   ),
-                  /* @__PURE__ */ jsxs59("label", { className: "entity-matrix-filter", children: [
-                    /* @__PURE__ */ jsx62("span", { children: "\u041E\u0440\u0438\u0435\u043D\u0442\u0430\u0446\u0438\u044F:" }),
-                    /* @__PURE__ */ jsxs59(
+                  /* @__PURE__ */ jsxs61("label", { className: "entity-matrix-filter", children: [
+                    /* @__PURE__ */ jsx64("span", { children: "\u041E\u0440\u0438\u0435\u043D\u0442\u0430\u0446\u0438\u044F:" }),
+                    /* @__PURE__ */ jsxs61(
                       "select",
                       {
                         value: rankdir,
                         onChange: (e) => store.setEntityGraphRankdir(e.target.value),
                         children: [
-                          /* @__PURE__ */ jsx62("option", { value: "LR", children: "\u0413\u043E\u0440\u0438\u0437\u043E\u043D\u0442\u0430\u043B\u044C\u043D\u0430\u044F" }),
-                          /* @__PURE__ */ jsx62("option", { value: "TB", children: "\u0412\u0435\u0440\u0442\u0438\u043A\u0430\u043B\u044C\u043D\u0430\u044F" })
+                          /* @__PURE__ */ jsx64("option", { value: "LR", children: "\u0413\u043E\u0440\u0438\u0437\u043E\u043D\u0442\u0430\u043B\u044C\u043D\u0430\u044F" }),
+                          /* @__PURE__ */ jsx64("option", { value: "TB", children: "\u0412\u0435\u0440\u0442\u0438\u043A\u0430\u043B\u044C\u043D\u0430\u044F" })
                         ]
                       }
                     )
                   ] })
                 ] }),
-                /* @__PURE__ */ jsxs59("div", { className: "entity-graph-toolbar__toggles", children: [
-                  /* @__PURE__ */ jsxs59("label", { className: "entity-graph-toggle", children: [
-                    /* @__PURE__ */ jsx62(
+                /* @__PURE__ */ jsxs61("div", { className: "entity-graph-toolbar__toggles", children: [
+                  /* @__PURE__ */ jsxs61("label", { className: "entity-graph-toggle", children: [
+                    /* @__PURE__ */ jsx64(
                       "input",
                       {
                         type: "checkbox",
@@ -15982,13 +16695,13 @@ function EntityGraphModal() {
                         onChange: () => store.setEntityGraphShowInheritance(!showInheritance)
                       }
                     ),
-                    /* @__PURE__ */ jsx62("span", { className: "entity-graph-legend-dot", style: { background: "#a78bfa" } }),
+                    /* @__PURE__ */ jsx64("span", { className: "entity-graph-legend-dot", style: { background: "#a78bfa" } }),
                     "\u041D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435 (",
                     graph.stats.byKind.inheritance,
                     ")"
                   ] }),
-                  /* @__PURE__ */ jsxs59("label", { className: "entity-graph-toggle", children: [
-                    /* @__PURE__ */ jsx62(
+                  /* @__PURE__ */ jsxs61("label", { className: "entity-graph-toggle", children: [
+                    /* @__PURE__ */ jsx64(
                       "input",
                       {
                         type: "checkbox",
@@ -15996,13 +16709,13 @@ function EntityGraphModal() {
                         onChange: () => store.setEntityGraphShowReferences(!showReferences)
                       }
                     ),
-                    /* @__PURE__ */ jsx62("span", { className: "entity-graph-legend-dot", style: { background: "#6366f1" } }),
+                    /* @__PURE__ */ jsx64("span", { className: "entity-graph-legend-dot", style: { background: "#6366f1" } }),
                     "\u0421\u0441\u044B\u043B\u043A\u0438 (",
                     graph.stats.byKind.reference,
                     ")"
                   ] }),
-                  /* @__PURE__ */ jsxs59("label", { className: "entity-graph-toggle", children: [
-                    /* @__PURE__ */ jsx62(
+                  /* @__PURE__ */ jsxs61("label", { className: "entity-graph-toggle", children: [
+                    /* @__PURE__ */ jsx64(
                       "input",
                       {
                         type: "checkbox",
@@ -16010,13 +16723,13 @@ function EntityGraphModal() {
                         onChange: () => store.setEntityGraphShowLinkages(!showLinkages)
                       }
                     ),
-                    /* @__PURE__ */ jsx62("span", { className: "entity-graph-legend-dot", style: { background: "#10b981" } }),
+                    /* @__PURE__ */ jsx64("span", { className: "entity-graph-legend-dot", style: { background: "#10b981" } }),
                     "Linkages (",
                     graph.stats.byKind.linkage,
                     ")"
                   ] })
                 ] }),
-                graph.stats.truncated > 0 && /* @__PURE__ */ jsxs59("div", { className: "entity-graph-hint", children: [
+                graph.stats.truncated > 0 && /* @__PURE__ */ jsxs61("div", { className: "entity-graph-hint", children: [
                   "\u041F\u043E\u043A\u0430\u0437\u0430\u043D\u043E \u0442\u043E\u043F-",
                   GRAPH_LIMIT,
                   " \u0438\u0437 ",
@@ -16024,7 +16737,7 @@ function EntityGraphModal() {
                   " \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439"
                 ] })
               ] }),
-              /* @__PURE__ */ jsx62("div", { className: "entity-graph-canvas", children: graph.nodes.length === 0 ? /* @__PURE__ */ jsx62("div", { className: "entity-matrix-empty", children: domainCount === 0 ? "\u0412 \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u043E\u043C \u0434\u043E\u043C\u0435\u043D\u0435 \u043D\u0435\u0442 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" : "\u041D\u0435\u0442 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0434\u043B\u044F \u043E\u0442\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u044F" }) : /* @__PURE__ */ jsx62(ReactFlowProvider3, { children: /* @__PURE__ */ jsx62(
+              /* @__PURE__ */ jsx64("div", { className: "entity-graph-canvas", children: graph.nodes.length === 0 ? /* @__PURE__ */ jsx64("div", { className: "entity-matrix-empty", children: domainCount === 0 ? "\u0412 \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u043E\u043C \u0434\u043E\u043C\u0435\u043D\u0435 \u043D\u0435\u0442 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" : "\u041D\u0435\u0442 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0434\u043B\u044F \u043E\u0442\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u044F" }) : /* @__PURE__ */ jsx64(ReactFlowProvider3, { children: /* @__PURE__ */ jsx64(
                 EntityGraphInner,
                 {
                   nodes: laidNodes,
@@ -16064,8 +16777,8 @@ function EntityEdge2({
   });
   const title = data && data.title || "";
   const kind = data && data.kind || "reference";
-  return /* @__PURE__ */ jsxs59(Fragment11, { children: [
-    /* @__PURE__ */ jsx62(
+  return /* @__PURE__ */ jsxs61(Fragment15, { children: [
+    /* @__PURE__ */ jsx64(
       BaseEdge2,
       {
         id,
@@ -16074,7 +16787,7 @@ function EntityEdge2({
         markerEnd
       }
     ),
-    /* @__PURE__ */ jsx62(
+    /* @__PURE__ */ jsx64(
       "path",
       {
         d: edgePath,
@@ -16082,7 +16795,7 @@ function EntityEdge2({
         stroke: "transparent",
         strokeWidth: 20,
         style: { cursor: "pointer" },
-        children: /* @__PURE__ */ jsx62("title", { children: title })
+        children: /* @__PURE__ */ jsx64("title", { children: title })
       }
     )
   ] });
@@ -16461,8 +17174,8 @@ var init_DomainSchemaHelpers = __esm({
 });
 
 // src/web/components/modals/DomainSchemaSectionItems.tsx
-import React31, { useMemo as useMemo33 } from "react";
-import { jsx as jsx63, jsxs as jsxs60 } from "react/jsx-runtime";
+import React32, { useMemo as useMemo34 } from "react";
+import { jsx as jsx65, jsxs as jsxs62 } from "react/jsx-runtime";
 function IssueBadge({ issues }) {
   if (issues.length === 0)
     return null;
@@ -16471,7 +17184,7 @@ function IssueBadge({ issues }) {
   const preview = issues.slice(0, 3).map((i) => `\u2022 ${i.rule}: ${i.message}`).join("\n");
   const more = issues.length > 3 ? `
 ...\u0438 \u0435\u0449\u0451 ${issues.length - 3}` : "";
-  return /* @__PURE__ */ jsxs60(
+  return /* @__PURE__ */ jsxs62(
     "button",
     {
       className: `domain-schema-issue-badge domain-schema-issue-badge--${sev}`,
@@ -16482,7 +17195,7 @@ ${preview}${more}`,
         useGraphStore.getState().setLintOpen(true);
       },
       children: [
-        /* @__PURE__ */ jsx63(MIcon, { name: icon, size: "sm" }),
+        /* @__PURE__ */ jsx65(MIcon, { name: icon, size: "sm" }),
         issues.length
       ]
     }
@@ -16493,34 +17206,34 @@ function UsageBadges({
   usedInRules
 }) {
   if (usedInViews === 0 && usedInRules === 0) {
-    return /* @__PURE__ */ jsx63(
+    return /* @__PURE__ */ jsx65(
       "span",
       {
         className: "domain-schema-usage domain-schema-usage--unused",
         title: "\u041D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u043D\u0438 \u0432 views, \u043D\u0438 \u0432 dataRules",
-        children: /* @__PURE__ */ jsx63(MIcon, { name: "visibility_off", size: "sm" })
+        children: /* @__PURE__ */ jsx65(MIcon, { name: "visibility_off", size: "sm" })
       }
     );
   }
-  return /* @__PURE__ */ jsxs60("span", { className: "domain-schema-usage", children: [
-    usedInViews > 0 && /* @__PURE__ */ jsxs60(
+  return /* @__PURE__ */ jsxs62("span", { className: "domain-schema-usage", children: [
+    usedInViews > 0 && /* @__PURE__ */ jsxs62(
       "span",
       {
         className: "domain-schema-usage__item",
         title: `\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u0432 ${usedInViews} \u0432\u0438\u0434\u0436\u0435\u0442${usedInViews === 1 ? "\u0435" : "\u0430\u0445"}`,
         children: [
-          /* @__PURE__ */ jsx63(MIcon, { name: "visibility", size: "sm" }),
+          /* @__PURE__ */ jsx65(MIcon, { name: "visibility", size: "sm" }),
           usedInViews
         ]
       }
     ),
-    usedInRules > 0 && /* @__PURE__ */ jsxs60(
+    usedInRules > 0 && /* @__PURE__ */ jsxs62(
       "span",
       {
         className: "domain-schema-usage__item",
         title: `\u0423\u043F\u043E\u043C\u0438\u043D\u0430\u0435\u0442\u0441\u044F \u0432 ${usedInRules} \u043F\u0440\u0430\u0432\u0438\u043B${usedInRules === 1 ? "\u0435" : "\u0430\u0445"} \u0434\u0430\u043D\u043D\u044B\u0445`,
         children: [
-          /* @__PURE__ */ jsx63(MIcon, { name: "rule", size: "sm" }),
+          /* @__PURE__ */ jsx65(MIcon, { name: "rule", size: "sm" }),
           usedInRules
         ]
       }
@@ -16532,18 +17245,18 @@ function InheritanceChain({
   index,
   onOpenEntity
 }) {
-  const ancestors = useMemo33(() => findAncestorChain(fqid, index), [fqid, index]);
-  const children = useMemo33(() => {
+  const ancestors = useMemo34(() => findAncestorChain(fqid, index), [fqid, index]);
+  const children = useMemo34(() => {
     const fqids = index.entityChildrenByFqid[fqid] || [];
     return fqids.map((f) => index.entitiesByFqid[f]).filter((x) => !!x);
   }, [fqid, index]);
   if (ancestors.length === 0 && children.length === 0)
     return null;
-  return /* @__PURE__ */ jsxs60("div", { className: "domain-schema-inheritance", children: [
-    ancestors.length > 0 && /* @__PURE__ */ jsxs60("div", { className: "domain-schema-inheritance__row", children: [
-      /* @__PURE__ */ jsx63("span", { className: "domain-schema-inheritance__label", children: "\u0420\u043E\u0434\u0438\u0442\u0435\u043B\u0438:" }),
-      ancestors.map((a) => /* @__PURE__ */ jsxs60(React31.Fragment, { children: [
-        /* @__PURE__ */ jsxs60(
+  return /* @__PURE__ */ jsxs62("div", { className: "domain-schema-inheritance", children: [
+    ancestors.length > 0 && /* @__PURE__ */ jsxs62("div", { className: "domain-schema-inheritance__row", children: [
+      /* @__PURE__ */ jsx65("span", { className: "domain-schema-inheritance__label", children: "\u0420\u043E\u0434\u0438\u0442\u0435\u043B\u0438:" }),
+      ancestors.map((a) => /* @__PURE__ */ jsxs62(React32.Fragment, { children: [
+        /* @__PURE__ */ jsxs62(
           "button",
           {
             className: "domain-schema-inheritance__node",
@@ -16552,17 +17265,17 @@ function InheritanceChain({
 ${a.attributes.length} ${pluralAttrs(a.attributes.length)}`,
             children: [
               a.entityId,
-              /* @__PURE__ */ jsx63("span", { className: "domain-schema-inheritance__domain", children: a.domainId })
+              /* @__PURE__ */ jsx65("span", { className: "domain-schema-inheritance__domain", children: a.domainId })
             ]
           }
         ),
-        /* @__PURE__ */ jsx63("span", { className: "domain-schema-inheritance__arrow", children: "\u2192" })
+        /* @__PURE__ */ jsx65("span", { className: "domain-schema-inheritance__arrow", children: "\u2192" })
       ] }, a.fqid)),
-      /* @__PURE__ */ jsx63("span", { className: "domain-schema-inheritance__self", children: "\u0442\u0435\u043A\u0443\u0449\u0430\u044F" })
+      /* @__PURE__ */ jsx65("span", { className: "domain-schema-inheritance__self", children: "\u0442\u0435\u043A\u0443\u0449\u0430\u044F" })
     ] }),
-    children.length > 0 && /* @__PURE__ */ jsxs60("div", { className: "domain-schema-inheritance__row", children: [
-      /* @__PURE__ */ jsx63("span", { className: "domain-schema-inheritance__label", children: "\u041D\u0430\u0441\u043B\u0435\u0434\u043D\u0438\u043A\u0438:" }),
-      children.map((c) => /* @__PURE__ */ jsx63(
+    children.length > 0 && /* @__PURE__ */ jsxs62("div", { className: "domain-schema-inheritance__row", children: [
+      /* @__PURE__ */ jsx65("span", { className: "domain-schema-inheritance__label", children: "\u041D\u0430\u0441\u043B\u0435\u0434\u043D\u0438\u043A\u0438:" }),
+      children.map((c) => /* @__PURE__ */ jsx65(
         "button",
         {
           className: "domain-schema-inheritance__node",
@@ -16587,14 +17300,14 @@ function EntityDetailCard({
   const entity = index.entitiesByFqid[fqid];
   if (!entity)
     return null;
-  return /* @__PURE__ */ jsxs60("div", { className: "domain-schema-detail-card", children: [
-    entity.description && /* @__PURE__ */ jsx63("div", { className: "domain-schema-detail-card__desc", children: entity.description }),
-    entity.label && /* @__PURE__ */ jsxs60("div", { className: "domain-schema-detail-card__meta", children: [
-      /* @__PURE__ */ jsx63("strong", { children: "label:" }),
+  return /* @__PURE__ */ jsxs62("div", { className: "domain-schema-detail-card", children: [
+    entity.description && /* @__PURE__ */ jsx65("div", { className: "domain-schema-detail-card__desc", children: entity.description }),
+    entity.label && /* @__PURE__ */ jsxs62("div", { className: "domain-schema-detail-card__meta", children: [
+      /* @__PURE__ */ jsx65("strong", { children: "label:" }),
       " ",
-      /* @__PURE__ */ jsx63("code", { children: entity.label })
+      /* @__PURE__ */ jsx65("code", { children: entity.label })
     ] }),
-    /* @__PURE__ */ jsx63(
+    /* @__PURE__ */ jsx65(
       InheritanceChain,
       {
         fqid,
@@ -16602,19 +17315,19 @@ function EntityDetailCard({
         onOpenEntity
       }
     ),
-    entity.attributes.length > 0 ? /* @__PURE__ */ jsxs60("div", { className: "domain-schema-attrs", children: [
-      /* @__PURE__ */ jsxs60("div", { className: "domain-schema-attrs__title", children: [
+    entity.attributes.length > 0 ? /* @__PURE__ */ jsxs62("div", { className: "domain-schema-attrs", children: [
+      /* @__PURE__ */ jsxs62("div", { className: "domain-schema-attrs__title", children: [
         "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u044B (",
         entity.attributes.length,
         ")"
       ] }),
       entity.attributes.map((a) => {
         const attrIssues = issuesByAttribute.get(`${fqid}#${a.id}`) || [];
-        return /* @__PURE__ */ jsxs60("div", { className: "domain-schema-attr-row", children: [
-          /* @__PURE__ */ jsx63("code", { className: "domain-schema-attr-row__id", children: a.id }),
-          /* @__PURE__ */ jsx63("span", { className: "domain-schema-attr-row__name", children: a.name }),
-          /* @__PURE__ */ jsx63("span", { className: "domain-schema-attr-row__type", children: a.dataType }),
-          a.referenceEntity && /* @__PURE__ */ jsxs60(
+        return /* @__PURE__ */ jsxs62("div", { className: "domain-schema-attr-row", children: [
+          /* @__PURE__ */ jsx65("code", { className: "domain-schema-attr-row__id", children: a.id }),
+          /* @__PURE__ */ jsx65("span", { className: "domain-schema-attr-row__name", children: a.name }),
+          /* @__PURE__ */ jsx65("span", { className: "domain-schema-attr-row__type", children: a.dataType }),
+          a.referenceEntity && /* @__PURE__ */ jsxs62(
             "span",
             {
               className: "domain-schema-attr-row__ref",
@@ -16625,7 +17338,7 @@ function EntityDetailCard({
               ]
             }
           ),
-          a.constraints.length > 0 && /* @__PURE__ */ jsx63("span", { className: "domain-schema-attr-row__constraints", children: a.constraints.map((c) => /* @__PURE__ */ jsx63(
+          a.constraints.length > 0 && /* @__PURE__ */ jsx65("span", { className: "domain-schema-attr-row__constraints", children: a.constraints.map((c) => /* @__PURE__ */ jsx65(
             "span",
             {
               className: "domain-schema-attr-row__constraint",
@@ -16633,18 +17346,18 @@ function EntityDetailCard({
             },
             c
           )) }),
-          /* @__PURE__ */ jsx63(
+          /* @__PURE__ */ jsx65(
             UsageBadges,
             {
               usedInViews: a.usedInViews,
               usedInRules: a.usedInRules
             }
           ),
-          /* @__PURE__ */ jsx63(IssueBadge, { issues: attrIssues })
+          /* @__PURE__ */ jsx65(IssueBadge, { issues: attrIssues })
         ] }, a.id);
       })
-    ] }) : /* @__PURE__ */ jsx63("div", { className: "domain-schema-detail-card__empty", children: "\u041D\u0435\u0442 \u0441\u043E\u0431\u0441\u0442\u0432\u0435\u043D\u043D\u044B\u0445 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432" }),
-    /* @__PURE__ */ jsx63("div", { className: "domain-schema-detail-card__actions", children: /* @__PURE__ */ jsx63(
+    ] }) : /* @__PURE__ */ jsx65("div", { className: "domain-schema-detail-card__empty", children: "\u041D\u0435\u0442 \u0441\u043E\u0431\u0441\u0442\u0432\u0435\u043D\u043D\u044B\u0445 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432" }),
+    /* @__PURE__ */ jsx65("div", { className: "domain-schema-detail-card__actions", children: /* @__PURE__ */ jsx65(
       "button",
       {
         className: "btn btn--primary",
@@ -16664,23 +17377,23 @@ function DataTypeDetailCard({
   );
   if (!dt)
     return null;
-  return /* @__PURE__ */ jsxs60("div", { className: "domain-schema-detail-card", children: [
-    dt.description && /* @__PURE__ */ jsx63("div", { className: "domain-schema-detail-card__desc", children: dt.description }),
-    dt.kind === "Enum" && dt.values && dt.values.length > 0 && /* @__PURE__ */ jsxs60("div", { className: "domain-schema-datatype-values", children: [
-      /* @__PURE__ */ jsxs60("div", { className: "domain-schema-datatype-values__title", children: [
+  return /* @__PURE__ */ jsxs62("div", { className: "domain-schema-detail-card", children: [
+    dt.description && /* @__PURE__ */ jsx65("div", { className: "domain-schema-detail-card__desc", children: dt.description }),
+    dt.kind === "Enum" && dt.values && dt.values.length > 0 && /* @__PURE__ */ jsxs62("div", { className: "domain-schema-datatype-values", children: [
+      /* @__PURE__ */ jsxs62("div", { className: "domain-schema-datatype-values__title", children: [
         "\u0417\u043D\u0430\u0447\u0435\u043D\u0438\u044F (",
         dt.values.length,
         ")"
       ] }),
-      /* @__PURE__ */ jsx63("div", { className: "domain-schema-datatype-values__chips", children: dt.values.map((v) => /* @__PURE__ */ jsx63("code", { className: "domain-schema-datatype-chip", children: v }, v)) })
+      /* @__PURE__ */ jsx65("div", { className: "domain-schema-datatype-values__chips", children: dt.values.map((v) => /* @__PURE__ */ jsx65("code", { className: "domain-schema-datatype-chip", children: v }, v)) })
     ] }),
-    dt.kind === "Workflow" && dt.statuses && dt.statuses.length > 0 && /* @__PURE__ */ jsxs60("div", { className: "domain-schema-datatype-values", children: [
-      /* @__PURE__ */ jsxs60("div", { className: "domain-schema-datatype-values__title", children: [
+    dt.kind === "Workflow" && dt.statuses && dt.statuses.length > 0 && /* @__PURE__ */ jsxs62("div", { className: "domain-schema-datatype-values", children: [
+      /* @__PURE__ */ jsxs62("div", { className: "domain-schema-datatype-values__title", children: [
         "\u0421\u0442\u0430\u0442\u0443\u0441\u044B (",
         dt.statuses.length,
         ")"
       ] }),
-      /* @__PURE__ */ jsx63("div", { className: "domain-schema-datatype-values__chips", children: dt.statuses.map((s) => /* @__PURE__ */ jsx63(
+      /* @__PURE__ */ jsx65("div", { className: "domain-schema-datatype-values__chips", children: dt.statuses.map((s) => /* @__PURE__ */ jsx65(
         "code",
         {
           className: "domain-schema-datatype-chip domain-schema-datatype-chip--workflow",
@@ -16689,13 +17402,13 @@ function DataTypeDetailCard({
         s
       )) })
     ] }),
-    dt.kind === "Table" && dt.columns && dt.columns.length > 0 && /* @__PURE__ */ jsxs60("div", { className: "domain-schema-datatype-values", children: [
-      /* @__PURE__ */ jsxs60("div", { className: "domain-schema-datatype-values__title", children: [
+    dt.kind === "Table" && dt.columns && dt.columns.length > 0 && /* @__PURE__ */ jsxs62("div", { className: "domain-schema-datatype-values", children: [
+      /* @__PURE__ */ jsxs62("div", { className: "domain-schema-datatype-values__title", children: [
         "\u041A\u043E\u043B\u043E\u043D\u043A\u0438 (",
         dt.columns.length,
         ")"
       ] }),
-      /* @__PURE__ */ jsx63("div", { className: "domain-schema-datatype-values__chips", children: dt.columns.map((c) => /* @__PURE__ */ jsx63(
+      /* @__PURE__ */ jsx65("div", { className: "domain-schema-datatype-values__chips", children: dt.columns.map((c) => /* @__PURE__ */ jsx65(
         "code",
         {
           className: "domain-schema-datatype-chip domain-schema-datatype-chip--table",
@@ -16719,37 +17432,37 @@ function SectionItems({
   onlyProblematic
 }) {
   if (sectionKey === "entities") {
-    return /* @__PURE__ */ jsx63("div", { className: "domain-schema-list", children: items.map((e) => {
+    return /* @__PURE__ */ jsx65("div", { className: "domain-schema-list", children: items.map((e) => {
       const fqid = `${domainId}/${e.id}`.toLowerCase();
       const issues = issuesByEntity.get(fqid) || [];
       if (onlyProblematic && issues.length === 0)
         return null;
       const entityKey2 = `entity:${e.id}`;
       const isExpanded = expandedItems.has(entityKey2);
-      return /* @__PURE__ */ jsxs60(React31.Fragment, { children: [
-        /* @__PURE__ */ jsxs60(
+      return /* @__PURE__ */ jsxs62(React32.Fragment, { children: [
+        /* @__PURE__ */ jsxs62(
           "div",
           {
             className: "domain-schema-item domain-schema-item--expandable" + (isExpanded ? " expanded" : ""),
             onClick: () => onToggleItem(entityKey2),
             children: [
-              /* @__PURE__ */ jsx63("span", { className: "domain-schema-item__caret", children: /* @__PURE__ */ jsx63(
+              /* @__PURE__ */ jsx65("span", { className: "domain-schema-item__caret", children: /* @__PURE__ */ jsx65(
                 MIcon,
                 {
                   name: isExpanded ? "expand_more" : "chevron_right",
                   size: "sm"
                 }
               ) }),
-              /* @__PURE__ */ jsx63("code", { className: "domain-schema-item__id", children: e.id }),
-              /* @__PURE__ */ jsx63("span", { className: "domain-schema-item__name", children: e.name }),
-              /* @__PURE__ */ jsxs60("span", { className: "domain-schema-item__meta", children: [
+              /* @__PURE__ */ jsx65("code", { className: "domain-schema-item__id", children: e.id }),
+              /* @__PURE__ */ jsx65("span", { className: "domain-schema-item__name", children: e.name }),
+              /* @__PURE__ */ jsxs62("span", { className: "domain-schema-item__meta", children: [
                 e.attributesCount,
                 " ",
                 pluralAttrs(e.attributesCount),
                 e.inherits && ` \xB7 \u21B3 ${e.inherits.split("/").pop()}`
               ] }),
-              /* @__PURE__ */ jsx63(IssueBadge, { issues }),
-              /* @__PURE__ */ jsx63(
+              /* @__PURE__ */ jsx65(IssueBadge, { issues }),
+              /* @__PURE__ */ jsx65(
                 "button",
                 {
                   className: "domain-schema-item__open",
@@ -16758,13 +17471,13 @@ function SectionItems({
                     onOpenEntity(e.id);
                   },
                   title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435",
-                  children: /* @__PURE__ */ jsx63(MIcon, { name: "open_in_new", size: "sm" })
+                  children: /* @__PURE__ */ jsx65(MIcon, { name: "open_in_new", size: "sm" })
                 }
               )
             ]
           }
         ),
-        isExpanded && /* @__PURE__ */ jsx63(
+        isExpanded && /* @__PURE__ */ jsx65(
           EntityDetailCard,
           {
             entityId: e.id,
@@ -16778,27 +17491,27 @@ function SectionItems({
     }) });
   }
   if (sectionKey === "dataTypes") {
-    return /* @__PURE__ */ jsx63("div", { className: "domain-schema-list", children: items.map((d) => {
+    return /* @__PURE__ */ jsx65("div", { className: "domain-schema-list", children: items.map((d) => {
       const dtKey = `dataType:${d.id}`;
       const isExpanded = expandedItems.has(dtKey);
-      return /* @__PURE__ */ jsxs60(React31.Fragment, { children: [
-        /* @__PURE__ */ jsxs60(
+      return /* @__PURE__ */ jsxs62(React32.Fragment, { children: [
+        /* @__PURE__ */ jsxs62(
           "div",
           {
             className: "domain-schema-item domain-schema-item--expandable" + (isExpanded ? " expanded" : ""),
             onClick: () => onToggleItem(dtKey),
             children: [
-              /* @__PURE__ */ jsx63("span", { className: "domain-schema-item__caret", children: /* @__PURE__ */ jsx63(
+              /* @__PURE__ */ jsx65("span", { className: "domain-schema-item__caret", children: /* @__PURE__ */ jsx65(
                 MIcon,
                 {
                   name: isExpanded ? "expand_more" : "chevron_right",
                   size: "sm"
                 }
               ) }),
-              /* @__PURE__ */ jsx63("code", { className: "domain-schema-item__id", children: d.id }),
-              /* @__PURE__ */ jsx63("span", { className: "domain-schema-item__name", children: d.name }),
-              /* @__PURE__ */ jsxs60("span", { className: "domain-schema-item__meta", children: [
-                /* @__PURE__ */ jsx63("span", { className: "domain-schema-item__badge", children: d.kind }),
+              /* @__PURE__ */ jsx65("code", { className: "domain-schema-item__id", children: d.id }),
+              /* @__PURE__ */ jsx65("span", { className: "domain-schema-item__name", children: d.name }),
+              /* @__PURE__ */ jsxs62("span", { className: "domain-schema-item__meta", children: [
+                /* @__PURE__ */ jsx65("span", { className: "domain-schema-item__badge", children: d.kind }),
                 d.valuesCount != null && ` \xB7 ${d.valuesCount} \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0439`,
                 d.statusesCount != null && ` \xB7 ${d.statusesCount} \u0441\u0442\u0430\u0442\u0443\u0441\u043E\u0432`,
                 d.attributesCount != null && ` \xB7 ${d.attributesCount} \u043A\u043E\u043B\u043E\u043D\u043E\u043A`
@@ -16806,7 +17519,7 @@ function SectionItems({
             ]
           }
         ),
-        isExpanded && /* @__PURE__ */ jsx63(
+        isExpanded && /* @__PURE__ */ jsx65(
           DataTypeDetailCard,
           {
             dataTypeId: d.id,
@@ -16818,62 +17531,62 @@ function SectionItems({
     }) });
   }
   if (sectionKey === "linkages") {
-    return /* @__PURE__ */ jsx63("div", { className: "domain-schema-list", children: items.map((l) => /* @__PURE__ */ jsxs60("div", { className: "domain-schema-item", children: [
-      /* @__PURE__ */ jsx63("code", { className: "domain-schema-item__id", children: l.id }),
-      /* @__PURE__ */ jsx63("span", { className: "domain-schema-item__name", children: l.name }),
-      /* @__PURE__ */ jsxs60("span", { className: "domain-schema-item__meta", children: [
+    return /* @__PURE__ */ jsx65("div", { className: "domain-schema-list", children: items.map((l) => /* @__PURE__ */ jsxs62("div", { className: "domain-schema-item", children: [
+      /* @__PURE__ */ jsx65("code", { className: "domain-schema-item__id", children: l.id }),
+      /* @__PURE__ */ jsx65("span", { className: "domain-schema-item__name", children: l.name }),
+      /* @__PURE__ */ jsxs62("span", { className: "domain-schema-item__meta", children: [
         l.side1.split("/").pop(),
         " ",
         l.undirected ? "\u2194" : "\u2192",
         " ",
         l.side2.split("/").pop(),
         " \xB7 ",
-        /* @__PURE__ */ jsx63("span", { className: "domain-schema-item__badge", children: l.type })
+        /* @__PURE__ */ jsx65("span", { className: "domain-schema-item__badge", children: l.type })
       ] })
     ] }, l.id)) });
   }
   if (sectionKey === "sequences") {
-    return /* @__PURE__ */ jsx63("div", { className: "domain-schema-list", children: items.map((s) => /* @__PURE__ */ jsxs60("div", { className: "domain-schema-item", children: [
-      /* @__PURE__ */ jsx63("code", { className: "domain-schema-item__id", children: s.id }),
-      /* @__PURE__ */ jsxs60("span", { className: "domain-schema-item__meta", children: [
+    return /* @__PURE__ */ jsx65("div", { className: "domain-schema-list", children: items.map((s) => /* @__PURE__ */ jsxs62("div", { className: "domain-schema-item", children: [
+      /* @__PURE__ */ jsx65("code", { className: "domain-schema-item__id", children: s.id }),
+      /* @__PURE__ */ jsxs62("span", { className: "domain-schema-item__meta", children: [
         "\u043D\u0430\u0447\u0438\u043D\u0430\u0435\u0442\u0441\u044F \u0441 ",
         s.startFrom
       ] })
     ] }, s.id)) });
   }
   if (sectionKey === "actions") {
-    return /* @__PURE__ */ jsx63("div", { className: "domain-schema-list", children: items.map((a) => /* @__PURE__ */ jsxs60("div", { className: "domain-schema-item", children: [
-      /* @__PURE__ */ jsx63("code", { className: "domain-schema-item__id", children: a.id }),
-      /* @__PURE__ */ jsx63("span", { className: "domain-schema-item__name", children: a.name }),
-      /* @__PURE__ */ jsx63("span", { className: "domain-schema-item__meta", children: /* @__PURE__ */ jsx63("span", { className: "domain-schema-item__badge", children: a.type }) })
+    return /* @__PURE__ */ jsx65("div", { className: "domain-schema-list", children: items.map((a) => /* @__PURE__ */ jsxs62("div", { className: "domain-schema-item", children: [
+      /* @__PURE__ */ jsx65("code", { className: "domain-schema-item__id", children: a.id }),
+      /* @__PURE__ */ jsx65("span", { className: "domain-schema-item__name", children: a.name }),
+      /* @__PURE__ */ jsx65("span", { className: "domain-schema-item__meta", children: /* @__PURE__ */ jsx65("span", { className: "domain-schema-item__badge", children: a.type }) })
     ] }, a.id)) });
   }
   if (sectionKey === "views") {
-    return /* @__PURE__ */ jsx63("div", { className: "domain-schema-list", children: items.map((v) => /* @__PURE__ */ jsxs60("div", { className: "domain-schema-item", children: [
-      /* @__PURE__ */ jsx63("code", { className: "domain-schema-item__id", children: v.id }),
-      /* @__PURE__ */ jsx63("span", { className: "domain-schema-item__name", children: v.label || "" }),
-      /* @__PURE__ */ jsxs60("span", { className: "domain-schema-item__meta", children: [
-        /* @__PURE__ */ jsx63("span", { className: "domain-schema-item__badge", children: v.type }),
+    return /* @__PURE__ */ jsx65("div", { className: "domain-schema-list", children: items.map((v) => /* @__PURE__ */ jsxs62("div", { className: "domain-schema-item", children: [
+      /* @__PURE__ */ jsx65("code", { className: "domain-schema-item__id", children: v.id }),
+      /* @__PURE__ */ jsx65("span", { className: "domain-schema-item__name", children: v.label || "" }),
+      /* @__PURE__ */ jsxs62("span", { className: "domain-schema-item__meta", children: [
+        /* @__PURE__ */ jsx65("span", { className: "domain-schema-item__badge", children: v.type }),
         v.entity && ` \xB7 ${v.entity.split("/").pop()}`,
         v.isMixin && " \xB7 mixin"
       ] })
     ] }, v.id)) });
   }
   if (sectionKey === "menus") {
-    return /* @__PURE__ */ jsx63("div", { className: "domain-schema-list", children: items.map((m) => /* @__PURE__ */ jsxs60("div", { className: "domain-schema-item", children: [
-      /* @__PURE__ */ jsx63("code", { className: "domain-schema-item__id", children: m.route }),
-      /* @__PURE__ */ jsx63("span", { className: "domain-schema-item__name", children: m.label }),
-      /* @__PURE__ */ jsxs60("span", { className: "domain-schema-item__meta", children: [
-        /* @__PURE__ */ jsx63("span", { className: "domain-schema-item__badge", children: m.type }),
+    return /* @__PURE__ */ jsx65("div", { className: "domain-schema-list", children: items.map((m) => /* @__PURE__ */ jsxs62("div", { className: "domain-schema-item", children: [
+      /* @__PURE__ */ jsx65("code", { className: "domain-schema-item__id", children: m.route }),
+      /* @__PURE__ */ jsx65("span", { className: "domain-schema-item__name", children: m.label }),
+      /* @__PURE__ */ jsxs62("span", { className: "domain-schema-item__meta", children: [
+        /* @__PURE__ */ jsx65("span", { className: "domain-schema-item__badge", children: m.type }),
         m.view && ` \u2192 ${m.view}`
       ] })
     ] }, m.id)) });
   }
   if (sectionKey === "mixins") {
-    return /* @__PURE__ */ jsx63("div", { className: "domain-schema-list", children: items.map((m) => /* @__PURE__ */ jsxs60("div", { className: "domain-schema-item", children: [
-      /* @__PURE__ */ jsx63("code", { className: "domain-schema-item__id", children: m.id }),
-      /* @__PURE__ */ jsxs60("span", { className: "domain-schema-item__meta", children: [
-        /* @__PURE__ */ jsx63("span", { className: "domain-schema-item__badge", children: m.type }),
+    return /* @__PURE__ */ jsx65("div", { className: "domain-schema-list", children: items.map((m) => /* @__PURE__ */ jsxs62("div", { className: "domain-schema-item", children: [
+      /* @__PURE__ */ jsx65("code", { className: "domain-schema-item__id", children: m.id }),
+      /* @__PURE__ */ jsxs62("span", { className: "domain-schema-item__meta", children: [
+        /* @__PURE__ */ jsx65("span", { className: "domain-schema-item__badge", children: m.type }),
         " \u2192 ",
         m.entity,
         " \xB7 ",
@@ -16883,31 +17596,31 @@ function SectionItems({
     ] }, m.id)) });
   }
   if (sectionKey === "dataRules") {
-    return /* @__PURE__ */ jsx63("div", { className: "domain-schema-list", children: items.map((r) => /* @__PURE__ */ jsxs60("div", { className: "domain-schema-item", children: [
-      /* @__PURE__ */ jsx63("code", { className: "domain-schema-item__id", children: r.id }),
-      /* @__PURE__ */ jsx63("span", { className: "domain-schema-item__name", children: r.name }),
-      /* @__PURE__ */ jsxs60("span", { className: "domain-schema-item__meta", children: [
-        r.effect && /* @__PURE__ */ jsx63("span", { className: "domain-schema-item__badge", children: r.effect }),
+    return /* @__PURE__ */ jsx65("div", { className: "domain-schema-list", children: items.map((r) => /* @__PURE__ */ jsxs62("div", { className: "domain-schema-item", children: [
+      /* @__PURE__ */ jsx65("code", { className: "domain-schema-item__id", children: r.id }),
+      /* @__PURE__ */ jsx65("span", { className: "domain-schema-item__name", children: r.name }),
+      /* @__PURE__ */ jsxs62("span", { className: "domain-schema-item__meta", children: [
+        r.effect && /* @__PURE__ */ jsx65("span", { className: "domain-schema-item__badge", children: r.effect }),
         r.entity && ` \xB7 ${r.entity.split("/").pop()}`
       ] })
     ] }, r.id)) });
   }
   if (sectionKey === "medias") {
-    return /* @__PURE__ */ jsx63("div", { className: "domain-schema-list", children: items.map((m) => /* @__PURE__ */ jsxs60("div", { className: "domain-schema-item", children: [
-      /* @__PURE__ */ jsx63("code", { className: "domain-schema-item__id", children: m.id }),
-      /* @__PURE__ */ jsxs60("span", { className: "domain-schema-item__meta", children: [
+    return /* @__PURE__ */ jsx65("div", { className: "domain-schema-list", children: items.map((m) => /* @__PURE__ */ jsxs62("div", { className: "domain-schema-item", children: [
+      /* @__PURE__ */ jsx65("code", { className: "domain-schema-item__id", children: m.id }),
+      /* @__PURE__ */ jsxs62("span", { className: "domain-schema-item__meta", children: [
         m.type,
         m.iconName && ` \xB7 ${m.iconName}`
       ] })
     ] }, m.id)) });
   }
-  return /* @__PURE__ */ jsx63("div", { className: "domain-schema-list", children: items.map((item) => /* @__PURE__ */ jsxs60("div", { className: "domain-schema-item", children: [
-    /* @__PURE__ */ jsx63("code", { className: "domain-schema-item__id", children: item.id }),
-    item.name && item.name !== item.id && /* @__PURE__ */ jsx63("span", { className: "domain-schema-item__name", children: item.name }),
-    /* @__PURE__ */ jsxs60("span", { className: "domain-schema-item__meta", children: [
-      item.type && /* @__PURE__ */ jsx63("span", { className: "domain-schema-item__badge", children: item.type }),
-      item.target && /* @__PURE__ */ jsx63("span", { className: "domain-schema-item__badge", children: item.target }),
-      item.effect && /* @__PURE__ */ jsx63("span", { className: "domain-schema-item__badge", children: item.effect }),
+  return /* @__PURE__ */ jsx65("div", { className: "domain-schema-list", children: items.map((item) => /* @__PURE__ */ jsxs62("div", { className: "domain-schema-item", children: [
+    /* @__PURE__ */ jsx65("code", { className: "domain-schema-item__id", children: item.id }),
+    item.name && item.name !== item.id && /* @__PURE__ */ jsx65("span", { className: "domain-schema-item__name", children: item.name }),
+    /* @__PURE__ */ jsxs62("span", { className: "domain-schema-item__meta", children: [
+      item.type && /* @__PURE__ */ jsx65("span", { className: "domain-schema-item__badge", children: item.type }),
+      item.target && /* @__PURE__ */ jsx65("span", { className: "domain-schema-item__badge", children: item.target }),
+      item.effect && /* @__PURE__ */ jsx65("span", { className: "domain-schema-item__badge", children: item.effect }),
       item.rootEntity && ` \xB7 \u043A\u043E\u0440\u0435\u043D\u044C: ${item.rootEntity}`,
       item.joinsCount != null && ` \xB7 ${item.joinsCount} \u0441\u0432\u044F\u0437\u0435\u0439`,
       item.red && ` \xB7 red: ${item.red}`,
@@ -16950,8 +17663,8 @@ var init_consts = __esm({
 });
 
 // src/web/components/modals/DomainSchemaModal.tsx
-import { useEffect as useEffect30, useMemo as useMemo34, useState as useState23 } from "react";
-import { jsx as jsx64, jsxs as jsxs61 } from "react/jsx-runtime";
+import { useEffect as useEffect31, useMemo as useMemo35, useState as useState23 } from "react";
+import { jsx as jsx66, jsxs as jsxs63 } from "react/jsx-runtime";
 function DomainSchemaModal() {
   const store = useGraphStore();
   const { goto } = useNavigation();
@@ -16972,7 +17685,7 @@ function DomainSchemaModal() {
   const setPrefillOnlyProblematic = useGraphStore(
     (s) => s.setDomainSchemaPrefillOnlyProblematic
   );
-  useEffect30(() => {
+  useEffect31(() => {
     if (!open)
       return;
     if (prefillQuery !== null) {
@@ -16990,12 +17703,12 @@ function DomainSchemaModal() {
     setPrefillQuery,
     setPrefillOnlyProblematic
   ]);
-  const schema2 = useMemo34(() => {
+  const schema2 = useMemo35(() => {
     if (!index || !domainId)
       return null;
     return index.schemasByDomain[domainId] || null;
   }, [index, domainId]);
-  const issuesByEntity = useMemo34(() => {
+  const issuesByEntity = useMemo35(() => {
     const m = /* @__PURE__ */ new Map();
     if (!index || !domainId)
       return m;
@@ -17010,7 +17723,7 @@ function DomainSchemaModal() {
     });
     return m;
   }, [index, domainId]);
-  const issuesByAttribute = useMemo34(() => {
+  const issuesByAttribute = useMemo35(() => {
     const m = /* @__PURE__ */ new Map();
     if (!index || !domainId)
       return m;
@@ -17026,12 +17739,12 @@ function DomainSchemaModal() {
     });
     return m;
   }, [index, domainId]);
-  const domainIssues = useMemo34(() => {
+  const domainIssues = useMemo35(() => {
     if (!index || !domainId)
       return [];
     return index.lint.lintReport.issues.filter((i) => i.domainId === domainId);
   }, [index, domainId]);
-  const counters = useMemo34(() => {
+  const counters = useMemo35(() => {
     if (!schema2)
       return null;
     const totalAttrs = schema2.sections.entities.items.reduce(
@@ -17075,7 +17788,7 @@ function DomainSchemaModal() {
     store.setEntityCatalogInitialFqid(fqid);
     store.setEntityCatalogOpen(true);
   };
-  const filteredSections = useMemo34(() => {
+  const filteredSections = useMemo35(() => {
     if (!schema2)
       return null;
     if (!query.trim() && !onlyProblematic)
@@ -17112,7 +17825,7 @@ function DomainSchemaModal() {
     });
     return result;
   }, [schema2, query, onlyProblematic, index, domainId, issuesByEntity]);
-  useEffect30(() => {
+  useEffect31(() => {
     if (!onlyProblematic)
       return;
     setExpanded((prev) => {
@@ -17126,24 +17839,41 @@ function DomainSchemaModal() {
   const showFiltered = filteredSections !== null;
   const hasFilter = query.trim().length > 0 || onlyProblematic;
   const noResults = showFiltered && filteredSections && Object.values(filteredSections).every((arr) => !arr || arr.length === 0);
-  return /* @__PURE__ */ jsx64(
+  return /* @__PURE__ */ jsx66(
     "div",
     {
       className: "help-overlay help-overlay--fullscreen help-overlay--above-yaml",
       onMouseDown: () => store.setDomainSchemaOpen(false),
-      children: /* @__PURE__ */ jsxs61(
+      children: /* @__PURE__ */ jsxs63(
         "div",
         {
           className: "help-modal entity-hierarchy-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
-            /* @__PURE__ */ jsxs61("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsxs61("div", { className: "help-modal__title", children: [
-                /* @__PURE__ */ jsx64(MIcon, { name: "menu_book", size: "sm" }),
-                /* @__PURE__ */ jsx64("span", { className: "icon-label", children: "\u0421\u0445\u0435\u043C\u0430 \u0434\u043E\u043C\u0435\u043D\u0430" }),
-                schema2 && /* @__PURE__ */ jsx64("span", { className: "help-modal__badge", children: schema2.metadata.id })
+            /* @__PURE__ */ jsxs63("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs63("div", { className: "help-modal__title", children: [
+                /* @__PURE__ */ jsx66(MIcon, { name: "menu_book", size: "sm" }),
+                /* @__PURE__ */ jsx66("span", { className: "icon-label", children: "\u0421\u0445\u0435\u043C\u0430 \u0434\u043E\u043C\u0435\u043D\u0430" }),
+                schema2 && /* @__PURE__ */ jsx66("span", { className: "help-modal__badge", children: schema2.metadata.id })
               ] }),
-              /* @__PURE__ */ jsx64(
+              domainId && /* @__PURE__ */ jsx66(
+                "button",
+                {
+                  className: "help-modal__icon-btn" + (store.bookmarks.has(`domain_${domainId}`) ? " active" : ""),
+                  onClick: () => {
+                    store.toggleBookmark(`domain_${domainId}`);
+                  },
+                  title: store.bookmarks.has(`domain_${domainId}`) ? "\u0423\u0431\u0440\u0430\u0442\u044C \u0438\u0437 \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u043E\u0433\u043E" : "\u0412 \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u043E\u0435",
+                  children: /* @__PURE__ */ jsx66(
+                    MIcon,
+                    {
+                      name: store.bookmarks.has(`domain_${domainId}`) ? "star" : "star_border",
+                      fill: store.bookmarks.has(`domain_${domainId}`)
+                    }
+                  )
+                }
+              ),
+              /* @__PURE__ */ jsx66(
                 "button",
                 {
                   className: "help-modal__close",
@@ -17152,12 +17882,12 @@ function DomainSchemaModal() {
                 }
               )
             ] }),
-            loading && /* @__PURE__ */ jsx64("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx64("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
-            error && /* @__PURE__ */ jsx64("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs61("div", { style: { color: "var(--danger)" }, children: [
+            loading && /* @__PURE__ */ jsx66("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx66("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
+            error && /* @__PURE__ */ jsx66("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs63("div", { style: { color: "var(--danger)" }, children: [
               "\u041E\u0448\u0438\u0431\u043A\u0430: ",
               error
             ] }) }),
-            !loading && !error && !schema2 && /* @__PURE__ */ jsx64("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx64(
+            !loading && !error && !schema2 && /* @__PURE__ */ jsx66("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx66(
               "div",
               {
                 style: {
@@ -17168,79 +17898,79 @@ function DomainSchemaModal() {
                 children: "\u0421\u0445\u0435\u043C\u0430 \u0434\u043B\u044F \u044D\u0442\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430 \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430 \u0432 \u0438\u043D\u0434\u0435\u043A\u0441\u0435"
               }
             ) }),
-            schema2 && counters && /* @__PURE__ */ jsxs61("div", { className: "domain-schema-body", children: [
-              /* @__PURE__ */ jsxs61("div", { className: "domain-schema-header", children: [
-                /* @__PURE__ */ jsxs61("div", { className: "domain-schema-header__title", children: [
+            schema2 && counters && /* @__PURE__ */ jsxs63("div", { className: "domain-schema-body", children: [
+              /* @__PURE__ */ jsxs63("div", { className: "domain-schema-header", children: [
+                /* @__PURE__ */ jsxs63("div", { className: "domain-schema-header__title", children: [
                   schema2.metadata.name,
-                  schema2.metadata.version && /* @__PURE__ */ jsxs61("span", { className: "domain-schema-header__version", children: [
+                  schema2.metadata.version && /* @__PURE__ */ jsxs63("span", { className: "domain-schema-header__version", children: [
                     "v",
                     schema2.metadata.version
                   ] })
                 ] }),
-                schema2.metadata.description && /* @__PURE__ */ jsx64("div", { className: "domain-schema-header__desc", children: schema2.metadata.description }),
-                /* @__PURE__ */ jsxs61("div", { className: "domain-schema-header__meta", children: [
-                  schema2.metadata.author && /* @__PURE__ */ jsxs61("span", { children: [
-                    /* @__PURE__ */ jsx64(MIcon, { name: "person", size: "sm" }),
+                schema2.metadata.description && /* @__PURE__ */ jsx66("div", { className: "domain-schema-header__desc", children: schema2.metadata.description }),
+                /* @__PURE__ */ jsxs63("div", { className: "domain-schema-header__meta", children: [
+                  schema2.metadata.author && /* @__PURE__ */ jsxs63("span", { children: [
+                    /* @__PURE__ */ jsx66(MIcon, { name: "person", size: "sm" }),
                     schema2.metadata.author
                   ] }),
-                  schema2.metadata.status && /* @__PURE__ */ jsxs61("span", { children: [
-                    /* @__PURE__ */ jsx64(MIcon, { name: "flag", size: "sm" }),
+                  schema2.metadata.status && /* @__PURE__ */ jsxs63("span", { children: [
+                    /* @__PURE__ */ jsx66(MIcon, { name: "flag", size: "sm" }),
                     schema2.metadata.status
                   ] }),
-                  schema2.metadata.date && /* @__PURE__ */ jsxs61("span", { children: [
-                    /* @__PURE__ */ jsx64(MIcon, { name: "calendar_today", size: "sm" }),
+                  schema2.metadata.date && /* @__PURE__ */ jsxs63("span", { children: [
+                    /* @__PURE__ */ jsx66(MIcon, { name: "calendar_today", size: "sm" }),
                     schema2.metadata.date
                   ] }),
-                  schema2.metadata.tags.length > 0 && /* @__PURE__ */ jsx64("span", { className: "domain-schema-header__tags", children: schema2.metadata.tags.map((t) => /* @__PURE__ */ jsx64("span", { className: "tag", children: t }, t)) })
+                  schema2.metadata.tags.length > 0 && /* @__PURE__ */ jsx66("span", { className: "domain-schema-header__tags", children: schema2.metadata.tags.map((t) => /* @__PURE__ */ jsx66("span", { className: "tag", children: t }, t)) })
                 ] }),
-                /* @__PURE__ */ jsxs61("div", { className: "domain-schema-counters", children: [
-                  /* @__PURE__ */ jsxs61("span", { className: "domain-schema-counter", children: [
-                    /* @__PURE__ */ jsx64("strong", { children: counters.entities }),
+                /* @__PURE__ */ jsxs63("div", { className: "domain-schema-counters", children: [
+                  /* @__PURE__ */ jsxs63("span", { className: "domain-schema-counter", children: [
+                    /* @__PURE__ */ jsx66("strong", { children: counters.entities }),
                     " \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439"
                   ] }),
-                  /* @__PURE__ */ jsxs61("span", { className: "domain-schema-counter", children: [
-                    /* @__PURE__ */ jsx64("strong", { children: counters.attributes }),
+                  /* @__PURE__ */ jsxs63("span", { className: "domain-schema-counter", children: [
+                    /* @__PURE__ */ jsx66("strong", { children: counters.attributes }),
                     " \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432"
                   ] }),
-                  /* @__PURE__ */ jsxs61("span", { className: "domain-schema-counter", children: [
-                    /* @__PURE__ */ jsx64("strong", { children: counters.linkages }),
+                  /* @__PURE__ */ jsxs63("span", { className: "domain-schema-counter", children: [
+                    /* @__PURE__ */ jsx66("strong", { children: counters.linkages }),
                     " \u0441\u0432\u044F\u0437\u0435\u0439"
                   ] }),
-                  /* @__PURE__ */ jsxs61("span", { className: "domain-schema-counter", children: [
-                    /* @__PURE__ */ jsx64("strong", { children: counters.views }),
+                  /* @__PURE__ */ jsxs63("span", { className: "domain-schema-counter", children: [
+                    /* @__PURE__ */ jsx66("strong", { children: counters.views }),
                     " views"
                   ] }),
-                  /* @__PURE__ */ jsxs61("span", { className: "domain-schema-counter", children: [
-                    /* @__PURE__ */ jsx64("strong", { children: counters.dataRules }),
+                  /* @__PURE__ */ jsxs63("span", { className: "domain-schema-counter", children: [
+                    /* @__PURE__ */ jsx66("strong", { children: counters.dataRules }),
                     " \u043F\u0440\u0430\u0432\u0438\u043B"
                   ] }),
-                  counters.issues > 0 && /* @__PURE__ */ jsxs61(
+                  counters.issues > 0 && /* @__PURE__ */ jsxs63(
                     "button",
                     {
                       className: "domain-schema-counter domain-schema-counter--issues",
                       onClick: () => store.setLintOpen(true),
                       title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043B\u0438\u043D\u0442\u0435\u0440 \u0441\u0445\u0435\u043C",
                       children: [
-                        /* @__PURE__ */ jsx64(MIcon, { name: "warning", size: "sm" }),
-                        /* @__PURE__ */ jsx64("strong", { children: counters.issues }),
+                        /* @__PURE__ */ jsx66(MIcon, { name: "warning", size: "sm" }),
+                        /* @__PURE__ */ jsx66("strong", { children: counters.issues }),
                         " \u043F\u0440\u043E\u0431\u043B\u0435\u043C"
                       ]
                     }
                   )
                 ] }),
-                /* @__PURE__ */ jsxs61("div", { className: "domain-schema-header__actions", children: [
-                  /* @__PURE__ */ jsxs61(
+                /* @__PURE__ */ jsxs63("div", { className: "domain-schema-header__actions", children: [
+                  /* @__PURE__ */ jsxs63(
                     "button",
                     {
                       className: "btn",
                       onClick: () => goto(schema2.domainId),
                       children: [
-                        /* @__PURE__ */ jsx64(MIcon, { name: "my_location", size: "sm" }),
+                        /* @__PURE__ */ jsx66(MIcon, { name: "my_location", size: "sm" }),
                         " \u041A \u0434\u043E\u043C\u0435\u043D\u0443 \u043D\u0430 \u0433\u0440\u0430\u0444\u0435"
                       ]
                     }
                   ),
-                  /* @__PURE__ */ jsxs61(
+                  /* @__PURE__ */ jsxs63(
                     "button",
                     {
                       className: "btn",
@@ -17254,12 +17984,12 @@ function DomainSchemaModal() {
                         }
                       },
                       children: [
-                        /* @__PURE__ */ jsx64(MIcon, { name: "description", size: "sm" }),
+                        /* @__PURE__ */ jsx66(MIcon, { name: "description", size: "sm" }),
                         " \u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0444\u0430\u0439\u043B"
                       ]
                     }
                   ),
-                  /* @__PURE__ */ jsxs61(
+                  /* @__PURE__ */ jsxs63(
                     "button",
                     {
                       className: "btn btn--primary",
@@ -17268,16 +17998,16 @@ function DomainSchemaModal() {
                         downloadDomainMarkdown(schema2.domainId, md);
                       },
                       children: [
-                        /* @__PURE__ */ jsx64(MIcon, { name: "description", size: "sm" }),
+                        /* @__PURE__ */ jsx66(MIcon, { name: "description", size: "sm" }),
                         " \u042D\u043A\u0441\u043F\u043E\u0440\u0442 \u0432 Markdown"
                       ]
                     }
                   )
                 ] }),
-                /* @__PURE__ */ jsxs61("div", { className: "domain-schema-search", children: [
-                  /* @__PURE__ */ jsxs61("div", { className: "domain-schema-search__input-wrap", children: [
-                    /* @__PURE__ */ jsx64(MIcon, { name: "search", size: "sm" }),
-                    /* @__PURE__ */ jsx64(
+                /* @__PURE__ */ jsxs63("div", { className: "domain-schema-search", children: [
+                  /* @__PURE__ */ jsxs63("div", { className: "domain-schema-search__input-wrap", children: [
+                    /* @__PURE__ */ jsx66(MIcon, { name: "search", size: "sm" }),
+                    /* @__PURE__ */ jsx66(
                       "input",
                       {
                         type: "text",
@@ -17288,7 +18018,7 @@ function DomainSchemaModal() {
                         spellCheck: false
                       }
                     ),
-                    query && /* @__PURE__ */ jsx64(
+                    query && /* @__PURE__ */ jsx66(
                       "button",
                       {
                         className: "domain-schema-search__clear",
@@ -17298,8 +18028,8 @@ function DomainSchemaModal() {
                       }
                     )
                   ] }),
-                  /* @__PURE__ */ jsxs61("label", { className: "domain-schema-search__toggle", children: [
-                    /* @__PURE__ */ jsx64(
+                  /* @__PURE__ */ jsxs63("label", { className: "domain-schema-search__toggle", children: [
+                    /* @__PURE__ */ jsx66(
                       "input",
                       {
                         type: "checkbox",
@@ -17307,60 +18037,60 @@ function DomainSchemaModal() {
                         onChange: (e) => setOnlyProblematic(e.target.checked)
                       }
                     ),
-                    /* @__PURE__ */ jsx64("span", { children: "\u0422\u043E\u043B\u044C\u043A\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0435" })
+                    /* @__PURE__ */ jsx66("span", { children: "\u0422\u043E\u043B\u044C\u043A\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0435" })
                   ] })
                 ] })
               ] }),
-              noResults && /* @__PURE__ */ jsx64("div", { className: "domain-schema-no-results", children: onlyProblematic && !query.trim() ? "\u0412 \u044D\u0442\u043E\u043C \u0434\u043E\u043C\u0435\u043D\u0435 \u043D\u0435\u0442 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0445 \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u043E\u0432" : "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0442\u0435\u043A\u0443\u0449\u0435\u043C\u0443 \u0444\u0438\u043B\u044C\u0442\u0440\u0443" }),
-              /* @__PURE__ */ jsx64("div", { className: "domain-schema-sections", children: Object.keys(SECTION_LABELS).map((key) => {
+              noResults && /* @__PURE__ */ jsx66("div", { className: "domain-schema-no-results", children: onlyProblematic && !query.trim() ? "\u0412 \u044D\u0442\u043E\u043C \u0434\u043E\u043C\u0435\u043D\u0435 \u043D\u0435\u0442 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0445 \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u043E\u0432" : "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0442\u0435\u043A\u0443\u0449\u0435\u043C\u0443 \u0444\u0438\u043B\u044C\u0442\u0440\u0443" }),
+              /* @__PURE__ */ jsx66("div", { className: "domain-schema-sections", children: Object.keys(SECTION_LABELS).map((key) => {
                 const section = schema2.sections[key];
                 const meta = SECTION_LABELS[key];
                 const filteredItems = showFiltered ? filteredSections[key] || [] : section.items;
                 const displayCount = showFiltered ? filteredItems.length : section.count;
                 const isOpen = hasFilter ? displayCount > 0 : expanded.has(key);
                 const sectionIssues = key === "entities" ? domainIssues.filter((i) => i.entityFqid).length : 0;
-                return /* @__PURE__ */ jsxs61(
+                return /* @__PURE__ */ jsxs63(
                   "div",
                   {
                     className: "domain-schema-section" + (isOpen ? " open" : ""),
                     children: [
-                      /* @__PURE__ */ jsxs61(
+                      /* @__PURE__ */ jsxs63(
                         "button",
                         {
                           className: "domain-schema-section__head",
                           onClick: () => toggle(key),
                           disabled: hasFilter && displayCount === 0,
                           children: [
-                            /* @__PURE__ */ jsx64(
+                            /* @__PURE__ */ jsx66(
                               MIcon,
                               {
                                 name: isOpen ? "expand_more" : "chevron_right",
                                 size: "sm"
                               }
                             ),
-                            /* @__PURE__ */ jsx64(MIcon, { name: meta.icon, size: "sm" }),
-                            /* @__PURE__ */ jsx64("span", { className: "domain-schema-section__title", children: meta.label }),
-                            /* @__PURE__ */ jsxs61(
+                            /* @__PURE__ */ jsx66(MIcon, { name: meta.icon, size: "sm" }),
+                            /* @__PURE__ */ jsx66("span", { className: "domain-schema-section__title", children: meta.label }),
+                            /* @__PURE__ */ jsxs63(
                               "span",
                               {
                                 className: "domain-schema-section__count" + (displayCount === 0 ? " zero" : ""),
                                 children: [
                                   displayCount,
-                                  showFiltered && displayCount !== section.count && /* @__PURE__ */ jsxs61("span", { className: "domain-schema-section__count-total", children: [
+                                  showFiltered && displayCount !== section.count && /* @__PURE__ */ jsxs63("span", { className: "domain-schema-section__count-total", children: [
                                     "/",
                                     section.count
                                   ] })
                                 ]
                               }
                             ),
-                            sectionIssues > 0 && key === "entities" && /* @__PURE__ */ jsxs61("span", { className: "domain-schema-section__issues", children: [
-                              /* @__PURE__ */ jsx64(MIcon, { name: "warning", size: "sm" }),
+                            sectionIssues > 0 && key === "entities" && /* @__PURE__ */ jsxs63("span", { className: "domain-schema-section__issues", children: [
+                              /* @__PURE__ */ jsx66(MIcon, { name: "warning", size: "sm" }),
                               sectionIssues
                             ] })
                           ]
                         }
                       ),
-                      isOpen && filteredItems.length > 0 && /* @__PURE__ */ jsx64("div", { className: "domain-schema-section__body", children: /* @__PURE__ */ jsx64(
+                      isOpen && filteredItems.length > 0 && /* @__PURE__ */ jsx66("div", { className: "domain-schema-section__body", children: /* @__PURE__ */ jsx66(
                         SectionItems,
                         {
                           sectionKey: key,
@@ -17375,19 +18105,19 @@ function DomainSchemaModal() {
                           onlyProblematic
                         }
                       ) }),
-                      isOpen && filteredItems.length === 0 && /* @__PURE__ */ jsx64("div", { className: "domain-schema-section__body domain-schema-section__body--empty", children: hasFilter ? "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0444\u0438\u043B\u044C\u0442\u0440\u0443" : "\u041F\u0443\u0441\u0442\u043E" })
+                      isOpen && filteredItems.length === 0 && /* @__PURE__ */ jsx66("div", { className: "domain-schema-section__body domain-schema-section__body--empty", children: hasFilter ? "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0444\u0438\u043B\u044C\u0442\u0440\u0443" : "\u041F\u0443\u0441\u0442\u043E" })
                     ]
                   },
                   key
                 );
               }) }),
-              (schema2.flags.hasExchangeSettings || schema2.flags.hasCounterColorPattern) && /* @__PURE__ */ jsxs61("div", { className: "domain-schema-flags", children: [
-                schema2.flags.hasExchangeSettings && /* @__PURE__ */ jsxs61("span", { className: "domain-schema-flag", children: [
-                  /* @__PURE__ */ jsx64(MIcon, { name: "swap_horiz", size: "sm" }),
+              (schema2.flags.hasExchangeSettings || schema2.flags.hasCounterColorPattern) && /* @__PURE__ */ jsxs63("div", { className: "domain-schema-flags", children: [
+                schema2.flags.hasExchangeSettings && /* @__PURE__ */ jsxs63("span", { className: "domain-schema-flag", children: [
+                  /* @__PURE__ */ jsx66(MIcon, { name: "swap_horiz", size: "sm" }),
                   " \u041D\u0430\u0441\u0442\u0440\u043E\u0435\u043D \u043E\u0431\u043C\u0435\u043D \u0434\u0430\u043D\u043D\u044B\u043C\u0438"
                 ] }),
-                schema2.flags.hasCounterColorPattern && /* @__PURE__ */ jsxs61("span", { className: "domain-schema-flag", children: [
-                  /* @__PURE__ */ jsx64(MIcon, { name: "palette", size: "sm" }),
+                schema2.flags.hasCounterColorPattern && /* @__PURE__ */ jsxs63("span", { className: "domain-schema-flag", children: [
+                  /* @__PURE__ */ jsx66(MIcon, { name: "palette", size: "sm" }),
                   " \u0415\u0441\u0442\u044C \u0446\u0432\u0435\u0442\u043E\u0432\u044B\u0435 \u0441\u0445\u0435\u043C\u044B \u0441\u0447\u0451\u0442\u0447\u0438\u043A\u043E\u0432"
                 ] })
               ] })
@@ -17414,8 +18144,8 @@ var init_DomainSchemaModal = __esm({
 });
 
 // src/web/components/modals/LintModal.tsx
-import { useMemo as useMemo35, useState as useState24 } from "react";
-import { jsx as jsx65, jsxs as jsxs62 } from "react/jsx-runtime";
+import { useMemo as useMemo36, useState as useState24 } from "react";
+import { jsx as jsx67, jsxs as jsxs64 } from "react/jsx-runtime";
 function LintModal() {
   const store = useGraphStore();
   const { index, loading, error } = useModelIndex();
@@ -17425,14 +18155,14 @@ function LintModal() {
   const [showHelp, setShowHelp] = useState24(false);
   const open = store.lintOpen;
   const report = index?.lint.lintReport ?? null;
-  const allDomains = useMemo35(() => {
+  const allDomains = useMemo36(() => {
     if (!report)
       return [];
     const set2 = /* @__PURE__ */ new Set();
     report.issues.forEach((i) => set2.add(i.domainId));
     return Array.from(set2).sort();
   }, [report]);
-  const filteredIssues = useMemo35(() => {
+  const filteredIssues = useMemo36(() => {
     if (!report)
       return [];
     return report.issues.filter((i) => {
@@ -17443,7 +18173,7 @@ function LintModal() {
       return true;
     });
   }, [report, filterCategory, filterDomain]);
-  const grouped = useMemo35(() => {
+  const grouped = useMemo36(() => {
     const map2 = /* @__PURE__ */ new Map();
     filteredIssues.forEach((i) => {
       if (!map2.has(i.ruleId)) {
@@ -17481,27 +18211,27 @@ function LintModal() {
   };
   if (!open)
     return null;
-  return /* @__PURE__ */ jsx65(
+  return /* @__PURE__ */ jsx67(
     "div",
     {
       className: "help-overlay help-overlay--fullscreen",
       style: { zIndex: 500 },
       onMouseDown: () => store.setLintOpen(false),
-      children: /* @__PURE__ */ jsxs62(
+      children: /* @__PURE__ */ jsxs64(
         "div",
         {
           className: "help-modal entity-hierarchy-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
-            /* @__PURE__ */ jsxs62("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsxs62("div", { className: "help-modal__title", children: [
-                /* @__PURE__ */ jsx65(MIcon, { name: "science", size: "sm" }),
-                /* @__PURE__ */ jsx65("span", { className: "icon-label", children: "\u041B\u0438\u043D\u0442\u0435\u0440 \u0441\u0445\u0435\u043C" }),
-                report && /* @__PURE__ */ jsx65("span", { className: "help-modal__badge", children: filteredIssues.length })
+            /* @__PURE__ */ jsxs64("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs64("div", { className: "help-modal__title", children: [
+                /* @__PURE__ */ jsx67(MIcon, { name: "science", size: "sm" }),
+                /* @__PURE__ */ jsx67("span", { className: "icon-label", children: "\u041B\u0438\u043D\u0442\u0435\u0440 \u0441\u0445\u0435\u043C" }),
+                report && /* @__PURE__ */ jsx67("span", { className: "help-modal__badge", children: filteredIssues.length })
               ] }),
-              /* @__PURE__ */ jsxs62("div", { className: "help-modal__actions", children: [
-                /* @__PURE__ */ jsx65(HelpButton, { open: showHelp, onToggle: () => setShowHelp(!showHelp), label: "\u0427\u0442\u043E \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442\u0441\u044F?" }),
-                /* @__PURE__ */ jsx65(
+              /* @__PURE__ */ jsxs64("div", { className: "help-modal__actions", children: [
+                /* @__PURE__ */ jsx67(HelpButton, { open: showHelp, onToggle: () => setShowHelp(!showHelp), label: "\u0427\u0442\u043E \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442\u0441\u044F?" }),
+                /* @__PURE__ */ jsx67(
                   "button",
                   {
                     className: "help-modal__close",
@@ -17511,88 +18241,88 @@ function LintModal() {
                 )
               ] })
             ] }),
-            loading && /* @__PURE__ */ jsx65("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx65("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
-            error && /* @__PURE__ */ jsx65("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs62("div", { style: { color: "var(--danger)" }, children: [
+            loading && /* @__PURE__ */ jsx67("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx67("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
+            error && /* @__PURE__ */ jsx67("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs64("div", { style: { color: "var(--danger)" }, children: [
               "\u041E\u0448\u0438\u0431\u043A\u0430: ",
               error
             ] }) }),
-            index && report && /* @__PURE__ */ jsxs62("div", { className: "help-modal__body help-modal__body--flush", children: [
-              /* @__PURE__ */ jsxs62(ModalHelp, { visible: showHelp, children: [
-                /* @__PURE__ */ jsx65(HelpSection, { title: "\u0427\u0442\u043E \u044D\u0442\u043E", children: /* @__PURE__ */ jsx65(HelpText, { children: "\u041B\u0438\u043D\u0442\u0435\u0440 \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442 \u0441\u0445\u0435\u043C\u044B \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u043D\u0430 \u0441\u043E\u043E\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0438\u0435 \u0441\u043E\u0433\u043B\u0430\u0448\u0435\u043D\u0438\u044F\u043C: \u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u0438\u043C\u0435\u043D\u043E\u0432\u0430\u043D\u0438\u044F, \u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u044B\u0435 \u043F\u043E\u043B\u044F, \u0441\u0441\u044B\u043B\u043E\u0447\u043D\u0443\u044E \u0446\u0435\u043B\u043E\u0441\u0442\u043D\u043E\u0441\u0442\u044C, \u0442\u0438\u043F\u044B \u0434\u0430\u043D\u043D\u044B\u0445 \u0438 \u0441\u0435\u043C\u0430\u043D\u0442\u0438\u043A\u0443. \u0412\u0441\u0451, \u0447\u0442\u043E \u043D\u0430\u0440\u0443\u0448\u0430\u0435\u0442 \u043D\u043E\u0440\u043C\u0443, \u043F\u043E\u043F\u0430\u0434\u0430\u0435\u0442 \u0432 \u043E\u0442\u0447\u0451\u0442." }) }),
-                /* @__PURE__ */ jsx65(HelpSection, { title: "\u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438 \u043F\u0440\u0430\u0432\u0438\u043B", children: /* @__PURE__ */ jsxs62(HelpList, { children: [
-                  /* @__PURE__ */ jsxs62("li", { children: [
-                    /* @__PURE__ */ jsx65("strong", { children: "\u0421\u0441\u044B\u043B\u043E\u0447\u043D\u0430\u044F \u0446\u0435\u043B\u043E\u0441\u0442\u043D\u043E\u0441\u0442\u044C" }),
+            index && report && /* @__PURE__ */ jsxs64("div", { className: "help-modal__body help-modal__body--flush", children: [
+              /* @__PURE__ */ jsxs64(ModalHelp, { visible: showHelp, children: [
+                /* @__PURE__ */ jsx67(HelpSection, { title: "\u0427\u0442\u043E \u044D\u0442\u043E", children: /* @__PURE__ */ jsx67(HelpText, { children: "\u041B\u0438\u043D\u0442\u0435\u0440 \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442 \u0441\u0445\u0435\u043C\u044B \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u043D\u0430 \u0441\u043E\u043E\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0438\u0435 \u0441\u043E\u0433\u043B\u0430\u0448\u0435\u043D\u0438\u044F\u043C: \u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u0438\u043C\u0435\u043D\u043E\u0432\u0430\u043D\u0438\u044F, \u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u044B\u0435 \u043F\u043E\u043B\u044F, \u0441\u0441\u044B\u043B\u043E\u0447\u043D\u0443\u044E \u0446\u0435\u043B\u043E\u0441\u0442\u043D\u043E\u0441\u0442\u044C, \u0442\u0438\u043F\u044B \u0434\u0430\u043D\u043D\u044B\u0445 \u0438 \u0441\u0435\u043C\u0430\u043D\u0442\u0438\u043A\u0443. \u0412\u0441\u0451, \u0447\u0442\u043E \u043D\u0430\u0440\u0443\u0448\u0430\u0435\u0442 \u043D\u043E\u0440\u043C\u0443, \u043F\u043E\u043F\u0430\u0434\u0430\u0435\u0442 \u0432 \u043E\u0442\u0447\u0451\u0442." }) }),
+                /* @__PURE__ */ jsx67(HelpSection, { title: "\u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438 \u043F\u0440\u0430\u0432\u0438\u043B", children: /* @__PURE__ */ jsxs64(HelpList, { children: [
+                  /* @__PURE__ */ jsxs64("li", { children: [
+                    /* @__PURE__ */ jsx67("strong", { children: "\u0421\u0441\u044B\u043B\u043E\u0447\u043D\u0430\u044F \u0446\u0435\u043B\u043E\u0441\u0442\u043D\u043E\u0441\u0442\u044C" }),
                     " \u2014 \u0432\u0441\u0435 \u043B\u0438 \u0441\u0441\u044B\u043B\u043A\u0438 \u0432\u0435\u0434\u0443\u0442 \u043D\u0430 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0438 \u0442\u0438\u043F\u044B."
                   ] }),
-                  /* @__PURE__ */ jsxs62("li", { children: [
-                    /* @__PURE__ */ jsx65("strong", { children: "\u0421\u0435\u043C\u0430\u043D\u0442\u0438\u043A\u0430" }),
+                  /* @__PURE__ */ jsxs64("li", { children: [
+                    /* @__PURE__ */ jsx67("strong", { children: "\u0421\u0435\u043C\u0430\u043D\u0442\u0438\u043A\u0430" }),
                     " \u2014 \u043D\u0435\u0442 \u043B\u0438 \u0434\u0443\u0431\u043B\u0435\u0439, \u0446\u0438\u043A\u043B\u043E\u0432, \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439-\u043F\u0443\u0441\u0442\u044B\u0448\u0435\u043A."
                   ] }),
-                  /* @__PURE__ */ jsxs62("li", { children: [
-                    /* @__PURE__ */ jsx65("strong", { children: "\u0418\u043C\u0435\u043D\u043E\u0432\u0430\u043D\u0438\u0435" }),
+                  /* @__PURE__ */ jsxs64("li", { children: [
+                    /* @__PURE__ */ jsx67("strong", { children: "\u0418\u043C\u0435\u043D\u043E\u0432\u0430\u043D\u0438\u0435" }),
                     " \u2014 camelCase \u0434\u043B\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0438 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432, \u0434\u043B\u0438\u043D\u0430 id \u0432 \u043F\u0440\u0435\u0434\u0435\u043B\u0430\u0445 \u043D\u043E\u0440\u043C\u044B."
                   ] }),
-                  /* @__PURE__ */ jsxs62("li", { children: [
-                    /* @__PURE__ */ jsx65("strong", { children: "\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F" }),
+                  /* @__PURE__ */ jsxs64("li", { children: [
+                    /* @__PURE__ */ jsx67("strong", { children: "\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F" }),
                     " \u2014 email \u0431\u0435\u0437 regexp, IP \u043A\u0430\u043A String, \u0434\u0430\u0442\u0430 \u043A\u0430\u043A String \u2014 \u043B\u043E\u0432\u0438\u043C \u043D\u0435\u0441\u043E\u043E\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0438\u044F \u0442\u0438\u043F\u043E\u0432."
                   ] }),
-                  /* @__PURE__ */ jsxs62("li", { children: [
-                    /* @__PURE__ */ jsx65("strong", { children: "\u041E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u044B\u0435 \u043F\u043E\u043B\u044F" }),
+                  /* @__PURE__ */ jsxs64("li", { children: [
+                    /* @__PURE__ */ jsx67("strong", { children: "\u041E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u044B\u0435 \u043F\u043E\u043B\u044F" }),
                     " \u2014 \u0435\u0441\u0442\u044C \u043B\u0438 ",
-                    /* @__PURE__ */ jsx65("code", { children: "name" }),
+                    /* @__PURE__ */ jsx67("code", { children: "name" }),
                     " \u0443 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438."
                   ] }),
-                  /* @__PURE__ */ jsxs62("li", { children: [
-                    /* @__PURE__ */ jsx65("strong", { children: "\u0420\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u0438" }),
+                  /* @__PURE__ */ jsxs64("li", { children: [
+                    /* @__PURE__ */ jsx67("strong", { children: "\u0420\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u0438" }),
                     " \u2014 \u0435\u0441\u0442\u044C \u043B\u0438 ",
-                    /* @__PURE__ */ jsx65("code", { children: "description" }),
+                    /* @__PURE__ */ jsx67("code", { children: "description" }),
                     ", ",
-                    /* @__PURE__ */ jsx65("code", { children: "label" }),
+                    /* @__PURE__ */ jsx67("code", { children: "label" }),
                     " \u2014 \u043D\u0435 \u0431\u043B\u043E\u043A\u0438\u0440\u0443\u044E\u0442, \u043D\u043E \u0443\u043B\u0443\u0447\u0448\u0430\u044E\u0442 \u0447\u0438\u0442\u0430\u0435\u043C\u043E\u0441\u0442\u044C."
                   ] })
                 ] }) }),
-                /* @__PURE__ */ jsx65(HelpSection, { title: "\u0423\u0440\u043E\u0432\u043D\u0438", children: /* @__PURE__ */ jsxs62(HelpText, { children: [
-                  /* @__PURE__ */ jsx65("strong", { children: "\u041E\u0448\u0438\u0431\u043A\u0438" }),
+                /* @__PURE__ */ jsx67(HelpSection, { title: "\u0423\u0440\u043E\u0432\u043D\u0438", children: /* @__PURE__ */ jsxs64(HelpText, { children: [
+                  /* @__PURE__ */ jsx67("strong", { children: "\u041E\u0448\u0438\u0431\u043A\u0438" }),
                   " \u2014 \u0442\u043E\u0447\u043D\u043E \u043D\u0430\u0434\u043E \u043F\u0440\u0430\u0432\u0438\u0442\u044C. ",
-                  /* @__PURE__ */ jsx65("strong", { children: "\u041F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u044F" }),
+                  /* @__PURE__ */ jsx67("strong", { children: "\u041F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u044F" }),
                   " \u2014 \u0442\u0430\u043A \u043F\u0438\u0441\u0430\u0442\u044C \u043D\u0435 \u0440\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0443\u0435\u0442\u0441\u044F. ",
-                  /* @__PURE__ */ jsx65("strong", { children: "\u0420\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u0438" }),
+                  /* @__PURE__ */ jsx67("strong", { children: "\u0420\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u0438" }),
                   " \u2014 \u043C\u043E\u0436\u043D\u043E \u0443\u043B\u0443\u0447\u0448\u0438\u0442\u044C, \u043D\u043E \u043D\u0435 \u043A\u0440\u0438\u0442\u0438\u0447\u043D\u043E."
                 ] }) }),
-                /* @__PURE__ */ jsx65(HelpSection, { title: "Sonar-\u043E\u0446\u0435\u043D\u043A\u0430", children: /* @__PURE__ */ jsx65(HelpText, { children: "\u042D\u0442\u043E \u0432\u0437\u0432\u0435\u0448\u0435\u043D\u043D\u0430\u044F \u0441\u0432\u043E\u0434\u043A\u0430: 100 \u2014 \u0438\u0434\u0435\u0430\u043B, 0 \u2014 \u043E\u0447\u0435\u043D\u044C \u043C\u043D\u043E\u0433\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C. \u0412\u0435\u0441 \u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438 \u043E\u0442\u0440\u0430\u0436\u0430\u0435\u0442 \u0432\u0430\u0436\u043D\u043E\u0441\u0442\u044C: \u0441\u0441\u044B\u043B\u043E\u0447\u043D\u0430\u044F \u0446\u0435\u043B\u043E\u0441\u0442\u043D\u043E\u0441\u0442\u044C \u0432\u043B\u0438\u044F\u0435\u0442 \u043D\u0430 \u043E\u0446\u0435\u043D\u043A\u0443 \u0432 5 \u0440\u0430\u0437 \u0441\u0438\u043B\u044C\u043D\u0435\u0435, \u0447\u0435\u043C \u0440\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u0438." }) })
+                /* @__PURE__ */ jsx67(HelpSection, { title: "Sonar-\u043E\u0446\u0435\u043D\u043A\u0430", children: /* @__PURE__ */ jsx67(HelpText, { children: "\u042D\u0442\u043E \u0432\u0437\u0432\u0435\u0448\u0435\u043D\u043D\u0430\u044F \u0441\u0432\u043E\u0434\u043A\u0430: 100 \u2014 \u0438\u0434\u0435\u0430\u043B, 0 \u2014 \u043E\u0447\u0435\u043D\u044C \u043C\u043D\u043E\u0433\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C. \u0412\u0435\u0441 \u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438 \u043E\u0442\u0440\u0430\u0436\u0430\u0435\u0442 \u0432\u0430\u0436\u043D\u043E\u0441\u0442\u044C: \u0441\u0441\u044B\u043B\u043E\u0447\u043D\u0430\u044F \u0446\u0435\u043B\u043E\u0441\u0442\u043D\u043E\u0441\u0442\u044C \u0432\u043B\u0438\u044F\u0435\u0442 \u043D\u0430 \u043E\u0446\u0435\u043D\u043A\u0443 \u0432 5 \u0440\u0430\u0437 \u0441\u0438\u043B\u044C\u043D\u0435\u0435, \u0447\u0435\u043C \u0440\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u0438." }) })
               ] }),
-              /* @__PURE__ */ jsxs62("div", { className: "lint-summary", children: [
-                /* @__PURE__ */ jsxs62("div", { className: "lint-summary__stat lint-summary__stat--error", children: [
-                  /* @__PURE__ */ jsx65("div", { className: "lint-summary__value", children: report.stats.bySeverity.error }),
-                  /* @__PURE__ */ jsx65("div", { className: "lint-summary__label", children: "\u041E\u0448\u0438\u0431\u043E\u043A" })
+              /* @__PURE__ */ jsxs64("div", { className: "lint-summary", children: [
+                /* @__PURE__ */ jsxs64("div", { className: "lint-summary__stat lint-summary__stat--error", children: [
+                  /* @__PURE__ */ jsx67("div", { className: "lint-summary__value", children: report.stats.bySeverity.error }),
+                  /* @__PURE__ */ jsx67("div", { className: "lint-summary__label", children: "\u041E\u0448\u0438\u0431\u043E\u043A" })
                 ] }),
-                /* @__PURE__ */ jsxs62("div", { className: "lint-summary__stat lint-summary__stat--warning", children: [
-                  /* @__PURE__ */ jsx65("div", { className: "lint-summary__value", children: report.stats.bySeverity.warning }),
-                  /* @__PURE__ */ jsx65("div", { className: "lint-summary__label", children: "\u041F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u0439" })
+                /* @__PURE__ */ jsxs64("div", { className: "lint-summary__stat lint-summary__stat--warning", children: [
+                  /* @__PURE__ */ jsx67("div", { className: "lint-summary__value", children: report.stats.bySeverity.warning }),
+                  /* @__PURE__ */ jsx67("div", { className: "lint-summary__label", children: "\u041F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u0439" })
                 ] }),
-                /* @__PURE__ */ jsxs62("div", { className: "lint-summary__stat lint-summary__stat--info", children: [
-                  /* @__PURE__ */ jsx65("div", { className: "lint-summary__value", children: report.stats.bySeverity.info }),
-                  /* @__PURE__ */ jsx65("div", { className: "lint-summary__label", children: "\u0420\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u0439" })
+                /* @__PURE__ */ jsxs64("div", { className: "lint-summary__stat lint-summary__stat--info", children: [
+                  /* @__PURE__ */ jsx67("div", { className: "lint-summary__value", children: report.stats.bySeverity.info }),
+                  /* @__PURE__ */ jsx67("div", { className: "lint-summary__label", children: "\u0420\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u0439" })
                 ] }),
-                /* @__PURE__ */ jsxs62("div", { className: "lint-summary__stat lint-summary__stat--score", children: [
-                  /* @__PURE__ */ jsx65("div", { className: "lint-summary__value", children: index.lint.sonar.overall.score }),
-                  /* @__PURE__ */ jsxs62("div", { className: "lint-summary__label", children: [
+                /* @__PURE__ */ jsxs64("div", { className: "lint-summary__stat lint-summary__stat--score", children: [
+                  /* @__PURE__ */ jsx67("div", { className: "lint-summary__value", children: index.lint.sonar.overall.score }),
+                  /* @__PURE__ */ jsxs64("div", { className: "lint-summary__label", children: [
                     "Sonar ",
                     index.lint.sonar.overall.grade
                   ] })
                 ] })
               ] }),
-              /* @__PURE__ */ jsxs62("div", { className: "lint-filters", children: [
-                /* @__PURE__ */ jsxs62("label", { className: "entity-matrix-filter", children: [
-                  /* @__PURE__ */ jsx65("span", { children: "\u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F:" }),
-                  /* @__PURE__ */ jsxs62(
+              /* @__PURE__ */ jsxs64("div", { className: "lint-filters", children: [
+                /* @__PURE__ */ jsxs64("label", { className: "entity-matrix-filter", children: [
+                  /* @__PURE__ */ jsx67("span", { children: "\u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F:" }),
+                  /* @__PURE__ */ jsxs64(
                     "select",
                     {
                       value: filterCategory,
                       onChange: (e) => setFilterCategory(e.target.value),
                       children: [
-                        /* @__PURE__ */ jsx65("option", { value: "", children: "\u2014 \u0432\u0441\u0435 \u2014" }),
-                        Object.keys(CATEGORY_LABELS).map((k) => /* @__PURE__ */ jsxs62("option", { value: k, children: [
+                        /* @__PURE__ */ jsx67("option", { value: "", children: "\u2014 \u0432\u0441\u0435 \u2014" }),
+                        Object.keys(CATEGORY_LABELS).map((k) => /* @__PURE__ */ jsxs64("option", { value: k, children: [
                           CATEGORY_LABELS[k],
                           " (",
                           report.stats.byCategory[k],
@@ -17602,53 +18332,53 @@ function LintModal() {
                     }
                   )
                 ] }),
-                /* @__PURE__ */ jsxs62("label", { className: "entity-matrix-filter", children: [
-                  /* @__PURE__ */ jsx65("span", { children: "\u0414\u043E\u043C\u0435\u043D:" }),
-                  /* @__PURE__ */ jsxs62(
+                /* @__PURE__ */ jsxs64("label", { className: "entity-matrix-filter", children: [
+                  /* @__PURE__ */ jsx67("span", { children: "\u0414\u043E\u043C\u0435\u043D:" }),
+                  /* @__PURE__ */ jsxs64(
                     "select",
                     {
                       value: filterDomain,
                       onChange: (e) => setFilterDomain(e.target.value),
                       children: [
-                        /* @__PURE__ */ jsx65("option", { value: "", children: "\u2014 \u0432\u0441\u0435 \u2014" }),
-                        allDomains.map((d) => /* @__PURE__ */ jsx65("option", { value: d, children: d }, d))
+                        /* @__PURE__ */ jsx67("option", { value: "", children: "\u2014 \u0432\u0441\u0435 \u2014" }),
+                        allDomains.map((d) => /* @__PURE__ */ jsx67("option", { value: d, children: d }, d))
                       ]
                     }
                   )
                 ] })
               ] }),
-              /* @__PURE__ */ jsx65("div", { className: "lint-rules", children: grouped.length === 0 ? /* @__PURE__ */ jsxs62("div", { className: "lint-empty", children: [
-                /* @__PURE__ */ jsx65("div", { className: "lint-empty__icon", children: "\u2705" }),
-                /* @__PURE__ */ jsx65("div", { className: "lint-empty__title", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u043C" })
+              /* @__PURE__ */ jsx67("div", { className: "lint-rules", children: grouped.length === 0 ? /* @__PURE__ */ jsxs64("div", { className: "lint-empty", children: [
+                /* @__PURE__ */ jsx67("div", { className: "lint-empty__icon", children: "\u2705" }),
+                /* @__PURE__ */ jsx67("div", { className: "lint-empty__title", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u043C" })
               ] }) : grouped.map((g) => {
                 const isOpen = expandedRules.has(g.ruleId);
-                return /* @__PURE__ */ jsxs62(
+                return /* @__PURE__ */ jsxs64(
                   "div",
                   {
                     className: "lint-rule lint-rule--" + g.severity,
                     children: [
-                      /* @__PURE__ */ jsxs62(
+                      /* @__PURE__ */ jsxs64(
                         "button",
                         {
                           className: "lint-rule__head",
                           onClick: () => toggleRule(g.ruleId),
                           children: [
-                            /* @__PURE__ */ jsx65(MIcon, { name: isOpen ? "expand_more" : "chevron_right", size: "sm" }),
-                            /* @__PURE__ */ jsx65("span", { className: "lint-rule__title", children: g.rule }),
-                            /* @__PURE__ */ jsx65("span", { className: "lint-rule__category", children: CATEGORY_LABELS[g.category] }),
-                            /* @__PURE__ */ jsx65("span", { className: "lint-rule__count", children: g.issues.length })
+                            /* @__PURE__ */ jsx67(MIcon, { name: isOpen ? "expand_more" : "chevron_right", size: "sm" }),
+                            /* @__PURE__ */ jsx67("span", { className: "lint-rule__title", children: g.rule }),
+                            /* @__PURE__ */ jsx67("span", { className: "lint-rule__category", children: CATEGORY_LABELS[g.category] }),
+                            /* @__PURE__ */ jsx67("span", { className: "lint-rule__count", children: g.issues.length })
                           ]
                         }
                       ),
-                      isOpen && /* @__PURE__ */ jsxs62("div", { className: "lint-rule__body", children: [
-                        g.issues.slice(0, 100).map((issue, i) => /* @__PURE__ */ jsxs62("div", { className: "lint-issue", children: [
-                          /* @__PURE__ */ jsx65("div", { className: "lint-issue__message", children: issue.message }),
-                          issue.hint && /* @__PURE__ */ jsxs62("div", { className: "lint-issue__hint", children: [
-                            /* @__PURE__ */ jsx65(MIcon, { name: "lightbulb", size: "sm" }),
+                      isOpen && /* @__PURE__ */ jsxs64("div", { className: "lint-rule__body", children: [
+                        g.issues.slice(0, 100).map((issue, i) => /* @__PURE__ */ jsxs64("div", { className: "lint-issue", children: [
+                          /* @__PURE__ */ jsx67("div", { className: "lint-issue__message", children: issue.message }),
+                          issue.hint && /* @__PURE__ */ jsxs64("div", { className: "lint-issue__hint", children: [
+                            /* @__PURE__ */ jsx67(MIcon, { name: "lightbulb", size: "sm" }),
                             issue.hint
                           ] }),
-                          /* @__PURE__ */ jsxs62("div", { className: "lint-issue__context", children: [
-                            issue.entityFqid && /* @__PURE__ */ jsxs62(
+                          /* @__PURE__ */ jsxs64("div", { className: "lint-issue__context", children: [
+                            issue.entityFqid && /* @__PURE__ */ jsxs64(
                               "button",
                               {
                                 className: "lint-issue__link",
@@ -17659,10 +18389,10 @@ function LintModal() {
                                 ]
                               }
                             ),
-                            !issue.entityFqid && issue.domainId && /* @__PURE__ */ jsx65("code", { className: "lint-issue__link-static", children: issue.domainId })
+                            !issue.entityFqid && issue.domainId && /* @__PURE__ */ jsx67("code", { className: "lint-issue__link-static", children: issue.domainId })
                           ] })
                         ] }, i)),
-                        g.issues.length > 100 && /* @__PURE__ */ jsxs62("div", { className: "lint-issue__more", children: [
+                        g.issues.length > 100 && /* @__PURE__ */ jsxs64("div", { className: "lint-issue__more", children: [
                           "...\u0438 \u0435\u0449\u0451 ",
                           g.issues.length - 100
                         ] })
@@ -17800,8 +18530,8 @@ var init_attribute_matrix = __esm({
 });
 
 // src/web/components/modals/AttributeMatrixModal.tsx
-import { useMemo as useMemo36, useState as useState25 } from "react";
-import { jsx as jsx66, jsxs as jsxs63 } from "react/jsx-runtime";
+import { useMemo as useMemo37, useState as useState25 } from "react";
+import { jsx as jsx68, jsxs as jsxs65 } from "react/jsx-runtime";
 function AttributeMatrixModal() {
   const store = useGraphStore();
   const { index, loading, error } = useModelIndex();
@@ -17809,7 +18539,7 @@ function AttributeMatrixModal() {
   const [domainFilter, setDomainFilter] = useState25("");
   const [minOccurrences, setMinOccurrences] = useState25(2);
   const [onlyInconsistent, setOnlyInconsistent] = useState25(false);
-  const allDomains = useMemo36(() => {
+  const allDomains = useMemo37(() => {
     if (!index)
       return [];
     const map2 = /* @__PURE__ */ new Map();
@@ -17818,7 +18548,7 @@ function AttributeMatrixModal() {
     });
     return Array.from(map2.entries()).sort((a, b) => b[1] - a[1]);
   }, [index]);
-  const matrix = useMemo36(() => {
+  const matrix = useMemo37(() => {
     if (!index)
       return null;
     return buildAttributeMatrix(index, {
@@ -17828,7 +18558,7 @@ function AttributeMatrixModal() {
       maxRows: 100
     });
   }, [index, domainFilter, minOccurrences]);
-  const visibleColumns = useMemo36(() => {
+  const visibleColumns = useMemo37(() => {
     if (!matrix)
       return [];
     if (!onlyInconsistent)
@@ -17842,27 +18572,27 @@ function AttributeMatrixModal() {
   };
   if (!open)
     return null;
-  return /* @__PURE__ */ jsx66(
+  return /* @__PURE__ */ jsx68(
     "div",
     {
       className: "help-overlay help-overlay--fullscreen",
       onMouseDown: () => store.setAttributeMatrixOpen(false),
-      children: /* @__PURE__ */ jsxs63(
+      children: /* @__PURE__ */ jsxs65(
         "div",
         {
           className: "help-modal entity-matrix-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
-            /* @__PURE__ */ jsxs63("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsxs63("div", { className: "help-modal__title", children: [
+            /* @__PURE__ */ jsxs65("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs65("div", { className: "help-modal__title", children: [
                 "\u{1F4CA} \u041C\u0430\u0442\u0440\u0438\u0446\u0430 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432",
-                matrix && /* @__PURE__ */ jsxs63("span", { className: "help-modal__badge", children: [
+                matrix && /* @__PURE__ */ jsxs65("span", { className: "help-modal__badge", children: [
                   matrix.rows.length,
                   " \xD7 ",
                   visibleColumns.length
                 ] })
               ] }),
-              /* @__PURE__ */ jsx66(
+              /* @__PURE__ */ jsx68(
                 "button",
                 {
                   className: "help-modal__close",
@@ -17871,15 +18601,15 @@ function AttributeMatrixModal() {
                 }
               )
             ] }),
-            loading && /* @__PURE__ */ jsx66("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx66("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
-            error && /* @__PURE__ */ jsx66("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs63("div", { style: { color: "var(--danger)" }, children: [
+            loading && /* @__PURE__ */ jsx68("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx68("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
+            error && /* @__PURE__ */ jsx68("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs65("div", { style: { color: "var(--danger)" }, children: [
               "\u041E\u0448\u0438\u0431\u043A\u0430: ",
               error
             ] }) }),
-            index && matrix && /* @__PURE__ */ jsxs63("div", { className: "attribute-matrix-body", children: [
-              /* @__PURE__ */ jsxs63("div", { className: "attribute-matrix-toolbar", children: [
-                /* @__PURE__ */ jsxs63("div", { className: "attribute-matrix-toolbar__filters", children: [
-                  /* @__PURE__ */ jsx66(
+            index && matrix && /* @__PURE__ */ jsxs65("div", { className: "attribute-matrix-body", children: [
+              /* @__PURE__ */ jsxs65("div", { className: "attribute-matrix-toolbar", children: [
+                /* @__PURE__ */ jsxs65("div", { className: "attribute-matrix-toolbar__filters", children: [
+                  /* @__PURE__ */ jsx68(
                     DomainCombobox,
                     {
                       value: domainFilter,
@@ -17888,9 +18618,9 @@ function AttributeMatrixModal() {
                       placeholder: "\u0412\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B"
                     }
                   ),
-                  /* @__PURE__ */ jsxs63("label", { className: "entity-matrix-filter", children: [
-                    /* @__PURE__ */ jsx66("span", { children: "\u041C\u0438\u043D\u0438\u043C\u0443\u043C \u0443\u043F\u043E\u043C\u0438\u043D\u0430\u043D\u0438\u0439:" }),
-                    /* @__PURE__ */ jsx66(
+                  /* @__PURE__ */ jsxs65("label", { className: "entity-matrix-filter", children: [
+                    /* @__PURE__ */ jsx68("span", { children: "\u041C\u0438\u043D\u0438\u043C\u0443\u043C \u0443\u043F\u043E\u043C\u0438\u043D\u0430\u043D\u0438\u0439:" }),
+                    /* @__PURE__ */ jsx68(
                       "input",
                       {
                         type: "number",
@@ -17902,8 +18632,8 @@ function AttributeMatrixModal() {
                       }
                     )
                   ] }),
-                  /* @__PURE__ */ jsxs63("label", { className: "entity-graph-toggle", children: [
-                    /* @__PURE__ */ jsx66(
+                  /* @__PURE__ */ jsxs65("label", { className: "entity-graph-toggle", children: [
+                    /* @__PURE__ */ jsx68(
                       "input",
                       {
                         type: "checkbox",
@@ -17912,51 +18642,51 @@ function AttributeMatrixModal() {
                       }
                     ),
                     "\u0422\u043E\u043B\u044C\u043A\u043E \u0441 \u0440\u0430\u0437\u043D\u044B\u043C\u0438 \u0442\u0438\u043F\u0430\u043C\u0438",
-                    matrix.stats.inconsistentTypes.length > 0 && /* @__PURE__ */ jsx66("span", { className: "attribute-matrix-badge", children: matrix.stats.inconsistentTypes.length })
+                    matrix.stats.inconsistentTypes.length > 0 && /* @__PURE__ */ jsx68("span", { className: "attribute-matrix-badge", children: matrix.stats.inconsistentTypes.length })
                   ] })
                 ] }),
-                /* @__PURE__ */ jsx66("div", { className: "attribute-matrix-toolbar__stats", children: matrix.stats.singletons.length > 0 && /* @__PURE__ */ jsxs63("span", { className: "attribute-matrix-hint", children: [
+                /* @__PURE__ */ jsx68("div", { className: "attribute-matrix-toolbar__stats", children: matrix.stats.singletons.length > 0 && /* @__PURE__ */ jsxs65("span", { className: "attribute-matrix-hint", children: [
                   "\u041E\u0434\u0438\u043D\u043E\u0447\u043D\u044B\u0445 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432: ",
                   matrix.stats.singletons.length
                 ] }) })
               ] }),
-              visibleColumns.length === 0 ? /* @__PURE__ */ jsx66("div", { className: "entity-matrix-empty", children: "\u041D\u0435\u0442 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432, \u0443\u0434\u043E\u0432\u043B\u0435\u0442\u0432\u043E\u0440\u044F\u044E\u0449\u0438\u0445 \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u043C" }) : /* @__PURE__ */ jsx66("div", { className: "attribute-matrix-scroll", children: /* @__PURE__ */ jsxs63("table", { className: "attribute-matrix-table", children: [
-                /* @__PURE__ */ jsx66("thead", { children: /* @__PURE__ */ jsxs63("tr", { children: [
-                  /* @__PURE__ */ jsx66("th", { className: "attribute-matrix-corner", children: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C" }),
-                  visibleColumns.map((col) => /* @__PURE__ */ jsxs63(
+              visibleColumns.length === 0 ? /* @__PURE__ */ jsx68("div", { className: "entity-matrix-empty", children: "\u041D\u0435\u0442 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432, \u0443\u0434\u043E\u0432\u043B\u0435\u0442\u0432\u043E\u0440\u044F\u044E\u0449\u0438\u0445 \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u043C" }) : /* @__PURE__ */ jsx68("div", { className: "attribute-matrix-scroll", children: /* @__PURE__ */ jsxs65("table", { className: "attribute-matrix-table", children: [
+                /* @__PURE__ */ jsx68("thead", { children: /* @__PURE__ */ jsxs65("tr", { children: [
+                  /* @__PURE__ */ jsx68("th", { className: "attribute-matrix-corner", children: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C" }),
+                  visibleColumns.map((col) => /* @__PURE__ */ jsxs65(
                     "th",
                     {
                       className: "attribute-matrix-col-head" + (!col.consistentType ? " inconsistent" : ""),
                       title: col.dataTypes.join(", ") + "\n\u0432\u0441\u0442\u0440\u0435\u0447\u0430\u0435\u0442\u0441\u044F \u0443 " + col.count + " \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439",
                       children: [
-                        /* @__PURE__ */ jsx66("span", { className: "attribute-matrix-col-head__text", children: col.label }),
-                        !col.consistentType && /* @__PURE__ */ jsx66("span", { className: "attribute-matrix-col-head__warn", children: "\u26A0" })
+                        /* @__PURE__ */ jsx68("span", { className: "attribute-matrix-col-head__text", children: col.label }),
+                        !col.consistentType && /* @__PURE__ */ jsx68("span", { className: "attribute-matrix-col-head__warn", children: "\u26A0" })
                       ]
                     },
                     col.key
                   ))
                 ] }) }),
-                /* @__PURE__ */ jsx66("tbody", { children: matrix.rows.map((row) => /* @__PURE__ */ jsxs63("tr", { children: [
-                  /* @__PURE__ */ jsxs63(
+                /* @__PURE__ */ jsx68("tbody", { children: matrix.rows.map((row) => /* @__PURE__ */ jsxs65("tr", { children: [
+                  /* @__PURE__ */ jsxs65(
                     "th",
                     {
                       className: "attribute-matrix-row-head",
                       title: row.entityFqid,
                       onClick: () => openEntity(row.entityFqid),
                       children: [
-                        /* @__PURE__ */ jsx66("span", { className: "attribute-matrix-row-head__id", children: row.entityId }),
-                        /* @__PURE__ */ jsx66("span", { className: "attribute-matrix-row-head__domain", children: row.domainId })
+                        /* @__PURE__ */ jsx68("span", { className: "attribute-matrix-row-head__id", children: row.entityId }),
+                        /* @__PURE__ */ jsx68("span", { className: "attribute-matrix-row-head__domain", children: row.domainId })
                       ]
                     }
                   ),
                   visibleColumns.map((col) => {
                     const has = row.present.has(col.key);
-                    return /* @__PURE__ */ jsx66(
+                    return /* @__PURE__ */ jsx68(
                       "td",
                       {
                         className: "attribute-matrix-cell" + (has ? " present" : ""),
                         title: has ? `\u0435\u0441\u0442\u044C ${col.label}` : "",
-                        children: has && /* @__PURE__ */ jsx66("span", { className: "attribute-matrix-cell__dot" })
+                        children: has && /* @__PURE__ */ jsx68("span", { className: "attribute-matrix-cell__dot" })
                       },
                       col.key
                     );
@@ -17981,8 +18711,8 @@ var init_AttributeMatrixModal = __esm({
 });
 
 // src/web/components/modals/MartinMetricsModal.tsx
-import { useMemo as useMemo37, useState as useState26 } from "react";
-import { jsx as jsx67, jsxs as jsxs64 } from "react/jsx-runtime";
+import { useMemo as useMemo38, useState as useState26 } from "react";
+import { jsx as jsx69, jsxs as jsxs66 } from "react/jsx-runtime";
 function MartinMetricsModal() {
   const store = useGraphStore();
   const { index, loading, error } = useModelIndex();
@@ -17991,7 +18721,7 @@ function MartinMetricsModal() {
   const [sortBy, setSortBy] = useState26("distance");
   const [filterZone, setFilterZone] = useState26("");
   const report = index?.martin ?? null;
-  const sorted = useMemo37(() => {
+  const sorted = useMemo38(() => {
     if (!report)
       return [];
     let arr = [...report.metrics];
@@ -18014,27 +18744,27 @@ function MartinMetricsModal() {
   }, [report, sortBy, filterZone]);
   if (!open)
     return null;
-  return /* @__PURE__ */ jsx67(
+  return /* @__PURE__ */ jsx69(
     "div",
     {
       className: "help-overlay help-overlay--fullscreen",
       onMouseDown: () => store.setMartinOpen(false),
-      children: /* @__PURE__ */ jsxs64(
+      children: /* @__PURE__ */ jsxs66(
         "div",
         {
           className: "help-modal entity-hierarchy-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
-            /* @__PURE__ */ jsxs64("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsxs64("div", { className: "help-modal__title", children: [
+            /* @__PURE__ */ jsxs66("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs66("div", { className: "help-modal__title", children: [
                 "\u{1F4D0} \u0410\u0440\u0445\u0438\u0442\u0435\u043A\u0442\u0443\u0440\u043D\u044B\u0435 \u043C\u0435\u0442\u0440\u0438\u043A\u0438 (\u041C\u0430\u0440\u0442\u0438\u043D)",
-                report && /* @__PURE__ */ jsxs64("span", { className: "help-modal__badge", children: [
+                report && /* @__PURE__ */ jsxs66("span", { className: "help-modal__badge", children: [
                   report.stats.totalDomains,
                   " \u0434\u043E\u043C\u0435\u043D\u043E\u0432"
                 ] })
               ] }),
-              /* @__PURE__ */ jsxs64("div", { className: "help-modal__actions", children: [
-                /* @__PURE__ */ jsx67(
+              /* @__PURE__ */ jsxs66("div", { className: "help-modal__actions", children: [
+                /* @__PURE__ */ jsx69(
                   HelpButton,
                   {
                     open: showHelp,
@@ -18042,7 +18772,7 @@ function MartinMetricsModal() {
                     label: "\u041A\u0430\u043A \u044D\u0442\u043E \u0447\u0438\u0442\u0430\u0442\u044C?"
                   }
                 ),
-                /* @__PURE__ */ jsx67(
+                /* @__PURE__ */ jsx69(
                   "button",
                   {
                     className: "help-modal__close",
@@ -18052,50 +18782,50 @@ function MartinMetricsModal() {
                 )
               ] })
             ] }),
-            loading && /* @__PURE__ */ jsx67("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx67("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
-            error && /* @__PURE__ */ jsx67("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs64("div", { style: { color: "var(--danger)" }, children: [
+            loading && /* @__PURE__ */ jsx69("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx69("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
+            error && /* @__PURE__ */ jsx69("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs66("div", { style: { color: "var(--danger)" }, children: [
               "\u041E\u0448\u0438\u0431\u043A\u0430: ",
               error
             ] }) }),
-            index && report && /* @__PURE__ */ jsxs64("div", { className: "help-modal__body help-modal__body--flush", children: [
-              /* @__PURE__ */ jsxs64(ModalHelp, { visible: showHelp, children: [
-                /* @__PURE__ */ jsx67(HelpSection, { title: "\u0427\u0442\u043E \u044D\u0442\u043E \u0442\u0430\u043A\u043E\u0435", children: /* @__PURE__ */ jsxs64(HelpText, { children: [
+            index && report && /* @__PURE__ */ jsxs66("div", { className: "help-modal__body help-modal__body--flush", children: [
+              /* @__PURE__ */ jsxs66(ModalHelp, { visible: showHelp, children: [
+                /* @__PURE__ */ jsx69(HelpSection, { title: "\u0427\u0442\u043E \u044D\u0442\u043E \u0442\u0430\u043A\u043E\u0435", children: /* @__PURE__ */ jsxs66(HelpText, { children: [
                   "\u042D\u0442\u043E \u043C\u0435\u0442\u0440\u0438\u043A\u0438 \u0420\u043E\u0431\u0435\u0440\u0442\u0430 \u041C\u0430\u0440\u0442\u0438\u043D\u0430 \u0438\u0437 \u043A\u043D\u0438\u0433\u0438 \xAB\u0427\u0438\u0441\u0442\u0430\u044F \u0430\u0440\u0445\u0438\u0442\u0435\u043A\u0442\u0443\u0440\u0430\xBB. \u041E\u043D\u0438 \u0438\u0437\u043C\u0435\u0440\u044F\u044E\u0442",
                   " ",
-                  /* @__PURE__ */ jsx67("strong", { children: "\u0441\u0432\u044F\u0437\u043D\u043E\u0441\u0442\u044C" }),
+                  /* @__PURE__ */ jsx69("strong", { children: "\u0441\u0432\u044F\u0437\u043D\u043E\u0441\u0442\u044C" }),
                   " \u0438 ",
-                  /* @__PURE__ */ jsx67("strong", { children: "\u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u044E" }),
+                  /* @__PURE__ */ jsx69("strong", { children: "\u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u044E" }),
                   " \u0434\u043E\u043C\u0435\u043D\u043E\u0432. \u041F\u0440\u043E\u0441\u0442\u043E\u0439 \u0438\u0434\u0435\u0430\u043B: ",
-                  /* @__PURE__ */ jsx67("em", { children: "\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0435 \u0434\u043E\u043C\u0435\u043D\u044B \u0434\u043E\u043B\u0436\u043D\u044B \u0431\u044B\u0442\u044C \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u044B\u043C\u0438, \u043D\u0435\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0435 \u2014 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u043C\u0438." }),
+                  /* @__PURE__ */ jsx69("em", { children: "\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0435 \u0434\u043E\u043C\u0435\u043D\u044B \u0434\u043E\u043B\u0436\u043D\u044B \u0431\u044B\u0442\u044C \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u044B\u043C\u0438, \u043D\u0435\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0435 \u2014 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u043C\u0438." }),
                   " \u041C\u0435\u0442\u0440\u0438\u043A\u0438 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u044E\u0442, \u0433\u0434\u0435 \u044D\u0442\u043E\u0442 \u0431\u0430\u043B\u0430\u043D\u0441 \u043D\u0430\u0440\u0443\u0448\u0435\u043D."
                 ] }) }),
-                /* @__PURE__ */ jsxs64("div", { className: "modal-help__grid", children: [
-                  /* @__PURE__ */ jsxs64(HelpCard, { letter: "Ca", title: "Afferent coupling", formula: "\u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u0437\u0430\u0432\u0438\u0441\u044F\u0442 \u043E\u0442 \u044D\u0442\u043E\u0433\u043E", children: [
+                /* @__PURE__ */ jsxs66("div", { className: "modal-help__grid", children: [
+                  /* @__PURE__ */ jsxs66(HelpCard, { letter: "Ca", title: "Afferent coupling", formula: "\u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u0437\u0430\u0432\u0438\u0441\u044F\u0442 \u043E\u0442 \u044D\u0442\u043E\u0433\u043E", children: [
                     "\u0412\u044B\u0441\u043E\u043A\u0438\u0439 Ca = ",
-                    /* @__PURE__ */ jsx67("strong", { children: "\u043D\u0430 \u043D\u0435\u0433\u043E \u043C\u043D\u043E\u0433\u0438\u0435 \u0441\u043C\u043E\u0442\u0440\u044F\u0442" }),
+                    /* @__PURE__ */ jsx69("strong", { children: "\u043D\u0430 \u043D\u0435\u0433\u043E \u043C\u043D\u043E\u0433\u0438\u0435 \u0441\u043C\u043E\u0442\u0440\u044F\u0442" }),
                     ". \u041C\u0435\u043D\u044F\u0442\u044C \u0440\u0438\u0441\u043A\u043E\u0432\u0430\u043D\u043D\u043E \u2014 \u0437\u0430\u0442\u0440\u043E\u043D\u0435\u0448\u044C \u0447\u0443\u0436\u0438\u0435 \u0441\u0446\u0435\u043D\u0430\u0440\u0438\u0438."
                   ] }),
-                  /* @__PURE__ */ jsxs64(HelpCard, { letter: "Ce", title: "Efferent coupling", formula: "\u043E\u0442 \u0441\u043A\u043E\u043B\u044C\u043A\u0438\u0445 \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u0437\u0430\u0432\u0438\u0441\u0438\u0442 \u044D\u0442\u043E\u0442", children: [
+                  /* @__PURE__ */ jsxs66(HelpCard, { letter: "Ce", title: "Efferent coupling", formula: "\u043E\u0442 \u0441\u043A\u043E\u043B\u044C\u043A\u0438\u0445 \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u0437\u0430\u0432\u0438\u0441\u0438\u0442 \u044D\u0442\u043E\u0442", children: [
                     "\u0412\u044B\u0441\u043E\u043A\u0438\u0439 Ce = ",
-                    /* @__PURE__ */ jsx67("strong", { children: "\u043E\u043D \u0441\u0430\u043C \u0437\u0430\u0432\u0438\u0441\u0438\u0442 \u043E\u0442 \u043C\u043D\u043E\u0433\u0438\u0445" }),
+                    /* @__PURE__ */ jsx69("strong", { children: "\u043E\u043D \u0441\u0430\u043C \u0437\u0430\u0432\u0438\u0441\u0438\u0442 \u043E\u0442 \u043C\u043D\u043E\u0433\u0438\u0445" }),
                     ". \u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u0432 \u0441\u043E\u0441\u0435\u0434\u044F\u0445 \u043B\u043E\u043C\u0430\u044E\u0442 \u0435\u0433\u043E."
                   ] }),
-                  /* @__PURE__ */ jsxs64(HelpCard, { letter: "I", title: "Instability", formula: "I = Ce / (Ca + Ce)", children: [
-                    /* @__PURE__ */ jsx67("strong", { children: "0" }),
+                  /* @__PURE__ */ jsxs66(HelpCard, { letter: "I", title: "Instability", formula: "I = Ce / (Ca + Ce)", children: [
+                    /* @__PURE__ */ jsx69("strong", { children: "0" }),
                     " \u2014 \u043E\u0447\u0435\u043D\u044C \u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0439, \u043C\u0435\u043D\u044F\u0442\u044C \u043D\u0435\u043B\u044C\u0437\u044F \u0431\u0435\u0437 \u043F\u043E\u0441\u043B\u0435\u0434\u0441\u0442\u0432\u0438\u0439.",
                     " ",
-                    /* @__PURE__ */ jsx67("strong", { children: "1" }),
+                    /* @__PURE__ */ jsx69("strong", { children: "1" }),
                     " \u2014 \u043D\u0435\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0439, \u043C\u043E\u0436\u043D\u043E \u043C\u0435\u043D\u044F\u0442\u044C \u0441\u0432\u043E\u0431\u043E\u0434\u043D\u043E."
                   ] }),
-                  /* @__PURE__ */ jsxs64(HelpCard, { letter: "A", title: "Abstractness", formula: "A = \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438-\u0440\u043E\u0434\u0438\u0442\u0435\u043B\u0438 / \u0432\u0441\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438", children: [
+                  /* @__PURE__ */ jsxs66(HelpCard, { letter: "A", title: "Abstractness", formula: "A = \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438-\u0440\u043E\u0434\u0438\u0442\u0435\u043B\u0438 / \u0432\u0441\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438", children: [
                     "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C \xAB\u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u0430\u044F\xBB, \u0435\u0441\u043B\u0438 \u043E\u0442 \u043D\u0435\u0451 \u043A\u0442\u043E-\u0442\u043E \u043D\u0430\u0441\u043B\u0435\u0434\u0443\u0435\u0442.",
                     " ",
-                    /* @__PURE__ */ jsx67("strong", { children: "0" }),
+                    /* @__PURE__ */ jsx69("strong", { children: "0" }),
                     " \u2014 \u0432\u0441\u0451 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u043E\u0435. ",
-                    /* @__PURE__ */ jsx67("strong", { children: "1" }),
+                    /* @__PURE__ */ jsx69("strong", { children: "1" }),
                     " \u2014 \u0432\u0441\u0451 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u043E\u0435."
                   ] }),
-                  /* @__PURE__ */ jsxs64(
+                  /* @__PURE__ */ jsxs66(
                     HelpCard,
                     {
                       letter: "D",
@@ -18104,107 +18834,107 @@ function MartinMetricsModal() {
                       wide: true,
                       children: [
                         "\u041D\u0430\u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0434\u043E\u043C\u0435\u043D \u0443\u0448\u0451\u043B \u043E\u0442 \u0438\u0434\u0435\u0430\u043B\u044C\u043D\u043E\u0439 \u043B\u0438\u043D\u0438\u0438 ",
-                        /* @__PURE__ */ jsx67("code", { children: "A + I = 1" }),
+                        /* @__PURE__ */ jsx69("code", { children: "A + I = 1" }),
                         ".",
                         " ",
-                        /* @__PURE__ */ jsx67("strong", { children: "0" }),
+                        /* @__PURE__ */ jsx69("strong", { children: "0" }),
                         " \u2014 \u0438\u0434\u0435\u0430\u043B. ",
-                        /* @__PURE__ */ jsx67("strong", { children: "1" }),
+                        /* @__PURE__ */ jsx69("strong", { children: "1" }),
                         " \u2014 \u043C\u0430\u043A\u0441\u0438\u043C\u0430\u043B\u044C\u043D\u043E \u0434\u0430\u043B\u0451\u043A."
                       ]
                     }
                   )
                 ] }),
-                /* @__PURE__ */ jsx67(HelpSection, { title: "\u0427\u0442\u043E \u0442\u0430\u043A\u043E\u0435 \u0437\u043E\u043D\u044B", children: /* @__PURE__ */ jsxs64(HelpZones, { children: [
-                  /* @__PURE__ */ jsx67(HelpZone, { color: "green", title: "\u2705 \u0413\u043B\u0430\u0432\u043D\u0430\u044F \u043F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u044C", children: "D < 0.3. \u0414\u043E\u043C\u0435\u043D \u043D\u0430 \u0438\u0434\u0435\u0430\u043B\u044C\u043D\u043E\u0439 \u043B\u0438\u043D\u0438\u0438. \u0421\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0435 \u0434\u043E\u043C\u0435\u043D\u044B \u2014 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u044B\u0435, \u043D\u0435\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0435 \u2014 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0435. \u0412\u0441\u0451 \u043F\u0440\u0430\u0432\u0438\u043B\u044C\u043D\u043E." }),
-                  /* @__PURE__ */ jsxs64(HelpZone, { color: "red", title: "\u{1F534} \u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438", children: [
+                /* @__PURE__ */ jsx69(HelpSection, { title: "\u0427\u0442\u043E \u0442\u0430\u043A\u043E\u0435 \u0437\u043E\u043D\u044B", children: /* @__PURE__ */ jsxs66(HelpZones, { children: [
+                  /* @__PURE__ */ jsx69(HelpZone, { color: "green", title: "\u2705 \u0413\u043B\u0430\u0432\u043D\u0430\u044F \u043F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u044C", children: "D < 0.3. \u0414\u043E\u043C\u0435\u043D \u043D\u0430 \u0438\u0434\u0435\u0430\u043B\u044C\u043D\u043E\u0439 \u043B\u0438\u043D\u0438\u0438. \u0421\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0435 \u0434\u043E\u043C\u0435\u043D\u044B \u2014 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u044B\u0435, \u043D\u0435\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0435 \u2014 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0435. \u0412\u0441\u0451 \u043F\u0440\u0430\u0432\u0438\u043B\u044C\u043D\u043E." }),
+                  /* @__PURE__ */ jsxs66(HelpZone, { color: "red", title: "\u{1F534} \u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438", children: [
                     "A < 0.3 \u0438 I < 0.3. \u0414\u043E\u043C\u0435\u043D ",
-                    /* @__PURE__ */ jsx67("strong", { children: "\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0439 \u0438 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0439" }),
+                    /* @__PURE__ */ jsx69("strong", { children: "\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0439 \u0438 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0439" }),
                     ": \u043E\u0442 \u043D\u0435\u0433\u043E \u0437\u0430\u0432\u0438\u0441\u044F\u0442 \u043C\u043D\u043E\u0433\u0438\u0435, \u043D\u043E \u0443 \u043D\u0435\u0433\u043E \u043D\u0435\u0442 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u0439, \u0447\u0442\u043E\u0431\u044B \u043C\u0435\u043D\u044F\u0442\u044C\u0441\u044F \u0431\u0435\u0437\u043E\u043F\u0430\u0441\u043D\u043E. \u041B\u044E\u0431\u043E\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0435 \u0437\u0430\u0442\u0440\u0430\u0433\u0438\u0432\u0430\u0435\u0442 \u0432\u0441\u0435\u0445 \u043F\u043E\u0442\u0440\u0435\u0431\u0438\u0442\u0435\u043B\u0435\u0439."
                   ] }),
-                  /* @__PURE__ */ jsxs64(HelpZone, { color: "orange", title: "\u{1F7E0} \u0411\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u044B\u0435 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u0438", children: [
+                  /* @__PURE__ */ jsxs66(HelpZone, { color: "orange", title: "\u{1F7E0} \u0411\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u044B\u0435 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u0438", children: [
                     "A > 0.7 \u0438 I > 0.7. \u0414\u043E\u043C\u0435\u043D ",
-                    /* @__PURE__ */ jsx67("strong", { children: "\u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u044B\u0439 \u0438 \u043D\u0435\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0439" }),
+                    /* @__PURE__ */ jsx69("strong", { children: "\u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u044B\u0439 \u0438 \u043D\u0435\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0439" }),
                     ": \u043C\u043D\u043E\u0433\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439-\u0440\u043E\u0434\u0438\u0442\u0435\u043B\u0435\u0439, \u043D\u043E \u043D\u0438\u043A\u0442\u043E \u0438\u0445 \u043D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442. \u0421\u043A\u043E\u0440\u0435\u0435 \u0432\u0441\u0435\u0433\u043E \u2014 \u043C\u0451\u0440\u0442\u0432\u044B\u0439 \u043A\u043E\u0434 \u0438\u043B\u0438 \u043D\u0435\u0434\u043E\u0434\u0435\u043B\u0430\u043D\u043D\u044B\u0439 \u043C\u043E\u0434\u0443\u043B\u044C."
                   ] })
                 ] }) }),
-                /* @__PURE__ */ jsx67(HelpSection, { title: "\u041A\u0430\u043A \u044D\u0442\u0438\u043C \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u044C\u0441\u044F", children: /* @__PURE__ */ jsxs64(HelpList, { children: [
-                  /* @__PURE__ */ jsxs64("li", { children: [
-                    /* @__PURE__ */ jsx67("strong", { children: "\u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438 \u2014 \u0442\u043E\u043F \u043F\u0440\u0438\u043E\u0440\u0438\u0442\u0435\u0442." }),
+                /* @__PURE__ */ jsx69(HelpSection, { title: "\u041A\u0430\u043A \u044D\u0442\u0438\u043C \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u044C\u0441\u044F", children: /* @__PURE__ */ jsxs66(HelpList, { children: [
+                  /* @__PURE__ */ jsxs66("li", { children: [
+                    /* @__PURE__ */ jsx69("strong", { children: "\u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438 \u2014 \u0442\u043E\u043F \u043F\u0440\u0438\u043E\u0440\u0438\u0442\u0435\u0442." }),
                     " \u042D\u0442\u043E \u0434\u043E\u043C\u0435\u043D\u044B, \u0433\u0434\u0435 \u043B\u044E\u0431\u043E\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0435 \u0431\u043E\u043B\u044C\u043D\u043E. \u0415\u0441\u043B\u0438 \u0438\u0445 \u043C\u043D\u043E\u0433\u043E \u2014 \u0430\u0440\u0445\u0438\u0442\u0435\u043A\u0442\u0443\u0440\u0430 \xAB\u0437\u0430\u0441\u0442\u0440\u044F\u043B\u0430\xBB."
                   ] }),
-                  /* @__PURE__ */ jsxs64("li", { children: [
-                    /* @__PURE__ */ jsx67("strong", { children: "\u0411\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u044B\u0435 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u0438 \u2014 \u043D\u0430 \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435." }),
+                  /* @__PURE__ */ jsxs66("li", { children: [
+                    /* @__PURE__ */ jsx69("strong", { children: "\u0411\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u044B\u0435 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u0438 \u2014 \u043D\u0430 \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435." }),
                     " \u0418\u043B\u0438 \u043F\u043E\u0434\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u043A \u0434\u0435\u043B\u0443, \u0438\u043B\u0438 \u0432\u044B\u043A\u0438\u043D\u0443\u0442\u044C \u2014 \u043E\u043D\u0438 \u0442\u043E\u043B\u044C\u043A\u043E \u043F\u0443\u0442\u0430\u044E\u0442."
                   ] }),
-                  /* @__PURE__ */ jsxs64("li", { children: [
-                    /* @__PURE__ */ jsx67("strong", { children: "\u041D\u0435 \u0433\u043E\u043D\u044F\u0439\u0442\u0435\u0441\u044C \u0437\u0430 D = 0 \u0443 \u0432\u0441\u0435\u0445." }),
+                  /* @__PURE__ */ jsxs66("li", { children: [
+                    /* @__PURE__ */ jsx69("strong", { children: "\u041D\u0435 \u0433\u043E\u043D\u044F\u0439\u0442\u0435\u0441\u044C \u0437\u0430 D = 0 \u0443 \u0432\u0441\u0435\u0445." }),
                     " \u0418\u0434\u0435\u0430\u043B \u043D\u0435\u0434\u043E\u0441\u0442\u0438\u0436\u0438\u043C, \u0441\u0442\u0440\u0435\u043C\u0438\u0442\u0435\u0441\u044C \u0447\u0442\u043E\u0431\u044B \xAB\u0437\u043E\u043D\u0430 \u0431\u043E\u043B\u0438\xBB \u0431\u044B\u043B\u0430 \u043F\u0443\u0441\u0442\u043E\u0439."
                   ] }),
-                  /* @__PURE__ */ jsxs64("li", { children: [
-                    /* @__PURE__ */ jsx67("strong", { children: "\u0421\u0440\u0430\u0432\u043D\u0438\u0442\u0435 \u0441 Sonar:" }),
+                  /* @__PURE__ */ jsxs66("li", { children: [
+                    /* @__PURE__ */ jsx69("strong", { children: "\u0421\u0440\u0430\u0432\u043D\u0438\u0442\u0435 \u0441 Sonar:" }),
                     " \u0434\u043E\u043C\u0435\u043D \u043C\u043E\u0436\u0435\u0442 \u0438\u043C\u0435\u0442\u044C \u043E\u0442\u043B\u0438\u0447\u043D\u044B\u0439 Sonar (\u043D\u0430\u043F\u0438\u0441\u0430\u043D \u043F\u043E \u043F\u0440\u0430\u0432\u0438\u043B\u0430\u043C) \u0438 \u043F\u0440\u0438 \u044D\u0442\u043E\u043C \u0431\u044B\u0442\u044C \u0432 \u0437\u043E\u043D\u0435 \u0431\u043E\u043B\u0438 (\u0430\u0440\u0445\u0438\u0442\u0435\u043A\u0442\u0443\u0440\u043D\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0439). \u042D\u0442\u043E \u0440\u0430\u0437\u043D\u044B\u0435 \u0438\u0437\u043C\u0435\u0440\u0435\u043D\u0438\u044F."
                   ] })
                 ] }) })
               ] }),
-              /* @__PURE__ */ jsxs64("div", { className: "martin-summary", children: [
-                /* @__PURE__ */ jsxs64("div", { className: "martin-summary__stats", children: [
-                  /* @__PURE__ */ jsxs64("div", { className: "martin-stat", children: [
-                    /* @__PURE__ */ jsx67("span", { className: "martin-stat__value", children: report.averages.instability.toFixed(2) }),
-                    /* @__PURE__ */ jsx67("span", { className: "martin-stat__label", children: "I \u0441\u0440\u0435\u0434\u043D\u044F\u044F" })
+              /* @__PURE__ */ jsxs66("div", { className: "martin-summary", children: [
+                /* @__PURE__ */ jsxs66("div", { className: "martin-summary__stats", children: [
+                  /* @__PURE__ */ jsxs66("div", { className: "martin-stat", children: [
+                    /* @__PURE__ */ jsx69("span", { className: "martin-stat__value", children: report.averages.instability.toFixed(2) }),
+                    /* @__PURE__ */ jsx69("span", { className: "martin-stat__label", children: "I \u0441\u0440\u0435\u0434\u043D\u044F\u044F" })
                   ] }),
-                  /* @__PURE__ */ jsxs64("div", { className: "martin-stat", children: [
-                    /* @__PURE__ */ jsx67("span", { className: "martin-stat__value", children: report.averages.abstractness.toFixed(2) }),
-                    /* @__PURE__ */ jsx67("span", { className: "martin-stat__label", children: "A \u0441\u0440\u0435\u0434\u043D\u044F\u044F" })
+                  /* @__PURE__ */ jsxs66("div", { className: "martin-stat", children: [
+                    /* @__PURE__ */ jsx69("span", { className: "martin-stat__value", children: report.averages.abstractness.toFixed(2) }),
+                    /* @__PURE__ */ jsx69("span", { className: "martin-stat__label", children: "A \u0441\u0440\u0435\u0434\u043D\u044F\u044F" })
                   ] }),
-                  /* @__PURE__ */ jsxs64("div", { className: "martin-stat", children: [
-                    /* @__PURE__ */ jsx67("span", { className: "martin-stat__value", children: report.averages.distance.toFixed(2) }),
-                    /* @__PURE__ */ jsx67("span", { className: "martin-stat__label", children: "D \u0441\u0440\u0435\u0434\u043D\u044F\u044F" })
+                  /* @__PURE__ */ jsxs66("div", { className: "martin-stat", children: [
+                    /* @__PURE__ */ jsx69("span", { className: "martin-stat__value", children: report.averages.distance.toFixed(2) }),
+                    /* @__PURE__ */ jsx69("span", { className: "martin-stat__label", children: "D \u0441\u0440\u0435\u0434\u043D\u044F\u044F" })
                   ] })
                 ] }),
-                /* @__PURE__ */ jsxs64("div", { className: "martin-zones", children: [
-                  /* @__PURE__ */ jsxs64(
+                /* @__PURE__ */ jsxs66("div", { className: "martin-zones", children: [
+                  /* @__PURE__ */ jsxs66(
                     "button",
                     {
                       className: "martin-zone martin-zone--main" + (filterZone === "main-sequence" ? " active" : ""),
                       onClick: () => setFilterZone(filterZone === "main-sequence" ? "" : "main-sequence"),
                       children: [
-                        /* @__PURE__ */ jsx67("span", { className: "martin-zone__count", children: report.stats.mainSequence.length }),
-                        /* @__PURE__ */ jsx67("span", { className: "martin-zone__label", children: "\u041D\u0430 \u0433\u043B\u0430\u0432\u043D\u043E\u0439 \u043F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u0438" })
+                        /* @__PURE__ */ jsx69("span", { className: "martin-zone__count", children: report.stats.mainSequence.length }),
+                        /* @__PURE__ */ jsx69("span", { className: "martin-zone__label", children: "\u041D\u0430 \u0433\u043B\u0430\u0432\u043D\u043E\u0439 \u043F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u0438" })
                       ]
                     }
                   ),
-                  /* @__PURE__ */ jsxs64(
+                  /* @__PURE__ */ jsxs66(
                     "button",
                     {
                       className: "martin-zone martin-zone--pain" + (filterZone === "pain" ? " active" : ""),
                       onClick: () => setFilterZone(filterZone === "pain" ? "" : "pain"),
                       children: [
-                        /* @__PURE__ */ jsx67("span", { className: "martin-zone__count", children: report.stats.painZone.length }),
-                        /* @__PURE__ */ jsx67("span", { className: "martin-zone__label", children: "\u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438 (\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0435 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0435)" })
+                        /* @__PURE__ */ jsx69("span", { className: "martin-zone__count", children: report.stats.painZone.length }),
+                        /* @__PURE__ */ jsx69("span", { className: "martin-zone__label", children: "\u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438 (\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0435 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0435)" })
                       ]
                     }
                   ),
-                  /* @__PURE__ */ jsxs64(
+                  /* @__PURE__ */ jsxs66(
                     "button",
                     {
                       className: "martin-zone martin-zone--useless" + (filterZone === "uselessness" ? " active" : ""),
                       onClick: () => setFilterZone(filterZone === "uselessness" ? "" : "uselessness"),
                       children: [
-                        /* @__PURE__ */ jsx67("span", { className: "martin-zone__count", children: report.stats.uselessnessZone.length }),
-                        /* @__PURE__ */ jsx67("span", { className: "martin-zone__label", children: "\u0411\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u044B\u0435 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u0438" })
+                        /* @__PURE__ */ jsx69("span", { className: "martin-zone__count", children: report.stats.uselessnessZone.length }),
+                        /* @__PURE__ */ jsx69("span", { className: "martin-zone__label", children: "\u0411\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u044B\u0435 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u0438" })
                       ]
                     }
                   )
                 ] })
               ] }),
-              /* @__PURE__ */ jsxs64("div", { className: "martin-scatter", children: [
-                /* @__PURE__ */ jsx67("div", { className: "martin-scatter__title", children: "\u0414\u0438\u0430\u0433\u0440\u0430\u043C\u043C\u0430 \xABI \xD7 A\xBB" }),
-                /* @__PURE__ */ jsxs64("svg", { viewBox: "0 0 400 400", className: "martin-scatter__svg", children: [
-                  /* @__PURE__ */ jsx67("line", { x1: "40", y1: "360", x2: "380", y2: "360", stroke: "var(--border)" }),
-                  /* @__PURE__ */ jsx67("line", { x1: "40", y1: "360", x2: "40", y2: "20", stroke: "var(--border)" }),
-                  /* @__PURE__ */ jsx67("text", { x: "210", y: "392", textAnchor: "middle", fill: "var(--text-500)", fontSize: "11", children: "Instability \u2192" }),
-                  /* @__PURE__ */ jsx67(
+              /* @__PURE__ */ jsxs66("div", { className: "martin-scatter", children: [
+                /* @__PURE__ */ jsx69("div", { className: "martin-scatter__title", children: "\u0414\u0438\u0430\u0433\u0440\u0430\u043C\u043C\u0430 \xABI \xD7 A\xBB" }),
+                /* @__PURE__ */ jsxs66("svg", { viewBox: "0 0 400 400", className: "martin-scatter__svg", children: [
+                  /* @__PURE__ */ jsx69("line", { x1: "40", y1: "360", x2: "380", y2: "360", stroke: "var(--border)" }),
+                  /* @__PURE__ */ jsx69("line", { x1: "40", y1: "360", x2: "40", y2: "20", stroke: "var(--border)" }),
+                  /* @__PURE__ */ jsx69("text", { x: "210", y: "392", textAnchor: "middle", fill: "var(--text-500)", fontSize: "11", children: "Instability \u2192" }),
+                  /* @__PURE__ */ jsx69(
                     "text",
                     {
                       x: "12",
@@ -18216,11 +18946,11 @@ function MartinMetricsModal() {
                       children: "Abstractness \u2192"
                     }
                   ),
-                  /* @__PURE__ */ jsx67("text", { x: "40", y: "378", textAnchor: "middle", fill: "var(--text-500)", fontSize: "9", children: "0" }),
-                  /* @__PURE__ */ jsx67("text", { x: "380", y: "378", textAnchor: "middle", fill: "var(--text-500)", fontSize: "9", children: "1" }),
-                  /* @__PURE__ */ jsx67("text", { x: "22", y: "360", textAnchor: "end", fill: "var(--text-500)", fontSize: "9", children: "0" }),
-                  /* @__PURE__ */ jsx67("text", { x: "22", y: "24", textAnchor: "end", fill: "var(--text-500)", fontSize: "9", children: "1" }),
-                  /* @__PURE__ */ jsx67(
+                  /* @__PURE__ */ jsx69("text", { x: "40", y: "378", textAnchor: "middle", fill: "var(--text-500)", fontSize: "9", children: "0" }),
+                  /* @__PURE__ */ jsx69("text", { x: "380", y: "378", textAnchor: "middle", fill: "var(--text-500)", fontSize: "9", children: "1" }),
+                  /* @__PURE__ */ jsx69("text", { x: "22", y: "360", textAnchor: "end", fill: "var(--text-500)", fontSize: "9", children: "0" }),
+                  /* @__PURE__ */ jsx69("text", { x: "22", y: "24", textAnchor: "end", fill: "var(--text-500)", fontSize: "9", children: "1" }),
+                  /* @__PURE__ */ jsx69(
                     "line",
                     {
                       x1: "40",
@@ -18233,15 +18963,15 @@ function MartinMetricsModal() {
                       opacity: "0.5"
                     }
                   ),
-                  /* @__PURE__ */ jsx67("rect", { x: "40", y: "240", width: "120", height: "120", fill: "rgba(239,68,68,0.08)" }),
-                  /* @__PURE__ */ jsx67("text", { x: "100", y: "300", textAnchor: "middle", fill: "var(--danger)", fontSize: "10", opacity: "0.6", children: "\u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438" }),
-                  /* @__PURE__ */ jsx67("rect", { x: "260", y: "20", width: "120", height: "120", fill: "rgba(245,158,11,0.08)" }),
-                  /* @__PURE__ */ jsx67("text", { x: "320", y: "80", textAnchor: "middle", fill: "var(--warning)", fontSize: "10", opacity: "0.6", children: "Uselessness" }),
+                  /* @__PURE__ */ jsx69("rect", { x: "40", y: "240", width: "120", height: "120", fill: "rgba(239,68,68,0.08)" }),
+                  /* @__PURE__ */ jsx69("text", { x: "100", y: "300", textAnchor: "middle", fill: "var(--danger)", fontSize: "10", opacity: "0.6", children: "\u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438" }),
+                  /* @__PURE__ */ jsx69("rect", { x: "260", y: "20", width: "120", height: "120", fill: "rgba(245,158,11,0.08)" }),
+                  /* @__PURE__ */ jsx69("text", { x: "320", y: "80", textAnchor: "middle", fill: "var(--warning)", fontSize: "10", opacity: "0.6", children: "Uselessness" }),
                   report.metrics.map((m) => {
                     const x = 40 + m.instability * 340;
                     const y = 360 - m.abstractness * 340;
                     const color = m.zone === "pain" ? "#ef4444" : m.zone === "uselessness" ? "#f59e0b" : m.zone === "main-sequence" ? "#10b981" : "#64748b";
-                    return /* @__PURE__ */ jsx67(
+                    return /* @__PURE__ */ jsx69(
                       "circle",
                       {
                         cx: x,
@@ -18251,7 +18981,7 @@ function MartinMetricsModal() {
                         stroke: "#fff",
                         strokeWidth: "1",
                         opacity: m.distance > 0.5 ? 0.9 : 0.6,
-                        children: /* @__PURE__ */ jsxs64("title", { children: [
+                        children: /* @__PURE__ */ jsxs66("title", { children: [
                           m.domainId,
                           "\n",
                           "I=",
@@ -18272,16 +19002,16 @@ function MartinMetricsModal() {
                   })
                 ] })
               ] }),
-              /* @__PURE__ */ jsxs64("div", { className: "martin-table-wrap", children: [
-                /* @__PURE__ */ jsxs64("div", { className: "martin-sort", children: [
-                  /* @__PURE__ */ jsx67("span", { children: "\u0421\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430:" }),
+              /* @__PURE__ */ jsxs66("div", { className: "martin-table-wrap", children: [
+                /* @__PURE__ */ jsxs66("div", { className: "martin-sort", children: [
+                  /* @__PURE__ */ jsx69("span", { children: "\u0421\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430:" }),
                   [
                     { key: "distance", label: "Distance" },
                     { key: "instability", label: "Instability" },
                     { key: "abstractness", label: "Abstractness" },
                     { key: "ca", label: "Ca" },
                     { key: "ce", label: "Ce" }
-                  ].map((opt) => /* @__PURE__ */ jsx67(
+                  ].map((opt) => /* @__PURE__ */ jsx69(
                     "button",
                     {
                       className: "martin-sort-btn" + (sortBy === opt.key ? " active" : ""),
@@ -18291,33 +19021,33 @@ function MartinMetricsModal() {
                     opt.key
                   ))
                 ] }),
-                /* @__PURE__ */ jsxs64("table", { className: "martin-table", children: [
-                  /* @__PURE__ */ jsx67("thead", { children: /* @__PURE__ */ jsxs64("tr", { children: [
-                    /* @__PURE__ */ jsx67("th", { children: "\u0414\u043E\u043C\u0435\u043D" }),
-                    /* @__PURE__ */ jsx67("th", { title: "Afferent coupling \u2014 \u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0437\u0430\u0432\u0438\u0441\u044F\u0442 \u043E\u0442 \u043D\u0435\u0433\u043E", children: "Ca" }),
-                    /* @__PURE__ */ jsx67("th", { title: "Efferent coupling \u2014 \u043E\u0442 \u0441\u043A\u043E\u043B\u044C\u043A\u0438\u0445 \u0437\u0430\u0432\u0438\u0441\u0438\u0442", children: "Ce" }),
-                    /* @__PURE__ */ jsx67("th", { title: "Instability = Ce / (Ca + Ce)", children: "I" }),
-                    /* @__PURE__ */ jsx67("th", { title: "Abstractness \u2014 \u0434\u043E\u043B\u044F \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u044B\u0445 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439", children: "A" }),
-                    /* @__PURE__ */ jsx67("th", { title: "Distance = |A + I - 1|", children: "D" }),
-                    /* @__PURE__ */ jsx67("th", { children: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" }),
-                    /* @__PURE__ */ jsx67("th", { children: "\u0417\u043E\u043D\u0430" })
+                /* @__PURE__ */ jsxs66("table", { className: "martin-table", children: [
+                  /* @__PURE__ */ jsx69("thead", { children: /* @__PURE__ */ jsxs66("tr", { children: [
+                    /* @__PURE__ */ jsx69("th", { children: "\u0414\u043E\u043C\u0435\u043D" }),
+                    /* @__PURE__ */ jsx69("th", { title: "Afferent coupling \u2014 \u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0437\u0430\u0432\u0438\u0441\u044F\u0442 \u043E\u0442 \u043D\u0435\u0433\u043E", children: "Ca" }),
+                    /* @__PURE__ */ jsx69("th", { title: "Efferent coupling \u2014 \u043E\u0442 \u0441\u043A\u043E\u043B\u044C\u043A\u0438\u0445 \u0437\u0430\u0432\u0438\u0441\u0438\u0442", children: "Ce" }),
+                    /* @__PURE__ */ jsx69("th", { title: "Instability = Ce / (Ca + Ce)", children: "I" }),
+                    /* @__PURE__ */ jsx69("th", { title: "Abstractness \u2014 \u0434\u043E\u043B\u044F \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u044B\u0445 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439", children: "A" }),
+                    /* @__PURE__ */ jsx69("th", { title: "Distance = |A + I - 1|", children: "D" }),
+                    /* @__PURE__ */ jsx69("th", { children: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" }),
+                    /* @__PURE__ */ jsx69("th", { children: "\u0417\u043E\u043D\u0430" })
                   ] }) }),
-                  /* @__PURE__ */ jsx67("tbody", { children: sorted.slice(0, 100).map((m) => /* @__PURE__ */ jsxs64("tr", { className: "martin-row martin-row--" + m.zone, children: [
-                    /* @__PURE__ */ jsxs64("td", { children: [
-                      /* @__PURE__ */ jsx67("div", { className: "martin-row__domain", children: m.domainId }),
-                      m.domainName !== m.domainId && /* @__PURE__ */ jsx67("div", { className: "martin-row__name", children: m.domainName })
+                  /* @__PURE__ */ jsx69("tbody", { children: sorted.slice(0, 100).map((m) => /* @__PURE__ */ jsxs66("tr", { className: "martin-row martin-row--" + m.zone, children: [
+                    /* @__PURE__ */ jsxs66("td", { children: [
+                      /* @__PURE__ */ jsx69("div", { className: "martin-row__domain", children: m.domainId }),
+                      m.domainName !== m.domainId && /* @__PURE__ */ jsx69("div", { className: "martin-row__name", children: m.domainName })
                     ] }),
-                    /* @__PURE__ */ jsx67("td", { className: "martin-row__num", children: m.ca }),
-                    /* @__PURE__ */ jsx67("td", { className: "martin-row__num", children: m.ce }),
-                    /* @__PURE__ */ jsx67("td", { className: "martin-row__num", children: m.instability.toFixed(2) }),
-                    /* @__PURE__ */ jsx67("td", { className: "martin-row__num", children: m.abstractness.toFixed(2) }),
-                    /* @__PURE__ */ jsx67("td", { className: "martin-row__num martin-row__num--d", children: m.distance.toFixed(2) }),
-                    /* @__PURE__ */ jsxs64("td", { className: "martin-row__num", children: [
+                    /* @__PURE__ */ jsx69("td", { className: "martin-row__num", children: m.ca }),
+                    /* @__PURE__ */ jsx69("td", { className: "martin-row__num", children: m.ce }),
+                    /* @__PURE__ */ jsx69("td", { className: "martin-row__num", children: m.instability.toFixed(2) }),
+                    /* @__PURE__ */ jsx69("td", { className: "martin-row__num", children: m.abstractness.toFixed(2) }),
+                    /* @__PURE__ */ jsx69("td", { className: "martin-row__num martin-row__num--d", children: m.distance.toFixed(2) }),
+                    /* @__PURE__ */ jsxs66("td", { className: "martin-row__num", children: [
                       m.entitiesAbstract,
                       "/",
                       m.entitiesTotal
                     ] }),
-                    /* @__PURE__ */ jsx67("td", { children: /* @__PURE__ */ jsx67("span", { className: "martin-zone-tag martin-zone-tag--" + m.zone, children: m.zone === "pain" ? "\u0431\u043E\u043B\u044C" : m.zone === "uselessness" ? "\u0431\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u043E\u0441\u0442\u044C" : m.zone === "main-sequence" ? "\u043D\u043E\u0440\u043C\u0430" : "\u2014" }) })
+                    /* @__PURE__ */ jsx69("td", { children: /* @__PURE__ */ jsx69("span", { className: "martin-zone-tag martin-zone-tag--" + m.zone, children: m.zone === "pain" ? "\u0431\u043E\u043B\u044C" : m.zone === "uselessness" ? "\u0431\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u043E\u0441\u0442\u044C" : m.zone === "main-sequence" ? "\u043D\u043E\u0440\u043C\u0430" : "\u2014" }) })
                   ] }, m.domainId)) })
                 ] })
               ] })
@@ -18452,8 +19182,8 @@ var init_domain_compare = __esm({
 });
 
 // src/web/components/modals/DomainCompareModal.tsx
-import { useEffect as useEffect31, useMemo as useMemo38, useState as useState27 } from "react";
-import { Fragment as Fragment12, jsx as jsx68, jsxs as jsxs65 } from "react/jsx-runtime";
+import { useEffect as useEffect32, useMemo as useMemo39, useState as useState27 } from "react";
+import { Fragment as Fragment16, jsx as jsx70, jsxs as jsxs67 } from "react/jsx-runtime";
 function DomainCompareModal() {
   const store = useGraphStore();
   const { index, loading, error } = useModelIndex();
@@ -18463,7 +19193,7 @@ function DomainCompareModal() {
   const [domainB, setDomainB] = useState27("");
   const prefillA = useGraphStore((s) => s.domainComparePrefillA);
   const setPrefillA = useGraphStore((s) => s.setDomainComparePrefillA);
-  useEffect31(() => {
+  useEffect32(() => {
     if (!open)
       return;
     if (prefillA) {
@@ -18471,7 +19201,7 @@ function DomainCompareModal() {
       setPrefillA(null);
     }
   }, [open, prefillA, setPrefillA]);
-  const allDomains = useMemo38(() => {
+  const allDomains = useMemo39(() => {
     if (!index)
       return [];
     const map2 = /* @__PURE__ */ new Map();
@@ -18480,7 +19210,7 @@ function DomainCompareModal() {
     });
     return Array.from(map2.entries()).sort((a, b) => b[1] - a[1]);
   }, [index]);
-  const result = useMemo38(() => {
+  const result = useMemo39(() => {
     if (!index || !domainA || !domainB || domainA === domainB)
       return null;
     return compareDomains(index, domainA, domainB);
@@ -18492,20 +19222,20 @@ function DomainCompareModal() {
   };
   if (!open)
     return null;
-  return /* @__PURE__ */ jsx68(
+  return /* @__PURE__ */ jsx70(
     "div",
     {
       className: "help-overlay help-overlay--fullscreen",
       onMouseDown: () => store.setDomainCompareOpen(false),
-      children: /* @__PURE__ */ jsxs65(
+      children: /* @__PURE__ */ jsxs67(
         "div",
         {
           className: "help-modal entity-hierarchy-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
-            /* @__PURE__ */ jsxs65("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsx68("div", { className: "help-modal__title", children: "\u{1F500} \u0421\u0440\u0430\u0432\u043D\u0435\u043D\u0438\u0435 \u0434\u043E\u043C\u0435\u043D\u043E\u0432" }),
-              /* @__PURE__ */ jsx68(
+            /* @__PURE__ */ jsxs67("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsx70("div", { className: "help-modal__title", children: "\u{1F500} \u0421\u0440\u0430\u0432\u043D\u0435\u043D\u0438\u0435 \u0434\u043E\u043C\u0435\u043D\u043E\u0432" }),
+              /* @__PURE__ */ jsx70(
                 "button",
                 {
                   className: "help-modal__close",
@@ -18514,12 +19244,12 @@ function DomainCompareModal() {
                 }
               )
             ] }),
-            loading && /* @__PURE__ */ jsx68("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx68("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
-            index && /* @__PURE__ */ jsxs65("div", { className: "help-modal__body help-modal__body--flush", children: [
-              /* @__PURE__ */ jsxs65("div", { className: "compare-selectors", children: [
-                /* @__PURE__ */ jsxs65("div", { className: "compare-selector", children: [
-                  /* @__PURE__ */ jsx68("div", { className: "compare-selector__label", children: "\u0414\u043E\u043C\u0435\u043D A" }),
-                  /* @__PURE__ */ jsx68(
+            loading && /* @__PURE__ */ jsx70("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx70("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
+            index && /* @__PURE__ */ jsxs67("div", { className: "help-modal__body help-modal__body--flush", children: [
+              /* @__PURE__ */ jsxs67("div", { className: "compare-selectors", children: [
+                /* @__PURE__ */ jsxs67("div", { className: "compare-selector", children: [
+                  /* @__PURE__ */ jsx70("div", { className: "compare-selector__label", children: "\u0414\u043E\u043C\u0435\u043D A" }),
+                  /* @__PURE__ */ jsx70(
                     DomainCombobox,
                     {
                       value: domainA,
@@ -18529,10 +19259,10 @@ function DomainCompareModal() {
                     }
                   )
                 ] }),
-                /* @__PURE__ */ jsx68("div", { className: "compare-selector__swap", children: /* @__PURE__ */ jsx68(MIcon, { name: "compare_arrows" }) }),
-                /* @__PURE__ */ jsxs65("div", { className: "compare-selector", children: [
-                  /* @__PURE__ */ jsx68("div", { className: "compare-selector__label", children: "\u0414\u043E\u043C\u0435\u043D B" }),
-                  /* @__PURE__ */ jsx68(
+                /* @__PURE__ */ jsx70("div", { className: "compare-selector__swap", children: /* @__PURE__ */ jsx70(MIcon, { name: "compare_arrows" }) }),
+                /* @__PURE__ */ jsxs67("div", { className: "compare-selector", children: [
+                  /* @__PURE__ */ jsx70("div", { className: "compare-selector__label", children: "\u0414\u043E\u043C\u0435\u043D B" }),
+                  /* @__PURE__ */ jsx70(
                     DomainCombobox,
                     {
                       value: domainB,
@@ -18543,60 +19273,60 @@ function DomainCompareModal() {
                   )
                 ] })
               ] }),
-              !domainA || !domainB ? /* @__PURE__ */ jsx68("div", { className: "compare-empty", children: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u0432\u0430 \u0434\u043E\u043C\u0435\u043D\u0430" }) : domainA === domainB ? /* @__PURE__ */ jsx68("div", { className: "compare-empty", children: "\u0414\u043E\u043C\u0435\u043D\u044B \u0434\u043E\u043B\u0436\u043D\u044B \u0431\u044B\u0442\u044C \u0440\u0430\u0437\u043D\u044B\u043C\u0438" }) : result ? /* @__PURE__ */ jsxs65(Fragment12, { children: [
-                /* @__PURE__ */ jsxs65("div", { className: "compare-summary", children: [
-                  /* @__PURE__ */ jsxs65("div", { className: "compare-side compare-side--a", children: [
-                    /* @__PURE__ */ jsx68("div", { className: "compare-side__id", children: result.domainA.domainId }),
-                    /* @__PURE__ */ jsx68("div", { className: "compare-side__name", children: result.domainA.domainName }),
-                    /* @__PURE__ */ jsxs65("div", { className: "compare-side__metrics", children: [
-                      /* @__PURE__ */ jsxs65("span", { children: [
+              !domainA || !domainB ? /* @__PURE__ */ jsx70("div", { className: "compare-empty", children: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u0432\u0430 \u0434\u043E\u043C\u0435\u043D\u0430" }) : domainA === domainB ? /* @__PURE__ */ jsx70("div", { className: "compare-empty", children: "\u0414\u043E\u043C\u0435\u043D\u044B \u0434\u043E\u043B\u0436\u043D\u044B \u0431\u044B\u0442\u044C \u0440\u0430\u0437\u043D\u044B\u043C\u0438" }) : result ? /* @__PURE__ */ jsxs67(Fragment16, { children: [
+                /* @__PURE__ */ jsxs67("div", { className: "compare-summary", children: [
+                  /* @__PURE__ */ jsxs67("div", { className: "compare-side compare-side--a", children: [
+                    /* @__PURE__ */ jsx70("div", { className: "compare-side__id", children: result.domainA.domainId }),
+                    /* @__PURE__ */ jsx70("div", { className: "compare-side__name", children: result.domainA.domainName }),
+                    /* @__PURE__ */ jsxs67("div", { className: "compare-side__metrics", children: [
+                      /* @__PURE__ */ jsxs67("span", { children: [
                         result.domainA.entityCount,
                         " \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439"
                       ] }),
-                      /* @__PURE__ */ jsxs65("span", { children: [
+                      /* @__PURE__ */ jsxs67("span", { children: [
                         result.domainA.attributeCount,
                         " \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432"
                       ] }),
-                      result.domainA.sonarScore != null && /* @__PURE__ */ jsxs65("span", { children: [
+                      result.domainA.sonarScore != null && /* @__PURE__ */ jsxs67("span", { children: [
                         "Sonar: ",
                         result.domainA.sonarScore
                       ] })
                     ] })
                   ] }),
-                  /* @__PURE__ */ jsxs65("div", { className: "compare-side compare-side--b", children: [
-                    /* @__PURE__ */ jsx68("div", { className: "compare-side__id", children: result.domainB.domainId }),
-                    /* @__PURE__ */ jsx68("div", { className: "compare-side__name", children: result.domainB.domainName }),
-                    /* @__PURE__ */ jsxs65("div", { className: "compare-side__metrics", children: [
-                      /* @__PURE__ */ jsxs65("span", { children: [
+                  /* @__PURE__ */ jsxs67("div", { className: "compare-side compare-side--b", children: [
+                    /* @__PURE__ */ jsx70("div", { className: "compare-side__id", children: result.domainB.domainId }),
+                    /* @__PURE__ */ jsx70("div", { className: "compare-side__name", children: result.domainB.domainName }),
+                    /* @__PURE__ */ jsxs67("div", { className: "compare-side__metrics", children: [
+                      /* @__PURE__ */ jsxs67("span", { children: [
                         result.domainB.entityCount,
                         " \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439"
                       ] }),
-                      /* @__PURE__ */ jsxs65("span", { children: [
+                      /* @__PURE__ */ jsxs67("span", { children: [
                         result.domainB.attributeCount,
                         " \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432"
                       ] }),
-                      result.domainB.sonarScore != null && /* @__PURE__ */ jsxs65("span", { children: [
+                      result.domainB.sonarScore != null && /* @__PURE__ */ jsxs67("span", { children: [
                         "Sonar: ",
                         result.domainB.sonarScore
                       ] })
                     ] })
                   ] })
                 ] }),
-                result.entities.onlyInA.length > 0 && /* @__PURE__ */ jsxs65("div", { className: "compare-section compare-section--a", children: [
-                  /* @__PURE__ */ jsxs65("div", { className: "compare-section__title", children: [
+                result.entities.onlyInA.length > 0 && /* @__PURE__ */ jsxs67("div", { className: "compare-section compare-section--a", children: [
+                  /* @__PURE__ */ jsxs67("div", { className: "compare-section__title", children: [
                     "\u0422\u043E\u043B\u044C\u043A\u043E \u0432 A (",
                     result.entities.onlyInA.length,
                     ")"
                   ] }),
-                  result.entities.onlyInA.map((e) => /* @__PURE__ */ jsxs65(
+                  result.entities.onlyInA.map((e) => /* @__PURE__ */ jsxs67(
                     "button",
                     {
                       className: "compare-item compare-item--link",
                       onClick: () => openEntity(e.fqid),
                       children: [
-                        /* @__PURE__ */ jsx68("code", { children: e.entityId }),
-                        /* @__PURE__ */ jsx68("span", { children: e.name }),
-                        /* @__PURE__ */ jsxs65("span", { className: "compare-item__meta", children: [
+                        /* @__PURE__ */ jsx70("code", { children: e.entityId }),
+                        /* @__PURE__ */ jsx70("span", { children: e.name }),
+                        /* @__PURE__ */ jsxs67("span", { className: "compare-item__meta", children: [
                           e.attributes.length,
                           " \u0430\u0442\u0440."
                         ] })
@@ -18605,21 +19335,21 @@ function DomainCompareModal() {
                     e.fqid
                   ))
                 ] }),
-                result.entities.onlyInB.length > 0 && /* @__PURE__ */ jsxs65("div", { className: "compare-section compare-section--b", children: [
-                  /* @__PURE__ */ jsxs65("div", { className: "compare-section__title", children: [
+                result.entities.onlyInB.length > 0 && /* @__PURE__ */ jsxs67("div", { className: "compare-section compare-section--b", children: [
+                  /* @__PURE__ */ jsxs67("div", { className: "compare-section__title", children: [
                     "\u0422\u043E\u043B\u044C\u043A\u043E \u0432 B (",
                     result.entities.onlyInB.length,
                     ")"
                   ] }),
-                  result.entities.onlyInB.map((e) => /* @__PURE__ */ jsxs65(
+                  result.entities.onlyInB.map((e) => /* @__PURE__ */ jsxs67(
                     "button",
                     {
                       className: "compare-item compare-item--link",
                       onClick: () => openEntity(e.fqid),
                       children: [
-                        /* @__PURE__ */ jsx68("code", { children: e.entityId }),
-                        /* @__PURE__ */ jsx68("span", { children: e.name }),
-                        /* @__PURE__ */ jsxs65("span", { className: "compare-item__meta", children: [
+                        /* @__PURE__ */ jsx70("code", { children: e.entityId }),
+                        /* @__PURE__ */ jsx70("span", { children: e.name }),
+                        /* @__PURE__ */ jsxs67("span", { className: "compare-item__meta", children: [
                           e.attributes.length,
                           " \u0430\u0442\u0440."
                         ] })
@@ -18630,8 +19360,8 @@ function DomainCompareModal() {
                 ] }),
                 result.entities.shared.filter(
                   (s) => s.attrsOnlyInA.length > 0 || s.attrsOnlyInB.length > 0 || s.attrsDifferentType.length > 0 || s.inheritsChanged || s.nameChanged
-                ).length > 0 && /* @__PURE__ */ jsxs65("div", { className: "compare-section compare-section--shared", children: [
-                  /* @__PURE__ */ jsxs65("div", { className: "compare-section__title", children: [
+                ).length > 0 && /* @__PURE__ */ jsxs67("div", { className: "compare-section compare-section--shared", children: [
+                  /* @__PURE__ */ jsxs67("div", { className: "compare-section__title", children: [
                     "\u041E\u0431\u0449\u0438\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0441 \u0440\u0430\u0437\u043B\u0438\u0447\u0438\u044F\u043C\u0438 (",
                     result.entities.shared.filter(
                       (s) => s.attrsOnlyInA.length > 0 || s.attrsOnlyInB.length > 0 || s.attrsDifferentType.length > 0 || s.inheritsChanged || s.nameChanged
@@ -18640,40 +19370,40 @@ function DomainCompareModal() {
                   ] }),
                   result.entities.shared.filter(
                     (s) => s.attrsOnlyInA.length > 0 || s.attrsOnlyInB.length > 0 || s.attrsDifferentType.length > 0 || s.inheritsChanged || s.nameChanged
-                  ).map((s) => /* @__PURE__ */ jsxs65("div", { className: "compare-shared-item", children: [
-                    /* @__PURE__ */ jsxs65("div", { className: "compare-shared-item__head", children: [
-                      /* @__PURE__ */ jsx68("code", { children: s.entityA.entityId }),
-                      s.nameChanged && /* @__PURE__ */ jsx68("span", { className: "compare-change-badge", children: "name \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u043E\u0441\u044C" }),
-                      s.inheritsChanged && /* @__PURE__ */ jsxs65("span", { className: "compare-change-badge", children: [
+                  ).map((s) => /* @__PURE__ */ jsxs67("div", { className: "compare-shared-item", children: [
+                    /* @__PURE__ */ jsxs67("div", { className: "compare-shared-item__head", children: [
+                      /* @__PURE__ */ jsx70("code", { children: s.entityA.entityId }),
+                      s.nameChanged && /* @__PURE__ */ jsx70("span", { className: "compare-change-badge", children: "name \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u043E\u0441\u044C" }),
+                      s.inheritsChanged && /* @__PURE__ */ jsxs67("span", { className: "compare-change-badge", children: [
                         "inherits: ",
                         s.entityA.inherits || "\u2014",
                         " \u2192 ",
                         s.entityB.inherits || "\u2014"
                       ] })
                     ] }),
-                    s.attrsOnlyInA.length > 0 && /* @__PURE__ */ jsxs65("div", { className: "compare-attrs", children: [
-                      /* @__PURE__ */ jsx68("span", { className: "compare-attrs__label", children: "\u0422\u043E\u043B\u044C\u043A\u043E \u0432 A:" }),
-                      s.attrsOnlyInA.map((aid) => /* @__PURE__ */ jsx68("code", { className: "compare-attr compare-attr--a", children: aid }, aid))
+                    s.attrsOnlyInA.length > 0 && /* @__PURE__ */ jsxs67("div", { className: "compare-attrs", children: [
+                      /* @__PURE__ */ jsx70("span", { className: "compare-attrs__label", children: "\u0422\u043E\u043B\u044C\u043A\u043E \u0432 A:" }),
+                      s.attrsOnlyInA.map((aid) => /* @__PURE__ */ jsx70("code", { className: "compare-attr compare-attr--a", children: aid }, aid))
                     ] }),
-                    s.attrsOnlyInB.length > 0 && /* @__PURE__ */ jsxs65("div", { className: "compare-attrs", children: [
-                      /* @__PURE__ */ jsx68("span", { className: "compare-attrs__label", children: "\u0422\u043E\u043B\u044C\u043A\u043E \u0432 B:" }),
-                      s.attrsOnlyInB.map((aid) => /* @__PURE__ */ jsx68("code", { className: "compare-attr compare-attr--b", children: aid }, aid))
+                    s.attrsOnlyInB.length > 0 && /* @__PURE__ */ jsxs67("div", { className: "compare-attrs", children: [
+                      /* @__PURE__ */ jsx70("span", { className: "compare-attrs__label", children: "\u0422\u043E\u043B\u044C\u043A\u043E \u0432 B:" }),
+                      s.attrsOnlyInB.map((aid) => /* @__PURE__ */ jsx70("code", { className: "compare-attr compare-attr--b", children: aid }, aid))
                     ] }),
-                    s.attrsDifferentType.length > 0 && /* @__PURE__ */ jsxs65("div", { className: "compare-attrs", children: [
-                      /* @__PURE__ */ jsx68("span", { className: "compare-attrs__label", children: "\u0420\u0430\u0437\u043D\u044B\u0435 \u0442\u0438\u043F\u044B:" }),
-                      s.attrsDifferentType.map((d) => /* @__PURE__ */ jsxs65("span", { className: "compare-difftype", children: [
-                        /* @__PURE__ */ jsx68("code", { children: d.id }),
-                        /* @__PURE__ */ jsx68("span", { className: "compare-difftype__a", children: d.typeA }),
-                        /* @__PURE__ */ jsx68("span", { className: "compare-difftype__arrow", children: "\u2192" }),
-                        /* @__PURE__ */ jsx68("span", { className: "compare-difftype__b", children: d.typeB })
+                    s.attrsDifferentType.length > 0 && /* @__PURE__ */ jsxs67("div", { className: "compare-attrs", children: [
+                      /* @__PURE__ */ jsx70("span", { className: "compare-attrs__label", children: "\u0420\u0430\u0437\u043D\u044B\u0435 \u0442\u0438\u043F\u044B:" }),
+                      s.attrsDifferentType.map((d) => /* @__PURE__ */ jsxs67("span", { className: "compare-difftype", children: [
+                        /* @__PURE__ */ jsx70("code", { children: d.id }),
+                        /* @__PURE__ */ jsx70("span", { className: "compare-difftype__a", children: d.typeA }),
+                        /* @__PURE__ */ jsx70("span", { className: "compare-difftype__arrow", children: "\u2192" }),
+                        /* @__PURE__ */ jsx70("span", { className: "compare-difftype__b", children: d.typeB })
                       ] }, d.id))
                     ] })
                   ] }, s.entityA.entityId))
                 ] }),
                 result.entities.onlyInA.length === 0 && result.entities.onlyInB.length === 0 && result.entities.shared.every(
                   (s) => s.attrsOnlyInA.length === 0 && s.attrsOnlyInB.length === 0 && s.attrsDifferentType.length === 0 && !s.inheritsChanged && !s.nameChanged
-                ) && /* @__PURE__ */ jsxs65("div", { className: "compare-empty", children: [
-                  /* @__PURE__ */ jsx68("div", { style: { fontSize: 32, marginBottom: 8 }, children: "\u2705" }),
+                ) && /* @__PURE__ */ jsxs67("div", { className: "compare-empty", children: [
+                  /* @__PURE__ */ jsx70("div", { style: { fontSize: 32, marginBottom: 8 }, children: "\u2705" }),
                   "\u0414\u043E\u043C\u0435\u043D\u044B \u0438\u0434\u0435\u043D\u0442\u0438\u0447\u043D\u044B \u043F\u043E \u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0438 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432"
                 ] })
               ] }) : null
@@ -18943,8 +19673,8 @@ var init_pii_markdown = __esm({
 });
 
 // src/web/components/modals/PiiModal.tsx
-import { useMemo as useMemo39, useState as useState28 } from "react";
-import { jsx as jsx69, jsxs as jsxs66 } from "react/jsx-runtime";
+import { useMemo as useMemo40, useState as useState28 } from "react";
+import { jsx as jsx71, jsxs as jsxs68 } from "react/jsx-runtime";
 function loadIgnored() {
   try {
     const raw = localStorage.getItem(IGNORED_KEY);
@@ -18968,7 +19698,7 @@ function PiiModal() {
   const [filterCategory, setFilterCategory] = useState28("");
   const [showHelp, setShowHelp] = useState28(false);
   const report = index?.pii ?? null;
-  const visibleHits = useMemo39(() => {
+  const visibleHits = useMemo40(() => {
     if (!report)
       return [];
     return report.hits.filter((h) => {
@@ -18981,7 +19711,7 @@ function PiiModal() {
       return true;
     });
   }, [report, ignored, filterSeverity, filterCategory]);
-  const grouped = useMemo39(() => {
+  const grouped = useMemo40(() => {
     const map2 = /* @__PURE__ */ new Map();
     SEVERITY_ORDER2.forEach((s) => map2.set(s, []));
     visibleHits.forEach((h) => {
@@ -19009,24 +19739,24 @@ function PiiModal() {
     return null;
   const visibleCount = visibleHits.length;
   const ignoredCount = ignored.size;
-  return /* @__PURE__ */ jsx69(
+  return /* @__PURE__ */ jsx71(
     "div",
     {
       className: "help-overlay help-overlay--fullscreen",
       onMouseDown: () => store.setPiiOpen(false),
-      children: /* @__PURE__ */ jsxs66(
+      children: /* @__PURE__ */ jsxs68(
         "div",
         {
           className: "help-modal entity-hierarchy-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
-            /* @__PURE__ */ jsxs66("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsxs66("div", { className: "help-modal__title", children: [
+            /* @__PURE__ */ jsxs68("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs68("div", { className: "help-modal__title", children: [
                 "\u{1F512} PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B (\u043F\u0435\u0440\u0441\u043E\u043D\u0430\u043B\u044C\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435)",
-                report && /* @__PURE__ */ jsx69("span", { className: "help-modal__badge", children: visibleCount })
+                report && /* @__PURE__ */ jsx71("span", { className: "help-modal__badge", children: visibleCount })
               ] }),
-              /* @__PURE__ */ jsxs66("div", { className: "help-modal__actions", children: [
-                /* @__PURE__ */ jsxs66(
+              /* @__PURE__ */ jsxs68("div", { className: "help-modal__actions", children: [
+                /* @__PURE__ */ jsxs68(
                   "button",
                   {
                     className: "help-modal__help-btn",
@@ -19041,23 +19771,23 @@ function PiiModal() {
                     title: "\u0421\u043A\u0430\u0447\u0430\u0442\u044C \u043E\u0442\u0447\u0451\u0442 \u0434\u043B\u044F DPO",
                     disabled: !report || report.hits.length === 0,
                     children: [
-                      /* @__PURE__ */ jsx69(MIcon, { name: "download" }),
-                      /* @__PURE__ */ jsx69("span", { children: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442 \u043E\u0442\u0447\u0451\u0442\u0430" })
+                      /* @__PURE__ */ jsx71(MIcon, { name: "download" }),
+                      /* @__PURE__ */ jsx71("span", { children: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442 \u043E\u0442\u0447\u0451\u0442\u0430" })
                     ]
                   }
                 ),
-                /* @__PURE__ */ jsxs66(
+                /* @__PURE__ */ jsxs68(
                   "button",
                   {
                     className: "help-modal__help-btn" + (showHelp ? " active" : ""),
                     onClick: () => setShowHelp(!showHelp),
                     children: [
-                      /* @__PURE__ */ jsx69(MIcon, { name: "help" }),
-                      /* @__PURE__ */ jsx69("span", { children: showHelp ? "\u0421\u043A\u0440\u044B\u0442\u044C" : "\u0427\u0442\u043E \u044D\u0442\u043E?" })
+                      /* @__PURE__ */ jsx71(MIcon, { name: "help" }),
+                      /* @__PURE__ */ jsx71("span", { children: showHelp ? "\u0421\u043A\u0440\u044B\u0442\u044C" : "\u0427\u0442\u043E \u044D\u0442\u043E?" })
                     ]
                   }
                 ),
-                /* @__PURE__ */ jsx69(
+                /* @__PURE__ */ jsx71(
                   "button",
                   {
                     className: "help-modal__close",
@@ -19067,91 +19797,91 @@ function PiiModal() {
                 )
               ] })
             ] }),
-            loading && /* @__PURE__ */ jsx69("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx69("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
-            error && /* @__PURE__ */ jsx69("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs66("div", { style: { color: "var(--danger)" }, children: [
+            loading && /* @__PURE__ */ jsx71("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx71("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
+            error && /* @__PURE__ */ jsx71("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs68("div", { style: { color: "var(--danger)" }, children: [
               "\u041E\u0448\u0438\u0431\u043A\u0430: ",
               error
             ] }) }),
-            index && report && /* @__PURE__ */ jsxs66("div", { className: "help-modal__body help-modal__body--flush", children: [
-              showHelp && /* @__PURE__ */ jsxs66("div", { className: "pii-help", children: [
-                /* @__PURE__ */ jsxs66("div", { className: "pii-help__section", children: [
-                  /* @__PURE__ */ jsx69("h3", { className: "pii-help__title", children: "\u0427\u0442\u043E \u0442\u0430\u043A\u043E\u0435 PII" }),
-                  /* @__PURE__ */ jsxs66("p", { className: "pii-help__text", children: [
-                    /* @__PURE__ */ jsx69("strong", { children: "PII (Personally Identifiable Information)" }),
+            index && report && /* @__PURE__ */ jsxs68("div", { className: "help-modal__body help-modal__body--flush", children: [
+              showHelp && /* @__PURE__ */ jsxs68("div", { className: "pii-help", children: [
+                /* @__PURE__ */ jsxs68("div", { className: "pii-help__section", children: [
+                  /* @__PURE__ */ jsx71("h3", { className: "pii-help__title", children: "\u0427\u0442\u043E \u0442\u0430\u043A\u043E\u0435 PII" }),
+                  /* @__PURE__ */ jsxs68("p", { className: "pii-help__text", children: [
+                    /* @__PURE__ */ jsx71("strong", { children: "PII (Personally Identifiable Information)" }),
                     " \u2014 \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u043B\u044C\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435: \u043B\u044E\u0431\u044B\u0435 \u0441\u0432\u0435\u0434\u0435\u043D\u0438\u044F, \u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u043F\u0440\u044F\u043C\u043E \u0438\u043B\u0438 \u043A\u043E\u0441\u0432\u0435\u043D\u043D\u043E \u043F\u043E\u0437\u0432\u043E\u043B\u044F\u044E\u0442 \u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u0446\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0447\u0435\u043B\u043E\u0432\u0435\u043A\u0430. \u0412 \u0420\u0424 \u0440\u0435\u0433\u0443\u043B\u0438\u0440\u0443\u0435\u0442\u0441\u044F 152-\u0424\u0417, \u0432 \u0415\u0421 \u2014 GDPR. \u0421\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438 (\u0437\u0434\u043E\u0440\u043E\u0432\u044C\u0435, \u0440\u0435\u043B\u0438\u0433\u0438\u044F, \u0431\u0438\u043E\u043C\u0435\u0442\u0440\u0438\u044F) \u0442\u0440\u0435\u0431\u0443\u044E\u0442 \u043E\u0441\u043E\u0431\u043E\u0439 \u0437\u0430\u0449\u0438\u0442\u044B \u0438 \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u043E\u0433\u043E \u0441\u043E\u0433\u043B\u0430\u0441\u0438\u044F \u0441\u0443\u0431\u044A\u0435\u043A\u0442\u0430."
                   ] })
                 ] }),
-                /* @__PURE__ */ jsxs66("div", { className: "pii-help__section", children: [
-                  /* @__PURE__ */ jsx69("h3", { className: "pii-help__title", children: "\u041A\u0430\u043A \u0447\u0438\u0442\u0430\u0442\u044C \u0440\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442\u044B" }),
-                  /* @__PURE__ */ jsxs66("ul", { className: "pii-help__list", children: [
-                    /* @__PURE__ */ jsxs66("li", { children: [
-                      /* @__PURE__ */ jsx69("strong", { children: "\u0421\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438" }),
+                /* @__PURE__ */ jsxs68("div", { className: "pii-help__section", children: [
+                  /* @__PURE__ */ jsx71("h3", { className: "pii-help__title", children: "\u041A\u0430\u043A \u0447\u0438\u0442\u0430\u0442\u044C \u0440\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442\u044B" }),
+                  /* @__PURE__ */ jsxs68("ul", { className: "pii-help__list", children: [
+                    /* @__PURE__ */ jsxs68("li", { children: [
+                      /* @__PURE__ */ jsx71("strong", { children: "\u0421\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438" }),
                       " \u2014 \u043A\u0440\u0438\u0442\u0438\u0447\u043D\u043E. GDPR Art. 9 / 152-\u0424\u0417 \u0441\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F."
                     ] }),
-                    /* @__PURE__ */ jsxs66("li", { children: [
-                      /* @__PURE__ */ jsx69("strong", { children: "\u0412\u044B\u0441\u043E\u043A\u0430\u044F \u0447\u0443\u0432\u0441\u0442\u0432\u0438\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u044C" }),
+                    /* @__PURE__ */ jsxs68("li", { children: [
+                      /* @__PURE__ */ jsx71("strong", { children: "\u0412\u044B\u0441\u043E\u043A\u0430\u044F \u0447\u0443\u0432\u0441\u0442\u0432\u0438\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u044C" }),
                       " \u2014 \u0424\u0418\u041E, email, \u0442\u0435\u043B\u0435\u0444\u043E\u043D, \u043F\u0430\u0441\u043F\u043E\u0440\u0442. \u0422\u0440\u0435\u0431\u0443\u0435\u0442 \u0437\u0430\u0449\u0438\u0442\u044B \u0438 \u043F\u043E\u043B\u0438\u0442\u0438\u043A\u0438 retention."
                     ] }),
-                    /* @__PURE__ */ jsxs66("li", { children: [
-                      /* @__PURE__ */ jsx69("strong", { children: "\u0422\u0440\u0435\u0431\u0443\u044E\u0442 \u0432\u043D\u0438\u043C\u0430\u043D\u0438\u044F" }),
+                    /* @__PURE__ */ jsxs68("li", { children: [
+                      /* @__PURE__ */ jsx71("strong", { children: "\u0422\u0440\u0435\u0431\u0443\u044E\u0442 \u0432\u043D\u0438\u043C\u0430\u043D\u0438\u044F" }),
                       " \u2014 IP, deviceId, cookie. PII \u0432 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u0435 \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u043B\u044C\u043D\u044B\u0445 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439."
                     ] }),
-                    /* @__PURE__ */ jsxs66("li", { children: [
-                      /* @__PURE__ */ jsx69("strong", { children: "\u041A\u043E\u0441\u0432\u0435\u043D\u043D\u043E" }),
+                    /* @__PURE__ */ jsxs68("li", { children: [
+                      /* @__PURE__ */ jsx71("strong", { children: "\u041A\u043E\u0441\u0432\u0435\u043D\u043D\u043E" }),
                       " \u2014 \u0432\u043D\u0443\u0442\u0440\u0435\u043D\u043D\u0438\u0435 id, \u043A\u0432\u0430\u0437\u0438-\u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440\u044B. PII \u0432 \u043A\u043E\u043C\u0431\u0438\u043D\u0430\u0446\u0438\u0438 \u0441 \u0434\u0440\u0443\u0433\u0438\u043C\u0438 \u0434\u0430\u043D\u043D\u044B\u043C\u0438."
                     ] })
                   ] })
                 ] }),
-                /* @__PURE__ */ jsxs66("div", { className: "pii-help__section", children: [
-                  /* @__PURE__ */ jsx69("h3", { className: "pii-help__title", children: "\u041B\u043E\u0436\u043D\u044B\u0435 \u0441\u0440\u0430\u0431\u0430\u0442\u044B\u0432\u0430\u043D\u0438\u044F" }),
-                  /* @__PURE__ */ jsxs66("p", { className: "pii-help__text", children: [
+                /* @__PURE__ */ jsxs68("div", { className: "pii-help__section", children: [
+                  /* @__PURE__ */ jsx71("h3", { className: "pii-help__title", children: "\u041B\u043E\u0436\u043D\u044B\u0435 \u0441\u0440\u0430\u0431\u0430\u0442\u044B\u0432\u0430\u043D\u0438\u044F" }),
+                  /* @__PURE__ */ jsxs68("p", { className: "pii-help__text", children: [
                     "\u042D\u0432\u0440\u0438\u0441\u0442\u0438\u043A\u0430 \u043F\u043E \u0438\u043C\u0435\u043D\u0430\u043C \u2014 \u043D\u0435 \u0438\u0434\u0435\u0430\u043B\u044C\u043D\u0430. \u041D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, ",
-                    /* @__PURE__ */ jsx69("code", { children: "name" }),
+                    /* @__PURE__ */ jsx71("code", { children: "name" }),
                     " \u0432 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 ",
-                    /* @__PURE__ */ jsx69("code", { children: "Product" }),
+                    /* @__PURE__ */ jsx71("code", { children: "Product" }),
                     " \u2014 \u043D\u0435 PII, \u0430 \u0432 ",
-                    /* @__PURE__ */ jsx69("code", { children: "Employee" }),
+                    /* @__PURE__ */ jsx71("code", { children: "Employee" }),
                     " \u2014 \u0434\u0430. \u041D\u0430\u0436\u043C\u0438\u0442\u0435 \u0438\u043A\u043E\u043D\u043A\u0443 \u2713 \u0440\u044F\u0434\u043E\u043C \u0441 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u043C, \u0447\u0442\u043E\u0431\u044B \u0438\u0441\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0435\u0433\u043E \u0438\u0437 \u0441\u043F\u0438\u0441\u043A\u0430. \u0420\u0435\u0448\u0435\u043D\u0438\u0435 \u0441\u043E\u0445\u0440\u0430\u043D\u044F\u0435\u0442\u0441\u044F \u0432 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0435."
                   ] })
                 ] })
               ] }),
-              /* @__PURE__ */ jsxs66("div", { className: "pii-summary", children: [
-                SEVERITY_ORDER2.map((sev) => /* @__PURE__ */ jsxs66(
+              /* @__PURE__ */ jsxs68("div", { className: "pii-summary", children: [
+                SEVERITY_ORDER2.map((sev) => /* @__PURE__ */ jsxs68(
                   "button",
                   {
                     className: "pii-summary-card pii-summary-card--" + sev + (filterSeverity === sev ? " active" : ""),
                     onClick: () => setFilterSeverity(filterSeverity === sev ? "" : sev),
                     children: [
-                      /* @__PURE__ */ jsx69("div", { className: "pii-summary-card__count", children: report.stats.bySeverity[sev] }),
-                      /* @__PURE__ */ jsx69("div", { className: "pii-summary-card__label", children: SEVERITY_LABELS2[sev] })
+                      /* @__PURE__ */ jsx71("div", { className: "pii-summary-card__count", children: report.stats.bySeverity[sev] }),
+                      /* @__PURE__ */ jsx71("div", { className: "pii-summary-card__label", children: SEVERITY_LABELS2[sev] })
                     ]
                   },
                   sev
                 )),
-                /* @__PURE__ */ jsxs66("div", { className: "pii-summary-card pii-summary-card--meta", children: [
-                  /* @__PURE__ */ jsx69("div", { className: "pii-summary-card__count", children: report.stats.affectedDomains }),
-                  /* @__PURE__ */ jsx69("div", { className: "pii-summary-card__label", children: "\u0434\u043E\u043C\u0435\u043D\u043E\u0432" })
+                /* @__PURE__ */ jsxs68("div", { className: "pii-summary-card pii-summary-card--meta", children: [
+                  /* @__PURE__ */ jsx71("div", { className: "pii-summary-card__count", children: report.stats.affectedDomains }),
+                  /* @__PURE__ */ jsx71("div", { className: "pii-summary-card__label", children: "\u0434\u043E\u043C\u0435\u043D\u043E\u0432" })
                 ] }),
-                /* @__PURE__ */ jsxs66("div", { className: "pii-summary-card pii-summary-card--meta", children: [
-                  /* @__PURE__ */ jsx69("div", { className: "pii-summary-card__count", children: report.stats.affectedEntities }),
-                  /* @__PURE__ */ jsx69("div", { className: "pii-summary-card__label", children: "\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" })
+                /* @__PURE__ */ jsxs68("div", { className: "pii-summary-card pii-summary-card--meta", children: [
+                  /* @__PURE__ */ jsx71("div", { className: "pii-summary-card__count", children: report.stats.affectedEntities }),
+                  /* @__PURE__ */ jsx71("div", { className: "pii-summary-card__label", children: "\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" })
                 ] })
               ] }),
-              /* @__PURE__ */ jsxs66("div", { className: "pii-filters", children: [
-                /* @__PURE__ */ jsxs66("label", { className: "entity-matrix-filter", children: [
-                  /* @__PURE__ */ jsx69("span", { children: "\u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F:" }),
-                  /* @__PURE__ */ jsxs66(
+              /* @__PURE__ */ jsxs68("div", { className: "pii-filters", children: [
+                /* @__PURE__ */ jsxs68("label", { className: "entity-matrix-filter", children: [
+                  /* @__PURE__ */ jsx71("span", { children: "\u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F:" }),
+                  /* @__PURE__ */ jsxs68(
                     "select",
                     {
                       value: filterCategory,
                       onChange: (e) => setFilterCategory(e.target.value),
                       children: [
-                        /* @__PURE__ */ jsx69("option", { value: "", children: "\u2014 \u0432\u0441\u0435 \u2014" }),
+                        /* @__PURE__ */ jsx71("option", { value: "", children: "\u2014 \u0432\u0441\u0435 \u2014" }),
                         Object.keys(CATEGORY_LABELS3).map((k) => {
                           const count = report.stats.byCategory[k];
                           if (count === 0)
                             return null;
-                          return /* @__PURE__ */ jsxs66("option", { value: k, children: [
+                          return /* @__PURE__ */ jsxs68("option", { value: k, children: [
                             CATEGORY_LABELS3[k],
                             " (",
                             count,
@@ -19162,7 +19892,7 @@ function PiiModal() {
                     }
                   )
                 ] }),
-                (filterSeverity || filterCategory || ignoredCount > 0) && /* @__PURE__ */ jsxs66(
+                (filterSeverity || filterCategory || ignoredCount > 0) && /* @__PURE__ */ jsxs68(
                   "button",
                   {
                     className: "btn",
@@ -19177,47 +19907,47 @@ function PiiModal() {
                   }
                 )
               ] }),
-              visibleCount === 0 ? /* @__PURE__ */ jsxs66("div", { className: "lint-empty", children: [
-                /* @__PURE__ */ jsx69("div", { className: "lint-empty__icon", children: "\u{1F6E1}\uFE0F" }),
-                /* @__PURE__ */ jsx69("div", { className: "lint-empty__title", children: report.stats.total === 0 ? "PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u043D\u0435 \u043E\u0431\u043D\u0430\u0440\u0443\u0436\u0435\u043D\u043E" : "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u043C" })
-              ] }) : /* @__PURE__ */ jsx69("div", { className: "pii-list", children: SEVERITY_ORDER2.map((sev) => {
+              visibleCount === 0 ? /* @__PURE__ */ jsxs68("div", { className: "lint-empty", children: [
+                /* @__PURE__ */ jsx71("div", { className: "lint-empty__icon", children: "\u{1F6E1}\uFE0F" }),
+                /* @__PURE__ */ jsx71("div", { className: "lint-empty__title", children: report.stats.total === 0 ? "PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u043D\u0435 \u043E\u0431\u043D\u0430\u0440\u0443\u0436\u0435\u043D\u043E" : "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u043C" })
+              ] }) : /* @__PURE__ */ jsx71("div", { className: "pii-list", children: SEVERITY_ORDER2.map((sev) => {
                 const items = grouped.get(sev) || [];
                 if (items.length === 0)
                   return null;
-                return /* @__PURE__ */ jsxs66("div", { className: "pii-group pii-group--" + sev, children: [
-                  /* @__PURE__ */ jsxs66("div", { className: "pii-group__title", children: [
+                return /* @__PURE__ */ jsxs68("div", { className: "pii-group pii-group--" + sev, children: [
+                  /* @__PURE__ */ jsxs68("div", { className: "pii-group__title", children: [
                     SEVERITY_LABELS2[sev],
                     " (",
                     items.length,
                     ")"
                   ] }),
-                  items.map((h) => /* @__PURE__ */ jsxs66("div", { className: "pii-item", children: [
-                    /* @__PURE__ */ jsxs66("div", { className: "pii-item__head", children: [
-                      /* @__PURE__ */ jsxs66("code", { className: "pii-item__id", children: [
+                  items.map((h) => /* @__PURE__ */ jsxs68("div", { className: "pii-item", children: [
+                    /* @__PURE__ */ jsxs68("div", { className: "pii-item__head", children: [
+                      /* @__PURE__ */ jsxs68("code", { className: "pii-item__id", children: [
                         h.entityFqid.split("/")[1],
                         ".",
                         h.attributeId
                       ] }),
-                      /* @__PURE__ */ jsx69("span", { className: "pii-item__name", children: h.attributeName }),
-                      /* @__PURE__ */ jsx69("span", { className: "pii-item__type", children: h.dataType }),
-                      /* @__PURE__ */ jsx69("span", { className: "pii-item__category", children: CATEGORY_LABELS3[h.category] }),
-                      /* @__PURE__ */ jsx69(
+                      /* @__PURE__ */ jsx71("span", { className: "pii-item__name", children: h.attributeName }),
+                      /* @__PURE__ */ jsx71("span", { className: "pii-item__type", children: h.dataType }),
+                      /* @__PURE__ */ jsx71("span", { className: "pii-item__category", children: CATEGORY_LABELS3[h.category] }),
+                      /* @__PURE__ */ jsx71(
                         "button",
                         {
                           className: "pii-item__ignore",
                           onClick: () => toggleIgnored(h.key),
                           title: "\u0421\u0447\u0438\u0442\u0430\u0442\u044C, \u0447\u0442\u043E \u044D\u0442\u043E \u043D\u0435 PII",
-                          children: /* @__PURE__ */ jsx69(MIcon, { name: "check_circle", size: "sm" })
+                          children: /* @__PURE__ */ jsx71(MIcon, { name: "check_circle", size: "sm" })
                         }
                       )
                     ] }),
-                    /* @__PURE__ */ jsxs66("div", { className: "pii-item__meta", children: [
-                      /* @__PURE__ */ jsx69("span", { className: "pii-item__domain", children: h.entityFqid.split("/")[0] }),
-                      /* @__PURE__ */ jsx69("span", { className: "pii-item__reason", children: h.reasons.join(" \xB7 ") }),
-                      h.regulation && /* @__PURE__ */ jsx69("span", { className: "pii-item__reg", children: h.regulation })
+                    /* @__PURE__ */ jsxs68("div", { className: "pii-item__meta", children: [
+                      /* @__PURE__ */ jsx71("span", { className: "pii-item__domain", children: h.entityFqid.split("/")[0] }),
+                      /* @__PURE__ */ jsx71("span", { className: "pii-item__reason", children: h.reasons.join(" \xB7 ") }),
+                      h.regulation && /* @__PURE__ */ jsx71("span", { className: "pii-item__reg", children: h.regulation })
                     ] }),
-                    /* @__PURE__ */ jsx69("div", { className: "pii-item__note", children: h.note }),
-                    /* @__PURE__ */ jsx69("div", { className: "pii-item__actions", children: /* @__PURE__ */ jsx69(
+                    /* @__PURE__ */ jsx71("div", { className: "pii-item__note", children: h.note }),
+                    /* @__PURE__ */ jsx71("div", { className: "pii-item__actions", children: /* @__PURE__ */ jsx71(
                       "button",
                       {
                         className: "btn",
@@ -19228,13 +19958,13 @@ function PiiModal() {
                   ] }, h.key))
                 ] }, sev);
               }) }),
-              ignoredCount > 0 && /* @__PURE__ */ jsxs66("div", { className: "pii-ignored-footer", children: [
-                /* @__PURE__ */ jsxs66("span", { children: [
+              ignoredCount > 0 && /* @__PURE__ */ jsxs68("div", { className: "pii-ignored-footer", children: [
+                /* @__PURE__ */ jsxs68("span", { children: [
                   "\u0421\u043A\u0440\u044B\u0442\u043E \u043A\u0430\u043A \xAB\u043D\u0435 PII\xBB: ",
-                  /* @__PURE__ */ jsx69("strong", { children: ignoredCount }),
-                  /* @__PURE__ */ jsx69("span", { style: { marginLeft: 8, color: "var(--text-500)", fontSize: 11 }, children: "(\u0432 \u043E\u0442\u0447\u0451\u0442 \u043D\u0435 \u043F\u043E\u043F\u0430\u0434\u0443\u0442)" })
+                  /* @__PURE__ */ jsx71("strong", { children: ignoredCount }),
+                  /* @__PURE__ */ jsx71("span", { style: { marginLeft: 8, color: "var(--text-500)", fontSize: 11 }, children: "(\u0432 \u043E\u0442\u0447\u0451\u0442 \u043D\u0435 \u043F\u043E\u043F\u0430\u0434\u0443\u0442)" })
                 ] }),
-                /* @__PURE__ */ jsx69(
+                /* @__PURE__ */ jsx71(
                   "button",
                   {
                     className: "btn",
@@ -19284,14 +20014,14 @@ var init_PiiModal = __esm({
 });
 
 // src/web/hooks/useYamlContent.ts
-import { useEffect as useEffect32, useState as useState29 } from "react";
+import { useEffect as useEffect33, useState as useState29 } from "react";
 function useYamlContent(filePath, reloadKey = 0) {
   const [state, setState] = useState29({
     content: "",
     loading: !!filePath,
     error: null
   });
-  useEffect32(() => {
+  useEffect33(() => {
     if (!filePath) {
       setState({ content: "", loading: false, error: null });
       return;
@@ -19324,7 +20054,7 @@ var init_useYamlContent = __esm({
 });
 
 // src/web/hooks/useMonacoLoader.ts
-import { useEffect as useEffect33, useState as useState30 } from "react";
+import { useEffect as useEffect34, useState as useState30 } from "react";
 function preloadMonaco() {
   if (isLoaded)
     return Promise.resolve();
@@ -19372,7 +20102,7 @@ function preloadMonaco() {
 function useMonacoLoader() {
   const [ready, setReady] = useState30(isLoaded);
   const [error, setError] = useState30(null);
-  useEffect33(() => {
+  useEffect34(() => {
     if (ready)
       return;
     let cancelled = false;
@@ -26480,894 +27210,894 @@ var init_external_refs = __esm({
 });
 
 // src/web/components/modals/YamlViewerHelp.tsx
-import { jsx as jsx70, jsxs as jsxs67 } from "react/jsx-runtime";
+import { jsx as jsx72, jsxs as jsxs69 } from "react/jsx-runtime";
 function Section2({ title, children }) {
-  return /* @__PURE__ */ jsxs67("div", { className: "modal-help__section", children: [
-    /* @__PURE__ */ jsx70("h3", { className: "modal-help__title", children: title }),
+  return /* @__PURE__ */ jsxs69("div", { className: "modal-help__section", children: [
+    /* @__PURE__ */ jsx72("h3", { className: "modal-help__title", children: title }),
     children
   ] });
 }
 function List({ children }) {
-  return /* @__PURE__ */ jsx70("ul", { className: "modal-help__list", children });
+  return /* @__PURE__ */ jsx72("ul", { className: "modal-help__list", children });
 }
 function P({ children }) {
-  return /* @__PURE__ */ jsx70("p", { className: "modal-help__text", children });
+  return /* @__PURE__ */ jsx72("p", { className: "modal-help__text", children });
 }
 function YamlViewerHelp({ onClose }) {
-  return /* @__PURE__ */ jsx70("div", { className: "help-overlay", style: { zIndex: 600 }, onMouseDown: onClose, children: /* @__PURE__ */ jsxs67("div", { className: "help-modal", style: { width: 720, maxWidth: "92vw" }, onMouseDown: (e) => e.stopPropagation(), children: [
-    /* @__PURE__ */ jsxs67("div", { className: "help-modal__header", children: [
-      /* @__PURE__ */ jsx70("div", { className: "help-modal__title", children: "\u{1F4D6} \u0421\u043F\u0440\u0430\u0432\u043A\u0430 \u043F\u043E \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0443 \u0441\u0445\u0435\u043C" }),
-      /* @__PURE__ */ jsx70("button", { className: "help-modal__close", onClick: onClose, children: "\u2715" })
+  return /* @__PURE__ */ jsx72("div", { className: "help-overlay", style: { zIndex: 600 }, onMouseDown: onClose, children: /* @__PURE__ */ jsxs69("div", { className: "help-modal", style: { width: 720, maxWidth: "92vw" }, onMouseDown: (e) => e.stopPropagation(), children: [
+    /* @__PURE__ */ jsxs69("div", { className: "help-modal__header", children: [
+      /* @__PURE__ */ jsx72("div", { className: "help-modal__title", children: "\u{1F4D6} \u0421\u043F\u0440\u0430\u0432\u043A\u0430 \u043F\u043E \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0443 \u0441\u0445\u0435\u043C" }),
+      /* @__PURE__ */ jsx72("button", { className: "help-modal__close", onClick: onClose, children: "\u2715" })
     ] }),
-    /* @__PURE__ */ jsx70("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs67("div", { className: "modal-help", style: { padding: 0, background: "transparent", border: 0 }, children: [
-      /* @__PURE__ */ jsxs67(Section2, { title: "\u0425\u043B\u0435\u0431\u043D\u044B\u0435 \u043A\u0440\u043E\u0448\u043A\u0438 \u0438 \u0431\u044B\u0441\u0442\u0440\u044B\u0435 \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u044B", children: [
-        /* @__PURE__ */ jsxs67(P, { children: [
+    /* @__PURE__ */ jsx72("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs69("div", { className: "modal-help", style: { padding: 0, background: "transparent", border: 0 }, children: [
+      /* @__PURE__ */ jsxs69(Section2, { title: "\u0425\u043B\u0435\u0431\u043D\u044B\u0435 \u043A\u0440\u043E\u0448\u043A\u0438 \u0438 \u0431\u044B\u0441\u0442\u0440\u044B\u0435 \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u044B", children: [
+        /* @__PURE__ */ jsxs69(P, { children: [
           "\u041D\u0430\u0434 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u043E\u043C \u0431\u0435\u0436\u0438\u0442 \u043F\u043E\u043B\u043E\u0441\u0430 \u0441 \u0442\u0435\u043A\u0443\u0449\u0435\u0439 \u043F\u043E\u0437\u0438\u0446\u0438\u0435\u0439 \u043A\u0443\u0440\u0441\u043E\u0440\u0430:",
-          /* @__PURE__ */ jsx70("code", { children: " entities \u203A Device \u203A hostname :42" }),
+          /* @__PURE__ */ jsx72("code", { children: " entities \u203A Device \u203A hostname :42" }),
           ". \u041A\u0430\u0436\u0434\u044B\u0439 \u0441\u0435\u0433\u043C\u0435\u043D\u0442 \u043A\u043B\u0438\u043A\u0430\u0431\u0435\u043B\u044C\u043D\u044B\u0439 \u2014 \u043A\u043B\u0438\u043A \u043F\u0435\u0440\u0435\u0431\u0440\u0430\u0441\u044B\u0432\u0430\u0435\u0442 \u043A \u0441\u0442\u0440\u043E\u043A\u0435 \u043E\u0431\u044A\u044F\u0432\u043B\u0435\u043D\u0438\u044F."
         ] }),
-        /* @__PURE__ */ jsxs67(List, { children: [
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "\u0421\u0435\u043A\u0446\u0438\u0438" }),
+        /* @__PURE__ */ jsxs69(List, { children: [
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "\u0421\u0435\u043A\u0446\u0438\u0438" }),
             " (entities, views, dataRules) \u2014 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u043D\u0430\u0447\u0430\u043B\u0443 \u0441\u0435\u043A\u0446\u0438\u0438."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438/\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B/\u0432\u0438\u0434\u0436\u0435\u0442\u044B" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438/\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B/\u0432\u0438\u0434\u0436\u0435\u0442\u044B" }),
             " \u2014 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u0441\u0442\u0440\u043E\u043A\u0435 \u0438\u0445 \u043E\u0431\u044A\u044F\u0432\u043B\u0435\u043D\u0438\u044F."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "\u041D\u043E\u043C\u0435\u0440 \u0441\u0442\u0440\u043E\u043A\u0438" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "\u041D\u043E\u043C\u0435\u0440 \u0441\u0442\u0440\u043E\u043A\u0438" }),
             " \u0441\u043F\u0440\u0430\u0432\u0430 \u2014 \u0442\u0435\u043A\u0443\u0449\u0430\u044F \u043F\u043E\u0437\u0438\u0446\u0438\u044F \u043A\u0443\u0440\u0441\u043E\u0440\u0430."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "Quick Jumps" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "Quick Jumps" }),
             " (\u0438\u043A\u043E\u043D\u043A\u0438 \u0441\u043F\u0440\u0430\u0432\u0430 \u043E\u0442 \u043A\u0440\u043E\u0448\u0435\u043A) \u2014 \u0431\u044B\u0441\u0442\u0440\u044B\u0439 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u0441\u0435\u043A\u0446\u0438\u044F\u043C (",
-            /* @__PURE__ */ jsx70("code", { children: "\u{1F4E6} entities" }),
+            /* @__PURE__ */ jsx72("code", { children: "\u{1F4E6} entities" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "\u{1F517} linkages" }),
+            /* @__PURE__ */ jsx72("code", { children: "\u{1F517} linkages" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "\u{1F441} views" }),
+            /* @__PURE__ */ jsx72("code", { children: "\u{1F441} views" }),
             ", \u0438 \u0442.\u0434.)."
           ] })
         ] })
       ] }),
-      /* @__PURE__ */ jsx70(Section2, { title: "\u041D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044F \u043F\u043E \u043A\u043E\u0434\u0443", children: /* @__PURE__ */ jsxs67(List, { children: [
-        /* @__PURE__ */ jsxs67("li", { children: [
-          /* @__PURE__ */ jsx70("code", { children: "Ctrl+Shift+O" }),
+      /* @__PURE__ */ jsx72(Section2, { title: "\u041D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044F \u043F\u043E \u043A\u043E\u0434\u0443", children: /* @__PURE__ */ jsxs69(List, { children: [
+        /* @__PURE__ */ jsxs69("li", { children: [
+          /* @__PURE__ */ jsx72("code", { children: "Ctrl+Shift+O" }),
           " \u2014 \u0441\u043F\u0438\u0441\u043E\u043A \u0432\u0441\u0435\u0445 \u0441\u0438\u043C\u0432\u043E\u043B\u043E\u0432 (\u0441\u0435\u043A\u0446\u0438\u0438, \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438, \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B)."
         ] }),
-        /* @__PURE__ */ jsxs67("li", { children: [
-          /* @__PURE__ */ jsx70("strong", { children: /* @__PURE__ */ jsx70("code", { children: "Ctrl+Click" }) }),
+        /* @__PURE__ */ jsxs69("li", { children: [
+          /* @__PURE__ */ jsx72("strong", { children: /* @__PURE__ */ jsx72("code", { children: "Ctrl+Click" }) }),
           " \u2014 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u043E\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u0438\u044E. \u0420\u0430\u0431\u043E\u0442\u0430\u0435\u0442 \u0434\u043B\u044F ",
-          /* @__PURE__ */ jsx70("code", { children: "inherits" }),
+          /* @__PURE__ */ jsx72("code", { children: "inherits" }),
           ", ",
-          /* @__PURE__ */ jsx70("code", { children: "entity" }),
+          /* @__PURE__ */ jsx72("code", { children: "entity" }),
           ", ",
-          /* @__PURE__ */ jsx70("code", { children: "attribute" }),
+          /* @__PURE__ */ jsx72("code", { children: "attribute" }),
           ", ",
-          /* @__PURE__ */ jsx70("code", { children: "view" }),
+          /* @__PURE__ */ jsx72("code", { children: "view" }),
           ", ",
-          /* @__PURE__ */ jsx70("code", { children: "action" }),
+          /* @__PURE__ */ jsx72("code", { children: "action" }),
           ", ",
-          /* @__PURE__ */ jsx70("code", { children: "linkage" }),
+          /* @__PURE__ */ jsx72("code", { children: "linkage" }),
           "."
         ] }),
-        /* @__PURE__ */ jsxs67("li", { children: [
-          /* @__PURE__ */ jsx70("code", { children: "Ctrl+Shift+F12" }),
+        /* @__PURE__ */ jsxs69("li", { children: [
+          /* @__PURE__ */ jsx72("code", { children: "Ctrl+Shift+F12" }),
           " \u0438\u043B\u0438 ",
-          /* @__PURE__ */ jsx70("code", { children: "Alt+F12" }),
+          /* @__PURE__ */ jsx72("code", { children: "Alt+F12" }),
           " \u2014 \u0430\u043B\u044C\u0442\u0435\u0440\u043D\u0430\u0442\u0438\u0432\u0430 Ctrl+Click (F12 \u0432 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0435 \u043E\u0442\u043A\u0440\u044B\u0432\u0430\u0435\u0442 DevTools, \u043F\u043E\u044D\u0442\u043E\u043C\u0443 \u043E\u0441\u043D\u043E\u0432\u043D\u044B\u0435 \u0445\u043E\u0442\u043A\u0435\u0438 \u2014 \u044D\u0442\u0438)."
         ] }),
-        /* @__PURE__ */ jsxs67("li", { children: [
-          /* @__PURE__ */ jsx70("code", { children: "Ctrl+Alt+F12" }),
+        /* @__PURE__ */ jsxs69("li", { children: [
+          /* @__PURE__ */ jsx72("code", { children: "Ctrl+Alt+F12" }),
           " \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0438\u0437 \u0447\u0443\u0436\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430 (",
-          /* @__PURE__ */ jsx70("code", { children: "other.domain/Entity" }),
+          /* @__PURE__ */ jsx72("code", { children: "other.domain/Entity" }),
           ") \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435."
         ] })
       ] }) }),
-      /* @__PURE__ */ jsx70(Section2, { title: "\u041F\u043E\u0438\u0441\u043A \u0438 \u043F\u0435\u0440\u0435\u043C\u0435\u0449\u0435\u043D\u0438\u0435", children: /* @__PURE__ */ jsxs67(List, { children: [
-        /* @__PURE__ */ jsxs67("li", { children: [
-          /* @__PURE__ */ jsx70("code", { children: "Ctrl+F" }),
+      /* @__PURE__ */ jsx72(Section2, { title: "\u041F\u043E\u0438\u0441\u043A \u0438 \u043F\u0435\u0440\u0435\u043C\u0435\u0449\u0435\u043D\u0438\u0435", children: /* @__PURE__ */ jsxs69(List, { children: [
+        /* @__PURE__ */ jsxs69("li", { children: [
+          /* @__PURE__ */ jsx72("code", { children: "Ctrl+F" }),
           " \u2014 \u043F\u043E\u0438\u0441\u043A \u043F\u043E \u0444\u0430\u0439\u043B\u0443."
         ] }),
-        /* @__PURE__ */ jsxs67("li", { children: [
-          /* @__PURE__ */ jsx70("code", { children: "Ctrl+G" }),
+        /* @__PURE__ */ jsxs69("li", { children: [
+          /* @__PURE__ */ jsx72("code", { children: "Ctrl+G" }),
           " \u2014 \u043F\u0435\u0440\u0435\u0439\u0442\u0438 \u043A \u0441\u0442\u0440\u043E\u043A\u0435."
         ] }),
-        /* @__PURE__ */ jsxs67("li", { children: [
-          /* @__PURE__ */ jsx70("code", { children: "Alt+\u2191" }),
+        /* @__PURE__ */ jsxs69("li", { children: [
+          /* @__PURE__ */ jsx72("code", { children: "Alt+\u2191" }),
           " / ",
-          /* @__PURE__ */ jsx70("code", { children: "Alt+\u2193" }),
+          /* @__PURE__ */ jsx72("code", { children: "Alt+\u2193" }),
           " \u2014 \u043F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0430\u044F / \u0441\u043B\u0435\u0434\u0443\u044E\u0449\u0430\u044F \u0441\u0442\u0440\u043E\u043A\u0430."
         ] }),
-        /* @__PURE__ */ jsxs67("li", { children: [
-          /* @__PURE__ */ jsx70("code", { children: "Ctrl+Home" }),
+        /* @__PURE__ */ jsxs69("li", { children: [
+          /* @__PURE__ */ jsx72("code", { children: "Ctrl+Home" }),
           " / ",
-          /* @__PURE__ */ jsx70("code", { children: "Ctrl+End" }),
+          /* @__PURE__ */ jsx72("code", { children: "Ctrl+End" }),
           " \u2014 \u043D\u0430\u0447\u0430\u043B\u043E / \u043A\u043E\u043D\u0435\u0446 \u0444\u0430\u0439\u043B\u0430."
         ] })
       ] }) }),
-      /* @__PURE__ */ jsx70(Section2, { title: "\u041B\u0435\u0432\u0430\u044F \u043F\u0430\u043D\u0435\u043B\u044C \u043D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u0438", children: /* @__PURE__ */ jsxs67(List, { children: [
-        /* @__PURE__ */ jsx70("li", { children: "\u041A\u043B\u0438\u043A \u043F\u043E \u0442\u0440\u0435\u0443\u0433\u043E\u043B\u044C\u043D\u0438\u043A\u0443 \u2014 \u0441\u0432\u0435\u0440\u043D\u0443\u0442\u044C/\u0440\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0441\u0435\u043A\u0446\u0438\u044E." }),
-        /* @__PURE__ */ jsxs67("li", { children: [
+      /* @__PURE__ */ jsx72(Section2, { title: "\u041B\u0435\u0432\u0430\u044F \u043F\u0430\u043D\u0435\u043B\u044C \u043D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u0438", children: /* @__PURE__ */ jsxs69(List, { children: [
+        /* @__PURE__ */ jsx72("li", { children: "\u041A\u043B\u0438\u043A \u043F\u043E \u0442\u0440\u0435\u0443\u0433\u043E\u043B\u044C\u043D\u0438\u043A\u0443 \u2014 \u0441\u0432\u0435\u0440\u043D\u0443\u0442\u044C/\u0440\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0441\u0435\u043A\u0446\u0438\u044E." }),
+        /* @__PURE__ */ jsxs69("li", { children: [
           "\u041A\u043B\u0438\u043A \u043F\u043E ",
-          /* @__PURE__ */ jsx70("code", { children: "\u2192" }),
+          /* @__PURE__ */ jsx72("code", { children: "\u2192" }),
           " \u2014 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u043D\u0430\u0447\u0430\u043B\u0443 \u0441\u0435\u043A\u0446\u0438\u0438."
         ] }),
-        /* @__PURE__ */ jsxs67("li", { children: [
+        /* @__PURE__ */ jsxs69("li", { children: [
           "\u0420\u044F\u0434\u043E\u043C \u0441 \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u0435\u043C \u0441\u0435\u043A\u0446\u0438\u0438 \u2014 ",
-          /* @__PURE__ */ jsx70("code", { children: "~N" }),
+          /* @__PURE__ */ jsx72("code", { children: "~N" }),
           " \u0441\u0442\u0440\u043E\u043A \u0438 \u0441\u0447\u0451\u0442\u0447\u0438\u043A \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u043E\u0432."
         ] }),
-        /* @__PURE__ */ jsxs67("li", { children: [
+        /* @__PURE__ */ jsxs69("li", { children: [
           "\u041A\u043D\u043E\u043F\u043A\u0430 ",
-          /* @__PURE__ */ jsx70("code", { children: "\u26A0 N" }),
+          /* @__PURE__ */ jsx72("code", { children: "\u26A0 N" }),
           " \u0440\u044F\u0434\u043E\u043C \u0441 \xAB\u041D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044F\xBB \u2014 toggle \xAB\u0442\u043E\u043B\u044C\u043A\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0435\xBB. \u041F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0438 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0441 issues."
         ] }),
-        /* @__PURE__ */ jsxs67("li", { children: [
+        /* @__PURE__ */ jsxs69("li", { children: [
           "\u0411\u0435\u0439\u0434\u0436\u0438 ",
-          /* @__PURE__ */ jsx70("code", { children: "\u26A0" }),
+          /* @__PURE__ */ jsx72("code", { children: "\u26A0" }),
           " \u043D\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u0445 \u0438 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430\u0445 \u2014 \u043D\u0430\u0432\u0435\u0434\u0438\u0442\u0435, \u0447\u0442\u043E\u0431\u044B \u0443\u0432\u0438\u0434\u0435\u0442\u044C, \u043A\u0430\u043A\u0438\u0435 \u0438\u043C\u0435\u043D\u043D\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B (\u0434\u043E 5 + \xAB...\u0438 \u0435\u0449\u0451 N\xBB)."
         ] }),
-        /* @__PURE__ */ jsx70("li", { children: "\u041F\u043E\u043B\u0435 \u043F\u043E\u0438\u0441\u043A\u0430 \u0441\u0432\u0435\u0440\u0445\u0443 \u2014 \u0444\u0438\u043B\u044C\u0442\u0440 \u043F\u043E id." }),
-        /* @__PURE__ */ jsxs67("li", { children: [
+        /* @__PURE__ */ jsx72("li", { children: "\u041F\u043E\u043B\u0435 \u043F\u043E\u0438\u0441\u043A\u0430 \u0441\u0432\u0435\u0440\u0445\u0443 \u2014 \u0444\u0438\u043B\u044C\u0442\u0440 \u043F\u043E id." }),
+        /* @__PURE__ */ jsxs69("li", { children: [
           "\u041A\u043D\u043E\u043F\u043A\u0438 ",
-          /* @__PURE__ */ jsx70("code", { children: "\u2922 \u2921" }),
+          /* @__PURE__ */ jsx72("code", { children: "\u2922 \u2921" }),
           " \u2014 \u0440\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C / \u0441\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0451."
         ] }),
-        /* @__PURE__ */ jsx70("li", { children: "\u0420\u0435\u0441\u0430\u0439\u0437: \u043F\u043E\u0442\u044F\u043D\u0438\u0442\u0435 \u0437\u0430 \u043F\u0440\u0430\u0432\u0443\u044E \u0433\u0440\u0430\u043D\u0438\u0446\u0443 \u043F\u0430\u043D\u0435\u043B\u0438 \u2014 \u0448\u0438\u0440\u0438\u043D\u0430 \u0437\u0430\u043F\u043E\u043C\u0438\u043D\u0430\u0435\u0442\u0441\u044F (180\u2013600px)." })
+        /* @__PURE__ */ jsx72("li", { children: "\u0420\u0435\u0441\u0430\u0439\u0437: \u043F\u043E\u0442\u044F\u043D\u0438\u0442\u0435 \u0437\u0430 \u043F\u0440\u0430\u0432\u0443\u044E \u0433\u0440\u0430\u043D\u0438\u0446\u0443 \u043F\u0430\u043D\u0435\u043B\u0438 \u2014 \u0448\u0438\u0440\u0438\u043D\u0430 \u0437\u0430\u043F\u043E\u043C\u0438\u043D\u0430\u0435\u0442\u0441\u044F (180\u2013600px)." })
       ] }) }),
-      /* @__PURE__ */ jsxs67(Section2, { title: "\u041C\u0438\u043D\u0438-\u043A\u0430\u0440\u0442\u0430 \u0441\u0435\u043A\u0446\u0438\u0439", children: [
-        /* @__PURE__ */ jsx70(P, { children: "\u0421\u043F\u0440\u0430\u0432\u0430 \u043E\u0442 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0430 \u2014 \u0443\u0437\u043A\u0430\u044F \u043F\u043E\u043B\u043E\u0441\u0430. \u041A\u0430\u0436\u0434\u044B\u0439 \u0441\u0435\u0433\u043C\u0435\u043D\u0442 \u2014 \u043E\u0434\u043D\u0430 \u0441\u0435\u043A\u0446\u0438\u044F, \u043F\u0440\u043E\u043F\u043E\u0440\u0446\u0438\u043E\u043D\u0430\u043B\u044C\u043D\u044B\u0439 \u0435\u0451 \u0434\u043B\u0438\u043D\u0435." }),
-        /* @__PURE__ */ jsxs67(List, { children: [
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { style: { color: "#6366f1" }, children: "\u0421\u0438\u043D\u0438\u0439" }),
+      /* @__PURE__ */ jsxs69(Section2, { title: "\u041C\u0438\u043D\u0438-\u043A\u0430\u0440\u0442\u0430 \u0441\u0435\u043A\u0446\u0438\u0439", children: [
+        /* @__PURE__ */ jsx72(P, { children: "\u0421\u043F\u0440\u0430\u0432\u0430 \u043E\u0442 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0430 \u2014 \u0443\u0437\u043A\u0430\u044F \u043F\u043E\u043B\u043E\u0441\u0430. \u041A\u0430\u0436\u0434\u044B\u0439 \u0441\u0435\u0433\u043C\u0435\u043D\u0442 \u2014 \u043E\u0434\u043D\u0430 \u0441\u0435\u043A\u0446\u0438\u044F, \u043F\u0440\u043E\u043F\u043E\u0440\u0446\u0438\u043E\u043D\u0430\u043B\u044C\u043D\u044B\u0439 \u0435\u0451 \u0434\u043B\u0438\u043D\u0435." }),
+        /* @__PURE__ */ jsxs69(List, { children: [
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { style: { color: "#6366f1" }, children: "\u0421\u0438\u043D\u0438\u0439" }),
             " \u2014 \u0441\u0435\u043A\u0446\u0438\u044F \u0431\u0435\u0437 \u043F\u0440\u043E\u0431\u043B\u0435\u043C."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { style: { color: "#f59e0b" }, children: "\u0416\u0451\u043B\u0442\u044B\u0439" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { style: { color: "#f59e0b" }, children: "\u0416\u0451\u043B\u0442\u044B\u0439" }),
             " \u2014 \u0435\u0441\u0442\u044C warning."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { style: { color: "#ef4444" }, children: "\u041A\u0440\u0430\u0441\u043D\u044B\u0439" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { style: { color: "#ef4444" }, children: "\u041A\u0440\u0430\u0441\u043D\u044B\u0439" }),
             " \u2014 \u0435\u0441\u0442\u044C error."
           ] }),
-          /* @__PURE__ */ jsx70("li", { children: "\u041A\u043B\u0438\u043A \u043F\u043E \u0441\u0435\u0433\u043C\u0435\u043D\u0442\u0443 \u2014 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u0441\u0435\u043A\u0446\u0438\u0438." }),
-          /* @__PURE__ */ jsx70("li", { children: "\u0423\u0447\u0438\u0442\u044B\u0432\u0430\u0435\u0442 \u0444\u0438\u043B\u044C\u0442\u0440 severity \u0432 \u043F\u0430\u043D\u0435\u043B\u0438 \xAB\u041F\u0440\u043E\u0431\u043B\u0435\u043C\u044B\xBB." })
+          /* @__PURE__ */ jsx72("li", { children: "\u041A\u043B\u0438\u043A \u043F\u043E \u0441\u0435\u0433\u043C\u0435\u043D\u0442\u0443 \u2014 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u0441\u0435\u043A\u0446\u0438\u0438." }),
+          /* @__PURE__ */ jsx72("li", { children: "\u0423\u0447\u0438\u0442\u044B\u0432\u0430\u0435\u0442 \u0444\u0438\u043B\u044C\u0442\u0440 severity \u0432 \u043F\u0430\u043D\u0435\u043B\u0438 \xAB\u041F\u0440\u043E\u0431\u043B\u0435\u043C\u044B\xBB." })
         ] })
       ] }),
-      /* @__PURE__ */ jsx70(Section2, { title: "\u041F\u0440\u0430\u0432\u0430\u044F \u043F\u0430\u043D\u0435\u043B\u044C \u2014 4 \u0442\u0430\u0431\u0430", children: /* @__PURE__ */ jsxs67(List, { children: [
-        /* @__PURE__ */ jsxs67("li", { children: [
-          /* @__PURE__ */ jsx70("strong", { children: "\u{1F527} \u041F\u0440\u043E\u0431\u043B\u0435\u043C\u044B" }),
+      /* @__PURE__ */ jsx72(Section2, { title: "\u041F\u0440\u0430\u0432\u0430\u044F \u043F\u0430\u043D\u0435\u043B\u044C \u2014 4 \u0442\u0430\u0431\u0430", children: /* @__PURE__ */ jsxs69(List, { children: [
+        /* @__PURE__ */ jsxs69("li", { children: [
+          /* @__PURE__ */ jsx72("strong", { children: "\u{1F527} \u041F\u0440\u043E\u0431\u043B\u0435\u043C\u044B" }),
           " \u2014 issues \u0438\u0437 \u043B\u0438\u043D\u0442\u0435\u0440\u0430. \u0421 \u0444\u0438\u043B\u044C\u0442\u0440\u043E\u043C severity (\u041E\u0448\u0438\u0431\u043A\u0438 / \u041F\u0440\u0435\u0434\u0443\u043F\u0440. / \u0418\u043D\u0444\u043E) \u0438 \u043F\u0435\u0440\u0435\u043A\u043B\u044E\u0447\u0430\u0442\u0435\u043B\u0435\u043C \u0433\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u043A\u0438 \xAB\u041F\u043E \u043F\u0440\u0430\u0432\u0438\u043B\u0443 / \u041F\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438\xBB."
         ] }),
-        /* @__PURE__ */ jsxs67("li", { children: [
-          /* @__PURE__ */ jsx70("strong", { children: "\u{1F517} \u0421\u0441\u044B\u043B\u043A\u0438" }),
+        /* @__PURE__ */ jsxs69("li", { children: [
+          /* @__PURE__ */ jsx72("strong", { children: "\u{1F517} \u0421\u0441\u044B\u043B\u043A\u0438" }),
           " \u2014 \u0438\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u0435 FQID-\u0441\u0441\u044B\u043B\u043A\u0438 (\u043D\u0430 \u0434\u0440\u0443\u0433\u0438\u0435 \u0434\u043E\u043C\u0435\u043D\u044B), \u0441\u0433\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0435 \u043F\u043E \u0434\u043E\u043C\u0435\u043D\u0443."
         ] }),
-        /* @__PURE__ */ jsxs67("li", { children: [
-          /* @__PURE__ */ jsx70("strong", { children: "\u{1F4E5} \u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F" }),
+        /* @__PURE__ */ jsxs69("li", { children: [
+          /* @__PURE__ */ jsx72("strong", { children: "\u{1F4E5} \u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F" }),
           " (backlinks) \u2014 \u043A\u0442\u043E \u0441\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F \u043D\u0430 \u0442\u0435\u043A\u0443\u0449\u0443\u044E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0438\u043B\u0438 \u0430\u0442\u0440\u0438\u0431\u0443\u0442. \u041F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442:",
-          /* @__PURE__ */ jsxs67("ul", { style: { marginTop: 4, marginBottom: 0 }, children: [
-            /* @__PURE__ */ jsxs67("li", { children: [
-              /* @__PURE__ */ jsx70("strong", { children: "\u041D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435" }),
+          /* @__PURE__ */ jsxs69("ul", { style: { marginTop: 4, marginBottom: 0 }, children: [
+            /* @__PURE__ */ jsxs69("li", { children: [
+              /* @__PURE__ */ jsx72("strong", { children: "\u041D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435" }),
               " \u2014 \u043A\u0442\u043E \u043D\u0430\u0441\u043B\u0435\u0434\u0443\u0435\u0442 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C;"
             ] }),
-            /* @__PURE__ */ jsxs67("li", { children: [
-              /* @__PURE__ */ jsx70("strong", { children: "Reference" }),
+            /* @__PURE__ */ jsxs69("li", { children: [
+              /* @__PURE__ */ jsx72("strong", { children: "Reference" }),
               " \u2014 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B, \u0441\u0441\u044B\u043B\u0430\u044E\u0449\u0438\u0435\u0441\u044F \u043D\u0430 \u043D\u0435\u0451;"
             ] }),
-            /* @__PURE__ */ jsxs67("li", { children: [
-              /* @__PURE__ */ jsx70("strong", { children: "View" }),
+            /* @__PURE__ */ jsxs69("li", { children: [
+              /* @__PURE__ */ jsx72("strong", { children: "View" }),
               " \u2014 \u0433\u0434\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0443\u043F\u043E\u043C\u044F\u043D\u0443\u0442\u0430 \u043A\u0430\u043A ",
-              /* @__PURE__ */ jsx70("code", { children: "entity:" }),
+              /* @__PURE__ */ jsx72("code", { children: "entity:" }),
               ";"
             ] }),
-            /* @__PURE__ */ jsxs67("li", { children: [
-              /* @__PURE__ */ jsx70("strong", { children: "DataRule" }),
+            /* @__PURE__ */ jsxs69("li", { children: [
+              /* @__PURE__ */ jsx72("strong", { children: "DataRule" }),
               " \u2014 \u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u0434\u0430\u043D\u043D\u044B\u0445;"
             ] }),
-            /* @__PURE__ */ jsxs67("li", { children: [
-              /* @__PURE__ */ jsx70("strong", { children: "Widget" }),
+            /* @__PURE__ */ jsxs69("li", { children: [
+              /* @__PURE__ */ jsx72("strong", { children: "Widget" }),
               " \u2014 \u0432\u0438\u0434\u0436\u0435\u0442\u044B, \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u044E\u0449\u0438\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442;"
             ] }),
-            /* @__PURE__ */ jsxs67("li", { children: [
-              /* @__PURE__ */ jsx70("strong", { children: "Linkage" }),
+            /* @__PURE__ */ jsxs69("li", { children: [
+              /* @__PURE__ */ jsx72("strong", { children: "Linkage" }),
               " \u2014 \u0441\u0432\u044F\u0437\u0438 (side1/side2);"
             ] }),
-            /* @__PURE__ */ jsxs67("li", { children: [
-              /* @__PURE__ */ jsx70("strong", { children: "Mixin / Action" }),
+            /* @__PURE__ */ jsxs69("li", { children: [
+              /* @__PURE__ */ jsx72("strong", { children: "Mixin / Action" }),
               " \u2014 \u043F\u0440\u0438\u043C\u0435\u0441\u0438 \u0438 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F."
             ] })
           ] }),
           "\u0412\u0441\u0435 \u043F\u0443\u043D\u043A\u0442\u044B \u043A\u043B\u0438\u043A\u0430\u0431\u0435\u043B\u044C\u043D\u044B\u0435 \u2014 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u0441\u0442\u0440\u043E\u043A\u0435."
         ] }),
-        /* @__PURE__ */ jsxs67("li", { children: [
-          /* @__PURE__ */ jsx70("strong", { children: "\u2601 \u0421\u0435\u0440\u0432\u0435\u0440" }),
+        /* @__PURE__ */ jsxs69("li", { children: [
+          /* @__PURE__ */ jsx72("strong", { children: "\u2601 \u0421\u0435\u0440\u0432\u0435\u0440" }),
           " \u2014 \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u0447\u0435\u0440\u0435\u0437 R-Vision (\u0442\u043E\u043B\u044C\u043A\u043E \u0432 \u0440\u0435\u0436\u0438\u043C\u0435 ",
-          /* @__PURE__ */ jsx70("code", { children: "--server" }),
+          /* @__PURE__ */ jsx72("code", { children: "--server" }),
           ")."
         ] })
       ] }) }),
-      /* @__PURE__ */ jsxs67(Section2, { title: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F (actions)", children: [
-        /* @__PURE__ */ jsx70(P, { children: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u2014 \u043E\u043F\u0435\u0440\u0430\u0446\u0438\u0438 \u043D\u0430\u0434 \u043E\u0431\u044A\u0435\u043A\u0442\u0430\u043C\u0438 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438. \u0411\u044B\u0432\u0430\u044E\u0442 \u043F\u0440\u043E\u0441\u0442\u044B\u0435 (\u043E\u0442\u043A\u0440\u044B\u0442\u0438\u0435 \u043F\u0430\u043D\u0435\u043B\u0438 / \u043C\u043E\u0434\u0430\u043B\u043A\u0438), \u043C\u0430\u0441\u0441\u043E\u0432\u044B\u0435 (bulk) \u0438 \u0438\u043D\u0442\u0435\u0433\u0440\u0430\u0446\u0438\u043E\u043D\u043D\u044B\u0435 (automation, scenario)." }),
-        /* @__PURE__ */ jsx70("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u041F\u0440\u043E\u0441\u0442\u044B\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F" }),
-        /* @__PURE__ */ jsxs67(List, { children: [
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "open_panel" }),
+      /* @__PURE__ */ jsxs69(Section2, { title: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F (actions)", children: [
+        /* @__PURE__ */ jsx72(P, { children: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u2014 \u043E\u043F\u0435\u0440\u0430\u0446\u0438\u0438 \u043D\u0430\u0434 \u043E\u0431\u044A\u0435\u043A\u0442\u0430\u043C\u0438 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438. \u0411\u044B\u0432\u0430\u044E\u0442 \u043F\u0440\u043E\u0441\u0442\u044B\u0435 (\u043E\u0442\u043A\u0440\u044B\u0442\u0438\u0435 \u043F\u0430\u043D\u0435\u043B\u0438 / \u043C\u043E\u0434\u0430\u043B\u043A\u0438), \u043C\u0430\u0441\u0441\u043E\u0432\u044B\u0435 (bulk) \u0438 \u0438\u043D\u0442\u0435\u0433\u0440\u0430\u0446\u0438\u043E\u043D\u043D\u044B\u0435 (automation, scenario)." }),
+        /* @__PURE__ */ jsx72("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u041F\u0440\u043E\u0441\u0442\u044B\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F" }),
+        /* @__PURE__ */ jsxs69(List, { children: [
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "open_panel" }),
             " \u2014 ",
-            /* @__PURE__ */ jsx70("code", { children: "panel: <viewId>" }),
+            /* @__PURE__ */ jsx72("code", { children: "panel: <viewId>" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "entity" }),
+            /* @__PURE__ */ jsx72("code", { children: "entity" }),
             "."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "open_modal" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "open_modal" }),
             " \u2014 ",
-            /* @__PURE__ */ jsx70("code", { children: "modal: <viewId>" }),
+            /* @__PURE__ */ jsx72("code", { children: "modal: <viewId>" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "entity" }),
+            /* @__PURE__ */ jsx72("code", { children: "entity" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "operation: create | edit" }),
+            /* @__PURE__ */ jsx72("code", { children: "operation: create | edit" }),
             "."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "open_page" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "open_page" }),
             " \u2014 ",
-            /* @__PURE__ */ jsx70("code", { children: "view: <viewId>" }),
+            /* @__PURE__ */ jsx72("code", { children: "view: <viewId>" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "entity" }),
+            /* @__PURE__ */ jsx72("code", { children: "entity" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "operation" }),
+            /* @__PURE__ */ jsx72("code", { children: "operation" }),
             "."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "open_list" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "open_list" }),
             " \u2014 ",
-            /* @__PURE__ */ jsx70("code", { children: "view" }),
+            /* @__PURE__ */ jsx72("code", { children: "view" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "contextPin" }),
+            /* @__PURE__ */ jsx72("code", { children: "contextPin" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "page" }),
+            /* @__PURE__ */ jsx72("code", { children: "page" }),
             "."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "remove" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "remove" }),
             " \u2014 \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435 \u043E\u0431\u044A\u0435\u043A\u0442\u0430, \u043D\u0443\u0436\u0435\u043D \u0442\u043E\u043B\u044C\u043A\u043E ",
-            /* @__PURE__ */ jsx70("code", { children: "entity" }),
+            /* @__PURE__ */ jsx72("code", { children: "entity" }),
             "."
           ] })
         ] }),
-        /* @__PURE__ */ jsx70("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u041C\u0430\u0441\u0441\u043E\u0432\u044B\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F (type: bulk)" }),
-        /* @__PURE__ */ jsxs67(List, { children: [
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "operation: remove" }),
+        /* @__PURE__ */ jsx72("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u041C\u0430\u0441\u0441\u043E\u0432\u044B\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F (type: bulk)" }),
+        /* @__PURE__ */ jsxs69(List, { children: [
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "operation: remove" }),
             " \u2014 \u0443\u0434\u0430\u043B\u0438\u0442\u044C \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u044B\u0435 \u043E\u0431\u044A\u0435\u043A\u0442\u044B."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "operation: edit" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "operation: edit" }),
             " \u2014 \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u044B\u0445. \u0422\u0440\u0435\u0431\u0443\u0435\u0442:",
-            /* @__PURE__ */ jsxs67("ul", { style: { marginTop: 4, marginBottom: 0 }, children: [
-              /* @__PURE__ */ jsx70("li", { children: /* @__PURE__ */ jsx70("code", { children: "attributes.type: specific" }) }),
-              /* @__PURE__ */ jsxs67("li", { children: [
-                /* @__PURE__ */ jsx70("code", { children: "attributes.use[]" }),
+            /* @__PURE__ */ jsxs69("ul", { style: { marginTop: 4, marginBottom: 0 }, children: [
+              /* @__PURE__ */ jsx72("li", { children: /* @__PURE__ */ jsx72("code", { children: "attributes.type: specific" }) }),
+              /* @__PURE__ */ jsxs69("li", { children: [
+                /* @__PURE__ */ jsx72("code", { children: "attributes.use[]" }),
                 " \u2014 \u0441\u043F\u0438\u0441\u043E\u043A \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 (",
-                /* @__PURE__ */ jsx70("code", { children: "attribute: attrId" }),
+                /* @__PURE__ */ jsx72("code", { children: "attribute: attrId" }),
                 ")"
               ] }),
-              /* @__PURE__ */ jsxs67("li", { children: [
+              /* @__PURE__ */ jsxs69("li", { children: [
                 "\u043E\u043F\u0446\u0438\u043E\u043D\u0430\u043B\u044C\u043D\u043E ",
-                /* @__PURE__ */ jsx70("code", { children: "linkages[]" }),
+                /* @__PURE__ */ jsx72("code", { children: "linkages[]" }),
                 " \u2014 \u0434\u043B\u044F \u043C\u0430\u0441\u0441\u043E\u0432\u043E\u0433\u043E \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F \u0441\u0432\u044F\u0437\u0435\u0439 (",
-                /* @__PURE__ */ jsx70("code", { children: "widget: widgetId" }),
+                /* @__PURE__ */ jsx72("code", { children: "widget: widgetId" }),
                 ")"
               ] })
             ] })
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "operation: edit_attribute" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "operation: edit_attribute" }),
             " \u2014 \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430 (bool / workflow). \u0422\u0440\u0435\u0431\u0443\u0435\u0442:",
-            /* @__PURE__ */ jsxs67("ul", { style: { marginTop: 4, marginBottom: 0 }, children: [
-              /* @__PURE__ */ jsxs67("li", { children: [
-                /* @__PURE__ */ jsx70("code", { children: "values[]" }),
+            /* @__PURE__ */ jsxs69("ul", { style: { marginTop: 4, marginBottom: 0 }, children: [
+              /* @__PURE__ */ jsxs69("li", { children: [
+                /* @__PURE__ */ jsx72("code", { children: "values[]" }),
                 " \u2014 ",
-                /* @__PURE__ */ jsx70("code", { children: "attribute" }),
+                /* @__PURE__ */ jsx72("code", { children: "attribute" }),
                 " + ",
-                /* @__PURE__ */ jsx70("code", { children: "value" })
+                /* @__PURE__ */ jsx72("code", { children: "value" })
               ] }),
-              /* @__PURE__ */ jsxs67("li", { children: [
-                /* @__PURE__ */ jsx70("code", { children: "control" }),
+              /* @__PURE__ */ jsxs69("li", { children: [
+                /* @__PURE__ */ jsx72("code", { children: "control" }),
                 " \u2014 \u0434\u043B\u044F bool-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432: ",
-                /* @__PURE__ */ jsx70("code", { children: "type" }),
+                /* @__PURE__ */ jsx72("code", { children: "type" }),
                 ", ",
-                /* @__PURE__ */ jsx70("code", { children: "trueText" }),
+                /* @__PURE__ */ jsx72("code", { children: "trueText" }),
                 ", ",
-                /* @__PURE__ */ jsx70("code", { children: "falseText" })
+                /* @__PURE__ */ jsx72("code", { children: "falseText" })
               ] })
             ] })
           ] })
         ] }),
-        /* @__PURE__ */ jsx70("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0418\u043D\u0442\u0435\u0433\u0440\u0430\u0446\u0438\u043E\u043D\u043D\u044B\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F" }),
-        /* @__PURE__ */ jsxs67(List, { children: [
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "automation" }),
+        /* @__PURE__ */ jsx72("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0418\u043D\u0442\u0435\u0433\u0440\u0430\u0446\u0438\u043E\u043D\u043D\u044B\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F" }),
+        /* @__PURE__ */ jsxs69(List, { children: [
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "automation" }),
             " \u2014 \u0437\u0430\u043F\u0443\u0441\u043A \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0437\u0430\u0446\u0438\u0438. \u0423\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442\u0441\u044F ",
-            /* @__PURE__ */ jsx70("code", { children: "automation.id" }),
+            /* @__PURE__ */ jsx72("code", { children: "automation.id" }),
             " (UUID)."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "scenario" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "scenario" }),
             " \u2014 \u0437\u0430\u043F\u0443\u0441\u043A \u0441\u0446\u0435\u043D\u0430\u0440\u0438\u044F/\u0441\u043A\u0440\u0438\u043F\u0442\u0430: ",
-            /* @__PURE__ */ jsx70("code", { children: "scenario" }),
+            /* @__PURE__ */ jsx72("code", { children: "scenario" }),
             " (id) + ",
-            /* @__PURE__ */ jsx70("code", { children: "workerTag" }),
+            /* @__PURE__ */ jsx72("code", { children: "workerTag" }),
             "."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "generate_qr_code" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "generate_qr_code" }),
             " \u2014 \u0433\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u044F QR, \u0442\u043E\u043B\u044C\u043A\u043E ",
-            /* @__PURE__ */ jsx70("code", { children: "entity" }),
+            /* @__PURE__ */ jsx72("code", { children: "entity" }),
             "."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "copy_entity_link" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "copy_entity_link" }),
             " \u2014 \u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C URL \u043E\u0431\u044A\u0435\u043A\u0442\u0430."
           ] })
         ] }),
-        /* @__PURE__ */ jsx70("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F" }),
-        /* @__PURE__ */ jsxs67(List, { children: [
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "modal" }),
+        /* @__PURE__ */ jsx72("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F" }),
+        /* @__PURE__ */ jsxs69(List, { children: [
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "modal" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "panel" }),
+            /* @__PURE__ */ jsx72("code", { children: "panel" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "view" }),
+            /* @__PURE__ */ jsx72("code", { children: "view" }),
             " \u2014 \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442\u0441\u044F, \u0447\u0442\u043E view \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u0435\u0442 \u0432 \u0434\u043E\u043C\u0435\u043D\u0435."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "automation.id" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "automation.id" }),
             " \u2014 \u043F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u0435, \u0435\u0441\u043B\u0438 \u043D\u0435 UUID."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "values[].attribute" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "values[].attribute" }),
             " \u2014 \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442\u0441\u044F, \u0447\u0442\u043E \u0430\u0442\u0440\u0438\u0431\u0443\u0442 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u0435\u0442 \u0432 ",
-            /* @__PURE__ */ jsx70("code", { children: "entity" }),
+            /* @__PURE__ */ jsx72("code", { children: "entity" }),
             " \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F."
           ] })
         ] }),
-        /* @__PURE__ */ jsx70("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0421\u043D\u0438\u043F\u043F\u0435\u0442\u044B" }),
-        /* @__PURE__ */ jsxs67(List, { children: [
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "\u2728 newbulkdelete" }),
+        /* @__PURE__ */ jsx72("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0421\u043D\u0438\u043F\u043F\u0435\u0442\u044B" }),
+        /* @__PURE__ */ jsxs69(List, { children: [
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "\u2728 newbulkdelete" }),
             " \u2014 \u043C\u0430\u0441\u0441\u043E\u0432\u043E\u0435 \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "\u2728 newbulkedit" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "\u2728 newbulkedit" }),
             " \u2014 \u043C\u0430\u0441\u0441\u043E\u0432\u043E\u0435 \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "\u2728 newbulkattr" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "\u2728 newbulkattr" }),
             " \u2014 \u0438\u0437\u043C\u0435\u043D\u0438\u0442\u044C bool-\u0430\u0442\u0440\u0438\u0431\u0443\u0442 \u0443 \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u044B\u0445."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "\u2728 newautomationaction" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "\u2728 newautomationaction" }),
             " \u2014 \u0437\u0430\u043F\u0443\u0441\u043A \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0437\u0430\u0446\u0438\u0438 \u043F\u043E UUID."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "\u2728 newscenarioaction" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "\u2728 newscenarioaction" }),
             " \u2014 \u0437\u0430\u043F\u0443\u0441\u043A \u0441\u0446\u0435\u043D\u0430\u0440\u0438\u044F."
           ] })
         ] })
       ] }),
-      /* @__PURE__ */ jsxs67(Section2, { title: "Views: List-view", children: [
-        /* @__PURE__ */ jsx70(P, { children: "\u0421\u043F\u0438\u0441\u043E\u043A \u043E\u0431\u044A\u0435\u043A\u0442\u043E\u0432 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438. \u041E\u0434\u0438\u043D \u0438\u0437 \u0441\u0430\u043C\u044B\u0445 \u0431\u043E\u043B\u044C\u0448\u0438\u0445 \u0440\u0430\u0437\u0434\u0435\u043B\u043E\u0432 \u0441\u0445\u0435\u043C\u044B \u2014 \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u0442 \u0442\u0430\u0431\u043B\u0438\u0446\u0443, \u0444\u0438\u043B\u044C\u0442\u0440\u044B, \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0438 \u0438 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F." }),
-        /* @__PURE__ */ jsx70("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0411\u0430\u0437\u043E\u0432\u044B\u0435 \u043F\u043E\u043B\u044F" }),
-        /* @__PURE__ */ jsxs67(List, { children: [
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "source.type" }),
+      /* @__PURE__ */ jsxs69(Section2, { title: "Views: List-view", children: [
+        /* @__PURE__ */ jsx72(P, { children: "\u0421\u043F\u0438\u0441\u043E\u043A \u043E\u0431\u044A\u0435\u043A\u0442\u043E\u0432 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438. \u041E\u0434\u0438\u043D \u0438\u0437 \u0441\u0430\u043C\u044B\u0445 \u0431\u043E\u043B\u044C\u0448\u0438\u0445 \u0440\u0430\u0437\u0434\u0435\u043B\u043E\u0432 \u0441\u0445\u0435\u043C\u044B \u2014 \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u0442 \u0442\u0430\u0431\u043B\u0438\u0446\u0443, \u0444\u0438\u043B\u044C\u0442\u0440\u044B, \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0438 \u0438 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F." }),
+        /* @__PURE__ */ jsx72("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0411\u0430\u0437\u043E\u0432\u044B\u0435 \u043F\u043E\u043B\u044F" }),
+        /* @__PURE__ */ jsxs69(List, { children: [
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "source.type" }),
             ": ",
-            /* @__PURE__ */ jsx70("code", { children: "operational" }),
+            /* @__PURE__ */ jsx72("code", { children: "operational" }),
             " (\u0411\u0414 \u0441\u0438\u0441\u0442\u0435\u043C\u044B)."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "source.entity" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "source.entity" }),
             ": \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C, \u0447\u044C\u0438 \u043E\u0431\u044A\u0435\u043A\u0442\u044B \u043E\u0442\u043E\u0431\u0440\u0430\u0436\u0430\u044E\u0442\u0441\u044F."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "source.joins[]" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "source.joins[]" }),
             ": \u0441\u0432\u044F\u0437\u0438 \u0434\u043B\u044F \u043E\u0442\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u044F \u0441\u0432\u044F\u0437\u0430\u043D\u043D\u044B\u0445 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439."
           ] })
         ] }),
-        /* @__PURE__ */ jsx70("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0422\u0430\u0431\u043B\u0438\u0446\u0430 (table)" }),
-        /* @__PURE__ */ jsxs67(List, { children: [
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "columns[]" }),
+        /* @__PURE__ */ jsx72("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0422\u0430\u0431\u043B\u0438\u0446\u0430 (table)" }),
+        /* @__PURE__ */ jsxs69(List, { children: [
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "columns[]" }),
             ": \u0441\u0442\u043E\u043B\u0431\u0446\u044B \u2014 ",
-            /* @__PURE__ */ jsx70("code", { children: "id" }),
+            /* @__PURE__ */ jsx72("code", { children: "id" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "attribute" }),
+            /* @__PURE__ */ jsx72("code", { children: "attribute" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "label" }),
+            /* @__PURE__ */ jsx72("code", { children: "label" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "layout.width" }),
+            /* @__PURE__ */ jsx72("code", { children: "layout.width" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "control" }),
+            /* @__PURE__ */ jsx72("code", { children: "control" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "aggregate" }),
+            /* @__PURE__ */ jsx72("code", { children: "aggregate" }),
             "."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "filter" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "filter" }),
             ": \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u0446\u0438\u044F \u2014 ",
-            /* @__PURE__ */ jsx70("code", { children: "attributes" }),
+            /* @__PURE__ */ jsx72("code", { children: "attributes" }),
             " (type: specific|all, use[]) \u0438 ",
-            /* @__PURE__ */ jsx70("code", { children: "linkages" }),
+            /* @__PURE__ */ jsx72("code", { children: "linkages" }),
             "."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "sortingBy" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "sortingBy" }),
             ": \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430 \u2014 ",
-            /* @__PURE__ */ jsx70("code", { children: "columns[]" }),
+            /* @__PURE__ */ jsx72("code", { children: "columns[]" }),
             " (column + sorting) \u0438 ",
-            /* @__PURE__ */ jsx70("code", { children: "defaults" }),
+            /* @__PURE__ */ jsx72("code", { children: "defaults" }),
             " (column + direction)."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "paging" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "paging" }),
             ": ",
-            /* @__PURE__ */ jsx70("code", { children: "sizes[]" }),
+            /* @__PURE__ */ jsx72("code", { children: "sizes[]" }),
             " + ",
-            /* @__PURE__ */ jsx70("code", { children: "defaultSize" }),
+            /* @__PURE__ */ jsx72("code", { children: "defaultSize" }),
             "."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "refresh" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "refresh" }),
             ": ",
-            /* @__PURE__ */ jsx70("code", { children: "mode" }),
+            /* @__PURE__ */ jsx72("code", { children: "mode" }),
             " (manual/auto/all) + ",
-            /* @__PURE__ */ jsx70("code", { children: "defaults" }),
+            /* @__PURE__ */ jsx72("code", { children: "defaults" }),
             " (unit, interval, enabled)."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "selection" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "selection" }),
             ": \u0432\u043E\u0437\u043C\u043E\u0436\u043D\u043E\u0441\u0442\u044C \u0432\u044B\u0431\u043E\u0440\u0430 \u0441\u0442\u0440\u043E\u043A \u0434\u043B\u044F \u043C\u0430\u0441\u0441\u043E\u0432\u044B\u0445 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0439."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "actions[]" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "actions[]" }),
             ": \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u043F\u0440\u0438 \u043A\u043B\u0438\u043A\u0435 \u2014 ",
-            /* @__PURE__ */ jsx70("code", { children: "row_click" }),
+            /* @__PURE__ */ jsx72("code", { children: "row_click" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "row_double_click" }),
+            /* @__PURE__ */ jsx72("code", { children: "row_double_click" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "row_context_menu" }),
+            /* @__PURE__ */ jsx72("code", { children: "row_context_menu" }),
             "."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "empty.message" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "empty.message" }),
             ": \u0442\u0435\u043A\u0441\u0442 \u043F\u0440\u0438 \u043E\u0442\u0441\u0443\u0442\u0441\u0442\u0432\u0438\u0438 \u0434\u0430\u043D\u043D\u044B\u0445."
           ] })
         ] }),
-        /* @__PURE__ */ jsx70("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0422\u0438\u043F\u044B \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u043E\u0432 \u0432 \u043A\u043E\u043B\u043E\u043D\u043A\u0435" }),
-        /* @__PURE__ */ jsxs67(List, { children: [
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "text" }),
+        /* @__PURE__ */ jsx72("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0422\u0438\u043F\u044B \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u043E\u0432 \u0432 \u043A\u043E\u043B\u043E\u043D\u043A\u0435" }),
+        /* @__PURE__ */ jsxs69(List, { children: [
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "text" }),
             " / ",
-            /* @__PURE__ */ jsx70("strong", { children: "text_area" }),
+            /* @__PURE__ */ jsx72("strong", { children: "text_area" }),
             " \u2014 \u043E\u0434\u043D\u043E\u0441\u0442\u0440\u043E\u0447\u043D\u043E\u0435 / \u043C\u043D\u043E\u0433\u043E\u0441\u0442\u0440\u043E\u0447\u043D\u043E\u0435 \u043F\u043E\u043B\u0435."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "select" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "select" }),
             " / ",
-            /* @__PURE__ */ jsx70("strong", { children: "radio" }),
+            /* @__PURE__ */ jsx72("strong", { children: "radio" }),
             " \u2014 \u0432\u044B\u043F\u0430\u0434\u0430\u044E\u0449\u0438\u0439 \u0441\u043F\u0438\u0441\u043E\u043A / \u0440\u0430\u0434\u0438\u043E\u043A\u043D\u043E\u043F\u043A\u0438 (\u0434\u043B\u044F Enum, Workflow)."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "tag" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "tag" }),
             " / ",
-            /* @__PURE__ */ jsx70("strong", { children: "level" }),
+            /* @__PURE__ */ jsx72("strong", { children: "level" }),
             " \u2014 \u0442\u0435\u0433 / \u0443\u0440\u043E\u0432\u0435\u043D\u044C."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "bool_text" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "bool_text" }),
             " \u2014 \u0442\u0435\u043A\u0441\u0442 \u0432\u043C\u0435\u0441\u0442\u043E true/false (\u043D\u0443\u0436\u043D\u044B ",
-            /* @__PURE__ */ jsx70("code", { children: "trueText" }),
+            /* @__PURE__ */ jsx72("code", { children: "trueText" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "falseText" }),
+            /* @__PURE__ */ jsx72("code", { children: "falseText" }),
             ")."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "timestamp" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "timestamp" }),
             " / ",
-            /* @__PURE__ */ jsx70("strong", { children: "date" }),
+            /* @__PURE__ */ jsx72("strong", { children: "date" }),
             " / ",
-            /* @__PURE__ */ jsx70("strong", { children: "time" }),
+            /* @__PURE__ */ jsx72("strong", { children: "time" }),
             " \u2014 \u0444\u043E\u0440\u043C\u0430\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435 \u0434\u0430\u0442."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "tree_path" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "tree_path" }),
             " \u2014 \u043F\u0443\u0442\u044C \u0432 \u0434\u0435\u0440\u0435\u0432\u0435 (\u043D\u0443\u0436\u0435\u043D ",
-            /* @__PURE__ */ jsx70("code", { children: "tree" }),
+            /* @__PURE__ */ jsx72("code", { children: "tree" }),
             ")."
           ] })
         ] }),
-        /* @__PURE__ */ jsx70("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0421\u043D\u0438\u043F\u043F\u0435\u0442\u044B" }),
-        /* @__PURE__ */ jsxs67(List, { children: [
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "\u2728 newlisttable" }),
+        /* @__PURE__ */ jsx72("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0421\u043D\u0438\u043F\u043F\u0435\u0442\u044B" }),
+        /* @__PURE__ */ jsxs69(List, { children: [
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "\u2728 newlisttable" }),
             " \u2014 \u0442\u0430\u0431\u043B\u0438\u0446\u0430 \u0441 3 \u043A\u043E\u043B\u043E\u043D\u043A\u0430\u043C\u0438."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "\u2728 newtablecolumn" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "\u2728 newtablecolumn" }),
             " \u2014 \u043E\u0434\u043D\u0430 \u043A\u043E\u043B\u043E\u043D\u043A\u0430 \u0441 width."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "\u2728 newtablefilter" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "\u2728 newtablefilter" }),
             " \u2014 \u0444\u0438\u043B\u044C\u0442\u0440 attributes+linkages (type: all)."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "\u2728 newtablesorting" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "\u2728 newtablesorting" }),
             " \u2014 \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430 \u043F\u043E \u043A\u043E\u043B\u043E\u043D\u043A\u0435."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "\u2728 newtablepaging" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "\u2728 newtablepaging" }),
             " \u2014 \u043F\u0430\u0433\u0438\u043D\u0430\u0446\u0438\u044F 10/50/100."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "\u2728 newtablerefresh" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "\u2728 newtablerefresh" }),
             " \u2014 \u0430\u0432\u0442\u043E\u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u0435 5 \u043C\u0438\u043D\u0443\u0442."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "\u2728 newtablerowclick" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "\u2728 newtablerowclick" }),
             " \u2014 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u043F\u043E \u043A\u043B\u0438\u043A\u0443 \u043D\u0430 \u0441\u0442\u0440\u043E\u043A\u0443."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "\u2728 newtablecontextmenu" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "\u2728 newtablecontextmenu" }),
             " \u2014 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u043D\u043E\u0435 \u043C\u0435\u043D\u044E."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "\u2728 newtableaggregate" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "\u2728 newtableaggregate" }),
             " \u2014 \u043A\u043E\u043B\u043E\u043D\u043A\u0430 \u0441 count \u043F\u043E \u0441\u0432\u044F\u0437\u0438."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "\u2728 newlistfull" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "\u2728 newlistfull" }),
             " \u2014 \u043F\u043E\u043B\u043D\u044B\u0439 list-view \u0441 \u0442\u0430\u0431\u043B\u0438\u0446\u0435\u0439, \u0444\u0438\u043B\u044C\u0442\u0440\u043E\u043C, \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u043E\u0439, \u043F\u0430\u0433\u0438\u043D\u0430\u0446\u0438\u0435\u0439."
           ] })
         ] }),
-        /* @__PURE__ */ jsx70("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F" }),
-        /* @__PURE__ */ jsx70(List, { children: /* @__PURE__ */ jsxs67("li", { children: [
-          /* @__PURE__ */ jsx70("code", { children: "column:" }),
+        /* @__PURE__ */ jsx72("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F" }),
+        /* @__PURE__ */ jsx72(List, { children: /* @__PURE__ */ jsxs69("li", { children: [
+          /* @__PURE__ */ jsx72("code", { children: "column:" }),
           " \u0432 ",
-          /* @__PURE__ */ jsx70("code", { children: "sortingBy" }),
+          /* @__PURE__ */ jsx72("code", { children: "sortingBy" }),
           " \u2014 \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442\u0441\u044F, \u0447\u0442\u043E \u0441\u0442\u043E\u043B\u0431\u0435\u0446 \u0435\u0441\u0442\u044C \u0432 ",
-          /* @__PURE__ */ jsx70("code", { children: "columns[]" }),
+          /* @__PURE__ */ jsx72("code", { children: "columns[]" }),
           "."
         ] }) })
       ] }),
-      /* @__PURE__ */ jsxs67(Section2, { title: "Views: Entity-view", children: [
-        /* @__PURE__ */ jsx70(P, { children: "\u041A\u0430\u0440\u0442\u043E\u0447\u043A\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438. \u0421\u043E\u0434\u0435\u0440\u0436\u0438\u0442 \u0432\u0438\u0434\u0436\u0435\u0442\u044B, \u0433\u0440\u0443\u043F\u043F\u044B (\u0431\u043B\u043E\u043A\u0438/\u0432\u043A\u043B\u0430\u0434\u043A\u0438/\u0444\u043E\u0440\u043C\u044B) \u0438 \u0432\u043B\u043E\u0436\u0435\u043D\u043D\u044B\u0435 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0438 (\u043F\u0430\u043D\u0435\u043B\u0438, \u043C\u043E\u0434\u0430\u043B\u043A\u0438, \u043F\u043E\u043B\u043D\u043E\u044D\u043A\u0440\u0430\u043D\u043D\u044B\u0435 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F)." }),
-        /* @__PURE__ */ jsx70("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0412\u0438\u0434\u0436\u0435\u0442\u044B (widgets[])" }),
-        /* @__PURE__ */ jsxs67(List, { children: [
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "attribute" }),
+      /* @__PURE__ */ jsxs69(Section2, { title: "Views: Entity-view", children: [
+        /* @__PURE__ */ jsx72(P, { children: "\u041A\u0430\u0440\u0442\u043E\u0447\u043A\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438. \u0421\u043E\u0434\u0435\u0440\u0436\u0438\u0442 \u0432\u0438\u0434\u0436\u0435\u0442\u044B, \u0433\u0440\u0443\u043F\u043F\u044B (\u0431\u043B\u043E\u043A\u0438/\u0432\u043A\u043B\u0430\u0434\u043A\u0438/\u0444\u043E\u0440\u043C\u044B) \u0438 \u0432\u043B\u043E\u0436\u0435\u043D\u043D\u044B\u0435 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0438 (\u043F\u0430\u043D\u0435\u043B\u0438, \u043C\u043E\u0434\u0430\u043B\u043A\u0438, \u043F\u043E\u043B\u043D\u043E\u044D\u043A\u0440\u0430\u043D\u043D\u044B\u0435 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F)." }),
+        /* @__PURE__ */ jsx72("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0412\u0438\u0434\u0436\u0435\u0442\u044B (widgets[])" }),
+        /* @__PURE__ */ jsxs69(List, { children: [
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "attribute" }),
             " \u2014 \u0432\u0438\u0434\u0436\u0435\u0442 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430 (\u043D\u0443\u0436\u0435\u043D ",
-            /* @__PURE__ */ jsx70("code", { children: "attribute" }),
+            /* @__PURE__ */ jsx72("code", { children: "attribute" }),
             " + ",
-            /* @__PURE__ */ jsx70("code", { children: "control.type" }),
+            /* @__PURE__ */ jsx72("code", { children: "control.type" }),
             ")."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "action" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "action" }),
             " \u2014 \u0432\u0438\u0434\u0436\u0435\u0442 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F (\u043D\u0443\u0436\u0435\u043D ",
-            /* @__PURE__ */ jsx70("code", { children: "action" }),
+            /* @__PURE__ */ jsx72("code", { children: "action" }),
             " \u0438\u043B\u0438 ",
-            /* @__PURE__ */ jsx70("code", { children: "actions[]" }),
+            /* @__PURE__ */ jsx72("code", { children: "actions[]" }),
             ")."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "linkage" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "linkage" }),
             " \u2014 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440 \u0441\u0432\u044F\u0437\u0435\u0439 (\u043D\u0443\u0436\u043D\u044B ",
-            /* @__PURE__ */ jsx70("code", { children: "linkage" }),
+            /* @__PURE__ */ jsx72("code", { children: "linkage" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "side" }),
+            /* @__PURE__ */ jsx72("code", { children: "side" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "control" }),
+            /* @__PURE__ */ jsx72("code", { children: "control" }),
             ")."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "join" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "join" }),
             " \u2014 \u0442\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u0430\u044F \u0441\u0432\u044F\u0437\u044C (\u043D\u0443\u0436\u043D\u044B ",
-            /* @__PURE__ */ jsx70("code", { children: "joinId" }),
+            /* @__PURE__ */ jsx72("code", { children: "joinId" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "attribute" }),
+            /* @__PURE__ */ jsx72("code", { children: "attribute" }),
             " / ",
-            /* @__PURE__ */ jsx70("code", { children: "aggregate" }),
+            /* @__PURE__ */ jsx72("code", { children: "aggregate" }),
             ")."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "history" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "history" }),
             " \u2014 \u0438\u0441\u0442\u043E\u0440\u0438\u044F \u0441\u043E\u0431\u044B\u0442\u0438\u0439 (",
-            /* @__PURE__ */ jsx70("code", { children: "eventStorageId" }),
+            /* @__PURE__ */ jsx72("code", { children: "eventStorageId" }),
             ")."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "runs_history" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "runs_history" }),
             " \u2014 \u0438\u0441\u0442\u043E\u0440\u0438\u044F \u0437\u0430\u043F\u0443\u0441\u043A\u043E\u0432 \u0441\u0446\u0435\u043D\u0430\u0440\u0438\u0435\u0432."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "comments" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "comments" }),
             ", ",
-            /* @__PURE__ */ jsx70("strong", { children: "conversation" }),
+            /* @__PURE__ */ jsx72("strong", { children: "conversation" }),
             ", ",
-            /* @__PURE__ */ jsx70("strong", { children: "card" }),
+            /* @__PURE__ */ jsx72("strong", { children: "card" }),
             ", ",
-            /* @__PURE__ */ jsx70("strong", { children: "visualization" }),
+            /* @__PURE__ */ jsx72("strong", { children: "visualization" }),
             ", ",
-            /* @__PURE__ */ jsx70("strong", { children: "linked_objects_groups" }),
+            /* @__PURE__ */ jsx72("strong", { children: "linked_objects_groups" }),
             " \u0438 \u0434\u0440."
           ] })
         ] }),
-        /* @__PURE__ */ jsx70("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0420\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u044B \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 (control.type)" }),
-        /* @__PURE__ */ jsxs67(List, { children: [
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "text" }),
+        /* @__PURE__ */ jsx72("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0420\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u044B \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 (control.type)" }),
+        /* @__PURE__ */ jsxs69(List, { children: [
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "text" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "text_area" }),
+            /* @__PURE__ */ jsx72("code", { children: "text_area" }),
             " \u2014 \u043E\u0434\u043D\u043E\u0441\u0442\u0440\u043E\u0447\u043D\u044B\u0439 / \u043C\u043D\u043E\u0433\u043E\u0441\u0442\u0440\u043E\u0447\u043D\u044B\u0439."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "select" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "select" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "radio" }),
+            /* @__PURE__ */ jsx72("code", { children: "radio" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "tag" }),
+            /* @__PURE__ */ jsx72("code", { children: "tag" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "level" }),
+            /* @__PURE__ */ jsx72("code", { children: "level" }),
             " \u2014 \u0434\u043B\u044F Enum/Workflow."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "switch" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "switch" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "checkbox" }),
+            /* @__PURE__ */ jsx72("code", { children: "checkbox" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "bool_text" }),
+            /* @__PURE__ */ jsx72("code", { children: "bool_text" }),
             " \u2014 \u0434\u043B\u044F Bool."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "timestamp" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "timestamp" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "date" }),
+            /* @__PURE__ */ jsx72("code", { children: "date" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "time" }),
+            /* @__PURE__ */ jsx72("code", { children: "time" }),
             " \u2014 \u0434\u043B\u044F \u0434\u0430\u0442."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "link" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "link" }),
             " \u2014 \u0434\u043B\u044F URL."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "file" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "file" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "drag_drop_area" }),
+            /* @__PURE__ */ jsx72("code", { children: "drag_drop_area" }),
             " \u2014 \u0434\u043B\u044F Attachment."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "slider" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "slider" }),
             " \u2014 \u0434\u043B\u044F \u0447\u0438\u0441\u043B\u043E\u0432\u044B\u0445 \u0441 \u0448\u0430\u0433\u043E\u043C."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "tree_path" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "tree_path" }),
             " \u2014 \u043F\u0443\u0442\u044C \u0432 \u0434\u0435\u0440\u0435\u0432\u0435 (\u043D\u0443\u0436\u0435\u043D ",
-            /* @__PURE__ */ jsx70("code", { children: "tree" }),
+            /* @__PURE__ */ jsx72("code", { children: "tree" }),
             ")."
           ] })
         ] }),
-        /* @__PURE__ */ jsx70("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0420\u0435\u0434\u0430\u043A\u0442\u043E\u0440 \u0441\u0432\u044F\u0437\u0435\u0439 (widgets[].control)" }),
-        /* @__PURE__ */ jsxs67(List, { children: [
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "select" }),
+        /* @__PURE__ */ jsx72("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0420\u0435\u0434\u0430\u043A\u0442\u043E\u0440 \u0441\u0432\u044F\u0437\u0435\u0439 (widgets[].control)" }),
+        /* @__PURE__ */ jsxs69(List, { children: [
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "select" }),
             " \u2014 \u0434\u043B\u044F side: 1 (\u043E\u0434\u0438\u043D \u043E\u0431\u044A\u0435\u043A\u0442)."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "multi_select" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "multi_select" }),
             " \u2014 \u043A\u043E\u043C\u043F\u0430\u043A\u0442\u043D\u044B\u0439 \u0441\u043F\u0438\u0441\u043E\u043A \u0442\u0435\u0433\u043E\u0432 (side: 2)."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "table" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "table" }),
             " \u2014 \u0440\u0430\u0441\u0448\u0438\u0440\u0435\u043D\u043D\u0430\u044F \u0442\u0430\u0431\u043B\u0438\u0446\u0430 (side: 2). \u041D\u0443\u0436\u043D\u044B ",
-            /* @__PURE__ */ jsx70("code", { children: "columns[]" }),
+            /* @__PURE__ */ jsx72("code", { children: "columns[]" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "addLinksView" }),
+            /* @__PURE__ */ jsx72("code", { children: "addLinksView" }),
             "."
           ] })
         ] }),
-        /* @__PURE__ */ jsx70("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0413\u0440\u0443\u043F\u043F\u044B (groups[])" }),
-        /* @__PURE__ */ jsxs67(List, { children: [
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "block" }),
+        /* @__PURE__ */ jsx72("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0413\u0440\u0443\u043F\u043F\u044B (groups[])" }),
+        /* @__PURE__ */ jsxs69(List, { children: [
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "block" }),
             " \u2014 \u0431\u043B\u043E\u043A \u0441 ",
-            /* @__PURE__ */ jsx70("code", { children: "layout.direction: column" }),
+            /* @__PURE__ */ jsx72("code", { children: "layout.direction: column" }),
             " \u0438 ",
-            /* @__PURE__ */ jsx70("code", { children: "components[]" }),
+            /* @__PURE__ */ jsx72("code", { children: "components[]" }),
             "."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "tab" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "tab" }),
             " \u2014 \u0432\u043A\u043B\u0430\u0434\u043A\u0430, \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u0442 \u0431\u043B\u043E\u043A\u0438 (",
-            /* @__PURE__ */ jsx70("code", { children: "components[].block" }),
+            /* @__PURE__ */ jsx72("code", { children: "components[].block" }),
             ")."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "form" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "form" }),
             " \u2014 \u0444\u043E\u0440\u043C\u0430 \u0441\u043E\u0437\u0434\u0430\u043D\u0438\u044F/\u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F (\u0434\u043B\u044F \u043C\u043E\u0434\u0430\u043B\u043A\u0438)."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "tabs" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "tabs" }),
             " \u2014 \u043F\u0430\u043D\u0435\u043B\u044C \u0432\u043A\u043B\u0430\u0434\u043E\u043A (\u0434\u043B\u044F \u043F\u043E\u043B\u043D\u043E\u044D\u043A\u0440\u0430\u043D\u043D\u043E\u0439 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0438)."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "resizable_block_pair" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "resizable_block_pair" }),
             " \u2014 \u0434\u0432\u0435 \u0441\u0435\u043A\u0446\u0438\u0438 \u0441 \u0440\u0435\u0441\u0430\u0439\u0437\u043E\u043C (",
-            /* @__PURE__ */ jsx70("code", { children: "sizeRatio" }),
+            /* @__PURE__ */ jsx72("code", { children: "sizeRatio" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "minHeight" }),
+            /* @__PURE__ */ jsx72("code", { children: "minHeight" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "maxHeight" }),
+            /* @__PURE__ */ jsx72("code", { children: "maxHeight" }),
             ")."
           ] })
         ] }),
-        /* @__PURE__ */ jsx70("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0412\u043B\u043E\u0436\u0435\u043D\u043D\u044B\u0435 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0438 (views[].views[])" }),
-        /* @__PURE__ */ jsxs67(List, { children: [
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "panel" }),
+        /* @__PURE__ */ jsx72("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0412\u043B\u043E\u0436\u0435\u043D\u043D\u044B\u0435 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0438 (views[].views[])" }),
+        /* @__PURE__ */ jsxs69(List, { children: [
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "panel" }),
             " \u2014 \u043A\u043E\u043C\u043F\u0430\u043A\u0442\u043D\u043E\u0435 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0435, ",
-            /* @__PURE__ */ jsx70("code", { children: "tabs[]" }),
+            /* @__PURE__ */ jsx72("code", { children: "tabs[]" }),
             " + ",
-            /* @__PURE__ */ jsx70("code", { children: "menu[]" }),
+            /* @__PURE__ */ jsx72("code", { children: "menu[]" }),
             " + ",
-            /* @__PURE__ */ jsx70("code", { children: "onView[]" }),
+            /* @__PURE__ */ jsx72("code", { children: "onView[]" }),
             "."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "modal" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "modal" }),
             " \u2014 \u043C\u043E\u0434\u0430\u043B\u043A\u0430, ",
-            /* @__PURE__ */ jsx70("code", { children: "form" }),
+            /* @__PURE__ */ jsx72("code", { children: "form" }),
             " + ",
-            /* @__PURE__ */ jsx70("code", { children: "buttons[]" }),
+            /* @__PURE__ */ jsx72("code", { children: "buttons[]" }),
             " + ",
-            /* @__PURE__ */ jsx70("code", { children: "footer[]" }),
+            /* @__PURE__ */ jsx72("code", { children: "footer[]" }),
             "."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "page" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "page" }),
             " \u2014 \u043F\u043E\u043B\u043D\u043E\u044D\u043A\u0440\u0430\u043D\u043D\u0430\u044F \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0430, ",
-            /* @__PURE__ */ jsx70("code", { children: "actionPanel[]" }),
+            /* @__PURE__ */ jsx72("code", { children: "actionPanel[]" }),
             " + ",
-            /* @__PURE__ */ jsx70("code", { children: "tabs[]" }),
+            /* @__PURE__ */ jsx72("code", { children: "tabs[]" }),
             " / ",
-            /* @__PURE__ */ jsx70("code", { children: "block" }),
+            /* @__PURE__ */ jsx72("code", { children: "block" }),
             " + ",
-            /* @__PURE__ */ jsx70("code", { children: "pinnedView" }),
+            /* @__PURE__ */ jsx72("code", { children: "pinnedView" }),
             "."
           ] })
         ] }),
-        /* @__PURE__ */ jsx70("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0421\u043D\u0438\u043F\u043F\u0435\u0442\u044B" }),
-        /* @__PURE__ */ jsxs67(List, { children: [
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "\u2728 newentityview" }),
+        /* @__PURE__ */ jsx72("h4", { style: { fontSize: 12, color: "var(--text-200)", marginTop: 12, marginBottom: 6 }, children: "\u0421\u043D\u0438\u043F\u043F\u0435\u0442\u044B" }),
+        /* @__PURE__ */ jsxs69(List, { children: [
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "\u2728 newentityview" }),
             " \u2014 \u043F\u043E\u043B\u043D\u044B\u0439 entity-view (widgets, groups, panel, modal)."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "\u2728 newwidgetattr" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "\u2728 newwidgetattr" }),
             " \u2014 \u0432\u0438\u0434\u0436\u0435\u0442 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430 \u0441 control."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "\u2728 newwidgetlinkage" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "\u2728 newwidgetlinkage" }),
             " \u2014 \u0432\u0438\u0434\u0436\u0435\u0442 \u0441\u0432\u044F\u0437\u0438 \u0441 \u0442\u0430\u0431\u043B\u0438\u0446\u0435\u0439."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "\u2728 newwidgetjoin" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "\u2728 newwidgetjoin" }),
             " \u2014 \u0442\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u0430\u044F \u0441\u0432\u044F\u0437\u044C."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "\u2728 newblock" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "\u2728 newblock" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "\u2728 newtab" }),
+            /* @__PURE__ */ jsx72("code", { children: "\u2728 newtab" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "\u2728 newform" }),
+            /* @__PURE__ */ jsx72("code", { children: "\u2728 newform" }),
             " \u2014 \u0433\u0440\u0443\u043F\u043F\u044B."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "\u2728 newpanel" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "\u2728 newpanel" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "\u2728 newmodal" }),
+            /* @__PURE__ */ jsx72("code", { children: "\u2728 newmodal" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "\u2728 newpage" }),
+            /* @__PURE__ */ jsx72("code", { children: "\u2728 newpage" }),
             " \u2014 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0438."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("code", { children: "\u2728 newinherit" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("code", { children: "\u2728 newinherit" }),
             " \u2014 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435 \u0433\u0440\u0443\u043F\u043F\u044B/\u043C\u0435\u043D\u044E/\u0432\u043A\u043B\u0430\u0434\u043E\u043A."
           ] })
         ] })
       ] }),
-      /* @__PURE__ */ jsxs67(Section2, { title: "\u0421\u0435\u0440\u0432\u0435\u0440\u043D\u0430\u044F \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F", children: [
-        /* @__PURE__ */ jsxs67(P, { children: [
+      /* @__PURE__ */ jsxs69(Section2, { title: "\u0421\u0435\u0440\u0432\u0435\u0440\u043D\u0430\u044F \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F", children: [
+        /* @__PURE__ */ jsxs69(P, { children: [
           "\u041A\u043D\u043E\u043F\u043A\u0430 ",
-          /* @__PURE__ */ jsx70("code", { children: "\u2601" }),
+          /* @__PURE__ */ jsx72("code", { children: "\u2601" }),
           " \u0432 \u0448\u0430\u043F\u043A\u0435 \u043E\u0442\u043F\u0440\u0430\u0432\u043B\u044F\u0435\u0442 ",
-          /* @__PURE__ */ jsx70("strong", { children: "\u0442\u0435\u043A\u0443\u0449\u0443\u044E" }),
+          /* @__PURE__ */ jsx72("strong", { children: "\u0442\u0435\u043A\u0443\u0449\u0443\u044E" }),
           " \u0441\u0445\u0435\u043C\u0443 (\u0432\u043A\u043B\u044E\u0447\u0430\u044F \u043D\u0435\u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D\u043D\u044B\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F) \u043D\u0430 \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0443 \u0432 R-Vision."
         ] }),
-        /* @__PURE__ */ jsxs67(List, { children: [
-          /* @__PURE__ */ jsxs67("li", { children: [
+        /* @__PURE__ */ jsxs69(List, { children: [
+          /* @__PURE__ */ jsxs69("li", { children: [
             "\u0420\u0430\u0431\u043E\u0442\u0430\u0435\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u0432 \u0440\u0435\u0436\u0438\u043C\u0435 ",
-            /* @__PURE__ */ jsx70("code", { children: "--server" }),
+            /* @__PURE__ */ jsx72("code", { children: "--server" }),
             " (\u043D\u0443\u0436\u043D\u044B \u043A\u0440\u0435\u0434\u044B)."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
+          /* @__PURE__ */ jsxs69("li", { children: [
             "\u041F\u043E\u0441\u043B\u0435 \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0438: \u0437\u0435\u043B\u0451\u043D\u0430\u044F \u0438\u043A\u043E\u043D\u043A\u0430 ",
-            /* @__PURE__ */ jsx70("code", { children: "\u2601\u2713" }),
+            /* @__PURE__ */ jsx72("code", { children: "\u2601\u2713" }),
             " \u2014 \u0432\u0430\u043B\u0438\u0434\u043D\u0430; \u043A\u0440\u0430\u0441\u043D\u0430\u044F",
-            /* @__PURE__ */ jsx70("code", { children: "\u2601\u2717" }),
+            /* @__PURE__ */ jsx72("code", { children: "\u2601\u2717" }),
             " \u2014 \u0435\u0441\u0442\u044C \u043E\u0448\u0438\u0431\u043A\u0438."
           ] }),
-          /* @__PURE__ */ jsx70("li", { children: "\u041E\u0448\u0438\u0431\u043A\u0438 \u0441\u0435\u0440\u0432\u0435\u0440\u0430 \u043F\u043E\u0434\u0441\u0432\u0435\u0447\u0438\u0432\u0430\u044E\u0442\u0441\u044F \u0432 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0435 (\u043A\u0440\u0430\u0441\u043D\u044B\u0435/\u0436\u0451\u043B\u0442\u044B\u0435 \u043C\u0430\u0440\u043A\u0435\u0440\u044B \u043F\u043E\u0432\u0435\u0440\u0445 \u043B\u043E\u043A\u0430\u043B\u044C\u043D\u043E\u0433\u043E \u043B\u0438\u043D\u0442\u0435\u0440\u0430)." }),
-          /* @__PURE__ */ jsx70("li", { children: "\u041A\u043B\u0438\u043A \u043F\u043E \u043E\u0448\u0438\u0431\u043A\u0435 \u0432 \u043F\u0430\u043D\u0435\u043B\u0438 \xAB\u0421\u0435\u0440\u0432\u0435\u0440\xBB \u2192 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u0441\u0442\u0440\u043E\u043A\u0435." })
+          /* @__PURE__ */ jsx72("li", { children: "\u041E\u0448\u0438\u0431\u043A\u0438 \u0441\u0435\u0440\u0432\u0435\u0440\u0430 \u043F\u043E\u0434\u0441\u0432\u0435\u0447\u0438\u0432\u0430\u044E\u0442\u0441\u044F \u0432 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0435 (\u043A\u0440\u0430\u0441\u043D\u044B\u0435/\u0436\u0451\u043B\u0442\u044B\u0435 \u043C\u0430\u0440\u043A\u0435\u0440\u044B \u043F\u043E\u0432\u0435\u0440\u0445 \u043B\u043E\u043A\u0430\u043B\u044C\u043D\u043E\u0433\u043E \u043B\u0438\u043D\u0442\u0435\u0440\u0430)." }),
+          /* @__PURE__ */ jsx72("li", { children: "\u041A\u043B\u0438\u043A \u043F\u043E \u043E\u0448\u0438\u0431\u043A\u0435 \u0432 \u043F\u0430\u043D\u0435\u043B\u0438 \xAB\u0421\u0435\u0440\u0432\u0435\u0440\xBB \u2192 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u0441\u0442\u0440\u043E\u043A\u0435." })
         ] })
       ] }),
-      /* @__PURE__ */ jsxs67(Section2, { title: "\u0410\u0432\u0442\u043E\u043A\u043E\u043C\u043F\u043B\u0438\u0442 \u043F\u043E\u043B\u0435\u0439", children: [
-        /* @__PURE__ */ jsx70(P, { children: "\u0412 \u043B\u044E\u0431\u043E\u043C \u043C\u0435\u0441\u0442\u0435 YAML \u043F\u0440\u0438 \u043D\u0430\u0431\u043E\u0440\u0435 \u0431\u0443\u043A\u0432\u044B \u043F\u043E\u044F\u0432\u043B\u044F\u0435\u0442\u0441\u044F \u043F\u0430\u043D\u0435\u043B\u044C \u043F\u043E\u0434\u0441\u043A\u0430\u0437\u043E\u043A \u0441 \u043F\u043E\u043B\u044F\u043C\u0438, \u0440\u0435\u043B\u0435\u0432\u0430\u043D\u0442\u043D\u044B\u043C\u0438 \u0442\u0435\u043A\u0443\u0449\u0435\u043C\u0443 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u0443." }),
-        /* @__PURE__ */ jsxs67(List, { children: [
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "\u041F\u043E\u043B\u044F" }),
+      /* @__PURE__ */ jsxs69(Section2, { title: "\u0410\u0432\u0442\u043E\u043A\u043E\u043C\u043F\u043B\u0438\u0442 \u043F\u043E\u043B\u0435\u0439", children: [
+        /* @__PURE__ */ jsx72(P, { children: "\u0412 \u043B\u044E\u0431\u043E\u043C \u043C\u0435\u0441\u0442\u0435 YAML \u043F\u0440\u0438 \u043D\u0430\u0431\u043E\u0440\u0435 \u0431\u0443\u043A\u0432\u044B \u043F\u043E\u044F\u0432\u043B\u044F\u0435\u0442\u0441\u044F \u043F\u0430\u043D\u0435\u043B\u044C \u043F\u043E\u0434\u0441\u043A\u0430\u0437\u043E\u043A \u0441 \u043F\u043E\u043B\u044F\u043C\u0438, \u0440\u0435\u043B\u0435\u0432\u0430\u043D\u0442\u043D\u044B\u043C\u0438 \u0442\u0435\u043A\u0443\u0449\u0435\u043C\u0443 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u0443." }),
+        /* @__PURE__ */ jsxs69(List, { children: [
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "\u041F\u043E\u043B\u044F" }),
             " \u2014 ",
-            /* @__PURE__ */ jsx70("code", { children: "id" }),
+            /* @__PURE__ */ jsx72("code", { children: "id" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "name" }),
+            /* @__PURE__ */ jsx72("code", { children: "name" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "dataType" }),
+            /* @__PURE__ */ jsx72("code", { children: "dataType" }),
             ",",
-            /* @__PURE__ */ jsx70("code", { children: "description" }),
+            /* @__PURE__ */ jsx72("code", { children: "description" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "constraints" }),
+            /* @__PURE__ */ jsx72("code", { children: "constraints" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "readonly" }),
+            /* @__PURE__ */ jsx72("code", { children: "readonly" }),
             " \u0438 \u0442.\u0434. \u041F\u043E\u0440\u044F\u0434\u043E\u043A: \u0441\u043D\u0430\u0447\u0430\u043B\u0430 \u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u044B\u0435 (",
-            /* @__PURE__ */ jsx70("code", { children: "required" }),
+            /* @__PURE__ */ jsx72("code", { children: "required" }),
             ")."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "\u0417\u043D\u0430\u0447\u0435\u043D\u0438\u044F" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "\u0417\u043D\u0430\u0447\u0435\u043D\u0438\u044F" }),
             " \u2014 ",
-            /* @__PURE__ */ jsx70("code", { children: "dataType: " }),
+            /* @__PURE__ */ jsx72("code", { children: "dataType: " }),
             " \u2192 \u0431\u0430\u0437\u043E\u0432\u044B\u0435 \u0438 \u043A\u0430\u0441\u0442\u043E\u043C\u043D\u044B\u0435 \u0442\u0438\u043F\u044B;",
-            /* @__PURE__ */ jsx70("code", { children: "inherits: " }),
+            /* @__PURE__ */ jsx72("code", { children: "inherits: " }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "entity: " }),
+            /* @__PURE__ */ jsx72("code", { children: "entity: " }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "side1/side2: " }),
+            /* @__PURE__ */ jsx72("code", { children: "side1/side2: " }),
             " \u2014 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "\u0421\u043D\u0438\u043F\u043F\u0435\u0442\u044B" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "\u0421\u043D\u0438\u043F\u043F\u0435\u0442\u044B" }),
             " \u2014 \u043F\u0440\u0435\u0444\u0438\u043A\u0441 ",
-            /* @__PURE__ */ jsx70("code", { children: "new*" }),
+            /* @__PURE__ */ jsx72("code", { children: "new*" }),
             " \u2192 \u0448\u0430\u0431\u043B\u043E\u043D \u0431\u043B\u043E\u043A\u0430 (\u0441\u043C. \u043D\u0438\u0436\u0435)."
           ] }),
-          /* @__PURE__ */ jsx70("li", { children: "\u041D\u0430\u0432\u0435\u0434\u0438\u0442\u0435 \u043D\u0430 \u043F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0443 \u2014 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442\u0441\u044F \u0442\u0438\u043F, required-\u0441\u0442\u0430\u0442\u0443\u0441, \u043E\u043F\u0438\u0441\u0430\u043D\u0438\u0435." })
+          /* @__PURE__ */ jsx72("li", { children: "\u041D\u0430\u0432\u0435\u0434\u0438\u0442\u0435 \u043D\u0430 \u043F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0443 \u2014 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442\u0441\u044F \u0442\u0438\u043F, required-\u0441\u0442\u0430\u0442\u0443\u0441, \u043E\u043F\u0438\u0441\u0430\u043D\u0438\u0435." })
         ] })
       ] }),
-      /* @__PURE__ */ jsxs67(Section2, { title: "\u0421\u043D\u0438\u043F\u043F\u0435\u0442\u044B \u2014 \u0448\u0430\u0431\u043B\u043E\u043D\u044B \u0431\u043B\u043E\u043A\u043E\u0432", children: [
-        /* @__PURE__ */ jsxs67(P, { children: [
+      /* @__PURE__ */ jsxs69(Section2, { title: "\u0421\u043D\u0438\u043F\u043F\u0435\u0442\u044B \u2014 \u0448\u0430\u0431\u043B\u043E\u043D\u044B \u0431\u043B\u043E\u043A\u043E\u0432", children: [
+        /* @__PURE__ */ jsxs69(P, { children: [
           "\u041D\u0430\u0431\u0435\u0440\u0438\u0442\u0435 \u043F\u0440\u0435\u0444\u0438\u043A\u0441 \u0432 \u043D\u0443\u0436\u043D\u043E\u043C \u043C\u0435\u0441\u0442\u0435 (\u043F\u043E\u0434 \u0441\u0435\u043A\u0446\u0438\u0435\u0439 \u0438\u043B\u0438 \u0432\u043D\u0443\u0442\u0440\u0438 \u043D\u0435\u0451) \u0438 \u0432\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u043F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0443 \u0441 \u0438\u043A\u043E\u043D\u043A\u043E\u0439 ",
-          /* @__PURE__ */ jsx70("code", { children: "\u2728" }),
+          /* @__PURE__ */ jsx72("code", { children: "\u2728" }),
           ". \u0421\u043D\u0438\u043F\u043F\u0435\u0442 \u0432\u0441\u0442\u0430\u0432\u0438\u0442 \u0433\u043E\u0442\u043E\u0432\u044B\u0439 \u0431\u043B\u043E\u043A \u0441 \u043A\u043E\u0440\u0440\u0435\u043A\u0442\u043D\u044B\u043C\u0438 \u043E\u0442\u0441\u0442\u0443\u043F\u0430\u043C\u0438."
         ] }),
-        /* @__PURE__ */ jsxs67("div", { className: "snippets-table", children: [
-          /* @__PURE__ */ jsxs67("div", { className: "snippets-table__head", children: [
-            /* @__PURE__ */ jsx70("span", { children: "\u041F\u0440\u0435\u0444\u0438\u043A\u0441" }),
-            /* @__PURE__ */ jsx70("span", { children: "\u0427\u0442\u043E \u0432\u0441\u0442\u0430\u0432\u043B\u044F\u0435\u0442" }),
-            /* @__PURE__ */ jsx70("span", { children: "\u0413\u0434\u0435" })
+        /* @__PURE__ */ jsxs69("div", { className: "snippets-table", children: [
+          /* @__PURE__ */ jsxs69("div", { className: "snippets-table__head", children: [
+            /* @__PURE__ */ jsx72("span", { children: "\u041F\u0440\u0435\u0444\u0438\u043A\u0441" }),
+            /* @__PURE__ */ jsx72("span", { children: "\u0427\u0442\u043E \u0432\u0441\u0442\u0430\u0432\u043B\u044F\u0435\u0442" }),
+            /* @__PURE__ */ jsx72("span", { children: "\u0413\u0434\u0435" })
           ] }),
           [
             ["newentity", "\u041D\u043E\u0432\u0430\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0441 \u043F\u0440\u0438\u043C\u0435\u0440\u043E\u043C \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430", "entities"],
@@ -27439,592 +28169,592 @@ function YamlViewerHelp({ onClose }) {
             ["newmixinlinkage", "\u041C\u0438\u043A\u0441\u0438\u043D \u043D\u0430 \u0441\u0432\u044F\u0437\u0438 (type: linkage)", "mixins"],
             ["newexchange", "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u043E\u0431\u043C\u0435\u043D\u0430 \u0434\u0430\u043D\u043D\u044B\u043C\u0438", "exchangeSettings"],
             ["newexchangeentity", "\u041E\u0431\u043C\u0435\u043D \u0434\u043B\u044F \u043E\u0434\u043D\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438", "exchangeSettings.entities"]
-          ].map(([prefix, desc, ctx2]) => /* @__PURE__ */ jsxs67("div", { className: "snippets-table__row", children: [
-            /* @__PURE__ */ jsxs67("code", { children: [
+          ].map(([prefix, desc, ctx2]) => /* @__PURE__ */ jsxs69("div", { className: "snippets-table__row", children: [
+            /* @__PURE__ */ jsxs69("code", { children: [
               "\u2728 ",
               prefix
             ] }),
-            /* @__PURE__ */ jsx70("span", { children: desc }),
-            /* @__PURE__ */ jsx70("code", { className: "snippets-table__ctx", children: ctx2 })
+            /* @__PURE__ */ jsx72("span", { children: desc }),
+            /* @__PURE__ */ jsx72("code", { className: "snippets-table__ctx", children: ctx2 })
           ] }, prefix))
         ] })
       ] }),
-      /* @__PURE__ */ jsx70(Section2, { title: "\u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435 \u0438 \u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u043A\u0430", children: /* @__PURE__ */ jsxs67(List, { children: [
-        /* @__PURE__ */ jsxs67("li", { children: [
-          /* @__PURE__ */ jsx70("code", { children: "\u{1F512}" }),
+      /* @__PURE__ */ jsx72(Section2, { title: "\u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435 \u0438 \u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u043A\u0430", children: /* @__PURE__ */ jsxs69(List, { children: [
+        /* @__PURE__ */ jsxs69("li", { children: [
+          /* @__PURE__ */ jsx72("code", { children: "\u{1F512}" }),
           " \u2014 \u0444\u0430\u0439\u043B \u0437\u0430\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043D (read-only). \u041A\u043D\u043E\u043F\u043A\u0430 \u0432 \u0448\u0430\u043F\u043A\u0435. \u041B\u0430\u043C\u043F\u043E\u0447\u043A\u0438 Quick Fix \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u044B \u0438 \u0432 \u044D\u0442\u043E\u043C \u0440\u0435\u0436\u0438\u043C\u0435: \u043F\u0440\u0438 \u043F\u0440\u0438\u043C\u0435\u043D\u0435\u043D\u0438\u0438 \u0444\u0438\u043A\u0441\u0430 \u0444\u0430\u0439\u043B \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u0440\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u0443\u0435\u0442\u0441\u044F."
         ] }),
-        /* @__PURE__ */ jsxs67("li", { children: [
-          /* @__PURE__ */ jsx70("strong", { children: "\u0414\u0432\u043E\u0439\u043D\u043E\u0439 Shift" }),
+        /* @__PURE__ */ jsxs69("li", { children: [
+          /* @__PURE__ */ jsx72("strong", { children: "\u0414\u0432\u043E\u0439\u043D\u043E\u0439 Shift" }),
           " \u2014 \u0431\u044B\u0441\u0442\u0440\u0430\u044F \u0440\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u043A\u0430 / \u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u043A\u0430. \u0421\u0440\u0430\u0431\u0430\u0442\u044B\u0432\u0430\u0435\u0442, \u0435\u0441\u043B\u0438 \u043C\u0435\u0436\u0434\u0443 \u0434\u0432\u0443\u043C\u044F \u043D\u0430\u0436\u0430\u0442\u0438\u044F\u043C\u0438 Shift \u043D\u0435 \u0431\u044B\u043B\u043E \u0434\u0440\u0443\u0433\u0438\u0445 \u043A\u043B\u0430\u0432\u0438\u0448."
         ] }),
-        /* @__PURE__ */ jsxs67("li", { children: [
-          /* @__PURE__ */ jsx70("code", { children: "\u{1F4CB}" }),
+        /* @__PURE__ */ jsxs69("li", { children: [
+          /* @__PURE__ */ jsx72("code", { children: "\u{1F4CB}" }),
           " \u2014 \u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u0435 \u0432 \u0431\u0443\u0444\u0435\u0440."
         ] }),
-        /* @__PURE__ */ jsxs67("li", { children: [
-          /* @__PURE__ */ jsx70("code", { children: "\u{1F4BE}" }),
+        /* @__PURE__ */ jsxs69("li", { children: [
+          /* @__PURE__ */ jsx72("code", { children: "\u{1F4BE}" }),
           " \u0438\u043B\u0438 ",
-          /* @__PURE__ */ jsx70("code", { children: "Ctrl+S" }),
+          /* @__PURE__ */ jsx72("code", { children: "Ctrl+S" }),
           " \u2014 \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C (\u0442\u043E\u043B\u044C\u043A\u043E \u0432 \u043B\u043E\u043A\u0430\u043B\u044C\u043D\u043E\u043C \u0440\u0435\u0436\u0438\u043C\u0435)."
         ] })
       ] }) }),
-      /* @__PURE__ */ jsxs67(Section2, { title: "\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F YAML", children: [
-        /* @__PURE__ */ jsxs67(P, { children: [
+      /* @__PURE__ */ jsxs69(Section2, { title: "\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F YAML", children: [
+        /* @__PURE__ */ jsxs69(P, { children: [
           "\u0421\u0445\u0435\u043C\u0430 \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442\u0441\u044F \u043D\u0430 \u0441\u0438\u043D\u0442\u0430\u043A\u0441\u0438\u0441 \u043F\u0440\u044F\u043C\u043E \u0432 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0435 \u0447\u0435\u0440\u0435\u0437 ",
-          /* @__PURE__ */ jsx70("code", { children: "js-yaml" }),
+          /* @__PURE__ */ jsx72("code", { children: "js-yaml" }),
           ". \u041E\u0448\u0438\u0431\u043A\u0438 YAML (\u043D\u0435\u0432\u0435\u0440\u043D\u044B\u0435 \u043E\u0442\u0441\u0442\u0443\u043F\u044B, \u0442\u0430\u0431\u044B, \u0434\u0443\u0431\u043B\u0438\u043A\u0430\u0442\u044B \u043A\u043B\u044E\u0447\u0435\u0439, \u043D\u0435\u0437\u0430\u043A\u0440\u044B\u0442\u044B\u0435 \u043A\u0430\u0432\u044B\u0447\u043A\u0438) \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u044E\u0442\u0441\u044F \u043A\u0440\u0430\u0441\u043D\u044B\u043C \u043C\u0430\u0440\u043A\u0435\u0440\u043E\u043C \u0432 \u0441\u0442\u0440\u043E\u043A\u0435."
         ] }),
-        /* @__PURE__ */ jsxs67(List, { children: [
-          /* @__PURE__ */ jsxs67("li", { children: [
+        /* @__PURE__ */ jsxs69(List, { children: [
+          /* @__PURE__ */ jsxs69("li", { children: [
             "\u041E\u0448\u0438\u0431\u043A\u0430 \u043F\u043E\u044F\u0432\u043B\u044F\u0435\u0442\u0441\u044F \u043F\u0435\u0440\u0432\u043E\u0439 \u0432 \u043F\u0430\u043D\u0435\u043B\u0438 \xAB\u041F\u0440\u043E\u0431\u043B\u0435\u043C\u044B\xBB \u0441 \u0438\u0441\u0442\u043E\u0447\u043D\u0438\u043A\u043E\u043C ",
-            /* @__PURE__ */ jsx70("code", { children: "yaml-syntax" }),
+            /* @__PURE__ */ jsx72("code", { children: "yaml-syntax" }),
             "."
           ] }),
-          /* @__PURE__ */ jsx70("li", { children: "\u041F\u0440\u0438 \u043F\u043E\u043F\u044B\u0442\u043A\u0435 \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u0444\u0430\u0439\u043B \u0441 errors \u2014 \u043F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u0435 \u0432 \u043C\u043E\u0434\u0430\u043B\u043A\u0435: \xAB\u0412 \u0441\u0445\u0435\u043C\u0435 N \u043E\u0448\u0438\u0431\u043E\u043A. \u0412\u0441\u0451 \u0440\u0430\u0432\u043D\u043E \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C?\xBB." })
+          /* @__PURE__ */ jsx72("li", { children: "\u041F\u0440\u0438 \u043F\u043E\u043F\u044B\u0442\u043A\u0435 \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u0444\u0430\u0439\u043B \u0441 errors \u2014 \u043F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u0435 \u0432 \u043C\u043E\u0434\u0430\u043B\u043A\u0435: \xAB\u0412 \u0441\u0445\u0435\u043C\u0435 N \u043E\u0448\u0438\u0431\u043E\u043A. \u0412\u0441\u0451 \u0440\u0430\u0432\u043D\u043E \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C?\xBB." })
         ] })
       ] }),
-      /* @__PURE__ */ jsx70(Section2, { title: "\u041F\u0440\u043E\u0432\u0435\u0440\u043A\u0438 RQL", children: /* @__PURE__ */ jsxs67(List, { children: [
-        /* @__PURE__ */ jsxs67("li", { children: [
-          /* @__PURE__ */ jsx70("strong", { children: "\u0421\u0438\u043D\u0442\u0430\u043A\u0441\u0438\u0441" }),
+      /* @__PURE__ */ jsx72(Section2, { title: "\u041F\u0440\u043E\u0432\u0435\u0440\u043A\u0438 RQL", children: /* @__PURE__ */ jsxs69(List, { children: [
+        /* @__PURE__ */ jsxs69("li", { children: [
+          /* @__PURE__ */ jsx72("strong", { children: "\u0421\u0438\u043D\u0442\u0430\u043A\u0441\u0438\u0441" }),
           " \u2014 \u043D\u0435\u0437\u0430\u043A\u0440\u044B\u0442\u044B\u0435 \u0441\u043A\u043E\u0431\u043A\u0438, \u043A\u0430\u0432\u044B\u0447\u043A\u0438, \u043E\u0431\u0440\u0435\u0437\u0430\u043D\u043D\u044B\u0435 \u043E\u043F\u0435\u0440\u0430\u0442\u043E\u0440\u044B."
         ] }),
-        /* @__PURE__ */ jsxs67("li", { children: [
-          /* @__PURE__ */ jsx70("strong", { children: "\u041F\u043E\u043B\u044F" }),
+        /* @__PURE__ */ jsxs69("li", { children: [
+          /* @__PURE__ */ jsx72("strong", { children: "\u041F\u043E\u043B\u044F" }),
           " \u2014 ",
-          /* @__PURE__ */ jsx70("code", { children: "@field" }),
+          /* @__PURE__ */ jsx72("code", { children: "@field" }),
           " \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442\u0441\u044F \u043D\u0430 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u043E\u0432\u0430\u043D\u0438\u0435 \u0432 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u043D\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438."
         ] }),
-        /* @__PURE__ */ jsxs67("li", { children: [
-          /* @__PURE__ */ jsx70("strong", { children: "\u0422\u0438\u043F\u044B" }),
+        /* @__PURE__ */ jsxs69("li", { children: [
+          /* @__PURE__ */ jsx72("strong", { children: "\u0422\u0438\u043F\u044B" }),
           " \u2014 \u0441\u0440\u0430\u0432\u043D\u0435\u043D\u0438\u0435 \u0441\u0442\u0440\u043E\u043A\u0438 \u0441 \u0447\u0438\u0441\u043B\u043E\u043C, \u0447\u0438\u0441\u043B\u0430 \u0441\u043E \u0441\u0442\u0440\u043E\u043A\u043E\u0439."
         ] }),
-        /* @__PURE__ */ jsxs67("li", { children: [
-          /* @__PURE__ */ jsx70("strong", { children: "@doc.attr" }),
+        /* @__PURE__ */ jsxs69("li", { children: [
+          /* @__PURE__ */ jsx72("strong", { children: "@doc.attr" }),
           " \u2014 \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442\u0441\u044F \u043D\u0430\u043B\u0438\u0447\u0438\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430 \u0432 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438."
         ] }),
-        /* @__PURE__ */ jsxs67("li", { children: [
-          /* @__PURE__ */ jsx70("strong", { children: "@DataType.value" }),
+        /* @__PURE__ */ jsxs69("li", { children: [
+          /* @__PURE__ */ jsx72("strong", { children: "@DataType.value" }),
           " \u2014 \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442\u0441\u044F \u0447\u043B\u0435\u043D\u0441\u0442\u0432\u043E \u0432 Enum/Workflow."
         ] }),
-        /* @__PURE__ */ jsxs67("li", { children: [
-          /* @__PURE__ */ jsx70("strong", { children: "FROM(...)" }),
+        /* @__PURE__ */ jsxs69("li", { children: [
+          /* @__PURE__ */ jsx72("strong", { children: "FROM(...)" }),
           " / ",
-          /* @__PURE__ */ jsx70("strong", { children: "join(...)" }),
+          /* @__PURE__ */ jsx72("strong", { children: "join(...)" }),
           " \u2014 \u043F\u043E\u043B\u044F \u0432\u043D\u0443\u0442\u0440\u0438 \u0430\u043B\u0438\u0430\u0441\u043E\u0432 \u043D\u0435 \u043B\u043E\u043C\u0430\u044E\u0442 \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0443."
         ] })
       ] }) }),
-      /* @__PURE__ */ jsxs67(Section2, { title: "Code Actions (\u043B\u0430\u043C\u043F\u043E\u0447\u043A\u0438) \u0438 Quick Fix", children: [
-        /* @__PURE__ */ jsxs67(P, { children: [
+      /* @__PURE__ */ jsxs69(Section2, { title: "Code Actions (\u043B\u0430\u043C\u043F\u043E\u0447\u043A\u0438) \u0438 Quick Fix", children: [
+        /* @__PURE__ */ jsxs69(P, { children: [
           "\u0412 \u0441\u0442\u0440\u043E\u043A\u0430\u0445 \u0441 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043E\u0439 \u0441\u043B\u0435\u0432\u0430 \u043F\u043E\u044F\u0432\u043B\u044F\u0435\u0442\u0441\u044F ",
-          /* @__PURE__ */ jsx70("strong", { children: "\u{1F4A1} \u043B\u0430\u043C\u043F\u043E\u0447\u043A\u0430" }),
+          /* @__PURE__ */ jsx72("strong", { children: "\u{1F4A1} \u043B\u0430\u043C\u043F\u043E\u0447\u043A\u0430" }),
           ". \u041A\u043B\u0438\u043A \u0438\u043B\u0438 ",
-          /* @__PURE__ */ jsx70("code", { children: "Ctrl+." }),
+          /* @__PURE__ */ jsx72("code", { children: "Ctrl+." }),
           " / ",
-          /* @__PURE__ */ jsx70("code", { children: "Alt+Enter" }),
+          /* @__PURE__ */ jsx72("code", { children: "Alt+Enter" }),
           " \u043E\u0442\u043A\u0440\u044B\u0432\u0430\u0435\u0442 \u0431\u044B\u0441\u0442\u0440\u044B\u0435 \u0444\u0438\u043A\u0441\u044B."
         ] }),
-        /* @__PURE__ */ jsxs67(List, { children: [
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "\u{1F42B} \u041F\u0435\u0440\u0435\u0438\u043C\u0435\u043D\u043E\u0432\u0430\u0442\u044C \u0432 camelCase" }),
+        /* @__PURE__ */ jsxs69(List, { children: [
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "\u{1F42B} \u041F\u0435\u0440\u0435\u0438\u043C\u0435\u043D\u043E\u0432\u0430\u0442\u044C \u0432 camelCase" }),
             " \u2014 ",
-            /* @__PURE__ */ jsx70("code", { children: "device_config" }),
+            /* @__PURE__ */ jsx72("code", { children: "device_config" }),
             " \u2192 ",
-            /* @__PURE__ */ jsx70("code", { children: "deviceConfig" }),
+            /* @__PURE__ */ jsx72("code", { children: "deviceConfig" }),
             ",",
-            /* @__PURE__ */ jsx70("code", { children: "Device_Config" }),
+            /* @__PURE__ */ jsx72("code", { children: "Device_Config" }),
             " \u2192 ",
-            /* @__PURE__ */ jsx70("code", { children: "DeviceConfig" }),
+            /* @__PURE__ */ jsx72("code", { children: "DeviceConfig" }),
             "."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "\u{1F3F7}\uFE0F \u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C label" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "\u{1F3F7}\uFE0F \u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C label" }),
             " \u2014 \u0432\u0441\u0442\u0430\u0432\u043B\u044F\u0435\u0442 ",
-            /* @__PURE__ */ jsx70("code", { children: 'label: "{id}"' }),
+            /* @__PURE__ */ jsx72("code", { children: 'label: "{id}"' }),
             " \u043F\u043E\u0434 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C\u044E."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "\u{1F4DD} \u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C description" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "\u{1F4DD} \u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C description" }),
             " \u2014 \u0432\u0441\u0442\u0430\u0432\u043B\u044F\u0435\u0442 ",
-            /* @__PURE__ */ jsx70("code", { children: 'description: ""' }),
+            /* @__PURE__ */ jsx72("code", { children: 'description: ""' }),
             " \u0432 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0438\u043B\u0438 \u0430\u0442\u0440\u0438\u0431\u0443\u0442 (\u0441 \u043A\u043E\u0440\u0440\u0435\u043A\u0442\u043D\u044B\u043C \u043E\u0442\u0441\u0442\u0443\u043F\u043E\u043C)."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "\u{1F4D6} \u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0441\u043F\u0440\u0430\u0432\u043A\u0443" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "\u{1F4D6} \u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0441\u043F\u0440\u0430\u0432\u043A\u0443" }),
             " \u2014 \u0442\u0435\u043A\u0441\u0442 \u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u0438 \u0440\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u044F."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "\u{1F52C} \u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043B\u0438\u043D\u0442\u0435\u0440" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "\u{1F52C} \u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043B\u0438\u043D\u0442\u0435\u0440" }),
             " \u2014 \u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u043A \u0441\u043F\u0438\u0441\u043A\u0443 \u0432\u0441\u0435\u0445 \u043F\u0440\u043E\u0431\u043B\u0435\u043C \u0434\u043E\u043C\u0435\u043D\u0430."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "\u{1F507} \u0418\u0433\u043D\u043E\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "\u{1F507} \u0418\u0433\u043D\u043E\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C" }),
             " \u2014 \u0441\u043A\u0440\u044B\u0442\u044C \u044D\u0442\u043E \u043F\u0440\u0430\u0432\u0438\u043B\u043E (\u0441\u043E\u0445\u0440\u0430\u043D\u044F\u0435\u0442\u0441\u044F \u0432 localStorage, \u0442\u043E\u043B\u044C\u043A\u043E \u0434\u043B\u044F \u0442\u0435\u043A\u0443\u0449\u0435\u0433\u043E \u0444\u0430\u0439\u043B\u0430)."
           ] })
         ] })
       ] }),
-      /* @__PURE__ */ jsx70(Section2, { title: "Diff \u0441 \u043F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0438\u043C \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u0435\u043C", children: /* @__PURE__ */ jsxs67(List, { children: [
-        /* @__PURE__ */ jsxs67("li", { children: [
+      /* @__PURE__ */ jsx72(Section2, { title: "Diff \u0441 \u043F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0438\u043C \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u0435\u043C", children: /* @__PURE__ */ jsxs69(List, { children: [
+        /* @__PURE__ */ jsxs69("li", { children: [
           "\u041A\u043D\u043E\u043F\u043A\u0430 ",
-          /* @__PURE__ */ jsx70("code", { children: "\u{1F50D} Diff" }),
+          /* @__PURE__ */ jsx72("code", { children: "\u{1F50D} Diff" }),
           " \u0432 \u0448\u0430\u043F\u043A\u0435 \u043F\u043E\u044F\u0432\u043B\u044F\u0435\u0442\u0441\u044F, \u0435\u0441\u043B\u0438 \u0444\u0430\u0439\u043B \u0441\u043E\u0445\u0440\u0430\u043D\u044F\u043B\u0441\u044F \u0445\u043E\u0442\u044F \u0431\u044B \u0440\u0430\u0437."
         ] }),
-        /* @__PURE__ */ jsx70("li", { children: "\u041F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 side-by-side \u0441\u0440\u0430\u0432\u043D\u0435\u043D\u0438\u0435 \u0441 \u043F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0435\u0439 \u0432\u0435\u0440\u0441\u0438\u0435\u0439 \u043D\u0430 \u0434\u0438\u0441\u043A\u0435." }),
-        /* @__PURE__ */ jsx70("li", { children: "\u041F\u043E\u0441\u043B\u0435 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F \u2014 diff \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u043E\u0431\u043D\u043E\u0432\u0438\u0442\u0441\u044F." })
+        /* @__PURE__ */ jsx72("li", { children: "\u041F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 side-by-side \u0441\u0440\u0430\u0432\u043D\u0435\u043D\u0438\u0435 \u0441 \u043F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0435\u0439 \u0432\u0435\u0440\u0441\u0438\u0435\u0439 \u043D\u0430 \u0434\u0438\u0441\u043A\u0435." }),
+        /* @__PURE__ */ jsx72("li", { children: "\u041F\u043E\u0441\u043B\u0435 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F \u2014 diff \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u043E\u0431\u043D\u043E\u0432\u0438\u0442\u0441\u044F." })
       ] }) }),
-      /* @__PURE__ */ jsxs67(Section2, { title: "Cross-domain \u0441\u0447\u0451\u0442\u0447\u0438\u043A\u0438", children: [
-        /* @__PURE__ */ jsxs67(P, { children: [
+      /* @__PURE__ */ jsxs69(Section2, { title: "Cross-domain \u0441\u0447\u0451\u0442\u0447\u0438\u043A\u0438", children: [
+        /* @__PURE__ */ jsxs69(P, { children: [
           "\u0412 \u0441\u0442\u0440\u043E\u043A\u0435 \u0441\u0447\u0451\u0442\u0447\u0438\u043A\u043E\u0432 \u043F\u043E\u0434 \u0448\u0430\u043F\u043A\u043E\u0439 \u2014 \u0431\u0435\u0439\u0434\u0436\u0438 ",
-          /* @__PURE__ */ jsx70("code", { children: "\u2192 N \u0438\u0441\u0445." }),
+          /* @__PURE__ */ jsx72("code", { children: "\u2192 N \u0438\u0441\u0445." }),
           " \u0438 ",
-          /* @__PURE__ */ jsx70("code", { children: "\u2190 M \u0432\u0445." }),
+          /* @__PURE__ */ jsx72("code", { children: "\u2190 M \u0432\u0445." }),
           ". \u042D\u0442\u043E \u0441\u0441\u044B\u043B\u043A\u0438 \u043D\u0430 \u0434\u0440\u0443\u0433\u0438\u0435 \u0434\u043E\u043C\u0435\u043D\u044B \u0447\u0435\u0440\u0435\u0437 ",
-          /* @__PURE__ */ jsx70("code", { children: "Reference" }),
+          /* @__PURE__ */ jsx72("code", { children: "Reference" }),
           " \u0438 ",
-          /* @__PURE__ */ jsx70("code", { children: "inherits" }),
+          /* @__PURE__ */ jsx72("code", { children: "inherits" }),
           "."
         ] }),
-        /* @__PURE__ */ jsxs67(List, { children: [
-          /* @__PURE__ */ jsx70("li", { children: "\u041D\u0430\u0432\u0435\u0434\u0438\u0442\u0435 \u043D\u0430 \u0431\u0435\u0439\u0434\u0436 \u2014 \u0442\u0443\u043B\u0442\u0438\u043F \u0441\u043E \u0441\u043F\u0438\u0441\u043A\u043E\u043C \u0434\u043E\u043C\u0435\u043D\u043E\u0432." }),
-          /* @__PURE__ */ jsx70("li", { children: "\u041A\u043B\u0438\u043A \u043F\u043E \u0434\u043E\u043C\u0435\u043D\u0443 \u0432 \u0442\u0443\u043B\u0442\u0438\u043F\u0435 \u2014 \u043E\u0442\u043A\u0440\u044B\u0432\u0430\u0435\u0442\u0441\u044F \u0441\u0445\u0435\u043C\u0430 \u044D\u0442\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430 \u043F\u043E\u0432\u0435\u0440\u0445 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0430." }),
-          /* @__PURE__ */ jsx70("li", { children: "\u041F\u043E\u0441\u043B\u0435 \u0437\u0430\u043A\u0440\u044B\u0442\u0438\u044F \u0441\u0445\u0435\u043C\u044B \u2014 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440 \u043E\u0441\u0442\u0430\u0451\u0442\u0441\u044F \u043D\u0430 \u043C\u0435\u0441\u0442\u0435 (\u0441 \u043A\u0443\u0440\u0441\u043E\u0440\u043E\u043C \u0438 \u0438\u0441\u0442\u043E\u0440\u0438\u0435\u0439)." })
+        /* @__PURE__ */ jsxs69(List, { children: [
+          /* @__PURE__ */ jsx72("li", { children: "\u041D\u0430\u0432\u0435\u0434\u0438\u0442\u0435 \u043D\u0430 \u0431\u0435\u0439\u0434\u0436 \u2014 \u0442\u0443\u043B\u0442\u0438\u043F \u0441\u043E \u0441\u043F\u0438\u0441\u043A\u043E\u043C \u0434\u043E\u043C\u0435\u043D\u043E\u0432." }),
+          /* @__PURE__ */ jsx72("li", { children: "\u041A\u043B\u0438\u043A \u043F\u043E \u0434\u043E\u043C\u0435\u043D\u0443 \u0432 \u0442\u0443\u043B\u0442\u0438\u043F\u0435 \u2014 \u043E\u0442\u043A\u0440\u044B\u0432\u0430\u0435\u0442\u0441\u044F \u0441\u0445\u0435\u043C\u0430 \u044D\u0442\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430 \u043F\u043E\u0432\u0435\u0440\u0445 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0430." }),
+          /* @__PURE__ */ jsx72("li", { children: "\u041F\u043E\u0441\u043B\u0435 \u0437\u0430\u043A\u0440\u044B\u0442\u0438\u044F \u0441\u0445\u0435\u043C\u044B \u2014 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440 \u043E\u0441\u0442\u0430\u0451\u0442\u0441\u044F \u043D\u0430 \u043C\u0435\u0441\u0442\u0435 (\u0441 \u043A\u0443\u0440\u0441\u043E\u0440\u043E\u043C \u0438 \u0438\u0441\u0442\u043E\u0440\u0438\u0435\u0439)." })
         ] })
       ] }),
-      /* @__PURE__ */ jsxs67(Section2, { title: "\u041D\u0435\u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u043C\u044B\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B", children: [
-        /* @__PURE__ */ jsxs67(P, { children: [
+      /* @__PURE__ */ jsxs69(Section2, { title: "\u041D\u0435\u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u043C\u044B\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B", children: [
+        /* @__PURE__ */ jsxs69(P, { children: [
           "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u044B, \u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u043D\u0435 \u0443\u043F\u043E\u043C\u044F\u043D\u0443\u0442\u044B \u043D\u0438 \u0432 ",
-          /* @__PURE__ */ jsx70("code", { children: "views[].widgets[].attribute" }),
+          /* @__PURE__ */ jsx72("code", { children: "views[].widgets[].attribute" }),
           ", \u043D\u0438 \u0432 ",
-          /* @__PURE__ */ jsx70("code", { children: "dataRules[].attributes[].attribute" }),
+          /* @__PURE__ */ jsx72("code", { children: "dataRules[].attributes[].attribute" }),
           ", \u043F\u043E\u0434\u0441\u0432\u0435\u0447\u0438\u0432\u0430\u044E\u0442\u0441\u044F:"
         ] }),
-        /* @__PURE__ */ jsxs67(List, { children: [
-          /* @__PURE__ */ jsx70("li", { children: "\u0421\u043B\u0435\u0432\u0430 \u2014 \u0436\u0451\u043B\u0442\u0430\u044F \u0432\u0435\u0440\u0442\u0438\u043A\u0430\u043B\u044C\u043D\u0430\u044F \u043F\u043E\u043B\u043E\u0441\u0430." }),
-          /* @__PURE__ */ jsx70("li", { children: "\u0422\u0435\u043A\u0441\u0442 \u2014 \u0441\u0435\u0440\u044B\u0439 \u043A\u0443\u0440\u0441\u0438\u0432." }),
-          /* @__PURE__ */ jsx70("li", { children: "\u041D\u0430\u0432\u0435\u0434\u0435\u043D\u0438\u0435 \u2014 tooltip \xAB\u0410\u0442\u0440\u0438\u0431\u0443\u0442 \u043D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u043D\u0438 \u0432 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F\u0445, \u043D\u0438 \u0432 \u043F\u0440\u0430\u0432\u0438\u043B\u0430\u0445 \u0434\u0430\u043D\u043D\u044B\u0445\xBB." })
+        /* @__PURE__ */ jsxs69(List, { children: [
+          /* @__PURE__ */ jsx72("li", { children: "\u0421\u043B\u0435\u0432\u0430 \u2014 \u0436\u0451\u043B\u0442\u0430\u044F \u0432\u0435\u0440\u0442\u0438\u043A\u0430\u043B\u044C\u043D\u0430\u044F \u043F\u043E\u043B\u043E\u0441\u0430." }),
+          /* @__PURE__ */ jsx72("li", { children: "\u0422\u0435\u043A\u0441\u0442 \u2014 \u0441\u0435\u0440\u044B\u0439 \u043A\u0443\u0440\u0441\u0438\u0432." }),
+          /* @__PURE__ */ jsx72("li", { children: "\u041D\u0430\u0432\u0435\u0434\u0435\u043D\u0438\u0435 \u2014 tooltip \xAB\u0410\u0442\u0440\u0438\u0431\u0443\u0442 \u043D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u043D\u0438 \u0432 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F\u0445, \u043D\u0438 \u0432 \u043F\u0440\u0430\u0432\u0438\u043B\u0430\u0445 \u0434\u0430\u043D\u043D\u044B\u0445\xBB." })
         ] })
       ] }),
-      /* @__PURE__ */ jsx70(Section2, { title: "\u041F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0438 \u043F\u0440\u0438 \u043D\u0430\u0432\u0435\u0434\u0435\u043D\u0438\u0438", children: /* @__PURE__ */ jsxs67(List, { children: [
-        /* @__PURE__ */ jsxs67("li", { children: [
+      /* @__PURE__ */ jsx72(Section2, { title: "\u041F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0438 \u043F\u0440\u0438 \u043D\u0430\u0432\u0435\u0434\u0435\u043D\u0438\u0438", children: /* @__PURE__ */ jsxs69(List, { children: [
+        /* @__PURE__ */ jsxs69("li", { children: [
           "\u041D\u0430\u0432\u0435\u0434\u0438\u0442\u0435 \u043D\u0430 ",
-          /* @__PURE__ */ jsx70("code", { children: "id: Device" }),
+          /* @__PURE__ */ jsx72("code", { children: "id: Device" }),
           " \u0438\u043B\u0438 ",
-          /* @__PURE__ */ jsx70("code", { children: "inherits: Device" }),
+          /* @__PURE__ */ jsx72("code", { children: "inherits: Device" }),
           " \u2014 \u0442\u0443\u043B\u0442\u0438\u043F \u0441 \u043F\u043E\u043B\u043D\u043E\u0439 \u0446\u0435\u043F\u043E\u0447\u043A\u043E\u0439 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F \u0438 \u0441\u043F\u0438\u0441\u043A\u043E\u043C \u043D\u0430\u0441\u043B\u0435\u0434\u043D\u0438\u043A\u043E\u0432."
         ] }),
-        /* @__PURE__ */ jsxs67("li", { children: [
+        /* @__PURE__ */ jsxs69("li", { children: [
           "\u041D\u0430\u0432\u0435\u0434\u0438\u0442\u0435 \u043D\u0430 ",
-          /* @__PURE__ */ jsx70("code", { children: "dataType: enumIocTypes" }),
+          /* @__PURE__ */ jsx72("code", { children: "dataType: enumIocTypes" }),
           " \u2014 \u0442\u0438\u043F, \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u044F (\u0434\u043B\u044F Enum), \u0441\u0442\u0430\u0442\u0443\u0441\u044B (\u0434\u043B\u044F Workflow), \u043A\u043E\u043B\u043E\u043D\u043A\u0438 (\u0434\u043B\u044F Table)."
         ] }),
-        /* @__PURE__ */ jsxs67("li", { children: [
+        /* @__PURE__ */ jsxs69("li", { children: [
           "\u041D\u0430\u0432\u0435\u0434\u0438\u0442\u0435 \u043D\u0430 ",
-          /* @__PURE__ */ jsx70("code", { children: "attribute: Requirement.identifier" }),
+          /* @__PURE__ */ jsx72("code", { children: "attribute: Requirement.identifier" }),
           " \u2014 \u0442\u0438\u043F, \u043E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F, \u0441\u0441\u044B\u043B\u043A\u0438."
         ] })
       ] }) }),
-      /* @__PURE__ */ jsx70(Section2, { title: "\u0420\u0435\u0441\u0430\u0439\u0437 \u043F\u0430\u043D\u0435\u043B\u0435\u0439", children: /* @__PURE__ */ jsxs67(List, { children: [
-        /* @__PURE__ */ jsx70("li", { children: "\u041B\u0435\u0432\u0430\u044F \u043F\u0430\u043D\u0435\u043B\u044C \u043D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u0438 \u2014 \u0442\u044F\u043D\u0438\u0442\u0435 \u0437\u0430 \u043F\u0440\u0430\u0432\u0443\u044E \u0433\u0440\u0430\u043D\u0438\u0446\u0443 (180\u2013600px)." }),
-        /* @__PURE__ */ jsxs67("li", { children: [
+      /* @__PURE__ */ jsx72(Section2, { title: "\u0420\u0435\u0441\u0430\u0439\u0437 \u043F\u0430\u043D\u0435\u043B\u0435\u0439", children: /* @__PURE__ */ jsxs69(List, { children: [
+        /* @__PURE__ */ jsx72("li", { children: "\u041B\u0435\u0432\u0430\u044F \u043F\u0430\u043D\u0435\u043B\u044C \u043D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u0438 \u2014 \u0442\u044F\u043D\u0438\u0442\u0435 \u0437\u0430 \u043F\u0440\u0430\u0432\u0443\u044E \u0433\u0440\u0430\u043D\u0438\u0446\u0443 (180\u2013600px)." }),
+        /* @__PURE__ */ jsxs69("li", { children: [
           "\u041A\u043D\u043E\u043F\u043A\u0438 ",
-          /* @__PURE__ */ jsx70("code", { children: "\u2039 \u203A" }),
+          /* @__PURE__ */ jsx72("code", { children: "\u2039 \u203A" }),
           " \u0432 \u0448\u0430\u043F\u043A\u0435 \u2014 \u0441\u0432\u0435\u0440\u043D\u0443\u0442\u044C / \u0440\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u043B\u0435\u0432\u0443\u044E \u0438 \u043F\u0440\u0430\u0432\u0443\u044E \u043F\u0430\u043D\u0435\u043B\u0438."
         ] })
       ] }) }),
-      /* @__PURE__ */ jsxs67(Section2, { title: "\u0414\u0435\u0440\u0435\u0432\u044C\u044F (trees)", children: [
-        /* @__PURE__ */ jsx70(P, { children: "\u0414\u0440\u0435\u0432\u043E\u0432\u0438\u0434\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0438 \u2014 \u0438\u0435\u0440\u0430\u0440\u0445\u0438\u0438 \u0442\u0438\u043F\u0430 \xAB\u041A\u0430\u0442\u0430\u043B\u043E\u0433\xBB, \xAB\u0421\u0442\u0430\u043D\u0434\u0430\u0440\u0442\u044B\xBB, \xAB\u041E\u0440\u0433\u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0430\xBB. \u041E\u043F\u0438\u0441\u044B\u0432\u0430\u044E\u0442 \u0432\u043B\u043E\u0436\u0435\u043D\u043D\u043E\u0441\u0442\u044C \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0447\u0435\u0440\u0435\u0437 \u0441\u0432\u044F\u0437\u0438 \u0441 \u043E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F\u043C\u0438 \u043F\u043E \u0433\u043B\u0443\u0431\u0438\u043D\u0435 \u0438 \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u0443." }),
-        /* @__PURE__ */ jsxs67(List, { children: [
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "type" }),
+      /* @__PURE__ */ jsxs69(Section2, { title: "\u0414\u0435\u0440\u0435\u0432\u044C\u044F (trees)", children: [
+        /* @__PURE__ */ jsx72(P, { children: "\u0414\u0440\u0435\u0432\u043E\u0432\u0438\u0434\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0438 \u2014 \u0438\u0435\u0440\u0430\u0440\u0445\u0438\u0438 \u0442\u0438\u043F\u0430 \xAB\u041A\u0430\u0442\u0430\u043B\u043E\u0433\xBB, \xAB\u0421\u0442\u0430\u043D\u0434\u0430\u0440\u0442\u044B\xBB, \xAB\u041E\u0440\u0433\u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0430\xBB. \u041E\u043F\u0438\u0441\u044B\u0432\u0430\u044E\u0442 \u0432\u043B\u043E\u0436\u0435\u043D\u043D\u043E\u0441\u0442\u044C \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0447\u0435\u0440\u0435\u0437 \u0441\u0432\u044F\u0437\u0438 \u0441 \u043E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F\u043C\u0438 \u043F\u043E \u0433\u043B\u0443\u0431\u0438\u043D\u0435 \u0438 \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u0443." }),
+        /* @__PURE__ */ jsxs69(List, { children: [
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "type" }),
             ": ",
-            /* @__PURE__ */ jsx70("code", { children: "ordinary" }),
+            /* @__PURE__ */ jsx72("code", { children: "ordinary" }),
             " | ",
-            /* @__PURE__ */ jsx70("code", { children: "orderable" }),
+            /* @__PURE__ */ jsx72("code", { children: "orderable" }),
             " (\u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430) | ",
-            /* @__PURE__ */ jsx70("code", { children: "multiparent" }),
+            /* @__PURE__ */ jsx72("code", { children: "multiparent" }),
             " (\u043B\u0438\u0441\u0442 \u0432 \u043D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u0438\u0445 \u0433\u0440\u0443\u043F\u043F\u0430\u0445)."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "hierarchy" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "hierarchy" }),
             " \u2014 \u043A\u043E\u0440\u043D\u0435\u0432\u0430\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0438 \u0440\u0435\u043A\u0443\u0440\u0441\u0438\u0432\u043D\u043E\u0435 \u0434\u0435\u0440\u0435\u0432\u043E ",
-            /* @__PURE__ */ jsx70("code", { children: "children" }),
+            /* @__PURE__ */ jsx72("code", { children: "children" }),
             "."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "sorting" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "sorting" }),
             " \u2014 \u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0438 \u043F\u043E \u0443\u0440\u043E\u0432\u043D\u044F\u043C (\u0441\u0432\u043E\u044F \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430 \u0434\u043B\u044F \u043A\u0430\u0436\u0434\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0432 \u0434\u0435\u0440\u0435\u0432\u0435)."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
+          /* @__PURE__ */ jsxs69("li", { children: [
             "\u0412\u043B\u043E\u0436\u0435\u043D\u043D\u043E\u0441\u0442\u044C: ",
-            /* @__PURE__ */ jsx70("code", { children: "sorting[].by[]" }),
+            /* @__PURE__ */ jsx72("code", { children: "sorting[].by[]" }),
             " \u043C\u043E\u0436\u0435\u0442 \u0431\u044B\u0442\u044C \u0434\u0432\u0443\u0445\u0443\u0440\u043E\u0432\u043D\u0435\u0432\u044B\u043C \u2014 \u0432\u043D\u0435\u0448\u043D\u0438\u0439 \u043E\u043F\u0438\u0441\u044B\u0432\u0430\u0435\u0442 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C, \u0432\u043D\u0443\u0442\u0440\u0435\u043D\u043D\u0438\u0439 \u2014 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B."
           ] })
         ] }),
-        /* @__PURE__ */ jsxs67(P, { children: [
+        /* @__PURE__ */ jsxs69(P, { children: [
           "\u0421\u043D\u0438\u043F\u043F\u0435\u0442: ",
-          /* @__PURE__ */ jsx70("code", { children: "\u2728 newtree" }),
+          /* @__PURE__ */ jsx72("code", { children: "\u2728 newtree" }),
           " \u2014 \u0434\u0435\u0440\u0435\u0432\u043E \u0441 1 \u0443\u0440\u043E\u0432\u043D\u0435\u043C \u0432\u043B\u043E\u0436\u0435\u043D\u043D\u043E\u0441\u0442\u0438 \u0438 \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u043E\u0439."
         ] })
       ] }),
-      /* @__PURE__ */ jsxs67(Section2, { title: "\u0422\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0438 (transitiveLinkages)", children: [
-        /* @__PURE__ */ jsx70(P, { children: "\u0426\u0435\u043F\u043E\u0447\u043A\u0438 \u0441\u0432\u044F\u0437\u0435\u0439 \u0447\u0435\u0440\u0435\u0437 \u043F\u0440\u043E\u043C\u0435\u0436\u0443\u0442\u043E\u0447\u043D\u044B\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438. \u041F\u043E\u0437\u0432\u043E\u043B\u044F\u044E\u0442 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0442\u044C \u0434\u0430\u043D\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0430\u043D\u043D\u044B\u0445 \u043E\u0431\u044A\u0435\u043A\u0442\u043E\u0432 \u0447\u0435\u0440\u0435\u0437 \u043D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0445\u043E\u043F\u043E\u0432 (Equipment \u2192 City \u2192 Office \u2192 Country) \u0432 \u0441\u043F\u0438\u0441\u043A\u0430\u0445 \u0438 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0430\u0445." }),
-        /* @__PURE__ */ jsxs67(List, { children: [
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "entity" }),
+      /* @__PURE__ */ jsxs69(Section2, { title: "\u0422\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0438 (transitiveLinkages)", children: [
+        /* @__PURE__ */ jsx72(P, { children: "\u0426\u0435\u043F\u043E\u0447\u043A\u0438 \u0441\u0432\u044F\u0437\u0435\u0439 \u0447\u0435\u0440\u0435\u0437 \u043F\u0440\u043E\u043C\u0435\u0436\u0443\u0442\u043E\u0447\u043D\u044B\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438. \u041F\u043E\u0437\u0432\u043E\u043B\u044F\u044E\u0442 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0442\u044C \u0434\u0430\u043D\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0430\u043D\u043D\u044B\u0445 \u043E\u0431\u044A\u0435\u043A\u0442\u043E\u0432 \u0447\u0435\u0440\u0435\u0437 \u043D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0445\u043E\u043F\u043E\u0432 (Equipment \u2192 City \u2192 Office \u2192 Country) \u0432 \u0441\u043F\u0438\u0441\u043A\u0430\u0445 \u0438 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0430\u0445." }),
+        /* @__PURE__ */ jsxs69(List, { children: [
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "entity" }),
             " \u2014 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C-\u043A\u043E\u0440\u0435\u043D\u044C, \u0434\u043B\u044F \u043A\u043E\u0442\u043E\u0440\u043E\u0439 \u0441\u0442\u0440\u043E\u0438\u0442\u0441\u044F \u0434\u0435\u0440\u0435\u0432\u043E."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "joins[]" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "joins[]" }),
             " \u2014 \u0446\u0435\u043F\u043E\u0447\u043A\u0430 \u0441\u0432\u044F\u0437\u0435\u0439. \u0412\u043B\u043E\u0436\u0435\u043D\u043D\u043E\u0441\u0442\u044C \u0447\u0435\u0440\u0435\u0437 ",
-            /* @__PURE__ */ jsx70("code", { children: "joins[].joins[]" }),
+            /* @__PURE__ */ jsx72("code", { children: "joins[].joins[]" }),
             "."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "search" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "search" }),
             " \u2014 \u0432\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u043F\u043E\u0438\u0441\u043A \u043F\u043E \u0443\u0437\u043B\u0443 (",
-            /* @__PURE__ */ jsx70("code", { children: "entity" }),
+            /* @__PURE__ */ jsx72("code", { children: "entity" }),
             " / ",
-            /* @__PURE__ */ jsx70("code", { children: "linkage" }),
+            /* @__PURE__ */ jsx72("code", { children: "linkage" }),
             " / ",
-            /* @__PURE__ */ jsx70("code", { children: "both" }),
+            /* @__PURE__ */ jsx72("code", { children: "both" }),
             ")."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
+          /* @__PURE__ */ jsxs69("li", { children: [
             "\u0412 \u0441\u043F\u0438\u0441\u043E\u0447\u043D\u044B\u0445 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F\u0445 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u0447\u0435\u0440\u0435\u0437 ",
-            /* @__PURE__ */ jsx70("code", { children: "join:" }),
+            /* @__PURE__ */ jsx72("code", { children: "join:" }),
             " \u0432 \u043A\u043E\u043B\u043E\u043D\u043A\u0430\u0445 \u0438 \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u0445."
           ] })
         ] }),
-        /* @__PURE__ */ jsxs67(P, { children: [
+        /* @__PURE__ */ jsxs69(P, { children: [
           "\u0421\u043D\u0438\u043F\u043F\u0435\u0442\u044B: ",
-          /* @__PURE__ */ jsx70("code", { children: "\u2728 newtransitive" }),
+          /* @__PURE__ */ jsx72("code", { children: "\u2728 newtransitive" }),
           " (1 \u0445\u043E\u043F), ",
-          /* @__PURE__ */ jsx70("code", { children: "\u2728 newjoins" }),
+          /* @__PURE__ */ jsx72("code", { children: "\u2728 newjoins" }),
           " (\u0441\u043B\u0435\u0434\u0443\u044E\u0449\u0438\u0439 \u0445\u043E\u043F)."
         ] })
       ] }),
-      /* @__PURE__ */ jsxs67(Section2, { title: "UI Rules (uiRules + uiPresets)", children: [
-        /* @__PURE__ */ jsx70(P, { children: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0439 \u2014 \u0443\u0441\u043B\u043E\u0432\u043D\u043E\u0435 \u0441\u043A\u0440\u044B\u0442\u0438\u0435, \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0435 \u0441\u0442\u0438\u043B\u0435\u0439 \u0438 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E\u0441\u0442\u0438 \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u043E\u0432 UI \u0432 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438 \u043E\u0442 \u0440\u043E\u043B\u0438 \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044F, \u0434\u0430\u043D\u043D\u044B\u0445 \u043E\u0431\u044A\u0435\u043A\u0442\u0430 \u0438\u043B\u0438 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u0430." }),
-        /* @__PURE__ */ jsxs67(List, { children: [
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "target" }),
+      /* @__PURE__ */ jsxs69(Section2, { title: "UI Rules (uiRules + uiPresets)", children: [
+        /* @__PURE__ */ jsx72(P, { children: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0439 \u2014 \u0443\u0441\u043B\u043E\u0432\u043D\u043E\u0435 \u0441\u043A\u0440\u044B\u0442\u0438\u0435, \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0435 \u0441\u0442\u0438\u043B\u0435\u0439 \u0438 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E\u0441\u0442\u0438 \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u043E\u0432 UI \u0432 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438 \u043E\u0442 \u0440\u043E\u043B\u0438 \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044F, \u0434\u0430\u043D\u043D\u044B\u0445 \u043E\u0431\u044A\u0435\u043A\u0442\u0430 \u0438\u043B\u0438 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u0430." }),
+        /* @__PURE__ */ jsxs69(List, { children: [
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "target" }),
             ": ",
-            /* @__PURE__ */ jsx70("code", { children: "list_view" }),
+            /* @__PURE__ */ jsx72("code", { children: "list_view" }),
             " (\u0441\u043F\u0438\u0441\u043E\u0447\u043D\u043E\u0435), ",
-            /* @__PURE__ */ jsx70("code", { children: "entity_view" }),
+            /* @__PURE__ */ jsx72("code", { children: "entity_view" }),
             " (\u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0430/\u043C\u043E\u0434\u0430\u043B\u043A\u0430), ",
-            /* @__PURE__ */ jsx70("code", { children: "entity_attribute" }),
+            /* @__PURE__ */ jsx72("code", { children: "entity_attribute" }),
             " (\u043A\u043E\u043B\u043E\u043D\u043A\u0438 \u0442\u0430\u0431\u043B\u0438\u0446/\u044D\u043B\u0435\u043C\u0435\u043D\u0442\u044B \u043C\u0430\u0441\u0441\u0438\u0432\u043E\u0432)."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "view" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "view" }),
             " \u2014 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0435, \u043A \u043A\u043E\u0442\u043E\u0440\u043E\u043C\u0443 \u043F\u0440\u0438\u043C\u0435\u043D\u044F\u0435\u0442\u0441\u044F \u043F\u0440\u0430\u0432\u0438\u043B\u043E."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "context.views[]" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "context.views[]" }),
             " \u2014 \u043E\u0433\u0440\u0430\u043D\u0438\u0447\u0438\u0442\u044C \u043F\u0440\u0438\u043C\u0435\u043D\u0435\u043D\u0438\u0435 \u043F\u0440\u0430\u0432\u0438\u043B\u043E\u043C \u0442\u043E\u043B\u044C\u043A\u043E \u043F\u0435\u0440\u0435\u0447\u0438\u0441\u043B\u0435\u043D\u043D\u044B\u043C\u0438 view (\u0434\u043B\u044F entity_view)."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "condition" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "condition" }),
             " \u2014 RQL-\u0443\u0441\u043B\u043E\u0432\u0438\u0435. \u0415\u0441\u043B\u0438 true \u2014 \u043F\u0440\u0430\u0432\u0438\u043B\u043E \u0441\u0440\u0430\u0431\u0430\u0442\u044B\u0432\u0430\u0435\u0442."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "rule.effect" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "rule.effect" }),
             ": ",
-            /* @__PURE__ */ jsx70("code", { children: "hidden" }),
+            /* @__PURE__ */ jsx72("code", { children: "hidden" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "show" }),
+            /* @__PURE__ */ jsx72("code", { children: "show" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "hiddenEmpty" }),
+            /* @__PURE__ */ jsx72("code", { children: "hiddenEmpty" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "readonly" }),
+            /* @__PURE__ */ jsx72("code", { children: "readonly" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "editable" }),
+            /* @__PURE__ */ jsx72("code", { children: "editable" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "inherit" }),
+            /* @__PURE__ */ jsx72("code", { children: "inherit" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "variant" }),
+            /* @__PURE__ */ jsx72("code", { children: "variant" }),
             "."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "rule.widgets[]" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "rule.widgets[]" }),
             ", ",
-            /* @__PURE__ */ jsx70("strong", { children: "rule.groups[]" }),
+            /* @__PURE__ */ jsx72("strong", { children: "rule.groups[]" }),
             ", ",
-            /* @__PURE__ */ jsx70("strong", { children: "rule.columns[]" }),
+            /* @__PURE__ */ jsx72("strong", { children: "rule.columns[]" }),
             " \u2014 \u043D\u0430 \u0447\u0442\u043E \u0434\u0435\u0439\u0441\u0442\u0432\u0443\u0435\u0442."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "nested" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "nested" }),
             " \u2014 \u0434\u043B\u044F \u0432\u0438\u0434\u0436\u0435\u0442\u043E\u0432 Array/Table: \u043F\u0440\u0438\u043C\u0435\u043D\u0438\u0442\u044C \u043A \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u044B\u043C \u043A\u043E\u043B\u043E\u043D\u043A\u0430\u043C/\u044D\u043B\u0435\u043C\u0435\u043D\u0442\u0430\u043C."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "presets" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "presets" }),
             " \u2014 \u043F\u0440\u0438\u043C\u0435\u043D\u0438\u0442\u044C ",
-            /* @__PURE__ */ jsx70("code", { children: "uiPresets" }),
+            /* @__PURE__ */ jsx72("code", { children: "uiPresets" }),
             " (\u0446\u0432\u0435\u0442, \u0448\u0440\u0438\u0444\u0442, \u0441\u0432\u0451\u0440\u043D\u0443\u0442\u043E\u0441\u0442\u044C)."
           ] })
         ] }),
-        /* @__PURE__ */ jsxs67(P, { children: [
-          /* @__PURE__ */ jsx70("strong", { children: "uiPresets" }),
+        /* @__PURE__ */ jsxs69(P, { children: [
+          /* @__PURE__ */ jsx72("strong", { children: "uiPresets" }),
           " \u2014 \u0438\u043C\u0435\u043D\u043E\u0432\u0430\u043D\u043D\u044B\u0435 \u043D\u0430\u0431\u043E\u0440\u044B CSS-\u0441\u0432\u043E\u0439\u0441\u0442\u0432: ",
-          /* @__PURE__ */ jsx70("code", { children: "color" }),
+          /* @__PURE__ */ jsx72("code", { children: "color" }),
           ", ",
-          /* @__PURE__ */ jsx70("code", { children: "font-weight" }),
+          /* @__PURE__ */ jsx72("code", { children: "font-weight" }),
           ",",
-          /* @__PURE__ */ jsx70("code", { children: "background-color" }),
+          /* @__PURE__ */ jsx72("code", { children: "background-color" }),
           ", ",
-          /* @__PURE__ */ jsx70("code", { children: "collapsed" }),
+          /* @__PURE__ */ jsx72("code", { children: "collapsed" }),
           " \u0438 \u0442.\u0434."
         ] }),
-        /* @__PURE__ */ jsxs67(P, { children: [
+        /* @__PURE__ */ jsxs69(P, { children: [
           "\u0421\u043D\u0438\u043F\u043F\u0435\u0442\u044B: ",
-          /* @__PURE__ */ jsx70("code", { children: "\u2728 newuirule" }),
+          /* @__PURE__ */ jsx72("code", { children: "\u2728 newuirule" }),
           " (hidden), ",
-          /* @__PURE__ */ jsx70("code", { children: "\u2728 newuirulevariant" }),
+          /* @__PURE__ */ jsx72("code", { children: "\u2728 newuirulevariant" }),
           " (\u0441 \u043F\u0440\u0435\u0441\u0435\u0442\u043E\u043C),",
-          /* @__PURE__ */ jsx70("code", { children: "\u2728 newuirulenested" }),
+          /* @__PURE__ */ jsx72("code", { children: "\u2728 newuirulenested" }),
           " (\u043A\u043E\u043B\u043E\u043D\u043A\u0430 \u0442\u0430\u0431\u043B\u0438\u0446\u044B), ",
-          /* @__PURE__ */ jsx70("code", { children: "\u2728 newuipreset" }),
+          /* @__PURE__ */ jsx72("code", { children: "\u2728 newuipreset" }),
           ",",
-          /* @__PURE__ */ jsx70("code", { children: "\u2728 newpresetref" }),
+          /* @__PURE__ */ jsx72("code", { children: "\u2728 newpresetref" }),
           "."
         ] }),
-        /* @__PURE__ */ jsxs67(P, { children: [
-          /* @__PURE__ */ jsx70("strong", { children: "\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F:" }),
+        /* @__PURE__ */ jsxs69(P, { children: [
+          /* @__PURE__ */ jsx72("strong", { children: "\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F:" }),
           " \u0435\u0441\u043B\u0438 \u0432 \u043F\u0440\u0430\u0432\u0438\u043B\u0435 \u0443\u043A\u0430\u0437\u0430\u043D\u0430 \u0441\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 \u043D\u0435\u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0439 view / widget / group / column / preset, \u0441\u0442\u0440\u043E\u043A\u0430 \u043F\u043E\u0434\u0441\u0432\u0435\u0447\u0438\u0432\u0430\u0435\u0442\u0441\u044F \u0436\u0451\u043B\u0442\u044B\u043C \u043C\u0430\u0440\u043A\u0435\u0440\u043E\u043C."
         ] }),
-        /* @__PURE__ */ jsxs67(P, { children: [
-          /* @__PURE__ */ jsx70("strong", { children: "\u0410\u0432\u0442\u043E\u043A\u043E\u043C\u043F\u043B\u0438\u0442:" }),
+        /* @__PURE__ */ jsxs69(P, { children: [
+          /* @__PURE__ */ jsx72("strong", { children: "\u0410\u0432\u0442\u043E\u043A\u043E\u043C\u043F\u043B\u0438\u0442:" }),
           " \u0432 \u043F\u043E\u043B\u044F\u0445 ",
-          /* @__PURE__ */ jsx70("code", { children: "view:" }),
+          /* @__PURE__ */ jsx72("code", { children: "view:" }),
           ", ",
-          /* @__PURE__ */ jsx70("code", { children: "- widget:" }),
+          /* @__PURE__ */ jsx72("code", { children: "- widget:" }),
           ", ",
-          /* @__PURE__ */ jsx70("code", { children: "- group:" }),
+          /* @__PURE__ */ jsx72("code", { children: "- group:" }),
           ", ",
-          /* @__PURE__ */ jsx70("code", { children: "- column:" }),
+          /* @__PURE__ */ jsx72("code", { children: "- column:" }),
           ", ",
-          /* @__PURE__ */ jsx70("code", { children: "- preset:" }),
+          /* @__PURE__ */ jsx72("code", { children: "- preset:" }),
           "\u043F\u043E\u0434\u0441\u043A\u0430\u0437\u044B\u0432\u0430\u044E\u0442\u0441\u044F \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0435 id \u0438\u0437 \u0442\u0435\u043A\u0443\u0449\u0435\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430 \u0438 \u0438\u043D\u0434\u0435\u043A\u0441\u0430."
         ] }),
-        /* @__PURE__ */ jsxs67(P, { children: [
-          /* @__PURE__ */ jsx70("strong", { children: "Backlinks:" }),
+        /* @__PURE__ */ jsxs69(P, { children: [
+          /* @__PURE__ */ jsx72("strong", { children: "Backlinks:" }),
           " \u0435\u0441\u043B\u0438 \u043A\u0443\u0440\u0441\u043E\u0440 \u043D\u0430 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0435, \u043A\u043E\u0442\u043E\u0440\u044B\u0439 \u0443\u043F\u043E\u043C\u0438\u043D\u0430\u0435\u0442\u0441\u044F \u0432 ",
-          /* @__PURE__ */ jsx70("code", { children: "uiRules[].condition" }),
+          /* @__PURE__ */ jsx72("code", { children: "uiRules[].condition" }),
           " (\u0447\u0435\u0440\u0435\u0437 ",
-          /* @__PURE__ */ jsx70("code", { children: "@doc.attr" }),
+          /* @__PURE__ */ jsx72("code", { children: "@doc.attr" }),
           ") \u0438\u043B\u0438 \u0432 ",
-          /* @__PURE__ */ jsx70("code", { children: "uiRules[].rule.widgets" }),
+          /* @__PURE__ */ jsx72("code", { children: "uiRules[].rule.widgets" }),
           " (\u0432\u0438\u0434\u0436\u0435\u0442 ",
-          /* @__PURE__ */ jsx70("code", { children: "editors_attr" }),
+          /* @__PURE__ */ jsx72("code", { children: "editors_attr" }),
           "), \u044D\u0442\u043E \u043F\u0440\u0430\u0432\u0438\u043B\u043E \u0432\u0438\u0434\u043D\u043E \u0432\u043E \u0432\u043A\u043B\u0430\u0434\u043A\u0435 \xAB\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F\xBB."
         ] })
       ] }),
-      /* @__PURE__ */ jsxs67(Section2, { title: "\u041C\u0435\u043D\u044E (menus)", children: [
-        /* @__PURE__ */ jsxs67(P, { children: [
+      /* @__PURE__ */ jsxs69(Section2, { title: "\u041C\u0435\u043D\u044E (menus)", children: [
+        /* @__PURE__ */ jsxs69(P, { children: [
           "\u041B\u0435\u0432\u0430\u044F \u043D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u043E\u043D\u043D\u0430\u044F \u043F\u0430\u043D\u0435\u043B\u044C. \u041C\u043E\u0436\u0435\u0442 \u0441\u043E\u0434\u0435\u0440\u0436\u0430\u0442\u044C ",
-          /* @__PURE__ */ jsx70("code", { children: "root_group" }),
+          /* @__PURE__ */ jsx72("code", { children: "root_group" }),
           "(\u0440\u0430\u0441\u043A\u0440\u044B\u0432\u0430\u044E\u0449\u0438\u0439\u0441\u044F \u0440\u0430\u0437\u0434\u0435\u043B) \u0441 ",
-          /* @__PURE__ */ jsx70("code", { children: "items[]" }),
+          /* @__PURE__ */ jsx72("code", { children: "items[]" }),
           " \u2014 \u043F\u0443\u043D\u043A\u0442\u0430\u043C\u0438 \u043C\u0435\u043D\u044E, \u043A\u0430\u0436\u0434\u044B\u0439 \u0438\u0437 \u043A\u043E\u0442\u043E\u0440\u044B\u0445 \u043E\u0442\u043A\u0440\u044B\u0432\u0430\u0435\u0442 \u0441\u0432\u043E\u0439 ",
-          /* @__PURE__ */ jsx70("code", { children: "view" }),
+          /* @__PURE__ */ jsx72("code", { children: "view" }),
           "."
         ] }),
-        /* @__PURE__ */ jsxs67(List, { children: [
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "type" }),
+        /* @__PURE__ */ jsxs69(List, { children: [
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "type" }),
             ": ",
-            /* @__PURE__ */ jsx70("code", { children: "root_group" }),
+            /* @__PURE__ */ jsx72("code", { children: "root_group" }),
             " (\u0440\u0430\u0437\u0434\u0435\u043B \u0441 \u043F\u043E\u0434\u0440\u0430\u0437\u0434\u0435\u043B\u0430\u043C\u0438) \u0438\u043B\u0438 ",
-            /* @__PURE__ */ jsx70("code", { children: "root_menu" }),
+            /* @__PURE__ */ jsx72("code", { children: "root_menu" }),
             " (\u043F\u0443\u043D\u043A\u0442 \u0431\u0435\u0437 \u043F\u043E\u0434\u0440\u0430\u0437\u0434\u0435\u043B\u043E\u0432)."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "route" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "route" }),
             ": \u043F\u0443\u0442\u044C \u0432 URL, \u0443\u043D\u0438\u043A\u0430\u043B\u0435\u043D \u0432 \u0441\u0438\u0441\u0442\u0435\u043C\u0435."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "placement" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "placement" }),
             ": ",
-            /* @__PURE__ */ jsx70("code", { children: "top" }),
+            /* @__PURE__ */ jsx72("code", { children: "top" }),
             " (\u0433\u043B\u0430\u0432\u043D\u043E\u0435 \u043C\u0435\u043D\u044E) \u0438\u043B\u0438 ",
-            /* @__PURE__ */ jsx70("code", { children: "settings" }),
+            /* @__PURE__ */ jsx72("code", { children: "settings" }),
             "."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "priority" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "priority" }),
             ": \u22651000, \u0431\u043E\u043B\u044C\u0448\u0435 = \u0432\u044B\u0448\u0435 \u0432 \u0441\u043F\u0438\u0441\u043A\u0435."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "view" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "view" }),
             ": \u0441\u043F\u0438\u0441\u043E\u0447\u043D\u043E\u0435 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0435 \u0438\u043B\u0438 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0435 \u0441 \u0432\u043A\u043B\u0430\u0434\u043A\u0430\u043C\u0438."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "items[]" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "items[]" }),
             ": \u0434\u043E\u0447\u0435\u0440\u043D\u0438\u0435 \u043F\u0443\u043D\u043A\u0442\u044B (\u0434\u043B\u044F root_group), \u043A\u0430\u0436\u0434\u044B\u0439 \u0442\u0440\u0435\u0431\u0443\u0435\u0442 ",
-            /* @__PURE__ */ jsx70("code", { children: "view" }),
+            /* @__PURE__ */ jsx72("code", { children: "view" }),
             "."
           ] })
         ] }),
-        /* @__PURE__ */ jsxs67(P, { children: [
+        /* @__PURE__ */ jsxs69(P, { children: [
           "\u0421\u043D\u0438\u043F\u043F\u0435\u0442\u044B: ",
-          /* @__PURE__ */ jsx70("code", { children: "\u2728 newmenuroot" }),
+          /* @__PURE__ */ jsx72("code", { children: "\u2728 newmenuroot" }),
           " (\u043A\u043E\u0440\u043D\u0435\u0432\u0430\u044F \u0433\u0440\u0443\u043F\u043F\u0430 \u0441 \u043F\u043E\u0434\u043F\u0443\u043D\u043A\u0442\u043E\u043C),",
-          /* @__PURE__ */ jsx70("code", { children: "\u2728 newmenuitem" }),
+          /* @__PURE__ */ jsx72("code", { children: "\u2728 newmenuitem" }),
           " (\u043F\u0443\u043D\u043A\u0442)."
         ] })
       ] }),
-      /* @__PURE__ */ jsxs67(Section2, { title: "\u0418\u043A\u043E\u043D\u043A\u0438 (medias)", children: [
-        /* @__PURE__ */ jsxs67(P, { children: [
+      /* @__PURE__ */ jsxs69(Section2, { title: "\u0418\u043A\u043E\u043D\u043A\u0438 (medias)", children: [
+        /* @__PURE__ */ jsxs69(P, { children: [
           "\u041C\u0435\u0434\u0438\u0430-\u0440\u0435\u0441\u0443\u0440\u0441\u044B: \u0438\u043A\u043E\u043D\u043A\u0438 \u0434\u043B\u044F \u0432\u0438\u0434\u0436\u0435\u0442\u043E\u0432 \u0438 \u043C\u0435\u043D\u044E. \u0412 \u0442\u0435\u043A\u0443\u0449\u0435\u0439 \u0440\u0435\u0430\u043B\u0438\u0437\u0430\u0446\u0438\u0438 \u043F\u043E\u0434\u0434\u0435\u0440\u0436\u0438\u0432\u0430\u0435\u0442\u0441\u044F \u0442\u043E\u043B\u044C\u043A\u043E ",
-          /* @__PURE__ */ jsx70("code", { children: "type: icon_name" }),
+          /* @__PURE__ */ jsx72("code", { children: "type: icon_name" }),
           " \u2014 \u0438\u043C\u0435\u043D\u043E\u0432\u0430\u043D\u043D\u0430\u044F \u0438\u043A\u043E\u043D\u043A\u0430 \u0438\u0437 \u0434\u0438\u0437\u0430\u0439\u043D-\u0441\u0438\u0441\u0442\u0435\u043C\u044B."
         ] }),
-        /* @__PURE__ */ jsxs67(List, { children: [
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "id" }),
+        /* @__PURE__ */ jsxs69(List, { children: [
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "id" }),
             ": View ID (\u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u0432 ",
-            /* @__PURE__ */ jsx70("code", { children: "icon:" }),
+            /* @__PURE__ */ jsx72("code", { children: "icon:" }),
             " \u0432 \u0433\u0440\u0443\u043F\u043F\u0430\u0445/\u043C\u0435\u043D\u044E/\u043A\u043D\u043E\u043F\u043A\u0430\u0445)."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "iconName" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "iconName" }),
             ": \u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0432 \u0431\u0438\u0431\u043B\u0438\u043E\u0442\u0435\u043A\u0435 \u0438\u043A\u043E\u043D\u043E\u043A (",
-            /* @__PURE__ */ jsx70("code", { children: "folder" }),
+            /* @__PURE__ */ jsx72("code", { children: "folder" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "star" }),
+            /* @__PURE__ */ jsx72("code", { children: "star" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "device" }),
+            /* @__PURE__ */ jsx72("code", { children: "device" }),
             " \u0438 \u0442.\u0434.)."
           ] })
         ] }),
-        /* @__PURE__ */ jsxs67(P, { children: [
+        /* @__PURE__ */ jsxs69(P, { children: [
           "\u0421\u043D\u0438\u043F\u043F\u0435\u0442: ",
-          /* @__PURE__ */ jsx70("code", { children: "\u2728 newmedia" }),
+          /* @__PURE__ */ jsx72("code", { children: "\u2728 newmedia" }),
           "."
         ] })
       ] }),
-      /* @__PURE__ */ jsxs67(Section2, { title: "\u041F\u0440\u0438\u043C\u0435\u0441\u0438 (mixins)", children: [
-        /* @__PURE__ */ jsx70(P, { children: "\u041C\u0435\u0445\u0430\u043D\u0438\u0437\u043C \u0440\u0430\u0441\u0448\u0438\u0440\u0435\u043D\u0438\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0434\u0430\u043D\u043D\u044B\u043C\u0438 \u0438\u0437 \u0434\u0440\u0443\u0433\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430. \u041F\u043E\u0437\u0432\u043E\u043B\u044F\u0435\u0442 \u043F\u0435\u0440\u0435\u0438\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u044C \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F \u0438 \u043B\u043E\u0433\u0438\u043A\u0443 \u0431\u0435\u0437 \u0434\u0443\u0431\u043B\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F \u043A\u043E\u0434\u0430." }),
-        /* @__PURE__ */ jsxs67(List, { children: [
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "type: linkage" }),
+      /* @__PURE__ */ jsxs69(Section2, { title: "\u041F\u0440\u0438\u043C\u0435\u0441\u0438 (mixins)", children: [
+        /* @__PURE__ */ jsx72(P, { children: "\u041C\u0435\u0445\u0430\u043D\u0438\u0437\u043C \u0440\u0430\u0441\u0448\u0438\u0440\u0435\u043D\u0438\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0434\u0430\u043D\u043D\u044B\u043C\u0438 \u0438\u0437 \u0434\u0440\u0443\u0433\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430. \u041F\u043E\u0437\u0432\u043E\u043B\u044F\u0435\u0442 \u043F\u0435\u0440\u0435\u0438\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u044C \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F \u0438 \u043B\u043E\u0433\u0438\u043A\u0443 \u0431\u0435\u0437 \u0434\u0443\u0431\u043B\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F \u043A\u043E\u0434\u0430." }),
+        /* @__PURE__ */ jsxs69(List, { children: [
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "type: linkage" }),
             " \u2014 \u043F\u0440\u0438\u043C\u0435\u0441\u044C \u043D\u0430 \u043E\u0441\u043D\u043E\u0432\u0435 \u0441\u0432\u044F\u0437\u0438, \u0440\u0430\u0441\u0448\u0438\u0440\u044F\u0435\u0442 \u0447\u0435\u0440\u0435\u0437 \u0441\u0432\u044F\u0437\u0430\u043D\u043D\u044B\u0439 \u043E\u0431\u044A\u0435\u043A\u0442. \u0422\u0440\u0435\u0431\u0443\u0435\u0442 ",
-            /* @__PURE__ */ jsx70("code", { children: "linkage" }),
+            /* @__PURE__ */ jsx72("code", { children: "linkage" }),
             " (1_1 \u0438\u043B\u0438 1_n) + ",
-            /* @__PURE__ */ jsx70("code", { children: "entity: { from, to }" }),
+            /* @__PURE__ */ jsx72("code", { children: "entity: { from, to }" }),
             "."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "type: view" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "type: view" }),
             " \u2014 \u043F\u0440\u0438\u043C\u0435\u0441\u044C \u043A\u043E\u043C\u043F\u043E\u043D\u0435\u043D\u0442\u043E\u0432 \u0438\u043D\u0442\u0435\u0440\u0444\u0435\u0439\u0441\u0430. \u0422\u0440\u0435\u0431\u0443\u0435\u0442 ",
-            /* @__PURE__ */ jsx70("code", { children: "entity" }),
+            /* @__PURE__ */ jsx72("code", { children: "entity" }),
             " + ",
-            /* @__PURE__ */ jsx70("code", { children: "views[]" }),
+            /* @__PURE__ */ jsx72("code", { children: "views[]" }),
             " \u0441 ",
-            /* @__PURE__ */ jsx70("code", { children: "fromView" }),
+            /* @__PURE__ */ jsx72("code", { children: "fromView" }),
             "."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "weight" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "weight" }),
             ": \u043F\u0440\u0438\u043E\u0440\u0438\u0442\u0435\u0442 (\u043C\u0435\u043D\u044C\u0448\u0435 = \u0432\u044B\u0448\u0435). \u041F\u0440\u0438 \u0440\u0430\u0432\u043D\u044B\u0445 \u2014 \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430 \u043F\u043E id, \u0437\u0430\u0442\u0435\u043C type:view \u0432\u043F\u0435\u0440\u0451\u0434."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "useForChild" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "useForChild" }),
             ": \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u044C \u043F\u0440\u0438\u043C\u0435\u0441\u044C \u0434\u043E\u0447\u0435\u0440\u043D\u0438\u043C \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u043C (\u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E true)."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "views[].change.add" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "views[].change.add" }),
             ": \u0447\u0442\u043E \u0434\u043E\u0431\u0430\u0432\u0438\u0442\u044C (",
-            /* @__PURE__ */ jsx70("code", { children: "components" }),
+            /* @__PURE__ */ jsx72("code", { children: "components" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "tabs" }),
+            /* @__PURE__ */ jsx72("code", { children: "tabs" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "menu" }),
+            /* @__PURE__ */ jsx72("code", { children: "menu" }),
             ")."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "views[].change.delete" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "views[].change.delete" }),
             ": \u0447\u0442\u043E \u0443\u0434\u0430\u043B\u0438\u0442\u044C \u0438\u0437 \u0446\u0435\u043B\u0435\u0432\u043E\u0433\u043E \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "views[].replace" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "views[].replace" }),
             ": \u043F\u043E\u043B\u043D\u0430\u044F \u0437\u0430\u043C\u0435\u043D\u0430 \u043A\u043E\u043C\u043F\u043E\u043D\u0435\u043D\u0442\u043E\u0432."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "position.type" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "position.type" }),
             ": ",
-            /* @__PURE__ */ jsx70("code", { children: "begin" }),
+            /* @__PURE__ */ jsx72("code", { children: "begin" }),
             " / ",
-            /* @__PURE__ */ jsx70("code", { children: "after" }),
+            /* @__PURE__ */ jsx72("code", { children: "after" }),
             " / ",
-            /* @__PURE__ */ jsx70("code", { children: "end" }),
+            /* @__PURE__ */ jsx72("code", { children: "end" }),
             " \u2014 \u0433\u0434\u0435 \u0432\u0441\u0442\u0430\u0432\u0438\u0442\u044C."
           ] })
         ] }),
-        /* @__PURE__ */ jsxs67(P, { children: [
+        /* @__PURE__ */ jsxs69(P, { children: [
           "\u0421\u043D\u0438\u043F\u043F\u0435\u0442\u044B: ",
-          /* @__PURE__ */ jsx70("code", { children: "\u2728 newmixinview" }),
+          /* @__PURE__ */ jsx72("code", { children: "\u2728 newmixinview" }),
           " (\u043F\u0440\u0438\u043C\u0435\u0441\u044C \u0432\u043A\u043B\u0430\u0434\u043A\u0438), ",
-          /* @__PURE__ */ jsx70("code", { children: "\u2728 newmixinlinkage" }),
+          /* @__PURE__ */ jsx72("code", { children: "\u2728 newmixinlinkage" }),
           "(\u043F\u0440\u0438\u043C\u0435\u0441\u044C \u043D\u0430 \u0441\u0432\u044F\u0437\u0438)."
         ] }),
-        /* @__PURE__ */ jsxs67(P, { children: [
+        /* @__PURE__ */ jsxs69(P, { children: [
           "\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F: ",
-          /* @__PURE__ */ jsx70("code", { children: "linkage" }),
+          /* @__PURE__ */ jsx72("code", { children: "linkage" }),
           " \u0438 ",
-          /* @__PURE__ */ jsx70("code", { children: "fromView" }),
+          /* @__PURE__ */ jsx72("code", { children: "fromView" }),
           " \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u044E\u0442\u0441\u044F \u043D\u0430 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u043E\u0432\u0430\u043D\u0438\u0435 \u0432 \u0434\u043E\u043C\u0435\u043D\u0435."
         ] })
       ] }),
-      /* @__PURE__ */ jsxs67(Section2, { title: "\u041E\u0431\u043C\u0435\u043D \u0434\u0430\u043D\u043D\u044B\u043C\u0438 (exchangeSettings)", children: [
-        /* @__PURE__ */ jsx70(P, { children: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u0438\u043C\u043F\u043E\u0440\u0442\u0430/\u044D\u043A\u0441\u043F\u043E\u0440\u0442\u0430 \u043E\u0431\u044A\u0435\u043A\u0442\u043E\u0432 \u0434\u043E\u043C\u0435\u043D\u0430. \u041F\u043E\u0437\u0432\u043E\u043B\u044F\u044E\u0442 \u0443\u043F\u0440\u0430\u0432\u043B\u044F\u0442\u044C, \u043A\u0430\u043A \u043E\u0431\u044A\u0435\u043A\u0442\u044B \u0441\u043E\u0437\u0434\u0430\u044E\u0442\u0441\u044F \u0438 \u043E\u0431\u043D\u043E\u0432\u043B\u044F\u044E\u0442\u0441\u044F \u0447\u0435\u0440\u0435\u0437 API." }),
-        /* @__PURE__ */ jsxs67(List, { children: [
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "enable" }),
+      /* @__PURE__ */ jsxs69(Section2, { title: "\u041E\u0431\u043C\u0435\u043D \u0434\u0430\u043D\u043D\u044B\u043C\u0438 (exchangeSettings)", children: [
+        /* @__PURE__ */ jsx72(P, { children: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u0438\u043C\u043F\u043E\u0440\u0442\u0430/\u044D\u043A\u0441\u043F\u043E\u0440\u0442\u0430 \u043E\u0431\u044A\u0435\u043A\u0442\u043E\u0432 \u0434\u043E\u043C\u0435\u043D\u0430. \u041F\u043E\u0437\u0432\u043E\u043B\u044F\u044E\u0442 \u0443\u043F\u0440\u0430\u0432\u043B\u044F\u0442\u044C, \u043A\u0430\u043A \u043E\u0431\u044A\u0435\u043A\u0442\u044B \u0441\u043E\u0437\u0434\u0430\u044E\u0442\u0441\u044F \u0438 \u043E\u0431\u043D\u043E\u0432\u043B\u044F\u044E\u0442\u0441\u044F \u0447\u0435\u0440\u0435\u0437 API." }),
+        /* @__PURE__ */ jsxs69(List, { children: [
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "enable" }),
             ": \u0433\u043B\u043E\u0431\u0430\u043B\u044C\u043D\u044B\u0439 \u043F\u0435\u0440\u0435\u043A\u043B\u044E\u0447\u0430\u0442\u0435\u043B\u044C (\u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E true)."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "attributeFormats" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "attributeFormats" }),
             ": \u0444\u043E\u0440\u043C\u0430\u0442\u044B \u0434\u0430\u0442 (Moment-\u0441\u0438\u043D\u0442\u0430\u043A\u0441\u0438\u0441) \u2014 ",
-            /* @__PURE__ */ jsx70("code", { children: "Date" }),
+            /* @__PURE__ */ jsx72("code", { children: "Date" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "Time" }),
+            /* @__PURE__ */ jsx72("code", { children: "Time" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "Timestamp" }),
+            /* @__PURE__ */ jsx72("code", { children: "Timestamp" }),
             ", ",
-            /* @__PURE__ */ jsx70("code", { children: "TimestampRange" }),
+            /* @__PURE__ */ jsx72("code", { children: "TimestampRange" }),
             "."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "entities" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "entities" }),
             ": \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u043F\u043E \u043A\u0430\u0436\u0434\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 (\u043F\u0435\u0440\u0435\u043E\u043F\u0440\u0435\u0434\u0435\u043B\u044F\u044E\u0442 \u0433\u043B\u043E\u0431\u0430\u043B\u044C\u043D\u044B\u0435)."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "forExport" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "forExport" }),
             ": \u0430\u0442\u0440\u0438\u0431\u0443\u0442-\u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0434\u043B\u044F Reference (\u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E \u0438\u0449\u0435\u0442\u0441\u044F identifier, \u043F\u043E\u0442\u043E\u043C name)."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "upsertWith" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "upsertWith" }),
             ": \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0434\u043B\u044F \u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0446\u0438\u0438 \u043F\u0440\u0438 \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u0438 (\u0435\u0441\u043B\u0438 \u043D\u0435 \u0443\u043A\u0430\u0437\u0430\u043D \u2014 \u0441\u043E\u0437\u0434\u0430\u0451\u0442\u0441\u044F \u043D\u043E\u0432\u0430\u044F \u0437\u0430\u043F\u0438\u0441\u044C)."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "ignoreAttributes" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "ignoreAttributes" }),
             ": \u0441\u043F\u0438\u0441\u043E\u043A \u0438\u0433\u043D\u043E\u0440\u0438\u0440\u0443\u0435\u043C\u044B\u0445 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 (id \u0447\u0435\u0440\u0435\u0437 \u0437\u0430\u043F\u044F\u0442\u0443\u044E)."
           ] }),
-          /* @__PURE__ */ jsxs67("li", { children: [
-            /* @__PURE__ */ jsx70("strong", { children: "exportSystemAttributes" }),
+          /* @__PURE__ */ jsxs69("li", { children: [
+            /* @__PURE__ */ jsx72("strong", { children: "exportSystemAttributes" }),
             ": id \u0441\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0445 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u0434\u043B\u044F \u044D\u043A\u0441\u043F\u043E\u0440\u0442\u0430 \u0438\u043B\u0438 ",
-            /* @__PURE__ */ jsx70("code", { children: "all" }),
+            /* @__PURE__ */ jsx72("code", { children: "all" }),
             "."
           ] })
         ] }),
-        /* @__PURE__ */ jsxs67(P, { children: [
+        /* @__PURE__ */ jsxs69(P, { children: [
           "\u0421\u043D\u0438\u043F\u043F\u0435\u0442\u044B: ",
-          /* @__PURE__ */ jsx70("code", { children: "\u2728 newexchange" }),
+          /* @__PURE__ */ jsx72("code", { children: "\u2728 newexchange" }),
           " (\u0433\u043B\u043E\u0431\u0430\u043B\u044C\u043D\u044B\u0435 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438), ",
-          /* @__PURE__ */ jsx70("code", { children: "\u2728 newexchangeentity" }),
+          /* @__PURE__ */ jsx72("code", { children: "\u2728 newexchangeentity" }),
           "(\u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u0434\u043B\u044F \u043E\u0434\u043D\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438)."
         ] })
       ] })
@@ -31157,8 +31887,8 @@ var init_js_yaml = __esm({
 });
 
 // src/web/components/modals/YamlViewerModal.tsx
-import React38, { useCallback as useCallback16, useEffect as useEffect34, useMemo as useMemo40, useRef as useRef12, useState as useState31 } from "react";
-import { Fragment as Fragment13, jsx as jsx71, jsxs as jsxs68 } from "react/jsx-runtime";
+import React39, { useCallback as useCallback17, useEffect as useEffect35, useMemo as useMemo41, useRef as useRef13, useState as useState31 } from "react";
+import { Fragment as Fragment17, jsx as jsx73, jsxs as jsxs70 } from "react/jsx-runtime";
 function YamlViewerModal() {
   const { index } = useModelIndex();
   const { ready: monacoReady, error: monacoError } = useMonacoLoader();
@@ -31166,10 +31896,10 @@ function YamlViewerModal() {
   const filePath = useGraphStore((s) => s.yamlViewerFilePath);
   const fqid = useGraphStore((s) => s.yamlViewerFqid);
   const domainId = useGraphStore((s) => s.yamlViewerDomainId);
-  const remoteInfo = useMemo40(() => readRemoteInfo(), []);
+  const remoteInfo = useMemo41(() => readRemoteInfo(), []);
   const isRemoteMode = !!(remoteInfo && remoteInfo.server);
   const [reloadKey, setReloadKey] = useState31(0);
-  useEffect34(() => {
+  useEffect35(() => {
     if (open)
       setReloadKey((k) => k + 1);
   }, [open]);
@@ -31180,24 +31910,24 @@ function YamlViewerModal() {
   const [content, setContent] = useState31("");
   const [savedContent, setSavedContent] = useState31("");
   const [liveVersion, setLiveVersion] = useState31(0);
-  const liveDebounce = useRef12(null);
-  const skipNextEffect = useRef12(false);
+  const liveDebounce = useRef13(null);
+  const skipNextEffect = useRef13(false);
   const [editorCreated, setEditorCreated] = useState31(false);
   const [ignoredVersion, setIgnoredVersion] = useState31(0);
   const [diffMode, setDiffMode] = useState31(false);
   const [previousContent, setPreviousContent] = useState31(null);
-  const diffContainerRef = useRef12(null);
-  const diffEditorRef = useRef12(null);
+  const diffContainerRef = useRef13(null);
+  const diffEditorRef = useRef13(null);
   const [cursorLine, setCursorLine] = useState31(1);
   const [leftWidth, setLeftWidth] = useState31(280);
-  const isDraggingLeft = useRef12(false);
-  const decorationsCollection = useRef12(null);
+  const isDraggingLeft = useRef13(false);
+  const decorationsCollection = useRef13(null);
   const startResizingLeft = (e) => {
     e.preventDefault();
     isDraggingLeft.current = true;
     document.body.style.cursor = "col-resize";
   };
-  useEffect34(() => {
+  useEffect35(() => {
     const onMouseMove = (e) => {
       if (!isDraggingLeft.current)
         return;
@@ -31223,7 +31953,7 @@ function YamlViewerModal() {
       document.removeEventListener("mouseup", onMouseUp);
     };
   }, []);
-  useEffect34(() => {
+  useEffect35(() => {
     if (loading)
       return;
     if (fetchedContent === null || fetchedContent === void 0)
@@ -31231,7 +31961,7 @@ function YamlViewerModal() {
     setContent(fetchedContent);
     setSavedContent(fetchedContent);
   }, [loading, fetchedContent, filePath]);
-  useEffect34(() => {
+  useEffect35(() => {
     if (!editorCreated || !editorRef.current)
       return;
     const handler = () => {
@@ -31269,7 +31999,7 @@ function YamlViewerModal() {
   const [saveFeedback, setSaveFeedback] = useState31(false);
   const [expandedNodes, setExpandedNodes] = useState31(/* @__PURE__ */ new Set());
   const [navQuery, setNavQuery] = useState31("");
-  const navListRef = useRef12(null);
+  const navListRef = useRef13(null);
   const [activeNavIdx, setActiveNavIdx] = useState31(-1);
   const [leftCollapsed, setLeftCollapsed] = useState31(false);
   const [rightCollapsed, setRightCollapsed] = useState31(false);
@@ -31280,38 +32010,38 @@ function YamlViewerModal() {
   const [serverValidating, setServerValidating] = useState31(false);
   const [serverAvailable, setServerAvailable] = useState31(false);
   const { goto: gotoDomain } = useNavigation();
-  const editorRef = useRef12(null);
-  const containerRef = useRef12(null);
-  const saveRef = useRef12(() => {
+  const editorRef = useRef13(null);
+  const containerRef = useRef13(null);
+  const saveRef = useRef13(() => {
   });
-  const toggleLockRef = useRef12(() => {
+  const toggleLockRef = useRef13(() => {
   });
-  const isLockedRef = useRef12(isLocked);
-  const isProgrammaticChange = useRef12(false);
-  useEffect34(() => {
+  const isLockedRef = useRef13(isLocked);
+  const isProgrammaticChange = useRef13(false);
+  useEffect35(() => {
     isLockedRef.current = isLocked;
   }, [isLocked]);
-  const schema2 = useMemo40(() => {
+  const schema2 = useMemo41(() => {
     if (!index || !domainId)
       return null;
     return index.schemasByDomain[domainId] || null;
   }, [index, domainId]);
-  const lineMap = useMemo40(() => {
+  const lineMap = useMemo41(() => {
     if (!content || !schema2)
       return null;
     return buildLineMap(content, schema2);
   }, [content, schema2]);
-  const currentContext = useMemo40(() => {
+  const currentContext = useMemo41(() => {
     if (!lineMap)
       return null;
     return lineMap.lineContexts.get(cursorLine) || null;
   }, [lineMap, cursorLine]);
-  const domainIssues = useMemo40(() => {
+  const domainIssues = useMemo41(() => {
     if (!index || !domainId)
       return [];
     return index.lint.lintReport.issues.filter((i) => i.domainId === domainId);
   }, [index, domainId]);
-  const yamlSyntaxIssue = useMemo40(() => {
+  const yamlSyntaxIssue = useMemo41(() => {
     if (!content)
       return null;
     try {
@@ -31337,7 +32067,7 @@ function YamlViewerModal() {
       };
     }
   }, [content, domainId]);
-  const counters = useMemo40(() => {
+  const counters = useMemo41(() => {
     if (!schema2)
       return null;
     const totalAttrs = schema2.sections.entities.items.reduce(
@@ -31354,7 +32084,7 @@ function YamlViewerModal() {
       sonar
     };
   }, [schema2, domainIssues, index, domainId]);
-  const issuesByEntity = useMemo40(() => {
+  const issuesByEntity = useMemo41(() => {
     const m = /* @__PURE__ */ new Map();
     domainIssues.forEach((issue) => {
       if (!issue.entityFqid)
@@ -31365,7 +32095,7 @@ function YamlViewerModal() {
     });
     return m;
   }, [domainIssues]);
-  const issuesByAttribute = useMemo40(() => {
+  const issuesByAttribute = useMemo41(() => {
     const m = /* @__PURE__ */ new Map();
     domainIssues.forEach((issue) => {
       if (!issue.entityFqid || !issue.attributeId)
@@ -31377,7 +32107,7 @@ function YamlViewerModal() {
     });
     return m;
   }, [domainIssues]);
-  const entityIssuesMap = useMemo40(() => {
+  const entityIssuesMap = useMemo41(() => {
     const m = /* @__PURE__ */ new Map();
     domainIssues.forEach((issue) => {
       if (!issue.entityFqid)
@@ -31392,7 +32122,7 @@ function YamlViewerModal() {
     });
     return m;
   }, [domainIssues]);
-  const attrIssuesMap = useMemo40(() => {
+  const attrIssuesMap = useMemo41(() => {
     const m = /* @__PURE__ */ new Map();
     domainIssues.forEach((issue) => {
       if (!issue.attributeId)
@@ -31404,7 +32134,7 @@ function YamlViewerModal() {
     });
     return m;
   }, [domainIssues]);
-  const allIssues = useMemo40(() => {
+  const allIssues = useMemo41(() => {
     if (!lineMap || !content || !domainId)
       return domainIssues;
     const rqlIssues = scanRqlInText(content, lineMap.lineContexts, index || null);
@@ -31426,11 +32156,11 @@ function YamlViewerModal() {
     }
     return combined;
   }, [domainIssues, lineMap, content, index, domainId, yamlSyntaxIssue]);
-  const filteredIssues = useMemo40(
+  const filteredIssues = useMemo41(
     () => allIssues.filter((i) => severityFilter.has(i.severity)),
     [allIssues, severityFilter]
   );
-  const backlinks = useMemo40(() => {
+  const backlinks = useMemo41(() => {
     if (!content)
       return { entity: [], attribute: [], target: null };
     const lines = content.split("\n");
@@ -31448,7 +32178,7 @@ function YamlViewerModal() {
     return { entity, attribute, target };
   }, [content, cursorLine]);
   const [refsVersion, setRefsVersion] = useState31(0);
-  useEffect34(() => {
+  useEffect35(() => {
     if (!editorCreated || !editorRef.current)
       return;
     const disposable = editorRef.current.onDidChangeModelContent(() => {
@@ -31461,13 +32191,13 @@ function YamlViewerModal() {
       }
     };
   }, [editorCreated]);
-  const externalRefs = useMemo40(() => {
+  const externalRefs = useMemo41(() => {
     if (!content || !domainId)
       return { refs: [], groups: [] };
     const refs = extractExternalRefs(content, domainId);
     return { refs, groups: groupExternalRefs(refs) };
   }, [content, domainId, liveVersion]);
-  const flatNavNodes = useMemo40(() => {
+  const flatNavNodes = useMemo41(() => {
     if (!lineMap)
       return [];
     const result = [];
@@ -31501,7 +32231,7 @@ function YamlViewerModal() {
     lineMap.sections.forEach((s) => s.nodes.forEach((n) => walk(n, s.key, 0)));
     return result;
   }, [lineMap, expandedNodes, entityIssuesMap, attrIssuesMap]);
-  const filteredNavNodes = useMemo40(() => {
+  const filteredNavNodes = useMemo41(() => {
     let result = flatNavNodes;
     if (onlyProblematic) {
       result = result.filter((n) => n.hasIssues);
@@ -31512,7 +32242,7 @@ function YamlViewerModal() {
     }
     return result;
   }, [flatNavNodes, navQuery, onlyProblematic]);
-  useEffect34(() => {
+  useEffect35(() => {
     if (!open)
       return;
     if (!monacoReady)
@@ -31720,7 +32450,7 @@ function YamlViewerModal() {
       }
     };
   }, [open, monacoReady, filePath, loading, fetchedContent]);
-  useEffect34(() => {
+  useEffect35(() => {
     if (!editorRef.current)
       return;
     const t = setTimeout(() => {
@@ -31731,11 +32461,11 @@ function YamlViewerModal() {
     }, 250);
     return () => clearTimeout(t);
   }, [leftCollapsed, rightCollapsed]);
-  useEffect34(() => {
+  useEffect35(() => {
     saveRef.current = handleSave;
     toggleLockRef.current = handleToggleLock;
   });
-  useEffect34(() => {
+  useEffect35(() => {
     if (!open)
       return;
     let lastShiftRelease = 0;
@@ -31775,7 +32505,7 @@ function YamlViewerModal() {
       document.removeEventListener("keyup", onKeyUp);
     };
   }, [open]);
-  useEffect34(() => {
+  useEffect35(() => {
     if (!editorCreated || !editorRef.current)
       return;
     const m = window.monaco;
@@ -31788,7 +32518,7 @@ function YamlViewerModal() {
     return () => {
     };
   }, [editorCreated]);
-  useEffect34(() => {
+  useEffect35(() => {
     if (!monacoReady)
       return;
     updateProviderContext({
@@ -31798,12 +32528,12 @@ function YamlViewerModal() {
       modelIndex: index || null
     });
   }, [monacoReady, lineMap, filePath, domainId, index]);
-  useEffect34(() => {
+  useEffect35(() => {
     if (open)
       return;
     resetProviderContext();
   }, [open]);
-  useEffect34(() => {
+  useEffect35(() => {
     if (!monacoReady || !editorCreated || !editorRef.current)
       return;
     const m = window.monaco;
@@ -31825,7 +32555,7 @@ function YamlViewerModal() {
     }, 100);
     return () => clearTimeout(t);
   }, [monacoReady, editorCreated, lineMap]);
-  useEffect34(() => {
+  useEffect35(() => {
     if (!monacoReady || !editorCreated || !editorRef.current)
       return;
     if (!index || !domainId)
@@ -31853,7 +32583,7 @@ function YamlViewerModal() {
       }
     };
   }, [monacoReady, editorCreated, index, domainId]);
-  useEffect34(() => {
+  useEffect35(() => {
     if (!monacoReady || !editorCreated || !editorRef.current)
       return;
     const m = window.monaco;
@@ -31897,7 +32627,7 @@ ${label.message}` : ""),
     }
     m.editor.setModelMarkers(model, "server-validate", markers);
   }, [monacoReady, editorCreated, serverValidation]);
-  const ignored = useMemo40(() => {
+  const ignored = useMemo41(() => {
     try {
       const key = `dg-yaml-ignored:${domainId}`;
       const raw = localStorage.getItem(key);
@@ -31906,7 +32636,7 @@ ${label.message}` : ""),
       return /* @__PURE__ */ new Set();
     }
   }, [domainId, ignoredVersion]);
-  useEffect34(() => {
+  useEffect35(() => {
     if (!monacoReady || !editorCreated || !editorRef.current || !lineMap)
       return;
     const m = window.monaco;
@@ -31973,7 +32703,7 @@ ${label.message}` : ""),
       }
     };
   }, [monacoReady, editorCreated, lineMap, domainIssues, isLocked, content, severityFilter]);
-  const jumpTo = useCallback16((line) => {
+  const jumpTo = useCallback17((line) => {
     const editor = editorRef.current;
     if (!editor)
       return;
@@ -31981,7 +32711,7 @@ ${label.message}` : ""),
     editor.setPosition({ lineNumber: line, column: 1 });
     editor.focus();
   }, []);
-  useEffect34(() => {
+  useEffect35(() => {
     if (!open || !lineMap || !fqid || !editorCreated || !editorRef.current)
       return;
     const entityId = fqid.split("/")[1];
@@ -32026,7 +32756,7 @@ ${label.message}` : ""),
     }, 400);
     return () => clearTimeout(t);
   }, [open, lineMap, fqid, editorCreated, jumpTo]);
-  const toggleNode = useCallback16((key) => {
+  const toggleNode = useCallback17((key) => {
     setExpandedNodes((prev) => {
       const s = new Set(prev);
       if (s.has(key))
@@ -32036,7 +32766,7 @@ ${label.message}` : ""),
       return s;
     });
   }, []);
-  const expandAll = useCallback16(() => {
+  const expandAll = useCallback17(() => {
     if (!lineMap)
       return;
     const all = /* @__PURE__ */ new Set();
@@ -32053,13 +32783,13 @@ ${label.message}` : ""),
       el.open = true;
     });
   }, [lineMap]);
-  const collapseAll = useCallback16(() => {
+  const collapseAll = useCallback17(() => {
     setExpandedNodes(/* @__PURE__ */ new Set());
     document.querySelectorAll(".yaml-nav-section").forEach((el) => {
       el.open = false;
     });
   }, []);
-  const handleCopy = useCallback16(async () => {
+  const handleCopy = useCallback17(async () => {
     const text = editorRef.current ? editorRef.current.getValue() : content;
     try {
       await navigator.clipboard.writeText(text);
@@ -32069,7 +32799,7 @@ ${label.message}` : ""),
       alert("\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0441\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C: " + err.message);
     }
   }, [content]);
-  const handleToggleLock = useCallback16(() => {
+  const handleToggleLock = useCallback17(() => {
     if (isLocked) {
       setIsLocked(false);
       setSaveError(null);
@@ -32087,7 +32817,7 @@ ${label.message}` : ""),
       setIsLocked(true);
     }
   }, [isLocked, isDirty, savedContent]);
-  const handleServerValidate = useCallback16(async () => {
+  const handleServerValidate = useCallback17(async () => {
     if (!editorRef.current)
       return;
     const sourceCode = editorRef.current.getValue();
@@ -32120,7 +32850,7 @@ ${label.message}` : ""),
       setServerValidating(false);
     }
   }, []);
-  const handleSave = useCallback16(async () => {
+  const handleSave = useCallback17(async () => {
     if (isLocked || !editorRef.current)
       return;
     if (isRemoteMode)
@@ -32178,14 +32908,14 @@ ${label.message}` : ""),
       setIsSaving(false);
     }
   }, [isLocked, isRemoteMode, savedContent, filePath]);
-  const handleClose = useCallback16(() => {
+  const handleClose = useCallback17(() => {
     if (isDirty && !isLocked) {
       if (!confirm("\u0415\u0441\u0442\u044C \u043D\u0435\u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D\u043D\u044B\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F. \u0417\u0430\u043A\u0440\u044B\u0442\u044C \u0431\u0435\u0437 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F?"))
         return;
     }
     useGraphStore.getState().setYamlViewerOpen(false);
   }, [isDirty, isLocked]);
-  useEffect34(() => {
+  useEffect35(() => {
     if (!open)
       return;
     const handler = (e) => {
@@ -32224,18 +32954,18 @@ ${label.message}` : ""),
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, [open, filteredNavNodes, activeNavIdx, jumpTo, toggleNode]);
-  useEffect34(() => {
+  useEffect35(() => {
     if (activeNavIdx < 0 || !navListRef.current)
       return;
     const el = navListRef.current.querySelector(".yaml-nav-item--active");
     if (el)
       el.scrollIntoView({ block: "nearest" });
   }, [activeNavIdx]);
-  const STORAGE_KEY = useMemo40(
+  const STORAGE_KEY = useMemo41(
     () => domainId ? `dg-yaml-nav-collapsed:${domainId}` : null,
     [domainId]
   );
-  useEffect34(() => {
+  useEffect35(() => {
     if (!open || !STORAGE_KEY)
       return;
     try {
@@ -32258,7 +32988,7 @@ ${label.message}` : ""),
     } catch {
     }
   }, [open, STORAGE_KEY]);
-  useEffect34(() => {
+  useEffect35(() => {
     if (open || !STORAGE_KEY)
       return;
     try {
@@ -32273,7 +33003,7 @@ ${label.message}` : ""),
     } catch {
     }
   }, [open, STORAGE_KEY, expandedNodes]);
-  useEffect34(() => {
+  useEffect35(() => {
     if (!editorCreated || !editorRef.current)
       return;
     const w = window;
@@ -32324,14 +33054,14 @@ ${label.message}` : ""),
       console.error("[yaml-viewer] addAction failed", err);
     }
   }, [editorCreated]);
-  useEffect34(() => {
+  useEffect35(() => {
     if (!open) {
       setIsLocked(true);
     }
     setSaveError(null);
     setSaveFeedback(false);
   }, [filePath, open]);
-  useEffect34(() => {
+  useEffect35(() => {
     const handler = (e) => {
       const detail = e.detail;
       if (!detail || !detail.action)
@@ -32364,7 +33094,7 @@ ${label.message}` : ""),
     document.addEventListener("dg:issue-action", handler);
     return () => document.removeEventListener("dg:issue-action", handler);
   }, [domainId]);
-  useEffect34(() => {
+  useEffect35(() => {
     if (!open || !filePath) {
       setPreviousContent(null);
       return;
@@ -32381,7 +33111,7 @@ ${label.message}` : ""),
       cancelled = true;
     };
   }, [open, filePath, saveFeedback]);
-  useEffect34(() => {
+  useEffect35(() => {
     if (!diffMode || !monacoReady || !editorCreated || !diffContainerRef.current)
       return;
     if (previousContent == null)
@@ -32419,7 +33149,7 @@ ${label.message}` : ""),
       diffEditorRef.current = null;
     };
   }, [diffMode, monacoReady, editorCreated, previousContent]);
-  useEffect34(() => {
+  useEffect35(() => {
     if (!editorRef.current)
       return;
     try {
@@ -32427,7 +33157,7 @@ ${label.message}` : ""),
     } catch {
     }
   }, [isLocked, editorCreated]);
-  useEffect34(() => {
+  useEffect35(() => {
     if (!open) {
       if (editorRef.current) {
         try {
@@ -32439,7 +33169,7 @@ ${label.message}` : ""),
       }
     }
   }, [open]);
-  useEffect34(() => {
+  useEffect35(() => {
     if (!monacoReady || !editorCreated || !editorRef.current)
       return;
     if (!lineMap || !content)
@@ -32488,7 +33218,7 @@ ${label.message}` : ""),
         decorationsCollection.current.clear();
     };
   }, [monacoReady, editorCreated, lineMap, content, liveVersion]);
-  const crossDomainStats = useMemo40(() => {
+  const crossDomainStats = useMemo41(() => {
     if (!index || !domainId)
       return null;
     const currentDomainLower = domainId.toLowerCase();
@@ -32544,12 +33274,12 @@ ${label.message}` : ""),
       outgoingDomainList: Array.from(outgoingDomains).sort()
     };
   }, [index, domainId]);
-  useEffect34(() => {
+  useEffect35(() => {
     if (!open)
       return;
     fetch("/api/validation-available").then((r) => r.json()).then((d) => setServerAvailable(!!d.available)).catch(() => setServerAvailable(false));
   }, [open]);
-  useEffect34(() => {
+  useEffect35(() => {
     setServerValidation(null);
   }, [filePath, open]);
   if (!open)
@@ -32557,35 +33287,35 @@ ${label.message}` : ""),
   const canSave = !isRemoteMode && !isLocked && isDirty;
   const issueCount = allIssues.length;
   const refsCount = externalRefs.refs.length;
-  return /* @__PURE__ */ jsxs68(
+  return /* @__PURE__ */ jsxs70(
     "div",
     {
       className: "help-overlay help-overlay--fullscreen",
       onMouseDown: handleClose,
       children: [
-        /* @__PURE__ */ jsxs68(
+        /* @__PURE__ */ jsxs70(
           "div",
           {
             className: "help-modal yaml-viewer-modal",
             onMouseDown: (e) => e.stopPropagation(),
             children: [
-              /* @__PURE__ */ jsxs68("div", { className: "help-modal__header", children: [
-                /* @__PURE__ */ jsxs68("div", { className: "help-modal__title", children: [
+              /* @__PURE__ */ jsxs70("div", { className: "help-modal__header", children: [
+                /* @__PURE__ */ jsxs70("div", { className: "help-modal__title", children: [
                   "\u{1F4C4} ",
                   filePath?.split("/").pop() || "\u0424\u0430\u0439\u043B \u0441\u0445\u0435\u043C\u044B",
-                  domainId && /* @__PURE__ */ jsx71("span", { className: "help-modal__badge", children: domainId }),
-                  isDirty && /* @__PURE__ */ jsx71("span", { className: "help-modal__badge help-modal__badge--dirty", children: "\u25CF \u0438\u0437\u043C\u0435\u043D\u0451\u043D" }),
-                  saveFeedback && /* @__PURE__ */ jsx71("span", { className: "help-modal__badge help-modal__badge--ok", children: "\u2713 \u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D" })
+                  domainId && /* @__PURE__ */ jsx73("span", { className: "help-modal__badge", children: domainId }),
+                  isDirty && /* @__PURE__ */ jsx73("span", { className: "help-modal__badge help-modal__badge--dirty", children: "\u25CF \u0438\u0437\u043C\u0435\u043D\u0451\u043D" }),
+                  saveFeedback && /* @__PURE__ */ jsx73("span", { className: "help-modal__badge help-modal__badge--ok", children: "\u2713 \u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D" })
                 ] }),
-                /* @__PURE__ */ jsxs68("div", { className: "help-modal__actions", children: [
-                  serverAvailable && /* @__PURE__ */ jsx71(
+                /* @__PURE__ */ jsxs70("div", { className: "help-modal__actions", children: [
+                  serverAvailable && /* @__PURE__ */ jsx73(
                     "button",
                     {
                       className: "help-modal__icon-btn" + (serverValidating ? " active" : "") + (serverValidation && !serverValidating ? serverValidation.isValid ? " help-modal__icon-btn--success" : " help-modal__icon-btn--error" : ""),
                       onClick: handleServerValidate,
                       disabled: serverValidating,
                       title: serverValidating ? "\u041F\u0440\u043E\u0432\u0435\u0440\u043A\u0430 \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435..." : "\u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435",
-                      children: /* @__PURE__ */ jsx71(
+                      children: /* @__PURE__ */ jsx73(
                         MIcon,
                         {
                           name: serverValidating ? "hourglass_top" : serverValidation ? serverValidation.isValid ? "cloud_done" : "cloud_off" : "cloud_upload"
@@ -32593,25 +33323,25 @@ ${label.message}` : ""),
                       )
                     }
                   ),
-                  /* @__PURE__ */ jsx71(
+                  /* @__PURE__ */ jsx73(
                     "button",
                     {
                       className: "help-modal__icon-btn",
                       onClick: () => setLeftCollapsed(!leftCollapsed),
                       title: leftCollapsed ? "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u043D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044E" : "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u043D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044E",
-                      children: /* @__PURE__ */ jsx71(MIcon, { name: leftCollapsed ? "chevron_right" : "chevron_left" })
+                      children: /* @__PURE__ */ jsx73(MIcon, { name: leftCollapsed ? "chevron_right" : "chevron_left" })
                     }
                   ),
-                  /* @__PURE__ */ jsx71(
+                  /* @__PURE__ */ jsx73(
                     "button",
                     {
                       className: "help-modal__icon-btn",
                       onClick: () => setRightCollapsed(!rightCollapsed),
                       title: rightCollapsed ? "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u043F\u0430\u043D\u0435\u043B\u044C \u043F\u0440\u043E\u0431\u043B\u0435\u043C" : "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u043F\u0430\u043D\u0435\u043B\u044C \u043F\u0440\u043E\u0431\u043B\u0435\u043C",
-                      children: /* @__PURE__ */ jsx71(MIcon, { name: rightCollapsed ? "chevron_left" : "chevron_right" })
+                      children: /* @__PURE__ */ jsx73(MIcon, { name: rightCollapsed ? "chevron_left" : "chevron_right" })
                     }
                   ),
-                  index?.pii?.byDomain?.some((d) => d.domainId === domainId) && /* @__PURE__ */ jsx71(
+                  index?.pii?.byDomain?.some((d) => d.domainId === domainId) && /* @__PURE__ */ jsx73(
                     "button",
                     {
                       className: "help-modal__icon-btn",
@@ -32620,10 +33350,10 @@ ${label.message}` : ""),
                         useGraphStore.getState().setPiiOpen(true);
                       },
                       title: "PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0432 \u0434\u043E\u043C\u0435\u043D\u0435",
-                      children: /* @__PURE__ */ jsx71(MIcon, { name: "shield_lock" })
+                      children: /* @__PURE__ */ jsx73(MIcon, { name: "shield_lock" })
                     }
                   ),
-                  /* @__PURE__ */ jsx71(
+                  /* @__PURE__ */ jsx73(
                     "button",
                     {
                       className: "help-modal__icon-btn",
@@ -32634,10 +33364,10 @@ ${label.message}` : ""),
                       },
                       disabled: isDirty,
                       title: isDirty ? "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u0435 \u0438\u043B\u0438 \u043E\u0442\u043C\u0435\u043D\u0438\u0442\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u043F\u0435\u0440\u0435\u0434 \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u043E\u043C" : "\u0421\u0440\u0430\u0432\u043D\u0438\u0442\u044C \u0434\u043E\u043C\u0435\u043D\u044B",
-                      children: /* @__PURE__ */ jsx71(MIcon, { name: "compare_arrows" })
+                      children: /* @__PURE__ */ jsx73(MIcon, { name: "compare_arrows" })
                     }
                   ),
-                  domainId ? /* @__PURE__ */ jsx71(
+                  domainId ? /* @__PURE__ */ jsx73(
                     "button",
                     {
                       className: "help-modal__icon-btn",
@@ -32647,47 +33377,47 @@ ${label.message}` : ""),
                       },
                       disabled: isDirty,
                       title: isDirty ? "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u0435 \u0438\u043B\u0438 \u043E\u0442\u043C\u0435\u043D\u0438\u0442\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u043F\u0435\u0440\u0435\u0434 \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u043E\u043C" : "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u043D\u0430 \u0433\u0440\u0430\u0444\u0435",
-                      children: /* @__PURE__ */ jsx71(MIcon, { name: "my_location" })
+                      children: /* @__PURE__ */ jsx73(MIcon, { name: "my_location" })
                     }
                   ) : null,
-                  /* @__PURE__ */ jsx71(
+                  /* @__PURE__ */ jsx73(
                     "button",
                     {
                       className: "help-modal__icon-btn" + (!isLocked ? " active" : ""),
                       onClick: handleToggleLock,
                       title: isLocked ? "\u0420\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0434\u043B\u044F \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F" : "\u0417\u0430\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u0442\u044C (\u0441\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F)",
-                      children: /* @__PURE__ */ jsx71(MIcon, { name: isLocked ? "lock" : "lock_open" })
+                      children: /* @__PURE__ */ jsx73(MIcon, { name: isLocked ? "lock" : "lock_open" })
                     }
                   ),
-                  /* @__PURE__ */ jsx71(
+                  /* @__PURE__ */ jsx73(
                     "button",
                     {
                       className: "help-modal__icon-btn" + (copyFeedback ? " active" : ""),
                       onClick: handleCopy,
                       title: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u0435 \u0432 \u0431\u0443\u0444\u0435\u0440",
-                      children: /* @__PURE__ */ jsx71(MIcon, { name: copyFeedback ? "check" : "content_copy" })
+                      children: /* @__PURE__ */ jsx73(MIcon, { name: copyFeedback ? "check" : "content_copy" })
                     }
                   ),
-                  /* @__PURE__ */ jsx71(
+                  /* @__PURE__ */ jsx73(
                     "button",
                     {
                       className: "help-modal__icon-btn" + (saveFeedback ? " active" : ""),
                       onClick: handleSave,
                       disabled: !canSave || isSaving,
                       title: isRemoteMode ? "\u0421\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u0435 \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E \u0432 \u0440\u0435\u0436\u0438\u043C\u0435 --server" : isLocked ? "\u0420\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u0443\u0439\u0442\u0435 \u0444\u0430\u0439\u043B \u0434\u043B\u044F \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F" : isDirty ? "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F (Ctrl+S)" : "\u041D\u0435\u0442 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439 \u0434\u043B\u044F \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F",
-                      children: /* @__PURE__ */ jsx71(MIcon, { name: isSaving ? "hourglass" : "save" })
+                      children: /* @__PURE__ */ jsx73(MIcon, { name: isSaving ? "hourglass" : "save" })
                     }
                   ),
-                  previousContent && /* @__PURE__ */ jsx71(
+                  previousContent && /* @__PURE__ */ jsx73(
                     "button",
                     {
                       className: "help-modal__icon-btn" + (diffMode ? " active" : ""),
                       onClick: () => setDiffMode(!diffMode),
                       title: diffMode ? "\u0412\u0435\u0440\u043D\u0443\u0442\u044C\u0441\u044F \u043A \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0443" : "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C diff \u0441 \u043F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0438\u043C \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u0435\u043C",
-                      children: /* @__PURE__ */ jsx71(MIcon, { name: "difference" })
+                      children: /* @__PURE__ */ jsx73(MIcon, { name: "difference" })
                     }
                   ),
-                  domainId && /* @__PURE__ */ jsx71(
+                  domainId && /* @__PURE__ */ jsx73(
                     "button",
                     {
                       className: "help-modal__icon-btn",
@@ -32701,19 +33431,19 @@ ${label.message}` : ""),
                         st.setDomainSchemaOpen(true);
                       },
                       title: "\u0421\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0439 \u043E\u0431\u0437\u043E\u0440 \u0441\u0445\u0435\u043C\u044B",
-                      children: /* @__PURE__ */ jsx71(MIcon, { name: "menu_book" })
+                      children: /* @__PURE__ */ jsx73(MIcon, { name: "menu_book" })
                     }
                   ),
-                  /* @__PURE__ */ jsx71(
+                  /* @__PURE__ */ jsx73(
                     "button",
                     {
                       className: "help-modal__icon-btn",
                       onClick: () => setShowHelp(true),
                       title: "\u0421\u043F\u0440\u0430\u0432\u043A\u0430 \u043F\u043E \u043D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u0438",
-                      children: /* @__PURE__ */ jsx71(MIcon, { name: "help" })
+                      children: /* @__PURE__ */ jsx73(MIcon, { name: "help" })
                     }
                   ),
-                  /* @__PURE__ */ jsx71(
+                  /* @__PURE__ */ jsx73(
                     "button",
                     {
                       className: "help-modal__close",
@@ -32724,25 +33454,25 @@ ${label.message}` : ""),
                   )
                 ] })
               ] }),
-              counters && /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-info", children: [
-                /* @__PURE__ */ jsxs68("span", { className: "yaml-viewer-info__item", children: [
-                  /* @__PURE__ */ jsx71("strong", { children: counters.entities }),
+              counters && /* @__PURE__ */ jsxs70("div", { className: "yaml-viewer-info", children: [
+                /* @__PURE__ */ jsxs70("span", { className: "yaml-viewer-info__item", children: [
+                  /* @__PURE__ */ jsx73("strong", { children: counters.entities }),
                   " \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439"
                 ] }),
-                /* @__PURE__ */ jsxs68("span", { className: "yaml-viewer-info__item", children: [
-                  /* @__PURE__ */ jsx71("strong", { children: counters.attributes }),
+                /* @__PURE__ */ jsxs70("span", { className: "yaml-viewer-info__item", children: [
+                  /* @__PURE__ */ jsx73("strong", { children: counters.attributes }),
                   " \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432"
                 ] }),
-                /* @__PURE__ */ jsxs68("span", { className: "yaml-viewer-info__item", children: [
-                  /* @__PURE__ */ jsx71("strong", { children: counters.linkages }),
+                /* @__PURE__ */ jsxs70("span", { className: "yaml-viewer-info__item", children: [
+                  /* @__PURE__ */ jsx73("strong", { children: counters.linkages }),
                   " \u0441\u0432\u044F\u0437\u0435\u0439"
                 ] }),
-                /* @__PURE__ */ jsxs68("span", { className: "yaml-viewer-info__item", children: [
-                  /* @__PURE__ */ jsx71("strong", { children: counters.views }),
+                /* @__PURE__ */ jsxs70("span", { className: "yaml-viewer-info__item", children: [
+                  /* @__PURE__ */ jsx73("strong", { children: counters.views }),
                   " views"
                 ] }),
-                crossDomainStats && (crossDomainStats.incoming > 0 || crossDomainStats.outgoing > 0) && /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-info__crossdomain", children: [
-                  crossDomainStats.outgoing > 0 && /* @__PURE__ */ jsx71(
+                crossDomainStats && (crossDomainStats.incoming > 0 || crossDomainStats.outgoing > 0) && /* @__PURE__ */ jsxs70("div", { className: "yaml-viewer-info__crossdomain", children: [
+                  crossDomainStats.outgoing > 0 && /* @__PURE__ */ jsx73(
                     CrossDomainBadge,
                     {
                       direction: "out",
@@ -32755,7 +33485,7 @@ ${label.message}` : ""),
                       }
                     }
                   ),
-                  crossDomainStats.incoming > 0 && /* @__PURE__ */ jsx71(
+                  crossDomainStats.incoming > 0 && /* @__PURE__ */ jsx73(
                     CrossDomainBadge,
                     {
                       direction: "in",
@@ -32769,50 +33499,50 @@ ${label.message}` : ""),
                     }
                   )
                 ] }),
-                counters.sonar && /* @__PURE__ */ jsxs68(
+                counters.sonar && /* @__PURE__ */ jsxs70(
                   "button",
                   {
                     className: "yaml-viewer-info__item yaml-viewer-info__item--sonar yaml-viewer-info__sonar-" + counters.sonar.grade.toLowerCase(),
                     onClick: () => useGraphStore.getState().setLintOpen(true),
                     title: "Sonar-\u043E\u0446\u0435\u043D\u043A\u0430 \u0434\u043E\u043C\u0435\u043D\u0430 \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u043B\u0438\u043D\u0442\u0435\u0440",
                     children: [
-                      /* @__PURE__ */ jsx71("strong", { children: counters.sonar.score }),
-                      /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-info__sonar-grade", children: counters.sonar.grade })
+                      /* @__PURE__ */ jsx73("strong", { children: counters.sonar.score }),
+                      /* @__PURE__ */ jsx73("span", { className: "yaml-viewer-info__sonar-grade", children: counters.sonar.grade })
                     ]
                   }
                 ),
-                counters.issues > 0 && /* @__PURE__ */ jsxs68(
+                counters.issues > 0 && /* @__PURE__ */ jsxs70(
                   "button",
                   {
                     className: "yaml-viewer-info__item yaml-viewer-info__item--issues",
                     onClick: () => setRightTab("issues"),
                     title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u043F\u0438\u0441\u043E\u043A \u043F\u0440\u043E\u0431\u043B\u0435\u043C",
                     children: [
-                      /* @__PURE__ */ jsx71(MIcon, { name: "warning", size: "sm" }),
-                      /* @__PURE__ */ jsx71("strong", { children: counters.issues }),
+                      /* @__PURE__ */ jsx73(MIcon, { name: "warning", size: "sm" }),
+                      /* @__PURE__ */ jsx73("strong", { children: counters.issues }),
                       " \u043F\u0440\u043E\u0431\u043B\u0435\u043C"
                     ]
                   }
                 )
               ] }),
-              saveError && /* @__PURE__ */ jsxs68("div", { className: "yaml-save-error", children: [
+              saveError && /* @__PURE__ */ jsxs70("div", { className: "yaml-save-error", children: [
                 "\u274C ",
                 saveError,
-                /* @__PURE__ */ jsx71("button", { onClick: () => setSaveError(null), children: "\u2715" })
+                /* @__PURE__ */ jsx73("button", { onClick: () => setSaveError(null), children: "\u2715" })
               ] }),
-              /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-body", children: [
-                /* @__PURE__ */ jsxs68(
+              /* @__PURE__ */ jsxs70("div", { className: "yaml-viewer-body", children: [
+                /* @__PURE__ */ jsxs70(
                   "div",
                   {
                     className: "yaml-viewer-nav" + (leftCollapsed ? " yaml-viewer-nav--collapsed" : ""),
                     style: { width: leftCollapsed ? 0 : leftWidth },
                     children: [
-                      loading && /* @__PURE__ */ jsx71("div", { className: "yaml-viewer-nav__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430..." }),
-                      loadError && /* @__PURE__ */ jsx71("div", { className: "yaml-viewer-nav__error", children: loadError }),
-                      lineMap && /* @__PURE__ */ jsxs68(Fragment13, { children: [
-                        /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-nav__header", children: [
-                          /* @__PURE__ */ jsx71("span", { children: "\u041D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044F" }),
-                          /* @__PURE__ */ jsxs68(
+                      loading && /* @__PURE__ */ jsx73("div", { className: "yaml-viewer-nav__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430..." }),
+                      loadError && /* @__PURE__ */ jsx73("div", { className: "yaml-viewer-nav__error", children: loadError }),
+                      lineMap && /* @__PURE__ */ jsxs70(Fragment17, { children: [
+                        /* @__PURE__ */ jsxs70("div", { className: "yaml-viewer-nav__header", children: [
+                          /* @__PURE__ */ jsx73("span", { children: "\u041D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044F" }),
+                          /* @__PURE__ */ jsxs70(
                             "button",
                             {
                               className: "yaml-viewer-nav__toggle" + (onlyProblematic ? " active" : ""),
@@ -32820,19 +33550,19 @@ ${label.message}` : ""),
                               title: onlyProblematic ? "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0432\u0441\u0435 \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u044B" : "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0442\u043E\u043B\u044C\u043A\u043E \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u044B \u0441 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0430\u043C\u0438",
                               disabled: domainIssues.length === 0,
                               children: [
-                                /* @__PURE__ */ jsx71(MIcon, { name: "warning", size: "sm" }),
+                                /* @__PURE__ */ jsx73(MIcon, { name: "warning", size: "sm" }),
                                 domainIssues.length
                               ]
                             }
                           ),
-                          /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-nav__actions", children: [
-                            /* @__PURE__ */ jsx71("button", { className: "yaml-viewer-nav__action", onClick: expandAll, title: "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0451", children: "\u2922" }),
-                            /* @__PURE__ */ jsx71("button", { className: "yaml-viewer-nav__action", onClick: collapseAll, title: "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0451", children: "\u2921" })
+                          /* @__PURE__ */ jsxs70("div", { className: "yaml-viewer-nav__actions", children: [
+                            /* @__PURE__ */ jsx73("button", { className: "yaml-viewer-nav__action", onClick: expandAll, title: "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0451", children: "\u2922" }),
+                            /* @__PURE__ */ jsx73("button", { className: "yaml-viewer-nav__action", onClick: collapseAll, title: "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0451", children: "\u2921" })
                           ] })
                         ] }),
-                        /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-nav__search", children: [
-                          /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-nav__search-icon", children: "\u{1F50D}" }),
-                          /* @__PURE__ */ jsx71(
+                        /* @__PURE__ */ jsxs70("div", { className: "yaml-viewer-nav__search", children: [
+                          /* @__PURE__ */ jsx73("span", { className: "yaml-viewer-nav__search-icon", children: "\u{1F50D}" }),
+                          /* @__PURE__ */ jsx73(
                             "input",
                             {
                               type: "text",
@@ -32846,7 +33576,7 @@ ${label.message}` : ""),
                               spellCheck: false
                             }
                           ),
-                          navQuery && /* @__PURE__ */ jsx71(
+                          navQuery && /* @__PURE__ */ jsx73(
                             "button",
                             {
                               className: "yaml-viewer-nav__search-clear",
@@ -32855,7 +33585,7 @@ ${label.message}` : ""),
                             }
                           )
                         ] }),
-                        /* @__PURE__ */ jsx71("div", { className: "yaml-viewer-nav__list", ref: navListRef, children: navQuery.trim() !== "" || onlyProblematic ? /* @__PURE__ */ jsx71(
+                        /* @__PURE__ */ jsx73("div", { className: "yaml-viewer-nav__list", ref: navListRef, children: navQuery.trim() !== "" || onlyProblematic ? /* @__PURE__ */ jsx73(
                           FilteredNavList,
                           {
                             nodes: filteredNavNodes,
@@ -32863,7 +33593,7 @@ ${label.message}` : ""),
                             onJump: jumpTo,
                             onHover: setActiveNavIdx
                           }
-                        ) : lineMap.sections.map((section) => /* @__PURE__ */ jsx71(
+                        ) : lineMap.sections.map((section) => /* @__PURE__ */ jsx73(
                           SectionNav,
                           {
                             section,
@@ -32884,13 +33614,13 @@ ${label.message}` : ""),
                     ]
                   }
                 ),
-                !leftCollapsed && /* @__PURE__ */ jsx71("div", { className: "yaml-viewer-resizer", onMouseDown: startResizingLeft }),
-                /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-editor", children: [
-                  /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-editor__toolbar", children: [
-                    /* @__PURE__ */ jsx71("div", { className: "yaml-viewer-breadcrumbs", children: currentContext && currentContext.breadcrumbs.length > 0 ? /* @__PURE__ */ jsxs68(Fragment13, { children: [
-                      currentContext.breadcrumbs.map((item, idx) => /* @__PURE__ */ jsxs68(React38.Fragment, { children: [
-                        idx > 0 && /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-breadcrumbs__sep", children: "\u203A" }),
-                        /* @__PURE__ */ jsx71(
+                !leftCollapsed && /* @__PURE__ */ jsx73("div", { className: "yaml-viewer-resizer", onMouseDown: startResizingLeft }),
+                /* @__PURE__ */ jsxs70("div", { className: "yaml-viewer-editor", children: [
+                  /* @__PURE__ */ jsxs70("div", { className: "yaml-viewer-editor__toolbar", children: [
+                    /* @__PURE__ */ jsx73("div", { className: "yaml-viewer-breadcrumbs", children: currentContext && currentContext.breadcrumbs.length > 0 ? /* @__PURE__ */ jsxs70(Fragment17, { children: [
+                      currentContext.breadcrumbs.map((item, idx) => /* @__PURE__ */ jsxs70(React39.Fragment, { children: [
+                        idx > 0 && /* @__PURE__ */ jsx73("span", { className: "yaml-viewer-breadcrumbs__sep", children: "\u203A" }),
+                        /* @__PURE__ */ jsx73(
                           "button",
                           {
                             type: "button",
@@ -32901,27 +33631,27 @@ ${label.message}` : ""),
                           }
                         )
                       ] }, `bc-${idx}-${item.line}`)),
-                      /* @__PURE__ */ jsxs68("span", { className: "yaml-viewer-breadcrumbs__line", children: [
+                      /* @__PURE__ */ jsxs70("span", { className: "yaml-viewer-breadcrumbs__line", children: [
                         ":",
                         cursorLine
                       ] })
-                    ] }) : /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-breadcrumbs__item", children: "\u2014" }) }),
-                    lineMap && /* @__PURE__ */ jsx71("div", { className: "yaml-viewer-quickjumps", children: lineMap.sections.map((s) => {
+                    ] }) : /* @__PURE__ */ jsx73("span", { className: "yaml-viewer-breadcrumbs__item", children: "\u2014" }) }),
+                    lineMap && /* @__PURE__ */ jsx73("div", { className: "yaml-viewer-quickjumps", children: lineMap.sections.map((s) => {
                       const icon = s.key === "entities" ? "category" : s.key === "linkages" ? "link" : s.key === "dataTypes" ? "data_object" : s.key === "actions" ? "bolt" : s.key === "views" ? "visibility" : s.key === "menus" ? "menu" : s.key === "mixins" ? "merge" : s.key === "dataRules" ? "rule" : s.key === "medias" ? "image" : "arrow_right";
-                      return /* @__PURE__ */ jsx71(
+                      return /* @__PURE__ */ jsx73(
                         "button",
                         {
                           className: "yaml-viewer-quickjump",
                           onClick: () => jumpTo(s.line),
                           title: `${s.label} (${s.count})`,
-                          children: /* @__PURE__ */ jsx71(MIcon, { name: icon, size: "sm" })
+                          children: /* @__PURE__ */ jsx73(MIcon, { name: icon, size: "sm" })
                         },
                         s.key
                       );
                     }) })
                   ] }),
-                  /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-editor__canvas", children: [
-                    /* @__PURE__ */ jsx71(
+                  /* @__PURE__ */ jsxs70("div", { className: "yaml-viewer-editor__canvas", children: [
+                    /* @__PURE__ */ jsx73(
                       "div",
                       {
                         ref: containerRef,
@@ -32929,7 +33659,7 @@ ${label.message}` : ""),
                       },
                       "monaco"
                     ),
-                    diffMode && /* @__PURE__ */ jsx71(
+                    diffMode && /* @__PURE__ */ jsx73(
                       "div",
                       {
                         ref: diffContainerRef,
@@ -32942,13 +33672,13 @@ ${label.message}` : ""),
                         }
                       }
                     ),
-                    (loading || !monacoReady && !monacoError) && /* @__PURE__ */ jsx71("div", { className: "yaml-viewer-editor__loading", children: loading ? "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u0433\u043E..." : "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 Monaco..." }),
-                    monacoError && /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-editor__error", children: [
+                    (loading || !monacoReady && !monacoError) && /* @__PURE__ */ jsx73("div", { className: "yaml-viewer-editor__loading", children: loading ? "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u0433\u043E..." : "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 Monaco..." }),
+                    monacoError && /* @__PURE__ */ jsxs70("div", { className: "yaml-viewer-editor__error", children: [
                       "\u041E\u0448\u0438\u0431\u043A\u0430 Monaco: ",
                       monacoError
                     ] })
                   ] }),
-                  lineMap && /* @__PURE__ */ jsx71("div", { className: "yaml-section-minimap", children: lineMap.sections.map((s) => {
+                  lineMap && /* @__PURE__ */ jsx73("div", { className: "yaml-section-minimap", children: lineMap.sections.map((s) => {
                     const totalLines = lineMap.sections.reduce((acc, curr) => acc + curr.linesCount, 0);
                     const heightPercent = s.linesCount / totalLines * 100;
                     const sectionIssues = filteredIssues.filter((i) => {
@@ -32957,7 +33687,7 @@ ${label.message}` : ""),
                     });
                     const hasError = sectionIssues.some((i) => i.severity === "error");
                     const hasWarning = sectionIssues.some((i) => i.severity === "warning");
-                    return /* @__PURE__ */ jsx71(
+                    return /* @__PURE__ */ jsx73(
                       "div",
                       {
                         className: "yaml-section-minimap__block " + (hasError ? "yaml-section-minimap__block--error" : hasWarning ? "yaml-section-minimap__block--warning" : "yaml-section-minimap__block--ok"),
@@ -32968,70 +33698,70 @@ ${label.message}` : ""),
                       s.key
                     );
                   }) }),
-                  !isLocked && /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-editor__mode", children: [
-                    /* @__PURE__ */ jsx71(MIcon, { name: "edit", size: "sm" }),
-                    /* @__PURE__ */ jsx71("span", { className: "icon-label", children: "\u0420\u0435\u0436\u0438\u043C \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F" })
+                  !isLocked && /* @__PURE__ */ jsxs70("div", { className: "yaml-viewer-editor__mode", children: [
+                    /* @__PURE__ */ jsx73(MIcon, { name: "edit", size: "sm" }),
+                    /* @__PURE__ */ jsx73("span", { className: "icon-label", children: "\u0420\u0435\u0436\u0438\u043C \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F" })
                   ] })
                 ] }),
-                /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-issues" + (rightCollapsed ? " yaml-viewer-issues--collapsed" : ""), children: [
-                  /* @__PURE__ */ jsxs68("div", { className: "yaml-viewer-tabs", children: [
-                    /* @__PURE__ */ jsxs68(
+                /* @__PURE__ */ jsxs70("div", { className: "yaml-viewer-issues" + (rightCollapsed ? " yaml-viewer-issues--collapsed" : ""), children: [
+                  /* @__PURE__ */ jsxs70("div", { className: "yaml-viewer-tabs", children: [
+                    /* @__PURE__ */ jsxs70(
                       "button",
                       {
                         className: "yaml-viewer-tab" + (rightTab === "issues" ? " active" : ""),
                         onClick: () => setRightTab("issues"),
                         title: `\u041F\u0440\u043E\u0431\u043B\u0435\u043C\u044B${issueCount > 0 ? ` (${issueCount})` : ""}`,
                         children: [
-                          /* @__PURE__ */ jsx71(MIcon, { name: "rule", size: "sm" }),
-                          issueCount > 0 && /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-tab__badge", children: issueCount })
+                          /* @__PURE__ */ jsx73(MIcon, { name: "rule", size: "sm" }),
+                          issueCount > 0 && /* @__PURE__ */ jsx73("span", { className: "yaml-viewer-tab__badge", children: issueCount })
                         ]
                       }
                     ),
-                    /* @__PURE__ */ jsxs68(
+                    /* @__PURE__ */ jsxs70(
                       "button",
                       {
                         className: "yaml-viewer-tab" + (rightTab === "refs" ? " active" : ""),
                         onClick: () => setRightTab("refs"),
                         title: `\u0421\u0441\u044B\u043B\u043A\u0438${refsCount > 0 ? ` (${refsCount})` : ""}`,
                         children: [
-                          /* @__PURE__ */ jsx71(MIcon, { name: "link", size: "sm" }),
-                          refsCount > 0 && /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-tab__badge", children: refsCount })
+                          /* @__PURE__ */ jsx73(MIcon, { name: "link", size: "sm" }),
+                          refsCount > 0 && /* @__PURE__ */ jsx73("span", { className: "yaml-viewer-tab__badge", children: refsCount })
                         ]
                       }
                     ),
-                    /* @__PURE__ */ jsxs68(
+                    /* @__PURE__ */ jsxs70(
                       "button",
                       {
                         className: "yaml-viewer-tab" + (rightTab === "backlinks" ? " active" : ""),
                         onClick: () => setRightTab("backlinks"),
                         title: `\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F${backlinks.entity.length + backlinks.attribute.length > 0 ? ` (${backlinks.entity.length + backlinks.attribute.length})` : ""}`,
                         children: [
-                          /* @__PURE__ */ jsx71(MIcon, { name: "call_received", size: "sm" }),
-                          backlinks.entity.length + backlinks.attribute.length > 0 && /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-tab__badge", children: backlinks.entity.length + backlinks.attribute.length })
+                          /* @__PURE__ */ jsx73(MIcon, { name: "call_received", size: "sm" }),
+                          backlinks.entity.length + backlinks.attribute.length > 0 && /* @__PURE__ */ jsx73("span", { className: "yaml-viewer-tab__badge", children: backlinks.entity.length + backlinks.attribute.length })
                         ]
                       }
                     ),
-                    serverAvailable && /* @__PURE__ */ jsxs68(
+                    serverAvailable && /* @__PURE__ */ jsxs70(
                       "button",
                       {
                         className: "yaml-viewer-tab" + (rightTab === "server" ? " active" : "") + (serverValidation && !serverValidating ? serverValidation.isValid ? " yaml-viewer-tab--ok" : " yaml-viewer-tab--err" : ""),
                         onClick: () => setRightTab("server"),
                         title: serverValidation?.isValid ? "\u0421\u0435\u0440\u0432\u0435\u0440: \u0441\u0445\u0435\u043C\u0430 \u0432\u0430\u043B\u0438\u0434\u043D\u0430" : serverValidation && !serverValidation.isValid ? `\u0421\u0435\u0440\u0432\u0435\u0440: ${serverValidation.diagnostics?.length || "!"} \u043E\u0448\u0438\u0431\u043E\u043A` : "\u0421\u0435\u0440\u0432\u0435\u0440\u043D\u0430\u044F \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F",
                         children: [
-                          /* @__PURE__ */ jsx71(
+                          /* @__PURE__ */ jsx73(
                             MIcon,
                             {
                               name: serverValidating ? "hourglass_top" : serverValidation?.isValid ? "cloud_done" : serverValidation && !serverValidation.isValid ? "cloud_off" : "cloud",
                               size: "sm"
                             }
                           ),
-                          serverValidation && !serverValidation.isValid && /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-tab__badge yaml-viewer-tab__badge--err", children: serverValidation.diagnostics?.length || "!" }),
-                          serverValidation?.isValid && /* @__PURE__ */ jsx71("span", { className: "yaml-viewer-tab__badge yaml-viewer-tab__badge--ok", children: "\u2713" })
+                          serverValidation && !serverValidation.isValid && /* @__PURE__ */ jsx73("span", { className: "yaml-viewer-tab__badge yaml-viewer-tab__badge--err", children: serverValidation.diagnostics?.length || "!" }),
+                          serverValidation?.isValid && /* @__PURE__ */ jsx73("span", { className: "yaml-viewer-tab__badge yaml-viewer-tab__badge--ok", children: "\u2713" })
                         ]
                       }
                     )
                   ] }),
-                  rightTab === "issues" && /* @__PURE__ */ jsx71(
+                  rightTab === "issues" && /* @__PURE__ */ jsx73(
                     IssuesPanel,
                     {
                       issues: filteredIssues,
@@ -33042,7 +33772,7 @@ ${label.message}` : ""),
                       setSeverityFilter
                     }
                   ),
-                  rightTab === "refs" && /* @__PURE__ */ jsx71(
+                  rightTab === "refs" && /* @__PURE__ */ jsx73(
                     ExternalRefsPanel,
                     {
                       groups: externalRefs.groups,
@@ -33050,89 +33780,89 @@ ${label.message}` : ""),
                       currentDomain: domainId || ""
                     }
                   ),
-                  rightTab === "backlinks" && /* @__PURE__ */ jsxs68("div", { className: "yaml-issues", children: [
-                    /* @__PURE__ */ jsxs68("div", { className: "yaml-issues__header", children: [
+                  rightTab === "backlinks" && /* @__PURE__ */ jsxs70("div", { className: "yaml-issues", children: [
+                    /* @__PURE__ */ jsxs70("div", { className: "yaml-issues__header", children: [
                       "\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F",
                       " ",
-                      backlinks.target?.id && /* @__PURE__ */ jsx71("span", { style: { color: "var(--accent-hover)", fontFamily: "'JetBrains Mono', monospace", marginLeft: 6 }, children: backlinks.target.type === "attribute" && backlinks.target.parentId ? `${backlinks.target.parentId}.${backlinks.target.id}` : backlinks.target.id })
+                      backlinks.target?.id && /* @__PURE__ */ jsx73("span", { style: { color: "var(--accent-hover)", fontFamily: "'JetBrains Mono', monospace", marginLeft: 6 }, children: backlinks.target.type === "attribute" && backlinks.target.parentId ? `${backlinks.target.parentId}.${backlinks.target.id}` : backlinks.target.id })
                     ] }),
-                    !backlinks.target && /* @__PURE__ */ jsxs68("div", { className: "yaml-issues-empty", children: [
-                      /* @__PURE__ */ jsx71("div", { style: { fontSize: 32, marginBottom: 8 }, children: "\u{1F3AF}" }),
+                    !backlinks.target && /* @__PURE__ */ jsxs70("div", { className: "yaml-issues-empty", children: [
+                      /* @__PURE__ */ jsx73("div", { style: { fontSize: 32, marginBottom: 8 }, children: "\u{1F3AF}" }),
                       "\u041F\u043E\u0441\u0442\u0430\u0432\u044C\u0442\u0435 \u043A\u0443\u0440\u0441\u043E\u0440 \u043D\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0438\u043B\u0438 \u0430\u0442\u0440\u0438\u0431\u0443\u0442, \u0447\u0442\u043E\u0431\u044B \u0443\u0432\u0438\u0434\u0435\u0442\u044C \u0432\u0445\u043E\u0434\u044F\u0449\u0438\u0435 \u0441\u0441\u044B\u043B\u043A\u0438"
                     ] }),
-                    backlinks.target && backlinks.entity.length === 0 && backlinks.attribute.length === 0 && /* @__PURE__ */ jsxs68("div", { className: "yaml-issues-empty", children: [
-                      /* @__PURE__ */ jsx71("div", { style: { fontSize: 32, marginBottom: 8 }, children: "\u{1F50D}" }),
+                    backlinks.target && backlinks.entity.length === 0 && backlinks.attribute.length === 0 && /* @__PURE__ */ jsxs70("div", { className: "yaml-issues-empty", children: [
+                      /* @__PURE__ */ jsx73("div", { style: { fontSize: 32, marginBottom: 8 }, children: "\u{1F50D}" }),
                       "\u041D\u0430 ",
                       backlinks.target.type === "attribute" ? "\u044D\u0442\u043E\u0442 \u0430\u0442\u0440\u0438\u0431\u0443\u0442" : "\u044D\u0442\u0443 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C",
                       " \u043D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u0441\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F"
                     ] }),
-                    backlinks.entity.length > 0 && /* @__PURE__ */ jsxs68(Fragment13, { children: [
-                      /* @__PURE__ */ jsxs68("div", { className: "yaml-issues__header", style: { fontSize: 10 }, children: [
+                    backlinks.entity.length > 0 && /* @__PURE__ */ jsxs70(Fragment17, { children: [
+                      /* @__PURE__ */ jsxs70("div", { className: "yaml-issues__header", style: { fontSize: 10 }, children: [
                         "\u041D\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C ",
                         backlinks.target?.type === "attribute" ? backlinks.target.parentId : backlinks.target?.id,
                         " (",
                         backlinks.entity.length,
                         ")"
                       ] }),
-                      /* @__PURE__ */ jsx71("div", { className: "yaml-issues__list", children: backlinks.entity.map((bl, idx) => /* @__PURE__ */ jsxs68("button", { className: "yaml-backlink", onClick: () => jumpTo(bl.line), children: [
-                        /* @__PURE__ */ jsx71(MIcon, { name: bl.icon, size: "sm" }),
-                        /* @__PURE__ */ jsx71("span", { className: "yaml-backlink__kind", children: BACKLINK_KIND_LABELS[bl.kind] }),
-                        /* @__PURE__ */ jsx71("code", { className: "yaml-backlink__id", children: bl.label }),
-                        bl.detail && /* @__PURE__ */ jsx71("span", { className: "yaml-backlink__detail", children: bl.detail }),
-                        /* @__PURE__ */ jsxs68("span", { className: "yaml-backlink__line", children: [
+                      /* @__PURE__ */ jsx73("div", { className: "yaml-issues__list", children: backlinks.entity.map((bl, idx) => /* @__PURE__ */ jsxs70("button", { className: "yaml-backlink", onClick: () => jumpTo(bl.line), children: [
+                        /* @__PURE__ */ jsx73(MIcon, { name: bl.icon, size: "sm" }),
+                        /* @__PURE__ */ jsx73("span", { className: "yaml-backlink__kind", children: BACKLINK_KIND_LABELS[bl.kind] }),
+                        /* @__PURE__ */ jsx73("code", { className: "yaml-backlink__id", children: bl.label }),
+                        bl.detail && /* @__PURE__ */ jsx73("span", { className: "yaml-backlink__detail", children: bl.detail }),
+                        /* @__PURE__ */ jsxs70("span", { className: "yaml-backlink__line", children: [
                           ":",
                           bl.line
                         ] })
                       ] }, `e-${idx}`)) })
                     ] }),
-                    backlinks.attribute.length > 0 && /* @__PURE__ */ jsxs68(Fragment13, { children: [
-                      /* @__PURE__ */ jsxs68("div", { className: "yaml-issues__header", style: { fontSize: 10 }, children: [
+                    backlinks.attribute.length > 0 && /* @__PURE__ */ jsxs70(Fragment17, { children: [
+                      /* @__PURE__ */ jsxs70("div", { className: "yaml-issues__header", style: { fontSize: 10 }, children: [
                         "\u041D\u0430 \u0430\u0442\u0440\u0438\u0431\u0443\u0442 ",
                         backlinks.target?.id,
                         " (",
                         backlinks.attribute.length,
                         ")"
                       ] }),
-                      /* @__PURE__ */ jsx71("div", { className: "yaml-issues__list", children: backlinks.attribute.map((bl, idx) => /* @__PURE__ */ jsxs68("button", { className: "yaml-backlink", onClick: () => jumpTo(bl.line), children: [
-                        /* @__PURE__ */ jsx71(MIcon, { name: bl.icon, size: "sm" }),
-                        /* @__PURE__ */ jsx71("span", { className: "yaml-backlink__kind", children: BACKLINK_KIND_LABELS[bl.kind] }),
-                        /* @__PURE__ */ jsx71("code", { className: "yaml-backlink__id", children: bl.label }),
-                        bl.detail && /* @__PURE__ */ jsx71("span", { className: "yaml-backlink__detail", children: bl.detail }),
-                        /* @__PURE__ */ jsxs68("span", { className: "yaml-backlink__line", children: [
+                      /* @__PURE__ */ jsx73("div", { className: "yaml-issues__list", children: backlinks.attribute.map((bl, idx) => /* @__PURE__ */ jsxs70("button", { className: "yaml-backlink", onClick: () => jumpTo(bl.line), children: [
+                        /* @__PURE__ */ jsx73(MIcon, { name: bl.icon, size: "sm" }),
+                        /* @__PURE__ */ jsx73("span", { className: "yaml-backlink__kind", children: BACKLINK_KIND_LABELS[bl.kind] }),
+                        /* @__PURE__ */ jsx73("code", { className: "yaml-backlink__id", children: bl.label }),
+                        bl.detail && /* @__PURE__ */ jsx73("span", { className: "yaml-backlink__detail", children: bl.detail }),
+                        /* @__PURE__ */ jsxs70("span", { className: "yaml-backlink__line", children: [
                           ":",
                           bl.line
                         ] })
                       ] }, `a-${idx}`)) })
                     ] })
                   ] }),
-                  rightTab === "server" && /* @__PURE__ */ jsxs68("div", { className: "yaml-issues", children: [
-                    /* @__PURE__ */ jsx71("div", { className: "yaml-issues__header", children: "\u0421\u0435\u0440\u0432\u0435\u0440\u043D\u0430\u044F \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F" }),
-                    !serverValidation && !serverValidating && /* @__PURE__ */ jsxs68("div", { className: "yaml-issues-empty", children: [
-                      /* @__PURE__ */ jsx71("div", { style: { fontSize: 32, marginBottom: 8 }, children: "\u2601\uFE0F" }),
-                      /* @__PURE__ */ jsx71("div", { style: { fontSize: 12, color: "var(--text-400)", marginBottom: 12 }, children: "\u041D\u0430\u0436\u043C\u0438\u0442\u0435 \u043A\u043D\u043E\u043F\u043A\u0443 \u0432 \u0448\u0430\u043F\u043A\u0435, \u0447\u0442\u043E\u0431\u044B \u043E\u0442\u043F\u0440\u0430\u0432\u0438\u0442\u044C \u0442\u0435\u043A\u0443\u0449\u0443\u044E \u0441\u0445\u0435\u043C\u0443 \u043D\u0430 \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0443." }),
-                      /* @__PURE__ */ jsxs68("button", { className: "btn btn--primary", onClick: handleServerValidate, children: [
-                        /* @__PURE__ */ jsx71(MIcon, { name: "cloud_upload", size: "sm" }),
-                        /* @__PURE__ */ jsx71("span", { style: { marginLeft: 6 }, children: "\u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435" })
+                  rightTab === "server" && /* @__PURE__ */ jsxs70("div", { className: "yaml-issues", children: [
+                    /* @__PURE__ */ jsx73("div", { className: "yaml-issues__header", children: "\u0421\u0435\u0440\u0432\u0435\u0440\u043D\u0430\u044F \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F" }),
+                    !serverValidation && !serverValidating && /* @__PURE__ */ jsxs70("div", { className: "yaml-issues-empty", children: [
+                      /* @__PURE__ */ jsx73("div", { style: { fontSize: 32, marginBottom: 8 }, children: "\u2601\uFE0F" }),
+                      /* @__PURE__ */ jsx73("div", { style: { fontSize: 12, color: "var(--text-400)", marginBottom: 12 }, children: "\u041D\u0430\u0436\u043C\u0438\u0442\u0435 \u043A\u043D\u043E\u043F\u043A\u0443 \u0432 \u0448\u0430\u043F\u043A\u0435, \u0447\u0442\u043E\u0431\u044B \u043E\u0442\u043F\u0440\u0430\u0432\u0438\u0442\u044C \u0442\u0435\u043A\u0443\u0449\u0443\u044E \u0441\u0445\u0435\u043C\u0443 \u043D\u0430 \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0443." }),
+                      /* @__PURE__ */ jsxs70("button", { className: "btn btn--primary", onClick: handleServerValidate, children: [
+                        /* @__PURE__ */ jsx73(MIcon, { name: "cloud_upload", size: "sm" }),
+                        /* @__PURE__ */ jsx73("span", { style: { marginLeft: 6 }, children: "\u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435" })
                       ] })
                     ] }),
-                    serverValidating && /* @__PURE__ */ jsxs68("div", { className: "yaml-issues-empty", children: [
-                      /* @__PURE__ */ jsx71(MIcon, { name: "hourglass", size: "xl" }),
-                      /* @__PURE__ */ jsx71("div", { children: "\u041F\u0440\u043E\u0432\u0435\u0440\u043A\u0430 \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435..." })
+                    serverValidating && /* @__PURE__ */ jsxs70("div", { className: "yaml-issues-empty", children: [
+                      /* @__PURE__ */ jsx73(MIcon, { name: "hourglass", size: "xl" }),
+                      /* @__PURE__ */ jsx73("div", { children: "\u041F\u0440\u043E\u0432\u0435\u0440\u043A\u0430 \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435..." })
                     ] }),
-                    !serverValidating && serverValidation?.error && /* @__PURE__ */ jsxs68("div", { className: "yaml-issues-empty", style: { color: "var(--danger)" }, children: [
-                      /* @__PURE__ */ jsx71("div", { style: { fontSize: 32, marginBottom: 8 }, children: "\u274C" }),
-                      /* @__PURE__ */ jsx71("div", { style: { fontSize: 12, marginBottom: 12 }, children: serverValidation.error }),
-                      /* @__PURE__ */ jsx71("button", { className: "btn", onClick: handleServerValidate, children: "\u041F\u043E\u0432\u0442\u043E\u0440\u0438\u0442\u044C" })
+                    !serverValidating && serverValidation?.error && /* @__PURE__ */ jsxs70("div", { className: "yaml-issues-empty", style: { color: "var(--danger)" }, children: [
+                      /* @__PURE__ */ jsx73("div", { style: { fontSize: 32, marginBottom: 8 }, children: "\u274C" }),
+                      /* @__PURE__ */ jsx73("div", { style: { fontSize: 12, marginBottom: 12 }, children: serverValidation.error }),
+                      /* @__PURE__ */ jsx73("button", { className: "btn", onClick: handleServerValidate, children: "\u041F\u043E\u0432\u0442\u043E\u0440\u0438\u0442\u044C" })
                     ] }),
-                    !serverValidating && serverValidation?.isValid && /* @__PURE__ */ jsxs68("div", { className: "yaml-issues-empty", children: [
-                      /* @__PURE__ */ jsx71("div", { style: { fontSize: 32, marginBottom: 8 }, children: "\u2705" }),
-                      /* @__PURE__ */ jsx71("div", { style: { color: "var(--success)", fontSize: 13, marginBottom: 4 }, children: "\u0421\u0445\u0435\u043C\u0430 \u0432\u0430\u043B\u0438\u0434\u043D\u0430" }),
-                      /* @__PURE__ */ jsxs68("div", { style: { fontSize: 11, color: "var(--text-500)" }, children: [
+                    !serverValidating && serverValidation?.isValid && /* @__PURE__ */ jsxs70("div", { className: "yaml-issues-empty", children: [
+                      /* @__PURE__ */ jsx73("div", { style: { fontSize: 32, marginBottom: 8 }, children: "\u2705" }),
+                      /* @__PURE__ */ jsx73("div", { style: { color: "var(--success)", fontSize: 13, marginBottom: 4 }, children: "\u0421\u0445\u0435\u043C\u0430 \u0432\u0430\u043B\u0438\u0434\u043D\u0430" }),
+                      /* @__PURE__ */ jsxs70("div", { style: { fontSize: 11, color: "var(--text-500)" }, children: [
                         "\u041F\u0440\u043E\u0432\u0435\u0440\u0435\u043D\u043E:",
                         " ",
                         serverValidation.validatedAt ? new Date(serverValidation.validatedAt).toLocaleTimeString("ru-RU") : "\u0442\u043E\u043B\u044C\u043A\u043E \u0447\u0442\u043E"
                       ] }),
-                      /* @__PURE__ */ jsx71(
+                      /* @__PURE__ */ jsx73(
                         "button",
                         {
                           className: "btn",
@@ -33142,17 +33872,17 @@ ${label.message}` : ""),
                         }
                       )
                     ] }),
-                    !serverValidating && serverValidation && !serverValidation.isValid && !serverValidation.error && (serverValidation.diagnostics?.length || 0) > 0 && /* @__PURE__ */ jsxs68(Fragment13, { children: [
-                      /* @__PURE__ */ jsxs68("div", { className: "yaml-issues__header", children: [
+                    !serverValidating && serverValidation && !serverValidation.isValid && !serverValidation.error && (serverValidation.diagnostics?.length || 0) > 0 && /* @__PURE__ */ jsxs70(Fragment17, { children: [
+                      /* @__PURE__ */ jsxs70("div", { className: "yaml-issues__header", children: [
                         "\u041E\u0448\u0438\u0431\u043A\u0438 \u0441\u0435\u0440\u0432\u0435\u0440\u0430 (",
                         serverValidation.diagnostics.length,
                         ")"
                       ] }),
-                      /* @__PURE__ */ jsx71("div", { className: "yaml-issues__list", children: serverValidation.diagnostics.map((d, i) => {
+                      /* @__PURE__ */ jsx73("div", { className: "yaml-issues__list", children: serverValidation.diagnostics.map((d, i) => {
                         const label = (d.labels || []).find((l) => l.primary) || (d.labels || [])[0];
                         const span = label?.span;
                         const isError = d.severity === "ERROR";
-                        return /* @__PURE__ */ jsxs68(
+                        return /* @__PURE__ */ jsxs70(
                           "button",
                           {
                             className: "yaml-issue yaml-issue--" + (isError ? "error" : "warning"),
@@ -33166,15 +33896,15 @@ ${label.message}` : ""),
                               }
                             },
                             children: [
-                              /* @__PURE__ */ jsx71(
+                              /* @__PURE__ */ jsx73(
                                 "span",
                                 {
                                   className: "yaml-issue__dot yaml-issue__dot--" + (isError ? "error" : "warning")
                                 }
                               ),
-                              /* @__PURE__ */ jsxs68("span", { className: "yaml-issue__text", children: [
+                              /* @__PURE__ */ jsxs70("span", { className: "yaml-issue__text", children: [
                                 d.message,
-                                label?.message && /* @__PURE__ */ jsx71(
+                                label?.message && /* @__PURE__ */ jsx73(
                                   "span",
                                   {
                                     style: {
@@ -33187,7 +33917,7 @@ ${label.message}` : ""),
                                   }
                                 )
                               ] }),
-                              span && typeof span.start === "number" && editorRef.current?.getModel() && /* @__PURE__ */ jsxs68("span", { className: "yaml-issue__line", children: [
+                              span && typeof span.start === "number" && editorRef.current?.getModel() && /* @__PURE__ */ jsxs70("span", { className: "yaml-issue__line", children: [
                                 ":",
                                 editorRef.current.getModel().getPositionAt(span.start).lineNumber
                               ] })
@@ -33196,7 +33926,7 @@ ${label.message}` : ""),
                           i
                         );
                       }) }),
-                      /* @__PURE__ */ jsx71("div", { style: { padding: "8px 12px", textAlign: "center" }, children: /* @__PURE__ */ jsx71("button", { className: "btn", onClick: handleServerValidate, children: "\u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u0441\u043D\u043E\u0432\u0430" }) })
+                      /* @__PURE__ */ jsx73("div", { style: { padding: "8px 12px", textAlign: "center" }, children: /* @__PURE__ */ jsx73("button", { className: "btn", onClick: handleServerValidate, children: "\u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u0441\u043D\u043E\u0432\u0430" }) })
                     ] })
                   ] })
                 ] })
@@ -33204,7 +33934,7 @@ ${label.message}` : ""),
             ]
           }
         ),
-        showHelp && /* @__PURE__ */ jsx71(YamlViewerHelp, { onClose: () => setShowHelp(false) })
+        showHelp && /* @__PURE__ */ jsx73(YamlViewerHelp, { onClose: () => setShowHelp(false) })
       ]
     }
   );
@@ -33215,28 +33945,28 @@ function ExternalRefsPanel({
   currentDomain
 }) {
   if (groups.length === 0) {
-    return /* @__PURE__ */ jsxs68("div", { className: "yaml-issues-empty", children: [
-      /* @__PURE__ */ jsx71("div", { style: { fontSize: 32, marginBottom: 8 }, children: "\u{1F517}" }),
-      /* @__PURE__ */ jsx71("div", { style: { color: "var(--text-400)", fontSize: 12 }, children: "\u041D\u0435\u0442 \u0441\u0441\u044B\u043B\u043E\u043A \u043D\u0430 \u0434\u0440\u0443\u0433\u0438\u0435 \u0434\u043E\u043C\u0435\u043D\u044B" }),
-      /* @__PURE__ */ jsx71("div", { style: { marginTop: 4, fontSize: 11, color: "var(--text-500)" }, children: "\u0414\u043E\u043C\u0435\u043D \u0438\u0437\u043E\u043B\u0438\u0440\u043E\u0432\u0430\u043D \u0432 \u0433\u0440\u0430\u0444\u0435 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0435\u0439" })
+    return /* @__PURE__ */ jsxs70("div", { className: "yaml-issues-empty", children: [
+      /* @__PURE__ */ jsx73("div", { style: { fontSize: 32, marginBottom: 8 }, children: "\u{1F517}" }),
+      /* @__PURE__ */ jsx73("div", { style: { color: "var(--text-400)", fontSize: 12 }, children: "\u041D\u0435\u0442 \u0441\u0441\u044B\u043B\u043E\u043A \u043D\u0430 \u0434\u0440\u0443\u0433\u0438\u0435 \u0434\u043E\u043C\u0435\u043D\u044B" }),
+      /* @__PURE__ */ jsx73("div", { style: { marginTop: 4, fontSize: 11, color: "var(--text-500)" }, children: "\u0414\u043E\u043C\u0435\u043D \u0438\u0437\u043E\u043B\u0438\u0440\u043E\u0432\u0430\u043D \u0432 \u0433\u0440\u0430\u0444\u0435 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0435\u0439" })
     ] });
   }
   const totalRefs = groups.reduce((s, g) => s + g.refs.length, 0);
-  return /* @__PURE__ */ jsxs68("div", { className: "yaml-issues", children: [
-    /* @__PURE__ */ jsxs68("div", { className: "yaml-issues__header", children: [
+  return /* @__PURE__ */ jsxs70("div", { className: "yaml-issues", children: [
+    /* @__PURE__ */ jsxs70("div", { className: "yaml-issues__header", children: [
       "\u0412\u043D\u0435\u0448\u043D\u0438\u0435 \u0441\u0441\u044B\u043B\u043A\u0438 (",
       totalRefs,
       " \u2192 ",
       groups.length,
       " \u0434\u043E\u043C\u0435\u043D\u043E\u0432)"
     ] }),
-    /* @__PURE__ */ jsx71("div", { className: "yaml-issues__list", children: groups.map((g) => /* @__PURE__ */ jsxs68("details", { className: "yaml-ext-refs-group", open: true, children: [
-      /* @__PURE__ */ jsxs68("summary", { className: "yaml-ext-refs-group__summary", children: [
-        /* @__PURE__ */ jsx71("span", { className: "yaml-ext-refs-group__chevron", "aria-hidden": "true" }),
-        /* @__PURE__ */ jsx71("code", { className: "yaml-ext-refs-group__domain", children: g.domain }),
-        /* @__PURE__ */ jsx71("span", { className: "yaml-ext-refs-group__count", children: g.refs.length })
+    /* @__PURE__ */ jsx73("div", { className: "yaml-issues__list", children: groups.map((g) => /* @__PURE__ */ jsxs70("details", { className: "yaml-ext-refs-group", open: true, children: [
+      /* @__PURE__ */ jsxs70("summary", { className: "yaml-ext-refs-group__summary", children: [
+        /* @__PURE__ */ jsx73("span", { className: "yaml-ext-refs-group__chevron", "aria-hidden": "true" }),
+        /* @__PURE__ */ jsx73("code", { className: "yaml-ext-refs-group__domain", children: g.domain }),
+        /* @__PURE__ */ jsx73("span", { className: "yaml-ext-refs-group__count", children: g.refs.length })
       ] }),
-      g.refs.map((r, i) => /* @__PURE__ */ jsxs68(
+      g.refs.map((r, i) => /* @__PURE__ */ jsxs70(
         "button",
         {
           className: "yaml-ext-ref",
@@ -33245,12 +33975,12 @@ function ExternalRefsPanel({
 
 ${r.field}: ${r.raw}`,
           children: [
-            /* @__PURE__ */ jsxs68("span", { className: "yaml-ext-ref__line", children: [
+            /* @__PURE__ */ jsxs70("span", { className: "yaml-ext-ref__line", children: [
               ":",
               r.line
             ] }),
-            /* @__PURE__ */ jsx71("span", { className: "yaml-ext-ref__field", children: r.field }),
-            /* @__PURE__ */ jsx71("code", { className: "yaml-ext-ref__target", children: r.target })
+            /* @__PURE__ */ jsx73("span", { className: "yaml-ext-ref__field", children: r.field }),
+            /* @__PURE__ */ jsx73("code", { className: "yaml-ext-ref__target", children: r.target })
           ]
         },
         i
@@ -33478,9 +34208,9 @@ function FilteredNavList({
   onHover
 }) {
   if (nodes.length === 0) {
-    return /* @__PURE__ */ jsx71("div", { className: "yaml-viewer-nav__empty", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" });
+    return /* @__PURE__ */ jsx73("div", { className: "yaml-viewer-nav__empty", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" });
   }
-  return /* @__PURE__ */ jsx71("div", { className: "yaml-nav-filtered", children: nodes.map((n, i) => /* @__PURE__ */ jsxs68(
+  return /* @__PURE__ */ jsx73("div", { className: "yaml-nav-filtered", children: nodes.map((n, i) => /* @__PURE__ */ jsxs70(
     "button",
     {
       className: "yaml-nav-filtered-item" + (i === activeIdx ? " yaml-nav-filtered-item--active" : "") + (n.hasIssues ? " yaml-nav-filtered-item--issues" : ""),
@@ -33488,17 +34218,17 @@ function FilteredNavList({
       onMouseEnter: () => onHover(i),
       title: n.issuesPreview || void 0,
       children: [
-        /* @__PURE__ */ jsx71("code", { className: "yaml-nav-filtered-item__id", children: n.label }),
-        /* @__PURE__ */ jsx71("span", { className: "yaml-nav-filtered-item__section", children: n.sectionKey }),
-        n.hasIssues && /* @__PURE__ */ jsx71(
+        /* @__PURE__ */ jsx73("code", { className: "yaml-nav-filtered-item__id", children: n.label }),
+        /* @__PURE__ */ jsx73("span", { className: "yaml-nav-filtered-item__section", children: n.sectionKey }),
+        n.hasIssues && /* @__PURE__ */ jsx73(
           "span",
           {
             className: "yaml-nav-filtered-item__issues",
             title: n.issuesPreview || "\u0415\u0441\u0442\u044C \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B",
-            children: /* @__PURE__ */ jsx71(MIcon, { name: "warning", size: "sm" })
+            children: /* @__PURE__ */ jsx73(MIcon, { name: "warning", size: "sm" })
           }
         ),
-        /* @__PURE__ */ jsxs68("span", { className: "yaml-nav-filtered-item__line", children: [
+        /* @__PURE__ */ jsxs70("span", { className: "yaml-nav-filtered-item__line", children: [
           ":",
           n.line
         ] })
@@ -33520,8 +34250,8 @@ function SectionNav({
   entityIssuesMap,
   attrIssuesMap
 }) {
-  const detailsRef = React38.useRef(null);
-  React38.useEffect(() => {
+  const detailsRef = React39.useRef(null);
+  React39.useEffect(() => {
     if (detailsRef.current && detailsRef.current.dataset.initialized !== "1") {
       detailsRef.current.open = true;
       detailsRef.current.dataset.initialized = "1";
@@ -33530,28 +34260,28 @@ function SectionNav({
   const sectionIssues = issues.filter(
     (i) => (i.propertyPath || "").toLowerCase().indexOf(section.key.toLowerCase()) !== -1
   );
-  return /* @__PURE__ */ jsxs68(
+  return /* @__PURE__ */ jsxs70(
     "details",
     {
       ref: detailsRef,
       className: "yaml-nav-section",
       "data-section-key": section.key,
       children: [
-        /* @__PURE__ */ jsxs68("summary", { className: "yaml-nav-section__head", children: [
-          /* @__PURE__ */ jsx71("span", { className: "yaml-nav-section__chevron", "aria-hidden": "true" }),
-          /* @__PURE__ */ jsxs68("span", { className: "yaml-nav-section__label", title: `${section.linesCount} \u0441\u0442\u0440\u043E\u043A \u0432 \u0441\u0435\u043A\u0446\u0438\u0438`, children: [
+        /* @__PURE__ */ jsxs70("summary", { className: "yaml-nav-section__head", children: [
+          /* @__PURE__ */ jsx73("span", { className: "yaml-nav-section__chevron", "aria-hidden": "true" }),
+          /* @__PURE__ */ jsxs70("span", { className: "yaml-nav-section__label", title: `${section.linesCount} \u0441\u0442\u0440\u043E\u043A \u0432 \u0441\u0435\u043A\u0446\u0438\u0438`, children: [
             section.label,
-            /* @__PURE__ */ jsxs68("span", { className: "yaml-nav-section__lines", children: [
+            /* @__PURE__ */ jsxs70("span", { className: "yaml-nav-section__lines", children: [
               "~",
               section.linesCount
             ] })
           ] }),
-          /* @__PURE__ */ jsx71("span", { className: "yaml-nav-section__count", children: section.count }),
-          sectionIssues.length > 0 && /* @__PURE__ */ jsxs68("span", { className: "yaml-nav-section__issues", children: [
+          /* @__PURE__ */ jsx73("span", { className: "yaml-nav-section__count", children: section.count }),
+          sectionIssues.length > 0 && /* @__PURE__ */ jsxs70("span", { className: "yaml-nav-section__issues", children: [
             "\u26A0 ",
             sectionIssues.length
           ] }),
-          /* @__PURE__ */ jsx71(
+          /* @__PURE__ */ jsx73(
             "button",
             {
               type: "button",
@@ -33566,9 +34296,9 @@ function SectionNav({
             }
           )
         ] }),
-        section.nodes.length > 0 && /* @__PURE__ */ jsx71("div", { className: "yaml-nav-section__items", children: section.nodes.map((node) => {
+        section.nodes.length > 0 && /* @__PURE__ */ jsx73("div", { className: "yaml-nav-section__items", children: section.nodes.map((node) => {
           const issuesList = sectionKey === "entities" ? entityIssuesMap.get(node.id.toLowerCase()) : void 0;
-          return /* @__PURE__ */ jsx71(
+          return /* @__PURE__ */ jsx73(
             NavItem,
             {
               node,
@@ -33612,18 +34342,18 @@ function NavItem({
   const key = parentKey + "#" + node.id;
   const hasChildren = !!node.children && node.children.length > 0;
   const expanded = expandedNodes.has(key);
-  const globalIdx = useMemo40(
+  const globalIdx = useMemo41(
     () => filteredNavNodes.findIndex((n) => n.key === key),
     [filteredNavNodes, key]
   );
   const isActive = globalIdx >= 0 && globalIdx === activeIdx;
-  return /* @__PURE__ */ jsxs68("div", { className: "yaml-nav-item yaml-nav-item--d" + Math.min(depth, 4), children: [
-    /* @__PURE__ */ jsxs68(
+  return /* @__PURE__ */ jsxs70("div", { className: "yaml-nav-item yaml-nav-item--d" + Math.min(depth, 4), children: [
+    /* @__PURE__ */ jsxs70(
       "div",
       {
         className: "yaml-nav-item__row" + (isActive ? " yaml-nav-item__row--active" : ""),
         children: [
-          hasChildren ? /* @__PURE__ */ jsx71(
+          hasChildren ? /* @__PURE__ */ jsx73(
             "button",
             {
               type: "button",
@@ -33632,8 +34362,8 @@ function NavItem({
               "aria-expanded": expanded,
               title: expanded ? "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C" : "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C"
             }
-          ) : /* @__PURE__ */ jsx71("span", { className: "yaml-nav-item__chevron-btn yaml-nav-item__chevron-btn--empty" }),
-          /* @__PURE__ */ jsxs68(
+          ) : /* @__PURE__ */ jsx73("span", { className: "yaml-nav-item__chevron-btn yaml-nav-item__chevron-btn--empty" }),
+          /* @__PURE__ */ jsxs70(
             "button",
             {
               type: "button",
@@ -33645,14 +34375,14 @@ function NavItem({
               },
               onMouseEnter: () => globalIdx >= 0 && onSetActive(globalIdx),
               children: [
-                /* @__PURE__ */ jsx71("code", { className: "yaml-nav-item__id", children: node.id }),
-                node.meta && /* @__PURE__ */ jsx71("span", { className: "yaml-nav-item__meta", children: node.meta }),
-                hasIssues && /* @__PURE__ */ jsx71(
+                /* @__PURE__ */ jsx73("code", { className: "yaml-nav-item__id", children: node.id }),
+                node.meta && /* @__PURE__ */ jsx73("span", { className: "yaml-nav-item__meta", children: node.meta }),
+                hasIssues && /* @__PURE__ */ jsx73(
                   "span",
                   {
                     className: "yaml-nav-item__issues",
                     title: issuesPreview || "\u0415\u0441\u0442\u044C \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B",
-                    children: /* @__PURE__ */ jsx71(MIcon, { name: "warning", size: "sm" })
+                    children: /* @__PURE__ */ jsx73(MIcon, { name: "warning", size: "sm" })
                   }
                 )
               ]
@@ -33661,9 +34391,9 @@ function NavItem({
         ]
       }
     ),
-    hasChildren && expanded && /* @__PURE__ */ jsx71("div", { className: "yaml-nav-item__children", children: node.children.map((child) => {
+    hasChildren && expanded && /* @__PURE__ */ jsx73("div", { className: "yaml-nav-item__children", children: node.children.map((child) => {
       const childIssues = sectionKey === "entities" ? attrIssuesMap.get(child.id.toLowerCase()) : void 0;
-      return /* @__PURE__ */ jsx71(
+      return /* @__PURE__ */ jsx73(
         NavItem,
         {
           node: child,
@@ -33695,7 +34425,7 @@ function IssuesPanel({
   setSeverityFilter
 }) {
   const [issueGroupMode, setIssueGroupMode] = useState31("rule");
-  const grouped = useMemo40(() => {
+  const grouped = useMemo41(() => {
     const map2 = /* @__PURE__ */ new Map();
     issues.forEach((i) => {
       const key = issueGroupMode === "rule" ? i.ruleId : i.entityFqid ? i.entityFqid.split("/")[1] : "\u0411\u0435\u0437 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438";
@@ -33713,23 +34443,23 @@ function IssuesPanel({
       next.add(sev);
     setSeverityFilter(next);
   };
-  return /* @__PURE__ */ jsxs68("div", { className: "yaml-issues", children: [
-    /* @__PURE__ */ jsx71("div", { className: "yaml-issues__severity", children: ["error", "warning", "info"].map((sev) => /* @__PURE__ */ jsxs68(
+  return /* @__PURE__ */ jsxs70("div", { className: "yaml-issues", children: [
+    /* @__PURE__ */ jsx73("div", { className: "yaml-issues__severity", children: ["error", "warning", "info"].map((sev) => /* @__PURE__ */ jsxs70(
       "button",
       {
         className: "yaml-issues__severity-btn yaml-issues__severity-btn--" + sev + (severityFilter.has(sev) ? " active" : ""),
         onClick: () => toggleSeverity(sev),
         title: `\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C/\u0441\u043A\u0440\u044B\u0442\u044C ${sev}`,
         children: [
-          /* @__PURE__ */ jsx71("span", { className: "yaml-issues__severity-dot" }),
+          /* @__PURE__ */ jsx73("span", { className: "yaml-issues__severity-dot" }),
           sev === "error" ? "\u041E\u0448\u0438\u0431\u043A\u0438" : sev === "warning" ? "\u041F\u0440\u0435\u0434\u0443\u043F\u0440." : "\u0418\u043D\u0444\u043E"
         ]
       },
       sev
     )) }),
-    /* @__PURE__ */ jsxs68("div", { className: "yaml-issues__toolbar", children: [
-      /* @__PURE__ */ jsx71("span", { style: { fontSize: 11, color: "var(--text-500)" }, children: "\u0413\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u043A\u0430:" }),
-      /* @__PURE__ */ jsx71(
+    /* @__PURE__ */ jsxs70("div", { className: "yaml-issues__toolbar", children: [
+      /* @__PURE__ */ jsx73("span", { style: { fontSize: 11, color: "var(--text-500)" }, children: "\u0413\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u043A\u0430:" }),
+      /* @__PURE__ */ jsx73(
         "button",
         {
           className: "yaml-issues__group-btn" + (issueGroupMode === "rule" ? " active" : ""),
@@ -33737,7 +34467,7 @@ function IssuesPanel({
           children: "\u041F\u043E \u043F\u0440\u0430\u0432\u0438\u043B\u0443"
         }
       ),
-      /* @__PURE__ */ jsx71(
+      /* @__PURE__ */ jsx73(
         "button",
         {
           className: "yaml-issues__group-btn" + (issueGroupMode === "entity" ? " active" : ""),
@@ -33746,16 +34476,16 @@ function IssuesPanel({
         }
       )
     ] }),
-    /* @__PURE__ */ jsxs68("div", { className: "yaml-issues__header", children: [
+    /* @__PURE__ */ jsxs70("div", { className: "yaml-issues__header", children: [
       "\u041F\u0440\u043E\u0431\u043B\u0435\u043C\u044B (",
       issues.length,
       issues.length !== allIssuesCount ? ` / ${allIssuesCount}` : "",
       ")"
     ] }),
-    issues.length === 0 ? /* @__PURE__ */ jsxs68("div", { className: "yaml-issues-empty", children: [
-      /* @__PURE__ */ jsx71("div", { style: { fontSize: 32, marginBottom: 8 }, children: "\u2705" }),
+    issues.length === 0 ? /* @__PURE__ */ jsxs70("div", { className: "yaml-issues-empty", children: [
+      /* @__PURE__ */ jsx73("div", { style: { fontSize: 32, marginBottom: 8 }, children: "\u2705" }),
       allIssuesCount > 0 ? "\u041D\u0435\u0442 \u043F\u0440\u043E\u0431\u043B\u0435\u043C \u0441 \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u043E\u0439 severity" : "\u041F\u0440\u043E\u0431\u043B\u0435\u043C \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E"
-    ] }) : /* @__PURE__ */ jsx71("div", { className: "yaml-issues__list", children: grouped.map(([ruleId, items]) => /* @__PURE__ */ jsx71(
+    ] }) : /* @__PURE__ */ jsx73("div", { className: "yaml-issues__list", children: grouped.map(([ruleId, items]) => /* @__PURE__ */ jsx73(
       IssuesGroup,
       {
         title: issueGroupMode === "rule" ? items[0].rule : ruleId,
@@ -33775,22 +34505,22 @@ function IssuesGroup({
   lineMap,
   onJump
 }) {
-  const detailsRef = React38.useRef(null);
-  React38.useEffect(() => {
+  const detailsRef = React39.useRef(null);
+  React39.useEffect(() => {
     if (detailsRef.current && detailsRef.current.dataset.initialized !== "1") {
       detailsRef.current.open = true;
       detailsRef.current.dataset.initialized = "1";
     }
   }, []);
-  return /* @__PURE__ */ jsxs68("details", { ref: detailsRef, className: "yaml-issues__group", children: [
-    /* @__PURE__ */ jsxs68("summary", { className: "yaml-issues__group-title", children: [
-      /* @__PURE__ */ jsx71("span", { className: "yaml-issues__group-chevron", "aria-hidden": "true" }),
-      /* @__PURE__ */ jsx71("span", { className: "yaml-issues__group-label", children: title }),
-      /* @__PURE__ */ jsx71("span", { className: "yaml-issues__group-count", children: items.length })
+  return /* @__PURE__ */ jsxs70("details", { ref: detailsRef, className: "yaml-issues__group", children: [
+    /* @__PURE__ */ jsxs70("summary", { className: "yaml-issues__group-title", children: [
+      /* @__PURE__ */ jsx73("span", { className: "yaml-issues__group-chevron", "aria-hidden": "true" }),
+      /* @__PURE__ */ jsx73("span", { className: "yaml-issues__group-label", children: title }),
+      /* @__PURE__ */ jsx73("span", { className: "yaml-issues__group-count", children: items.length })
     ] }),
     items.map((issue, i) => {
       const line = findIssueLine(issue, lineMap);
-      return /* @__PURE__ */ jsxs68(
+      return /* @__PURE__ */ jsxs70(
         "button",
         {
           type: "button",
@@ -33798,9 +34528,9 @@ function IssuesGroup({
           onClick: () => line != null && onJump(line),
           disabled: line == null,
           children: [
-            /* @__PURE__ */ jsx71("span", { className: "yaml-issue__dot yaml-issue__dot--" + issue.severity }),
-            /* @__PURE__ */ jsx71("span", { className: "yaml-issue__text", children: issue.message }),
-            line != null && /* @__PURE__ */ jsxs68("span", { className: "yaml-issue__line", children: [
+            /* @__PURE__ */ jsx73("span", { className: "yaml-issue__dot yaml-issue__dot--" + issue.severity }),
+            /* @__PURE__ */ jsx73("span", { className: "yaml-issue__text", children: issue.message }),
+            line != null && /* @__PURE__ */ jsxs70("span", { className: "yaml-issue__line", children: [
               ":",
               line
             ] })
@@ -33828,7 +34558,7 @@ function CrossDomainBadge({
   onDomainClick
 }) {
   const [open, setOpen] = useState31(false);
-  const closeTimer = useRef12(null);
+  const closeTimer = useRef13(null);
   const onEnter = () => {
     if (closeTimer.current)
       clearTimeout(closeTimer.current);
@@ -33837,7 +34567,7 @@ function CrossDomainBadge({
   const onLeave = () => {
     closeTimer.current = setTimeout(() => setOpen(false), 200);
   };
-  return /* @__PURE__ */ jsxs68(
+  return /* @__PURE__ */ jsxs70(
     "span",
     {
       className: "yaml-viewer-info__item yaml-viewer-info__item--cross",
@@ -33845,28 +34575,28 @@ function CrossDomainBadge({
       onMouseLeave: onLeave,
       style: { position: "relative" },
       children: [
-        /* @__PURE__ */ jsxs68("strong", { children: [
+        /* @__PURE__ */ jsxs70("strong", { children: [
           direction === "out" ? "\u2192" : "\u2190",
           " ",
           count
         ] }),
         " ",
         label,
-        open && /* @__PURE__ */ jsxs68(
+        open && /* @__PURE__ */ jsxs70(
           "div",
           {
             className: "yaml-crossdomain-tooltip",
             onMouseEnter: onEnter,
             onMouseLeave: onLeave,
             children: [
-              /* @__PURE__ */ jsxs68("div", { className: "yaml-crossdomain-tooltip__title", children: [
+              /* @__PURE__ */ jsxs70("div", { className: "yaml-crossdomain-tooltip__title", children: [
                 direction === "out" ? "\u0421\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F \u043D\u0430 \u0434\u043E\u043C\u0435\u043D\u044B" : "\u0421\u0441\u044B\u043B\u0430\u044E\u0442\u0441\u044F \u0434\u043E\u043C\u0435\u043D\u044B",
                 " ",
                 "(",
                 domains.length,
                 "):"
               ] }),
-              /* @__PURE__ */ jsx71("div", { className: "yaml-crossdomain-tooltip__list", children: domains.map((d) => /* @__PURE__ */ jsxs68(
+              /* @__PURE__ */ jsx73("div", { className: "yaml-crossdomain-tooltip__list", children: domains.map((d) => /* @__PURE__ */ jsxs70(
                 "button",
                 {
                   className: "yaml-crossdomain-tooltip__link",
@@ -33875,7 +34605,7 @@ function CrossDomainBadge({
                     onDomainClick(d);
                   },
                   children: [
-                    /* @__PURE__ */ jsx71(MIcon, { name: "menu_book", size: "sm" }),
+                    /* @__PURE__ */ jsx73(MIcon, { name: "menu_book", size: "sm" }),
                     d
                   ]
                 },
@@ -34238,36 +34968,36 @@ var init_modals = __esm({
 });
 
 // src/web/components/layout/AppModals.tsx
-import { Fragment as Fragment14, jsx as jsx72, jsxs as jsxs69 } from "react/jsx-runtime";
+import { Fragment as Fragment18, jsx as jsx74, jsxs as jsxs71 } from "react/jsx-runtime";
 function AppModals(props) {
   const helpOpen = useGraphStore((s) => s.helpOpen);
   const hotkeysOpen = useGraphStore((s) => s.hotkeysOpen);
   const contextMenu = useGraphStore((s) => s.contextMenu);
   const snackbar = useGraphStore((s) => s.snackbar);
-  return /* @__PURE__ */ jsxs69(Fragment14, { children: [
-    /* @__PURE__ */ jsx72(HoverTooltip, {}),
-    /* @__PURE__ */ jsx72(
+  return /* @__PURE__ */ jsxs71(Fragment18, { children: [
+    /* @__PURE__ */ jsx74(HoverTooltip, {}),
+    /* @__PURE__ */ jsx74(
       CommandPalette,
       {
         commands: props.commands,
         onOpenFile: (filePath, fqid) => openFileInEditor(filePath, fqid)
       }
     ),
-    /* @__PURE__ */ jsx72(
+    /* @__PURE__ */ jsx74(
       HelpModal,
       {
         open: helpOpen,
         onClose: () => useGraphStore.getState().setHelpOpen(false)
       }
     ),
-    /* @__PURE__ */ jsx72(
+    /* @__PURE__ */ jsx74(
       HotkeysModal,
       {
         open: hotkeysOpen,
         onClose: () => useGraphStore.getState().setHotkeysOpen(false)
       }
     ),
-    /* @__PURE__ */ jsx72(
+    /* @__PURE__ */ jsx74(
       ValidationModal,
       {
         allDomains: props.allDomains,
@@ -34275,7 +35005,7 @@ function AppModals(props) {
         bookmarkedDomains: props.bookmarkedDomains
       }
     ),
-    /* @__PURE__ */ jsx72(
+    /* @__PURE__ */ jsx74(
       TopoSortModal,
       {
         allDomains: props.allDomains,
@@ -34283,7 +35013,7 @@ function AppModals(props) {
         bookmarkedDomains: props.bookmarkedDomains
       }
     ),
-    /* @__PURE__ */ jsx72(
+    /* @__PURE__ */ jsx74(
       LearningPathModal,
       {
         visibleDomains: props.visibleDomains,
@@ -34291,10 +35021,10 @@ function AppModals(props) {
         onStartTour: props.onStartTour
       }
     ),
-    /* @__PURE__ */ jsx72(TourOverlay, {}),
-    /* @__PURE__ */ jsx72(EntityHierarchyModal, { entities: props.entities }),
-    /* @__PURE__ */ jsx72(RulesModal, { violations: props.ruleViolations }),
-    /* @__PURE__ */ jsx72(
+    /* @__PURE__ */ jsx74(TourOverlay, {}),
+    /* @__PURE__ */ jsx74(EntityHierarchyModal, { entities: props.entities }),
+    /* @__PURE__ */ jsx74(RulesModal, { violations: props.ruleViolations }),
+    /* @__PURE__ */ jsx74(
       ContextMenu,
       {
         menu: contextMenu,
@@ -34302,7 +35032,7 @@ function AppModals(props) {
         onAction: props.onContextAction
       }
     ),
-    props.toastVisible && props.remoteInfo?.fromCache && /* @__PURE__ */ jsx72(
+    props.toastVisible && props.remoteInfo?.fromCache && /* @__PURE__ */ jsx74(
       Toast,
       {
         message: "\u{1F4E6} \u0413\u0440\u0430\u0444 \u043F\u043E\u0441\u0442\u0440\u043E\u0435\u043D \u0438\u0437 <b>\u043A\u044D\u0448\u0430</b>" + (props.remoteInfo.fetchedAt ? " (\u043E\u0442 " + new Date(props.remoteInfo.fetchedAt).toLocaleString("ru-RU") + ")" : "") + ". \u0414\u0430\u043D\u043D\u044B\u0435 \u043C\u043E\u0433\u0443\u0442 \u0431\u044B\u0442\u044C \u0443\u0441\u0442\u0430\u0440\u0435\u0432\u0448\u0438\u043C\u0438.",
@@ -34317,21 +35047,21 @@ function AppModals(props) {
         } : void 0
       }
     ),
-    /* @__PURE__ */ jsx72(Snackbar, { snackbar }),
-    /* @__PURE__ */ jsx72(EntityGraphModal, {}),
-    /* @__PURE__ */ jsx72(ModelValidationModal, {}),
-    /* @__PURE__ */ jsx72(GlossaryModal, {}),
-    /* @__PURE__ */ jsx72(ModelDiffModal, {}),
-    /* @__PURE__ */ jsx72(EntitiesCatalogModal, {}),
-    /* @__PURE__ */ jsx72(AttributeFinderModal, {}),
-    /* @__PURE__ */ jsx72(EntityMatrixModal, {}),
-    /* @__PURE__ */ jsx72(AttributeMatrixModal, {}),
-    /* @__PURE__ */ jsx72(DomainSchemaModal, {}),
-    /* @__PURE__ */ jsx72(LintModal, {}),
-    /* @__PURE__ */ jsx72(MartinMetricsModal, {}),
-    /* @__PURE__ */ jsx72(DomainCompareModal, {}),
-    /* @__PURE__ */ jsx72(PiiModal, {}),
-    /* @__PURE__ */ jsx72(YamlViewerModal, {})
+    /* @__PURE__ */ jsx74(Snackbar, { snackbar }),
+    /* @__PURE__ */ jsx74(EntityGraphModal, {}),
+    /* @__PURE__ */ jsx74(ModelValidationModal, {}),
+    /* @__PURE__ */ jsx74(GlossaryModal, {}),
+    /* @__PURE__ */ jsx74(ModelDiffModal, {}),
+    /* @__PURE__ */ jsx74(EntitiesCatalogModal, {}),
+    /* @__PURE__ */ jsx74(AttributeFinderModal, {}),
+    /* @__PURE__ */ jsx74(EntityMatrixModal, {}),
+    /* @__PURE__ */ jsx74(AttributeMatrixModal, {}),
+    /* @__PURE__ */ jsx74(DomainSchemaModal, {}),
+    /* @__PURE__ */ jsx74(LintModal, {}),
+    /* @__PURE__ */ jsx74(MartinMetricsModal, {}),
+    /* @__PURE__ */ jsx74(DomainCompareModal, {}),
+    /* @__PURE__ */ jsx74(PiiModal, {}),
+    /* @__PURE__ */ jsx74(YamlViewerModal, {})
   ] });
 }
 var init_AppModals = __esm({
@@ -34360,14 +35090,15 @@ var init_AppModals = __esm({
 });
 
 // src/web/App.tsx
-import React39, { useCallback as useCallback17, useEffect as useEffect35, useMemo as useMemo41, useRef as useRef13 } from "react";
-import { jsx as jsx73, jsxs as jsxs70 } from "react/jsx-runtime";
+import React40, { useCallback as useCallback18, useEffect as useEffect36, useMemo as useMemo42, useRef as useRef14 } from "react";
+import { jsx as jsx75, jsxs as jsxs72 } from "react/jsx-runtime";
 function App() {
   const nodes = useGraphStore((s) => s.nodes);
   const edges = useGraphStore((s) => s.edges);
   const rules = useGraphStore((s) => s.rules);
-  const didInit = useRef13(false);
-  useEffect35(() => {
+  const viewMode = useGraphStore((s) => s.viewMode);
+  const didInit = useRef14(false);
+  useEffect36(() => {
     if (didInit.current)
       return;
     didInit.current = true;
@@ -34377,7 +35108,7 @@ function App() {
     document.documentElement.setAttribute("data-theme", st.theme);
   }, []);
   const CACHE_TOAST_KEY = REMOTE_INFO?.server ? `dg-cache-toast-hidden:${REMOTE_INFO.server.replace(/\/+$/, "")}` : null;
-  const [toastVisible, setToastVisible] = React39.useState(() => {
+  const [toastVisible, setToastVisible] = React40.useState(() => {
     if (!REMOTE_INFO?.fromCache)
       return false;
     if (!CACHE_TOAST_KEY)
@@ -34388,8 +35119,8 @@ function App() {
       return true;
     }
   });
-  const [dontShowCacheToast, setDontShowCacheToast] = React39.useState(false);
-  const handleDontShowCacheToast = React39.useCallback(
+  const [dontShowCacheToast, setDontShowCacheToast] = React40.useState(false);
+  const handleDontShowCacheToast = React40.useCallback(
     (checked) => {
       setDontShowCacheToast(checked);
       if (!CACHE_TOAST_KEY)
@@ -34413,16 +35144,16 @@ function App() {
     isolatedCount,
     filteredIdsHash
   } = useGraphFilters();
-  const edgesForFocus = useMemo41(() => {
+  const edgesForFocus = useMemo42(() => {
     const ids = new Set(filteredNodes.map((n) => n.id));
     return displayEdges.filter((e) => ids.has(e.source) && ids.has(e.target));
   }, [displayEdges, filteredNodes]);
   const highlight = useGraphHighlight(filteredEdges, edgesForFocus);
-  const cyclesInfo = useMemo41(
+  const cyclesInfo = useMemo42(
     () => findCycles(displayNodes, displayEdges),
     [displayNodes, displayEdges]
   );
-  const healthMap = useMemo41(() => {
+  const healthMap = useMemo42(() => {
     const map2 = /* @__PURE__ */ new Map();
     displayNodes.forEach((n) => {
       const h = computeHealth(n, displayEdges, displayNodes, cyclesInfo.cycleNodes, null);
@@ -34430,11 +35161,11 @@ function App() {
     });
     return map2;
   }, [displayNodes, displayEdges, cyclesInfo]);
-  const ruleViolations = useMemo41(
+  const ruleViolations = useMemo42(
     () => evaluateRules(displayEdges, displayNodes, rules),
     [displayEdges, displayNodes, rules]
   );
-  const violationsByEdge = useMemo41(() => {
+  const violationsByEdge = useMemo42(() => {
     const m = /* @__PURE__ */ new Map();
     ruleViolations.forEach((v) => {
       if (!m.has(v.edgeId))
@@ -34443,7 +35174,7 @@ function App() {
     });
     return m;
   }, [ruleViolations]);
-  const edgesForRender = useMemo41(() => {
+  const edgesForRender = useMemo42(() => {
     if (highlight && (highlight.type === "focus" || highlight.type === "cycle" || highlight.type === "path")) {
       return edgesForFocus;
     }
@@ -34452,12 +35183,12 @@ function App() {
   const heatmapValues = useHeatmapValues(displayNodes, displayEdges, healthMap);
   const visibleNodes = useVisibleNodes(filteredNodes, highlight, healthMap, heatmapValues);
   const visibleEdges = useVisibleEdges(edgesForRender, highlight, violationsByEdge);
-  const perfMode = useMemo41(
+  const perfMode = useMemo42(
     () => filteredEdges.length > PERF_THRESHOLD,
     [filteredEdges.length]
   );
   const showEdgeLabels = useGraphStore((s) => s.showEdgeLabels);
-  const displayEdgesForRender = useMemo41(() => {
+  const displayEdgesForRender = useMemo42(() => {
     const hideLabels = perfMode && !showEdgeLabels;
     if (!hideLabels)
       return visibleEdges;
@@ -34493,7 +35224,7 @@ function App() {
   const interactions = useNodeInteractions({ filteredEdges });
   useGraphEvents({ displayNodes, displayEdges });
   useGlobalClickDelegation(goto, tooltip.hide);
-  const handleResetAll = useCallback17(() => {
+  const handleResetAll = useCallback18(() => {
     useGraphStore.getState().resetAll();
     invalidateLayout();
     setTimeout(() => {
@@ -34506,7 +35237,7 @@ function App() {
       }
     }, 200);
   }, [invalidateLayout]);
-  const startTour = useCallback17((path) => {
+  const startTour = useCallback18((path) => {
     const st = useGraphStore.getState();
     st.setTour({
       stages: path.stages,
@@ -34520,20 +35251,20 @@ function App() {
     st.setPathResult(null);
     st.setPathSel([]);
   }, []);
-  const allDomainsList = useMemo41(
+  const allDomainsList = useMemo42(
     () => nodes.filter((n) => n.data.nodeType === "domain").map((n) => ({ id: n.id, domainId: n.data.domainId })),
     [nodes]
   );
-  const visibleDomainsList = useMemo41(
+  const visibleDomainsList = useMemo42(
     () => visibleNodes.filter((n) => n.data.nodeType === "domain").map((n) => ({ id: n.id, domainId: n.data.domainId })),
     [visibleNodes]
   );
   const bookmarks = useGraphStore((s) => s.bookmarks);
-  const bookmarkedDomainsList = useMemo41(
+  const bookmarkedDomainsList = useMemo42(
     () => nodes.filter((n) => bookmarks.has(n.id) && n.data.nodeType === "domain").map((n) => ({ id: n.id, domainId: n.data.domainId })),
     [nodes, bookmarks]
   );
-  const entityIndex = useMemo41(() => buildEntityIndex(GRAPH_DATA.entities || []), []);
+  const entityIndex = useMemo42(() => buildEntityIndex(GRAPH_DATA.entities || []), []);
   const filters = useGraphStore((s) => s.filters);
   const namespaceFilter = useGraphStore((s) => s.namespaceFilter);
   const tagFilters = useGraphStore((s) => s.tagFilters);
@@ -34541,7 +35272,7 @@ function App() {
   const bookmarksOnly = useGraphStore((s) => s.bookmarksOnly);
   const onlyInvalid = useGraphStore((s) => s.onlyInvalid);
   const hiddenNodeIds = useGraphStore((s) => s.hiddenNodeIds);
-  const activeFiltersCount = useMemo41(() => {
+  const activeFiltersCount = useMemo42(() => {
     let c = 0;
     if (!filters.domain)
       c++;
@@ -34575,8 +35306,8 @@ function App() {
     onlyInvalid,
     hiddenNodeIds
   ]);
-  return /* @__PURE__ */ jsxs70("div", { className: "app", children: [
-    /* @__PURE__ */ jsx73(
+  return /* @__PURE__ */ jsxs72("div", { className: "app", children: [
+    /* @__PURE__ */ jsx75(
       Sidebar,
       {
         healthMap,
@@ -34594,8 +35325,8 @@ function App() {
         onExportStats: exportsApi.exportStats
       }
     ),
-    /* @__PURE__ */ jsxs70("main", { className: "main", children: [
-      /* @__PURE__ */ jsx73(
+    /* @__PURE__ */ jsxs72("main", { className: "main", children: [
+      /* @__PURE__ */ jsx75(
         Toolbar,
         {
           counts,
@@ -34637,8 +35368,8 @@ function App() {
           onShowToast: () => setToastVisible(true)
         }
       ),
-      /* @__PURE__ */ jsx73(ActiveModesBar, { ruleViolationsCount: ruleViolations.length }),
-      /* @__PURE__ */ jsx73(
+      viewMode === "graph" && /* @__PURE__ */ jsx75(ActiveModesBar, { ruleViolationsCount: ruleViolations.length }),
+      /* @__PURE__ */ jsx75(
         GraphArea,
         {
           visibleNodes,
@@ -34659,7 +35390,7 @@ function App() {
         }
       )
     ] }),
-    /* @__PURE__ */ jsx73(
+    /* @__PURE__ */ jsx75(
       AppModals,
       {
         commands,
@@ -34673,7 +35404,7 @@ function App() {
         remoteInfo: REMOTE_INFO,
         refreshCommand: REFRESH_COMMAND,
         toastVisible,
-        onToastClose: useCallback17(() => setToastVisible(false), []),
+        onToastClose: useCallback18(() => setToastVisible(false), []),
         showDontShowAgain: !!CACHE_TOAST_KEY,
         dontShowCacheToast,
         onDontShowCacheToastChange: handleDontShowCacheToast
@@ -34707,7 +35438,7 @@ var init_App = __esm({
 
 // src/web/entry.tsx
 import { createRoot } from "react-dom/client";
-import { jsx as jsx74 } from "react/jsx-runtime";
+import { jsx as jsx76 } from "react/jsx-runtime";
 var require_entry = __commonJS({
   "src/web/entry.tsx"() {
     init_App();
@@ -34736,7 +35467,7 @@ var require_entry = __commonJS({
     var container = document.getElementById("root");
     if (!container)
       throw new Error("#root not found");
-    createRoot(container).render(/* @__PURE__ */ jsx74(App, {}));
+    createRoot(container).render(/* @__PURE__ */ jsx76(App, {}));
   }
 });
 export default require_entry();

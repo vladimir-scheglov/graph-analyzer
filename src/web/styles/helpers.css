@@ -172,8 +172,7 @@
 .snackbar {
   position: fixed;
   bottom: 24px;
-  left: 50%;
-  transform: translateX(-50%);
+  right: 24px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -185,7 +184,11 @@
   color: var(--text-100);
   font-size: 13px;
   z-index: 5000;
-  animation: snackbarIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: snackbarInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes snackbarInRight {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 .snackbar .material-symbols-outlined { color: var(--success); font-size: 18px; }
 @keyframes snackbarIn {

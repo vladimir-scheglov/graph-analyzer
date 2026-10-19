@@ -1796,6 +1796,7 @@ export function YamlViewerModal() {
                                             "yaml-viewer-nav__toggle" +
                                             (onlyProblematic ? " active" : "")
                                         }
+                                        style={{marginLeft: "auto"}}
                                         onClick={() => setOnlyProblematic(!onlyProblematic)}
                                         title={
                                             onlyProblematic

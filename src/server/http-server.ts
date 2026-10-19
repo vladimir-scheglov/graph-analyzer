@@ -224,7 +224,7 @@ export function startServer(opts: StartServerOptions): http.Server {
 
   server.listen(port, () => {
     const graphData = (analyzer as any).__graphData;
-    console.log(`\n🚀 Graph server: http://localhost:${port}`);
+    console.log(`\n🚀 Domains Analyzer: http://localhost:${port}`);
     if (graphData) {
       console.log(`   Domains: ${graphData.domainCount}`);
       console.log(`   Links: ${graphData.linkCount}`);

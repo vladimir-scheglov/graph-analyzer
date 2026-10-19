@@ -218,6 +218,32 @@ export function DomainSchemaModal() {
                             <span className="help-modal__badge">{schema.metadata.id}</span>
                         )}
                     </div>
+                    {domainId && (
+                        <button
+                            className={
+                                "help-modal__icon-btn" +
+                                (store.bookmarks.has(`domain_${domainId}`) ? " active" : "")
+                            }
+                            onClick={() => {
+                                store.toggleBookmark(`domain_${domainId}`);
+                            }}
+                            title={
+                                store.bookmarks.has(`domain_${domainId}`)
+                                    ? "Убрать из избранного"
+                                    : "В избранное"
+                            }
+                            style={{marginLeft: "auto"}}
+                        >
+                            <MIcon
+                                name={
+                                    store.bookmarks.has(`domain_${domainId}`)
+                                        ? "star"
+                                        : "star_border"
+                                }
+                                fill={store.bookmarks.has(`domain_${domainId}`)}
+                            />
+                        </button>
+                    )}
                     <button
                         className="help-modal__close"
                         onClick={() => store.setDomainSchemaOpen(false)}

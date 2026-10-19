@@ -7,6 +7,7 @@ import type { RFNode, RFEdge } from '../../lib/types';
 import type { EntityIndex } from '../../lib/types';
 import type { HeatmapValues } from '../../hooks/useHeatmapValues';
 import type { UseNodeInteractionsResult } from '../../hooks/useNodeInteractions';
+import { DomainList } from "./DomainList";
 
 export interface GraphAreaProps {
     visibleNodes: RFNode[];
@@ -28,38 +29,44 @@ export function GraphArea(props: GraphAreaProps) {
     return (
         <div
             className={
-                'graph-container' + (store.showEdgeLabels ? ' show-labels' : '')
+                'graph-container' +
+                (store.viewMode === 'list' ? ' graph-container--list' : '') +
+                (store.showEdgeLabels ? ' show-labels' : '')
             }
         >
-            <GraphView
-                nodes={props.visibleNodes}
-                edges={props.displayEdgesForRender}
-                onNodesChange={(changes) =>
-                    store.setNodes(
-                        (prev) => applyNodeChanges(changes, prev) as unknown as RFNode[]
-                    )
-                }
-                onEdgesChange={(changes) =>
-                    store.setEdges(
-                        (prev) => applyEdgeChanges(changes, prev) as unknown as RFEdge[]
-                    )
-                }
-                onNodeClick={props.interactions.handleNodeClick}
-                onNodeDoubleClick={props.interactions.handleNodeDoubleClick}
-                onNodeContextMenu={props.interactions.handleNodeContextMenu}
-                onNodeMouseEnter={props.interactions.handleNodeMouseEnter}
-                onNodeMouseLeave={props.interactions.handleNodeMouseLeave}
-                onEdgeClick={props.interactions.handleEdgeClick}
-                onEdgeMouseEnter={props.interactions.handleEdgeMouseEnter}
-                onEdgeMouseLeave={props.interactions.handleEdgeMouseLeave}
-                onPaneClick={props.interactions.handlePaneClick}
-                onPaneContextMenu={props.interactions.handlePaneContextMenu}
-                showGroups={store.showGroups}
-                clusterBoxes={store.clusterBoxes}
-                perfMode={props.perfMode}
-            />
+            {store.viewMode === 'list' ? (
+                <DomainList />
+            ) : (
+                <GraphView
+                    nodes={props.visibleNodes}
+                    edges={props.displayEdgesForRender}
+                    onNodesChange={(changes) =>
+                        store.setNodes(
+                            (prev) => applyNodeChanges(changes, prev) as unknown as RFNode[]
+                        )
+                    }
+                    onEdgesChange={(changes) =>
+                        store.setEdges(
+                            (prev) => applyEdgeChanges(changes, prev) as unknown as RFEdge[]
+                        )
+                    }
+                    onNodeClick={props.interactions.handleNodeClick}
+                    onNodeDoubleClick={props.interactions.handleNodeDoubleClick}
+                    onNodeContextMenu={props.interactions.handleNodeContextMenu}
+                    onNodeMouseEnter={props.interactions.handleNodeMouseEnter}
+                    onNodeMouseLeave={props.interactions.handleNodeMouseLeave}
+                    onEdgeClick={props.interactions.handleEdgeClick}
+                    onEdgeMouseEnter={props.interactions.handleEdgeMouseEnter}
+                    onEdgeMouseLeave={props.interactions.handleEdgeMouseLeave}
+                    onPaneClick={props.interactions.handlePaneClick}
+                    onPaneContextMenu={props.interactions.handlePaneContextMenu}
+                    showGroups={store.showGroups}
+                    clusterBoxes={store.clusterBoxes}
+                    perfMode={props.perfMode}
+                />
+            )}
 
-            {props.visibleNodes.length === 0 && (
+            {store.viewMode === "graph" && props.visibleNodes.length === 0 && (
                 <div className="empty-state">
                     <div className="empty-state__icon">
                         <span className="material-symbols-outlined mi-xl">search_off</span>

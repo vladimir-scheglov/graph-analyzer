@@ -107,3 +107,42 @@
 .active-mode--blue { background: rgba(59, 130, 246, 0.12); border-color: #3b82f6; color: #60a5fa; }
 .active-mode--gray { background: var(--bg-700); border-color: var(--border-hover); color: var(--text-400); }
 .active-mode--green { background: rgba(16, 185, 129, 0.12); border-color: #10b981; color: #34d399; }
+.toolbar__mode-toggle {
+    display: flex;
+    gap: 2px;
+    background: var(--bg-750);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 2px;
+    flex-shrink: 0;
+}
+.toolbar__mode-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: var(--text-400);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+.toolbar__mode-btn:hover {
+    color: var(--text-200);
+}
+.toolbar__mode-btn--active {
+    background: var(--accent);
+    color: #fff;
+}
+.toolbar__mode-btn--active:hover {
+    background: var(--accent-hover);
+    color: #fff;
+}
+.toolbar__mode-btn .material-symbols-outlined {
+    font-size: 15px;
+}

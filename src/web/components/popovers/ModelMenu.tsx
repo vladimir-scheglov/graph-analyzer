@@ -89,6 +89,68 @@ export function ModelMenu({ close }: ModelMenuProps) {
 
             <div className="menu__divider" />
 
+            <div className="menu__label" style={{ paddingLeft: 12, paddingTop: 6 }}>
+                Анализ
+            </div>
+
+            <button
+                className="menu__item"
+                onClick={() => {
+                    useGraphStore.getState().setTopoOpen(true);
+                    close();
+                }}
+            >
+                <span className="menu__icon">
+                    <MIcon name="inventory_2" size="sm" />
+                </span>
+                <span className="menu__text">Порядок установки</span>
+            </button>
+
+            <button
+                className="menu__item"
+                onClick={() => {
+                    useGraphStore.getState().setLearningPathOpen(true);
+                    close();
+                }}
+            >
+                <span className="menu__icon">
+                    <MIcon name="menu_book" size="sm" />
+                </span>
+                <span className="menu__text">Путь изучения</span>
+            </button>
+
+            <button
+                className="menu__item"
+                onClick={() => {
+                    const st = useGraphStore.getState();
+                    st.setEntityHierarchyInitialKey(null);
+                    st.setEntityHierarchyOpen(true);
+                    close();
+                }}
+            >
+                <span className="menu__icon">
+                    <MIcon name="account_tree" size="sm" />
+                </span>
+                <span className="menu__text">Иерархия сущностей</span>
+            </button>
+
+            {useGraphStore.getState().validationAvailable && (
+                <button
+                    className="menu__item"
+                    onClick={() => {
+                        useGraphStore.getState().setValidationOpen(true);
+                        close();
+                    }}
+                >
+                    <span className="menu__icon">
+                        <MIcon name="cloud_upload" size="sm" />
+                    </span>
+                    <span className="menu__text">Массовая валидация</span>
+                </button>
+            )}
+
+            <div className="menu__divider" />
+
             <button
                 className="menu__item"
                 onClick={() => {

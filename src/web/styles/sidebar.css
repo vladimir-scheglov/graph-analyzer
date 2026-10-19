@@ -1150,3 +1150,10 @@
 .sidebar--compact .recent-entity-item__domain {
     display: none;
 }
+.bar-item--active .bar-item__label {
+    color: var(--accent-hover);
+    font-weight: 700;
+}
+.bar-item--active .bar-item__fill {
+    background: linear-gradient(90deg, #f59e0b, #d97706);
+}

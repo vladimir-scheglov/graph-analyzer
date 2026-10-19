@@ -57,12 +57,14 @@ export function SidePanel(props: SidePanelProps) {
                     >
                         📋 Детали
                     </button>
-                    <button
-                        className={'side-panel__tab' + (store.panelTab === 'edge' ? ' active' : '')}
-                        onClick={() => store.setPanelTab('edge')}
-                    >
-                        🔗 Связь
-                    </button>
+                    {store.viewMode === "graph" && (
+                        <button
+                            className={'side-panel__tab' + (store.panelTab === 'edge' ? ' active' : '')}
+                            onClick={() => store.setPanelTab('edge')}
+                        >
+                            🔗 Связь
+                        </button>
+                    )}
                     <button
                         className={'side-panel__tab' + (store.panelTab === 'entities' ? ' active' : '')}
                         onClick={() => store.setPanelTab('entities')}

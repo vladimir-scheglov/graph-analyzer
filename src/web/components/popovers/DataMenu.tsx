@@ -20,64 +20,71 @@ export interface DataMenuProps {
 }
 
 export function DataMenu(props: DataMenuProps) {
-    const store = useGraphStore();
+    const viewMode = useGraphStore((s) => s.viewMode);
+    const diffMode = useGraphStore((s) => s.diffMode);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const snapshotA = useGraphStore((s) => s.snapshotA);
+    const snapshotB = useGraphStore((s) => s.snapshotB);
+    const validationAvailable = useGraphStore((s) => s.validationAvailable);
 
-    const diffMode = store.diffMode;
 
     return (
         <div className="menu">
-            <div className="menu__label" style={{ paddingLeft: 12, paddingTop: 6 }}>
-                Экспорт
-            </div>
+            {viewMode === "graph" && (
+                <>
+                    <div className="menu__label" style={{ paddingLeft: 12, paddingTop: 6 }}>
+                        Экспорт
+                    </div>
 
-            <button
-                className="menu__item"
-                onClick={() => {
-                    props.onExportJSON();
-                    props.close();
-                }}
-            >
-                <span className="menu__icon">💾</span>
-                <span className="menu__text">Граф в JSON</span>
-            </button>
+                    <button
+                        className="menu__item"
+                        onClick={() => {
+                            props.onExportJSON();
+                            props.close();
+                        }}
+                    >
+                        <span className="menu__icon">💾</span>
+                        <span className="menu__text">Граф в JSON</span>
+                    </button>
 
-            <button
-                className="menu__item"
-                onClick={() => {
-                    props.onExportMarkdown();
-                    props.close();
-                }}
-            >
-                <span className="menu__icon">📝</span>
-                <span className="menu__text">Отчёт в Markdown</span>
-            </button>
+                    <button
+                        className="menu__item"
+                        onClick={() => {
+                            props.onExportMarkdown();
+                            props.close();
+                        }}
+                    >
+                        <span className="menu__icon">📝</span>
+                        <span className="menu__text">Отчёт в Markdown</span>
+                    </button>
 
-            <button
-                className="menu__item"
-                onClick={() => {
-                    props.onExportPNG();
-                    props.close();
-                }}
-            >
-                <span className="menu__icon">🖼️</span>
-                <span className="menu__text">Граф в PNG</span>
-            </button>
+                    <button
+                        className="menu__item"
+                        onClick={() => {
+                            props.onExportPNG();
+                            props.close();
+                        }}
+                    >
+                        <span className="menu__icon">🖼️</span>
+                        <span className="menu__text">Граф в PNG</span>
+                    </button>
 
-            <button
-                className="menu__item"
-                onClick={() => {
-                    props.onExportMermaid();
-                    props.close();
-                }}
-            >
-                <span className="menu__icon">
-                    <MIcon name="schema" size="sm" />
-                </span>
-                <span className="menu__text">Диаграмма Mermaid</span>
-            </button>
+                    <button
+                        className="menu__item"
+                        onClick={() => {
+                            props.onExportMermaid();
+                            props.close();
+                        }}
+                    >
+                        <span className="menu__icon">
+                            <MIcon name="schema" size="sm" />
+                        </span>
+                        <span className="menu__text">Диаграмма Mermaid</span>
+                    </button>
 
-            <div className="menu__divider" />
+                    <div className="menu__divider" />
+                </>
+            )}
 
             <div className="menu__label" style={{ paddingLeft: 12, paddingTop: 6 }}>
                 Модель
@@ -130,11 +137,11 @@ export function DataMenu(props: DataMenuProps) {
             <div className="snap-slot">
                 <div className="snap-slot__info">
                     <span className="snap-slot__badge snap-slot__badge--a">A</span>
-                    {store.snapshotA ? (
+                    {snapshotA ? (
                         <div className="snap-slot__meta">
-                            <div className="snap-slot__time">{formatSavedAt(store.snapshotA.savedAt)}</div>
+                            <div className="snap-slot__time">{formatSavedAt(snapshotA.savedAt)}</div>
                             <div className="snap-slot__stats">
-                                {store.snapshotA.stats.nodes} узлов · {store.snapshotA.stats.edges} связей
+                                {snapshotA.stats.nodes} узлов · {snapshotA.stats.edges} связей
                             </div>
                         </div>
                     ) : (
@@ -149,7 +156,7 @@ export function DataMenu(props: DataMenuProps) {
                     >
                         <MIcon name="save" size="sm" />
                     </button>
-                    {store.snapshotA && (
+                    {snapshotA && (
                         <button
                             className="snap-btn snap-btn--primary"
                             onClick={() => {
@@ -161,7 +168,7 @@ export function DataMenu(props: DataMenuProps) {
                             <MIcon name="compare_arrows" size="sm" />
                         </button>
                     )}
-                    {store.snapshotA && (
+                    {snapshotA && (
                         <button
                             className="snap-btn snap-btn--danger"
                             onClick={() => props.onClearSnapshot('A')}
@@ -177,11 +184,11 @@ export function DataMenu(props: DataMenuProps) {
             <div className="snap-slot">
                 <div className="snap-slot__info">
                     <span className="snap-slot__badge snap-slot__badge--b">B</span>
-                    {store.snapshotB ? (
+                    {snapshotB ? (
                         <div className="snap-slot__meta">
-                            <div className="snap-slot__time">{formatSavedAt(store.snapshotB.savedAt)}</div>
+                            <div className="snap-slot__time">{formatSavedAt(snapshotB.savedAt)}</div>
                             <div className="snap-slot__stats">
-                                {store.snapshotB.stats.nodes} узлов · {store.snapshotB.stats.edges} связей
+                                {snapshotB.stats.nodes} узлов · {snapshotB.stats.edges} связей
                             </div>
                         </div>
                     ) : (
@@ -196,7 +203,7 @@ export function DataMenu(props: DataMenuProps) {
                     >
                         <MIcon name="save" size="sm" />
                     </button>
-                    {store.snapshotB && (
+                    {snapshotB && (
                         <button
                             className="snap-btn snap-btn--primary"
                             onClick={() => {
@@ -208,7 +215,7 @@ export function DataMenu(props: DataMenuProps) {
                             <MIcon name="compare_arrows" size="sm" />
                         </button>
                     )}
-                    {store.snapshotB && (
+                    {snapshotB && (
                         <button
                             className="snap-btn snap-btn--danger"
                             onClick={() => props.onClearSnapshot('B')}
@@ -248,31 +255,12 @@ export function DataMenu(props: DataMenuProps) {
                     )}
                     <button
                         className="diff-legend__close"
-                        onClick={() => store.setDiffMode(null)}
+                        onClick={() => useGraphStore.getState().setDiffMode(null)}
                         title="Сбросить diff"
                     >
                         <MIcon name="close" size="sm" />
                     </button>
                 </div>
-            )}
-
-            {store.validationAvailable && (
-                <>
-                    <div className="menu__divider" />
-                    <div className="menu__label" style={{ paddingLeft: 12, paddingTop: 6 }}>
-                        Валидация
-                    </div>
-                    <button
-                        className="menu__item"
-                        onClick={() => {
-                            props.onOpenValidation();
-                            props.close();
-                        }}
-                    >
-                        <span className="menu__icon">🔍</span>
-                        <span className="menu__text">Массовая валидация доменов</span>
-                    </button>
-                </>
             )}
         </div>
     );

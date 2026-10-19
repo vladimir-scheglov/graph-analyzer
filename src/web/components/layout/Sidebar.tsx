@@ -29,30 +29,34 @@ export interface SidebarProps {
 }
 
 export function Sidebar(props: SidebarProps) {
-    const store = useGraphStore();
     const stats = useSidebarStats(props.healthMap);
+    const viewMode = useGraphStore((s) => s.viewMode);
+    const validationResults = useGraphStore((s) => s.validationResults);
+    const nodes = useGraphStore((s) => s.nodes);
+    const sidebarCollapsed = useGraphStore((s) => s.sidebarCollapsed);
+    const sidebarCompact = useGraphStore((s) => s.sidebarCompact);
 
     // Проблемные домены (невалидные) — из validationResults
     const problemDomains = useMemo(() => {
-        if (!store.validationResults) return [];
+        if (!validationResults) return [];
         const result: Array<{ node: any; count: number }> = [];
-        store.nodes.forEach((n) => {
-            const v = store.validationResults!.get(n.data.domainId);
+        nodes.forEach((n) => {
+            const v = validationResults!.get(n.data.domainId);
             if (v && v.status === 'invalid') {
                 result.push({ node: n, count: (v.diagnostics || []).length });
             }
         });
         return result.sort((a, b) => b.count - a.count).slice(0, 5);
-    }, [store.nodes, store.validationResults]);
+    }, [nodes, validationResults]);
 
     // Домены с битыми FQID
     const brokenRefsDomains = useMemo(() => {
         const result: Array<{ node: any; count: number }> = [];
         const domainIds = new Set<string>();
-        store.nodes.forEach((n) => {
+        nodes.forEach((n) => {
             if (n.data.nodeType === 'domain') domainIds.add(n.data.domainId.toLowerCase());
         });
-        store.nodes.forEach((n) => {
+        nodes.forEach((n) => {
             if (n.data.nodeType !== 'domain') return;
             const refs = n.data.fqidRefs || [];
             const broken = refs.filter(
@@ -61,7 +65,7 @@ export function Sidebar(props: SidebarProps) {
             if (broken.length > 0) result.push({ node: n, count: broken.length });
         });
         return result.sort((a, b) => b.count - a.count).slice(0, 5);
-    }, [store.nodes]);
+    }, [nodes]);
 
     const hasNews = !!props.cacheDiff;
     const hasProblems =
@@ -77,12 +81,12 @@ export function Sidebar(props: SidebarProps) {
         problemDomains.length +
         props.cyclesCount;
 
-    if (store.sidebarCollapsed) {
+    if (sidebarCollapsed) {
         return (
             <aside className="sidebar sidebar--collapsed">
                 <button
                     className="sidebar__expand"
-                    onClick={() => store.setSidebarCollapsed(false)}
+                    onClick={() => useGraphStore.getState().setSidebarCollapsed(false)}
                     title="Развернуть панель"
                 >
                     <MIcon name="chevron_right" />
@@ -92,21 +96,21 @@ export function Sidebar(props: SidebarProps) {
     }
 
     return (
-        <aside className={'sidebar' + (store.sidebarCompact ? ' sidebar--compact' : '')}>
+        <aside className={'sidebar' + (sidebarCompact ? ' sidebar--compact' : '')}>
             <div className="sidebar__header">
                 <div className="sidebar__logo">
                     <MIcon name="hub" />
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="sidebar__title">Domain Graph</div>
+                    <div className="sidebar__title">Domains</div>
                     <div className="sidebar__subtitle">Analyzer</div>
                 </div>
                 <button
                     className="sidebar__icon-btn"
-                    onClick={() => store.setSidebarCompact(!store.sidebarCompact)}
-                    title={store.sidebarCompact ? 'Полный режим' : 'Компактный режим'}
+                    onClick={() => useGraphStore.getState().setSidebarCompact(!sidebarCompact)}
+                    title={sidebarCompact ? 'Полный режим' : 'Компактный режим'}
                 >
-                    <MIcon name={store.sidebarCompact ? 'view_sidebar' : 'view_compact'} size="sm" />
+                    <MIcon name={sidebarCompact ? 'view_sidebar' : 'view_compact'} size="sm" />
                 </button>
                 <button
                     className="sidebar__icon-btn"
@@ -117,7 +121,7 @@ export function Sidebar(props: SidebarProps) {
                 </button>
                 <button
                     className="sidebar__icon-btn"
-                    onClick={() => store.setSidebarCollapsed(true)}
+                    onClick={() => useGraphStore.getState().setSidebarCollapsed(true)}
                     title="Свернуть панель"
                 >
                     <MIcon name="chevron_left" size="sm" />
@@ -132,10 +136,10 @@ export function Sidebar(props: SidebarProps) {
                     cyclesCount={props.cyclesCount}
                     onFitView={props.onFitView}
                     onFilterMissing={() =>
-                        store.setFilters((f) => ({ ...f, domain: false, broken: false, missing: true }))
+                        useGraphStore.getState().setFilters((f) => ({ ...f, domain: false, broken: false, missing: true }))
                     }
                     onFilterBroken={() =>
-                        store.setFilters((f) => ({ ...f, domain: false, missing: false, broken: true }))
+                        useGraphStore.getState().setFilters((f) => ({ ...f, domain: false, missing: false, broken: true }))
                     }
                 />
 
@@ -155,15 +159,22 @@ export function Sidebar(props: SidebarProps) {
 
                 {hasNews && <NewsSection cacheDiff={props.cacheDiff} />}
 
-                <TopConnectedSection items={stats.topConnected} />
-                <WorstHealthSection items={stats.worstHealth} />
-                <MissingRefsSection items={stats.topMissingRefs} />
+                {viewMode === "graph" && (
+                    <>
+                        <TopConnectedSection items={stats.topConnected} />
+                        <WorstHealthSection items={stats.worstHealth} />
+                        <MissingRefsSection items={stats.topMissingRefs} />
+                    </>
+                )}
+
                 <NamespacesSection items={stats.namespaces} />
                 <TagsSection items={stats.tagCloud} />
+
                 <RecentEntitiesSection />
                 <EntityFavoritesSection />
                 <BookmarksSection />
-                <LegendSection />
+
+                {viewMode === "graph" && <LegendSection />}
             </div>
         </aside>
     );

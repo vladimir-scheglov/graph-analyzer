@@ -46,12 +46,10 @@ const REFRESH_COMMAND = readRefreshCommand();
 const PERF_THRESHOLD = 250;
 
 export default function App() {
-    // ============ Точечные подписки на store (НЕ весь store) ============
-    // Всё, что App реально использует для вычислений — здесь. Через селекторы.
-    // Экшены вызываются через useGraphStore.getState().setX() — они стабильны и не создают подписок.
     const nodes = useGraphStore((s) => s.nodes);
     const edges = useGraphStore((s) => s.edges);
     const rules = useGraphStore((s) => s.rules);
+    const viewMode = useGraphStore((s) => s.viewMode);
 
     // ============ Инициализация (однократно) ============
     const didInit = useRef(false);
@@ -364,7 +362,9 @@ export default function App() {
                     onShowToast={() => setToastVisible(true)}
                 />
 
-                <ActiveModesBar ruleViolationsCount={ruleViolations.length} />
+                {viewMode === "graph" && (
+                    <ActiveModesBar ruleViolationsCount={ruleViolations.length} />
+                )}
 
                 <GraphArea
                     visibleNodes={visibleNodes}

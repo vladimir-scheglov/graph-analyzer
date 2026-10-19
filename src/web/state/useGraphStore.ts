@@ -12,6 +12,9 @@ import type { LayoutType } from "../lib/layout";
 export type PanelTab = "details" | "file" | "edge" | "entities";
 export type HeatmapKey = "none" | "health" | "degree" | "entities" | "fqid";
 export type ThemeName = "dark" | "light";
+export type ViewMode = "list" | "graph";
+export type ListGrouping = "flat" | "namespace" | "folder";
+export type ListSort = "default" | "name" | "version" | "updated" | "entities";
 
 export interface Filters {
   domain: boolean;
@@ -370,6 +373,18 @@ export interface GraphState {
   setYamlViewerDomainId: (v: string | null) => void;
   modelVersion: number;
   bumpModelVersion: () => void;
+
+  viewMode: ViewMode;
+  setViewMode: (m: ViewMode) => void;
+
+  listSearchQuery: string;
+  setListSearchQuery: (q: string) => void;
+
+  listGrouping: ListGrouping;
+  setListGrouping: (g: ListGrouping) => void;
+
+  listSort: ListSort;
+  setListSort: (s: ListSort) => void;
 }
 
 // ============ Хелперы для чтения localStorage ============
@@ -528,6 +543,36 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   setYamlViewerDomainId: (v) => set({ yamlViewerDomainId: v }),
   modelVersion: 0,
   bumpModelVersion: () => set((s) => ({ modelVersion: s.modelVersion + 1 })),
+  viewMode: readString("dg-view-mode", "list") as ViewMode,
+  setViewMode: (m) => {
+    try {
+      localStorage.setItem("dg-view-mode", m);
+    } catch {}
+    set((s) => ({
+      viewMode: m,
+      // Если переключились в list и открыт таб edge — переключаем на details
+      panelTab: m === "list" && s.panelTab === "edge" ? "details" : s.panelTab,
+    }));
+  },
+
+  listSearchQuery: "",
+  setListSearchQuery: (q) => set({ listSearchQuery: q }),
+
+  listGrouping: readString("dg-list-grouping", "flat") as ListGrouping,
+  setListGrouping: (g) => {
+    try {
+      localStorage.setItem("dg-list-grouping", g);
+    } catch {}
+    set({ listGrouping: g });
+  },
+
+  listSort: readString("dg-list-sort", "default") as ListSort,
+  setListSort: (s) => {
+    try {
+      localStorage.setItem("dg-list-sort", s);
+    } catch {}
+    set({ listSort: s });
+  },
 
   // Закладки
   bookmarks: readSet("dg-bookmarks"),

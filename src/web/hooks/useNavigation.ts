@@ -25,25 +25,33 @@ export function useNavigation() {
   const gotoWithoutNav = useCallback(
     (domainId: string) => {
       if (!domainId) return;
+      const st = useGraphStore.getState();
       const map = domainToNodeId();
       const nodeId = map.get(domainId.toLowerCase());
-      if (!nodeId || !rfInstance) return;
+      if (!nodeId) return;
 
-      const node = nodes.find((n) => n.id === nodeId);
-      if (!node) return;
+      // Всегда выделяем в панели (и в списке, и в графе)
+      st.setSelectedNodeId(nodeId);
+      st.setPanelNodeId(nodeId);
+      st.setPanelTab("details");
+      st.setPanelOpen(true);
 
-      const NODE_WIDTH = 300;
-      const NODE_HEIGHT = 88;
-      const NODE_COMPACT = 42;
-      const w = compact ? NODE_COMPACT : NODE_WIDTH;
-      const h = compact ? NODE_COMPACT : NODE_HEIGHT;
-      const cx = node.position.x + w / 2;
-      const cy = node.position.y + h / 2;
-      const z = Math.max(rfInstance.getZoom(), 1.2);
-      rfInstance.setCenter(cx, cy, { zoom: z, duration: 500 });
-      setSelectedNodeId(nodeId);
+      // Центрируем только в графе
+      if (st.viewMode === "graph" && st.rfInstance) {
+        const node = st.nodes.find((n) => n.id === nodeId);
+        if (!node) return;
+        const w = st.compact ? 42 : 300;
+        const h = st.compact ? 42 : 88;
+        try {
+          st.rfInstance.setCenter(
+            node.position.x + w / 2,
+            node.position.y + h / 2,
+            { zoom: Math.max(st.rfInstance.getZoom(), 1.2), duration: 500 },
+          );
+        } catch {}
+      }
     },
-    [domainToNodeId, nodes, compact, rfInstance, setSelectedNodeId],
+    [domainToNodeId],
   );
 
   const goto = useCallback(

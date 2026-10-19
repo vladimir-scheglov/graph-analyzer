@@ -15,6 +15,7 @@ export interface ProblemsSectionProps {
 export function ProblemsSection(props: ProblemsSectionProps) {
     const store = useGraphStore();
     const { goto } = useNavigation();
+    const viewMode = store.viewMode;
 
     return (
         <Section id="problems" title="Проблемы" icon="warning" badge={props.totalProblems}>
@@ -27,7 +28,15 @@ export function ProblemsSection(props: ProblemsSectionProps) {
                         <button
                             key={item.node.id}
                             className="rank-item"
-                            onClick={() => goto(item.node.data.domainId)}
+                            onClick={() => {
+                                if (viewMode === "list") {
+                                    store.setDomainSchemaDomainId(item.node.data.domainId);
+                                    store.setDomainSchemaPrefillOnlyProblematic(true);
+                                    store.setDomainSchemaOpen(true);
+                                } else {
+                                    goto(item.node.data.domainId);
+                                }
+                            }}
                         >
                             <span className="rank-item__label">{item.node.data.domainId}</span>
                             <span className="rank-item__value" style={{ color: 'var(--danger)' }}>
@@ -58,7 +67,7 @@ export function ProblemsSection(props: ProblemsSectionProps) {
                 </div>
             )}
 
-            {props.isolatedCount > 0 && (
+            {viewMode === "graph" && props.isolatedCount > 0 && (
                 <div className="problems-group">
                     <div className="problems-group__title">
                         <MIcon name="radio_button_unchecked" size="sm" /> Изолированные ({props.isolatedCount})
@@ -72,7 +81,7 @@ export function ProblemsSection(props: ProblemsSectionProps) {
                 </div>
             )}
 
-            {props.cyclesCount > 0 && (
+            {viewMode === "graph" && props.cyclesCount > 0 && (
                 <div className="problems-group">
                     <div className="problems-group__title">
                         <MIcon name="cycle" size="sm" /> Циклы ({props.cyclesCount})
