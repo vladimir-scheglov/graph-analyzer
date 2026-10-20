@@ -21499,6 +21499,443 @@ var init_rql_check = __esm({
 });
 
 // src/web/lib/monaco/monaco-providers.ts
+function detectValueContext(model, position) {
+  const lineText = model.getLineContent(position.lineNumber);
+  const currentIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
+  let section = "";
+  for (let i = position.lineNumber - 1; i >= 1; i--) {
+    const pl = model.getLineContent(i);
+    const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
+    if (pIndent === 0) {
+      const m = pl.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (m) {
+        section = m[1];
+        break;
+      }
+    }
+  }
+  let container = "";
+  let containerLine = -1;
+  for (let i = position.lineNumber - 1; i >= 1; i--) {
+    const pl = model.getLineContent(i);
+    const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
+    if (pIndent < currentIndent) {
+      const m = pl.match(/^\s*(?:-\s+)?([a-zA-Z_][\w]*)\s*:/);
+      if (m) {
+        container = m[1];
+        containerLine = i;
+        break;
+      }
+    }
+  }
+  let itemType = "";
+  const lookUpParentContainer = (fromLine, belowIndent) => {
+    for (let i = fromLine - 1; i >= 1; i--) {
+      const l = model.getLineContent(i);
+      const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
+      if (lIndent >= belowIndent)
+        continue;
+      const m = l.match(/^\s*(?:-\s+)?([a-zA-Z_][\w]*)\s*:/);
+      if (m)
+        return m[1];
+      if (lIndent === 0)
+        break;
+    }
+    return "";
+  };
+  if (section === "entities") {
+    itemType = container === "attributes" ? "attribute" : "entity";
+  } else if (section === "linkages") {
+    itemType = container === "attributes" ? "linkageAttribute" : "linkage";
+  } else if (section === "views") {
+    if (container === "widgets")
+      itemType = "widget";
+    else if (container === "groups")
+      itemType = "group";
+    else if (container === "control") {
+      const parent = lookUpParentContainer(containerLine, currentIndent - 2);
+      itemType = parent === "linkage" ? "viewWidgetLinkageControl" : "viewWidgetControl";
+    } else if (container === "views") {
+      let isNested = false;
+      for (let i = containerLine - 1; i >= 1; i--) {
+        const l = model.getLineContent(i);
+        const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
+        if (lIndent >= currentIndent)
+          continue;
+        if (/^\s*-\s+id\s*:/.test(l)) {
+          isNested = true;
+          break;
+        }
+        if (/^\s*entity\s*:/.test(l)) {
+          isNested = false;
+          break;
+        }
+        if (lIndent === 0)
+          break;
+      }
+      itemType = isNested ? "viewNested" : "view";
+    } else
+      itemType = "view";
+  } else if (section === "actions")
+    itemType = "action";
+  else if (section === "dataTypes")
+    itemType = "dataType";
+  else if (section === "dataRules")
+    itemType = container === "rule" ? "dataRuleRule" : "dataRule";
+  else if (section === "uiRules")
+    itemType = container === "rule" ? "uiRuleRule" : "uiRule";
+  else if (section === "menus")
+    itemType = container === "items" ? "menuItem" : "menu";
+  else if (section === "medias")
+    itemType = "media";
+  else if (section === "sequences")
+    itemType = "sequence";
+  else if (section === "trees")
+    itemType = "tree";
+  else if (section === "transitiveLinkages")
+    itemType = "transitiveLinkage";
+  else if (section === "mixins")
+    itemType = "mixin";
+  else if (section === "accessRules")
+    itemType = "accessRule";
+  if (container === "layout")
+    itemType = "layout";
+  if (container === "search")
+    itemType = "transitiveSearch";
+  if (container === "by" || container === "defaults")
+    itemType = "sortingByItem";
+  return { section, container, itemType };
+}
+function makeValues(values, Kind, range, kind = Kind.Value) {
+  return {
+    suggestions: values.map((v) => ({
+      label: v,
+      kind,
+      insertText: v,
+      filterText: v,
+      sortText: v,
+      range
+    }))
+  };
+}
+function makeEntities(ctx2, Kind, range) {
+  const cur = (ctx2.currentDomainId || "").toLowerCase();
+  const out = [];
+  ctx2.modelIndex?.entities?.forEach((e) => {
+    const isCur = e.domainId.toLowerCase() === cur;
+    const insert = isCur ? e.entityId : e.fqid;
+    out.push({
+      label: insert,
+      kind: Kind.Class,
+      insertText: insert,
+      filterText: insert,
+      range
+    });
+  });
+  return { suggestions: out };
+}
+function provideValueCompletions(monaco, model, position, beforeCursor, range, Kind) {
+  const lineMatch = beforeCursor.match(
+    /^(\s*)(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*([\w./:#@$-]*)$/
+  );
+  if (!lineMatch)
+    return null;
+  const fieldName = lineMatch[2];
+  const vctx = detectValueContext(model, position);
+  const dtPrefix = beforeCursor.match(/^(\s*(?:-\s+)?dataType\s*:)/);
+  if (dtPrefix) {
+    const startColumn = dtPrefix[1].length + 1;
+    const lineText = model.getLineContent(position.lineNumber);
+    const charAtCursor = lineText.charAt(position.column - 1);
+    const endColumn = charAtCursor === '"' || charAtCursor === "'" ? position.column + 1 : position.column;
+    const range2 = {
+      startLineNumber: position.lineNumber,
+      startColumn,
+      endLineNumber: position.lineNumber,
+      endColumn
+    };
+    const Kind2 = monaco.languages.CompletionItemKind;
+    const mk = (label, kind, sortText) => ({
+      label,
+      kind,
+      insertText: " " + label,
+      // ← ведущий пробел — Fix №1
+      filterText: label,
+      // ← чистый фильтр — Fix №2
+      sortText,
+      range: range2
+    });
+    const inDataTypesSection = (() => {
+      for (let i = position.lineNumber - 1; i >= 1; i--) {
+        const pl = model.getLineContent(i);
+        const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
+        if (pIndent === 0) {
+          const m = pl.match(/^([a-zA-Z_][\w]*)\s*:/);
+          return m?.[1] === "dataTypes";
+        }
+      }
+      return false;
+    })();
+    if (inDataTypesSection) {
+      return {
+        suggestions: ["Enum", "Table", "Workflow"].map(
+          (t) => mk(t, Kind2.Value, "0_" + t)
+        )
+      };
+    }
+    const suggestions = [];
+    BASE_DATA_TYPES_COMPLETION.forEach((t) => {
+      suggestions.push(mk(t, Kind2.Value, "0_" + t));
+    });
+    const curDomain = (ctx.currentDomainId || "").toLowerCase();
+    const seen = /* @__PURE__ */ new Set();
+    ctx.modelIndex?.dataTypes.filter((dt) => (dt.domainId || "").toLowerCase() === curDomain).forEach((dt) => {
+      if (!dt?.id || seen.has(dt.id))
+        return;
+      seen.add(dt.id);
+      const kind = dt.kind === "Enum" ? Kind2.Enum : dt.kind === "Workflow" ? Kind2.Interface : Kind2.Struct;
+      suggestions.push(mk(dt.id, kind, "1_" + dt.id));
+    });
+    return { suggestions };
+  }
+  if (fieldName === "type") {
+    const typeMap = {
+      view: [
+        "entity",
+        "list",
+        "tree",
+        "tabs_list",
+        "dashboard",
+        "dashboard_tree"
+      ],
+      viewNested: ["panel", "modal", "page"],
+      widget: [
+        "attribute",
+        "action",
+        "linkage",
+        "linkage_list",
+        "linked_objects_groups",
+        "join",
+        "history",
+        "runs_history",
+        "comments",
+        "card",
+        "conversation",
+        "visualization",
+        "calculation",
+        "template_editor",
+        "addressBook"
+      ],
+      group: ["block", "form", "tab", "tabs", "resizable_block_pair"],
+      action: [
+        "open_panel",
+        "open_modal",
+        "open_page",
+        "open_graph_view",
+        "open_board_view",
+        "open_list",
+        "open_tree",
+        "open_view",
+        "remove",
+        "bulk",
+        "tree_bulk",
+        "set_attribute_value",
+        "automation",
+        "scenario",
+        "generate_qr_code",
+        "copy_entity_link",
+        "open_external_widget_modal"
+      ],
+      linkage: ["1_1", "1_n", "n_n"],
+      dataType: ["Enum", "Table", "Workflow"],
+      tree: ["ordinary", "orderable", "multiparent"],
+      viewWidgetControl: [
+        "uuid",
+        "text",
+        "text_area",
+        "date",
+        "time",
+        "timestamp",
+        "timestamp_range",
+        "integer",
+        "decimal",
+        "float",
+        "integer_slider",
+        "decimal_slider",
+        "float_slider",
+        "bool_text",
+        "checkbox",
+        "switch",
+        "select",
+        "level",
+        "radio",
+        "multi_select",
+        "mitre_multi_select",
+        "tag_list",
+        "tag",
+        "ip",
+        "mac",
+        "cidr",
+        "file",
+        "link",
+        "url",
+        "counter",
+        "tree_path",
+        "drag_drop_area",
+        "rql",
+        "external"
+      ],
+      viewWidgetLinkageControl: [
+        "select",
+        "multi_select",
+        "table",
+        "list",
+        "tree"
+      ]
+    };
+    if (typeMap[vctx.itemType]) {
+      return makeValues(typeMap[vctx.itemType], Kind, range);
+    }
+    return null;
+  }
+  if (fieldName === "effect") {
+    if (vctx.itemType === "dataRuleRule") {
+      return makeValues(
+        ["hidden", "readonly", "required", "default", "allowed"],
+        Kind,
+        range
+      );
+    }
+    if (vctx.itemType === "uiRuleRule") {
+      return makeValues(
+        [
+          "hidden",
+          "show",
+          "hiddenEmpty",
+          "readonly",
+          "editable",
+          "inherit",
+          "variant"
+        ],
+        Kind,
+        range
+      );
+    }
+  }
+  if (fieldName === "target") {
+    if (vctx.itemType === "dataRule") {
+      return makeValues(["entity", "entityAttribute", "linkage"], Kind, range);
+    }
+    if (vctx.itemType === "uiRule") {
+      return makeValues(
+        ["list_view", "entity_view", "entity_attribute"],
+        Kind,
+        range
+      );
+    }
+    if (vctx.itemType === "accessRule") {
+      return makeValues(
+        [
+          "entity",
+          "action",
+          "linkage",
+          "any_entity",
+          "any_action",
+          "any_linkage"
+        ],
+        Kind,
+        range
+      );
+    }
+  }
+  if (["inherits", "entity", "side1", "side2"].includes(fieldName)) {
+    return makeEntities(ctx, Kind, range);
+  }
+  if (fieldName === "linkage") {
+    const ids = collectSectionIds(ctx, "linkages");
+    return makeValues(ids, Kind, range, Kind.Reference);
+  }
+  if (fieldName === "widget") {
+    const ids = collectWidgetIds(ctx);
+    return makeValues(ids, Kind, range, Kind.Reference);
+  }
+  if (fieldName === "group") {
+    const ids = collectGroupIds(ctx);
+    return makeValues(ids, Kind, range, Kind.Reference);
+  }
+  if (fieldName === "column") {
+    const ids = collectColumnIds(ctx);
+    return makeValues(ids, Kind, range, Kind.Reference);
+  }
+  if (fieldName === "action") {
+    const ids = collectSectionIds(ctx, "actions");
+    return makeValues(ids, Kind, range, Kind.Reference);
+  }
+  if (fieldName === "sequence") {
+    const ids = collectSectionIds(ctx, "sequences");
+    return makeValues(ids, Kind, range, Kind.Reference);
+  }
+  if (fieldName === "counterColorPattern") {
+    const ids = collectSectionIds(ctx, "counterColorPattern");
+    return makeValues(ids, Kind, range, Kind.Reference);
+  }
+  if (fieldName === "view" || fieldName === "modal" || fieldName === "panel" || fieldName === "form" || fieldName === "addLinksView") {
+    let filterType;
+    if (fieldName === "modal")
+      filterType = "modal";
+    else if (fieldName === "panel")
+      filterType = "panel";
+    else if (fieldName === "form")
+      filterType = "group";
+    else if (fieldName === "addLinksView")
+      filterType = "list";
+    else if (fieldName === "view") {
+      if (vctx.itemType === "menuItem" || vctx.itemType === "menu")
+        filterType = "list";
+      else if (vctx.itemType === "action")
+        filterType = "list";
+    }
+    if (fieldName === "form") {
+      const out = [];
+      const seen = /* @__PURE__ */ new Set();
+      if (ctx.modelIndex?.viewElementsByDomain) {
+        Object.values(ctx.modelIndex.viewElementsByDomain).forEach((byView) => {
+          Object.values(byView).forEach((els) => {
+            (els.groups || []).forEach((g) => {
+              if (!seen.has(g)) {
+                seen.add(g);
+                out.push(g);
+              }
+            });
+          });
+        });
+      }
+      return makeValues(out, Kind, range, Kind.Reference);
+    }
+    const ids = collectSectionIds(ctx, "views", filterType);
+    return makeValues(ids, Kind, range, Kind.Reference);
+  }
+  if (fieldName === "menuItem") {
+    const ids = collectSectionIds(ctx, "menus");
+    return makeValues(ids, Kind, range, Kind.Reference);
+  }
+  if (fieldName === "mode" && vctx.itemType === "transitiveSearch") {
+    return makeValues(["entity", "linkage", "both"], Kind, range);
+  }
+  if (fieldName === "direction") {
+    if (vctx.container === "layout") {
+      return makeValues(["column"], Kind, range);
+    }
+    if (vctx.itemType === "sortingByItem" || vctx.container === "by" || vctx.container === "defaults") {
+      return makeValues(["asc", "desc"], Kind, range);
+    }
+    return null;
+  }
+  if (fieldName === "placement") {
+    return makeValues(["top", "settings"], Kind, range);
+  }
+  return null;
+}
 function updateProviderContext(partial) {
   Object.assign(ctx, partial);
 }
@@ -21507,6 +21944,80 @@ function resetProviderContext() {
   ctx.currentFilePath = null;
   ctx.currentDomainId = null;
   ctx.onOpenFqid = void 0;
+}
+function collectSectionIds(ctx2, sectionKey, typeFilter) {
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  if (!ctx2.modelIndex?.schemasByDomain)
+    return out;
+  Object.values(ctx2.modelIndex.schemasByDomain).forEach((s) => {
+    const sec = s?.sections?.[sectionKey];
+    if (!sec?.items)
+      return;
+    for (const it of sec.items) {
+      if (!it?.id)
+        continue;
+      if (typeFilter && it.type !== typeFilter)
+        continue;
+      const id = String(it.id);
+      if (!seen.has(id)) {
+        seen.add(id);
+        out.push(id);
+      }
+    }
+  });
+  return out;
+}
+function collectWidgetIds(ctx2) {
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  if (!ctx2.modelIndex?.viewElementsByDomain)
+    return out;
+  Object.values(ctx2.modelIndex.viewElementsByDomain).forEach((byView) => {
+    Object.values(byView).forEach((els) => {
+      (els.widgets || []).forEach((w) => {
+        if (!seen.has(w)) {
+          seen.add(w);
+          out.push(w);
+        }
+      });
+    });
+  });
+  return out;
+}
+function collectGroupIds(ctx2) {
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  if (!ctx2.modelIndex?.viewElementsByDomain)
+    return out;
+  Object.values(ctx2.modelIndex.viewElementsByDomain).forEach((byView) => {
+    Object.values(byView).forEach((els) => {
+      (els.groups || []).forEach((g) => {
+        if (!seen.has(g)) {
+          seen.add(g);
+          out.push(g);
+        }
+      });
+    });
+  });
+  return out;
+}
+function collectColumnIds(ctx2) {
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  if (!ctx2.modelIndex?.viewElementsByDomain)
+    return out;
+  Object.values(ctx2.modelIndex.viewElementsByDomain).forEach((byView) => {
+    Object.values(byView).forEach((els) => {
+      (els.columns || []).forEach((c) => {
+        if (!seen.has(c)) {
+          seen.add(c);
+          out.push(c);
+        }
+      });
+    });
+  });
+  return out;
 }
 function findWordAtLine(lineText, column) {
   const fieldMatch = lineText.match(
@@ -22589,6 +23100,16 @@ ${indent}description: ""`
         endColumn: wordAtPos.endColumn
       };
       const Kind = monaco.languages.CompletionItemKind;
+      const valueResult = provideValueCompletions(
+        monaco,
+        model,
+        position,
+        beforeCursor,
+        range,
+        Kind
+      );
+      if (valueResult)
+        return valueResult;
       if (/^\s*(?:-\s+)?operation\s*:\s*[\w]*$/.test(beforeCursor)) {
         let actionType = null;
         let idLine = -1;
@@ -22791,24 +23312,52 @@ ${indent}description: ""`
         }));
         return { suggestions: suggestions2 };
       }
-      if (/(?:\s|^)(?:-\s+)?dataType\s*:\s*[\w]*$/.test(beforeCursor)) {
+      if (/^\s*(?:-\s+)?dataType\s*:\s*["']?[\w.-]*["']?$/.test(beforeCursor)) {
+        const inDataTypesSection = (() => {
+          for (let i = position.lineNumber - 1; i >= 1; i--) {
+            const pl = model.getLineContent(i);
+            const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
+            if (pIndent === 0) {
+              const m = pl.match(/^([a-zA-Z_][\w]*)\s*:/);
+              return m?.[1] === "dataTypes";
+            }
+          }
+          return false;
+        })();
         const suggestions2 = [];
-        BASE_DATA_TYPES_COMPLETION.forEach((t) => {
-          suggestions2.push({
-            label: t,
-            kind: Kind.Value,
-            insertText: t,
-            range
+        if (inDataTypesSection) {
+          ["Enum", "Table", "Workflow"].forEach((t) => {
+            suggestions2.push({
+              label: t,
+              kind: Kind.Value,
+              insertText: t,
+              filterText: t,
+              sortText: "0_" + t,
+              range
+            });
           });
-        });
-        ctx.modelIndex.dataTypes.forEach((dt) => {
-          suggestions2.push({
-            label: dt.id,
-            kind: dt.kind === "Enum" ? Kind.Enum : dt.kind === "Workflow" ? Kind.Interface : Kind.Struct,
-            insertText: dt.id,
-            range
+        } else {
+          BASE_DATA_TYPES_COMPLETION.forEach((t) => {
+            suggestions2.push({
+              label: t,
+              kind: Kind.Value,
+              insertText: t,
+              filterText: t,
+              sortText: "0_" + t,
+              range
+            });
           });
-        });
+          ctx.modelIndex.dataTypes.forEach((dt) => {
+            suggestions2.push({
+              label: dt.id,
+              kind: dt.kind === "Enum" ? Kind.Enum : dt.kind === "Workflow" ? Kind.Interface : Kind.Struct,
+              insertText: dt.id,
+              filterText: dt.id,
+              sortText: "1_" + dt.id,
+              range
+            });
+          });
+        }
         return { suggestions: suggestions2 };
       }
       if (/(?:\s|^)(?:-\s+)?(inherits|entity|side1|side2|linkage)\s*:\s*[\w./]*$/.test(
@@ -23207,6 +23756,83 @@ function applyRqlMarkers(monaco, model) {
     }));
     monaco.editor.setModelMarkers(model, "rql-check", markers);
   } catch {
+  }
+}
+function applyDataTypeMarkers(monaco, model, index, currentDomainId) {
+  try {
+    const text = model.getValue();
+    const lines = text.split("\n");
+    const markers = [];
+    const customTypes = /* @__PURE__ */ new Set();
+    (index?.dataTypes || []).forEach((dt) => {
+      if (dt?.id && dt.domainId === currentDomainId) {
+        customTypes.add(String(dt.id));
+      }
+    });
+    let section = "";
+    let inDataTypesSection = false;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const sectionM = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (sectionM) {
+        section = sectionM[1];
+        inDataTypesSection = section === "dataTypes";
+        continue;
+      }
+      const dtMatch = line.match(
+        /^(\s*)(?:-\s+)?dataType\s*:\s*["']?([\w.-]+)["']?\s*(?:#.*)?$/
+      );
+      if (!dtMatch)
+        continue;
+      const value = dtMatch[2];
+      const valueStartInLine = line.indexOf(value, dtMatch[1].length);
+      if (valueStartInLine < 0)
+        continue;
+      const startCol = valueStartInLine + 1;
+      const endCol = startCol + value.length;
+      if (inDataTypesSection) {
+        if (!["Enum", "Table", "Workflow"].includes(value)) {
+          markers.push({
+            severity: monaco.MarkerSeverity.Error,
+            message: `\u041D\u0435\u0434\u043E\u043F\u0443\u0441\u0442\u0438\u043C\u044B\u0439 \u0442\u0438\u043F \u0434\u0430\u043D\u043D\u044B\u0445 "${value}" \u0432 \u0441\u0435\u043A\u0446\u0438\u0438 dataTypes[]. \u041E\u0436\u0438\u0434\u0430\u0435\u0442\u0441\u044F Enum, Table \u0438\u043B\u0438 Workflow.`,
+            startLineNumber: i + 1,
+            startColumn: startCol,
+            endLineNumber: i + 1,
+            endColumn: endCol,
+            source: "dataType-validator"
+          });
+        }
+        continue;
+      }
+      if (value.includes("/")) {
+        if (!/^[a-z0-9.-]+\/[\w-]+$/i.test(value)) {
+          markers.push({
+            severity: monaco.MarkerSeverity.Warning,
+            message: `\u041D\u0435\u043A\u043E\u0440\u0440\u0435\u043A\u0442\u043D\u044B\u0439 FQID \u0442\u0438\u043F\u0430 \u0434\u0430\u043D\u043D\u044B\u0445 "${value}". \u041E\u0436\u0438\u0434\u0430\u0435\u0442\u0441\u044F <domain>/<DataTypeId>`,
+            startLineNumber: i + 1,
+            startColumn: startCol,
+            endLineNumber: i + 1,
+            endColumn: endCol,
+            source: "dataType-validator"
+          });
+        }
+        continue;
+      }
+      if (!BASE_DATA_TYPES_SET.has(value) && !customTypes.has(value)) {
+        markers.push({
+          severity: monaco.MarkerSeverity.Warning,
+          message: `\u041D\u0435\u0438\u0437\u0432\u0435\u0441\u0442\u043D\u044B\u0439 \u0442\u0438\u043F \u0434\u0430\u043D\u043D\u044B\u0445 "${value}". ` + (customTypes.size > 0 ? `\u041E\u0436\u0438\u0434\u0430\u0435\u0442\u0441\u044F \u0431\u0430\u0437\u043E\u0432\u044B\u0439 \u0442\u0438\u043F \u0438\u043B\u0438 \u043E\u0434\u0438\u043D \u0438\u0437: ` + [...customTypes].slice(0, 8).join(", ") + (customTypes.size > 8 ? "\u2026" : "") : `\u041E\u0436\u0438\u0434\u0430\u0435\u0442\u0441\u044F \u0431\u0430\u0437\u043E\u0432\u044B\u0439 \u0442\u0438\u043F.`),
+          startLineNumber: i + 1,
+          startColumn: startCol,
+          endLineNumber: i + 1,
+          endColumn: endCol,
+          source: "dataType-validator"
+        });
+      }
+    }
+    monaco.editor.setModelMarkers(model, "dataType-validator", markers);
+  } catch (err) {
+    console.warn("[dataType-validator]", err);
   }
 }
 function applyFqidMarkers(monaco, model, index, currentDomainId) {
@@ -23872,7 +24498,7 @@ function applyFqidMarkers(monaco, model, index, currentDomainId) {
     console.warn("[fqid-validator]", err);
   }
 }
-var providersRegistered, ctx, REF_FIELDS, ATTRIBUTE_LIKE_FIELDS, BASE_DATA_TYPES_COMPLETION, FIELD_DEFINITIONS, SNIPPETS;
+var providersRegistered, ctx, REF_FIELDS, ATTRIBUTE_LIKE_FIELDS, BASE_DATA_TYPES_COMPLETION, FIELD_DEFINITIONS, SNIPPETS, BASE_DATA_TYPES_SET;
 var init_monaco_providers = __esm({
   "src/web/lib/monaco/monaco-providers.ts"() {
     "use strict";
@@ -26934,6 +27560,36 @@ var init_monaco_providers = __esm({
         ].join("\n")
       }
     ];
+    BASE_DATA_TYPES_SET = /* @__PURE__ */ new Set([
+      "String",
+      "Integer",
+      "Decimal",
+      "Float",
+      "Bool",
+      "Uuid",
+      "Timestamp",
+      "Date",
+      "Time",
+      "TimestampRange",
+      "Text",
+      "MAC",
+      "IpAddress",
+      "CIDR",
+      "URL",
+      "Attachment",
+      "Identifier",
+      "Counter",
+      "Calculation",
+      "Configuration",
+      "Variable",
+      "RQL",
+      "Automation",
+      "Reference",
+      "Array",
+      "Table",
+      "Enum",
+      "Workflow"
+    ]);
   }
 });
 
@@ -32178,6 +32834,8 @@ function YamlViewerModal() {
       return;
     if (loading)
       return;
+    if (!index)
+      return;
     if (!filePath)
       return;
     if (!fetchedContent)
@@ -32242,6 +32900,20 @@ function YamlViewerModal() {
         selectionHighlight: false,
         renderValidationDecorations: "on",
         lightbulb: { enabled: "on" },
+        // ---- Fix A: полностью отключаем word-based ----
+        // В Monaco 0.34 опция принимает boolean; false ≡ 'off'.
+        wordBasedSuggestions: false,
+        // ---- Fix B: строгий (префиксный) фильтр ----
+        // filterGraceful=true (дефолт) включает fuzzy-матчинг:
+        // 'S' матчит 'Timestamp', 'Integer' и т.п. → "не сужается".
+        suggest: {
+          showWords: false,
+          showSnippets: false,
+          showMethods: false,
+          showFunctions: false,
+          filterGraceful: false
+          // ← ключевое
+        },
         quickSuggestions: {
           other: "on",
           comments: "off",
@@ -32250,6 +32922,13 @@ function YamlViewerModal() {
         suggestOnTriggerCharacters: true
       });
       editorRef.current = editor;
+      try {
+        editor.updateOptions({
+          wordBasedSuggestions: false,
+          suggest: { filterGraceful: false }
+        });
+      } catch {
+      }
       setContent(fetchedContent);
       setSavedContent(fetchedContent);
       setEditorCreated(true);
@@ -32378,7 +33057,7 @@ function YamlViewerModal() {
         setEditorCreated(false);
       }
     };
-  }, [open, monacoReady, filePath, loading, fetchedContent]);
+  }, [open, monacoReady, filePath, loading, index, fetchedContent]);
   useEffect35(() => {
     if (!editorRef.current)
       return;
@@ -32499,6 +33178,34 @@ function YamlViewerModal() {
         clearTimeout(timer);
       timer = setTimeout(() => {
         applyFqidMarkers(m, model, index, domainId);
+      }, 300);
+    };
+    const disposable = editorRef.current.onDidChangeModelContent(runMarkers);
+    runMarkers();
+    return () => {
+      if (timer)
+        clearTimeout(timer);
+      try {
+        disposable?.dispose?.();
+      } catch {
+      }
+    };
+  }, [monacoReady, editorCreated, index, domainId]);
+  useEffect35(() => {
+    if (!monacoReady || !editorCreated || !editorRef.current)
+      return;
+    if (!index || !domainId)
+      return;
+    const m = window.monaco;
+    const model = editorRef.current.getModel();
+    if (!m || !model)
+      return;
+    let timer = null;
+    const runMarkers = () => {
+      if (timer)
+        clearTimeout(timer);
+      timer = setTimeout(() => {
+        applyDataTypeMarkers(m, model, index, domainId);
       }, 300);
     };
     const disposable = editorRef.current.onDidChangeModelContent(runMarkers);

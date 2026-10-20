@@ -485,6 +485,10 @@ function checkUiRule(ctx: LintContext, rule: UiRuleRecord): void {
   }
 
   for (const w of rule.widgets) {
+    // Внешние и FQID-ссылки локально не проверить.
+    if (!w.widget) continue;
+    if (w.widget.includes("/") || w.widget.startsWith("external:")) continue;
+
     if (!viewElements.widgets.has(w.widget)) {
       emit(ctx, {
         ruleId: "uirules/unknown-widget",
@@ -500,6 +504,10 @@ function checkUiRule(ctx: LintContext, rule: UiRuleRecord): void {
   }
 
   for (const g of rule.groups) {
+    // Внешние и FQID-ссылки локально не проверить.
+    if (!g.group) continue;
+    if (g.group.includes("/") || g.group.startsWith("external:")) continue;
+
     if (!viewElements.groups.has(g.group)) {
       emit(ctx, {
         ruleId: "uirules/unknown-group",
@@ -515,6 +523,10 @@ function checkUiRule(ctx: LintContext, rule: UiRuleRecord): void {
   }
 
   for (const c of rule.columns) {
+    // Внешние и FQID-ссылки локально не проверить.
+    if (!c.column) continue;
+    if (c.column.includes("/") || c.column.startsWith("external:")) continue;
+
     if (!viewElements.columns.has(c.column)) {
       emit(ctx, {
         ruleId: "uirules/unknown-column",

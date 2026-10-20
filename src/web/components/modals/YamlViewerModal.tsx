@@ -11,6 +11,7 @@ import {
     resetProviderContext,
     applyRqlMarkers,
     applyFqidMarkers,
+    applyDataTypeMarkers,
 } from '../../lib/monaco/monaco-providers';
 import { useNavigation } from '../../hooks/useNavigation';
 import { extractExternalRefs, groupExternalRefs, ExternalRefGroup } from '../../lib/yaml/external-refs';
@@ -513,6 +514,7 @@ export function YamlViewerModal() {
         if (!open) return;
         if (!monacoReady) return;
         if (loading) return;
+        if (!index) return;
         if (!filePath) return;
         if (!fetchedContent) return;
         if (!containerRef.current) return;
@@ -577,14 +579,36 @@ export function YamlViewerModal() {
                 selectionHighlight: false,
                 renderValidationDecorations: 'on',
                 lightbulb: { enabled: 'on' },
+
+                // ---- Fix A: полностью отключаем word-based ----
+                // В Monaco 0.34 опция принимает boolean; false ≡ 'off'.
+                wordBasedSuggestions: false as any,
+
+                // ---- Fix B: строгий (префиксный) фильтр ----
+                // filterGraceful=true (дефолт) включает fuzzy-матчинг:
+                // 'S' матчит 'Timestamp', 'Integer' и т.п. → "не сужается".
+                suggest: {
+                    showWords: false,
+                    showSnippets: false,
+                    showMethods: false,
+                    showFunctions: false,
+                    filterGraceful: false as any,   // ← ключевое
+                } as any,
+
                 quickSuggestions: {
-                    other: "on" as any,
-                    comments: "off" as any,
-                    strings: "off" as any,
+                    other: 'on' as any,
+                    comments: 'off' as any,
+                    strings: 'off' as any,
                 },
                 suggestOnTriggerCharacters: true,
             });
             editorRef.current = editor;
+            try {
+                editor.updateOptions({
+                    wordBasedSuggestions: false as any,
+                    suggest: { filterGraceful: false as any } as any,
+                });
+            } catch { /* ignore */ }
             setContent(fetchedContent);
             setSavedContent(fetchedContent);
             setEditorCreated(true);
@@ -698,7 +722,7 @@ export function YamlViewerModal() {
             }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [open, monacoReady, filePath, loading, fetchedContent]);
+    }, [open, monacoReady, filePath, loading, index, fetchedContent]);
 
     useEffect(() => {
         if (!editorRef.current) return;
@@ -828,6 +852,30 @@ export function YamlViewerModal() {
         return () => {
             if (timer) clearTimeout(timer);
             try { disposable?.dispose?.(); } catch { }
+        };
+    }, [monacoReady, editorCreated, index, domainId]);
+
+    useEffect(() => {
+        if (!monacoReady || !editorCreated || !editorRef.current) return;
+        if (!index || !domainId) return;
+        const m = (window as any).monaco;
+        const model = editorRef.current.getModel();
+        if (!m || !model) return;
+
+        let timer: any = null;
+        const runMarkers = () => {
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(() => {
+                applyDataTypeMarkers(m, model, index, domainId);
+            }, 300);
+        };
+
+        const disposable = editorRef.current.onDidChangeModelContent(runMarkers);
+        runMarkers();
+
+        return () => {
+            if (timer) clearTimeout(timer);
+            try { disposable?.dispose?.(); } catch { /* ignore */ }
         };
     }, [monacoReady, editorCreated, index, domainId]);
 

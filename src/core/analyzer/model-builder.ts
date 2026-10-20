@@ -818,44 +818,138 @@ function parseUiRule(raw: any, domainId: string): UiRuleRecord | null {
   };
 }
 
+/**
+ * Извлекает локальное имя виджета из строки (FQID / external) или объекта
+ * { id, linkageId?, referenceId? }.
+ * Возвращает null для внешних виджетов (external:*) — их не проверяем локально.
+ */
+function extractWidgetId(w: any): string | null {
+  if (typeof w === "string") {
+    if (!w) return null;
+    if (w.startsWith("external:")) return null;
+    const slash = w.lastIndexOf("/");
+    const dot = w.lastIndexOf(".");
+    const cut = Math.max(slash, dot);
+    return cut >= 0 ? w.slice(cut + 1) : w;
+  }
+  if (w && typeof w === "object") {
+    if (typeof w.id === "string") return extractWidgetId(w.id);
+  }
+  return null;
+}
+
+// ---------- Хелперы (вынести рядом с collectViewElements) ----------
+
+/** Inline-объявление виджета: `{ widget: { id, linkageId?, referenceId? } }`. */
+function isInlineWidgetObject(w: any): boolean {
+  return (
+    w !== null &&
+    typeof w === "object" &&
+    typeof w.id === "string" &&
+    !w.id.startsWith("external:")
+  );
+}
+
+/** Собирает ID всех `type: action` виджетов из entity-представлений домена. */
+function collectDomainActionWidgets(rawViews: any[]): Set<string> {
+  const result = new Set<string>();
+  if (!Array.isArray(rawViews)) return result;
+
+  const walk = (view: any): void => {
+    if (!view || typeof view !== "object") return;
+    if (Array.isArray(view.widgets)) {
+      for (const w of view.widgets) {
+        if (w?.id && w.type === "action") result.add(String(w.id));
+      }
+    }
+    if (Array.isArray(view.views)) {
+      for (const nv of view.views) walk(nv);
+    }
+  };
+
+  for (const v of rawViews) {
+    if (v?.type === "entity") walk(v);
+  }
+  return result;
+}
+
+// ---------- Основная функция ----------
+
 function collectViewElements(
   rawViews: any[],
 ): Record<string, ViewElementsRecord> {
   const result: Record<string, ViewElementsRecord> = {};
   if (!Array.isArray(rawViews)) return result;
 
+  // Pre-pass: доменные action-виджеты (нужны для list/tree view).
+  const domainActionWidgets = collectDomainActionWidgets(rawViews);
+
   for (const v of rawViews) {
     if (!v?.id) continue;
+
     const widgets = new Set<string>();
     const groups = new Set<string>();
     const columns = new Set<string>();
 
+    // --- Fix #1: inline-виджеты в groups[].components[] ---
+    const collectComponents = (comps: any): void => {
+      if (!Array.isArray(comps)) return;
+      for (const c of comps) {
+        if (!c || typeof c !== "object") continue;
+        if (isInlineWidgetObject(c.widget)) {
+          widgets.add(String(c.widget.id));
+        }
+      }
+    };
+
     const collectFromView = (view: any): void => {
+      if (!view || typeof view !== "object") return;
+
+      // --- Top-level widgets[] (объявления) ---
       if (Array.isArray(view.widgets)) {
-        view.widgets.forEach((w: any) => {
+        for (const w of view.widgets) {
           if (w?.id) widgets.add(String(w.id));
-        });
+        }
       }
+
+      // --- Groups: id + inline-виджеты в components[] (Fix #1) ---
       if (Array.isArray(view.groups)) {
-        view.groups.forEach((g: any) => {
+        for (const g of view.groups) {
           if (g?.id) groups.add(String(g.id));
-        });
+          collectComponents(g?.components);
+        }
       }
-      if (view.table?.columns && Array.isArray(view.table.columns)) {
-        view.table.columns.forEach((c: any) => {
+
+      // --- Table columns ---
+      if (Array.isArray(view.table?.columns)) {
+        for (const c of view.table.columns) {
           if (c?.id) columns.add(String(c.id));
-        });
+        }
       }
+
+      // --- ActionPanel: inline-виджеты (Fix #1) ---
       if (Array.isArray(view.actionPanel)) {
-        view.actionPanel.forEach((w: any) => {
-          if (w?.widget) widgets.add(String(w.widget));
-        });
+        for (const ap of view.actionPanel) {
+          if (!ap || typeof ap !== "object") continue;
+          if (isInlineWidgetObject(ap.widget)) {
+            widgets.add(String(ap.widget.id));
+          }
+        }
+      }
+
+      // --- Вложенные views (panel/modal/page) ---
+      if (Array.isArray(view.views)) {
+        for (const nv of view.views) collectFromView(nv);
       }
     };
 
     collectFromView(v);
-    if (Array.isArray(v.views)) {
-      v.views.forEach((nv: any) => collectFromView(nv));
+
+    // --- Fix #2: обогащение list/tree доменными action-виджетами ---
+    // list/tree не имеют собственной секции widgets[], но uiRules.target="list_view"
+    // может ссылаться на любой action-виджет домена через actionPanel[].
+    if (v.type === "list" || v.type === "tree") {
+      domainActionWidgets.forEach((id) => widgets.add(id));
     }
 
     result[String(v.id)] = {
