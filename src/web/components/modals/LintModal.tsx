@@ -15,7 +15,8 @@ const CATEGORY_LABELS: Record<LintRuleCategory, string> = {
     naming: 'Именование',
     validation: 'Валидация',
     required: 'Обязательные поля',
-    recommended: 'Рекомендации'
+    recommended: 'Рекомендации',
+    uirules: 'UI Rules',
 };
 
 const SEVERITY_LABELS: Record<LintSeverity, string> = {

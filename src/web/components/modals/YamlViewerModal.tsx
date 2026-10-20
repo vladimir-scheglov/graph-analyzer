@@ -365,6 +365,85 @@ export function YamlViewerModal() {
         return { refs, groups: groupExternalRefs(refs) };
     }, [content, domainId, liveVersion]);
 
+    const scenarioRefs = useMemo(() => {
+        if (!content) return [] as Array<{
+            scenarioId: string;
+            actions: Array<{
+                line: number;
+                scenarioId: string;
+                actionId: string;
+                actionName: string;
+                workerTag?: string;
+            }>;
+        }>;
+        const lines = content.split("\n");
+        const result: Array<{
+            line: number;
+            scenarioId: string;
+            actionId: string;
+            actionName: string;
+            workerTag?: string;
+        }> = [];
+
+        let inActions = false;
+        let currentAction: { id: string; name: string; type?: string; line: number } | null = null;
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const sectionM = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+            if (sectionM) {
+                inActions = sectionM[1] === "actions";
+                currentAction = null;
+                continue;
+            }
+            if (!inActions) continue;
+
+            const idm = line.match(/^\s*-\s+id\s*:\s*([^\s#]+)/);
+            if (idm) {
+                currentAction = {
+                    id: idm[1].replace(/["']/g, ""),
+                    name: idm[1],
+                    line: i + 1,
+                };
+                continue;
+            }
+            if (!currentAction) continue;
+
+            const nameM = line.match(/^\s*name\s*:\s*([^\n#]+)/);
+            if (nameM) currentAction.name = nameM[1].trim();
+
+            const typeM = line.match(/^\s*type\s*:\s*([^\s#]+)/);
+            if (typeM) currentAction.type = typeM[1].replace(/["']/g, "");
+
+            const scenarioM = line.match(/^\s*scenario\s*:\s*([^\s#]+)/);
+            if (scenarioM && currentAction.type === "scenario") {
+                const scenarioId = scenarioM[1].replace(/["']/g, "");
+                const workerM = lines
+                    .slice(i + 1, Math.min(i + 8, lines.length))
+                    .map((l) => l.match(/^\s*workerTag\s*:\s*([^\s#]+)/))
+                    .find(Boolean);
+                result.push({
+                    line: i + 1,
+                    scenarioId,
+                    actionId: currentAction.id,
+                    actionName: currentAction.name,
+                    workerTag: workerM ? workerM[1].replace(/["']/g, "") : undefined,
+                });
+            }
+        }
+
+        // Группировка по scenarioId
+        const grouped = new Map<string, typeof result>();
+        for (const r of result) {
+            if (!grouped.has(r.scenarioId)) grouped.set(r.scenarioId, []);
+            grouped.get(r.scenarioId)!.push(r);
+        }
+
+        return Array.from(grouped.entries())
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([scenarioId, actions]) => ({ scenarioId, actions }));
+    }, [content, liveVersion]);
+
     // ============ Flat nav nodes ============
     const flatNavNodes = useMemo(() => {
         if (!lineMap) return [];
@@ -2098,6 +2177,7 @@ export function YamlViewerModal() {
                         {rightTab === 'refs' && (
                             <ExternalRefsPanel
                                 groups={externalRefs.groups}
+                                scenarioRefs={scenarioRefs}
                                 onJump={jumpTo}
                                 currentDomain={domainId || ''}
                             />
@@ -2322,21 +2402,32 @@ export function YamlViewerModal() {
 
 function ExternalRefsPanel({
     groups,
+    scenarioRefs,
     onJump,
-    currentDomain
+    currentDomain,
 }: {
     groups: ExternalRefGroup[];
+    scenarioRefs: Array<{
+        scenarioId: string;
+        actions: Array<{
+            line: number;
+            scenarioId: string;
+            actionId: string;
+            actionName: string;
+            workerTag?: string;
+        }>;
+    }>;
     onJump: (line: number) => void;
     currentDomain: string;
 }) {
-    if (groups.length === 0) {
+    if (groups.length === 0 && scenarioRefs.length === 0) {
         return (
             <div className="yaml-issues-empty">
                 <div style={{ fontSize: 32, marginBottom: 8 }}>🔗</div>
-                <div style={{ color: 'var(--text-400)', fontSize: 12 }}>
+                <div style={{ color: "var(--text-400)", fontSize: 12 }}>
                     Нет ссылок на другие домены
                 </div>
-                <div style={{ marginTop: 4, fontSize: 11, color: 'var(--text-500)' }}>
+                <div style={{ marginTop: 4, fontSize: 11, color: "var(--text-500)" }}>
                     Домен изолирован в графе зависимостей
                 </div>
             </div>
@@ -2344,35 +2435,93 @@ function ExternalRefsPanel({
     }
 
     const totalRefs = groups.reduce((s, g) => s + g.refs.length, 0);
+    const totalScenarios = scenarioRefs.length;
 
     return (
         <div className="yaml-issues">
-            <div className="yaml-issues__header">
-                Внешние ссылки ({totalRefs} → {groups.length} доменов)
-            </div>
-            <div className="yaml-issues__list">
-                {groups.map((g) => (
-                    <details key={g.domain} className="yaml-ext-refs-group" open>
-                        <summary className="yaml-ext-refs-group__summary">
-                            <span className="yaml-ext-refs-group__chevron" aria-hidden="true" />
-                            <code className="yaml-ext-refs-group__domain">{g.domain}</code>
-                            <span className="yaml-ext-refs-group__count">{g.refs.length}</span>
-                        </summary>
-                        {g.refs.map((r, i) => (
-                            <button
-                                key={i}
-                                className="yaml-ext-ref"
-                                onClick={() => onJump(r.line)}
-                                title={`${r.lineText.trim()}\n\n${r.field}: ${r.raw}`}
-                            >
-                                <span className="yaml-ext-ref__line">:{r.line}</span>
-                                <span className="yaml-ext-ref__field">{r.field}</span>
-                                <code className="yaml-ext-ref__target">{r.target}</code>
-                            </button>
+            {totalRefs > 0 && (
+                <>
+                    <div className="yaml-issues__header">
+                        Внешние FQID-ссылки ({totalRefs} → {groups.length} доменов)
+                    </div>
+                    <div className="yaml-issues__list">
+                        {groups.map((g) => (
+                            <details key={g.domain} className="yaml-ext-refs-group" open>
+                                <summary className="yaml-ext-refs-group__summary">
+                                    <span className="yaml-ext-refs-group__chevron" aria-hidden="true" />
+                                    <code className="yaml-ext-refs-group__domain">{g.domain}</code>
+                                    <span className="yaml-ext-refs-group__count">{g.refs.length}</span>
+                                </summary>
+                                {g.refs.map((r, i) => (
+                                    <button
+                                        key={i}
+                                        className="yaml-ext-ref"
+                                        onClick={() => onJump(r.line)}
+                                        title={`${r.lineText.trim()}\n\n${r.field}: ${r.raw}`}
+                                    >
+                                        <span className="yaml-ext-ref__line">:{r.line}</span>
+                                        <span className="yaml-ext-ref__field">{r.field}</span>
+                                        <code className="yaml-ext-ref__target">{r.target}</code>
+                                    </button>
+                                ))}
+                            </details>
                         ))}
-                    </details>
-                ))}
-            </div>
+                    </div>
+                </>
+            )}
+
+            {totalScenarios > 0 && (
+                <>
+                    <div
+                        className="yaml-issues__header"
+                        style={{
+                            borderTop: totalRefs > 0 ? "1px solid var(--border)" : undefined,
+                            marginTop: totalRefs > 0 ? 8 : 0,
+                        }}
+                    >
+                        <MIcon name="movie" size="sm" />
+                        {" "}Playbooks / скрипты ({totalScenarios})
+                    </div>
+                    <div className="yaml-issues__list">
+                        {scenarioRefs.map((s) => (
+                            <details
+                                key={s.scenarioId}
+                                className="yaml-ext-refs-group"
+                                open
+                            >
+                                <summary className="yaml-ext-refs-group__summary">
+                                    <span className="yaml-ext-refs-group__chevron" aria-hidden="true" />
+                                    <code className="yaml-ext-refs-group__domain">
+                                        {s.scenarioId}
+                                    </code>
+                                    <span className="yaml-ext-refs-group__count">
+                                        {s.actions.length}
+                                    </span>
+                                </summary>
+                                {s.actions.map((a, i) => (
+                                    <button
+                                        key={i}
+                                        className="yaml-ext-ref"
+                                        onClick={() => onJump(a.line)}
+                                        title={`${a.actionId}: ${a.actionName}${a.workerTag ? "\nWorker: " + a.workerTag : ""}`}
+                                    >
+                                        <span className="yaml-ext-ref__line">:{a.line}</span>
+                                        <span className="yaml-ext-ref__field">
+                                            {a.actionName}
+                                        </span>
+                                        <code
+                                            className="yaml-ext-ref__target"
+                                            style={{ fontSize: 10, opacity: 0.7 }}
+                                        >
+                                            {a.actionId}
+                                        </code>
+                                    </button>
+                                ))}
+                            </details>
+                        ))}
+                    </div>
+                </>
+            )}
         </div>
     );
 }

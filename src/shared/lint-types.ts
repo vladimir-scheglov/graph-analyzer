@@ -6,7 +6,8 @@ export type LintRuleCategory =
   | "recommended"
   | "reference"
   | "semantic"
-  | "validation";
+  | "validation"
+  | "uirules";
 
 export interface LintIssue {
   ruleId: string;

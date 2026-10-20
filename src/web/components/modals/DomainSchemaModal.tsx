@@ -110,6 +110,7 @@ export function DomainSchemaModal() {
             linkages: schema.sections.linkages.count,
             views: schema.sections.views.count,
             dataRules: schema.sections.dataRules.count,
+            scenarios: schema.sections.scenarios.count,
             issues: domainIssues.length,
         };
     }, [schema, domainIssues]);
@@ -338,6 +339,9 @@ export function DomainSchemaModal() {
                                 </span>
                                 <span className="domain-schema-counter">
                                     <strong>{counters.dataRules}</strong> правил
+                                </span>
+                                <span className="domain-schema-counter">
+                                    <strong>{counters.scenarios}</strong> сценариев
                                 </span>
                                 {counters.issues > 0 && (
                                     <button

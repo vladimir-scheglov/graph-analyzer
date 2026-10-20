@@ -60,40 +60,40 @@ const SECTION_LABELS: Record<string, string> = {
  */
 const CHILD_CONTAINERS = new Set([
   // сущности
-  'attributes',
-  'sorting',
-  'projection',
-  'identification',
-  'reconciliation',
-  'searching',
+  "attributes",
+  "sorting",
+  "projection",
+  "identification",
+  "reconciliation",
+  "searching",
   // linkages
-  'attributes',
+  "attributes",
   // views
-  'widgets',
-  'groups',
-  'views',
-  'tabs',
-  'menu',
-  'buttons',
-  'footer',
-  'actionPanel',
-  'menuOptions',
-  'items',
+  "widgets",
+  "groups",
+  "views",
+  "tabs",
+  "menu",
+  "buttons",
+  "footer",
+  "actionPanel",
+  "menuOptions",
+  "items",
   // dataTypes (enum / workflow / table)
-  'values',
-  'statuses',
+  "values",
+  "statuses",
   // dataRules
-  'attributes',
-  'linkages',
-  'nested',
+  "attributes",
+  "linkages",
+  "nested",
   // transitive linkages
-  'joins',
+  "joins",
   // mixins
-  'change',
+  "change",
   // actions (bulkSettings, prefixRules и т.п.)
-  'bulkSettings',
-  'prefixRules',
-  'transitions'
+  "bulkSettings",
+  "prefixRules",
+  "transitions",
 ]);
 
 /**
@@ -352,11 +352,28 @@ export function buildLineMap(
 
       itemLines.set(`${key}#${id}`, i + 1);
 
+      let nodeType = key.replace(/s$/, "");
+      // У экшенов с type: scenario — тип actionScenario
+      if (key === "actions") {
+        for (let k = i + 1; k < itemEnd; k++) {
+          if (/^\s*type\s*:\s*scenario\b/.test(lines[k])) {
+            nodeType = "actionScenario";
+            break;
+          }
+          if (
+            /^\s*-\s+id\s*:/.test(lines[k]) &&
+            (lines[k].match(/^(\s*)/) || ["", ""])[1].length <= baseIndent
+          ) {
+            break;
+          }
+        }
+      }
+
       nodes.push({
         id,
         label: schemaItem?.name || id,
         line: i + 1,
-        type: key.replace(/s$/, ""),
+        type: nodeType,
         meta,
         children: children.length > 0 ? children : undefined,
       });
@@ -388,14 +405,14 @@ export function buildLineMap(
 export function findAttributeInEntity(
   entityId: string,
   attributePath: string,
-  lineMap: LineMap
+  lineMap: LineMap,
 ): number | null {
-  const section = lineMap.sections.find((s) => s.key === 'entities');
+  const section = lineMap.sections.find((s) => s.key === "entities");
   if (!section) return null;
   const entity = section.nodes.find((n) => n.id === entityId);
   if (!entity || !entity.children) return null;
 
-  const segments = attributePath.split('.');
+  const segments = attributePath.split(".");
   const first = segments[0];
 
   const stack: NavNode[] = [...entity.children];
@@ -405,7 +422,9 @@ export function findAttributeInEntity(
       if (segments.length === 1) return node.line;
       let current: NavNode | undefined = node;
       for (let i = 1; i < segments.length; i++) {
-        const next = (current?.children || []).find((c) => c.id === segments[i]);
+        const next = (current?.children || []).find(
+          (c) => c.id === segments[i],
+        );
         if (!next) return node.line;
         current = next;
       }
@@ -631,7 +650,11 @@ function parseTreeChildren(
 }
 
 /** Парсит transitiveLinkages: дерево, joins (рекурсивно). */
-function parseTransitiveSection(lines: string[], start: number, end: number): NavNode[] {
+function parseTransitiveSection(
+  lines: string[],
+  start: number,
+  end: number,
+): NavNode[] {
   const trees: NavNode[] = [];
   const idRegex = /^(\s*)-\s+id\s*:\s*([^\s#]+)/;
 
@@ -739,7 +762,12 @@ function parseJoins(
       const lm = lines[j].match(/^(\s*)joins\s*:\s*$/);
       if (!lm) continue;
       const nestedJoinsIndent = lm[1].length;
-      const nestedJoinsEnd = findRangeInLines(lines, j, joinEnd, nestedJoinsIndent);
+      const nestedJoinsEnd = findRangeInLines(
+        lines,
+        j,
+        joinEnd,
+        nestedJoinsIndent,
+      );
       nestedChildren = parseJoins(lines, j, nestedJoinsEnd, depth + 1);
       break;
     }

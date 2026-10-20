@@ -17530,6 +17530,188 @@ function SectionItems({
       ] }, d.id);
     }) });
   }
+  if (sectionKey === "scenarios") {
+    return /* @__PURE__ */ jsx65("div", { className: "domain-schema-list", children: items.map((s) => {
+      const scenarioKey = `scenario:${s.id}`;
+      const isExpanded = expandedItems.has(scenarioKey);
+      return /* @__PURE__ */ jsxs62(React32.Fragment, { children: [
+        /* @__PURE__ */ jsxs62(
+          "div",
+          {
+            className: "domain-schema-item domain-schema-item--expandable" + (isExpanded ? " expanded" : ""),
+            onClick: () => onToggleItem(scenarioKey),
+            children: [
+              /* @__PURE__ */ jsx65("span", { className: "domain-schema-item__caret", children: /* @__PURE__ */ jsx65(
+                MIcon,
+                {
+                  name: isExpanded ? "expand_more" : "chevron_right",
+                  size: "sm"
+                }
+              ) }),
+              /* @__PURE__ */ jsx65("code", { className: "domain-schema-item__id", children: s.id }),
+              /* @__PURE__ */ jsxs62("span", { className: "domain-schema-item__meta", children: [
+                /* @__PURE__ */ jsx65("span", { className: "domain-schema-item__badge", children: "playbook" }),
+                " \xB7 ",
+                s.actionsCount,
+                " ",
+                s.actionsCount === 1 ? "\u044D\u043A\u0448\u0435\u043D" : "\u044D\u043A\u0448\u0435\u043D\u043E\u0432",
+                s.domainsCount > 1 && /* @__PURE__ */ jsxs62(
+                  "span",
+                  {
+                    className: "domain-schema-item__badge",
+                    style: {
+                      marginLeft: 8,
+                      background: "rgba(99,102,241,0.15)",
+                      color: "var(--accent-hover)"
+                    },
+                    title: `\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u0432 ${s.domainsCount} \u0434\u043E\u043C\u0435\u043D\u0430\u0445`,
+                    children: [
+                      "+",
+                      s.domainsCount - 1,
+                      " \u0434\u043E\u043C\u0435\u043D",
+                      s.domainsCount - 1 === 1 ? "" : "\u043E\u0432"
+                    ]
+                  }
+                )
+              ] })
+            ]
+          }
+        ),
+        isExpanded && /* @__PURE__ */ jsx65("div", { className: "domain-schema-detail-card", children: /* @__PURE__ */ jsxs62("div", { className: "domain-schema-attrs", children: [
+          /* @__PURE__ */ jsxs62("div", { className: "domain-schema-attrs__title", children: [
+            "\u0417\u0430\u043F\u0443\u0441\u043A\u0430\u0435\u0442\u0441\u044F \u044D\u043A\u0448\u0435\u043D\u0430\u043C\u0438 (",
+            s.actions.length,
+            ")"
+          ] }),
+          s.actions.map((a, idx) => /* @__PURE__ */ jsxs62(
+            "div",
+            {
+              className: "domain-schema-attr-row",
+              children: [
+                /* @__PURE__ */ jsx65("code", { className: "domain-schema-attr-row__id", children: a.actionId }),
+                /* @__PURE__ */ jsx65("span", { className: "domain-schema-attr-row__name", children: a.actionName }),
+                a.workerTag && /* @__PURE__ */ jsxs62("span", { className: "domain-schema-attr-row__type", children: [
+                  "worker: ",
+                  a.workerTag
+                ] }),
+                a.domainId !== domainId && /* @__PURE__ */ jsxs62("span", { className: "domain-schema-attr-row__ref", children: [
+                  "\u2192 ",
+                  a.domainId
+                ] })
+              ]
+            },
+            `${a.domainId}/${a.actionId}/${idx}`
+          ))
+        ] }) })
+      ] }, s.id);
+    }) });
+  }
+  if (sectionKey === "uiRules") {
+    return /* @__PURE__ */ jsx65("div", { className: "domain-schema-list", children: items.map((r) => {
+      const ruleKey = `uiRule:${r.id}`;
+      const isExpanded = expandedItems.has(ruleKey);
+      return /* @__PURE__ */ jsxs62(React32.Fragment, { children: [
+        /* @__PURE__ */ jsxs62(
+          "div",
+          {
+            className: "domain-schema-item domain-schema-item--expandable" + (isExpanded ? " expanded" : ""),
+            onClick: () => onToggleItem(ruleKey),
+            children: [
+              /* @__PURE__ */ jsx65("span", { className: "domain-schema-item__caret", children: /* @__PURE__ */ jsx65(
+                MIcon,
+                {
+                  name: isExpanded ? "expand_more" : "chevron_right",
+                  size: "sm"
+                }
+              ) }),
+              /* @__PURE__ */ jsx65("code", { className: "domain-schema-item__id", children: r.id }),
+              /* @__PURE__ */ jsx65("span", { className: "domain-schema-item__name", children: r.name }),
+              /* @__PURE__ */ jsxs62("span", { className: "domain-schema-item__meta", children: [
+                r.effect && /* @__PURE__ */ jsx65("span", { className: "domain-schema-item__badge", children: r.effect }),
+                r.target && /* @__PURE__ */ jsx65("span", { className: "domain-schema-item__badge", children: r.target }),
+                r.view && /* @__PURE__ */ jsxs62("span", { style: { opacity: 0.7 }, children: [
+                  "\u2192 ",
+                  r.view
+                ] })
+              ] })
+            ]
+          }
+        ),
+        isExpanded && /* @__PURE__ */ jsxs62("div", { className: "domain-schema-detail-card", children: [
+          r.description && /* @__PURE__ */ jsx65("div", { className: "domain-schema-detail-card__desc", children: r.description }),
+          r.condition && /* @__PURE__ */ jsxs62("div", { className: "domain-schema-detail-card__meta", children: [
+            /* @__PURE__ */ jsx65("strong", { children: "condition:" }),
+            " ",
+            /* @__PURE__ */ jsx65("code", { children: r.condition.slice(0, 200) })
+          ] }),
+          r.widgets && r.widgets.length > 0 && /* @__PURE__ */ jsxs62("div", { className: "domain-schema-attrs", children: [
+            /* @__PURE__ */ jsxs62("div", { className: "domain-schema-attrs__title", children: [
+              "\u0412\u0438\u0434\u0436\u0435\u0442\u044B (",
+              r.widgets.length,
+              ")"
+            ] }),
+            r.widgets.map((w, i) => /* @__PURE__ */ jsxs62("div", { className: "domain-schema-attr-row", children: [
+              /* @__PURE__ */ jsx65(MIcon, { name: "widgets", size: "sm" }),
+              /* @__PURE__ */ jsx65("code", { className: "domain-schema-attr-row__id", children: w.widget }),
+              w.nested && /* @__PURE__ */ jsxs62("span", { className: "domain-schema-attr-row__type", children: [
+                "nested: ",
+                w.nested.type
+              ] }),
+              w.presets && w.presets.length > 0 && /* @__PURE__ */ jsxs62("span", { className: "domain-schema-attr-row__type", children: [
+                "presets: ",
+                w.presets.join(", ")
+              ] })
+            ] }, i))
+          ] }),
+          r.groups && r.groups.length > 0 && /* @__PURE__ */ jsxs62("div", { className: "domain-schema-attrs", children: [
+            /* @__PURE__ */ jsxs62("div", { className: "domain-schema-attrs__title", children: [
+              "\u0413\u0440\u0443\u043F\u043F\u044B (",
+              r.groups.length,
+              ")"
+            ] }),
+            r.groups.map((g, i) => /* @__PURE__ */ jsxs62("div", { className: "domain-schema-attr-row", children: [
+              /* @__PURE__ */ jsx65(MIcon, { name: "view_module", size: "sm" }),
+              /* @__PURE__ */ jsx65("code", { className: "domain-schema-attr-row__id", children: g.group }),
+              g.presets && g.presets.length > 0 && /* @__PURE__ */ jsxs62("span", { className: "domain-schema-attr-row__type", children: [
+                "presets: ",
+                g.presets.join(", ")
+              ] })
+            ] }, i))
+          ] }),
+          r.columns && r.columns.length > 0 && /* @__PURE__ */ jsxs62("div", { className: "domain-schema-attrs", children: [
+            /* @__PURE__ */ jsxs62("div", { className: "domain-schema-attrs__title", children: [
+              "\u041A\u043E\u043B\u043E\u043D\u043A\u0438 (",
+              r.columns.length,
+              ")"
+            ] }),
+            r.columns.map((c, i) => /* @__PURE__ */ jsxs62("div", { className: "domain-schema-attr-row", children: [
+              /* @__PURE__ */ jsx65(MIcon, { name: "view_column", size: "sm" }),
+              /* @__PURE__ */ jsx65("code", { className: "domain-schema-attr-row__id", children: c.column }),
+              c.presets && c.presets.length > 0 && /* @__PURE__ */ jsxs62("span", { className: "domain-schema-attr-row__type", children: [
+                "presets: ",
+                c.presets.join(", ")
+              ] })
+            ] }, i))
+          ] }),
+          r.presets && r.presets.length > 0 && /* @__PURE__ */ jsxs62("div", { className: "domain-schema-detail-card__meta", children: [
+            /* @__PURE__ */ jsx65("strong", { children: "\u041F\u0440\u0435\u0441\u0435\u0442\u044B \u043F\u0440\u0430\u0432\u0438\u043B\u0430:" }),
+            " ",
+            r.presets.join(", ")
+          ] }),
+          r.message && /* @__PURE__ */ jsxs62("div", { className: "domain-schema-detail-card__meta", children: [
+            /* @__PURE__ */ jsx65("strong", { children: "message:" }),
+            " ",
+            r.message
+          ] }),
+          r.help && /* @__PURE__ */ jsxs62("div", { className: "domain-schema-detail-card__meta", children: [
+            /* @__PURE__ */ jsx65("strong", { children: "help:" }),
+            " ",
+            r.help
+          ] })
+        ] })
+      ] }, r.id);
+    }) });
+  }
   if (sectionKey === "linkages") {
     return /* @__PURE__ */ jsx65("div", { className: "domain-schema-list", children: items.map((l) => /* @__PURE__ */ jsxs62("div", { className: "domain-schema-item", children: [
       /* @__PURE__ */ jsx65("code", { className: "domain-schema-item__id", children: l.id }),
@@ -17657,7 +17839,8 @@ var init_consts = __esm({
       transitiveLinkages: { label: "\u0422\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0438", icon: "link" },
       uiRules: { label: "UI Rules", icon: "rule_folder" },
       uiPresets: { label: "UI Presets", icon: "palette" },
-      counterColorPattern: { label: "\u0426\u0432\u0435\u0442\u043E\u0432\u044B\u0435 \u0441\u0445\u0435\u043C\u044B", icon: "timelapse" }
+      counterColorPattern: { label: "\u0426\u0432\u0435\u0442\u043E\u0432\u044B\u0435 \u0441\u0445\u0435\u043C\u044B", icon: "timelapse" },
+      scenarios: { label: "\u0421\u0446\u0435\u043D\u0430\u0440\u0438\u0438", icon: "movie" }
     };
   }
 });
@@ -17757,6 +17940,7 @@ function DomainSchemaModal() {
       linkages: schema2.sections.linkages.count,
       views: schema2.sections.views.count,
       dataRules: schema2.sections.dataRules.count,
+      scenarios: schema2.sections.scenarios.count,
       issues: domainIssues.length
     };
   }, [schema2, domainIssues]);
@@ -17864,6 +18048,7 @@ function DomainSchemaModal() {
                     store.toggleBookmark(`domain_${domainId}`);
                   },
                   title: store.bookmarks.has(`domain_${domainId}`) ? "\u0423\u0431\u0440\u0430\u0442\u044C \u0438\u0437 \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u043E\u0433\u043E" : "\u0412 \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u043E\u0435",
+                  style: { marginLeft: "auto" },
                   children: /* @__PURE__ */ jsx66(
                     MIcon,
                     {
@@ -17943,6 +18128,10 @@ function DomainSchemaModal() {
                   /* @__PURE__ */ jsxs63("span", { className: "domain-schema-counter", children: [
                     /* @__PURE__ */ jsx66("strong", { children: counters.dataRules }),
                     " \u043F\u0440\u0430\u0432\u0438\u043B"
+                  ] }),
+                  /* @__PURE__ */ jsxs63("span", { className: "domain-schema-counter", children: [
+                    /* @__PURE__ */ jsx66("strong", { children: counters.scenarios }),
+                    " \u0441\u0446\u0435\u043D\u0430\u0440\u0438\u0435\u0432"
                   ] }),
                   counters.issues > 0 && /* @__PURE__ */ jsxs63(
                     "button",
@@ -18423,7 +18612,8 @@ var init_LintModal = __esm({
       naming: "\u0418\u043C\u0435\u043D\u043E\u0432\u0430\u043D\u0438\u0435",
       validation: "\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F",
       required: "\u041E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u044B\u0435 \u043F\u043E\u043B\u044F",
-      recommended: "\u0420\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u0438"
+      recommended: "\u0420\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u0438",
+      uirules: "UI Rules"
     };
   }
 });
@@ -20471,11 +20661,23 @@ function buildLineMap(text, schema2) {
         }
       }
       itemLines.set(`${key}#${id}`, i + 1);
+      let nodeType = key.replace(/s$/, "");
+      if (key === "actions") {
+        for (let k = i + 1; k < itemEnd; k++) {
+          if (/^\s*type\s*:\s*scenario\b/.test(lines[k])) {
+            nodeType = "actionScenario";
+            break;
+          }
+          if (/^\s*-\s+id\s*:/.test(lines[k]) && (lines[k].match(/^(\s*)/) || ["", ""])[1].length <= baseIndent) {
+            break;
+          }
+        }
+      }
       nodes.push({
         id,
         label: schemaItem?.name || id,
         line: i + 1,
-        type: key.replace(/s$/, ""),
+        type: nodeType,
         meta,
         children: children.length > 0 ? children : void 0
       });
@@ -20513,7 +20715,9 @@ function findAttributeInEntity(entityId, attributePath, lineMap) {
         return node.line;
       let current = node;
       for (let i = 1; i < segments.length; i++) {
-        const next = (current?.children || []).find((c) => c.id === segments[i]);
+        const next = (current?.children || []).find(
+          (c) => c.id === segments[i]
+        );
         if (!next)
           return node.line;
         current = next;
@@ -20782,7 +20986,12 @@ function parseJoins(lines, joinsLine, joinsEnd, depth) {
       if (!lm)
         continue;
       const nestedJoinsIndent = lm[1].length;
-      const nestedJoinsEnd = findRangeInLines(lines, j, joinEnd, nestedJoinsIndent);
+      const nestedJoinsEnd = findRangeInLines(
+        lines,
+        j,
+        joinEnd,
+        nestedJoinsIndent
+      );
       nestedChildren = parseJoins(lines, j, nestedJoinsEnd, depth + 1);
       break;
     }
@@ -22431,6 +22640,25 @@ ${indent}description: ""`
         }
         return { suggestions: [] };
       }
+      if (/^\s*scenario\s*:\s*[\w]*$/.test(beforeCursor)) {
+        const seen = /* @__PURE__ */ new Set();
+        const text = model.getValue();
+        const re = /^\s*scenario\s*:\s*([^\s#]+)/gm;
+        let m;
+        while ((m = re.exec(text)) !== null) {
+          seen.add(m[1].replace(/["']/g, ""));
+        }
+        return {
+          suggestions: Array.from(seen).map((id) => ({
+            label: id,
+            kind: Kind.Value,
+            insertText: id,
+            filterText: id,
+            detail: "playbook / \u0441\u0446\u0435\u043D\u0430\u0440\u0438\u0439",
+            range
+          }))
+        };
+      }
       if (/^\s*refresh\s*:\s*[\w]*$/.test(beforeCursor) || /^\s*mode\s*:\s*[\w]*$/.test(beforeCursor)) {
         const isRefreshMode = /refresh\s*:/i.test(model.getLineContent(position.lineNumber)) || (() => {
           for (let i = position.lineNumber - 1; i >= 1; i--) {
@@ -22741,426 +22969,6 @@ ${indent}description: ""`
         fields.forEach((f) => {
           suggestions.push(buildFieldSuggestion(monaco, f, range));
         });
-      }
-      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
-        const ctxNow = detectContextAtPosition(
-          model,
-          position,
-          ctx.lineMap?.lineContexts || /* @__PURE__ */ new Map()
-        );
-        if (ctxNow === "viewWidgetControl" || ctxNow === "viewTableColumnControl") {
-          return {
-            suggestions: [
-              "text",
-              "text_area",
-              "select",
-              "radio",
-              "tag",
-              "level",
-              "switch",
-              "checkbox",
-              "bool_text",
-              "timestamp",
-              "date",
-              "time",
-              "tree_path",
-              "drag_drop_area",
-              "file",
-              "slider",
-              "link",
-              "uuid",
-              "mac",
-              "ip",
-              "cidr",
-              "timestamp_range"
-            ].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-        if (ctxNow === "viewWidgetLinkageControl") {
-          return {
-            suggestions: ["select", "multi_select", "table"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-        if (ctxNow === "viewNested") {
-          return {
-            suggestions: ["panel", "modal", "page"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-        if (ctxNow === "viewButton") {
-          return {
-            suggestions: ["submit", "close"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-        if (ctxNow === "viewFooterAction") {
-          return {
-            suggestions: ["run", "run_close", "run_submit"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-      }
-      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
-        const ctxNow = detectContextAtPosition(
-          model,
-          position,
-          ctx.lineMap?.lineContexts || /* @__PURE__ */ new Map()
-        );
-        if (ctxNow === "group") {
-          return {
-            suggestions: [
-              "block",
-              "form",
-              "tab",
-              "tabs",
-              "resizable_block_pair"
-            ].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-      }
-      if (/^\s*direction\s*:\s*[\w]*$/.test(beforeCursor)) {
-        return {
-          suggestions: ["column"].map((v) => ({
-            label: v,
-            kind: Kind.Value,
-            insertText: v,
-            range
-          }))
-        };
-      }
-      if (/^\s*position\s*:\s*[\w]*$/.test(beforeCursor)) {
-        return {
-          suggestions: ["top", "bottom"].map((v) => ({
-            label: v,
-            kind: Kind.Value,
-            insertText: v,
-            range
-          }))
-        };
-      }
-      if (/^\s*type\s*:\s*[\w]*$/.test(beforeCursor)) {
-        const ctxNow = detectContextAtPosition(
-          model,
-          position,
-          ctx.lineMap?.lineContexts || /* @__PURE__ */ new Map()
-        );
-        if (ctxNow === "inheritSettings") {
-          return {
-            suggestions: ["append", "override", "except"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-      }
-      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
-        const ctxNow = detectContextAtPosition(
-          model,
-          position,
-          ctx.lineMap?.lineContexts || /* @__PURE__ */ new Map()
-        );
-        if (ctxNow === "viewWidgetControl" || ctxNow === "viewTableColumnControl") {
-          return {
-            suggestions: [
-              "text",
-              "text_area",
-              "select",
-              "radio",
-              "tag",
-              "level",
-              "switch",
-              "checkbox",
-              "bool_text",
-              "timestamp",
-              "date",
-              "time",
-              "tree_path",
-              "drag_drop_area",
-              "file",
-              "slider",
-              "link",
-              "uuid",
-              "mac",
-              "ip",
-              "cidr",
-              "timestamp_range"
-            ].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-        if (ctxNow === "viewWidgetLinkageControl") {
-          return {
-            suggestions: ["select", "multi_select", "table"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-        if (ctxNow === "viewNested") {
-          return {
-            suggestions: ["panel", "modal", "page"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-        if (ctxNow === "viewButton") {
-          return {
-            suggestions: ["submit", "close"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-        if (ctxNow === "viewFooterAction") {
-          return {
-            suggestions: ["run", "run_close", "run_submit"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-      }
-      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
-        const ctxNow = detectContextAtPosition(
-          model,
-          position,
-          ctx.lineMap?.lineContexts || /* @__PURE__ */ new Map()
-        );
-        if (ctxNow === "group") {
-          return {
-            suggestions: [
-              "block",
-              "form",
-              "tab",
-              "tabs",
-              "resizable_block_pair"
-            ].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-      }
-      if (/^\s*direction\s*:\s*[\w]*$/.test(beforeCursor)) {
-        return {
-          suggestions: ["column"].map((v) => ({
-            label: v,
-            kind: Kind.Value,
-            insertText: v,
-            range
-          }))
-        };
-      }
-      if (/^\s*position\s*:\s*[\w]*$/.test(beforeCursor)) {
-        return {
-          suggestions: ["top", "bottom"].map((v) => ({
-            label: v,
-            kind: Kind.Value,
-            insertText: v,
-            range
-          }))
-        };
-      }
-      if (/^\s*type\s*:\s*[\w]*$/.test(beforeCursor)) {
-        const ctxNow = detectContextAtPosition(
-          model,
-          position,
-          ctx.lineMap?.lineContexts || /* @__PURE__ */ new Map()
-        );
-        if (ctxNow === "inheritSettings") {
-          return {
-            suggestions: ["append", "override", "except"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-      }
-      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
-        const ctxNow = detectContextAtPosition(
-          model,
-          position,
-          ctx.lineMap?.lineContexts || /* @__PURE__ */ new Map()
-        );
-        if (ctxNow === "viewWidgetControl" || ctxNow === "viewTableColumnControl") {
-          return {
-            suggestions: [
-              "text",
-              "text_area",
-              "select",
-              "radio",
-              "tag",
-              "level",
-              "switch",
-              "checkbox",
-              "bool_text",
-              "timestamp",
-              "date",
-              "time",
-              "tree_path",
-              "drag_drop_area",
-              "file",
-              "slider",
-              "link",
-              "uuid",
-              "mac",
-              "ip",
-              "cidr",
-              "timestamp_range"
-            ].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-        if (ctxNow === "viewWidgetLinkageControl") {
-          return {
-            suggestions: ["select", "multi_select", "table"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-        if (ctxNow === "viewNested") {
-          return {
-            suggestions: ["panel", "modal", "page"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-        if (ctxNow === "viewButton") {
-          return {
-            suggestions: ["submit", "close"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-        if (ctxNow === "viewFooterAction") {
-          return {
-            suggestions: ["run", "run_close", "run_submit"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-      }
-      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
-        const ctxNow = detectContextAtPosition(
-          model,
-          position,
-          ctx.lineMap?.lineContexts || /* @__PURE__ */ new Map()
-        );
-        if (ctxNow === "group") {
-          return {
-            suggestions: [
-              "block",
-              "form",
-              "tab",
-              "tabs",
-              "resizable_block_pair"
-            ].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-      }
-      if (/^\s*direction\s*:\s*[\w]*$/.test(beforeCursor)) {
-        return {
-          suggestions: ["column"].map((v) => ({
-            label: v,
-            kind: Kind.Value,
-            insertText: v,
-            range
-          }))
-        };
-      }
-      if (/^\s*position\s*:\s*[\w]*$/.test(beforeCursor)) {
-        return {
-          suggestions: ["top", "bottom"].map((v) => ({
-            label: v,
-            kind: Kind.Value,
-            insertText: v,
-            range
-          }))
-        };
-      }
-      if (/^\s*type\s*:\s*[\w]*$/.test(beforeCursor)) {
-        const ctxNow = detectContextAtPosition(
-          model,
-          position,
-          ctx.lineMap?.lineContexts || /* @__PURE__ */ new Map()
-        );
-        if (ctxNow === "inheritSettings") {
-          return {
-            suggestions: ["append", "override", "except"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
       }
       if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
         const ctxNow = detectContextAtPosition(
@@ -23990,6 +23798,72 @@ function applyFqidMarkers(monaco, model, index, currentDomainId) {
             endColumn: startCol + id.length,
             source: "fqid-validator"
           });
+        }
+      }
+    }
+    {
+      let inActions = false;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const sectionM = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+        if (sectionM) {
+          inActions = sectionM[1] === "actions";
+          continue;
+        }
+        if (!inActions)
+          continue;
+        const idM = line.match(/^\s*-\s+id\s*:/);
+        if (idM) {
+          let actionType = null;
+          let scenarioLine = -1;
+          let scenarioValue = null;
+          let typeLine = -1;
+          for (let j = i + 1; j < lines.length; j++) {
+            const l = lines[j];
+            if (!l.trim() || l.trim().startsWith("#"))
+              continue;
+            const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
+            if (/^\s*-\s+id\s*:/.test(l) && lInd <= 2)
+              break;
+            if (lInd === 0)
+              break;
+            const tm = l.match(/^\s*type\s*:\s*([^\s#]+)/);
+            if (tm && actionType === null) {
+              actionType = tm[1].replace(/["']/g, "");
+              typeLine = j;
+            }
+            const sm = l.match(/^\s*scenario\s*:\s*([^\s#]+)/);
+            if (sm && scenarioValue === null) {
+              scenarioValue = sm[1].replace(/["']/g, "");
+              scenarioLine = j;
+            }
+          }
+          if (actionType === "scenario" && !scenarioValue && typeLine >= 0) {
+            const tLine = lines[typeLine];
+            const startCol = tLine.indexOf("scenario") !== -1 ? tLine.indexOf("scenario") + 1 : 1;
+            markers.push({
+              severity: monaco.MarkerSeverity.Error,
+              message: `\u0414\u043B\u044F type: scenario \u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u043E \u043F\u043E\u043B\u0435 scenario: <id>`,
+              startLineNumber: typeLine + 1,
+              startColumn: Math.max(1, startCol),
+              endLineNumber: typeLine + 1,
+              endColumn: tLine.length + 1,
+              source: "fqid-validator"
+            });
+          }
+          if (actionType && actionType !== "scenario" && scenarioValue && scenarioLine >= 0) {
+            const sLine = lines[scenarioLine];
+            const startCol = sLine.indexOf(scenarioValue) + 1;
+            markers.push({
+              severity: monaco.MarkerSeverity.Warning,
+              message: `\u041F\u043E\u043B\u0435 scenario \u043D\u0435 \u0438\u043C\u0435\u0435\u0442 \u0441\u043C\u044B\u0441\u043B\u0430 \u043F\u0440\u0438 type: ${actionType} (\u043E\u0436\u0438\u0434\u0430\u0435\u0442\u0441\u044F type: scenario)`,
+              startLineNumber: scenarioLine + 1,
+              startColumn: startCol,
+              endLineNumber: scenarioLine + 1,
+              endColumn: startCol + scenarioValue.length,
+              source: "fqid-validator"
+            });
+          }
         }
       }
     }
@@ -32197,6 +32071,61 @@ function YamlViewerModal() {
     const refs = extractExternalRefs(content, domainId);
     return { refs, groups: groupExternalRefs(refs) };
   }, [content, domainId, liveVersion]);
+  const scenarioRefs = useMemo41(() => {
+    if (!content)
+      return [];
+    const lines = content.split("\n");
+    const result = [];
+    let inActions = false;
+    let currentAction = null;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const sectionM = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (sectionM) {
+        inActions = sectionM[1] === "actions";
+        currentAction = null;
+        continue;
+      }
+      if (!inActions)
+        continue;
+      const idm = line.match(/^\s*-\s+id\s*:\s*([^\s#]+)/);
+      if (idm) {
+        currentAction = {
+          id: idm[1].replace(/["']/g, ""),
+          name: idm[1],
+          line: i + 1
+        };
+        continue;
+      }
+      if (!currentAction)
+        continue;
+      const nameM = line.match(/^\s*name\s*:\s*([^\n#]+)/);
+      if (nameM)
+        currentAction.name = nameM[1].trim();
+      const typeM = line.match(/^\s*type\s*:\s*([^\s#]+)/);
+      if (typeM)
+        currentAction.type = typeM[1].replace(/["']/g, "");
+      const scenarioM = line.match(/^\s*scenario\s*:\s*([^\s#]+)/);
+      if (scenarioM && currentAction.type === "scenario") {
+        const scenarioId = scenarioM[1].replace(/["']/g, "");
+        const workerM = lines.slice(i + 1, Math.min(i + 8, lines.length)).map((l) => l.match(/^\s*workerTag\s*:\s*([^\s#]+)/)).find(Boolean);
+        result.push({
+          line: i + 1,
+          scenarioId,
+          actionId: currentAction.id,
+          actionName: currentAction.name,
+          workerTag: workerM ? workerM[1].replace(/["']/g, "") : void 0
+        });
+      }
+    }
+    const grouped = /* @__PURE__ */ new Map();
+    for (const r of result) {
+      if (!grouped.has(r.scenarioId))
+        grouped.set(r.scenarioId, []);
+      grouped.get(r.scenarioId).push(r);
+    }
+    return Array.from(grouped.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([scenarioId, actions]) => ({ scenarioId, actions }));
+  }, [content, liveVersion]);
   const flatNavNodes = useMemo41(() => {
     if (!lineMap)
       return [];
@@ -33546,6 +33475,7 @@ ${label.message}` : ""),
                             "button",
                             {
                               className: "yaml-viewer-nav__toggle" + (onlyProblematic ? " active" : ""),
+                              style: { marginLeft: "auto" },
                               onClick: () => setOnlyProblematic(!onlyProblematic),
                               title: onlyProblematic ? "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0432\u0441\u0435 \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u044B" : "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0442\u043E\u043B\u044C\u043A\u043E \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u044B \u0441 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0430\u043C\u0438",
                               disabled: domainIssues.length === 0,
@@ -33776,6 +33706,7 @@ ${label.message}` : ""),
                     ExternalRefsPanel,
                     {
                       groups: externalRefs.groups,
+                      scenarioRefs,
                       onJump: jumpTo,
                       currentDomain: domainId || ""
                     }
@@ -33941,10 +33872,11 @@ ${label.message}` : ""),
 }
 function ExternalRefsPanel({
   groups,
+  scenarioRefs,
   onJump,
   currentDomain
 }) {
-  if (groups.length === 0) {
+  if (groups.length === 0 && scenarioRefs.length === 0) {
     return /* @__PURE__ */ jsxs70("div", { className: "yaml-issues-empty", children: [
       /* @__PURE__ */ jsx73("div", { style: { fontSize: 32, marginBottom: 8 }, children: "\u{1F517}" }),
       /* @__PURE__ */ jsx73("div", { style: { color: "var(--text-400)", fontSize: 12 }, children: "\u041D\u0435\u0442 \u0441\u0441\u044B\u043B\u043E\u043A \u043D\u0430 \u0434\u0440\u0443\u0433\u0438\u0435 \u0434\u043E\u043C\u0435\u043D\u044B" }),
@@ -33952,40 +33884,101 @@ function ExternalRefsPanel({
     ] });
   }
   const totalRefs = groups.reduce((s, g) => s + g.refs.length, 0);
+  const totalScenarios = scenarioRefs.length;
   return /* @__PURE__ */ jsxs70("div", { className: "yaml-issues", children: [
-    /* @__PURE__ */ jsxs70("div", { className: "yaml-issues__header", children: [
-      "\u0412\u043D\u0435\u0448\u043D\u0438\u0435 \u0441\u0441\u044B\u043B\u043A\u0438 (",
-      totalRefs,
-      " \u2192 ",
-      groups.length,
-      " \u0434\u043E\u043C\u0435\u043D\u043E\u0432)"
-    ] }),
-    /* @__PURE__ */ jsx73("div", { className: "yaml-issues__list", children: groups.map((g) => /* @__PURE__ */ jsxs70("details", { className: "yaml-ext-refs-group", open: true, children: [
-      /* @__PURE__ */ jsxs70("summary", { className: "yaml-ext-refs-group__summary", children: [
-        /* @__PURE__ */ jsx73("span", { className: "yaml-ext-refs-group__chevron", "aria-hidden": "true" }),
-        /* @__PURE__ */ jsx73("code", { className: "yaml-ext-refs-group__domain", children: g.domain }),
-        /* @__PURE__ */ jsx73("span", { className: "yaml-ext-refs-group__count", children: g.refs.length })
+    totalRefs > 0 && /* @__PURE__ */ jsxs70(Fragment17, { children: [
+      /* @__PURE__ */ jsxs70("div", { className: "yaml-issues__header", children: [
+        "\u0412\u043D\u0435\u0448\u043D\u0438\u0435 FQID-\u0441\u0441\u044B\u043B\u043A\u0438 (",
+        totalRefs,
+        " \u2192 ",
+        groups.length,
+        " \u0434\u043E\u043C\u0435\u043D\u043E\u0432)"
       ] }),
-      g.refs.map((r, i) => /* @__PURE__ */ jsxs70(
-        "button",
-        {
-          className: "yaml-ext-ref",
-          onClick: () => onJump(r.line),
-          title: `${r.lineText.trim()}
+      /* @__PURE__ */ jsx73("div", { className: "yaml-issues__list", children: groups.map((g) => /* @__PURE__ */ jsxs70("details", { className: "yaml-ext-refs-group", open: true, children: [
+        /* @__PURE__ */ jsxs70("summary", { className: "yaml-ext-refs-group__summary", children: [
+          /* @__PURE__ */ jsx73("span", { className: "yaml-ext-refs-group__chevron", "aria-hidden": "true" }),
+          /* @__PURE__ */ jsx73("code", { className: "yaml-ext-refs-group__domain", children: g.domain }),
+          /* @__PURE__ */ jsx73("span", { className: "yaml-ext-refs-group__count", children: g.refs.length })
+        ] }),
+        g.refs.map((r, i) => /* @__PURE__ */ jsxs70(
+          "button",
+          {
+            className: "yaml-ext-ref",
+            onClick: () => onJump(r.line),
+            title: `${r.lineText.trim()}
 
 ${r.field}: ${r.raw}`,
+            children: [
+              /* @__PURE__ */ jsxs70("span", { className: "yaml-ext-ref__line", children: [
+                ":",
+                r.line
+              ] }),
+              /* @__PURE__ */ jsx73("span", { className: "yaml-ext-ref__field", children: r.field }),
+              /* @__PURE__ */ jsx73("code", { className: "yaml-ext-ref__target", children: r.target })
+            ]
+          },
+          i
+        ))
+      ] }, g.domain)) })
+    ] }),
+    totalScenarios > 0 && /* @__PURE__ */ jsxs70(Fragment17, { children: [
+      /* @__PURE__ */ jsxs70(
+        "div",
+        {
+          className: "yaml-issues__header",
+          style: {
+            borderTop: totalRefs > 0 ? "1px solid var(--border)" : void 0,
+            marginTop: totalRefs > 0 ? 8 : 0
+          },
           children: [
-            /* @__PURE__ */ jsxs70("span", { className: "yaml-ext-ref__line", children: [
-              ":",
-              r.line
+            /* @__PURE__ */ jsx73(MIcon, { name: "movie", size: "sm" }),
+            " ",
+            "Playbooks / \u0441\u043A\u0440\u0438\u043F\u0442\u044B (",
+            totalScenarios,
+            ")"
+          ]
+        }
+      ),
+      /* @__PURE__ */ jsx73("div", { className: "yaml-issues__list", children: scenarioRefs.map((s) => /* @__PURE__ */ jsxs70(
+        "details",
+        {
+          className: "yaml-ext-refs-group",
+          open: true,
+          children: [
+            /* @__PURE__ */ jsxs70("summary", { className: "yaml-ext-refs-group__summary", children: [
+              /* @__PURE__ */ jsx73("span", { className: "yaml-ext-refs-group__chevron", "aria-hidden": "true" }),
+              /* @__PURE__ */ jsx73("code", { className: "yaml-ext-refs-group__domain", children: s.scenarioId }),
+              /* @__PURE__ */ jsx73("span", { className: "yaml-ext-refs-group__count", children: s.actions.length })
             ] }),
-            /* @__PURE__ */ jsx73("span", { className: "yaml-ext-ref__field", children: r.field }),
-            /* @__PURE__ */ jsx73("code", { className: "yaml-ext-ref__target", children: r.target })
+            s.actions.map((a, i) => /* @__PURE__ */ jsxs70(
+              "button",
+              {
+                className: "yaml-ext-ref",
+                onClick: () => onJump(a.line),
+                title: `${a.actionId}: ${a.actionName}${a.workerTag ? "\nWorker: " + a.workerTag : ""}`,
+                children: [
+                  /* @__PURE__ */ jsxs70("span", { className: "yaml-ext-ref__line", children: [
+                    ":",
+                    a.line
+                  ] }),
+                  /* @__PURE__ */ jsx73("span", { className: "yaml-ext-ref__field", children: a.actionName }),
+                  /* @__PURE__ */ jsx73(
+                    "code",
+                    {
+                      className: "yaml-ext-ref__target",
+                      style: { fontSize: 10, opacity: 0.7 },
+                      children: a.actionId
+                    }
+                  )
+                ]
+              },
+              i
+            ))
           ]
         },
-        i
-      ))
-    ] }, g.domain)) })
+        s.scenarioId
+      )) })
+    ] })
   ] });
 }
 function isIgnored(issue, ignoredSet) {

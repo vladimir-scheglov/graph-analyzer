@@ -2,6 +2,7 @@ import type {
   ModelIndex,
   EntityRecord,
   AttributeRecord,
+  UiRuleRecord,
 } from "../../shared/model-types";
 import type {
   LintIssue,
@@ -40,6 +41,44 @@ const MAC_PATTERN = /\bmac(address)?\b/i;
 interface LintContext {
   index: ModelIndex;
   issues: LintIssue[];
+  viewElementSets: Map<
+    string,
+    Map<
+      string,
+      { widgets: Set<string>; groups: Set<string>; columns: Set<string> }
+    >
+  >;
+  presetSets: Map<string, Set<string>>;
+}
+
+function precomputeLintIndex(index: ModelIndex): {
+  viewElementSets: LintContext["viewElementSets"];
+  presetSets: LintContext["presetSets"];
+} {
+  const viewElementSets: LintContext["viewElementSets"] = new Map();
+  for (const [domainId, byView] of Object.entries(
+    index.viewElementsByDomain || {},
+  )) {
+    const map = new Map<
+      string,
+      { widgets: Set<string>; groups: Set<string>; columns: Set<string> }
+    >();
+    for (const [viewId, elements] of Object.entries(byView)) {
+      map.set(viewId, {
+        widgets: new Set(elements.widgets || []),
+        groups: new Set(elements.groups || []),
+        columns: new Set(elements.columns || []),
+      });
+    }
+    viewElementSets.set(domainId, map);
+  }
+
+  const presetSets: LintContext["presetSets"] = new Map();
+  for (const [domainId, ids] of Object.entries(index.uiPresetsByDomain || {})) {
+    presetSets.set(domainId, new Set(ids || []));
+  }
+
+  return { viewElementSets, presetSets };
 }
 
 function emit(
@@ -401,10 +440,190 @@ function checkValidationByHeuristic(
   }
 }
 
+// ============ UI Rules ============
+
+function checkUiRule(ctx: LintContext, rule: UiRuleRecord): void {
+  const domainId = rule.domainId;
+
+  // Пустое правило
+  if (
+    rule.widgets.length === 0 &&
+    rule.groups.length === 0 &&
+    rule.columns.length === 0
+  ) {
+    emit(ctx, {
+      ruleId: "uirules/empty-rule",
+      severity: "warning",
+      category: "uirules",
+      rule: "Правило содержит widgets/groups/columns",
+      message: `Правило «${rule.id}» не содержит widgets, groups или columns — не применяется ни к чему`,
+      hint: "Добавьте хотя бы один элемент в widgets/groups/columns",
+      domainId,
+      propertyPath: `uiRules[${rule.id}]`,
+    });
+  }
+
+  // Внешний view — пропускаем детальную валидацию
+  if (rule.view && rule.view.includes("/")) return;
+  if (!rule.view) return;
+
+  const domainViews = ctx.viewElementSets.get(domainId);
+  const viewElements = domainViews?.get(rule.view);
+
+  if (!viewElements) {
+    emit(ctx, {
+      ruleId: "uirules/unknown-view",
+      severity: "error",
+      category: "uirules",
+      rule: "Правило ссылается на существующий view",
+      message: `Правило «${rule.id}» ссылается на несуществующий view «${rule.view}»`,
+      hint: "Проверьте id view в поле `view`",
+      domainId,
+      propertyPath: `uiRules[${rule.id}].view`,
+    });
+    return;
+  }
+
+  for (const w of rule.widgets) {
+    if (!viewElements.widgets.has(w.widget)) {
+      emit(ctx, {
+        ruleId: "uirules/unknown-widget",
+        severity: "error",
+        category: "uirules",
+        rule: "Виджет существует во view",
+        message: `Правило «${rule.id}» ссылается на несуществующий виджет «${w.widget}» во view «${rule.view}»`,
+        hint: "Проверьте id виджета в widgets[] соответствующего view",
+        domainId,
+        propertyPath: `uiRules[${rule.id}].rule.widgets`,
+      });
+    }
+  }
+
+  for (const g of rule.groups) {
+    if (!viewElements.groups.has(g.group)) {
+      emit(ctx, {
+        ruleId: "uirules/unknown-group",
+        severity: "error",
+        category: "uirules",
+        rule: "Группа существует во view",
+        message: `Правило «${rule.id}» ссылается на несуществующую группу «${g.group}» во view «${rule.view}»`,
+        hint: "Проверьте id группы в groups[] соответствующего view",
+        domainId,
+        propertyPath: `uiRules[${rule.id}].rule.groups`,
+      });
+    }
+  }
+
+  for (const c of rule.columns) {
+    if (!viewElements.columns.has(c.column)) {
+      emit(ctx, {
+        ruleId: "uirules/unknown-column",
+        severity: "error",
+        category: "uirules",
+        rule: "Колонка существует во view",
+        message: `Правило «${rule.id}» ссылается на несуществующую колонку «${c.column}» во view «${rule.view}»`,
+        hint: "Проверьте id колонки в table.columns[] соответствующего view",
+        domainId,
+        propertyPath: `uiRules[${rule.id}].rule.columns`,
+      });
+    }
+  }
+
+  const domainPresets = ctx.presetSets.get(domainId) || new Set<string>();
+  const usedPresets = new Set<string>([
+    ...rule.presets,
+    ...rule.widgets.flatMap((w) => w.presets || []),
+    ...rule.groups.flatMap((g) => g.presets || []),
+    ...rule.columns.flatMap((c) => c.presets || []),
+  ]);
+  for (const p of usedPresets) {
+    if (!domainPresets.has(p)) {
+      emit(ctx, {
+        ruleId: "uirules/unknown-preset",
+        severity: "warning",
+        category: "uirules",
+        rule: "Пресет существует в домене",
+        message: `Правило «${rule.id}» ссылается на несуществующий пресет «${p}»`,
+        hint: "Проверьте id пресета в uiPresets[]",
+        domainId,
+        propertyPath: `uiRules[${rule.id}]`,
+      });
+    }
+  }
+}
+
+function checkOrphanPresets(ctx: LintContext): void {
+  const used = new Set<string>();
+  for (const r of ctx.index.uiRules || []) {
+    const add = (p: string) => used.add(`${r.domainId}#${p}`);
+    r.presets.forEach(add);
+    r.widgets.forEach((w) => (w.presets || []).forEach(add));
+    r.groups.forEach((g) => (g.presets || []).forEach(add));
+    r.columns.forEach((c) => (c.presets || []).forEach(add));
+  }
+
+  for (const p of ctx.index.uiPresets || []) {
+    if (!used.has(`${p.domainId}#${p.id}`)) {
+      emit(ctx, {
+        ruleId: "uirules/orphan-preset",
+        severity: "info",
+        category: "uirules",
+        rule: "Пресет используется",
+        message: `Пресет «${p.id}» не используется ни в одном UI Rule`,
+        hint: "Мёртвый код — можно удалить из uiPresets[]",
+        domainId: p.domainId,
+        propertyPath: `uiPresets[${p.id}]`,
+      });
+    }
+  }
+}
+
+function checkConflictingEffects(ctx: LintContext): void {
+  const effectMap = new Map<
+    string,
+    { hidden: UiRuleRecord[]; show: UiRuleRecord[] }
+  >();
+
+  for (const r of ctx.index.uiRules || []) {
+    if (r.effect !== "hidden" && r.effect !== "show") continue;
+    const add = (key: string) => {
+      if (!effectMap.has(key)) effectMap.set(key, { hidden: [], show: [] });
+      const entry = effectMap.get(key)!;
+      if (r.effect === "hidden") entry.hidden.push(r);
+      else entry.show.push(r);
+    };
+    r.widgets.forEach((w) => add(`${r.domainId}|${r.view}|w:${w.widget}`));
+    r.groups.forEach((g) => add(`${r.domainId}|${r.view}|g:${g.group}`));
+    r.columns.forEach((c) => add(`${r.domainId}|${r.view}|c:${c.column}`));
+  }
+
+  effectMap.forEach((entry, key) => {
+    if (entry.hidden.length > 0 && entry.show.length > 0) {
+      const parts = key.split("|");
+      const domainId = parts[0];
+      const view = parts[1];
+      const element = parts[2];
+      const hiddenIds = entry.hidden.map((r) => r.id).join(", ");
+      const showIds = entry.show.map((r) => r.id).join(", ");
+      emit(ctx, {
+        ruleId: "uirules/conflicting-effects",
+        severity: "warning",
+        category: "uirules",
+        rule: "Нет противоречащих правил для одного элемента",
+        message: `Конфликт для ${element} во view «${view}»: hidden (${hiddenIds}) vs show (${showIds})`,
+        hint: "Проверьте порядок применения — какое правило сработает",
+        domainId,
+        propertyPath: `uiRules`,
+      });
+    }
+  });
+}
+
 // ============ Main ============
 
 export function lintModel(index: ModelIndex): LintReport {
-  const ctx: LintContext = { index, issues: [] };
+  const { viewElementSets, presetSets } = precomputeLintIndex(index);
+  const ctx: LintContext = { index, issues: [], viewElementSets, presetSets };
 
   for (const e of index.entities) {
     checkEntityNaming(ctx, e);
@@ -422,6 +641,13 @@ export function lintModel(index: ModelIndex): LintReport {
     }
   }
 
+  // ============ UI Rules ============
+  for (const rule of index.uiRules || []) {
+    checkUiRule(ctx, rule);
+  }
+  checkOrphanPresets(ctx);
+  checkConflictingEffects(ctx);
+
   // ============ Итоговая статистика ============
   const bySeverity: Record<LintSeverity, number> = {
     error: 0,
@@ -435,6 +661,7 @@ export function lintModel(index: ModelIndex): LintReport {
     reference: 0,
     semantic: 0,
     validation: 0,
+    uirules: 0,
   };
   const byRuleMap = new Map<
     string,
@@ -481,11 +708,13 @@ const CATEGORY_LABELS: Record<LintRuleCategory, string> = {
   reference: "Ссылочная целостность",
   semantic: "Семантика",
   validation: "Валидация данных",
+  uirules: "UI Rules",
 };
 
 const CATEGORY_WEIGHTS: Record<LintRuleCategory, number> = {
-  reference: 5, // битые ссылки критичнее всего
+  reference: 5,
   semantic: 4,
+  uirules: 3,
   naming: 2,
   validation: 2,
   required: 1,

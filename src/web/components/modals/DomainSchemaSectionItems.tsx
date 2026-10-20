@@ -459,6 +459,228 @@ export function SectionItems({
         );
     }
 
+    // ==== Сценарии (расширенные) ====
+    if (sectionKey === "scenarios") {
+        return (
+            <div className="domain-schema-list">
+                {items.map((s: any) => {
+                    const scenarioKey = `scenario:${s.id}`;
+                    const isExpanded = expandedItems.has(scenarioKey);
+                    return (
+                        <React.Fragment key={s.id}>
+                            <div
+                                className={
+                                    "domain-schema-item domain-schema-item--expandable" +
+                                    (isExpanded ? " expanded" : "")
+                                }
+                                onClick={() => onToggleItem(scenarioKey)}
+                            >
+                                <span className="domain-schema-item__caret">
+                                    <MIcon
+                                        name={isExpanded ? "expand_more" : "chevron_right"}
+                                        size="sm"
+                                    />
+                                </span>
+                                <code className="domain-schema-item__id">{s.id}</code>
+                                <span className="domain-schema-item__meta">
+                                    <span className="domain-schema-item__badge">playbook</span>
+                                    {" · "}
+                                    {s.actionsCount}{" "}
+                                    {s.actionsCount === 1 ? "экшен" : "экшенов"}
+                                    {s.domainsCount > 1 && (
+                                        <span
+                                            className="domain-schema-item__badge"
+                                            style={{
+                                                marginLeft: 8,
+                                                background: "rgba(99,102,241,0.15)",
+                                                color: "var(--accent-hover)",
+                                            }}
+                                            title={`Используется в ${s.domainsCount} доменах`}
+                                        >
+                                            +{s.domainsCount - 1} домен
+                                            {s.domainsCount - 1 === 1 ? "" : "ов"}
+                                        </span>
+                                    )}
+                                </span>
+                            </div>
+                            {isExpanded && (
+                                <div className="domain-schema-detail-card">
+                                    <div className="domain-schema-attrs">
+                                        <div className="domain-schema-attrs__title">
+                                            Запускается экшенами ({s.actions.length})
+                                        </div>
+                                        {s.actions.map((a: any, idx: number) => (
+                                            <div
+                                                key={`${a.domainId}/${a.actionId}/${idx}`}
+                                                className="domain-schema-attr-row"
+                                            >
+                                                <code className="domain-schema-attr-row__id">
+                                                    {a.actionId}
+                                                </code>
+                                                <span className="domain-schema-attr-row__name">
+                                                    {a.actionName}
+                                                </span>
+                                                {a.workerTag && (
+                                                    <span className="domain-schema-attr-row__type">
+                                                        worker: {a.workerTag}
+                                                    </span>
+                                                )}
+                                                {a.domainId !== domainId && (
+                                                    <span className="domain-schema-attr-row__ref">
+                                                        → {a.domainId}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </React.Fragment>
+                    );
+                })}
+            </div>
+        );
+    }
+
+    // ==== UI Rules ====
+    if (sectionKey === "uiRules") {
+        return (
+            <div className="domain-schema-list">
+                {items.map((r: any) => {
+                    const ruleKey = `uiRule:${r.id}`;
+                    const isExpanded = expandedItems.has(ruleKey);
+                    return (
+                        <React.Fragment key={r.id}>
+                            <div
+                                className={
+                                    "domain-schema-item domain-schema-item--expandable" +
+                                    (isExpanded ? " expanded" : "")
+                                }
+                                onClick={() => onToggleItem(ruleKey)}
+                            >
+                                <span className="domain-schema-item__caret">
+                                    <MIcon
+                                        name={isExpanded ? "expand_more" : "chevron_right"}
+                                        size="sm"
+                                    />
+                                </span>
+                                <code className="domain-schema-item__id">{r.id}</code>
+                                <span className="domain-schema-item__name">{r.name}</span>
+                                <span className="domain-schema-item__meta">
+                                    {r.effect && (
+                                        <span className="domain-schema-item__badge">{r.effect}</span>
+                                    )}
+                                    {r.target && (
+                                        <span className="domain-schema-item__badge">{r.target}</span>
+                                    )}
+                                    {r.view && (
+                                        <span style={{ opacity: 0.7 }}>→ {r.view}</span>
+                                    )}
+                                </span>
+                            </div>
+                            {isExpanded && (
+                                <div className="domain-schema-detail-card">
+                                    {r.description && (
+                                        <div className="domain-schema-detail-card__desc">
+                                            {r.description}
+                                        </div>
+                                    )}
+                                    {r.condition && (
+                                        <div className="domain-schema-detail-card__meta">
+                                            <strong>condition:</strong>{" "}
+                                            <code>{r.condition.slice(0, 200)}</code>
+                                        </div>
+                                    )}
+                                    {r.widgets && r.widgets.length > 0 && (
+                                        <div className="domain-schema-attrs">
+                                            <div className="domain-schema-attrs__title">
+                                                Виджеты ({r.widgets.length})
+                                            </div>
+                                            {r.widgets.map((w: any, i: number) => (
+                                                <div key={i} className="domain-schema-attr-row">
+                                                    <MIcon name="widgets" size="sm" />
+                                                    <code className="domain-schema-attr-row__id">
+                                                        {w.widget}
+                                                    </code>
+                                                    {w.nested && (
+                                                        <span className="domain-schema-attr-row__type">
+                                                            nested: {w.nested.type}
+                                                        </span>
+                                                    )}
+                                                    {w.presets && w.presets.length > 0 && (
+                                                        <span className="domain-schema-attr-row__type">
+                                                            presets: {w.presets.join(", ")}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                    {r.groups && r.groups.length > 0 && (
+                                        <div className="domain-schema-attrs">
+                                            <div className="domain-schema-attrs__title">
+                                                Группы ({r.groups.length})
+                                            </div>
+                                            {r.groups.map((g: any, i: number) => (
+                                                <div key={i} className="domain-schema-attr-row">
+                                                    <MIcon name="view_module" size="sm" />
+                                                    <code className="domain-schema-attr-row__id">
+                                                        {g.group}
+                                                    </code>
+                                                    {g.presets && g.presets.length > 0 && (
+                                                        <span className="domain-schema-attr-row__type">
+                                                            presets: {g.presets.join(", ")}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                    {r.columns && r.columns.length > 0 && (
+                                        <div className="domain-schema-attrs">
+                                            <div className="domain-schema-attrs__title">
+                                                Колонки ({r.columns.length})
+                                            </div>
+                                            {r.columns.map((c: any, i: number) => (
+                                                <div key={i} className="domain-schema-attr-row">
+                                                    <MIcon name="view_column" size="sm" />
+                                                    <code className="domain-schema-attr-row__id">
+                                                        {c.column}
+                                                    </code>
+                                                    {c.presets && c.presets.length > 0 && (
+                                                        <span className="domain-schema-attr-row__type">
+                                                            presets: {c.presets.join(", ")}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                    {r.presets && r.presets.length > 0 && (
+                                        <div className="domain-schema-detail-card__meta">
+                                            <strong>Пресеты правила:</strong>{" "}
+                                            {r.presets.join(", ")}
+                                        </div>
+                                    )}
+                                    {r.message && (
+                                        <div className="domain-schema-detail-card__meta">
+                                            <strong>message:</strong> {r.message}
+                                        </div>
+                                    )}
+                                    {r.help && (
+                                        <div className="domain-schema-detail-card__meta">
+                                            <strong>help:</strong> {r.help}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </React.Fragment>
+                    );
+                })}
+            </div>
+        );
+    }
+    
     // ==== Остальные секции — без изменений ====
     if (sectionKey === "linkages") {
         return (

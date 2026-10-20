@@ -135,6 +135,95 @@ export interface SequenceRecord {
   usedByAttributes: string[];
 }
 
+// ============ Сценарии (playbooks / scripts) ============
+
+export interface ScenarioActionRef {
+  domainId: string;
+  actionId: string;
+  actionName: string;
+  workerTag?: string;
+}
+
+export interface ScenarioRecord {
+  id: string;
+  /** Экшены (во всех доменах), которые запускают этот сценарий. */
+  actions: ScenarioActionRef[];
+  /** Домены, в которых используется. */
+  domains: string[];
+}
+
+// ============ UI Rules ============
+
+export type UiRuleTarget =
+  | "list_view"
+  | "entity_view"
+  | "entity_attribute";
+
+export type UiRuleEffect =
+  | "hidden"
+  | "show"
+  | "hiddenEmpty"
+  | "readonly"
+  | "editable"
+  | "inherit"
+  | "variant";
+
+export interface UiRuleNested {
+  type: "array" | "table";
+  attributes?: string[];
+  items?: string[];
+}
+
+export interface UiRuleWidgetRef {
+  widget: string;
+  nested?: UiRuleNested;
+  presets?: string[];
+}
+
+export interface UiRuleGroupRef {
+  group: string;
+  presets?: string[];
+}
+
+export interface UiRuleColumnRef {
+  column: string;
+  presets?: string[];
+}
+
+export interface UiRuleRecord {
+  id: string;
+  domainId: string;
+  name: string;
+  description: string;
+  target: UiRuleTarget | string;
+  view: string;
+  contextViews: string[];
+  condition: string;
+  effect: UiRuleEffect | string;
+  widgets: UiRuleWidgetRef[];
+  groups: UiRuleGroupRef[];
+  columns: UiRuleColumnRef[];
+  presets: string[];
+  message: string;
+  help: string;
+}
+
+export interface UiPresetRecord {
+  id: string;
+  domainId: string;
+  name: string;
+  description: string;
+  props: Record<string, string | number | boolean>;
+}
+
+// ============ Элементы view (для валидации UI Rules) ============
+
+export interface ViewElementsRecord {
+  widgets: string[];
+  groups: string[];
+  columns: string[];
+}
+
 // ============ Статистика и валидация ============
 
 export interface ModelStats {
@@ -143,6 +232,9 @@ export interface ModelStats {
   mixinCount: number;
   dataTypeCount: number;
   sequenceCount: number;
+  scenarioCount: number;
+  uiRuleCount: number;
+  uiPresetCount: number;
 
   /** Сущности, у которых нет ни родителей, ни наследников, ни ссылок. */
   orphanEntities: string[];
@@ -210,6 +302,13 @@ export interface ModelIndex {
 
   dataTypes: DataTypeRecord[];
   sequences: SequenceRecord[];
+  scenarios: ScenarioRecord[];
+  scenariosById: Record<string, ScenarioRecord>;
+  uiRules: UiRuleRecord[];
+  uiRulesById: Record<string, UiRuleRecord>;
+  uiPresets: UiPresetRecord[];
+  uiPresetsByDomain: Record<string, string[]>;
+  viewElementsByDomain: Record<string, Record<string, ViewElementsRecord>>;
 
   // ===== Предвычисленные обратные индексы =====
   /** parentFqid → [childFqid]. */
@@ -513,6 +612,20 @@ export interface DomainSchemaDataRuleItem {
   effect?: string;
 }
 
+export interface DomainSchemaScenarioActionItem {
+  domainId: string;
+  actionId: string;
+  actionName: string;
+  workerTag?: string;
+}
+
+export interface DomainSchemaScenarioItem {
+  id: string;
+  actionsCount: number;
+  domainsCount: number;
+  actions: DomainSchemaScenarioActionItem[];
+}
+
 export interface DomainSchemaSection<T> {
   count: number;
   items: T[];
@@ -576,6 +689,7 @@ export interface DomainSchemaSummary {
     uiRules: DomainSchemaSection<DomainSchemaUiRuleItem>;
     uiPresets: DomainSchemaSection<DomainSchemaUiPresetItem>;
     counterColorPattern: DomainSchemaSection<DomainSchemaCounterColorItem>;
+    scenarios: DomainSchemaSection<DomainSchemaScenarioItem>;
   };
   flags: {
     hasExchangeSettings: boolean;

@@ -4200,6 +4200,13 @@ tr.highlighted .entity-matrix-row-head {
 .yaml-nav-item--child:hover {
   color: var(--accent-hover);
 }
+.yaml-nav-item .yaml-nav-item__id[data-type="actionScenario"]::before,
+.yaml-nav-item__row[data-node-type="actionScenario"] .yaml-nav-item__id::before {
+    content: "🎬";
+    margin-right: 4px;
+    font-size: 10px;
+    opacity: 0.7;
+}
 /* ============ Nav sections ============ */
 .yaml-nav-section {
   margin-bottom: 4px;

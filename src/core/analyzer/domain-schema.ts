@@ -14,6 +14,7 @@ import type {
   DomainSchemaUiRuleItem,
   DomainSchemaTransitiveItem,
   DomainSchemaTreeNode,
+  DomainSchemaScenarioItem,
 } from "../../shared/model-types";
 
 function asArray(x: any): any[] {
@@ -239,6 +240,35 @@ export function buildDomainSchemaSummary(
     }))
     .filter((x) => x.id);
 
+  // ============ Scenarios ============
+  const scenariosRaw = asArray(raw.actions).filter(
+    (a: any) => a?.type === "scenario" && a?.scenario,
+  );
+  const scenarioMap = new Map<string, DomainSchemaScenarioItem>();
+  scenariosRaw.forEach((a: any) => {
+    const id = String(a.scenario).trim();
+    if (!id) return;
+    if (!scenarioMap.has(id)) {
+      scenarioMap.set(id, {
+        id,
+        actionsCount: 0,
+        domainsCount: 1, // считается в ModelIndex, здесь ставим текущий домен
+        actions: [],
+      });
+    }
+    const item = scenarioMap.get(id)!;
+    item.actions.push({
+      domainId,
+      actionId: String(a.id || ""),
+      actionName: String(a.name || a.id || ""),
+      workerTag: a.workerTag ? String(a.workerTag) : undefined,
+    });
+    item.actionsCount++;
+  });
+  const scenarios: DomainSchemaScenarioItem[] = Array.from(
+    scenarioMap.values(),
+  );
+
   return {
     domainId,
     metadata,
@@ -264,6 +294,7 @@ export function buildDomainSchemaSummary(
         count: counterColorPattern.length,
         items: counterColorPattern,
       },
+      scenarios: { count: scenarios.length, items: scenarios },
     },
     flags: {
       hasExchangeSettings: raw.exchangeSettings != null,

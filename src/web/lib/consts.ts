@@ -16,4 +16,5 @@ export const SECTION_LABELS: Record<SectionKey, { label: string; icon: string }>
   uiRules: { label: "UI Rules", icon: "rule_folder" },
   uiPresets: { label: "UI Presets", icon: "palette" },
   counterColorPattern: { label: "Цветовые схемы", icon: "timelapse" },
+  scenarios: { label: "Сценарии", icon: "movie" },
 };

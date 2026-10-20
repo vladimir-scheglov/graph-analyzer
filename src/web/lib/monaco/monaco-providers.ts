@@ -4452,6 +4452,27 @@ export function registerMonacoProviders(monaco: any): void {
         return { suggestions: [] };
       }
 
+      // ============ scenario: — подсказки из текущего файла ============
+      if (/^\s*scenario\s*:\s*[\w]*$/.test(beforeCursor)) {
+        const seen = new Set<string>();
+        const text = model.getValue();
+        const re = /^\s*scenario\s*:\s*([^\s#]+)/gm;
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(text)) !== null) {
+          seen.add(m[1].replace(/["']/g, ""));
+        }
+        return {
+          suggestions: Array.from(seen).map((id) => ({
+            label: id,
+            kind: Kind.Value,
+            insertText: id,
+            filterText: id,
+            detail: "playbook / сценарий",
+            range,
+          })),
+        };
+      }
+
       // ============ Умные значения для enum-полей views ============
       if (
         /^\s*refresh\s*:\s*[\w]*$/.test(beforeCursor) ||
@@ -4807,468 +4828,6 @@ export function registerMonacoProviders(monaco: any): void {
         fields.forEach((f) => {
           suggestions.push(buildFieldSuggestion(monaco, f, range));
         });
-      }
-
-      // ============ Enum-значения для entity-view ============
-      // control.type
-      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
-        const ctxNow = detectContextAtPosition(
-          model,
-          position,
-          ctx.lineMap?.lineContexts || new Map(),
-        );
-        if (
-          ctxNow === "viewWidgetControl" ||
-          ctxNow === "viewTableColumnControl"
-        ) {
-          return {
-            suggestions: [
-              "text",
-              "text_area",
-              "select",
-              "radio",
-              "tag",
-              "level",
-              "switch",
-              "checkbox",
-              "bool_text",
-              "timestamp",
-              "date",
-              "time",
-              "tree_path",
-              "drag_drop_area",
-              "file",
-              "slider",
-              "link",
-              "uuid",
-              "mac",
-              "ip",
-              "cidr",
-              "timestamp_range",
-            ].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range,
-            })),
-          };
-        }
-        if (ctxNow === "viewWidgetLinkageControl") {
-          return {
-            suggestions: ["select", "multi_select", "table"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range,
-            })),
-          };
-        }
-        if (ctxNow === "viewNested") {
-          return {
-            suggestions: ["panel", "modal", "page"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range,
-            })),
-          };
-        }
-        if (ctxNow === "viewButton") {
-          return {
-            suggestions: ["submit", "close"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range,
-            })),
-          };
-        }
-        if (ctxNow === "viewFooterAction") {
-          return {
-            suggestions: ["run", "run_close", "run_submit"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range,
-            })),
-          };
-        }
-      }
-
-      // group.type
-      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
-        const ctxNow = detectContextAtPosition(
-          model,
-          position,
-          ctx.lineMap?.lineContexts || new Map(),
-        );
-        if (ctxNow === "group") {
-          return {
-            suggestions: [
-              "block",
-              "form",
-              "tab",
-              "tabs",
-              "resizable_block_pair",
-            ].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range,
-            })),
-          };
-        }
-      }
-
-      // layout.direction
-      if (/^\s*direction\s*:\s*[\w]*$/.test(beforeCursor)) {
-        return {
-          suggestions: ["column"].map((v) => ({
-            label: v,
-            kind: Kind.Value,
-            insertText: v,
-            range,
-          })),
-        };
-      }
-
-      // pinnedView.position
-      if (/^\s*position\s*:\s*[\w]*$/.test(beforeCursor)) {
-        return {
-          suggestions: ["top", "bottom"].map((v) => ({
-            label: v,
-            kind: Kind.Value,
-            insertText: v,
-            range,
-          })),
-        };
-      }
-
-      // inherit.type
-      if (/^\s*type\s*:\s*[\w]*$/.test(beforeCursor)) {
-        const ctxNow = detectContextAtPosition(
-          model,
-          position,
-          ctx.lineMap?.lineContexts || new Map(),
-        );
-        if (ctxNow === "inheritSettings") {
-          return {
-            suggestions: ["append", "override", "except"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range,
-            })),
-          };
-        }
-      }
-
-      // ============ Enum-значения для entity-view ============
-      // control.type
-      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
-        const ctxNow = detectContextAtPosition(
-          model,
-          position,
-          ctx.lineMap?.lineContexts || new Map(),
-        );
-        if (
-          ctxNow === "viewWidgetControl" ||
-          ctxNow === "viewTableColumnControl"
-        ) {
-          return {
-            suggestions: [
-              "text",
-              "text_area",
-              "select",
-              "radio",
-              "tag",
-              "level",
-              "switch",
-              "checkbox",
-              "bool_text",
-              "timestamp",
-              "date",
-              "time",
-              "tree_path",
-              "drag_drop_area",
-              "file",
-              "slider",
-              "link",
-              "uuid",
-              "mac",
-              "ip",
-              "cidr",
-              "timestamp_range",
-            ].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range,
-            })),
-          };
-        }
-        if (ctxNow === "viewWidgetLinkageControl") {
-          return {
-            suggestions: ["select", "multi_select", "table"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range,
-            })),
-          };
-        }
-        if (ctxNow === "viewNested") {
-          return {
-            suggestions: ["panel", "modal", "page"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range,
-            })),
-          };
-        }
-        if (ctxNow === "viewButton") {
-          return {
-            suggestions: ["submit", "close"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range,
-            })),
-          };
-        }
-        if (ctxNow === "viewFooterAction") {
-          return {
-            suggestions: ["run", "run_close", "run_submit"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range,
-            })),
-          };
-        }
-      }
-
-      // group.type
-      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
-        const ctxNow = detectContextAtPosition(
-          model,
-          position,
-          ctx.lineMap?.lineContexts || new Map(),
-        );
-        if (ctxNow === "group") {
-          return {
-            suggestions: [
-              "block",
-              "form",
-              "tab",
-              "tabs",
-              "resizable_block_pair",
-            ].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range,
-            })),
-          };
-        }
-      }
-
-      // layout.direction
-      if (/^\s*direction\s*:\s*[\w]*$/.test(beforeCursor)) {
-        return {
-          suggestions: ["column"].map((v) => ({
-            label: v,
-            kind: Kind.Value,
-            insertText: v,
-            range,
-          })),
-        };
-      }
-
-      // pinnedView.position
-      if (/^\s*position\s*:\s*[\w]*$/.test(beforeCursor)) {
-        return {
-          suggestions: ["top", "bottom"].map((v) => ({
-            label: v,
-            kind: Kind.Value,
-            insertText: v,
-            range,
-          })),
-        };
-      }
-
-      // inherit.type
-      if (/^\s*type\s*:\s*[\w]*$/.test(beforeCursor)) {
-        const ctxNow = detectContextAtPosition(
-          model,
-          position,
-          ctx.lineMap?.lineContexts || new Map(),
-        );
-        if (ctxNow === "inheritSettings") {
-          return {
-            suggestions: ["append", "override", "except"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range,
-            })),
-          };
-        }
-      }
-
-      // ============ Enum-значения для entity-view ============
-      // control.type
-      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
-        const ctxNow = detectContextAtPosition(
-          model,
-          position,
-          ctx.lineMap?.lineContexts || new Map(),
-        );
-        if (
-          ctxNow === "viewWidgetControl" ||
-          ctxNow === "viewTableColumnControl"
-        ) {
-          return {
-            suggestions: [
-              "text",
-              "text_area",
-              "select",
-              "radio",
-              "tag",
-              "level",
-              "switch",
-              "checkbox",
-              "bool_text",
-              "timestamp",
-              "date",
-              "time",
-              "tree_path",
-              "drag_drop_area",
-              "file",
-              "slider",
-              "link",
-              "uuid",
-              "mac",
-              "ip",
-              "cidr",
-              "timestamp_range",
-            ].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range,
-            })),
-          };
-        }
-        if (ctxNow === "viewWidgetLinkageControl") {
-          return {
-            suggestions: ["select", "multi_select", "table"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range,
-            })),
-          };
-        }
-        if (ctxNow === "viewNested") {
-          return {
-            suggestions: ["panel", "modal", "page"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range,
-            })),
-          };
-        }
-        if (ctxNow === "viewButton") {
-          return {
-            suggestions: ["submit", "close"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range,
-            })),
-          };
-        }
-        if (ctxNow === "viewFooterAction") {
-          return {
-            suggestions: ["run", "run_close", "run_submit"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range,
-            })),
-          };
-        }
-      }
-
-      // group.type
-      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
-        const ctxNow = detectContextAtPosition(
-          model,
-          position,
-          ctx.lineMap?.lineContexts || new Map(),
-        );
-        if (ctxNow === "group") {
-          return {
-            suggestions: [
-              "block",
-              "form",
-              "tab",
-              "tabs",
-              "resizable_block_pair",
-            ].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range,
-            })),
-          };
-        }
-      }
-
-      // layout.direction
-      if (/^\s*direction\s*:\s*[\w]*$/.test(beforeCursor)) {
-        return {
-          suggestions: ["column"].map((v) => ({
-            label: v,
-            kind: Kind.Value,
-            insertText: v,
-            range,
-          })),
-        };
-      }
-
-      // pinnedView.position
-      if (/^\s*position\s*:\s*[\w]*$/.test(beforeCursor)) {
-        return {
-          suggestions: ["top", "bottom"].map((v) => ({
-            label: v,
-            kind: Kind.Value,
-            insertText: v,
-            range,
-          })),
-        };
-      }
-
-      // inherit.type
-      if (/^\s*type\s*:\s*[\w]*$/.test(beforeCursor)) {
-        const ctxNow = detectContextAtPosition(
-          model,
-          position,
-          ctx.lineMap?.lineContexts || new Map(),
-        );
-        if (ctxNow === "inheritSettings") {
-          return {
-            suggestions: ["append", "override", "except"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range,
-            })),
-          };
-        }
       }
 
       // ============ Enum-значения для entity-view ============
@@ -6227,6 +5786,85 @@ export function applyFqidMarkers(
             endColumn: startCol + id.length,
             source: "fqid-validator",
           });
+        }
+      }
+    }
+
+    // ============ Валидация сценариев (actions) ============
+    {
+      let inActions = false;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const sectionM = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+        if (sectionM) {
+          inActions = sectionM[1] === "actions";
+          continue;
+        }
+        if (!inActions) continue;
+
+        // Внутри одного action собираем type и scenario
+        const idM = line.match(/^\s*-\s+id\s*:/);
+        if (idM) {
+          // Новый экшен — ищем пару type/scenario в блоке до следующего - id:
+          let actionType: string | null = null;
+          let scenarioLine: number = -1;
+          let scenarioValue: string | null = null;
+          let typeLine: number = -1;
+
+          for (let j = i + 1; j < lines.length; j++) {
+            const l = lines[j];
+            if (!l.trim() || l.trim().startsWith("#")) continue;
+            const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
+            if (/^\s*-\s+id\s*:/.test(l) && lInd <= 2) break;
+            if (lInd === 0) break;
+
+            const tm = l.match(/^\s*type\s*:\s*([^\s#]+)/);
+            if (tm && actionType === null) {
+              actionType = tm[1].replace(/["']/g, "");
+              typeLine = j;
+            }
+            const sm = l.match(/^\s*scenario\s*:\s*([^\s#]+)/);
+            if (sm && scenarioValue === null) {
+              scenarioValue = sm[1].replace(/["']/g, "");
+              scenarioLine = j;
+            }
+          }
+
+          if (actionType === "scenario" && !scenarioValue && typeLine >= 0) {
+            const tLine = lines[typeLine];
+            const startCol =
+              tLine.indexOf("scenario") !== -1
+                ? tLine.indexOf("scenario") + 1
+                : 1;
+            markers.push({
+              severity: monaco.MarkerSeverity.Error,
+              message: `Для type: scenario обязательно поле scenario: <id>`,
+              startLineNumber: typeLine + 1,
+              startColumn: Math.max(1, startCol),
+              endLineNumber: typeLine + 1,
+              endColumn: tLine.length + 1,
+              source: "fqid-validator",
+            });
+          }
+
+          if (
+            actionType &&
+            actionType !== "scenario" &&
+            scenarioValue &&
+            scenarioLine >= 0
+          ) {
+            const sLine = lines[scenarioLine];
+            const startCol = sLine.indexOf(scenarioValue) + 1;
+            markers.push({
+              severity: monaco.MarkerSeverity.Warning,
+              message: `Поле scenario не имеет смысла при type: ${actionType} (ожидается type: scenario)`,
+              startLineNumber: scenarioLine + 1,
+              startColumn: startCol,
+              endLineNumber: scenarioLine + 1,
+              endColumn: startCol + scenarioValue.length,
+              source: "fqid-validator",
+            });
+          }
         }
       }
     }

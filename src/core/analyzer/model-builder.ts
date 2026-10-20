@@ -16,6 +16,17 @@ import { lintModel, computeSonarScores } from "./linter";
 import { detectOrphans } from "./orphans";
 import { computeMartinReport } from "./martin-metrics";
 import { detectPii } from "./pii-detector";
+import type {
+  ScenarioActionRef,
+  ScenarioRecord,
+  UiRuleRecord,
+  UiPresetRecord,
+  UiRuleWidgetRef,
+  UiRuleGroupRef,
+  UiRuleColumnRef,
+  UiRuleNested,
+  ViewElementsRecord,
+} from "../../shared/model-types";
 
 // ============ Базовые типы данных ============
 
@@ -492,6 +503,9 @@ function computeStats(
   mixinsByEntityFqid: Record<string, MixinRecord[]>,
   dataTypes: DataTypeRecord[],
   sequences: SequenceRecord[],
+  scenarios: ScenarioRecord[],
+  uiRulesCount: number,
+  uiPresetCount: number,
   allDomainIds: string[],
   rawDomains: RawDomainEntry[],
 ): ModelStats {
@@ -660,6 +674,9 @@ function computeStats(
     mixinCount: mixins.length,
     dataTypeCount: dataTypes.length,
     sequenceCount: sequences.length,
+    scenarioCount: scenarios.length,
+    uiRuleCount: uiRulesCount,
+    uiPresetCount: uiPresetCount,
     orphanEntities,
     circularInheritance,
     duplicateEntityIds,
@@ -700,6 +717,157 @@ function parseEntityLinkages(domainId: string, raw: any): EntityLinkage[] {
 
 // ============ Главная функция ============
 
+// ============ UI Rules / Presets ============
+
+function parseUiPreset(raw: any, domainId: string): UiPresetRecord | null {
+  if (!raw || !raw.id) return null;
+  const props: Record<string, string | number | boolean> = {};
+  if (raw.props && typeof raw.props === "object") {
+    for (const [k, v] of Object.entries(raw.props)) {
+      if (
+        typeof v === "string" ||
+        typeof v === "number" ||
+        typeof v === "boolean"
+      ) {
+        props[k] = v;
+      }
+    }
+  }
+  return {
+    id: String(raw.id),
+    domainId,
+    name: String(raw.name || raw.id),
+    description: String(raw.description || ""),
+    props,
+  };
+}
+
+function parseUiRule(raw: any, domainId: string): UiRuleRecord | null {
+  if (!raw || !raw.id) return null;
+
+  const widgets: UiRuleWidgetRef[] = [];
+  if (Array.isArray(raw.rule?.widgets)) {
+    for (const w of raw.rule.widgets) {
+      if (!w || !w.widget) continue;
+      const ref: UiRuleWidgetRef = { widget: String(w.widget) };
+      if (w.nested && typeof w.nested === "object") {
+        const nested: UiRuleNested = {
+          type: w.nested.type === "array" ? "array" : "table",
+        };
+        if (Array.isArray(w.nested.attributes)) {
+          nested.attributes = w.nested.attributes
+            .map((a: any) => String(a?.attribute ?? a))
+            .filter(Boolean);
+        }
+        if (Array.isArray(w.nested.items)) {
+          nested.items = w.nested.items
+            .map((it: any) => String(it?.item ?? it))
+            .filter(Boolean);
+        }
+        ref.nested = nested;
+      }
+      if (Array.isArray(w.presets)) {
+        ref.presets = w.presets.map(String);
+      }
+      widgets.push(ref);
+    }
+  }
+
+  const groups: UiRuleGroupRef[] = [];
+  if (Array.isArray(raw.rule?.groups)) {
+    for (const g of raw.rule.groups) {
+      if (!g || !g.group) continue;
+      const ref: UiRuleGroupRef = { group: String(g.group) };
+      if (Array.isArray(g.presets)) ref.presets = g.presets.map(String);
+      groups.push(ref);
+    }
+  }
+
+  const columns: UiRuleColumnRef[] = [];
+  if (Array.isArray(raw.rule?.columns)) {
+    for (const c of raw.rule.columns) {
+      if (!c || !c.column) continue;
+      const ref: UiRuleColumnRef = { column: String(c.column) };
+      if (Array.isArray(c.presets)) ref.presets = c.presets.map(String);
+      columns.push(ref);
+    }
+  }
+
+  const presets: string[] = Array.isArray(raw.rule?.presets)
+    ? raw.rule.presets.map(String)
+    : [];
+
+  return {
+    id: String(raw.id),
+    domainId,
+    name: String(raw.name || raw.id),
+    description: String(raw.description || ""),
+    target: String(raw.target || ""),
+    view: String(raw.view || ""),
+    contextViews: Array.isArray(raw.context?.views)
+      ? raw.context.views.map(String)
+      : [],
+    condition: String(raw.condition || ""),
+    effect: String(raw.rule?.effect || ""),
+    widgets,
+    groups,
+    columns,
+    presets,
+    message: String(raw.message || ""),
+    help: String(raw.help || ""),
+  };
+}
+
+function collectViewElements(
+  rawViews: any[],
+): Record<string, ViewElementsRecord> {
+  const result: Record<string, ViewElementsRecord> = {};
+  if (!Array.isArray(rawViews)) return result;
+
+  for (const v of rawViews) {
+    if (!v?.id) continue;
+    const widgets = new Set<string>();
+    const groups = new Set<string>();
+    const columns = new Set<string>();
+
+    const collectFromView = (view: any): void => {
+      if (Array.isArray(view.widgets)) {
+        view.widgets.forEach((w: any) => {
+          if (w?.id) widgets.add(String(w.id));
+        });
+      }
+      if (Array.isArray(view.groups)) {
+        view.groups.forEach((g: any) => {
+          if (g?.id) groups.add(String(g.id));
+        });
+      }
+      if (view.table?.columns && Array.isArray(view.table.columns)) {
+        view.table.columns.forEach((c: any) => {
+          if (c?.id) columns.add(String(c.id));
+        });
+      }
+      if (Array.isArray(view.actionPanel)) {
+        view.actionPanel.forEach((w: any) => {
+          if (w?.widget) widgets.add(String(w.widget));
+        });
+      }
+    };
+
+    collectFromView(v);
+    if (Array.isArray(v.views)) {
+      v.views.forEach((nv: any) => collectFromView(nv));
+    }
+
+    result[String(v.id)] = {
+      widgets: Array.from(widgets),
+      groups: Array.from(groups),
+      columns: Array.from(columns),
+    };
+  }
+
+  return result;
+}
+
 export function buildModelIndex(rawDomains: RawDomainEntry[]): ModelIndex {
   const rawDomainsById = new Map<string, RawDomainEntry>();
   rawDomains.forEach((d) => rawDomainsById.set(d.id, d));
@@ -710,6 +878,14 @@ export function buildModelIndex(rawDomains: RawDomainEntry[]): ModelIndex {
   const dataTypes: DataTypeRecord[] = [];
   const sequences: SequenceRecord[] = [];
   const schemasByDomain: Record<string, DomainSchemaSummary> = {};
+  const scenarioMap = new Map<string, ScenarioRecord>();
+  const uiRules: UiRuleRecord[] = [];
+  const uiPresets: UiPresetRecord[] = [];
+  const uiPresetsByDomain: Record<string, string[]> = {};
+  const viewElementsByDomain: Record<
+    string,
+    Record<string, ViewElementsRecord>
+  > = {};
 
   // Проход 1: собрать все кастомные dataTypes IDs (для классификации атрибутов)
   const customDataTypeIdsByDomain = new Map<string, Set<string>>();
@@ -758,6 +934,58 @@ export function buildModelIndex(rawDomains: RawDomainEntry[]): ModelIndex {
       });
     }
 
+    // Scenarios (playbooks / scripts) — собираем из actions[]
+    if (Array.isArray(raw.actions)) {
+      raw.actions.forEach((a: any) => {
+        if (!a || typeof a !== "object") return;
+        if (a.type !== "scenario") return;
+        const scenarioId = a.scenario ? String(a.scenario).trim() : "";
+        if (!scenarioId) return;
+        const actionId = String(a.id || "").trim();
+        if (!actionId) return;
+
+        let rec = scenarioMap.get(scenarioId);
+        if (!rec) {
+          rec = { id: scenarioId, actions: [], domains: [] };
+          scenarioMap.set(scenarioId, rec);
+        }
+
+        const actionRef: ScenarioActionRef = {
+          domainId: d.id,
+          actionId,
+          actionName: String(a.name || a.id || ""),
+        };
+        if (a.workerTag) actionRef.workerTag = String(a.workerTag);
+
+        rec.actions.push(actionRef);
+        if (!rec.domains.includes(d.id)) rec.domains.push(d.id);
+      });
+    }
+
+    // UI Rules
+    if (Array.isArray(raw.uiRules)) {
+      raw.uiRules.forEach((r: any) => {
+        const rec = parseUiRule(r, d.id);
+        if (rec) uiRules.push(rec);
+      });
+    }
+
+    // UI Presets
+    if (Array.isArray(raw.uiPresets)) {
+      const domainPresetIds: string[] = [];
+      raw.uiPresets.forEach((p: any) => {
+        const rec = parseUiPreset(p, d.id);
+        if (rec) {
+          uiPresets.push(rec);
+          domainPresetIds.push(rec.id);
+        }
+      });
+      uiPresetsByDomain[d.id] = domainPresetIds;
+    }
+
+    // View Elements (для валидации UI Rules)
+    viewElementsByDomain[d.id] = collectViewElements(raw.views || []);
+
     // Mixins
     if (Array.isArray(raw.mixins)) {
       const parsed = parseMixins(d.id, raw.mixins);
@@ -765,6 +993,12 @@ export function buildModelIndex(rawDomains: RawDomainEntry[]): ModelIndex {
     }
 
     schemasByDomain[d.id] = buildDomainSchemaSummary(d.id, raw);
+  });
+
+  const scenarios: ScenarioRecord[] = Array.from(scenarioMap.values());
+  const scenariosById: Record<string, ScenarioRecord> = {};
+  scenarios.forEach((s) => {
+    scenariosById[s.id] = s;
   });
 
   // Проход 3: обратные индексы
@@ -798,8 +1032,13 @@ export function buildModelIndex(rawDomains: RawDomainEntry[]): ModelIndex {
   // Проход 6: usage
   countAttributeUsage(entities, rawDomainsById);
 
+  const uiRulesById: Record<string, UiRuleRecord> = {};
+  uiRules.forEach((r) => {
+    uiRulesById[`${r.domainId}#${r.id}`] = r;
+  });
+
   // Stats
-  const stats = computeStats(
+    const stats = computeStats(
     entities,
     mixins,
     entitiesByFqid,
@@ -807,6 +1046,9 @@ export function buildModelIndex(rawDomains: RawDomainEntry[]): ModelIndex {
     mixinsByEntityFqid,
     dataTypes,
     sequences,
+    scenarios,
+    uiRules.length,
+    uiPresets.length,
     rawDomains.map((d) => d.id),
     rawDomains,
   );
@@ -840,6 +1082,13 @@ export function buildModelIndex(rawDomains: RawDomainEntry[]): ModelIndex {
     entityLinkages,
     dataTypes,
     sequences,
+    scenarios,
+    scenariosById,
+    uiRules,
+    uiRulesById,
+    uiPresets,
+    uiPresetsByDomain,
+    viewElementsByDomain,
     schemasByDomain,
     entityChildrenByFqid,
     attributesByNormalizedName,
@@ -854,6 +1103,8 @@ export function buildModelIndex(rawDomains: RawDomainEntry[]): ModelIndex {
 
   return {
     ...partialIndex,
+    scenarios,
+    scenariosById,
     orphans,
     martin,
     pii,
