@@ -113,19 +113,20 @@ function collectUsage(domains: RawDomainForOrphans[]): {
     "form",
     "tab",
     "list",
-    "page",
+    // "page" — это enum blank/current в open_list, а НЕ view-id
     "addLinksView",
     "view",
     "fromView",
+    "pageView", // ← open_page: { pageView: ViewRef }
   ]);
 
   for (const d of domains) {
     const raw = d.rawData || {};
 
-    const walk = (node: any): void => {
+    const walk = (node: any, parentKey?: string): void => {
       if (!node || typeof node !== "object") return;
       if (Array.isArray(node)) {
-        node.forEach(walk);
+        node.forEach((item) => walk(item, parentKey));
         return;
       }
       for (const [key, value] of Object.entries(node)) {
@@ -173,8 +174,14 @@ function collectUsage(domains: RawDomainForOrphans[]): {
           (key === "icon" || key === "iconName") &&
           typeof value === "string"
         ) {
-          const id = normalize(value, d.id);
-          if (id) medias.add(id);
+          // iconName внутри medias[] — это имя иконки из дизайн-системы,
+          // а не ссылка на другой medias[].id. Пропускаем.
+          const isMediaDefinition =
+            parentKey === "medias" && key === "iconName";
+          if (!isMediaDefinition) {
+            const id = normalize(value, d.id);
+            if (id) medias.add(id);
+          }
         }
 
         // ============ Views ============
@@ -187,12 +194,12 @@ function collectUsage(domains: RawDomainForOrphans[]): {
 
         // Рекурсия
         if (typeof value === "object" && value !== null) {
-          walk(value);
+          walk(value, key);
         }
       }
     };
 
-    walk(raw);
+    walk(raw, undefined);
   }
 
   return { views, actions, dataTypes, sequences, medias };

@@ -10,6 +10,36 @@ import type {
   DomainMeta,
   EntityLinkage,
   ViewElementRef,
+  PrefixRuleRecord,
+  EntitySortingRecord,
+  EntityBindRecord,
+  EntityReconciliationRecord,
+  EntityIdentificationRecord,
+  GenericSnapshotEntry,
+  DataRuleRecord,
+  DataRuleTarget,
+  DataRuleEffect,
+  DataRuleAttributeAction,
+  DataRuleLinkageAction,
+  DataRuleNestedAttribute,
+  DataRuleNestedItem,
+  DataRuleNested,
+  TreeRecord,
+  TreeHierarchyChild,
+  TreeSortingRecord,
+  TransitiveLinkageRecord,
+  TransitiveLinkageJoin,
+  MenuRecord,
+  MenuItemRecord,
+  MediaRecord,
+  PermissionRecord,
+  AccessRuleRecord,
+  AccessRuleTarget,
+  AccessRuleItem,
+  AccessRuleItemKind,
+  AccessRuleException,
+  LocalizationRecord,
+  LocalizationKeyRecord,
 } from "../../shared/model-types";
 import { buildDomainSchemaSummary } from "./domain-schema";
 import type { DomainSchemaSummary } from "../../shared/model-types";
@@ -84,6 +114,107 @@ export function normalizeFqid(
   return (currentDomain + "/" + trimmed).toLowerCase();
 }
 
+// ============ Generic sections (dataRules, uiRules, …) ============
+
+const GENERIC_SECTION_KEYS = [
+  "dataRules",
+  "uiRules",
+  "uiPresets",
+  "views",
+  "menus",
+  "medias",
+  "trees",
+  "transitiveLinkages",
+  "permissions",
+  "localizations",
+] as const;
+
+type GenericSectionKey = (typeof GENERIC_SECTION_KEYS)[number];
+
+/** Быстрый детерминированный хэш без crypto (FNV-1a 32-bit). */
+function fnv1a(str: string): string {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(16);
+}
+
+function hashJsonSafe(value: unknown): string {
+  try {
+    return fnv1a(JSON.stringify(value));
+  } catch {
+    return "0";
+  }
+}
+
+function pickGenericId(
+  sectionKey: GenericSectionKey,
+  item: any,
+): string | null {
+  if (!item || typeof item !== "object") return null;
+  if (typeof item.id === "string" && item.id) return item.id;
+  // localizations: ключ — language
+  if (sectionKey === "localizations" && typeof item.language === "string") {
+    return item.language;
+  }
+  return null;
+}
+
+function pickGenericLabel(
+  sectionKey: GenericSectionKey,
+  item: any,
+): string | undefined {
+  if (!item || typeof item !== "object") return undefined;
+  if (typeof item.name === "string" && item.name && item.name !== item.id)
+    return item.name;
+  if (typeof item.label === "string" && item.label && item.label !== item.id)
+    return item.label;
+  if (typeof item.description === "string" && item.description)
+    return item.description;
+  return undefined;
+}
+
+function pickGenericType(
+  sectionKey: GenericSectionKey,
+  item: any,
+): string | undefined {
+  if (!item || typeof item !== "object") return undefined;
+  if (typeof item.type === "string" && item.type) return item.type;
+  if (typeof item.kind === "string" && item.kind) return item.kind;
+  if (typeof item.target === "string" && item.target) return item.target;
+  return undefined;
+}
+
+function collectGenericSections(
+  rawDomains: RawDomainEntry[],
+): Record<string, GenericSnapshotEntry[]> {
+  const result: Record<string, GenericSnapshotEntry[]> = {};
+  for (const key of GENERIC_SECTION_KEYS) result[key] = [];
+
+  for (const d of rawDomains) {
+    const raw = d.rawData || {};
+    for (const key of GENERIC_SECTION_KEYS) {
+      const arr = raw[key];
+      if (!Array.isArray(arr)) continue;
+      for (const item of arr) {
+        const id = pickGenericId(key, item);
+        if (!id) continue;
+        result[key].push({
+          id,
+          domainId: d.id,
+          hash: hashJsonSafe(item),
+          label: pickGenericLabel(key, item),
+          type: pickGenericType(key, item),
+        });
+      }
+    }
+  }
+
+  return result;
+}
+
 export function extractDomainFromFqid(fqid: string): string {
   const slash = fqid.indexOf("/");
   return slash > 0 ? fqid.slice(0, slash).toLowerCase() : "";
@@ -139,18 +270,34 @@ function parseAttribute(
     usedInRules: 0,
   };
 
+  // Базовые флаги
+  if (raw.readonly === true) record.readonly = true;
+  if (raw.searchable === false) record.searchable = false;
+  if (raw.comments === true) record.comments = true;
+
   // Reference
   if (dataType === "Reference" && raw.entity) {
-    const ref = normalizeFqid(String(raw.entity), domainId);
-    if (ref) record.referenceEntity = ref;
+    const rawRef = String(raw.entity).trim();
+    if (!rawRef.startsWith("external:")) {
+      const ref = normalizeFqid(rawRef, domainId);
+      if (ref) record.referenceEntity = ref;
+    }
   }
 
   // Array
   if (dataType === "Array" && raw.item && typeof raw.item === "object") {
     record.itemDataType = String(raw.item.dataType || "");
     if (raw.item.dataType === "Reference" && raw.item.entity) {
-      const ref = normalizeFqid(String(raw.item.entity), domainId);
-      if (ref) record.itemReferenceEntity = ref;
+      const rawRef = String(raw.item.entity).trim();
+      if (!rawRef.startsWith("external:")) {
+        const ref = normalizeFqid(rawRef, domainId);
+        if (ref) record.itemReferenceEntity = ref;
+      }
+    }
+    if (Array.isArray(raw.item.constraints)) {
+      record.itemConstraints = raw.item.constraints
+        .map((c: any) => String(c?.kind || ""))
+        .filter(Boolean);
     }
   }
 
@@ -160,7 +307,55 @@ function parseAttribute(
       .map((a: any) =>
         parseAttribute(a, entityFqid, domainId, customDataTypeIds),
       )
-      .filter((x: AttributeRecord | null): x is AttributeRecord => x !== null);
+      .filter((x): x is AttributeRecord => x !== null);
+    if (typeof raw.maxRows === "number") record.maxRows = raw.maxRows;
+  }
+
+  // Calculation
+  if (
+    dataType === "Calculation" &&
+    raw.calculation &&
+    typeof raw.calculation === "object"
+  ) {
+    record.calculation = {
+      schemaId: String(raw.calculation.schemaId || ""),
+      id: String(raw.calculation.id || ""),
+    };
+  }
+
+  // Identifier
+  if (dataType === "Identifier") {
+    if (typeof raw.template === "string") record.template = raw.template;
+    if (Array.isArray(raw.segment)) record.segment = raw.segment.map(String);
+    if (typeof raw.defaultPrefix === "string")
+      record.defaultPrefix = raw.defaultPrefix;
+    if (typeof raw.incrementTemplate === "string")
+      record.incrementTemplate = raw.incrementTemplate;
+    if (typeof raw.sequence === "string") {
+      const seq = normalizeFqid(raw.sequence, domainId);
+      if (seq) record.sequence = seq;
+    }
+    if (Array.isArray(raw.prefixRules)) {
+      record.prefixRules = raw.prefixRules
+        .map((r: any) => {
+          if (!r || !r.id) return null;
+          const attribute =
+            typeof r.attribute === "string" ? r.attribute.trim() : "";
+          const src = r.source || {};
+          const entity = normalizeFqid(src.entity, domainId);
+          if (!attribute || !entity) return null;
+          return {
+            id: String(r.id),
+            attribute,
+            source: {
+              entity,
+              key: String(src.key || ""),
+              value: String(src.value || ""),
+            },
+          };
+        })
+        .filter((x): x is PrefixRuleRecord => x !== null);
+    }
   }
 
   return record;
@@ -185,7 +380,7 @@ function parseEntity(
         .filter((x: AttributeRecord | null): x is AttributeRecord => x !== null)
     : [];
 
-  return {
+  const entity: EntityRecord = {
     fqid,
     domainId,
     entityId,
@@ -201,6 +396,201 @@ function parseEntity(
     domainVersion: domainMeta.version,
     domainAuthor: domainMeta.author,
   };
+
+  // kind / флаги
+  if (
+    raw.kind === "abstract" ||
+    raw.kind === "static" ||
+    raw.kind === "regular"
+  ) {
+    entity.kind = raw.kind;
+  }
+  if (raw.scanTarget === true) entity.scanTarget = true;
+  if (raw.scanTargetGroup === true) entity.scanTargetGroup = true;
+  if (raw.createZeroRecord === true) entity.createZeroRecord = true;
+
+  // icons / graphView
+  if (typeof raw.icons === "string") {
+    const icons = normalizeFqid(raw.icons, domainId);
+    if (icons) entity.icons = icons;
+  }
+  if (
+    raw.graphView &&
+    typeof raw.graphView === "object" &&
+    raw.graphView.iconColor
+  ) {
+    entity.graphView = { iconColor: String(raw.graphView.iconColor) };
+  }
+
+  // elementOf / extends / partOf
+  const elementOf = normalizeFqid(raw.elementOf, domainId);
+  if (elementOf) entity.elementOf = elementOf;
+  const extendsFqid = normalizeFqid(raw.extends, domainId);
+  if (extendsFqid) entity.extends = extendsFqid;
+  const partOfFqid = normalizeFqid(raw.partOf, domainId);
+  if (partOfFqid) entity.partOf = partOfFqid;
+
+  // sorting
+  if (Array.isArray(raw.sorting)) {
+    entity.sorting = raw.sorting
+      .map((s: any) => {
+        if (!s || !s.id) return null;
+        const by: EntitySortingRecord["by"] = [];
+        if (Array.isArray(s.by)) {
+          for (const b of s.by) {
+            if (!b || !b.attribute) continue;
+            by.push({
+              attribute: String(b.attribute),
+              direction: b.direction === "desc" ? "desc" : "asc",
+            });
+          }
+        }
+        return { id: String(s.id), by };
+      })
+      .filter((x): x is EntitySortingRecord => x !== null);
+  }
+
+  // searching
+  if (Array.isArray(raw.searching)) {
+    entity.searching = raw.searching
+      .map((s: any) =>
+        s && s.attribute ? { attribute: String(s.attribute) } : null,
+      )
+      .filter((x): x is { attribute: string } => x !== null);
+  }
+
+  // identification
+  if (Array.isArray(raw.identification)) {
+    entity.identification = raw.identification
+      .map((r: any) => {
+        if (!r || !r.id) return null;
+        return {
+          id: String(r.id),
+          rule: Array.isArray(r.rule) ? r.rule : [],
+          filter: Array.isArray(r.filter) ? r.filter.map(String) : undefined,
+        };
+      })
+      .filter((x): x is EntityIdentificationRecord => x !== null);
+  }
+
+  // reconciliation
+  if (Array.isArray(raw.reconciliation)) {
+    entity.reconciliation = raw.reconciliation
+      .map((r: any) => {
+        if (!r) return null;
+        const out: EntityReconciliationRecord = {};
+        if (typeof r.attribute === "string") out.attribute = r.attribute;
+        if (Array.isArray(r.sourcePriority)) {
+          out.sourcePriority = r.sourcePriority
+            .map((s: any) => (typeof s === "string" ? s : s?.source))
+            .filter(Boolean);
+        }
+        if (Array.isArray(r.default)) {
+          out.default = r.default
+            .map((s: any) => (typeof s === "string" ? s : s?.source))
+            .filter(Boolean);
+        }
+        if (r.mergeStrategy && typeof r.mergeStrategy === "object") {
+          out.mergeStrategy = String(r.mergeStrategy.type || "");
+        }
+        return Object.keys(out).length > 0 ? out : null;
+      })
+      .filter((x): x is EntityReconciliationRecord => x !== null);
+  }
+
+  // projection
+  if (Array.isArray(raw.projection)) {
+    entity.projection = raw.projection
+      .map((p: any) =>
+        p && p.attribute ? { attribute: String(p.attribute) } : null,
+      )
+      .filter((x): x is { attribute: string } => x !== null);
+  }
+
+  // treeNode
+  if (
+    raw.treeNode &&
+    typeof raw.treeNode === "object" &&
+    Array.isArray(raw.treeNode.types)
+  ) {
+    entity.treeNode = {
+      types: raw.treeNode.types
+        .map((t: any) => {
+          if (!t || !t.type) return null;
+          const out: { type: string; of?: string[] } = { type: String(t.type) };
+          if (Array.isArray(t.of)) {
+            out.of = t.of
+              .map((o: any) => (typeof o === "string" ? o : o?.treeNode))
+              .filter(Boolean);
+          }
+          return out;
+        })
+        .filter((x): x is { type: string; of?: string[] } => x !== null),
+    };
+  }
+
+  // externals
+  if (
+    raw.externals &&
+    typeof raw.externals === "object" &&
+    Array.isArray(raw.externals.entities)
+  ) {
+    entity.externals = {
+      entities: raw.externals.entities
+        .map((x: any) => (typeof x === "string" ? x : x?.entity))
+        .filter(Boolean),
+      type: raw.externals.type === "selection" ? "selection" : "composition",
+    };
+  }
+
+  // bind
+  if (raw.bind && typeof raw.bind === "object") {
+    const external =
+      typeof raw.bind.external === "string" ? raw.bind.external : "";
+    const internal =
+      typeof raw.bind.internal === "string" ? raw.bind.internal : "";
+    if (external && internal) {
+      const bind: EntityBindRecord = { external, internal };
+      if (Array.isArray(raw.bind.aliases)) {
+        bind.aliases = raw.bind.aliases
+          .map((a: any) =>
+            a && a.external && a.internal
+              ? { external: String(a.external), internal: String(a.internal) }
+              : null,
+          )
+          .filter(
+            (x): x is { external: string; internal: string } => x !== null,
+          );
+      }
+      entity.bind = bind;
+    }
+  }
+
+  // overrides
+  if (Array.isArray(raw.overrides)) {
+    entity.overrides = raw.overrides
+      .map((o: any) => {
+        if (!o) return null;
+        const ancestors = Array.isArray(o.ancestors)
+          ? o.ancestors
+              .map((x: any) => (typeof x === "string" ? x : x?.entity))
+              .filter(Boolean)
+          : [];
+        const attrs = Array.isArray(o.attributes)
+          ? o.attributes
+              .map((a: any) =>
+                a && a.attribute
+                  ? { attribute: String(a.attribute), value: a.value }
+                  : null,
+              )
+              .filter((x): x is { attribute: string; value: any } => x !== null)
+          : [];
+        return { ancestors, attributes: attrs };
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null);
+  }
+
+  return entity;
 }
 
 // ============ Парсинг dataTypes ============
@@ -306,10 +696,31 @@ function parseMixins(domainId: string, rawMixins: any[]): MixinRecord[] {
   const result: MixinRecord[] = [];
 
   rawMixins.forEach((m: any) => {
-    if (!m || !m.id || !m.entity) return;
+    if (!m || !m.id) return;
 
-    const targetEntityFqid = normalizeFqid(m.entity, domainId);
-    if (!targetEntityFqid) return;
+    const mixinType: "linkage" | "view" =
+      m.type === "linkage" ? "linkage" : "view";
+
+    // Определяем targetEntityFqid / sourceEntityFqid / linkageFqid
+    //   view:    entity — строка
+    //   linkage: entity — { from, to }, linkage — строка
+    let targetEntityFqid: string | null = null;
+    let sourceEntityFqid: string | undefined;
+    let linkageFqid: string | undefined;
+
+    if (mixinType === "linkage") {
+      if (!m.entity || typeof m.entity !== "object") return;
+      const fromFqid = normalizeFqid(m.entity.from, domainId) || undefined;
+      const toFqid = normalizeFqid(m.entity.to, domainId);
+      if (!toFqid) return;
+      targetEntityFqid = toFqid;
+      sourceEntityFqid = fromFqid;
+      linkageFqid = normalizeFqid(m.linkage, domainId) || undefined;
+    } else {
+      if (typeof m.entity !== "string") return;
+      targetEntityFqid = normalizeFqid(m.entity, domainId);
+      if (!targetEntityFqid) return;
+    }
 
     const views = Array.isArray(m.views) ? m.views : [{}];
 
@@ -317,15 +728,19 @@ function parseMixins(domainId: string, rawMixins: any[]): MixinRecord[] {
       if (!v || typeof v !== "object") return;
       const change = v.change || {};
       const add = change.add || {};
-      const replace = change.replace || {};
+      // ВАЖНО: replace лежит на уровне v (а не v.change.replace) —
+      // это соответствует zod-схеме mixin (G/J/K/N/Q → replace: ...)
+      const replace = v.replace || {};
 
       const { tabs, components, blocks } = extractMixinAdditions(add);
 
       const record: MixinRecord = {
         id: views.length > 1 ? `${m.id}_${idx}` : String(m.id),
         domainId,
-        type: m.type === "linkage" ? "linkage" : "view",
+        type: mixinType,
         targetEntityFqid,
+        sourceEntityFqid,
+        linkageFqid,
         sourceViewId: String(v.fromView || ""),
         targetPanel: v.to?.panel ? String(v.to.panel) : undefined,
         targetTab: v.to?.tab ? String(v.to.tab) : undefined,
@@ -336,6 +751,12 @@ function parseMixins(domainId: string, rawMixins: any[]): MixinRecord[] {
         addedTabs: tabs,
         addedComponents: components,
         addedBlocks: blocks,
+        useForChild: m.useForChild !== false, // default true
+        showMixinInHistory: m.showMixinInHistory === true,
+        weight:
+          typeof m.weight === "number" && Number.isFinite(m.weight)
+            ? m.weight
+            : undefined,
         description: String(m.description || v.description || ""),
       };
 
@@ -450,75 +871,192 @@ function countAttributeUsage(
   entities: EntityRecord[],
   rawDomainsById: Map<string, RawDomainEntry>,
 ): void {
-  // Строим map: attributeId → [entityFqid, ...] — куда накапливать
-  const attrIndex = new Map<string, AttributeRecord[]>();
+  // ============ Индекс: attrKey → AttributeRecord ============
+  const attrIndex = new Map<string, AttributeRecord>();
   entities.forEach((e) => {
     e.attributes.forEach((a) => {
-      const key = attrKey(e.fqid, a.id);
-      if (!attrIndex.has(key)) attrIndex.set(key, []);
-      attrIndex.get(key)!.push(a);
+      attrIndex.set(attrKey(e.fqid, a.id), a);
+      if (a.nestedAttributes) {
+        a.nestedAttributes.forEach((na) => {
+          attrIndex.set(attrKey(e.fqid, na.id), na);
+        });
+      }
     });
   });
 
-  // Обходим views[].widgets[] всех доменов и считаем
+  const entitiesByFqid = new Map<string, EntityRecord>();
+  entities.forEach((e) => entitiesByFqid.set(e.fqid, e));
+
+  // ============ Резолвер: ref → AttributeRecord, с учётом наследования ============
+  const findAttrWithInheritance = (
+    entityFqid: string,
+    attrId: string,
+  ): AttributeRecord | null => {
+    const seen = new Set<string>();
+    let cur = entitiesByFqid.get(entityFqid);
+    while (cur && !seen.has(cur.fqid)) {
+      seen.add(cur.fqid);
+      const hit = cur.attributes.find((a) => a.id === attrId);
+      if (hit) return hit;
+      cur = cur.inherits ? entitiesByFqid.get(cur.inherits) : undefined;
+    }
+    return null;
+  };
+
+  const resolveAttr = (
+    ref: string | null | undefined,
+    currentDomainId: string,
+    currentEntityFqid: string | null,
+  ): AttributeRecord | null => {
+    if (!ref || typeof ref !== "string") return null;
+    const s = ref.trim();
+    if (!s) return null;
+
+    // 1) FQID: domain/Entity.attr
+    if (s.includes("/")) {
+      const slash = s.indexOf("/");
+      const domain = s.slice(0, slash).toLowerCase();
+      const rest = s.slice(slash + 1);
+      const dot = rest.indexOf(".");
+      if (dot < 0) return null;
+      const entityId = rest.slice(0, dot);
+      const attrId = rest.slice(dot + 1);
+      return findAttrWithInheritance(
+        `${domain}/${entityId}`.toLowerCase(),
+        attrId,
+      );
+    }
+
+    // 2) Entity.attr
+    const dot = s.indexOf(".");
+    if (dot > 0) {
+      const entityPart = s.slice(0, dot);
+      const attrId = s.slice(dot + 1);
+
+      // 2a) Если Entity — текущая (или её предок)
+      if (currentEntityFqid) {
+        const cur = entitiesByFqid.get(currentEntityFqid);
+        if (cur && cur.entityId.toLowerCase() === entityPart.toLowerCase()) {
+          return findAttrWithInheritance(currentEntityFqid, attrId);
+        }
+        // 2b) Если Entity — другая сущность того же домена
+        const sameDomain = `${currentDomainId.toLowerCase()}/${entityPart.toLowerCase()}`;
+        if (entitiesByFqid.has(sameDomain)) {
+          return findAttrWithInheritance(sameDomain, attrId);
+        }
+      }
+
+      // 2c) Fallback — по атрибуту в текущей сущности
+      if (currentEntityFqid) {
+        return findAttrWithInheritance(currentEntityFqid, attrId);
+      }
+      return null;
+    }
+
+    // 3) attrId — локально в currentEntityFqid (или предках)
+    if (currentEntityFqid) {
+      return findAttrWithInheritance(currentEntityFqid, s);
+    }
+    return null;
+  };
+
+  // ============ 1. views[].widgets[] / table.columns[] ============
   rawDomainsById.forEach((domain) => {
     const views = domain.rawData?.views;
     if (!Array.isArray(views)) return;
 
-    function visitWidgets(widgets: any[]): void {
-      if (!Array.isArray(widgets)) return;
-      widgets.forEach((w: any) => {
-        if (!w || typeof w !== "object") return;
-        const attrId = w.attribute;
-        if (typeof attrId !== "string") return;
+    const walkView = (view: any, entityId: string | null): void => {
+      if (!view || typeof view !== "object") return;
+      const nextEntityId = view.entity
+        ? String(view.entity)
+        : view.source?.entity
+          ? String(view.source.entity)
+          : entityId;
 
-        // Ищем, какая сущность является владельцем этого виджета.
-        // Проблема: виджет может ссылаться на атрибут родителя через FQID.
-        // Простая эвристика: ищем атрибут с таким id в целевой сущности представления.
-        // Полноценный резолвинг — отдельная задача.
-        // Здесь мы просто инкрементируем всем атрибутам с таким id внутри того же домена.
-        attrIndex.forEach((attrs, key) => {
-          attrs.forEach((a) => {
-            if (a.id === attrId && a.entityFqid.startsWith(domain.id + "/")) {
-              a.usedInViews++;
-            }
-          });
-        });
-      });
-    }
+      const currentEntityFqid = nextEntityId
+        ? nextEntityId.includes("/")
+          ? nextEntityId.toLowerCase()
+          : `${domain.id}/${nextEntityId}`.toLowerCase()
+        : null;
 
-    views.forEach((v: any) => {
-      if (!v) return;
-      visitWidgets(v.widgets);
-    });
-
-    // ============ searching: entities[].searching[].attribute ============
-    rawDomainsById.forEach((domain) => {
-      const entities = domain.rawData?.entities;
-      if (!Array.isArray(entities)) return;
-      const domainIdLower = domain.id.toLowerCase();
-
-      for (const e of entities) {
-        if (!e?.id) continue;
-        const entityFqid = `${domainIdLower}/${String(e.id)}`.toLowerCase();
-        const searching = e.searching;
-        if (!Array.isArray(searching)) continue;
-
-        for (const s of searching) {
-          if (!s || typeof s !== "object") continue;
-          // В стандартном формате — s.attribute; в расширенном (с id/name) — тоже s.attribute.
-          const attrId = s.attribute;
-          if (typeof attrId !== "string") continue;
-
-          const key = attrKey(entityFqid, attrId);
-          const list = attrIndex.get(key);
-          if (!list) continue;
-          list.forEach((a) => {
-            a.usedInViews++;
-          });
+      if (Array.isArray(view.widgets)) {
+        for (const w of view.widgets) {
+          if (!w || typeof w !== "object") continue;
+          if (typeof w.attribute !== "string") continue;
+          const attr = resolveAttr(w.attribute, domain.id, currentEntityFqid);
+          if (attr) attr.usedInViews++;
         }
       }
-    });
+
+      if (Array.isArray(view.table?.columns)) {
+        for (const c of view.table.columns) {
+          if (!c || typeof c !== "object") continue;
+          if (typeof c.attribute !== "string") continue;
+          const attr = resolveAttr(c.attribute, domain.id, currentEntityFqid);
+          if (attr) attr.usedInViews++;
+        }
+      }
+
+      if (Array.isArray(view.views)) {
+        for (const nv of view.views) walkView(nv, nextEntityId);
+      }
+    };
+
+    for (const v of views) walkView(v, null);
+  });
+
+  // ============ 2. entities[].searching[] ============
+  // (здесь был баг: inner forEach по rawDomainsById внутри outer forEach —
+  //  давал N× переинкремент)
+  rawDomainsById.forEach((domain) => {
+    const ents = domain.rawData?.entities;
+    if (!Array.isArray(ents)) return;
+    for (const e of ents) {
+      if (!e?.id) continue;
+      if (!Array.isArray(e.searching)) continue;
+      const entityFqid = `${domain.id}/${e.id}`.toLowerCase();
+      for (const s of e.searching) {
+        if (!s || typeof s !== "object") continue;
+        if (typeof s.attribute !== "string") continue;
+        const attr = resolveAttr(s.attribute, domain.id, entityFqid);
+        if (attr) attr.usedInViews++;
+      }
+    }
+  });
+
+  // ============ 3. dataRules — usedInRules ============
+  rawDomainsById.forEach((domain) => {
+    const rules = domain.rawData?.dataRules;
+    if (!Array.isArray(rules)) return;
+    for (const r of rules) {
+      if (!r || typeof r !== "object") continue;
+      if (r.target === "linkage") continue; // linkage-атрибуты — не entity-атрибуты
+
+      const entityId = r.entity ? String(r.entity) : null;
+      const currentEntityFqid = entityId
+        ? entityId.includes("/")
+          ? entityId.toLowerCase()
+          : `${domain.id}/${entityId}`.toLowerCase()
+        : null;
+
+      // Для entityAttribute родительский атрибут — r.attribute.
+      // Счётчик увеличиваем на родителе; вложенные (nested.attributes)
+      // — это колонки внутри Table/Array, они идут под тем же родителем.
+      if (r.target === "entityAttribute" && typeof r.attribute === "string") {
+        const attr = resolveAttr(r.attribute, domain.id, currentEntityFqid);
+        if (attr) attr.usedInRules++;
+      }
+
+      // rule.attributes[] — прямые цели эффекта
+      if (Array.isArray(r.rule?.attributes)) {
+        for (const a of r.rule.attributes) {
+          if (!a || typeof a !== "object") continue;
+          if (typeof a.attribute !== "string") continue;
+          const attr = resolveAttr(a.attribute, domain.id, currentEntityFqid);
+          if (attr) attr.usedInRules++;
+        }
+      }
+    }
   });
 }
 
@@ -658,11 +1196,13 @@ function computeStats(
   }, 0);
 
   // ============ attributesWithoutViews ============
-  // Мы уже считаем usedInViews в countAttributeUsage — теперь собираем те, у кого 0.
+  // «Мёртвый код»: не упомянут ни в views[].widgets[], ни в dataRules[].rule.attributes[].
+  // Атрибут, используемый только в правилах, не является мёртвым — у него есть
+  // семантика (required/readonly/default и т.д.), даже если он не отображается.
   const attributesWithoutViews: ModelStats["attributesWithoutViews"] = [];
   entities.forEach((e) => {
     const visit = (a: AttributeRecord) => {
-      if (a.usedInViews === 0) {
+      if (a.usedInViews === 0 && a.usedInRules === 0) {
         attributesWithoutViews.push({
           key: `${e.fqid}#${a.id}`,
           entityFqid: e.fqid,
@@ -717,7 +1257,11 @@ function computeStats(
   };
 }
 
-function parseEntityLinkages(domainId: string, raw: any): EntityLinkage[] {
+function parseEntityLinkages(
+  domainId: string,
+  raw: any,
+  customDataTypeIds: Set<string>,
+): EntityLinkage[] {
   if (!raw || !Array.isArray(raw.linkages)) return [];
   const result: EntityLinkage[] = [];
 
@@ -729,7 +1273,9 @@ function parseEntityLinkages(domainId: string, raw: any): EntityLinkage[] {
     const side2Fqid = normalizeFqid(l.side2, domainId);
     if (!side1Fqid || !side2Fqid) continue;
 
-    result.push({
+    const linkageFqid = `${domainId}/${String(l.id)}`.toLowerCase();
+
+    const record: EntityLinkage = {
       id: String(l.id),
       domainId,
       side1Fqid,
@@ -738,12 +1284,615 @@ function parseEntityLinkages(domainId: string, raw: any): EntityLinkage[] {
       type: String(l.type || "n_n"),
       symmetric: side1Fqid === side2Fqid,
       undirected: l.undirected === true,
-    });
+    };
+
+    if (l.useForSearch === true) record.useForSearch = true;
+    if (l.excludeOnGraph === true) record.excludeOnGraph = true;
+    else if (l.excludeOnGraph === "off") record.excludeOnGraph = "off";
+    else if (l.excludeOnGraph === false) record.excludeOnGraph = false;
+
+    if (l.nameFrom && typeof l.nameFrom === "object") {
+      record.nameFrom = {
+        side1:
+          typeof l.nameFrom.side1 === "string" ? l.nameFrom.side1 : undefined,
+        side2:
+          typeof l.nameFrom.side2 === "string" ? l.nameFrom.side2 : undefined,
+      };
+    }
+
+    if (l.view && typeof l.view === "object" && l.view.iconColor) {
+      record.view = { iconColor: String(l.view.iconColor) };
+    }
+
+    if (Array.isArray(l.searching)) {
+      record.searching = l.searching
+        .map((s: any) =>
+          s && s.attribute ? { attribute: String(s.attribute) } : null,
+        )
+        .filter((x): x is { attribute: string } => x !== null);
+    }
+
+    if (Array.isArray(l.sorting)) {
+      record.sorting = l.sorting
+        .map((s: any) => {
+          if (!s || !s.id) return null;
+          const by: EntitySortingRecord["by"] = [];
+          if (Array.isArray(s.by)) {
+            for (const b of s.by) {
+              if (!b || !b.attribute) continue;
+              by.push({
+                attribute: String(b.attribute),
+                direction: b.direction === "desc" ? "desc" : "asc",
+              });
+            }
+          }
+          return { id: String(s.id), by };
+        })
+        .filter((x): x is EntitySortingRecord => x !== null);
+    }
+
+    if (Array.isArray(l.attributes)) {
+      record.attributes = l.attributes
+        .map((a: any) =>
+          parseAttribute(a, linkageFqid, domainId, customDataTypeIds),
+        )
+        .filter(
+          (x: AttributeRecord | null): x is AttributeRecord => x !== null,
+        );
+    }
+
+    if (Array.isArray(l.side1Descendants)) {
+      record.side1Descendants = l.side1Descendants.map(String);
+    }
+    if (Array.isArray(l.side2Descendants)) {
+      record.side2Descendants = l.side2Descendants.map(String);
+    }
+
+    result.push(record);
   }
 
   return result;
 }
 
+// ============ DataRules ============
+
+function parseDataRuleTarget(raw: any): DataRuleTarget {
+  const t = String(raw?.target || "").trim();
+  if (t === "entityAttribute") return "entityAttribute";
+  if (t === "linkage") return "linkage";
+  return "entity";
+}
+
+function parseDataRuleEffect(raw: any): DataRuleEffect {
+  const e = String(raw?.rule?.effect || "").trim();
+  if (
+    e === "hidden" ||
+    e === "readonly" ||
+    e === "required" ||
+    e === "default" ||
+    e === "allowed"
+  ) {
+    return e;
+  }
+  return "hidden";
+}
+
+function parseDataRuleAttributeAction(
+  raw: any,
+): DataRuleAttributeAction | null {
+  if (!raw || typeof raw !== "object") return null;
+  if (typeof raw.attribute !== "string" || !raw.attribute) return null;
+  const out: DataRuleAttributeAction = { attribute: raw.attribute };
+  if (typeof raw.constraint === "string") out.constraint = raw.constraint;
+  if (typeof raw.expression === "string") out.expression = raw.expression;
+  if (raw.value !== undefined) out.value = raw.value;
+  if (typeof raw.message === "string") out.message = raw.message;
+  if (typeof raw.help === "string") out.help = raw.help;
+  return out;
+}
+
+function parseDataRuleLinkageAction(raw: any): DataRuleLinkageAction | null {
+  if (!raw || typeof raw !== "object") return null;
+  if (typeof raw.linkage !== "string" || !raw.linkage) return null;
+  const out: DataRuleLinkageAction = { linkage: raw.linkage };
+  if (raw.side === 1 || raw.side === 2) out.side = raw.side;
+  if (typeof raw.constraint === "string") out.constraint = raw.constraint;
+  if (typeof raw.expression === "string") out.expression = raw.expression;
+  if (typeof raw.min_count === "number") out.min_count = raw.min_count;
+  if (typeof raw.max_count === "number") out.max_count = raw.max_count;
+  if (typeof raw.message === "string") out.message = raw.message;
+  if (typeof raw.help === "string") out.help = raw.help;
+  return out;
+}
+
+function parseDataRuleNestedAttribute(
+  raw: any,
+): DataRuleNestedAttribute | null {
+  if (!raw || typeof raw !== "object") return null;
+  if (typeof raw.attribute !== "string" || !raw.attribute) return null;
+  const out: DataRuleNestedAttribute = { attribute: raw.attribute };
+  if (typeof raw.constraint === "string") out.constraint = raw.constraint;
+  if (typeof raw.expression === "string") out.expression = raw.expression;
+  if (raw.value !== undefined) out.value = raw.value;
+  if (typeof raw.message === "string") out.message = raw.message;
+  if (typeof raw.help === "string") out.help = raw.help;
+  return out;
+}
+
+function parseDataRuleNestedItem(raw: any): DataRuleNestedItem | null {
+  if (!raw || typeof raw !== "object") return null;
+  const item = raw.item;
+  if (item !== "*" && typeof item !== "number") return null;
+  const out: DataRuleNestedItem = { item };
+  if (typeof raw.constraint === "string") out.constraint = raw.constraint;
+  if (typeof raw.expression === "string") out.expression = raw.expression;
+  if (raw.value !== undefined) out.value = raw.value;
+  if (typeof raw.message === "string") out.message = raw.message;
+  if (typeof raw.help === "string") out.help = raw.help;
+  return out;
+}
+
+function parseDataRuleNested(raw: any): DataRuleNested | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  if (raw.type === "table" && Array.isArray(raw.attributes)) {
+    const attributes = raw.attributes
+      .map(parseDataRuleNestedAttribute)
+      .filter((x): x is DataRuleNestedAttribute => x !== null);
+    if (attributes.length === 0) return undefined;
+    return { type: "table", attributes };
+  }
+  if (raw.type === "array" && Array.isArray(raw.items)) {
+    const items = raw.items
+      .map(parseDataRuleNestedItem)
+      .filter((x): x is DataRuleNestedItem => x !== null);
+    if (items.length === 0) return undefined;
+    return { type: "array", items };
+  }
+  return undefined;
+}
+
+function parseDataRule(raw: any, domainId: string): DataRuleRecord | null {
+  if (!raw || typeof raw !== "object") return null;
+  if (typeof raw.id !== "string" || !raw.id) return null;
+
+  const target = parseDataRuleTarget(raw);
+  const effect = parseDataRuleEffect(raw);
+
+  const rec: DataRuleRecord = {
+    id: raw.id,
+    domainId,
+    name: String(raw.name || raw.id),
+    description: String(raw.description || ""),
+    target,
+    condition:
+      typeof raw.condition === "boolean"
+        ? raw.condition
+        : String(raw.condition || ""),
+    effect,
+  };
+
+  if (target === "entity" || target === "entityAttribute") {
+    const entityFqid = normalizeFqid(raw.entity, domainId);
+    if (entityFqid) rec.entity = entityFqid;
+  }
+  if (target === "entityAttribute" && typeof raw.attribute === "string") {
+    rec.attribute = raw.attribute;
+  }
+  if (target === "linkage") {
+    const linkageFqid = normalizeFqid(raw.linkage, domainId);
+    if (linkageFqid) rec.linkage = linkageFqid;
+  }
+
+  const rule = raw.rule || {};
+  if (Array.isArray(rule.attributes)) {
+    const attributes = rule.attributes
+      .map(parseDataRuleAttributeAction)
+      .filter((x): x is DataRuleAttributeAction => x !== null);
+    if (attributes.length > 0) rec.attributes = attributes;
+  }
+  if (Array.isArray(rule.linkages)) {
+    const linkages = rule.linkages
+      .map(parseDataRuleLinkageAction)
+      .filter((x): x is DataRuleLinkageAction => x !== null);
+    if (linkages.length > 0) rec.linkages = linkages;
+  }
+  const nested = parseDataRuleNested(rule.nested);
+  if (nested) rec.nested = nested;
+
+  if (typeof raw.message === "string") rec.message = raw.message;
+  if (typeof raw.help === "string") rec.help = raw.help;
+
+  return rec;
+}
+
+// ============ Trees ============
+
+function parseTreeChild(raw: any, domainId: string): TreeHierarchyChild | null {
+  if (!raw || typeof raw !== "object") return null;
+  if (typeof raw.linkage !== "string") return null;
+  if (typeof raw.entity !== "string") return null;
+  const linkageFqid = normalizeFqid(raw.linkage, domainId);
+  const entityFqid = normalizeFqid(raw.entity, domainId);
+  if (!linkageFqid || !entityFqid) return null;
+
+  const out: TreeHierarchyChild = { linkage: linkageFqid, entity: entityFqid };
+  if (raw.side === 1 || raw.side === 2) out.side = raw.side;
+  if (typeof raw.maxInstances === "number") out.maxInstances = raw.maxInstances;
+  if (typeof raw.maxChildren === "number") out.maxChildren = raw.maxChildren;
+  if (Array.isArray(raw.children)) {
+    const kids = raw.children
+      .map((k: any) => parseTreeChild(k, domainId))
+      .filter(
+        (x: TreeHierarchyChild | null): x is TreeHierarchyChild => x !== null,
+      );
+    if (kids.length > 0) out.children = kids;
+  }
+  return out;
+}
+
+function parseTreeSorting(
+  raw: any,
+  domainId: string,
+): TreeSortingRecord | null {
+  if (!raw || typeof raw !== "object") return null;
+  if (typeof raw.id !== "string" || !raw.id) return null;
+  const by: TreeSortingRecord["by"] = [];
+  if (Array.isArray(raw.by)) {
+    for (const b of raw.by) {
+      if (!b || typeof b !== "object") continue;
+      const entityFqid = normalizeFqid(b.entity, domainId);
+      if (!entityFqid) continue;
+      const inner: Array<{ attribute: string; direction: "asc" | "desc" }> = [];
+      if (Array.isArray(b.by)) {
+        for (const ib of b.by) {
+          if (!ib || typeof ib.attribute !== "string") continue;
+          inner.push({
+            attribute: ib.attribute,
+            direction: ib.direction === "desc" ? "desc" : "asc",
+          });
+        }
+      }
+      by.push({ entity: entityFqid, by: inner });
+    }
+  }
+  return {
+    id: raw.id,
+    name: typeof raw.name === "string" ? raw.name : undefined,
+    by,
+  };
+}
+
+function parseTree(raw: any, domainId: string): TreeRecord | null {
+  if (!raw || typeof raw !== "object") return null;
+  if (typeof raw.id !== "string" || !raw.id) return null;
+  if (!raw.hierarchy || typeof raw.hierarchy !== "object") return null;
+  const entityFqid = normalizeFqid(raw.hierarchy.entity, domainId);
+  if (!entityFqid) return null;
+
+  const type: TreeRecord["type"] =
+    raw.type === "orderable" || raw.type === "multiparent"
+      ? raw.type
+      : "ordinary";
+
+  const hierarchy: TreeRecord["hierarchy"] = { entity: entityFqid };
+  if (typeof raw.hierarchy.maxInstances === "number") {
+    hierarchy.maxInstances = raw.hierarchy.maxInstances;
+  }
+  if (typeof raw.hierarchy.maxChildren === "number") {
+    hierarchy.maxChildren = raw.hierarchy.maxChildren;
+  }
+  if (Array.isArray(raw.hierarchy.children)) {
+    const children = raw.hierarchy.children
+      .map((c: any) => parseTreeChild(c, domainId))
+      .filter(
+        (x: TreeHierarchyChild | null): x is TreeHierarchyChild => x !== null,
+      );
+    if (children.length > 0) hierarchy.children = children;
+  }
+
+  const rec: TreeRecord = {
+    id: raw.id,
+    domainId,
+    name: typeof raw.name === "string" ? raw.name : undefined,
+    type,
+    hierarchy,
+  };
+  if (typeof raw.maxDepth === "number") rec.maxDepth = raw.maxDepth;
+
+  if (Array.isArray(raw.sorting)) {
+    const sorting = raw.sorting
+      .map((s: any) => parseTreeSorting(s, domainId))
+      .filter(
+        (x: TreeSortingRecord | null): x is TreeSortingRecord => x !== null,
+      );
+    if (sorting.length > 0) rec.sorting = sorting;
+  }
+
+  return rec;
+}
+
+// ============ TransitiveLinkages ============
+
+function parseTransitiveJoin(
+  raw: any,
+  domainId: string,
+): TransitiveLinkageJoin | null {
+  if (!raw || typeof raw !== "object") return null;
+  if (typeof raw.id !== "string" || !raw.id) return null;
+  if (typeof raw.linkage !== "string") return null;
+  const linkageFqid = normalizeFqid(raw.linkage, domainId);
+  if (!linkageFqid) return null;
+
+  const out: TransitiveLinkageJoin = { id: raw.id, linkage: linkageFqid };
+  if (raw.side === 1 || raw.side === 2) out.side = raw.side;
+  if (raw.search && typeof raw.search === "object") {
+    const s: NonNullable<TransitiveLinkageJoin["search"]> = {};
+    if (typeof raw.search.enabled === "boolean") s.enabled = raw.search.enabled;
+    if (
+      raw.search.mode === "entity" ||
+      raw.search.mode === "linkage" ||
+      raw.search.mode === "both"
+    ) {
+      s.mode = raw.search.mode;
+    }
+    out.search = s;
+  }
+  if (Array.isArray(raw.joins)) {
+    const kids = raw.joins
+      .map((j: any) => parseTransitiveJoin(j, domainId))
+      .filter(
+        (x: TransitiveLinkageJoin | null): x is TransitiveLinkageJoin =>
+          x !== null,
+      );
+    if (kids.length > 0) out.joins = kids;
+  }
+  return out;
+}
+
+function parseTransitiveLinkage(
+  raw: any,
+  domainId: string,
+): TransitiveLinkageRecord | null {
+  if (!raw || typeof raw !== "object") return null;
+  if (typeof raw.id !== "string" || !raw.id) return null;
+  const entityFqid = normalizeFqid(raw.entity, domainId);
+  if (!entityFqid) return null;
+  if (!Array.isArray(raw.joins)) return null;
+
+  const joins = raw.joins
+    .map((j: any) => parseTransitiveJoin(j, domainId))
+    .filter(
+      (x: TransitiveLinkageJoin | null): x is TransitiveLinkageJoin =>
+        x !== null,
+    );
+  if (joins.length === 0) return null;
+
+  return {
+    id: raw.id,
+    domainId,
+    entity: entityFqid,
+    description: String(raw.description || ""),
+    joins,
+  };
+}
+
+// ============ Menus ============
+
+function parseMenuItem(raw: any, domainId: string): MenuItemRecord | null {
+  if (!raw || typeof raw !== "object") return null;
+  if (typeof raw.id !== "string" || !raw.id) return null;
+  const viewFqid = normalizeFqid(raw.view, domainId);
+  if (!viewFqid) return null;
+  const out: MenuItemRecord = {
+    id: raw.id,
+    route: String(raw.route || ""),
+    label: String(raw.label || raw.id),
+    type: "menu",
+    view: viewFqid,
+  };
+  if (typeof raw.priority === "number") out.priority = raw.priority;
+  return out;
+}
+
+function parseMenu(raw: any, domainId: string): MenuRecord | null {
+  if (!raw || typeof raw !== "object") return null;
+  if (typeof raw.id !== "string" || !raw.id) return null;
+  const type: MenuRecord["type"] =
+    raw.type === "root_menu" ? "root_menu" : "root_group";
+  const placement: MenuRecord["placement"] =
+    raw.placement === "settings" ? "settings" : "top";
+  const out: MenuRecord = {
+    id: raw.id,
+    domainId,
+    type,
+    route: String(raw.route || ""),
+    label: String(raw.label || raw.id),
+    placement,
+  };
+  if (typeof raw.icon === "string") {
+    const iconFqid = normalizeFqid(raw.icon, domainId);
+    if (iconFqid) out.icon = iconFqid;
+  }
+  if (typeof raw.priority === "number") out.priority = raw.priority;
+  if (typeof raw.description === "string") out.description = raw.description;
+
+  if (type === "root_menu" && typeof raw.view === "string") {
+    const viewFqid = normalizeFqid(raw.view, domainId);
+    if (viewFqid) out.view = viewFqid;
+  }
+  if (type === "root_group" && Array.isArray(raw.items)) {
+    const items = raw.items
+      .map((it: any) => parseMenuItem(it, domainId))
+      .filter((x: MenuItemRecord | null): x is MenuItemRecord => x !== null);
+    if (items.length > 0) out.items = items;
+    if (typeof raw.default === "string") out.defaultItem = raw.default;
+  }
+  return out;
+}
+
+// ============ Medias ============
+
+function parseMedia(raw: any, domainId: string): MediaRecord | null {
+  if (!raw || typeof raw !== "object") return null;
+  if (typeof raw.id !== "string" || !raw.id) return null;
+  const type: MediaRecord["type"] = raw.type === "data" ? "data" : "icon_name";
+  const out: MediaRecord = {
+    id: raw.id,
+    domainId,
+    type,
+    description: String(raw.description || ""),
+  };
+  if (type === "icon_name" && typeof raw.iconName === "string") {
+    out.iconName = raw.iconName;
+  }
+  if (type === "data" && typeof raw.data === "string") {
+    out.data = raw.data;
+  }
+  return out;
+}
+
+// ============ Permissions ============
+
+function parsePermission(raw: any, domainId: string): PermissionRecord | null {
+  if (!raw || typeof raw !== "object") return null;
+  if (typeof raw.id !== "string" || !raw.id) return null;
+  const out: PermissionRecord = { id: raw.id, domainId };
+  if (typeof raw.name === "string") out.name = raw.name;
+  if (typeof raw.description === "string") out.description = raw.description;
+  return out;
+}
+
+// ============ AccessRules ============
+
+function parseAccessRuleException(raw: any): AccessRuleException | null {
+  if (!raw || typeof raw !== "object") return null;
+  if (typeof raw.attribute !== "string" || !raw.attribute) return null;
+  const out: AccessRuleException = { attribute: raw.attribute };
+  if (typeof raw.condition === "string" || typeof raw.condition === "boolean") {
+    out.condition = raw.condition;
+  }
+  return out;
+}
+
+function parseAccessRuleItem(raw: any): AccessRuleItem | null {
+  if (!raw || typeof raw !== "object") return null;
+  const kind = raw.kind;
+  if (kind !== "permission" && kind !== "pass" && kind !== "condition") {
+    return null;
+  }
+  const out: AccessRuleItem = { kind: kind as AccessRuleItemKind };
+  if (kind === "permission" && typeof raw.permission === "string") {
+    out.permission = raw.permission;
+  }
+  if (
+    kind === "condition" &&
+    (typeof raw.condition === "string" || typeof raw.condition === "boolean")
+  ) {
+    out.condition = raw.condition;
+  }
+  if (Array.isArray(raw.except)) {
+    const except = raw.except
+      .map(parseAccessRuleException)
+      .filter(
+        (x: AccessRuleException | null): x is AccessRuleException => x !== null,
+      );
+    if (except.length > 0) out.except = except;
+  }
+  return out;
+}
+
+function parseAccessRuleItems(raw: any): AccessRuleItem[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const items = raw
+    .map(parseAccessRuleItem)
+    .filter((x: AccessRuleItem | null): x is AccessRuleItem => x !== null);
+  return items.length > 0 ? items : undefined;
+}
+
+function parseAccessRule(raw: any, domainId: string): AccessRuleRecord | null {
+  if (!raw || typeof raw !== "object") return null;
+  const target = raw.target;
+  if (
+    target !== "entity" &&
+    target !== "action" &&
+    target !== "linkage" &&
+    target !== "any_entity" &&
+    target !== "any_action" &&
+    target !== "any_linkage"
+  ) {
+    return null;
+  }
+
+  const out: AccessRuleRecord = {
+    domainId,
+    target: target as AccessRuleTarget,
+  };
+
+  if (target === "entity" && typeof raw.entity === "string") {
+    const fqid = normalizeFqid(raw.entity, domainId);
+    if (fqid) out.entity = fqid;
+  }
+  if (target === "linkage" && typeof raw.linkage === "string") {
+    const fqid = normalizeFqid(raw.linkage, domainId);
+    if (fqid) out.linkage = fqid;
+  }
+  if (target === "action") {
+    // Zod: d = {target:"action"}.merge(Action), поля как у Action (id, name, …).
+    if (typeof raw.id === "string" && raw.id) out.actionId = raw.id;
+  }
+
+  // scope
+  if (
+    target === "entity" ||
+    target === "linkage" ||
+    target === "any_entity" ||
+    target === "any_linkage"
+  ) {
+    out.create = parseAccessRuleItems(raw.create);
+    out.delete = parseAccessRuleItems(raw.delete);
+    out.edit = parseAccessRuleItems(raw.edit);
+    out.view = parseAccessRuleItems(raw.view);
+  } else {
+    // action / any_action
+    out.launch = parseAccessRuleItems(raw.launch);
+  }
+
+  return out;
+}
+
+// ============ Localizations ============
+
+function parseLocalizationKey(raw: any): LocalizationKeyRecord | null {
+  if (!raw || typeof raw !== "object") return null;
+  if (typeof raw.key !== "string" || !raw.key) return null;
+  if (typeof raw.to !== "string") return null;
+  const out: LocalizationKeyRecord = { key: raw.key, to: raw.to };
+  if (raw.ordinal && typeof raw.ordinal === "object") {
+    const ord: NonNullable<LocalizationKeyRecord["ordinal"]> = {};
+    for (const k of ["zero", "one", "two", "few", "many", "other"] as const) {
+      if (typeof raw.ordinal[k] === "string") ord[k] = raw.ordinal[k];
+    }
+    if (Object.keys(ord).length > 0) out.ordinal = ord;
+  }
+  return out;
+}
+
+function parseLocalization(
+  raw: any,
+  domainId: string,
+): LocalizationRecord | null {
+  if (!raw || typeof raw !== "object") return null;
+  if (typeof raw.language !== "string" || !raw.language) return null;
+  if (!Array.isArray(raw.keys)) return null;
+  const keys = raw.keys
+    .map(parseLocalizationKey)
+    .filter(
+      (x: LocalizationKeyRecord | null): x is LocalizationKeyRecord =>
+        x !== null,
+    );
+  if (keys.length === 0) return null;
+  return { domainId, language: raw.language, keys };
+}
 // ============ Главная функция ============
 
 // ============ UI Rules / Presets ============
@@ -826,6 +1975,23 @@ function parseUiRule(raw: any, domainId: string): UiRuleRecord | null {
     ? raw.rule.presets.map(String)
     : [];
 
+  // ============ context.data ============
+  let contextData: UiRuleRecord["contextData"];
+  const rawCtxData = raw.context?.data;
+  if (rawCtxData && typeof rawCtxData === "object") {
+    const dataType: "entity" | "linkage" =
+      rawCtxData.type === "linkage" ? "linkage" : "entity";
+    contextData = { type: dataType };
+    if (dataType === "entity" && typeof rawCtxData.entity === "string") {
+      const fqid = normalizeFqid(rawCtxData.entity, domainId);
+      if (fqid) contextData.entity = fqid;
+    }
+    if (dataType === "linkage" && typeof rawCtxData.linkage === "string") {
+      const fqid = normalizeFqid(rawCtxData.linkage, domainId);
+      if (fqid) contextData.linkage = fqid;
+    }
+  }
+
   return {
     id: String(raw.id),
     domainId,
@@ -836,6 +2002,7 @@ function parseUiRule(raw: any, domainId: string): UiRuleRecord | null {
     contextViews: Array.isArray(raw.context?.views)
       ? raw.context.views.map(String)
       : [],
+    contextData,
     condition: String(raw.condition || ""),
     effect: String(raw.rule?.effect || ""),
     widgets,
@@ -1112,6 +2279,17 @@ function collectViewElements(
       if (Array.isArray(view.actionPanel)) {
         for (const ap of view.actionPanel) {
           if (!ap || typeof ap !== "object") continue;
+          // ============ Плоская ссылка: - widget: buttons_createIoc ============
+          // (list-view / tree-view / page actionPanel)
+          if (
+            typeof ap.widget === "string" &&
+            ap.widget &&
+            !ap.widget.startsWith("external:")
+          ) {
+            addWidget(ap.widget, "action", "");
+            continue;
+          }
+          // ============ Inline-объект (mixin change.add) ============
           if (isInlineWidgetObject(ap.widget)) {
             const wid = String(ap.widget.id);
             let desc = String(ap.widget.description || "").trim();
@@ -1163,6 +2341,9 @@ export function buildModelIndex(rawDomains: RawDomainEntry[]): ModelIndex {
   const rawDomainsById = new Map<string, RawDomainEntry>();
   rawDomains.forEach((d) => rawDomainsById.set(d.id, d));
 
+  // Generic-секции — минимальные снимки для semantic-diff.
+  const genericSections = collectGenericSections(rawDomains);
+
   const entities: EntityRecord[] = [];
   const entitiesByFqid: Record<string, EntityRecord> = {};
   const mixins: MixinRecord[] = [];
@@ -1177,6 +2358,14 @@ export function buildModelIndex(rawDomains: RawDomainEntry[]): ModelIndex {
     string,
     Record<string, ViewElementsRecord>
   > = {};
+  const dataRules: DataRuleRecord[] = [];
+  const trees: TreeRecord[] = [];
+  const transitiveLinkages: TransitiveLinkageRecord[] = [];
+  const menus: MenuRecord[] = [];
+  const medias: MediaRecord[] = [];
+  const permissions: PermissionRecord[] = [];
+  const accessRules: AccessRuleRecord[] = [];
+  const localizations: LocalizationRecord[] = [];
 
   // Проход 1: собрать все кастомные dataTypes IDs (для классификации атрибутов)
   const customDataTypeIdsByDomain = new Map<string, Set<string>>();
@@ -1284,6 +2473,70 @@ export function buildModelIndex(rawDomains: RawDomainEntry[]): ModelIndex {
     }
 
     schemasByDomain[d.id] = buildDomainSchemaSummary(d.id, raw);
+
+    // ============ DataRules ============
+    if (Array.isArray(raw.dataRules)) {
+      raw.dataRules.forEach((r: any) => {
+        const rec = parseDataRule(r, d.id);
+        if (rec) dataRules.push(rec);
+      });
+    }
+
+    // ============ Trees ============
+    if (Array.isArray(raw.trees)) {
+      raw.trees.forEach((t: any) => {
+        const rec = parseTree(t, d.id);
+        if (rec) trees.push(rec);
+      });
+    }
+
+    // ============ TransitiveLinkages ============
+    if (Array.isArray(raw.transitiveLinkages)) {
+      raw.transitiveLinkages.forEach((tl: any) => {
+        const rec = parseTransitiveLinkage(tl, d.id);
+        if (rec) transitiveLinkages.push(rec);
+      });
+    }
+
+    // ============ Menus ============
+    if (Array.isArray(raw.menus)) {
+      raw.menus.forEach((m: any) => {
+        const rec = parseMenu(m, d.id);
+        if (rec) menus.push(rec);
+      });
+    }
+
+    // ============ Medias ============
+    if (Array.isArray(raw.medias)) {
+      raw.medias.forEach((m: any) => {
+        const rec = parseMedia(m, d.id);
+        if (rec) medias.push(rec);
+      });
+    }
+
+    // ============ Permissions ============
+    if (Array.isArray(raw.permissions)) {
+      raw.permissions.forEach((p: any) => {
+        const rec = parsePermission(p, d.id);
+        if (rec) permissions.push(rec);
+      });
+    }
+
+    // ============ AccessRules ============
+    if (Array.isArray(raw.accessRules)) {
+      raw.accessRules.forEach((r: any) => {
+        const rec = parseAccessRule(r, d.id);
+        if (rec) accessRules.push(rec);
+      });
+    }
+
+    // ============ Localizations ============
+    if (Array.isArray(raw.localizations)) {
+      raw.localizations.forEach((loc: any) => {
+        const rec = parseLocalization(loc, d.id);
+        if (rec) localizations.push(rec);
+      });
+    }
   });
 
   const scenarios: ScenarioRecord[] = Array.from(scenarioMap.values());
@@ -1346,7 +2599,8 @@ export function buildModelIndex(rawDomains: RawDomainEntry[]): ModelIndex {
 
   const entityLinkages: EntityLinkage[] = [];
   const domains: DomainMeta[] = rawDomains.map((d) => {
-    entityLinkages.push(...parseEntityLinkages(d.id, d.rawData));
+    const customIds = customDataTypeIdsByDomain.get(d.id) || new Set<string>();
+    entityLinkages.push(...parseEntityLinkages(d.id, d.rawData, customIds));
 
     return {
       id: d.id,
@@ -1385,6 +2639,21 @@ export function buildModelIndex(rawDomains: RawDomainEntry[]): ModelIndex {
     attributesByNormalizedName,
     attributesByDataType,
     stats,
+    dataRules,
+    dataRulesById: dataRules.reduce<Record<string, DataRuleRecord>>(
+      (acc, r) => {
+        acc[`${r.domainId}#${r.id}`] = r;
+        return acc;
+      },
+      {},
+    ),
+    trees,
+    transitiveLinkages,
+    menus,
+    medias,
+    permissions,
+    accessRules,
+    localizations,
   } as ModelIndex;
 
   const lintReport = lintModel(partialIndex);
@@ -1396,6 +2665,7 @@ export function buildModelIndex(rawDomains: RawDomainEntry[]): ModelIndex {
     ...partialIndex,
     scenarios,
     scenariosById,
+    genericSections,
     orphans,
     martin,
     pii,

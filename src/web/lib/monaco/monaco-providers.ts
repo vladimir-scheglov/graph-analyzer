@@ -12,6 +12,31 @@ import type {
   ViewElementRef,
 } from "../../../shared/model-types";
 
+/**
+ * Системные атрибуты, доступные для reference-полей
+ * (sorting, searching, projection, identification, reconciliation,
+ *  attribute-виджеты, колонки таблиц).
+ * Источник: «Системные атрибуты» из «Структура схемы домена».
+ */
+const SYSTEM_ATTRIBUTES_FOR_COMPLETION: Array<{
+  id: string;
+  dataType: string;
+  description: string;
+}> = [
+  { id: "id",             dataType: "Uuid",      description: "Идентификатор объекта" },
+  { id: "label",          dataType: "String",    description: "Лейбл объекта (человекочитаемый)" },
+  { id: "version",        dataType: "Integer",   description: "Версия объекта" },
+  { id: "createdAt",      dataType: "Timestamp", description: "Дата создания" },
+  { id: "createdBy",      dataType: "Reference", description: "Создатель" },
+  { id: "updatedAt",      dataType: "Timestamp", description: "Дата изменения" },
+  { id: "updatedBy",      dataType: "Reference", description: "Изменивший" },
+  { id: "organizationId", dataType: "Reference", description: "Организация" },
+  { id: "tenantId",       dataType: "Reference", description: "Тенант" },
+  { id: "domainId",       dataType: "String",    description: "Идентификатор домена" },
+  { id: "entityId",       dataType: "String",    description: "Идентификатор сущности" },
+  { id: "entityName",     dataType: "String",    description: "Название сущности" },
+];
+
 // ============ Принудительное раскрытие details в suggest-widget ============
 // В Monaco 0.52.2 виджет suggestion создаётся лениво (при первом показе),
 // а опция `showDetails` только разрешает показать панель, не разворачивая её.
@@ -5027,10 +5052,7 @@ const SNIPPETS: SnippetDef[] = [
  * возвращает `null`, и дальнейшая логика `detectContextAtPosition`
  * обрабатывает их как раньше.
  */
-function detectArrayItemContext(
-  model: any,
-  position: any,
-): string | null {
+function detectArrayItemContext(model: any, position: any): string | null {
   const lineText = model.getLineContent(position.lineNumber);
   const beforeCursor = lineText.slice(0, position.column - 1);
 
@@ -5766,6 +5788,19 @@ function cachedAttributes(): RefSuggestion[] {
   const cur = (ctx.currentDomainId || "").toLowerCase();
   const seen = new Set<string>();
   const out: RefSuggestion[] = [];
+
+  // ============ Системные атрибуты — всегда доступны ============
+  SYSTEM_ATTRIBUTES_FOR_COMPLETION.forEach((sys) => {
+    seen.add(sys.id);
+    out.push({
+      label: sys.id,
+      insertText: " " + sys.id,
+      kind: 0,
+      sortText: "0_" + sys.id,
+      detail: sys.dataType,
+      documentation: sys.description + " · системный",
+    });
+  });
 
   const mkDoc = (a: any, contextLabel: string) => {
     const parts: string[] = [];
@@ -7122,12 +7157,19 @@ export function registerMonacoProviders(monaco: any): void {
         // ---------- entity refs ----------
         case "iconColor": {
           if (vctx.container === "graphView") {
-            return r(model, position, ["iconColor"],
-              mkSimple(
-                GRAPH_VIEW_COLORS.map(([c]) => c),
-                Kind.EnumMember,
-                GRAPH_VIEW_COLOR_LABELS,
-              ), Kind) || { suggestions: [] };
+            return (
+              r(
+                model,
+                position,
+                ["iconColor"],
+                mkSimple(
+                  GRAPH_VIEW_COLORS.map(([c]) => c),
+                  Kind.EnumMember,
+                  GRAPH_VIEW_COLOR_LABELS,
+                ),
+                Kind,
+              ) || { suggestions: [] }
+            );
           }
           return { suggestions: [] };
         }
@@ -7816,7 +7858,6 @@ export function applyEnumFieldMarkers(monaco: any, model: any): void {
         }
       }
 
-
       if (!expected || expected.includes(value)) continue;
 
       markers.push({
@@ -8058,32 +8099,52 @@ export function applyDataTypeMarkers(
       }
     });
 
-    let section = "";
     let inDataTypesSection = false;
+    let dashIndent = -1;
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
 
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+
+      // Секция верхнего уровня — только indent 0 (без "  - attributes:")
       const sectionM = line.match(/^([a-zA-Z_][\w]*)\s*:/);
       if (sectionM) {
-        section = sectionM[1];
-        inDataTypesSection = section === "dataTypes";
+        inDataTypesSection = sectionM[1] === "dataTypes";
+        dashIndent = -1;
         continue;
       }
 
+      if (!inDataTypesSection) continue;
+
+      // Базовый indent "- " для элементов dataTypes[] (запоминаем по первому " - ")
+      if (dashIndent === -1) {
+        const dashM = line.match(/^(\s*)-\s+\S/);
+        if (dashM) dashIndent = dashM[1].length;
+      }
+
       const dtMatch = line.match(
-        /^(\s*)(?:-\s+)?dataType\s*:\s*["']?([\w.-]+)["']?\s*(?:#.*)?$/,
+        /^(\s*)(?:-\s+)?dataType\s*:\s*["']?([\w./-]+)["']?\s*(?:#.*)?$/,
       );
       if (!dtMatch) continue;
 
+      const dtIndent = dtMatch[1].length;
       const value = dtMatch[2];
-      const valueStartInLine = line.indexOf(value, dtMatch[1].length);
+      const valueStartInLine = line.indexOf(value, dtIndent);
       if (valueStartInLine < 0) continue;
       const startCol = valueStartInLine + 1;
       const endCol = startCol + value.length;
 
-      // Внутри dataTypes[] — только Enum / Table / Workflow
-      if (inDataTypesSection) {
+      // Верхний уровень элемента dataTypes[]?
+      // "  - dataType: Table"  → dtIndent === dashIndent
+      // "    dataType: Table"  → dtIndent === dashIndent + 2
+      // "        dataType: String" (внутри attributes) → глубже → не top-level
+      const isTopLevel =
+        dashIndent !== -1 &&
+        (dtIndent === dashIndent || dtIndent === dashIndent + 2);
+
+      if (isTopLevel) {
         if (!["Enum", "Table", "Workflow"].includes(value)) {
           markers.push({
             severity: monaco.MarkerSeverity.Error,
@@ -9112,147 +9173,175 @@ function scanEntities(
   markers: any[],
   monaco: any,
 ): void {
-  // ============ 1. Собираем блоки сущностей ============
+  // ============ 1. Определяем indent "- " верхнего уровня (сущностей) ============
+  let entityDashIndent = -1;
+  for (let i = startIdx; i < endIdx; i++) {
+    const line = lines[i];
+    if (!line.trim() || line.trim().startsWith("#")) continue;
+    const dashM = line.match(/^(\s*)-\s+\S/);
+    if (!dashM) continue;
+    const indent = dashM[1].length;
+    if (entityDashIndent === -1 || indent < entityDashIndent) {
+      entityDashIndent = indent;
+    }
+  }
+  if (entityDashIndent === -1) return;
+
+  // Поля сущности идут либо как "- id: X" на entityDashIndent,
+  // либо как "id: X" на entityDashIndent + 2.
+  const fieldIndent = entityDashIndent + 2;
+
   interface EntityBlock {
     id: string;
     idLine: number;
-    idIndent: number;
-    attrsStartIdx: number; // 0-based внутри attrs
-    attrsEndIdx: number;
-    attrBlocks: Array<{ id: string; idLine: number; idIndent: number }>;
+    attrIdList: Array<{ id: string; idLine: number; idIndent: number }>;
   }
-
   const entityBlocks: EntityBlock[] = [];
-
-  // Ищем `- id: <EntityId>` на минимальном indent
-  let entityIndent = -1;
-  for (let i = startIdx; i < endIdx; i++) {
-    const m = lines[i].match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
-    if (m) {
-      entityIndent = m[1].length;
-      break;
-    }
-  }
-  if (entityIndent < 0) return;
 
   let i = startIdx;
   while (i < endIdx) {
-    const em = lines[i].match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
-    if (!em || em[1].length !== entityIndent) {
+    const line = lines[i];
+    if (!line.trim() || line.trim().startsWith("#")) {
       i++;
       continue;
     }
-    const entityId = em[2].replace(/["']/g, "");
-    const idLine = i + 1;
-    const idIndent = em[1].length;
 
-    // Находим конец блока сущности
-    let blockEnd = i + 1;
+    const dashM = line.match(/^(\s*)-\s+\S/);
+    if (!dashM || dashM[1].length !== entityDashIndent) {
+      i++;
+      continue;
+    }
+
+    // Границы сущности — до следующего "- " с тем же indent
+    let entityEnd = endIdx;
     for (let k = i + 1; k < endIdx; k++) {
       const l = lines[k];
-      if (!l.trim()) {
-        blockEnd = k + 1;
-        continue;
-      }
-      const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
-      if (lIndent <= idIndent && /^(\s*)-\s+id\s*:/.test(l)) {
-        blockEnd = k;
+      if (!l.trim() || l.trim().startsWith("#")) continue;
+      const d = l.match(/^(\s*)-\s+\S/);
+      if (d && d[1].length === entityDashIndent) {
+        entityEnd = k;
         break;
       }
-      if (lIndent === 0) {
-        blockEnd = k;
-        break;
-      }
-      blockEnd = k + 1;
     }
 
-    // Ищем attributes: внутри блока
-    let attrsStartIdx = -1;
-    let attrsEndIdx = blockEnd;
-    let attrsIndent = -1;
-    for (let k = i + 1; k < blockEnd; k++) {
+    // id сущности: "- id: X" на entityDashIndent или "id: X" на fieldIndent
+    let entityId: string | null = null;
+    let entityIdLine = -1;
+    for (let k = i; k < entityEnd; k++) {
       const l = lines[k];
-      const m = l.match(/^(\s*)attributes\s*:\s*$/);
-      if (m) {
-        attrsStartIdx = k;
-        attrsIndent = m[1].length;
-        // Находим конец attributes:
-        for (let n = k + 1; n < blockEnd; n++) {
-          const nl = lines[n];
-          if (!nl.trim()) {
-            attrsEndIdx = n + 1;
-            continue;
-          }
-          const nIndent = (nl.match(/^(\s*)/) || ["", ""])[1].length;
-          if (nIndent <= attrsIndent) {
-            attrsEndIdx = n;
-            break;
-          }
-          attrsEndIdx = n + 1;
-        }
+      if (!l.trim() || l.trim().startsWith("#")) continue;
+
+      const dashIdM = l.match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
+      if (dashIdM && dashIdM[1].length === entityDashIndent) {
+        entityId = dashIdM[2].replace(/["']/g, "");
+        entityIdLine = k + 1;
+        break;
+      }
+      const idM = l.match(/^(\s*)id\s*:\s*([^\s#]+)/);
+      if (idM && idM[1].length === fieldIndent) {
+        entityId = idM[2].replace(/["']/g, "");
+        entityIdLine = k + 1;
         break;
       }
     }
+    if (!entityId) {
+      i = entityEnd;
+      continue;
+    }
 
-    // Собираем блоки `- id:` внутри attributes (без вложенных в item/constraints)
-    const attrBlocks: Array<{ id: string; idLine: number; idIndent: number }> =
-      [];
-    if (attrsStartIdx >= 0) {
-      // Определяем base indent первого `- id:` в attributes
-      let baseAttrIndent = -1;
-      for (let k = attrsStartIdx + 1; k < attrsEndIdx; k++) {
-        const m = lines[k].match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
-        if (m) {
-          baseAttrIndent = m[1].length;
+    // attributes: на fieldIndent (или "- attributes:" на entityDashIndent)
+    let attributesLine = -1;
+    let attributesEnd = entityEnd;
+    for (let k = i + 1; k < entityEnd; k++) {
+      const l = lines[k];
+      const am = l.match(/^(\s*)(-\s+)?attributes\s*:\s*$/);
+      if (!am) continue;
+      const beforeIndent = am[1].length;
+      const hasDash = !!am[2];
+      const ok = hasDash
+        ? beforeIndent === entityDashIndent
+        : beforeIndent === fieldIndent;
+      if (!ok) continue;
+      attributesLine = k;
+      for (let n = k + 1; n < entityEnd; n++) {
+        const nl = lines[n];
+        if (!nl.trim()) continue;
+        const nIndent = (nl.match(/^(\s*)/) || ["", ""])[1].length;
+        if (nIndent <= fieldIndent) {
+          attributesEnd = n;
           break;
         }
       }
-      if (baseAttrIndent >= 0) {
-        // Игнорируем вложенные constraints[].id и item
-        let skipUntilIndent = -1;
-        for (let k = attrsStartIdx + 1; k < attrsEndIdx; k++) {
+      break;
+    }
+
+    // Собираем "- " элементы внутри attributes[]
+    const attrIdList: Array<{ id: string; idLine: number; idIndent: number }> =
+      [];
+    if (attributesLine >= 0) {
+      let attrDashIndent = -1;
+      for (let k = attributesLine + 1; k < attributesEnd; k++) {
+        const l = lines[k];
+        if (!l.trim() || l.trim().startsWith("#")) continue;
+        const d = l.match(/^(\s*)-\s+\S/);
+        if (d) {
+          attrDashIndent = d[1].length;
+          break;
+        }
+      }
+
+      if (attrDashIndent > fieldIndent) {
+        const attrFieldIndent = attrDashIndent + 2;
+        for (let k = attributesLine + 1; k < attributesEnd; k++) {
           const l = lines[k];
-          if (!l.trim()) continue;
-          const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
+          if (!l.trim() || l.trim().startsWith("#")) continue;
+          const d = l.match(/^(\s*)-\s+\S/);
+          if (!d || d[1].length !== attrDashIndent) continue;
 
-          // Если это контейнер внутри атрибута — не пускаем id глубже
-          if (skipUntilIndent >= 0) {
-            if (lIndent > skipUntilIndent) continue;
-            skipUntilIndent = -1;
+          // Границы атрибута — до следующего "- " на attrDashIndent
+          let attrEnd = attributesEnd;
+          for (let n = k + 1; n < attributesEnd; n++) {
+            const nl = lines[n];
+            if (!nl.trim() || nl.trim().startsWith("#")) continue;
+            const nd = nl.match(/^(\s*)-\s+\S/);
+            if (nd && nd[1].length === attrDashIndent) {
+              attrEnd = n;
+              break;
+            }
           }
 
-          // Внутри атрибута: как только встречаем constraints:/item:/calculation:/prefixRules:
-          // на indent > baseAttrIndent, ставим флаг до возврата на base
-          if (
-            lIndent > baseAttrIndent &&
-            /^\s*(constraints|item|calculation|prefixRules)\s*:/.test(l)
-          ) {
-            skipUntilIndent = lIndent;
-            continue;
+          // id: "- id: X" на attrDashIndent или "id: X" на attrFieldIndent
+          let attrId: string | null = null;
+          let attrIdLine = -1;
+          for (let n = k; n < attrEnd; n++) {
+            const nl = lines[n];
+            const dashIdM = nl.match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
+            if (dashIdM && dashIdM[1].length === attrDashIndent) {
+              attrId = dashIdM[2].replace(/["']/g, "");
+              attrIdLine = n + 1;
+              break;
+            }
+            const idM = nl.match(/^(\s*)id\s*:\s*([^\s#]+)/);
+            if (idM && idM[1].length === attrFieldIndent) {
+              attrId = idM[2].replace(/["']/g, "");
+              attrIdLine = n + 1;
+              break;
+            }
           }
-
-          const m = l.match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
-          if (!m) continue;
-          if (m[1].length !== baseAttrIndent) continue;
-          attrBlocks.push({
-            id: m[2].replace(/["']/g, ""),
-            idLine: k + 1,
-            idIndent: m[1].length,
-          });
+          if (attrId) {
+            attrIdList.push({
+              id: attrId,
+              idLine: attrIdLine,
+              idIndent: attrDashIndent,
+            });
+          }
+          k = attrEnd - 1;
         }
       }
     }
 
-    entityBlocks.push({
-      id: entityId,
-      idLine,
-      idIndent,
-      attrsStartIdx,
-      attrsEndIdx,
-      attrBlocks,
-    });
-
-    i = blockEnd;
+    entityBlocks.push({ id: entityId, idLine: entityIdLine, attrIdList });
+    i = entityEnd;
   }
 
   // ============ 2.0. Уникальность entity.id в домене ============
@@ -9266,9 +9355,7 @@ function scanEntities(
     for (const line of idLines) {
       markers.push({
         severity: monaco.MarkerSeverity.Error,
-        message:
-          `Дубликат entity.id «${entityId}» в домене ` +
-          `(строки ${idLines.join(", ")})`,
+        message: `Дубликат entity.id «${entityId}» в домене (строки ${idLines.join(", ")})`,
         startLineNumber: line,
         startColumn: 1,
         endLineNumber: line,
@@ -9278,11 +9365,10 @@ function scanEntities(
     }
   }
 
-  // ============ 2. Проверки ============
+  // ============ 2.1. Уникальность attribute.id ВНУТРИ сущности ============
   for (const eb of entityBlocks) {
-    // 2.1 Уникальность id внутри сущности
-    const seen = new Map<string, number[]>(); // id → [line, line, ...]
-    for (const a of eb.attrBlocks) {
+    const seen = new Map<string, number[]>();
+    for (const a of eb.attrIdList) {
       if (!seen.has(a.id)) seen.set(a.id, []);
       seen.get(a.id)!.push(a.idLine);
     }
@@ -9291,9 +9377,7 @@ function scanEntities(
       for (const line of idLines) {
         markers.push({
           severity: monaco.MarkerSeverity.Error,
-          message:
-            `Дубликат attribute.id «${attrId}» в сущности «${eb.id}» ` +
-            `(строки ${idLines.join(", ")})`,
+          message: `Дубликат attribute.id «${attrId}» в сущности «${eb.id}» (строки ${idLines.join(", ")})`,
           startLineNumber: line,
           startColumn: 1,
           endLineNumber: line,
@@ -9303,16 +9387,14 @@ function scanEntities(
       }
     }
 
-    // 2.2 Системные имена
-    for (const a of eb.attrBlocks) {
+    // ============ 2.2. Системные имена ============
+    for (const a of eb.attrIdList) {
       if (!SYSTEM_ATTRIBUTE_IDS.has(a.id)) continue;
       const line = lines[a.idLine - 1];
       const startCol = line.indexOf(a.id) + 1;
       markers.push({
         severity: monaco.MarkerSeverity.Error,
-        message:
-          `Идентификатор «${a.id}» зарезервирован системным атрибутом. ` +
-          `Выберите другое имя.`,
+        message: `Идентификатор «${a.id}» зарезервирован системным атрибутом. Выберите другое имя.`,
         startLineNumber: a.idLine,
         startColumn: startCol > 0 ? startCol : 1,
         endLineNumber: a.idLine,

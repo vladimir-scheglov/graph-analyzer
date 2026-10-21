@@ -954,10 +954,19 @@ export function YamlViewerModal() {
         if (!m || !model) return;
 
         const currentText = model.getValue();
+        const isDirty = content !== savedContent;
         const markers = domainIssues
             .filter((issue) => severityFilter.has(issue.severity))
             .filter((issue) => !isIgnored(issue, ignored))
-            .filter((issue) => isIssueStillPresent(issue, currentText, lineMap))
+            .filter((issue) => {
+                // ============ Серверный линтер соответствует сохранённому YAML ============
+                // Пока пользователь редактирует (dirty), dg-linter-issues могут быть
+                // устаревшими. Показываем только те, что isIssueStillPresent
+                // локально подтверждает по актуальному тексту.
+                // После сохранения (content === savedContent) доверяем серверу.
+                if (!isDirty) return true;
+                return isIssueStillPresent(issue, currentText, lineMap);
+            })
             .map((issue) => {
                 const line = findIssueLine(issue, lineMap);
                 if (line == null) return null;
@@ -1021,7 +1030,7 @@ export function YamlViewerModal() {
         return () => {
             try { m.editor.setModelMarkers(model, 'dg-linter', []); } catch { }
         };
-    }, [monacoReady, editorCreated, lineMap, domainIssues, isLocked, content, severityFilter]);
+    }, [monacoReady, editorCreated, lineMap, domainIssues, isLocked, content, severityFilter, savedContent]);
 
     // ============ Jump ============
     const jumpTo = useCallback((line: number) => {
@@ -1559,6 +1568,19 @@ export function YamlViewerModal() {
             entitiesSection.nodes.forEach((entityNode) => {
                 if (!entityNode.children) return;
                 entityNode.children.forEach((attrNode) => {
+                    // ============ Декорация применима только к настоящим атрибутам ============
+                    // collectChildren() присваивает type = containerName.replace(/s$/, ""):
+                    //   attributes[]        → "attribute"     ← подсвечиваем
+                    //   attributes[].…     → "attribute"     ← подсвечиваем (Table/Array)
+                    //   sorting[]          → "sorting"       ← пропускаем
+                    //   searching[]        → "searching"     ← пропускаем
+                    //   identification[]   → "identification"← пропускаем
+                    //   reconciliation[]   → "reconciliation"← пропускаем
+                    //   prefixRules[]      → "prefixRule"    ← пропускаем
+                    //   treeNode.types[]   → "types" / "type"← пропускаем
+                    //   views[].views[]    → "view" / "views"← пропускаем
+                    if (attrNode.type !== "attribute") return;
+
                     const attrId = attrNode.id;
                     const escaped = attrId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -2838,7 +2860,13 @@ function isIssueStillPresent(
         return true;
     }
 
-    return true;
+    // ============ Прочие правила (reference/*, semantic/*, validation/*,
+    //   uirules/*, identifier/*, calculation/*, workflow/*, …) ============
+    // Локально подтвердить «исправлено/не исправлено» нельзя без пересборки
+    // ModelIndex. Пока контент «грязный» (content !== savedContent) — скрываем
+    // маркеры этих правил. После сохранения серверный lintReport будет
+    // пересчитан, и isDirty=false → фильтр отключится.
+    return false;
 }
 
 function findIssueLine(issue: any, lineMap: LineMap | null): number | null {

@@ -6,6 +6,32 @@ import { PiiReport } from "./pii-types";
 
 export type DataTypeKind = "base" | "custom" | "unknown";
 
+// ============ Generic sections (dataRules, uiRules, views, …) ============
+
+export interface GenericSnapshotEntry {
+  id: string;
+  domainId: string;
+  /** FNV-1a hash от JSON.stringify(rawItem) — для диффа. */
+  hash: string;
+  /** Для UI. */
+  label?: string;
+  /** Для UI (type/kind/target). */
+  type?: string;
+}
+
+export interface GenericDiffEntry {
+  id: string;
+  domainId: string;
+  label?: string;
+  type?: string;
+}
+
+export interface GenericSectionDiff {
+  added: GenericDiffEntry[];
+  removed: GenericDiffEntry[];
+  changed: GenericDiffEntry[];
+}
+
 export interface AttributeRecord {
   /** Локальный id атрибута (в рамках сущности). */
   id: string;
@@ -38,9 +64,67 @@ export interface AttributeRecord {
   usedInViews: number;
   /** Сколько раз атрибут упомянут в dataRules[]. */
   usedInRules: number;
+
+  /** readonly (в схеме) */
+  readonly?: boolean;
+  /** searchable (по умолчанию true; только для linkage-атрибутов) */
+  searchable?: boolean;
+  /** Для Calculation — обязательные schemaId/id. */
+  calculation?: { schemaId: string; id: string };
+  /** Для Text — разрешить комментарии. */
+  comments?: boolean;
+  /** Для Table — максимальное число строк. */
+  maxRows?: number;
+  /** Для Array<...> — constraint-виды элемента. */
+  itemConstraints?: string[];
+
+  /** Для Identifier — сегментированный идентификатор. */
+  template?: string;
+  segment?: string[];
+  defaultPrefix?: string;
+  prefixRules?: PrefixRuleRecord[];
+  incrementTemplate?: string;
+  /** Для Identifier — несегментированный (FQID sequences[]). */
+  sequence?: string;
+}
+
+export interface PrefixRuleRecord {
+  id: string;
+  attribute: string;
+  source: { entity: string; key: string; value: string };
 }
 
 // ============ Сущность ============
+
+export interface EntitySortingRecord {
+  id: string;
+  by: Array<{ attribute: string; direction: "asc" | "desc" }>;
+}
+
+export interface EntityIdentificationRule {
+  attribute?: string;
+  and?: EntityIdentificationRule[];
+  or?: EntityIdentificationRule[];
+}
+
+export interface EntityIdentificationRecord {
+  id: string;
+  rule: EntityIdentificationRule[];
+  filter?: string[];
+}
+
+export interface EntityReconciliationRecord {
+  attribute?: string;
+  sourcePriority?: string[];
+  default?: string[];
+  mergeStrategy?: string;
+}
+
+export interface EntityBindRecord {
+  external: string;
+  internal: string;
+  aliases?: Array<{ external: string; internal: string }>;
+}
 
 export interface EntityRecord {
   /** "domain.tld/entityid" — lowercase, ключ. */
@@ -72,6 +156,28 @@ export interface EntityRecord {
   domainTags: string[];
   domainVersion: string;
   domainAuthor: string;
+
+  sorting?: EntitySortingRecord[];
+  identification?: EntityIdentificationRecord[];
+  reconciliation?: EntityReconciliationRecord[];
+  projection?: Array<{ attribute: string }>;
+  searching?: Array<{ attribute: string }>;
+  treeNode?: { types: Array<{ type: string; of?: string[] }> };
+  externals?: { entities: string[]; type: "composition" | "selection" };
+  elementOf?: string | null;
+  extends?: string | null;
+  partOf?: string | null;
+  bind?: EntityBindRecord;
+  overrides?: Array<{
+    ancestors: string[];
+    attributes: Array<{ attribute: string; value?: any }>;
+  }>;
+  scanTarget?: boolean;
+  scanTargetGroup?: boolean;
+  createZeroRecord?: boolean;
+  icons?: string | null;
+  graphView?: { iconColor: string };
+  kind?: "regular" | "abstract" | "static";
 }
 
 // ============ Миксин ============
@@ -84,6 +190,11 @@ export interface MixinRecord {
 
   /** FQID сущности, к которой применяется. */
   targetEntityFqid: string;
+
+  /** Для type: "linkage" — FQID источника (entity.from). */
+  sourceEntityFqid?: string;
+  /** Для type: "linkage" — FQID связи, на основе которой строится примесь. */
+  linkageFqid?: string;
 
   /** ID view, из которого берутся компоненты (fromView). */
   sourceViewId: string;
@@ -101,6 +212,12 @@ export interface MixinRecord {
   addedTabs: string[];
   addedComponents: string[];
   addedBlocks: string[];
+  /** Наследовать примесь дочерним сущностям (по умолчанию true). */
+  useForChild: boolean;
+  /** Показывать историю примешанного объекта в целевом (по умолчанию false). */
+  showMixinInHistory: boolean;
+  /** Приоритет примеси (меньше — выше). undefined = «наименьший». */
+  weight?: number;
 
   description: string;
 }
@@ -195,6 +312,12 @@ export interface UiRuleRecord {
   target: UiRuleTarget | string;
   view: string;
   contextViews: string[];
+  /** Контекст данных правила (entity | linkage). */
+  contextData?: {
+    type: "entity" | "linkage";
+    entity?: string;
+    linkage?: string;
+  };
   condition: string;
   effect: UiRuleEffect | string;
   widgets: UiRuleWidgetRef[];
@@ -257,6 +380,7 @@ export interface ModelStats {
       | "mixin-target"
       | "mixin-source";
   }>;
+  /** Атрибуты, не упомянутые ни в views, ни в dataRules (мёртвый код). */
   attributesWithoutViews: Array<{
     key: string;
     entityFqid: string;
@@ -306,6 +430,29 @@ export interface ModelIndex {
   uiPresets: UiPresetRecord[];
   uiPresetsByDomain: Record<string, string[]>;
   viewElementsByDomain: Record<string, Record<string, ViewElementsRecord>>;
+
+  /** Правила данных (dataRules). */
+  dataRules: DataRuleRecord[];
+  dataRulesById: Record<string, DataRuleRecord>;
+  /** Деревья связей (trees). */
+  trees: TreeRecord[];
+  /** Транзитивные связи (transitiveLinkages). */
+  transitiveLinkages: TransitiveLinkageRecord[];
+  /** Меню домена (menus, только root-уровень). */
+  menus: MenuRecord[];
+  /** Иконки (medias). */
+  medias: MediaRecord[];
+
+  permissions: PermissionRecord[];
+  accessRules: AccessRuleRecord[];
+  localizations: LocalizationRecord[];
+ 
+  /**
+   * Минимальные снимки прочих секций YAML (dataRules, uiRules, uiPresets,
+   * views, menus, medias, trees, transitiveLinkages, permissions, localizations)
+   * для semantic-diff.
+   */
+  genericSections: Record<string, GenericSnapshotEntry[]>;
 
   // ===== Предвычисленные обратные индексы =====
   /** parentFqid → [childFqid]. */
@@ -369,6 +516,12 @@ export interface ModelSnapshot {
   mixins: SnapshotMixin[];
   dataTypes: SnapshotDataType[];
   sequences: SnapshotSequence[];
+
+  /**
+   * Опционально: старые снапшоты (до апгрейда) этого поля не имеют.
+   * При первом запуске новой версии все записи будут помечены как `added`.
+   */
+  genericSections?: Record<string, GenericSnapshotEntry[]>;
 }
 
 // ============ Semantic diff ============
@@ -432,6 +585,11 @@ export interface SemanticDiff {
    * Содержит ВСЕ домены, где что-то изменилось, включая только метаданные.
    */
   byDomain: DomainChangesSummary[];
+  /**
+   * Diff по прочим секциям. Ключ — sectionKey (dataRules, uiRules, …).
+   * Секции с пустым diff не включаются.
+   */
+  genericSections?: Record<string, GenericSectionDiff>;
   stats: {
     entitiesAdded: number;
     entitiesRemoved: number;
@@ -447,6 +605,10 @@ export interface SemanticDiff {
     domainsAdded: number;
     domainsRemoved: number;
     domainsChanged: number;
+    /** Суммарные счётчики по genericSections (для hasAnyChanges). */
+    genericAdded?: number;
+    genericRemoved?: number;
+    genericChanged?: number;
   };
 }
 
@@ -507,6 +669,9 @@ export interface DomainChangesSummary {
   dataTypesAdded: DiffDataTypeRef[];
   dataTypesRemoved: DiffDataTypeRef[];
 
+  /** Diff по generic-секциям в разрезе домена. */
+  generic?: Record<string, GenericSectionDiff>;
+
   totalChanges: number;
 }
 
@@ -531,6 +696,19 @@ export interface EntityLinkage {
   symmetric: boolean;
   /** true — ненаправленная связь (только для type: n_n). */
   undirected?: boolean;
+
+  /** Атрибуты связи (свои). */
+  attributes?: AttributeRecord[];
+  /** searching-атрибуты связи. */
+  searching?: Array<{ attribute: string }>;
+  sorting?: EntitySortingRecord[];
+  nameFrom?: { side1?: string; side2?: string };
+  view?: { iconColor?: string };
+  excludeOnGraph?: boolean | "off";
+  useForSearch?: boolean;
+  /** auto-only, если заданы — ругаемся. */
+  side1Descendants?: string[];
+  side2Descendants?: string[];
 }
 export interface DomainSchemaMetadata {
   id: string;
@@ -723,4 +901,244 @@ export interface ViewElementsRecord {
   widgetsWithType?: ViewElementRef[];
   groupsWithType?: ViewElementRef[];
   columnsWithType?: ViewElementRef[];
+}
+
+// ============ DataRules ============
+
+export type DataRuleTarget = "entity" | "entityAttribute" | "linkage";
+export type DataRuleEffect = "hidden" | "readonly" | "required" | "default" | "allowed";
+
+export interface DataRuleAttributeAction {
+  attribute: string;
+  constraint?: string;
+  expression?: string;
+  value?: any;
+  message?: string;
+  help?: string;
+}
+
+export interface DataRuleLinkageAction {
+  linkage: string;
+  side?: 1 | 2;
+  constraint?: string;
+  expression?: string;
+  min_count?: number;
+  max_count?: number;
+  message?: string;
+  help?: string;
+}
+
+export interface DataRuleNestedAttribute {
+  attribute: string;
+  constraint?: string;
+  expression?: string;
+  value?: any;
+  message?: string;
+  help?: string;
+}
+
+export interface DataRuleNestedItem {
+  item: number | "*";
+  constraint?: string;
+  expression?: string;
+  value?: any;
+  message?: string;
+  help?: string;
+}
+
+export type DataRuleNested =
+  | { type: "table"; attributes: DataRuleNestedAttribute[] }
+  | { type: "array"; items: DataRuleNestedItem[] };
+
+export interface DataRuleRecord {
+  id: string;
+  domainId: string;
+  name: string;
+  description: string;
+  target: DataRuleTarget;
+  /** FQID сущности для target: entity / entityAttribute. */
+  entity?: string;
+  /** Локальный id attribute-таблицы (для target: entityAttribute). */
+  attribute?: string;
+  /** FQID связи для target: linkage. */
+  linkage?: string;
+  /** true → «применять всегда», иначе RQL-строка. */
+  condition: string | boolean;
+  effect: DataRuleEffect;
+  attributes?: DataRuleAttributeAction[];
+  linkages?: DataRuleLinkageAction[];
+  nested?: DataRuleNested;
+  message?: string;
+  help?: string;
+}
+
+// ============ Trees ============
+
+export interface TreeHierarchyChild {
+  linkage: string;
+  entity: string;
+  side?: 1 | 2;
+  maxInstances?: number;
+  maxChildren?: number;
+  children?: TreeHierarchyChild[];
+}
+
+export interface TreeSortingBy {
+  entity: string;
+  by: Array<{ attribute: string; direction: "asc" | "desc" }>;
+}
+
+export interface TreeSortingRecord {
+  id: string;
+  name?: string;
+  by: TreeSortingBy[];
+}
+
+export interface TreeRecord {
+  id: string;
+  domainId: string;
+  name?: string;
+  type: "ordinary" | "orderable" | "multiparent";
+  maxDepth?: number;
+  hierarchy: {
+    entity: string;
+    maxInstances?: number;
+    maxChildren?: number;
+    children?: TreeHierarchyChild[];
+  };
+  sorting?: TreeSortingRecord[];
+}
+
+// ============ TransitiveLinkages ============
+
+export interface TransitiveLinkageJoin {
+  id: string;
+  linkage: string;
+  side?: 1 | 2;
+  search?: { enabled?: boolean; mode?: "entity" | "linkage" | "both" };
+  joins?: TransitiveLinkageJoin[];
+}
+
+export interface TransitiveLinkageRecord {
+  id: string;
+  domainId: string;
+  entity: string;
+  description: string;
+  joins: TransitiveLinkageJoin[];
+}
+
+// ============ Menus ============
+
+export interface MenuItemRecord {
+  id: string;
+  route: string;
+  label: string;
+  type: "menu";
+  view: string;
+  priority?: number;
+}
+
+export interface MenuRecord {
+  id: string;
+  domainId: string;
+  type: "root_group" | "root_menu";
+  route: string;
+  label: string;
+  icon?: string;
+  placement: "top" | "settings";
+  priority?: number;
+  /** Только для root_menu. */
+  view?: string;
+  /** Только для root_group. */
+  items?: MenuItemRecord[];
+  defaultItem?: string;
+  description?: string;
+}
+
+// ============ Medias ============
+
+export interface MediaRecord {
+  id: string;
+  domainId: string;
+  type: "icon_name" | "data";
+  iconName?: string;
+  data?: string;
+  description: string;
+}
+
+// ============ Permissions ============
+
+export interface PermissionRecord {
+  id: string;
+  domainId: string;
+  name?: string;
+  description?: string;
+}
+
+// ============ AccessRules ============
+
+export type AccessRuleTarget =
+  | "entity"
+  | "action"
+  | "linkage"
+  | "any_entity"
+  | "any_action"
+  | "any_linkage";
+
+export type AccessRuleScope = "create" | "delete" | "edit" | "view" | "launch";
+
+export interface AccessRuleException {
+  attribute: string;
+  condition?: string | boolean;
+}
+
+export type AccessRuleItemKind = "permission" | "pass" | "condition";
+
+export interface AccessRuleItem {
+  kind: AccessRuleItemKind;
+  /** Для kind: permission. */
+  permission?: string;
+  /** Для kind: condition. */
+  condition?: string | boolean;
+  /** Для permission/pass/condition. */
+  except?: AccessRuleException[];
+}
+
+export interface AccessRuleRecord {
+  domainId: string;
+  target: AccessRuleTarget;
+  /** Для target: entity (FQID). */
+  entity?: string;
+  /** Для target: linkage (FQID). */
+  linkage?: string;
+  /** Для target: action — id и name встроенного действия из Zod
+   *  (`{target:"action"}.merge(Action)`). Парсим, но не валидируем как ref. */
+  actionId?: string;
+  /** Правила по scope; только те, что заданы. */
+  create?: AccessRuleItem[];
+  delete?: AccessRuleItem[];
+  edit?: AccessRuleItem[];
+  view?: AccessRuleItem[];
+  launch?: AccessRuleItem[];
+}
+
+// ============ Localizations ============
+
+export interface LocalizationKeyRecord {
+  key: string;
+  to: string;
+  ordinal?: {
+    zero?: string;
+    one?: string;
+    two?: string;
+    few?: string;
+    many?: string;
+    other?: string;
+  };
+}
+
+export interface LocalizationRecord {
+  domainId: string;
+  language: string;
+  keys: LocalizationKeyRecord[];
 }

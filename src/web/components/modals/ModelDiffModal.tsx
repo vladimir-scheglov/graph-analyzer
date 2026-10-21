@@ -4,6 +4,23 @@ import { useModelDiff } from '../../hooks/useModelDiff';
 import { MIcon } from '../common/MIcon';
 import type { DiffEntityChange, DiffEntityRef, DomainChangesSummary } from '../../../shared/model-types';
 
+const GENERIC_SECTION_LABELS: Record<string, string> = {
+    dataRules: "Правила данных",
+    uiRules: "UI Rules",
+    uiPresets: "UI Presets",
+    views: "Представления",
+    menus: "Меню",
+    medias: "Иконки",
+    trees: "Деревья",
+    transitiveLinkages: "Транзитивные связи",
+    permissions: "Разрешения",
+    localizations: "Локализации",
+};
+
+function genericSectionLabel(key: string): string {
+    return GENERIC_SECTION_LABELS[key] || key;
+}
+
 export function ModelDiffModal() {
     const store = useGraphStore();
     const { diff, hasSnapshot, loading, error } = useModelDiff();
@@ -79,7 +96,8 @@ export function ModelDiffModal() {
             s.entitiesAdded + s.entitiesRemoved + s.entitiesChanged +
             s.mixinsAdded + s.mixinsRemoved +
             s.dataTypesAdded + s.dataTypesRemoved +
-            s.domainsAdded + s.domainsRemoved + s.domainsChanged
+            s.domainsAdded + s.domainsRemoved + s.domainsChanged +
+            (s.genericAdded ?? 0) + (s.genericRemoved ?? 0) + (s.genericChanged ?? 0)
         );
     }, [diff]);
 
@@ -261,6 +279,74 @@ export function ModelDiffModal() {
                                                         </div>
                                                     ))}
                                                 </DiffSection>
+                                            )}
+
+                                            {diff.genericSections && Object.keys(diff.genericSections).length > 0 && (
+                                                <>
+                                                    {Object.entries(diff.genericSections).map(([key, sectionDiff]) => {
+                                                        const count =
+                                                            sectionDiff.added.length +
+                                                            sectionDiff.removed.length +
+                                                            sectionDiff.changed.length;
+                                                        if (count === 0) return null;
+                                                        return (
+                                                            <DiffSection
+                                                                key={"generic-" + key}
+                                                                id={"generic-" + key}
+                                                                title={genericSectionLabel(key)}
+                                                                count={count}
+                                                                color="changed"
+                                                                open={openSections.has("generic-" + key)}
+                                                                onToggle={() => toggle("generic-" + key)}
+                                                            >
+                                                                {sectionDiff.added.map((e) => (
+                                                                    <div
+                                                                        key={"+" + e.domainId + "#" + e.id}
+                                                                        className="model-diff-item model-diff-item--added"
+                                                                    >
+                                                                        <span className="model-diff-item__sign">+</span>
+                                                                        <code>{e.id}</code>
+                                                                        <span className="model-diff-item__meta">{e.domainId}</span>
+                                                                        {e.type && (
+                                                                            <span className="model-diff-item__meta">{e.type}</span>
+                                                                        )}
+                                                                        {e.label && (
+                                                                            <span className="model-diff-item__meta">{e.label}</span>
+                                                                        )}
+                                                                    </div>
+                                                                ))}
+                                                                {sectionDiff.removed.map((e) => (
+                                                                    <div
+                                                                        key={"-" + e.domainId + "#" + e.id}
+                                                                        className="model-diff-item model-diff-item--removed"
+                                                                    >
+                                                                        <span className="model-diff-item__sign">−</span>
+                                                                        <code>{e.id}</code>
+                                                                        <span className="model-diff-item__meta">{e.domainId}</span>
+                                                                        {e.type && (
+                                                                            <span className="model-diff-item__meta">{e.type}</span>
+                                                                        )}
+                                                                    </div>
+                                                                ))}
+                                                                {sectionDiff.changed.map((e) => (
+                                                                    <div
+                                                                        key={"~" + e.domainId + "#" + e.id}
+                                                                        className="model-diff-item"
+                                                                    >
+                                                                        <span className="model-diff-item__sign" style={{ color: "#fbbf24" }}>
+                                                                            ~
+                                                                        </span>
+                                                                        <code>{e.id}</code>
+                                                                        <span className="model-diff-item__meta">{e.domainId}</span>
+                                                                        {e.type && (
+                                                                            <span className="model-diff-item__meta">{e.type}</span>
+                                                                        )}
+                                                                    </div>
+                                                                ))}
+                                                            </DiffSection>
+                                                        );
+                                                    })}
+                                                </>
                                             )}
 
                                             {/* + Сущности */}
@@ -558,6 +644,58 @@ function DomainChangeCard({ summary }: { summary: DomainChangesSummary }) {
                                     <span className="model-diff-change__to">{formatValue(c.to)}</span>
                                 </div>
                             ))}
+                        </div>
+                    )}
+
+                    {summary.generic && Object.keys(summary.generic).length > 0 && (
+                        <div className="model-diff-domain__group">
+                            <div className="model-diff-domain__group-title">Прочие секции</div>
+                            {Object.entries(summary.generic).map(([key, sectionDiff]) => {
+                                const count =
+                                    sectionDiff.added.length +
+                                    sectionDiff.removed.length +
+                                    sectionDiff.changed.length;
+                                if (count === 0) return null;
+                                return (
+                                    <div key={key} className="model-diff-domain__group" style={{ marginTop: 6 }}>
+                                        <div className="model-diff-domain__group-title" style={{ fontSize: 10 }}>
+                                            {genericSectionLabel(key)} ({count})
+                                        </div>
+                                        {sectionDiff.added.map((e) => (
+                                            <div
+                                                key={"+" + e.id}
+                                                className="model-diff-item model-diff-item--added"
+                                            >
+                                                <span className="model-diff-item__sign">+</span>
+                                                <code>{e.id}</code>
+                                                {e.type && (
+                                                    <span className="model-diff-item__meta">{e.type}</span>
+                                                )}
+                                            </div>
+                                        ))}
+                                        {sectionDiff.removed.map((e) => (
+                                            <div
+                                                key={"-" + e.id}
+                                                className="model-diff-item model-diff-item--removed"
+                                            >
+                                                <span className="model-diff-item__sign">−</span>
+                                                <code>{e.id}</code>
+                                            </div>
+                                        ))}
+                                        {sectionDiff.changed.map((e) => (
+                                            <div key={"~" + e.id} className="model-diff-item">
+                                                <span
+                                                    className="model-diff-item__sign"
+                                                    style={{ color: "#fbbf24" }}
+                                                >
+                                                    ~
+                                                </span>
+                                                <code>{e.id}</code>
+                                            </div>
+                                        ))}
+                                    </div>
+                                );
+                            })}
                         </div>
                     )}
 

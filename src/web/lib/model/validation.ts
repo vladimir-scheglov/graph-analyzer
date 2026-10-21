@@ -1,4 +1,8 @@
-import type { ModelIndex, ModelOrphans, ModelStats } from "../../../shared/model-types";
+import type {
+  ModelIndex,
+  ModelOrphans,
+  ModelStats,
+} from "../../../shared/model-types";
 
 export type IssueSeverity = "error" | "warning" | "info";
 
@@ -115,8 +119,8 @@ export function summarizeValidation(
       count: stats.attributesWithoutViews.length,
       title: "Атрибуты без представления",
       description:
-        "Определены, но не упомянуты ни в одном views[].widgets[] — не показываются пользователю.",
-      hint: "Если атрибут реально используется — добавьте виджет.",
+        "Определены, но не упомянуты ни в views, ни в dataRules — потенциально мёртвый код.",
+      hint: "Если атрибут реально нужен — добавьте виджет или правило данных; иначе удалите его.",
       samples: stats.attributesWithoutViews.slice(0, 30).map((a) => a.key),
     });
   }

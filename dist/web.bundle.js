@@ -14678,6 +14678,9 @@ var init_useModelDiff = __esm({
 // src/web/components/modals/ModelDiffModal.tsx
 import { useMemo as useMemo29, useState as useState18 } from "react";
 import { Fragment as Fragment12, jsx as jsx60, jsxs as jsxs57 } from "react/jsx-runtime";
+function genericSectionLabel(key) {
+  return GENERIC_SECTION_LABELS[key] || key;
+}
 function ModelDiffModal() {
   const store = useGraphStore();
   const { diff, hasSnapshot, loading, error } = useModelDiff();
@@ -14748,7 +14751,7 @@ function ModelDiffModal() {
     if (!diff)
       return 0;
     const s = diff.stats;
-    return s.entitiesAdded + s.entitiesRemoved + s.entitiesChanged + s.mixinsAdded + s.mixinsRemoved + s.dataTypesAdded + s.dataTypesRemoved + s.domainsAdded + s.domainsRemoved + s.domainsChanged;
+    return s.entitiesAdded + s.entitiesRemoved + s.entitiesChanged + s.mixinsAdded + s.mixinsRemoved + s.dataTypesAdded + s.dataTypesRemoved + s.domainsAdded + s.domainsRemoved + s.domainsChanged + (s.genericAdded ?? 0) + (s.genericRemoved ?? 0) + (s.genericChanged ?? 0);
   }, [diff]);
   if (!open)
     return null;
@@ -14892,6 +14895,65 @@ function ModelDiffModal() {
                       ] }, d.domainId))
                     }
                   ),
+                  diff.genericSections && Object.keys(diff.genericSections).length > 0 && /* @__PURE__ */ jsx60(Fragment12, { children: Object.entries(diff.genericSections).map(([key, sectionDiff]) => {
+                    const count = sectionDiff.added.length + sectionDiff.removed.length + sectionDiff.changed.length;
+                    if (count === 0)
+                      return null;
+                    return /* @__PURE__ */ jsxs57(
+                      DiffSection,
+                      {
+                        id: "generic-" + key,
+                        title: genericSectionLabel(key),
+                        count,
+                        color: "changed",
+                        open: openSections.has("generic-" + key),
+                        onToggle: () => toggle("generic-" + key),
+                        children: [
+                          sectionDiff.added.map((e) => /* @__PURE__ */ jsxs57(
+                            "div",
+                            {
+                              className: "model-diff-item model-diff-item--added",
+                              children: [
+                                /* @__PURE__ */ jsx60("span", { className: "model-diff-item__sign", children: "+" }),
+                                /* @__PURE__ */ jsx60("code", { children: e.id }),
+                                /* @__PURE__ */ jsx60("span", { className: "model-diff-item__meta", children: e.domainId }),
+                                e.type && /* @__PURE__ */ jsx60("span", { className: "model-diff-item__meta", children: e.type }),
+                                e.label && /* @__PURE__ */ jsx60("span", { className: "model-diff-item__meta", children: e.label })
+                              ]
+                            },
+                            "+" + e.domainId + "#" + e.id
+                          )),
+                          sectionDiff.removed.map((e) => /* @__PURE__ */ jsxs57(
+                            "div",
+                            {
+                              className: "model-diff-item model-diff-item--removed",
+                              children: [
+                                /* @__PURE__ */ jsx60("span", { className: "model-diff-item__sign", children: "\u2212" }),
+                                /* @__PURE__ */ jsx60("code", { children: e.id }),
+                                /* @__PURE__ */ jsx60("span", { className: "model-diff-item__meta", children: e.domainId }),
+                                e.type && /* @__PURE__ */ jsx60("span", { className: "model-diff-item__meta", children: e.type })
+                              ]
+                            },
+                            "-" + e.domainId + "#" + e.id
+                          )),
+                          sectionDiff.changed.map((e) => /* @__PURE__ */ jsxs57(
+                            "div",
+                            {
+                              className: "model-diff-item",
+                              children: [
+                                /* @__PURE__ */ jsx60("span", { className: "model-diff-item__sign", style: { color: "#fbbf24" }, children: "~" }),
+                                /* @__PURE__ */ jsx60("code", { children: e.id }),
+                                /* @__PURE__ */ jsx60("span", { className: "model-diff-item__meta", children: e.domainId }),
+                                e.type && /* @__PURE__ */ jsx60("span", { className: "model-diff-item__meta", children: e.type })
+                              ]
+                            },
+                            "~" + e.domainId + "#" + e.id
+                          ))
+                        ]
+                      },
+                      "generic-" + key
+                    );
+                  }) }),
                   filtered.entities.added.length > 0 && /* @__PURE__ */ jsx60(
                     DiffSection,
                     {
@@ -15110,6 +15172,56 @@ function DomainChangeCard({ summary }) {
           /* @__PURE__ */ jsx60("span", { className: "model-diff-change__to", children: formatValue(c.to) })
         ] }, i))
       ] }),
+      summary.generic && Object.keys(summary.generic).length > 0 && /* @__PURE__ */ jsxs57("div", { className: "model-diff-domain__group", children: [
+        /* @__PURE__ */ jsx60("div", { className: "model-diff-domain__group-title", children: "\u041F\u0440\u043E\u0447\u0438\u0435 \u0441\u0435\u043A\u0446\u0438\u0438" }),
+        Object.entries(summary.generic).map(([key, sectionDiff]) => {
+          const count = sectionDiff.added.length + sectionDiff.removed.length + sectionDiff.changed.length;
+          if (count === 0)
+            return null;
+          return /* @__PURE__ */ jsxs57("div", { className: "model-diff-domain__group", style: { marginTop: 6 }, children: [
+            /* @__PURE__ */ jsxs57("div", { className: "model-diff-domain__group-title", style: { fontSize: 10 }, children: [
+              genericSectionLabel(key),
+              " (",
+              count,
+              ")"
+            ] }),
+            sectionDiff.added.map((e) => /* @__PURE__ */ jsxs57(
+              "div",
+              {
+                className: "model-diff-item model-diff-item--added",
+                children: [
+                  /* @__PURE__ */ jsx60("span", { className: "model-diff-item__sign", children: "+" }),
+                  /* @__PURE__ */ jsx60("code", { children: e.id }),
+                  e.type && /* @__PURE__ */ jsx60("span", { className: "model-diff-item__meta", children: e.type })
+                ]
+              },
+              "+" + e.id
+            )),
+            sectionDiff.removed.map((e) => /* @__PURE__ */ jsxs57(
+              "div",
+              {
+                className: "model-diff-item model-diff-item--removed",
+                children: [
+                  /* @__PURE__ */ jsx60("span", { className: "model-diff-item__sign", children: "\u2212" }),
+                  /* @__PURE__ */ jsx60("code", { children: e.id })
+                ]
+              },
+              "-" + e.id
+            )),
+            sectionDiff.changed.map((e) => /* @__PURE__ */ jsxs57("div", { className: "model-diff-item", children: [
+              /* @__PURE__ */ jsx60(
+                "span",
+                {
+                  className: "model-diff-item__sign",
+                  style: { color: "#fbbf24" },
+                  children: "~"
+                }
+              ),
+              /* @__PURE__ */ jsx60("code", { children: e.id })
+            ] }, "~" + e.id))
+          ] }, key);
+        })
+      ] }),
       summary.entitiesAdded.length > 0 && /* @__PURE__ */ jsxs57("div", { className: "model-diff-domain__group", children: [
         /* @__PURE__ */ jsxs57("div", { className: "model-diff-domain__group-title model-diff-domain__group-title--added", children: [
           "+ \u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 (",
@@ -15185,12 +15297,25 @@ function formatValue(v) {
     return v.join(", ") || "(\u043F\u0443\u0441\u0442\u043E)";
   return String(v);
 }
+var GENERIC_SECTION_LABELS;
 var init_ModelDiffModal = __esm({
   "src/web/components/modals/ModelDiffModal.tsx"() {
     "use strict";
     init_useGraphStore();
     init_useModelDiff();
     init_MIcon();
+    GENERIC_SECTION_LABELS = {
+      dataRules: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0434\u0430\u043D\u043D\u044B\u0445",
+      uiRules: "UI Rules",
+      uiPresets: "UI Presets",
+      views: "\u041F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F",
+      menus: "\u041C\u0435\u043D\u044E",
+      medias: "\u0418\u043A\u043E\u043D\u043A\u0438",
+      trees: "\u0414\u0435\u0440\u0435\u0432\u044C\u044F",
+      transitiveLinkages: "\u0422\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0438",
+      permissions: "\u0420\u0430\u0437\u0440\u0435\u0448\u0435\u043D\u0438\u044F",
+      localizations: "\u041B\u043E\u043A\u0430\u043B\u0438\u0437\u0430\u0446\u0438\u0438"
+    };
   }
 });
 
@@ -15260,8 +15385,8 @@ function summarizeValidation(stats, orphans) {
       severity: "warning",
       count: stats.attributesWithoutViews.length,
       title: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0431\u0435\u0437 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F",
-      description: "\u041E\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u044B, \u043D\u043E \u043D\u0435 \u0443\u043F\u043E\u043C\u044F\u043D\u0443\u0442\u044B \u043D\u0438 \u0432 \u043E\u0434\u043D\u043E\u043C views[].widgets[] \u2014 \u043D\u0435 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u044E\u0442\u0441\u044F \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044E.",
-      hint: "\u0415\u0441\u043B\u0438 \u0430\u0442\u0440\u0438\u0431\u0443\u0442 \u0440\u0435\u0430\u043B\u044C\u043D\u043E \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u2014 \u0434\u043E\u0431\u0430\u0432\u044C\u0442\u0435 \u0432\u0438\u0434\u0436\u0435\u0442.",
+      description: "\u041E\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u044B, \u043D\u043E \u043D\u0435 \u0443\u043F\u043E\u043C\u044F\u043D\u0443\u0442\u044B \u043D\u0438 \u0432 views, \u043D\u0438 \u0432 dataRules \u2014 \u043F\u043E\u0442\u0435\u043D\u0446\u0438\u0430\u043B\u044C\u043D\u043E \u043C\u0451\u0440\u0442\u0432\u044B\u0439 \u043A\u043E\u0434.",
+      hint: "\u0415\u0441\u043B\u0438 \u0430\u0442\u0440\u0438\u0431\u0443\u0442 \u0440\u0435\u0430\u043B\u044C\u043D\u043E \u043D\u0443\u0436\u0435\u043D \u2014 \u0434\u043E\u0431\u0430\u0432\u044C\u0442\u0435 \u0432\u0438\u0434\u0436\u0435\u0442 \u0438\u043B\u0438 \u043F\u0440\u0430\u0432\u0438\u043B\u043E \u0434\u0430\u043D\u043D\u044B\u0445; \u0438\u043D\u0430\u0447\u0435 \u0443\u0434\u0430\u043B\u0438\u0442\u0435 \u0435\u0433\u043E.",
       samples: stats.attributesWithoutViews.slice(0, 30).map((a) => a.key)
     });
   }
@@ -20450,17 +20575,25 @@ var init_line_context = __esm({
 });
 
 // src/web/lib/yaml/line-map.ts
+function stripQuotes(s) {
+  if (s.length >= 2) {
+    const f = s[0];
+    const l = s[s.length - 1];
+    if (f === '"' && l === '"' || f === "'" && l === "'") {
+      return s.slice(1, -1);
+    }
+  }
+  return s;
+}
 function collectChildren(lines, startIdx, endIdx, parentIndent) {
   const children = [];
-  const idRegex = /^(\s*)-\s+id:\s+([^\s#]+)/;
   for (let i = startIdx + 1; i < endIdx; i++) {
     const line = lines[i];
     if (!line || !line.trim())
       continue;
     if (line.trim().startsWith("#"))
       continue;
-    const indentMatch = line.match(/^(\s*)/);
-    const indent = indentMatch ? indentMatch[1].length : 0;
+    const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
     if (indent <= parentIndent)
       break;
     const containerMatch = line.match(
@@ -20472,65 +20605,139 @@ function collectChildren(lines, startIdx, endIdx, parentIndent) {
     if (!CHILD_CONTAINERS.has(containerName))
       continue;
     const containerIndent = containerMatch[1].length;
-    for (let j = i + 1; j < endIdx; j++) {
-      const wLine = lines[j];
-      if (!wLine || !wLine.trim())
-        continue;
-      const wIndentMatch = wLine.match(/^(\s*)/);
-      const wIndent = wIndentMatch ? wIndentMatch[1].length : 0;
-      if (wIndent <= containerIndent)
-        break;
-      const idMatch = wLine.match(idRegex);
-      if (!idMatch)
-        continue;
-      const itemIndent = idMatch[1].length;
-      if (itemIndent <= containerIndent)
-        continue;
-      let itemEnd = j + 1;
-      for (let k = j + 1; k < endIdx; k++) {
-        const kLine = lines[k];
-        if (!kLine || !kLine.trim()) {
-          itemEnd = k + 1;
-          continue;
-        }
-        const kIndentMatch = kLine.match(/^(\s*)/);
-        const kIndent = kIndentMatch ? kIndentMatch[1].length : 0;
-        if (kIndent < itemIndent) {
-          itemEnd = k;
-          break;
-        }
-        if (kIndent === itemIndent && idRegex.test(kLine)) {
-          itemEnd = k;
-          break;
-        }
-        itemEnd = k + 1;
-      }
-      const grandchildren = collectChildren(lines, j, itemEnd, itemIndent);
-      let meta;
-      for (let k = j + 1; k < itemEnd; k++) {
-        const kLine = lines[k];
-        if (!kLine || !kLine.trim())
-          continue;
-        const kIndent = (kLine.match(/^(\s*)/) || ["", ""])[1].length;
-        if (kIndent < itemIndent)
-          break;
-        const m = kLine.match(/^\s*(dataType|type|kind):\s+(\S+)/);
-        if (m) {
-          meta = m[2].replace(/["']/g, "");
-          break;
-        }
-      }
-      children.push({
-        id: idMatch[2],
-        label: idMatch[2],
-        line: j + 1,
-        type: containerName.replace(/s$/, ""),
-        meta,
-        children: grandchildren.length > 0 ? grandchildren : void 0
-      });
-    }
+    children.push(
+      ...scanItemsInContainer(
+        lines,
+        i,
+        endIdx,
+        containerName,
+        containerIndent
+      )
+    );
   }
   return children;
+}
+function scanItemsInContainer(lines, containerStart, endIdx, containerName, containerIndent) {
+  const children = [];
+  let itemIndent = -1;
+  for (let i2 = containerStart + 1; i2 < endIdx; i2++) {
+    const line = lines[i2];
+    if (!line || !line.trim())
+      continue;
+    const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (indent <= containerIndent)
+      break;
+    const dashM = line.match(/^(\s*)-\s+\S/);
+    if (!dashM)
+      continue;
+    itemIndent = dashM[1].length;
+    break;
+  }
+  if (itemIndent < 0)
+    return children;
+  const fieldIndent = itemIndent + 2;
+  const dashRegex = /^(\s*)-\s+\S/;
+  const dashIdRegex = /^(\s*)-\s+id:\s+([^\s#]+)/;
+  const fieldIdRegex = /^(\s*)id\s*:\s*([^\s#]+)/;
+  let i = containerStart + 1;
+  while (i < endIdx) {
+    const line = lines[i];
+    if (!line || !line.trim()) {
+      i++;
+      continue;
+    }
+    const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (indent <= containerIndent)
+      break;
+    const dashM = line.match(dashRegex);
+    if (!dashM || dashM[1].length !== itemIndent) {
+      i++;
+      continue;
+    }
+    let itemEnd = endIdx;
+    for (let k = i + 1; k < endIdx; k++) {
+      const kLine = lines[k];
+      if (!kLine || !kLine.trim()) {
+        itemEnd = k + 1;
+        continue;
+      }
+      const kIndent = (kLine.match(/^(\s*)/) || ["", ""])[1].length;
+      if (kIndent < itemIndent) {
+        itemEnd = k;
+        break;
+      }
+      const kDash = kLine.match(dashRegex);
+      if (kDash && kDash[1].length === itemIndent) {
+        itemEnd = k;
+        break;
+      }
+      itemEnd = k + 1;
+    }
+    let nodeId = null;
+    for (let k = i; k < itemEnd; k++) {
+      const kLine = lines[k];
+      const dashIdM = kLine.match(dashIdRegex);
+      if (dashIdM && dashIdM[1].length === itemIndent) {
+        nodeId = stripQuotes(dashIdM[2]);
+        break;
+      }
+      const fieldIdM = kLine.match(fieldIdRegex);
+      if (fieldIdM && fieldIdM[1].length === fieldIndent) {
+        nodeId = stripQuotes(fieldIdM[2]);
+        break;
+      }
+    }
+    if (!nodeId) {
+      i = itemEnd;
+      continue;
+    }
+    const nested = collectChildren(lines, i, itemEnd, itemIndent);
+    let meta;
+    for (let k = i + 1; k < itemEnd; k++) {
+      const kLine = lines[k];
+      if (!kLine || !kLine.trim())
+        continue;
+      const kIndent = (kLine.match(/^(\s*)/) || ["", ""])[1].length;
+      if (kIndent < itemIndent)
+        break;
+      const m = kLine.match(/^\s*(dataType|type|kind):\s+(\S+)/);
+      if (m) {
+        meta = m[2].replace(/["']/g, "");
+        break;
+      }
+    }
+    children.push({
+      id: nodeId,
+      label: nodeId,
+      line: i + 1,
+      type: containerName.replace(/s$/, ""),
+      meta,
+      children: nested.length > 0 ? nested : void 0
+    });
+    i = itemEnd;
+  }
+  return children;
+}
+function collectChildrenFromEntityStart(lines, startIdx, endIdx, entityDashIndent) {
+  const line = lines[startIdx];
+  if (!line)
+    return [];
+  const m = line.match(/^(\s*)-\s+([a-zA-Z][a-zA-Z0-9_]*)\s*:\s*$/);
+  if (!m)
+    return [];
+  const containerName = m[2];
+  if (!CHILD_CONTAINERS.has(containerName))
+    return [];
+  const containerIndent = m[1].length;
+  if (containerIndent !== entityDashIndent)
+    return [];
+  return scanItemsInContainer(
+    lines,
+    startIdx,
+    endIdx,
+    containerName,
+    containerIndent
+  );
 }
 function buildLineMap(text, schema2) {
   const lines = text.split("\n");
@@ -20605,26 +20812,39 @@ function buildLineMap(text, schema2) {
     const sectionSchema = schema2.sections?.[key];
     if (!sectionSchema)
       return;
-    let baseIndent = -1;
-    for (let i = start + 1; i < end; i++) {
-      const m = lines[i].match(idRegex);
-      if (m) {
-        baseIndent = m[1].length;
-        break;
-      }
-    }
-    if (baseIndent < 0)
-      return;
-    const nodes = [];
-    for (let i = start + 1; i < end; i++) {
-      const line = lines[i];
-      const m = line.match(idRegex);
+    let entityDashIndent = -1;
+    for (let i2 = start + 1; i2 < end; i2++) {
+      const line = lines[i2];
+      if (!line.trim() || line.trim().startsWith("#"))
+        continue;
+      const m = line.match(/^(\s*)-\s+\S/);
       if (!m)
         continue;
-      if (m[1].length !== baseIndent)
+      const indent = m[1].length;
+      if (entityDashIndent === -1 || indent < entityDashIndent) {
+        entityDashIndent = indent;
+      }
+    }
+    if (entityDashIndent < 0)
+      return;
+    const fieldIndent = entityDashIndent + 2;
+    const dashRegex = /^(\s*)-\s+\S/;
+    const dashIdRegex = /^(\s*)-\s+id:\s+([^\s#]+)/;
+    const fieldIdRegex = /^(\s*)id\s*:\s*([^\s#]+)/;
+    const nodes = [];
+    let i = start + 1;
+    while (i < end) {
+      const line = lines[i];
+      if (!line.trim() || line.trim().startsWith("#")) {
+        i++;
         continue;
-      const id = m[2];
-      let itemEnd = i + 1;
+      }
+      const dashM = line.match(dashRegex);
+      if (!dashM || dashM[1].length !== entityDashIndent) {
+        i++;
+        continue;
+      }
+      let itemEnd = end;
       for (let k = i + 1; k < end; k++) {
         const kLine = lines[k];
         if (!kLine || !kLine.trim()) {
@@ -20632,17 +20852,40 @@ function buildLineMap(text, schema2) {
           continue;
         }
         const kIndent = (kLine.match(/^(\s*)/) || ["", ""])[1].length;
-        if (kIndent < baseIndent) {
+        if (kIndent < entityDashIndent) {
           itemEnd = k;
           break;
         }
-        if (kIndent === baseIndent && idRegex.test(kLine)) {
+        const kDash = kLine.match(dashRegex);
+        if (kDash && kDash[1].length === entityDashIndent) {
           itemEnd = k;
           break;
         }
         itemEnd = k + 1;
       }
-      const children = collectChildren(lines, i, itemEnd, baseIndent);
+      let entityId = null;
+      for (let k = i; k < itemEnd; k++) {
+        const kLine = lines[k];
+        const dashIdM = kLine.match(dashIdRegex);
+        if (dashIdM && dashIdM[1].length === entityDashIndent) {
+          entityId = stripQuotes(dashIdM[2]);
+          break;
+        }
+        const fieldIdM = kLine.match(fieldIdRegex);
+        if (fieldIdM && fieldIdM[1].length === fieldIndent) {
+          entityId = stripQuotes(fieldIdM[2]);
+          break;
+        }
+      }
+      if (!entityId) {
+        i = itemEnd;
+        continue;
+      }
+      const id = entityId;
+      const children = [
+        ...collectChildrenFromEntityStart(lines, i, itemEnd, entityDashIndent),
+        ...collectChildren(lines, i, itemEnd, entityDashIndent)
+      ];
       let meta;
       const schemaItem = sectionSchema.items?.find?.((x) => x.id === id);
       if (schemaItem) {
@@ -20666,7 +20909,7 @@ function buildLineMap(text, schema2) {
             nodeType = "actionScenario";
             break;
           }
-          if (/^\s*-\s+id\s*:/.test(lines[k]) && (lines[k].match(/^(\s*)/) || ["", ""])[1].length <= baseIndent) {
+          if (/^\s*-\s+id\s*:/.test(lines[k]) && (lines[k].match(/^(\s*)/) || ["", ""])[1].length <= entityDashIndent) {
             break;
           }
         }
@@ -20679,7 +20922,7 @@ function buildLineMap(text, schema2) {
         meta,
         children: children.length > 0 ? children : void 0
       });
-      i = itemEnd - 1;
+      i = itemEnd;
     }
     if (nodes.length > 0) {
       sections.push({
@@ -20755,7 +20998,7 @@ function parseTreesSection(lines, start, end) {
     const m = lines[i].match(idRegex);
     if (!m || m[1].length !== treeIndent)
       continue;
-    const treeId = m[2];
+    const treeId = stripQuotes(m[2]);
     const treeEnd = findRangeInLines(lines, i, end, treeIndent);
     let hierarchyLine = -1;
     let hierarchyIndent = -1;
@@ -20853,8 +21096,8 @@ function parseTreeChildren(lines, childrenLine, childrenEnd, parentEntity, depth
     if (!m || m[1].length !== childIndent)
       continue;
     const childEnd = findRangeInLines(lines, i, childrenEnd, childIndent);
-    let linkage = m[2] === "linkage" ? m[3] : null;
-    let entity = m[2] === "entity" ? m[3] : null;
+    let linkage = m[2] === "linkage" ? stripQuotes(m[3]) : null;
+    let entity = m[2] === "entity" ? stripQuotes(m[3]) : null;
     for (let j = i + 1; j < childEnd; j++) {
       const lm = lines[j].match(/^\s*(linkage|entity)\s*:\s*([^\s#]+)/);
       if (lm) {
@@ -20912,7 +21155,7 @@ function parseTransitiveSection(lines, start, end) {
     const m = lines[i].match(idRegex);
     if (!m || m[1].length !== treeIndent)
       continue;
-    const treeId = m[2];
+    const treeId = stripQuotes(m[2]);
     const treeEnd = findRangeInLines(lines, i, end, treeIndent);
     let rootEntity = null;
     for (let j = i + 1; j < treeEnd; j++) {
@@ -20968,7 +21211,7 @@ function parseJoins(lines, joinsLine, joinsEnd, depth) {
     const m = lines[i].match(idRegex);
     if (!m || m[1].length !== joinIndent)
       continue;
-    const joinId = m[2];
+    const joinId = stripQuotes(m[2]);
     const joinEnd = findRangeInLines(lines, i, joinsEnd, joinIndent);
     let linkage = null;
     for (let j = i + 1; j < joinEnd; j++) {
@@ -22968,6 +23211,17 @@ function cachedAttributes() {
   const cur = (ctx.currentDomainId || "").toLowerCase();
   const seen = /* @__PURE__ */ new Set();
   const out = [];
+  SYSTEM_ATTRIBUTES_FOR_COMPLETION.forEach((sys) => {
+    seen.add(sys.id);
+    out.push({
+      label: sys.id,
+      insertText: " " + sys.id,
+      kind: 0,
+      sortText: "0_" + sys.id,
+      detail: sys.dataType,
+      documentation: sys.description + " \xB7 \u0441\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0439"
+    });
+  });
   const mkDoc = (a, contextLabel) => {
     const parts = [];
     if (a.dataType)
@@ -24733,28 +24987,40 @@ function applyDataTypeMarkers(monaco, model, index, currentDomainId) {
         customTypes.add(String(dt.id));
       }
     });
-    let section = "";
     let inDataTypesSection = false;
+    let dashIndent = -1;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#"))
+        continue;
       const sectionM = line.match(/^([a-zA-Z_][\w]*)\s*:/);
       if (sectionM) {
-        section = sectionM[1];
-        inDataTypesSection = section === "dataTypes";
+        inDataTypesSection = sectionM[1] === "dataTypes";
+        dashIndent = -1;
         continue;
       }
+      if (!inDataTypesSection)
+        continue;
+      if (dashIndent === -1) {
+        const dashM = line.match(/^(\s*)-\s+\S/);
+        if (dashM)
+          dashIndent = dashM[1].length;
+      }
       const dtMatch = line.match(
-        /^(\s*)(?:-\s+)?dataType\s*:\s*["']?([\w.-]+)["']?\s*(?:#.*)?$/
+        /^(\s*)(?:-\s+)?dataType\s*:\s*["']?([\w./-]+)["']?\s*(?:#.*)?$/
       );
       if (!dtMatch)
         continue;
+      const dtIndent = dtMatch[1].length;
       const value = dtMatch[2];
-      const valueStartInLine = line.indexOf(value, dtMatch[1].length);
+      const valueStartInLine = line.indexOf(value, dtIndent);
       if (valueStartInLine < 0)
         continue;
       const startCol = valueStartInLine + 1;
       const endCol = startCol + value.length;
-      if (inDataTypesSection) {
+      const isTopLevel = dashIndent !== -1 && (dtIndent === dashIndent || dtIndent === dashIndent + 2);
+      if (isTopLevel) {
         if (!["Enum", "Table", "Workflow"].includes(value)) {
           markers.push({
             severity: monaco.MarkerSeverity.Error,
@@ -25582,118 +25848,157 @@ function applyAttributeMarkers(monaco, model) {
   }
 }
 function scanEntities(lines, startIdx, endIdx, markers, monaco) {
-  const entityBlocks = [];
-  let entityIndent = -1;
+  let entityDashIndent = -1;
   for (let i2 = startIdx; i2 < endIdx; i2++) {
-    const m = lines[i2].match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
-    if (m) {
-      entityIndent = m[1].length;
-      break;
+    const line = lines[i2];
+    if (!line.trim() || line.trim().startsWith("#"))
+      continue;
+    const dashM = line.match(/^(\s*)-\s+\S/);
+    if (!dashM)
+      continue;
+    const indent = dashM[1].length;
+    if (entityDashIndent === -1 || indent < entityDashIndent) {
+      entityDashIndent = indent;
     }
   }
-  if (entityIndent < 0)
+  if (entityDashIndent === -1)
     return;
+  const fieldIndent = entityDashIndent + 2;
+  const entityBlocks = [];
   let i = startIdx;
   while (i < endIdx) {
-    const em = lines[i].match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
-    if (!em || em[1].length !== entityIndent) {
+    const line = lines[i];
+    if (!line.trim() || line.trim().startsWith("#")) {
       i++;
       continue;
     }
-    const entityId = em[2].replace(/["']/g, "");
-    const idLine = i + 1;
-    const idIndent = em[1].length;
-    let blockEnd = i + 1;
+    const dashM = line.match(/^(\s*)-\s+\S/);
+    if (!dashM || dashM[1].length !== entityDashIndent) {
+      i++;
+      continue;
+    }
+    let entityEnd = endIdx;
     for (let k = i + 1; k < endIdx; k++) {
       const l = lines[k];
-      if (!l.trim()) {
-        blockEnd = k + 1;
+      if (!l.trim() || l.trim().startsWith("#"))
         continue;
-      }
-      const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
-      if (lIndent <= idIndent && /^(\s*)-\s+id\s*:/.test(l)) {
-        blockEnd = k;
+      const d = l.match(/^(\s*)-\s+\S/);
+      if (d && d[1].length === entityDashIndent) {
+        entityEnd = k;
         break;
       }
-      if (lIndent === 0) {
-        blockEnd = k;
-        break;
-      }
-      blockEnd = k + 1;
     }
-    let attrsStartIdx = -1;
-    let attrsEndIdx = blockEnd;
-    let attrsIndent = -1;
-    for (let k = i + 1; k < blockEnd; k++) {
+    let entityId = null;
+    let entityIdLine = -1;
+    for (let k = i; k < entityEnd; k++) {
       const l = lines[k];
-      const m = l.match(/^(\s*)attributes\s*:\s*$/);
-      if (m) {
-        attrsStartIdx = k;
-        attrsIndent = m[1].length;
-        for (let n = k + 1; n < blockEnd; n++) {
-          const nl = lines[n];
-          if (!nl.trim()) {
-            attrsEndIdx = n + 1;
-            continue;
-          }
-          const nIndent = (nl.match(/^(\s*)/) || ["", ""])[1].length;
-          if (nIndent <= attrsIndent) {
-            attrsEndIdx = n;
-            break;
-          }
-          attrsEndIdx = n + 1;
-        }
+      if (!l.trim() || l.trim().startsWith("#"))
+        continue;
+      const dashIdM = l.match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
+      if (dashIdM && dashIdM[1].length === entityDashIndent) {
+        entityId = dashIdM[2].replace(/["']/g, "");
+        entityIdLine = k + 1;
+        break;
+      }
+      const idM = l.match(/^(\s*)id\s*:\s*([^\s#]+)/);
+      if (idM && idM[1].length === fieldIndent) {
+        entityId = idM[2].replace(/["']/g, "");
+        entityIdLine = k + 1;
         break;
       }
     }
-    const attrBlocks = [];
-    if (attrsStartIdx >= 0) {
-      let baseAttrIndent = -1;
-      for (let k = attrsStartIdx + 1; k < attrsEndIdx; k++) {
-        const m = lines[k].match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
-        if (m) {
-          baseAttrIndent = m[1].length;
+    if (!entityId) {
+      i = entityEnd;
+      continue;
+    }
+    let attributesLine = -1;
+    let attributesEnd = entityEnd;
+    for (let k = i + 1; k < entityEnd; k++) {
+      const l = lines[k];
+      const am = l.match(/^(\s*)(-\s+)?attributes\s*:\s*$/);
+      if (!am)
+        continue;
+      const beforeIndent = am[1].length;
+      const hasDash = !!am[2];
+      const ok = hasDash ? beforeIndent === entityDashIndent : beforeIndent === fieldIndent;
+      if (!ok)
+        continue;
+      attributesLine = k;
+      for (let n = k + 1; n < entityEnd; n++) {
+        const nl = lines[n];
+        if (!nl.trim())
+          continue;
+        const nIndent = (nl.match(/^(\s*)/) || ["", ""])[1].length;
+        if (nIndent <= fieldIndent) {
+          attributesEnd = n;
           break;
         }
       }
-      if (baseAttrIndent >= 0) {
-        let skipUntilIndent = -1;
-        for (let k = attrsStartIdx + 1; k < attrsEndIdx; k++) {
+      break;
+    }
+    const attrIdList = [];
+    if (attributesLine >= 0) {
+      let attrDashIndent = -1;
+      for (let k = attributesLine + 1; k < attributesEnd; k++) {
+        const l = lines[k];
+        if (!l.trim() || l.trim().startsWith("#"))
+          continue;
+        const d = l.match(/^(\s*)-\s+\S/);
+        if (d) {
+          attrDashIndent = d[1].length;
+          break;
+        }
+      }
+      if (attrDashIndent > fieldIndent) {
+        const attrFieldIndent = attrDashIndent + 2;
+        for (let k = attributesLine + 1; k < attributesEnd; k++) {
           const l = lines[k];
-          if (!l.trim())
+          if (!l.trim() || l.trim().startsWith("#"))
             continue;
-          const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
-          if (skipUntilIndent >= 0) {
-            if (lIndent > skipUntilIndent)
+          const d = l.match(/^(\s*)-\s+\S/);
+          if (!d || d[1].length !== attrDashIndent)
+            continue;
+          let attrEnd = attributesEnd;
+          for (let n = k + 1; n < attributesEnd; n++) {
+            const nl = lines[n];
+            if (!nl.trim() || nl.trim().startsWith("#"))
               continue;
-            skipUntilIndent = -1;
+            const nd = nl.match(/^(\s*)-\s+\S/);
+            if (nd && nd[1].length === attrDashIndent) {
+              attrEnd = n;
+              break;
+            }
           }
-          if (lIndent > baseAttrIndent && /^\s*(constraints|item|calculation|prefixRules)\s*:/.test(l)) {
-            skipUntilIndent = lIndent;
-            continue;
+          let attrId = null;
+          let attrIdLine = -1;
+          for (let n = k; n < attrEnd; n++) {
+            const nl = lines[n];
+            const dashIdM = nl.match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
+            if (dashIdM && dashIdM[1].length === attrDashIndent) {
+              attrId = dashIdM[2].replace(/["']/g, "");
+              attrIdLine = n + 1;
+              break;
+            }
+            const idM = nl.match(/^(\s*)id\s*:\s*([^\s#]+)/);
+            if (idM && idM[1].length === attrFieldIndent) {
+              attrId = idM[2].replace(/["']/g, "");
+              attrIdLine = n + 1;
+              break;
+            }
           }
-          const m = l.match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
-          if (!m)
-            continue;
-          if (m[1].length !== baseAttrIndent)
-            continue;
-          attrBlocks.push({
-            id: m[2].replace(/["']/g, ""),
-            idLine: k + 1,
-            idIndent: m[1].length
-          });
+          if (attrId) {
+            attrIdList.push({
+              id: attrId,
+              idLine: attrIdLine,
+              idIndent: attrDashIndent
+            });
+          }
+          k = attrEnd - 1;
         }
       }
     }
-    entityBlocks.push({
-      id: entityId,
-      idLine,
-      idIndent,
-      attrsStartIdx,
-      attrsEndIdx,
-      attrBlocks
-    });
-    i = blockEnd;
+    entityBlocks.push({ id: entityId, idLine: entityIdLine, attrIdList });
+    i = entityEnd;
   }
   const seenEntities = /* @__PURE__ */ new Map();
   for (const eb of entityBlocks) {
@@ -25718,7 +26023,7 @@ function scanEntities(lines, startIdx, endIdx, markers, monaco) {
   }
   for (const eb of entityBlocks) {
     const seen = /* @__PURE__ */ new Map();
-    for (const a of eb.attrBlocks) {
+    for (const a of eb.attrIdList) {
       if (!seen.has(a.id))
         seen.set(a.id, []);
       seen.get(a.id).push(a.idLine);
@@ -25738,7 +26043,7 @@ function scanEntities(lines, startIdx, endIdx, markers, monaco) {
         });
       }
     }
-    for (const a of eb.attrBlocks) {
+    for (const a of eb.attrIdList) {
       if (!SYSTEM_ATTRIBUTE_IDS.has(a.id))
         continue;
       const line = lines[a.idLine - 1];
@@ -25755,12 +26060,26 @@ function scanEntities(lines, startIdx, endIdx, markers, monaco) {
     }
   }
 }
-var providersRegistered, ctx, REF_FIELDS, ATTRIBUTE_LIKE_FIELDS, BASE_DATA_TYPE_DESCRIPTIONS, GRAPH_VIEW_COLORS, GRAPH_VIEW_COLOR_LABELS, RECONCILIATION_MERGE_STRATEGIES, RECONCILIATION_MERGE_LABELS, WIDGET_TYPE_DESCRIPTIONS, ACTION_TYPE_DESCRIPTIONS, EFFECT_DESCRIPTIONS, TARGET_DESCRIPTIONS, CONTROL_TYPE_DESCRIPTIONS, BASE_DATA_TYPES_COMPLETION, BOOLEAN_FIELD_NAMES, mkSimple, FIELD_DEFINITIONS, SNIPPETS, _colCache, RQL_FIELDS2, BASE_DATA_TYPES_SET, TYPE_ENUM_BY_CTX, EFFECT_ENUM_BY_CTX, TARGET_ENUM_BY_CTX, OPERATION_ENUM_BY_ACTION_TYPE, SYSTEM_ATTRIBUTE_IDS;
+var SYSTEM_ATTRIBUTES_FOR_COMPLETION, providersRegistered, ctx, REF_FIELDS, ATTRIBUTE_LIKE_FIELDS, BASE_DATA_TYPE_DESCRIPTIONS, GRAPH_VIEW_COLORS, GRAPH_VIEW_COLOR_LABELS, RECONCILIATION_MERGE_STRATEGIES, RECONCILIATION_MERGE_LABELS, WIDGET_TYPE_DESCRIPTIONS, ACTION_TYPE_DESCRIPTIONS, EFFECT_DESCRIPTIONS, TARGET_DESCRIPTIONS, CONTROL_TYPE_DESCRIPTIONS, BASE_DATA_TYPES_COMPLETION, BOOLEAN_FIELD_NAMES, mkSimple, FIELD_DEFINITIONS, SNIPPETS, _colCache, RQL_FIELDS2, BASE_DATA_TYPES_SET, TYPE_ENUM_BY_CTX, EFFECT_ENUM_BY_CTX, TARGET_ENUM_BY_CTX, OPERATION_ENUM_BY_ACTION_TYPE, SYSTEM_ATTRIBUTE_IDS;
 var init_monaco_providers = __esm({
   "src/web/lib/monaco/monaco-providers.ts"() {
     "use strict";
     init_line_map();
     init_rql_check();
+    SYSTEM_ATTRIBUTES_FOR_COMPLETION = [
+      { id: "id", dataType: "Uuid", description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u043E\u0431\u044A\u0435\u043A\u0442\u0430" },
+      { id: "label", dataType: "String", description: "\u041B\u0435\u0439\u0431\u043B \u043E\u0431\u044A\u0435\u043A\u0442\u0430 (\u0447\u0435\u043B\u043E\u0432\u0435\u043A\u043E\u0447\u0438\u0442\u0430\u0435\u043C\u044B\u0439)" },
+      { id: "version", dataType: "Integer", description: "\u0412\u0435\u0440\u0441\u0438\u044F \u043E\u0431\u044A\u0435\u043A\u0442\u0430" },
+      { id: "createdAt", dataType: "Timestamp", description: "\u0414\u0430\u0442\u0430 \u0441\u043E\u0437\u0434\u0430\u043D\u0438\u044F" },
+      { id: "createdBy", dataType: "Reference", description: "\u0421\u043E\u0437\u0434\u0430\u0442\u0435\u043B\u044C" },
+      { id: "updatedAt", dataType: "Timestamp", description: "\u0414\u0430\u0442\u0430 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F" },
+      { id: "updatedBy", dataType: "Reference", description: "\u0418\u0437\u043C\u0435\u043D\u0438\u0432\u0448\u0438\u0439" },
+      { id: "organizationId", dataType: "Reference", description: "\u041E\u0440\u0433\u0430\u043D\u0438\u0437\u0430\u0446\u0438\u044F" },
+      { id: "tenantId", dataType: "Reference", description: "\u0422\u0435\u043D\u0430\u043D\u0442" },
+      { id: "domainId", dataType: "String", description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0434\u043E\u043C\u0435\u043D\u0430" },
+      { id: "entityId", dataType: "String", description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438" },
+      { id: "entityName", dataType: "String", description: "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438" }
+    ];
     providersRegistered = false;
     ctx = {
       lineMap: null,
@@ -35130,7 +35449,12 @@ ${label.message}` : ""),
     if (!m || !model)
       return;
     const currentText = model.getValue();
-    const markers = domainIssues.filter((issue) => severityFilter.has(issue.severity)).filter((issue) => !isIgnored(issue, ignored)).filter((issue) => isIssueStillPresent(issue, currentText, lineMap)).map((issue) => {
+    const isDirty2 = content !== savedContent;
+    const markers = domainIssues.filter((issue) => severityFilter.has(issue.severity)).filter((issue) => !isIgnored(issue, ignored)).filter((issue) => {
+      if (!isDirty2)
+        return true;
+      return isIssueStillPresent(issue, currentText, lineMap);
+    }).map((issue) => {
       const line = findIssueLine(issue, lineMap);
       if (line == null)
         return null;
@@ -35188,7 +35512,7 @@ ${label.message}` : ""),
       } catch {
       }
     };
-  }, [monacoReady, editorCreated, lineMap, domainIssues, isLocked, content, severityFilter]);
+  }, [monacoReady, editorCreated, lineMap, domainIssues, isLocked, content, severityFilter, savedContent]);
   const jumpTo = useCallback17((line) => {
     const editor = editorRef.current;
     if (!editor)
@@ -35711,6 +36035,8 @@ ${label.message}` : ""),
         if (!entityNode.children)
           return;
         entityNode.children.forEach((attrNode) => {
+          if (attrNode.type !== "attribute")
+            return;
           const attrId = attrNode.id;
           const escaped = attrId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
           const wordRegex = new RegExp(`\\b${escaped}\\b`, "g");
@@ -36749,7 +37075,7 @@ function isIssueStillPresent(issue, currentText, lineMap) {
       return false;
     return true;
   }
-  return true;
+  return false;
 }
 function findIssueLine(issue, lineMap) {
   if (!lineMap)

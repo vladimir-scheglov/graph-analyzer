@@ -10,6 +10,7 @@ import type {
   SnapshotSequence,
   SnapshotDomain,
   SemanticDiff,
+  GenericSnapshotEntry,
 } from "../../shared/model-types";
 import { computeSemanticDiff } from "./semantic-diff";
 
@@ -72,6 +73,11 @@ export function createSnapshotFromModelIndex(index: ModelIndex): ModelSnapshot {
       id: s.id,
       domainId: s.domainId,
     })),
+    // Копируем явно, чтобы diff видел новые/изменённые секции.
+    genericSections:
+      index.genericSections && Object.keys(index.genericSections).length > 0
+        ? index.genericSections
+        : undefined,
   };
 }
 
@@ -102,23 +108,24 @@ function writeJson(p: string, data: unknown): void {
 
 function hasAnyChanges(d: SemanticDiff): boolean {
   const s = d.stats;
-  return (
-    s.entitiesAdded +
-      s.entitiesRemoved +
-      s.entitiesChanged +
-      s.attributesAdded +
-      s.attributesRemoved +
-      s.attributesChanged +
-      s.inheritanceChanged +
-      s.mixinsAdded +
-      s.mixinsRemoved +
-      s.dataTypesAdded +
-      s.dataTypesRemoved +
-      s.domainsAdded +
-      s.domainsRemoved +
-      s.domainsChanged >
-    0
-  );
+  const base =
+    s.entitiesRemoved +
+    s.entitiesChanged +
+    s.attributesAdded +
+    s.attributesRemoved +
+    s.attributesChanged +
+    s.inheritanceChanged +
+    s.mixinsAdded +
+    s.mixinsRemoved +
+    s.dataTypesAdded +
+    s.dataTypesRemoved +
+    s.domainsAdded +
+    s.domainsRemoved +
+    s.domainsChanged;
+  if (base > 0) return true;
+  const g =
+    (s.genericAdded ?? 0) + (s.genericRemoved ?? 0) + (s.genericChanged ?? 0);
+  return g > 0;
 }
 
 // ============ Публичное API ============

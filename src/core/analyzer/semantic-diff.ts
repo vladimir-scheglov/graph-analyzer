@@ -15,6 +15,9 @@ import type {
   DiffDomainRef,
   DomainChange,
   DomainChangesSummary,
+  GenericSnapshotEntry,
+  GenericDiffEntry,
+  GenericSectionDiff,
 } from "../../shared/model-types";
 
 function toEntityRef(e: SnapshotEntity): DiffEntityRef {
@@ -139,6 +142,12 @@ export function computeSemanticDiff(
   prev: ModelSnapshot,
   curr: ModelSnapshot,
 ): SemanticDiff {
+  // ============ Generic sections ============
+  const genericSections = diffGenericSections(
+    prev.genericSections,
+    curr.genericSections,
+  );
+
   // ============ Entities ============
   const prevEntities = new Map(prev.entities.map((e) => [e.fqid, e]));
   const currEntities = new Map(curr.entities.map((e) => [e.fqid, e]));
@@ -248,6 +257,27 @@ export function computeSemanticDiff(
     }
   });
 
+  // ============ Группировка genericSections по домену ============
+  const genericByDomain = new Map<string, Record<string, GenericSectionDiff>>();
+  for (const [sectionKey, diff] of Object.entries(genericSections)) {
+    for (const [kind, list] of [
+      ["added", diff.added] as const,
+      ["removed", diff.removed] as const,
+      ["changed", diff.changed] as const,
+    ]) {
+      for (const entry of list) {
+        if (!genericByDomain.has(entry.domainId)) {
+          genericByDomain.set(entry.domainId, {});
+        }
+        const bySection = genericByDomain.get(entry.domainId)!;
+        if (!bySection[sectionKey]) {
+          bySection[sectionKey] = { added: [], removed: [], changed: [] };
+        }
+        bySection[sectionKey][kind].push(entry);
+      }
+    }
+  }
+
   // ============ Группировка byDomain ============
   const summaryMap = new Map<string, DomainChangesSummary>();
 
@@ -326,6 +356,17 @@ export function computeSemanticDiff(
       s.dataTypesRemoved.length;
   });
 
+  // Добавляем generic к summary (и увеличиваем totalChanges)
+  genericByDomain.forEach((bySection, domainId) => {
+    const s = ensureSummary(domainId);
+    s.generic = bySection;
+    for (const diff of Object.values(bySection)) {
+      s.totalChanges +=
+        diff.added.length + diff.removed.length + diff.changed.length;
+    }
+  });
+
+  // Пересортировка после добавления generic
   const byDomain = Array.from(summaryMap.values())
     .filter((s) => s.totalChanges > 0)
     .sort((a, b) => {
@@ -366,6 +407,7 @@ export function computeSemanticDiff(
       removed: removedDomains,
       changed: changedDomains,
     },
+    genericSections,
     byDomain,
     stats: {
       entitiesAdded: addedEntities.length,
@@ -382,6 +424,85 @@ export function computeSemanticDiff(
       domainsAdded: addedDomains.length,
       domainsRemoved: removedDomains.length,
       domainsChanged: changedDomains.length,
+      genericAdded: countGeneric(genericSections, "added"),
+      genericRemoved: countGeneric(genericSections, "removed"),
+      genericChanged: countGeneric(genericSections, "changed"),
     },
   };
+}
+
+function countGeneric(
+  sections: Record<string, GenericSectionDiff>,
+  kind: keyof GenericSectionDiff,
+): number {
+  let sum = 0;
+  for (const diff of Object.values(sections)) {
+    sum += diff[kind].length;
+  }
+  return sum;
+}
+
+function toGenericDiffEntry(e: GenericSnapshotEntry): GenericDiffEntry {
+  return {
+    id: e.id,
+    domainId: e.domainId,
+    label: e.label,
+    type: e.type,
+  };
+}
+
+function diffGenericSections(
+  prev: Record<string, GenericSnapshotEntry[]> | undefined,
+  curr: Record<string, GenericSnapshotEntry[]> | undefined,
+): Record<string, GenericSectionDiff> {
+  const result: Record<string, GenericSectionDiff> = {};
+  const keys = new Set<string>([
+    ...Object.keys(prev || {}),
+    ...Object.keys(curr || {}),
+  ]);
+
+  for (const key of keys) {
+    const prevItems = prev?.[key] || [];
+    const currItems = curr?.[key] || [];
+    if (prevItems.length === 0 && currItems.length === 0) continue;
+
+    const prevMap = new Map(
+      prevItems.map((e) => [`${e.domainId}#${e.id}`, e] as const),
+    );
+    const currMap = new Map(
+      currItems.map((e) => [`${e.domainId}#${e.id}`, e] as const),
+    );
+
+    const added: GenericDiffEntry[] = [];
+    const removed: GenericDiffEntry[] = [];
+    const changed: GenericDiffEntry[] = [];
+
+    currMap.forEach((e, mapKey) => {
+      const prevItem = prevMap.get(mapKey);
+      if (!prevItem) {
+        added.push(toGenericDiffEntry(e));
+      } else if (prevItem.hash !== e.hash) {
+        changed.push(toGenericDiffEntry(e));
+      }
+    });
+    prevMap.forEach((e, mapKey) => {
+      if (!currMap.has(mapKey)) removed.push(toGenericDiffEntry(e));
+    });
+
+    if (added.length === 0 && removed.length === 0 && changed.length === 0) {
+      continue;
+    }
+
+    added.sort((a, b) => (a.domainId + a.id).localeCompare(b.domainId + b.id));
+    removed.sort((a, b) =>
+      (a.domainId + a.id).localeCompare(b.domainId + b.id),
+    );
+    changed.sort((a, b) =>
+      (a.domainId + a.id).localeCompare(b.domainId + b.id),
+    );
+
+    result[key] = { added, removed, changed };
+  }
+
+  return result;
 }
