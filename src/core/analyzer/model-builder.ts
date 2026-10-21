@@ -40,6 +40,22 @@ import type {
   AccessRuleException,
   LocalizationRecord,
   LocalizationKeyRecord,
+  UiRuleOperation,
+  CounterColorPatternRecord,
+  ActionBulkAttributeUse,
+  ActionBulkLinkageUse,
+  ActionBulkSettings,
+  ActionRecord,
+  ActionValueRecord,
+  ViewColumnRecord,
+  ViewTableFilterAttribute,
+  ViewTableFilterLinkage,
+  ViewTableFilterRecord,
+  ViewTableSortingColumn,
+  ViewTableSortingRecord,
+  ViewTableActionItemRef,
+  ViewTableActionRecord,
+  ViewTablePagingRecord,
 } from "../../shared/model-types";
 import { buildDomainSchemaSummary } from "./domain-schema";
 import type { DomainSchemaSummary } from "../../shared/model-types";
@@ -57,6 +73,9 @@ import type {
   UiRuleColumnRef,
   UiRuleNested,
   ViewElementsRecord,
+  ViewActionPanelRecord,
+  ViewGroupRecord,
+  ViewWidgetRecord,
 } from "../../shared/model-types";
 
 // ============ Базовые типы данных ============
@@ -640,6 +659,20 @@ function parseSequence(raw: any, domainId: string): SequenceRecord | null {
     startFrom: Number.isFinite(n) && n > 0 ? n : 1,
     description: String(raw.description || ""),
     usedByAttributes: [],
+  };
+}
+
+function parseCounterColorPattern(
+  raw: any,
+  domainId: string,
+): CounterColorPatternRecord | null {
+  if (!raw || typeof raw !== "object") return null;
+  if (typeof raw.id !== "string" || !raw.id) return null;
+  return {
+    id: raw.id,
+    domainId,
+    red: String(raw.red || ""),
+    yellow: String(raw.yellow || ""),
   };
 }
 
@@ -1391,10 +1424,15 @@ function parseDataRuleAttributeAction(
   return out;
 }
 
-function parseDataRuleLinkageAction(raw: any): DataRuleLinkageAction | null {
+function parseDataRuleLinkageAction(
+  raw: any,
+  domainId: string,
+): DataRuleLinkageAction | null {
   if (!raw || typeof raw !== "object") return null;
   if (typeof raw.linkage !== "string" || !raw.linkage) return null;
-  const out: DataRuleLinkageAction = { linkage: raw.linkage };
+  const linkageFqid = normalizeFqid(raw.linkage, domainId);
+  if (!linkageFqid) return null;
+  const out: DataRuleLinkageAction = { linkage: linkageFqid };
   if (raw.side === 1 || raw.side === 2) out.side = raw.side;
   if (typeof raw.constraint === "string") out.constraint = raw.constraint;
   if (typeof raw.expression === "string") out.expression = raw.expression;
@@ -1492,7 +1530,7 @@ function parseDataRule(raw: any, domainId: string): DataRuleRecord | null {
   }
   if (Array.isArray(rule.linkages)) {
     const linkages = rule.linkages
-      .map(parseDataRuleLinkageAction)
+      .map((l: any) => parseDataRuleLinkageAction(l, domainId))
       .filter((x): x is DataRuleLinkageAction => x !== null);
     if (linkages.length > 0) rec.linkages = linkages;
   }
@@ -1860,6 +1898,147 @@ function parseAccessRule(raw: any, domainId: string): AccessRuleRecord | null {
   return out;
 }
 
+function parseAction(raw: any, domainId: string): ActionRecord | null {
+  if (!raw || typeof raw !== "object") return null;
+  if (typeof raw.id !== "string" || !raw.id) return null;
+
+  const type = String(raw.type || "");
+  const out: ActionRecord = {
+    id: raw.id,
+    domainId,
+    name: String(raw.name || raw.id),
+    description: String(raw.description || ""),
+    type,
+  };
+
+  // entity
+  const entityFqid = normalizeFqid(raw.entity, domainId);
+  if (entityFqid) out.entity = entityFqid;
+
+  // modal / panel / view — все через normalizeFqid
+  if (typeof raw.modal === "string") {
+    const fqid = normalizeFqid(raw.modal, domainId);
+    if (fqid) out.modal = fqid;
+  }
+  if (typeof raw.panel === "string") {
+    const fqid = normalizeFqid(raw.panel, domainId);
+    if (fqid) out.panel = fqid;
+  }
+  if (typeof raw.view === "string") {
+    const fqid = normalizeFqid(raw.view, domainId);
+    if (fqid) out.view = fqid;
+  }
+
+  if (typeof raw.operation === "string") out.operation = raw.operation;
+  if (raw.contextPin === true) out.contextPin = true;
+
+  if (typeof raw.join === "string") out.join = raw.join;
+
+  if (typeof raw.linkage === "string") {
+    const fqid = normalizeFqid(raw.linkage, domainId);
+    if (fqid) out.linkage = fqid;
+  }
+  if (raw.side === 1 || raw.side === 2) out.side = raw.side;
+  if (raw.page === "blank" || raw.page === "current") out.page = raw.page;
+
+  if (raw.automation && typeof raw.automation === "object") {
+    if (typeof raw.automation.id === "string") {
+      out.automationId = raw.automation.id;
+    }
+  }
+  if (typeof raw.scenario === "string") out.scenario = raw.scenario;
+  if (typeof raw.workerTag === "string") out.workerTag = raw.workerTag;
+
+  // values[]
+  if (Array.isArray(raw.values)) {
+    const values = raw.values
+      .map((v: any) => {
+        if (!v || typeof v !== "object") return null;
+        if (typeof v.attribute !== "string" || !v.attribute) return null;
+        return { attribute: v.attribute, value: v.value };
+      })
+      .filter(
+        (x: ActionValueRecord | null): x is ActionValueRecord => x !== null,
+      );
+    if (values.length > 0) out.values = values;
+  }
+
+  // bulkSettings[]
+  if (Array.isArray(raw.bulkSettings)) {
+    const settings = raw.bulkSettings
+      .map((s: any) => {
+        if (!s || typeof s !== "object") return null;
+        const setting: ActionBulkSettings = {};
+
+        const sfqid = normalizeFqid(s.entity, domainId);
+        if (sfqid) setting.entity = sfqid;
+
+        if (s.attributes && typeof s.attributes === "object") {
+          setting.attributes = {
+            type: s.attributes.type === "specific" ? "specific" : "all",
+            use: Array.isArray(s.attributes.use)
+              ? s.attributes.use
+                  .map((u: any) =>
+                    u && typeof u.attribute === "string"
+                      ? ({ attribute: u.attribute } as ActionBulkAttributeUse)
+                      : null,
+                  )
+                  .filter(
+                    (
+                      x: ActionBulkAttributeUse | null,
+                    ): x is ActionBulkAttributeUse => x !== null,
+                  )
+              : undefined,
+          };
+        }
+
+        if (s.linkages && typeof s.linkages === "object") {
+          setting.linkages = {
+            type: "specific",
+            use: Array.isArray(s.linkages.use)
+              ? s.linkages.use
+                  .map((u: any) =>
+                    u && typeof u.widget === "string"
+                      ? ({ widget: u.widget } as ActionBulkLinkageUse)
+                      : null,
+                  )
+                  .filter(
+                    (
+                      x: ActionBulkLinkageUse | null,
+                    ): x is ActionBulkLinkageUse => x !== null,
+                  )
+              : undefined,
+          };
+        }
+
+        return Object.keys(setting).length > 0 ? setting : null;
+      })
+      .filter(
+        (x: ActionBulkSettings | null): x is ActionBulkSettings => x !== null,
+      );
+    if (settings.length > 0) out.bulkSettings = settings;
+  }
+
+  // openBoardsFromGraph — для open_graph_view
+  if (
+    raw.openBoardsFromGraph &&
+    typeof raw.openBoardsFromGraph === "object" &&
+    raw.openBoardsFromGraph.openBoards === true
+  ) {
+    out.openBoards = true;
+    if (typeof raw.openBoardsFromGraph.name === "string") {
+      out.openBoardsName = raw.openBoardsFromGraph.name;
+    }
+  }
+
+  if (typeof raw.attribute === "string") out.attribute = raw.attribute;
+  if (typeof raw.widgetId === "string") {
+    const fqid = normalizeFqid(raw.widgetId, domainId);
+    if (fqid) out.widgetId = fqid;
+  }
+
+  return out;
+}
 // ============ Localizations ============
 
 function parseLocalizationKey(raw: any): LocalizationKeyRecord | null {
@@ -1923,11 +2102,59 @@ function parseUiPreset(raw: any, domainId: string): UiPresetRecord | null {
 function parseUiRule(raw: any, domainId: string): UiRuleRecord | null {
   if (!raw || !raw.id) return null;
 
+  // ============ Нормализация target ============
+  // zod имеет `entity_widget` (legacy/plan), docs и ModelIndex — `entity_attribute`.
+  // Приводим к единому имени, чтобы остальная система работала с одним значением.
+  const rawTarget = String(raw.target || "").trim();
+  const target = rawTarget === "entity_widget" ? "entity_attribute" : rawTarget;
+
+  // ============ Нормализация operations ============
+  // Поле описано в docs и в zod (`operations?: ("view"|"edit"|"create")[]`),
+  // но сейчас нигде не парсится.
+  const rawOperations = Array.isArray(raw.operations) ? raw.operations : [];
+  const operations: UiRuleOperation[] = rawOperations
+    .map((v: any) => String(v || "").trim())
+    .filter(
+      (v: string): v is UiRuleOperation =>
+        v === "view" || v === "edit" || v === "create",
+    );
+
+  // ============ context.views ============
+  // zod описывает как [{ view: string }], но в старых файлах может быть [string].
+  // Раньше делали `map(String)` → получали "[object Object]". Теперь корректно.
+  const rawContextViews = Array.isArray(raw.context?.views)
+    ? raw.context.views
+    : [];
+  const contextViews: string[] = rawContextViews
+    .map((v: any) => {
+      if (typeof v === "string") return v;
+      if (v && typeof v === "object" && typeof v.view === "string")
+        return v.view;
+      return null;
+    })
+    .filter((v: string | null): v is string => !!v);
+
+  // ============ widgets[] ============
+  // Zod (`WidgetId`) разрешает и строку, и `{ id, linkageId?, referenceId? }`.
+  // Inline-объекты берём по `.id`; если id нет — пропускаем.
   const widgets: UiRuleWidgetRef[] = [];
   if (Array.isArray(raw.rule?.widgets)) {
     for (const w of raw.rule.widgets) {
-      if (!w || !w.widget) continue;
-      const ref: UiRuleWidgetRef = { widget: String(w.widget) };
+      if (!w || typeof w !== "object") continue;
+
+      let widgetId: string | null = null;
+      const rawWidget = (w as any).widget;
+      if (typeof rawWidget === "string") widgetId = rawWidget;
+      else if (
+        rawWidget &&
+        typeof rawWidget === "object" &&
+        typeof rawWidget.id === "string"
+      ) {
+        widgetId = rawWidget.id;
+      }
+      if (!widgetId) continue;
+
+      const ref: UiRuleWidgetRef = { widget: widgetId };
       if (w.nested && typeof w.nested === "object") {
         const nested: UiRuleNested = {
           type: w.nested.type === "array" ? "array" : "table",
@@ -1951,21 +2178,47 @@ function parseUiRule(raw: any, domainId: string): UiRuleRecord | null {
     }
   }
 
+  // ============ groups[] ============
   const groups: UiRuleGroupRef[] = [];
   if (Array.isArray(raw.rule?.groups)) {
     for (const g of raw.rule.groups) {
-      if (!g || !g.group) continue;
-      const ref: UiRuleGroupRef = { group: String(g.group) };
+      if (!g || typeof g !== "object") continue;
+      let groupId: string | null = null;
+      const rawGroup = (g as any).group;
+      if (typeof rawGroup === "string") groupId = rawGroup;
+      else if (
+        rawGroup &&
+        typeof rawGroup === "object" &&
+        typeof rawGroup.id === "string"
+      ) {
+        groupId = rawGroup.id;
+      }
+      if (!groupId) continue;
+
+      const ref: UiRuleGroupRef = { group: groupId };
       if (Array.isArray(g.presets)) ref.presets = g.presets.map(String);
       groups.push(ref);
     }
   }
 
+  // ============ columns[] ============
   const columns: UiRuleColumnRef[] = [];
   if (Array.isArray(raw.rule?.columns)) {
     for (const c of raw.rule.columns) {
-      if (!c || !c.column) continue;
-      const ref: UiRuleColumnRef = { column: String(c.column) };
+      if (!c || typeof c !== "object") continue;
+      let columnId: string | null = null;
+      const rawColumn = (c as any).column;
+      if (typeof rawColumn === "string") columnId = rawColumn;
+      else if (
+        rawColumn &&
+        typeof rawColumn === "object" &&
+        typeof rawColumn.id === "string"
+      ) {
+        columnId = rawColumn.id;
+      }
+      if (!columnId) continue;
+
+      const ref: UiRuleColumnRef = { column: columnId };
       if (Array.isArray(c.presets)) ref.presets = c.presets.map(String);
       columns.push(ref);
     }
@@ -1997,11 +2250,10 @@ function parseUiRule(raw: any, domainId: string): UiRuleRecord | null {
     domainId,
     name: String(raw.name || raw.id),
     description: String(raw.description || ""),
-    target: String(raw.target || ""),
+    target,
     view: String(raw.view || ""),
-    contextViews: Array.isArray(raw.context?.views)
-      ? raw.context.views.map(String)
-      : [],
+    contextViews,
+    operations: operations.length > 0 ? operations : undefined,
     contextData,
     condition: String(raw.condition || ""),
     effect: String(raw.rule?.effect || ""),
@@ -2098,7 +2350,7 @@ function collectViewElements(
   const entityNameById = new Map<string, string>();
   const attrByEntityAndId = new Map<
     string,
-    { name: string; dataType: string }
+    { name: string; dataType: string; nestedColumns?: string[] }
   >();
   if (Array.isArray(raw?.entities)) {
     for (const e of raw.entities) {
@@ -2107,9 +2359,16 @@ function collectViewElements(
       if (Array.isArray(e.attributes)) {
         for (const a of e.attributes) {
           if (!a?.id) continue;
+          const nestedColumns =
+            a.dataType === "Table" && Array.isArray(a.attributes)
+              ? a.attributes
+                  .map((x: any) => String(x?.id || ""))
+                  .filter(Boolean)
+              : undefined;
           attrByEntityAndId.set(`${e.id}#${a.id}`, {
             name: String(a.name || a.id),
             dataType: String(a.dataType || ""),
+            nestedColumns,
           });
         }
       }
@@ -2168,33 +2427,61 @@ function collectViewElements(
     const seenG = new Set<string>();
     const seenC = new Set<string>();
 
-    const addWidget = (id: string, type: string, description: string) => {
+    const addWidget = (
+      id: string,
+      type: string,
+      description: string,
+      counterColorPattern?: string,
+      attributeDataType?: string,
+      attributeNestedColumns?: string[],
+    ) => {
       widgets.add(id);
       if (!seenW.has(id)) {
         seenW.add(id);
-        widgetsWithType.push({
+        const ref: ViewElementRef = {
           id,
           type: type || "",
           description: description || "",
-        });
+        };
+        if (counterColorPattern) ref.counterColorPattern = counterColorPattern;
+        if (attributeDataType) ref.attributeDataType = attributeDataType;
+        if (attributeNestedColumns && attributeNestedColumns.length > 0) {
+          ref.attributeNestedColumns = attributeNestedColumns;
+        }
+        widgetsWithType.push(ref);
       }
     };
+
+    const addColumn = (
+      id: string,
+      type: string,
+      description: string,
+      counterColorPattern?: string,
+      attributeDataType?: string,
+      attributeNestedColumns?: string[],
+    ) => {
+      columns.add(id);
+      if (!seenC.has(id)) {
+        seenC.add(id);
+        const ref: ViewElementRef = {
+          id,
+          type: type || "",
+          description: description || "",
+        };
+        if (counterColorPattern) ref.counterColorPattern = counterColorPattern;
+        if (attributeDataType) ref.attributeDataType = attributeDataType;
+        if (attributeNestedColumns && attributeNestedColumns.length > 0) {
+          ref.attributeNestedColumns = attributeNestedColumns;
+        }
+        columnsWithType.push(ref);
+      }
+    };
+
     const addGroup = (id: string, type: string, description: string) => {
       groups.add(id);
       if (!seenG.has(id)) {
         seenG.add(id);
         groupsWithType.push({
-          id,
-          type: type || "",
-          description: description || "",
-        });
-      }
-    };
-    const addColumn = (id: string, type: string, description: string) => {
-      columns.add(id);
-      if (!seenC.has(id)) {
-        seenC.add(id);
-        columnsWithType.push({
           id,
           type: type || "",
           description: description || "",
@@ -2244,11 +2531,35 @@ function collectViewElements(
         for (const w of view.widgets) {
           if (!w?.id) continue;
           let desc = String(w.description || "").trim();
-          // Fallback: у attribute-виджета без description подтягиваем данные атрибута.
           if (!desc && w.type === "attribute" && w.attribute) {
             desc = buildAttributeWidgetDescription(w.attribute, nextEntityId);
           }
-          addWidget(String(w.id), String(w.type || ""), desc);
+          const ccp =
+            typeof w.counterColorPattern === "string" && w.counterColorPattern
+              ? w.counterColorPattern
+              : undefined;
+
+          let attrDataType: string | undefined;
+          let attrNestedColumns: string[] | undefined;
+          if (w.type === "attribute" && typeof w.attribute === "string") {
+            const key = resolveAttrKey(w.attribute, nextEntityId);
+            if (key) {
+              const info = attrByEntityAndId.get(key);
+              if (info) {
+                attrDataType = info.dataType || undefined;
+                attrNestedColumns = info.nestedColumns;
+              }
+            }
+          }
+
+          addWidget(
+            String(w.id),
+            String(w.type || ""),
+            desc,
+            ccp,
+            attrDataType,
+            attrNestedColumns,
+          );
         }
       }
 
@@ -2268,10 +2579,31 @@ function collectViewElements(
       if (Array.isArray(view.table?.columns)) {
         for (const c of view.table.columns) {
           if (!c?.id) continue;
+          const ccp =
+            typeof c.counterColorPattern === "string" && c.counterColorPattern
+              ? c.counterColorPattern
+              : undefined;
+
+          let attrDataType: string | undefined;
+          let attrNestedColumns: string[] | undefined;
+          if (typeof c.attribute === "string" && c.attribute) {
+            const key = resolveAttrKey(c.attribute, nextEntityId);
+            if (key) {
+              const info = attrByEntityAndId.get(key);
+              if (info) {
+                attrDataType = info.dataType || undefined;
+                attrNestedColumns = info.nestedColumns;
+              }
+            }
+          }
+
           addColumn(
             String(c.id),
             "",
             String(c.label || c.description || "").trim(),
+            ccp,
+            attrDataType,
+            attrNestedColumns,
           );
         }
       }
@@ -2337,6 +2669,338 @@ function collectViewElements(
   return result;
 }
 
+// ============ Плоская мета-структура view ============
+
+interface ViewMetaResult {
+  groups: ViewGroupRecord[];
+  widgets: ViewWidgetRecord[];
+  actionPanels: ViewActionPanelRecord[];
+  columns: ViewColumnRecord[];
+  filters: ViewTableFilterRecord[];
+  sortings: ViewTableSortingRecord[];
+  pagings: ViewTablePagingRecord[];
+  tableActions: ViewTableActionRecord[];
+}
+
+function collectViewMeta(raw: any, domainId: string): ViewMetaResult {
+  const groups: ViewGroupRecord[] = [];
+  const widgets: ViewWidgetRecord[] = [];
+  const actionPanels: ViewActionPanelRecord[] = [];
+  const columns: ViewColumnRecord[] = [];
+  const seenGroups = new Set<string>();
+  const seenWidgets = new Set<string>();
+  const seenColumns = new Set<string>();
+  const filters: ViewTableFilterRecord[] = [];
+  const sortings: ViewTableSortingRecord[] = [];
+  const seenFilterViews = new Set<string>();
+  const seenSortingViews = new Set<string>();
+  const pagings: ViewTablePagingRecord[] = [];
+  const tableActions: ViewTableActionRecord[] = [];
+  const seenPagingViews = new Set<string>();
+  const seenActionsViews = new Set<string>();
+
+  const views = Array.isArray(raw?.views) ? raw.views : [];
+
+  const walk = (view: any, topViewId: string): void => {
+    if (!view || typeof view !== "object") return;
+
+    if (Array.isArray(view.widgets)) {
+      for (const w of view.widgets) {
+        if (!w?.id) continue;
+        const key = `${topViewId}#${w.id}`;
+        if (seenWidgets.has(key)) continue;
+        seenWidgets.add(key);
+
+        const rec: ViewWidgetRecord = {
+          id: String(w.id),
+          domainId,
+          parentViewId: topViewId,
+          type: String(w.type || ""),
+        };
+        if (
+          w.control &&
+          typeof w.control === "object" &&
+          typeof w.control.type === "string"
+        ) {
+          rec.controlType = w.control.type;
+        }
+        if (typeof w.attribute === "string" && w.attribute) {
+          rec.attribute = w.attribute;
+        }
+        widgets.push(rec);
+      }
+    }
+
+    if (Array.isArray(view.groups)) {
+      for (const g of view.groups) {
+        if (!g?.id) continue;
+        const key = `${topViewId}#${g.id}`;
+        if (seenGroups.has(key)) continue;
+        seenGroups.add(key);
+        groups.push({
+          id: String(g.id),
+          domainId,
+          parentViewId: topViewId,
+          type: String(g.type || ""),
+        });
+      }
+    }
+
+    if (Array.isArray(view.actionPanel)) {
+      for (const ap of view.actionPanel) {
+        let widgetId: string | null = null;
+        if (typeof ap === "string" && ap) widgetId = ap;
+        else if (ap && typeof ap === "object" && typeof ap.widget === "string")
+          widgetId = ap.widget;
+        if (!widgetId) continue;
+
+        actionPanels.push({
+          id: `${domainId}#${topViewId}#${actionPanels.length}`,
+          domainId,
+          viewId: topViewId,
+          widget: widgetId,
+        });
+      }
+    }
+
+    // ============ PR 6b: table.columns[] ============
+    if (Array.isArray(view.table?.columns)) {
+      for (const c of view.table.columns) {
+        if (!c?.id) continue;
+        const key = `${topViewId}#${c.id}`;
+        if (seenColumns.has(key)) continue;
+        seenColumns.add(key);
+
+        const rec: ViewColumnRecord = {
+          id: String(c.id),
+          domainId,
+          viewId: topViewId,
+        };
+        if (typeof c.attribute === "string" && c.attribute)
+          rec.attribute = c.attribute;
+        if (typeof c.join === "string" && c.join) rec.join = c.join;
+        if (typeof c.linkageAttribute === "string" && c.linkageAttribute)
+          rec.linkageAttribute = c.linkageAttribute;
+        if (c.control && typeof c.control === "object") {
+          if (typeof c.control.type === "string")
+            rec.controlType = c.control.type;
+          if (typeof c.control.tree === "string")
+            rec.controlTree = c.control.tree;
+        }
+        columns.push(rec);
+      }
+    }
+
+    if (Array.isArray(view.views)) {
+      for (const nv of view.views) walk(nv, topViewId);
+    }
+
+    for (const v of views) {
+      if (!v?.id) continue;
+      const viewId = String(v.id);
+
+      // ============ filter ============
+      const t = v.table;
+      if (t && typeof t === "object" && !seenFilterViews.has(viewId)) {
+        const attributes: ViewTableFilterAttribute[] = [];
+        const linkages: ViewTableFilterLinkage[] = [];
+
+        // filter.attributes
+        const fa = t.filter?.attributes;
+        if (
+          fa &&
+          typeof fa === "object" &&
+          fa.type === "specific" &&
+          Array.isArray(fa.use)
+        ) {
+          for (const u of fa.use) {
+            if (!u || typeof u !== "object") continue;
+            if (typeof u.attribute !== "string" || !u.attribute) continue;
+            attributes.push({ attribute: u.attribute });
+          }
+        }
+
+        // filter.linkages
+        const fl = t.filter?.linkages;
+        if (
+          fl &&
+          typeof fl === "object" &&
+          fl.type === "specific" &&
+          Array.isArray(fl.use)
+        ) {
+          for (const u of fl.use) {
+            if (!u || typeof u !== "object") continue;
+            const rec: ViewTableFilterLinkage = {};
+
+            if (typeof u.linkage === "string" && u.linkage) {
+              const fqid = normalizeFqid(u.linkage, domainId);
+              if (fqid) rec.linkage = fqid;
+            }
+            if (typeof u.join === "string" && u.join) rec.join = u.join;
+
+            if (Array.isArray(u.link_attributes)) {
+              const arr = u.link_attributes
+                .map((x: any) =>
+                  x && typeof x === "object" && typeof x.attribute === "string"
+                    ? x.attribute
+                    : null,
+                )
+                .filter((x: string | null): x is string => !!x);
+              if (arr.length > 0) rec.linkAttributes = arr;
+            }
+            if (Array.isArray(u.linkedEntity)) {
+              const arr = u.linkedEntity
+                .map((x: any) =>
+                  x && typeof x === "object" && typeof x.attribute === "string"
+                    ? x.attribute
+                    : null,
+                )
+                .filter((x: string | null): x is string => !!x);
+              if (arr.length > 0) rec.linkedEntity = arr;
+            }
+
+            if (Object.keys(rec).length > 0) linkages.push(rec);
+          }
+        }
+
+        if (attributes.length > 0 || linkages.length > 0) {
+          filters.push({ domainId, viewId, attributes, linkages });
+          seenFilterViews.add(viewId);
+        }
+      }
+
+      // ============ sortingBy ============
+      if (t && typeof t === "object" && !seenSortingViews.has(viewId)) {
+        const sb = t.sortingBy;
+        if (sb && typeof sb === "object") {
+          const cols: ViewTableSortingColumn[] = [];
+          if (Array.isArray(sb.columns)) {
+            for (const c of sb.columns) {
+              if (!c || typeof c !== "object") continue;
+              if (typeof c.column !== "string" || !c.column) continue;
+              if (typeof c.sorting !== "string" || !c.sorting) continue;
+              cols.push({ column: c.column, sorting: c.sorting });
+            }
+          }
+
+          const rec: ViewTableSortingRecord = {
+            domainId,
+            viewId,
+            columns: cols,
+          };
+
+          if (sb.defaults && typeof sb.defaults === "object") {
+            if (typeof sb.defaults.column === "string" && sb.defaults.column) {
+              rec.defaultColumn = sb.defaults.column;
+            }
+            if (
+              sb.defaults.direction === "asc" ||
+              sb.defaults.direction === "desc"
+            ) {
+              rec.defaultDirection = sb.defaults.direction;
+            }
+          }
+
+          if (cols.length > 0 || rec.defaultColumn) {
+            sortings.push(rec);
+            seenSortingViews.add(viewId);
+          }
+        }
+      }
+
+      // ============ paging ============
+      if (
+        t &&
+        typeof t === "object" &&
+        t.paging &&
+        !seenPagingViews.has(viewId)
+      ) {
+        const p = t.paging;
+        const rawSizes = Array.isArray(p.sizes) ? p.sizes : [];
+        const sizes: number[] = [];
+        for (const s of rawSizes) {
+          const n = typeof s === "number" ? s : Number(s);
+          if (Number.isFinite(n) && n > 0 && Number.isInteger(n)) sizes.push(n);
+        }
+        const rawDefaultSize = p.defaultSize;
+        let defaultSize: number | undefined;
+        if (rawDefaultSize !== undefined) {
+          const n =
+            typeof rawDefaultSize === "number"
+              ? rawDefaultSize
+              : Number(rawDefaultSize);
+          if (Number.isFinite(n) && n > 0 && Number.isInteger(n))
+            defaultSize = n;
+        }
+        if (rawSizes.length > 0 || rawDefaultSize !== undefined) {
+          pagings.push({
+            domainId,
+            viewId,
+            rawSizes,
+            sizes,
+            rawDefaultSize,
+            defaultSize,
+          });
+          seenPagingViews.add(viewId);
+        }
+      }
+
+      // ============ table.actions[] ============
+      if (
+        t &&
+        typeof t === "object" &&
+        Array.isArray(t.actions) &&
+        !seenActionsViews.has(viewId)
+      ) {
+        for (const a of t.actions) {
+          if (!a || typeof a !== "object") continue;
+          const type = String(a.type || "");
+          if (!type) continue;
+
+          const rec: ViewTableActionRecord = {
+            domainId,
+            viewId,
+            type,
+            items: [],
+          };
+
+          if (typeof a.action === "string" && a.action) {
+            rec.action = a.action;
+          }
+          if (Array.isArray(a.items)) {
+            for (const it of a.items) {
+              if (!it || typeof it !== "object") continue;
+              if (typeof it.action !== "string" || !it.action) continue;
+              const item: ViewTableActionItemRef = { action: it.action };
+              if (typeof it.label === "string") item.label = it.label;
+              if (typeof it.icon === "string") item.icon = it.icon;
+              rec.items.push(item);
+            }
+          }
+          tableActions.push(rec);
+        }
+        seenActionsViews.add(viewId);
+      }
+    }
+  };
+
+  for (const v of views) {
+    if (!v?.id) continue;
+    walk(v, String(v.id));
+  }
+
+  return {
+    groups,
+    widgets,
+    actionPanels,
+    columns,
+    filters,
+    sortings,
+    pagings,
+    tableActions,
+  };
+}
+
 export function buildModelIndex(rawDomains: RawDomainEntry[]): ModelIndex {
   const rawDomainsById = new Map<string, RawDomainEntry>();
   rawDomains.forEach((d) => rawDomainsById.set(d.id, d));
@@ -2366,6 +3030,18 @@ export function buildModelIndex(rawDomains: RawDomainEntry[]): ModelIndex {
   const permissions: PermissionRecord[] = [];
   const accessRules: AccessRuleRecord[] = [];
   const localizations: LocalizationRecord[] = [];
+  const counterColorPatterns: CounterColorPatternRecord[] = [];
+  const counterColorPatternsByDomain: Record<string, string[]> = {};
+  const actions: ActionRecord[] = [];
+  const actionsById: Record<string, ActionRecord> = {};
+  const viewGroups: ViewGroupRecord[] = [];
+  const viewWidgets: ViewWidgetRecord[] = [];
+  const viewActionPanels: ViewActionPanelRecord[] = [];
+  const viewColumns: ViewColumnRecord[] = [];
+  const viewTableFilters: ViewTableFilterRecord[] = [];
+  const viewTableSortings: ViewTableSortingRecord[] = [];
+  const viewTablePagings: ViewTablePagingRecord[] = [];
+  const viewTableActions: ViewTableActionRecord[] = [];
 
   // Проход 1: собрать все кастомные dataTypes IDs (для классификации атрибутов)
   const customDataTypeIdsByDomain = new Map<string, Set<string>>();
@@ -2466,6 +3142,19 @@ export function buildModelIndex(rawDomains: RawDomainEntry[]): ModelIndex {
     // View Elements (для валидации UI Rules)
     viewElementsByDomain[d.id] = collectViewElements(raw.views || [], raw);
 
+    // PR 6: плоская мета-структура view для checkViews
+    {
+      const meta = collectViewMeta(raw, d.id);
+      viewGroups.push(...meta.groups);
+      viewWidgets.push(...meta.widgets);
+      viewActionPanels.push(...meta.actionPanels);
+      viewColumns.push(...meta.columns);
+      viewTableFilters.push(...meta.filters);
+      viewTableSortings.push(...meta.sortings);
+      viewTablePagings.push(...meta.pagings);
+      viewTableActions.push(...meta.tableActions);
+    }
+
     // Mixins
     if (Array.isArray(raw.mixins)) {
       const parsed = parseMixins(d.id, raw.mixins);
@@ -2530,6 +3219,16 @@ export function buildModelIndex(rawDomains: RawDomainEntry[]): ModelIndex {
       });
     }
 
+    // ============ Actions ============
+    if (Array.isArray(raw.actions)) {
+      for (const a of raw.actions) {
+        const rec = parseAction(a, d.id);
+        if (!rec) continue;
+        actions.push(rec);
+        actionsById[`${rec.domainId.toLowerCase()}#${rec.id}`] = rec;
+      }
+    }
+
     // ============ Localizations ============
     if (Array.isArray(raw.localizations)) {
       raw.localizations.forEach((loc: any) => {
@@ -2537,6 +3236,23 @@ export function buildModelIndex(rawDomains: RawDomainEntry[]): ModelIndex {
         if (rec) localizations.push(rec);
       });
     }
+
+    // ============ CounterColorPatterns ============
+    // zod ждёт `counterColorPatterns` (plural), docs — `counterColorPattern`.
+    // Поддерживаем оба, чтобы не терять данные.
+    const rawCCP = Array.isArray((raw as any).counterColorPatterns)
+      ? (raw as any).counterColorPatterns
+      : Array.isArray((raw as any).counterColorPattern)
+        ? (raw as any).counterColorPattern
+        : [];
+    const domainCCP: string[] = [];
+    for (const c of rawCCP) {
+      const rec = parseCounterColorPattern(c, d.id);
+      if (!rec) continue;
+      counterColorPatterns.push(rec);
+      domainCCP.push(rec.id);
+    }
+    counterColorPatternsByDomain[d.id] = domainCCP;
   });
 
   const scenarios: ScenarioRecord[] = Array.from(scenarioMap.values());
@@ -2654,6 +3370,18 @@ export function buildModelIndex(rawDomains: RawDomainEntry[]): ModelIndex {
     permissions,
     accessRules,
     localizations,
+    actions,
+    actionsById,
+    counterColorPatterns,
+    counterColorPatternsByDomain,
+    viewGroups,
+    viewWidgets,
+    viewActionPanels,
+    viewColumns,
+    viewTableFilters,
+    viewTableSortings,
+    viewTablePagings,
+    viewTableActions,
   } as ModelIndex;
 
   const lintReport = lintModel(partialIndex);

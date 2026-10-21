@@ -821,6 +821,61 @@ export function SectionItems({
         );
     }
 
+    // ==== Разрешения ====
+    if (sectionKey === "permissions") {
+        return (
+            <div className="domain-schema-list">
+                {items.map((p: any) => (
+                    <div key={p.id} className="domain-schema-item">
+                        <code className="domain-schema-item__id">{p.id}</code>
+                        {p.name && p.name !== p.id && (
+                            <span className="domain-schema-item__name">{p.name}</span>
+                        )}
+                        {p.description && (
+                            <span className="domain-schema-item__meta">{p.description}</span>
+                        )}
+                    </div>
+                ))}
+            </div>
+        );
+    }
+
+    // ==== Правила доступа ====
+    if (sectionKey === "accessRules") {
+        return (
+            <div className="domain-schema-list">
+                {items.map((r: any) => (
+                    <div key={r.id} className="domain-schema-item">
+                        <code className="domain-schema-item__id">{r.id}</code>
+                        <span className="domain-schema-item__meta">
+                            <span className="domain-schema-item__badge">{r.target}</span>
+                            {r.entity && ` · ${String(r.entity).split("/").pop()}`}
+                            {r.linkage && ` · ${String(r.linkage).split("/").pop()}`}
+                            {r.actionId && ` · ${r.actionId}`}
+                        </span>
+                    </div>
+                ))}
+            </div>
+        );
+    }
+
+    // ==== Локализации ====
+    if (sectionKey === "localizations") {
+        return (
+            <div className="domain-schema-list">
+                {items.map((loc: any) => (
+                    <div key={loc.id} className="domain-schema-item">
+                        <code className="domain-schema-item__id">{loc.id}</code>
+                        <span className="domain-schema-item__meta">
+                            {loc.keysCount}{" "}
+                            {loc.keysCount === 1 ? "ключ" : loc.keysCount < 5 ? "ключа" : "ключей"}
+                        </span>
+                    </div>
+                ))}
+            </div>
+        );
+    }
+
     // Fallback для новых секций (trees, transitiveLinkages, uiRules, uiPresets, counterColorPattern)
     return (
         <div className="domain-schema-list">

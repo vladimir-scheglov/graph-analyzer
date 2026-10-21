@@ -17,6 +17,9 @@ import type {
   AccessRuleItem,
   AccessRuleException,
   LocalizationRecord,
+  ViewActionPanelRecord,
+  ViewGroupRecord,
+  ViewWidgetRecord,
 } from "../../shared/model-types";
 import type {
   LintIssue,
@@ -26,6 +29,7 @@ import type {
   SonarScore,
   DomainSonarScores,
 } from "../../shared/lint-types";
+import { checkRqlExpression } from "./rql-check";
 
 // ============ Правила именования ============
 
@@ -65,6 +69,55 @@ const SYSTEM_ATTRIBUTE_IDS = new Set([
   "version",
 ]);
 
+// ============ Action enums ============
+
+const KNOWN_ACTION_TYPES = new Set<string>([
+  "open_panel",
+  "open_modal",
+  "open_page",
+  "open_graph_view",
+  "open_board_view",
+  "open_list",
+  "open_tree",
+  "open_view",
+  "remove",
+  "bulk",
+  "tree_bulk",
+  "set_attribute_value",
+  "automation",
+  "scenario",
+  "generate_qr_code",
+  "copy_entity_link",
+  "open_external_widget_modal",
+  "workflow",
+]);
+
+const ACTION_OPERATIONS_BY_TYPE: Record<string, Set<string>> = {
+  open_modal: new Set(["create", "edit"]),
+  open_page: new Set(["create", "edit", "view"]),
+  bulk: new Set(["remove", "edit", "edit_attribute", "import", "export"]),
+  tree_bulk: new Set(["edit", "remove"]),
+};
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Типы системных атрибутов — используются, когда линтер «находит» системный атрибут. */
+const SYSTEM_ATTRIBUTE_TYPES: Record<string, string> = {
+  id: "Uuid",
+  label: "String",
+  createdAt: "Timestamp",
+  updatedAt: "Timestamp",
+  createdBy: "Reference",
+  updatedBy: "Reference",
+  organizationId: "Reference",
+  tenantId: "Reference",
+  domainId: "String",
+  entityId: "String",
+  entityName: "String",
+  version: "Integer",
+};
+
 const IDENTIFIER_KNOWN_SEGMENTS = new Set([
   "@inc",
   "@prefix",
@@ -74,15 +127,118 @@ const IDENTIFIER_KNOWN_SEGMENTS = new Set([
   "@DD",
 ]);
 
+// ============ View enums (PR 6) ============
+
+const VIEW_TOP_TYPES = new Set<string>([
+  "entity",
+  "list",
+  "tree",
+  "tabs_list",
+  "dashboard",
+  "dashboard_tree",
+]);
+
+const VIEW_NESTED_TYPES = new Set<string>(["panel", "modal", "page"]);
+
+const VIEW_GROUP_TYPES = new Set<string>([
+  "block",
+  "form",
+  "tab",
+  "tabs",
+  "resizable_block_pair",
+]);
+
+const VIEW_WIDGET_TYPES = new Set<string>([
+  "attribute",
+  "action",
+  "linkage",
+  "linkage_list",
+  "linked_objects_groups",
+  "join",
+  "history",
+  "runs_history",
+  "comments",
+  "card",
+  "conversation",
+  "visualization",
+  "calculation",
+  "template_editor",
+  "addressBook",
+]);
+
+const VIEW_CONTROL_TYPES = new Set<string>([
+  // attribute-control
+  "uuid",
+  "text",
+  "text_area",
+  "date",
+  "time",
+  "timestamp",
+  "timestamp_range",
+  "integer",
+  "decimal",
+  "float",
+  "integer_slider",
+  "decimal_slider",
+  "float_slider",
+  "bool_text",
+  "checkbox",
+  "switch",
+  "select",
+  "level",
+  "radio",
+  "multi_select",
+  "mitre_multi_select",
+  "tag_list",
+  "tag",
+  "ip",
+  "mac",
+  "cidr",
+  "file",
+  "link",
+  "url",
+  "counter",
+  "tree_path",
+  "drag_drop_area",
+  "rql",
+  "external",
+  // linkage-control
+  "table",
+  "list",
+  "tree",
+  // action-control
+  "regular_button",
+  "dropdown",
+]);
+
 /**
  * Ищет AttributeRecord в сущности с учётом наследования.
  * Используется там, где нужен сам record (dataType, constraints), а не факт наличия.
+ *
+ * Системные атрибуты (id, label, createdAt, …) в YAML не описываются,
+ * но доступны на любой сущности. Для них возвращается «синтетический» record,
+ * чтобы правила данных, деревья, сортировки и т.д. не давали ложных
+ * `attribute-unknown`.
  */
 function findAttributeWithInheritance(
   ctx: LintContext,
   entityFqid: string,
   attributeId: string,
 ): AttributeRecord | null {
+  if (SYSTEM_ATTRIBUTE_IDS.has(attributeId)) {
+    return {
+      id: attributeId,
+      entityFqid,
+      name: attributeId,
+      description: "",
+      dataType: SYSTEM_ATTRIBUTE_TYPES[attributeId] || "String",
+      dataTypeKind: "base",
+      constraints: [],
+      usedInViews: 0,
+      usedInRules: 0,
+    };
+  }
+
   const seen = new Set<string>();
   let cur: EntityRecord | undefined = ctx.index.entitiesByFqid[entityFqid];
   while (cur && !seen.has(cur.fqid)) {
@@ -577,11 +733,26 @@ interface LintContext {
     >
   >;
   presetSets: Map<string, Set<string>>;
+  /** domainId → (viewId → parentViewId | null). */
+  parentViewByDomain: Map<string, Map<string, string | null>>;
+  /** domainId → viewId → widgetId → { type, dataType, nestedColumns }. */
+  widgetInfoByDomain: Map<
+    string,
+    Map<
+      string,
+      Map<
+        string,
+        { type?: string; dataType?: string; nestedColumns?: string[] }
+      >
+    >
+  >;
 }
 
 function precomputeLintIndex(index: ModelIndex): {
   viewElementSets: LintContext["viewElementSets"];
   presetSets: LintContext["presetSets"];
+  parentViewByDomain: LintContext["parentViewByDomain"];
+  widgetInfoByDomain: LintContext["widgetInfoByDomain"];
 } {
   const viewElementSets: LintContext["viewElementSets"] = new Map();
   for (const [domainId, byView] of Object.entries(
@@ -606,7 +777,59 @@ function precomputeLintIndex(index: ModelIndex): {
     presetSets.set(domainId, new Set(ids || []));
   }
 
-  return { viewElementSets, presetSets };
+  // parentViewByDomain — из schemasByDomain.allViews
+  const parentViewByDomain: LintContext["parentViewByDomain"] = new Map();
+  for (const [domainId, schema] of Object.entries(
+    index.schemasByDomain || {},
+  )) {
+    const m = new Map<string, string | null>();
+    if (Array.isArray(schema?.allViews)) {
+      for (const v of schema.allViews) {
+        m.set(v.id, v.parentViewId || null);
+      }
+    } else if (schema?.sections?.views?.items) {
+      for (const v of schema.sections.views.items) {
+        m.set(v.id, null);
+      }
+    }
+    parentViewByDomain.set(domainId, m);
+  }
+
+  // widgetInfoByDomain — из viewElementsByDomain[*][*].widgetsWithType
+  const widgetInfoByDomain: LintContext["widgetInfoByDomain"] = new Map();
+  for (const [domainId, byView] of Object.entries(
+    index.viewElementsByDomain || {},
+  )) {
+    const byViewMap = new Map<
+      string,
+      Map<
+        string,
+        { type?: string; dataType?: string; nestedColumns?: string[] }
+      >
+    >();
+    for (const [viewId, elements] of Object.entries(byView)) {
+      const m = new Map<
+        string,
+        { type?: string; dataType?: string; nestedColumns?: string[] }
+      >();
+      for (const w of elements.widgetsWithType || []) {
+        m.set(w.id, {
+          type: w.type,
+          dataType: w.attributeDataType,
+          nestedColumns: w.attributeNestedColumns,
+        });
+      }
+      byViewMap.set(viewId, m);
+    }
+    widgetInfoByDomain.set(domainId, byViewMap);
+  }
+
+  return {
+    viewElementSets,
+    presetSets,
+    parentViewByDomain,
+    widgetInfoByDomain,
+  };
 }
 
 function emit(
@@ -998,6 +1221,37 @@ function checkValidationByHeuristic(
 
 // ============ UI Rules ============
 
+/**
+ * Известные view-id домена, разделённые по типу.
+ * Возвращает lowercase id (без домена).
+ */
+function getKnownViews(
+  ctx: LintContext,
+  domainId: string,
+): { any: Set<string>; modal: Set<string>; panel: Set<string> } {
+  const any = new Set<string>();
+  const modal = new Set<string>();
+  const panel = new Set<string>();
+
+  const schema = ctx.index.schemasByDomain?.[domainId];
+  if (schema?.allViews) {
+    for (const v of schema.allViews) {
+      const id = String(v.id).toLowerCase();
+      any.add(id);
+      if (v.type === "modal") modal.add(id);
+      if (v.type === "panel") panel.add(id);
+    }
+  } else if (schema?.sections?.views?.items) {
+    for (const v of schema.sections.views.items) {
+      const id = String(v.id).toLowerCase();
+      any.add(id);
+      if (v.type === "modal") modal.add(id);
+      if (v.type === "panel") panel.add(id);
+    }
+  }
+  return { any, modal, panel };
+}
+
 function checkUiRule(ctx: LintContext, rule: UiRuleRecord): void {
   const domainId = rule.domainId;
 
@@ -1118,6 +1372,340 @@ function checkUiRule(ctx: LintContext, rule: UiRuleRecord): void {
       });
     }
   }
+
+  // ============ Валидация enum'ов ============
+  const KNOWN_TARGETS = new Set([
+    "list_view",
+    "entity_view",
+    "entity_attribute",
+  ]);
+  const KNOWN_EFFECTS = new Set([
+    "hidden",
+    "show",
+    "hiddenEmpty",
+    "readonly",
+    "editable",
+    "inherit",
+    "variant",
+  ]);
+  const KNOWN_OPERATIONS = new Set(["view", "edit", "create"]);
+
+  if (rule.target && !KNOWN_TARGETS.has(String(rule.target))) {
+    emit(ctx, {
+      ruleId: "uirules/unknown-target",
+      severity: "warning",
+      category: "uirules",
+      rule: "target: list_view | entity_view | entity_attribute",
+      message: `Правило «${rule.id}»: неизвестный target «${rule.target}»`,
+      domainId,
+      propertyPath: `uiRules[${rule.id}].target`,
+    });
+  }
+
+  if (rule.effect && !KNOWN_EFFECTS.has(String(rule.effect))) {
+    emit(ctx, {
+      ruleId: "uirules/unknown-effect",
+      severity: "warning",
+      category: "uirules",
+      rule: "effect: hidden | show | hiddenEmpty | readonly | editable | inherit | variant",
+      message: `Правило «${rule.id}»: неизвестный effect «${rule.effect}»`,
+      domainId,
+      propertyPath: `uiRules[${rule.id}].rule.effect`,
+    });
+  }
+
+  if (rule.operations) {
+    for (const op of rule.operations) {
+      if (!KNOWN_OPERATIONS.has(String(op))) {
+        emit(ctx, {
+          ruleId: "uirules/unknown-operation",
+          severity: "warning",
+          category: "uirules",
+          rule: "operations: view | edit | create",
+          message: `Правило «${rule.id}»: неизвестная операция «${op}»`,
+          domainId,
+          propertyPath: `uiRules[${rule.id}].operations`,
+        });
+      }
+    }
+  }
+
+  // ============ rule.view соответствует target ============
+  // Per docs:
+  //   list_view        → view типа list / tree / tabs_list
+  //   entity_view      → view типа entity
+  //   entity_attribute → entity (виджет лежит в entity view)
+  if (rule.view && !rule.view.includes("/")) {
+    const domainViews = ctx.viewElementSets.get(domainId);
+    // Всё, что мы можем проверить локально: view вообще существует.
+    // Тип view есть только в schemasByDomain — достаём оттуда.
+    const schema = ctx.index.schemasByDomain?.[domainId];
+    const viewTypes = new Map<string, string>();
+    if (schema?.allViews) {
+      for (const v of schema.allViews) {
+        if (v.parentViewId) continue; // nested не участвует в target
+        viewTypes.set(v.id, v.type);
+      }
+    } else if (schema?.sections?.views?.items) {
+      for (const v of schema.sections.views.items) {
+        viewTypes.set(v.id, v.type);
+      }
+    }
+
+    const viewType = viewTypes.get(rule.view);
+    if (viewType) {
+      const LIST_TYPES = new Set(["list", "tree", "tabs_list"]);
+      const ENTITY_TYPES = new Set(["entity"]);
+
+      const target = String(rule.target || "");
+      const isListTarget = target === "list_view";
+      const isEntityTarget =
+        target === "entity_view" || target === "entity_attribute";
+
+      if (isListTarget && !LIST_TYPES.has(viewType)) {
+        emit(ctx, {
+          ruleId: "uirules/target-view-mismatch",
+          severity: "warning",
+          category: "uirules",
+          rule: "target: list_view ссылается на list/tree/tabs_list",
+          message: `Правило «${rule.id}»: target=list_view, но view «${rule.view}» имеет тип «${viewType}»`,
+          domainId,
+          propertyPath: `uiRules[${rule.id}].view`,
+        });
+      }
+
+      if (isEntityTarget && !ENTITY_TYPES.has(viewType)) {
+        emit(ctx, {
+          ruleId: "uirules/target-view-mismatch",
+          severity: "warning",
+          category: "uirules",
+          rule: "target: entity_view ссылается на entity",
+          message: `Правило «${rule.id}»: target=${target}, но view «${rule.view}» имеет тип «${viewType}»`,
+          domainId,
+          propertyPath: `uiRules[${rule.id}].view`,
+        });
+      }
+    } else if (domainViews && !domainViews.has(rule.view)) {
+      // Сюда попадаем, если view вообще нет в домене — это уже поймано выше
+      // (uirules/unknown-view), второй раз не ругаемся.
+    }
+  }
+
+  // ============ Target-specific проверки ============
+  const target = String(rule.target || "");
+
+  // entity_view: columns не поддерживаются (только widgets и groups)
+  if (target === "entity_view" && rule.columns.length > 0) {
+    emit(ctx, {
+      ruleId: "uirules/columns-on-entity-view",
+      severity: "warning",
+      category: "uirules",
+      rule: "columns не поддерживаются для entity_view",
+      message: `Правило «${rule.id}»: columns указаны для target: entity_view — они будут проигнорированы`,
+      hint: "Используйте target: list_view или entity_attribute для columns",
+      domainId,
+      propertyPath: `uiRules[${rule.id}].rule.columns`,
+    });
+  }
+
+  // list_view: groups не поддерживаются (только widgets и columns)
+  if (target === "list_view" && rule.groups.length > 0) {
+    emit(ctx, {
+      ruleId: "uirules/groups-on-list-view",
+      severity: "warning",
+      category: "uirules",
+      rule: "groups не поддерживаются для list_view",
+      message: `Правило «${rule.id}»: groups указаны для target: list_view — они будут проигнорированы`,
+      hint: "Используйте target: entity_view для groups",
+      domainId,
+      propertyPath: `uiRules[${rule.id}].rule.groups`,
+    });
+  }
+
+  // list_view: readonly/editable не поддерживаются
+  if (
+    target === "list_view" &&
+    (rule.effect === "readonly" || rule.effect === "editable")
+  ) {
+    emit(ctx, {
+      ruleId: "uirules/readonly-on-list-view",
+      severity: "warning",
+      category: "uirules",
+      rule: "readonly/editable не поддерживаются для list_view",
+      message: `Правило «${rule.id}»: effect «${rule.effect}» не поддерживается для target: list_view`,
+      domainId,
+      propertyPath: `uiRules[${rule.id}].rule.effect`,
+    });
+  }
+
+  // entity_attribute: все widgets должны иметь nested
+  if (target === "entity_attribute") {
+    for (const w of rule.widgets) {
+      if (!w.nested) {
+        emit(ctx, {
+          ruleId: "uirules/entity-attribute-without-nested",
+          severity: "warning",
+          category: "uirules",
+          rule: "target: entity_attribute требует nested",
+          message: `Правило «${rule.id}»: виджет «${w.widget}» без nested`,
+          hint: "Укажите nested: { type: table | array, … }",
+          domainId,
+          propertyPath: `uiRules[${rule.id}].rule.widgets`,
+        });
+      }
+    }
+  }
+
+  // variant: должен ссылаться хотя бы на один preset
+  if (rule.effect === "variant") {
+    const anyPreset =
+      rule.presets.length > 0 ||
+      rule.widgets.some((w) => (w.presets || []).length > 0) ||
+      rule.groups.some((g) => (g.presets || []).length > 0) ||
+      rule.columns.some((c) => (c.presets || []).length > 0);
+    if (!anyPreset) {
+      emit(ctx, {
+        ruleId: "uirules/variant-without-presets",
+        severity: "warning",
+        category: "uirules",
+        rule: "effect: variant требует presets",
+        message: `Правило «${rule.id}»: effect «variant», но ни один preset не указан`,
+        hint: "Укажите presets на правиле или на элементах",
+        domainId,
+        propertyPath: `uiRules[${rule.id}]`,
+      });
+    }
+  }
+
+  // ============ context.views[] ============
+  if (rule.contextViews.length > 0) {
+    const parentMap = ctx.parentViewByDomain.get(domainId);
+    for (const ctxView of rule.contextViews) {
+      if (!ctxView || ctxView.includes("/")) continue;
+      if (!parentMap || !parentMap.has(ctxView)) {
+        emit(ctx, {
+          ruleId: "uirules/unknown-context-view",
+          severity: "warning",
+          category: "uirules",
+          rule: "context.views[] существует",
+          message: `Правило «${rule.id}»: context.views[] ссылается на несуществующий view «${ctxView}»`,
+          hint: "Укажите id panel/modal/page, объявленный внутри rule.view",
+          domainId,
+          propertyPath: `uiRules[${rule.id}].context.views`,
+        });
+        continue;
+      }
+      const parentView = parentMap.get(ctxView);
+      if (!parentView) {
+        emit(ctx, {
+          ruleId: "uirules/context-view-not-nested",
+          severity: "info",
+          category: "uirules",
+          rule: "context.views[] — nested views от rule.view",
+          message: `Правило «${rule.id}»: context.views[] содержит «${ctxView}» — это top-level view, не nested`,
+          hint: "context.views принимает только panel/modal/page, объявленные внутри rule.view",
+          domainId,
+          propertyPath: `uiRules[${rule.id}].context.views`,
+        });
+      } else if (rule.view && parentView !== rule.view) {
+        emit(ctx, {
+          ruleId: "uirules/context-view-mismatch",
+          severity: "warning",
+          category: "uirules",
+          rule: "context.views[] — nested views от rule.view",
+          message: `Правило «${rule.id}»: context.view «${ctxView}» принадлежит «${parentView}», а не «${rule.view}»`,
+          domainId,
+          propertyPath: `uiRules[${rule.id}].context.views`,
+        });
+      }
+    }
+  }
+
+  // ============ readonly/editable — только для attribute/linkage/linkage_list ============
+  if (
+    (rule.effect === "readonly" || rule.effect === "editable") &&
+    target !== "list_view" &&
+    rule.widgets.length > 0
+  ) {
+    const widgetInfo = ctx.widgetInfoByDomain.get(domainId)?.get(rule.view);
+    const allowedTypes = new Set(["attribute", "linkage", "linkage_list"]);
+    for (const w of rule.widgets) {
+      const info = widgetInfo?.get(w.widget);
+      if (!info) continue; // не нашли во view — уже покрыто unknown-widget
+      const wType = String(info.type || "");
+      if (!wType) continue; // тип не определён — молчим
+      if (!allowedTypes.has(wType)) {
+        emit(ctx, {
+          ruleId: "uirules/readonly-on-unsupported-widget",
+          severity: "warning",
+          category: "uirules",
+          rule: "readonly/editable только для attribute/linkage/linkage_list",
+          message: `Правило «${rule.id}»: effect «${rule.effect}» на виджете «${w.widget}» типа «${wType}» не поддерживается`,
+          hint: "readonly/editable применимы только к виджетам атрибутов и связей",
+          domainId,
+          propertyPath: `uiRules[${rule.id}].rule.widgets`,
+        });
+      }
+    }
+  }
+
+  // ============ nested.type ↔ dataType виджета; nested.attributes[] ↔ колонки Table ============
+  if (target === "entity_attribute" && rule.widgets.length > 0) {
+    const widgetInfo = ctx.widgetInfoByDomain.get(domainId)?.get(rule.view);
+    for (const w of rule.widgets) {
+      if (!w.nested) continue;
+      const info = widgetInfo?.get(w.widget);
+      if (!info) continue;
+      const dataType = String(info.dataType || "");
+      if (!dataType) continue; // dataType не определён — молчим, чтобы не шуметь
+
+      if (w.nested.type === "table" && dataType !== "Table") {
+        emit(ctx, {
+          ruleId: "uirules/nested-type-mismatch",
+          severity: "warning",
+          category: "uirules",
+          rule: 'nested.type: "table" соответствует dataType: Table',
+          message: `Правило «${rule.id}»: nested.type = "table", а виджет «${w.widget}» имеет dataType «${dataType}»`,
+          domainId,
+          propertyPath: `uiRules[${rule.id}].rule.widgets`,
+        });
+      }
+      if (w.nested.type === "array" && dataType !== "Array") {
+        emit(ctx, {
+          ruleId: "uirules/nested-type-mismatch",
+          severity: "warning",
+          category: "uirules",
+          rule: 'nested.type: "array" соответствует dataType: Array',
+          message: `Правило «${rule.id}»: nested.type = "array", а виджет «${w.widget}» имеет dataType «${dataType}»`,
+          domainId,
+          propertyPath: `uiRules[${rule.id}].rule.widgets`,
+        });
+      }
+
+      if (
+        w.nested.type === "table" &&
+        Array.isArray(w.nested.attributes) &&
+        info.nestedColumns &&
+        info.nestedColumns.length > 0
+      ) {
+        const knownCols = new Set(info.nestedColumns);
+        for (const col of w.nested.attributes) {
+          if (!knownCols.has(col)) {
+            emit(ctx, {
+              ruleId: "uirules/nested-column-unknown",
+              severity: "warning",
+              category: "uirules",
+              rule: "nested.attributes[] существует в Table",
+              message: `Правило «${rule.id}»: nested.attributes[] содержит «${col}», которого нет в Table-атрибуте «${w.widget}»`,
+              hint: "Проверьте id колонки в attributes[] Table-типа",
+              domainId,
+              propertyPath: `uiRules[${rule.id}].rule.widgets`,
+            });
+          }
+        }
+      }
+    }
+  }
 }
 
 function checkOrphanPresets(ctx: LintContext): void {
@@ -1147,42 +1735,80 @@ function checkOrphanPresets(ctx: LintContext): void {
 }
 
 function checkConflictingEffects(ctx: LintContext): void {
-  const effectMap = new Map<
-    string,
-    { hidden: UiRuleRecord[]; show: UiRuleRecord[] }
-  >();
+  // Per docs: hidden/show и readonly/editable — дуальные эффекты, их одновременное
+  // присутствие штатно (белый/чёрный список). Поэтому мы НЕ помечаем такие пары
+  // как конфликт. Ищем только буквальные дубликаты:
+  //   - один и тот же элемент
+  //   - одинаковый effect
+  //   - одинаковый condition / operations / contextViews
+  // Нижестоящее правило в схеме перекрывает вышестоящее — это и есть «проблема».
+
+  type Bucket = {
+    domainId: string;
+    view: string;
+    kind: "widget" | "group" | "column";
+    id: string;
+    rules: UiRuleRecord[];
+  };
+
+  const bucket = new Map<string, Bucket>();
+
+  const add = (
+    domainId: string,
+    view: string,
+    kind: Bucket["kind"],
+    id: string,
+    rule: UiRuleRecord,
+  ) => {
+    const key = `${domainId}|${view}|${kind}:${id}`;
+    let b = bucket.get(key);
+    if (!b) {
+      b = { domainId, view, kind, id, rules: [] };
+      bucket.set(key, b);
+    }
+    b.rules.push(rule);
+  };
 
   for (const r of ctx.index.uiRules || []) {
-    if (r.effect !== "hidden" && r.effect !== "show") continue;
-    const add = (key: string) => {
-      if (!effectMap.has(key)) effectMap.set(key, { hidden: [], show: [] });
-      const entry = effectMap.get(key)!;
-      if (r.effect === "hidden") entry.hidden.push(r);
-      else entry.show.push(r);
-    };
-    r.widgets.forEach((w) => add(`${r.domainId}|${r.view}|w:${w.widget}`));
-    r.groups.forEach((g) => add(`${r.domainId}|${r.view}|g:${g.group}`));
-    r.columns.forEach((c) => add(`${r.domainId}|${r.view}|c:${c.column}`));
+    for (const w of r.widgets) add(r.domainId, r.view, "widget", w.widget, r);
+    for (const g of r.groups) add(r.domainId, r.view, "group", g.group, r);
+    for (const c of r.columns) add(r.domainId, r.view, "column", c.column, r);
   }
 
-  effectMap.forEach((entry, key) => {
-    if (entry.hidden.length > 0 && entry.show.length > 0) {
-      const parts = key.split("|");
-      const domainId = parts[0];
-      const view = parts[1];
-      const element = parts[2];
-      const hiddenIds = entry.hidden.map((r) => r.id).join(", ");
-      const showIds = entry.show.map((r) => r.id).join(", ");
-      emit(ctx, {
-        ruleId: "uirules/conflicting-effects",
-        severity: "warning",
-        category: "uirules",
-        rule: "Нет противоречащих правил для одного элемента",
-        message: `Конфликт для ${element} во view «${view}»: hidden (${hiddenIds}) vs show (${showIds})`,
-        hint: "Проверьте порядок применения — какое правило сработает",
-        domainId,
-        propertyPath: `uiRules`,
-      });
+  const canonOps = (ops: string[] | undefined): string =>
+    JSON.stringify((ops || []).slice().sort());
+
+  const canonCtx = (views: string[] | undefined): string =>
+    JSON.stringify((views || []).slice().sort());
+
+  bucket.forEach((b) => {
+    if (b.rules.length < 2) return;
+
+    for (let i = 0; i < b.rules.length; i++) {
+      for (let j = i + 1; j < b.rules.length; j++) {
+        const a = b.rules[i];
+        const bb = b.rules[j];
+        if (a.id === bb.id) continue;
+
+        const sameEffect = a.effect === bb.effect;
+        const sameCondition =
+          (a.condition || "").trim() === (bb.condition || "").trim();
+        const sameOps = canonOps(a.operations) === canonOps(bb.operations);
+        const sameCtx = canonCtx(a.contextViews) === canonCtx(bb.contextViews);
+
+        if (sameEffect && sameCondition && sameOps && sameCtx) {
+          emit(ctx, {
+            ruleId: "uirules/duplicate-rule",
+            severity: "warning",
+            category: "uirules",
+            rule: "Нет дублирующих правил для одного элемента",
+            message: `Правило «${bb.id}» дублирует «${a.id}» на ${b.kind} «${b.id}» с тем же условием и эффектом`,
+            hint: "Нижестоящее правило в схеме имеет приоритет — уберите или объедините",
+            domainId: bb.domainId,
+            propertyPath: `uiRules[${bb.id}]`,
+          });
+        }
+      }
     }
   });
 }
@@ -1199,6 +1825,1428 @@ function checkDataRules(ctx: LintContext): void {
     checkDataRuleMessages(ctx, dr);
     checkDataRuleNested(ctx, dr);
     checkDataRuleCondition(ctx, dr);
+  }
+}
+
+// ============ Actions ============
+
+function checkActions(ctx: LintContext): void {
+  const actions = ctx.index.actions || [];
+  if (actions.length === 0) return;
+
+  // ============ Уникальность id в домене ============
+  const seenByDomain = new Map<string, Set<string>>();
+  for (const a of actions) {
+    let set = seenByDomain.get(a.domainId);
+    if (!set) {
+      set = new Set();
+      seenByDomain.set(a.domainId, set);
+    }
+    if (set.has(a.id)) {
+      emit(ctx, {
+        ruleId: "action/duplicate-id",
+        severity: "error",
+        category: "semantic",
+        rule: "ID действия уникален в домене",
+        message: `Действие «${a.id}»: дубликат id в домене ${a.domainId}`,
+        domainId: a.domainId,
+        propertyPath: `actions[${a.id}]`,
+      });
+    } else {
+      set.add(a.id);
+    }
+  }
+
+  // Кэши: known views на домен + linkage lookup на домен
+  const viewsCache = new Map<
+    string,
+    { any: Set<string>; modal: Set<string>; panel: Set<string> }
+  >();
+  const knownViewsOf = (domainId: string) => {
+    let v = viewsCache.get(domainId);
+    if (!v) {
+      v = getKnownViews(ctx, domainId);
+      viewsCache.set(domainId, v);
+    }
+    return v;
+  };
+
+  const linkageKey = (domainId: string, id: string) =>
+    `${domainId}/${id}`.toLowerCase();
+  const linkageMap = new Map<
+    string,
+    (typeof ctx.index.entityLinkages)[number]
+  >();
+  for (const l of ctx.index.entityLinkages) {
+    linkageMap.set(linkageKey(l.domainId, l.id), l);
+  }
+
+  for (const a of actions) {
+    const domLower = a.domainId.toLowerCase();
+    const localOf = (fqid: string): string | null => {
+      const prefix = domLower + "/";
+      return fqid.toLowerCase().startsWith(prefix)
+        ? fqid.slice(prefix.length)
+        : null;
+    };
+
+    // ============ type ============
+    if (!KNOWN_ACTION_TYPES.has(a.type)) {
+      emit(ctx, {
+        ruleId: "action/unknown-type",
+        severity: "warning",
+        category: "semantic",
+        rule: "type — валидный enum",
+        message: `Действие «${a.id}»: неизвестный type «${a.type}»`,
+        hint: "Допустимые типы перечислены в docs раздела «Действия»",
+        domainId: a.domainId,
+        propertyPath: `actions[${a.id}].type`,
+      });
+    }
+
+    // ============ entity ============
+    if (a.entity) {
+      const localEntity = localOf(a.entity);
+      if (localEntity && !ctx.index.entitiesByFqid[a.entity]) {
+        emit(ctx, {
+          ruleId: "action/entity-unknown",
+          severity: "error",
+          category: "reference",
+          rule: "entity существует",
+          message: `Действие «${a.id}»: entity «${a.entity}» не найдена`,
+          domainId: a.domainId,
+          propertyPath: `actions[${a.id}].entity`,
+        });
+      }
+    }
+
+    // ============ modal / panel / view ============
+    const views = knownViewsOf(a.domainId);
+
+    if (a.modal) {
+      const local = localOf(a.modal);
+      if (local && !views.modal.has(local)) {
+        emit(ctx, {
+          ruleId: "action/modal-unknown",
+          severity: "warning",
+          category: "reference",
+          rule: "modal существует и является modal",
+          message: `Действие «${a.id}»: modal «${a.modal}» не найден или не типа modal`,
+          domainId: a.domainId,
+          propertyPath: `actions[${a.id}].modal`,
+        });
+      }
+    }
+
+    if (a.panel) {
+      const local = localOf(a.panel);
+      if (local && !views.panel.has(local)) {
+        emit(ctx, {
+          ruleId: "action/panel-unknown",
+          severity: "warning",
+          category: "reference",
+          rule: "panel существует и является panel",
+          message: `Действие «${a.id}»: panel «${a.panel}» не найден или не типа panel`,
+          domainId: a.domainId,
+          propertyPath: `actions[${a.id}].panel`,
+        });
+      }
+    }
+
+    if (a.view) {
+      const local = localOf(a.view);
+      if (local && !views.any.has(local)) {
+        emit(ctx, {
+          ruleId: "action/view-unknown",
+          severity: "warning",
+          category: "reference",
+          rule: "view существует",
+          message: `Действие «${a.id}»: view «${a.view}» не найден`,
+          domainId: a.domainId,
+          propertyPath: `actions[${a.id}].view`,
+        });
+      }
+    }
+
+    // ============ operation ↔ type ============
+    if (a.operation && ACTION_OPERATIONS_BY_TYPE[a.type]) {
+      if (!ACTION_OPERATIONS_BY_TYPE[a.type].has(a.operation)) {
+        emit(ctx, {
+          ruleId: "action/operation-mismatch",
+          severity: "warning",
+          category: "semantic",
+          rule: `operation совместим с type: ${a.type}`,
+          message: `Действие «${a.id}»: operation «${a.operation}» несовместим с type «${a.type}»`,
+          hint: `Допустимые операции: ${[...ACTION_OPERATIONS_BY_TYPE[a.type]].join(", ")}`,
+          domainId: a.domainId,
+          propertyPath: `actions[${a.id}].operation`,
+        });
+      }
+    }
+
+    // ============ scenario ============
+    if (a.type === "scenario" && !a.scenario) {
+      emit(ctx, {
+        ruleId: "action/scenario-required",
+        severity: "error",
+        category: "required",
+        rule: "type: scenario требует scenario",
+        message: `Действие «${a.id}»: type = scenario, но поле scenario не задано`,
+        domainId: a.domainId,
+        propertyPath: `actions[${a.id}].scenario`,
+      });
+    }
+    if (a.type !== "scenario" && a.scenario) {
+      emit(ctx, {
+        ruleId: "action/scenario-unexpected",
+        severity: "warning",
+        category: "semantic",
+        rule: "scenario имеет смысл только при type: scenario",
+        message: `Действие «${a.id}»: scenario указан при type «${a.type}»`,
+        domainId: a.domainId,
+        propertyPath: `actions[${a.id}].scenario`,
+      });
+    }
+
+    // ============ automation.id ============
+    if (a.automationId && !UUID_RE.test(a.automationId)) {
+      emit(ctx, {
+        ruleId: "action/automation-id-invalid",
+        severity: "warning",
+        category: "semantic",
+        rule: "automation.id — UUID",
+        message: `Действие «${a.id}»: automation.id «${a.automationId}» не UUID`,
+        domainId: a.domainId,
+        propertyPath: `actions[${a.id}].automation.id`,
+      });
+    }
+
+    // ============ values[] (set_attribute_value) ============
+    if (a.type === "set_attribute_value" && a.values && a.values.length > 0) {
+      if (!a.entity) {
+        emit(ctx, {
+          ruleId: "action/set-value-no-entity",
+          severity: "error",
+          category: "required",
+          rule: "set_attribute_value требует entity",
+          message: `Действие «${a.id}»: type = set_attribute_value, но entity не задано`,
+          domainId: a.domainId,
+          propertyPath: `actions[${a.id}].entity`,
+        });
+      } else if (ctx.index.entitiesByFqid[a.entity]) {
+        for (let i = 0; i < a.values.length; i++) {
+          const v = a.values[i];
+          const attr = findAttributeWithInheritance(ctx, a.entity, v.attribute);
+          if (!attr) {
+            emit(ctx, {
+              ruleId: "action/value-attribute-unknown",
+              severity: "error",
+              category: "reference",
+              rule: "values[].attribute существует",
+              message: `Действие «${a.id}»: values[${i}].attribute «${v.attribute}» не найден в «${a.entity}»`,
+              domainId: a.domainId,
+              propertyPath: `actions[${a.id}].values`,
+            });
+          } else if (attr.dataType !== "Bool") {
+            emit(ctx, {
+              ruleId: "action/value-attribute-not-bool",
+              severity: "warning",
+              category: "semantic",
+              rule: "values[].attribute — Bool",
+              message: `Действие «${a.id}»: values[${i}].attribute «${v.attribute}» имеет тип «${attr.dataType}», ожидается Bool`,
+              domainId: a.domainId,
+              propertyPath: `actions[${a.id}].values`,
+            });
+          }
+        }
+      }
+    }
+
+    // ============ bulkSettings[] (tree_bulk) ============
+    if (a.type === "tree_bulk" && a.bulkSettings && a.bulkSettings.length > 0) {
+      for (let i = 0; i < a.bulkSettings.length; i++) {
+        const bs = a.bulkSettings[i];
+        if (!bs.entity) {
+          emit(ctx, {
+            ruleId: "action/bulk-entity-missing",
+            severity: "error",
+            category: "required",
+            rule: "bulkSettings[].entity задан",
+            message: `Действие «${a.id}»: bulkSettings[${i}].entity не задан`,
+            domainId: a.domainId,
+            propertyPath: `actions[${a.id}].bulkSettings`,
+          });
+          continue;
+        }
+        const entity = ctx.index.entitiesByFqid[bs.entity];
+        if (!entity && bs.entity.toLowerCase().startsWith(domLower + "/")) {
+          emit(ctx, {
+            ruleId: "action/bulk-entity-unknown",
+            severity: "error",
+            category: "reference",
+            rule: "bulkSettings[].entity существует",
+            message: `Действие «${a.id}»: bulkSettings[${i}].entity «${bs.entity}» не найдена`,
+            domainId: a.domainId,
+            propertyPath: `actions[${a.id}].bulkSettings`,
+          });
+          continue;
+        }
+
+        if (bs.attributes?.type === "specific" && bs.attributes.use) {
+          for (const u of bs.attributes.use) {
+            const attr = findAttributeWithInheritance(
+              ctx,
+              bs.entity,
+              u.attribute,
+            );
+            if (!attr) {
+              emit(ctx, {
+                ruleId: "action/bulk-attribute-unknown",
+                severity: "error",
+                category: "reference",
+                rule: "bulkSettings[].attributes.use[].attribute существует",
+                message: `Действие «${a.id}»: attributes.use «${u.attribute}» не найден в «${bs.entity}»`,
+                domainId: a.domainId,
+                propertyPath: `actions[${a.id}].bulkSettings`,
+              });
+            } else if (attr.readonly) {
+              emit(ctx, {
+                ruleId: "action/bulk-attribute-readonly",
+                severity: "warning",
+                category: "semantic",
+                rule: "bulkSettings[].attributes.use[].attribute не readonly",
+                message: `Действие «${a.id}»: attributes.use «${u.attribute}» помечен readonly`,
+                domainId: a.domainId,
+                propertyPath: `actions[${a.id}].bulkSettings`,
+              });
+            }
+          }
+        }
+
+        if (bs.linkages?.type === "specific" && bs.linkages.use) {
+          const widgetIds = new Set<string>();
+          const els = ctx.index.viewElementsByDomain?.[a.domainId];
+          if (els) {
+            for (const byView of Object.values(els)) {
+              for (const w of byView.widgets || []) widgetIds.add(w);
+            }
+          }
+          for (const u of bs.linkages.use) {
+            if (!widgetIds.has(u.widget) && !u.widget.includes("/")) {
+              emit(ctx, {
+                ruleId: "action/bulk-widget-unknown",
+                severity: "warning",
+                category: "reference",
+                rule: "bulkSettings[].linkages.use[].widget существует",
+                message: `Действие «${a.id}»: linkages.use «${u.widget}» не найден ни в одном view домена`,
+                domainId: a.domainId,
+                propertyPath: `actions[${a.id}].bulkSettings`,
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // ============ open_list: linkage + side ============
+    if (a.type === "open_list" && a.linkage) {
+      const lk = a.linkage;
+      const localLinkage = lk.toLowerCase().startsWith(domLower + "/")
+        ? lk.slice(domLower.length + 1)
+        : lk;
+      const linkageRecord = linkageMap.get(
+        linkageKey(a.domainId, localLinkage),
+      );
+      if (linkageRecord) {
+        const isSymmetric = linkageRecord.side1Fqid === linkageRecord.side2Fqid;
+        const isDirected = !(
+          linkageRecord.type === "n_n" && linkageRecord.undirected
+        );
+        if (isSymmetric && isDirected && !a.side) {
+          emit(ctx, {
+            ruleId: "action/linkage-side-required",
+            severity: "warning",
+            category: "semantic",
+            rule: "Для симметричной направленной связи нужен side",
+            message: `Действие «${a.id}»: linkage «${a.linkage}» симметричная направленная — укажите side`,
+            domainId: a.domainId,
+            propertyPath: `actions[${a.id}].side`,
+          });
+        }
+      }
+    }
+  }
+}
+
+// ============ Views ============
+
+// ============ View columns (PR 6b) ============
+
+// ============ View table.filter / table.sortingBy (PR 6c) ============
+
+function checkViewTableMeta(ctx: LintContext): void {
+  const filters = ctx.index.viewTableFilters || [];
+  const sortings = ctx.index.viewTableSortings || [];
+  if (filters.length === 0 && sortings.length === 0) return;
+
+  // ============ Индексы (совпадают с checkViewColumns) ============
+  const viewEntityByDomain = new Map<string, Map<string, string | null>>();
+  for (const [domainId, schema] of Object.entries(
+    ctx.index.schemasByDomain || {},
+  )) {
+    const m = new Map<string, string | null>();
+    const topViews = schema?.sections?.views?.items || [];
+    const treeRoot = new Map<string, string>();
+    const trees = schema?.sections?.trees?.items || [];
+    for (const t of trees) {
+      if (t.id && t.rootEntity) {
+        treeRoot.set(String(t.id), String(t.rootEntity).toLowerCase());
+      }
+    }
+    for (const v of topViews) {
+      const id = String(v.id);
+      if (v.type === "list") {
+        const s = (v as any).sourceEntity;
+        if (typeof s === "string" && s) {
+          m.set(
+            id,
+            s.includes("/")
+              ? s.toLowerCase()
+              : `${domainId}/${s}`.toLowerCase(),
+          );
+        } else m.set(id, null);
+      } else if (v.type === "tree") {
+        const treeId = (v as any).tree;
+        if (typeof treeId === "string" && treeRoot.has(treeId)) {
+          m.set(id, treeRoot.get(treeId) || null);
+        } else m.set(id, null);
+      } else if (v.type === "entity" && v.entity) {
+        m.set(
+          id,
+          String(v.entity).includes("/")
+            ? String(v.entity).toLowerCase()
+            : `${domainId}/${v.entity}`.toLowerCase(),
+        );
+      } else {
+        m.set(id, null);
+      }
+    }
+    viewEntityByDomain.set(domainId, m);
+  }
+
+  // ============ Индекс linkage-атрибутов ============
+  // `${domainId}/${linkageId}` (lowercase) → Set<attrId>
+  const linkageAttrs = new Map<string, Set<string>>();
+  // `${domainId}/${linkageId}` (lowercase) → linkageRecord
+  const linkageLookup = new Map<
+    string,
+    (typeof ctx.index.entityLinkages)[number]
+  >();
+  for (const l of ctx.index.entityLinkages) {
+    const key = `${l.domainId}/${l.id}`.toLowerCase();
+    linkageLookup.set(key, l);
+    if (l.attributes) {
+      linkageAttrs.set(key, new Set(l.attributes.map((a) => a.id)));
+    }
+  }
+
+  // ============ Индекс сортировок: существует ли sortingId ============
+  // Источники sorting:
+  //   - entities[].sorting[].id
+  //   - linkages[].sorting[].id
+  //   - trees[].sorting[].id              ← PR 6c-fix
+  const knownSortingIdsByDomain = new Map<string, Set<string>>();
+  const ensureSortingSet = (domainId: string): Set<string> => {
+    let set = knownSortingIdsByDomain.get(domainId);
+    if (!set) {
+      set = new Set();
+      knownSortingIdsByDomain.set(domainId, set);
+    }
+    return set;
+  };
+
+  for (const e of ctx.index.entities) {
+    const set = ensureSortingSet(e.domainId);
+    for (const s of e.sorting || []) set.add(s.id);
+  }
+  for (const l of ctx.index.entityLinkages) {
+    const set = ensureSortingSet(l.domainId);
+    for (const s of l.sorting || []) set.add(s.id);
+  }
+  for (const t of ctx.index.trees || []) {
+    const set = ensureSortingSet(t.domainId);
+    for (const s of t.sorting || []) set.add(s.id);
+  }
+
+  // dataTypes[].sorting[].id — у ModelIndex.dataTypes может не быть sorting;
+  // берём из schema.sections.dataTypes.items (если появится) или из raw.
+  for (const [domainId, schema] of Object.entries(
+    ctx.index.schemasByDomain || {},
+  )) {
+    const set = ensureSortingSet(domainId);
+    const dts = schema?.sections?.dataTypes?.items || [];
+    for (const dt of dts) {
+      const sortings = (dt as any).sorting;
+      if (Array.isArray(sortings)) {
+        for (const s of sortings) {
+          if (s && typeof s.id === "string") set.add(s.id);
+        }
+      }
+    }
+  }
+
+  // ============ Индекс join-ids ============
+  const joinIdsByDomain = new Map<string, Set<string>>();
+  for (const tl of ctx.index.transitiveLinkages || []) {
+    let set = joinIdsByDomain.get(tl.domainId);
+    if (!set) {
+      set = new Set();
+      joinIdsByDomain.set(tl.domainId, set);
+    }
+    const walkJoin = (j: any): void => {
+      if (!j || typeof j !== "object") return;
+      if (typeof j.id === "string") set!.add(j.id);
+      if (Array.isArray(j.joins)) j.joins.forEach(walkJoin);
+    };
+    tl.joins.forEach(walkJoin);
+  }
+
+  // ============ Индекс колонок по view ============
+  const columnsByView = new Map<string, Map<string, Set<string>>>();
+  for (const c of ctx.index.viewColumns || []) {
+    if (!columnsByView.has(c.domainId))
+      columnsByView.set(c.domainId, new Map());
+    const byView = columnsByView.get(c.domainId)!;
+    if (!byView.has(c.viewId)) byView.set(c.viewId, new Set());
+    byView.get(c.viewId)!.add(c.id);
+  }
+
+  // ============ filter.attributes / filter.linkages ============
+  for (const f of filters) {
+    const viewEntity = viewEntityByDomain.get(f.domainId)?.get(f.viewId);
+    if (!viewEntity) continue;
+
+    // attributes
+    for (const a of f.attributes) {
+      if (SYSTEM_ATTRIBUTE_IDS.has(a.attribute)) continue;
+      if (a.attribute.includes("/")) continue;
+      if (!findAttributeWithInheritance(ctx, viewEntity, a.attribute)) {
+        emit(ctx, {
+          ruleId: "view/filter-attribute-unknown",
+          severity: "warning",
+          category: "reference",
+          rule: "filter.attributes.use[].attribute существует",
+          message: `View «${f.viewId}»: filter.attribute «${a.attribute}» не найден в «${viewEntity}»`,
+          hint: "Проверьте id атрибута в attributes[] соответствующей сущности",
+          domainId: f.domainId,
+          propertyPath: `views[${f.viewId}].table.filter.attributes.use`,
+        });
+      }
+    }
+
+    // linkages
+    for (const lk of f.linkages) {
+      if (lk.linkage) {
+        const localLinkage = lk.linkage
+          .toLowerCase()
+          .startsWith(f.domainId.toLowerCase() + "/")
+          ? lk.linkage.slice(f.domainId.length + 1)
+          : lk.linkage;
+        const key = `${f.domainId}/${localLinkage}`.toLowerCase();
+        const linkageRecord = linkageLookup.get(key);
+
+        if (!linkageRecord && !lk.linkage.includes("/")) {
+          // Локальная ссылка, но не найдена
+          emit(ctx, {
+            ruleId: "view/filter-linkage-unknown",
+            severity: "warning",
+            category: "reference",
+            rule: "filter.linkages.use[].linkage существует",
+            message: `View «${f.viewId}»: filter.linkage «${lk.linkage}» не найден в домене`,
+            domainId: f.domainId,
+            propertyPath: `views[${f.viewId}].table.filter.linkages.use`,
+          });
+        }
+
+        // link_attributes
+        if (
+          linkageRecord &&
+          lk.linkAttributes &&
+          lk.linkAttributes.length > 0
+        ) {
+          const attrIds = linkageAttrs.get(key) || new Set<string>();
+          for (const attrId of lk.linkAttributes) {
+            if (!attrIds.has(attrId)) {
+              emit(ctx, {
+                ruleId: "view/filter-linkage-attribute-unknown",
+                severity: "warning",
+                category: "reference",
+                rule: "filter.linkages.use[].link_attributes[].attribute существует",
+                message: `View «${f.viewId}»: link_attribute «${attrId}» не найден в связи «${lk.linkage}»`,
+                domainId: f.domainId,
+                propertyPath: `views[${f.viewId}].table.filter.linkages.use`,
+              });
+            }
+          }
+        }
+
+        // linkedEntity — атрибуты связанной сущности
+        if (linkageRecord && lk.linkedEntity && lk.linkedEntity.length > 0) {
+          // Берём "противоположную" сущность от viewEntity
+          const side1 = linkageRecord.side1Fqid;
+          const side2 = linkageRecord.side2Fqid;
+          let targetEntity: string | null = null;
+          if (side1 === viewEntity) targetEntity = side2;
+          else if (side2 === viewEntity) targetEntity = side1;
+          else targetEntity = side1 !== viewEntity ? side1 : side2;
+
+          if (targetEntity) {
+            for (const attrId of lk.linkedEntity) {
+              if (SYSTEM_ATTRIBUTE_IDS.has(attrId)) continue;
+              if (!findAttributeWithInheritance(ctx, targetEntity, attrId)) {
+                emit(ctx, {
+                  ruleId: "view/filter-linked-entity-attribute-unknown",
+                  severity: "warning",
+                  category: "reference",
+                  rule: "filter.linkages.use[].linkedEntity[].attribute существует",
+                  message: `View «${f.viewId}»: linkedEntity.attribute «${attrId}» не найден в «${targetEntity}»`,
+                  domainId: f.domainId,
+                  propertyPath: `views[${f.viewId}].table.filter.linkages.use`,
+                });
+              }
+            }
+          }
+        }
+      }
+
+      // join
+      if (lk.join) {
+        const knownJoins = joinIdsByDomain.get(f.domainId);
+        if (knownJoins && !knownJoins.has(lk.join)) {
+          emit(ctx, {
+            ruleId: "view/filter-join-unknown",
+            severity: "warning",
+            category: "reference",
+            rule: "filter.linkages.use[].join существует в transitiveLinkages",
+            message: `View «${f.viewId}»: filter.join «${lk.join}» не найден в transitiveLinkages домена`,
+            domainId: f.domainId,
+            propertyPath: `views[${f.viewId}].table.filter.linkages.use`,
+          });
+        }
+      }
+    }
+  }
+
+  // ============ sortingBy ============
+  for (const s of sortings) {
+    const cols = columnsByView.get(s.domainId)?.get(s.viewId);
+
+    // Если для view вообще нет колонок (например, entity-view) — молчим.
+    // Для list/tree cols будет Set (возможно пустой) — там проверяем.
+    if (!cols) continue;
+
+    const knownSorting =
+      knownSortingIdsByDomain.get(s.domainId) || new Set<string>();
+
+    for (const sc of s.columns) {
+      if (!cols.has(sc.column)) {
+        emit(ctx, {
+          ruleId: "view/sorting-column-unknown",
+          severity: "warning",
+          category: "reference",
+          rule: "sortingBy.columns[].column существует в columns[]",
+          message: `View «${s.viewId}»: sorting.column «${sc.column}» не найден среди columns[]`,
+          hint: "Проверьте id колонки в table.columns[] этого view",
+          domainId: s.domainId,
+          propertyPath: `views[${s.viewId}].table.sortingBy.columns`,
+        });
+      }
+
+      if (
+        sc.sorting &&
+        !sc.sorting.includes("/") &&
+        !knownSorting.has(sc.sorting)
+      ) {
+        emit(ctx, {
+          ruleId: "view/sorting-unknown",
+          severity: "warning",
+          category: "reference",
+          rule: "sortingBy.columns[].sorting существует в entity/linkage/tree",
+          message: `View «${s.viewId}»: sorting «${sc.sorting}» не найден среди sorting[] сущностей, связей или деревьев домена`,
+          hint: "Проверьте id в sorting[] соответствующей сущности/связи/дерева",
+          domainId: s.domainId,
+          propertyPath: `views[${s.viewId}].table.sortingBy.columns`,
+        });
+      }
+    }
+
+    if (s.defaultColumn && !cols.has(s.defaultColumn)) {
+      emit(ctx, {
+        ruleId: "view/sorting-default-column-unknown",
+        severity: "warning",
+        category: "reference",
+        rule: "sortingBy.defaults.column существует в columns[]",
+        message: `View «${s.viewId}»: defaults.column «${s.defaultColumn}» не найден среди columns[]`,
+        domainId: s.domainId,
+        propertyPath: `views[${s.viewId}].table.sortingBy.defaults.column`,
+      });
+    }
+  }
+
+  // ============ paging ============
+  for (const p of ctx.index.viewTablePagings || []) {
+    // sizes[] — массив целых положительных
+    for (let i = 0; i < p.rawSizes.length; i++) {
+      const raw = p.rawSizes[i];
+      const n = typeof raw === "number" ? raw : Number(raw);
+      if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) {
+        emit(ctx, {
+          ruleId: "view/paging-size-invalid",
+          severity: "error",
+          category: "validation",
+          rule: "paging.sizes[] — массив целых положительных чисел",
+          message: `View «${p.viewId}»: sizes[${i}] = «${String(raw)}» — ожидается целое положительное число`,
+          domainId: p.domainId,
+          propertyPath: `views[${p.viewId}].table.paging.sizes`,
+        });
+      }
+    }
+
+    // defaultSize — целое положительное и в sizes[]
+    if (p.rawDefaultSize !== undefined) {
+      const n =
+        typeof p.rawDefaultSize === "number"
+          ? p.rawDefaultSize
+          : Number(p.rawDefaultSize);
+      if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) {
+        emit(ctx, {
+          ruleId: "view/paging-default-invalid",
+          severity: "error",
+          category: "validation",
+          rule: "paging.defaultSize — целое положительное число",
+          message: `View «${p.viewId}»: defaultSize = «${String(p.rawDefaultSize)}» — ожидается целое положительное число`,
+          domainId: p.domainId,
+          propertyPath: `views[${p.viewId}].table.paging.defaultSize`,
+        });
+      } else if (p.sizes.length > 0 && !p.sizes.includes(n)) {
+        emit(ctx, {
+          ruleId: "view/paging-default-not-in-sizes",
+          severity: "warning",
+          category: "semantic",
+          rule: "paging.defaultSize ∈ paging.sizes[]",
+          message: `View «${p.viewId}»: defaultSize = ${n} отсутствует в sizes[] (${p.sizes.join(", ")})`,
+          domainId: p.domainId,
+          propertyPath: `views[${p.viewId}].table.paging.defaultSize`,
+        });
+      }
+    }
+  }
+
+  // ============ table.actions[] ============
+  const actionsDomain = ctx.index.actions || [];
+  const actionsByDomain = new Map<string, Set<string>>();
+  for (const a of actionsDomain) {
+    let set = actionsByDomain.get(a.domainId);
+    if (!set) {
+      set = new Set();
+      actionsByDomain.set(a.domainId, set);
+    }
+    set.add(a.id);
+  }
+
+  const KNOWN_TABLE_ACTION_TYPES = new Set<string>([
+    "row_click",
+    "row_double_click",
+    "row_context_menu",
+  ]);
+
+  for (const a of ctx.index.viewTableActions || []) {
+    if (!KNOWN_TABLE_ACTION_TYPES.has(a.type)) {
+      emit(ctx, {
+        ruleId: "view/table-action-unknown-type",
+        severity: "warning",
+        category: "semantic",
+        rule: "actions[].type — row_click | row_double_click | row_context_menu",
+        message: `View «${a.viewId}»: actions.type «${a.type}» неизвестен`,
+        domainId: a.domainId,
+        propertyPath: `views[${a.viewId}].table.actions`,
+      });
+    }
+
+    const known = actionsByDomain.get(a.domainId) || new Set<string>();
+
+    // action (row_click / row_double_click)
+    if (a.type === "row_click" || a.type === "row_double_click") {
+      if (!a.action) {
+        emit(ctx, {
+          ruleId: "view/table-action-action-missing",
+          severity: "error",
+          category: "required",
+          rule: `actions[].action задан для type: ${a.type}`,
+          message: `View «${a.viewId}»: actions[].type = ${a.type}, но action не задан`,
+          domainId: a.domainId,
+          propertyPath: `views[${a.viewId}].table.actions`,
+        });
+      } else if (!a.action.includes("/") && !known.has(a.action)) {
+        emit(ctx, {
+          ruleId: "view/table-action-unknown",
+          severity: "warning",
+          category: "reference",
+          rule: "actions[].action существует в actions[] домена",
+          message: `View «${a.viewId}»: actions[].action «${a.action}» не найден в actions[] домена`,
+          domainId: a.domainId,
+          propertyPath: `views[${a.viewId}].table.actions`,
+        });
+      }
+    }
+
+    // items (row_context_menu)
+    if (a.type === "row_context_menu") {
+      if (a.items.length === 0) {
+        emit(ctx, {
+          ruleId: "view/table-action-menu-empty",
+          severity: "warning",
+          category: "semantic",
+          rule: "actions[] с type: row_context_menu содержат items[]",
+          message: `View «${a.viewId}»: row_context_menu без items`,
+          domainId: a.domainId,
+          propertyPath: `views[${a.viewId}].table.actions`,
+        });
+      }
+      if (a.items.length > 7) {
+        emit(ctx, {
+          ruleId: "view/table-action-menu-too-many",
+          severity: "warning",
+          category: "semantic",
+          rule: "items[] в row_context_menu — не более 7",
+          message: `View «${a.viewId}»: row_context_menu содержит ${a.items.length} items (максимум 7)`,
+          domainId: a.domainId,
+          propertyPath: `views[${a.viewId}].table.actions`,
+        });
+      }
+      for (const it of a.items) {
+        if (!it.action.includes("/") && !known.has(it.action)) {
+          emit(ctx, {
+            ruleId: "view/table-action-menu-action-unknown",
+            severity: "warning",
+            category: "reference",
+            rule: "items[].action существует в actions[] домена",
+            message: `View «${a.viewId}»: items[].action «${it.action}» не найден в actions[] домена`,
+            domainId: a.domainId,
+            propertyPath: `views[${a.viewId}].table.actions`,
+          });
+        }
+      }
+    }
+  }
+}
+
+function checkViewColumns(ctx: LintContext): void {
+  const columns = ctx.index.viewColumns || [];
+  if (columns.length === 0) return;
+
+  // ============ Индексы ============
+  // domainId → viewId → entityFqid | null
+  //   - list → source.entity
+  //   - tree → trees[treeId].hierarchy.entity
+  //   - entity → entity
+  const viewEntityByDomain = new Map<string, Map<string, string | null>>();
+
+  for (const [domainId, schema] of Object.entries(
+    ctx.index.schemasByDomain || {},
+  )) {
+    const m = new Map<string, string | null>();
+    const topViews = schema?.sections?.views?.items || [];
+
+    // tree id → rootEntity (fqid, lowercase)
+    const treeRoot = new Map<string, string>();
+    const trees = schema?.sections?.trees?.items || [];
+    for (const t of trees) {
+      if (t.id && t.rootEntity) {
+        treeRoot.set(String(t.id), String(t.rootEntity).toLowerCase());
+      }
+    }
+
+    for (const v of topViews) {
+      const id = String(v.id);
+      if (v.type === "list") {
+        const s = (v as any).sourceEntity;
+        if (typeof s === "string" && s) {
+          m.set(
+            id,
+            s.includes("/")
+              ? s.toLowerCase()
+              : `${domainId}/${s}`.toLowerCase(),
+          );
+        } else {
+          m.set(id, null);
+        }
+      } else if (v.type === "tree") {
+        const treeId = (v as any).tree;
+        if (typeof treeId === "string" && treeRoot.has(treeId)) {
+          m.set(id, treeRoot.get(treeId) || null);
+        } else {
+          m.set(id, null);
+        }
+      } else if (v.type === "entity" && v.entity) {
+        m.set(
+          id,
+          String(v.entity).includes("/")
+            ? String(v.entity).toLowerCase()
+            : `${domainId}/${v.entity}`.toLowerCase(),
+        );
+      } else {
+        m.set(id, null);
+      }
+    }
+
+    viewEntityByDomain.set(domainId, m);
+  }
+
+  // ============ Индекс join'ов для list/tree ============
+  // domainId → viewId → (joinId → target entity fqid)
+  // Используем tree.source.joins (для list) и transitivelinkage (глобально)
+  const joinTargetByDomainView = new Map<
+    string,
+    Map<string, Map<string, string>>
+  >();
+
+  // ============ Индекс linkage-атрибутов ============
+  // `${domainId}/${linkageId}` → Set<attrId>
+  const linkageAttrs = new Map<string, Set<string>>();
+  for (const l of ctx.index.entityLinkages) {
+    if (!l.attributes) continue;
+    const key = `${l.domainId}/${l.id}`.toLowerCase();
+    linkageAttrs.set(key, new Set(l.attributes.map((a) => a.id)));
+  }
+
+  // ============ Индекс деревьев: id → существует ============
+  const treeIdsByDomain = new Map<string, Set<string>>();
+  for (const [domainId, schema] of Object.entries(
+    ctx.index.schemasByDomain || {},
+  )) {
+    const set = new Set<string>();
+    const trees = schema?.sections?.trees?.items || [];
+    for (const t of trees) if (t.id) set.add(String(t.id));
+    treeIdsByDomain.set(domainId, set);
+  }
+
+  // ============ Проверки ============
+  for (const c of columns) {
+    // tree_path: control.tree должен существовать
+    if (c.controlType === "tree_path" && c.controlTree) {
+      if (!c.controlTree.includes("/")) {
+        const known = treeIdsByDomain.get(c.domainId);
+        if (known && !known.has(c.controlTree)) {
+          emit(ctx, {
+            ruleId: "view/column-tree-unknown",
+            severity: "warning",
+            category: "reference",
+            rule: "control.tree существует в trees[]",
+            message: `Колонка «${c.id}» во view «${c.viewId}»: tree «${c.controlTree}» не найден в домене`,
+            hint: "Укажите id дерева из trees[] или FQID",
+            domainId: c.domainId,
+            propertyPath: `views[${c.viewId}].table.columns[${c.id}].control.tree`,
+          });
+        }
+      }
+    }
+
+    // Если есть join / linkageAttribute — attribute относится к другой сущности;
+    // проверку существования откладываем (транзитивная связь / связь).
+    if (c.join || c.linkageAttribute) {
+      // linkageAttribute: проверим только если linkage определён в контексте
+      // (сложно без привязки к widget.control.columns) — пропускаем.
+      continue;
+    }
+
+    if (!c.attribute) continue;
+
+    // Системные — пропускаем
+    if (SYSTEM_ATTRIBUTE_IDS.has(c.attribute)) continue;
+
+    // control.tree_path с attribute: id — специальный кейс, пропускаем
+    if (c.controlType === "tree_path") continue;
+
+    const viewEntity = viewEntityByDomain.get(c.domainId)?.get(c.viewId);
+    if (!viewEntity) {
+      // Нет сущности — либо list без source.entity, либо tree без rootEntity,
+      // либо dashboard — уже покрыто другими проверками. Молчим.
+      continue;
+    }
+
+    // FQID на другой домен — пропускаем (кросс-домен через FQID-чекер)
+    if (c.attribute.includes("/")) continue;
+
+    if (!findAttributeWithInheritance(ctx, viewEntity, c.attribute)) {
+      emit(ctx, {
+        ruleId: "view/column-attribute-unknown",
+        severity: "warning",
+        category: "reference",
+        rule: "column.attribute существует в сущности представления",
+        message: `Колонка «${c.id}» во view «${c.viewId}»: attribute «${c.attribute}» не найден в «${viewEntity}»`,
+        hint: "Проверьте id атрибута в attributes[] соответствующей сущности",
+        domainId: c.domainId,
+        propertyPath: `views[${c.viewId}].table.columns[${c.id}].attribute`,
+      });
+    }
+  }
+
+  // ============ attribute-виджеты в entity-view ============
+  for (const w of ctx.index.viewWidgets || []) {
+    if (w.type !== "attribute") continue;
+    if (!w.attribute) continue;
+    if (w.controlType === "tree_path") continue;
+    if (SYSTEM_ATTRIBUTE_IDS.has(w.attribute)) continue;
+    if (w.attribute.includes("/")) continue;
+
+    const viewEntity = viewEntityByDomain.get(w.domainId)?.get(w.parentViewId);
+    if (!viewEntity) continue;
+
+    if (!findAttributeWithInheritance(ctx, viewEntity, w.attribute)) {
+      emit(ctx, {
+        ruleId: "view/widget-attribute-unknown",
+        severity: "warning",
+        category: "reference",
+        rule: "widget.attribute существует в сущности представления",
+        message: `Виджет «${w.id}» во view «${w.parentViewId}»: attribute «${w.attribute}» не найден в «${viewEntity}»`,
+        hint: "Проверьте id атрибута в attributes[] соответствующей сущности",
+        domainId: w.domainId,
+        propertyPath: `views[${w.parentViewId}].widgets[${w.id}].attribute`,
+      });
+    }
+  }
+}
+
+function checkViews(ctx: LintContext): void {
+  // Индексы: domainId → parentViewId → [records]
+  const groupsByView = new Map<string, Map<string, ViewGroupRecord[]>>();
+  for (const g of ctx.index.viewGroups || []) {
+    if (!groupsByView.has(g.domainId)) groupsByView.set(g.domainId, new Map());
+    const byView = groupsByView.get(g.domainId)!;
+    if (!byView.has(g.parentViewId)) byView.set(g.parentViewId, []);
+    byView.get(g.parentViewId)!.push(g);
+  }
+
+  const widgetsByView = new Map<string, Map<string, ViewWidgetRecord[]>>();
+  for (const w of ctx.index.viewWidgets || []) {
+    if (!widgetsByView.has(w.domainId))
+      widgetsByView.set(w.domainId, new Map());
+    const byView = widgetsByView.get(w.domainId)!;
+    if (!byView.has(w.parentViewId)) byView.set(w.parentViewId, []);
+    byView.get(w.parentViewId)!.push(w);
+  }
+
+  const actionPanelsByView = new Map<
+    string,
+    Map<string, ViewActionPanelRecord[]>
+  >();
+  for (const ap of ctx.index.viewActionPanels || []) {
+    if (!actionPanelsByView.has(ap.domainId))
+      actionPanelsByView.set(ap.domainId, new Map());
+    const byView = actionPanelsByView.get(ap.domainId)!;
+    if (!byView.has(ap.viewId)) byView.set(ap.viewId, []);
+    byView.get(ap.viewId)!.push(ap);
+  }
+
+  // ============ Widget types / control types / attribute ============
+  for (const w of ctx.index.viewWidgets || []) {
+    // type
+    if (w.type && !VIEW_WIDGET_TYPES.has(w.type)) {
+      emit(ctx, {
+        ruleId: "view/widget-unknown-type",
+        severity: "warning",
+        category: "semantic",
+        rule: "widget.type — валидный enum",
+        message: `Виджет «${w.id}» во view «${w.parentViewId}»: неизвестный type «${w.type}»`,
+        hint: "Допустимые: attribute, action, linkage, linkage_list, join, …",
+        domainId: w.domainId,
+        propertyPath: `views[${w.parentViewId}].widgets[${w.id}].type`,
+      });
+    }
+
+    // control.type
+    if (w.controlType && !VIEW_CONTROL_TYPES.has(w.controlType)) {
+      emit(ctx, {
+        ruleId: "view/widget-unknown-control-type",
+        severity: "warning",
+        category: "semantic",
+        rule: "widget.control.type — валидный enum",
+        message: `Виджет «${w.id}» во view «${w.parentViewId}»: неизвестный control.type «${w.controlType}»`,
+        domainId: w.domainId,
+        propertyPath: `views[${w.parentViewId}].widgets[${w.id}].control.type`,
+      });
+    }
+  }
+
+  // ============ View types + nested refs ============
+  for (const [domainId, schema] of Object.entries(
+    ctx.index.schemasByDomain || {},
+  )) {
+    // Top-level view types
+    const topViews = schema?.sections?.views?.items || [];
+    for (const v of topViews) {
+      if (!v.type) continue;
+      if (!VIEW_TOP_TYPES.has(String(v.type))) {
+        emit(ctx, {
+          ruleId: "view/unknown-top-type",
+          severity: "warning",
+          category: "semantic",
+          rule: "view.type (top-level) — валидный enum",
+          message: `View «${v.id}»: неизвестный type «${v.type}»`,
+          hint: "Допустимые: entity, list, tree, tabs_list, dashboard, dashboard_tree",
+          domainId,
+          propertyPath: `views[${v.id}].type`,
+        });
+      }
+    }
+
+    if (!Array.isArray(schema?.allViews)) continue;
+
+    // Индекс top-level view по id — для поиска entity
+    const topViewById = new Map<string, any>();
+    for (const v of topViews) topViewById.set(v.id, v);
+
+    const groupsOfTopView = (topViewId: string): ViewGroupRecord[] =>
+      groupsByView.get(domainId)?.get(topViewId) || [];
+
+    const findGroup = (
+      topViewId: string,
+      groupId: string,
+      expectedType: string,
+    ): ViewGroupRecord | null => {
+      const list = groupsOfTopView(topViewId);
+      return (
+        list.find((g) => g.id === groupId && g.type === expectedType) || null
+      );
+    };
+
+    const groupExists = (topViewId: string, groupId: string): boolean =>
+      groupsOfTopView(topViewId).some((g) => g.id === groupId);
+
+    // ============ Индексы для fix: list/tree → action-widgets entity-view ============
+    // entityFqid → entityViewId
+    const entityViewByEntity = new Map<string, string>();
+    for (const tv of topViews) {
+      if (tv.type === "entity" && tv.entity) {
+        const fqid = String(tv.entity).includes("/")
+          ? String(tv.entity).toLowerCase()
+          : `${domainId}/${tv.entity}`.toLowerCase();
+        entityViewByEntity.set(fqid, tv.id);
+      }
+    }
+
+    // treeId → rootEntity (fqid)
+    const treeRootEntity = new Map<string, string>();
+    const treesSection = schema?.sections?.trees?.items || [];
+    for (const t of treesSection) {
+      if (t.id && t.rootEntity) {
+        treeRootEntity.set(String(t.id), String(t.rootEntity).toLowerCase());
+      }
+    }
+
+    const widgetsByTopView = widgetsByView.get(domainId);
+
+    /** Пул action-виджетов, доступных list/tree view по ссылке. */
+    const getActionWidgetPool = (v: {
+      type: string;
+      sourceEntity?: string;
+      tree?: string;
+    }): Set<string> => {
+      let entityFqid: string | null = null;
+
+      if (v.type === "list" && v.sourceEntity) {
+        entityFqid = v.sourceEntity.includes("/")
+          ? v.sourceEntity.toLowerCase()
+          : `${domainId}/${v.sourceEntity}`.toLowerCase();
+      } else if (v.type === "tree" && v.tree) {
+        entityFqid = treeRootEntity.get(v.tree) || null;
+      }
+
+      const pool = new Set<string>();
+
+      if (entityFqid) {
+        const entityViewId = entityViewByEntity.get(entityFqid);
+        if (entityViewId) {
+          const widgets = widgetsByTopView?.get(entityViewId) || [];
+          for (const w of widgets) pool.add(w.id);
+          return pool;
+        }
+      }
+
+      // Fallback: entity-view не найден → все action-виджеты домена
+      // (то же поведение, что в collectViewElements до этого PR).
+      if (widgetsByTopView) {
+        for (const viewWidgets of widgetsByTopView.values()) {
+          for (const w of viewWidgets) {
+            if (w.type === "action") pool.add(w.id);
+          }
+        }
+      }
+      return pool;
+    };
+
+    for (const v of schema.allViews) {
+      const isNested = !!v.parentViewId;
+
+      // Nested view type
+      if (isNested && v.type && !VIEW_NESTED_TYPES.has(String(v.type))) {
+        emit(ctx, {
+          ruleId: "view/unknown-nested-type",
+          severity: "warning",
+          category: "semantic",
+          rule: "nested view.type — panel | modal | page",
+          message: `Nested view «${v.id}»: неизвестный type «${v.type}»`,
+          domainId,
+          propertyPath: `views[${v.parentViewId}].views[${v.id}].type`,
+        });
+      }
+
+      // source.entity (list)
+      if (v.type === "list" && v.sourceEntity) {
+        const fqid = v.sourceEntity.includes("/")
+          ? v.sourceEntity.toLowerCase()
+          : `${domainId}/${v.sourceEntity}`.toLowerCase();
+        if (!ctx.index.entitiesByFqid[fqid]) {
+          emit(ctx, {
+            ruleId: "view/source-entity-unknown",
+            severity: "error",
+            category: "reference",
+            rule: "source.entity существует",
+            message: `View «${v.id}»: source.entity «${v.sourceEntity}» не найдена`,
+            domainId,
+            propertyPath: `views[${v.id}].source.entity`,
+          });
+        }
+      }
+
+      // actionPanel[].widget — на любом view
+      const apWidgets = v.actionPanelWidgets || [];
+      if (apWidgets.length > 0) {
+        // Для top-level view берём sourceEntity/tree из sections.views.items,
+        // для nested — этих полей нет (и не нужно: они ищутся в parentViewId).
+        const topLevelMeta = v.parentViewId ? null : topViewById.get(v.id);
+
+        let knownWidgetIds: Set<string>;
+
+        if (v.type === "list" || v.type === "tree") {
+          knownWidgetIds = getActionWidgetPool({
+            type: v.type,
+            sourceEntity: topLevelMeta?.sourceEntity,
+            tree: topLevelMeta?.tree,
+          });
+          // Плюс собственные виджеты (если вдруг заданы прямо на list/tree)
+          const ownWidgets = widgetsByTopView?.get(v.id) || [];
+          for (const w of ownWidgets) knownWidgetIds.add(w.id);
+        } else {
+          const topViewId = v.parentViewId || v.id;
+          const widgets = widgetsByTopView?.get(topViewId) || [];
+          knownWidgetIds = new Set(widgets.map((w) => w.id));
+        }
+
+        for (const wid of apWidgets) {
+          if (wid.startsWith("external:")) continue;
+          if (wid.includes("/")) continue;
+          if (!knownWidgetIds.has(wid)) {
+            emit(ctx, {
+              ruleId: "view/action-panel-widget-unknown",
+              severity: "warning",
+              category: "reference",
+              rule: "actionPanel[].widget существует",
+              message: `View «${v.id}»: actionPanel.widget «${wid}» не найден в доступном пуле виджетов`,
+              hint:
+                v.type === "list" || v.type === "tree"
+                  ? "Виджет должен быть объявлен в entity-view соответствующей сущности (или задан как FQID на другой домен)"
+                  : "Проверьте id виджета в widgets[] соответствующего view",
+              domainId,
+              propertyPath: `views[${v.id}].actionPanel`,
+            });
+          }
+        }
+      }
+
+      // ============ Только nested: form / block / tabs / pinnedBlock ============
+      if (!isNested || !v.parentViewId) continue;
+
+      // modal.form
+      if (v.type === "modal" && v.form) {
+        if (!findGroup(v.parentViewId, v.form, "form")) {
+          emit(ctx, {
+            ruleId: "view/modal-form-unknown",
+            severity: "error",
+            category: "reference",
+            rule: "modal.form — существующая группа type: form",
+            message: `View «${v.id}»: form «${v.form}» не найден или не типа form`,
+            domainId,
+            propertyPath: `views[${v.parentViewId}].views[${v.id}].form`,
+          });
+        }
+      }
+
+      // page: block и tabs не одновременно
+      if (v.type === "page" && v.block && v.tabs && v.tabs.length > 0) {
+        emit(ctx, {
+          ruleId: "view/page-block-and-tabs",
+          severity: "error",
+          category: "semantic",
+          rule: "page не может одновременно иметь block и tabs",
+          message: `View «${v.id}»: одновременно заданы block и tabs`,
+          domainId,
+          propertyPath: `views[${v.parentViewId}].views[${v.id}]`,
+        });
+      }
+
+      if (v.type === "page" && v.block) {
+        if (!findGroup(v.parentViewId, v.block, "block")) {
+          emit(ctx, {
+            ruleId: "view/page-block-unknown",
+            severity: "error",
+            category: "reference",
+            rule: "page.block — существующая группа type: block",
+            message: `View «${v.id}»: block «${v.block}» не найден или не типа block`,
+            domainId,
+            propertyPath: `views[${v.parentViewId}].views[${v.id}].block`,
+          });
+        }
+      }
+
+      if (v.type === "page" && Array.isArray(v.tabs)) {
+        for (const tabId of v.tabs) {
+          if (!findGroup(v.parentViewId, tabId, "tab")) {
+            emit(ctx, {
+              ruleId: "view/page-tab-unknown",
+              severity: "error",
+              category: "reference",
+              rule: "page.tabs[].tab — существующая группа type: tab",
+              message: `View «${v.id}»: tab «${tabId}» не найден или не типа tab`,
+              domainId,
+              propertyPath: `views[${v.parentViewId}].views[${v.id}].tabs`,
+            });
+          }
+        }
+      }
+
+      if (v.type === "page" && v.pinnedBlock) {
+        if (!findGroup(v.parentViewId, v.pinnedBlock, "block")) {
+          emit(ctx, {
+            ruleId: "view/pinned-block-unknown",
+            severity: "error",
+            category: "reference",
+            rule: "pinnedView.block — существующая группа type: block",
+            message: `View «${v.id}»: pinnedView.block «${v.pinnedBlock}» не найден или не типа block`,
+            domainId,
+            propertyPath: `views[${v.parentViewId}].views[${v.id}].pinnedView.block`,
+          });
+        }
+      }
+    }
+
+    // ============ Group types ============
+    for (const g of ctx.index.viewGroups || []) {
+      if (g.domainId !== domainId) continue;
+      if (!g.type) continue;
+      if (!VIEW_GROUP_TYPES.has(g.type)) {
+        emit(ctx, {
+          ruleId: "view/group-unknown-type",
+          severity: "warning",
+          category: "semantic",
+          rule: "group.type — валидный enum",
+          message: `Группа «${g.id}» во view «${g.parentViewId}»: неизвестный type «${g.type}»`,
+          hint: "Допустимые: block, form, tab, tabs, resizable_block_pair",
+          domainId,
+          propertyPath: `views[${g.parentViewId}].groups[${g.id}].type`,
+        });
+      }
+    }
+  }
+}
+
+// ============ RQL в условиях правил (DataRules + UiRules) ============
+
+function checkRqlConditions(ctx: LintContext): void {
+  // --- DataRules ---
+  for (const dr of ctx.index.dataRules || []) {
+    const rawCond = dr.condition;
+    if (typeof rawCond === "boolean") continue; // literal true/false — уже покрыто checkDataRuleCondition
+    const condition = String(rawCond || "").trim();
+    if (!condition) continue; // уже покрыто checkDataRuleCondition (condition-empty)
+
+    let entityId: string | null = null;
+    if (dr.entity) {
+      const slash = dr.entity.indexOf("/");
+      entityId = slash >= 0 ? dr.entity.slice(slash + 1) : dr.entity;
+    }
+
+    let issues;
+    try {
+      issues = checkRqlExpression(condition, 1, {
+        entityId,
+        modelIndex: ctx.index,
+      });
+    } catch {
+      continue;
+    }
+
+    for (const issue of issues) {
+      emit(ctx, {
+        ruleId:
+          issue.severity === "error"
+            ? "rql/syntax-error"
+            : "rql/context-warning",
+        severity: issue.severity,
+        category: "semantic",
+        rule: "RQL-выражение корректно",
+        message: `правило «${dr.id}», condition: ${issue.message}`,
+        domainId: dr.domainId,
+        propertyPath: `dataRules[${dr.id}].condition`,
+      });
+    }
+  }
+
+  // --- UiRules ---
+  for (const ur of ctx.index.uiRules || []) {
+    const rawCond = ur.condition;
+    if (typeof rawCond === "boolean") continue;
+    const condition = String(rawCond || "").trim();
+    if (!condition) continue;
+
+    let entityId: string | null = null;
+    if (
+      ur.contextData &&
+      ur.contextData.type === "entity" &&
+      ur.contextData.entity
+    ) {
+      const slash = ur.contextData.entity.indexOf("/");
+      entityId =
+        slash >= 0
+          ? ur.contextData.entity.slice(slash + 1)
+          : ur.contextData.entity;
+    }
+
+    let issues;
+    try {
+      issues = checkRqlExpression(condition, 1, {
+        entityId,
+        modelIndex: ctx.index,
+      });
+    } catch {
+      continue;
+    }
+
+    for (const issue of issues) {
+      emit(ctx, {
+        ruleId:
+          issue.severity === "error"
+            ? "rql/syntax-error"
+            : "rql/context-warning",
+        severity: issue.severity,
+        category: "semantic",
+        rule: "RQL-выражение корректно",
+        message: `правило «${ur.id}», condition: ${issue.message}`,
+        domainId: ur.domainId,
+        propertyPath: `uiRules[${ur.id}].condition`,
+      });
+    }
   }
 }
 
@@ -2226,8 +4274,8 @@ function checkMenus(ctx: LintContext): void {
     mediaIds.add(`${m.domainId}/${m.id}`.toLowerCase());
   }
 
-  const idSeen = new Map<string, string>();      // "domain#id"  → domain
-  const routeSeen = new Map<string, string>();   // "domain#route" → domain
+  const idSeen = new Map<string, string>(); // "domain#id"  → domain
+  const routeSeen = new Map<string, string>(); // "domain#route" → domain
 
   for (const menu of menus) {
     // ============ уникальность id в домене ============
@@ -2265,7 +4313,10 @@ function checkMenus(ctx: LintContext): void {
     }
 
     // ============ route формат ============
-    if (menu.route && !/^\/(?!-)[a-z0-9-]+(?<!-)(\/(?!-)[a-z0-9-]+(?<!-))*$/.test(menu.route)) {
+    if (
+      menu.route &&
+      !/^\/(?!-)[a-z0-9-]+(?<!-)(\/(?!-)[a-z0-9-]+(?<!-))*$/.test(menu.route)
+    ) {
       emit(ctx, {
         ruleId: "menu/route-format",
         severity: "warning",
@@ -2589,7 +4640,8 @@ function checkAccessRules(ctx: LintContext): void {
               propertyPath: `accessRules[${ruleIdx}].${scope}[${itemIdx}].permission`,
             });
           } else {
-            const expected = `${rule.domainId}/${item.permission}`.toLowerCase();
+            const expected =
+              `${rule.domainId}/${item.permission}`.toLowerCase();
             if (!permissionIds.has(expected)) {
               emit(ctx, {
                 ruleId: "accessRule/permission-unknown",
@@ -2735,8 +4787,20 @@ function checkLocalizations(ctx: LintContext): void {
 // ============ Main ============
 
 export function lintModel(index: ModelIndex): LintReport {
-  const { viewElementSets, presetSets } = precomputeLintIndex(index);
-  const ctx: LintContext = { index, issues: [], viewElementSets, presetSets };
+  const {
+    viewElementSets,
+    presetSets,
+    parentViewByDomain,
+    widgetInfoByDomain,
+  } = precomputeLintIndex(index);
+  const ctx: LintContext = {
+    index,
+    issues: [],
+    viewElementSets,
+    presetSets,
+    parentViewByDomain,
+    widgetInfoByDomain,
+  };
 
   for (const e of index.entities) {
     checkEntityNaming(ctx, e);
@@ -2765,6 +4829,17 @@ export function lintModel(index: ModelIndex): LintReport {
   // ============ DataRules ============
   checkDataRules(ctx);
 
+  // ============ Actions ============
+  checkActions(ctx);
+
+  // ============ Views ============
+  checkViews(ctx);
+  checkViewColumns(ctx);
+  checkViewTableMeta(ctx);
+
+  // ============ RQL в condition ============
+  checkRqlConditions(ctx);
+
   // ============ Trees ============
   checkTrees(ctx);
 
@@ -2790,6 +4865,7 @@ export function lintModel(index: ModelIndex): LintReport {
   for (const rule of index.uiRules || []) {
     checkUiRule(ctx, rule);
   }
+  checkCounterColorPatterns(ctx);
   checkOrphanPresets(ctx);
   checkConflictingEffects(ctx);
 
@@ -3075,4 +5151,65 @@ function resolveAttributeRef(
     cur = cur.inherits ? ctx.index.entitiesByFqid[cur.inherits] : undefined;
   }
   return { ok: false, reason: `атрибут ${trimmed} не найден` };
+}
+
+// ============ CounterColorPatterns ============
+
+function checkCounterColorPatterns(ctx: LintContext): void {
+  const byDomain = ctx.index.counterColorPatternsByDomain || {};
+
+  const knownIn = (domainId: string): Set<string> => {
+    const ids = byDomain[domainId] || [];
+    return new Set(ids.map(String));
+  };
+
+  // views[].widgets[].counterColorPattern
+  // views[].table.columns[].counterColorPattern
+  for (const [domainId, byView] of Object.entries(
+    ctx.index.viewElementsByDomain || {},
+  )) {
+    const known = knownIn(domainId);
+
+    for (const [viewId, elements] of Object.entries(byView)) {
+      const widgets = elements.widgetsWithType || [];
+      const columns = elements.columnsWithType || [];
+
+      for (const w of widgets) {
+        if (!w.counterColorPattern) continue;
+        const ref = String(w.counterColorPattern);
+        // FQID на другой домен не проверяем локально.
+        if (ref.includes("/")) continue;
+        if (!known.has(ref)) {
+          emit(ctx, {
+            ruleId: "counterColorPattern/widget-unknown",
+            severity: "warning",
+            category: "semantic",
+            rule: "counterColorPattern существует",
+            message: `Виджет «${w.id}» во view «${viewId}» ссылается на несуществующий counterColorPattern «${ref}»`,
+            hint: "Проверьте id в counterColorPatterns[] домена",
+            domainId,
+            propertyPath: `views[${viewId}].widgets[${w.id}].counterColorPattern`,
+          });
+        }
+      }
+
+      for (const c of columns) {
+        if (!c.counterColorPattern) continue;
+        const ref = String(c.counterColorPattern);
+        if (ref.includes("/")) continue;
+        if (!known.has(ref)) {
+          emit(ctx, {
+            ruleId: "counterColorPattern/column-unknown",
+            severity: "warning",
+            category: "semantic",
+            rule: "counterColorPattern существует",
+            message: `Колонка «${c.id}» во view «${viewId}» ссылается на несуществующий counterColorPattern «${ref}»`,
+            hint: "Проверьте id в counterColorPatterns[] домена",
+            domainId,
+            propertyPath: `views[${viewId}].table.columns[${c.id}].counterColorPattern`,
+          });
+        }
+      }
+    }
+  }
 }

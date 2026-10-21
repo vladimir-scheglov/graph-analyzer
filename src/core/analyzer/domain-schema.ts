@@ -16,6 +16,9 @@ import type {
   DomainSchemaTreeNode,
   DomainSchemaScenarioItem,
   DomainSchemaAllViewItem,
+  DomainSchemaLocalizationItem,
+  DomainSchemaAccessRuleItem,
+  DomainSchemaPermissionItem,
 } from "../../shared/model-types";
 
 function asArray(x: any): any[] {
@@ -114,15 +117,24 @@ export function buildDomainSchemaSummary(
 
   // ============ Views (top-level) ============
   const viewsRaw = asArray(raw.views);
-  const views: DomainSchemaViewItem[] = viewsRaw
-    .map((v: any) => ({
-      id: asString(v?.id),
-      type: asString(v?.type || ""),
-      entity: v?.entity ? String(v.entity) : undefined,
-      label: v?.label ? String(v.label) : undefined,
-      isMixin: v?.isMixin === true,
-    }))
-    .filter((x) => x.id);
+    const views: DomainSchemaViewItem[] = viewsRaw
+      .map((v: any) => {
+        const item: DomainSchemaViewItem = {
+          id: asString(v?.id),
+          type: asString(v?.type || ""),
+          entity: v?.entity ? String(v.entity) : undefined,
+          label: v?.label ? String(v.label) : undefined,
+          isMixin: v?.isMixin === true,
+        };
+        if (v?.type === "list" && v?.source?.entity) {
+          item.sourceEntity = String(v.source.entity);
+        }
+        if (v?.type === "tree" && typeof v?.tree === "string" && v.tree) {
+          item.tree = String(v.tree);
+        }
+        return item;
+      })
+      .filter((x) => x.id);
 
   // ============ Menus ============
   const menusRaw = asArray(raw.menus);
@@ -212,13 +224,19 @@ export function buildDomainSchemaSummary(
   // ============ UI Rules ============
   const uiRulesRaw = asArray(raw.uiRules);
   const uiRules: DomainSchemaUiRuleItem[] = uiRulesRaw
-    .map((r: any) => ({
-      id: asString(r?.id),
-      name: asString(r?.name || r?.id),
-      target: asString(r?.target || ""),
-      view: r?.view ? String(r.view) : undefined,
-      effect: r?.rule?.effect ? String(r.rule.effect) : undefined,
-    }))
+    .map((r: any) => {
+      const item: DomainSchemaUiRuleItem = {
+        id: asString(r?.id),
+        name: asString(r?.name || r?.id),
+        target: asString(r?.target || ""),
+        view: r?.view ? String(r.view) : undefined,
+        effect: r?.rule?.effect ? String(r.rule.effect) : undefined,
+      };
+      if (Array.isArray(r?.operations) && r.operations.length > 0) {
+        item.operations = r.operations.map(String);
+      }
+      return item;
+    })
     .filter((x) => x.id);
 
   // ============ UI Presets ============
@@ -232,7 +250,11 @@ export function buildDomainSchemaSummary(
     .filter((x) => x.id);
 
   // ============ Counter Color Pattern ============
-  const counterColorRaw = asArray(raw.counterColorPattern);
+  // Zod ожидает `counterColorPatterns`, docs — `counterColorPattern`.
+  // Поддерживаем оба варианта, чтобы analyzer не терял данные в любом случае.
+  const counterColorRaw = asArray(
+    (raw as any).counterColorPattern ?? (raw as any).counterColorPatterns,
+  );
   const counterColorPattern: DomainSchemaCounterColorItem[] = counterColorRaw
     .map((c: any) => ({
       id: asString(c?.id),
@@ -240,6 +262,47 @@ export function buildDomainSchemaSummary(
       yellow: asString(c?.yellow || ""),
     }))
     .filter((x) => x.id);
+
+  // ============ Permissions ============
+  const permissionsRaw = asArray(raw.permissions);
+  const permissions: DomainSchemaPermissionItem[] = permissionsRaw
+    .map((p: any) => {
+      const item: DomainSchemaPermissionItem = { id: asString(p?.id) };
+      if (p?.name) item.name = String(p.name);
+      if (p?.description) item.description = String(p.description);
+      return item;
+    })
+    .filter((x) => x.id);
+
+  // ============ AccessRules ============
+  // У accessRules нет своего id — генерируем синтетический по индексу.
+  const accessRulesRaw = asArray(raw.accessRules);
+  const accessRules: DomainSchemaAccessRuleItem[] = accessRulesRaw.map(
+    (r: any, idx: number) => {
+      const item: DomainSchemaAccessRuleItem = {
+        id: `accessRules[${idx}]`,
+        target: asString(r?.target || ""),
+      };
+      if (r?.entity) item.entity = String(r.entity);
+      if (r?.linkage) item.linkage = String(r.linkage);
+      if (r?.id) item.actionId = String(r.id);
+      return item;
+    },
+  );
+
+  // ============ Localizations ============
+  const localizationsRaw = asArray(raw.localizations);
+  const localizations: DomainSchemaLocalizationItem[] = localizationsRaw
+    .map((loc: any) => {
+      const language = asString(loc?.language || "");
+      if (!language) return null;
+      return {
+        id: language,
+        language,
+        keysCount: Array.isArray(loc?.keys) ? loc.keys.length : 0,
+      } as DomainSchemaLocalizationItem;
+    })
+    .filter((x): x is DomainSchemaLocalizationItem => x !== null);
 
   // ============ Scenarios ============
   const scenariosRaw = asArray(raw.actions).filter(
@@ -273,27 +336,79 @@ export function buildDomainSchemaSummary(
   // ============ allViews: top-level + nested ============
   const allViews: DomainSchemaAllViewItem[] = [];
 
+  const extractActionPanelWidgets = (view: any): string[] => {
+    if (!Array.isArray(view?.actionPanel)) return [];
+    const out: string[] = [];
+    for (const ap of view.actionPanel) {
+      if (typeof ap === "string" && ap) {
+        out.push(ap);
+        continue;
+      }
+      if (ap && typeof ap === "object" && typeof ap.widget === "string") {
+        out.push(ap.widget);
+      }
+    }
+    return out;
+  };
+
   const visitNested = (parent: any, parentViewId: string): void => {
     if (!Array.isArray(parent?.views)) return;
     for (const nv of parent.views) {
       if (!nv?.id) continue;
-      allViews.push({
+
+      const item: DomainSchemaAllViewItem = {
         id: String(nv.id),
         type: String(nv.type || ""),
         parentViewId,
         entity: nv.entity ? String(nv.entity) : undefined,
-      });
+      };
+
+      if (nv.type === "modal" && typeof nv.form === "string" && nv.form) {
+        item.form = nv.form;
+      }
+
+      if (nv.type === "page") {
+        if (typeof nv.block === "string" && nv.block) item.block = nv.block;
+        if (Array.isArray(nv.tabs)) {
+          const tabs = nv.tabs
+            .map((t: any) =>
+              t && typeof t === "object" && typeof t.tab === "string"
+                ? t.tab
+                : null,
+            )
+            .filter((x: string | null): x is string => !!x);
+          if (tabs.length > 0) item.tabs = tabs;
+        }
+        if (nv.pinnedView?.block) {
+          item.pinnedBlock = String(nv.pinnedView.block);
+        }
+      }
+
+      const apWidgets = extractActionPanelWidgets(nv);
+      if (apWidgets.length > 0) item.actionPanelWidgets = apWidgets;
+
+      allViews.push(item);
       visitNested(nv, String(nv.id));
     }
   };
 
   (viewsRaw || []).forEach((v: any) => {
     if (!v?.id) return;
-    allViews.push({
+
+    const item: DomainSchemaAllViewItem = {
       id: String(v.id),
       type: String(v.type || ""),
       entity: v.entity ? String(v.entity) : undefined,
-    });
+    };
+
+    if (v.type === "list" && v?.source?.entity) {
+      item.sourceEntity = String(v.source.entity);
+    }
+
+    const apWidgets = extractActionPanelWidgets(v);
+    if (apWidgets.length > 0) item.actionPanelWidgets = apWidgets;
+
+    allViews.push(item);
     visitNested(v, String(v.id));
   });
 
@@ -323,6 +438,9 @@ export function buildDomainSchemaSummary(
         items: counterColorPattern,
       },
       scenarios: { count: scenarios.length, items: scenarios },
+      permissions: { count: permissions.length, items: permissions },
+      accessRules: { count: accessRules.length, items: accessRules },
+      localizations: { count: localizations.length, items: localizations },
     },
     flags: {
       hasExchangeSettings: raw.exchangeSettings != null,

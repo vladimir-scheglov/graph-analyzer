@@ -336,6 +336,35 @@ export interface UiPresetRecord {
   props: Record<string, string | number | boolean>;
 }
 
+export type UiRuleOperation = "view" | "edit" | "create";
+
+export interface UiRuleRecord {
+  id: string;
+  domainId: string;
+  name: string;
+  description: string;
+  target: UiRuleTarget | string;
+  view: string;
+  contextViews: string[];
+
+  /** Операции, в которых применяется правило (modal/page). Пусто = везде. */
+  operations?: UiRuleOperation[];
+
+  contextData?: {
+    type: "entity" | "linkage";
+    entity?: string;
+    linkage?: string;
+  };
+  condition: string;
+  effect: UiRuleEffect | string;
+  widgets: UiRuleWidgetRef[];
+  groups: UiRuleGroupRef[];
+  columns: UiRuleColumnRef[];
+  presets: string[];
+  message: string;
+  help: string;
+}
+
 // ============ Элементы view (для валидации UI Rules) ============
 
 export interface ViewElementsRecord {
@@ -410,6 +439,32 @@ export interface ModelOrphans {
   medias: Array<{ domainId: string; id: string; iconName?: string }>;
 }
 
+// ============ Плоские мета-записи view-структуры ============
+
+export interface ViewGroupRecord {
+  id: string;
+  domainId: string;
+  /** id top-level view, в которой объявлена группа (включая вложенные). */
+  parentViewId: string;
+  type: string;
+}
+
+export interface ViewWidgetRecord {
+  id: string;
+  domainId: string;
+  parentViewId: string;
+  type: string;
+  controlType?: string;
+  attribute?: string;
+}
+
+export interface ViewActionPanelRecord {
+  id: string;
+  domainId: string;
+  viewId: string;
+  widget: string;
+}
+
 export interface ModelIndex {
   generatedAt: string;
 
@@ -446,7 +501,12 @@ export interface ModelIndex {
   permissions: PermissionRecord[];
   accessRules: AccessRuleRecord[];
   localizations: LocalizationRecord[];
- 
+
+  /** Условия окраски счётчиков (counterColorPatterns). */
+  counterColorPatterns: CounterColorPatternRecord[];
+  /** Быстрый lookup: domainId → Set<id>. */
+  counterColorPatternsByDomain: Record<string, string[]>;
+
   /**
    * Минимальные снимки прочих секций YAML (dataRules, uiRules, uiPresets,
    * views, menus, medias, trees, transitiveLinkages, permissions, localizations)
@@ -470,6 +530,24 @@ export interface ModelIndex {
   orphans: ModelOrphans;
   martin: MartinReport;
   pii: PiiReport;
+  actions: ActionRecord[];
+  actionsById: Record<string, ActionRecord>;
+  /** PR 6: все группы всех view домена. */
+  viewGroups: ViewGroupRecord[];
+  /** PR 6: все виджеты всех view домена. */
+  viewWidgets: ViewWidgetRecord[];
+  /** PR 6: все ссылки actionPanel[].widget. */
+  viewActionPanels: ViewActionPanelRecord[];
+  /** PR 6b: все колонки всех table-представлений домена. */
+  viewColumns: ViewColumnRecord[];
+  /** PR 6c: filter-конфиги table-представлений. */
+  viewTableFilters: ViewTableFilterRecord[];
+  /** PR 6c: sortingBy-конфиги table-представлений. */
+  viewTableSortings: ViewTableSortingRecord[];
+  /** PR 6d: paging-конфиги table-представлений. */
+  viewTablePagings: ViewTablePagingRecord[];
+  /** PR 6d: actions[] таблицы (row_click и т.п.). */
+  viewTableActions: ViewTableActionRecord[];
 }
 
 // ============ Snapshot ============
@@ -763,6 +841,8 @@ export interface DomainSchemaViewItem {
   entity?: string;
   label?: string;
   isMixin?: boolean;
+  sourceEntity?: string;
+  tree?: string;
 }
 
 export interface DomainSchemaMenuItem {
@@ -827,6 +907,7 @@ export interface DomainSchemaUiRuleItem {
   target: string;
   view?: string;
   effect?: string;
+  operations?: string[];
 }
 
 export interface DomainSchemaUiPresetItem {
@@ -850,6 +931,42 @@ export interface DomainSchemaAllViewItem {
   parentViewId?: string;
   /** Сущность, к которой относится view (если задана). */
   entity?: string;
+
+  /** PR 6 — для nested modal: id группы-формы. */
+  form?: string;
+  /** PR 6 — для nested page: id блока (взаимоисключение с tabs). */
+  block?: string;
+  /** PR 6 — для nested page: id вкладок. */
+  tabs?: string[];
+  /** PR 6 — для nested page: pinnedView.block. */
+  pinnedBlock?: string;
+
+  /** PR 6 — для top-level list: source.entity. */
+  sourceEntity?: string;
+  /** PR 6 — для list/page/tree: id виджетов из actionPanel. */
+  actionPanelWidgets?: string[];
+}
+
+export interface DomainSchemaPermissionItem {
+  id: string;
+  name?: string;
+  description?: string;
+}
+
+export interface DomainSchemaAccessRuleItem {
+  /** Синтетический id вида `accessRules[0]` — у accessRules своего id нет. */
+  id: string;
+  target: string;
+  entity?: string;
+  linkage?: string;
+  actionId?: string;
+}
+
+export interface DomainSchemaLocalizationItem {
+  /** Совпадает с language. */
+  id: string;
+  language: string;
+  keysCount: number;
 }
 
 export interface DomainSchemaSummary {
@@ -876,6 +993,9 @@ export interface DomainSchemaSummary {
     uiPresets: DomainSchemaSection<DomainSchemaUiPresetItem>;
     counterColorPattern: DomainSchemaSection<DomainSchemaCounterColorItem>;
     scenarios: DomainSchemaSection<DomainSchemaScenarioItem>;
+    permissions: DomainSchemaSection<DomainSchemaPermissionItem>;
+    accessRules: DomainSchemaSection<DomainSchemaAccessRuleItem>;
+    localizations: DomainSchemaSection<DomainSchemaLocalizationItem>;
   };
   flags: {
     hasExchangeSettings: boolean;
@@ -888,9 +1008,13 @@ export type SectionKey = keyof DomainSchemaSummary["sections"];
 
 export interface ViewElementRef {
   id: string;
-  /** 'action' | 'attribute' | 'linkage' | 'join' | 'block' | 'form' | 'tab' | … */
   type: string;
   description?: string;
+  counterColorPattern?: string;
+  attributeDataType?: string;
+  attributeNestedColumns?: string[];
+  attribute?: string;
+  controlType?: string;
 }
 
 export interface ViewElementsRecord {
@@ -906,7 +1030,12 @@ export interface ViewElementsRecord {
 // ============ DataRules ============
 
 export type DataRuleTarget = "entity" | "entityAttribute" | "linkage";
-export type DataRuleEffect = "hidden" | "readonly" | "required" | "default" | "allowed";
+export type DataRuleEffect =
+  | "hidden"
+  | "readonly"
+  | "required"
+  | "default"
+  | "allowed";
 
 export interface DataRuleAttributeAction {
   attribute: string;
@@ -1141,4 +1270,177 @@ export interface LocalizationRecord {
   domainId: string;
   language: string;
   keys: LocalizationKeyRecord[];
+}
+
+// ============ CounterColorPatterns ============
+
+export interface CounterColorPatternRecord {
+  id: string;
+  domainId: string;
+  red: string;
+  yellow: string;
+}
+
+// ============ Actions ============
+
+export interface ActionValueRecord {
+  attribute: string;
+  value?: any;
+}
+
+export interface ActionBulkAttributeUse {
+  attribute: string;
+}
+
+export interface ActionBulkLinkageUse {
+  widget: string;
+}
+
+export interface ActionBulkSettings {
+  /** FQID (lowercase). */
+  entity?: string;
+  attributes?: {
+    type: "specific" | "all";
+    use?: ActionBulkAttributeUse[];
+  };
+  linkages?: {
+    type: "specific";
+    use?: ActionBulkLinkageUse[];
+  };
+}
+
+export interface ActionRecord {
+  id: string;
+  domainId: string;
+  name: string;
+  description: string;
+  type: string;
+
+  /** FQID (lowercase) — общий для всех типов, где указана сущность. */
+  entity?: string;
+
+  /** Для open_modal. */
+  modal?: string;
+  /** Для open_panel. */
+  panel?: string;
+  /** Для open_page / open_list / open_tree / open_view / open_board_view. */
+  view?: string;
+  /** create | edit | view | remove | edit_attribute | import | export. */
+  operation?: string;
+  contextPin?: boolean;
+  /** Для open_list — транзитивная связь. */
+  join?: string;
+  /** Для open_list — связь. */
+  linkage?: string;
+  /** Для open_list — сторона связи. */
+  side?: 1 | 2;
+  /** blank | current. */
+  page?: "blank" | "current";
+
+  /** Для automation. */
+  automationId?: string;
+  /** Для scenario. */
+  scenario?: string;
+  /** Для scenario — worker tag. */
+  workerTag?: string;
+
+  /** Для set_attribute_value. */
+  values?: ActionValueRecord[];
+
+  /** Для tree_bulk. */
+  bulkSettings?: ActionBulkSettings[];
+
+  /** Для open_graph_view — переход к доскам. */
+  openBoards?: boolean;
+  openBoardsName?: string;
+
+  /** Для open_list — атрибут-ссылка. */
+  attribute?: string;
+  /** Для open_list — виджет-ссылка. */
+  widgetId?: string;
+}
+
+// ============ PR 6c: filter / sortingBy ============
+
+export interface ViewTableFilterAttribute {
+  /** id колонки-атрибута (attribute из use[]). */
+  attribute: string;
+}
+
+export interface ViewTableFilterLinkage {
+  /** FQID (lowercase) — нормализован. */
+  linkage?: string;
+  /** id транзитивной связи (join). */
+  join?: string;
+  /** Атрибуты связи. */
+  linkAttributes?: string[];
+  /** Атрибуты связанной сущности. */
+  linkedEntity?: string[];
+}
+
+export interface ViewTableFilterRecord {
+  domainId: string;
+  viewId: string;
+  /** Только то, что явно перечислено (type: specific). */
+  attributes: ViewTableFilterAttribute[];
+  linkages: ViewTableFilterLinkage[];
+}
+
+export interface ViewTableSortingColumn {
+  column: string;
+  sorting: string;
+}
+
+export interface ViewTableSortingRecord {
+  domainId: string;
+  viewId: string;
+  columns: ViewTableSortingColumn[];
+  /** Сортировка по умолчанию. */
+  defaultColumn?: string;
+  defaultDirection?: "asc" | "desc";
+}
+
+export interface ViewTablePagingRecord {
+  domainId: string;
+  viewId: string;
+  /** sizes[] как пришли — для проверки типа. */
+  rawSizes: any[];
+  /** sizes[], приведённые к number (только валидные). */
+  sizes: number[];
+  /** defaultSize как пришло. */
+  rawDefaultSize?: any;
+  /** defaultSize как number (только если валидно). */
+  defaultSize?: number;
+}
+
+export interface ViewTableActionItemRef {
+  action: string;
+  label?: string;
+  icon?: string;
+}
+
+export interface ViewTableActionRecord {
+  domainId: string;
+  viewId: string;
+  /** row_click | row_double_click | row_context_menu */
+  type: string;
+  /** Для row_click / row_double_click. */
+  action?: string;
+  /** Для row_context_menu. */
+  items: ViewTableActionItemRef[];
+}
+
+export interface ViewColumnRecord {
+  id: string;
+  domainId: string;
+  /** id top-level view (list / tree / entity). */
+  viewId: string;
+  /** attribute / join / linkageAttribute — как в zod-колонке. */
+  attribute?: string;
+  join?: string;
+  linkageAttribute?: string;
+  /** control.type — нужен для tree_path. */
+  controlType?: string;
+  /** control.tree — id дерева (для tree_path). */
+  controlTree?: string;
 }

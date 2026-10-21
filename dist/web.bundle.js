@@ -17919,6 +17919,34 @@ function SectionItems({
       ] })
     ] }, m.id)) });
   }
+  if (sectionKey === "permissions") {
+    return /* @__PURE__ */ jsx65("div", { className: "domain-schema-list", children: items.map((p) => /* @__PURE__ */ jsxs62("div", { className: "domain-schema-item", children: [
+      /* @__PURE__ */ jsx65("code", { className: "domain-schema-item__id", children: p.id }),
+      p.name && p.name !== p.id && /* @__PURE__ */ jsx65("span", { className: "domain-schema-item__name", children: p.name }),
+      p.description && /* @__PURE__ */ jsx65("span", { className: "domain-schema-item__meta", children: p.description })
+    ] }, p.id)) });
+  }
+  if (sectionKey === "accessRules") {
+    return /* @__PURE__ */ jsx65("div", { className: "domain-schema-list", children: items.map((r) => /* @__PURE__ */ jsxs62("div", { className: "domain-schema-item", children: [
+      /* @__PURE__ */ jsx65("code", { className: "domain-schema-item__id", children: r.id }),
+      /* @__PURE__ */ jsxs62("span", { className: "domain-schema-item__meta", children: [
+        /* @__PURE__ */ jsx65("span", { className: "domain-schema-item__badge", children: r.target }),
+        r.entity && ` \xB7 ${String(r.entity).split("/").pop()}`,
+        r.linkage && ` \xB7 ${String(r.linkage).split("/").pop()}`,
+        r.actionId && ` \xB7 ${r.actionId}`
+      ] })
+    ] }, r.id)) });
+  }
+  if (sectionKey === "localizations") {
+    return /* @__PURE__ */ jsx65("div", { className: "domain-schema-list", children: items.map((loc) => /* @__PURE__ */ jsxs62("div", { className: "domain-schema-item", children: [
+      /* @__PURE__ */ jsx65("code", { className: "domain-schema-item__id", children: loc.id }),
+      /* @__PURE__ */ jsxs62("span", { className: "domain-schema-item__meta", children: [
+        loc.keysCount,
+        " ",
+        loc.keysCount === 1 ? "\u043A\u043B\u044E\u0447" : loc.keysCount < 5 ? "\u043A\u043B\u044E\u0447\u0430" : "\u043A\u043B\u044E\u0447\u0435\u0439"
+      ] })
+    ] }, loc.id)) });
+  }
   return /* @__PURE__ */ jsx65("div", { className: "domain-schema-list", children: items.map((item) => /* @__PURE__ */ jsxs62("div", { className: "domain-schema-item", children: [
     /* @__PURE__ */ jsx65("code", { className: "domain-schema-item__id", children: item.id }),
     item.name && item.name !== item.id && /* @__PURE__ */ jsx65("span", { className: "domain-schema-item__name", children: item.name }),
@@ -17963,7 +17991,10 @@ var init_consts = __esm({
       uiRules: { label: "UI Rules", icon: "rule_folder" },
       uiPresets: { label: "UI Presets", icon: "palette" },
       counterColorPattern: { label: "\u0426\u0432\u0435\u0442\u043E\u0432\u044B\u0435 \u0441\u0445\u0435\u043C\u044B", icon: "timelapse" },
-      scenarios: { label: "\u0421\u0446\u0435\u043D\u0430\u0440\u0438\u0438", icon: "movie" }
+      scenarios: { label: "\u0421\u0446\u0435\u043D\u0430\u0440\u0438\u0438", icon: "movie" },
+      permissions: { label: "\u0420\u0430\u0437\u0440\u0435\u0448\u0435\u043D\u0438\u044F", icon: "key" },
+      accessRules: { label: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0434\u043E\u0441\u0442\u0443\u043F\u0430", icon: "lock" },
+      localizations: { label: "\u041B\u043E\u043A\u0430\u043B\u0438\u0437\u0430\u0446\u0438\u0438", icon: "translate" }
     };
   }
 });
