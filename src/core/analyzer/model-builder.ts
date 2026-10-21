@@ -9,6 +9,7 @@ import type {
   DataTypeKind,
   DomainMeta,
   EntityLinkage,
+  ViewElementRef,
 } from "../../shared/model-types";
 import { buildDomainSchemaSummary } from "./domain-schema";
 import type { DomainSchemaSummary } from "../../shared/model-types";
@@ -490,6 +491,34 @@ function countAttributeUsage(
       if (!v) return;
       visitWidgets(v.widgets);
     });
+
+    // ============ searching: entities[].searching[].attribute ============
+    rawDomainsById.forEach((domain) => {
+      const entities = domain.rawData?.entities;
+      if (!Array.isArray(entities)) return;
+      const domainIdLower = domain.id.toLowerCase();
+
+      for (const e of entities) {
+        if (!e?.id) continue;
+        const entityFqid = `${domainIdLower}/${String(e.id)}`.toLowerCase();
+        const searching = e.searching;
+        if (!Array.isArray(searching)) continue;
+
+        for (const s of searching) {
+          if (!s || typeof s !== "object") continue;
+          // В стандартном формате — s.attribute; в расширенном (с id/name) — тоже s.attribute.
+          const attrId = s.attribute;
+          if (typeof attrId !== "string") continue;
+
+          const key = attrKey(entityFqid, attrId);
+          const list = attrIndex.get(key);
+          if (!list) continue;
+          list.forEach((a) => {
+            a.usedInViews++;
+          });
+        }
+      }
+    });
   });
 }
 
@@ -838,8 +867,6 @@ function extractWidgetId(w: any): string | null {
   return null;
 }
 
-// ---------- Хелперы (вынести рядом с collectViewElements) ----------
-
 /** Inline-объявление виджета: `{ widget: { id, linkageId?, referenceId? } }`. */
 function isInlineWidgetObject(w: any): boolean {
   return (
@@ -850,16 +877,23 @@ function isInlineWidgetObject(w: any): boolean {
   );
 }
 
-/** Собирает ID всех `type: action` виджетов из entity-представлений домена. */
-function collectDomainActionWidgets(rawViews: any[]): Set<string> {
-  const result = new Set<string>();
+/** Доменные action-виджеты: id → { type, description }. */
+function collectDomainActionWidgets(
+  rawViews: any[],
+): Map<string, { type: string; description: string }> {
+  const result = new Map<string, { type: string; description: string }>();
   if (!Array.isArray(rawViews)) return result;
 
   const walk = (view: any): void => {
     if (!view || typeof view !== "object") return;
     if (Array.isArray(view.widgets)) {
       for (const w of view.widgets) {
-        if (w?.id && w.type === "action") result.add(String(w.id));
+        if (w?.id && w.type === "action" && !result.has(String(w.id))) {
+          result.set(String(w.id), {
+            type: "action",
+            description: String(w.description || ""),
+          });
+        }
       }
     }
     if (Array.isArray(view.views)) {
@@ -877,11 +911,81 @@ function collectDomainActionWidgets(rawViews: any[]): Set<string> {
 
 function collectViewElements(
   rawViews: any[],
+  raw: any, // ← rawData всего домена
 ): Record<string, ViewElementsRecord> {
   const result: Record<string, ViewElementsRecord> = {};
   if (!Array.isArray(rawViews)) return result;
 
-  // Pre-pass: доменные action-виджеты (нужны для list/tree view).
+  // ============ Индексы для резолва description ============
+  const linkageById = new Map<string, { name: string; type: string }>();
+  if (Array.isArray(raw?.linkages)) {
+    for (const l of raw.linkages) {
+      if (!l?.id) continue;
+      linkageById.set(String(l.id), {
+        name: String(l.name || l.id),
+        type: String(l.type || ""),
+      });
+    }
+  }
+
+  const entityNameById = new Map<string, string>();
+  const attrByEntityAndId = new Map<
+    string,
+    { name: string; dataType: string }
+  >();
+  if (Array.isArray(raw?.entities)) {
+    for (const e of raw.entities) {
+      if (!e?.id) continue;
+      entityNameById.set(String(e.id), String(e.name || e.id));
+      if (Array.isArray(e.attributes)) {
+        for (const a of e.attributes) {
+          if (!a?.id) continue;
+          attrByEntityAndId.set(`${e.id}#${a.id}`, {
+            name: String(a.name || a.id),
+            dataType: String(a.dataType || ""),
+          });
+        }
+      }
+    }
+  }
+
+  /** Резолв `attribute`-ссылки в ключ `<EntityId>#<AttrId>` для текущего домена. */
+  const resolveAttrKey = (ref: any, entityId: string | null): string | null => {
+    if (!ref || typeof ref !== "string") return null;
+    const s = ref.trim();
+    if (!s) return null;
+    // FQID на другой домен — не резолвим локально.
+    if (s.includes("/")) {
+      // `other.dom/Entity.attr` → попробуем вытащить локальную часть,
+      // но только если домен — текущий. Здесь у нас нет domainId домена
+      // (raw.domainId мог быть переопределён), поэтому пропускаем.
+      return null;
+    }
+    const dot = s.indexOf(".");
+    if (dot > 0) {
+      const eId = s.slice(0, dot);
+      const aId = s.slice(dot + 1);
+      return `${eId}#${aId}`;
+    }
+    if (!entityId) return null;
+    return `${entityId}#${s}`;
+  };
+
+  const buildAttributeWidgetDescription = (
+    attributeRef: any,
+    entityId: string | null,
+  ): string => {
+    const key = resolveAttrKey(attributeRef, entityId);
+    if (!key) return "";
+    const info = attrByEntityAndId.get(key);
+    if (!info) return "";
+    const parts: string[] = [];
+    if (info.dataType) parts.push(info.dataType);
+    if (info.name && info.name !== key.split("#")[1]) parts.push(info.name);
+    return parts.join(" · ");
+  };
+
+  // ============ Всё остальное — как в прошлом патче ============
   const domainActionWidgets = collectDomainActionWidgets(rawViews);
 
   for (const v of rawViews) {
@@ -890,72 +994,165 @@ function collectViewElements(
     const widgets = new Set<string>();
     const groups = new Set<string>();
     const columns = new Set<string>();
+    const widgetsWithType: ViewElementRef[] = [];
+    const groupsWithType: ViewElementRef[] = [];
+    const columnsWithType: ViewElementRef[] = [];
+    const seenW = new Set<string>();
+    const seenG = new Set<string>();
+    const seenC = new Set<string>();
 
-    // --- Fix #1: inline-виджеты в groups[].components[] ---
+    const addWidget = (id: string, type: string, description: string) => {
+      widgets.add(id);
+      if (!seenW.has(id)) {
+        seenW.add(id);
+        widgetsWithType.push({
+          id,
+          type: type || "",
+          description: description || "",
+        });
+      }
+    };
+    const addGroup = (id: string, type: string, description: string) => {
+      groups.add(id);
+      if (!seenG.has(id)) {
+        seenG.add(id);
+        groupsWithType.push({
+          id,
+          type: type || "",
+          description: description || "",
+        });
+      }
+    };
+    const addColumn = (id: string, type: string, description: string) => {
+      columns.add(id);
+      if (!seenC.has(id)) {
+        seenC.add(id);
+        columnsWithType.push({
+          id,
+          type: type || "",
+          description: description || "",
+        });
+      }
+    };
+
+    // ============ Компоненты групп ============
     const collectComponents = (comps: any): void => {
       if (!Array.isArray(comps)) return;
       for (const c of comps) {
         if (!c || typeof c !== "object") continue;
         if (isInlineWidgetObject(c.widget)) {
-          widgets.add(String(c.widget.id));
+          const wid = String(c.widget.id);
+          let desc = String(c.widget.description || "").trim();
+
+          if (!desc && c.widget.linkageId) {
+            const info = linkageById.get(String(c.widget.linkageId));
+            desc = info
+              ? `связь: ${info.name}${info.type ? ` (${info.type})` : ""}`
+              : `связь: ${c.widget.linkageId}`;
+          } else if (!desc && c.widget.referenceId) {
+            const refId = String(c.widget.referenceId);
+            const localId = refId.includes("/")
+              ? refId.split("/").pop()!
+              : refId;
+            const nm = entityNameById.get(localId);
+            desc = nm ? `ссылка: ${nm}` : `ссылка: ${refId}`;
+          }
+
+          addWidget(wid, "", desc);
         }
       }
     };
 
-    const collectFromView = (view: any): void => {
+    // ============ Рекурсивный обход view ============
+    const collectFromView = (view: any, entityId: string | null): void => {
       if (!view || typeof view !== "object") return;
 
-      // --- Top-level widgets[] (объявления) ---
+      const nextEntityId: string | null = view.entity
+        ? String(view.entity)
+        : view.source?.entity
+          ? String(view.source.entity)
+          : entityId;
+
       if (Array.isArray(view.widgets)) {
         for (const w of view.widgets) {
-          if (w?.id) widgets.add(String(w.id));
+          if (!w?.id) continue;
+          let desc = String(w.description || "").trim();
+          // Fallback: у attribute-виджета без description подтягиваем данные атрибута.
+          if (!desc && w.type === "attribute" && w.attribute) {
+            desc = buildAttributeWidgetDescription(w.attribute, nextEntityId);
+          }
+          addWidget(String(w.id), String(w.type || ""), desc);
         }
       }
 
-      // --- Groups: id + inline-виджеты в components[] (Fix #1) ---
       if (Array.isArray(view.groups)) {
         for (const g of view.groups) {
-          if (g?.id) groups.add(String(g.id));
+          if (g?.id) {
+            addGroup(
+              String(g.id),
+              String(g.type || ""),
+              String(g.description || "").trim(),
+            );
+          }
           collectComponents(g?.components);
         }
       }
 
-      // --- Table columns ---
       if (Array.isArray(view.table?.columns)) {
         for (const c of view.table.columns) {
-          if (c?.id) columns.add(String(c.id));
+          if (!c?.id) continue;
+          addColumn(
+            String(c.id),
+            "",
+            String(c.label || c.description || "").trim(),
+          );
         }
       }
 
-      // --- ActionPanel: inline-виджеты (Fix #1) ---
       if (Array.isArray(view.actionPanel)) {
         for (const ap of view.actionPanel) {
           if (!ap || typeof ap !== "object") continue;
           if (isInlineWidgetObject(ap.widget)) {
-            widgets.add(String(ap.widget.id));
+            const wid = String(ap.widget.id);
+            let desc = String(ap.widget.description || "").trim();
+            if (!desc && ap.widget.linkageId) {
+              const info = linkageById.get(String(ap.widget.linkageId));
+              desc = info
+                ? `связь: ${info.name}${info.type ? ` (${info.type})` : ""}`
+                : `связь: ${ap.widget.linkageId}`;
+            } else if (!desc && ap.widget.referenceId) {
+              const refId = String(ap.widget.referenceId);
+              const localId = refId.includes("/")
+                ? refId.split("/").pop()!
+                : refId;
+              const nm = entityNameById.get(localId);
+              desc = nm ? `ссылка: ${nm}` : `ссылка: ${refId}`;
+            }
+            addWidget(wid, "action", desc);
           }
         }
       }
 
-      // --- Вложенные views (panel/modal/page) ---
       if (Array.isArray(view.views)) {
-        for (const nv of view.views) collectFromView(nv);
+        for (const nv of view.views) collectFromView(nv, nextEntityId);
       }
     };
 
-    collectFromView(v);
+    collectFromView(v, null);
 
-    // --- Fix #2: обогащение list/tree доменными action-виджетами ---
-    // list/tree не имеют собственной секции widgets[], но uiRules.target="list_view"
-    // может ссылаться на любой action-виджет домена через actionPanel[].
     if (v.type === "list" || v.type === "tree") {
-      domainActionWidgets.forEach((id) => widgets.add(id));
+      domainActionWidgets.forEach((info, id) =>
+        addWidget(id, info.type, info.description),
+      );
     }
 
     result[String(v.id)] = {
       widgets: Array.from(widgets),
       groups: Array.from(groups),
       columns: Array.from(columns),
+      widgetsWithType,
+      groupsWithType,
+      columnsWithType,
     };
   }
 
@@ -1078,7 +1275,7 @@ export function buildModelIndex(rawDomains: RawDomainEntry[]): ModelIndex {
     }
 
     // View Elements (для валидации UI Rules)
-    viewElementsByDomain[d.id] = collectViewElements(raw.views || []);
+    viewElementsByDomain[d.id] = collectViewElements(raw.views || [], raw);
 
     // Mixins
     if (Array.isArray(raw.mixins)) {
@@ -1132,7 +1329,7 @@ export function buildModelIndex(rawDomains: RawDomainEntry[]): ModelIndex {
   });
 
   // Stats
-    const stats = computeStats(
+  const stats = computeStats(
     entities,
     mixins,
     entitiesByFqid,

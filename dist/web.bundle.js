@@ -5756,243 +5756,9 @@ var init_popovers = __esm({
   }
 });
 
-// src/web/components/layout/Toolbar.tsx
-import { Fragment as Fragment3, jsx as jsx8, jsxs as jsxs7 } from "react/jsx-runtime";
-function Toolbar(props) {
-  const { back, forward, navStack } = useNavigation();
-  const viewMode = useGraphStore((s) => s.viewMode);
-  const isolatedOnly = useGraphStore((s) => s.isolatedOnly);
-  const nsMode = useGraphStore((s) => s.nsMode);
-  const focusNode = useGraphStore((s) => s.focusNode);
-  const diffMode = useGraphStore((s) => s.diffMode);
-  const rfInstance = useGraphStore((s) => s.rfInstance);
-  const theme = useGraphStore((s) => s.theme);
-  const setViewMode = useGraphStore((s) => s.setViewMode);
-  const cycleActive = !!props.cycleHighlight;
-  const analysisActive = cycleActive || isolatedOnly || nsMode || !!focusNode;
-  const dataActive = !!diffMode;
-  return /* @__PURE__ */ jsxs7(Fragment3, { children: [
-    /* @__PURE__ */ jsxs7("div", { className: "toolbar", children: [
-      /* @__PURE__ */ jsxs7("div", { className: "toolbar__group", children: [
-        viewMode === "graph" && /* @__PURE__ */ jsxs7(Fragment3, { children: [
-          /* @__PURE__ */ jsx8("button", { className: "btn btn--icon", onClick: () => rfInstance?.fitView({ duration: 500 }), title: "\u0412\u043F\u0438\u0441\u0430\u0442\u044C (F)", children: /* @__PURE__ */ jsx8(MIcon, { name: "fit_screen" }) }),
-          /* @__PURE__ */ jsx8("button", { className: "btn btn--icon", onClick: props.onRelayout, title: "\u041F\u0435\u0440\u0435\u0443\u043B\u043E\u0436\u0438\u0442\u044C", children: /* @__PURE__ */ jsx8(MIcon, { name: "refresh" }) }),
-          /* @__PURE__ */ jsx8("button", { className: "btn btn--icon", onClick: () => {
-          }, title: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0440\u0430\u0441\u043A\u043B\u0430\u0434\u043A\u0443", children: /* @__PURE__ */ jsx8(MIcon, { name: "restart_alt" }) })
-        ] }),
-        viewMode === "graph" && /* @__PURE__ */ jsx8(
-          "button",
-          {
-            className: "btn btn--icon",
-            onClick: () => {
-              if (!confirm("\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0432\u0441\u0435 \u0444\u0438\u043B\u044C\u0442\u0440\u044B, \u0440\u0435\u0436\u0438\u043C\u044B \u0438 \u0432\u044B\u0434\u0435\u043B\u0435\u043D\u0438\u044F?"))
-                return;
-              props.onResetAll();
-            },
-            title: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0432\u0441\u0451",
-            children: /* @__PURE__ */ jsx8(MIcon, { name: "restart_alt" })
-          }
-        ),
-        /* @__PURE__ */ jsx8("button", { className: "btn btn--icon", onClick: back, disabled: navStack.index <= 0, title: "\u041D\u0430\u0437\u0430\u0434 (Alt+\u2190)", children: /* @__PURE__ */ jsx8(MIcon, { name: "arrow_back" }) }),
-        /* @__PURE__ */ jsx8("button", { className: "btn btn--icon", onClick: forward, disabled: navStack.index >= navStack.items.length - 1, title: "\u0412\u043F\u0435\u0440\u0451\u0434 (Alt+\u2192)", children: /* @__PURE__ */ jsx8(MIcon, { name: "arrow_forward" }) })
-      ] }),
-      /* @__PURE__ */ jsxs7(
-        "button",
-        {
-          className: "btn",
-          onClick: () => useGraphStore.getState().setSearchOpen(true),
-          title: "\u041F\u043E\u0438\u0441\u043A (Shift+Tab)",
-          children: [
-            /* @__PURE__ */ jsx8(MIcon, { name: "search" }),
-            /* @__PURE__ */ jsx8("kbd", { className: "btn-kbd", children: "\u21E7 Tab" })
-          ]
-        }
-      ),
-      /* @__PURE__ */ jsx8(
-        Popover,
-        {
-          width: 280,
-          trigger: (open) => /* @__PURE__ */ jsxs7("button", { className: "btn" + (open ? " btn--active" : ""), children: [
-            /* @__PURE__ */ jsx8(MIcon, { name: "psychology" }),
-            "\u041C\u043E\u0434\u0435\u043B\u044C"
-          ] }),
-          children: (close) => /* @__PURE__ */ jsx8(ModelMenu, { close })
-        }
-      ),
-      viewMode === "graph" && /* @__PURE__ */ jsx8(
-        Popover,
-        {
-          width: 320,
-          trigger: (open) => /* @__PURE__ */ jsxs7("button", { className: "btn" + (open || props.activeFiltersCount > 0 ? " btn--active" : ""), children: [
-            /* @__PURE__ */ jsx8(MIcon, { name: "tune" }),
-            /* @__PURE__ */ jsx8("span", { style: { marginLeft: 6 }, children: "\u0424\u0438\u043B\u044C\u0442\u0440\u044B" }),
-            props.activeFiltersCount > 0 && /* @__PURE__ */ jsx8("span", { className: "btn__badge", children: props.activeFiltersCount })
-          ] }),
-          children: /* @__PURE__ */ jsx8(FilterMenu, { counts: props.counts })
-        }
-      ),
-      viewMode === "graph" && /* @__PURE__ */ jsx8(
-        Popover,
-        {
-          width: 280,
-          trigger: (open) => /* @__PURE__ */ jsxs7("button", { className: "btn" + (open || analysisActive ? " btn--active" : ""), children: [
-            /* @__PURE__ */ jsx8(MIcon, { name: "bar_chart" }),
-            "\u0410\u043D\u0430\u043B\u0438\u0437"
-          ] }),
-          children: (close) => /* @__PURE__ */ jsx8(
-            AnalysisMenu,
-            {
-              cycleHighlight: props.cycleHighlight,
-              onFindCycles: props.onFindCycles,
-              onStartPathFinder: props.onStartPathFinder,
-              onOpenTopo: props.onOpenTopo,
-              onOpenLearningPath: props.onOpenLearningPath,
-              onOpenRules: props.onOpenRules,
-              onOpenEntityHierarchy: props.onOpenEntityHierarchy,
-              ruleViolationsCount: props.ruleViolationsCount,
-              close
-            }
-          )
-        }
-      ),
-      viewMode === "graph" && /* @__PURE__ */ jsx8(
-        Popover,
-        {
-          width: 300,
-          trigger: (open) => /* @__PURE__ */ jsxs7("button", { className: "btn" + (open ? " btn--active" : ""), children: [
-            /* @__PURE__ */ jsx8(MIcon, { name: "palette" }),
-            "\u0412\u0438\u0434"
-          ] }),
-          children: (close) => /* @__PURE__ */ jsx8(ViewMenu, { close })
-        }
-      ),
-      /* @__PURE__ */ jsx8(
-        Popover,
-        {
-          width: 260,
-          trigger: (open) => /* @__PURE__ */ jsxs7("button", { className: "btn" + (open || dataActive ? " btn--active" : ""), children: [
-            /* @__PURE__ */ jsx8(MIcon, { name: "save" }),
-            "\u0414\u0430\u043D\u043D\u044B\u0435"
-          ] }),
-          children: (close) => /* @__PURE__ */ jsx8(
-            DataMenu,
-            {
-              close,
-              onExportJSON: props.onExportJSON,
-              onExportMarkdown: props.onExportMarkdown,
-              onExportPNG: props.onExportPNG,
-              onExportMermaid: props.onExportMermaid,
-              onSaveSnapshot: props.onSaveSnapshot,
-              onLoadSnapshot: props.onLoadSnapshot,
-              onClearSnapshot: props.onClearSnapshot,
-              onSnapshotUpload: props.onSnapshotUpload,
-              onOpenValidation: props.onOpenValidation
-            }
-          )
-        }
-      ),
-      /* @__PURE__ */ jsx8("div", { className: "toolbar__spacer" }),
-      props.remoteInfo?.server && props.remoteInfo?.fetchedAt && /* @__PURE__ */ jsxs7(
-        "div",
-        {
-          className: "toolbar__cache",
-          title: "\u0418\u0441\u0442\u043E\u0447\u043D\u0438\u043A: " + props.remoteInfo.server + "\n\u041E\u0431\u043D\u043E\u0432\u043B\u0451\u043D: " + new Date(props.remoteInfo.fetchedAt).toLocaleString("ru-RU"),
-          onClick: props.onShowToast,
-          children: [
-            /* @__PURE__ */ jsx8(MIcon, { name: "database" }),
-            /* @__PURE__ */ jsxs7("span", { children: [
-              "\u041F\u043E\u043B\u0443\u0447\u0435\u043D\u043E ",
-              relativeTime(props.remoteInfo.fetchedAt)
-            ] })
-          ]
-        }
-      ),
-      /* @__PURE__ */ jsx8(
-        "button",
-        {
-          className: "btn btn--icon",
-          onClick: () => useGraphStore.getState().setTheme(theme === "dark" ? "light" : "dark"),
-          title: theme === "dark" ? "\u0421\u0432\u0435\u0442\u043B\u0430\u044F \u0442\u0435\u043C\u0430" : "\u0422\u0451\u043C\u043D\u0430\u044F \u0442\u0435\u043C\u0430",
-          children: /* @__PURE__ */ jsx8(MIcon, { name: theme === "dark" ? "light_mode" : "dark_mode" })
-        }
-      ),
-      /* @__PURE__ */ jsx8(
-        "button",
-        {
-          className: "btn btn--icon",
-          onClick: () => useGraphStore.getState().setHotkeysOpen(true),
-          title: "\u0413\u043E\u0440\u044F\u0447\u0438\u0435 \u043A\u043B\u0430\u0432\u0438\u0448\u0438 (?)",
-          children: /* @__PURE__ */ jsx8(MIcon, { name: "keyboard" })
-        }
-      ),
-      /* @__PURE__ */ jsx8(
-        "button",
-        {
-          className: "btn btn--icon",
-          onClick: () => useGraphStore.getState().setHelpOpen(true),
-          title: "\u0420\u0443\u043A\u043E\u0432\u043E\u0434\u0441\u0442\u0432\u043E \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044F (F1)",
-          children: /* @__PURE__ */ jsx8(MIcon, { name: "menu_book" })
-        }
-      ),
-      /* @__PURE__ */ jsxs7("div", { className: "toolbar__stats", children: [
-        props.visibleNodesCount,
-        " / ",
-        props.totalNodesCount,
-        " \u0443\u0437\u043B\u043E\u0432 \xB7 ",
-        props.visibleEdgesCount,
-        " /",
-        " ",
-        props.totalEdgesCount,
-        " \u0441\u0432\u044F\u0437\u0435\u0439"
-      ] })
-    ] }),
-    /* @__PURE__ */ jsxs7("div", { className: "toolbar__mode-toggle", children: [
-      /* @__PURE__ */ jsxs7(
-        "button",
-        {
-          className: "toolbar__mode-btn" + (viewMode === "list" ? " toolbar__mode-btn--active" : ""),
-          onClick: () => setViewMode("list"),
-          title: "\u0421\u043F\u0438\u0441\u043E\u043A \u0434\u043E\u043C\u0435\u043D\u043E\u0432",
-          children: [
-            /* @__PURE__ */ jsx8(MIcon, { name: "list", size: "sm" }),
-            /* @__PURE__ */ jsx8("span", { children: "\u0421\u043F\u0438\u0441\u043E\u043A" })
-          ]
-        }
-      ),
-      /* @__PURE__ */ jsxs7(
-        "button",
-        {
-          className: "toolbar__mode-btn" + (viewMode === "graph" ? " toolbar__mode-btn--active" : ""),
-          onClick: () => setViewMode("graph"),
-          title: "\u0413\u0440\u0430\u0444 \u0434\u043E\u043C\u0435\u043D\u043E\u0432",
-          children: [
-            /* @__PURE__ */ jsx8(MIcon, { name: "schema", size: "sm" }),
-            /* @__PURE__ */ jsx8("span", { children: "\u0413\u0440\u0430\u0444" })
-          ]
-        }
-      )
-    ] })
-  ] });
-}
-var init_Toolbar = __esm({
-  "src/web/components/layout/Toolbar.tsx"() {
-    "use strict";
-    init_useGraphStore();
-    init_useNavigation();
-    init_Popover();
-    init_MIcon();
-    init_FilterMenu();
-    init_AnalysisMenu();
-    init_ViewMenu();
-    init_DataMenu();
-    init_format();
-    init_popovers();
-  }
-});
-
 // src/web/components/layout/ActiveModesBar.tsx
 import { useMemo as useMemo10 } from "react";
-import { jsx as jsx9, jsxs as jsxs8 } from "react/jsx-runtime";
+import { jsx as jsx8, jsxs as jsxs7 } from "react/jsx-runtime";
 function ActiveModesBar({ ruleViolationsCount }) {
   const store = useGraphStore();
   const modes = useMemo10(() => {
@@ -6193,10 +5959,10 @@ function ActiveModesBar({ ruleViolationsCount }) {
   ]);
   if (modes.length === 0)
     return null;
-  return /* @__PURE__ */ jsx9("div", { className: "active-modes", children: modes.map((m, i) => /* @__PURE__ */ jsxs8("div", { className: "active-mode active-mode--" + (m.color || "accent"), children: [
-    /* @__PURE__ */ jsx9("span", { className: "active-mode__icon", children: m.iconName ? /* @__PURE__ */ jsx9(MIcon, { name: m.iconName, size: "sm" }) : m.icon }),
-    /* @__PURE__ */ jsx9("span", { className: "active-mode__label", children: m.label }),
-    /* @__PURE__ */ jsx9("button", { className: "active-mode__close", onClick: m.onClear, title: "\u041E\u0442\u043A\u043B\u044E\u0447\u0438\u0442\u044C", children: "\u2715" })
+  return /* @__PURE__ */ jsx8("div", { className: "active-modes", children: modes.map((m, i) => /* @__PURE__ */ jsxs7("div", { className: "active-mode active-mode--" + (m.color || "accent"), children: [
+    /* @__PURE__ */ jsx8("span", { className: "active-mode__icon", children: m.iconName ? /* @__PURE__ */ jsx8(MIcon, { name: m.iconName, size: "sm" }) : m.icon }),
+    /* @__PURE__ */ jsx8("span", { className: "active-mode__label", children: m.label }),
+    /* @__PURE__ */ jsx8("button", { className: "active-mode__close", onClick: m.onClear, title: "\u041E\u0442\u043A\u043B\u044E\u0447\u0438\u0442\u044C", children: "\u2715" })
   ] }, i)) });
 }
 var init_ActiveModesBar = __esm({
@@ -6204,6 +5970,210 @@ var init_ActiveModesBar = __esm({
     "use strict";
     init_useGraphStore();
     init_MIcon();
+  }
+});
+
+// src/web/components/layout/Toolbar.tsx
+import { Fragment as Fragment3, jsx as jsx9, jsxs as jsxs8 } from "react/jsx-runtime";
+function Toolbar(props) {
+  const { back, forward, navStack } = useNavigation();
+  const viewMode = useGraphStore((s) => s.viewMode);
+  const isolatedOnly = useGraphStore((s) => s.isolatedOnly);
+  const nsMode = useGraphStore((s) => s.nsMode);
+  const focusNode = useGraphStore((s) => s.focusNode);
+  const diffMode = useGraphStore((s) => s.diffMode);
+  const rfInstance = useGraphStore((s) => s.rfInstance);
+  const theme = useGraphStore((s) => s.theme);
+  const setViewMode = useGraphStore((s) => s.setViewMode);
+  const cycleActive = !!props.cycleHighlight;
+  const analysisActive = cycleActive || isolatedOnly || nsMode || !!focusNode;
+  const dataActive = !!diffMode;
+  return /* @__PURE__ */ jsxs8(Fragment3, { children: [
+    /* @__PURE__ */ jsxs8("div", { className: "toolbar", children: [
+      /* @__PURE__ */ jsxs8("div", { className: "toolbar__group", children: [
+        viewMode === "graph" && /* @__PURE__ */ jsxs8(Fragment3, { children: [
+          /* @__PURE__ */ jsx9("button", { className: "btn btn--icon", onClick: () => rfInstance?.fitView({ duration: 500 }), title: "\u0412\u043F\u0438\u0441\u0430\u0442\u044C (F)", children: /* @__PURE__ */ jsx9(MIcon, { name: "fit_screen" }) }),
+          /* @__PURE__ */ jsx9("button", { className: "btn btn--icon", onClick: props.onRelayout, title: "\u041F\u0435\u0440\u0435\u0443\u043B\u043E\u0436\u0438\u0442\u044C", children: /* @__PURE__ */ jsx9(MIcon, { name: "refresh" }) }),
+          /* @__PURE__ */ jsx9(
+            "button",
+            {
+              className: "btn btn--icon",
+              onClick: () => {
+                if (!confirm("\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0432\u0441\u0435 \u0444\u0438\u043B\u044C\u0442\u0440\u044B, \u0440\u0435\u0436\u0438\u043C\u044B \u0438 \u0432\u044B\u0434\u0435\u043B\u0435\u043D\u0438\u044F?"))
+                  return;
+                props.onResetAll();
+              },
+              title: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0432\u0441\u0451",
+              children: /* @__PURE__ */ jsx9(MIcon, { name: "restart_alt" })
+            }
+          )
+        ] }),
+        /* @__PURE__ */ jsx9("button", { className: "btn btn--icon", onClick: back, disabled: navStack.index <= 0, title: "\u041D\u0430\u0437\u0430\u0434 (Alt+\u2190)", children: /* @__PURE__ */ jsx9(MIcon, { name: "arrow_back" }) }),
+        /* @__PURE__ */ jsx9("button", { className: "btn btn--icon", onClick: forward, disabled: navStack.index >= navStack.items.length - 1, title: "\u0412\u043F\u0435\u0440\u0451\u0434 (Alt+\u2192)", children: /* @__PURE__ */ jsx9(MIcon, { name: "arrow_forward" }) })
+      ] }),
+      /* @__PURE__ */ jsxs8(
+        "button",
+        {
+          className: "btn",
+          onClick: () => useGraphStore.getState().setSearchOpen(true),
+          title: "\u041F\u043E\u0438\u0441\u043A (Shift+Tab)",
+          children: [
+            /* @__PURE__ */ jsx9(MIcon, { name: "search" }),
+            /* @__PURE__ */ jsx9("kbd", { className: "btn-kbd", children: "\u21E7 Tab" })
+          ]
+        }
+      ),
+      /* @__PURE__ */ jsx9(Popover, { width: 280, trigger: (open) => /* @__PURE__ */ jsxs8("button", { className: "btn" + (open ? " btn--active" : ""), children: [
+        /* @__PURE__ */ jsx9(MIcon, { name: "psychology" }),
+        " \u041C\u043E\u0434\u0435\u043B\u044C"
+      ] }), children: (close) => /* @__PURE__ */ jsx9(ModelMenu, { close }) }),
+      viewMode === "graph" && /* @__PURE__ */ jsx9(Popover, { width: 320, trigger: (open) => /* @__PURE__ */ jsxs8("button", { className: "btn" + (open || props.activeFiltersCount > 0 ? " btn--active" : ""), children: [
+        /* @__PURE__ */ jsx9(MIcon, { name: "tune" }),
+        /* @__PURE__ */ jsx9("span", { style: { marginLeft: 6 }, children: "\u0424\u0438\u043B\u044C\u0442\u0440\u044B" }),
+        props.activeFiltersCount > 0 && /* @__PURE__ */ jsx9("span", { className: "btn__badge", children: props.activeFiltersCount })
+      ] }), children: /* @__PURE__ */ jsx9(FilterMenu, { counts: props.counts }) }),
+      viewMode === "graph" && /* @__PURE__ */ jsx9(Popover, { width: 280, trigger: (open) => /* @__PURE__ */ jsxs8("button", { className: "btn" + (open || analysisActive ? " btn--active" : ""), children: [
+        /* @__PURE__ */ jsx9(MIcon, { name: "bar_chart" }),
+        " \u0410\u043D\u0430\u043B\u0438\u0437"
+      ] }), children: (close) => /* @__PURE__ */ jsx9(
+        AnalysisMenu,
+        {
+          cycleHighlight: props.cycleHighlight,
+          onFindCycles: props.onFindCycles,
+          onStartPathFinder: props.onStartPathFinder,
+          onOpenTopo: props.onOpenTopo,
+          onOpenLearningPath: props.onOpenLearningPath,
+          onOpenRules: props.onOpenRules,
+          onOpenEntityHierarchy: props.onOpenEntityHierarchy,
+          ruleViolationsCount: props.ruleViolationsCount,
+          close
+        }
+      ) }),
+      viewMode === "graph" && /* @__PURE__ */ jsx9(Popover, { width: 300, trigger: (open) => /* @__PURE__ */ jsxs8("button", { className: "btn" + (open ? " btn--active" : ""), children: [
+        /* @__PURE__ */ jsx9(MIcon, { name: "palette" }),
+        " \u0412\u0438\u0434"
+      ] }), children: (close) => /* @__PURE__ */ jsx9(ViewMenu, { close }) }),
+      /* @__PURE__ */ jsx9(Popover, { width: 260, trigger: (open) => /* @__PURE__ */ jsxs8("button", { className: "btn" + (open || dataActive ? " btn--active" : ""), children: [
+        /* @__PURE__ */ jsx9(MIcon, { name: "save" }),
+        " \u0414\u0430\u043D\u043D\u044B\u0435"
+      ] }), children: (close) => /* @__PURE__ */ jsx9(
+        DataMenu,
+        {
+          close,
+          onExportJSON: props.onExportJSON,
+          onExportMarkdown: props.onExportMarkdown,
+          onExportPNG: props.onExportPNG,
+          onExportMermaid: props.onExportMermaid,
+          onSaveSnapshot: props.onSaveSnapshot,
+          onLoadSnapshot: props.onLoadSnapshot,
+          onClearSnapshot: props.onClearSnapshot,
+          onSnapshotUpload: props.onSnapshotUpload,
+          onOpenValidation: props.onOpenValidation
+        }
+      ) }),
+      /* @__PURE__ */ jsx9("div", { className: "toolbar__spacer" }),
+      props.remoteInfo?.server && props.remoteInfo?.fetchedAt && /* @__PURE__ */ jsxs8(
+        "div",
+        {
+          className: "toolbar__cache",
+          title: `\u0418\u0441\u0442\u043E\u0447\u043D\u0438\u043A: ${props.remoteInfo.server}
+\u041E\u0431\u043D\u043E\u0432\u043B\u0451\u043D: ${new Date(props.remoteInfo.fetchedAt).toLocaleString("ru-RU")}`,
+          onClick: props.onShowToast,
+          children: [
+            /* @__PURE__ */ jsx9(MIcon, { name: "database" }),
+            /* @__PURE__ */ jsxs8("span", { children: [
+              "\u041F\u043E\u043B\u0443\u0447\u0435\u043D\u043E ",
+              relativeTime(props.remoteInfo.fetchedAt)
+            ] })
+          ]
+        }
+      ),
+      /* @__PURE__ */ jsx9(
+        "button",
+        {
+          className: "btn btn--icon",
+          onClick: () => useGraphStore.getState().setTheme(theme === "dark" ? "light" : "dark"),
+          title: theme === "dark" ? "\u0421\u0432\u0435\u0442\u043B\u0430\u044F \u0442\u0435\u043C\u0430" : "\u0422\u0451\u043C\u043D\u0430\u044F \u0442\u0435\u043C\u0430",
+          children: /* @__PURE__ */ jsx9(MIcon, { name: theme === "dark" ? "light_mode" : "dark_mode" })
+        }
+      ),
+      /* @__PURE__ */ jsx9(
+        "button",
+        {
+          className: "btn btn--icon",
+          onClick: () => useGraphStore.getState().setHotkeysOpen(true),
+          title: "\u0413\u043E\u0440\u044F\u0447\u0438\u0435 \u043A\u043B\u0430\u0432\u0438\u0448\u0438 (?)",
+          children: /* @__PURE__ */ jsx9(MIcon, { name: "keyboard" })
+        }
+      ),
+      /* @__PURE__ */ jsx9(
+        "button",
+        {
+          className: "btn btn--icon",
+          onClick: () => useGraphStore.getState().setHelpOpen(true),
+          title: "\u0420\u0443\u043A\u043E\u0432\u043E\u0434\u0441\u0442\u0432\u043E \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044F (F1)",
+          children: /* @__PURE__ */ jsx9(MIcon, { name: "menu_book" })
+        }
+      )
+    ] }),
+    /* @__PURE__ */ jsxs8("div", { className: "toolbar-row2", children: [
+      /* @__PURE__ */ jsx9("div", { className: "toolbar-row2__modes", children: viewMode === "graph" && /* @__PURE__ */ jsx9(ActiveModesBar, { ruleViolationsCount: props.ruleViolationsCount }) }),
+      /* @__PURE__ */ jsxs8("div", { className: "toolbar-row2__right", children: [
+        /* @__PURE__ */ jsxs8("span", { className: "toolbar-row2__stats", children: [
+          props.visibleNodesCount,
+          " / ",
+          props.totalNodesCount,
+          " \u0443\u0437\u043B\u043E\u0432 \xB7",
+          " ",
+          props.visibleEdgesCount,
+          " / ",
+          props.totalEdgesCount,
+          " \u0441\u0432\u044F\u0437\u0435\u0439"
+        ] }),
+        /* @__PURE__ */ jsxs8("div", { className: "toolbar__mode-toggle", children: [
+          /* @__PURE__ */ jsxs8(
+            "button",
+            {
+              className: "toolbar__mode-btn" + (viewMode === "list" ? " toolbar__mode-btn--active" : ""),
+              onClick: () => setViewMode("list"),
+              title: "\u0421\u043F\u0438\u0441\u043E\u043A \u0434\u043E\u043C\u0435\u043D\u043E\u0432",
+              children: [
+                /* @__PURE__ */ jsx9(MIcon, { name: "list", size: "sm" }),
+                /* @__PURE__ */ jsx9("span", { children: "\u0421\u043F\u0438\u0441\u043E\u043A" })
+              ]
+            }
+          ),
+          /* @__PURE__ */ jsxs8(
+            "button",
+            {
+              className: "toolbar__mode-btn" + (viewMode === "graph" ? " toolbar__mode-btn--active" : ""),
+              onClick: () => setViewMode("graph"),
+              title: "\u0413\u0440\u0430\u0444 \u0434\u043E\u043C\u0435\u043D\u043E\u0432",
+              children: [
+                /* @__PURE__ */ jsx9(MIcon, { name: "schema", size: "sm" }),
+                /* @__PURE__ */ jsx9("span", { children: "\u0413\u0440\u0430\u0444" })
+              ]
+            }
+          )
+        ] })
+      ] })
+    ] })
+  ] });
+}
+var init_Toolbar = __esm({
+  "src/web/components/layout/Toolbar.tsx"() {
+    "use strict";
+    init_useGraphStore();
+    init_useNavigation();
+    init_Popover();
+    init_MIcon();
+    init_FilterMenu();
+    init_AnalysisMenu();
+    init_ViewMenu();
+    init_DataMenu();
+    init_format();
+    init_popovers();
+    init_ActiveModesBar();
   }
 });
 
@@ -8984,6 +8954,10 @@ function DomainListRow({
       }
     }, 350);
   };
+  const handleToggleFav = (e) => {
+    e.stopPropagation();
+    useGraphStore.getState().toggleBookmark(node.id);
+  };
   const className = [
     "domain-list-row",
     isSelected ? "domain-list-row--selected" : "",
@@ -9024,7 +8998,15 @@ function DomainListRow({
                 ]
               }
             )
-          ] })
+          ] }),
+          d.description && /* @__PURE__ */ jsx37(
+            "div",
+            {
+              className: "domain-list-row__description",
+              title: d.description,
+              children: d.description
+            }
+          )
         ] }),
         /* @__PURE__ */ jsxs36("div", { className: "domain-list-row__meta", children: [
           d.author && /* @__PURE__ */ jsxs36(
@@ -9055,7 +9037,23 @@ function DomainListRow({
         /* @__PURE__ */ jsx37("div", { className: "domain-list-row__actions", children: !isProblematic && /* @__PURE__ */ jsxs36(Fragment6, { children: [
           /* @__PURE__ */ jsx37("button", { onClick: handleSchema, title: "\u0421\u0445\u0435\u043C\u0430 \u0434\u043E\u043C\u0435\u043D\u0430", children: /* @__PURE__ */ jsx37(MIcon, { name: "menu_book", size: "sm" }) }),
           d.filePath && /* @__PURE__ */ jsx37("button", { onClick: handleFile, title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0444\u0430\u0439\u043B", children: /* @__PURE__ */ jsx37(MIcon, { name: "description", size: "sm" }) }),
-          /* @__PURE__ */ jsx37("button", { onClick: handleGraph, title: "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u043D\u0430 \u0433\u0440\u0430\u0444\u0435", children: /* @__PURE__ */ jsx37(MIcon, { name: "my_location", size: "sm" }) })
+          /* @__PURE__ */ jsx37("button", { onClick: handleGraph, title: "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u043D\u0430 \u0433\u0440\u0430\u0444\u0435", children: /* @__PURE__ */ jsx37(MIcon, { name: "my_location", size: "sm" }) }),
+          /* @__PURE__ */ jsx37(
+            "button",
+            {
+              onClick: handleToggleFav,
+              title: isFavorite ? "\u0423\u0431\u0440\u0430\u0442\u044C \u0438\u0437 \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u043E\u0433\u043E" : "\u0412 \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u043E\u0435",
+              className: "domain-list-row__fav-btn" + (isFavorite ? " active" : ""),
+              children: /* @__PURE__ */ jsx37(
+                MIcon,
+                {
+                  name: isFavorite ? "star" : "star_border",
+                  size: "sm",
+                  fill: isFavorite
+                }
+              )
+            }
+          )
         ] }) })
       ]
     }
@@ -20313,7 +20311,7 @@ var MONACO_VERSION, loadPromise, isLoaded;
 var init_useMonacoLoader = __esm({
   "src/web/hooks/useMonacoLoader.ts"() {
     "use strict";
-    MONACO_VERSION = "0.34.0";
+    MONACO_VERSION = "0.52.2";
     loadPromise = null;
     isLoaded = false;
   }
@@ -21499,12 +21497,394 @@ var init_rql_check = __esm({
 });
 
 // src/web/lib/monaco/monaco-providers.ts
+function ensureSuggestDetailsVisible() {
+  const w = window;
+  const editors = w.monaco?.editor?.getEditors?.() ?? [];
+  for (const ed of editors) {
+    try {
+      const ctrl = ed.getContribution?.("editor.contrib.suggestController");
+      const widget = ctrl?.widget?.value;
+      if (widget && typeof widget._setDetailsVisible === "function") {
+        widget._setDetailsVisible(true);
+      }
+    } catch {
+    }
+  }
+}
+function updateProviderContext(partial) {
+  Object.assign(ctx, partial);
+}
+function resetProviderContext() {
+  ctx.lineMap = null;
+  ctx.currentFilePath = null;
+  ctx.currentDomainId = null;
+  ctx.onOpenFqid = void 0;
+}
+function buildSectionItemDescription(sectionKey, it, ctx2, domainId) {
+  switch (sectionKey) {
+    case "entities": {
+      const fqid = `${domainId}/${it.id}`.toLowerCase();
+      const e = ctx2.modelIndex?.entitiesByFqid?.[fqid];
+      if (e) {
+        const parts = [];
+        if (e.name && e.name !== e.entityId)
+          parts.push(e.name);
+        if (e.description)
+          parts.push(e.description);
+        parts.push(`${e.attributes.length} \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432`);
+        if (e.inherits)
+          parts.push(`\u21B3 ${e.inherits.split("/").pop()}`);
+        return parts.join(" \xB7 ");
+      }
+      return it.name || "";
+    }
+    case "linkages": {
+      const parts = [];
+      if (it.name && it.name !== it.id)
+        parts.push(it.name);
+      if (it.type)
+        parts.push(`\u0442\u0438\u043F ${it.type}`);
+      if (it.side1 && it.side2) {
+        parts.push(
+          `${it.side1.split("/").pop()} ${it.undirected ? "\u2194" : "\u2192"} ${it.side2.split("/").pop()}`
+        );
+      }
+      return parts.join(" \xB7 ");
+    }
+    case "actions": {
+      const parts = [];
+      if (it.name && it.name !== it.id)
+        parts.push(it.name);
+      if (it.type)
+        parts.push(`\u0442\u0438\u043F ${it.type}`);
+      return parts.join(" \xB7 ");
+    }
+    case "views": {
+      const parts = [];
+      if (it.label && it.label !== it.id)
+        parts.push(it.label);
+      if (it.type)
+        parts.push(`\u0442\u0438\u043F ${it.type}`);
+      if (it.entity)
+        parts.push(`\u2192 ${it.entity.split("/").pop()}`);
+      if (it.isMixin)
+        parts.push("mixin");
+      return parts.join(" \xB7 ");
+    }
+    case "menus": {
+      const parts = [];
+      if (it.label && it.label !== it.id)
+        parts.push(it.label);
+      if (it.route)
+        parts.push(it.route);
+      if (it.type)
+        parts.push(`\u0442\u0438\u043F ${it.type}`);
+      return parts.join(" \xB7 ");
+    }
+    case "uiPresets": {
+      const parts = [];
+      if (it.description)
+        parts.push(it.description);
+      if (it.name && it.name !== it.id)
+        parts.push(it.name);
+      return parts.join(" \xB7 ");
+    }
+    case "sequences": {
+      return `\u043D\u0430\u0447\u0438\u043D\u0430\u0435\u0442\u0441\u044F \u0441 ${it.startFrom ?? 1}`;
+    }
+    case "counterColorPattern": {
+      const parts = [];
+      if (it.yellow)
+        parts.push(`yellow: ${it.yellow}`);
+      if (it.red)
+        parts.push(`red: ${it.red}`);
+      return parts.join(" \xB7 ");
+    }
+    case "trees": {
+      const parts = [];
+      if (it.name && it.name !== it.id)
+        parts.push(it.name);
+      if (it.type)
+        parts.push(`\u0442\u0438\u043F ${it.type}`);
+      if (it.rootEntity)
+        parts.push(`\u043A\u043E\u0440\u0435\u043D\u044C: ${it.rootEntity.split("/").pop()}`);
+      return parts.join(" \xB7 ");
+    }
+    default:
+      return it.name || it.description || "";
+  }
+}
+function collectSectionRefs(ctx2, sectionKey) {
+  const out = [];
+  if (!ctx2.modelIndex?.schemasByDomain)
+    return out;
+  for (const [domainId, schema2] of Object.entries(
+    ctx2.modelIndex.schemasByDomain
+  )) {
+    const sec = schema2?.sections?.[sectionKey];
+    if (!sec?.items)
+      continue;
+    for (const it of sec.items) {
+      if (!it?.id)
+        continue;
+      out.push({
+        id: String(it.id),
+        domainId,
+        type: it.type,
+        kind: it.kind,
+        description: buildSectionItemDescription(sectionKey, it, ctx2, domainId)
+      });
+    }
+  }
+  return out;
+}
+function collectViewRefs(ctx2) {
+  const out = [];
+  if (!ctx2.modelIndex?.schemasByDomain)
+    return out;
+  for (const [domainId, schema2] of Object.entries(
+    ctx2.modelIndex.schemasByDomain
+  )) {
+    const all = schema2?.allViews;
+    if (Array.isArray(all)) {
+      for (const v of all) {
+        const parts = [];
+        if (v.type)
+          parts.push(v.type);
+        if (v.entity)
+          parts.push(`\u2192 ${v.entity.split("/").pop()}`);
+        if (v.parentViewId)
+          parts.push(`\u0432 ${v.parentViewId}`);
+        out.push({
+          id: String(v.id),
+          domainId,
+          type: v.type,
+          description: parts.join(" \xB7 ")
+        });
+      }
+    } else {
+      const sec = schema2?.sections?.views;
+      if (!sec?.items)
+        continue;
+      for (const v of sec.items) {
+        const parts = [];
+        if (v.label && v.label !== v.id)
+          parts.push(v.label);
+        if (v.type)
+          parts.push(v.type);
+        if (v.entity)
+          parts.push(`\u2192 ${v.entity.split("/").pop()}`);
+        if (v.isMixin)
+          parts.push("mixin");
+        out.push({
+          id: String(v.id),
+          domainId,
+          type: v.type,
+          description: parts.join(" \xB7 ")
+        });
+      }
+    }
+  }
+  return out;
+}
+function pickDescription(ref, fallbackType, fallbackView) {
+  if (ref?.description && ref.description.trim()) {
+    const parts2 = [ref.description.trim()];
+    if (ref.type)
+      parts2.push(`\u0442\u0438\u043F ${ref.type}`);
+    parts2.push(`\u0432 ${fallbackView}`);
+    return parts2.join(" \xB7 ");
+  }
+  const parts = [];
+  if (fallbackType || ref?.type)
+    parts.push(`\u0442\u0438\u043F ${fallbackType || ref?.type}`);
+  parts.push(`\u0432 ${fallbackView}`);
+  return parts.join(" \xB7 ");
+}
+function collectWidgetRefs(ctx2) {
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  if (!ctx2.modelIndex?.viewElementsByDomain)
+    return out;
+  for (const [domainId, byView] of Object.entries(
+    ctx2.modelIndex.viewElementsByDomain
+  )) {
+    for (const [viewId, view] of Object.entries(byView)) {
+      const typed = view?.widgetsWithType;
+      if (Array.isArray(typed)) {
+        for (const w of typed) {
+          if (!w?.id)
+            continue;
+          const key = `${domainId}|${w.id}`;
+          if (seen.has(key))
+            continue;
+          seen.add(key);
+          out.push({
+            id: String(w.id),
+            domainId,
+            type: w.type,
+            description: pickDescription(w, w.type, viewId)
+          });
+        }
+      } else if (Array.isArray(view?.widgets)) {
+        for (const wid of view.widgets) {
+          const key = `${domainId}|${wid}`;
+          if (seen.has(key))
+            continue;
+          seen.add(key);
+          out.push({
+            id: String(wid),
+            domainId,
+            description: `\u0432 ${viewId}`
+          });
+        }
+      }
+    }
+  }
+  return out;
+}
+function collectGroupRefs(ctx2) {
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  if (!ctx2.modelIndex?.viewElementsByDomain)
+    return out;
+  for (const [domainId, byView] of Object.entries(
+    ctx2.modelIndex.viewElementsByDomain
+  )) {
+    for (const [viewId, view] of Object.entries(byView)) {
+      const typed = view?.groupsWithType;
+      if (Array.isArray(typed)) {
+        for (const g of typed) {
+          if (!g?.id)
+            continue;
+          const key = `${domainId}|${g.id}`;
+          if (seen.has(key))
+            continue;
+          seen.add(key);
+          out.push({
+            id: String(g.id),
+            domainId,
+            type: g.type,
+            description: pickDescription(g, g.type, viewId)
+          });
+        }
+      } else if (Array.isArray(view?.groups)) {
+        for (const gid of view.groups) {
+          const key = `${domainId}|${gid}`;
+          if (seen.has(key))
+            continue;
+          seen.add(key);
+          out.push({
+            id: String(gid),
+            domainId,
+            description: `\u0432 ${viewId}`
+          });
+        }
+      }
+    }
+  }
+  return out;
+}
+function collectColumnRefs(ctx2) {
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  if (!ctx2.modelIndex?.viewElementsByDomain)
+    return out;
+  for (const [domainId, byView] of Object.entries(
+    ctx2.modelIndex.viewElementsByDomain
+  )) {
+    for (const [viewId, view] of Object.entries(byView)) {
+      const typed = view?.columnsWithType;
+      if (Array.isArray(typed)) {
+        for (const c of typed) {
+          if (!c?.id)
+            continue;
+          const key = `${domainId}|${c.id}`;
+          if (seen.has(key))
+            continue;
+          seen.add(key);
+          out.push({
+            id: String(c.id),
+            domainId,
+            description: c.description ? `${c.description} \xB7 \u0432 ${viewId}` : `\u043A\u043E\u043B\u043E\u043D\u043A\u0430 \u0432 ${viewId}`
+          });
+        }
+      } else if (Array.isArray(view?.columns)) {
+        for (const cid of view.columns) {
+          const key = `${domainId}|${cid}`;
+          if (seen.has(key))
+            continue;
+          seen.add(key);
+          out.push({
+            id: String(cid),
+            domainId,
+            description: `\u043A\u043E\u043B\u043E\u043D\u043A\u0430 \u0432 ${viewId}`
+          });
+        }
+      }
+    }
+  }
+  return out;
+}
+function collectRefsForField(items, currentDomainId, opts) {
+  const cur = (currentDomainId || "").toLowerCase();
+  const out = [];
+  const seenLocal = /* @__PURE__ */ new Set();
+  const seenForeign = /* @__PURE__ */ new Set();
+  for (const it of items) {
+    if (!it?.id)
+      continue;
+    if (opts.typeFilter && it.type !== opts.typeFilter)
+      continue;
+    const dom = (it.domainId || "").toLowerCase();
+    if (!dom || dom === cur) {
+      if (seenLocal.has(it.id))
+        continue;
+      seenLocal.add(it.id);
+      out.push({
+        label: it.id,
+        insertText: " " + it.id,
+        kind: opts.shortKind,
+        sortText: "0_" + it.id,
+        documentation: it.description
+      });
+    }
+  }
+  for (const it of items) {
+    if (!it?.id)
+      continue;
+    if (opts.typeFilter && it.type !== opts.typeFilter)
+      continue;
+    const dom = (it.domainId || "").toLowerCase();
+    if (!dom || dom === cur)
+      continue;
+    const fqid = `${it.domainId}/${it.id}`;
+    if (seenForeign.has(fqid))
+      continue;
+    seenForeign.add(fqid);
+    out.push({
+      label: fqid,
+      insertText: " " + fqid,
+      kind: opts.fqidKind ?? opts.shortKind,
+      sortText: "9_" + fqid,
+      detail: `\u0438\u0437 ${it.domainId}`,
+      documentation: it.description
+    });
+  }
+  return out;
+}
 function detectValueContext(model, position) {
-  const lineText = model.getLineContent(position.lineNumber);
+  const lines = [];
+  const lineCount = model.getLineCount();
+  for (let i = 1; i <= lineCount; i++)
+    lines.push(model.getLineContent(i));
+  const lineText = lines[position.lineNumber - 1] || "";
   const currentIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
   let section = "";
   for (let i = position.lineNumber - 1; i >= 1; i--) {
-    const pl = model.getLineContent(i);
+    const pl = lines[i - 1];
+    if (!pl)
+      continue;
     const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
     if (pIndent === 0) {
       const m = pl.match(/^([a-zA-Z_][\w]*)\s*:/);
@@ -21516,508 +21896,82 @@ function detectValueContext(model, position) {
   }
   let container = "";
   let containerLine = -1;
-  for (let i = position.lineNumber - 1; i >= 1; i--) {
-    const pl = model.getLineContent(i);
-    const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
-    if (pIndent < currentIndent) {
-      const m = pl.match(/^\s*(?:-\s+)?([a-zA-Z_][\w]*)\s*:/);
-      if (m) {
-        container = m[1];
-        containerLine = i;
-        break;
-      }
-    }
+  let containerIndent = -1;
+  {
+    const dc = determineViewContainer(
+      lines,
+      position.lineNumber,
+      currentIndent
+    );
+    container = dc.container;
+    containerLine = dc.containerLine;
+    containerIndent = dc.containerIndent;
   }
-  let itemType = "";
-  const lookUpParentContainer = (fromLine, belowIndent) => {
-    for (let i = fromLine - 1; i >= 1; i--) {
-      const l = model.getLineContent(i);
-      const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
-      if (lIndent >= belowIndent)
-        continue;
-      const m = l.match(/^\s*(?:-\s+)?([a-zA-Z_][\w]*)\s*:/);
-      if (m)
-        return m[1];
-      if (lIndent === 0)
-        break;
-    }
-    return "";
-  };
-  if (section === "entities") {
-    itemType = container === "attributes" ? "attribute" : "entity";
-  } else if (section === "linkages") {
-    itemType = container === "attributes" ? "linkageAttribute" : "linkage";
-  } else if (section === "views") {
-    if (container === "widgets")
-      itemType = "widget";
-    else if (container === "groups")
-      itemType = "group";
-    else if (container === "control") {
-      const parent = lookUpParentContainer(containerLine, currentIndent - 2);
-      itemType = parent === "linkage" ? "viewWidgetLinkageControl" : "viewWidgetControl";
-    } else if (container === "views") {
-      let isNested = false;
-      for (let i = containerLine - 1; i >= 1; i--) {
-        const l = model.getLineContent(i);
-        const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
-        if (lIndent >= currentIndent)
-          continue;
-        if (/^\s*-\s+id\s*:/.test(l)) {
-          isNested = true;
-          break;
-        }
-        if (/^\s*entity\s*:/.test(l)) {
-          isNested = false;
-          break;
-        }
-        if (lIndent === 0)
-          break;
-      }
-      itemType = isNested ? "viewNested" : "view";
-    } else
-      itemType = "view";
-  } else if (section === "actions")
-    itemType = "action";
-  else if (section === "dataTypes")
-    itemType = "dataType";
-  else if (section === "dataRules")
-    itemType = container === "rule" ? "dataRuleRule" : "dataRule";
-  else if (section === "uiRules")
-    itemType = container === "rule" ? "uiRuleRule" : "uiRule";
-  else if (section === "menus")
-    itemType = container === "items" ? "menuItem" : "menu";
-  else if (section === "medias")
-    itemType = "media";
-  else if (section === "sequences")
-    itemType = "sequence";
-  else if (section === "trees")
-    itemType = "tree";
-  else if (section === "transitiveLinkages")
-    itemType = "transitiveLinkage";
-  else if (section === "mixins")
-    itemType = "mixin";
-  else if (section === "accessRules")
-    itemType = "accessRule";
-  if (container === "layout")
-    itemType = "layout";
-  if (container === "search")
-    itemType = "transitiveSearch";
-  if (container === "by" || container === "defaults")
-    itemType = "sortingByItem";
+  const stack = [];
+  for (let i = 1; i < position.lineNumber; i++) {
+    const pl = lines[i - 1];
+    if (!pl || !pl.trim() || pl.trim().startsWith("#"))
+      continue;
+    const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
+    if (pIndent >= containerIndent)
+      continue;
+    const m = pl.match(/^\s*(?:-\s+)?([a-zA-Z_][\w]*)\s*:/);
+    if (!m)
+      continue;
+    while (stack.length && stack[stack.length - 1].indent >= pIndent)
+      stack.pop();
+    stack.push({ indent: pIndent, key: m[1] });
+  }
+  const itemType = computeItemTypeFast(
+    lines,
+    section,
+    container,
+    containerLine,
+    containerIndent,
+    stack
+  );
   return { section, container, itemType };
 }
-function makeValues(values, Kind, range, kind = Kind.Value) {
+function escapeMd(s) {
+  return String(s).replace(/[\\`*_{}\[\]()<>#+\-!|~]/g, "\\$&");
+}
+function mdDoc(text) {
+  if (!text)
+    return void 0;
+  const trimmed = text.trim();
+  if (!trimmed)
+    return void 0;
+  return { value: escapeMd(trimmed) };
+}
+function buildValueCompletion(model, position, fieldNames, values, Kind) {
+  const lineText = model.getLineContent(position.lineNumber);
+  const beforeCursor = lineText.slice(0, position.column - 1);
+  const fieldAlt = fieldNames.map((f) => f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  const re = new RegExp(`^(\\s*(?:-\\s+)?(?:${fieldAlt})\\s*:)`);
+  const m = beforeCursor.match(re);
+  if (!m)
+    return null;
+  const startColumn = m[1].length + 1;
+  const charAtCursor = lineText.charAt(position.column - 1);
+  const endColumn = charAtCursor === '"' || charAtCursor === "'" ? position.column + 1 : position.column;
+  const range = {
+    startLineNumber: position.lineNumber,
+    startColumn,
+    endLineNumber: position.lineNumber,
+    endColumn
+  };
   return {
     suggestions: values.map((v) => ({
-      label: v,
-      kind,
-      insertText: v,
-      filterText: v,
-      sortText: v,
+      label: v.label,
+      kind: v.kind ?? Kind.Reference,
+      insertText: v.insertText,
+      filterText: v.label,
+      sortText: v.sortText,
+      detail: v.detail,
+      documentation: mdDoc(v.documentation),
       range
     }))
   };
-}
-function makeEntities(ctx2, Kind, range) {
-  const cur = (ctx2.currentDomainId || "").toLowerCase();
-  const out = [];
-  ctx2.modelIndex?.entities?.forEach((e) => {
-    const isCur = e.domainId.toLowerCase() === cur;
-    const insert = isCur ? e.entityId : e.fqid;
-    out.push({
-      label: insert,
-      kind: Kind.Class,
-      insertText: insert,
-      filterText: insert,
-      range
-    });
-  });
-  return { suggestions: out };
-}
-function provideValueCompletions(monaco, model, position, beforeCursor, range, Kind) {
-  const lineMatch = beforeCursor.match(
-    /^(\s*)(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*([\w./:#@$-]*)$/
-  );
-  if (!lineMatch)
-    return null;
-  const fieldName = lineMatch[2];
-  const vctx = detectValueContext(model, position);
-  const dtPrefix = beforeCursor.match(/^(\s*(?:-\s+)?dataType\s*:)/);
-  if (dtPrefix) {
-    const startColumn = dtPrefix[1].length + 1;
-    const lineText = model.getLineContent(position.lineNumber);
-    const charAtCursor = lineText.charAt(position.column - 1);
-    const endColumn = charAtCursor === '"' || charAtCursor === "'" ? position.column + 1 : position.column;
-    const range2 = {
-      startLineNumber: position.lineNumber,
-      startColumn,
-      endLineNumber: position.lineNumber,
-      endColumn
-    };
-    const Kind2 = monaco.languages.CompletionItemKind;
-    const mk = (label, kind, sortText) => ({
-      label,
-      kind,
-      insertText: " " + label,
-      // ← ведущий пробел — Fix №1
-      filterText: label,
-      // ← чистый фильтр — Fix №2
-      sortText,
-      range: range2
-    });
-    const inDataTypesSection = (() => {
-      for (let i = position.lineNumber - 1; i >= 1; i--) {
-        const pl = model.getLineContent(i);
-        const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
-        if (pIndent === 0) {
-          const m = pl.match(/^([a-zA-Z_][\w]*)\s*:/);
-          return m?.[1] === "dataTypes";
-        }
-      }
-      return false;
-    })();
-    if (inDataTypesSection) {
-      return {
-        suggestions: ["Enum", "Table", "Workflow"].map(
-          (t) => mk(t, Kind2.Value, "0_" + t)
-        )
-      };
-    }
-    const suggestions = [];
-    BASE_DATA_TYPES_COMPLETION.forEach((t) => {
-      suggestions.push(mk(t, Kind2.Value, "0_" + t));
-    });
-    const curDomain = (ctx.currentDomainId || "").toLowerCase();
-    const seen = /* @__PURE__ */ new Set();
-    ctx.modelIndex?.dataTypes.filter((dt) => (dt.domainId || "").toLowerCase() === curDomain).forEach((dt) => {
-      if (!dt?.id || seen.has(dt.id))
-        return;
-      seen.add(dt.id);
-      const kind = dt.kind === "Enum" ? Kind2.Enum : dt.kind === "Workflow" ? Kind2.Interface : Kind2.Struct;
-      suggestions.push(mk(dt.id, kind, "1_" + dt.id));
-    });
-    return { suggestions };
-  }
-  if (fieldName === "type") {
-    const typeMap = {
-      view: [
-        "entity",
-        "list",
-        "tree",
-        "tabs_list",
-        "dashboard",
-        "dashboard_tree"
-      ],
-      viewNested: ["panel", "modal", "page"],
-      widget: [
-        "attribute",
-        "action",
-        "linkage",
-        "linkage_list",
-        "linked_objects_groups",
-        "join",
-        "history",
-        "runs_history",
-        "comments",
-        "card",
-        "conversation",
-        "visualization",
-        "calculation",
-        "template_editor",
-        "addressBook"
-      ],
-      group: ["block", "form", "tab", "tabs", "resizable_block_pair"],
-      action: [
-        "open_panel",
-        "open_modal",
-        "open_page",
-        "open_graph_view",
-        "open_board_view",
-        "open_list",
-        "open_tree",
-        "open_view",
-        "remove",
-        "bulk",
-        "tree_bulk",
-        "set_attribute_value",
-        "automation",
-        "scenario",
-        "generate_qr_code",
-        "copy_entity_link",
-        "open_external_widget_modal"
-      ],
-      linkage: ["1_1", "1_n", "n_n"],
-      dataType: ["Enum", "Table", "Workflow"],
-      tree: ["ordinary", "orderable", "multiparent"],
-      viewWidgetControl: [
-        "uuid",
-        "text",
-        "text_area",
-        "date",
-        "time",
-        "timestamp",
-        "timestamp_range",
-        "integer",
-        "decimal",
-        "float",
-        "integer_slider",
-        "decimal_slider",
-        "float_slider",
-        "bool_text",
-        "checkbox",
-        "switch",
-        "select",
-        "level",
-        "radio",
-        "multi_select",
-        "mitre_multi_select",
-        "tag_list",
-        "tag",
-        "ip",
-        "mac",
-        "cidr",
-        "file",
-        "link",
-        "url",
-        "counter",
-        "tree_path",
-        "drag_drop_area",
-        "rql",
-        "external"
-      ],
-      viewWidgetLinkageControl: [
-        "select",
-        "multi_select",
-        "table",
-        "list",
-        "tree"
-      ]
-    };
-    if (typeMap[vctx.itemType]) {
-      return makeValues(typeMap[vctx.itemType], Kind, range);
-    }
-    return null;
-  }
-  if (fieldName === "effect") {
-    if (vctx.itemType === "dataRuleRule") {
-      return makeValues(
-        ["hidden", "readonly", "required", "default", "allowed"],
-        Kind,
-        range
-      );
-    }
-    if (vctx.itemType === "uiRuleRule") {
-      return makeValues(
-        [
-          "hidden",
-          "show",
-          "hiddenEmpty",
-          "readonly",
-          "editable",
-          "inherit",
-          "variant"
-        ],
-        Kind,
-        range
-      );
-    }
-  }
-  if (fieldName === "target") {
-    if (vctx.itemType === "dataRule") {
-      return makeValues(["entity", "entityAttribute", "linkage"], Kind, range);
-    }
-    if (vctx.itemType === "uiRule") {
-      return makeValues(
-        ["list_view", "entity_view", "entity_attribute"],
-        Kind,
-        range
-      );
-    }
-    if (vctx.itemType === "accessRule") {
-      return makeValues(
-        [
-          "entity",
-          "action",
-          "linkage",
-          "any_entity",
-          "any_action",
-          "any_linkage"
-        ],
-        Kind,
-        range
-      );
-    }
-  }
-  if (["inherits", "entity", "side1", "side2"].includes(fieldName)) {
-    return makeEntities(ctx, Kind, range);
-  }
-  if (fieldName === "linkage") {
-    const ids = collectSectionIds(ctx, "linkages");
-    return makeValues(ids, Kind, range, Kind.Reference);
-  }
-  if (fieldName === "widget") {
-    const ids = collectWidgetIds(ctx);
-    return makeValues(ids, Kind, range, Kind.Reference);
-  }
-  if (fieldName === "group") {
-    const ids = collectGroupIds(ctx);
-    return makeValues(ids, Kind, range, Kind.Reference);
-  }
-  if (fieldName === "column") {
-    const ids = collectColumnIds(ctx);
-    return makeValues(ids, Kind, range, Kind.Reference);
-  }
-  if (fieldName === "action") {
-    const ids = collectSectionIds(ctx, "actions");
-    return makeValues(ids, Kind, range, Kind.Reference);
-  }
-  if (fieldName === "sequence") {
-    const ids = collectSectionIds(ctx, "sequences");
-    return makeValues(ids, Kind, range, Kind.Reference);
-  }
-  if (fieldName === "counterColorPattern") {
-    const ids = collectSectionIds(ctx, "counterColorPattern");
-    return makeValues(ids, Kind, range, Kind.Reference);
-  }
-  if (fieldName === "view" || fieldName === "modal" || fieldName === "panel" || fieldName === "form" || fieldName === "addLinksView") {
-    let filterType;
-    if (fieldName === "modal")
-      filterType = "modal";
-    else if (fieldName === "panel")
-      filterType = "panel";
-    else if (fieldName === "form")
-      filterType = "group";
-    else if (fieldName === "addLinksView")
-      filterType = "list";
-    else if (fieldName === "view") {
-      if (vctx.itemType === "menuItem" || vctx.itemType === "menu")
-        filterType = "list";
-      else if (vctx.itemType === "action")
-        filterType = "list";
-    }
-    if (fieldName === "form") {
-      const out = [];
-      const seen = /* @__PURE__ */ new Set();
-      if (ctx.modelIndex?.viewElementsByDomain) {
-        Object.values(ctx.modelIndex.viewElementsByDomain).forEach((byView) => {
-          Object.values(byView).forEach((els) => {
-            (els.groups || []).forEach((g) => {
-              if (!seen.has(g)) {
-                seen.add(g);
-                out.push(g);
-              }
-            });
-          });
-        });
-      }
-      return makeValues(out, Kind, range, Kind.Reference);
-    }
-    const ids = collectSectionIds(ctx, "views", filterType);
-    return makeValues(ids, Kind, range, Kind.Reference);
-  }
-  if (fieldName === "menuItem") {
-    const ids = collectSectionIds(ctx, "menus");
-    return makeValues(ids, Kind, range, Kind.Reference);
-  }
-  if (fieldName === "mode" && vctx.itemType === "transitiveSearch") {
-    return makeValues(["entity", "linkage", "both"], Kind, range);
-  }
-  if (fieldName === "direction") {
-    if (vctx.container === "layout") {
-      return makeValues(["column"], Kind, range);
-    }
-    if (vctx.itemType === "sortingByItem" || vctx.container === "by" || vctx.container === "defaults") {
-      return makeValues(["asc", "desc"], Kind, range);
-    }
-    return null;
-  }
-  if (fieldName === "placement") {
-    return makeValues(["top", "settings"], Kind, range);
-  }
-  return null;
-}
-function updateProviderContext(partial) {
-  Object.assign(ctx, partial);
-}
-function resetProviderContext() {
-  ctx.lineMap = null;
-  ctx.currentFilePath = null;
-  ctx.currentDomainId = null;
-  ctx.onOpenFqid = void 0;
-}
-function collectSectionIds(ctx2, sectionKey, typeFilter) {
-  const out = [];
-  const seen = /* @__PURE__ */ new Set();
-  if (!ctx2.modelIndex?.schemasByDomain)
-    return out;
-  Object.values(ctx2.modelIndex.schemasByDomain).forEach((s) => {
-    const sec = s?.sections?.[sectionKey];
-    if (!sec?.items)
-      return;
-    for (const it of sec.items) {
-      if (!it?.id)
-        continue;
-      if (typeFilter && it.type !== typeFilter)
-        continue;
-      const id = String(it.id);
-      if (!seen.has(id)) {
-        seen.add(id);
-        out.push(id);
-      }
-    }
-  });
-  return out;
-}
-function collectWidgetIds(ctx2) {
-  const out = [];
-  const seen = /* @__PURE__ */ new Set();
-  if (!ctx2.modelIndex?.viewElementsByDomain)
-    return out;
-  Object.values(ctx2.modelIndex.viewElementsByDomain).forEach((byView) => {
-    Object.values(byView).forEach((els) => {
-      (els.widgets || []).forEach((w) => {
-        if (!seen.has(w)) {
-          seen.add(w);
-          out.push(w);
-        }
-      });
-    });
-  });
-  return out;
-}
-function collectGroupIds(ctx2) {
-  const out = [];
-  const seen = /* @__PURE__ */ new Set();
-  if (!ctx2.modelIndex?.viewElementsByDomain)
-    return out;
-  Object.values(ctx2.modelIndex.viewElementsByDomain).forEach((byView) => {
-    Object.values(byView).forEach((els) => {
-      (els.groups || []).forEach((g) => {
-        if (!seen.has(g)) {
-          seen.add(g);
-          out.push(g);
-        }
-      });
-    });
-  });
-  return out;
-}
-function collectColumnIds(ctx2) {
-  const out = [];
-  const seen = /* @__PURE__ */ new Set();
-  if (!ctx2.modelIndex?.viewElementsByDomain)
-    return out;
-  Object.values(ctx2.modelIndex.viewElementsByDomain).forEach((byView) => {
-    Object.values(byView).forEach((els) => {
-      (els.columns || []).forEach((c) => {
-        if (!seen.has(c)) {
-          seen.add(c);
-          out.push(c);
-        }
-      });
-    });
-  });
-  return out;
 }
 function findWordAtLine(lineText, column) {
   const fieldMatch = lineText.match(
@@ -22276,7 +22230,85 @@ function provideDefinition(monaco, model, position) {
   }
   return null;
 }
+function detectArrayItemContext(model, position) {
+  const lineText = model.getLineContent(position.lineNumber);
+  const beforeCursor = lineText.slice(0, position.column - 1);
+  if (/^\s*(?:-\s+)?[a-zA-Z_][\w]*\s*:\s+\S/.test(beforeCursor))
+    return null;
+  if (/^\s*#/.test(beforeCursor))
+    return null;
+  const currentIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
+  let itemLine = -1;
+  let itemIndent = -1;
+  let itemKey = "";
+  for (let i = position.lineNumber - 1; i >= 1; i--) {
+    const pl = model.getLineContent(i);
+    if (!pl.trim() || pl.trim().startsWith("#"))
+      continue;
+    const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
+    if (pIndent >= currentIndent)
+      continue;
+    const dm = pl.match(/^(\s*)-\s+([a-zA-Z_][\w]*)\s*:/);
+    if (dm) {
+      itemLine = i;
+      itemIndent = dm[1].length;
+      itemKey = dm[2];
+      break;
+    }
+    const km = pl.match(/^\s*([a-zA-Z_][\w]*)\s*:/);
+    if (km)
+      return null;
+    if (pIndent === 0)
+      return null;
+  }
+  if (itemLine < 0)
+    return null;
+  for (let i = itemLine - 1; i >= 1; i--) {
+    const pl = model.getLineContent(i);
+    if (!pl.trim() || pl.trim().startsWith("#"))
+      continue;
+    const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
+    if (pIndent >= itemIndent)
+      continue;
+    const km = pl.match(/^\s*([a-zA-Z_][\w]*)\s*:/);
+    if (!km) {
+      if (pIndent === 0)
+        break;
+      continue;
+    }
+    const containerKey = km[1];
+    if (itemKey === "id") {
+      if (containerKey === "sorting")
+        return "sortingItem";
+      if (containerKey === "projection")
+        return "projectionItem";
+      if (containerKey === "identification")
+        return "identificationItem";
+      if (containerKey === "reconciliation")
+        return "reconciliationItem";
+    } else if (itemKey === "attribute") {
+      if (containerKey === "by")
+        return "sortingByItem";
+      if (containerKey === "rule")
+        return "identificationRuleItem";
+      if (containerKey === "projection")
+        return "projectionItem";
+      if (containerKey === "sourcePriority")
+        return "reconciliationSourceItem";
+    } else if (itemKey === "source") {
+      if (containerKey === "sourcePriority")
+        return "reconciliationSourceItem";
+      if (containerKey === "default")
+        return "reconciliationSourceItem";
+    }
+    return null;
+  }
+  return null;
+}
 function detectContextAtPosition(model, position, _lineContexts) {
+  const arrayCtx = detectArrayItemContext(model, position);
+  if (arrayCtx)
+    return arrayCtx;
   const lineText = model.getLineContent(position.lineNumber);
   const beforeCursor = lineText.slice(0, position.column - 1);
   if (/^\s*(?:-\s+)?[a-zA-Z_][\w]*\s*:\s+\S/.test(beforeCursor))
@@ -22352,9 +22384,6 @@ function detectContextAtPosition(model, position, _lineContexts) {
     return hasDash ? "uiRule" : "uiRuleList";
   if (parentKey === "uiPresets")
     return hasDash ? "uiPreset" : "uiPresetList";
-  if (parentKey === "attributes") {
-    return section === "linkages" ? "linkageAttribute" : "attribute";
-  }
   if (section === "menus") {
     if (parentKey === "items") {
       return hasDash ? "menuItem" : "menuItemList";
@@ -22420,18 +22449,91 @@ function detectContextAtPosition(model, position, _lineContexts) {
         return "actionBulkLinkageUse";
     }
   }
+  if (parentKey === "attributes") {
+    let sawSearching = false;
+    for (let i = parentLine - 1; i >= 1; i--) {
+      const l = model.getLineContent(i);
+      if (!l.trim() || l.trim().startsWith("#"))
+        continue;
+      const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
+      if (lIndent >= parentIndent)
+        continue;
+      if (/^\s*searching\s*:\s*$/.test(l)) {
+        sawSearching = true;
+        break;
+      }
+      break;
+    }
+    if (sawSearching)
+      return "searchingAttributesItem";
+    return section === "linkages" ? "linkageAttribute" : "attribute";
+  }
+  {
+    const LEAF_TO_CONTAINERS = {
+      attribute: ["by", "rule", "projection", "sourcePriority"],
+      source: ["sourcePriority", "default"]
+    };
+    const containers = LEAF_TO_CONTAINERS[parentKey];
+    if (containers && containers.length > 0) {
+      for (let i = parentLine - 1; i >= 1; i--) {
+        const pl = model.getLineContent(i);
+        if (!pl.trim() || pl.trim().startsWith("#"))
+          continue;
+        const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
+        if (pIndent >= parentIndent)
+          continue;
+        const km = pl.match(/^\s*(?:-\s+)?([a-zA-Z_][\w]*)\s*:/);
+        if (!km) {
+          if (pIndent === 0)
+            break;
+          continue;
+        }
+        const key = km[1];
+        if (containers.includes(key)) {
+          if (key === "by")
+            return "sortingByItem";
+          if (key === "rule")
+            return "identificationRuleItem";
+          if (key === "projection")
+            return "projectionItem";
+          if (key === "sourcePriority" || key === "default")
+            return "reconciliationSourceItem";
+        }
+        if (pIndent === 0)
+          break;
+      }
+    }
+  }
   if (parentKey === "constraints")
-    return "constraintsItem";
+    return "attributeConstraint";
   if (parentKey === "item")
     return "arrayItem";
   if (parentKey === "calculation")
     return "calculation";
   if (parentKey === "prefixRules")
     return "prefixRule";
+  if (parentKey === "rule" && section === "entities")
+    return "identificationRuleItem";
+  if (parentKey === "source") {
+    for (let i = parentLine - 1; i >= 1; i--) {
+      const l = model.getLineContent(i);
+      const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
+      if (lIndent < parentIndent) {
+        if (/^\s*prefixRules\s*:/.test(l))
+          return "prefixRuleSource";
+        break;
+      }
+      if (lIndent === 0)
+        break;
+    }
+    return null;
+  }
   if (parentKey === "sorting")
     return "sortingItem";
   if (parentKey === "by")
     return "sortingByItem";
+  if (parentKey === "searching")
+    return "searchingObject";
   if (parentKey === "identification")
     return "identificationItem";
   if (parentKey === "reconciliation")
@@ -22442,6 +22544,14 @@ function detectContextAtPosition(model, position, _lineContexts) {
     return "nameFrom";
   if (parentKey === "control")
     return "widgetControl";
+  if (parentKey === "sourcePriority")
+    return "reconciliationSourceItem";
+  if (parentKey === "default" && section === "entities")
+    return "reconciliationDefaultItem";
+  if (parentKey === "mergeStrategy")
+    return "reconciliationMergeStrategy";
+  if (parentKey === "graphView")
+    return "graphView";
   if (section === "views") {
     if (parentKey === "widgets") {
       return "widget";
@@ -22689,6 +22799,32 @@ function detectContextAtPosition(model, position, _lineContexts) {
   if (parentKey === "props" && section === "uiPresets")
     return "uiPresetProps";
   if (parentKey === "id") {
+    if (section === "views") {
+      for (let i = parentLine - 1; i >= 1; i--) {
+        const l = model.getLineContent(i);
+        if (!l.trim() || l.trim().startsWith("#"))
+          continue;
+        const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
+        if (lIndent >= parentIndent)
+          continue;
+        const arrM = l.match(/^\s*(widgets|groups|views|actionPanel)\s*:\s*$/);
+        if (arrM) {
+          const arr = arrM[1];
+          if (arr === "widgets")
+            return "widget";
+          if (arr === "groups")
+            return "group";
+          if (arr === "views")
+            return "viewNested";
+          if (arr === "actionPanel")
+            return "widget";
+        }
+        if (/^\s*-\s+id\s*:/.test(l) && lIndent < parentIndent)
+          break;
+        if (lIndent === 0)
+          break;
+      }
+    }
     for (let i = parentLine - 1; i >= 1; i--) {
       const l = model.getLineContent(i);
       if (!l.trim() || l.trim().startsWith("#"))
@@ -22752,6 +22888,462 @@ function buildSnippetSuggestion(monaco, snippet2, range, currentIndent, hasDash)
     documentation: `Snippet: ${snippet2.description}`,
     range
   };
+}
+function ensureCache() {
+  if (_colCache.indexRef !== ctx.modelIndex || _colCache.domainRef !== ctx.currentDomainId) {
+    _colCache.indexRef = ctx.modelIndex;
+    _colCache.domainRef = ctx.currentDomainId;
+    _colCache.entities = void 0;
+    _colCache.linkages = void 0;
+    _colCache.actions = void 0;
+    _colCache.sequences = void 0;
+    _colCache.counterColorPattern = void 0;
+    _colCache.menus = void 0;
+    _colCache.uiPresets = void 0;
+    _colCache.trees = void 0;
+    _colCache.views = void 0;
+    _colCache.widgets = void 0;
+    _colCache.groups = void 0;
+    _colCache.columns = void 0;
+    _colCache.attributes = void 0;
+    _colCache.scenarios = void 0;
+  }
+  return _colCache;
+}
+function cachedEntities() {
+  const c = ensureCache();
+  return c.entities ?? (c.entities = collectSectionRefs(ctx, "entities"));
+}
+function cachedLinkages() {
+  const c = ensureCache();
+  return c.linkages ?? (c.linkages = collectSectionRefs(ctx, "linkages"));
+}
+function cachedActions() {
+  const c = ensureCache();
+  return c.actions ?? (c.actions = collectSectionRefs(ctx, "actions"));
+}
+function cachedSequences() {
+  const c = ensureCache();
+  return c.sequences ?? (c.sequences = collectSectionRefs(ctx, "sequences"));
+}
+function cachedCounterColors() {
+  const c = ensureCache();
+  return c.counterColorPattern ?? (c.counterColorPattern = collectSectionRefs(
+    ctx,
+    "counterColorPattern"
+  ));
+}
+function cachedMenus() {
+  const c = ensureCache();
+  return c.menus ?? (c.menus = collectSectionRefs(ctx, "menus"));
+}
+function cachedUiPresets() {
+  const c = ensureCache();
+  return c.uiPresets ?? (c.uiPresets = collectSectionRefs(ctx, "uiPresets"));
+}
+function cachedTrees() {
+  const c = ensureCache();
+  return c.trees ?? (c.trees = collectSectionRefs(ctx, "trees"));
+}
+function cachedViews() {
+  const c = ensureCache();
+  return c.views ?? (c.views = collectViewRefs(ctx));
+}
+function cachedWidgets() {
+  const c = ensureCache();
+  return c.widgets ?? (c.widgets = collectWidgetRefs(ctx));
+}
+function cachedGroups() {
+  const c = ensureCache();
+  return c.groups ?? (c.groups = collectGroupRefs(ctx));
+}
+function cachedColumns() {
+  const c = ensureCache();
+  return c.columns ?? (c.columns = collectColumnRefs(ctx));
+}
+function cachedAttributes() {
+  const c = ensureCache();
+  if (c.attributes)
+    return c.attributes;
+  const cur = (ctx.currentDomainId || "").toLowerCase();
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  const mkDoc = (a, contextLabel) => {
+    const parts = [];
+    if (a.dataType)
+      parts.push(a.dataType);
+    if (a.description)
+      parts.push(a.description);
+    if (a.constraints?.length)
+      parts.push(`constraints: ${a.constraints.join(", ")}`);
+    parts.push(contextLabel);
+    return parts.join(" \xB7 ");
+  };
+  ctx.modelIndex?.entities?.forEach((e) => {
+    if ((e.domainId || "").toLowerCase() !== cur)
+      return;
+    e.attributes?.forEach((a) => {
+      if (a?.id && !seen.has(a.id)) {
+        seen.add(a.id);
+        out.push({
+          label: a.id,
+          insertText: " " + a.id,
+          kind: 0,
+          sortText: "0_" + a.id,
+          detail: `entity: ${e.entityId}`,
+          documentation: mkDoc(a, `entity: ${e.entityId}`)
+        });
+      }
+      a?.nestedAttributes?.forEach((na) => {
+        if (na?.id && !seen.has(na.id)) {
+          seen.add(na.id);
+          out.push({
+            label: na.id,
+            insertText: " " + na.id,
+            kind: 0,
+            sortText: "1_" + na.id,
+            detail: `table: ${e.entityId}.${a.id}`,
+            documentation: mkDoc(na, `table: ${e.entityId}.${a.id}`)
+          });
+        }
+      });
+    });
+  });
+  c.attributes = out;
+  return out;
+}
+function cachedScenarios() {
+  const c = ensureCache();
+  if (c.scenarios)
+    return c.scenarios;
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  (ctx.modelIndex?.scenarios || []).forEach((s) => {
+    if (!s?.id || seen.has(s.id))
+      return;
+    seen.add(s.id);
+    const actions = Array.isArray(s.actions) ? s.actions : [];
+    const domains = Array.isArray(s.domains) ? s.domains : [];
+    const details = [];
+    details.push(
+      `${actions.length} ${actions.length === 1 ? "\u044D\u043A\u0448\u0435\u043D" : "\u044D\u043A\u0448\u0435\u043D\u043E\u0432"}`
+    );
+    if (domains.length > 0)
+      details.push(`\u0434\u043E\u043C\u0435\u043D\u044B: ${domains.join(", ")}`);
+    if (actions.length > 0) {
+      details.push("---");
+      for (const a of actions.slice(0, 20)) {
+        const where = a.domainId ? `[${a.domainId}] ` : "";
+        const tag = a.workerTag ? ` \xB7 worker: ${a.workerTag}` : "";
+        const name = a.actionName || a.actionId || "";
+        const id = a.actionId && a.actionName && a.actionId !== a.actionName ? ` (${a.actionId})` : "";
+        details.push(`${where}${name}${id}${tag}`);
+      }
+      if (actions.length > 20) {
+        details.push(`\u2026 \u0438 \u0435\u0449\u0451 ${actions.length - 20}`);
+      }
+    }
+    out.push({
+      label: s.id,
+      insertText: " " + s.id,
+      kind: 0,
+      // Kind будет переустановлен через withKind
+      sortText: "0_" + s.id,
+      detail: `${actions.length} actions${domains.length ? " \xB7 " + domains.join(", ") : ""}`,
+      documentation: details.join("\n")
+    });
+  });
+  c.scenarios = out;
+  return out;
+}
+function withKind(items, kind) {
+  return items.map((x) => ({ ...x, kind }));
+}
+function isInsideRql(model, position) {
+  const lineText = model.getLineContent(position.lineNumber);
+  const beforeCursor = lineText.slice(0, position.column - 1);
+  const fm = beforeCursor.match(/^(\s*)(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*(.*)$/);
+  if (fm) {
+    const fieldName = fm[2];
+    const rawValue = fm[3];
+    if (/!rql\b/.test(rawValue))
+      return true;
+    if (RQL_FIELDS2.has(fieldName)) {
+      const trimmedNoComment = rawValue.split("#")[0].trim();
+      if (/^(true|false)$/i.test(trimmedNoComment))
+        return false;
+      return true;
+    }
+  }
+  const currentIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
+  for (let i = position.lineNumber - 1; i >= 1; i--) {
+    const pl = model.getLineContent(i);
+    if (!pl.trim())
+      continue;
+    const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
+    if (pIndent < currentIndent) {
+      const bm = pl.match(
+        /^(\s*)(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*(!rql\s+)?[|>]/
+      );
+      if (bm) {
+        const fieldName = bm[2];
+        if (bm[3] || RQL_FIELDS2.has(fieldName))
+          return true;
+      }
+      return false;
+    }
+    if (pIndent === 0)
+      return false;
+  }
+  return false;
+}
+function scanRqlToken(model, position) {
+  const lineText = model.getLineContent(position.lineNumber);
+  const col = position.column - 1;
+  let i = col;
+  while (i > 0) {
+    const ch = lineText[i - 1];
+    if (/\s/.test(ch))
+      break;
+    if (`(),[]{}!|&+*/:;"'`.indexOf(ch) >= 0)
+      break;
+    if (ch === "=" || ch === "<" || ch === ">" || ch === "%")
+      break;
+    if (ch === "-")
+      break;
+    i--;
+  }
+  return {
+    startColumn: i + 1,
+    // 1-based
+    tokenText: lineText.slice(i, col)
+  };
+}
+function getRqlAliasMembers(root, ctx2) {
+  if (root === "doc") {
+    const cur2 = (ctx2.currentDomainId || "").toLowerCase();
+    const seen = /* @__PURE__ */ new Set();
+    const out = [];
+    for (const sys of [
+      ["id", "\u0421\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0439: \u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u043E\u0431\u044A\u0435\u043A\u0442\u0430"],
+      ["label", "\u0421\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0439: \u043B\u0435\u0439\u0431\u043B \u043E\u0431\u044A\u0435\u043A\u0442\u0430"],
+      ["createdAt", "\u0421\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0439: \u0434\u0430\u0442\u0430 \u0441\u043E\u0437\u0434\u0430\u043D\u0438\u044F"],
+      ["updatedAt", "\u0421\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0439: \u0434\u0430\u0442\u0430 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F"],
+      ["createdBy", "\u0421\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0439: \u043A\u0442\u043E \u0441\u043E\u0437\u0434\u0430\u043B"],
+      ["updatedBy", "\u0421\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0439: \u043A\u0442\u043E \u043E\u0431\u043D\u043E\u0432\u0438\u043B"],
+      ["organizationId", "\u0421\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0439: \u043E\u0440\u0433\u0430\u043D\u0438\u0437\u0430\u0446\u0438\u044F"],
+      ["version", "\u0421\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0439: \u0432\u0435\u0440\u0441\u0438\u044F \u043E\u0431\u044A\u0435\u043A\u0442\u0430"],
+      ["domainId", "\u0421\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0439: \u0434\u043E\u043C\u0435\u043D"],
+      ["entityId", "\u0421\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0439: \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C"]
+    ]) {
+      seen.add(sys[0]);
+      out.push({ label: sys[0], detail: sys[1] });
+    }
+    ctx2.modelIndex?.entities?.forEach((e) => {
+      if ((e.domainId || "").toLowerCase() !== cur2)
+        return;
+      e.attributes?.forEach((a) => {
+        if (!a?.id || seen.has(a.id))
+          return;
+        seen.add(a.id);
+        const parts = [];
+        if (a.dataType)
+          parts.push(a.dataType);
+        if (a.description)
+          parts.push(a.description);
+        parts.push(`entity: ${e.entityId}`);
+        out.push({
+          label: a.id,
+          detail: parts.join(" \xB7 ")
+        });
+        a.nestedAttributes?.forEach((na) => {
+          if (!na?.id || seen.has(na.id))
+            return;
+          seen.add(na.id);
+          out.push({
+            label: na.id,
+            detail: `${na.dataType || ""} \xB7 table: ${e.entityId}.${a.id}`
+          });
+        });
+      });
+    });
+    return out;
+  }
+  if (root === "row") {
+    const cur2 = (ctx2.currentDomainId || "").toLowerCase();
+    const seen = /* @__PURE__ */ new Set();
+    const out = [];
+    ctx2.modelIndex?.dataTypes?.forEach((dt2) => {
+      if ((dt2.domainId || "").toLowerCase() !== cur2)
+        return;
+      if (dt2.kind !== "Table")
+        return;
+      (dt2.columns || []).forEach((c) => {
+        if (seen.has(c))
+          return;
+        seen.add(c);
+        out.push({ label: c, detail: `\u043A\u043E\u043B\u043E\u043D\u043A\u0430 Table ${dt2.id}` });
+      });
+    });
+    return out;
+  }
+  if (root === "CurrentUser") {
+    return [
+      { label: "id", detail: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0442\u0435\u043A\u0443\u0449\u0435\u0433\u043E \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044F" },
+      { label: "username", detail: "\u0418\u043C\u044F \u0442\u0435\u043A\u0443\u0449\u0435\u0433\u043E \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044F" }
+    ];
+  }
+  if (root === "CurrentDate" || root === "CurrentTime" || root === "CurrentTimestamp" || root === "CurrentDateTime" || root === "CurrentDayOfWeek" || root === "index") {
+    return [];
+  }
+  const cur = (ctx2.currentDomainId || "").toLowerCase();
+  const dt = ctx2.modelIndex?.dataTypes?.find(
+    (d) => (d.domainId || "").toLowerCase() === cur && d.id === root
+  );
+  if (dt) {
+    if (dt.kind === "Enum" && Array.isArray(dt.values)) {
+      return dt.values.map((v) => ({
+        label: v,
+        detail: `\u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0435 Enum ${dt.id}`
+      }));
+    }
+    if (dt.kind === "Workflow" && Array.isArray(dt.statuses)) {
+      return dt.statuses.map((s) => ({
+        label: s,
+        detail: `\u0441\u0442\u0430\u0442\u0443\u0441 Workflow ${dt.id}`
+      }));
+    }
+  }
+  return null;
+}
+function buildRqlAliasCompletions(model, position, Kind, ctx2) {
+  const { startColumn, tokenText } = scanRqlToken(model, position);
+  if (!tokenText.startsWith("@"))
+    return null;
+  const dot = tokenText.indexOf(".");
+  const root = dot < 0 ? tokenText.slice(1) : tokenText.slice(1, dot);
+  const prefix = "@" + root;
+  const afterDot = dot >= 0 ? tokenText.slice(dot + 1) : "";
+  const members = getRqlAliasMembers(root, ctx2);
+  const range = {
+    startLineNumber: position.lineNumber,
+    startColumn,
+    endLineNumber: position.lineNumber,
+    endColumn: position.column
+  };
+  const suggestions = [];
+  if (members && members.length > 0) {
+    for (const m of members) {
+      const full = prefix + "." + m.label;
+      suggestions.push({
+        label: full,
+        insertText: full,
+        filterText: full,
+        sortText: "0_" + m.label,
+        kind: Kind.Field,
+        detail: m.detail,
+        documentation: m.documentation,
+        range
+      });
+    }
+    if (dot < 0 && afterDot === "") {
+      suggestions.push({
+        label: prefix,
+        insertText: prefix,
+        filterText: prefix,
+        sortText: "9_" + prefix,
+        kind: Kind.Variable,
+        detail: "\u043F\u0441\u0435\u0432\u0434\u043E\u043D\u0438\u043C \u0446\u0435\u043B\u0438\u043A\u043E\u043C",
+        range
+      });
+    }
+    return { suggestions };
+  }
+  return { suggestions: buildRqlSuggestions(model, position, Kind, ctx2) };
+}
+function buildRqlSuggestions(model, position, Kind, ctx2) {
+  const word = model.getWordUntilPosition(position);
+  const range = {
+    startLineNumber: position.lineNumber,
+    startColumn: word.startColumn,
+    endLineNumber: position.lineNumber,
+    endColumn: word.endColumn
+  };
+  const out = [];
+  const push = (label, kind, detail, sortText) => {
+    out.push({
+      label,
+      kind,
+      insertText: label,
+      filterText: label,
+      sortText: sortText ?? label,
+      detail,
+      documentation: detail,
+      range
+    });
+  };
+  const aliases = [
+    ["@doc", "\u0422\u0435\u043A\u0443\u0449\u0438\u0439 \u043E\u0431\u044A\u0435\u043A\u0442 (\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C, \u043A \u043A\u043E\u0442\u043E\u0440\u043E\u0439 \u043F\u0440\u0438\u043C\u0435\u043D\u044F\u0435\u0442\u0441\u044F \u043F\u0440\u0430\u0432\u0438\u043B\u043E)"],
+    ["@row", "\u0422\u0435\u043A\u0443\u0449\u0430\u044F \u0441\u0442\u0440\u043E\u043A\u0430 \u0442\u0430\u0431\u043B\u0438\u0446\u044B (\u0434\u043B\u044F \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u0442\u0438\u043F\u0430 Table)"],
+    ["@index", "\u0418\u043D\u0434\u0435\u043A\u0441 \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u0430 \u043C\u0430\u0441\u0441\u0438\u0432\u0430 / \u0441\u0442\u0440\u043E\u043A\u0438 \u0442\u0430\u0431\u043B\u0438\u0446\u044B"],
+    ["@CurrentUser", "\u041E\u0431\u044A\u0435\u043A\u0442 \u0442\u0435\u043A\u0443\u0449\u0435\u0433\u043E \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044F"],
+    ["@CurrentDate", "\u0422\u0435\u043A\u0443\u0449\u0430\u044F \u0434\u0430\u0442\u0430"],
+    ["@CurrentTime", "\u0422\u0435\u043A\u0443\u0449\u0435\u0435 \u0432\u0440\u0435\u043C\u044F"],
+    ["@CurrentTimestamp", "\u0422\u0435\u043A\u0443\u0449\u0430\u044F \u043C\u0435\u0442\u043A\u0430 \u0432\u0440\u0435\u043C\u0435\u043D\u0438"],
+    ["@CurrentDateTime", "\u0422\u0435\u043A\u0443\u0449\u0430\u044F \u0434\u0430\u0442\u0430-\u0432\u0440\u0435\u043C\u044F"],
+    ["@CurrentDayOfWeek", "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0442\u0435\u043A\u0443\u0449\u0435\u0433\u043E \u0434\u043D\u044F \u043D\u0435\u0434\u0435\u043B\u0438 (en)"]
+  ];
+  aliases.forEach(([a, d]) => push(a, Kind.Variable, d, "0_" + a));
+  const functions = [
+    ["has", "has(array, value) \u2014 \u0435\u0441\u0442\u044C \u043B\u0438 value \u0432 \u043F\u043E\u043B\u0435-\u043C\u0430\u0441\u0441\u0438\u0432\u0435"],
+    ["hasAll", "hasAll(array, values) \u2014 \u0432\u0441\u0435 \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u044F \u043C\u0430\u0441\u0441\u0438\u0432\u0430 \u043F\u0440\u0438\u0441\u0443\u0442\u0441\u0442\u0432\u0443\u044E\u0442"],
+    ["hasAny", "hasAny(array, values) \u2014 \u0445\u043E\u0442\u044F \u0431\u044B \u043E\u0434\u043D\u043E \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0435"],
+    ["hasRole", "hasRole('roleName') \u2014 \u0442\u0435\u043A\u0443\u0449\u0438\u0439 \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044C \u0438\u043C\u0435\u0435\u0442 \u0440\u043E\u043B\u044C"],
+    [
+      "hasUserGroup",
+      "hasUserGroup('groupName') \u2014 \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044C \u0432\u0445\u043E\u0434\u0438\u0442 \u0432 \u0433\u0440\u0443\u043F\u043F\u0443"
+    ],
+    ["isSuperAdmin", "isSuperAdmin() \u2014 \u0442\u0435\u043A\u0443\u0449\u0438\u0439 \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044C \u2014 \u0441\u0443\u043F\u0435\u0440\u0430\u0434\u043C\u0438\u043D"],
+    ["select", "select(expr, from(...), where(...), ...)"],
+    ["from", "from('current', @entity, @alias)"],
+    ["join", "join('domain', @entity, @alias, on(...))"],
+    ["where", "where(condition)"],
+    ["group", "group(field, ...)"],
+    ["having", "having(aggregate_condition)"],
+    ["order", "order(asc(field) | desc(field))"],
+    ["limit", "limit(N)"],
+    ["and", "and(a, b)"],
+    ["or", "or(a, b)"],
+    ["not", "not(a)"],
+    ["eq", "eq(a, b) \u2014 a = b"],
+    ["ne", "ne(a, b) \u2014 a \u2260 b"],
+    ["lt", "lt(a, b) \u2014 a < b"],
+    ["gt", "gt(a, b) \u2014 a > b"],
+    ["lte", "lte(a, b) \u2014 a \u2264 b"],
+    ["gte", "gte(a, b) \u2014 a \u2265 b"],
+    ["like", "like(a, 'pattern') \u2014 \u0448\u0430\u0431\u043B\u043E\u043D LIKE"],
+    ["in", "in(a, b) \u2014 \u0432\u0445\u043E\u0436\u0434\u0435\u043D\u0438\u0435 \u0432\u043E \u043C\u043D\u043E\u0436\u0435\u0441\u0442\u0432\u043E"],
+    ["cast", "CAST(value, 'TYPE') \u2014 \u043F\u0440\u0438\u0432\u0435\u0434\u0435\u043D\u0438\u0435 \u0442\u0438\u043F\u0430"],
+    ["count", "count(expr) \u2014 \u0430\u0433\u0440\u0435\u0433\u0430\u0442"]
+  ];
+  functions.forEach(([a, d]) => push(a, Kind.Function, d, "1_" + a));
+  const ops = [
+    ["true", "\u043B\u043E\u0433\u0438\u0447\u0435\u0441\u043A\u043E\u0435 true"],
+    ["false", "\u043B\u043E\u0433\u0438\u0447\u0435\u0441\u043A\u043E\u0435 false"],
+    ["AND", "\u043B\u043E\u0433\u0438\u0447\u0435\u0441\u043A\u043E\u0435 \u0418"],
+    ["OR", "\u043B\u043E\u0433\u0438\u0447\u0435\u0441\u043A\u043E\u0435 \u0418\u041B\u0418"],
+    ["NOT", "\u043B\u043E\u0433\u0438\u0447\u0435\u0441\u043A\u043E\u0435 \u041D\u0415"],
+    ["IN", "\u0432\u0445\u043E\u0436\u0434\u0435\u043D\u0438\u0435 \u0432 \u043C\u043D\u043E\u0436\u0435\u0441\u0442\u0432\u043E"],
+    ["NOT IN", "\u043D\u0435 \u0432\u0445\u043E\u0434\u0438\u0442 \u0432\u043E \u043C\u043D\u043E\u0436\u0435\u0441\u0442\u0432\u043E"],
+    ["IS NULL", "\u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0435 \u043D\u0435 \u0437\u0430\u0434\u0430\u043D\u043E"],
+    ["IS NOT NULL", "\u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0435 \u0437\u0430\u0434\u0430\u043D\u043E"],
+    ["LIKE", "\u043F\u043E\u0438\u0441\u043A \u043F\u043E \u0448\u0430\u0431\u043B\u043E\u043D\u0443"],
+    ["NOT LIKE", "\u043D\u0435 \u0441\u043E\u043E\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0443\u0435\u0442 \u0448\u0430\u0431\u043B\u043E\u043D\u0443"],
+    ["BETWEEN", "\u043D\u0430\u0445\u043E\u0436\u0434\u0435\u043D\u0438\u0435 \u0432 \u0434\u0438\u0430\u043F\u0430\u0437\u043E\u043D\u0435"],
+    ["NOT BETWEEN", "\u0432\u043D\u0435 \u0434\u0438\u0430\u043F\u0430\u0437\u043E\u043D\u0430"]
+  ];
+  ops.forEach(([a, d]) => push(a, Kind.Keyword, d, "2_" + a));
+  return out;
 }
 function registerMonacoProviders(monaco) {
   if (providersRegistered)
@@ -23090,653 +23682,665 @@ ${indent}description: ""`
     provideCompletionItems: (model, position) => {
       if (!ctx.modelIndex)
         return { suggestions: [] };
+      const Kind = monaco.languages.CompletionItemKind;
+      setTimeout(ensureSuggestDetailsVisible, 30);
+      if (isInsideRql(model, position)) {
+        const aliasResult = buildRqlAliasCompletions(
+          model,
+          position,
+          Kind,
+          ctx
+        );
+        if (aliasResult)
+          return aliasResult;
+        return { suggestions: buildRqlSuggestions(model, position, Kind, ctx) };
+      }
+      {
+        const lineText0 = model.getLineContent(position.lineNumber);
+        const before0 = lineText0.slice(0, position.column - 1);
+        const m0 = before0.match(/^(\s*)-\s+([\w]*)$/);
+        if (m0) {
+          const currentIndent = m0[1].length;
+          let sawAttributes = false;
+          let sawSearching = false;
+          for (let i = position.lineNumber - 1; i >= 1; i--) {
+            const l = model.getLineContent(i);
+            if (!l.trim() || l.trim().startsWith("#"))
+              continue;
+            const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
+            if (lIndent >= currentIndent)
+              continue;
+            if (!sawAttributes && /^\s*attributes\s*:\s*$/.test(l)) {
+              sawAttributes = true;
+              continue;
+            }
+            if (sawAttributes) {
+              if (/^\s*searching\s*:\s*$/.test(l))
+                sawSearching = true;
+              break;
+            }
+            if (lIndent === 0)
+              break;
+          }
+          if (sawSearching) {
+            const wordAtPos0 = model.getWordUntilPosition(position);
+            const range0 = {
+              startLineNumber: position.lineNumber,
+              startColumn: wordAtPos0.startColumn,
+              endLineNumber: position.lineNumber,
+              endColumn: wordAtPos0.endColumn
+            };
+            const attrs = cachedAttributes();
+            return {
+              suggestions: attrs.map((v) => ({
+                label: v.label,
+                kind: Kind.Field,
+                insertText: v.label,
+                // без ведущего пробела — это значение, не field
+                filterText: v.label,
+                sortText: v.sortText,
+                detail: v.detail,
+                documentation: v.documentation,
+                range: range0
+              }))
+            };
+          }
+        }
+      }
       const lineText = model.getLineContent(position.lineNumber);
       const beforeCursor = lineText.slice(0, position.column - 1);
       const wordAtPos = model.getWordUntilPosition(position);
-      const range = {
-        startLineNumber: position.lineNumber,
-        startColumn: wordAtPos.startColumn,
-        endLineNumber: position.lineNumber,
-        endColumn: wordAtPos.endColumn
-      };
-      const Kind = monaco.languages.CompletionItemKind;
-      const valueResult = provideValueCompletions(
-        monaco,
-        model,
-        position,
-        beforeCursor,
-        range,
-        Kind
+      const cur = (ctx.currentDomainId || "").toLowerCase();
+      const fieldMatch = beforeCursor.match(
+        /^(\s*)(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*["']?[\w./-]*["']?$/
       );
-      if (valueResult)
-        return valueResult;
-      if (/^\s*(?:-\s+)?operation\s*:\s*[\w]*$/.test(beforeCursor)) {
-        let actionType = null;
-        let idLine = -1;
-        let idIndent = -1;
-        for (let i = position.lineNumber - 1; i >= 1; i--) {
-          const l = model.getLineContent(i);
-          if (!l.trim() || l.trim().startsWith("#"))
-            continue;
-          const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
-          if (lInd === 0)
-            break;
-          const idm = l.match(/^(\s*)-\s+id\s*:/);
-          if (idm) {
-            idLine = i;
-            idIndent = idm[1].length;
-            break;
-          }
-        }
-        if (idLine !== -1) {
-          for (let i = idLine + 1; i < position.lineNumber; i++) {
-            const l = model.getLineContent(i);
-            const lInd = (l.match(/^(\s*)/) || ["", ""])[1].length;
-            if (lInd <= idIndent)
-              break;
-            const tm = l.match(/^\s*type\s*:\s*([^\s#]+)/);
-            if (tm) {
-              actionType = tm[1].replace(/["']/g, "");
-              break;
-            }
-          }
-        }
-        const opsByType = {
-          open_modal: ["create", "edit"],
-          open_page: ["create", "edit", "view"],
-          bulk: ["remove", "edit", "edit_attribute"]
-        };
-        const allowed = actionType ? opsByType[actionType] || [] : [];
-        if (allowed.length > 0) {
+      if (!fieldMatch) {
+        const lineIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
+        if (lineIndent === 0 && /^[a-zA-Z_]*$/.test(beforeCursor)) {
+          const rootItems = [
+            ["id", "\u0423\u043D\u0438\u043A\u0430\u043B\u044C\u043D\u044B\u0439 \u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0434\u043E\u043C\u0435\u043D\u0430 (FQDN)"],
+            ["name", "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0434\u043E\u043C\u0435\u043D\u0430"],
+            ["version", "\u0412\u0435\u0440\u0441\u0438\u044F \u0441\u0445\u0435\u043C\u044B (SemVer)"],
+            ["type", "\u0422\u0438\u043F \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u0430 \u044D\u043A\u0441\u043F\u0435\u0440\u0442\u0438\u0437\u044B (domain)"],
+            ["description", "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435 \u0434\u043E\u043C\u0435\u043D\u0430"],
+            ["tags", "\u0422\u0435\u0433\u0438"],
+            ["author", "\u0410\u0432\u0442\u043E\u0440 \u0441\u0445\u0435\u043C\u044B"],
+            ["entities", "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0434\u043E\u043C\u0435\u043D\u0430"],
+            ["dataTypes", "\u041A\u0430\u0441\u0442\u043E\u043C\u043D\u044B\u0435 \u0442\u0438\u043F\u044B (Enum, Workflow, Table)"],
+            ["linkages", "\u0421\u0432\u044F\u0437\u0438 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439"],
+            ["sequences", "\u041F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u0438 \u0434\u043B\u044F Identifier"],
+            ["counterColorPattern", "\u0426\u0432\u0435\u0442\u043E\u0432\u044B\u0435 \u0441\u0445\u0435\u043C\u044B \u0441\u0447\u0451\u0442\u0447\u0438\u043A\u043E\u0432"],
+            ["trees", "\u0414\u0440\u0435\u0432\u043E\u0432\u0438\u0434\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0438"],
+            ["transitiveLinkages", "\u0422\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0438"],
+            ["mixins", "\u041F\u0440\u0438\u043C\u0435\u0441\u0438"],
+            ["dataRules", "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0434\u0430\u043D\u043D\u044B\u0445"],
+            ["exchangeSettings", "\u041E\u0431\u043C\u0435\u043D \u0434\u0430\u043D\u043D\u044B\u043C\u0438"],
+            ["actions", "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F"],
+            ["medias", "\u0418\u043A\u043E\u043D\u043A\u0438"],
+            ["views", "\u041F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F"],
+            ["menus", "\u041C\u0435\u043D\u044E \u0434\u043E\u043C\u0435\u043D\u0430"],
+            ["uiRules", "UI Rules"],
+            ["uiPresets", "UI Presets"]
+          ];
+          const range = {
+            startLineNumber: position.lineNumber,
+            startColumn: wordAtPos.startColumn,
+            endLineNumber: position.lineNumber,
+            endColumn: wordAtPos.endColumn
+          };
           return {
-            suggestions: allowed.map((op) => ({
-              label: op,
-              kind: Kind.Value,
-              insertText: op,
-              filterText: op,
-              sortText: op,
+            suggestions: rootItems.map(([id, desc]) => ({
+              label: id,
+              kind: Kind.Module,
+              insertText: id + ":",
+              filterText: id,
+              sortText: id,
+              detail: desc,
               range
             }))
           };
         }
-        return { suggestions: [] };
-      }
-      if (/^\s*scenario\s*:\s*[\w]*$/.test(beforeCursor)) {
-        const seen = /* @__PURE__ */ new Set();
-        const text = model.getValue();
-        const re = /^\s*scenario\s*:\s*([^\s#]+)/gm;
-        let m;
-        while ((m = re.exec(text)) !== null) {
-          seen.add(m[1].replace(/["']/g, ""));
-        }
-        return {
-          suggestions: Array.from(seen).map((id) => ({
-            label: id,
-            kind: Kind.Value,
-            insertText: id,
-            filterText: id,
-            detail: "playbook / \u0441\u0446\u0435\u043D\u0430\u0440\u0438\u0439",
-            range
-          }))
-        };
-      }
-      if (/^\s*refresh\s*:\s*[\w]*$/.test(beforeCursor) || /^\s*mode\s*:\s*[\w]*$/.test(beforeCursor)) {
-        const isRefreshMode = /refresh\s*:/i.test(model.getLineContent(position.lineNumber)) || (() => {
-          for (let i = position.lineNumber - 1; i >= 1; i--) {
-            const l = model.getLineContent(i);
-            if (/^\s*refresh\s*:/.test(l))
-              return true;
-            if (/^\s*[a-zA-Z_]\w*\s*:/.test(l))
-              return false;
-          }
-          return false;
-        })();
-        if (isRefreshMode) {
-          return {
-            suggestions: ["manual", "auto", "all"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-      }
-      if (/^\s*unit\s*:\s*[\w]*$/.test(beforeCursor)) {
-        return {
-          suggestions: ["second", "minute", "hour"].map((v) => ({
-            label: v,
-            kind: Kind.Value,
-            insertText: v,
-            range
-          }))
-        };
-      }
-      if (/^\s*direction\s*:\s*[\w]*$/.test(beforeCursor)) {
-        return {
-          suggestions: ["asc", "desc"].map((v) => ({
-            label: v,
-            kind: Kind.Value,
-            insertText: v,
-            range
-          }))
-        };
-      }
-      if (/^\s*type\s*:\s*[\w]*$/.test(beforeCursor)) {
-        const lineCtx = model.getLineContent(position.lineNumber);
-        const ctx2 = detectContextAtPosition(
+        const context = detectContextAtPosition(
           model,
           position,
           ctx.lineMap?.lineContexts || /* @__PURE__ */ new Map()
         );
-        if (ctx2 === "viewTableFilterAttributes" || ctx2 === "viewTableFilterLinkages") {
-          return {
-            suggestions: ["specific", "all"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
+        if (!context)
+          return { suggestions: [] };
+        const rawIndent = (lineText.match(/^(\s*)/) || ["", ""])[1];
+        const currentIndent = "  ".repeat(Math.floor(rawIndent.length / 2));
+        const hasDash = /^\s*-/.test(beforeCursor);
+        const suggestions = [];
+        const snippetRange = {
+          startLineNumber: position.lineNumber,
+          startColumn: 1,
+          endLineNumber: position.lineNumber,
+          endColumn: wordAtPos.endColumn
+        };
+        SNIPPETS.forEach((sn) => {
+          if (sn.contexts.includes(context)) {
+            suggestions.push(
+              buildSnippetSuggestion(
+                monaco,
+                sn,
+                snippetRange,
+                currentIndent,
+                hasDash
+              )
+            );
+          }
+        });
+        const fields = FIELD_DEFINITIONS[context];
+        if (fields) {
+          const range = {
+            startLineNumber: position.lineNumber,
+            startColumn: wordAtPos.startColumn,
+            endLineNumber: position.lineNumber,
+            endColumn: wordAtPos.endColumn
           };
+          fields.forEach(
+            (f) => suggestions.push(buildFieldSuggestion(monaco, f, range))
+          );
         }
-        if (ctx2 === "viewTableAction") {
-          return {
-            suggestions: [
-              "row_click",
-              "row_double_click",
-              "row_context_menu"
-            ].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-        if (ctx2 === "viewSource") {
-          return {
-            suggestions: ["operational"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-        if (ctx2 === "viewTableColumnAggregate") {
-          return {
-            suggestions: ["count"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
+        return { suggestions };
       }
-      const lineIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
-      if (lineIndent === 0 && /^[a-zA-Z_]*$/.test(beforeCursor)) {
-        const rootItems = [
-          { id: "id", desc: "\u0423\u043D\u0438\u043A\u0430\u043B\u044C\u043D\u044B\u0439 \u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0434\u043E\u043C\u0435\u043D\u0430 (FQDN)" },
-          { id: "name", desc: "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0434\u043E\u043C\u0435\u043D\u0430" },
-          { id: "version", desc: "\u0412\u0435\u0440\u0441\u0438\u044F \u0441\u0445\u0435\u043C\u044B (SemVer)" },
-          { id: "type", desc: "\u0422\u0438\u043F \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u0430 \u044D\u043A\u0441\u043F\u0435\u0440\u0442\u0438\u0437\u044B (domain)" },
-          { id: "description", desc: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435 \u0434\u043E\u043C\u0435\u043D\u0430" },
-          { id: "tags", desc: "\u0422\u0435\u0433\u0438 \u0434\u043B\u044F \u043A\u043B\u0430\u0441\u0441\u0438\u0444\u0438\u043A\u0430\u0446\u0438\u0438" },
-          { id: "author", desc: "\u0410\u0432\u0442\u043E\u0440 \u0441\u0445\u0435\u043C\u044B" },
-          { id: "entities", desc: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0434\u043E\u043C\u0435\u043D\u0430" },
-          { id: "dataTypes", desc: "\u041A\u0430\u0441\u0442\u043E\u043C\u043D\u044B\u0435 \u0442\u0438\u043F\u044B (Enum, Workflow, Table)" },
-          { id: "linkages", desc: "\u0421\u0432\u044F\u0437\u0438 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" },
-          { id: "sequences", desc: "\u041F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u0438 \u0434\u043B\u044F Identifier" },
-          { id: "counterColorPattern", desc: "\u0426\u0432\u0435\u0442\u043E\u0432\u044B\u0435 \u0441\u0445\u0435\u043C\u044B \u0441\u0447\u0451\u0442\u0447\u0438\u043A\u043E\u0432" },
-          { id: "trees", desc: "\u0414\u0440\u0435\u0432\u043E\u0432\u0438\u0434\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0438" },
-          { id: "transitiveLinkages", desc: "\u0422\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0438" },
-          { id: "mixins", desc: "\u041F\u0440\u0438\u043C\u0435\u0441\u0438 (\u0440\u0430\u0441\u0448\u0438\u0440\u0435\u043D\u0438\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439)" },
-          { id: "dataRules", desc: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0434\u0430\u043D\u043D\u044B\u0445" },
-          { id: "exchangeSettings", desc: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u043E\u0431\u043C\u0435\u043D\u0430 \u0434\u0430\u043D\u043D\u044B\u043C\u0438" },
-          { id: "actions", desc: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u0441 \u043E\u0431\u044A\u0435\u043A\u0442\u0430\u043C\u0438" },
-          { id: "medias", desc: "\u0418\u043A\u043E\u043D\u043A\u0438" },
-          { id: "views", desc: "\u041F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F (\u043F\u0430\u043D\u0435\u043B\u0438, \u043C\u043E\u0434\u0430\u043B\u043A\u0438, \u0441\u043F\u0438\u0441\u043A\u0438)" },
-          { id: "menus", desc: "\u041C\u0435\u043D\u044E \u0434\u043E\u043C\u0435\u043D\u0430" },
-          { id: "uiRules", desc: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0439 (UI Rules)" },
-          { id: "uiPresets", desc: "\u041F\u0440\u0435\u0441\u0435\u0442\u044B \u0441\u0442\u0438\u043B\u0435\u0439 \u0434\u043B\u044F UI Rules" }
-        ];
-        const suggestions2 = rootItems.map((it) => ({
-          label: it.id,
-          kind: Kind.Module,
-          insertText: it.id + ":",
-          filterText: it.id,
-          sortText: it.id,
-          detail: it.desc,
-          range
-        }));
-        return { suggestions: suggestions2 };
+      const fieldName = fieldMatch[2];
+      const vctx = detectValueContext(model, position);
+      const r = buildValueCompletion;
+      if (BOOLEAN_FIELD_NAMES.has(fieldName)) {
+        return r(
+          model,
+          position,
+          [fieldName],
+          mkSimple(["true", "false"], Kind.Value, {
+            true: "\u043B\u043E\u0433\u0438\u0447\u0435\u0441\u043A\u043E\u0435 true",
+            false: "\u043B\u043E\u0433\u0438\u0447\u0435\u0441\u043A\u043E\u0435 false"
+          }),
+          Kind
+        ) || { suggestions: [] };
       }
-      if (/^\s*(?:-\s+)?dataType\s*:\s*["']?[\w.-]*["']?$/.test(beforeCursor)) {
-        const inDataTypesSection = (() => {
+      switch (fieldName) {
+        case "dataType": {
+          if (vctx.section === "dataTypes" && vctx.itemType === "dataType") {
+            return r(
+              model,
+              position,
+              ["dataType"],
+              mkSimple(["Enum", "Table", "Workflow"], Kind.Value, {
+                Enum: "\u041F\u0435\u0440\u0435\u0447\u0438\u0441\u043B\u0435\u043D\u0438\u0435 \u2014 \u0444\u0438\u043A\u0441\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0439 \u0441\u043F\u0438\u0441\u043E\u043A \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0439",
+                Table: "\u0422\u0430\u0431\u043B\u0438\u0446\u0430 \u2014 \u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435 (\u0441\u0442\u0440\u043E\u043A\u0438/\u043A\u043E\u043B\u043E\u043D\u043A\u0438)",
+                Workflow: "\u0420\u0430\u0431\u043E\u0447\u0438\u0439 \u043F\u0440\u043E\u0446\u0435\u0441\u0441 \u2014 \u0441\u0442\u0430\u0442\u0443\u0441\u044B \u0438 \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u044B"
+              }),
+              Kind
+            ) || { suggestions: [] };
+          }
+          const base = BASE_DATA_TYPES_COMPLETION.map((t) => ({
+            label: t,
+            insertText: " " + t,
+            kind: Kind.Value,
+            sortText: "0_" + t,
+            documentation: BASE_DATA_TYPE_DESCRIPTIONS[t]
+          }));
+          const custom = [];
+          const seen = /* @__PURE__ */ new Set();
+          ctx.modelIndex.dataTypes.filter((dt) => (dt.domainId || "").toLowerCase() === cur).forEach((dt) => {
+            if (!dt?.id || seen.has(dt.id))
+              return;
+            seen.add(dt.id);
+            const parts = [];
+            if (dt.kind)
+              parts.push(dt.kind);
+            if (dt.description)
+              parts.push(dt.description);
+            if (dt.kind === "Enum" && typeof dt.valuesCount === "number")
+              parts.push(`${dt.valuesCount} \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0439`);
+            if (dt.kind === "Workflow" && typeof dt.statusesCount === "number")
+              parts.push(`${dt.statusesCount} \u0441\u0442\u0430\u0442\u0443\u0441\u043E\u0432`);
+            if (dt.kind === "Table" && typeof dt.attributesCount === "number")
+              parts.push(`${dt.attributesCount} \u043A\u043E\u043B\u043E\u043D\u043E\u043A`);
+            custom.push({
+              label: dt.id,
+              insertText: " " + dt.id,
+              kind: dt.kind === "Enum" ? Kind.Enum : dt.kind === "Workflow" ? Kind.Interface : Kind.Struct,
+              sortText: "1_" + dt.id,
+              documentation: parts.join(" \xB7 ")
+            });
+          });
+          return r(model, position, ["dataType"], [...base, ...custom], Kind) || {
+            suggestions: []
+          };
+        }
+        case "type": {
+          const map2 = {
+            view: {
+              list: [
+                "entity",
+                "list",
+                "tree",
+                "tabs_list",
+                "dashboard",
+                "dashboard_tree"
+              ]
+            },
+            viewNested: { list: ["panel", "modal", "page"] },
+            widget: {
+              list: Object.keys(WIDGET_TYPE_DESCRIPTIONS),
+              desc: WIDGET_TYPE_DESCRIPTIONS
+            },
+            group: {
+              list: ["block", "form", "tab", "tabs", "resizable_block_pair"]
+            },
+            action: {
+              list: Object.keys(ACTION_TYPE_DESCRIPTIONS),
+              desc: ACTION_TYPE_DESCRIPTIONS
+            },
+            linkage: { list: ["1_1", "1_n", "n_n"] },
+            dataType: { list: ["Enum", "Table", "Workflow"] },
+            tree: { list: ["ordinary", "orderable", "multiparent"] },
+            viewWidgetControl: {
+              list: Object.keys(CONTROL_TYPE_DESCRIPTIONS),
+              desc: CONTROL_TYPE_DESCRIPTIONS
+            },
+            viewWidgetLinkageControl: {
+              list: ["select", "multi_select", "table", "list", "tree"]
+            },
+            reconciliationMergeStrategy: {
+              list: RECONCILIATION_MERGE_STRATEGIES.map(([t]) => t),
+              desc: RECONCILIATION_MERGE_LABELS
+            }
+          };
+          const entry = map2[vctx.itemType];
+          return entry ? r(
+            model,
+            position,
+            ["type"],
+            mkSimple(entry.list, Kind.Value, entry.desc),
+            Kind
+          ) || { suggestions: [] } : { suggestions: [] };
+        }
+        case "effect": {
+          let list = null;
+          if (vctx.itemType === "dataRuleRule")
+            list = ["hidden", "readonly", "required", "default", "allowed"];
+          else if (vctx.itemType === "uiRuleRule")
+            list = [
+              "hidden",
+              "show",
+              "hiddenEmpty",
+              "readonly",
+              "editable",
+              "inherit",
+              "variant"
+            ];
+          return list ? r(
+            model,
+            position,
+            ["effect"],
+            mkSimple(list, Kind.Value, EFFECT_DESCRIPTIONS),
+            Kind
+          ) || { suggestions: [] } : { suggestions: [] };
+        }
+        case "target": {
+          let list = null;
+          if (vctx.itemType === "dataRule")
+            list = ["entity", "entityAttribute", "linkage"];
+          else if (vctx.itemType === "uiRule")
+            list = ["list_view", "entity_view", "entity_attribute"];
+          else if (vctx.itemType === "accessRule")
+            list = [
+              "entity",
+              "action",
+              "linkage",
+              "any_entity",
+              "any_action",
+              "any_linkage"
+            ];
+          return list ? r(
+            model,
+            position,
+            ["target"],
+            mkSimple(list, Kind.Value, TARGET_DESCRIPTIONS),
+            Kind
+          ) || { suggestions: [] } : { suggestions: [] };
+        }
+        case "direction": {
+          let list = null;
+          if (vctx.container === "layout")
+            list = ["column"];
+          else if (vctx.itemType === "sortingByItem" || vctx.container === "by" || vctx.container === "defaults")
+            list = ["asc", "desc"];
+          return list ? r(
+            model,
+            position,
+            ["direction"],
+            mkSimple(list, Kind.Value, {
+              column: "\u0412\u0435\u0440\u0442\u0438\u043A\u0430\u043B\u044C\u043D\u043E\u0435 \u0440\u0430\u0437\u043C\u0435\u0449\u0435\u043D\u0438\u0435",
+              asc: "\u041F\u043E \u0432\u043E\u0437\u0440\u0430\u0441\u0442\u0430\u043D\u0438\u044E",
+              desc: "\u041F\u043E \u0443\u0431\u044B\u0432\u0430\u043D\u0438\u044E"
+            }),
+            Kind
+          ) || { suggestions: [] } : { suggestions: [] };
+        }
+        case "mode":
+          return vctx.container === "search" ? r(
+            model,
+            position,
+            ["mode"],
+            mkSimple(["entity", "linkage", "both"], Kind.Value, {
+              entity: "\u0418\u0441\u043A\u0430\u0442\u044C \u043F\u043E \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430\u043C \u0441\u0432\u044F\u0437\u0430\u043D\u043D\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438",
+              linkage: "\u0418\u0441\u043A\u0430\u0442\u044C \u043F\u043E \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430\u043C \u0441\u0432\u044F\u0437\u0438",
+              both: "\u0418\u0441\u043A\u0430\u0442\u044C \u0438 \u043F\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438, \u0438 \u043F\u043E \u0441\u0432\u044F\u0437\u0438"
+            }),
+            Kind
+          ) || { suggestions: [] } : { suggestions: [] };
+        case "placement":
+          return r(
+            model,
+            position,
+            ["placement"],
+            mkSimple(["top", "settings"], Kind.Value, {
+              top: "\u0413\u043B\u0430\u0432\u043D\u043E\u0435 \u043C\u0435\u043D\u044E",
+              settings: "\u0420\u0430\u0437\u0434\u0435\u043B \u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438"
+            }),
+            Kind
+          ) || { suggestions: [] };
+        case "operation": {
+          let actionType = null;
           for (let i = position.lineNumber - 1; i >= 1; i--) {
             const pl = model.getLineContent(i);
-            const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
-            if (pIndent === 0) {
-              const m = pl.match(/^([a-zA-Z_][\w]*)\s*:/);
-              return m?.[1] === "dataTypes";
+            if (/^\s*-\s+id\s*:/.test(pl))
+              break;
+            const tm = pl.match(/^\s*type\s*:\s*["']?([\w.-]+)["']?/);
+            if (tm) {
+              actionType = tm[1];
+              break;
             }
+            if ((pl.match(/^(\s*)/) || ["", ""])[1].length === 0)
+              break;
           }
-          return false;
-        })();
-        const suggestions2 = [];
-        if (inDataTypesSection) {
-          ["Enum", "Table", "Workflow"].forEach((t) => {
-            suggestions2.push({
-              label: t,
-              kind: Kind.Value,
-              insertText: t,
-              filterText: t,
-              sortText: "0_" + t,
-              range
-            });
+          const opMap = {
+            open_modal: ["create", "edit"],
+            open_page: ["create", "edit", "view"],
+            bulk: ["remove", "edit", "edit_attribute", "import", "export"],
+            tree_bulk: ["edit", "remove"]
+          };
+          const list = actionType ? opMap[actionType] : null;
+          return list ? r(
+            model,
+            position,
+            ["operation"],
+            mkSimple(list, Kind.Value, {
+              create: "\u0421\u043E\u0437\u0434\u0430\u0442\u044C \u043E\u0431\u044A\u0435\u043A\u0442",
+              edit: "\u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u043E\u0431\u044A\u0435\u043A\u0442",
+              view: "\u041F\u0440\u043E\u0441\u043C\u043E\u0442\u0440\u0435\u0442\u044C \u043E\u0431\u044A\u0435\u043A\u0442",
+              remove: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u043E\u0431\u044A\u0435\u043A\u0442",
+              edit_attribute: "\u0418\u0437\u043C\u0435\u043D\u0438\u0442\u044C \u0430\u0442\u0440\u0438\u0431\u0443\u0442",
+              import: "\u0418\u043C\u043F\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C",
+              export: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C"
+            }),
+            Kind
+          ) || { suggestions: [] } : { suggestions: [] };
+        }
+        case "page": {
+          let actionType = null;
+          for (let i = position.lineNumber - 1; i >= 1; i--) {
+            const pl = model.getLineContent(i);
+            if (/^\s*-\s+id\s*:/.test(pl))
+              break;
+            const tm = pl.match(/^\s*type\s*:\s*["']?([\w.-]+)["']?/);
+            if (tm) {
+              actionType = tm[1];
+              break;
+            }
+            if ((pl.match(/^(\s*)/) || ["", ""])[1].length === 0)
+              break;
+          }
+          const allowed = ["open_list", "open_tree", "open_view"];
+          if (actionType && allowed.includes(actionType)) {
+            return r(
+              model,
+              position,
+              ["page"],
+              mkSimple(["blank", "current"], Kind.Value, {
+                blank: "\u041E\u0442\u043E\u0431\u0440\u0430\u0437\u0438\u0442\u044C \u0432 \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u043E\u043C \u043E\u043A\u043D\u0435",
+                current: "\u041E\u0442\u043E\u0431\u0440\u0430\u0437\u0438\u0442\u044C \u0432 \u0442\u0435\u043A\u0443\u0449\u0435\u043C \u043E\u043A\u043D\u0435"
+              }),
+              Kind
+            ) || { suggestions: [] };
+          }
+          return { suggestions: [] };
+        }
+        case "iconColor": {
+          if (vctx.container === "graphView") {
+            return r(
+              model,
+              position,
+              ["iconColor"],
+              mkSimple(
+                GRAPH_VIEW_COLORS.map(([c]) => c),
+                Kind.EnumMember,
+                GRAPH_VIEW_COLOR_LABELS
+              ),
+              Kind
+            ) || { suggestions: [] };
+          }
+          return { suggestions: [] };
+        }
+        case "inherits":
+        case "entity":
+        case "side1":
+        case "side2": {
+          const refs = collectRefsForField(
+            cachedEntities(),
+            ctx.currentDomainId,
+            {
+              shortKind: Kind.Class
+            }
+          );
+          return r(
+            model,
+            position,
+            ["inherits", "entity", "side1", "side2"],
+            refs,
+            Kind
+          ) || { suggestions: [] };
+        }
+        case "linkage":
+          return r(
+            model,
+            position,
+            ["linkage"],
+            collectRefsForField(cachedLinkages(), ctx.currentDomainId, {
+              shortKind: Kind.Reference
+            }),
+            Kind
+          ) || { suggestions: [] };
+        case "widget":
+          return r(
+            model,
+            position,
+            ["widget"],
+            collectRefsForField(cachedWidgets(), ctx.currentDomainId, {
+              shortKind: Kind.Reference
+            }),
+            Kind
+          ) || { suggestions: [] };
+        case "group":
+          return r(
+            model,
+            position,
+            ["group"],
+            collectRefsForField(cachedGroups(), ctx.currentDomainId, {
+              shortKind: Kind.Reference
+            }),
+            Kind
+          ) || { suggestions: [] };
+        case "column":
+          return r(
+            model,
+            position,
+            ["column"],
+            collectRefsForField(cachedColumns(), ctx.currentDomainId, {
+              shortKind: Kind.Reference
+            }),
+            Kind
+          ) || { suggestions: [] };
+        case "action":
+          return r(
+            model,
+            position,
+            ["action"],
+            collectRefsForField(cachedActions(), ctx.currentDomainId, {
+              shortKind: Kind.Reference
+            }),
+            Kind
+          ) || { suggestions: [] };
+        case "sequence":
+          return r(
+            model,
+            position,
+            ["sequence"],
+            collectRefsForField(cachedSequences(), ctx.currentDomainId, {
+              shortKind: Kind.Reference
+            }),
+            Kind
+          ) || { suggestions: [] };
+        case "counterColorPattern":
+          return r(
+            model,
+            position,
+            ["counterColorPattern"],
+            collectRefsForField(cachedCounterColors(), ctx.currentDomainId, {
+              shortKind: Kind.Reference
+            }),
+            Kind
+          ) || { suggestions: [] };
+        case "menuItem":
+          return r(
+            model,
+            position,
+            ["menuItem"],
+            collectRefsForField(cachedMenus(), ctx.currentDomainId, {
+              shortKind: Kind.Reference
+            }),
+            Kind
+          ) || { suggestions: [] };
+        case "preset":
+          return r(
+            model,
+            position,
+            ["preset"],
+            collectRefsForField(cachedUiPresets(), ctx.currentDomainId, {
+              shortKind: Kind.EnumMember
+            }),
+            Kind
+          ) || { suggestions: [] };
+        case "tree":
+          return r(
+            model,
+            position,
+            ["tree"],
+            collectRefsForField(cachedTrees(), ctx.currentDomainId, {
+              shortKind: Kind.Reference
+            }),
+            Kind
+          ) || { suggestions: [] };
+        case "attribute": {
+          const items = withKind(cachedAttributes(), Kind.Field);
+          return r(model, position, ["attribute"], items, Kind) || {
+            suggestions: []
+          };
+        }
+        case "scenario": {
+          const items = withKind(cachedScenarios(), Kind.Reference);
+          return r(model, position, ["scenario"], items, Kind) || { suggestions: [] };
+        }
+        case "modal": {
+          const views = cachedViews();
+          const refs = collectRefsForField(views, ctx.currentDomainId, {
+            shortKind: Kind.Reference,
+            typeFilter: "modal"
           });
-        } else {
-          BASE_DATA_TYPES_COMPLETION.forEach((t) => {
-            suggestions2.push({
-              label: t,
-              kind: Kind.Value,
-              insertText: t,
-              filterText: t,
-              sortText: "0_" + t,
-              range
-            });
+          return r(model, position, ["modal"], refs, Kind) || { suggestions: [] };
+        }
+        case "panel": {
+          const views = cachedViews();
+          const refs = collectRefsForField(views, ctx.currentDomainId, {
+            shortKind: Kind.Reference,
+            typeFilter: "panel"
           });
-          ctx.modelIndex.dataTypes.forEach((dt) => {
-            suggestions2.push({
-              label: dt.id,
-              kind: dt.kind === "Enum" ? Kind.Enum : dt.kind === "Workflow" ? Kind.Interface : Kind.Struct,
-              insertText: dt.id,
-              filterText: dt.id,
-              sortText: "1_" + dt.id,
-              range
-            });
+          return r(model, position, ["panel"], refs, Kind) || { suggestions: [] };
+        }
+        case "addLinksView": {
+          const views = cachedViews().filter(
+            (v) => v.type === "list" || v.type === "tabs_list"
+          );
+          const refs = collectRefsForField(views, ctx.currentDomainId, {
+            shortKind: Kind.Reference
           });
+          return r(model, position, ["addLinksView"], refs, Kind) || {
+            suggestions: []
+          };
         }
-        return { suggestions: suggestions2 };
-      }
-      if (/(?:\s|^)(?:-\s+)?(inherits|entity|side1|side2|linkage)\s*:\s*[\w./]*$/.test(
-        beforeCursor
-      )) {
-        const currentDomainLower = (ctx.currentDomainId || "").toLowerCase();
-        const suggestions2 = [];
-        ctx.modelIndex.entities.forEach((e) => {
-          const isCurrent = e.domainId.toLowerCase() === currentDomainLower;
-          const insert = isCurrent ? e.entityId : e.fqid;
-          suggestions2.push({
-            label: insert,
-            kind: Kind.Class,
-            insertText: insert,
-            range
+        case "form": {
+          const groups = cachedGroups().filter((g) => g.type === "form");
+          const refs = collectRefsForField(groups, ctx.currentDomainId, {
+            shortKind: Kind.Reference
           });
-        });
-        return { suggestions: suggestions2 };
-      }
-      if (/(?:\s|^)view\s*:\s*[\w.]*$/.test(beforeCursor)) {
-        const suggestions2 = [];
-        if (ctx.modelIndex?.schemasByDomain) {
-          Object.entries(ctx.modelIndex.schemasByDomain).forEach(
-            ([domainId, schema2]) => {
-              schema2?.sections?.views?.items?.forEach((v) => {
-                if (!v?.id)
-                  return;
-                suggestions2.push({
-                  label: v.id,
-                  kind: Kind.Reference,
-                  insertText: v.id,
-                  detail: `${v.type} \xB7 ${domainId}`,
-                  range
-                });
-              });
-            }
-          );
+          return r(model, position, ["form"], refs, Kind) || { suggestions: [] };
         }
-        return { suggestions: suggestions2 };
-      }
-      if (/(?:\s|^)-\s+widget\s*:\s*[\w.]*$/.test(beforeCursor)) {
-        const suggestions2 = [];
-        if (ctx.modelIndex?.schemasByDomain) {
-          Object.entries(ctx.modelIndex.schemasByDomain).forEach(
-            ([domainId, schema2]) => {
-              schema2?.sections?.views?.items?.forEach((v) => {
-                if (!v?.id)
-                  return;
-                suggestions2.push({
-                  label: v.id,
-                  kind: Kind.Reference,
-                  insertText: v.id,
-                  detail: `view \xB7 ${domainId}`,
-                  range
-                });
-              });
-            }
-          );
+        case "view": {
+          let items = cachedViews();
+          if (vctx.itemType === "menu" || vctx.itemType === "menuItem" || vctx.itemType === "action") {
+            items = items.filter(
+              (v) => [
+                "list",
+                "tabs_list",
+                "tree",
+                "dashboard",
+                "dashboard_tree"
+              ].includes(v.type || "")
+            );
+          }
+          const refs = collectRefsForField(items, ctx.currentDomainId, {
+            shortKind: Kind.Reference
+          });
+          return r(model, position, ["view"], refs, Kind) || { suggestions: [] };
         }
-        return { suggestions: suggestions2 };
-      }
-      if (/(?:\s|^)-\s+group\s*:\s*[\w.]*$/.test(beforeCursor)) {
-        const suggestions2 = [];
-        if (ctx.modelIndex?.schemasByDomain) {
-          Object.entries(ctx.modelIndex.schemasByDomain).forEach(
-            ([domainId, schema2]) => {
-              schema2?.sections?.views?.items?.forEach((v) => {
-                if (!v?.id)
-                  return;
-                suggestions2.push({
-                  label: v.id,
-                  kind: Kind.Reference,
-                  insertText: v.id,
-                  detail: `view \xB7 ${domainId}`,
-                  range
-                });
-              });
-            }
-          );
-        }
-        return { suggestions: suggestions2 };
-      }
-      if (/(?:\s|^)-\s+column\s*:\s*[\w.]*$/.test(beforeCursor)) {
-        const suggestions2 = [];
-        if (ctx.modelIndex?.schemasByDomain) {
-          Object.entries(ctx.modelIndex.schemasByDomain).forEach(
-            ([domainId, schema2]) => {
-              schema2?.sections?.views?.items?.forEach((v) => {
-                if (!v?.id)
-                  return;
-                suggestions2.push({
-                  label: v.id,
-                  kind: Kind.Reference,
-                  insertText: v.id,
-                  detail: `view \xB7 ${domainId}`,
-                  range
-                });
-              });
-            }
-          );
-        }
-        return { suggestions: suggestions2 };
-      }
-      if (/(?:\s|^)-\s+preset\s*:\s*[\w.]*$/.test(beforeCursor)) {
-        const suggestions2 = [];
-        if (ctx.modelIndex?.schemasByDomain) {
-          Object.entries(ctx.modelIndex.schemasByDomain).forEach(
-            ([domainId, schema2]) => {
-              schema2?.sections?.uiPresets?.items?.forEach((p) => {
-                if (!p?.id)
-                  return;
-                suggestions2.push({
-                  label: p.id,
-                  kind: Kind.EnumMember,
-                  insertText: p.id,
-                  detail: `preset \xB7 ${domainId}`,
-                  documentation: p.description,
-                  range
-                });
-              });
-            }
-          );
-        }
-        return { suggestions: suggestions2 };
-      }
-      const context = detectContextAtPosition(
-        model,
-        position,
-        ctx.lineMap?.lineContexts || /* @__PURE__ */ new Map()
-      );
-      if (!context)
-        return { suggestions: [] };
-      const rawIndent = (lineText.match(/^(\s*)/) || ["", ""])[1];
-      const currentIndent = "  ".repeat(Math.floor(rawIndent.length / 2));
-      const hasDash = /^\s*-/.test(beforeCursor);
-      const suggestions = [];
-      const snippetRange = {
-        startLineNumber: position.lineNumber,
-        startColumn: 1,
-        endLineNumber: position.lineNumber,
-        endColumn: wordAtPos.endColumn
-      };
-      SNIPPETS.forEach((sn) => {
-        if (sn.contexts.includes(context)) {
-          suggestions.push(
-            buildSnippetSuggestion(
-              monaco,
-              sn,
-              snippetRange,
-              currentIndent,
-              hasDash
-            )
-          );
-        }
-      });
-      const fields = FIELD_DEFINITIONS[context];
-      if (fields) {
-        fields.forEach((f) => {
-          suggestions.push(buildFieldSuggestion(monaco, f, range));
-        });
-      }
-      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
-        const ctxNow = detectContextAtPosition(
-          model,
-          position,
-          ctx.lineMap?.lineContexts || /* @__PURE__ */ new Map()
-        );
-        if (ctxNow === "viewWidgetControl" || ctxNow === "viewTableColumnControl") {
-          return {
-            suggestions: [
-              "text",
-              "text_area",
-              "select",
-              "radio",
-              "tag",
-              "level",
-              "switch",
-              "checkbox",
-              "bool_text",
-              "timestamp",
-              "date",
-              "time",
-              "tree_path",
-              "drag_drop_area",
-              "file",
-              "slider",
-              "link",
-              "uuid",
-              "mac",
-              "ip",
-              "cidr",
-              "timestamp_range"
-            ].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-        if (ctxNow === "viewWidgetLinkageControl") {
-          return {
-            suggestions: ["select", "multi_select", "table"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-        if (ctxNow === "viewNested") {
-          return {
-            suggestions: ["panel", "modal", "page"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-        if (ctxNow === "viewButton") {
-          return {
-            suggestions: ["submit", "close"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-        if (ctxNow === "viewFooterAction") {
-          return {
-            suggestions: ["run", "run_close", "run_submit"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
+        case "kind": {
+          if (vctx.container === "constraints") {
+            return r(
+              model,
+              position,
+              ["kind"],
+              mkSimple(
+                [
+                  "required",
+                  "range",
+                  "length",
+                  "regexp",
+                  "size",
+                  "mime_types",
+                  "unique"
+                ],
+                Kind.Value,
+                {
+                  required: "\u0417\u043D\u0430\u0447\u0435\u043D\u0438\u0435 \u043D\u0435 \u0434\u043E\u043B\u0436\u043D\u043E \u0431\u044B\u0442\u044C \u043F\u0443\u0441\u0442\u044B\u043C",
+                  range: "\u0427\u0438\u0441\u043B\u043E \u0432 \u0434\u0438\u0430\u043F\u0430\u0437\u043E\u043D\u0435 min..max",
+                  length: "\u0414\u043B\u0438\u043D\u0430 \u0441\u0442\u0440\u043E\u043A\u0438 \u043E\u0442 min \u0434\u043E max",
+                  regexp: "\u0421\u0442\u0440\u043E\u043A\u0430 \u0441\u043E\u043E\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0443\u0435\u0442 \u0440\u0435\u0433\u0443\u043B\u044F\u0440\u043D\u043E\u043C\u0443 \u0432\u044B\u0440\u0430\u0436\u0435\u043D\u0438\u044E",
+                  size: "\u0420\u0430\u0437\u043C\u0435\u0440 \u0444\u0430\u0439\u043B\u0430 \u043E\u0442 min \u0434\u043E max",
+                  mime_types: "\u0414\u043E\u043F\u0443\u0441\u0442\u0438\u043C\u044B\u0435 MIME-\u0442\u0438\u043F\u044B \u0432\u043B\u043E\u0436\u0435\u043D\u0438\u044F",
+                  unique: "\u0423\u043D\u0438\u043A\u0430\u043B\u044C\u043D\u043E\u0435 \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0435 (String/Integer/Uuid/Reference/Array/Table)"
+                }
+              ),
+              Kind
+            ) || { suggestions: [] };
+          }
+          return { suggestions: [] };
         }
       }
-      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
-        const ctxNow = detectContextAtPosition(
-          model,
-          position,
-          ctx.lineMap?.lineContexts || /* @__PURE__ */ new Map()
-        );
-        if (ctxNow === "group") {
-          return {
-            suggestions: [
-              "block",
-              "form",
-              "tab",
-              "tabs",
-              "resizable_block_pair"
-            ].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-      }
-      if (/^\s*direction\s*:\s*[\w]*$/.test(beforeCursor)) {
-        return {
-          suggestions: ["column"].map((v) => ({
-            label: v,
-            kind: Kind.Value,
-            insertText: v,
-            range
-          }))
-        };
-      }
-      if (/^\s*position\s*:\s*[\w]*$/.test(beforeCursor)) {
-        return {
-          suggestions: ["top", "bottom"].map((v) => ({
-            label: v,
-            kind: Kind.Value,
-            insertText: v,
-            range
-          }))
-        };
-      }
-      if (/^\s*type\s*:\s*[\w]*$/.test(beforeCursor)) {
-        const ctxNow = detectContextAtPosition(
-          model,
-          position,
-          ctx.lineMap?.lineContexts || /* @__PURE__ */ new Map()
-        );
-        if (ctxNow === "inheritSettings") {
-          return {
-            suggestions: ["append", "override", "except"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-      }
-      if (/^\s*type\s*:\s*[\w_]*$/.test(beforeCursor)) {
-        const ctxNow = detectContextAtPosition(
-          model,
-          position,
-          ctx.lineMap?.lineContexts || /* @__PURE__ */ new Map()
-        );
-        if (ctxNow === "menuRoot") {
-          return {
-            suggestions: ["root_group", "root_menu"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-        if (ctxNow === "menuItem") {
-          return {
-            suggestions: ["menu"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-        if (ctxNow === "media") {
-          return {
-            suggestions: ["icon_name"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-        if (ctxNow === "mixin") {
-          return {
-            suggestions: ["linkage", "view"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-        if (ctxNow === "mixinView") {
-          return {
-            suggestions: ["form", "tab", "panel", "page", "list"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-        if (ctxNow === "mixinPosition") {
-          return {
-            suggestions: ["begin", "after", "end"].map((v) => ({
-              label: v,
-              kind: Kind.Value,
-              insertText: v,
-              range
-            }))
-          };
-        }
-      }
-      if (/^\s*placement\s*:\s*[\w]*$/.test(beforeCursor)) {
-        return {
-          suggestions: ["top", "settings"].map((v) => ({
-            label: v,
-            kind: Kind.Value,
-            insertText: v,
-            range
-          }))
-        };
-      }
-      return { suggestions };
+      return { suggestions: [] };
     }
   });
 }
@@ -23757,6 +24361,366 @@ function applyRqlMarkers(monaco, model) {
     monaco.editor.setModelMarkers(model, "rql-check", markers);
   } catch {
   }
+}
+function applyEnumFieldMarkers(monaco, model) {
+  try {
+    const lines = model.getValue().split("\n");
+    const ctxByLine = new Array(lines.length + 1).fill(
+      null
+    );
+    let curSection = "";
+    const stack = [];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.trim() || line.trim().startsWith("#")) {
+        ctxByLine[i + 1] = i > 0 ? ctxByLine[i] : null;
+        continue;
+      }
+      const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
+      while (stack.length > 0 && stack[stack.length - 1].indent >= indent) {
+        stack.pop();
+      }
+      if (indent === 0) {
+        const sm = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+        if (sm) {
+          curSection = sm[1];
+          stack.length = 0;
+          ctxByLine[i + 1] = {
+            section: curSection,
+            container: "",
+            itemType: ""
+          };
+        }
+        continue;
+      }
+      const km = line.match(/^\s*(?:-\s+)?([a-zA-Z_][\w]*)\s*:/);
+      if (!km) {
+        ctxByLine[i + 1] = i > 0 ? ctxByLine[i] : null;
+        continue;
+      }
+      const key = km[1];
+      let container = "";
+      let containerIndent = -1;
+      let containerIdx = -1;
+      let containerLine = -1;
+      if (curSection === "views") {
+        const dc = determineViewContainer(lines, i + 1, indent);
+        container = dc.container;
+        containerLine = dc.containerLine;
+        containerIndent = dc.containerIndent;
+      } else {
+        for (let s = stack.length - 1; s >= 0; s--) {
+          if (stack[s].key !== "id" && stack[s].indent < indent) {
+            container = stack[s].key;
+            containerIndent = stack[s].indent;
+            containerLine = stack[s].line ?? -1;
+            containerIdx = s;
+            break;
+          }
+        }
+      }
+      const itemType = computeItemTypeFast(
+        lines,
+        curSection,
+        container,
+        containerLine,
+        // без + 1
+        containerIndent,
+        stack
+      );
+      ctxByLine[i + 1] = { section: curSection, container, itemType };
+      stack.push({ indent, key, line: i + 1 });
+    }
+    const markers = [];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const fm = line.match(
+        /^(\s*)(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*["']?([\w.-]+)["']?\s*(?:#.*)?$/
+      );
+      if (!fm)
+        continue;
+      const fieldName = fm[2];
+      const value = fm[3];
+      if (!value)
+        continue;
+      const vctx = ctxByLine[i + 1];
+      if (!vctx)
+        continue;
+      const fieldStart = line.indexOf(fieldName);
+      const valueStart = line.indexOf(value, fieldStart + fieldName.length);
+      if (valueStart < 0)
+        continue;
+      const startCol = valueStart + 1;
+      const endCol = startCol + value.length;
+      if (BOOLEAN_FIELD_NAMES.has(fieldName)) {
+        if (!["true", "false"].includes(value)) {
+          markers.push({
+            severity: monaco.MarkerSeverity.Warning,
+            message: `\u041F\u043E\u043B\u0435 "${fieldName}" \u043E\u0436\u0438\u0434\u0430\u0435\u0442 boolean: true \u0438\u043B\u0438 false`,
+            startLineNumber: i + 1,
+            startColumn: startCol,
+            endLineNumber: i + 1,
+            endColumn: endCol,
+            source: "enum-validator"
+          });
+        }
+        continue;
+      }
+      let expected = null;
+      let label = "";
+      if (fieldName === "type") {
+        expected = TYPE_ENUM_BY_CTX[`${vctx.section}|${vctx.itemType}`] || null;
+        label = "\u0442\u0438\u043F";
+      } else if (fieldName === "effect") {
+        expected = EFFECT_ENUM_BY_CTX[vctx.itemType] || null;
+        label = "\u044D\u0444\u0444\u0435\u043A\u0442";
+      } else if (fieldName === "target") {
+        expected = TARGET_ENUM_BY_CTX[vctx.itemType] || null;
+        label = "target";
+      } else if (fieldName === "direction") {
+        if (vctx.container === "layout")
+          expected = ["column"];
+        else if (vctx.itemType === "sortingByItem" || vctx.container === "by" || vctx.container === "defaults")
+          expected = ["asc", "desc"];
+        label = "\u043D\u0430\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u0438\u0435";
+      } else if (fieldName === "mode" && vctx.container === "search") {
+        expected = ["entity", "linkage", "both"];
+        label = "\u0440\u0435\u0436\u0438\u043C \u043F\u043E\u0438\u0441\u043A\u0430";
+      } else if (fieldName === "placement") {
+        expected = ["top", "settings"];
+        label = "\u0440\u0430\u0441\u043F\u043E\u043B\u043E\u0436\u0435\u043D\u0438\u0435";
+      } else if (fieldName === "operation") {
+        let actionType = null;
+        for (let j = i - 1; j >= 0; j--) {
+          const pl = lines[j];
+          if (/^\s*-\s+id\s*:/.test(pl))
+            break;
+          const tm = pl.match(/^\s*type\s*:\s*["']?([\w.-]+)["']?/);
+          if (tm) {
+            actionType = tm[1];
+            break;
+          }
+          if ((pl.match(/^(\s*)/) || ["", ""])[1].length === 0)
+            break;
+        }
+        if (actionType && OPERATION_ENUM_BY_ACTION_TYPE[actionType]) {
+          expected = OPERATION_ENUM_BY_ACTION_TYPE[actionType];
+          label = `operation \u0434\u043B\u044F type: ${actionType}`;
+        }
+      } else if (fieldName === "page") {
+        let actionType = null;
+        for (let j = i - 1; j >= 0; j--) {
+          const pl = lines[j];
+          if (/^\s*-\s+id\s*:/.test(pl))
+            break;
+          const tm = pl.match(/^\s*type\s*:\s*["']?([\w.-]+)["']?/);
+          if (tm) {
+            actionType = tm[1];
+            break;
+          }
+          if ((pl.match(/^(\s*)/) || ["", ""])[1].length === 0)
+            break;
+        }
+        if (actionType && ["open_list", "open_tree", "open_view"].includes(actionType)) {
+          expected = ["blank", "current"];
+          label = `page \u0434\u043B\u044F type: ${actionType}`;
+        }
+      } else if (fieldName === "iconColor") {
+        if (vctx.container === "graphView") {
+          expected = GRAPH_VIEW_COLORS.map(([c]) => c);
+          label = "\u0446\u0432\u0435\u0442 \u0438\u043A\u043E\u043D\u043A\u0438";
+        }
+      }
+      if (!expected || expected.includes(value))
+        continue;
+      markers.push({
+        severity: monaco.MarkerSeverity.Warning,
+        message: `\u041D\u0435\u0434\u043E\u043F\u0443\u0441\u0442\u0438\u043C\u043E\u0435 \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0435 ${label} "${value}". \u041E\u0436\u0438\u0434\u0430\u0435\u0442\u0441\u044F: ${expected.join(", ")}`,
+        startLineNumber: i + 1,
+        startColumn: startCol,
+        endLineNumber: i + 1,
+        endColumn: endCol,
+        source: "enum-validator"
+      });
+    }
+    monaco.editor.setModelMarkers(model, "enum-validator", markers);
+  } catch (err) {
+    console.warn("[enum-validator]", err);
+  }
+}
+function determineViewContainer(lines, currentLineIdx, currentIndent) {
+  for (let i = currentLineIdx - 1; i >= 1; i--) {
+    const l = lines[i - 1];
+    if (!l || !l.trim() || l.trim().startsWith("#"))
+      continue;
+    const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
+    if (lIndent >= currentIndent)
+      continue;
+    const m = l.match(/^\s*(?:-\s+)?([a-zA-Z_][\w]*)\s*:/);
+    if (!m)
+      continue;
+    const key = m[1];
+    if (key === "id")
+      continue;
+    return { container: key, containerLine: i, containerIndent: lIndent };
+  }
+  return { container: "", containerLine: -1, containerIndent: -1 };
+}
+function computeItemTypeFast(lines, section, container, containerLine, containerIndent, stack) {
+  if (section === "entities") {
+    if (container === "constraints")
+      return "attributeConstraint";
+    if (container === "mergeStrategy")
+      return "reconciliationMergeStrategy";
+    if (container === "graphView")
+      return "graphView";
+    if (container === "attributes") {
+      for (let s = stack.length - 1; s >= 0; s--) {
+        if (stack[s].indent >= containerIndent)
+          continue;
+        if (stack[s].key === "searching")
+          return "searchingAttributesItem";
+        break;
+      }
+      return "attribute";
+    }
+    return "entity";
+  }
+  if (section === "linkages") {
+    if (container === "constraints")
+      return "attributeConstraint";
+    if (container === "attributes")
+      return "linkageAttribute";
+    return "linkage";
+  }
+  if (section === "views") {
+    if (container === "source")
+      return "viewSourceType";
+    if (container === "widgets")
+      return "widget";
+    if (container === "groups")
+      return "group";
+    if (container === "actions")
+      return "viewTableActionType";
+    if (container === "buttons")
+      return "viewButtonType";
+    if (container === "filter")
+      return "";
+    if (container === "attributes" || container === "linkages") {
+      let parent = "";
+      for (let s = stack.length - 1; s >= 0; s--) {
+        if (stack[s].key !== "id" && stack[s].key !== container && stack[s].indent < containerIndent) {
+          parent = stack[s].key;
+          break;
+        }
+      }
+      if (parent === "filter") {
+        return container === "attributes" ? "viewFilterAttributesType" : "viewFilterLinkagesType";
+      }
+      return "";
+    }
+    if (container === "control") {
+      for (let s = stack.length - 1; s >= 0; s--) {
+        if (stack[s].indent >= containerIndent)
+          continue;
+        const k = stack[s].key;
+        if (k === "buttons" || k === "footer")
+          return "viewButtonControl";
+        if (k !== "id" && k !== "type")
+          break;
+      }
+      let widgetType = "";
+      let idLine = -1;
+      for (let i = containerLine - 1; i >= 1; i--) {
+        const l = lines[i - 1];
+        if (!l || !l.trim())
+          continue;
+        const m = l.match(/^(\s*)-\s+id\s*:/);
+        if (!m)
+          continue;
+        const ind = m[1].length;
+        if (ind >= containerIndent)
+          continue;
+        idLine = i;
+        break;
+      }
+      if (idLine > 0) {
+        for (let i = idLine + 1; i < containerLine; i++) {
+          const l = lines[i - 1];
+          if (!l || !l.trim() || l.trim().startsWith("#"))
+            continue;
+          const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
+          if (lIndent !== containerIndent)
+            continue;
+          const tm = l.match(/^\s*type\s*:\s*["']?([\w.-]+)["']?/);
+          if (tm) {
+            widgetType = tm[1];
+            break;
+          }
+        }
+      }
+      if (widgetType === "action")
+        return "viewWidgetActionControl";
+      if (widgetType === "linkage")
+        return "viewWidgetLinkageControl";
+      return "viewWidgetControl";
+    }
+    if (container === "columns" || container === "layout" || container === "sortingBy" || container === "defaults" || container === "refresh" || container === "paging" || container === "empty" || container === "selection" || container === "items" || container === "menu" || container === "tabs" || container === "footer" || container === "actionPanel" || container === "table" || container === "joins") {
+      return "";
+    }
+    if (container === "views") {
+      let isNested = false;
+      for (let i = containerLine - 1; i >= 1; i--) {
+        const l = lines[i - 1];
+        if (!l || !l.trim() || l.trim().startsWith("#"))
+          continue;
+        const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
+        if (lIndent >= containerIndent)
+          continue;
+        if (/^\s*-\s+id\s*:/.test(l)) {
+          isNested = true;
+          break;
+        }
+        if (lIndent === 0)
+          break;
+      }
+      return isNested ? "viewNested" : "view";
+    }
+    return "";
+  }
+  if (section === "dataTypes") {
+    if (container === "control")
+      return "viewWidgetControl";
+    if (container === "columns" || container === "sortingBy" || container === "defaults" || container === "paging" || container === "view") {
+      return "";
+    }
+    return "dataType";
+  }
+  if (section === "actions")
+    return "action";
+  if (section === "dataRules")
+    return container === "rule" ? "dataRuleRule" : "dataRule";
+  if (section === "uiRules")
+    return container === "rule" ? "uiRuleRule" : "uiRule";
+  if (section === "menus")
+    return container === "items" ? "menuItem" : "menu";
+  if (section === "medias")
+    return "media";
+  if (section === "sequences")
+    return "sequence";
+  if (section === "trees")
+    return "tree";
+  if (section === "transitiveLinkages")
+    return "transitiveLinkage";
+  if (section === "mixins")
+    return "mixin";
+  if (container === "layout")
+    return "layout";
+  if (container === "search")
+    return "transitiveSearch";
+  if (container === "by" || container === "defaults")
+    return "sortingByItem";
+  return "";
 }
 function applyDataTypeMarkers(monaco, model, index, currentDomainId) {
   try {
@@ -23855,7 +24819,7 @@ function applyFqidMarkers(monaco, model, index, currentDomainId) {
       }
       entityIdsByDomain.get(domLower).add(String(e.entityId).toLowerCase());
     });
-    const REF_FIELD_PATTERN = /^\s*(?:-\s+)?(inherits|entity|side1|side2|linkage|view|modal|panel|form|tab|list|page|attribute|item|source|fromView|addLinksView)\s*:\s*(.+)$/;
+    const REF_FIELD_PATTERN = /^\s*(?:-\s+)?(inherits|entity|side1|side2|linkage|attribute|item|source|linkedEntity)\s*:\s*(.+)$/;
     const FQID_IN_VALUE = /([a-z0-9][\w.\-]*\.[a-z0-9][\w.\-]*)\/([\w\-]+)/gi;
     const LOCAL_ENTITY_VALUE = /^([A-Z][\w]*)$/;
     const currentLower = (currentDomainId || "").toLowerCase();
@@ -24498,7 +25462,300 @@ function applyFqidMarkers(monaco, model, index, currentDomainId) {
     console.warn("[fqid-validator]", err);
   }
 }
-var providersRegistered, ctx, REF_FIELDS, ATTRIBUTE_LIKE_FIELDS, BASE_DATA_TYPES_COMPLETION, FIELD_DEFINITIONS, SNIPPETS, BASE_DATA_TYPES_SET;
+function applyViewRefMarkers(monaco, model, index, currentDomainId) {
+  try {
+    const text = model.getValue();
+    const lines = text.split("\n");
+    const markers = [];
+    const localDomain = (currentDomainId || "").toLowerCase();
+    const schema2 = index?.schemasByDomain?.[currentDomainId];
+    const localViewIds = /* @__PURE__ */ new Set();
+    if (Array.isArray(schema2?.allViews)) {
+      for (const v of schema2.allViews) {
+        if (v?.id)
+          localViewIds.add(String(v.id).toLowerCase());
+      }
+    }
+    if (schema2?.sections?.views?.items) {
+      for (const v of schema2.sections.views.items) {
+        if (v?.id)
+          localViewIds.add(String(v.id).toLowerCase());
+      }
+    }
+    const els = index?.viewElementsByDomain?.[currentDomainId];
+    if (els && typeof els === "object") {
+      for (const vId of Object.keys(els))
+        localViewIds.add(vId.toLowerCase());
+    }
+    const localGroupIds = /* @__PURE__ */ new Set();
+    if (els && typeof els === "object") {
+      for (const view of Object.values(els)) {
+        if (Array.isArray(view?.groups)) {
+          for (const gid of view.groups)
+            localGroupIds.add(String(gid).toLowerCase());
+        }
+        if (Array.isArray(view?.groupsWithType)) {
+          for (const g of view.groupsWithType) {
+            if (g?.id)
+              localGroupIds.add(String(g.id).toLowerCase());
+          }
+        }
+      }
+    }
+    const VIEW_REF_PATTERN = /^\s*(?:-\s+)?(view|modal|panel|list|fromView|addLinksView)\s*:\s*(.+)$/;
+    const GROUP_REF_PATTERN = /^\s*(?:-\s+)?(tab|form|block)\s*:\s*(.+)$/;
+    const checkRef = (i, line, rawValue, pool, kind) => {
+      let value = rawValue.split(" #")[0].trim();
+      if (value.startsWith('"') && value.endsWith('"') || value.startsWith("'") && value.endsWith("'")) {
+        value = value.slice(1, -1);
+      }
+      if (!value)
+        return;
+      if (value.startsWith("external:"))
+        return;
+      const slashIdx = value.indexOf("/");
+      let domain = null;
+      let localId = value;
+      if (slashIdx > 0) {
+        domain = value.slice(0, slashIdx).toLowerCase();
+        localId = value.slice(slashIdx + 1);
+      }
+      if (domain && domain !== localDomain)
+        return;
+      if (!pool.has(localId.toLowerCase())) {
+        const startCol = line.indexOf(value) + 1;
+        markers.push({
+          severity: monaco.MarkerSeverity.Warning,
+          message: kind === "view" ? `View \xAB${localId}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D \u0432 \u0434\u043E\u043C\u0435\u043D\u0435 ${currentDomainId}` : `Group \xAB${localId}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430 \u0432 \u0434\u043E\u043C\u0435\u043D\u0435 ${currentDomainId}`,
+          startLineNumber: i + 1,
+          startColumn: startCol,
+          endLineNumber: i + 1,
+          endColumn: startCol + value.length,
+          source: "view-ref-validator"
+        });
+      }
+    };
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const vm = line.match(VIEW_REF_PATTERN);
+      if (vm) {
+        checkRef(i, line, vm[2], localViewIds, "view");
+        continue;
+      }
+      const gm = line.match(GROUP_REF_PATTERN);
+      if (gm) {
+        checkRef(i, line, gm[2], localGroupIds, "group");
+      }
+    }
+    monaco.editor.setModelMarkers(model, "view-ref-validator", markers);
+  } catch (err) {
+    console.warn("[view-ref-validator]", err);
+  }
+}
+function applyAttributeMarkers(monaco, model) {
+  try {
+    const lines = model.getValue().split("\n");
+    const markers = [];
+    let section = "";
+    let sectionStart = -1;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const sectionM = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (sectionM) {
+        section = sectionM[1];
+        sectionStart = i;
+        if (section !== "entities")
+          continue;
+        let j = i + 1;
+        while (j < lines.length) {
+          if (/^[a-zA-Z_][\w]*\s*:/.test(lines[j]))
+            break;
+          j++;
+        }
+        scanEntities(lines, i + 1, j, markers, monaco);
+        i = j - 1;
+      }
+    }
+    monaco.editor.setModelMarkers(model, "attribute-validator", markers);
+  } catch (err) {
+    console.warn("[attribute-validator]", err);
+  }
+}
+function scanEntities(lines, startIdx, endIdx, markers, monaco) {
+  const entityBlocks = [];
+  let entityIndent = -1;
+  for (let i2 = startIdx; i2 < endIdx; i2++) {
+    const m = lines[i2].match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
+    if (m) {
+      entityIndent = m[1].length;
+      break;
+    }
+  }
+  if (entityIndent < 0)
+    return;
+  let i = startIdx;
+  while (i < endIdx) {
+    const em = lines[i].match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
+    if (!em || em[1].length !== entityIndent) {
+      i++;
+      continue;
+    }
+    const entityId = em[2].replace(/["']/g, "");
+    const idLine = i + 1;
+    const idIndent = em[1].length;
+    let blockEnd = i + 1;
+    for (let k = i + 1; k < endIdx; k++) {
+      const l = lines[k];
+      if (!l.trim()) {
+        blockEnd = k + 1;
+        continue;
+      }
+      const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
+      if (lIndent <= idIndent && /^(\s*)-\s+id\s*:/.test(l)) {
+        blockEnd = k;
+        break;
+      }
+      if (lIndent === 0) {
+        blockEnd = k;
+        break;
+      }
+      blockEnd = k + 1;
+    }
+    let attrsStartIdx = -1;
+    let attrsEndIdx = blockEnd;
+    let attrsIndent = -1;
+    for (let k = i + 1; k < blockEnd; k++) {
+      const l = lines[k];
+      const m = l.match(/^(\s*)attributes\s*:\s*$/);
+      if (m) {
+        attrsStartIdx = k;
+        attrsIndent = m[1].length;
+        for (let n = k + 1; n < blockEnd; n++) {
+          const nl = lines[n];
+          if (!nl.trim()) {
+            attrsEndIdx = n + 1;
+            continue;
+          }
+          const nIndent = (nl.match(/^(\s*)/) || ["", ""])[1].length;
+          if (nIndent <= attrsIndent) {
+            attrsEndIdx = n;
+            break;
+          }
+          attrsEndIdx = n + 1;
+        }
+        break;
+      }
+    }
+    const attrBlocks = [];
+    if (attrsStartIdx >= 0) {
+      let baseAttrIndent = -1;
+      for (let k = attrsStartIdx + 1; k < attrsEndIdx; k++) {
+        const m = lines[k].match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
+        if (m) {
+          baseAttrIndent = m[1].length;
+          break;
+        }
+      }
+      if (baseAttrIndent >= 0) {
+        let skipUntilIndent = -1;
+        for (let k = attrsStartIdx + 1; k < attrsEndIdx; k++) {
+          const l = lines[k];
+          if (!l.trim())
+            continue;
+          const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
+          if (skipUntilIndent >= 0) {
+            if (lIndent > skipUntilIndent)
+              continue;
+            skipUntilIndent = -1;
+          }
+          if (lIndent > baseAttrIndent && /^\s*(constraints|item|calculation|prefixRules)\s*:/.test(l)) {
+            skipUntilIndent = lIndent;
+            continue;
+          }
+          const m = l.match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
+          if (!m)
+            continue;
+          if (m[1].length !== baseAttrIndent)
+            continue;
+          attrBlocks.push({
+            id: m[2].replace(/["']/g, ""),
+            idLine: k + 1,
+            idIndent: m[1].length
+          });
+        }
+      }
+    }
+    entityBlocks.push({
+      id: entityId,
+      idLine,
+      idIndent,
+      attrsStartIdx,
+      attrsEndIdx,
+      attrBlocks
+    });
+    i = blockEnd;
+  }
+  const seenEntities = /* @__PURE__ */ new Map();
+  for (const eb of entityBlocks) {
+    if (!seenEntities.has(eb.id))
+      seenEntities.set(eb.id, []);
+    seenEntities.get(eb.id).push(eb.idLine);
+  }
+  for (const [entityId, idLines] of seenEntities) {
+    if (idLines.length < 2)
+      continue;
+    for (const line of idLines) {
+      markers.push({
+        severity: monaco.MarkerSeverity.Error,
+        message: `\u0414\u0443\u0431\u043B\u0438\u043A\u0430\u0442 entity.id \xAB${entityId}\xBB \u0432 \u0434\u043E\u043C\u0435\u043D\u0435 (\u0441\u0442\u0440\u043E\u043A\u0438 ${idLines.join(", ")})`,
+        startLineNumber: line,
+        startColumn: 1,
+        endLineNumber: line,
+        endColumn: 1e6,
+        source: "attribute-validator"
+      });
+    }
+  }
+  for (const eb of entityBlocks) {
+    const seen = /* @__PURE__ */ new Map();
+    for (const a of eb.attrBlocks) {
+      if (!seen.has(a.id))
+        seen.set(a.id, []);
+      seen.get(a.id).push(a.idLine);
+    }
+    for (const [attrId, idLines] of seen) {
+      if (idLines.length < 2)
+        continue;
+      for (const line of idLines) {
+        markers.push({
+          severity: monaco.MarkerSeverity.Error,
+          message: `\u0414\u0443\u0431\u043B\u0438\u043A\u0430\u0442 attribute.id \xAB${attrId}\xBB \u0432 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \xAB${eb.id}\xBB (\u0441\u0442\u0440\u043E\u043A\u0438 ${idLines.join(", ")})`,
+          startLineNumber: line,
+          startColumn: 1,
+          endLineNumber: line,
+          endColumn: 1e6,
+          source: "attribute-validator"
+        });
+      }
+    }
+    for (const a of eb.attrBlocks) {
+      if (!SYSTEM_ATTRIBUTE_IDS.has(a.id))
+        continue;
+      const line = lines[a.idLine - 1];
+      const startCol = line.indexOf(a.id) + 1;
+      markers.push({
+        severity: monaco.MarkerSeverity.Error,
+        message: `\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \xAB${a.id}\xBB \u0437\u0430\u0440\u0435\u0437\u0435\u0440\u0432\u0438\u0440\u043E\u0432\u0430\u043D \u0441\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u043C \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u043C. \u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u0440\u0443\u0433\u043E\u0435 \u0438\u043C\u044F.`,
+        startLineNumber: a.idLine,
+        startColumn: startCol > 0 ? startCol : 1,
+        endLineNumber: a.idLine,
+        endColumn: startCol > 0 ? startCol + a.id.length : 1e6,
+        source: "attribute-validator"
+      });
+    }
+  }
+}
+var providersRegistered, ctx, REF_FIELDS, ATTRIBUTE_LIKE_FIELDS, BASE_DATA_TYPE_DESCRIPTIONS, GRAPH_VIEW_COLORS, GRAPH_VIEW_COLOR_LABELS, RECONCILIATION_MERGE_STRATEGIES, RECONCILIATION_MERGE_LABELS, WIDGET_TYPE_DESCRIPTIONS, ACTION_TYPE_DESCRIPTIONS, EFFECT_DESCRIPTIONS, TARGET_DESCRIPTIONS, CONTROL_TYPE_DESCRIPTIONS, BASE_DATA_TYPES_COMPLETION, BOOLEAN_FIELD_NAMES, mkSimple, FIELD_DEFINITIONS, SNIPPETS, _colCache, RQL_FIELDS2, BASE_DATA_TYPES_SET, TYPE_ENUM_BY_CTX, EFFECT_ENUM_BY_CTX, TARGET_ENUM_BY_CTX, OPERATION_ENUM_BY_ACTION_TYPE, SYSTEM_ATTRIBUTE_IDS;
 var init_monaco_providers = __esm({
   "src/web/lib/monaco/monaco-providers.ts"() {
     "use strict";
@@ -24543,6 +25800,148 @@ var init_monaco_providers = __esm({
       "use",
       "searching"
     ]);
+    BASE_DATA_TYPE_DESCRIPTIONS = {
+      String: "\u0421\u0442\u0440\u043E\u043A\u0430",
+      Integer: "\u0426\u0435\u043B\u043E\u0435 \u0447\u0438\u0441\u043B\u043E",
+      Decimal: "\u0427\u0438\u0441\u043B\u043E \u0441 \u0437\u0430\u0434\u0430\u043D\u043D\u043E\u0439 \u0442\u043E\u0447\u043D\u043E\u0441\u0442\u044C\u044E",
+      Float: "\u0427\u0438\u0441\u043B\u043E \u0441 \u043F\u043B\u0430\u0432\u0430\u044E\u0449\u0435\u0439 \u0442\u043E\u0447\u043A\u043E\u0439",
+      Bool: "\u041B\u043E\u0433\u0438\u0447\u0435\u0441\u043A\u043E\u0435 \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0435 (true/false)",
+      Uuid: "\u0423\u043D\u0438\u0432\u0435\u0440\u0441\u0430\u043B\u044C\u043D\u044B\u0439 \u0443\u043D\u0438\u043A\u0430\u043B\u044C\u043D\u044B\u0439 \u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440",
+      Timestamp: "\u041C\u043E\u043C\u0435\u043D\u0442 \u0432\u0440\u0435\u043C\u0435\u043D\u0438",
+      Date: "\u041A\u0430\u043B\u0435\u043D\u0434\u0430\u0440\u043D\u0430\u044F \u0434\u0430\u0442\u0430 (YYYY-MM-DD)",
+      Time: "\u0412\u0440\u0435\u043C\u044F (hh:mm:ss)",
+      TimestampRange: "\u0414\u0438\u0430\u043F\u0430\u0437\u043E\u043D \u043C\u043E\u043C\u0435\u043D\u0442\u043E\u0432 \u0432\u0440\u0435\u043C\u0435\u043D\u0438",
+      Text: "\u0424\u043E\u0440\u043C\u0430\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0439 \u0442\u0435\u043A\u0441\u0442",
+      MAC: "MAC-\u0430\u0434\u0440\u0435\u0441",
+      IpAddress: "IP-\u0430\u0434\u0440\u0435\u0441 (IPv4 / IPv6)",
+      CIDR: "\u0410\u0434\u0440\u0435\u0441 \u043F\u043E\u0434\u0441\u0435\u0442\u0438 \u0441 \u043C\u0430\u0441\u043A\u043E\u0439",
+      URL: "URL-\u0430\u0434\u0440\u0435\u0441 \u0432\u043D\u0435\u0448\u043D\u0435\u0433\u043E \u0440\u0435\u0441\u0443\u0440\u0441\u0430",
+      Attachment: "\u041F\u0440\u0438\u043A\u0440\u0435\u043F\u043B\u0451\u043D\u043D\u044B\u0439 \u0444\u0430\u0439\u043B",
+      Identifier: "\u0427\u0435\u043B\u043E\u0432\u0435\u043A\u043E\u0447\u0438\u0442\u0430\u0435\u043C\u044B\u0439 \u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 (\u043F\u043E \u0448\u0430\u0431\u043B\u043E\u043D\u0443)",
+      Counter: "\u0421\u0447\u0451\u0442\u0447\u0438\u043A \u0432\u0440\u0435\u043C\u0435\u043D\u0438",
+      Calculation: "\u0420\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442 \u0440\u0430\u0441\u0447\u0451\u0442\u0430 \u043F\u043E \u0441\u0445\u0435\u043C\u0435",
+      Configuration: "\u0421\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 \u043A\u043E\u043D\u0444\u0438\u0433\u0443\u0440\u0430\u0446\u0438\u044E",
+      Variable: "\u0421\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 \u043F\u0435\u0440\u0435\u043C\u0435\u043D\u043D\u0443\u044E",
+      RQL: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u0446\u0438\u0438 RQL",
+      Automation: "\u0421\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0437\u0430\u0446\u0438\u044E",
+      Reference: "\u0421\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C",
+      Array: "\u041C\u0430\u0441\u0441\u0438\u0432 \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0439",
+      Table: "\u0422\u0430\u0431\u043B\u0438\u0446\u0430",
+      Enum: "\u041F\u0435\u0440\u0435\u0447\u0438\u0441\u043B\u0435\u043D\u0438\u0435 (\u0442\u043E\u043B\u044C\u043A\u043E \u0432 dataTypes[])",
+      Workflow: "\u0420\u0430\u0431\u043E\u0447\u0438\u0439 \u043F\u0440\u043E\u0446\u0435\u0441\u0441 (\u0442\u043E\u043B\u044C\u043A\u043E \u0432 dataTypes[])"
+    };
+    GRAPH_VIEW_COLORS = [
+      ["red", "\u041A\u0440\u0430\u0441\u043D\u044B\u0439"],
+      ["pink", "\u0420\u043E\u0437\u043E\u0432\u044B\u0439"],
+      ["lightpink", "\u0421\u0432\u0435\u0442\u043B\u043E-\u0440\u043E\u0437\u043E\u0432\u044B\u0439"],
+      ["orange", "\u041E\u0440\u0430\u043D\u0436\u0435\u0432\u044B\u0439"],
+      ["peach", "\u041F\u0435\u0440\u0441\u0438\u043A\u043E\u0432\u044B\u0439"],
+      ["yellow", "\u0416\u0451\u043B\u0442\u044B\u0439"],
+      ["green", "\u0417\u0435\u043B\u0451\u043D\u044B\u0439"],
+      ["lightgreen", "\u0421\u0432\u0435\u0442\u043B\u043E-\u0437\u0435\u043B\u0451\u043D\u044B\u0439"],
+      ["turquoise", "\u0411\u0438\u0440\u044E\u0437\u043E\u0432\u044B\u0439"],
+      ["lightblue", "\u0413\u043E\u043B\u0443\u0431\u043E\u0439"],
+      ["blue", "\u0421\u0438\u043D\u0438\u0439"],
+      ["violet", "\u0424\u0438\u043E\u043B\u0435\u0442\u043E\u0432\u044B\u0439"],
+      ["purple", "\u041F\u0443\u0440\u043F\u0443\u0440\u043D\u044B\u0439"],
+      ["grey", "\u0421\u0435\u0440\u044B\u0439"]
+    ];
+    GRAPH_VIEW_COLOR_LABELS = Object.fromEntries(GRAPH_VIEW_COLORS);
+    RECONCILIATION_MERGE_STRATEGIES = [
+      ["replace", "\u0417\u0430\u043C\u0435\u043D\u0430 \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u044F"],
+      ["array_merge", "\u041E\u0431\u044A\u0435\u0434\u0438\u043D\u0435\u043D\u0438\u0435 \u0443\u043D\u0438\u043A\u0430\u043B\u044C\u043D\u044B\u0445 \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u043E\u0432"],
+      ["array_concat", "\u041A\u043E\u043D\u043A\u0430\u0442\u0435\u043D\u0430\u0446\u0438\u044F \u0432\u0441\u0435\u0445 \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u043E\u0432"],
+      ["earliest_date", "\u0412\u044B\u0431\u043E\u0440 \u0441\u0430\u043C\u043E\u0439 \u0440\u0430\u043D\u043D\u0435\u0439 \u0434\u0430\u0442\u044B"],
+      ["latest_date", "\u0412\u044B\u0431\u043E\u0440 \u0441\u0430\u043C\u043E\u0439 \u043F\u043E\u0437\u0434\u043D\u0435\u0439 \u0434\u0430\u0442\u044B"]
+    ];
+    RECONCILIATION_MERGE_LABELS = Object.fromEntries(
+      RECONCILIATION_MERGE_STRATEGIES
+    );
+    WIDGET_TYPE_DESCRIPTIONS = {
+      attribute: "\u0412\u0438\u0434\u0436\u0435\u0442 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430 (\u043F\u0440\u043E\u0441\u043C\u043E\u0442\u0440/\u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435 \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u044F)",
+      action: "\u0412\u0438\u0434\u0436\u0435\u0442 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F (\u043A\u043D\u043E\u043F\u043A\u0430/\u043C\u0435\u043D\u044E)",
+      linkage: "\u0412\u0438\u0434\u0436\u0435\u0442 \u0441\u0432\u044F\u0437\u0438 (\u043F\u0440\u043E\u0441\u043C\u043E\u0442\u0440 \u0438 \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435 \u0441\u0432\u044F\u0437\u0430\u043D\u043D\u044B\u0445 \u043E\u0431\u044A\u0435\u043A\u0442\u043E\u0432)",
+      linkage_list: "\u0421\u043F\u0438\u0441\u043E\u043A \u0441\u0432\u044F\u0437\u0435\u0439",
+      linked_objects_groups: "\u0413\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u043A\u0430 \u0441\u0432\u044F\u0437\u0430\u043D\u043D\u044B\u0445 \u043E\u0431\u044A\u0435\u043A\u0442\u043E\u0432 (\u0442\u0430\u0431\u043B\u0438\u0446\u0430)",
+      join: "\u0422\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u0430\u044F \u0441\u0432\u044F\u0437\u044C (\u0430\u0442\u0440\u0438\u0431\u0443\u0442 \u0447\u0435\u0440\u0435\u0437 \u0446\u0435\u043F\u043E\u0447\u043A\u0443)",
+      history: "\u0418\u0441\u0442\u043E\u0440\u0438\u044F \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439 (\u0441\u043E\u0431\u044B\u0442\u0438\u044F \u0430\u0443\u0434\u0438\u0442\u0430)",
+      runs_history: "\u0418\u0441\u0442\u043E\u0440\u0438\u044F \u0437\u0430\u043F\u0443\u0441\u043A\u043E\u0432 \u0441\u0446\u0435\u043D\u0430\u0440\u0438\u0435\u0432",
+      comments: "\u041A\u043E\u043C\u043C\u0435\u043D\u0442\u0430\u0440\u0438\u0438",
+      card: "\u041A\u0430\u0440\u0442\u043E\u0447\u043A\u0430 \u0434\u043B\u044F \u0434\u0430\u0448\u0431\u043E\u0440\u0434\u0430",
+      conversation: "\u041F\u0435\u0440\u0435\u043F\u0438\u0441\u043A\u0438",
+      visualization: "\u0412\u0438\u0437\u0443\u0430\u043B\u0438\u0437\u0430\u0446\u0438\u044F (\u0433\u0440\u0430\u0444\u0438\u043A\u0438/\u0434\u0438\u0430\u0433\u0440\u0430\u043C\u043C\u044B/\u0442\u0430\u0431\u043B\u0438\u0446\u0430)",
+      calculation: "\u0420\u0430\u0441\u0447\u0451\u0442 \u043F\u043E \u0441\u0445\u0435\u043C\u0435",
+      template_editor: "\u0420\u0435\u0434\u0430\u043A\u0442\u043E\u0440 \u0448\u0430\u0431\u043B\u043E\u043D\u043E\u0432",
+      addressBook: "\u0410\u0434\u0440\u0435\u0441\u043D\u0430\u044F \u043A\u043D\u0438\u0433\u0430"
+    };
+    ACTION_TYPE_DESCRIPTIONS = {
+      open_panel: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043F\u0430\u043D\u0435\u043B\u044C (\u043A\u043E\u043C\u043F\u0430\u043A\u0442\u043D\u043E\u0435 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0435)",
+      open_modal: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043C\u043E\u0434\u0430\u043B\u044C\u043D\u043E\u0435 \u043E\u043A\u043D\u043E (\u0441\u043E\u0437\u0434\u0430\u043D\u0438\u0435/\u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435)",
+      open_page: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043F\u043E\u043B\u043D\u043E\u044D\u043A\u0440\u0430\u043D\u043D\u0443\u044E \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0443",
+      open_graph_view: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0434\u0438\u0430\u0433\u0440\u0430\u043C\u043C\u0443 \u0441\u0432\u044F\u0437\u0435\u0439",
+      open_board_view: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0434\u043E\u0441\u043A\u0443",
+      open_list: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u043F\u0438\u0441\u043E\u0447\u043D\u043E\u0435 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0435 \u0441 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u043E\u043C",
+      open_tree: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0434\u0440\u0435\u0432\u043E\u0432\u0438\u0434\u043D\u043E\u0435 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0435",
+      open_view: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0435 \u0431\u0435\u0437 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u0430",
+      remove: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u043E\u0431\u044A\u0435\u043A\u0442",
+      bulk: "\u041C\u0430\u0441\u0441\u043E\u0432\u043E\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u043D\u0430\u0434 \u043E\u0431\u044A\u0435\u043A\u0442\u0430\u043C\u0438",
+      tree_bulk: "\u041C\u0430\u0441\u0441\u043E\u0432\u043E\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u0432 \u0434\u0440\u0435\u0432\u043E\u0432\u0438\u0434\u043D\u043E\u043C \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0438",
+      set_attribute_value: "\u0423\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430",
+      automation: "\u0417\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u044C \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0437\u0430\u0446\u0438\u044E",
+      scenario: "\u0417\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u044C \u0441\u0446\u0435\u043D\u0430\u0440\u0438\u0439/\u0441\u043A\u0440\u0438\u043F\u0442",
+      generate_qr_code: "\u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C QR-\u043A\u043E\u0434",
+      copy_entity_link: "\u0421\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C URL \u043E\u0431\u044A\u0435\u043A\u0442\u0430",
+      open_external_widget_modal: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0432\u043D\u0435\u0448\u043D\u0438\u0439 \u0432\u0438\u0434\u0436\u0435\u0442 \u0432 \u043C\u043E\u0434\u0430\u043B\u044C\u043D\u043E\u043C \u043E\u043A\u043D\u0435"
+    };
+    EFFECT_DESCRIPTIONS = {
+      hidden: "\u0421\u043A\u0440\u044B\u0442\u044C \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u044B \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F",
+      show: "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u044B \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F (\u043F\u0435\u0440\u0435\u0431\u0438\u0432\u0430\u0435\u0442 hidden)",
+      hiddenEmpty: "\u0421\u043A\u0440\u044B\u0442\u044C, \u0435\u0441\u043B\u0438 \u043F\u0443\u0441\u0442\u043E",
+      readonly: "\u0421\u0434\u0435\u043B\u0430\u0442\u044C \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u044B\u043C \u0434\u043B\u044F \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F",
+      editable: "\u0420\u0430\u0437\u0440\u0435\u0448\u0438\u0442\u044C \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435 (\u043F\u0435\u0440\u0435\u0431\u0438\u0432\u0430\u0435\u0442 readonly)",
+      inherit: "\u041D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u044C \u043F\u0440\u0430\u0432\u0438\u043B\u043E \u0438\u0437 \u0440\u043E\u0434\u0438\u0442\u0435\u043B\u044F",
+      variant: "\u041F\u0440\u0438\u043C\u0435\u043D\u0438\u0442\u044C \u0432\u0430\u0440\u0438\u0430\u043D\u0442 \u043E\u0444\u043E\u0440\u043C\u043B\u0435\u043D\u0438\u044F (\u043F\u0440\u0435\u0441\u0435\u0442\u044B)",
+      required: "\u0421\u0434\u0435\u043B\u0430\u0442\u044C \u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u044B\u043C \u0434\u043B\u044F \u0437\u0430\u043F\u043E\u043B\u043D\u0435\u043D\u0438\u044F",
+      default: "\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u044C \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0435 \u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E",
+      allowed: "\u041E\u0433\u0440\u0430\u043D\u0438\u0447\u0438\u0442\u044C \u0441\u043F\u0438\u0441\u043E\u043A \u0434\u043E\u043F\u0443\u0441\u0442\u0438\u043C\u044B\u0445 \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0439"
+    };
+    TARGET_DESCRIPTIONS = {
+      entity: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C (\u0435\u0451 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0438 \u0441\u0432\u044F\u0437\u0438)",
+      entityAttribute: "\u042D\u043B\u0435\u043C\u0435\u043D\u0442\u044B \u043C\u0430\u0441\u0441\u0438\u0432\u0430 \u0438\u043B\u0438 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0442\u0430\u0431\u043B\u0438\u0446\u044B",
+      linkage: "\u0421\u0432\u044F\u0437\u044C \u0438 \u0435\u0451 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B",
+      list_view: "\u0421\u043F\u0438\u0441\u043E\u0447\u043D\u043E\u0435 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0435",
+      entity_view: "\u041F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 (\u043A\u043E\u043C\u043F\u0430\u043A\u0442\u043D\u043E\u0435/\u043C\u043E\u0434\u0430\u043B\u044C\u043D\u043E\u0435/\u043F\u043E\u043B\u043D\u043E\u044D\u043A\u0440\u0430\u043D\u043D\u043E\u0435)",
+      entity_attribute: "\u041A\u043E\u043B\u043E\u043D\u043A\u0438 \u0442\u0430\u0431\u043B\u0438\u0446 / \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u044B \u043C\u0430\u0441\u0441\u0438\u0432\u043E\u0432"
+    };
+    CONTROL_TYPE_DESCRIPTIONS = {
+      text: "\u041E\u0434\u043D\u043E\u0441\u0442\u0440\u043E\u0447\u043D\u043E\u0435 \u0442\u0435\u043A\u0441\u0442\u043E\u0432\u043E\u0435 \u043F\u043E\u043B\u0435",
+      text_area: "\u041C\u043D\u043E\u0433\u043E\u0441\u0442\u0440\u043E\u0447\u043D\u043E\u0435 \u0442\u0435\u043A\u0441\u0442\u043E\u0432\u043E\u0435 \u043F\u043E\u043B\u0435",
+      select: "\u0412\u044B\u043F\u0430\u0434\u0430\u044E\u0449\u0438\u0439 \u0441\u043F\u0438\u0441\u043E\u043A",
+      radio: "\u0420\u0430\u0434\u0438\u043E\u043A\u043D\u043E\u043F\u043A\u0438",
+      tag: "\u0422\u0435\u0433",
+      level: "\u0418\u043D\u0434\u0438\u043A\u0430\u0442\u043E\u0440 \u0443\u0440\u043E\u0432\u043D\u044F",
+      switch: "\u041F\u0435\u0440\u0435\u043A\u043B\u044E\u0447\u0430\u0442\u0435\u043B\u044C",
+      checkbox: "\u0427\u0435\u043A\u0431\u043E\u043A\u0441",
+      bool_text: "\u0422\u0435\u043A\u0441\u0442 \u0432\u043C\u0435\u0441\u0442\u043E true/false",
+      timestamp: "\u0414\u0430\u0442\u0430-\u0432\u0440\u0435\u043C\u044F",
+      date: "\u0414\u0430\u0442\u0430",
+      time: "\u0412\u0440\u0435\u043C\u044F",
+      tree_path: "\u041F\u0443\u0442\u044C \u0432 \u0434\u0435\u0440\u0435\u0432\u0435",
+      drag_drop_area: "\u041E\u0431\u043B\u0430\u0441\u0442\u044C \u043F\u0435\u0440\u0435\u0442\u0430\u0441\u043A\u0438\u0432\u0430\u043D\u0438\u044F \u0444\u0430\u0439\u043B\u043E\u0432",
+      file: "\u041A\u043D\u043E\u043F\u043A\u0430 \u0432\u044B\u0431\u043E\u0440\u0430 \u0444\u0430\u0439\u043B\u0430",
+      slider: "\u041F\u043E\u043B\u0437\u0443\u043D\u043E\u043A",
+      link: "\u0421\u0441\u044B\u043B\u043A\u0430",
+      uuid: "UUID-\u043F\u043E\u043B\u0435",
+      mac: "MAC-\u0430\u0434\u0440\u0435\u0441",
+      ip: "IP-\u0430\u0434\u0440\u0435\u0441",
+      cidr: "CIDR-\u0430\u0434\u0440\u0435\u0441",
+      counter: "\u0421\u0447\u0451\u0442\u0447\u0438\u043A \u0432\u0440\u0435\u043C\u0435\u043D\u0438",
+      multi_select: "\u041C\u0443\u043B\u044C\u0442\u0438\u0432\u044B\u0431\u043E\u0440",
+      table: "\u0422\u0430\u0431\u043B\u0438\u0446\u0430",
+      list: "\u0421\u043F\u0438\u0441\u043E\u043A",
+      tree: "\u0414\u0435\u0440\u0435\u0432\u043E",
+      rql: "\u0420\u0435\u0434\u0430\u043A\u0442\u043E\u0440 RQL"
+    };
     BASE_DATA_TYPES_COMPLETION = [
       "String",
       "Integer",
@@ -24573,6 +25972,31 @@ var init_monaco_providers = __esm({
       "Enum",
       "Workflow"
     ];
+    BOOLEAN_FIELD_NAMES = /* @__PURE__ */ new Set([
+      "readonly",
+      "hidden",
+      "searchable",
+      "useForSearch",
+      "undirected",
+      "enable",
+      "enabled",
+      "expandable",
+      "scanTarget",
+      "scanTargetGroup",
+      "isMixin",
+      "useForChild",
+      "createZeroRecord",
+      "contextPin",
+      "ordering",
+      "selection"
+    ]);
+    mkSimple = (vals, kind, descriptions) => vals.map((t) => ({
+      label: t,
+      insertText: " " + t,
+      kind,
+      sortText: t,
+      documentation: descriptions?.[t]
+    }));
     FIELD_DEFINITIONS = {
       entity: [
         {
@@ -24827,6 +26251,11 @@ var init_monaco_providers = __esm({
           description: "\u041E\u043F\u0435\u0440\u0430\u0446\u0438\u044F: create, edit, view, remove"
         },
         {
+          name: "page",
+          type: "enum",
+          description: "blank \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u0432 \u043D\u043E\u0432\u043E\u043C \u043E\u043A\u043D\u0435, current \u2014 \u0432 \u0442\u0435\u043A\u0443\u0449\u0435\u043C (\u0442\u043E\u043B\u044C\u043A\u043E \u0434\u043B\u044F open_list / open_tree / open_view)"
+        },
+        {
           name: "automation",
           type: "object",
           description: "\u0421\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0437\u0430\u0446\u0438\u044E"
@@ -24872,7 +26301,7 @@ var init_monaco_providers = __esm({
         {
           name: "condition",
           type: "rql",
-          description: "\u0423\u0441\u043B\u043E\u0432\u0438\u0435 \u043F\u0440\u0430\u0432\u0438\u043B\u0430 (RQL \u0438\u043B\u0438 true)",
+          description: "\u0423\u0441\u043B\u043E\u0432\u0438\u0435 \u043F\u0440\u0430\u0432\u0438\u043B\u0430. RQL-\u0432\u044B\u0440\u0430\u0436\u0435\u043D\u0438\u0435 \u0441 \u0442\u0435\u0433\u043E\u043C !rql (\u043D\u0430\u043F\u0440\u0438\u043C\u0435\u0440: !rql @doc.status = 'NEW') \u0438\u043B\u0438 \u043B\u0438\u0442\u0435\u0440\u0430\u043B true/false. \u041C\u043D\u043E\u0433\u043E\u0441\u0442\u0440\u043E\u0447\u043D\u043E\u0435 \u2014 \u0447\u0435\u0440\u0435\u0437 !rql |",
           required: true
         },
         {
@@ -24954,6 +26383,57 @@ var init_monaco_providers = __esm({
           description: "\u041F\u0430\u043D\u0435\u043B\u044C \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0439 (\u0434\u043B\u044F list)"
         },
         { name: "isMixin", type: "boolean", description: "\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u044C \u0432 \u043F\u0440\u0438\u043C\u0435\u0441\u0438" }
+      ],
+      viewNested: [
+        {
+          name: "id",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0438",
+          required: true
+        },
+        {
+          name: "type",
+          type: "enum",
+          description: "panel | modal | page",
+          required: true
+        },
+        { name: "description", type: "string", description: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" },
+        { name: "label", type: "string", description: "\u0417\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0438" },
+        {
+          name: "inherit",
+          type: "ref",
+          description: "\u041D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435 \u043E\u0442 \u0434\u0440\u0443\u0433\u043E\u0439 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0438"
+        },
+        { name: "menu", type: "array", description: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u0432 \u043C\u0435\u043D\u044E (\u0434\u043B\u044F panel)" },
+        { name: "tabs", type: "array", description: "\u0412\u043A\u043B\u0430\u0434\u043A\u0438 (\u0434\u043B\u044F panel/page)" },
+        { name: "footer", type: "array", description: "\u041D\u0438\u0436\u043D\u044F\u044F \u0441\u0435\u043A\u0446\u0438\u044F (modal)" },
+        { name: "onView", type: "array", description: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u043F\u0440\u0438 \u043E\u0442\u043A\u0440\u044B\u0442\u0438\u0438" },
+        {
+          name: "form",
+          type: "ref",
+          description: "\u0421\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 \u0433\u0440\u0443\u043F\u043F\u0443 form (\u0434\u043B\u044F modal)"
+        },
+        {
+          name: "buttons",
+          type: "array",
+          description: "\u041A\u043D\u043E\u043F\u043A\u0438 submit/close (\u0434\u043B\u044F modal)"
+        },
+        {
+          name: "menuItem",
+          type: "ref",
+          description: "\u0421\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 \u043F\u0443\u043D\u043A\u0442 \u043C\u0435\u043D\u044E (\u0434\u043B\u044F page)"
+        },
+        {
+          name: "actionPanel",
+          type: "array",
+          description: "\u041F\u0430\u043D\u0435\u043B\u044C \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0439 (\u0434\u043B\u044F page)"
+        },
+        { name: "block", type: "ref", description: "\u0415\u0434\u0438\u043D\u044B\u0439 \u0431\u043B\u043E\u043A (\u0434\u043B\u044F page)" },
+        {
+          name: "pinnedView",
+          type: "object",
+          description: "\u0417\u0430\u043A\u0440\u0435\u043F\u043B\u0451\u043D\u043D\u044B\u0439 \u0431\u043B\u043E\u043A (\u0434\u043B\u044F page)"
+        }
       ],
       widget: [
         {
@@ -25991,69 +27471,6 @@ var init_monaco_providers = __esm({
         { name: "widget", type: "ref", description: "\u0421\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 \u0432\u0438\u0434\u0436\u0435\u0442" },
         { name: "block", type: "ref", description: "\u0421\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 \u0432\u043B\u043E\u0436\u0435\u043D\u043D\u044B\u0439 \u0431\u043B\u043E\u043A" }
       ],
-      viewNested: [
-        {
-          name: "id",
-          type: "string",
-          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0438 (View ID)",
-          required: true
-        },
-        { name: "description", type: "string", description: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" },
-        {
-          name: "type",
-          type: "enum",
-          description: "panel | modal | page",
-          required: true
-        },
-        {
-          name: "inherit",
-          type: "ref",
-          description: "\u041D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435 \u043E\u0442 \u0434\u0440\u0443\u0433\u043E\u0439 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0438"
-        },
-        { name: "label", type: "string", description: "\u0417\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0438" },
-        { name: "menu", type: "array", description: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u0432 \u043C\u0435\u043D\u044E (\u0434\u043B\u044F panel)" },
-        { name: "tabs", type: "array", description: "\u0412\u043A\u043B\u0430\u0434\u043A\u0438 (\u0434\u043B\u044F panel)" },
-        {
-          name: "footer",
-          type: "array",
-          description: "\u041D\u0438\u0436\u043D\u044F\u044F \u0441\u0435\u043A\u0446\u0438\u044F \u0441 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F\u043C\u0438"
-        },
-        {
-          name: "onView",
-          type: "array",
-          description: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u043F\u0440\u0438 \u043E\u0442\u043A\u0440\u044B\u0442\u0438\u0438 (\u0442\u043E\u043B\u044C\u043A\u043E set_attribute_value)"
-        },
-        {
-          name: "form",
-          type: "ref",
-          description: "\u0421\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 \u0433\u0440\u0443\u043F\u043F\u0443 form (\u0434\u043B\u044F modal)"
-        },
-        {
-          name: "buttons",
-          type: "array",
-          description: "\u041A\u043D\u043E\u043F\u043A\u0438 submit/close (\u0434\u043B\u044F modal)"
-        },
-        {
-          name: "menuItem",
-          type: "ref",
-          description: "\u0421\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 \u043F\u0443\u043D\u043A\u0442 \u043C\u0435\u043D\u044E (\u0434\u043B\u044F page)"
-        },
-        {
-          name: "actionPanel",
-          type: "array",
-          description: "\u041F\u0430\u043D\u0435\u043B\u044C \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0439 (\u0434\u043B\u044F page)"
-        },
-        {
-          name: "block",
-          type: "ref",
-          description: "\u0415\u0434\u0438\u043D\u044B\u0439 \u0431\u043B\u043E\u043A \u0432 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0435 (\u0434\u043B\u044F page, \u0431\u0435\u0437 tabs)"
-        },
-        {
-          name: "pinnedView",
-          type: "object",
-          description: "\u0417\u0430\u043A\u0440\u0435\u043F\u043B\u0451\u043D\u043D\u044B\u0439 \u0431\u043B\u043E\u043A (\u0434\u043B\u044F page)"
-        }
-      ],
       viewButton: [
         {
           name: "type",
@@ -26528,6 +27945,247 @@ var init_monaco_providers = __esm({
           name: "exportSystemAttributes",
           type: "string",
           description: "\u0421\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0434\u043B\u044F \u044D\u043A\u0441\u043F\u043E\u0440\u0442\u0430 (id \u0438\u043B\u0438 all)"
+        }
+      ],
+      attributeConstraint: [
+        {
+          name: "kind",
+          type: "enum",
+          description: "\u0412\u0438\u0434 \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u0438: required | range | length | regexp | size | mime_types | unique",
+          required: true
+        },
+        {
+          name: "message",
+          type: "string",
+          description: "\u0421\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435 \u043E\u0431 \u043E\u0448\u0438\u0431\u043A\u0435 \u043F\u0440\u0438 \u0441\u0440\u0430\u0431\u0430\u0442\u044B\u0432\u0430\u043D\u0438\u0438"
+        },
+        {
+          name: "min",
+          type: "number",
+          description: "\u041C\u0438\u043D\u0438\u043C\u0443\u043C: \u0434\u043B\u044F range \u2014 \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0435, \u0434\u043B\u044F length \u2014 \u0441\u0438\u043C\u0432\u043E\u043B\u043E\u0432"
+        },
+        {
+          name: "max",
+          type: "number",
+          description: "\u041C\u0430\u043A\u0441\u0438\u043C\u0443\u043C: \u0434\u043B\u044F range \u2014 \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0435, \u0434\u043B\u044F length/size \u2014 \u043B\u0438\u043C\u0438\u0442"
+        },
+        {
+          name: "regexp",
+          type: "string",
+          description: "\u0420\u0435\u0433\u0443\u043B\u044F\u0440\u043D\u043E\u0435 \u0432\u044B\u0440\u0430\u0436\u0435\u043D\u0438\u0435 (\u0442\u043E\u043B\u044C\u043A\u043E \u0434\u043B\u044F kind: regexp)"
+        },
+        {
+          name: "mimeTypes",
+          type: "array",
+          description: "\u0421\u043F\u0438\u0441\u043E\u043A MIME-\u0442\u0438\u043F\u043E\u0432 (\u0442\u043E\u043B\u044C\u043A\u043E \u0434\u043B\u044F kind: mime_types)"
+        }
+      ],
+      arrayItem: [
+        {
+          name: "dataType",
+          type: "enum",
+          description: "\u0422\u0438\u043F \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u0430 \u043C\u0430\u0441\u0441\u0438\u0432\u0430 (String, Reference, Enum, \u2026)",
+          required: true
+        },
+        {
+          name: "entity",
+          type: "ref",
+          description: "\u0426\u0435\u043B\u0435\u0432\u0430\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C (\u0442\u043E\u043B\u044C\u043A\u043E \u0434\u043B\u044F dataType: Reference)"
+        },
+        {
+          name: "item",
+          type: "object",
+          description: "\u041F\u0430\u0440\u0430\u043C\u0435\u0442\u0440\u044B \u0432\u043B\u043E\u0436\u0435\u043D\u043D\u043E\u0433\u043E \u043C\u0430\u0441\u0441\u0438\u0432\u0430 (\u0434\u043B\u044F Array)"
+        },
+        {
+          name: "constraints",
+          type: "array",
+          description: "\u041E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u0430 \u043C\u0430\u0441\u0441\u0438\u0432\u0430"
+        },
+        {
+          name: "calculation",
+          type: "object",
+          description: "\u0421\u0441\u044B\u043B\u043A\u0430 \u043D\u0430 \u0440\u0430\u0441\u0447\u0451\u0442 (\u0434\u043B\u044F Calculation)"
+        }
+      ],
+      calculation: [
+        {
+          name: "schemaId",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0441\u0445\u0435\u043C\u044B, \u0433\u0434\u0435 \u043E\u043F\u0440\u0435\u0434\u0435\u043B\u0451\u043D \u0440\u0430\u0441\u0447\u0451\u0442",
+          required: true
+        },
+        {
+          name: "id",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0440\u0430\u0441\u0447\u0451\u0442\u0430",
+          required: true
+        }
+      ],
+      prefixRule: [
+        {
+          name: "id",
+          type: "string",
+          description: "\u0423\u043D\u0438\u043A\u0430\u043B\u044C\u043D\u044B\u0439 \u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u043F\u0440\u0430\u0432\u0438\u043B\u0430",
+          required: true
+        },
+        {
+          name: "attribute",
+          type: "ref",
+          description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442 \u0442\u0435\u043A\u0443\u0449\u0435\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0434\u043B\u044F \u0441\u0440\u0430\u0432\u043D\u0435\u043D\u0438\u044F",
+          required: true
+        },
+        {
+          name: "source",
+          type: "object",
+          description: "\u0418\u0441\u0442\u043E\u0447\u043D\u0438\u043A \u0441\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A\u0430 \u0434\u043B\u044F \u043F\u043E\u0434\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438 \u043F\u0440\u0435\u0444\u0438\u043A\u0441\u0430",
+          required: true
+        }
+      ],
+      prefixRuleSource: [
+        {
+          name: "entity",
+          type: "ref",
+          description: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C-\u0441\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A",
+          required: true
+        },
+        {
+          name: "key",
+          type: "ref",
+          description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442 \u0441\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A\u0430 \u0434\u043B\u044F \u0441\u0440\u0430\u0432\u043D\u0435\u043D\u0438\u044F",
+          required: true
+        },
+        {
+          name: "value",
+          type: "ref",
+          description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442 \u0441\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A\u0430, \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0435 \u043A\u043E\u0442\u043E\u0440\u043E\u0433\u043E \u0441\u0442\u0430\u043D\u0435\u0442 \u043F\u0440\u0435\u0444\u0438\u043A\u0441\u043E\u043C (String)",
+          required: true
+        }
+      ],
+      sortingItem: [
+        {
+          name: "id",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0438",
+          required: true
+        },
+        { name: "name", type: "string", description: "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u043F\u0440\u0430\u0432\u0438\u043B\u0430" },
+        {
+          name: "by",
+          type: "array",
+          description: "\u0421\u043E\u0440\u0442\u0438\u0440\u0443\u0435\u043C\u044B\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B (attribute + direction)",
+          required: true
+        },
+        {
+          name: "createIndex",
+          type: "boolean",
+          description: "\u0421\u043E\u0437\u0434\u0430\u0442\u044C \u0438\u043D\u0434\u0435\u043A\u0441 \u0434\u043B\u044F \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0438"
+        }
+      ],
+      sortingByItem: [
+        {
+          name: "attribute",
+          type: "ref",
+          description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442 \u0434\u043B\u044F \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0438",
+          required: true
+        },
+        {
+          name: "direction",
+          type: "enum",
+          description: "asc \u2014 \u043F\u043E \u0432\u043E\u0437\u0440\u0430\u0441\u0442\u0430\u043D\u0438\u044E, desc \u2014 \u043F\u043E \u0443\u0431\u044B\u0432\u0430\u043D\u0438\u044E"
+        }
+      ],
+      searchingAttributesItem: [],
+      // здесь field-completion не нужен — автокомплит значений отдельно
+      projectionItem: [
+        {
+          name: "attribute",
+          type: "ref",
+          description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0434\u043B\u044F \u043F\u0440\u043E\u0435\u043A\u0446\u0438\u0438",
+          required: true
+        }
+      ],
+      identificationItem: [
+        {
+          name: "id",
+          type: "string",
+          description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u043F\u0440\u0430\u0432\u0438\u043B\u0430",
+          required: true
+        },
+        {
+          name: "rule",
+          type: "array",
+          description: "\u041C\u0430\u0441\u0441\u0438\u0432 \u0443\u0441\u043B\u043E\u0432\u0438\u0439 (attribute / and / or)"
+        },
+        {
+          name: "filter",
+          type: "array",
+          description: "VRL-\u043F\u0440\u0430\u0432\u0438\u043B\u043E \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u0446\u0438\u0438 (\u043C\u0430\u0441\u0441\u0438\u0432 \u0441\u0442\u0440\u043E\u043A)"
+        }
+      ],
+      identificationRuleItem: [
+        {
+          name: "attribute",
+          type: "ref",
+          description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442 \u0434\u043B\u044F \u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0446\u0438\u0438"
+        },
+        {
+          name: "and",
+          type: "array",
+          description: "\u0412\u043B\u043E\u0436\u0435\u043D\u043D\u044B\u0435 \u0443\u0441\u043B\u043E\u0432\u0438\u044F \u0447\u0435\u0440\u0435\u0437 \u043B\u043E\u0433\u0438\u0447\u0435\u0441\u043A\u043E\u0435 \u0418"
+        },
+        {
+          name: "or",
+          type: "array",
+          description: "\u0412\u043B\u043E\u0436\u0435\u043D\u043D\u044B\u0435 \u0443\u0441\u043B\u043E\u0432\u0438\u044F \u0447\u0435\u0440\u0435\u0437 \u043B\u043E\u0433\u0438\u0447\u0435\u0441\u043A\u043E\u0435 \u0418\u041B\u0418"
+        }
+      ],
+      reconciliationItem: [
+        {
+          name: "attribute",
+          type: "ref",
+          description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442 \u0441 \u043F\u0440\u0438\u043E\u0440\u0438\u0442\u0435\u0442\u0430\u043C\u0438 \u0438\u0441\u0442\u043E\u0447\u043D\u0438\u043A\u043E\u0432"
+        },
+        {
+          name: "sourcePriority",
+          type: "array",
+          description: "\u041C\u0430\u0441\u0441\u0438\u0432 { source } \u0432 \u043F\u043E\u0440\u044F\u0434\u043A\u0435 \u0443\u0431\u044B\u0432\u0430\u043D\u0438\u044F \u043F\u0440\u0438\u043E\u0440\u0438\u0442\u0435\u0442\u0430"
+        },
+        {
+          name: "default",
+          type: "array",
+          description: "\u0418\u0441\u0442\u043E\u0447\u043D\u0438\u043A\u0438 \u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E \u0434\u043B\u044F \u0432\u0441\u0435\u0445 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432"
+        }
+      ],
+      reconciliationSourceItem: [
+        {
+          name: "source",
+          type: "string",
+          description: '\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0438\u0441\u0442\u043E\u0447\u043D\u0438\u043A\u0430 (\u0438\u043B\u0438 "*" \u0434\u043B\u044F \u043E\u0441\u0442\u0430\u043B\u044C\u043D\u044B\u0445)',
+          required: true
+        }
+      ],
+      reconciliationDefaultItem: [
+        {
+          name: "source",
+          type: "string",
+          description: '\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0438\u0441\u0442\u043E\u0447\u043D\u0438\u043A\u0430 (\u0438\u043B\u0438 "*" \u0434\u043B\u044F \u043E\u0441\u0442\u0430\u043B\u044C\u043D\u044B\u0445)',
+          required: true
+        }
+      ],
+      reconciliationMergeStrategy: [
+        {
+          name: "type",
+          type: "enum",
+          description: "replace | array_merge | array_concat | earliest_date | latest_date",
+          required: true
+        }
+      ],
+      graphView: [
+        {
+          name: "iconColor",
+          type: "enum",
+          description: "\u0426\u0432\u0435\u0442 \u0438\u043A\u043E\u043D\u043A\u0438 \u043D\u0430 \u0433\u0440\u0430\u0444\u0435 (red / blue / green / \u2026)"
         }
       ]
     };
@@ -27560,6 +29218,8 @@ var init_monaco_providers = __esm({
         ].join("\n")
       }
     ];
+    _colCache = { indexRef: null, domainRef: null };
+    RQL_FIELDS2 = /* @__PURE__ */ new Set(["expression", "constraint", "condition"]);
     BASE_DATA_TYPES_SET = /* @__PURE__ */ new Set([
       "String",
       "Integer",
@@ -27589,6 +29249,185 @@ var init_monaco_providers = __esm({
       "Table",
       "Enum",
       "Workflow"
+    ]);
+    TYPE_ENUM_BY_CTX = {
+      // ===== views =====
+      "views|view": [
+        "entity",
+        "list",
+        "tree",
+        "tabs_list",
+        "dashboard",
+        "dashboard_tree"
+      ],
+      "views|viewNested": ["panel", "modal", "page"],
+      "views|widget": [
+        "attribute",
+        "action",
+        "linkage",
+        "linkage_list",
+        "linked_objects_groups",
+        "join",
+        "history",
+        "runs_history",
+        "comments",
+        "card",
+        "conversation",
+        "visualization",
+        "calculation",
+        "template_editor",
+        "addressBook"
+      ],
+      "views|group": ["block", "form", "tab", "tabs", "resizable_block_pair"],
+      // ===== control внутри widget =====
+      "views|viewWidgetControl": [
+        "uuid",
+        "text",
+        "text_area",
+        "date",
+        "time",
+        "timestamp",
+        "timestamp_range",
+        "integer",
+        "decimal",
+        "float",
+        "integer_slider",
+        "decimal_slider",
+        "float_slider",
+        "bool_text",
+        "checkbox",
+        "switch",
+        "select",
+        "level",
+        "radio",
+        "multi_select",
+        "mitre_multi_select",
+        "tag_list",
+        "tag",
+        "ip",
+        "mac",
+        "cidr",
+        "file",
+        "link",
+        "url",
+        "counter",
+        "tree_path",
+        "drag_drop_area",
+        "rql",
+        "external"
+      ],
+      "views|viewWidgetLinkageControl": [
+        "select",
+        "tag",
+        "link",
+        "text",
+        "multi_select",
+        "mitre_multi_select",
+        "table",
+        "list",
+        "tree"
+      ],
+      "views|viewWidgetActionControl": [
+        "regular_button",
+        "dropdown",
+        "drag_drop_area"
+      ],
+      "views|viewButtonControl": ["regular_button"],
+      // ===== прочие type-поля views =====
+      "views|viewSourceType": ["operational"],
+      "views|viewTableActionType": [
+        "row_click",
+        "row_double_click",
+        "row_context_menu"
+      ],
+      "views|viewButtonType": ["submit", "close"],
+      "views|viewFilterAttributesType": ["specific", "all"],
+      "views|viewFilterLinkagesType": ["specific", "all"],
+      // ===== другие секции =====
+      "actions|action": [
+        "open_panel",
+        "open_modal",
+        "open_page",
+        "open_graph_view",
+        "open_board_view",
+        "open_list",
+        "open_tree",
+        "open_view",
+        "remove",
+        "bulk",
+        "tree_bulk",
+        "set_attribute_value",
+        "automation",
+        "scenario",
+        "generate_qr_code",
+        "copy_entity_link",
+        "open_external_widget_modal"
+      ],
+      "linkages|linkage": ["1_1", "1_n", "n_n"],
+      "dataTypes|dataType": ["Enum", "Table", "Workflow"],
+      "trees|tree": ["ordinary", "orderable", "multiparent"],
+      "entities|attributeConstraint": [
+        "required",
+        "range",
+        "length",
+        "regexp",
+        "size",
+        "mime_types",
+        "unique"
+      ],
+      "linkages|attributeConstraint": [
+        "required",
+        "range",
+        "length",
+        "regexp",
+        "size",
+        "mime_types",
+        "unique"
+      ],
+      // ===== entities =====
+      "entities|reconciliationMergeStrategy": [
+        "replace",
+        "array_merge",
+        "array_concat",
+        "earliest_date",
+        "latest_date"
+      ]
+    };
+    EFFECT_ENUM_BY_CTX = {
+      dataRuleRule: ["hidden", "readonly", "required", "default", "allowed"],
+      uiRuleRule: [
+        "hidden",
+        "show",
+        "hiddenEmpty",
+        "readonly",
+        "editable",
+        "inherit",
+        "variant"
+      ]
+    };
+    TARGET_ENUM_BY_CTX = {
+      dataRule: ["entity", "entityAttribute", "linkage"],
+      uiRule: ["list_view", "entity_view", "entity_attribute"]
+    };
+    OPERATION_ENUM_BY_ACTION_TYPE = {
+      open_modal: ["create", "edit"],
+      open_page: ["create", "edit", "view"],
+      bulk: ["remove", "edit", "edit_attribute", "import", "export"],
+      tree_bulk: ["edit", "remove"]
+    };
+    SYSTEM_ATTRIBUTE_IDS = /* @__PURE__ */ new Set([
+      "id",
+      "label",
+      "createdAt",
+      "updatedAt",
+      "createdBy",
+      "updatedBy",
+      "organizationId",
+      "tenantId",
+      "domainId",
+      "entityId",
+      "entityName",
+      "version"
     ]);
   }
 });
@@ -32900,19 +34739,17 @@ function YamlViewerModal() {
         selectionHighlight: false,
         renderValidationDecorations: "on",
         lightbulb: { enabled: "on" },
-        // ---- Fix A: полностью отключаем word-based ----
-        // В Monaco 0.34 опция принимает boolean; false ≡ 'off'.
         wordBasedSuggestions: false,
-        // ---- Fix B: строгий (префиксный) фильтр ----
-        // filterGraceful=true (дефолт) включает fuzzy-матчинг:
-        // 'S' матчит 'Timestamp', 'Integer' и т.п. → "не сужается".
         suggest: {
           showWords: false,
           showSnippets: false,
           showMethods: false,
           showFunctions: false,
-          filterGraceful: false
-          // ← ключевое
+          filterGraceful: false,
+          preview: true,
+          showDetails: true,
+          showInlineDetails: true,
+          showStatusBar: false
         },
         quickSuggestions: {
           other: "on",
@@ -32920,15 +34757,32 @@ function YamlViewerModal() {
           strings: "off"
         },
         suggestOnTriggerCharacters: true
+      }, {
+        storageService: {
+          get: () => null,
+          getBoolean: (key) => {
+            return key === "expandSuggestionDocs" ? true : false;
+          },
+          getNumber: () => 0,
+          store: () => {
+          },
+          onDidChangeStorage: () => ({ dispose: () => {
+          } }),
+          onWillSaveState: () => ({ dispose: () => {
+          } })
+        }
+        // Приводим к any, чтобы не реализовывать все методы интерфейса
       });
       editorRef.current = editor;
-      try {
-        editor.updateOptions({
-          wordBasedSuggestions: false,
-          suggest: { filterGraceful: false }
-        });
-      } catch {
-      }
+      setTimeout(() => {
+        const suggestController = editor.getContribution("editor.contrib.suggestController");
+        if (suggestController && suggestController.widget) {
+          const suggestWidget = suggestController.widget.value;
+          if (suggestWidget && typeof suggestWidget._setDetailsVisible === "function") {
+            suggestWidget._setDetailsVisible(true);
+          }
+        }
+      }, 50);
       setContent(fetchedContent);
       setSavedContent(fetchedContent);
       setEditorCreated(true);
@@ -33169,47 +35023,43 @@ function YamlViewerModal() {
     if (!index || !domainId)
       return;
     const m = window.monaco;
-    const model = editorRef.current.getModel();
-    if (!m || !model)
+    if (!m)
       return;
     let timer = null;
-    const runMarkers = () => {
-      if (timer)
-        clearTimeout(timer);
-      timer = setTimeout(() => {
-        applyFqidMarkers(m, model, index, domainId);
-      }, 300);
-    };
-    const disposable = editorRef.current.onDidChangeModelContent(runMarkers);
-    runMarkers();
-    return () => {
-      if (timer)
-        clearTimeout(timer);
+    const runAll = () => {
+      if (!editorRef.current)
+        return;
+      const model = editorRef.current.getModel();
+      if (!model)
+        return;
       try {
-        disposable?.dispose?.();
+        applyFqidMarkers(m, model, index, domainId);
+      } catch {
+      }
+      try {
+        applyDataTypeMarkers(m, model, index, domainId);
+      } catch {
+      }
+      try {
+        applyEnumFieldMarkers(m, model);
+      } catch {
+      }
+      try {
+        applyViewRefMarkers(m, model, index, domainId);
+      } catch {
+      }
+      try {
+        applyAttributeMarkers(m, model);
       } catch {
       }
     };
-  }, [monacoReady, editorCreated, index, domainId]);
-  useEffect35(() => {
-    if (!monacoReady || !editorCreated || !editorRef.current)
-      return;
-    if (!index || !domainId)
-      return;
-    const m = window.monaco;
-    const model = editorRef.current.getModel();
-    if (!m || !model)
-      return;
-    let timer = null;
-    const runMarkers = () => {
+    const schedule = () => {
       if (timer)
         clearTimeout(timer);
-      timer = setTimeout(() => {
-        applyDataTypeMarkers(m, model, index, domainId);
-      }, 300);
+      timer = setTimeout(runAll, 800);
     };
-    const disposable = editorRef.current.onDidChangeModelContent(runMarkers);
-    runMarkers();
+    const disposable = editorRef.current.onDidChangeModelContent(schedule);
+    runAll();
     return () => {
       if (timer)
         clearTimeout(timer);
@@ -33346,6 +35196,45 @@ ${label.message}` : ""),
     editor.revealLineInCenter(line);
     editor.setPosition({ lineNumber: line, column: 1 });
     editor.focus();
+  }, []);
+  const [activeFoldLevel, setActiveFoldLevel] = useState31(null);
+  useEffect35(() => {
+    setActiveFoldLevel(null);
+  }, [filePath, open]);
+  const gotoStart = useCallback17(() => {
+    if (!editorRef.current)
+      return;
+    editorRef.current.setPosition({ lineNumber: 1, column: 1 });
+    editorRef.current.revealLine(1);
+    editorRef.current.focus();
+  }, []);
+  const gotoEnd = useCallback17(() => {
+    const ed = editorRef.current;
+    if (!ed)
+      return;
+    const lineCount = ed.getModel()?.getLineCount() ?? 1;
+    ed.setPosition({ lineNumber: lineCount, column: 1 });
+    ed.revealLine(lineCount);
+    ed.focus();
+  }, []);
+  const toggleFold = useCallback17((level) => {
+    const ed = editorRef.current;
+    if (!ed)
+      return;
+    if (activeFoldLevel === level) {
+      ed.getAction("editor.unfoldAll")?.run();
+      setActiveFoldLevel(null);
+      return;
+    }
+    const action = ed.getAction(`editor.foldLevel${level}`);
+    if (action) {
+      action.run();
+      setActiveFoldLevel(level);
+    }
+  }, [activeFoldLevel]);
+  const unfoldAll = useCallback17(() => {
+    editorRef.current?.getAction("editor.unfoldAll")?.run();
+    setActiveFoldLevel(null);
   }, []);
   useEffect35(() => {
     if (!open || !lineMap || !fqid || !editorCreated || !editorRef.current)
@@ -34254,6 +36143,10 @@ ${label.message}` : ""),
                 !leftCollapsed && /* @__PURE__ */ jsx73("div", { className: "yaml-viewer-resizer", onMouseDown: startResizingLeft }),
                 /* @__PURE__ */ jsxs70("div", { className: "yaml-viewer-editor", children: [
                   /* @__PURE__ */ jsxs70("div", { className: "yaml-viewer-editor__toolbar", children: [
+                    /* @__PURE__ */ jsxs70("div", { className: "yaml-viewer-goto-controls", children: [
+                      /* @__PURE__ */ jsx73("button", { onClick: gotoStart, title: "\u0412 \u043D\u0430\u0447\u0430\u043B\u043E \u0444\u0430\u0439\u043B\u0430 (Ctrl+Home)", children: /* @__PURE__ */ jsx73(MIcon, { name: "vertical_align_top", size: "sm" }) }),
+                      /* @__PURE__ */ jsx73("button", { onClick: gotoEnd, title: "\u0412 \u043A\u043E\u043D\u0435\u0446 \u0444\u0430\u0439\u043B\u0430 (Ctrl+End)", children: /* @__PURE__ */ jsx73(MIcon, { name: "vertical_align_bottom", size: "sm" }) })
+                    ] }),
                     /* @__PURE__ */ jsx73("div", { className: "yaml-viewer-breadcrumbs", children: currentContext && currentContext.breadcrumbs.length > 0 ? /* @__PURE__ */ jsxs70(Fragment17, { children: [
                       currentContext.breadcrumbs.map((item, idx) => /* @__PURE__ */ jsxs70(React39.Fragment, { children: [
                         idx > 0 && /* @__PURE__ */ jsx73("span", { className: "yaml-viewer-breadcrumbs__sep", children: "\u203A" }),
@@ -34273,19 +36166,42 @@ ${label.message}` : ""),
                         cursorLine
                       ] })
                     ] }) : /* @__PURE__ */ jsx73("span", { className: "yaml-viewer-breadcrumbs__item", children: "\u2014" }) }),
-                    lineMap && /* @__PURE__ */ jsx73("div", { className: "yaml-viewer-quickjumps", children: lineMap.sections.map((s) => {
-                      const icon = s.key === "entities" ? "category" : s.key === "linkages" ? "link" : s.key === "dataTypes" ? "data_object" : s.key === "actions" ? "bolt" : s.key === "views" ? "visibility" : s.key === "menus" ? "menu" : s.key === "mixins" ? "merge" : s.key === "dataRules" ? "rule" : s.key === "medias" ? "image" : "arrow_right";
-                      return /* @__PURE__ */ jsx73(
-                        "button",
-                        {
-                          className: "yaml-viewer-quickjump",
-                          onClick: () => jumpTo(s.line),
-                          title: `${s.label} (${s.count})`,
-                          children: /* @__PURE__ */ jsx73(MIcon, { name: icon, size: "sm" })
-                        },
-                        s.key
-                      );
-                    }) })
+                    /* @__PURE__ */ jsxs70("div", { className: "yaml-viewer-toolbar-right", children: [
+                      lineMap && /* @__PURE__ */ jsx73("div", { className: "yaml-viewer-quickjumps", children: lineMap.sections.map((s) => {
+                        const icon = s.key === "entities" ? "category" : s.key === "linkages" ? "link" : s.key === "dataTypes" ? "data_object" : s.key === "actions" ? "bolt" : s.key === "views" ? "visibility" : s.key === "menus" ? "menu" : s.key === "mixins" ? "merge" : s.key === "dataRules" ? "rule" : s.key === "medias" ? "image" : "arrow_right";
+                        return /* @__PURE__ */ jsx73(
+                          "button",
+                          {
+                            className: "yaml-viewer-quickjump",
+                            onClick: () => jumpTo(s.line),
+                            title: `${s.label} (${s.count})`,
+                            children: /* @__PURE__ */ jsx73(MIcon, { name: icon, size: "sm" })
+                          },
+                          s.key
+                        );
+                      }) }),
+                      /* @__PURE__ */ jsxs70("div", { className: "yaml-viewer-fold-controls", children: [
+                        [1, 2, 3, 4, 5].map((lvl) => /* @__PURE__ */ jsx73(
+                          "button",
+                          {
+                            className: "yaml-viewer-fold-btn" + (activeFoldLevel === lvl ? " yaml-viewer-fold-btn--active" : ""),
+                            onClick: () => toggleFold(lvl),
+                            title: activeFoldLevel === lvl ? `\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0451 (\u0443\u0440\u043E\u0432\u0435\u043D\u044C ${lvl} \u0430\u043A\u0442\u0438\u0432\u0435\u043D)` : `\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0434\u043E \u0443\u0440\u043E\u0432\u043D\u044F ${lvl}`,
+                            children: lvl
+                          },
+                          lvl
+                        )),
+                        /* @__PURE__ */ jsx73(
+                          "button",
+                          {
+                            className: "yaml-viewer-fold-btn",
+                            onClick: unfoldAll,
+                            title: "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0451",
+                            children: /* @__PURE__ */ jsx73(MIcon, { name: "unfold_more", size: "sm" })
+                          }
+                        )
+                      ] })
+                    ] })
                   ] }),
                   /* @__PURE__ */ jsxs70("div", { className: "yaml-viewer-editor__canvas", children: [
                     /* @__PURE__ */ jsx73(
@@ -36068,7 +37984,6 @@ function App() {
           onShowToast: () => setToastVisible(true)
         }
       ),
-      viewMode === "graph" && /* @__PURE__ */ jsx75(ActiveModesBar, { ruleViolationsCount: ruleViolations.length }),
       /* @__PURE__ */ jsx75(
         GraphArea,
         {
@@ -36125,7 +38040,6 @@ var init_App = __esm({
     init_entities();
     init_events();
     init_Toolbar();
-    init_ActiveModesBar();
     init_Sidebar();
     init_GraphArea();
     init_AppModals();

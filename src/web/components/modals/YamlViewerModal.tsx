@@ -12,6 +12,9 @@ import {
     applyRqlMarkers,
     applyFqidMarkers,
     applyDataTypeMarkers,
+    applyEnumFieldMarkers,
+    applyViewRefMarkers,
+    applyAttributeMarkers,
 } from '../../lib/monaco/monaco-providers';
 import { useNavigation } from '../../hooks/useNavigation';
 import { extractExternalRefs, groupExternalRefs, ExternalRefGroup } from '../../lib/yaml/external-refs';
@@ -579,20 +582,17 @@ export function YamlViewerModal() {
                 selectionHighlight: false,
                 renderValidationDecorations: 'on',
                 lightbulb: { enabled: 'on' },
-
-                // ---- Fix A: полностью отключаем word-based ----
-                // В Monaco 0.34 опция принимает boolean; false ≡ 'off'.
                 wordBasedSuggestions: false as any,
-
-                // ---- Fix B: строгий (префиксный) фильтр ----
-                // filterGraceful=true (дефолт) включает fuzzy-матчинг:
-                // 'S' матчит 'Timestamp', 'Integer' и т.п. → "не сужается".
                 suggest: {
                     showWords: false,
                     showSnippets: false,
                     showMethods: false,
                     showFunctions: false,
-                    filterGraceful: false as any,   // ← ключевое
+                    filterGraceful: false as any,
+                    preview: true as any,
+                    showDetails: true as any,
+                    showInlineDetails: true as any,
+                    showStatusBar: false as any,
                 } as any,
 
                 quickSuggestions: {
@@ -601,14 +601,35 @@ export function YamlViewerModal() {
                     strings: 'off' as any,
                 },
                 suggestOnTriggerCharacters: true,
+            }, {
+                storageService: {
+                    get: () => null,
+                    getBoolean: (key: string) => {
+                        // Если ключ совпадает, возвращаем true, чтобы панель была раскрыта
+                        return key === 'expandSuggestionDocs' ? true : false;
+                    },
+                    getNumber: () => 0,
+                    store: () => { },
+                    onDidChangeStorage: () => ({ dispose: () => { } }),
+                    onWillSaveState: () => ({ dispose: () => { } }),
+                } as any, // Приводим к any, чтобы не реализовывать все методы интерфейса
             });
             editorRef.current = editor;
-            try {
+            /*try {
                 editor.updateOptions({
                     wordBasedSuggestions: false as any,
                     suggest: { filterGraceful: false as any } as any,
                 });
-            } catch { /* ignore */ }
+            } catch {}*/
+            setTimeout(() => {
+                const suggestController = editor.getContribution('editor.contrib.suggestController');
+                if (suggestController && suggestController.widget) {
+                    const suggestWidget = suggestController.widget.value;
+                    if (suggestWidget && typeof suggestWidget._setDetailsVisible === 'function') {
+                        suggestWidget._setDetailsVisible(true);
+                    }
+                }
+            }, 50);
             setContent(fetchedContent);
             setSavedContent(fetchedContent);
             setEditorCreated(true);
@@ -828,50 +849,35 @@ export function YamlViewerModal() {
         return () => clearTimeout(t);
     }, [monacoReady, editorCreated, lineMap]);
 
+    // ============ Consolidated markers: FQID + dataType + enum ============
     useEffect(() => {
         if (!monacoReady || !editorCreated || !editorRef.current) return;
         if (!index || !domainId) return;
         const m = (window as any).monaco;
-        const model = editorRef.current.getModel();
-        if (!m || !model) return;
+        if (!m) return;
 
         let timer: any = null;
-        const runMarkers = () => {
-            if (timer) clearTimeout(timer);
-            timer = setTimeout(() => {
-                applyFqidMarkers(m, model, index, domainId);
-            }, 300); // Дебаунс 300мс
+
+        const runAll = () => {
+            if (!editorRef.current) return;
+            const model = editorRef.current.getModel();
+            if (!model) return;
+            try { applyFqidMarkers(m, model, index, domainId); } catch { /* ignore */ }
+            try { applyDataTypeMarkers(m, model, index, domainId); } catch { /* ignore */ }
+            try { applyEnumFieldMarkers(m, model); } catch { /* ignore */ }
+            try { applyViewRefMarkers(m, model, index, domainId); } catch { /* ignore */ }
+            try { applyAttributeMarkers(m, model); } catch { /* ignore */ }
         };
 
-        // Слушаем изменения модели напрямую, а не через React-стейт content
-        const disposable = editorRef.current.onDidChangeModelContent(runMarkers);
-
-        // Первый запуск
-        runMarkers();
-
-        return () => {
+        const schedule = () => {
             if (timer) clearTimeout(timer);
-            try { disposable?.dispose?.(); } catch { }
-        };
-    }, [monacoReady, editorCreated, index, domainId]);
-
-    useEffect(() => {
-        if (!monacoReady || !editorCreated || !editorRef.current) return;
-        if (!index || !domainId) return;
-        const m = (window as any).monaco;
-        const model = editorRef.current.getModel();
-        if (!m || !model) return;
-
-        let timer: any = null;
-        const runMarkers = () => {
-            if (timer) clearTimeout(timer);
-            timer = setTimeout(() => {
-                applyDataTypeMarkers(m, model, index, domainId);
-            }, 300);
+            // 800ms — комфортно для пользователя: маркеры обновляются
+            // только когда он остановился и читает ошибку, а не во время печати.
+            timer = setTimeout(runAll, 800);
         };
 
-        const disposable = editorRef.current.onDidChangeModelContent(runMarkers);
-        runMarkers();
+        const disposable = editorRef.current.onDidChangeModelContent(schedule);
+        runAll(); // первый запуск — после открытия файла
 
         return () => {
             if (timer) clearTimeout(timer);
@@ -1024,6 +1030,50 @@ export function YamlViewerModal() {
         editor.revealLineInCenter(line);
         editor.setPosition({ lineNumber: line, column: 1 });
         editor.focus();
+    }, []);
+
+    const [activeFoldLevel, setActiveFoldLevel] = useState<number | null>(null);
+
+    // Сброс свёрнутости при смене файла / открытии
+    useEffect(() => {
+        setActiveFoldLevel(null);
+    }, [filePath, open]);
+
+    const gotoStart = useCallback(() => {
+        if (!editorRef.current) return;
+        editorRef.current.setPosition({ lineNumber: 1, column: 1 });
+        editorRef.current.revealLine(1);
+        editorRef.current.focus();
+    }, []);
+
+    const gotoEnd = useCallback(() => {
+        const ed = editorRef.current;
+        if (!ed) return;
+        const lineCount = ed.getModel()?.getLineCount() ?? 1;
+        ed.setPosition({ lineNumber: lineCount, column: 1 });
+        ed.revealLine(lineCount);
+        ed.focus();
+    }, []);
+
+    const toggleFold = useCallback((level: 1 | 2 | 3 | 4 | 5) => {
+        const ed = editorRef.current;
+        if (!ed) return;
+        if (activeFoldLevel === level) {
+            // Повторный клик по активному уровню — развернуть всё
+            ed.getAction("editor.unfoldAll")?.run();
+            setActiveFoldLevel(null);
+            return;
+        }
+        const action = ed.getAction(`editor.foldLevel${level}`);
+        if (action) {
+            action.run();
+            setActiveFoldLevel(level);
+        }
+    }, [activeFoldLevel]);
+
+    const unfoldAll = useCallback(() => {
+        editorRef.current?.getAction("editor.unfoldAll")?.run();
+        setActiveFoldLevel(null);
     }, []);
 
     // ============ Auto-jump ============
@@ -1923,7 +1973,7 @@ export function YamlViewerModal() {
                                             "yaml-viewer-nav__toggle" +
                                             (onlyProblematic ? " active" : "")
                                         }
-                                        style={{marginLeft: "auto"}}
+                                        style={{ marginLeft: "auto" }}
                                         onClick={() => setOnlyProblematic(!onlyProblematic)}
                                         title={
                                             onlyProblematic
@@ -1998,14 +2048,22 @@ export function YamlViewerModal() {
                     <div className="yaml-viewer-editor">
                         {/* Новая панель: Breadcrumbs (слева) + Quick Jumps (справа) */}
                         <div className="yaml-viewer-editor__toolbar">
+                            {/* Left: goto start/end */}
+                            <div className="yaml-viewer-goto-controls">
+                                <button onClick={gotoStart} title="В начало файла (Ctrl+Home)">
+                                    <MIcon name="vertical_align_top" size="sm" />
+                                </button>
+                                <button onClick={gotoEnd} title="В конец файла (Ctrl+End)">
+                                    <MIcon name="vertical_align_bottom" size="sm" />
+                                </button>
+                            </div>
+
                             <div className="yaml-viewer-breadcrumbs">
                                 {currentContext && currentContext.breadcrumbs.length > 0 ? (
                                     <>
                                         {currentContext.breadcrumbs.map((item, idx) => (
                                             <React.Fragment key={`bc-${idx}-${item.line}`}>
-                                                {idx > 0 && (
-                                                    <span className="yaml-viewer-breadcrumbs__sep">›</span>
-                                                )}
+                                                {idx > 0 && <span className="yaml-viewer-breadcrumbs__sep">›</span>}
                                                 <button
                                                     type="button"
                                                     className={`yaml-viewer-breadcrumbs__item yaml-viewer-breadcrumbs__item--${item.type}`}
@@ -2023,33 +2081,63 @@ export function YamlViewerModal() {
                                 )}
                             </div>
 
-                            {lineMap && (
-                                <div className="yaml-viewer-quickjumps">
-                                    {lineMap.sections.map((s) => {
-                                        const icon = s.key === 'entities' ? 'category'
-                                            : s.key === 'linkages' ? 'link'
-                                                : s.key === 'dataTypes' ? 'data_object'
-                                                    : s.key === 'actions' ? 'bolt'
-                                                        : s.key === 'views' ? 'visibility'
-                                                            : s.key === 'menus' ? 'menu'
-                                                                : s.key === 'mixins' ? 'merge'
-                                                                    : s.key === 'dataRules' ? 'rule'
-                                                                        : s.key === 'medias' ? 'image'
-                                                                            : 'arrow_right';
+                            {/* Right: quickjumps + fold controls */}
+                            <div className="yaml-viewer-toolbar-right">
+                                {lineMap && (
+                                    <div className="yaml-viewer-quickjumps">
+                                        {lineMap.sections.map((s) => {
+                                            const icon =
+                                                s.key === "entities" ? "category"
+                                                    : s.key === "linkages" ? "link"
+                                                        : s.key === "dataTypes" ? "data_object"
+                                                            : s.key === "actions" ? "bolt"
+                                                                : s.key === "views" ? "visibility"
+                                                                    : s.key === "menus" ? "menu"
+                                                                        : s.key === "mixins" ? "merge"
+                                                                            : s.key === "dataRules" ? "rule"
+                                                                                : s.key === "medias" ? "image"
+                                                                                    : "arrow_right";
+                                            return (
+                                                <button
+                                                    key={s.key}
+                                                    className="yaml-viewer-quickjump"
+                                                    onClick={() => jumpTo(s.line)}
+                                                    title={`${s.label} (${s.count})`}
+                                                >
+                                                    <MIcon name={icon} size="sm" />
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
 
-                                        return (
-                                            <button
-                                                key={s.key}
-                                                className="yaml-viewer-quickjump"
-                                                onClick={() => jumpTo(s.line)}
-                                                title={`${s.label} (${s.count})`}
-                                            >
-                                                <MIcon name={icon} size="sm" />
-                                            </button>
-                                        );
-                                    })}
+                                <div className="yaml-viewer-fold-controls">
+                                    {([1, 2, 3, 4, 5] as const).map((lvl) => (
+                                        <button
+                                            key={lvl}
+                                            className={
+                                                "yaml-viewer-fold-btn" +
+                                                (activeFoldLevel === lvl ? " yaml-viewer-fold-btn--active" : "")
+                                            }
+                                            onClick={() => toggleFold(lvl)}
+                                            title={
+                                                activeFoldLevel === lvl
+                                                    ? `Развернуть всё (уровень ${lvl} активен)`
+                                                    : `Свернуть до уровня ${lvl}`
+                                            }
+                                        >
+                                            {lvl}
+                                        </button>
+                                    ))}
+                                    <button
+                                        className="yaml-viewer-fold-btn"
+                                        onClick={unfoldAll}
+                                        title="Развернуть всё"
+                                    >
+                                        <MIcon name="unfold_more" size="sm" />
+                                    </button>
                                 </div>
-                            )}
+                            </div>
                         </div>
 
                         {/* Обертка для Monaco */}

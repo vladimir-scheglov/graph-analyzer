@@ -59,6 +59,11 @@ export function DomainListRow({
         }, 350);
     };
 
+    const handleToggleFav = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        useGraphStore.getState().toggleBookmark(node.id);
+    };
+
     const className = [
         "domain-list-row",
         isSelected ? "domain-list-row--selected" : "",
@@ -108,6 +113,14 @@ export function DomainListRow({
                         </span>
                     )}
                 </div>
+                {d.description && (
+                    <div
+                        className="domain-list-row__description"
+                        title={d.description}
+                    >
+                        {d.description}
+                    </div>
+                )}
             </div>
             <div className="domain-list-row__meta">
                 {d.author && (
@@ -156,6 +169,18 @@ export function DomainListRow({
                         )}
                         <button onClick={handleGraph} title="Показать на графе">
                             <MIcon name="my_location" size="sm" />
+                        </button>
+
+                        <button
+                            onClick={handleToggleFav}
+                            title={isFavorite ? "Убрать из избранного" : "В избранное"}
+                            className={"domain-list-row__fav-btn" + (isFavorite ? " active" : "")}
+                        >
+                            <MIcon
+                                name={isFavorite ? "star" : "star_border"}
+                                size="sm"
+                                fill={isFavorite}
+                            />
                         </button>
                     </>
                 )}

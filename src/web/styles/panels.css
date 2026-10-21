@@ -1224,23 +1224,6 @@
     margin: 0 !important;
 }
 /* ============ Breadcrumbs (Sticky Header) ============ */
-.yaml-viewer-breadcrumbs {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    padding: 0 16px;
-    font-size: 11px;
-    font-family: 'JetBrains Mono', monospace;
-    color: var(--text-500);
-    white-space: nowrap;
-    overflow-x: auto;
-    overflow-y: hidden;
-    flex: 1;
-    min-width: 0;
-}
-.yaml-viewer-breadcrumbs::-webkit-scrollbar {
-    height: 0;
-}
 .yaml-viewer-breadcrumbs__item {
     display: inline-block;
     background: transparent;
@@ -1315,31 +1298,6 @@
     color: #c084fc;
 }
 
-/* ============ Quick Jumps ============ */
-.yaml-viewer-quickjumps {
-  display: flex;
-  gap: 2px;
-  flex-shrink: 0;
-}
-.yaml-viewer-quickjump {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 26px;
-    height: 26px;
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 6px;
-    color: var(--text-400);
-    cursor: pointer;
-    transition: all 0.15s;
-}
-.yaml-viewer-quickjump:hover {
-    background: var(--bg-700);
-    border-color: var(--border);
-    color: var(--text-100);
-}
-
 /* ============ Группировка в IssuesPanel ============ */
 .yaml-issues__toolbar {
     display: flex;
@@ -1400,19 +1358,150 @@
     opacity: 0.6;
     font-family: 'JetBrains Mono', monospace;
 }
+/* ============ YamlViewer: Monaco toolbar ============ */
 .yaml-viewer-editor__toolbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    background: var(--bg-800);
-    border-bottom: 1px solid var(--border);
-    height: 32px;
-    min-height: 32px;
-    max-height: 32px;
-    padding: 0 12px 0 0;
-    flex-shrink: 0;
-    overflow: hidden;
-    box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  background: var(--bg-800);
+  border-bottom: 1px solid var(--border);
+  height: 32px;
+  min-height: 32px;
+  max-height: 32px;
+  padding: 0 8px 0 0;
+  flex-shrink: 0;
+  overflow: hidden;
+  gap: 6px;
+}
+
+/* Goto start/end — слева */
+.yaml-viewer-goto-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  padding-left: 4px;
+  border-right: 1px solid var(--border);
+  margin-right: 4px;
+  padding-right: 8px;
+}
+.yaml-viewer-goto-controls button {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-400);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+.yaml-viewer-goto-controls button:hover {
+  background: var(--bg-700);
+  border-color: var(--border);
+  color: var(--text-100);
+}
+
+/* Breadcrumbs — по центру, сжимаются первыми */
+.yaml-viewer-breadcrumbs {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px;
+  font-size: 11px;
+  font-family: "JetBrains Mono", monospace;
+  color: var(--text-500);
+  white-space: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.yaml-viewer-breadcrumbs::-webkit-scrollbar { height: 0; }
+
+/* Right block: quickjumps + fold */
+.yaml-viewer-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.yaml-viewer-quickjumps {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 380px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+.yaml-viewer-quickjumps::-webkit-scrollbar { height: 0; }
+
+.yaml-viewer-quickjump {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--text-400);
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.yaml-viewer-quickjump:hover {
+  background: var(--bg-700);
+  border-color: var(--border);
+  color: var(--text-100);
+}
+
+/* Fold controls */
+.yaml-viewer-fold-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+}
+.yaml-viewer-fold-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--text-400);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  font-weight: 600;
+  transition: all 0.15s;
+}
+.yaml-viewer-fold-btn:hover {
+  background: var(--bg-700);
+  border-color: var(--border);
+  color: var(--text-100);
+}
+.yaml-viewer-fold-btn--active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-hover);
+}
+.yaml-viewer-fold-btn--active:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-hover);
 }
 /* Принудительно показываем лампочку Quick Fix */
 .monaco-editor .lightbulb {
@@ -1421,24 +1510,26 @@
 }
 /* Карта секций */
 .yaml-viewer-editor {
-    position: relative; /* для абсолютного позиционирования карты */
+    position: relative; 
 }
 .yaml-section-minimap {
-    position: absolute;
-    top: 32px; /* высота тулбара */
-    right: 0;
-    bottom: 0;
-    width: 8px;
-    display: flex;
-    flex-direction: column;
-    z-index: 10;
-    opacity: 0.6;
-    transition: opacity 0.2s, width 0.2s;
-    border-left: 1px solid var(--border);
+  position: absolute;
+  top: 32px;
+  right: 14px; 
+  bottom: 0;
+  width: 6px;  
+  display: flex;
+  flex-direction: column;
+  z-index: 5;
+  opacity: 0.6;
+  transition: opacity 0.2s, width 0.2s, right 0.2s;
+  border-left: 1px solid var(--border);
+  border-radius: 3px;
 }
 .yaml-section-minimap:hover {
-    opacity: 1;
-    width: 16px;
+  opacity: 1;
+  width: 12px;
+  right: 14px;
 }
 .yaml-section-minimap__block {
     width: 100%;
@@ -1720,4 +1811,7 @@
     background: var(--accent-soft);
     border-color: var(--accent);
     color: var(--accent-hover);
+}
+.monaco-editor .scrollbar.vertical {
+  z-index: 20 !important;
 }

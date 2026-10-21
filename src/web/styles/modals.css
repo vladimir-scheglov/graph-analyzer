@@ -191,3 +191,47 @@
 .help-overlay--above-yaml {
     z-index: 450 !important;
 }
+.monaco-editor .suggest-widget {
+  min-width: 380px !important;
+}
+.monaco-editor .suggest-widget .details {
+  min-width: 320px !important;
+  max-width: 520px !important;
+}
+.yaml-viewer-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.yaml-viewer-fold-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.yaml-viewer-fold-controls button {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-400);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+.yaml-viewer-fold-controls button:hover {
+  background: var(--bg-700);
+  border-color: var(--border);
+  color: var(--text-100);
+}
+.yaml-viewer-fold-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+  margin: 0 4px;
+}

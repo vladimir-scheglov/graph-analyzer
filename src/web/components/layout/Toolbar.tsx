@@ -9,6 +9,7 @@ import { ViewMenu } from '../popovers/ViewMenu';
 import { DataMenu } from '../popovers/DataMenu';
 import { relativeTime } from '../../lib/format';
 import { ModelMenu } from '../popovers';
+import { ActiveModesBar } from "./ActiveModesBar";
 
 export interface ToolbarProps {
     counts: { domain: number; missing: number; broken: number; linkage: number; fqid: number };
@@ -59,6 +60,7 @@ export function Toolbar(props: ToolbarProps) {
 
     return (
         <>
+            {/* ============ ROW 1: actions ============ */}
             <div className="toolbar">
                 <div className="toolbar__group">
                     {viewMode === "graph" && (
@@ -69,22 +71,17 @@ export function Toolbar(props: ToolbarProps) {
                             <button className="btn btn--icon" onClick={props.onRelayout} title="Переуложить">
                                 <MIcon name="refresh" />
                             </button>
-                            <button className="btn btn--icon" onClick={() => { /* ... */ }} title="Сбросить раскладку">
+                            <button
+                                className="btn btn--icon"
+                                onClick={() => {
+                                    if (!confirm("Сбросить все фильтры, режимы и выделения?")) return;
+                                    props.onResetAll();
+                                }}
+                                title="Сбросить всё"
+                            >
                                 <MIcon name="restart_alt" />
                             </button>
                         </>
-                    )}
-                    {viewMode === "graph" && (
-                        <button
-                            className="btn btn--icon"
-                            onClick={() => {
-                                if (!confirm('Сбросить все фильтры, режимы и выделения?')) return;
-                                props.onResetAll();
-                            }}
-                            title="Сбросить всё"
-                        >
-                            <MIcon name="restart_alt" />
-                        </button>
                     )}
                     <button className="btn btn--icon" onClick={back} disabled={navStack.index <= 0} title="Назад (Alt+←)">
                         <MIcon name="arrow_back" />
@@ -103,45 +100,34 @@ export function Toolbar(props: ToolbarProps) {
                     <kbd className="btn-kbd">⇧ Tab</kbd>
                 </button>
 
-                <Popover
-                    width={280}
-                    trigger={(open) => (
-                        <button className={'btn' + (open ? ' btn--active' : '')}>
-                            <MIcon name="psychology" />
-                            Модель
-                        </button>
-                    )}
-                >
+                <Popover width={280} trigger={(open) => (
+                    <button className={"btn" + (open ? " btn--active" : "")}>
+                        <MIcon name="psychology" /> Модель
+                    </button>
+                )}>
                     {(close) => <ModelMenu close={close} />}
                 </Popover>
 
                 {viewMode === "graph" && (
-                    <Popover
-                        width={320}
-                        trigger={(open) => (
-                            <button className={'btn' + (open || props.activeFiltersCount > 0 ? ' btn--active' : '')}>
-                                <MIcon name="tune" />
-                                <span style={{ marginLeft: 6 }}>Фильтры</span>
-                                {props.activeFiltersCount > 0 && (
-                                    <span className="btn__badge">{props.activeFiltersCount}</span>
-                                )}
-                            </button>
-                        )}
-                    >
+                    <Popover width={320} trigger={(open) => (
+                        <button className={"btn" + (open || props.activeFiltersCount > 0 ? " btn--active" : "")}>
+                            <MIcon name="tune" />
+                            <span style={{ marginLeft: 6 }}>Фильтры</span>
+                            {props.activeFiltersCount > 0 && (
+                                <span className="btn__badge">{props.activeFiltersCount}</span>
+                            )}
+                        </button>
+                    )}>
                         <FilterMenu counts={props.counts} />
                     </Popover>
                 )}
 
                 {viewMode === "graph" && (
-                    <Popover
-                        width={280}
-                        trigger={(open) => (
-                            <button className={'btn' + (open || analysisActive ? ' btn--active' : '')}>
-                                <MIcon name="bar_chart" />
-                                Анализ
-                            </button>
-                        )}
-                    >
+                    <Popover width={280} trigger={(open) => (
+                        <button className={"btn" + (open || analysisActive ? " btn--active" : "")}>
+                            <MIcon name="bar_chart" /> Анализ
+                        </button>
+                    )}>
                         {(close) => (
                             <AnalysisMenu
                                 cycleHighlight={props.cycleHighlight}
@@ -159,28 +145,20 @@ export function Toolbar(props: ToolbarProps) {
                 )}
 
                 {viewMode === "graph" && (
-                    <Popover
-                        width={300}
-                        trigger={(open) => (
-                            <button className={'btn' + (open ? ' btn--active' : '')}>
-                                <MIcon name="palette" />
-                                Вид
-                            </button>
-                        )}
-                    >
+                    <Popover width={300} trigger={(open) => (
+                        <button className={"btn" + (open ? " btn--active" : "")}>
+                            <MIcon name="palette" /> Вид
+                        </button>
+                    )}>
                         {(close) => <ViewMenu close={close} />}
                     </Popover>
                 )}
 
-                <Popover
-                    width={260}
-                    trigger={(open) => (
-                        <button className={'btn' + (open || dataActive ? ' btn--active' : '')}>
-                            <MIcon name="save" />
-                            Данные
-                        </button>
-                    )}
-                >
+                <Popover width={260} trigger={(open) => (
+                    <button className={"btn" + (open || dataActive ? " btn--active" : "")}>
+                        <MIcon name="save" /> Данные
+                    </button>
+                )}>
                     {(close) => (
                         <DataMenu
                             close={close}
@@ -202,12 +180,7 @@ export function Toolbar(props: ToolbarProps) {
                 {props.remoteInfo?.server && props.remoteInfo?.fetchedAt && (
                     <div
                         className="toolbar__cache"
-                        title={
-                            'Источник: ' +
-                            props.remoteInfo.server +
-                            '\nОбновлён: ' +
-                            new Date(props.remoteInfo.fetchedAt).toLocaleString('ru-RU')
-                        }
+                        title={`Источник: ${props.remoteInfo.server}\nОбновлён: ${new Date(props.remoteInfo.fetchedAt).toLocaleString("ru-RU")}`}
                         onClick={props.onShowToast}
                     >
                         <MIcon name="database" />
@@ -238,32 +211,40 @@ export function Toolbar(props: ToolbarProps) {
                 >
                     <MIcon name="menu_book" />
                 </button>
+            </div>
 
-                <div className="toolbar__stats">
-                    {props.visibleNodesCount} / {props.totalNodesCount} узлов · {props.visibleEdgesCount} /{' '}
-                    {props.totalEdgesCount} связей
+            {/* ============ ROW 2: modes + toggle + stats ============ */}
+            <div className="toolbar-row2">
+                <div className="toolbar-row2__modes">
+                    {viewMode === "graph" && (
+                        <ActiveModesBar ruleViolationsCount={props.ruleViolationsCount} />
+                    )}
+                </div>
+                <div className="toolbar-row2__right">
+                    <span className="toolbar-row2__stats">
+                        {props.visibleNodesCount} / {props.totalNodesCount} узлов ·{" "}
+                        {props.visibleEdgesCount} / {props.totalEdgesCount} связей
+                    </span>
+                    <div className="toolbar__mode-toggle">
+                        <button
+                            className={"toolbar__mode-btn" + (viewMode === "list" ? " toolbar__mode-btn--active" : "")}
+                            onClick={() => setViewMode("list")}
+                            title="Список доменов"
+                        >
+                            <MIcon name="list" size="sm" />
+                            <span>Список</span>
+                        </button>
+                        <button
+                            className={"toolbar__mode-btn" + (viewMode === "graph" ? " toolbar__mode-btn--active" : "")}
+                            onClick={() => setViewMode("graph")}
+                            title="Граф доменов"
+                        >
+                            <MIcon name="schema" size="sm" />
+                            <span>Граф</span>
+                        </button>
+                    </div>
                 </div>
             </div>
-            <div className="toolbar__mode-toggle">
-                <button
-                    className={"toolbar__mode-btn" + (viewMode === "list" ? " toolbar__mode-btn--active" : "")}
-                    onClick={() => setViewMode("list")}
-                    title="Список доменов"
-                >
-                    <MIcon name="list" size="sm" />
-                    <span>Список</span>
-                </button>
-                <button
-                    className={"toolbar__mode-btn" + (viewMode === "graph" ? " toolbar__mode-btn--active" : "")}
-                    onClick={() => setViewMode("graph")}
-                    title="Граф доменов"
-                >
-                    <MIcon name="schema" size="sm" />
-                    <span>Граф</span>
-                </button>
-            </div>
         </>
-
-
     );
 }

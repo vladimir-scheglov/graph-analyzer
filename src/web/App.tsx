@@ -35,7 +35,6 @@ import { buildEntityIndex } from './lib/entities';
 import { EVT_FIND_CYCLES } from './lib/events';
 
 import { Toolbar } from './components/layout/Toolbar';
-import { ActiveModesBar } from './components/layout/ActiveModesBar';
 import { Sidebar } from './components/layout/Sidebar';
 import { GraphArea } from './components/layout/GraphArea';
 import { AppModals } from './components/layout/AppModals';
@@ -361,10 +360,6 @@ export default function App() {
                     onRelayout={relayout}
                     onShowToast={() => setToastVisible(true)}
                 />
-
-                {viewMode === "graph" && (
-                    <ActiveModesBar ruleViolationsCount={ruleViolations.length} />
-                )}
 
                 <GraphArea
                     visibleNodes={visibleNodes}

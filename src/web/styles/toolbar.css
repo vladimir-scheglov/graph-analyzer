@@ -146,3 +146,66 @@
 .toolbar__mode-btn .material-symbols-outlined {
     font-size: 15px;
 }
+/* ============ Row 2: modes + toggle + stats ============ */
+.toolbar-row2 {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px 0 16px;
+  height: 36px;
+  min-height: 36px;
+  max-height: 36px;
+  background: var(--bg-850);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.toolbar-row2__modes {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+.toolbar-row2__modes::-webkit-scrollbar { height: 3px; }
+.toolbar-row2__modes::-webkit-scrollbar-thumb {
+  background: var(--bg-600);
+  border-radius: 2px;
+}
+
+/* ActiveModesBar внутри row2 — без своего фона/бордера/padding */
+.toolbar-row2__modes .active-modes {
+  padding: 0;
+  background: transparent;
+  border-bottom: none;
+  min-height: auto;
+  flex-wrap: nowrap;
+}
+
+.toolbar-row2__right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.toolbar-row2__stats {
+  color: var(--text-500);
+  font-size: 11.5px;
+  font-family: "JetBrains Mono", monospace;
+  white-space: nowrap;
+  opacity: 0.85;
+}
+
+/* Скрываем stats на узких экранах — toggle всегда виден */
+@media (max-width: 1024px) {
+  .toolbar-row2__stats { display: none; }
+}
+
+/* Убираем margin у mode-toggle — он и так в row2 с gap */
+.toolbar .toolbar__mode-toggle {
+  margin: 0;
+}

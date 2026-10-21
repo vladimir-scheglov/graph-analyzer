@@ -7,7 +7,7 @@ declare global {
   }
 }
 
-const MONACO_VERSION = "0.34.0";
+const MONACO_VERSION = "0.52.2";
 
 export interface PendingFile {
   content: string;

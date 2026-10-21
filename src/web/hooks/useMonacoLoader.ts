@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-const MONACO_VERSION = "0.34.0";
+const MONACO_VERSION = "0.52.2";
 
 let loadPromise: Promise<void> | null = null;
 let isLoaded = false;

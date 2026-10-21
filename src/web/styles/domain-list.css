@@ -555,3 +555,22 @@
 .domain-list {
     outline: none;
 }
+.domain-list-row__description {
+  font-size: 11px;
+  color: var(--text-500);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+.domain-list-row__fav-btn.active {
+  color: #fbbf24 !important;
+}
+.domain-list-row__fav-btn.active:hover {
+  color: #fbbf24 !important;
+}
+/* Чуть больше вертикального места — 3 строки в main */
+.domain-list-row {
+  min-height: 56px;
+}

@@ -154,10 +154,7 @@ export interface ScenarioRecord {
 
 // ============ UI Rules ============
 
-export type UiRuleTarget =
-  | "list_view"
-  | "entity_view"
-  | "entity_attribute";
+export type UiRuleTarget = "list_view" | "entity_view" | "entity_attribute";
 
 export type UiRuleEffect =
   | "hidden"
@@ -666,6 +663,17 @@ export interface DomainSchemaCounterColorItem {
   yellow: string;
 }
 
+export interface DomainSchemaAllViewItem {
+  id: string;
+  /** 'entity' | 'list' | 'tree' | 'tabs_list' | 'dashboard' | 'dashboard_tree'
+   *  | 'panel' | 'modal' | 'page' */
+  type: string;
+  /** Для nested: id top-level view-родителя. */
+  parentViewId?: string;
+  /** Сущность, к которой относится view (если задана). */
+  entity?: string;
+}
+
 export interface DomainSchemaSummary {
   domainId: string;
   metadata: DomainSchemaMetadata;
@@ -695,6 +703,24 @@ export interface DomainSchemaSummary {
     hasExchangeSettings: boolean;
     hasCounterColorPattern: boolean;
   };
+  allViews?: DomainSchemaAllViewItem[];
 }
 
 export type SectionKey = keyof DomainSchemaSummary["sections"];
+
+export interface ViewElementRef {
+  id: string;
+  /** 'action' | 'attribute' | 'linkage' | 'join' | 'block' | 'form' | 'tab' | … */
+  type: string;
+  description?: string;
+}
+
+export interface ViewElementsRecord {
+  widgets: string[];
+  groups: string[];
+  columns: string[];
+  /** id + type — для точной фильтрации в автокомплите. */
+  widgetsWithType?: ViewElementRef[];
+  groupsWithType?: ViewElementRef[];
+  columnsWithType?: ViewElementRef[];
+}

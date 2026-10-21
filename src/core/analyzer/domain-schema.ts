@@ -15,6 +15,7 @@ import type {
   DomainSchemaTransitiveItem,
   DomainSchemaTreeNode,
   DomainSchemaScenarioItem,
+  DomainSchemaAllViewItem,
 } from "../../shared/model-types";
 
 function asArray(x: any): any[] {
@@ -269,6 +270,33 @@ export function buildDomainSchemaSummary(
     scenarioMap.values(),
   );
 
+  // ============ allViews: top-level + nested ============
+  const allViews: DomainSchemaAllViewItem[] = [];
+
+  const visitNested = (parent: any, parentViewId: string): void => {
+    if (!Array.isArray(parent?.views)) return;
+    for (const nv of parent.views) {
+      if (!nv?.id) continue;
+      allViews.push({
+        id: String(nv.id),
+        type: String(nv.type || ""),
+        parentViewId,
+        entity: nv.entity ? String(nv.entity) : undefined,
+      });
+      visitNested(nv, String(nv.id));
+    }
+  };
+
+  (viewsRaw || []).forEach((v: any) => {
+    if (!v?.id) return;
+    allViews.push({
+      id: String(v.id),
+      type: String(v.type || ""),
+      entity: v.entity ? String(v.entity) : undefined,
+    });
+    visitNested(v, String(v.id));
+  });
+
   return {
     domainId,
     metadata,
@@ -300,5 +328,6 @@ export function buildDomainSchemaSummary(
       hasExchangeSettings: raw.exchangeSettings != null,
       hasCounterColorPattern: raw.counterColorPattern != null,
     },
+    allViews,
   };
 }
