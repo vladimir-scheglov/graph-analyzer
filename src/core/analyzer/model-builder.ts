@@ -82,6 +82,7 @@ import type {
   ExchangeSettingsAttributeFormats,
   ViewMenuActionRecord,
   ViewGroupComponentRecord,
+  AttributeConstraint,
 } from "../../shared/model-types";
 import { buildDomainSchemaSummary } from "./domain-schema";
 import type { DomainSchemaSummary } from "../../shared/model-types";
@@ -305,6 +306,27 @@ export interface RawDomainEntry {
 
 // ============ Парсинг атрибутов ============
 
+function parseConstraints(raw: any): AttributeConstraint[] {
+  if (!Array.isArray(raw)) return [];
+  const out: AttributeConstraint[] = [];
+  for (const c of raw) {
+    if (!c || typeof c !== "object") continue;
+    const kind = String(c.kind || "").trim();
+    if (!kind) continue;
+    const detail: AttributeConstraint = { kind };
+    if (c.min !== undefined && c.min !== null) detail.min = c.min;
+    if (c.max !== undefined && c.max !== null) detail.max = c.max;
+    if (typeof c.regexp === "string" && c.regexp) detail.regexp = c.regexp;
+    if (Array.isArray(c.mimeTypes)) {
+      const arr = c.mimeTypes.map(String).filter(Boolean);
+      if (arr.length > 0) detail.mimeTypes = arr;
+    }
+    if (typeof c.message === "string" && c.message) detail.message = c.message;
+    out.push(detail);
+  }
+  return out;
+}
+
 function parseAttribute(
   raw: any,
   entityFqid: string,
@@ -318,6 +340,8 @@ function parseAttribute(
   if (BASE_DATA_TYPES.has(dataType)) dataTypeKind = "base";
   else if (customDataTypeIds.has(dataType)) dataTypeKind = "custom";
 
+  const constraintDetails = parseConstraints(raw.constraints);
+
   const record: AttributeRecord = {
     id: String(raw.id),
     entityFqid,
@@ -325,9 +349,9 @@ function parseAttribute(
     description: String(raw.description || ""),
     dataType,
     dataTypeKind,
-    constraints: Array.isArray(raw.constraints)
-      ? raw.constraints.map((c: any) => String(c?.kind || "")).filter(Boolean)
-      : [],
+    constraints: constraintDetails.map((c) => c.kind),
+    constraintDetails:
+      constraintDetails.length > 0 ? constraintDetails : undefined,
     usedInViews: 0,
     usedInRules: 0,
     default:
@@ -371,9 +395,9 @@ function parseAttribute(
       }
     }
     if (Array.isArray(raw.item.constraints)) {
-      record.itemConstraints = raw.item.constraints
-        .map((c: any) => String(c?.kind || ""))
-        .filter(Boolean);
+      record.itemConstraints = parseConstraints(raw.item.constraints).map(
+        (c) => c.kind,
+      );
     }
   }
 
@@ -611,10 +635,15 @@ function parseEntity(
     typeof raw.externals === "object" &&
     Array.isArray(raw.externals.entities)
   ) {
+    const extEntities: string[] = [];
+    for (const x of raw.externals.entities) {
+      const raw = typeof x === "string" ? x : x?.entity;
+      if (!raw) continue;
+      const fqid = normalizeFqid(String(raw), domainId);
+      if (fqid) extEntities.push(fqid);
+    }
     entity.externals = {
-      entities: raw.externals.entities
-        .map((x: any) => (typeof x === "string" ? x : x?.entity))
-        .filter(Boolean),
+      entities: extEntities,
       type: raw.externals.type === "selection" ? "selection" : "composition",
     };
   }
@@ -700,6 +729,10 @@ function parseDataType(raw: any, domainId: string): DataTypeRecord | null {
     record.columns = raw.attributes
       .map((v: any) => (v?.id ? String(v.id) : null))
       .filter((x: string | null): x is string => x !== null);
+
+    record.tableAttributes = raw.attributes
+      .map((a: any) => parseAttribute(a, "", domainId, new Set()))
+      .filter((x: AttributeRecord | null): x is AttributeRecord => x !== null);
   }
 
   // ============ view (полиморфно по kind) ============
@@ -1692,7 +1725,14 @@ function computeStats(
     byEntityId.get(key)!.push(e.domainId);
   });
   byEntityId.forEach((domains, entityId) => {
-    if (domains.length > 1) duplicateEntityIds.push({ entityId, domains });
+    // Дубликаты внутри одного домена — тоже сигнал.
+    const uniqueDomains = new Set(domains);
+    if (domains.length > 1) {
+      duplicateEntityIds.push({
+        entityId,
+        domains: Array.from(uniqueDomains),
+      });
+    }
   });
 
   // Mixin conflicts
@@ -2445,6 +2485,14 @@ function parseAction(raw: any, domainId: string): ActionRecord | null {
   const entityFqid = normalizeFqid(raw.entity, domainId);
   if (entityFqid) out.entity = entityFqid;
 
+  if (
+    type === "open_page" &&
+    typeof raw.pageView === "string" &&
+    raw.pageView
+  ) {
+    const fqid = normalizeFqid(raw.pageView, domainId);
+    if (fqid) out.pageView = fqid;
+  }
   // modal / panel / view — все через normalizeFqid
   if (typeof raw.modal === "string") {
     const fqid = normalizeFqid(raw.modal, domainId);
@@ -2457,6 +2505,15 @@ function parseAction(raw: any, domainId: string): ActionRecord | null {
   if (typeof raw.view === "string") {
     const fqid = normalizeFqid(raw.view, domainId);
     if (fqid) out.view = fqid;
+  }
+
+  if (
+    typeof raw.pageView === "string" &&
+    raw.pageView &&
+    type === "open_page"
+  ) {
+    const fqid = normalizeFqid(raw.pageView, domainId);
+    if (fqid) out.pageView = fqid;
   }
 
   if (typeof raw.operation === "string") out.operation = raw.operation;
@@ -3628,6 +3685,16 @@ function collectViewMeta(raw: any, domainId: string): ViewMetaResult {
           if (typeof c.control.tree === "string")
             rec.controlTree = c.control.tree;
         }
+        if (Array.isArray(c.actions)) {
+          const types = c.actions
+            .map((a: any) =>
+              a && typeof a === "object" && typeof a.action === "string"
+                ? String(a.action)
+                : null,
+            )
+            .filter((x: string | null): x is string => !!x);
+          if (types.length > 0) rec.actionTypes = types;
+        }
         columns.push(rec);
       }
     }
@@ -3837,15 +3904,18 @@ function collectViewMeta(raw: any, domainId: string): ViewMetaResult {
           if (typeof a.action === "string" && a.action) {
             rec.action = a.action;
           }
-          if (Array.isArray(a.items)) {
-            for (const it of a.items) {
-              if (!it || typeof it !== "object") continue;
-              if (typeof it.action !== "string" || !it.action) continue;
-              const item: ViewTableActionItemRef = { action: it.action };
-              if (typeof it.label === "string") item.label = it.label;
-              if (typeof it.icon === "string") item.icon = it.icon;
-              rec.items.push(item);
-            }
+          const rawItems = Array.isArray(a.menu)
+            ? a.menu
+            : Array.isArray(a.items)
+              ? a.items
+              : [];
+          for (const it of rawItems) {
+            if (!it || typeof it !== "object") continue;
+            if (typeof it.action !== "string" || !it.action) continue;
+            const item: ViewTableActionItemRef = { action: it.action };
+            if (typeof it.label === "string") item.label = it.label;
+            if (typeof it.icon === "string") item.icon = it.icon;
+            rec.items.push(item);
           }
           tableActions.push(rec);
         }
@@ -3944,8 +4014,9 @@ export function buildModelIndex(rawDomains: RawDomainEntry[]): ModelIndex {
       raw.entities.forEach((e: any) => {
         const rec = parseEntity(e, d.id, d, customIds);
         if (rec) {
+          // Дубликаты оставляем в массиве — их поймает линтер (duplicate-id).
+          entities.push(rec);
           if (!entitiesByFqid[rec.fqid]) {
-            entities.push(rec);
             entitiesByFqid[rec.fqid] = rec;
           }
         }
@@ -4274,7 +4345,7 @@ export function buildModelIndex(rawDomains: RawDomainEntry[]): ModelIndex {
     viewSourceJoins,
     exchangeSettingsByDomain,
     viewMenuActions,
-    
+    orphans,
   } as ModelIndex;
 
   const lintReport = lintModel(partialIndex);

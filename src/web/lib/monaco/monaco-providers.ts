@@ -9183,160 +9183,6 @@ export function applyFqidMarkers(
       }
     }
 
-    // ============ Проверка ссылок UI Rules ============
-    // Собираем все существующие id из текущего YAML (или ModelIndex)
-    const knownViews = new Set<string>();
-    const knownWidgets = new Set<string>();
-    const knownGroups = new Set<string>();
-    const knownColumns = new Set<string>();
-    const knownPresets = new Set<string>();
-    const knownUiRules = new Set<string>();
-
-    if (index?.schemasByDomain) {
-      Object.values(index.schemasByDomain).forEach((s: any) => {
-        s?.sections?.views?.items?.forEach((v: any) => {
-          if (v?.id) knownViews.add(String(v.id).toLowerCase());
-        });
-        s?.sections?.uiPresets?.items?.forEach((p: any) => {
-          if (p?.id) knownPresets.add(String(p.id).toLowerCase());
-        });
-        s?.sections?.uiRules?.items?.forEach((r: any) => {
-          if (r?.id) knownUiRules.add(String(r.id).toLowerCase());
-        });
-      });
-    }
-    // Из entity — достаём виджеты, группы (эти id в View'ах)
-    (index?.entities || []).forEach(() => {
-      // widgets/groups живут в rawData, но их id мы уже видели в lines
-    });
-
-    // Парсим текущий текст для получения widget/group/column/preset id
-    const widgetDefRegex = /^\s*-\s+id\s*:\s*([^\s#]+)\s*$/;
-    let lastSection = "";
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const sectionM = line.match(/^([a-zA-Z_][\w]*)\s*:/);
-      if (sectionM) lastSection = sectionM[1];
-
-      const idm = line.match(widgetDefRegex);
-      if (idm) {
-        const id = idm[1].toLowerCase();
-        if (lastSection === "uiPresets") knownPresets.add(id);
-        if (lastSection === "views") {
-          // внутри views widgets/groups — грубо берём всё
-          // Точнее не нужно — id уникален в рамках схемы
-          knownWidgets.add(id);
-          knownGroups.add(id);
-          knownColumns.add(id);
-        }
-      }
-    }
-
-    // Ищем `view:`, `widget:`, `group:`, `column:` в uiRules
-    const uiRuleRefs: Array<{
-      kind: "view" | "widget" | "group" | "column";
-      id: string;
-    }> = [];
-    let inUiRules = false;
-    let uiRuleIndent = -1;
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const sectionM = line.match(/^([a-zA-Z_][\w]*)\s*:/);
-      if (sectionM) {
-        inUiRules = sectionM[1] === "uiRules";
-        continue;
-      }
-      if (!inUiRules) continue;
-
-      const viewM = line.match(/^\s*view\s*:\s*([^\s#]+)/);
-      if (viewM && lastSection === "uiRules") {
-        const id = viewM[1].replace(/["']/g, "");
-        const startCol = line.indexOf(id) + 1;
-        if (!knownViews.has(id.toLowerCase())) {
-          markers.push({
-            severity: monaco.MarkerSeverity.Warning,
-            message: `View «${id}» не найден в домене`,
-            startLineNumber: i + 1,
-            startColumn: startCol,
-            endLineNumber: i + 1,
-            endColumn: startCol + id.length,
-            source: "fqid-validator",
-          });
-        }
-      }
-
-      const widgetM = line.match(/^\s*-\s*widget\s*:\s*([^\s#]+)/);
-      if (widgetM) {
-        const id = widgetM[1].replace(/["']/g, "");
-        const startCol = line.indexOf(id) + 1;
-        if (
-          !knownWidgets.has(id.toLowerCase()) &&
-          !knownViews.has(id.toLowerCase())
-        ) {
-          markers.push({
-            severity: monaco.MarkerSeverity.Warning,
-            message: `Виджет «${id}» не найден в домене`,
-            startLineNumber: i + 1,
-            startColumn: startCol,
-            endLineNumber: i + 1,
-            endColumn: startCol + id.length,
-            source: "fqid-validator",
-          });
-        }
-      }
-
-      const groupM = line.match(/^\s*-\s*group\s*:\s*([^\s#]+)/);
-      if (groupM) {
-        const id = groupM[1].replace(/["']/g, "");
-        const startCol = line.indexOf(id) + 1;
-        if (!knownGroups.has(id.toLowerCase())) {
-          markers.push({
-            severity: monaco.MarkerSeverity.Warning,
-            message: `Группа «${id}» не найдена в домене`,
-            startLineNumber: i + 1,
-            startColumn: startCol,
-            endLineNumber: i + 1,
-            endColumn: startCol + id.length,
-            source: "fqid-validator",
-          });
-        }
-      }
-
-      const columnM = line.match(/^\s*-\s*column\s*:\s*([^\s#]+)/);
-      if (columnM) {
-        const id = columnM[1].replace(/["']/g, "");
-        const startCol = line.indexOf(id) + 1;
-        if (!knownColumns.has(id.toLowerCase())) {
-          markers.push({
-            severity: monaco.MarkerSeverity.Warning,
-            message: `Колонка «${id}» не найдена в домене`,
-            startLineNumber: i + 1,
-            startColumn: startCol,
-            endLineNumber: i + 1,
-            endColumn: startCol + id.length,
-            source: "fqid-validator",
-          });
-        }
-      }
-
-      const presetM = line.match(/^\s*-\s*preset\s*:\s*([^\s#]+)/);
-      if (presetM) {
-        const id = presetM[1].replace(/["']/g, "");
-        const startCol = line.indexOf(id) + 1;
-        if (!knownPresets.has(id.toLowerCase())) {
-          markers.push({
-            severity: monaco.MarkerSeverity.Warning,
-            message: `Пресет «${id}» не найден в домене`,
-            startLineNumber: i + 1,
-            startColumn: startCol,
-            endLineNumber: i + 1,
-            endColumn: startCol + id.length,
-            source: "fqid-validator",
-          });
-        }
-      }
-    }
-
     // ============ Валидация actions ============
 
     let inActionsSection = false;
@@ -10166,6 +10012,159 @@ function scanEntities(
         source: "attribute-validator",
       });
     }
+  }
+}
+/**
+ * Валидатор ссылок внутри uiRules:
+ *   - widget  → widget или view-id текущего домена
+ *   - group   → group-id текущего домена
+ *   - column  → column-id текущего домена
+ *   - preset  → preset-id текущего домена
+ *
+ * Поле `view:` НЕ проверяется — оно уже покрыто applyViewRefMarkers
+ * (по allViews текущего домена, корректно обрабатывает cross-domain).
+ */
+export function applyUiRuleRefMarkers(
+  monaco: any,
+  model: any,
+  index: any,
+  currentDomainId: string,
+): void {
+  try {
+    const text = model.getValue();
+    const lines = text.split("\n");
+    const markers: any[] = [];
+
+    const knownWidgets = new Set<string>();
+    const knownGroups = new Set<string>();
+    const knownColumns = new Set<string>();
+    const knownPresets = new Set<string>();
+    const knownViews = new Set<string>();
+
+    // Из ModelIndex — предпочтительный источник
+    if (index?.viewElementsByDomain?.[currentDomainId]) {
+      const els = index.viewElementsByDomain[currentDomainId];
+      for (const byView of Object.values(els) as any[]) {
+        for (const w of byView.widgets || []) {
+          knownWidgets.add(String(w).toLowerCase());
+        }
+        for (const g of byView.groups || []) {
+          knownGroups.add(String(g).toLowerCase());
+        }
+        for (const c of byView.columns || []) {
+          knownColumns.add(String(c).toLowerCase());
+        }
+      }
+    }
+    if (index?.uiPresetsByDomain?.[currentDomainId]) {
+      for (const p of index.uiPresetsByDomain[currentDomainId]) {
+        knownPresets.add(String(p).toLowerCase());
+      }
+    }
+    if (index?.schemasByDomain?.[currentDomainId]?.sections?.views?.items) {
+      for (const v of index.schemasByDomain[currentDomainId].sections.views
+        .items) {
+        if (v?.id) knownViews.add(String(v.id).toLowerCase());
+      }
+    }
+    if (index?.schemasByDomain?.[currentDomainId]?.allViews) {
+      for (const v of index.schemasByDomain[currentDomainId].allViews) {
+        if (v?.id) knownViews.add(String(v.id).toLowerCase());
+      }
+    }
+
+    // Из текущего YAML — всё, что объявлено в секции views (грубо, но
+    // работает ещё до сохранения / ребилда индекса)
+    const widgetDefRegex = /^\s*-\s+id\s*:\s*([^\s#]+)\s*$/;
+    let lastSection = "";
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const sectionM = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (sectionM) lastSection = sectionM[1];
+      const idm = line.match(widgetDefRegex);
+      if (!idm) continue;
+      const id = idm[1].toLowerCase();
+      if (lastSection === "uiPresets") knownPresets.add(id);
+      if (lastSection === "views") {
+        knownWidgets.add(id);
+        knownGroups.add(id);
+        knownColumns.add(id);
+      }
+    }
+
+    // Проходим только по uiRules
+    let inUiRules = false;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const sectionM = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (sectionM) {
+        inUiRules = sectionM[1] === "uiRules";
+        continue;
+      }
+      if (!inUiRules) continue;
+
+      const checkRef = (
+        fieldName: string,
+        known: Set<string>,
+        humanName: string,
+      ): void => {
+        const m = line.match(
+          new RegExp(`^\\s*-\\s*${fieldName}\\s*:\\s*([^\\s#]+)`),
+        );
+        if (!m) return;
+        const id = m[1].replace(/["']/g, "");
+        if (!id) return;
+        if (id.includes("/")) return; // cross-domain — не проверяем локально
+        if (id.startsWith("external:")) return;
+
+        if (!known.has(id.toLowerCase())) {
+          const startCol = line.indexOf(id) + 1;
+          markers.push({
+            severity: monaco.MarkerSeverity.Warning,
+            message: `${humanName} «${id}» не найден в домене`,
+            startLineNumber: i + 1,
+            startColumn: startCol,
+            endLineNumber: i + 1,
+            endColumn: startCol + id.length,
+            source: "ui-rule-validator",
+          });
+        }
+      };
+
+      // widget может быть как id виджета, так и id view (для action-виджетов,
+      // объявленных на уровне представления)
+      const widgetCheckLine = line.match(/^\s*-\s*widget\s*:\s*([^\s#]+)/);
+      if (widgetCheckLine) {
+        const id = widgetCheckLine[1].replace(/["']/g, "");
+        if (
+          id &&
+          !id.includes("/") &&
+          !id.startsWith("external:") &&
+          !knownWidgets.has(id.toLowerCase()) &&
+          !knownViews.has(id.toLowerCase())
+        ) {
+          const startCol = line.indexOf(id) + 1;
+          markers.push({
+            severity: monaco.MarkerSeverity.Warning,
+            message: `Виджет «${id}» не найден в домене`,
+            startLineNumber: i + 1,
+            startColumn: startCol,
+            endLineNumber: i + 1,
+            endColumn: startCol + id.length,
+            source: "ui-rule-validator",
+          });
+        }
+      }
+
+      checkRef("group", knownGroups, "Группа");
+      checkRef("column", knownColumns, "Колонка");
+      checkRef("preset", knownPresets, "Пресет");
+    }
+
+    monaco.editor.setModelMarkers(model, "ui-rule-validator", markers);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("[ui-rule-validator]", err);
   }
 }
 

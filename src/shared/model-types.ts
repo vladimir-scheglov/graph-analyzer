@@ -6,6 +6,15 @@ import { PiiReport } from "./pii-types";
 
 export type DataTypeKind = "base" | "custom" | "unknown";
 
+export interface AttributeConstraint {
+  kind: string;
+  min?: number | string;
+  max?: number | string;
+  regexp?: string;
+  mimeTypes?: string[];
+  message?: string;
+}
+
 // ============ Generic sections (dataRules, uiRules, views, …) ============
 
 export interface GenericSnapshotEntry {
@@ -89,6 +98,7 @@ export interface AttributeRecord {
   incrementTemplate?: string;
   /** Для Identifier — несегментированный (FQID sequences[]). */
   sequence?: string;
+  constraintDetails?: AttributeConstraint[];
 }
 
 export interface PrefixRuleRecord {
@@ -96,6 +106,8 @@ export interface PrefixRuleRecord {
   attribute: string;
   source: { entity: string; key: string; value: string };
 }
+
+
 
 // ============ Сущность ============
 
@@ -340,6 +352,8 @@ export interface DataTypeRecord {
   maxRows?: number;
   /** Конфигурация представления таблицы (Table.view). */
   tableView?: DataTypeTableView;
+  /** Для Table — полные атрибуты (для семантических проверок). */
+  tableAttributes?: AttributeRecord[];
 }
 
 // ============ Table.view ============
@@ -1067,6 +1081,9 @@ export interface DomainSchemaViewItem {
   dashboardTreeAutoTreeEntities?: string[];
   /** defaultItem — id dashboard-view. */
   defaultItem?: string;
+  menuItem?: string;
+  /** Для list — source.type (Zod: только "operational"). */
+  sourceType?: string;
 }
 
 export interface DomainSchemaMenuItem {
@@ -1169,6 +1186,10 @@ export interface DomainSchemaAllViewItem {
   sourceEntity?: string;
   /** PR 6 — для list/page/tree: id виджетов из actionPanel. */
   actionPanelWidgets?: string[];
+  /** Для nested page — id пункта меню. */
+  menuItem?: string;
+  /** Шаблон названия view (для проверки placeholders). */
+  label?: string;
 }
 
 export interface DomainSchemaPermissionItem {
@@ -1617,6 +1638,7 @@ export interface ActionRecord {
   side?: 1 | 2;
   /** blank | current. */
   page?: "blank" | "current";
+  pageView?: string;
 
   /** Для automation. */
   automationId?: string;
@@ -1763,6 +1785,8 @@ export interface ViewColumnRecord {
   controlType?: string;
   /** control.tree — id дерева (для tree_path). */
   controlTree?: string;
+  /** Для column.actions[] — id'ы действий, привязанных к колонке. */
+  actionTypes?: string[];
 }
 export interface DomainSchemaWidgetItem {
   id: string;

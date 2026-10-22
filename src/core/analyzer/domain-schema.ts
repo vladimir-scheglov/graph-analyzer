@@ -131,6 +131,10 @@ export function buildDomainSchemaSummary(
       if (v?.type === "list" && v?.source?.entity) {
         item.sourceEntity = String(v.source.entity);
       }
+      if (v?.type === "list" && v?.source?.type) {
+        item.sourceType = String(v.source.type);
+      }
+      if (v?.label) item.label = String(v.label);
       if (v?.type === "tree" && typeof v?.tree === "string" && v.tree) {
         item.tree = String(v.tree);
       }
@@ -494,6 +498,15 @@ export function buildDomainSchemaSummary(
 
       if (nv.type === "modal" && typeof nv.form === "string" && nv.form) {
         item.form = nv.form;
+      }
+
+      if (nv.label) item.label = String(nv.label);
+      if (
+        nv.type === "page" &&
+        typeof nv.menuItem === "string" &&
+        nv.menuItem
+      ) {
+        item.menuItem = nv.menuItem;
       }
 
       if (nv.type === "page") {

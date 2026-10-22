@@ -15,6 +15,7 @@ import {
     applyEnumFieldMarkers,
     applyViewRefMarkers,
     applyAttributeMarkers,
+    applyUiRuleRefMarkers,
 } from '../../lib/monaco/monaco-providers';
 import { useNavigation } from '../../hooks/useNavigation';
 import { extractExternalRefs, groupExternalRefs, ExternalRefGroup } from '../../lib/yaml/external-refs';
@@ -952,6 +953,7 @@ export function YamlViewerModal() {
             try { applyEnumFieldMarkers(m, model); } catch { /* ignore */ }
             try { applyViewRefMarkers(m, model, index, domainId); } catch { /* ignore */ }
             try { applyAttributeMarkers(m, model); } catch { /* ignore */ }
+            try { applyUiRuleRefMarkers(m, model, index, domainId); } catch { /* ignore */ }
         };
 
         const schedule = () => {

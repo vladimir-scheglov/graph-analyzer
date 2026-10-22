@@ -2,9 +2,13 @@ import React, { useMemo, useState } from 'react';
 import { useGraphStore } from '../../state/useGraphStore';
 import { useModelIndex } from '../../hooks/useModelIndex';
 import { MIcon } from '../common/MIcon';
-import { summarizeValidation, ValidationIssue, IssueSeverity } from '../../lib/model/validation';
-import type { ModelStats } from '../../../shared/model-types';
+import {
+    summarizeValidation,
+    ValidationIssue,
+    IssueSeverity,
+} from '../../lib/model/validation';
 import { ModalHelp, HelpSection, HelpText, HelpList, HelpButton } from '../common/ModalHelp';
+import type { LintReport } from '../../../shared/lint-types';
 
 export function ModelValidationModal() {
     const store = useGraphStore();
@@ -54,10 +58,16 @@ export function ModelValidationModal() {
                     <div className="help-modal__title">
                         <MIcon name="science" size="sm" />
                         <span className="icon-label">Валидация модели</span>
-                        {summary && summary.totalIssues > 0 && (<span className="help-modal__badge">{summary.totalIssues}</span>)}
+                        {summary && summary.totalIssues > 0 && (
+                            <span className="help-modal__badge">{summary.totalIssues}</span>
+                        )}
                     </div>
                     <div className="help-modal__actions">
-                        <HelpButton open={showHelp} onToggle={() => setShowHelp(!showHelp)} label="Что это?" />
+                        <HelpButton
+                            open={showHelp}
+                            onToggle={() => setShowHelp(!showHelp)}
+                            label="Что это?"
+                        />
                         <button
                             className="help-modal__close"
                             onClick={() => store.setModelValidationOpen(false)}
@@ -83,32 +93,51 @@ export function ModelValidationModal() {
                                         Валидация — это автоматический обход всей модели и поиск проблем:
                                         циклов, битых ссылок, дублей, сирот, конфликтов миксинов.
                                         Отличается от линтера: валидация ищет <em>структурные</em> ошибки,
-                                        линтер — <em>стилевые</em>.
+                                        линтер — <em>стилевые и семантические</em> правила.
                                     </HelpText>
                                 </HelpSection>
 
                                 <HelpSection title="Уровни проблем">
                                     <HelpList>
-                                        <li><strong>Ошибки</strong> — модель сломана: циклы наследования, ссылки на несуществующие сущности, дубликаты entityId.</li>
-                                        <li><strong>Предупреждения</strong> — модель работает, но есть потенциальные проблемы: сироты, атрибуты без views, конфликты миксинов.</li>
-                                        <li><strong>Информация</strong> — не проблема, а факт: пустые домены (это норма для миксинов), сущности без собственных атрибутов.</li>
+                                        <li>
+                                            <strong>Ошибки</strong> — модель сломана: циклы
+                                            наследования, ссылки на несуществующие сущности,
+                                            дубликаты entityId.
+                                        </li>
+                                        <li>
+                                            <strong>Предупреждения</strong> — модель работает, но
+                                            есть потенциальные проблемы: сироты, атрибуты без
+                                            views, конфликты миксинов.
+                                        </li>
+                                        <li>
+                                            <strong>Информация</strong> — не проблема, а факт:
+                                            пустые домены (норма для миксинов), сущности без
+                                            собственных атрибутов.
+                                        </li>
                                     </HelpList>
                                 </HelpSection>
 
-                                <HelpSection title="Примеры">
+                                <HelpSection title="Валидация и линтер">
                                     <HelpText>
-                                        <strong>Цикл:</strong> A наследует B, B наследует A — сломается логика наследования.{' '}
-                                        <strong>Битая ссылка:</strong> атрибут <code>Reference</code> указывает на сущность,
-                                        которой нет в индексе. <strong>Осиротевший view:</strong> объявлен, но
-                                        не вызывается ни из меню, ни из действия.
+                                        Это <strong>две независимые системы</strong>.
+                                        Валидация модели отвечает на вопрос «цела ли структура
+                                        модели после сборки индекса». Линтер — «соблюдены ли
+                                        правила написания схем» (naming, RQL, UI rules,
+                                        reference-целостность и т.д.).
+                                    </HelpText>
+                                    <HelpText>
+                                        Пересечение небольшое: несуществующие сущности в
+                                        Reference/Array-Reference проверяют обе системы.
+                                        Всё остальное — уникально для каждой.
                                     </HelpText>
                                 </HelpSection>
                             </ModalHelp>
-                            {/* ============ Шапка со счётчиками ============ */}
+
+                            {/* ============ Шапка со счётчиками структурных проверок ============ */}
                             <div className="model-validation-summary">
                                 <div className="model-validation-stat model-validation-stat--error">
                                     <div className="model-validation-stat__value">{summary.counts.error}</div>
-                                    <div className="model-validation-stat__label">Ошибок</div>
+                                    <div className="model-validation-stat__label">Ошибок структуры</div>
                                 </div>
                                 <div className="model-validation-stat model-validation-stat--warning">
                                     <div className="model-validation-stat__value">{summary.counts.warning}</div>
@@ -120,14 +149,18 @@ export function ModelValidationModal() {
                                 </div>
                             </div>
 
+                            {/* ============ НОВЫЙ БЛОК: сводка линтера ============ */}
+                            <LintSummaryBlock lintReport={index.lint.lintReport} />
+
                             {summary.totalIssues === 0 && (
                                 <div className="model-validation-empty">
                                     <div className="model-validation-empty__icon">✅</div>
                                     <div className="model-validation-empty__title">
-                                        Модель прошла все проверки
+                                        Структура модели в порядке
                                     </div>
                                     <div className="model-validation-empty__hint">
                                         Циклов, битых ссылок, сирот и дубликатов не обнаружено.
+                                        Проблемы правил см. в блоке «Правила схем» выше.
                                     </div>
                                 </div>
                             )}
@@ -170,13 +203,107 @@ export function ModelValidationModal() {
     );
 }
 
+// ============ Новый блок: сводка линтера ============
+
+function LintSummaryBlock({ lintReport }: { lintReport: LintReport }) {
+    const store = useGraphStore();
+    const stats = lintReport.stats;
+    const topRules = stats.byRule.slice(0, 5);
+
+    const openLint = () => {
+        // Сначала закрываем текущую — иначе обе модалки наложатся.
+        store.setModelValidationOpen(false);
+        store.setLintOpen(true);
+    };
+
+    return (
+        <div className="model-validation-lint">
+            <div className="model-validation-lint__header">
+                <div className="model-validation-lint__title">
+                    <MIcon name="rule" size="sm" />
+                    <span>Правила схем (линтер)</span>
+                    <span className="model-validation-lint__total">{stats.total}</span>
+                </div>
+                <button className="btn" onClick={openLint}>
+                    Открыть линтер →
+                </button>
+            </div>
+
+            {stats.total === 0 ? (
+                <div className="model-validation-lint__empty">
+                    <MIcon name="check_circle" size="sm" />
+                    <span>Схемы соответствуют правилам линтера</span>
+                </div>
+            ) : (
+                <>
+                    <div className="model-validation-lint__counters">
+                        <div className="model-validation-lint__counter model-validation-lint__counter--error">
+                            <span className="model-validation-lint__counter-value">
+                                {stats.bySeverity.error}
+                            </span>
+                            <span className="model-validation-lint__counter-label">
+                                ошибок правил
+                            </span>
+                        </div>
+                        <div className="model-validation-lint__counter model-validation-lint__counter--warning">
+                            <span className="model-validation-lint__counter-value">
+                                {stats.bySeverity.warning}
+                            </span>
+                            <span className="model-validation-lint__counter-label">
+                                предупреждений
+                            </span>
+                        </div>
+                        <div className="model-validation-lint__counter model-validation-lint__counter--info">
+                            <span className="model-validation-lint__counter-value">
+                                {stats.bySeverity.info}
+                            </span>
+                            <span className="model-validation-lint__counter-label">
+                                рекомендаций
+                            </span>
+                        </div>
+                    </div>
+
+                    {topRules.length > 0 && (
+                        <div className="model-validation-lint__rules">
+                            <div className="model-validation-lint__rules-label">
+                                Частые правила
+                            </div>
+                            <div className="model-validation-lint__rules-list">
+                                {topRules.map((r) => (
+                                    <button
+                                        key={r.ruleId}
+                                        className={
+                                            'model-validation-lint__rule ' +
+                                            'model-validation-lint__rule--' + r.severity
+                                        }
+                                        onClick={openLint}
+                                        title={`${r.ruleId}\nНажмите, чтобы открыть линтер`}
+                                    >
+                                        <span className="model-validation-lint__rule-dot" />
+                                        <span className="model-validation-lint__rule-name">
+                                            {r.rule}
+                                        </span>
+                                        <span className="model-validation-lint__rule-count">
+                                            {r.count}
+                                        </span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </>
+            )}
+        </div>
+    );
+}
+
 function IssueSection({
     severity,
     label,
     issues,
     expanded,
     onToggle,
-    onOpenEntity
+    onOpenEntity,
 }: {
     severity: IssueSeverity;
     label: string;
@@ -213,7 +340,6 @@ function IssueSection({
                         {isOpen && issue.samples.length > 0 && (
                             <div className="model-validation-issue__samples">
                                 {issue.samples.map((s, i) => {
-                                    // Если строка похожа на FQID — сделаем кликабельной
                                     const isFqid = /^[a-z0-9.-]+\/[a-z0-9_-]+$/i.test(s);
                                     if (isFqid) {
                                         return (

@@ -15542,7 +15542,14 @@ function ModelValidationModal() {
                 summary && summary.totalIssues > 0 && /* @__PURE__ */ jsx61("span", { className: "help-modal__badge", children: summary.totalIssues })
               ] }),
               /* @__PURE__ */ jsxs58("div", { className: "help-modal__actions", children: [
-                /* @__PURE__ */ jsx61(HelpButton, { open: showHelp, onToggle: () => setShowHelp(!showHelp), label: "\u0427\u0442\u043E \u044D\u0442\u043E?" }),
+                /* @__PURE__ */ jsx61(
+                  HelpButton,
+                  {
+                    open: showHelp,
+                    onToggle: () => setShowHelp(!showHelp),
+                    label: "\u0427\u0442\u043E \u044D\u0442\u043E?"
+                  }
+                ),
                 /* @__PURE__ */ jsx61(
                   "button",
                   {
@@ -15565,8 +15572,8 @@ function ModelValidationModal() {
                     "\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u2014 \u044D\u0442\u043E \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438\u0439 \u043E\u0431\u0445\u043E\u0434 \u0432\u0441\u0435\u0439 \u043C\u043E\u0434\u0435\u043B\u0438 \u0438 \u043F\u043E\u0438\u0441\u043A \u043F\u0440\u043E\u0431\u043B\u0435\u043C: \u0446\u0438\u043A\u043B\u043E\u0432, \u0431\u0438\u0442\u044B\u0445 \u0441\u0441\u044B\u043B\u043E\u043A, \u0434\u0443\u0431\u043B\u0435\u0439, \u0441\u0438\u0440\u043E\u0442, \u043A\u043E\u043D\u0444\u043B\u0438\u043A\u0442\u043E\u0432 \u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432. \u041E\u0442\u043B\u0438\u0447\u0430\u0435\u0442\u0441\u044F \u043E\u0442 \u043B\u0438\u043D\u0442\u0435\u0440\u0430: \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u0438\u0449\u0435\u0442 ",
                     /* @__PURE__ */ jsx61("em", { children: "\u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u043D\u044B\u0435" }),
                     " \u043E\u0448\u0438\u0431\u043A\u0438, \u043B\u0438\u043D\u0442\u0435\u0440 \u2014 ",
-                    /* @__PURE__ */ jsx61("em", { children: "\u0441\u0442\u0438\u043B\u0435\u0432\u044B\u0435" }),
-                    "."
+                    /* @__PURE__ */ jsx61("em", { children: "\u0441\u0442\u0438\u043B\u0435\u0432\u044B\u0435 \u0438 \u0441\u0435\u043C\u0430\u043D\u0442\u0438\u0447\u0435\u0441\u043A\u0438\u0435" }),
+                    " \u043F\u0440\u0430\u0432\u0438\u043B\u0430."
                   ] }) }),
                   /* @__PURE__ */ jsx61(HelpSection, { title: "\u0423\u0440\u043E\u0432\u043D\u0438 \u043F\u0440\u043E\u0431\u043B\u0435\u043C", children: /* @__PURE__ */ jsxs58(HelpList, { children: [
                     /* @__PURE__ */ jsxs58("li", { children: [
@@ -15579,25 +15586,22 @@ function ModelValidationModal() {
                     ] }),
                     /* @__PURE__ */ jsxs58("li", { children: [
                       /* @__PURE__ */ jsx61("strong", { children: "\u0418\u043D\u0444\u043E\u0440\u043C\u0430\u0446\u0438\u044F" }),
-                      " \u2014 \u043D\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0430, \u0430 \u0444\u0430\u043A\u0442: \u043F\u0443\u0441\u0442\u044B\u0435 \u0434\u043E\u043C\u0435\u043D\u044B (\u044D\u0442\u043E \u043D\u043E\u0440\u043C\u0430 \u0434\u043B\u044F \u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432), \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0431\u0435\u0437 \u0441\u043E\u0431\u0441\u0442\u0432\u0435\u043D\u043D\u044B\u0445 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432."
+                      " \u2014 \u043D\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0430, \u0430 \u0444\u0430\u043A\u0442: \u043F\u0443\u0441\u0442\u044B\u0435 \u0434\u043E\u043C\u0435\u043D\u044B (\u043D\u043E\u0440\u043C\u0430 \u0434\u043B\u044F \u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432), \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0431\u0435\u0437 \u0441\u043E\u0431\u0441\u0442\u0432\u0435\u043D\u043D\u044B\u0445 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432."
                     ] })
                   ] }) }),
-                  /* @__PURE__ */ jsx61(HelpSection, { title: "\u041F\u0440\u0438\u043C\u0435\u0440\u044B", children: /* @__PURE__ */ jsxs58(HelpText, { children: [
-                    /* @__PURE__ */ jsx61("strong", { children: "\u0426\u0438\u043A\u043B:" }),
-                    " A \u043D\u0430\u0441\u043B\u0435\u0434\u0443\u0435\u0442 B, B \u043D\u0430\u0441\u043B\u0435\u0434\u0443\u0435\u0442 A \u2014 \u0441\u043B\u043E\u043C\u0430\u0435\u0442\u0441\u044F \u043B\u043E\u0433\u0438\u043A\u0430 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F.",
-                    " ",
-                    /* @__PURE__ */ jsx61("strong", { children: "\u0411\u0438\u0442\u0430\u044F \u0441\u0441\u044B\u043B\u043A\u0430:" }),
-                    " \u0430\u0442\u0440\u0438\u0431\u0443\u0442 ",
-                    /* @__PURE__ */ jsx61("code", { children: "Reference" }),
-                    " \u0443\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 \u043D\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C, \u043A\u043E\u0442\u043E\u0440\u043E\u0439 \u043D\u0435\u0442 \u0432 \u0438\u043D\u0434\u0435\u043A\u0441\u0435. ",
-                    /* @__PURE__ */ jsx61("strong", { children: "\u041E\u0441\u0438\u0440\u043E\u0442\u0435\u0432\u0448\u0438\u0439 view:" }),
-                    " \u043E\u0431\u044A\u044F\u0432\u043B\u0435\u043D, \u043D\u043E \u043D\u0435 \u0432\u044B\u0437\u044B\u0432\u0430\u0435\u0442\u0441\u044F \u043D\u0438 \u0438\u0437 \u043C\u0435\u043D\u044E, \u043D\u0438 \u0438\u0437 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F."
-                  ] }) })
+                  /* @__PURE__ */ jsxs58(HelpSection, { title: "\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u0438 \u043B\u0438\u043D\u0442\u0435\u0440", children: [
+                    /* @__PURE__ */ jsxs58(HelpText, { children: [
+                      "\u042D\u0442\u043E ",
+                      /* @__PURE__ */ jsx61("strong", { children: "\u0434\u0432\u0435 \u043D\u0435\u0437\u0430\u0432\u0438\u0441\u0438\u043C\u044B\u0435 \u0441\u0438\u0441\u0442\u0435\u043C\u044B" }),
+                      ". \u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u043C\u043E\u0434\u0435\u043B\u0438 \u043E\u0442\u0432\u0435\u0447\u0430\u0435\u0442 \u043D\u0430 \u0432\u043E\u043F\u0440\u043E\u0441 \xAB\u0446\u0435\u043B\u0430 \u043B\u0438 \u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0430 \u043C\u043E\u0434\u0435\u043B\u0438 \u043F\u043E\u0441\u043B\u0435 \u0441\u0431\u043E\u0440\u043A\u0438 \u0438\u043D\u0434\u0435\u043A\u0441\u0430\xBB. \u041B\u0438\u043D\u0442\u0435\u0440 \u2014 \xAB\u0441\u043E\u0431\u043B\u044E\u0434\u0435\u043D\u044B \u043B\u0438 \u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u043D\u0430\u043F\u0438\u0441\u0430\u043D\u0438\u044F \u0441\u0445\u0435\u043C\xBB (naming, RQL, UI rules, reference-\u0446\u0435\u043B\u043E\u0441\u0442\u043D\u043E\u0441\u0442\u044C \u0438 \u0442.\u0434.)."
+                    ] }),
+                    /* @__PURE__ */ jsx61(HelpText, { children: "\u041F\u0435\u0440\u0435\u0441\u0435\u0447\u0435\u043D\u0438\u0435 \u043D\u0435\u0431\u043E\u043B\u044C\u0448\u043E\u0435: \u043D\u0435\u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0432 Reference/Array-Reference \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u044E\u0442 \u043E\u0431\u0435 \u0441\u0438\u0441\u0442\u0435\u043C\u044B. \u0412\u0441\u0451 \u043E\u0441\u0442\u0430\u043B\u044C\u043D\u043E\u0435 \u2014 \u0443\u043D\u0438\u043A\u0430\u043B\u044C\u043D\u043E \u0434\u043B\u044F \u043A\u0430\u0436\u0434\u043E\u0439." })
+                  ] })
                 ] }),
                 /* @__PURE__ */ jsxs58("div", { className: "model-validation-summary", children: [
                   /* @__PURE__ */ jsxs58("div", { className: "model-validation-stat model-validation-stat--error", children: [
                     /* @__PURE__ */ jsx61("div", { className: "model-validation-stat__value", children: summary.counts.error }),
-                    /* @__PURE__ */ jsx61("div", { className: "model-validation-stat__label", children: "\u041E\u0448\u0438\u0431\u043E\u043A" })
+                    /* @__PURE__ */ jsx61("div", { className: "model-validation-stat__label", children: "\u041E\u0448\u0438\u0431\u043E\u043A \u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u044B" })
                   ] }),
                   /* @__PURE__ */ jsxs58("div", { className: "model-validation-stat model-validation-stat--warning", children: [
                     /* @__PURE__ */ jsx61("div", { className: "model-validation-stat__value", children: summary.counts.warning }),
@@ -15608,10 +15612,11 @@ function ModelValidationModal() {
                     /* @__PURE__ */ jsx61("div", { className: "model-validation-stat__label", children: "\u0417\u0430\u043C\u0435\u0447\u0430\u043D\u0438\u0439" })
                   ] })
                 ] }),
+                /* @__PURE__ */ jsx61(LintSummaryBlock, { lintReport: index.lint.lintReport }),
                 summary.totalIssues === 0 && /* @__PURE__ */ jsxs58("div", { className: "model-validation-empty", children: [
                   /* @__PURE__ */ jsx61("div", { className: "model-validation-empty__icon", children: "\u2705" }),
-                  /* @__PURE__ */ jsx61("div", { className: "model-validation-empty__title", children: "\u041C\u043E\u0434\u0435\u043B\u044C \u043F\u0440\u043E\u0448\u043B\u0430 \u0432\u0441\u0435 \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0438" }),
-                  /* @__PURE__ */ jsx61("div", { className: "model-validation-empty__hint", children: "\u0426\u0438\u043A\u043B\u043E\u0432, \u0431\u0438\u0442\u044B\u0445 \u0441\u0441\u044B\u043B\u043E\u043A, \u0441\u0438\u0440\u043E\u0442 \u0438 \u0434\u0443\u0431\u043B\u0438\u043A\u0430\u0442\u043E\u0432 \u043D\u0435 \u043E\u0431\u043D\u0430\u0440\u0443\u0436\u0435\u043D\u043E." })
+                  /* @__PURE__ */ jsx61("div", { className: "model-validation-empty__title", children: "\u0421\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0430 \u043C\u043E\u0434\u0435\u043B\u0438 \u0432 \u043F\u043E\u0440\u044F\u0434\u043A\u0435" }),
+                  /* @__PURE__ */ jsx61("div", { className: "model-validation-empty__hint", children: "\u0426\u0438\u043A\u043B\u043E\u0432, \u0431\u0438\u0442\u044B\u0445 \u0441\u0441\u044B\u043B\u043E\u043A, \u0441\u0438\u0440\u043E\u0442 \u0438 \u0434\u0443\u0431\u043B\u0438\u043A\u0430\u0442\u043E\u0432 \u043D\u0435 \u043E\u0431\u043D\u0430\u0440\u0443\u0436\u0435\u043D\u043E. \u041F\u0440\u043E\u0431\u043B\u0435\u043C\u044B \u043F\u0440\u0430\u0432\u0438\u043B \u0441\u043C. \u0432 \u0431\u043B\u043E\u043A\u0435 \xAB\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0441\u0445\u0435\u043C\xBB \u0432\u044B\u0448\u0435." })
                 ] }),
                 errors.length > 0 && /* @__PURE__ */ jsx61(
                   IssueSection,
@@ -15653,6 +15658,62 @@ function ModelValidationModal() {
       )
     }
   );
+}
+function LintSummaryBlock({ lintReport }) {
+  const store = useGraphStore();
+  const stats = lintReport.stats;
+  const topRules = stats.byRule.slice(0, 5);
+  const openLint = () => {
+    store.setModelValidationOpen(false);
+    store.setLintOpen(true);
+  };
+  return /* @__PURE__ */ jsxs58("div", { className: "model-validation-lint", children: [
+    /* @__PURE__ */ jsxs58("div", { className: "model-validation-lint__header", children: [
+      /* @__PURE__ */ jsxs58("div", { className: "model-validation-lint__title", children: [
+        /* @__PURE__ */ jsx61(MIcon, { name: "rule", size: "sm" }),
+        /* @__PURE__ */ jsx61("span", { children: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0441\u0445\u0435\u043C (\u043B\u0438\u043D\u0442\u0435\u0440)" }),
+        /* @__PURE__ */ jsx61("span", { className: "model-validation-lint__total", children: stats.total })
+      ] }),
+      /* @__PURE__ */ jsx61("button", { className: "btn", onClick: openLint, children: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043B\u0438\u043D\u0442\u0435\u0440 \u2192" })
+    ] }),
+    stats.total === 0 ? /* @__PURE__ */ jsxs58("div", { className: "model-validation-lint__empty", children: [
+      /* @__PURE__ */ jsx61(MIcon, { name: "check_circle", size: "sm" }),
+      /* @__PURE__ */ jsx61("span", { children: "\u0421\u0445\u0435\u043C\u044B \u0441\u043E\u043E\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0443\u044E\u0442 \u043F\u0440\u0430\u0432\u0438\u043B\u0430\u043C \u043B\u0438\u043D\u0442\u0435\u0440\u0430" })
+    ] }) : /* @__PURE__ */ jsxs58(Fragment13, { children: [
+      /* @__PURE__ */ jsxs58("div", { className: "model-validation-lint__counters", children: [
+        /* @__PURE__ */ jsxs58("div", { className: "model-validation-lint__counter model-validation-lint__counter--error", children: [
+          /* @__PURE__ */ jsx61("span", { className: "model-validation-lint__counter-value", children: stats.bySeverity.error }),
+          /* @__PURE__ */ jsx61("span", { className: "model-validation-lint__counter-label", children: "\u043E\u0448\u0438\u0431\u043E\u043A \u043F\u0440\u0430\u0432\u0438\u043B" })
+        ] }),
+        /* @__PURE__ */ jsxs58("div", { className: "model-validation-lint__counter model-validation-lint__counter--warning", children: [
+          /* @__PURE__ */ jsx61("span", { className: "model-validation-lint__counter-value", children: stats.bySeverity.warning }),
+          /* @__PURE__ */ jsx61("span", { className: "model-validation-lint__counter-label", children: "\u043F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u0439" })
+        ] }),
+        /* @__PURE__ */ jsxs58("div", { className: "model-validation-lint__counter model-validation-lint__counter--info", children: [
+          /* @__PURE__ */ jsx61("span", { className: "model-validation-lint__counter-value", children: stats.bySeverity.info }),
+          /* @__PURE__ */ jsx61("span", { className: "model-validation-lint__counter-label", children: "\u0440\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u0439" })
+        ] })
+      ] }),
+      topRules.length > 0 && /* @__PURE__ */ jsxs58("div", { className: "model-validation-lint__rules", children: [
+        /* @__PURE__ */ jsx61("div", { className: "model-validation-lint__rules-label", children: "\u0427\u0430\u0441\u0442\u044B\u0435 \u043F\u0440\u0430\u0432\u0438\u043B\u0430" }),
+        /* @__PURE__ */ jsx61("div", { className: "model-validation-lint__rules-list", children: topRules.map((r) => /* @__PURE__ */ jsxs58(
+          "button",
+          {
+            className: "model-validation-lint__rule model-validation-lint__rule--" + r.severity,
+            onClick: openLint,
+            title: `${r.ruleId}
+\u041D\u0430\u0436\u043C\u0438\u0442\u0435, \u0447\u0442\u043E\u0431\u044B \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u043B\u0438\u043D\u0442\u0435\u0440`,
+            children: [
+              /* @__PURE__ */ jsx61("span", { className: "model-validation-lint__rule-dot" }),
+              /* @__PURE__ */ jsx61("span", { className: "model-validation-lint__rule-name", children: r.rule }),
+              /* @__PURE__ */ jsx61("span", { className: "model-validation-lint__rule-count", children: r.count })
+            ]
+          },
+          r.ruleId
+        )) })
+      ] })
+    ] })
+  ] });
 }
 function IssueSection({
   severity,
@@ -25633,142 +25694,6 @@ function applyFqidMarkers(monaco, model, index, currentDomainId) {
         });
       }
     }
-    const knownViews = /* @__PURE__ */ new Set();
-    const knownWidgets = /* @__PURE__ */ new Set();
-    const knownGroups = /* @__PURE__ */ new Set();
-    const knownColumns = /* @__PURE__ */ new Set();
-    const knownPresets = /* @__PURE__ */ new Set();
-    const knownUiRules = /* @__PURE__ */ new Set();
-    if (index?.schemasByDomain) {
-      Object.values(index.schemasByDomain).forEach((s) => {
-        s?.sections?.views?.items?.forEach((v) => {
-          if (v?.id)
-            knownViews.add(String(v.id).toLowerCase());
-        });
-        s?.sections?.uiPresets?.items?.forEach((p) => {
-          if (p?.id)
-            knownPresets.add(String(p.id).toLowerCase());
-        });
-        s?.sections?.uiRules?.items?.forEach((r) => {
-          if (r?.id)
-            knownUiRules.add(String(r.id).toLowerCase());
-        });
-      });
-    }
-    (index?.entities || []).forEach(() => {
-    });
-    const widgetDefRegex = /^\s*-\s+id\s*:\s*([^\s#]+)\s*$/;
-    let lastSection = "";
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const sectionM = line.match(/^([a-zA-Z_][\w]*)\s*:/);
-      if (sectionM)
-        lastSection = sectionM[1];
-      const idm = line.match(widgetDefRegex);
-      if (idm) {
-        const id = idm[1].toLowerCase();
-        if (lastSection === "uiPresets")
-          knownPresets.add(id);
-        if (lastSection === "views") {
-          knownWidgets.add(id);
-          knownGroups.add(id);
-          knownColumns.add(id);
-        }
-      }
-    }
-    const uiRuleRefs = [];
-    let inUiRules = false;
-    let uiRuleIndent = -1;
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const sectionM = line.match(/^([a-zA-Z_][\w]*)\s*:/);
-      if (sectionM) {
-        inUiRules = sectionM[1] === "uiRules";
-        continue;
-      }
-      if (!inUiRules)
-        continue;
-      const viewM = line.match(/^\s*view\s*:\s*([^\s#]+)/);
-      if (viewM && lastSection === "uiRules") {
-        const id = viewM[1].replace(/["']/g, "");
-        const startCol = line.indexOf(id) + 1;
-        if (!knownViews.has(id.toLowerCase())) {
-          markers.push({
-            severity: monaco.MarkerSeverity.Warning,
-            message: `View \xAB${id}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D \u0432 \u0434\u043E\u043C\u0435\u043D\u0435`,
-            startLineNumber: i + 1,
-            startColumn: startCol,
-            endLineNumber: i + 1,
-            endColumn: startCol + id.length,
-            source: "fqid-validator"
-          });
-        }
-      }
-      const widgetM = line.match(/^\s*-\s*widget\s*:\s*([^\s#]+)/);
-      if (widgetM) {
-        const id = widgetM[1].replace(/["']/g, "");
-        const startCol = line.indexOf(id) + 1;
-        if (!knownWidgets.has(id.toLowerCase()) && !knownViews.has(id.toLowerCase())) {
-          markers.push({
-            severity: monaco.MarkerSeverity.Warning,
-            message: `\u0412\u0438\u0434\u0436\u0435\u0442 \xAB${id}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D \u0432 \u0434\u043E\u043C\u0435\u043D\u0435`,
-            startLineNumber: i + 1,
-            startColumn: startCol,
-            endLineNumber: i + 1,
-            endColumn: startCol + id.length,
-            source: "fqid-validator"
-          });
-        }
-      }
-      const groupM = line.match(/^\s*-\s*group\s*:\s*([^\s#]+)/);
-      if (groupM) {
-        const id = groupM[1].replace(/["']/g, "");
-        const startCol = line.indexOf(id) + 1;
-        if (!knownGroups.has(id.toLowerCase())) {
-          markers.push({
-            severity: monaco.MarkerSeverity.Warning,
-            message: `\u0413\u0440\u0443\u043F\u043F\u0430 \xAB${id}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430 \u0432 \u0434\u043E\u043C\u0435\u043D\u0435`,
-            startLineNumber: i + 1,
-            startColumn: startCol,
-            endLineNumber: i + 1,
-            endColumn: startCol + id.length,
-            source: "fqid-validator"
-          });
-        }
-      }
-      const columnM = line.match(/^\s*-\s*column\s*:\s*([^\s#]+)/);
-      if (columnM) {
-        const id = columnM[1].replace(/["']/g, "");
-        const startCol = line.indexOf(id) + 1;
-        if (!knownColumns.has(id.toLowerCase())) {
-          markers.push({
-            severity: monaco.MarkerSeverity.Warning,
-            message: `\u041A\u043E\u043B\u043E\u043D\u043A\u0430 \xAB${id}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430 \u0432 \u0434\u043E\u043C\u0435\u043D\u0435`,
-            startLineNumber: i + 1,
-            startColumn: startCol,
-            endLineNumber: i + 1,
-            endColumn: startCol + id.length,
-            source: "fqid-validator"
-          });
-        }
-      }
-      const presetM = line.match(/^\s*-\s*preset\s*:\s*([^\s#]+)/);
-      if (presetM) {
-        const id = presetM[1].replace(/["']/g, "");
-        const startCol = line.indexOf(id) + 1;
-        if (!knownPresets.has(id.toLowerCase())) {
-          markers.push({
-            severity: monaco.MarkerSeverity.Warning,
-            message: `\u041F\u0440\u0435\u0441\u0435\u0442 \xAB${id}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D \u0432 \u0434\u043E\u043C\u0435\u043D\u0435`,
-            startLineNumber: i + 1,
-            startColumn: startCol,
-            endLineNumber: i + 1,
-            endColumn: startCol + id.length,
-            source: "fqid-validator"
-          });
-        }
-      }
-    }
     let inActionsSection = false;
     let actionEntity = null;
     for (let i = 0; i < lines.length; i++) {
@@ -26019,12 +25944,12 @@ function applyFqidMarkers(monaco, model, index, currentDomainId) {
       const fromViewM = line.match(/^\s*fromView\s*:\s*([^\s#]+)/);
       if (fromViewM) {
         const id = fromViewM[1].replace(/["']/g, "");
-        const knownViews2 = /* @__PURE__ */ new Set();
+        const knownViews = /* @__PURE__ */ new Set();
         if (index?.schemasByDomain) {
           Object.values(index.schemasByDomain).forEach((s) => {
             s?.sections?.views?.items?.forEach((v) => {
               if (v?.id)
-                knownViews2.add(String(v.id).toLowerCase());
+                knownViews.add(String(v.id).toLowerCase());
             });
           });
         }
@@ -26040,9 +25965,9 @@ function applyFqidMarkers(monaco, model, index, currentDomainId) {
             continue;
           const idm = l.match(/^\s*-\s+id\s*:\s*([^\s#]+)/);
           if (idm)
-            knownViews2.add(idm[1].replace(/["']/g, "").toLowerCase());
+            knownViews.add(idm[1].replace(/["']/g, "").toLowerCase());
         }
-        if (!knownViews2.has(id.toLowerCase())) {
+        if (!knownViews.has(id.toLowerCase())) {
           const startCol = line.indexOf(id) + 1;
           markers.push({
             severity: monaco.MarkerSeverity.Warning,
@@ -26463,6 +26388,127 @@ function scanEntities(lines, startIdx, endIdx, markers, monaco) {
         source: "attribute-validator"
       });
     }
+  }
+}
+function applyUiRuleRefMarkers(monaco, model, index, currentDomainId) {
+  try {
+    const text = model.getValue();
+    const lines = text.split("\n");
+    const markers = [];
+    const knownWidgets = /* @__PURE__ */ new Set();
+    const knownGroups = /* @__PURE__ */ new Set();
+    const knownColumns = /* @__PURE__ */ new Set();
+    const knownPresets = /* @__PURE__ */ new Set();
+    const knownViews = /* @__PURE__ */ new Set();
+    if (index?.viewElementsByDomain?.[currentDomainId]) {
+      const els = index.viewElementsByDomain[currentDomainId];
+      for (const byView of Object.values(els)) {
+        for (const w of byView.widgets || []) {
+          knownWidgets.add(String(w).toLowerCase());
+        }
+        for (const g of byView.groups || []) {
+          knownGroups.add(String(g).toLowerCase());
+        }
+        for (const c of byView.columns || []) {
+          knownColumns.add(String(c).toLowerCase());
+        }
+      }
+    }
+    if (index?.uiPresetsByDomain?.[currentDomainId]) {
+      for (const p of index.uiPresetsByDomain[currentDomainId]) {
+        knownPresets.add(String(p).toLowerCase());
+      }
+    }
+    if (index?.schemasByDomain?.[currentDomainId]?.sections?.views?.items) {
+      for (const v of index.schemasByDomain[currentDomainId].sections.views.items) {
+        if (v?.id)
+          knownViews.add(String(v.id).toLowerCase());
+      }
+    }
+    if (index?.schemasByDomain?.[currentDomainId]?.allViews) {
+      for (const v of index.schemasByDomain[currentDomainId].allViews) {
+        if (v?.id)
+          knownViews.add(String(v.id).toLowerCase());
+      }
+    }
+    const widgetDefRegex = /^\s*-\s+id\s*:\s*([^\s#]+)\s*$/;
+    let lastSection = "";
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const sectionM = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (sectionM)
+        lastSection = sectionM[1];
+      const idm = line.match(widgetDefRegex);
+      if (!idm)
+        continue;
+      const id = idm[1].toLowerCase();
+      if (lastSection === "uiPresets")
+        knownPresets.add(id);
+      if (lastSection === "views") {
+        knownWidgets.add(id);
+        knownGroups.add(id);
+        knownColumns.add(id);
+      }
+    }
+    let inUiRules = false;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const sectionM = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (sectionM) {
+        inUiRules = sectionM[1] === "uiRules";
+        continue;
+      }
+      if (!inUiRules)
+        continue;
+      const checkRef = (fieldName, known, humanName) => {
+        const m = line.match(
+          new RegExp(`^\\s*-\\s*${fieldName}\\s*:\\s*([^\\s#]+)`)
+        );
+        if (!m)
+          return;
+        const id = m[1].replace(/["']/g, "");
+        if (!id)
+          return;
+        if (id.includes("/"))
+          return;
+        if (id.startsWith("external:"))
+          return;
+        if (!known.has(id.toLowerCase())) {
+          const startCol = line.indexOf(id) + 1;
+          markers.push({
+            severity: monaco.MarkerSeverity.Warning,
+            message: `${humanName} \xAB${id}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D \u0432 \u0434\u043E\u043C\u0435\u043D\u0435`,
+            startLineNumber: i + 1,
+            startColumn: startCol,
+            endLineNumber: i + 1,
+            endColumn: startCol + id.length,
+            source: "ui-rule-validator"
+          });
+        }
+      };
+      const widgetCheckLine = line.match(/^\s*-\s*widget\s*:\s*([^\s#]+)/);
+      if (widgetCheckLine) {
+        const id = widgetCheckLine[1].replace(/["']/g, "");
+        if (id && !id.includes("/") && !id.startsWith("external:") && !knownWidgets.has(id.toLowerCase()) && !knownViews.has(id.toLowerCase())) {
+          const startCol = line.indexOf(id) + 1;
+          markers.push({
+            severity: monaco.MarkerSeverity.Warning,
+            message: `\u0412\u0438\u0434\u0436\u0435\u0442 \xAB${id}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D \u0432 \u0434\u043E\u043C\u0435\u043D\u0435`,
+            startLineNumber: i + 1,
+            startColumn: startCol,
+            endLineNumber: i + 1,
+            endColumn: startCol + id.length,
+            source: "ui-rule-validator"
+          });
+        }
+      }
+      checkRef("group", knownGroups, "\u0413\u0440\u0443\u043F\u043F\u0430");
+      checkRef("column", knownColumns, "\u041A\u043E\u043B\u043E\u043D\u043A\u0430");
+      checkRef("preset", knownPresets, "\u041F\u0440\u0435\u0441\u0435\u0442");
+    }
+    monaco.editor.setModelMarkers(model, "ui-rule-validator", markers);
+  } catch (err) {
+    console.warn("[ui-rule-validator]", err);
   }
 }
 function findWidgetTypeForControl(lines, controlLine) {
@@ -36672,6 +36718,10 @@ function YamlViewerModal() {
       }
       try {
         applyAttributeMarkers(m, model);
+      } catch {
+      }
+      try {
+        applyUiRuleRefMarkers(m, model, index, domainId);
       } catch {
       }
     };
