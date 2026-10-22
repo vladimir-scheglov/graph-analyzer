@@ -23,18 +23,22 @@ const SYSTEM_ATTRIBUTES_FOR_COMPLETION: Array<{
   dataType: string;
   description: string;
 }> = [
-  { id: "id",             dataType: "Uuid",      description: "Идентификатор объекта" },
-  { id: "label",          dataType: "String",    description: "Лейбл объекта (человекочитаемый)" },
-  { id: "version",        dataType: "Integer",   description: "Версия объекта" },
-  { id: "createdAt",      dataType: "Timestamp", description: "Дата создания" },
-  { id: "createdBy",      dataType: "Reference", description: "Создатель" },
-  { id: "updatedAt",      dataType: "Timestamp", description: "Дата изменения" },
-  { id: "updatedBy",      dataType: "Reference", description: "Изменивший" },
+  { id: "id", dataType: "Uuid", description: "Идентификатор объекта" },
+  {
+    id: "label",
+    dataType: "String",
+    description: "Лейбл объекта (человекочитаемый)",
+  },
+  { id: "version", dataType: "Integer", description: "Версия объекта" },
+  { id: "createdAt", dataType: "Timestamp", description: "Дата создания" },
+  { id: "createdBy", dataType: "Reference", description: "Создатель" },
+  { id: "updatedAt", dataType: "Timestamp", description: "Дата изменения" },
+  { id: "updatedBy", dataType: "Reference", description: "Изменивший" },
   { id: "organizationId", dataType: "Reference", description: "Организация" },
-  { id: "tenantId",       dataType: "Reference", description: "Тенант" },
-  { id: "domainId",       dataType: "String",    description: "Идентификатор домена" },
-  { id: "entityId",       dataType: "String",    description: "Идентификатор сущности" },
-  { id: "entityName",     dataType: "String",    description: "Название сущности" },
+  { id: "tenantId", dataType: "Reference", description: "Тенант" },
+  { id: "domainId", dataType: "String", description: "Идентификатор домена" },
+  { id: "entityId", dataType: "String", description: "Идентификатор сущности" },
+  { id: "entityName", dataType: "String", description: "Название сущности" },
 ];
 
 // ============ Принудительное раскрытие details в suggest-widget ============
@@ -672,9 +676,9 @@ const WIDGET_TYPE_DESCRIPTIONS: Record<string, string> = {
   history: "История изменений (события аудита)",
   runs_history: "История запусков сценариев",
   comments: "Комментарии",
-  card: "Карточка для дашборда",
   conversation: "Переписки",
   visualization: "Визуализация (графики/диаграммы/таблица)",
+  diagram: "Диаграмма (визуализация агрегированных данных)",
   calculation: "Расчёт по схеме",
   template_editor: "Редактор шаблонов",
   addressBook: "Адресная книга",
@@ -3655,19 +3659,19 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
   // ============ exchangeSettings ============
   exchangeSettings: [
     {
-      name: "description",
-      type: "string",
-      description: "Описание требований к обмену данными",
-    },
-    {
       name: "enable",
       type: "boolean",
-      description: "Включить обмен (по умолчанию true)",
+      description: "Включить обмен данными для домена (по умолчанию: true)",
+    },
+    {
+      name: "description",
+      type: "string",
+      description: "Описание требований к обмену",
     },
     {
       name: "label",
       type: "string",
-      description: "Название домена в выпадающем списке импорта/экспорта",
+      description: "Название домена в списке импорта/экспорта",
     },
     {
       name: "noCmsSync",
@@ -3677,35 +3681,69 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
     {
       name: "attributeFormats",
       type: "object",
-      description:
-        "Форматы даты/времени (Date, Time, Timestamp, TimestampRange)",
+      description: "Форматы Date/Time/Timestamp/TimestampRange (Moment)",
     },
     {
       name: "entities",
       type: "object",
-      description: "Настройки обмена по сущностям",
+      description: "Настройки обмена по сущностям: { <EntityId>: { ... } }",
     },
   ],
   exchangeAttributeFormats: [
-    {
-      name: "Date",
-      type: "string",
-      description: "Формат Date (например, DD-MM-YYYY)",
-    },
-    {
-      name: "Time",
-      type: "string",
-      description: "Формат Time (например, HH:mm:ss)",
-    },
+    { name: "Date", type: "string", description: "Формат Date (DD-MM-YYYY)" },
+    { name: "Time", type: "string", description: "Формат Time (HH:mm:ss)" },
     {
       name: "Timestamp",
       type: "string",
-      description: "Формат Timestamp (например, DD-MM-YYYYTHH:mm:ss)",
+      description: "Формат Timestamp (DD-MM-YYYYTHH:mm:ss)",
     },
     {
       name: "TimestampRange",
       type: "string",
       description: "Формат TimestampRange",
+    },
+  ],
+  exchangeEntity: [
+    {
+      name: "domainLabel",
+      type: "string",
+      description: "Переопределение названия домена для сущности",
+    },
+    {
+      name: "enable",
+      type: "boolean",
+      description: "Включить обмен для этой сущности",
+    },
+    {
+      name: "label",
+      type: "string",
+      description: "Название сущности в списке",
+    },
+    {
+      name: "forExport",
+      type: "ref",
+      description: "Атрибут-идентификатор для Reference",
+    },
+    {
+      name: "upsertWith",
+      type: "string",
+      description:
+        "Атрибуты/связи для идентификации при обновлении (через запятую)",
+    },
+    {
+      name: "ignoreAttributes",
+      type: "string",
+      description: "Игнорируемые атрибуты (id через запятую)",
+    },
+    {
+      name: "exportSystemAttributes",
+      type: "string",
+      description: "Системные атрибуты для экспорта (id через запятую) или all",
+    },
+    {
+      name: "noCmsSync",
+      type: "boolean",
+      description: "Отключить sdk.cms.sync для этой сущности",
     },
   ],
   exchangeEntitySettings: [
@@ -5191,7 +5229,11 @@ export function detectContextAtPosition(
   if (parentKey === "views") return hasDash ? "view" : "viewList";
   if (parentKey === "dataTypes") return hasDash ? "dataType" : "dataTypeList";
   if (parentKey === "sequences") return hasDash ? "sequence" : "sequenceList";
-  if (parentKey === "counterColorPattern") return "counterColorPattern";
+  if (
+    parentKey === "counterColorPattern" ||
+    parentKey === "counterColorPatterns"
+  )
+    return "counterColorPattern";
   if (parentKey === "trees") return hasDash ? "tree" : "treeList";
   if (parentKey === "transitiveLinkages")
     return hasDash ? "transitiveLinkage" : "transitiveLinkageList";
@@ -5632,6 +5674,25 @@ export function detectContextAtPosition(
     if (section === "mixins") return "mixin";
     if (section === "sequences") return "sequence";
     if (section === "dataTypes") return "dataType";
+  }
+
+  if (parentKey === "exchangeSettings") return "exchangeSettings";
+  if (parentKey === "attributeFormats") return "exchangeAttributeFormats";
+  // entities в exchangeSettings — это объект { <EntityId>: { ... } },
+  // поэтому для полей внутри конкретной сущности возвращаем exchangeEntity.
+  // parentKey будет равен имени entity (не "entities"), т.к. стек
+  // отслеживает ключи. Различим по ancestor "exchangeSettings".
+  if (section === "exchangeSettings") {
+    // Найти ближайший ancestor с ключом "entities" — тогда это поле внутри сущности
+    for (let i = position.lineNumber - 1; i >= 1; i--) {
+      const pl = model.getLineContent(i);
+      const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
+      if (pIndent >= currentIndent) continue;
+      const m = pl.match(/^\s*([a-zA-Z_][\w]*)\s*:/);
+      if (!m) continue;
+      if (m[1] === "entities") return "exchangeEntity";
+      if (pIndent === 0) break;
+    }
   }
 
   return null;
@@ -6766,16 +6827,23 @@ export function registerMonacoProviders(monaco: any): void {
             ["dataTypes", "Кастомные типы (Enum, Workflow, Table)"],
             ["linkages", "Связи сущностей"],
             ["sequences", "Последовательности для Identifier"],
-            ["counterColorPattern", "Цветовые схемы счётчиков"],
+            ["counterColorPatterns", "Цветовые схемы счётчиков"],
             ["trees", "Древовидные связи"],
             ["transitiveLinkages", "Транзитивные связи"],
             ["mixins", "Примеси"],
             ["dataRules", "Правила данных"],
-            ["exchangeSettings", "Обмен данными"],
+            ["exchangeSettings", "Настройки импорта и экспорта объектов"],
             ["actions", "Действия"],
             ["medias", "Иконки"],
             ["views", "Представления"],
+            ["widgets", "Доменные виджеты (для дашбордов)"],
             ["menus", "Меню домена"],
+            ["permissions", "Разрешения действий и доступа к данным"],
+            [
+              "accessRules",
+              "Правила доступа (scope create/edit/view/delete/launch)",
+            ],
+            ["localizations", "Локализации"],
             ["uiRules", "UI Rules"],
             ["uiPresets", "UI Presets"],
           ] as const;
@@ -7013,7 +7081,7 @@ export function registerMonacoProviders(monaco: any): void {
         case "target": {
           let list: string[] | null = null;
           if (vctx.itemType === "dataRule")
-            list = ["entity", "entityAttribute", "linkage"];
+            list = ["entity", "entityAttribute"];
           else if (vctx.itemType === "uiRule")
             list = ["list_view", "entity_view", "entity_attribute"];
           else if (vctx.itemType === "accessRule")
@@ -7304,6 +7372,28 @@ export function registerMonacoProviders(monaco: any): void {
               Kind,
             ) || { suggestions: [] }
           );
+
+        case "segment": {
+          // segment — массив литералов (можно с @, можно без).
+          // Monaco в YAML-режиме в массив-элементах выдаёт value-suggestions через
+          // тот же механизм, что и для `- attr:`.
+          return (
+            r(
+              model,
+              position,
+              ["segment"],
+              mkSimple(["@prefix", "@YYYY", "@YY", "@MM", "@DD"], Kind.Value, {
+                "@prefix":
+                  "Настраиваемый префикс (правила подстановки или defaultPrefix)",
+                "@YYYY": "Текущий год, 4 цифры",
+                "@YY": "Текущий год, 2 цифры",
+                "@MM": "Текущий месяц, 01–12",
+                "@DD": "Текущий день месяца, 01–31",
+              }),
+              Kind,
+            ) || { suggestions: [] }
+          );
+        }
         case "tree":
           return (
             r(
@@ -7640,6 +7730,7 @@ const TYPE_ENUM_BY_CTX: Record<string, string[]> = {
     "earliest_date",
     "latest_date",
   ],
+  dataRules: ["entity", "entityAttribute"],
 };
 
 const EFFECT_ENUM_BY_CTX: Record<string, string[]> = {
@@ -7656,7 +7747,7 @@ const EFFECT_ENUM_BY_CTX: Record<string, string[]> = {
 };
 
 const TARGET_ENUM_BY_CTX: Record<string, string[]> = {
-  dataRule: ["entity", "entityAttribute", "linkage"],
+  dataRule: ["entity", "entityAttribute"],
   uiRule: ["list_view", "entity_view", "entity_attribute"],
 };
 
@@ -8245,8 +8336,11 @@ export function applyFqidMarkers(
     // Только entity/linkage/attribute refs.
     // View-поля (view/modal/panel/form/tab/list/page/fromView/addLinksView)
     // валидируются отдельно в applyViewRefMarkers.
+    // ВАЖНО: `linkage` здесь НЕ в списке.
+    // `linkage:` — это ссылка на связь (FQID `<domain>/<linkageId>`),
+    // а не на сущность. Проверяется отдельным блоком ниже.
     const REF_FIELD_PATTERN =
-      /^\s*(?:-\s+)?(inherits|entity|side1|side2|linkage|attribute|item|source|linkedEntity)\s*:\s*(.+)$/;
+      /^\s*(?:-\s+)?(inherits|entity|side1|side2|attribute|item|source|linkedEntity)\s*:\s*(.+)$/;
 
     const FQID_IN_VALUE = /([a-z0-9][\w.\-]*\.[a-z0-9][\w.\-]*)\/([\w\-]+)/gi;
     const LOCAL_ENTITY_VALUE = /^([A-Z][\w]*)$/; // CamelCase локальный id
@@ -8343,39 +8437,84 @@ export function applyFqidMarkers(
       }
     }
 
-    // ============ Проверка linkage в transitiveLinkages / trees ============
-    const knownLinkages = new Set<string>();
-    (index?.domains || []).forEach((d: any) => {
-      // linkages собираются в rawData домена, но мы можем достать их из entityLinkages
-    });
-    // Проще: из индекса
+    // ============ Проверка linkage-ссылок ============
+    // Источники: views[].widgets[].linkage, mixins[].linkage, trees[].children[].linkage,
+    // transitiveLinkages[].joins[].linkage, actions[].linkage, dataRules[].linkage.
+    //
+    // Значение — либо `<linkageId>` (текущий домен), либо `<domain>/<linkageId>` (FQID).
+    // Резолвим в домене-владельце, а НЕ в домене, где написана строка.
+    const knownLinkagesByDomain = new Map<string, Set<string>>();
+    const ensureLinkageSet = (domId: string): Set<string> => {
+      let set = knownLinkagesByDomain.get(domId);
+      if (!set) {
+        set = new Set();
+        knownLinkagesByDomain.set(domId, set);
+      }
+      return set;
+    };
     (index as any)?.entityLinkages?.forEach((l: any) => {
-      knownLinkages.add(String(l.id).toLowerCase());
+      if (!l?.domainId || !l?.id) return;
+      ensureLinkageSet(String(l.domainId).toLowerCase()).add(
+        String(l.id).toLowerCase(),
+      );
     });
     if (index?.schemasByDomain) {
-      Object.values(index.schemasByDomain).forEach((s: any) => {
-        s?.sections?.linkages?.items?.forEach((l: any) => {
-          if (l?.id) knownLinkages.add(String(l.id).toLowerCase());
-        });
-      });
+      for (const [domId, s] of Object.entries(index.schemasByDomain)) {
+        const items = (s as any)?.sections?.linkages?.items || [];
+        for (const l of items) {
+          if (l?.id) {
+            ensureLinkageSet(domId.toLowerCase()).add(
+              String(l.id).toLowerCase(),
+            );
+          }
+        }
+      }
     }
 
-    // Ищем все строки `linkage: X`
-    const linkageRegex = /^\s*linkage\s*:\s*([^\s#]+)/;
+    // Поддержка и `linkage: x`, и `- linkage: x`.
+    const linkageRegex = /^\s*(?:-\s+)?linkage\s*:\s*([^\s#]+)/;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const m = line.match(linkageRegex);
       if (!m) continue;
-      const linkageId = m[1].replace(/["']/g, "");
-      if (!knownLinkages.has(linkageId.toLowerCase())) {
-        const startCol = line.indexOf(linkageId) + 1;
+
+      const rawLinkageId = m[1].replace(/["']/g, "");
+      const slash = rawLinkageId.indexOf("/");
+      let idToCheck = rawLinkageId;
+      let targetDomain = (currentDomainId || "").toLowerCase();
+
+      if (slash > 0) {
+        targetDomain = rawLinkageId.slice(0, slash).toLowerCase();
+        idToCheck = rawLinkageId.slice(slash + 1);
+      }
+
+      const startCol = line.indexOf(rawLinkageId) + 1;
+      const endCol = startCol + rawLinkageId.length;
+
+      // Домен FQID не существует
+      if (!domainIds.has(targetDomain)) {
         markers.push({
-          severity: monaco.MarkerSeverity.Warning,
-          message: `Связь «${linkageId}» не найдена в домене`,
+          severity: monaco.MarkerSeverity.Error,
+          message: `Домен «${targetDomain}» не найден в индексе`,
           startLineNumber: i + 1,
           startColumn: startCol,
           endLineNumber: i + 1,
-          endColumn: startCol + linkageId.length,
+          endColumn: endCol,
+          source: "fqid-validator",
+        });
+        continue;
+      }
+
+      // Связь не найдена в целевом домене
+      const set = knownLinkagesByDomain.get(targetDomain);
+      if (!set || !set.has(idToCheck.toLowerCase())) {
+        markers.push({
+          severity: monaco.MarkerSeverity.Warning,
+          message: `Связь «${idToCheck}» не найдена в домене ${targetDomain}`,
+          startLineNumber: i + 1,
+          startColumn: startCol,
+          endLineNumber: i + 1,
+          endColumn: endCol,
           source: "fqid-validator",
         });
       }
@@ -9100,6 +9239,16 @@ export function applyViewRefMarkers(
       const line = lines[i];
       const vm = line.match(VIEW_REF_PATTERN);
       if (vm) {
+        const fieldName = vm[1];
+        // В `mixins[].views[].to.*` поле `panel` / `list` резолвится в домене
+        // целевой сущности (`entity.to` для linkage, `entity` для view),
+        // который может быть ДРУГИМ доменом. Без полного контекста миксина
+        // Monaco не может корректно проверить — оставляем это линтеру.
+        const lineCtx = ctx.lineMap?.lineContexts.get(i + 1);
+        const inMixins = lineCtx?.section === "mixins";
+        if (inMixins && (fieldName === "panel" || fieldName === "list")) {
+          continue;
+        }
         checkRef(i, line, vm[2], localViewIds, "view");
         continue;
       }

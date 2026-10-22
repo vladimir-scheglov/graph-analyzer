@@ -19,6 +19,8 @@ import type {
   DomainSchemaLocalizationItem,
   DomainSchemaAccessRuleItem,
   DomainSchemaPermissionItem,
+  DomainSchemaWidgetItem,
+  DomainSchemaExchangeSettingsItem,
 } from "../../shared/model-types";
 
 function asArray(x: any): any[] {
@@ -117,24 +119,108 @@ export function buildDomainSchemaSummary(
 
   // ============ Views (top-level) ============
   const viewsRaw = asArray(raw.views);
-    const views: DomainSchemaViewItem[] = viewsRaw
-      .map((v: any) => {
-        const item: DomainSchemaViewItem = {
-          id: asString(v?.id),
-          type: asString(v?.type || ""),
-          entity: v?.entity ? String(v.entity) : undefined,
-          label: v?.label ? String(v.label) : undefined,
-          isMixin: v?.isMixin === true,
-        };
-        if (v?.type === "list" && v?.source?.entity) {
-          item.sourceEntity = String(v.source.entity);
+  const views: DomainSchemaViewItem[] = viewsRaw
+    .map((v: any) => {
+      const item: DomainSchemaViewItem = {
+        id: asString(v?.id),
+        type: asString(v?.type || ""),
+        entity: v?.entity ? String(v.entity) : undefined,
+        label: v?.label ? String(v.label) : undefined,
+        isMixin: v?.isMixin === true,
+      };
+      if (v?.type === "list" && v?.source?.entity) {
+        item.sourceEntity = String(v.source.entity);
+      }
+      if (v?.type === "tree" && typeof v?.tree === "string" && v.tree) {
+        item.tree = String(v.tree);
+      }
+
+      // ============ tabs_list ============
+      if (v?.type === "tabs_list") {
+        if (Array.isArray(v.tabs)) {
+          const tabs: string[] = [];
+          for (const t of v.tabs) {
+            if (typeof t === "string") tabs.push(t);
+            else if (t && typeof t === "object" && typeof t.view === "string") {
+              tabs.push(t.view);
+            }
+          }
+          if (tabs.length > 0) item.tabs = tabs;
         }
-        if (v?.type === "tree" && typeof v?.tree === "string" && v.tree) {
-          item.tree = String(v.tree);
+        if (typeof v.defaultTab === "string" && v.defaultTab) {
+          item.defaultTab = v.defaultTab;
         }
-        return item;
-      })
-      .filter((x) => x.id);
+      }
+
+      // ============ dashboard ============
+      if (v?.type === "dashboard") {
+        if (Array.isArray(v.widgets)) {
+          const ws: string[] = [];
+          for (const w of v.widgets) {
+            if (typeof w === "string") {
+              ws.push(w);
+            } else if (w && typeof w === "object") {
+              const ref = (w as any).widget;
+              if (typeof ref === "string") ws.push(ref);
+              else if (
+                ref &&
+                typeof ref === "object" &&
+                typeof ref.id === "string"
+              ) {
+                ws.push(ref.id);
+              }
+            }
+          }
+          if (ws.length > 0) item.dashboardWidgets = ws;
+        }
+        if (v.layout && typeof v.layout === "object") {
+          const layout: { type: string; columns?: number } = {
+            type: asString(v.layout.type || "grid"),
+          };
+          if (typeof v.layout.columns === "number") {
+            layout.columns = v.layout.columns;
+          }
+          item.layout = layout;
+        }
+      }
+
+      // ============ dashboard_tree ============
+      if (v?.type === "dashboard_tree") {
+        if (Array.isArray(v.tree)) {
+          const collectTree = (
+            nodes: any[],
+          ): { views: string[]; autoTrees: string[] } => {
+            const out: string[] = [];
+            const autoTrees: string[] = [];
+            for (const n of nodes) {
+              if (!n || typeof n !== "object") continue;
+              if (typeof n.view === "string") out.push(n.view);
+              if (n.autoTree && typeof n.autoTree.entity === "string") {
+                const fqid = n.autoTree.entity;
+                autoTrees.push(fqid.includes("/") ? fqid.toLowerCase() : fqid);
+              }
+              if (Array.isArray(n.children)) {
+                const sub = collectTree(n.children);
+                out.push(...sub.views);
+                autoTrees.push(...sub.autoTrees);
+              }
+            }
+            return { views: out, autoTrees };
+          };
+          const { views: treeViews, autoTrees } = collectTree(v.tree);
+          if (treeViews.length > 0) item.dashboardTreeViews = treeViews;
+          if (autoTrees.length > 0) {
+            item.dashboardTreeAutoTreeEntities = autoTrees;
+          }
+        }
+        if (typeof v.defaultItem === "string" && v.defaultItem) {
+          item.defaultItem = v.defaultItem;
+        }
+      }
+
+      return item;
+    })
+    .filter((x) => x.id);
 
   // ============ Menus ============
   const menusRaw = asArray(raw.menus);
@@ -333,6 +419,49 @@ export function buildDomainSchemaSummary(
     scenarioMap.values(),
   );
 
+  // ============ Domain Widgets ============
+  // Может быть массивом (плоский список доменных виджетов).
+  const widgetsRaw = asArray(raw.widgets);
+  const widgets: DomainSchemaWidgetItem[] = widgetsRaw
+    .map((w: any) => ({
+      id: asString(w?.id),
+      type: asString(w?.type || ""),
+      description: asString(w?.description || ""),
+      label: typeof w?.label === "string" ? w.label : undefined,
+    }))
+    .filter((x) => x.id);
+
+  // ============ exchangeSettings ============
+  const esRaw = raw.exchangeSettings;
+  const exchangeSettingsItems: DomainSchemaExchangeSettingsItem[] = [];
+  if (esRaw && typeof esRaw === "object") {
+    const entitiesRaw = esRaw.entities;
+    const entitiesCount =
+      entitiesRaw && typeof entitiesRaw === "object"
+        ? Object.keys(entitiesRaw).length
+        : 0;
+    const item: DomainSchemaExchangeSettingsItem = {
+      enable: esRaw.enable !== false,
+      entitiesCount,
+      noCmsSync: esRaw.noCmsSync === true,
+    };
+    if (typeof esRaw.label === "string" && esRaw.label) {
+      item.label = esRaw.label;
+    }
+    if (esRaw.attributeFormats && typeof esRaw.attributeFormats === "object") {
+      const af: Record<string, string> = {};
+      for (const k of ["Date", "Time", "Timestamp", "TimestampRange"]) {
+        const v = (esRaw.attributeFormats as any)[k];
+        if (typeof v === "string" && v) af[k] = v;
+      }
+      if (Object.keys(af).length > 0) {
+        item.attributeFormats = af as any;
+      }
+    }
+    // Секция имеет смысл как «есть одна запись», а не массив.
+    exchangeSettingsItems.push(item);
+  }
+
   // ============ allViews: top-level + nested ============
   const allViews: DomainSchemaAllViewItem[] = [];
 
@@ -441,6 +570,11 @@ export function buildDomainSchemaSummary(
       permissions: { count: permissions.length, items: permissions },
       accessRules: { count: accessRules.length, items: accessRules },
       localizations: { count: localizations.length, items: localizations },
+      widgets: { count: widgets.length, items: widgets },
+      exchangeSettings: {
+        count: exchangeSettingsItems.length,
+        items: exchangeSettingsItems,
+      },
     },
     flags: {
       hasExchangeSettings: raw.exchangeSettings != null,

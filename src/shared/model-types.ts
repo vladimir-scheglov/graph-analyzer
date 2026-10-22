@@ -182,24 +182,105 @@ export interface EntityRecord {
 
 // ============ Миксин ============
 
-export interface MixinRecord {
+// ============ Миксин ============
+
+/** Целевое представление mixin-view: ровно одно из полей. */
+export interface MixinTarget {
+  panel?: string;
+  tab?: string;
+  form?: string;
+  list?: string;
+  page?: string;
+}
+
+/** Ссылка на виджет или блок внутри add/delete/replace. */
+export interface MixinComponentRef {
+  /** id виджета (плоский или из inline-объекта). */
+  widget?: string;
+  /** id блока (группы). */
+  block?: string;
+}
+
+export interface MixinTabRef {
+  tab: string;
+  label?: string;
+}
+
+export interface MixinActionRef {
+  /** Для menu — id action; для actionPanel — id widget (action-widget). */
+  action: string;
+  label?: string;
+}
+
+export interface MixinColumnRef {
+  column: string;
+}
+
+export interface MixinPosition {
+  type?: "begin" | "after" | "end";
+  after?: any;
+}
+
+export interface MixinChangeAdd {
+  components?: MixinComponentRef[];
+  tabs?: MixinTabRef[];
+  menu?: MixinActionRef[];
+  form?: string;
+  list?: string;
+  block?: string;
+  actionPanel?: MixinActionRef[];
+  position?: MixinPosition;
+}
+
+export interface MixinChangeDelete {
+  components?: MixinComponentRef[];
+  tabs?: MixinTabRef[];
+  menu?: MixinActionRef[];
+  actionPanel?: MixinActionRef[];
+  columns?: MixinColumnRef[];
+}
+
+export interface MixinChangeReplace {
+  components?: MixinComponentRef[];
+  tabs?: MixinTabRef[];
+  menu?: MixinActionRef[];
+  actionPanel?: MixinActionRef[];
+  block?: string;
+  form?: string;
+  list?: string;
+}
+
+export interface MixinViewRecord {
   id: string;
-  /** Домен, где объявлен миксин. */
+  type: "panel" | "tab" | "form" | "list" | "page";
+  /** Для type: view — откуда подмешиваются компоненты. */
+  fromView?: string;
+  to: MixinTarget;
+  change?: {
+    add?: MixinChangeAdd;
+    delete?: MixinChangeDelete;
+  };
+  replace?: MixinChangeReplace;
+}
+
+export interface MixinRecord {
+  /** Уникален в домене; при нескольких views — `<mixinId>_<idx>`. */
+  id: string;
   domainId: string;
   type: "linkage" | "view";
 
-  /** FQID сущности, к которой применяется. */
+  /** Целевая сущность (entity.to для linkage, entity — для view). */
   targetEntityFqid: string;
-
-  /** Для type: "linkage" — FQID источника (entity.from). */
+  /** Для type: linkage — entity.from. */
   sourceEntityFqid?: string;
-  /** Для type: "linkage" — FQID связи, на основе которой строится примесь. */
+  /** Для type: linkage — ссылка на связь. */
   linkageFqid?: string;
 
-  /** ID view, из которого берутся компоненты (fromView). */
-  sourceViewId: string;
+  /** Полная структура view-примеси (1:1 с zod). */
+  view: MixinViewRecord;
 
-  /** Куда применяется: панель/таб/форма/список/страница. */
+  // ===== Legacy flat-поля — для уже написанного UI (DomainMixinsPanel) =====
+  sourceViewId: string;
   targetPanel?: string;
   targetTab?: string;
   targetForm?: string;
@@ -207,22 +288,18 @@ export interface MixinRecord {
   targetPage?: string;
 
   changeAction: "add" | "replace";
-
-  /** Что добавляется. */
   addedTabs: string[];
   addedComponents: string[];
   addedBlocks: string[];
-  /** Наследовать примесь дочерним сущностям (по умолчанию true). */
-  useForChild: boolean;
-  /** Показывать историю примешанного объекта в целевом (по умолчанию false). */
-  showMixinInHistory: boolean;
-  /** Приоритет примеси (меньше — выше). undefined = «наименьший». */
-  weight?: number;
 
+  useForChild: boolean;
+  showMixinInHistory: boolean;
+  weight?: number;
   description: string;
 }
 
 // ============ Кастомный тип данных ============
+
 
 export interface DataTypeRecord {
   id: string;
@@ -239,6 +316,68 @@ export interface DataTypeRecord {
   values?: string[]; // id'ы значений Enum
   statuses?: string[]; // id'ы статусов Workflow
   columns?: string[]; // id'ы колонок Table
+
+  // ============ Workflow-специфика ============
+  /** Начальный статус (id из statuses[]). */
+  initial?: string;
+  /** Конечные статусы (id из statuses[]). */
+  finals?: string[];
+  /** Переходы; `from`/`to` — id статусов или `"*"`. */
+  transitions?: Array<{ from: string; to: string }>;
+
+  // ============ Enum.view ============
+  /** Цвета значений Enum. */
+  enumView?: Array<{ value: string; color?: string }>;
+
+  // ============ Workflow.view ============
+  /** Цвета статусов Workflow. */
+  workflowView?: Array<{ status: string; color?: string }>;
+
+  // ============ Table-специфика ============
+  /** Максимальное число строк в Table. */
+  maxRows?: number;
+  /** Конфигурация представления таблицы (Table.view). */
+  tableView?: DataTypeTableView;
+}
+
+// ============ Table.view ============
+
+export interface DataTypeViewColumn {
+  id: string;
+  /** id атрибута внутри dataTypes[].attributes[]. */
+  attribute?: string;
+  label?: string;
+  layout?: {
+    visible?: boolean;
+    width?: { default?: number; min?: number; max?: number };
+  };
+  /** Для Table-атрибутов: id колонок вложенной таблицы. */
+  use?: string[];
+}
+
+export interface DataTypeViewSortingColumn {
+  column: string;
+  sorting: string;
+}
+
+export interface DataTypeViewSortingBy {
+  columns: DataTypeViewSortingColumn[];
+  defaultColumn?: string;
+  defaultDirection?: "asc" | "desc";
+}
+
+export interface DataTypeViewPaging {
+  sizes: number[];
+  rawSizes: any[];
+  rawDefaultSize?: any;
+  defaultSize?: number;
+}
+
+export interface DataTypeTableView {
+  columns: DataTypeViewColumn[];
+  sortingBy?: DataTypeViewSortingBy;
+  paging?: DataTypeViewPaging;
+  rowHeight?: number;
 }
 
 // ============ Последовательность ============
@@ -449,6 +588,36 @@ export interface ViewGroupRecord {
   type: string;
 }
 
+// ============ Widget.linkage (control.type=table) ============
+
+export interface ViewWidgetColumnRef {
+  id: string;
+  attribute?: string;
+  /** id транзитивной связи (join) — если атрибут ищется через цепочку. */
+  join?: string;
+  /** id атрибута связи — если атрибут ищется в linkage.attributes. */
+  linkageAttribute?: string;
+}
+
+export interface ViewWidgetLinkageRef {
+  linkage: string;
+  side?: 1 | 2;
+}
+
+// ============ view.source.joins (legacy list-view) ============
+
+export interface ViewSourceJoinRecord {
+  domainId: string;
+  /** id view-владельца. */
+  viewId: string;
+  /** id join в namespace view. */
+  id: string;
+  /** FQID-linkage (lowercase). */
+  linkage: string;
+  side?: 1 | 2;
+  propertyPath: string;
+}
+
 export interface ViewWidgetRecord {
   id: string;
   domainId: string;
@@ -456,6 +625,25 @@ export interface ViewWidgetRecord {
   type: string;
   controlType?: string;
   attribute?: string;
+
+  // ============ type: linkage ============
+  /** FQID или локальный id связи. */
+  linkage?: string;
+  side?: 1 | 2;
+  /** legacy attributes[] (у linkage-виджета в старом формате). */
+  linkageAttributes?: string[];
+  /** control.columns[] — для control.type=table. */
+  controlColumns?: ViewWidgetColumnRef[];
+  /** addLinksView — списочное представление для создания связи. */
+  addLinksView?: string;
+
+  // ============ type: linked_objects_groups ============
+  /** widget.linkages[] — источники объектов для группировки. */
+  linkedGroupsLinkages?: ViewWidgetLinkageRef[];
+
+  // ============ type: join ============
+  joinId?: string;
+  openView?: string;
 }
 
 export interface ViewActionPanelRecord {
@@ -542,6 +730,12 @@ export interface ModelIndex {
   viewColumns: ViewColumnRecord[];
   /** PR 6c: filter-конфиги table-представлений. */
   viewTableFilters: ViewTableFilterRecord[];
+  /** tree-view: filter[] — массив по сущностям дерева. */
+  viewTreeFilters: ViewTreeFilterRecord[];
+  /** exchangeSettings — настройки обмена (если задан). */
+  exchangeSettingsByDomain: Record<string, ExchangeSettingsRecord>;
+  /** legacy view.source.joins[] (list-view). */
+  viewSourceJoins: ViewSourceJoinRecord[];
   /** PR 6c: sortingBy-конфиги table-представлений. */
   viewTableSortings: ViewTableSortingRecord[];
   /** PR 6d: paging-конфиги table-представлений. */
@@ -843,6 +1037,26 @@ export interface DomainSchemaViewItem {
   isMixin?: boolean;
   sourceEntity?: string;
   tree?: string;
+
+  // ============ tabs_list ============
+  /** id view из tabs[] (список должен ссылаться на list-view). */
+  tabs?: string[];
+  /** id view из defaultTab (должен входить в tabs[]). */
+  defaultTab?: string;
+
+  // ============ dashboard ============
+  /** id виджетов из widgets[] (view-level или доменных). */
+  dashboardWidgets?: string[];
+  /** dashboard.layout — только `grid` в текущей реализации. */
+  layout?: { type: string; columns?: number };
+
+  // ============ dashboard_tree ============
+  /** Рекурсивно собранные view[] из tree[] и children[].view. */
+  dashboardTreeViews?: string[];
+  /** Рекурсивно собранные autoTree.entity (FQID/lowercase). */
+  dashboardTreeAutoTreeEntities?: string[];
+  /** defaultItem — id dashboard-view. */
+  defaultItem?: string;
 }
 
 export interface DomainSchemaMenuItem {
@@ -969,6 +1183,14 @@ export interface DomainSchemaLocalizationItem {
   keysCount: number;
 }
 
+ export interface DomainSchemaExchangeSettingsItem {
+   enable: boolean;
+   entitiesCount: number;
+   label?: string;
+   noCmsSync: boolean;
+   attributeFormats?: ExchangeSettingsAttributeFormats;
+ }
+
 export interface DomainSchemaSummary {
   domainId: string;
   metadata: DomainSchemaMetadata;
@@ -996,6 +1218,8 @@ export interface DomainSchemaSummary {
     permissions: DomainSchemaSection<DomainSchemaPermissionItem>;
     accessRules: DomainSchemaSection<DomainSchemaAccessRuleItem>;
     localizations: DomainSchemaSection<DomainSchemaLocalizationItem>;
+    widgets: DomainSchemaSection<DomainSchemaWidgetItem>;
+    exchangeSettings: DomainSchemaSection<DomainSchemaExchangeSettingsItem>;
   };
   flags: {
     hasExchangeSettings: boolean;
@@ -1078,6 +1302,44 @@ export interface DataRuleNestedItem {
 export type DataRuleNested =
   | { type: "table"; attributes: DataRuleNestedAttribute[] }
   | { type: "array"; items: DataRuleNestedItem[] };
+
+   // ============ exchangeSettings ============
+
+ export interface ExchangeSettingsAttributeFormats {
+   Date?: string;
+   Time?: string;
+   Timestamp?: string;
+   TimestampRange?: string;
+ }
+
+ export interface ExchangeEntitySettings {
+   /** FQID сущности (lowercase) — из ключа entities[]. */
+   entityFqid: string;
+   /** Оригинальный ключ из YAML — для сообщений линтера. */
+   entityIdRaw: string;
+   domainLabel?: string;
+   enable?: boolean;
+   label?: string;
+   /** Атрибут, по которому идентифицируется сущность (для Reference). */
+   forExport?: string;
+   /** Атрибуты/связи для upsert (распарсенные из строки через запятую). */
+   upsertWith?: string[];
+   /** Атрибуты/связи для игнорирования (распарсенные из строки). */
+   ignoreAttributes?: string[];
+   /** Либо массив id, либо "all". */
+   exportSystemAttributes?: string[] | "all";
+   noCmsSync?: boolean;
+ }
+
+ export interface ExchangeSettingsRecord {
+   domainId: string;
+   enable?: boolean;
+   description?: string;
+   label?: string;
+   noCmsSync?: boolean;
+   attributeFormats?: ExchangeSettingsAttributeFormats;
+   entities: ExchangeEntitySettings[];
+ }
 
 export interface DataRuleRecord {
   id: string;
@@ -1288,6 +1550,15 @@ export interface ActionValueRecord {
   value?: any;
 }
 
+export interface ActionControlRecord {
+  /** Обычно `bool_text`. Используется только для bulk edit_attribute. */
+  type?: string;
+  /** Обязателен, если атрибут Bool (Zod: bulk edit_attribute + Bool). */
+  trueText?: string;
+  /** Обязателен, если атрибут Bool (Zod: bulk edit_attribute + Bool). */
+  falseText?: string;
+}
+
 export interface ActionBulkAttributeUse {
   attribute: string;
 }
@@ -1350,6 +1621,9 @@ export interface ActionRecord {
   /** Для tree_bulk. */
   bulkSettings?: ActionBulkSettings[];
 
+  /** Для bulk + operation=edit_attribute + Bool-атрибута. */
+  control?: ActionControlRecord;
+
   /** Для open_graph_view — переход к доскам. */
   openBoards?: boolean;
   openBoardsName?: string;
@@ -1376,6 +1650,36 @@ export interface ViewTableFilterLinkage {
   linkAttributes?: string[];
   /** Атрибуты связанной сущности. */
   linkedEntity?: string[];
+}
+
+// ============ Tree-view: filter (специфика: массив по сущностям) ============
+
+export interface ViewTreeFilterAttribute {
+  attribute: string;
+  /** Вложенные колонки Table-атрибута (a.use[].attribute). */
+  use?: string[];
+}
+
+export interface ViewTreeFilterLinkage {
+  /** FQID связи (нормализован). */
+  linkage?: string;
+  /** join-id транзитивной связи. */
+  join?: string;
+  /** Атрибуты самой связи. */
+  linkAttributes?: string[];
+  /** Атрибуты связанной сущности. */
+  linkedEntity?: string[];
+}
+
+export interface ViewTreeFilterRecord {
+  domainId: string;
+  viewId: string;
+  /** FQID сущности, для которой задан filter-блок (lowercase). */
+  entity: string;
+  attributes: ViewTreeFilterAttribute[];
+  linkages: ViewTreeFilterLinkage[];
+  /** Для клика в YAML: `views[id].table.filter[i]`. */
+  propertyPath: string;
 }
 
 export interface ViewTableFilterRecord {
@@ -1443,4 +1747,13 @@ export interface ViewColumnRecord {
   controlType?: string;
   /** control.tree — id дерева (для tree_path). */
   controlTree?: string;
+}
+export interface DomainSchemaWidgetItem {
+  id: string;
+  /** attribute | action | linkage | linkage_list | linked_objects_groups |
+   *  join | history | runs_history | comments | card | conversation |
+   *  visualization | calculation | template_editor | addressBook | diagram */
+  type: string;
+  description: string;
+  label?: string;
 }

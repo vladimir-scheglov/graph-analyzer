@@ -20,4 +20,6 @@ export const SECTION_LABELS: Record<SectionKey, { label: string; icon: string }>
   permissions: { label: "Разрешения", icon: "key" },
   accessRules: { label: "Правила доступа", icon: "lock" },
   localizations: { label: "Локализации", icon: "translate" },
+  widgets: { label: "Доменные виджеты", icon: "widgets" },
+  exchangeSettings: { label: "Обмен данными", icon: "swap_horiz" },
 };

@@ -17994,7 +17994,9 @@ var init_consts = __esm({
       scenarios: { label: "\u0421\u0446\u0435\u043D\u0430\u0440\u0438\u0438", icon: "movie" },
       permissions: { label: "\u0420\u0430\u0437\u0440\u0435\u0448\u0435\u043D\u0438\u044F", icon: "key" },
       accessRules: { label: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0434\u043E\u0441\u0442\u0443\u043F\u0430", icon: "lock" },
-      localizations: { label: "\u041B\u043E\u043A\u0430\u043B\u0438\u0437\u0430\u0446\u0438\u0438", icon: "translate" }
+      localizations: { label: "\u041B\u043E\u043A\u0430\u043B\u0438\u0437\u0430\u0446\u0438\u0438", icon: "translate" },
+      widgets: { label: "\u0414\u043E\u043C\u0435\u043D\u043D\u044B\u0435 \u0432\u0438\u0434\u0436\u0435\u0442\u044B", icon: "widgets" },
+      exchangeSettings: { label: "\u041E\u0431\u043C\u0435\u043D \u0434\u0430\u043D\u043D\u044B\u043C\u0438", icon: "swap_horiz" }
     };
   }
 });
@@ -20637,13 +20639,7 @@ function collectChildren(lines, startIdx, endIdx, parentIndent) {
       continue;
     const containerIndent = containerMatch[1].length;
     children.push(
-      ...scanItemsInContainer(
-        lines,
-        i,
-        endIdx,
-        containerName,
-        containerIndent
-      )
+      ...scanItemsInContainer(lines, i, endIdx, containerName, containerIndent)
     );
   }
   return children;
@@ -20840,7 +20836,8 @@ function buildLineMap(text, schema2) {
       }
       return;
     }
-    const sectionSchema = schema2.sections?.[key];
+    const normalizedKey = SECTION_KEY_ALIASES[key] ?? key;
+    const sectionSchema = schema2.sections?.[normalizedKey];
     if (!sectionSchema)
       return;
     let entityDashIndent = -1;
@@ -21279,7 +21276,7 @@ function parseJoins(lines, joinsLine, joinsEnd, depth) {
   }
   return result;
 }
-var SECTION_LABELS2, CHILD_CONTAINERS;
+var SECTION_LABELS2, SECTION_KEY_ALIASES, CHILD_CONTAINERS;
 var init_line_map = __esm({
   "src/web/lib/yaml/line-map.ts"() {
     "use strict";
@@ -21290,6 +21287,7 @@ var init_line_map = __esm({
       dataTypes: "\u0422\u0438\u043F\u044B \u0434\u0430\u043D\u043D\u044B\u0445",
       sequences: "\u041F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u0438",
       counterColorPattern: "\u0426\u0432\u0435\u0442\u043E\u0432\u044B\u0435 \u0441\u0445\u0435\u043C\u044B",
+      counterColorPatterns: "\u0426\u0432\u0435\u0442\u043E\u0432\u044B\u0435 \u0441\u0445\u0435\u043C\u044B",
       trees: "\u0414\u0435\u0440\u0435\u0432\u044C\u044F",
       transitiveLinkages: "\u0422\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0438",
       mixins: "\u041C\u0438\u043A\u0441\u0438\u043D\u044B",
@@ -21298,9 +21296,16 @@ var init_line_map = __esm({
       actions: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F",
       medias: "\u0418\u043A\u043E\u043D\u043A\u0438",
       views: "\u041F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F",
+      widgets: "\u0414\u043E\u043C\u0435\u043D\u043D\u044B\u0435 \u0432\u0438\u0434\u0436\u0435\u0442\u044B",
+      permissions: "\u0420\u0430\u0437\u0440\u0435\u0448\u0435\u043D\u0438\u044F",
+      accessRules: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0434\u043E\u0441\u0442\u0443\u043F\u0430",
+      localizations: "\u041B\u043E\u043A\u0430\u043B\u0438\u0437\u0430\u0446\u0438\u0438",
       menus: "\u041C\u0435\u043D\u044E",
       uiRules: "UI Rules",
       uiPresets: "UI Presets"
+    };
+    SECTION_KEY_ALIASES = {
+      counterColorPatterns: "counterColorPattern"
     };
     CHILD_CONTAINERS = /* @__PURE__ */ new Set([
       // сущности
@@ -22648,7 +22653,7 @@ function detectContextAtPosition(model, position, _lineContexts) {
     return hasDash ? "dataType" : "dataTypeList";
   if (parentKey === "sequences")
     return hasDash ? "sequence" : "sequenceList";
-  if (parentKey === "counterColorPattern")
+  if (parentKey === "counterColorPattern" || parentKey === "counterColorPatterns")
     return "counterColorPattern";
   if (parentKey === "trees")
     return hasDash ? "tree" : "treeList";
@@ -23128,6 +23133,25 @@ function detectContextAtPosition(model, position, _lineContexts) {
       return "sequence";
     if (section === "dataTypes")
       return "dataType";
+  }
+  if (parentKey === "exchangeSettings")
+    return "exchangeSettings";
+  if (parentKey === "attributeFormats")
+    return "exchangeAttributeFormats";
+  if (section === "exchangeSettings") {
+    for (let i = position.lineNumber - 1; i >= 1; i--) {
+      const pl = model.getLineContent(i);
+      const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
+      if (pIndent >= currentIndent)
+        continue;
+      const m = pl.match(/^\s*([a-zA-Z_][\w]*)\s*:/);
+      if (!m)
+        continue;
+      if (m[1] === "entities")
+        return "exchangeEntity";
+      if (pIndent === 0)
+        break;
+    }
   }
   return null;
 }
@@ -24054,16 +24078,23 @@ ${indent}description: ""`
             ["dataTypes", "\u041A\u0430\u0441\u0442\u043E\u043C\u043D\u044B\u0435 \u0442\u0438\u043F\u044B (Enum, Workflow, Table)"],
             ["linkages", "\u0421\u0432\u044F\u0437\u0438 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439"],
             ["sequences", "\u041F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u0438 \u0434\u043B\u044F Identifier"],
-            ["counterColorPattern", "\u0426\u0432\u0435\u0442\u043E\u0432\u044B\u0435 \u0441\u0445\u0435\u043C\u044B \u0441\u0447\u0451\u0442\u0447\u0438\u043A\u043E\u0432"],
+            ["counterColorPatterns", "\u0426\u0432\u0435\u0442\u043E\u0432\u044B\u0435 \u0441\u0445\u0435\u043C\u044B \u0441\u0447\u0451\u0442\u0447\u0438\u043A\u043E\u0432"],
             ["trees", "\u0414\u0440\u0435\u0432\u043E\u0432\u0438\u0434\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0438"],
             ["transitiveLinkages", "\u0422\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0438"],
             ["mixins", "\u041F\u0440\u0438\u043C\u0435\u0441\u0438"],
             ["dataRules", "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0434\u0430\u043D\u043D\u044B\u0445"],
-            ["exchangeSettings", "\u041E\u0431\u043C\u0435\u043D \u0434\u0430\u043D\u043D\u044B\u043C\u0438"],
+            ["exchangeSettings", "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u0438\u043C\u043F\u043E\u0440\u0442\u0430 \u0438 \u044D\u043A\u0441\u043F\u043E\u0440\u0442\u0430 \u043E\u0431\u044A\u0435\u043A\u0442\u043E\u0432"],
             ["actions", "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F"],
             ["medias", "\u0418\u043A\u043E\u043D\u043A\u0438"],
             ["views", "\u041F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F"],
+            ["widgets", "\u0414\u043E\u043C\u0435\u043D\u043D\u044B\u0435 \u0432\u0438\u0434\u0436\u0435\u0442\u044B (\u0434\u043B\u044F \u0434\u0430\u0448\u0431\u043E\u0440\u0434\u043E\u0432)"],
             ["menus", "\u041C\u0435\u043D\u044E \u0434\u043E\u043C\u0435\u043D\u0430"],
+            ["permissions", "\u0420\u0430\u0437\u0440\u0435\u0448\u0435\u043D\u0438\u044F \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0439 \u0438 \u0434\u043E\u0441\u0442\u0443\u043F\u0430 \u043A \u0434\u0430\u043D\u043D\u044B\u043C"],
+            [
+              "accessRules",
+              "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0434\u043E\u0441\u0442\u0443\u043F\u0430 (scope create/edit/view/delete/launch)"
+            ],
+            ["localizations", "\u041B\u043E\u043A\u0430\u043B\u0438\u0437\u0430\u0446\u0438\u0438"],
             ["uiRules", "UI Rules"],
             ["uiPresets", "UI Presets"]
           ];
@@ -24268,7 +24299,7 @@ ${indent}description: ""`
         case "target": {
           let list = null;
           if (vctx.itemType === "dataRule")
-            list = ["entity", "entityAttribute", "linkage"];
+            list = ["entity", "entityAttribute"];
           else if (vctx.itemType === "uiRule")
             list = ["list_view", "entity_view", "entity_attribute"];
           else if (vctx.itemType === "accessRule")
@@ -24520,6 +24551,21 @@ ${indent}description: ""`
             }),
             Kind
           ) || { suggestions: [] };
+        case "segment": {
+          return r(
+            model,
+            position,
+            ["segment"],
+            mkSimple(["@prefix", "@YYYY", "@YY", "@MM", "@DD"], Kind.Value, {
+              "@prefix": "\u041D\u0430\u0441\u0442\u0440\u0430\u0438\u0432\u0430\u0435\u043C\u044B\u0439 \u043F\u0440\u0435\u0444\u0438\u043A\u0441 (\u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u043F\u043E\u0434\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438 \u0438\u043B\u0438 defaultPrefix)",
+              "@YYYY": "\u0422\u0435\u043A\u0443\u0449\u0438\u0439 \u0433\u043E\u0434, 4 \u0446\u0438\u0444\u0440\u044B",
+              "@YY": "\u0422\u0435\u043A\u0443\u0449\u0438\u0439 \u0433\u043E\u0434, 2 \u0446\u0438\u0444\u0440\u044B",
+              "@MM": "\u0422\u0435\u043A\u0443\u0449\u0438\u0439 \u043C\u0435\u0441\u044F\u0446, 01\u201312",
+              "@DD": "\u0422\u0435\u043A\u0443\u0449\u0438\u0439 \u0434\u0435\u043D\u044C \u043C\u0435\u0441\u044F\u0446\u0430, 01\u201331"
+            }),
+            Kind
+          ) || { suggestions: [] };
+        }
         case "tree":
           return r(
             model,
@@ -25116,7 +25162,7 @@ function applyFqidMarkers(monaco, model, index, currentDomainId) {
       }
       entityIdsByDomain.get(domLower).add(String(e.entityId).toLowerCase());
     });
-    const REF_FIELD_PATTERN = /^\s*(?:-\s+)?(inherits|entity|side1|side2|linkage|attribute|item|source|linkedEntity)\s*:\s*(.+)$/;
+    const REF_FIELD_PATTERN = /^\s*(?:-\s+)?(inherits|entity|side1|side2|attribute|item|source|linkedEntity)\s*:\s*(.+)$/;
     const FQID_IN_VALUE = /([a-z0-9][\w.\-]*\.[a-z0-9][\w.\-]*)\/([\w\-]+)/gi;
     const LOCAL_ENTITY_VALUE = /^([A-Z][\w]*)$/;
     const currentLower = (currentDomainId || "").toLowerCase();
@@ -25188,36 +25234,71 @@ function applyFqidMarkers(monaco, model, index, currentDomainId) {
         }
       }
     }
-    const knownLinkages = /* @__PURE__ */ new Set();
-    (index?.domains || []).forEach((d) => {
-    });
+    const knownLinkagesByDomain = /* @__PURE__ */ new Map();
+    const ensureLinkageSet = (domId) => {
+      let set2 = knownLinkagesByDomain.get(domId);
+      if (!set2) {
+        set2 = /* @__PURE__ */ new Set();
+        knownLinkagesByDomain.set(domId, set2);
+      }
+      return set2;
+    };
     index?.entityLinkages?.forEach((l) => {
-      knownLinkages.add(String(l.id).toLowerCase());
+      if (!l?.domainId || !l?.id)
+        return;
+      ensureLinkageSet(String(l.domainId).toLowerCase()).add(
+        String(l.id).toLowerCase()
+      );
     });
     if (index?.schemasByDomain) {
-      Object.values(index.schemasByDomain).forEach((s) => {
-        s?.sections?.linkages?.items?.forEach((l) => {
-          if (l?.id)
-            knownLinkages.add(String(l.id).toLowerCase());
-        });
-      });
+      for (const [domId, s] of Object.entries(index.schemasByDomain)) {
+        const items = s?.sections?.linkages?.items || [];
+        for (const l of items) {
+          if (l?.id) {
+            ensureLinkageSet(domId.toLowerCase()).add(
+              String(l.id).toLowerCase()
+            );
+          }
+        }
+      }
     }
-    const linkageRegex = /^\s*linkage\s*:\s*([^\s#]+)/;
+    const linkageRegex = /^\s*(?:-\s+)?linkage\s*:\s*([^\s#]+)/;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const m = line.match(linkageRegex);
       if (!m)
         continue;
-      const linkageId = m[1].replace(/["']/g, "");
-      if (!knownLinkages.has(linkageId.toLowerCase())) {
-        const startCol = line.indexOf(linkageId) + 1;
+      const rawLinkageId = m[1].replace(/["']/g, "");
+      const slash = rawLinkageId.indexOf("/");
+      let idToCheck = rawLinkageId;
+      let targetDomain = (currentDomainId || "").toLowerCase();
+      if (slash > 0) {
+        targetDomain = rawLinkageId.slice(0, slash).toLowerCase();
+        idToCheck = rawLinkageId.slice(slash + 1);
+      }
+      const startCol = line.indexOf(rawLinkageId) + 1;
+      const endCol = startCol + rawLinkageId.length;
+      if (!domainIds.has(targetDomain)) {
         markers.push({
-          severity: monaco.MarkerSeverity.Warning,
-          message: `\u0421\u0432\u044F\u0437\u044C \xAB${linkageId}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430 \u0432 \u0434\u043E\u043C\u0435\u043D\u0435`,
+          severity: monaco.MarkerSeverity.Error,
+          message: `\u0414\u043E\u043C\u0435\u043D \xAB${targetDomain}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D \u0432 \u0438\u043D\u0434\u0435\u043A\u0441\u0435`,
           startLineNumber: i + 1,
           startColumn: startCol,
           endLineNumber: i + 1,
-          endColumn: startCol + linkageId.length,
+          endColumn: endCol,
+          source: "fqid-validator"
+        });
+        continue;
+      }
+      const set2 = knownLinkagesByDomain.get(targetDomain);
+      if (!set2 || !set2.has(idToCheck.toLowerCase())) {
+        markers.push({
+          severity: monaco.MarkerSeverity.Warning,
+          message: `\u0421\u0432\u044F\u0437\u044C \xAB${idToCheck}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430 \u0432 \u0434\u043E\u043C\u0435\u043D\u0435 ${targetDomain}`,
+          startLineNumber: i + 1,
+          startColumn: startCol,
+          endLineNumber: i + 1,
+          endColumn: endCol,
           source: "fqid-validator"
         });
       }
@@ -25836,6 +25917,12 @@ function applyViewRefMarkers(monaco, model, index, currentDomainId) {
       const line = lines[i];
       const vm = line.match(VIEW_REF_PATTERN);
       if (vm) {
+        const fieldName = vm[1];
+        const lineCtx = ctx.lineMap?.lineContexts.get(i + 1);
+        const inMixins = lineCtx?.section === "mixins";
+        if (inMixins && (fieldName === "panel" || fieldName === "list")) {
+          continue;
+        }
         checkRef(i, line, vm[2], localViewIds, "view");
         continue;
       }
@@ -26099,7 +26186,11 @@ var init_monaco_providers = __esm({
     init_rql_check();
     SYSTEM_ATTRIBUTES_FOR_COMPLETION = [
       { id: "id", dataType: "Uuid", description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u043E\u0431\u044A\u0435\u043A\u0442\u0430" },
-      { id: "label", dataType: "String", description: "\u041B\u0435\u0439\u0431\u043B \u043E\u0431\u044A\u0435\u043A\u0442\u0430 (\u0447\u0435\u043B\u043E\u0432\u0435\u043A\u043E\u0447\u0438\u0442\u0430\u0435\u043C\u044B\u0439)" },
+      {
+        id: "label",
+        dataType: "String",
+        description: "\u041B\u0435\u0439\u0431\u043B \u043E\u0431\u044A\u0435\u043A\u0442\u0430 (\u0447\u0435\u043B\u043E\u0432\u0435\u043A\u043E\u0447\u0438\u0442\u0430\u0435\u043C\u044B\u0439)"
+      },
       { id: "version", dataType: "Integer", description: "\u0412\u0435\u0440\u0441\u0438\u044F \u043E\u0431\u044A\u0435\u043A\u0442\u0430" },
       { id: "createdAt", dataType: "Timestamp", description: "\u0414\u0430\u0442\u0430 \u0441\u043E\u0437\u0434\u0430\u043D\u0438\u044F" },
       { id: "createdBy", dataType: "Reference", description: "\u0421\u043E\u0437\u0434\u0430\u0442\u0435\u043B\u044C" },
@@ -26217,9 +26308,9 @@ var init_monaco_providers = __esm({
       history: "\u0418\u0441\u0442\u043E\u0440\u0438\u044F \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439 (\u0441\u043E\u0431\u044B\u0442\u0438\u044F \u0430\u0443\u0434\u0438\u0442\u0430)",
       runs_history: "\u0418\u0441\u0442\u043E\u0440\u0438\u044F \u0437\u0430\u043F\u0443\u0441\u043A\u043E\u0432 \u0441\u0446\u0435\u043D\u0430\u0440\u0438\u0435\u0432",
       comments: "\u041A\u043E\u043C\u043C\u0435\u043D\u0442\u0430\u0440\u0438\u0438",
-      card: "\u041A\u0430\u0440\u0442\u043E\u0447\u043A\u0430 \u0434\u043B\u044F \u0434\u0430\u0448\u0431\u043E\u0440\u0434\u0430",
       conversation: "\u041F\u0435\u0440\u0435\u043F\u0438\u0441\u043A\u0438",
       visualization: "\u0412\u0438\u0437\u0443\u0430\u043B\u0438\u0437\u0430\u0446\u0438\u044F (\u0433\u0440\u0430\u0444\u0438\u043A\u0438/\u0434\u0438\u0430\u0433\u0440\u0430\u043C\u043C\u044B/\u0442\u0430\u0431\u043B\u0438\u0446\u0430)",
+      diagram: "\u0414\u0438\u0430\u0433\u0440\u0430\u043C\u043C\u0430 (\u0432\u0438\u0437\u0443\u0430\u043B\u0438\u0437\u0430\u0446\u0438\u044F \u0430\u0433\u0440\u0435\u0433\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0445 \u0434\u0430\u043D\u043D\u044B\u0445)",
       calculation: "\u0420\u0430\u0441\u0447\u0451\u0442 \u043F\u043E \u0441\u0445\u0435\u043C\u0435",
       template_editor: "\u0420\u0435\u0434\u0430\u043A\u0442\u043E\u0440 \u0448\u0430\u0431\u043B\u043E\u043D\u043E\u0432",
       addressBook: "\u0410\u0434\u0440\u0435\u0441\u043D\u0430\u044F \u043A\u043D\u0438\u0433\u0430"
@@ -28208,19 +28299,19 @@ var init_monaco_providers = __esm({
       // ============ exchangeSettings ============
       exchangeSettings: [
         {
-          name: "description",
-          type: "string",
-          description: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435 \u0442\u0440\u0435\u0431\u043E\u0432\u0430\u043D\u0438\u0439 \u043A \u043E\u0431\u043C\u0435\u043D\u0443 \u0434\u0430\u043D\u043D\u044B\u043C\u0438"
-        },
-        {
           name: "enable",
           type: "boolean",
-          description: "\u0412\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u043E\u0431\u043C\u0435\u043D (\u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E true)"
+          description: "\u0412\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u043E\u0431\u043C\u0435\u043D \u0434\u0430\u043D\u043D\u044B\u043C\u0438 \u0434\u043B\u044F \u0434\u043E\u043C\u0435\u043D\u0430 (\u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E: true)"
+        },
+        {
+          name: "description",
+          type: "string",
+          description: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435 \u0442\u0440\u0435\u0431\u043E\u0432\u0430\u043D\u0438\u0439 \u043A \u043E\u0431\u043C\u0435\u043D\u0443"
         },
         {
           name: "label",
           type: "string",
-          description: "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0434\u043E\u043C\u0435\u043D\u0430 \u0432 \u0432\u044B\u043F\u0430\u0434\u0430\u044E\u0449\u0435\u043C \u0441\u043F\u0438\u0441\u043A\u0435 \u0438\u043C\u043F\u043E\u0440\u0442\u0430/\u044D\u043A\u0441\u043F\u043E\u0440\u0442\u0430"
+          description: "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0434\u043E\u043C\u0435\u043D\u0430 \u0432 \u0441\u043F\u0438\u0441\u043A\u0435 \u0438\u043C\u043F\u043E\u0440\u0442\u0430/\u044D\u043A\u0441\u043F\u043E\u0440\u0442\u0430"
         },
         {
           name: "noCmsSync",
@@ -28230,34 +28321,68 @@ var init_monaco_providers = __esm({
         {
           name: "attributeFormats",
           type: "object",
-          description: "\u0424\u043E\u0440\u043C\u0430\u0442\u044B \u0434\u0430\u0442\u044B/\u0432\u0440\u0435\u043C\u0435\u043D\u0438 (Date, Time, Timestamp, TimestampRange)"
+          description: "\u0424\u043E\u0440\u043C\u0430\u0442\u044B Date/Time/Timestamp/TimestampRange (Moment)"
         },
         {
           name: "entities",
           type: "object",
-          description: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u043E\u0431\u043C\u0435\u043D\u0430 \u043F\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u043C"
+          description: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u043E\u0431\u043C\u0435\u043D\u0430 \u043F\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u043C: { <EntityId>: { ... } }"
         }
       ],
       exchangeAttributeFormats: [
-        {
-          name: "Date",
-          type: "string",
-          description: "\u0424\u043E\u0440\u043C\u0430\u0442 Date (\u043D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, DD-MM-YYYY)"
-        },
-        {
-          name: "Time",
-          type: "string",
-          description: "\u0424\u043E\u0440\u043C\u0430\u0442 Time (\u043D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, HH:mm:ss)"
-        },
+        { name: "Date", type: "string", description: "\u0424\u043E\u0440\u043C\u0430\u0442 Date (DD-MM-YYYY)" },
+        { name: "Time", type: "string", description: "\u0424\u043E\u0440\u043C\u0430\u0442 Time (HH:mm:ss)" },
         {
           name: "Timestamp",
           type: "string",
-          description: "\u0424\u043E\u0440\u043C\u0430\u0442 Timestamp (\u043D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, DD-MM-YYYYTHH:mm:ss)"
+          description: "\u0424\u043E\u0440\u043C\u0430\u0442 Timestamp (DD-MM-YYYYTHH:mm:ss)"
         },
         {
           name: "TimestampRange",
           type: "string",
           description: "\u0424\u043E\u0440\u043C\u0430\u0442 TimestampRange"
+        }
+      ],
+      exchangeEntity: [
+        {
+          name: "domainLabel",
+          type: "string",
+          description: "\u041F\u0435\u0440\u0435\u043E\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u0438\u0435 \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u044F \u0434\u043E\u043C\u0435\u043D\u0430 \u0434\u043B\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438"
+        },
+        {
+          name: "enable",
+          type: "boolean",
+          description: "\u0412\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u043E\u0431\u043C\u0435\u043D \u0434\u043B\u044F \u044D\u0442\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438"
+        },
+        {
+          name: "label",
+          type: "string",
+          description: "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0432 \u0441\u043F\u0438\u0441\u043A\u0435"
+        },
+        {
+          name: "forExport",
+          type: "ref",
+          description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442-\u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0434\u043B\u044F Reference"
+        },
+        {
+          name: "upsertWith",
+          type: "string",
+          description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u044B/\u0441\u0432\u044F\u0437\u0438 \u0434\u043B\u044F \u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0446\u0438\u0438 \u043F\u0440\u0438 \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u0438 (\u0447\u0435\u0440\u0435\u0437 \u0437\u0430\u043F\u044F\u0442\u0443\u044E)"
+        },
+        {
+          name: "ignoreAttributes",
+          type: "string",
+          description: "\u0418\u0433\u043D\u043E\u0440\u0438\u0440\u0443\u0435\u043C\u044B\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B (id \u0447\u0435\u0440\u0435\u0437 \u0437\u0430\u043F\u044F\u0442\u0443\u044E)"
+        },
+        {
+          name: "exportSystemAttributes",
+          type: "string",
+          description: "\u0421\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0434\u043B\u044F \u044D\u043A\u0441\u043F\u043E\u0440\u0442\u0430 (id \u0447\u0435\u0440\u0435\u0437 \u0437\u0430\u043F\u044F\u0442\u0443\u044E) \u0438\u043B\u0438 all"
+        },
+        {
+          name: "noCmsSync",
+          type: "boolean",
+          description: "\u041E\u0442\u043A\u043B\u044E\u0447\u0438\u0442\u044C sdk.cms.sync \u0434\u043B\u044F \u044D\u0442\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438"
         }
       ],
       exchangeEntitySettings: [
@@ -29741,7 +29866,8 @@ var init_monaco_providers = __esm({
         "array_concat",
         "earliest_date",
         "latest_date"
-      ]
+      ],
+      dataRules: ["entity", "entityAttribute"]
     };
     EFFECT_ENUM_BY_CTX = {
       dataRuleRule: ["hidden", "readonly", "required", "default", "allowed"],
@@ -29756,7 +29882,7 @@ var init_monaco_providers = __esm({
       ]
     };
     TARGET_ENUM_BY_CTX = {
-      dataRule: ["entity", "entityAttribute", "linkage"],
+      dataRule: ["entity", "entityAttribute"],
       uiRule: ["list_view", "entity_view", "entity_attribute"]
     };
     OPERATION_ENUM_BY_ACTION_TYPE = {

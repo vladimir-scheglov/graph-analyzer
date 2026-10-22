@@ -4,7 +4,7 @@ import { useModelIndex } from "../../hooks/useModelIndex";
 import { useNavigation } from "../../hooks/useNavigation";
 import { MIcon } from "../common/MIcon";
 import { openFileInEditor } from "../../lib/open-file";
-import type { DomainSchemaSummary, SectionKey } from "../../../shared/model-types";
+import type { DomainSchemaEntityItem, DomainSchemaSummary, SectionKey } from "../../../shared/model-types";
 import type { LintIssue } from "../../../shared/lint-types";
 import {
     generateDomainMarkdown,
@@ -168,7 +168,7 @@ export function DomainSchemaModal() {
                 }
 
                 if (onlyProblematic && key === "entities") {
-                    const fqid = `${domainId}/${item.id}`.toLowerCase();
+                    const fqid = `${domainId}/${(item as DomainSchemaEntityItem).id}`.toLowerCase();
                     const issues = issuesByEntity.get(fqid) || [];
                     if (issues.length === 0) return false;
                 }

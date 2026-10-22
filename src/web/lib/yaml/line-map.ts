@@ -40,6 +40,7 @@ const SECTION_LABELS: Record<string, string> = {
   dataTypes: "Типы данных",
   sequences: "Последовательности",
   counterColorPattern: "Цветовые схемы",
+  counterColorPatterns: "Цветовые схемы",
   trees: "Деревья",
   transitiveLinkages: "Транзитивные связи",
   mixins: "Миксины",
@@ -48,9 +49,19 @@ const SECTION_LABELS: Record<string, string> = {
   actions: "Действия",
   medias: "Иконки",
   views: "Представления",
+  widgets: "Доменные виджеты",
+  permissions: "Разрешения",
+  accessRules: "Правила доступа",
+  localizations: "Локализации",
   menus: "Меню",
   uiRules: "UI Rules",
   uiPresets: "UI Presets",
+};
+
+// Ключ YAML → ключ схемы (DomainSchemaSummary.sections).
+// Нужно, чтобы singular/plural в файле находили одну и ту же секцию.
+const SECTION_KEY_ALIASES: Record<string, string> = {
+  counterColorPatterns: "counterColorPattern",
 };
 
 /** Контейнеры, внутри которых ищем вложенные `- id:`. */
@@ -121,192 +132,186 @@ function stripQuotes(s: string): string {
   return s;
 }
 
- function collectChildren(
-   lines: string[],
-   startIdx: number,
-   endIdx: number,
-   parentIndent: number,
- ): NavNode[] {
-   const children: NavNode[] = [];
+function collectChildren(
+  lines: string[],
+  startIdx: number,
+  endIdx: number,
+  parentIndent: number,
+): NavNode[] {
+  const children: NavNode[] = [];
 
-   for (let i = startIdx + 1; i < endIdx; i++) {
-     const line = lines[i];
-     if (!line || !line.trim()) continue;
-     if (line.trim().startsWith("#")) continue;
-     const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
-     if (indent <= parentIndent) break;
+  for (let i = startIdx + 1; i < endIdx; i++) {
+    const line = lines[i];
+    if (!line || !line.trim()) continue;
+    if (line.trim().startsWith("#")) continue;
+    const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (indent <= parentIndent) break;
 
-     const containerMatch = line.match(
-       /^(\s+)([a-zA-Z][a-zA-Z0-9_]*)\s*:\s*(?:#.*)?$/,
-     );
-     if (!containerMatch) continue;
-     const containerName = containerMatch[2];
-     if (!CHILD_CONTAINERS.has(containerName)) continue;
-     const containerIndent = containerMatch[1].length;
+    const containerMatch = line.match(
+      /^(\s+)([a-zA-Z][a-zA-Z0-9_]*)\s*:\s*(?:#.*)?$/,
+    );
+    if (!containerMatch) continue;
+    const containerName = containerMatch[2];
+    if (!CHILD_CONTAINERS.has(containerName)) continue;
+    const containerIndent = containerMatch[1].length;
 
-     children.push(
-       ...scanItemsInContainer(
-         lines,
-         i,
-         endIdx,
-         containerName,
-         containerIndent,
-       ),
-     );
-   }
+    children.push(
+      ...scanItemsInContainer(lines, i, endIdx, containerName, containerIndent),
+    );
+  }
 
-   return children;
- }
+  return children;
+}
 
- /**
-  * Собирает `- <key>: <value>`-элементы внутри контейнера `key:`.
-  * Поддерживает id элемента как в форме `- id: X` (на itemIndent),
-  * так и в форме `id: X` (на itemIndent + 2) — валидный YAML,
-  * когда элемент начинается с другого ключа (например, `- attributes:`).
-  */
- function scanItemsInContainer(
-   lines: string[],
-   containerStart: number,
-   endIdx: number,
-   containerName: string,
-   containerIndent: number,
- ): NavNode[] {
-   const children: NavNode[] = [];
+/**
+ * Собирает `- <key>: <value>`-элементы внутри контейнера `key:`.
+ * Поддерживает id элемента как в форме `- id: X` (на itemIndent),
+ * так и в форме `id: X` (на itemIndent + 2) — валидный YAML,
+ * когда элемент начинается с другого ключа (например, `- attributes:`).
+ */
+function scanItemsInContainer(
+  lines: string[],
+  containerStart: number,
+  endIdx: number,
+  containerName: string,
+  containerIndent: number,
+): NavNode[] {
+  const children: NavNode[] = [];
 
-   // Определяем itemIndent по первому "- " с indent > containerIndent.
-   let itemIndent = -1;
-   for (let i = containerStart + 1; i < endIdx; i++) {
-     const line = lines[i];
-     if (!line || !line.trim()) continue;
-     const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
-     if (indent <= containerIndent) break;
-     const dashM = line.match(/^(\s*)-\s+\S/);
-     if (!dashM) continue;
-     itemIndent = dashM[1].length;
-     break;
-   }
-   if (itemIndent < 0) return children;
+  // Определяем itemIndent по первому "- " с indent > containerIndent.
+  let itemIndent = -1;
+  for (let i = containerStart + 1; i < endIdx; i++) {
+    const line = lines[i];
+    if (!line || !line.trim()) continue;
+    const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (indent <= containerIndent) break;
+    const dashM = line.match(/^(\s*)-\s+\S/);
+    if (!dashM) continue;
+    itemIndent = dashM[1].length;
+    break;
+  }
+  if (itemIndent < 0) return children;
 
-   const fieldIndent = itemIndent + 2;
-   const dashRegex = /^(\s*)-\s+\S/;
-   const dashIdRegex = /^(\s*)-\s+id:\s+([^\s#]+)/;
-   const fieldIdRegex = /^(\s*)id\s*:\s*([^\s#]+)/;
+  const fieldIndent = itemIndent + 2;
+  const dashRegex = /^(\s*)-\s+\S/;
+  const dashIdRegex = /^(\s*)-\s+id:\s+([^\s#]+)/;
+  const fieldIdRegex = /^(\s*)id\s*:\s*([^\s#]+)/;
 
-   let i = containerStart + 1;
-   while (i < endIdx) {
-     const line = lines[i];
-     if (!line || !line.trim()) {
-       i++;
-       continue;
-     }
-     const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
-     if (indent <= containerIndent) break;
+  let i = containerStart + 1;
+  while (i < endIdx) {
+    const line = lines[i];
+    if (!line || !line.trim()) {
+      i++;
+      continue;
+    }
+    const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (indent <= containerIndent) break;
 
-     const dashM = line.match(dashRegex);
-     if (!dashM || dashM[1].length !== itemIndent) {
-       i++;
-       continue;
-     }
+    const dashM = line.match(dashRegex);
+    if (!dashM || dashM[1].length !== itemIndent) {
+      i++;
+      continue;
+    }
 
-     // Границы элемента — до следующего "- " на itemIndent
-     let itemEnd = endIdx;
-     for (let k = i + 1; k < endIdx; k++) {
-       const kLine = lines[k];
-       if (!kLine || !kLine.trim()) {
-         itemEnd = k + 1;
-         continue;
-       }
-       const kIndent = (kLine.match(/^(\s*)/) || ["", ""])[1].length;
-       if (kIndent < itemIndent) {
-         itemEnd = k;
-         break;
-       }
-       const kDash = kLine.match(dashRegex);
-       if (kDash && kDash[1].length === itemIndent) {
-         itemEnd = k;
-         break;
-       }
-       itemEnd = k + 1;
-     }
+    // Границы элемента — до следующего "- " на itemIndent
+    let itemEnd = endIdx;
+    for (let k = i + 1; k < endIdx; k++) {
+      const kLine = lines[k];
+      if (!kLine || !kLine.trim()) {
+        itemEnd = k + 1;
+        continue;
+      }
+      const kIndent = (kLine.match(/^(\s*)/) || ["", ""])[1].length;
+      if (kIndent < itemIndent) {
+        itemEnd = k;
+        break;
+      }
+      const kDash = kLine.match(dashRegex);
+      if (kDash && kDash[1].length === itemIndent) {
+        itemEnd = k;
+        break;
+      }
+      itemEnd = k + 1;
+    }
 
-     // id элемента: "- id: X" на itemIndent или "id: X" на itemIndent + 2
-     let nodeId: string | null = null;
-     for (let k = i; k < itemEnd; k++) {
-       const kLine = lines[k];
-       const dashIdM = kLine.match(dashIdRegex);
-       if (dashIdM && dashIdM[1].length === itemIndent) {
-         nodeId = stripQuotes(dashIdM[2]);
-         break;
-       }
-       const fieldIdM = kLine.match(fieldIdRegex);
-       if (fieldIdM && fieldIdM[1].length === fieldIndent) {
-         nodeId = stripQuotes(fieldIdM[2]);
-         break;
-       }
-     }
-     if (!nodeId) {
-       i = itemEnd;
-       continue;
-     }
+    // id элемента: "- id: X" на itemIndent или "id: X" на itemIndent + 2
+    let nodeId: string | null = null;
+    for (let k = i; k < itemEnd; k++) {
+      const kLine = lines[k];
+      const dashIdM = kLine.match(dashIdRegex);
+      if (dashIdM && dashIdM[1].length === itemIndent) {
+        nodeId = stripQuotes(dashIdM[2]);
+        break;
+      }
+      const fieldIdM = kLine.match(fieldIdRegex);
+      if (fieldIdM && fieldIdM[1].length === fieldIndent) {
+        nodeId = stripQuotes(fieldIdM[2]);
+        break;
+      }
+    }
+    if (!nodeId) {
+      i = itemEnd;
+      continue;
+    }
 
-     const nested = collectChildren(lines, i, itemEnd, itemIndent);
+    const nested = collectChildren(lines, i, itemEnd, itemIndent);
 
-     let meta: string | undefined;
-     for (let k = i + 1; k < itemEnd; k++) {
-       const kLine = lines[k];
-       if (!kLine || !kLine.trim()) continue;
-       const kIndent = (kLine.match(/^(\s*)/) || ["", ""])[1].length;
-       if (kIndent < itemIndent) break;
-       const m = kLine.match(/^\s*(dataType|type|kind):\s+(\S+)/);
-       if (m) {
-         meta = m[2].replace(/["']/g, "");
-         break;
-       }
-     }
+    let meta: string | undefined;
+    for (let k = i + 1; k < itemEnd; k++) {
+      const kLine = lines[k];
+      if (!kLine || !kLine.trim()) continue;
+      const kIndent = (kLine.match(/^(\s*)/) || ["", ""])[1].length;
+      if (kIndent < itemIndent) break;
+      const m = kLine.match(/^\s*(dataType|type|kind):\s+(\S+)/);
+      if (m) {
+        meta = m[2].replace(/["']/g, "");
+        break;
+      }
+    }
 
-     children.push({
-       id: nodeId,
-       label: nodeId,
-       line: i + 1,
-       type: containerName.replace(/s$/, ""),
-       meta,
-       children: nested.length > 0 ? nested : undefined,
-     });
+    children.push({
+      id: nodeId,
+      label: nodeId,
+      line: i + 1,
+      type: containerName.replace(/s$/, ""),
+      meta,
+      children: nested.length > 0 ? nested : undefined,
+    });
 
-     i = itemEnd;
-   }
+    i = itemEnd;
+  }
 
-   return children;
- }
+  return children;
+}
 
- /**
-  * Если элемент секции начинается с "- <container>:" (например, "- attributes:")
-  * — это тот же контейнер, что и обычный "<container>:", но на стартовой строке
-  * самого элемента. Обрабатываем его как контейнер.
-  */
- function collectChildrenFromEntityStart(
-   lines: string[],
-   startIdx: number,
-   endIdx: number,
-   entityDashIndent: number,
- ): NavNode[] {
-   const line = lines[startIdx];
-   if (!line) return [];
-   const m = line.match(/^(\s*)-\s+([a-zA-Z][a-zA-Z0-9_]*)\s*:\s*$/);
-   if (!m) return [];
-   const containerName = m[2];
-   if (!CHILD_CONTAINERS.has(containerName)) return [];
-   const containerIndent = m[1].length;
-   if (containerIndent !== entityDashIndent) return [];
+/**
+ * Если элемент секции начинается с "- <container>:" (например, "- attributes:")
+ * — это тот же контейнер, что и обычный "<container>:", но на стартовой строке
+ * самого элемента. Обрабатываем его как контейнер.
+ */
+function collectChildrenFromEntityStart(
+  lines: string[],
+  startIdx: number,
+  endIdx: number,
+  entityDashIndent: number,
+): NavNode[] {
+  const line = lines[startIdx];
+  if (!line) return [];
+  const m = line.match(/^(\s*)-\s+([a-zA-Z][a-zA-Z0-9_]*)\s*:\s*$/);
+  if (!m) return [];
+  const containerName = m[2];
+  if (!CHILD_CONTAINERS.has(containerName)) return [];
+  const containerIndent = m[1].length;
+  if (containerIndent !== entityDashIndent) return [];
 
-   return scanItemsInContainer(
-     lines,
-     startIdx,
-     endIdx,
-     containerName,
-     containerIndent,
-   );
- }
+  return scanItemsInContainer(
+    lines,
+    startIdx,
+    endIdx,
+    containerName,
+    containerIndent,
+  );
+}
 
 /**
  * Строит карту строк из YAML-текста.
@@ -395,7 +400,8 @@ export function buildLineMap(
     }
 
     // ============ Обычная обработка ============
-    const sectionSchema = (schema.sections as any)?.[key];
+    const normalizedKey = SECTION_KEY_ALIASES[key] ?? key;
+    const sectionSchema = (schema.sections as any)?.[normalizedKey];
     if (!sectionSchema) return;
 
     // Минимальный dash-indent в секции — "шаг" элементов.
@@ -748,10 +754,8 @@ function parseTreeChildren(
     const childEnd = findRangeInLines(lines, i, childrenEnd, childIndent);
 
     // Извлекаем linkage и entity
-    let linkage: string | null =
-      m[2] === "linkage" ? stripQuotes(m[3]) : null;
-    let entity: string | null =
-      m[2] === "entity" ? stripQuotes(m[3]) : null;
+    let linkage: string | null = m[2] === "linkage" ? stripQuotes(m[3]) : null;
+    let entity: string | null = m[2] === "entity" ? stripQuotes(m[3]) : null;
 
     for (let j = i + 1; j < childEnd; j++) {
       const lm = lines[j].match(/^\s*(linkage|entity)\s*:\s*([^\s#]+)/);
