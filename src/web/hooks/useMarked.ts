@@ -15,11 +15,12 @@ export function useMarked(): {
   useEffect(() => {
     if (parse) return;
     if (!markedPromise) {
-      markedPromise = import("https://esm.sh/marked@12.0.2");
+      markedPromise = import("https://cdn.jsdelivr.net/npm/marked@12.0.2/+esm");
     }
     markedPromise
       .then((mod) => {
-        const fn = mod.marked ? mod.marked.parse : mod.parse;
+        // marked v12 экспортирует и `marked.parse`, и `parse`.
+        const fn = (mod as any).marked?.parse ?? (mod as any).parse;
         if (typeof fn === "function") setParse(() => fn);
       })
       .catch(() => setParse(null));

@@ -80,6 +80,8 @@ import type {
   ExchangeSettingsRecord,
   ExchangeEntitySettings,
   ExchangeSettingsAttributeFormats,
+  ViewMenuActionRecord,
+  ViewGroupComponentRecord,
 } from "../../shared/model-types";
 import { buildDomainSchemaSummary } from "./domain-schema";
 import type { DomainSchemaSummary } from "../../shared/model-types";
@@ -170,6 +172,11 @@ const GENERIC_SECTION_KEYS = [
   "transitiveLinkages",
   "permissions",
   "localizations",
+  "actions",
+  "accessRules",
+  "linkages",
+  "widgets",
+  "counterColorPatterns",
 ] as const;
 
 type GenericSectionKey = (typeof GENERIC_SECTION_KEYS)[number];
@@ -195,13 +202,24 @@ function hashJsonSafe(value: unknown): string {
 function pickGenericId(
   sectionKey: GenericSectionKey,
   item: any,
+  index: number,
 ): string | null {
   if (!item || typeof item !== "object") return null;
+
   if (typeof item.id === "string" && item.id) return item.id;
-  // localizations: ключ — language
+
   if (sectionKey === "localizations" && typeof item.language === "string") {
     return item.language;
   }
+
+  // accessRules не имеет своего id — генерируем синтетический ключ
+  if (sectionKey === "accessRules") {
+    const target = typeof item.target === "string" ? item.target : "?";
+    const entity = item.entity ? `@${item.entity}` : "";
+    const linkage = item.linkage ? `@${item.linkage}` : "";
+    return `accessRule[${index}]:${target}${entity}${linkage}`;
+  }
+
   return null;
 }
 
@@ -241,9 +259,10 @@ function collectGenericSections(
     for (const key of GENERIC_SECTION_KEYS) {
       const arr = raw[key];
       if (!Array.isArray(arr)) continue;
-      for (const item of arr) {
-        const id = pickGenericId(key, item);
-        if (!id) continue;
+      arr.forEach((item: any, index: number) => {
+        // ← index
+        const id = pickGenericId(key, item, index); // ← прокидываем
+        if (!id) return;
         result[key].push({
           id,
           domainId: d.id,
@@ -251,7 +270,7 @@ function collectGenericSections(
           label: pickGenericLabel(key, item),
           type: pickGenericType(key, item),
         });
-      }
+      });
     }
   }
 
@@ -311,7 +330,21 @@ function parseAttribute(
       : [],
     usedInViews: 0,
     usedInRules: 0,
+    default:
+      raw.default !== undefined && raw.default !== null
+        ? raw.default
+        : undefined,
   };
+
+  if (raw.default !== undefined && raw.default !== null) {
+    if (
+      typeof raw.default === "string" ||
+      typeof raw.default === "number" ||
+      typeof raw.default === "boolean"
+    ) {
+      record.default = raw.default;
+    }
+  }
 
   // Базовые флаги
   if (raw.readonly === true) record.readonly = true;
@@ -878,7 +911,10 @@ function parseExchangeSettings(
   if (raw.attributeFormats && typeof raw.attributeFormats === "object") {
     const af: ExchangeSettingsAttributeFormats = {};
     for (const k of ["Date", "Time", "Timestamp", "TimestampRange"] as const) {
-      if (typeof raw.attributeFormats[k] === "string" && raw.attributeFormats[k]) {
+      if (
+        typeof raw.attributeFormats[k] === "string" &&
+        raw.attributeFormats[k]
+      ) {
         af[k] = raw.attributeFormats[k];
       }
     }
@@ -2540,7 +2576,52 @@ function parseAction(raw: any, domainId: string): ActionRecord | null {
     }
   }
 
+  // ============ workflow: transition.to ============
+  if (
+    type === "workflow" &&
+    raw.transition &&
+    typeof raw.transition === "object"
+  ) {
+    if (typeof raw.transition.to === "string" && raw.transition.to) {
+      out.transition = { to: raw.transition.to };
+    }
+  }
+
+  // ============ open_external_widget_modal: params ============
+  if (
+    type === "open_external_widget_modal" &&
+    raw.params &&
+    typeof raw.params === "object"
+  ) {
+    if (typeof raw.params.widget === "string" && raw.params.widget) {
+      out.widgetParams = { widget: raw.params.widget, ...raw.params };
+    }
+  }
+
   if (typeof raw.attribute === "string") out.attribute = raw.attribute;
+
+  // ============ workflow: transition.to ============
+  if (
+    type === "workflow" &&
+    raw.transition &&
+    typeof raw.transition === "object"
+  ) {
+    if (typeof raw.transition.to === "string" && raw.transition.to) {
+      out.transition = { to: raw.transition.to };
+    }
+  }
+
+  // ============ open_external_widget_modal: params ============
+  if (
+    type === "open_external_widget_modal" &&
+    raw.params &&
+    typeof raw.params === "object"
+  ) {
+    if (typeof raw.params.widget === "string" && raw.params.widget) {
+      out.widgetParams = { widget: raw.params.widget, ...raw.params };
+    }
+  }
+
   if (typeof raw.widgetId === "string") {
     const fqid = normalizeFqid(raw.widgetId, domainId);
     if (fqid) out.widgetId = fqid;
@@ -3190,6 +3271,8 @@ interface ViewMetaResult {
   pagings: ViewTablePagingRecord[];
   tableActions: ViewTableActionRecord[];
   sourceJoins: ViewSourceJoinRecord[];
+  menuActions: ViewMenuActionRecord[];
+  groupComponents: ViewGroupComponentRecord[];
 }
 
 /**
@@ -3314,6 +3397,8 @@ function collectViewMeta(raw: any, domainId: string): ViewMetaResult {
   const seenPagingViews = new Set<string>();
   const seenActionsViews = new Set<string>();
   const sourceJoins: ViewSourceJoinRecord[] = [];
+  const menuActions: ViewMenuActionRecord[] = [];
+  const groupComponents: ViewGroupComponentRecord[] = [];
 
   const views = Array.isArray(raw?.views) ? raw.views : [];
 
@@ -3388,6 +3473,10 @@ function collectViewMeta(raw: any, domainId: string): ViewMetaResult {
           ) {
             rec.addLinksView = w.control.addLinksView;
           }
+          if (w.control && typeof w.control === "object") {
+            const dm = w.control.displayMode;
+            if (dm === "flat" || dm === "grouped") rec.displayMode = dm;
+          }
         }
         // linked_objects_groups.linkages[]
         if (w.type === "linked_objects_groups" && Array.isArray(w.linkages)) {
@@ -3401,6 +3490,25 @@ function collectViewMeta(raw: any, domainId: string): ViewMetaResult {
           }
           if (refs.length > 0) rec.linkedGroupsLinkages = refs;
         }
+
+        // linked_objects_groups.joins[] + control.displayMode
+        if (w.type === "linked_objects_groups") {
+          if (Array.isArray(w.joins)) {
+            const joins: string[] = [];
+            for (const j of w.joins) {
+              if (
+                j &&
+                typeof j === "object" &&
+                typeof j.join === "string" &&
+                j.join
+              ) {
+                joins.push(j.join);
+              }
+            }
+            if (joins.length > 0) rec.linkedGroupsJoins = joins;
+          }
+        }
+
         // join-widget
         if (w.type === "join") {
           if (typeof w.joinId === "string" && w.joinId) {
@@ -3426,6 +3534,56 @@ function collectViewMeta(raw: any, domainId: string): ViewMetaResult {
           parentViewId: topViewId,
           type: String(g.type || ""),
         });
+
+        if (Array.isArray(g.components)) {
+          for (let ci = 0; ci < g.components.length; ci++) {
+            const comp = g.components[ci];
+            if (!comp || typeof comp !== "object") continue;
+            // Пропускаем inherit-компоненты (в них нет реальной ссылки)
+            if ("inherit" in comp) continue;
+            if (typeof comp.widget === "string" && comp.widget) {
+              groupComponents.push({
+                domainId,
+                viewId: topViewId,
+                groupId: String(g.id),
+                widget: comp.widget,
+                index: ci,
+              });
+            }
+            // Инлайн-объект widget {id, linkageId?, referenceId?}
+            else if (
+              comp.widget &&
+              typeof comp.widget === "object" &&
+              typeof comp.widget.id === "string"
+            ) {
+              groupComponents.push({
+                domainId,
+                viewId: topViewId,
+                groupId: String(g.id),
+                widget: comp.widget.id,
+                index: ci,
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // ============ panel.menu[].action ============
+    if (view.type === "panel" && Array.isArray(view.menu)) {
+      for (let mi = 0; mi < view.menu.length; mi++) {
+        const item = view.menu[mi];
+        if (!item || typeof item !== "object") continue;
+        if ("inherit" in item) continue;
+        if (typeof item.action === "string" && item.action) {
+          menuActions.push({
+            domainId,
+            viewId: topViewId,
+            panelViewId: String(view.id),
+            action: item.action,
+            index: mi,
+          });
+        }
       }
     }
 
@@ -3711,6 +3869,8 @@ function collectViewMeta(raw: any, domainId: string): ViewMetaResult {
     pagings,
     tableActions,
     sourceJoins,
+    menuActions,
+    groupComponents,
   };
 }
 
@@ -3758,6 +3918,8 @@ export function buildModelIndex(rawDomains: RawDomainEntry[]): ModelIndex {
   const viewTreeFilters: ViewTreeFilterRecord[] = [];
   const viewSourceJoins: ViewSourceJoinRecord[] = [];
   const exchangeSettingsByDomain: Record<string, ExchangeSettingsRecord> = {};
+  const viewMenuActions: ViewMenuActionRecord[] = [];
+  const viewGroupComponents: ViewGroupComponentRecord[] = [];
 
   // Проход 1: собрать все кастомные dataTypes IDs (для классификации атрибутов)
   const customDataTypeIdsByDomain = new Map<string, Set<string>>();
@@ -3871,6 +4033,8 @@ export function buildModelIndex(rawDomains: RawDomainEntry[]): ModelIndex {
       viewTableSortings.push(...meta.sortings);
       viewTablePagings.push(...meta.pagings);
       viewTableActions.push(...meta.tableActions);
+      viewMenuActions.push(...meta.menuActions);
+      viewGroupComponents.push(...meta.groupComponents);
     }
 
     // Mixins
@@ -4109,6 +4273,8 @@ export function buildModelIndex(rawDomains: RawDomainEntry[]): ModelIndex {
     viewTreeFilters,
     viewSourceJoins,
     exchangeSettingsByDomain,
+    viewMenuActions,
+    
   } as ModelIndex;
 
   const lintReport = lintModel(partialIndex);

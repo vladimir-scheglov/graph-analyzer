@@ -15,6 +15,11 @@ const GENERIC_SECTION_LABELS: Record<string, string> = {
     transitiveLinkages: "Транзитивные связи",
     permissions: "Разрешения",
     localizations: "Локализации",
+    actions: "Действия",
+    accessRules: "Правила доступа",
+    linkages: "Связи",
+    widgets: "Доменные виджеты",
+    counterColorPatterns: "Цветовые схемы счётчиков",
 };
 
 function genericSectionLabel(key: string): string {

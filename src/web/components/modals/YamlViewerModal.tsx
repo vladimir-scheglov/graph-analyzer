@@ -22,6 +22,13 @@ import { YamlViewerHelp } from './YamlViewerHelp';
 import { readRemoteInfo } from '../../state/initial';
 import { scanRqlInText } from '../../lib/monaco/rql-check';
 import { SECTION_LABELS } from '../../lib/consts';
+import { YamlSearchPanel, YamlSearchPanelHandle } from "./YamlSearchPanel";
+import {
+    SearchOptions,
+    SearchMatch,
+    SearchResult,
+    DEFAULT_SEARCH_OPTIONS,
+} from "../../lib/yaml/yaml-search";
 import yaml from "js-yaml";
 
 type RightTab = 'issues' | 'refs' | 'backlinks' | 'server';
@@ -164,6 +171,15 @@ export function YamlViewerModal() {
     } | null>(null);
     const [serverValidating, setServerValidating] = useState(false);
     const [serverAvailable, setServerAvailable] = useState(false);
+    const [navTab, setNavTab] = useState<"navigation" | "search">("navigation");
+    const [searchQuery, setSearchQuery] = useState("");
+    const [searchOptions, setSearchOptions] =
+        useState<SearchOptions>(DEFAULT_SEARCH_OPTIONS);
+    const [searchResult, setSearchResult] = useState<SearchResult | null>(null);
+    const [activeSearchMatch, setActiveSearchMatch] =
+        useState<SearchMatch | null>(null);
+    const searchPanelRef = useRef<YamlSearchPanelHandle>(null);
+    const searchDecorationsRef = useRef<any>(null);
 
     const { goto: gotoDomain } = useNavigation();
 
@@ -326,9 +342,21 @@ export function YamlViewerModal() {
         return combined;
     }, [domainIssues, lineMap, content, index, domainId, yamlSyntaxIssue]);
 
+    const effectiveIssues = useMemo(() => {
+        if (!isDirty || !lineMap) return allIssues;
+        const out: any[] = [];
+        for (const issue of allIssues) {
+            const state = classifyIssue(issue, content, lineMap);
+            if (state === "resolved") continue;
+            if (state === "unknown") out.push({ ...issue, __isUnknown: true });
+            else out.push(issue);
+        }
+        return out;
+    }, [allIssues, isDirty, content, lineMap]);
+
     const filteredIssues = useMemo(
-        () => allIssues.filter((i: any) => severityFilter.has(i.severity)),
-        [allIssues, severityFilter],
+        () => effectiveIssues.filter((i: any) => severityFilter.has(i.severity)),
+        [effectiveIssues, severityFilter],
     );
 
     const backlinks = useMemo(() => {
@@ -849,6 +877,63 @@ export function YamlViewerModal() {
         return () => clearTimeout(t);
     }, [monacoReady, editorCreated, lineMap]);
 
+    useEffect(() => {
+        if (!monacoReady || !editorCreated || !editorRef.current) return;
+        const m = (window as any).monaco;
+        if (!m) return;
+        const ed = editorRef.current;
+
+        // очищаем старые
+        if (searchDecorationsRef.current) {
+            try { searchDecorationsRef.current.clear(); } catch { }
+            searchDecorationsRef.current = null;
+        }
+
+        if (!searchResult || searchResult.groups.length === 0) return;
+
+        const decorations: any[] = [];
+        for (const g of searchResult.groups) {
+            for (const match of g.matches) {
+                const isActive =
+                    activeSearchMatch !== null &&
+                    activeSearchMatch.line === match.line &&
+                    activeSearchMatch.column === match.column &&
+                    activeSearchMatch.length === match.length;
+                decorations.push({
+                    range: new m.Range(
+                        match.line,
+                        match.column,
+                        match.line,
+                        match.column + match.length,
+                    ),
+                    options: {
+                        inlineClassName: isActive
+                            ? "yaml-search-match-active"
+                            : "yaml-search-match",
+                        overviewRuler: {
+                            color: isActive ? "#fbbf24" : "#f59e0b",
+                            position: m.editor.OverviewRulerLane.Center,
+                        },
+                    },
+                });
+            }
+        }
+
+        try {
+            searchDecorationsRef.current = ed.createDecorationsCollection(decorations);
+        } catch {
+            // createDecorationsCollection есть в Monaco ≥ 0.34; для более старых —
+            // fallback через deltaDecorations, если понадобится.
+        }
+
+        return () => {
+            if (searchDecorationsRef.current) {
+                try { searchDecorationsRef.current.clear(); } catch { }
+                searchDecorationsRef.current = null;
+            }
+        };
+    }, [monacoReady, editorCreated, searchResult, activeSearchMatch]);
+
     // ============ Consolidated markers: FQID + dataType + enum ============
     useEffect(() => {
         if (!monacoReady || !editorCreated || !editorRef.current) return;
@@ -958,32 +1043,28 @@ export function YamlViewerModal() {
         const markers = domainIssues
             .filter((issue) => severityFilter.has(issue.severity))
             .filter((issue) => !isIgnored(issue, ignored))
-            .filter((issue) => {
-                // ============ Серверный линтер соответствует сохранённому YAML ============
-                // Пока пользователь редактирует (dirty), dg-linter-issues могут быть
-                // устаревшими. Показываем только те, что isIssueStillPresent
-                // локально подтверждает по актуальному тексту.
-                // После сохранения (content === savedContent) доверяем серверу.
-                if (!isDirty) return true;
-                return isIssueStillPresent(issue, currentText, lineMap);
-            })
             .map((issue) => {
+                const state = isDirty
+                    ? classifyIssue(issue, currentText, lineMap)
+                    : "still";
+                if (state === "resolved") return null;
                 const line = findIssueLine(issue, lineMap);
                 if (line == null) return null;
-                // Реальный диапазон до конца строки — Monaco корректно рисует underline
-                // и hover не «съезжает» на всю линию как на zero-width
+                const isStale = state === "unknown";
                 return {
                     severity:
-                        issue.severity === 'error' ? m.MarkerSeverity.Error :
-                            issue.severity === 'warning' ? m.MarkerSeverity.Warning :
+                        issue.severity === "error" ? m.MarkerSeverity.Error :
+                            issue.severity === "warning" ? m.MarkerSeverity.Warning :
                                 m.MarkerSeverity.Info,
-                    message: `[${issue.rule}] ${issue.message}${issue.hint ? '\n\n💡 ' + issue.hint : ''}`,
+                    message: isStale
+                        ? `⏱ ${issue.message}\n\nВозможно, устарело — сохраните файл, чтобы серверный линтер перепроверил.`
+                        : `[${issue.rule}] ${issue.message}${issue.hint ? "\n\n💡 " + issue.hint : ""}`,
                     startLineNumber: line,
                     startColumn: 1,
                     endLineNumber: line,
                     endColumn: 1_000_000,
-                    source: 'dg-linter',
-                    code: issue.ruleId
+                    source: "dg-linter",
+                    code: issue.ruleId,
                 };
             })
             .filter((x): x is NonNullable<typeof x> => x !== null);
@@ -1312,6 +1393,30 @@ export function YamlViewerModal() {
     // ============ Keyboard nav ============
     useEffect(() => {
         if (!open) return;
+
+        const onKeyDown = (e: KeyboardEvent) => {
+            const isMod = e.ctrlKey || e.metaKey;
+            if (
+                isMod &&
+                e.shiftKey &&
+                !e.altKey &&
+                (e.code === "KeyF" || e.key === "F" || e.key === "f")
+            ) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                setNavTab("search");
+                setTimeout(() => searchPanelRef.current?.focusInput(), 30);
+            }
+        };
+
+        // capture: true — перехватываем РАНЬШЕ Monaco, ReactFlow и браузера
+        window.addEventListener("keydown", onKeyDown, true);
+        return () => window.removeEventListener("keydown", onKeyDown, true);
+    }, [open]);
+
+    useEffect(() => {
+        if (!open) return;
         const handler = (e: KeyboardEvent) => {
             const target = e.target as HTMLElement;
             if (target && (
@@ -1319,6 +1424,7 @@ export function YamlViewerModal() {
                 target.tagName === 'TEXTAREA' ||
                 target.isContentEditable
             )) return;
+
             // Не перехватываем если фокус в редакторе
             if (editorRef.current && editorRef.current.hasTextFocus && editorRef.current.hasTextFocus()) return;
             if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -1691,10 +1797,15 @@ export function YamlViewerModal() {
         setServerValidation(null);
     }, [filePath, open]);
 
+    const staleIssueCount = useMemo(
+        () => effectiveIssues.filter((i: any) => i.__isUnknown).length,
+        [effectiveIssues],
+    );
+
     if (!open) return null;
 
     const canSave = !isRemoteMode && !isLocked && isDirty;
-    const issueCount = allIssues.length;
+    const issueCount = effectiveIssues.length;
     const refsCount = externalRefs.refs.length;
 
     return (
@@ -1985,78 +2096,150 @@ export function YamlViewerModal() {
                         style={{ width: leftCollapsed ? 0 : leftWidth }}
                     >
                         {loading && <div className="yaml-viewer-nav__loading">Загрузка...</div>}
-                        {loadError && <div className="yaml-viewer-nav__error">{loadError}</div>}
                         {lineMap && (
                             <>
-                                <div className="yaml-viewer-nav__header">
-                                    <span>Навигация</span>
+                                <div className="yaml-viewer-nav__tabs">
                                     <button
+                                        type="button"
                                         className={
-                                            "yaml-viewer-nav__toggle" +
-                                            (onlyProblematic ? " active" : "")
+                                            "yaml-viewer-nav__tab" +
+                                            (navTab === "navigation" ? " active" : "")
                                         }
-                                        style={{ marginLeft: "auto" }}
-                                        onClick={() => setOnlyProblematic(!onlyProblematic)}
-                                        title={
-                                            onlyProblematic
-                                                ? "Показать все элементы"
-                                                : "Показать только элементы с проблемами"
-                                        }
-                                        disabled={domainIssues.length === 0}
+                                        onClick={() => setNavTab("navigation")}
                                     >
-                                        <MIcon name="warning" size="sm" />
-                                        {domainIssues.length}
+                                        <MIcon name="account_tree" size="sm" />
+                                        Навигация
                                     </button>
-                                    <div className="yaml-viewer-nav__actions">
-                                        <button className="yaml-viewer-nav__action" onClick={expandAll} title="Развернуть всё">⤢</button>
-                                        <button className="yaml-viewer-nav__action" onClick={collapseAll} title="Свернуть всё">⤡</button>
+                                    <button
+                                        type="button"
+                                        className={
+                                            "yaml-viewer-nav__tab" +
+                                            (navTab === "search" ? " active" : "")
+                                        }
+                                        onClick={() => {
+                                            setNavTab("search");
+                                            setTimeout(
+                                                () => searchPanelRef.current?.focusInput(),
+                                                30,
+                                            );
+                                        }}
+                                    >
+                                        <MIcon name="search" size="sm" />
+                                        Поиск
+                                        {searchResult && searchResult.totalMatches > 0 && (
+                                            <span className="yaml-viewer-nav__tab-badge">
+                                                {searchResult.totalMatches > 99
+                                                    ? "99+"
+                                                    : searchResult.totalMatches}
+                                            </span>
+                                        )}
+                                    </button>
+                                </div>
+
+                                <div
+                                    className="yaml-viewer-nav__pane"
+                                    style={navTab === "navigation" ? undefined : { display: "none" }}
+                                >
+                                    <div className="yaml-viewer-nav__header">
+                                        <span>Навигация</span>
+                                        <button
+                                            className={
+                                                "yaml-viewer-nav__toggle" +
+                                                (onlyProblematic ? " active" : "")
+                                            }
+                                            style={{ marginLeft: "auto" }}
+                                            onClick={() => setOnlyProblematic(!onlyProblematic)}
+                                            title={
+                                                onlyProblematic
+                                                    ? "Показать все элементы"
+                                                    : "Показать только элементы с проблемами"
+                                            }
+                                            disabled={domainIssues.length === 0}
+                                        >
+                                            <MIcon name="warning" size="sm" />
+                                            {domainIssues.length}
+                                        </button>
+                                        <div className="yaml-viewer-nav__actions">
+                                            <button
+                                                className="yaml-viewer-nav__action"
+                                                onClick={expandAll}
+                                                title="Развернуть всё"
+                                            >⤢</button>
+                                            <button
+                                                className="yaml-viewer-nav__action"
+                                                onClick={collapseAll}
+                                                title="Свернуть всё"
+                                            >⤡</button>
+                                        </div>
+                                    </div>
+
+                                    <div className="yaml-viewer-nav__search">
+                                        <span className="yaml-viewer-nav__search-icon">🔍</span>
+                                        <input
+                                            type="text"
+                                            className="yaml-viewer-nav__search-input"
+                                            placeholder="Фильтр по id..."
+                                            value={navQuery}
+                                            onChange={(e) => {
+                                                setNavQuery(e.target.value);
+                                                setActiveNavIdx(-1);
+                                            }}
+                                            spellCheck={false}
+                                        />
+                                        {navQuery && (
+                                            <button
+                                                className="yaml-viewer-nav__search-clear"
+                                                onClick={() => setNavQuery('')}
+                                            >✕</button>
+                                        )}
+                                    </div>
+
+                                    <div className="yaml-viewer-nav__list" ref={navListRef}>
+                                        {navQuery.trim() !== '' || onlyProblematic ? (
+                                            <FilteredNavList
+                                                nodes={filteredNavNodes}
+                                                activeIdx={activeNavIdx}
+                                                onJump={jumpTo}
+                                                onHover={setActiveNavIdx}
+                                            />
+                                        ) : (
+                                            lineMap.sections.map((section) => (
+                                                <SectionNav
+                                                    key={section.key}
+                                                    section={section}
+                                                    expandedNodes={expandedNodes}
+                                                    onToggleNode={toggleNode}
+                                                    onJump={jumpTo}
+                                                    issues={allIssues}
+                                                    activeIdx={activeNavIdx}
+                                                    onSetActive={setActiveNavIdx}
+                                                    filteredNavNodes={filteredNavNodes}
+                                                    sectionKey={section.key}
+                                                    entityIssuesMap={entityIssuesMap}
+                                                    attrIssuesMap={attrIssuesMap}
+                                                />
+                                            ))
+                                        )}
                                     </div>
                                 </div>
 
-                                <div className="yaml-viewer-nav__search">
-                                    <span className="yaml-viewer-nav__search-icon">🔍</span>
-                                    <input
-                                        type="text"
-                                        className="yaml-viewer-nav__search-input"
-                                        placeholder="Фильтр по id..."
-                                        value={navQuery}
-                                        onChange={(e) => { setNavQuery(e.target.value); setActiveNavIdx(-1); }}
-                                        spellCheck={false}
+                                <div
+                                    className="yaml-viewer-nav__pane"
+                                    style={navTab === "search" ? undefined : { display: "none" }}
+                                >
+                                    <YamlSearchPanel
+                                        ref={searchPanelRef}
+                                        content={content}
+                                        lineMap={lineMap}
+                                        query={searchQuery}
+                                        options={searchOptions}
+                                        onQueryChange={setSearchQuery}
+                                        onOptionsChange={setSearchOptions}
+                                        onResultChange={setSearchResult}
+                                        onActiveMatchChange={setActiveSearchMatch}
+                                        onEscape={() => setNavTab("navigation")}
+                                        onJump={jumpTo}
                                     />
-                                    {navQuery && (
-                                        <button
-                                            className="yaml-viewer-nav__search-clear"
-                                            onClick={() => setNavQuery('')}
-                                        >✕</button>
-                                    )}
-                                </div>
-
-                                <div className="yaml-viewer-nav__list" ref={navListRef}>
-                                    {navQuery.trim() !== '' || onlyProblematic ? (
-                                        <FilteredNavList
-                                            nodes={filteredNavNodes}
-                                            activeIdx={activeNavIdx}
-                                            onJump={jumpTo}
-                                            onHover={setActiveNavIdx}
-                                        />
-                                    ) : (
-                                        lineMap.sections.map((section) => (
-                                            <SectionNav
-                                                key={section.key}
-                                                section={section}
-                                                expandedNodes={expandedNodes}
-                                                onToggleNode={toggleNode}
-                                                onJump={jumpTo}
-                                                issues={allIssues}
-                                                activeIdx={activeNavIdx}
-                                                onSetActive={setActiveNavIdx}
-                                                filteredNavNodes={filteredNavNodes}
-                                                sectionKey={section.key}
-                                                entityIssuesMap={entityIssuesMap}
-                                                attrIssuesMap={attrIssuesMap}
-                                            />
-                                        ))
-                                    )}
                                 </div>
                             </>
                         )}
@@ -2248,7 +2431,12 @@ export function YamlViewerModal() {
                             >
                                 <MIcon name="rule" size="sm" />
                                 {issueCount > 0 && (
-                                    <span className="yaml-viewer-tab__badge">{issueCount}</span>
+                                    <span
+                                        className="yaml-viewer-tab__badge"
+                                        title={staleIssueCount > 0 ? `из них ${staleIssueCount} — возможно, устарели` : undefined}
+                                    >
+                                        {issueCount}
+                                    </span>
                                 )}
                             </button>
                             <button
@@ -2325,7 +2513,7 @@ export function YamlViewerModal() {
                         {rightTab === 'issues' && (
                             <IssuesPanel
                                 issues={filteredIssues}
-                                allIssuesCount={allIssues.length}
+                                allIssuesCount={effectiveIssues.length}
                                 onJump={jumpTo}
                                 lineMap={lineMap}
                                 severityFilter={severityFilter}
@@ -2761,13 +2949,157 @@ function hasFieldInAttributeBlock(
     return false;
 }
 
-function isIssueStillPresent(
+type IssueState = "still" | "resolved" | "unknown";
+
+/**
+ * Ищет строку атрибута в lineMap, толерантно к переименованию под camelCase.
+ * Возвращает 1-based строку или null.
+ */
+function findAttributeLineInMap(
+    entityId: string,
+    attrId: string,
+    lineMap: LineMap,
+): number | null {
+    if (!entityId || !attrId) return null;
+
+    // findAttributeInEntity чувствителен к регистру id. В ModelIndex
+    // entityFqid хранится lowercase, а в lineMap — как в YAML
+    // ("SummaryRequirementCalcs"). Найдём сущность регистронезависимо
+    // и передадим её оригинальный регистр.
+    const section = lineMap.sections.find((s) => s.key === "entities");
+    if (!section) return null;
+
+    const entity = section.nodes.find(
+        (n) => n.id.toLowerCase() === entityId.toLowerCase(),
+    );
+    if (!entity) return null;
+
+    const casedEntityId = entity.id;
+
+    // 1) Прямое совпадение с id из issue (например, "assessment_quantitative")
+    const exact = findAttributeInEntity(casedEntityId, attrId, lineMap);
+    if (exact != null) return exact;
+
+    // 2) camelCase-версия (например, "assessmentQuantitative") — для случая,
+    //    когда пользователь УЖЕ переименовал атрибут, но серверный issue
+    //    ещё не пересчитан.
+    const parts = attrId.split(/[_\-]+/);
+    if (parts.length > 1) {
+        const camel = parts
+            .map((p, i) =>
+                i === 0
+                    ? p.charAt(0).toLowerCase() + p.slice(1)
+                    : p.charAt(0).toUpperCase() + p.slice(1),
+            )
+            .join("");
+        const viaCamel = findAttributeInEntity(casedEntityId, camel, lineMap);
+        if (viaCamel != null) return viaCamel;
+    }
+
+    return null;
+}
+
+/**
+ * Множество валидных action-типов — синхронизировано с
+ * KNOWN_ACTION_TYPES в linter.ts и ACTION_TYPE_DESCRIPTIONS в
+ * monaco-providers.ts. При добавлении нового типа правь во всех трёх местах.
+ */
+const KNOWN_ACTION_TYPES_UI = new Set<string>([
+    "open_panel",
+    "open_modal",
+    "open_page",
+    "open_graph_view",
+    "open_board_view",
+    "open_list",
+    "open_tree",
+    "open_view",
+    "remove",
+    "bulk",
+    "tree_bulk",
+    "set_attribute_value",
+    "automation",
+    "scenario",
+    "generate_qr_code",
+    "copy_entity_link",
+    "open_external_widget_modal",
+    "workflow",
+]);
+
+/**
+ * Находит текущее значение `type:` у action с заданным id в тексте.
+ *   - null, если action не найден (удалён) или у него нет `type:`.
+ *   - строку значения — если найдено.
+ *
+ * Опирается на lineMap: берёт стартовую строку action из sections[actions],
+ * дальше идёт вниз, пока не встретит следующий `- id:` на том же отступе
+ * (новый action) или строку с меньшим отступом (выход из секции).
+ */
+function getActionTypeFromText(
+    actionId: string,
+    lines: string[],
+    lineMap: LineMap,
+): string | null {
+    const section = lineMap.sections.find((s) => s.key === "actions");
+    if (!section) return null;
+
+    const actionNode = section.nodes.find((n) => n.id === actionId);
+    if (!actionNode) return null;
+
+    const startLine = actionNode.line; // 1-based
+    const startLineText = lines[startLine - 1] || "";
+    const dashIndent = (startLineText.match(/^(\s*)/) || ["", ""])[1].length;
+
+    for (let i = startLine; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line) continue;
+
+        const dashMatch = line.match(/^(\s*)-\s+id\s*:/);
+        if (dashMatch && dashMatch[1].length === dashIndent) {
+            // Следующий action — `type:` в нашем блоке не встретился
+            return null;
+        }
+
+        const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
+        const trimmed = line.trim();
+        if (
+            indent < dashIndent &&
+            trimmed &&
+            /^[a-zA-Z_]/.test(trimmed)
+        ) {
+            // Вышли из секции actions
+            return null;
+        }
+
+        if (indent > dashIndent) {
+            const typeMatch = line.match(
+                /^\s*type\s*:\s*['"]?([\w.-]+)['"]?\s*(?:#.*)?$/,
+            );
+            if (typeMatch) return typeMatch[1];
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Классифицирует серверный lint-issue относительно ТЕКУЩЕГО текста.
+ *
+ *   still    — проблема точно осталась (мы знаем, как её перепроверить);
+ *   resolved — проблема точно исправлена;
+ *   unknown  — перепроверить локально нельзя (правило требует серверной
+ *              сборки индекса). Не скрываем — показываем с пометкой
+ *              «возможно устарело».
+ *
+ * Клиентские issues (`__clientOnly`) уже посчитаны по текущему тексту —
+ * всегда `still`.
+ */
+function classifyIssue(
     issue: any,
     currentText: string,
     lineMap: LineMap | null,
-): boolean {
-    if (issue.__clientOnly) return true;
-    if (!lineMap) return true;
+): IssueState {
+    if (issue.__clientOnly) return "still";
+    if (!lineMap) return "unknown";
 
     const ruleId = String(issue.ruleId || "").toLowerCase();
     const lines = currentText.split("\n");
@@ -2780,93 +3112,87 @@ function isIssueStillPresent(
         return null;
     };
 
-    // Хелпер: поиск атрибута с фоллбэком на camelCase
-    const getAttributeLine = (entityId: string, attrId: string): number | null => {
-        // 1. Пытаемся найти через lineMap
-        let line = findAttributeInEntity(entityId, attrId, lineMap);
-        if (line) return line;
-
-        // 2. Пробуем camelCase-версию
-        const parts = attrId.split(/[_\-]+/);
-        const camel = parts
-            .map((p, i) => i === 0 ? p.charAt(0).toLowerCase() + p.slice(1) : p.charAt(0).toUpperCase() + p.slice(1))
-            .join("");
-        line = findAttributeInEntity(entityId, camel, lineMap);
-        if (line) return line;
-
-        // 3. ФОЛЛБЭК: ищем строку с `- id: attrId` напрямую в тексте
-        const re = new RegExp(`-\\s+id:\\s*['"]?${attrId}['"]?\\s*$`);
-        for (let i = 0; i < lines.length; i++) {
-            if (re.test(lines[i])) return i + 1;
-        }
-
-        return null;
-    };
-
-    // --- Entity: label ---
+    // --- Entity label ---
     if (ruleId.includes("entity-label") && issue.entityFqid) {
         const entityId = issue.entityFqid.split("/").pop();
-        if (!entityId) return true;
+        if (!entityId) return "unknown";
         const entityLine = getEntityLine(entityId);
-        if (!entityLine) return true;
-        return !hasFieldInEntityBlock("label", entityLine, lines);
+        if (!entityLine) return "unknown";
+        return hasFieldInEntityBlock("label", entityLine, lines)
+            ? "resolved"
+            : "still";
     }
 
-    // --- Entity: description ---
+    // --- Entity description ---
     if (ruleId.includes("entity-description") && issue.entityFqid) {
         const entityId = issue.entityFqid.split("/").pop();
-        if (!entityId) return true;
+        if (!entityId) return "unknown";
         const entityLine = getEntityLine(entityId);
-        if (!entityLine) return true;
-        return !hasFieldInEntityBlock("description", entityLine, lines);
+        if (!entityLine) return "unknown";
+        return hasFieldInEntityBlock("description", entityLine, lines)
+            ? "resolved"
+            : "still";
     }
 
-    // --- Attribute: description ---
-    if (ruleId.includes("attribute-description") && issue.entityFqid && issue.attributeId) {
-        const entityId = issue.entityFqid.split("/").pop();
-        if (!entityId) return true;
-
-        const attrLine = getAttributeLine(entityId, issue.attributeId);
-        if (!attrLine) return true; // Атрибут не найден даже с camelCase
-
-        return !hasFieldInAttributeBlock("description", attrLine, lines);
-    }
-
-    // --- Attribute: camelCase ---
+    // --- Attribute camelCase ---
     if (ruleId.includes("attribute-camelcase") && issue.attributeId) {
         const entityId = issue.entityFqid?.split("/").pop();
-        if (entityId) {
-            const attrLine = getAttributeLine(entityId, issue.attributeId);
-            if (attrLine) {
-                const line = lines[attrLine - 1] || "";
-                const match = line.match(/id:\s*([a-zA-Z0-9_\-]+)/);
-                if (match && match[1]) {
-                    return !/^[a-z][a-zA-Z0-9]*$/.test(match[1]);
-                }
-            }
+        if (!entityId) return "unknown";
+
+        const attrLine = findAttributeLineInMap(
+            entityId,
+            issue.attributeId,
+            lineMap,
+        );
+
+        if (attrLine == null) {
+            // Атрибут с таким именем (ни старым, ни camelCase-версией) не найден.
+            // Правило «id в camelCase» ложно для несуществующего атрибута —
+            // возвращаем resolved, а не still. Это ключевое исправление:
+            // переименованный/удалённый атрибут больше не считается «проблемой».
+            return "resolved";
         }
-        return !/^[a-z][a-zA-Z0-9]*$/.test(issue.attributeId);
+
+        const line = lines[attrLine - 1] || "";
+        const match = line.match(/-\s+id:\s*['"]?([a-zA-Z0-9_\-]+)/);
+        if (!match || !match[1]) return "unknown";
+        return /^[a-z][a-zA-Z0-9]*$/.test(match[1]) ? "resolved" : "still";
     }
 
-    // --- Entity: camelCase ---
+    // --- Entity camelCase ---
     if (ruleId.includes("entity-camelcase") && issue.entityFqid) {
         const entityId = issue.entityFqid.split("/").pop() || "";
-        if (/^[A-Z][a-zA-Z0-9]*$/.test(entityId)) return false;
+        if (!entityId) return "unknown";
 
-        const parts = entityId.split(/[_\-]+/);
-        const pascal = parts.map((p: string) => p.charAt(0).toUpperCase() + p.slice(1)).join("");
-        if (getEntityLine(pascal)) return false;
+        if (/^[A-Z][a-zA-Z0-9]*$/.test(entityId)) return "resolved";
 
-        return true;
+        // Атрибут сущности могли переименовать в PascalCase-эквивалент
+        const pascal = entityId
+            .split(/[_\-]+/)
+            .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
+            .join("");
+        const entityLine = getEntityLine(pascal);
+        return entityLine != null ? "resolved" : "still";
     }
 
-    // ============ Прочие правила (reference/*, semantic/*, validation/*,
-    //   uirules/*, identifier/*, calculation/*, workflow/*, …) ============
-    // Локально подтвердить «исправлено/не исправлено» нельзя без пересборки
-    // ModelIndex. Пока контент «грязный» (content !== savedContent) — скрываем
-    // маркеры этих правил. После сохранения серверный lintReport будет
-    // пересчитан, и isDirty=false → фильтр отключится.
-    return false;
+    // ============ action/unknown-type ============
+    if (ruleId === "action/unknown-type" && issue.propertyPath) {
+        const m = String(issue.propertyPath).match(/^actions\[(.+?)\]\.type$/);
+        if (!m) return "unknown";
+        const actionId = m[1];
+
+        const currentType = getActionTypeFromText(actionId, lines, lineMap);
+
+        // action удалён или поле type убрано — проблемы нет
+        if (currentType == null) return "resolved";
+
+        return KNOWN_ACTION_TYPES_UI.has(currentType) ? "resolved" : "still";
+    }
+
+    // ============ Все прочие правила: не можем проверить локально ============
+    // Возвращаем 'unknown', а НЕ 'resolved' — чтобы не скрывать проблемы
+    // пользователя, которые ещё актуальны, но требуют пересборки индекса.
+    return "unknown";
 }
 
 function findIssueLine(issue: any, lineMap: LineMap | null): number | null {
@@ -2884,10 +3210,14 @@ function findIssueLine(issue: any, lineMap: LineMap | null): number | null {
         if (entityMatch) {
             const entityId = entityMatch[1];
             const attrMatch = path.match(/attributes\[([^\]]+)\]/);
+
             if (attrMatch) {
-                const line = findAttributeInEntity(entityId, attrMatch[1], lineMap);
-                if (line != null) return line;
+                // Для attribute-путей НЕ падаем в fallback на строку сущности:
+                // иначе маркер «уезжает» на id сущности, когда атрибут переименован.
+                // Если не нашли — возвращаем null, маркер просто не рисуется.
+                return findAttributeLineInMap(entityId, attrMatch[1], lineMap);
             }
+
             const line = lineMap.itemLines.get(`entities#${entityId}`);
             if (line != null) return line;
         }
@@ -3374,7 +3704,21 @@ function IssuesGroup({
                         disabled={line == null}
                     >
                         <span className={'yaml-issue__dot yaml-issue__dot--' + issue.severity} />
-                        <span className="yaml-issue__text">{issue.message}</span>
+                        <span
+                            className={
+                                "yaml-issue__text" + (issue.__isUnknown ? " yaml-issue__text--stale" : "")
+                            }
+                        >
+                            {issue.__isUnknown && (
+                                <span
+                                    className="yaml-issue__stale-badge"
+                                    title="Требуется сохранение — серверный линтер перепроверит"
+                                >
+                                    ⏱{" "}
+                                </span>
+                            )}
+                            {issue.message}
+                        </span>
                         {line != null && <span className="yaml-issue__line">:{line}</span>}
                     </button>
                 );

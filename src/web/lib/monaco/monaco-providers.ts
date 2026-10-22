@@ -41,6 +41,59 @@ const SYSTEM_ATTRIBUTES_FOR_COMPLETION: Array<{
   { id: "entityName", dataType: "String", description: "Название сущности" },
 ];
 
+/**
+ * Возвращает текущее значение `type:` у action-блока, в котором находится
+ * строка `currentLineIdx` (1-based). Не важно, где именно `type:` —
+ * выше или ниже `operation:`/`page:`.
+ *
+ * Возвращает null, если action не найден или `type:` в блоке отсутствует.
+ */
+function findActionTypeForLine(
+  lines: string[],
+  currentLineIdx: number,
+): string | null {
+  if (currentLineIdx < 1 || currentLineIdx > lines.length) return null;
+
+  const currentLine = lines[currentLineIdx - 1];
+  const currentIndent = (currentLine.match(/^(\s*)/) || ["", ""])[1].length;
+
+  // 1. Находим начало action-блока: ближайший `- <key>:` с indent < currentIndent
+  let actionStart = -1;
+  let actionIndent = -1;
+  for (let i = currentLineIdx - 2; i >= 0; i--) {
+    const line = lines[i];
+    if (!line || !line.trim() || line.trim().startsWith("#")) continue;
+
+    const m = line.match(/^(\s*)-\s+[a-zA-Z_][\w]*\s*:/);
+    if (m && m[1].length < currentIndent) {
+      actionStart = i;
+      actionIndent = m[1].length;
+      break;
+    }
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind === 0 && !m) break;
+  }
+  if (actionStart < 0) return null;
+
+  // 2. Ищем `type:` внутри [actionStart + 1, end of action)
+  for (let i = actionStart + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line || !line.trim()) continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+
+    // Начало следующего action
+    if (/^\s*-\s+[a-zA-Z_][\w]*\s*:/.test(line) && ind <= actionIndent) {
+      break;
+    }
+    // Вышли из секции actions
+    if (ind === 0) break;
+
+    const tm = line.match(/^\s*type\s*:\s*["']?([\w.-]+)["']?/);
+    if (tm) return tm[1];
+  }
+  return null;
+}
+
 // ============ Принудительное раскрытие details в suggest-widget ============
 // В Monaco 0.52.2 виджет suggestion создаётся лениво (при первом показе),
 // а опция `showDetails` только разрешает показать панель, не разворачивая её.
@@ -699,6 +752,7 @@ const ACTION_TYPE_DESCRIPTIONS: Record<string, string> = {
   set_attribute_value: "Установить значение атрибута",
   automation: "Запустить автоматизацию",
   scenario: "Запустить сценарий/скрипт",
+  workflow: "Переключить атрибут в статус рабочего процесса",
   generate_qr_code: "Сгенерировать QR-код",
   copy_entity_link: "Скопировать URL объекта",
   open_external_widget_modal: "Открыть внешний виджет в модальном окне",
@@ -754,6 +808,17 @@ const CONTROL_TYPE_DESCRIPTIONS: Record<string, string> = {
   list: "Список",
   tree: "Дерево",
   rql: "Редактор RQL",
+  integer: "Целочисленное поле",
+  decimal: "Число фиксированной точности",
+  float: "Число с плавающей точкой",
+  integer_slider: "Ползунок для целых чисел",
+  decimal_slider: "Ползунок для чисел фикс. точности",
+  float_slider: "Ползунок для чисел с плавающей точкой",
+  timestamp_range: "Диапазон дата-время",
+  mitre_multi_select: "Мультивыбор из справочника MITRE ATT&CK",
+  tag_list: "Множество значений",
+  url: "URL-адрес",
+  external: "Внешний виджет",
 };
 
 const BASE_DATA_TYPES_COMPLETION = [
@@ -1978,6 +2043,20 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "Скрытие на графе: true/false/off",
     },
   ],
+  nameFrom: [
+    {
+      name: "side1",
+      type: "string",
+      description: "Глагольная форма для стороны 1 (например, «блокирует»)",
+      required: true,
+    },
+    {
+      name: "side2",
+      type: "string",
+      description: "Глагольная форма для стороны 2 (например, «блокируется»)",
+      required: true,
+    },
+  ],
   linkageAttribute: [
     {
       name: "id",
@@ -2047,6 +2126,23 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
     },
     { name: "scenario", type: "string", description: "Сценарий/скрипт" },
     { name: "workerTag", type: "string", description: "Тег воркера сценария" },
+    {
+      name: "attribute",
+      type: "ref",
+      description: "(type: workflow) Атрибут типа Workflow",
+    },
+    {
+      name: "transition",
+      type: "object",
+      description:
+        "(type: workflow) Переход в новый статус: { to: <statusId> }",
+    },
+    {
+      name: "params",
+      type: "object",
+      description:
+        "(type: open_external_widget_modal) Параметры внешнего виджета: { widget: <string> }",
+    },
   ],
   dataRule: [
     {
@@ -3157,10 +3253,12 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description:
         "Список для выбора связанных объектов (модалка создания связи)",
     },
+    // NEW
     {
       name: "displayMode",
       type: "enum",
-      description: "grouped | flat (для транзитивных связей)",
+      description:
+        "flat | grouped — режим отображения (только для транзитивных связей)",
     },
     {
       name: "columns",
@@ -4038,6 +4136,162 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       name: "iconColor",
       type: "enum",
       description: "Цвет иконки на графе (red / blue / green / …)",
+    },
+  ],
+  permission: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор разрешения",
+      required: true,
+    },
+    { name: "name", type: "string", description: "Название разрешения" },
+    { name: "description", type: "string", description: "Описание" },
+  ],
+  accessRule: [
+    {
+      name: "target",
+      type: "enum",
+      description:
+        "entity | action | linkage | any_entity | any_action | any_linkage",
+      required: true,
+    },
+    {
+      name: "id",
+      type: "string",
+      description: "(target: action) Идентификатор действия",
+    },
+    { name: "entity", type: "ref", description: "(target: entity) Сущность" },
+    { name: "linkage", type: "ref", description: "(target: linkage) Связь" },
+    {
+      name: "create",
+      type: "array",
+      description: "Правила доступа для создания",
+    },
+    {
+      name: "delete",
+      type: "array",
+      description: "Правила доступа для удаления",
+    },
+    {
+      name: "edit",
+      type: "array",
+      description: "Правила доступа для редактирования",
+    },
+    {
+      name: "view",
+      type: "array",
+      description: "Правила доступа для просмотра",
+    },
+    {
+      name: "launch",
+      type: "array",
+      description: "(target: action) Правила доступа для запуска",
+    },
+  ],
+  localization: [
+    {
+      name: "language",
+      type: "string",
+      description: "Код языка (ru, en, ...)",
+      required: true,
+    },
+    {
+      name: "keys",
+      type: "array",
+      description: "Массив { key, to, ordinal? }",
+      required: true,
+    },
+  ],
+  accessRuleItem: [
+    {
+      name: "kind",
+      type: "enum",
+      description: "permission | pass | condition",
+      required: true,
+    },
+    {
+      name: "permission",
+      type: "string",
+      description: "(kind: permission) Название разрешения",
+    },
+    {
+      name: "condition",
+      type: "rql",
+      description: "(kind: condition) RQL-условие",
+    },
+    {
+      name: "except",
+      type: "array",
+      description: "Исключения { attribute, condition? }",
+    },
+  ],
+  accessRuleException: [
+    {
+      name: "attribute",
+      type: "ref",
+      description: "Атрибут для исключения",
+      required: true,
+    },
+    {
+      name: "condition",
+      type: "rql",
+      description: "RQL-условие применения исключения",
+    },
+  ],
+  actionOpenBoardsFromGraph: [
+    {
+      name: "openBoards",
+      type: "boolean",
+      description: "Открыть диаграмму в режиме доски",
+      required: true,
+    },
+    {
+      name: "name",
+      type: "string",
+      description: "(при openBoards: true) Название кнопки",
+    },
+  ],
+  treeNodeType: [
+    {
+      name: "type",
+      type: "enum",
+      description: "root | branch | leaf",
+      required: true,
+    },
+    {
+      name: "of",
+      type: "array",
+      description: "(type: branch/leaf) Список сущностей-контейнеров",
+    },
+  ],
+  treeNodeOf: [
+    {
+      name: "treeNode",
+      type: "ref",
+      description: "Сущность-узел дерева вложения",
+      required: true,
+    },
+  ],
+  viewDashboardLayout: [
+    { name: "type", type: "enum", description: "grid" },
+    {
+      name: "columns",
+      type: "number",
+      description: "Количество столбцов в сетке (при type: grid)",
+    },
+  ],
+  viewWidgetDragDropContext: [
+    {
+      name: "dataType",
+      type: "enum",
+      description: "Array | Attachment | Table",
+      required: true,
+    },
+    {
+      name: "name",
+      type: "string",
+      description: "Имя атрибута сущности для прикрепления файла",
     },
   ],
 };
@@ -5219,6 +5473,9 @@ export function detectContextAtPosition(
 
   if (parentKey === "menus") return hasDash ? "menuRoot" : "menuRootList";
   if (parentKey === "medias") return hasDash ? "media" : "mediaList";
+  if (parentKey === "permissions") return "permission";
+  if (parentKey === "accessRules") return "accessRule";
+  if (parentKey === "localizations") return "localization";
   if (parentKey === "mixins") return hasDash ? "mixin" : "mixinList";
   if (parentKey === "exchangeSettings") return "exchangeSettings";
 
@@ -5239,6 +5496,40 @@ export function detectContextAtPosition(
     return hasDash ? "transitiveLinkage" : "transitiveLinkageList";
   if (parentKey === "uiRules") return hasDash ? "uiRule" : "uiRuleList";
   if (parentKey === "uiPresets") return hasDash ? "uiPreset" : "uiPresetList";
+
+  // ============ NEW: treeNode.types / of ============
+  if (parentKey === "types" && section === "entities") {
+    return hasDash ? "treeNodeType" : "treeNodeTypeList";
+  }
+  if (parentKey === "of" && section === "entities") {
+    return hasDash ? "treeNodeOf" : "treeNodeOfList";
+  }
+
+  // ============ NEW: accessRules scopes ============
+  if (section === "accessRules") {
+    if (
+      parentKey === "create" ||
+      parentKey === "delete" ||
+      parentKey === "edit" ||
+      parentKey === "view" ||
+      parentKey === "launch"
+    ) {
+      return hasDash ? "accessRuleItem" : "accessRuleItemList";
+    }
+    if (parentKey === "except") {
+      return hasDash ? "accessRuleException" : "accessRuleExceptionList";
+    }
+  }
+
+  // ============ NEW: action.openBoardsFromGraph ============
+  if (parentKey === "openBoardsFromGraph") {
+    return "actionOpenBoardsFromGraph";
+  }
+
+  // ============ NEW: drag_drop_area.context ============
+  if (parentKey === "context" && section === "views") {
+    return "viewWidgetDragDropContext";
+  }
 
   // ============ menus ============
   if (section === "menus") {
@@ -5674,6 +5965,9 @@ export function detectContextAtPosition(
     if (section === "mixins") return "mixin";
     if (section === "sequences") return "sequence";
     if (section === "dataTypes") return "dataType";
+    if (section === "accessRules") return "accessRule";
+    if (section === "permissions") return "permission";
+    if (section === "localizations") return "localization";
   }
 
   if (parentKey === "exchangeSettings") return "exchangeSettings";
@@ -5843,6 +6137,63 @@ function cachedColumns(): SectionRef[] {
   const c = ensureCache();
   return (c.columns ??= collectColumnRefs(ctx));
 }
+function findCurrentDataTypeId(model: any, position: any): string | null {
+  // Ищем ближайший "- id: X" выше курсора, потом убеждаемся, что в его
+  // блоке встретился dataType: Workflow/Enum/Table (то есть это элемент dataTypes[])
+  const currentLine = position.lineNumber;
+  const lineText = model.getLineContent(currentLine);
+  const currentIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
+
+  let dataTypesSectionLine = -1;
+  for (let i = currentLine - 1; i >= 1; i--) {
+    const l = model.getLineContent(i);
+    const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind === 0 && /^([a-zA-Z_][\w]*)\s*:/.test(l)) {
+      const key = l.match(/^([a-zA-Z_][\w]*)\s*:/)![1];
+      if (key === "dataTypes") dataTypesSectionLine = i;
+      break;
+    }
+  }
+  if (dataTypesSectionLine === -1) return null;
+
+  let itemId: string | null = null;
+  let itemIndent = -1;
+  for (let i = dataTypesSectionLine + 1; i <= currentLine; i++) {
+    const l = model.getLineContent(i);
+    if (!l.trim() || l.trim().startsWith("#")) continue;
+    const m = l.match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
+    if (!m) continue;
+    itemId = m[2].replace(/["']/g, "");
+    itemIndent = m[1].length;
+  }
+  if (!itemId) return null;
+
+  // Убедимся, что внутри этого item встретился dataType: Workflow
+  for (let i = dataTypesSectionLine + 1; i <= currentLine; i++) {
+    const l = model.getLineContent(i);
+    if (!l.trim()) continue;
+    const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind <= itemIndent && /^\s*-\s+id\s*:/.test(l) && i !== 1) {
+      // Проверяем: этот `- id:` — новый item? Если да — мы уже прошли границу
+      const cmp = i === dataTypesSectionLine + 1 ? true : true;
+      // Просто идём до currentLine — грубо, но работает
+    }
+    if (/^\s*dataType\s*:\s*Workflow\b/.test(l)) return itemId;
+  }
+  return null;
+}
+
+function getDataTypeStatuses(model: any, position: any): string[] {
+  const dtId = findCurrentDataTypeId(model, position);
+  if (!dtId || !ctx.modelIndex) return [];
+  const cur = (ctx.currentDomainId || "").toLowerCase();
+  const dt = ctx.modelIndex.dataTypes.find(
+    (d: any) => (d.domainId || "").toLowerCase() === cur && d.id === dtId,
+  );
+  if (!dt || dt.kind !== "Workflow") return [];
+  return Array.isArray(dt.statuses) ? dt.statuses : [];
+}
+
 function cachedAttributes(): RefSuggestion[] {
   const c = ensureCache();
   if (c.attributes) return c.attributes;
@@ -6751,12 +7102,13 @@ export function registerMonacoProviders(monaco: any): void {
 
       // ============ searching.attributes[]: массив ID атрибутов ============
       // Пользователь пишет `- <word>` (без `:`) внутри searching.attributes[].
+      // YAML допускает как увеличивающий отступ списка, так и равный родительскому
+      // ключу — поддерживаем оба варианта.
       {
         const lineText0 = model.getLineContent(position.lineNumber);
         const before0 = lineText0.slice(0, position.column - 1);
         const m0 = before0.match(/^(\s*)-\s+([\w]*)$/);
         if (m0) {
-          // Проверяем, что это searching.attributes
           const currentIndent = m0[1].length;
           let sawAttributes = false;
           let sawSearching = false;
@@ -6764,16 +7116,25 @@ export function registerMonacoProviders(monaco: any): void {
             const l = model.getLineContent(i);
             if (!l.trim() || l.trim().startsWith("#")) continue;
             const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
-            if (lIndent >= currentIndent) continue;
-            if (!sawAttributes && /^\s*attributes\s*:\s*$/.test(l)) {
+            const trimmed = l.trim();
+
+            // Пропускаем другие элементы этого же списка
+            if (trimmed.startsWith("-")) continue;
+
+            // Идём вверх только по строкам с indent ≤ текущего
+            // (равенство — для same-indent list items).
+            if (lIndent > currentIndent) continue;
+
+            if (!sawAttributes && /^attributes\s*:/.test(trimmed)) {
               sawAttributes = true;
               continue;
             }
-            if (sawAttributes) {
-              if (/^\s*searching\s*:\s*$/.test(l)) sawSearching = true;
+            if (sawAttributes && /^searching\s*:/.test(trimmed)) {
+              sawSearching = true;
               break;
             }
-            if (lIndent === 0) break;
+            // Любой другой ключ на меньшем отступе — вышли из нужного контекста
+            if (lIndent < currentIndent) break;
           }
           if (sawSearching) {
             const wordAtPos0 = model.getWordUntilPosition(position);
@@ -6788,7 +7149,7 @@ export function registerMonacoProviders(monaco: any): void {
               suggestions: attrs.map((v) => ({
                 label: v.label,
                 kind: Kind.Field,
-                insertText: v.label, // без ведущего пробела — это значение, не field
+                insertText: v.label,
                 filterText: v.label,
                 sortText: v.sortText,
                 detail: v.detail,
@@ -6933,8 +7294,63 @@ export function registerMonacoProviders(monaco: any): void {
       }
 
       switch (fieldName) {
+        case "initial": {
+          if (vctx.section !== "dataTypes") return { suggestions: [] };
+          const statuses = getDataTypeStatuses(model, position);
+          if (statuses.length === 0) return { suggestions: [] };
+          return (
+            r(
+              model,
+              position,
+              ["initial"],
+              mkSimple(statuses, Kind.EnumMember, {
+                ...statuses.reduce(
+                  (acc, s) => ({ ...acc, [s]: `Статус workflow` }),
+                  {},
+                ),
+              }),
+              Kind,
+            ) || { suggestions: [] }
+          );
+        }
+        case "from":
+        case "to": {
+          // Только внутри dataTypes[].transitions[]
+          if (vctx.section !== "dataTypes") return { suggestions: [] };
+          if (vctx.container !== "transitions") return { suggestions: [] };
+          const statuses = getDataTypeStatuses(model, position);
+          const items = ["*", ...statuses];
+          return (
+            r(
+              model,
+              position,
+              ["from", "to"],
+              mkSimple(items, Kind.Value, {
+                "*": "Любой статус",
+              }),
+              Kind,
+            ) || { suggestions: [] }
+          );
+        }
         // ---------- dataType ----------
         case "dataType": {
+          // NEW: drag_drop_area.context.dataType
+          if (vctx.itemType === "viewWidgetDragDropContext") {
+            return (
+              r(
+                model,
+                position,
+                ["dataType"],
+                mkSimple(["Array", "Attachment", "Table"], Kind.Value, {
+                  Array: "Массив вложений",
+                  Attachment: "Одно вложение",
+                  Table: "Таблица вложений",
+                }),
+                Kind,
+              ) || { suggestions: [] }
+            );
+          }
+
           if (vctx.section === "dataTypes" && vctx.itemType === "dataType") {
             return (
               r(
@@ -7038,6 +7454,40 @@ export function registerMonacoProviders(monaco: any): void {
               list: RECONCILIATION_MERGE_STRATEGIES.map(([t]) => t),
               desc: RECONCILIATION_MERGE_LABELS,
             },
+            menu: {
+              list: ["root_group", "root_menu"],
+              desc: {
+                root_group: "Раздел с подразделами (левое меню)",
+                root_menu: "Отдельный пункт в главном меню",
+              },
+            },
+            menuItem: {
+              list: ["menu"],
+              desc: { menu: "Подраздел в группе" },
+            },
+            media: {
+              list: ["icon_name", "data"],
+              desc: {
+                icon_name: "Иконка из дизайн-системы",
+                data: "Base64-строка",
+              },
+            },
+            viewTableColumnControl: {
+              list: Object.keys(CONTROL_TYPE_DESCRIPTIONS),
+              desc: CONTROL_TYPE_DESCRIPTIONS,
+            },
+            treeNodeType: {
+              list: ["root", "branch", "leaf"],
+              desc: {
+                root: "Корень дерева вложения",
+                branch: "Ветка дерева вложения",
+                leaf: "Лист дерева вложения",
+              },
+            },
+            viewDashboardLayout: {
+              list: ["grid"],
+              desc: { grid: "Расположение виджетов сеткой" },
+            },
           };
           const entry = map[vctx.itemType];
           return entry
@@ -7081,7 +7531,7 @@ export function registerMonacoProviders(monaco: any): void {
         case "target": {
           let list: string[] | null = null;
           if (vctx.itemType === "dataRule")
-            list = ["entity", "entityAttribute"];
+            list = ["entity", "entityAttribute", "linkage"];
           else if (vctx.itemType === "uiRule")
             list = ["list_view", "entity_view", "entity_attribute"];
           else if (vctx.itemType === "accessRule")
@@ -7106,7 +7556,7 @@ export function registerMonacoProviders(monaco: any): void {
 
         case "direction": {
           let list: string[] | null = null;
-          if (vctx.container === "layout") list = ["column"];
+          if (vctx.container === "layout") list = ["column", "row"];
           else if (
             vctx.itemType === "sortingByItem" ||
             vctx.container === "by" ||
@@ -7154,18 +7604,45 @@ export function registerMonacoProviders(monaco: any): void {
               Kind,
             ) || { suggestions: [] }
           );
+        case "defaultViewMode": {
+          return (
+            r(
+              model,
+              position,
+              ["defaultViewMode"],
+              mkSimple(["cola", "horizontal", "vertical"], Kind.Value, {
+                cola: "Центральное упорядочивание",
+                horizontal: "Горизонтально",
+                vertical: "Вертикально",
+              }),
+              Kind,
+            ) || { suggestions: [] }
+          );
+        }
+        case "defaultGroupMode": {
+          return (
+            r(
+              model,
+              position,
+              ["defaultGroupMode"],
+              mkSimple(["cluster", "byEntity"], Kind.Value, {
+                cluster: "Кластерная группировка",
+                byEntity: "Группировка по сущности",
+              }),
+              Kind,
+            ) || { suggestions: [] }
+          );
+        }
         case "operation": {
-          let actionType: string | null = null;
-          for (let i = position.lineNumber - 1; i >= 1; i--) {
-            const pl = model.getLineContent(i);
-            if (/^\s*-\s+id\s*:/.test(pl)) break;
-            const tm = pl.match(/^\s*type\s*:\s*["']?([\w.-]+)["']?/);
-            if (tm) {
-              actionType = tm[1];
-              break;
-            }
-            if ((pl.match(/^(\s*)/) || ["", ""])[1].length === 0) break;
+          const allLines: string[] = [];
+          const lineCount = model.getLineCount();
+          for (let k = 1; k <= lineCount; k++) {
+            allLines.push(model.getLineContent(k));
           }
+          const actionType = findActionTypeForLine(
+            allLines,
+            position.lineNumber,
+          );
           const opMap: Record<string, string[]> = {
             open_modal: ["create", "edit"],
             open_page: ["create", "edit", "view"],
@@ -7192,18 +7669,15 @@ export function registerMonacoProviders(monaco: any): void {
             : { suggestions: [] };
         }
         case "page": {
-          // page допустим только для open_list / open_tree / open_view
-          let actionType: string | null = null;
-          for (let i = position.lineNumber - 1; i >= 1; i--) {
-            const pl = model.getLineContent(i);
-            if (/^\s*-\s+id\s*:/.test(pl)) break;
-            const tm = pl.match(/^\s*type\s*:\s*["']?([\w.-]+)["']?/);
-            if (tm) {
-              actionType = tm[1];
-              break;
-            }
-            if ((pl.match(/^(\s*)/) || ["", ""])[1].length === 0) break;
+          const allLines: string[] = [];
+          const lineCount = model.getLineCount();
+          for (let k = 1; k <= lineCount; k++) {
+            allLines.push(model.getLineContent(k));
           }
+          const actionType = findActionTypeForLine(
+            allLines,
+            position.lineNumber,
+          );
           const allowed = ["open_list", "open_tree", "open_view"];
           if (actionType && allowed.includes(actionType)) {
             return (
@@ -7221,10 +7695,27 @@ export function registerMonacoProviders(monaco: any): void {
           }
           return { suggestions: [] };
         }
+        case "side": {
+          return (
+            r(
+              model,
+              position,
+              ["side"],
+              mkSimple(["1", "2"], Kind.Value, {
+                "1": "Первая сторона",
+                "2": "Вторая сторона",
+              }),
+              Kind,
+            ) || { suggestions: [] }
+          );
+        }
 
         // ---------- entity refs ----------
         case "iconColor": {
-          if (vctx.container === "graphView") {
+          if (
+            vctx.container === "graphView" ||
+            (vctx.section === "linkages" && vctx.container === "view")
+          ) {
             return (
               r(
                 model,
@@ -7491,7 +7982,6 @@ export function registerMonacoProviders(monaco: any): void {
           );
         }
         case "kind": {
-          // Только внутри constraints[]
           if (vctx.container === "constraints") {
             return (
               r(
@@ -7520,6 +8010,58 @@ export function registerMonacoProviders(monaco: any): void {
                       "Уникальное значение (String/Integer/Uuid/Reference/Array/Table)",
                   },
                 ),
+                Kind,
+              ) || { suggestions: [] }
+            );
+          }
+          // NEW: entities[].kind
+          if (vctx.section === "entities" && vctx.itemType === "entity") {
+            return (
+              r(
+                model,
+                position,
+                ["kind"],
+                mkSimple(["abstract", "regular", "static"], Kind.Value, {
+                  abstract: "Абстрактная сущность (только наследование)",
+                  regular: "Стандартная сущность (по умолчанию)",
+                  static: "Статическая сущность (без создания экземпляров)",
+                }),
+                Kind,
+              ) || { suggestions: [] }
+            );
+          }
+
+          // NEW: accessRules scope item
+          if (vctx.itemType === "accessRuleItem") {
+            return (
+              r(
+                model,
+                position,
+                ["kind"],
+                mkSimple(["permission", "pass", "condition"], Kind.Value, {
+                  permission: "Разрешить всё для обработки (с исключениями)",
+                  pass: "Пропустить всё для обработки (с исключениями)",
+                  condition: "Разрешить обработку при выполнении RQL-условия",
+                }),
+                Kind,
+              ) || { suggestions: [] }
+            );
+          }
+
+          return { suggestions: [] };
+        }
+        case "displayMode": {
+          if (vctx.section === "views" && vctx.container === "control") {
+            return (
+              r(
+                model,
+                position,
+                ["displayMode"],
+                mkSimple(["flat", "grouped"], Kind.Value, {
+                  flat: "Плоская таблица (для транзитивных связей)",
+                  grouped:
+                    "Группировка по первому звену цепочки (для транзитивных связей)",
+                }),
                 Kind,
               ) || { suggestions: [] }
             );
@@ -7731,6 +8273,48 @@ const TYPE_ENUM_BY_CTX: Record<string, string[]> = {
     "latest_date",
   ],
   dataRules: ["entity", "entityAttribute"],
+  "menus|menu": ["root_group", "root_menu"],
+  "menus|menuItem": ["menu"],
+  "medias|media": ["icon_name", "data"],
+  "views|viewTableColumnControl": [
+    "uuid",
+    "text",
+    "text_area",
+    "date",
+    "time",
+    "timestamp",
+    "timestamp_range",
+    "integer",
+    "decimal",
+    "float",
+    "integer_slider",
+    "decimal_slider",
+    "float_slider",
+    "bool_text",
+    "checkbox",
+    "switch",
+    "select",
+    "level",
+    "radio",
+    "multi_select",
+    "mitre_multi_select",
+    "tag_list",
+    "tag",
+    "ip",
+    "mac",
+    "cidr",
+    "file",
+    "link",
+    "url",
+    "counter",
+    "tree_path",
+    "drag_drop_area",
+    "rql",
+    "external",
+  ],
+  "entities|treeNodeType": ["root", "branch", "leaf"],
+  "views|viewDashboardLayout": ["grid"],
+  "views|viewWidgetDragDropContext": ["Array", "Attachment", "Table"],
 };
 
 const EFFECT_ENUM_BY_CTX: Record<string, string[]> = {
@@ -7907,34 +8491,13 @@ export function applyEnumFieldMarkers(monaco: any, model: any): void {
         expected = ["top", "settings"];
         label = "расположение";
       } else if (fieldName === "operation") {
-        let actionType: string | null = null;
-        for (let j = i - 1; j >= 0; j--) {
-          const pl = lines[j];
-          if (/^\s*-\s+id\s*:/.test(pl)) break;
-          const tm = pl.match(/^\s*type\s*:\s*["']?([\w.-]+)["']?/);
-          if (tm) {
-            actionType = tm[1];
-            break;
-          }
-          if ((pl.match(/^(\s*)/) || ["", ""])[1].length === 0) break;
-        }
+        const actionType = findActionTypeForLine(lines, i + 1);
         if (actionType && OPERATION_ENUM_BY_ACTION_TYPE[actionType]) {
           expected = OPERATION_ENUM_BY_ACTION_TYPE[actionType];
           label = `operation для type: ${actionType}`;
         }
       } else if (fieldName === "page") {
-        // Определяем type текущего action-а (тот же приём, что для operation)
-        let actionType: string | null = null;
-        for (let j = i - 1; j >= 0; j--) {
-          const pl = lines[j];
-          if (/^\s*-\s+id\s*:/.test(pl)) break;
-          const tm = pl.match(/^\s*type\s*:\s*["']?([\w.-]+)["']?/);
-          if (tm) {
-            actionType = tm[1];
-            break;
-          }
-          if ((pl.match(/^(\s*)/) || ["", ""])[1].length === 0) break;
-        }
+        const actionType = findActionTypeForLine(lines, i + 1);
         if (
           actionType &&
           ["open_list", "open_tree", "open_view"].includes(actionType)
@@ -7986,10 +8549,46 @@ function determineViewContainer(
     if (!l || !l.trim() || l.trim().startsWith("#")) continue;
     const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
     if (lIndent >= currentIndent) continue;
-    const m = l.match(/^\s*(?:-\s+)?([a-zA-Z_][\w]*)\s*:/);
+
+    const m = l.match(/^(\s*)(-\s+)?([a-zA-Z_][\w]*)\s*:\s*(.*)$/);
     if (!m) continue;
-    const key = m[1];
+    const isDash = !!m[2];
+    const key = m[3];
+    const rest = (m[4] || "").replace(/#.*$/, "").trim();
+
     if (key === "id") continue;
+
+    // ============ Отличие «item opener» от «container» ============
+    // `- buttons:` (dash) может быть:
+    //   (a) полем item (первое поле) — currentIndent == "поля item";
+    //   (b) контейнером — currentIndent > "поля item".
+    // Определяем «поля item» = indent первого дочернего элемента после dash.
+    // Пример:
+    //   - buttons:            ← indent 6
+    //       - type: close     ← indent 10 (V=10)
+    //     form: ...           ← indent 8 (currentIndent=8 < V=10) → НЕ внутри
+    if (isDash) {
+      // Скалярное значение на той же строке — точно не контейнер.
+      if (rest) continue;
+
+      // Ищем V — indent первого вложенного элемента после `- key:`.
+      let valueIndent = -1;
+      for (let j = i; j < currentLineIdx; j++) {
+        const nl = lines[j];
+        if (!nl || !nl.trim() || nl.trim().startsWith("#")) continue;
+        const nInd = (nl.match(/^(\s*)/) || ["", ""])[1].length;
+        if (nInd > lIndent) {
+          valueIndent = nInd;
+          break;
+        }
+      }
+
+      if (valueIndent > 0 && currentIndent < valueIndent) {
+        // Текущая строка на уровне полей item, а не внутри key's value.
+        continue;
+      }
+    }
+
     return { container: key, containerLine: i, containerIndent: lIndent };
   }
   return { container: "", containerLine: -1, containerIndent: -1 };
@@ -8009,8 +8608,10 @@ function computeItemTypeFast(
     if (container === "constraints") return "attributeConstraint";
     if (container === "mergeStrategy") return "reconciliationMergeStrategy";
     if (container === "graphView") return "graphView";
+    // ============ NEW: treeNode.types[] ============
+    if (container === "types") return "treeNodeType";
+    if (container === "of") return "treeNodeOf";
     if (container === "attributes") {
-      // Проверяем: attributes внутри searching? → не attribute
       for (let s = stack.length - 1; s >= 0; s--) {
         if (stack[s].indent >= containerIndent) continue;
         if (stack[s].key === "searching") return "searchingAttributesItem";
@@ -8058,49 +8659,89 @@ function computeItemTypeFast(
 
     // control.type — зависит от widget.type / ancestor (buttons/footer)
     if (container === "control") {
-      // 1) ancestor — buttons/footer → viewButtonControl
+      // Собираем ВСЕХ предков control: по стеку (у кого indent < containerIndent).
+      // Ранний `break` не делаем — нужен весь набор, чтобы не терять `menu`,
+      // `widgets`, `columns`, `actions` из-за промежуточного `action`/`id`.
+      const ancestors = new Set<string>();
       for (let s = stack.length - 1; s >= 0; s--) {
         if (stack[s].indent >= containerIndent) continue;
-        const k = stack[s].key;
-        if (k === "buttons" || k === "footer") return "viewButtonControl";
-        if (k !== "id" && k !== "type") break;
+        ancestors.add(stack[s].key);
       }
-      // 2) `- id:` текущего widget-а
-      let widgetType = "";
-      let idLine = -1;
+
+      // 1. Кнопки/футер модалки → viewButtonControl (Zod Z: только regular_button)
+      if (ancestors.has("buttons") || ancestors.has("footer")) {
+        return "viewButtonControl";
+      }
+
+      // 2. Меню панели → viewWidgetActionControl
+      //    Zod T: regular_button | dropdown | drag_drop_area
+      if (ancestors.has("menu")) {
+        return "viewWidgetActionControl";
+      }
+
+      // 3. columns[].actions[].control → viewButtonControl (только regular_button)
+      if (ancestors.has("actions") && ancestors.has("columns")) {
+        return "viewButtonControl";
+      }
+
+      // 4. Прямой control колонки → viewTableColumnControl (attribute-control enum)
+      if (ancestors.has("columns")) {
+        return "viewTableColumnControl";
+      }
+
+      // 5. control внутри widgets[] → зависит от widget.type
+      if (ancestors.has("widgets")) {
+        const widgetType = findWidgetTypeForControl(lines, containerLine);
+        if (widgetType === "action") return "viewWidgetActionControl";
+        if (widgetType === "linkage") return "viewWidgetLinkageControl";
+        if (widgetType === "linked_objects_groups") {
+          // Zod: linked_objects_groups.control.type === "table"
+          // (viewWidgetLinkageControl уже содержит "table" — не заводим отдельный enum).
+          return "viewWidgetLinkageControl";
+        }
+        return "viewWidgetControl";
+      }
+
+      // Fallback — attribute-control (историческое поведение).
+      return "viewWidgetControl";
+    }
+
+    // ============ NEW: layout — dashboard vs group ============
+    if (container === "layout") {
+      let itemLine = -1;
+      let itemIndent = -1;
       for (let i = containerLine - 1; i >= 1; i--) {
         const l = lines[i - 1];
-        if (!l || !l.trim()) continue;
-        const m = l.match(/^(\s*)-\s+id\s*:/);
-        if (!m) continue;
-        const ind = m[1].length;
+        if (!l || !l.trim() || l.trim().startsWith("#")) continue;
+        const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
         if (ind >= containerIndent) continue;
-        idLine = i;
-        break;
+        const m = l.match(/^(\s*)-\s+id\s*:/);
+        if (m) {
+          itemLine = i;
+          itemIndent = m[1].length;
+          break;
+        }
+        if (ind === 0) break;
       }
-      // 3) `type:` widget-а на том же уровне, что и control
-      if (idLine > 0) {
-        for (let i = idLine + 1; i < containerLine; i++) {
+      if (itemLine !== -1) {
+        for (let i = itemLine + 1; i < containerLine; i++) {
           const l = lines[i - 1];
-          if (!l || !l.trim() || l.trim().startsWith("#")) continue;
-          const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
-          if (lIndent !== containerIndent) continue;
-          const tm = l.match(/^\s*type\s*:\s*["']?([\w.-]+)["']?/);
-          if (tm) {
-            widgetType = tm[1];
-            break;
+          if (!l || !l.trim()) continue;
+          const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
+          if (ind <= itemIndent) break;
+          if (/^\s*type\s*:\s*dashboard\b/.test(l)) {
+            return "viewDashboardLayout";
           }
         }
       }
-      if (widgetType === "action") return "viewWidgetActionControl";
-      if (widgetType === "linkage") return "viewWidgetLinkageControl";
-      return "viewWidgetControl";
+      return "viewGroupLayout";
     }
+
+    if (container === "context") return "viewWidgetDragDropContext";
 
     // прочие контейнеры без поля type
     if (
       container === "columns" ||
-      container === "layout" ||
       container === "sortingBy" ||
       container === "defaults" ||
       container === "refresh" ||
@@ -8120,13 +8761,16 @@ function computeItemTypeFast(
 
     // views[] — nested vs top-level
     if (container === "views") {
+      // Nested, если у `views:` есть предок (indent < containerIndent),
+      // открывающий dash-item. Не важно, какой ключ в dash —
+      // `- id:`, `- entity:`, `- buttons:` — все они открывают item.
       let isNested = false;
       for (let i = containerLine - 1; i >= 1; i--) {
         const l = lines[i - 1];
         if (!l || !l.trim() || l.trim().startsWith("#")) continue;
         const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
         if (lIndent >= containerIndent) continue;
-        if (/^\s*-\s+id\s*:/.test(l)) {
+        if (/^\s*-\s+[a-zA-Z_][\w]*\s*:/.test(l)) {
           isNested = true;
           break;
         }
@@ -8153,6 +8797,9 @@ function computeItemTypeFast(
     return "dataType";
   }
 
+  // ============ NEW: action.openBoardsFromGraph ============
+  if (container === "openBoardsFromGraph") return "actionOpenBoardsFromGraph";
+
   // ===== прочие секции =====
   if (section === "actions") return "action";
   if (section === "dataRules")
@@ -8164,6 +8811,22 @@ function computeItemTypeFast(
   if (section === "sequences") return "sequence";
   if (section === "trees") return "tree";
   if (section === "transitiveLinkages") return "transitiveLinkage";
+  // ============ NEW: accessRules ============
+  if (section === "accessRules") {
+    if (
+      container === "create" ||
+      container === "delete" ||
+      container === "edit" ||
+      container === "view" ||
+      container === "launch"
+    ) {
+      return "accessRuleItem";
+    }
+    if (container === "except") return "accessRuleException";
+    return "accessRule";
+  }
+  if (section === "permissions") return "permission";
+  if (section === "localizations") return "localization";
   if (section === "mixins") return "mixin";
   if (container === "layout") return "layout";
   if (container === "search") return "transitiveSearch";
@@ -8675,36 +9338,6 @@ export function applyFqidMarkers(
     }
 
     // ============ Валидация actions ============
-    const knownViewsForAction = new Set<string>();
-
-    // 1. Из ModelIndex (верхний уровень views)
-    if (index?.schemasByDomain) {
-      Object.values(index.schemasByDomain).forEach((s: any) => {
-        s?.sections?.views?.items?.forEach((v: any) => {
-          if (v?.id) knownViewsForAction.add(String(v.id).toLowerCase());
-        });
-      });
-    }
-
-    // 2. Из ТЕКУЩЕГО YAML — все `- id:` внутри секции views
-    //    (views[], views[].views[], views[].groups[], views[].widgets[])
-    {
-      let inViewsSection = false;
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const sectionM = line.match(/^([a-zA-Z_][\w]*)\s*:/);
-        if (sectionM) {
-          inViewsSection = sectionM[1] === "views";
-          continue;
-        }
-        if (!inViewsSection) continue;
-        const idM = line.match(/^\s*-\s+id\s*:\s*([^\s#]+)/);
-        if (idM) {
-          const id = idM[1].replace(/["']/g, "").toLowerCase();
-          knownViewsForAction.add(id);
-        }
-      }
-    }
 
     let inActionsSection = false;
     let actionEntity: string | null = null;
@@ -8727,24 +9360,6 @@ export function applyFqidMarkers(
       const entityM = line.match(/^\s*entity\s*:\s*([^\s#]+)/);
       if (entityM) {
         actionEntity = entityM[1].replace(/["']/g, "");
-      }
-
-      // modal / panel / view — существующий view?
-      const refM = line.match(/^\s*(modal|panel|view)\s*:\s*([^\s#]+)/);
-      if (refM) {
-        const id = refM[2].replace(/["']/g, "");
-        if (id && !knownViewsForAction.has(id.toLowerCase())) {
-          const startCol = line.indexOf(id) + 1;
-          markers.push({
-            severity: monaco.MarkerSeverity.Warning,
-            message: `View «${id}» не найден в домене`,
-            startLineNumber: i + 1,
-            startColumn: startCol,
-            endLineNumber: i + 1,
-            endColumn: startCol + id.length,
-            source: "fqid-validator",
-          });
-        }
       }
 
       // automation.id — должен быть UUID
@@ -9552,4 +10167,92 @@ function scanEntities(
       });
     }
   }
+}
+
+/**
+ * Находит значение `type:` в записи виджета, к которому относится `control:`.
+ * Работает независимо от порядка полей виджета — `control:` может быть
+ * первым (`- control:`), может стоять после `- id:`/`- entity:`, а `type:`
+ * может быть как до, так и после `control:`.
+ *
+ * Не путает `type:` самого виджета с `type:` внутри `control:` или внутри
+ * других вложенных контейнеров (buttons, footer, columns, …) — ищет строго
+ * на уровне полей виджета (`widgetItemIndent + 2`).
+ */
+function findWidgetTypeForControl(
+    lines: string[],
+    controlLine: number, // 1-based
+): string {
+    if (controlLine < 1 || controlLine > lines.length) return "";
+    const controlText = lines[controlLine - 1];
+    if (!controlText) return "";
+
+    const controlIndent = (controlText.match(/^(\s*)/) || ["", ""])[1].length;
+
+    // `- control:` — открывает виджет; `  control:` — обычное поле виджета.
+    const isControlOpener =
+        /^\s*-\s+control\s*:\s*(?:#.*)?$/.test(controlText);
+
+    // Индент dash'а виджета.
+    const widgetItemIndent = isControlOpener
+        ? controlIndent
+        : controlIndent - 2;
+    if (widgetItemIndent < 0) return "";
+    const widgetFieldIndent = widgetItemIndent + 2;
+
+    // ============ Границы виджет-блока ============
+    let blockStart = controlLine;
+    if (!isControlOpener) {
+        for (let i = controlLine - 1; i >= 1; i--) {
+            const l = lines[i - 1];
+            if (!l || !l.trim() || l.trim().startsWith("#")) continue;
+            const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
+            const m = l.match(/^(\s*)-\s+\S/);
+            if (m && m[1].length === widgetItemIndent) {
+                blockStart = i;
+                break;
+            }
+            if (ind < widgetItemIndent) break;
+        }
+    }
+
+    let blockEnd = lines.length + 1;
+    for (let i = blockStart + 1; i <= lines.length; i++) {
+        const l = lines[i - 1];
+        if (!l || !l.trim()) continue;
+        const m = l.match(/^(\s*)-\s+\S/);
+        if (m && m[1].length <= widgetItemIndent) {
+            blockEnd = i;
+            break;
+        }
+    }
+
+    // ============ Поиск `type:` на уровне полей виджета ============
+    let blockScalarIndent = -1;
+    for (let i = blockStart; i < blockEnd; i++) {
+        const l = lines[i - 1];
+        if (!l || !l.trim()) continue;
+        const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
+
+        // Пропускаем содержимое block scalar.
+        if (blockScalarIndent >= 0) {
+            if (ind > blockScalarIndent) continue;
+            blockScalarIndent = -1;
+        }
+        if (l.trim().startsWith("#")) continue;
+
+        // Начало block scalar (`label: |`, `description: >-` и т.п.).
+        if (/^\s*(?:-\s+)?[a-zA-Z_][\w]*\s*:\s*[|>][+\-]?\s*(?:#.*)?$/.test(l)) {
+            blockScalarIndent = ind;
+            continue;
+        }
+
+        // Поля самого виджета — только этот уровень.
+        if (ind !== widgetFieldIndent) continue;
+
+        const tm = l.match(/^\s*type\s*:\s*["']?([\w.-]+)["']?/);
+        if (tm) return tm[1];
+    }
+
+    return "";
 }

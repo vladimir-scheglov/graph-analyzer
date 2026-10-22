@@ -1815,3 +1815,13 @@
 .monaco-editor .scrollbar.vertical {
   z-index: 20 !important;
 }
+/* ============ «Возможно, устарело» — issues после ручной правки ============ */
+.yaml-issue__text--stale {
+    opacity: 0.6;
+    font-style: italic;
+}
+.yaml-issue__stale-badge {
+    color: var(--warning);
+    font-style: normal;
+    margin-right: 2px;
+}

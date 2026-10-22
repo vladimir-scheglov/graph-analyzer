@@ -100,19 +100,33 @@ export function exportPNG(): Promise<void> {
         getComputedStyle(document.documentElement)
           .getPropertyValue("--graph-bg")
           .trim() || "#0a0e1a";
-      return mod.toPng(flowEl, {
-        backgroundColor: bg,
-        pixelRatio: 2,
-        filter: (node: HTMLElement) => {
-          if (!node.classList) return true;
-          if (node.classList.contains("react-flow__controls")) return false;
-          if (node.classList.contains("react-flow__minimap")) return false;
-          if (node.classList.contains("react-flow__panel")) return false;
-          if (node.classList.contains("heat-legend")) return false;
-          if (node.classList.contains("side-panel")) return false;
-          if (node.classList.contains("toolbar")) return false;
-          return true;
-        },
+      return import(
+        "https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/+esm" as any
+      ).then((mod: any) => {
+        const bg =
+          getComputedStyle(document.documentElement)
+            .getPropertyValue("--graph-bg")
+            .trim() || "#0a0e1a";
+        // html-to-image экспортирует toPng как named export;
+        // на всякий случай подстрахуемся default'ом — разные сборки ведут себя по-разному.
+        const toPng = mod.toPng ?? mod.default?.toPng;
+        if (typeof toPng !== "function") {
+          throw new Error("html-to-image: toPng не найден в экспорте модуля");
+        }
+        return toPng(flowEl, {
+          backgroundColor: bg,
+          pixelRatio: 2,
+          filter: (node: HTMLElement) => {
+            if (!node.classList) return true;
+            if (node.classList.contains("react-flow__controls")) return false;
+            if (node.classList.contains("react-flow__minimap")) return false;
+            if (node.classList.contains("react-flow__panel")) return false;
+            if (node.classList.contains("heat-legend")) return false;
+            if (node.classList.contains("side-panel")) return false;
+            if (node.classList.contains("toolbar")) return false;
+            return true;
+          },
+        });
       });
     })
     .then((dataUrl: string) => {

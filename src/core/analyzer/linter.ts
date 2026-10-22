@@ -212,6 +212,30 @@ const VIEW_CONTROL_TYPES = new Set<string>([
 ]);
 
 /**
+ * true, если ancestorFqid === descendantFqid или ancestorFqid — предок
+ * descendantFqid. Симметричности НЕТ — это ключевое отличие от
+ * предыдущей реализации.
+ */
+function isSameOrAncestor(
+  ctx: LintContext,
+  ancestorFqid: string,
+  descendantFqid: string,
+): boolean {
+  if (!ancestorFqid || !descendantFqid) return false;
+  if (ancestorFqid === descendantFqid) return true;
+  const seen = new Set<string>();
+  let cur: string | undefined = descendantFqid;
+  while (cur && !seen.has(cur)) {
+    seen.add(cur);
+    const e = ctx.index.entitiesByFqid[cur];
+    if (!e || !e.inherits) return false;
+    if (e.inherits === ancestorFqid) return true;
+    cur = e.inherits;
+  }
+  return false;
+}
+
+/**
  * Ищет AttributeRecord в сущности с учётом наследования.
  * Используется там, где нужен сам record (dataType, constraints), а не факт наличия.
  *
@@ -2287,6 +2311,22 @@ function checkActions(ctx: LintContext): void {
       });
     }
 
+    // open_external_widget_modal: params.widget обязателен
+    if (a.type === "open_external_widget_modal") {
+      if (!a.widgetParams?.widget) {
+        emit(ctx, {
+          ruleId: "action/external-widget-params-missing",
+          severity: "error",
+          category: "required",
+          rule: "open_external_widget_modal требует params.widget",
+          message: `Действие «${a.id}»: params.widget не задан`,
+          hint: "params: { widget: <string> }",
+          domainId: a.domainId,
+          propertyPath: `actions[${a.id}].params`,
+        });
+      }
+    }
+
     // ============ entity ============
     if (a.entity) {
       const localEntity = localOf(a.entity);
@@ -4195,6 +4235,113 @@ function checkExchangeSettings(ctx: LintContext): void {
     "version",
   ]);
 
+  // ============ isSameOrAncestor(a, b): a == b или a — предок b ============
+  // Защита от циклов в inherits через seen.
+  const isSameOrAncestor = (
+    ancestorFqid: string,
+    descendantFqid: string,
+  ): boolean => {
+    if (!ancestorFqid || !descendantFqid) return false;
+    if (ancestorFqid === descendantFqid) return true;
+    const seen = new Set<string>();
+    let cur: string | undefined = descendantFqid;
+    while (cur && !seen.has(cur)) {
+      seen.add(cur);
+      const e = ctx.index.entitiesByFqid[cur];
+      if (!e || !e.inherits) return false;
+      if (e.inherits === ancestorFqid) return true;
+      cur = e.inherits;
+    }
+    return false;
+  };
+
+  // ============ Резолвер: ссылка на linkage (локально или FQID) ============
+  // Возвращает exists = «линкейдж с таким id есть в индексе»
+  //               touchesEntity = «этот линкейдж связан с entity с одной из сторон»
+  const resolveLinkage = (
+    domainId: string,
+    item: string,
+    entityFqid: string,
+  ): { exists: boolean; touchesEntity: boolean } => {
+    const trimmed = item.trim();
+    if (!trimmed) return { exists: false, touchesEntity: false };
+
+    const slash = trimmed.indexOf("/");
+    const targetDomain =
+      slash > 0
+        ? trimmed.slice(0, slash).toLowerCase()
+        : domainId.toLowerCase();
+    const targetId = slash > 0 ? trimmed.slice(slash + 1) : trimmed;
+    const normalizedId = targetId.toLowerCase();
+
+    const linkage = ctx.index.entityLinkages.find(
+      (l) =>
+        l.domainId.toLowerCase() === targetDomain &&
+        l.id.toLowerCase() === normalizedId,
+    );
+    if (!linkage) return { exists: false, touchesEntity: false };
+    // Связь «касается» сущности, если её сторона — сама сущность,
+    // её предок или её потомок (exchangeSettings родителя влияют
+    // на наследников и наоборот).
+    const touchesEntity =
+      isSameOrAncestor(entityFqid, linkage.side1Fqid) ||
+      isSameOrAncestor(entityFqid, linkage.side2Fqid) ||
+      isSameOrAncestor(linkage.side1Fqid, entityFqid) ||
+      isSameOrAncestor(linkage.side2Fqid, entityFqid);
+
+    return { exists: true, touchesEntity };
+  };
+
+  // ============ Валидация одного элемента списка ============
+  // Документация: upsertWith / ignoreAttributes — атрибуты И связи.
+  const checkListedItem = (
+    rawItem: string,
+    entity: EntityRecord | undefined,
+    entityFqid: string,
+    displayId: string,
+    domainId: string,
+    fieldName: "upsertWith" | "ignoreAttributes",
+  ): void => {
+    if (!rawItem) return;
+    if (SYSTEM_ATTRS_FOR_EXPORT.has(rawItem)) return;
+
+    // 1) Пробуем как атрибут (с учётом наследования, FQID, Entity.attr)
+    if (entity) {
+      const attrRes = resolveAttributeRef(ctx, entity, rawItem);
+      if (attrRes.ok) return;
+    }
+
+    // 2) Пробуем как linkage
+    const lk = resolveLinkage(domainId, rawItem, entityFqid);
+    if (lk.exists) {
+      if (!lk.touchesEntity) {
+        emit(ctx, {
+          ruleId: `exchange/${fieldName}-linkage-not-related`,
+          severity: "warning",
+          category: "semantic",
+          rule: `${fieldName}[]: связь должна касаться сущности`,
+          message: `exchangeSettings.entities[${displayId}]: ${fieldName} «${rawItem}» — связь не связана с этой сущностью (ни напрямую, ни через наследование)`,
+          hint: "Связь должна иметь эту сущность или её предка/потомка хотя бы с одной стороны",
+          domainId,
+          propertyPath: `exchangeSettings.entities[${displayId}].${fieldName}`,
+        });
+      }
+      return;
+    }
+
+    // 3) Ни атрибут, ни связь
+    emit(ctx, {
+      ruleId: `exchange/${fieldName === "upsertWith" ? "upsert-with" : "ignore-attributes"}-unknown`,
+      severity: "warning",
+      category: "reference",
+      rule: `${fieldName}[] — существующие атрибуты или связи`,
+      message: `exchangeSettings.entities[${displayId}]: ${fieldName} «${rawItem}» не найден среди атрибутов и связей`,
+      hint: "Перечислите через запятую id атрибутов, id связей или системные имена",
+      domainId,
+      propertyPath: `exchangeSettings.entities[${displayId}].${fieldName}`,
+    });
+  };
+
   for (const domainId of domains) {
     const es = map[domainId];
     if (!es) continue;
@@ -4216,7 +4363,7 @@ function checkExchangeSettings(ctx: LintContext): void {
         continue;
       }
 
-      // ============ forExport ============
+      // ============ forExport — только атрибут (по докам) ============
       if (entry.forExport) {
         const res = resolveAttributeRef(ctx, entity, entry.forExport);
         if (!res.ok && !SYSTEM_ATTRS_FOR_EXPORT.has(entry.forExport)) {
@@ -4233,46 +4380,35 @@ function checkExchangeSettings(ctx: LintContext): void {
         }
       }
 
-      // ============ upsertWith[] ============
+      // ============ upsertWith[] — атрибуты И связи ============
       if (entry.upsertWith) {
         for (const item of entry.upsertWith) {
-          if (SYSTEM_ATTRS_FOR_EXPORT.has(item)) continue;
-          const res = resolveAttributeRef(ctx, entity, item);
-          if (!res.ok) {
-            emit(ctx, {
-              ruleId: "exchange/upsert-with-unknown",
-              severity: "warning",
-              category: "reference",
-              rule: "upsertWith[] — существующие атрибуты",
-              message: `exchangeSettings.entities[${displayId}]: upsertWith «${item}» не найден`,
-              hint: "Перечислите через запятую id атрибутов или системные имена",
-              domainId,
-              propertyPath: `exchangeSettings.entities[${displayId}].upsertWith`,
-            });
-          }
+          checkListedItem(
+            item,
+            entity,
+            entry.entityFqid,
+            displayId,
+            domainId,
+            "upsertWith",
+          );
         }
       }
 
-      // ============ ignoreAttributes[] ============
+      // ============ ignoreAttributes[] — атрибуты И связи ============
       if (entry.ignoreAttributes) {
         for (const item of entry.ignoreAttributes) {
-          if (SYSTEM_ATTRS_FOR_EXPORT.has(item)) continue;
-          const res = resolveAttributeRef(ctx, entity, item);
-          if (!res.ok) {
-            emit(ctx, {
-              ruleId: "exchange/ignore-attributes-unknown",
-              severity: "warning",
-              category: "reference",
-              rule: "ignoreAttributes[] — существующие атрибуты",
-              message: `exchangeSettings.entities[${displayId}]: ignoreAttributes «${item}» не найден`,
-              domainId,
-              propertyPath: `exchangeSettings.entities[${displayId}].ignoreAttributes`,
-            });
-          }
+          checkListedItem(
+            item,
+            entity,
+            entry.entityFqid,
+            displayId,
+            domainId,
+            "ignoreAttributes",
+          );
         }
       }
 
-      // ============ exportSystemAttributes[] ============
+      // ============ exportSystemAttributes[] — без изменений ============
       if (Array.isArray(entry.exportSystemAttributes)) {
         for (const item of entry.exportSystemAttributes) {
           if (!SYSTEM_ATTRS_FOR_EXPORT.has(item)) {
@@ -5124,22 +5260,54 @@ function checkRqlConditions(ctx: LintContext): void {
 }
 
 function checkDataRuleTarget(ctx: LintContext, dr: DataRuleRecord): void {
-  // ============ target: linkage — не поддерживается ============
+  // ============ target: linkage ============
   if (dr.target === "linkage") {
-    emit(ctx, {
-      ruleId: "dataRule/linkage-target-unsupported",
-      severity: "error",
-      category: "semantic",
-      rule: "target: linkage не поддерживается",
-      message: `правило «${dr.id}»: target: linkage в текущей реализации не поддерживается`,
-      hint: "Используйте target: entity или entityAttribute",
-      domainId: dr.domainId,
-      propertyPath: `dataRules[${dr.id}].target`,
-    });
+    if (!dr.linkage) {
+      emit(ctx, {
+        ruleId: "dataRule/linkage-missing",
+        severity: "error",
+        category: "required",
+        rule: "target: linkage требует linkage",
+        message: `правило «${dr.id}»: target = linkage, но linkage не указана`,
+        domainId: dr.domainId,
+        propertyPath: `dataRules[${dr.id}].linkage`,
+      });
+      return;
+    }
+
+    const linkage = ctx.index.entityLinkages.find(
+      (l) =>
+        `${l.domainId}/${l.id}`.toLowerCase() === dr.linkage!.toLowerCase(),
+    );
+    if (!linkage) {
+      emit(ctx, {
+        ruleId: "dataRule/linkage-unknown",
+        severity: "error",
+        category: "reference",
+        rule: "linkage правила существует",
+        message: `правило «${dr.id}»: linkage = "${dr.linkage}" не найдена`,
+        domainId: dr.domainId,
+        propertyPath: `dataRules[${dr.id}].linkage`,
+      });
+      return;
+    }
+
+    if (dr.effect === "default") {
+      emit(ctx, {
+        ruleId: "dataRule/linkage-default-unsupported",
+        severity: "error",
+        category: "semantic",
+        rule: "effect: default не поддерживается для target: linkage",
+        message: `правило «${dr.id}»: effect = default с target = linkage`,
+        domainId: dr.domainId,
+        propertyPath: `dataRules[${dr.id}].rule.effect`,
+      });
+    }
+    // attributes[] валидируется отдельно в checkDataRuleEffectAttributes
     return;
   }
 
-  // ============ entity / entityAttribute: сущность обязательна ============
+  // ============ target: entity / entityAttribute (как было) ============
   if (!dr.entity) {
     emit(ctx, {
       ruleId: "dataRule/entity-missing",
@@ -5167,7 +5335,6 @@ function checkDataRuleTarget(ctx: LintContext, dr: DataRuleRecord): void {
     return;
   }
 
-  // ============ target: entity ============
   if (dr.target === "entity") {
     const hasAttrs = Array.isArray(dr.attributes) && dr.attributes.length > 0;
     const hasLinkages = Array.isArray(dr.linkages) && dr.linkages.length > 0;
@@ -5178,14 +5345,12 @@ function checkDataRuleTarget(ctx: LintContext, dr: DataRuleRecord): void {
         category: "required",
         rule: "У target: entity заданы attributes или linkages",
         message: `правило «${dr.id}»: нет ни attributes[], ни linkages[] — правило ни на что не действует`,
-        hint: "Для target: entity укажите хотя бы один атрибут или связь",
         domainId: dr.domainId,
         propertyPath: `dataRules[${dr.id}].rule`,
       });
     }
   }
 
-  // ============ target: entityAttribute ============
   if (dr.target === "entityAttribute") {
     if (!dr.attribute) {
       emit(ctx, {
@@ -5220,7 +5385,6 @@ function checkDataRuleTarget(ctx: LintContext, dr: DataRuleRecord): void {
           propertyPath: `dataRules[${dr.id}].attribute`,
         });
       } else if (dr.nested) {
-        // nested.type должен соответствовать dataType атрибута
         const expected = attr.dataType === "Array" ? "array" : "table";
         if (dr.nested.type !== expected) {
           emit(ctx, {
@@ -5235,8 +5399,6 @@ function checkDataRuleTarget(ctx: LintContext, dr: DataRuleRecord): void {
         }
       }
     }
-
-    // allowed + entityAttribute — запрещено (Zod)
     if (dr.effect === "allowed") {
       emit(ctx, {
         ruleId: "dataRule/entity-attribute-allowed-unsupported",
@@ -5256,9 +5418,34 @@ function checkDataRuleEffectAttributes(
   ctx: LintContext,
   dr: DataRuleRecord,
 ): void {
-  if (dr.target === "linkage") return;
   const attrs = dr.attributes;
   if (!attrs || attrs.length === 0) return;
+
+  // ============ target: linkage → атрибуты связи ============
+  if (dr.target === "linkage") {
+    if (!dr.linkage) return;
+    const linkage = ctx.index.entityLinkages.find(
+      (l) =>
+        `${l.domainId}/${l.id}`.toLowerCase() === dr.linkage!.toLowerCase(),
+    );
+    if (!linkage) return;
+    const linkageAttrs = new Set((linkage.attributes || []).map((a) => a.id));
+    for (const a of attrs) {
+      if (!linkageAttrs.has(a.attribute)) {
+        emit(ctx, {
+          ruleId: "dataRule/linkage-attribute-unknown",
+          severity: "error",
+          category: "reference",
+          rule: "attributes[].attribute существует в linkage",
+          message: `правило «${dr.id}»: attributes[].attribute = "${a.attribute}" не найден в связи «${dr.linkage}»`,
+          domainId: dr.domainId,
+          propertyPath: `dataRules[${dr.id}].rule.attributes`,
+        });
+      }
+    }
+    return;
+  }
+
   if (!dr.entity) return;
   const entity = ctx.index.entitiesByFqid[dr.entity];
   if (!entity) return;
@@ -5499,8 +5686,6 @@ function checkDataRuleEffectLinkages(
 }
 
 function checkDataRuleMessages(ctx: LintContext, dr: DataRuleRecord): void {
-  if (dr.target === "linkage") return;
-
   if (dr.effect === "default" && dr.message !== undefined) {
     emit(ctx, {
       ruleId: "dataRule/default-top-message",
@@ -5613,7 +5798,7 @@ function checkTrees(ctx: LintContext): void {
   for (const tree of trees) {
     checkTreeHierarchy(ctx, tree, entityByFqid, linkageByFqid);
     checkTreeSorting(ctx, tree, entityByFqid);
-    checkTreeDuplicates(ctx, tree);
+    checkTreeMaxInstances(ctx, tree);
     checkTreeMultiparent(ctx, tree);
   }
 }
@@ -5706,12 +5891,31 @@ function checkTreeHierarchy(
       // Для несимметричных с явным side — по Zod-логике (side = сторона ребёнка).
       const isSymmetric = linkage.side1Fqid === linkage.side2Fqid;
       if (!isSymmetric) {
-        const connectsForward =
-          linkage.side1Fqid === parentEntityFqid &&
-          linkage.side2Fqid === child.entity;
-        const connectsBackward =
-          linkage.side2Fqid === parentEntityFqid &&
-          linkage.side1Fqid === child.entity;
+        // Учитываем наследование: сторона связи может быть предком/потомком
+        // parent/child, объявленных в дереве.
+        const parentMatchesSide1 = isSameOrAncestor(
+          ctx,
+          linkage.side1Fqid,
+          parentEntityFqid,
+        );
+        const childMatchesSide2 = isSameOrAncestor(
+          ctx,
+          linkage.side2Fqid,
+          child.entity,
+        );
+        const parentMatchesSide2 = isSameOrAncestor(
+          ctx,
+          linkage.side2Fqid,
+          parentEntityFqid,
+        );
+        const childMatchesSide1 = isSameOrAncestor(
+          ctx,
+          linkage.side1Fqid,
+          child.entity,
+        );
+
+        const connectsForward = parentMatchesSide1 && childMatchesSide2;
+        const connectsBackward = parentMatchesSide2 && childMatchesSide1;
 
         if (!connectsForward && !connectsBackward) {
           emit(ctx, {
@@ -5720,13 +5924,11 @@ function checkTreeHierarchy(
             category: "semantic",
             rule: "linkage соединяет parent и child",
             message: `дерево «${tree.id}», ${path}: linkage "${child.linkage}" (side1=${linkage.side1Fqid}, side2=${linkage.side2Fqid}) не связывает parent="${parentEntityFqid}" и child="${child.entity}"`,
-            hint: "Проверьте linkage.side1/side2 и направление ребра в дереве",
+            hint: "parent/child должны совпадать со сторонами связи или быть их наследниками (более узкий класс). Предок стороны связи — ошибка.",
             domainId: tree.domainId,
             propertyPath: path + ".linkage",
           });
         } else if (child.side !== undefined) {
-          // Явный side: по Zod side=1 → parent на side2, child на side1;
-          // side=2 → parent на side1, child на side2.
           const expectedSide: 1 | 2 = connectsForward ? 2 : 1;
           if (child.side !== expectedSide) {
             emit(ctx, {
@@ -5857,26 +6059,34 @@ function checkTreeSorting(
   }
 }
 
-function checkTreeDuplicates(ctx: LintContext, tree: TreeRecord): void {
-  const counts = new Map<string, number>();
+/**
+ * Проверяет, что maxInstances не задан дважды на одну entity в дереве.
+ *
+ * ВАЖНО: повторение одной и той же entity в дереве — валидный кейс
+ * (например, для деревьев, где entity может быть дочерней к разным
+ * родителям, или для multiparent-структур). Поэтому проверки на
+ * уникальность entity в дереве больше нет.
+ *
+ * maxInstances осмысленно задавать один раз на entity — если он задан
+ * на нескольких копиях, система не знает, какое значение применить.
+ */
+function checkTreeMaxInstances(ctx: LintContext, tree: TreeRecord): void {
   const maxInstancesSeen = new Set<string>();
 
   const register = (fqid: string, maxInstances?: number): void => {
-    counts.set(fqid, (counts.get(fqid) || 0) + 1);
-    if (maxInstances !== undefined) {
-      if (maxInstancesSeen.has(fqid)) {
-        emit(ctx, {
-          ruleId: "tree/duplicate-max-instances",
-          severity: "warning",
-          category: "semantic",
-          rule: "maxInstances задаётся один раз на entity",
-          message: `дерево «${tree.id}»: maxInstances указан дважды для "${fqid}"`,
-          domainId: tree.domainId,
-          propertyPath: `trees[${tree.id}].hierarchy`,
-        });
-      }
-      maxInstancesSeen.add(fqid);
+    if (maxInstances === undefined) return;
+    if (maxInstancesSeen.has(fqid)) {
+      emit(ctx, {
+        ruleId: "tree/duplicate-max-instances",
+        severity: "warning",
+        category: "semantic",
+        rule: "maxInstances задаётся один раз на entity",
+        message: `дерево «${tree.id}»: maxInstances указан дважды для "${fqid}"`,
+        domainId: tree.domainId,
+        propertyPath: `trees[${tree.id}].hierarchy`,
+      });
     }
+    maxInstancesSeen.add(fqid);
   };
 
   register(tree.hierarchy.entity, tree.hierarchy.maxInstances);
@@ -5889,21 +6099,7 @@ function checkTreeDuplicates(ctx: LintContext, tree: TreeRecord): void {
     }
   };
   walk(tree.hierarchy.children);
-
-  counts.forEach((count, fqid) => {
-    if (count > 1) {
-      emit(ctx, {
-        ruleId: "tree/duplicate-entity",
-        severity: "warning",
-        category: "semantic",
-        rule: "entity используется в дереве один раз",
-        message: `дерево «${tree.id}»: entity "${fqid}" встречается ${count} раз`,
-        domainId: tree.domainId,
-        propertyPath: `trees[${tree.id}].hierarchy`,
-      });
-    }
-  });
-}
+} 
 
 function checkTreeMultiparent(ctx: LintContext, tree: TreeRecord): void {
   if (tree.type !== "multiparent") return;
@@ -6462,6 +6658,36 @@ function checkAccessRules(ctx: LintContext): void {
       });
     }
 
+    // ============ action существует ============
+    if (rule.target === "action") {
+      if (!rule.actionId) {
+        emit(ctx, {
+          ruleId: "accessRule/action-missing",
+          severity: "error",
+          category: "required",
+          rule: "target: action требует id",
+          message: `правило доступа #${ruleIdx + 1}: target = action, но id не задан`,
+          domainId: rule.domainId,
+          propertyPath: `accessRules[${ruleIdx}].id`,
+        });
+      } else {
+        const actionExists = ctx.index.actions.some(
+          (a) => a.domainId === rule.domainId && a.id === rule.actionId,
+        );
+        if (!actionExists) {
+          emit(ctx, {
+            ruleId: "accessRule/action-unknown",
+            severity: "error",
+            category: "reference",
+            rule: "action существует",
+            message: `правило доступа #${ruleIdx + 1}: action "${rule.actionId}" не найден`,
+            domainId: rule.domainId,
+            propertyPath: `accessRules[${ruleIdx}].id`,
+          });
+        }
+      }
+    }
+
     // ============ Проверка permission в scope ============
     const scopePaths: Array<{
       scope: "create" | "delete" | "edit" | "view" | "launch";
@@ -6683,6 +6909,11 @@ export function lintModel(index: ModelIndex): LintReport {
     checkEntityAttributes(ctx, e);
     checkDuplicateAttributes(ctx, e);
     checkEntityReferences(ctx, e);
+    checkEntityLabelRules(ctx, e);
+    checkEntitySorting(ctx, e);
+    checkEntityIdentification(ctx, e);
+    checkReconciliationOrder(ctx, e);
+    checkReconciliationSources(ctx, e);
 
     for (const a of e.attributes) {
       checkAttributeNaming(ctx, e, a);
@@ -6696,14 +6927,22 @@ export function lintModel(index: ModelIndex): LintReport {
     }
   }
 
+  checkReconciliationStrategies(ctx);
+
   // ============ Linkages ============
   checkEntityLinkageSemantics(ctx);
+  checkLinkageSides(ctx);
+  checkLinkageAttributeTypes(ctx);
+  checkLinkageSearchability(ctx);
+  checkGraphIconColors(ctx);
 
   // ============ DataRules ============
   checkDataRules(ctx);
 
   // ============ DataTypes ============
   checkDataTypes(ctx);
+
+  checkCounterColorPatternFormat(ctx);
 
   // ============ exchangeSettings ============
   checkExchangeSettings(ctx);
@@ -6713,15 +6952,20 @@ export function lintModel(index: ModelIndex): LintReport {
 
   // ============ Actions ============
   checkActions(ctx);
+  checkActionTransitions(ctx);
 
   // ============ Views ============
   checkViews(ctx);
+  checkViewEntityExistence(ctx);
   checkViewLinkageRefs(ctx);
+  checkLinkedObjectsGroups(ctx);
+  checkViewGroupComponents(ctx);
   checkViewSourceJoins(ctx);
   checkViewColumns(ctx);
   checkViewTableMeta(ctx);
   checkViewTreeFilters(ctx);
   checkSpecialViews(ctx);
+  checkViewMenuActions(ctx);
 
   // ============ RQL в condition ============
   checkRqlConditions(ctx);
@@ -7125,6 +7369,773 @@ function checkCounterColorPatterns(ctx: LintContext): void {
             propertyPath: `views[${viewId}].table.columns[${c.id}].counterColorPattern`,
           });
         }
+      }
+    }
+  }
+}
+
+function checkLinkageSides(ctx: LintContext): void {
+  for (const l of ctx.index.entityLinkages) {
+    if (!ctx.index.entitiesByFqid[l.side1Fqid]) {
+      emit(ctx, {
+        ruleId: "linkage/side1-unknown",
+        severity: "error",
+        category: "reference",
+        rule: "side1 ссылается на существующую сущность",
+        message: `связь «${l.id}»: side1 = "${l.side1Fqid}" не найдена в индексе`,
+        domainId: l.domainId,
+        propertyPath: `linkages[${l.id}].side1`,
+      });
+    }
+    if (!ctx.index.entitiesByFqid[l.side2Fqid]) {
+      emit(ctx, {
+        ruleId: "linkage/side2-unknown",
+        severity: "error",
+        category: "reference",
+        rule: "side2 ссылается на существующую сущность",
+        message: `связь «${l.id}»: side2 = "${l.side2Fqid}" не найдена в индексе`,
+        domainId: l.domainId,
+        propertyPath: `linkages[${l.id}].side2`,
+      });
+    }
+  }
+}
+const COUNTER_TIME_RE = /^([1-9][0-9]*[wdhm])+$/;
+const COUNTER_PERCENT_RE = /^(?!0%)([1-9][0-9]?|100)%$/;
+
+function parseCounterTimeToMinutes(s: string): number {
+  let total = 0;
+  const matches = s.matchAll(/([1-9][0-9]*)([wdhm])/g);
+  for (const m of matches) {
+    const n = parseInt(m[1], 10);
+    const u = m[2];
+    if (u === "w") total += n * 60 * 24 * 7;
+    else if (u === "d") total += n * 60 * 24;
+    else if (u === "h") total += n * 60;
+    else if (u === "m") total += n;
+  }
+  return total;
+}
+
+function checkCounterColorPatternFormat(ctx: LintContext): void {
+  const patterns = ctx.index.counterColorPatterns || [];
+  if (patterns.length === 0) return;
+
+  for (const p of patterns) {
+    const redValid =
+      COUNTER_TIME_RE.test(p.red) || COUNTER_PERCENT_RE.test(p.red);
+    const yellowValid =
+      COUNTER_TIME_RE.test(p.yellow) || COUNTER_PERCENT_RE.test(p.yellow);
+
+    if (!redValid) {
+      emit(ctx, {
+        ruleId: "counterColorPattern/red-format",
+        severity: "error",
+        category: "validation",
+        rule: "Формат red: числа с единицей w|d|h|m или проценты",
+        message: `правило «${p.id}»: red = "${p.red}" — неверный формат`,
+        hint: "Примеры: 1w2d3h4m или 60%",
+        domainId: p.domainId,
+        propertyPath: `counterColorPatterns[${p.id}].red`,
+      });
+    }
+    if (!yellowValid) {
+      emit(ctx, {
+        ruleId: "counterColorPattern/yellow-format",
+        severity: "error",
+        category: "validation",
+        rule: "Формат yellow: числа с единицей w|d|h|m или проценты",
+        message: `правило «${p.id}»: yellow = "${p.yellow}" — неверный формат`,
+        hint: "Примеры: 2d или 40%",
+        domainId: p.domainId,
+        propertyPath: `counterColorPatterns[${p.id}].yellow`,
+      });
+    }
+    if (!redValid || !yellowValid) continue;
+
+    const redIsPercent = p.red.includes("%");
+    const yellowIsPercent = p.yellow.includes("%");
+    if (redIsPercent !== yellowIsPercent) {
+      emit(ctx, {
+        ruleId: "counterColorPattern/format-mismatch",
+        severity: "error",
+        category: "semantic",
+        rule: "red и yellow в одной шкале",
+        message: `правило «${p.id}»: red и yellow заданы в разных шкалах`,
+        domainId: p.domainId,
+        propertyPath: `counterColorPatterns[${p.id}]`,
+      });
+      continue;
+    }
+
+    if (redIsPercent) {
+      const r = parseInt(p.red.replace("%", ""), 10);
+      const y = parseInt(p.yellow.replace("%", ""), 10);
+      if (y > r) {
+        emit(ctx, {
+          ruleId: "counterColorPattern/yellow-gt-red",
+          severity: "error",
+          category: "semantic",
+          rule: "yellow ≤ red",
+          message: `правило «${p.id}»: yellow (${y}%) > red (${r}%)`,
+          domainId: p.domainId,
+          propertyPath: `counterColorPatterns[${p.id}]`,
+        });
+      }
+    } else {
+      const r = parseCounterTimeToMinutes(p.red);
+      const y = parseCounterTimeToMinutes(p.yellow);
+      if (y > r) {
+        emit(ctx, {
+          ruleId: "counterColorPattern/yellow-gt-red",
+          severity: "error",
+          category: "semantic",
+          rule: "yellow ≤ red",
+          message: `правило «${p.id}»: yellow (${y}м) > red (${r}м)`,
+          domainId: p.domainId,
+          propertyPath: `counterColorPatterns[${p.id}]`,
+        });
+      }
+    }
+  }
+}
+function checkViewMenuActions(ctx: LintContext): void {
+  const actionsByDomain = new Map<string, Set<string>>();
+  for (const a of ctx.index.actions) {
+    let set = actionsByDomain.get(a.domainId);
+    if (!set) {
+      set = new Set();
+      actionsByDomain.set(a.domainId, set);
+    }
+    set.add(a.id);
+  }
+
+  for (const rec of ctx.index.viewMenuActions || []) {
+    if (rec.action.includes("/")) continue; // cross-domain не проверяем
+    const known = actionsByDomain.get(rec.domainId) || new Set<string>();
+    if (!known.has(rec.action)) {
+      emit(ctx, {
+        ruleId: "view/panel-menu-action-unknown",
+        severity: "warning",
+        category: "reference",
+        rule: "views[].views[].menu[].action существует",
+        message: `View «${rec.panelViewId}»: menu[${rec.index}].action «${rec.action}» не найден`,
+        domainId: rec.domainId,
+        propertyPath: `views[${rec.viewId}].views[${rec.panelViewId}].menu`,
+      });
+    }
+  }
+}
+function checkReconciliationStrategies(ctx: LintContext): void {
+  const KNOWN = new Set([
+    "replace",
+    "array_merge",
+    "array_concat",
+    "earliest_date",
+    "latest_date",
+  ]);
+  const ARRAY_STRATEGIES = new Set(["array_merge", "array_concat"]);
+  const DATE_STRATEGIES = new Set(["earliest_date", "latest_date"]);
+  const DATE_TYPES = new Set(["Timestamp", "Date", "Time"]);
+
+  for (const e of ctx.index.entities) {
+    for (const r of e.reconciliation || []) {
+      if (!r.attribute) continue;
+      const attr = findAttributeWithInheritance(ctx, e.fqid, r.attribute);
+      if (!attr) continue;
+
+      if (!r.mergeStrategy) continue;
+      const strategy = r.mergeStrategy;
+
+      if (!KNOWN.has(strategy)) {
+        emit(ctx, {
+          ruleId: "entity/reconciliation-strategy-unknown",
+          severity: "warning",
+          category: "semantic",
+          rule: "mergeStrategy.type — известное значение",
+          message: `сущность «${e.entityId}», attribute «${r.attribute}»: неизвестная стратегия «${strategy}»`,
+          hint: "Допустимые: replace, array_merge, array_concat, earliest_date, latest_date",
+          domainId: e.domainId,
+          entityFqid: e.fqid,
+          attributeId: r.attribute,
+          propertyPath: `entities[${e.entityId}].reconciliation`,
+        });
+        continue;
+      }
+
+      if (ARRAY_STRATEGIES.has(strategy) && attr.dataType !== "Array") {
+        emit(ctx, {
+          ruleId: "entity/reconciliation-strategy-mismatch",
+          severity: "warning",
+          category: "semantic",
+          rule: "array_merge / array_concat требуют Array",
+          message: `сущность «${e.entityId}», attribute «${r.attribute}»: стратегия «${strategy}» для типа «${attr.dataType}»`,
+          domainId: e.domainId,
+          entityFqid: e.fqid,
+          attributeId: r.attribute,
+          propertyPath: `entities[${e.entityId}].reconciliation`,
+        });
+      }
+
+      if (DATE_STRATEGIES.has(strategy) && !DATE_TYPES.has(attr.dataType)) {
+        emit(ctx, {
+          ruleId: "entity/reconciliation-strategy-mismatch",
+          severity: "warning",
+          category: "semantic",
+          rule: "earliest_date / latest_date требуют Timestamp/Date/Time",
+          message: `сущность «${e.entityId}», attribute «${r.attribute}»: стратегия «${strategy}» для типа «${attr.dataType}»`,
+          domainId: e.domainId,
+          entityFqid: e.fqid,
+          attributeId: r.attribute,
+          propertyPath: `entities[${e.entityId}].reconciliation`,
+        });
+      }
+    }
+  }
+}
+const GRAPH_ICON_COLORS = new Set<string>([
+  "red",
+  "pink",
+  "lightpink",
+  "orange",
+  "peach",
+  "yellow",
+  "green",
+  "lightgreen",
+  "turquoise",
+  "lightblue",
+  "blue",
+  "violet",
+  "purple",
+  "grey",
+]);
+
+function checkGraphIconColors(ctx: LintContext): void {
+  for (const e of ctx.index.entities) {
+    if (
+      e.graphView?.iconColor &&
+      !GRAPH_ICON_COLORS.has(e.graphView.iconColor)
+    ) {
+      emit(ctx, {
+        ruleId: "entity/graphView-iconColor-invalid",
+        severity: "warning",
+        category: "validation",
+        rule: "graphView.iconColor — допустимый цвет",
+        message: `сущность «${e.entityId}»: неизвестный цвет «${e.graphView.iconColor}»`,
+        hint: "Допустимые: red, pink, lightpink, orange, peach, yellow, green, lightgreen, turquoise, lightblue, blue, violet, purple, grey",
+        domainId: e.domainId,
+        entityFqid: e.fqid,
+        propertyPath: `entities[${e.entityId}].graphView.iconColor`,
+      });
+    }
+  }
+  for (const l of ctx.index.entityLinkages) {
+    if (l.view?.iconColor && !GRAPH_ICON_COLORS.has(l.view.iconColor)) {
+      emit(ctx, {
+        ruleId: "linkage/view-iconColor-invalid",
+        severity: "warning",
+        category: "validation",
+        rule: "view.iconColor — допустимый цвет",
+        message: `связь «${l.id}»: неизвестный цвет «${l.view.iconColor}»`,
+        hint: "Допустимые: red, pink, lightpink, orange, peach, yellow, green, lightgreen, turquoise, lightblue, blue, violet, purple, grey",
+        domainId: l.domainId,
+        propertyPath: `linkages[${l.id}].view.iconColor`,
+      });
+    }
+  }
+}
+function checkLinkageAttributeTypes(ctx: LintContext): void {
+  const FORBIDDEN_BASE = new Set(["Automation", "Configuration", "Variable"]);
+  for (const l of ctx.index.entityLinkages) {
+    for (const a of l.attributes || []) {
+      if (FORBIDDEN_BASE.has(a.dataType)) {
+        emit(ctx, {
+          ruleId: "linkage/attribute-forbidden-type",
+          severity: "error",
+          category: "validation",
+          rule: "Тип атрибута связи — не Automation/Configuration/Variable",
+          message: `связь «${l.id}», атрибут «${a.id}»: тип «${a.dataType}» запрещён`,
+          domainId: l.domainId,
+          propertyPath: `linkages[${l.id}].attributes[${a.id}].dataType`,
+        });
+        continue;
+      }
+      if (a.dataTypeKind === "custom") {
+        const dt = ctx.index.dataTypes.find(
+          (d) => d.domainId === l.domainId && d.id === a.dataType,
+        );
+        if (dt && dt.kind === "Table") {
+          emit(ctx, {
+            ruleId: "linkage/attribute-table-type",
+            severity: "error",
+            category: "validation",
+            rule: "Table не поддерживается в атрибутах связи",
+            message: `связь «${l.id}», атрибут «${a.id}»: тип Table запрещён`,
+            domainId: l.domainId,
+            propertyPath: `linkages[${l.id}].attributes[${a.id}].dataType`,
+          });
+        }
+      }
+    }
+  }
+}
+const LABEL_SYSTEM_ALLOWED = new Set([
+  "createdAt",
+  "createdBy",
+  "domainId",
+  "entityId",
+  "entityName",
+  "id",
+  "organizationId",
+  "updatedAt",
+  "updatedBy",
+  "version",
+]);
+
+function checkEntityLabelRules(ctx: LintContext, e: EntityRecord): void {
+  if (!e.label) return;
+  const placeholders = [...e.label.matchAll(/{(.*?)}/g)]
+    .map((m) => m[1].trim())
+    .filter(Boolean);
+
+  for (const ph of placeholders) {
+    if (SYSTEM_ATTRIBUTE_IDS.has(ph)) {
+      if (!LABEL_SYSTEM_ALLOWED.has(ph)) {
+        emit(ctx, {
+          ruleId: "entity/label-system-attribute-forbidden",
+          severity: "warning",
+          category: "semantic",
+          rule: "label не ссылается на запрещённый системный атрибут",
+          message: `сущность «${e.entityId}»: label ссылается на системный «${ph}»`,
+          hint: "Разрешены: createdAt, createdBy, domainId, entityId, entityName, id, organizationId, updatedAt, updatedBy, version",
+          domainId: e.domainId,
+          entityFqid: e.fqid,
+        });
+      }
+      continue;
+    }
+
+    // ссылка на атрибут
+    if (ph.includes("/") || ph.includes(".")) continue; // кросс-домен/нотация Entity.attr — не проверяем
+
+    const attr = findAttributeWithInheritance(ctx, e.fqid, ph);
+    if (attr && attr.dataType === "Reference") {
+      emit(ctx, {
+        ruleId: "entity/label-reference-attribute",
+        severity: "warning",
+        category: "semantic",
+        rule: "label не использует Reference-атрибут",
+        message: `сущность «${e.entityId}»: label ссылается на «${ph}» типа Reference`,
+        hint: "Reference в label работает некорректно; используйте проекцию",
+        domainId: e.domainId,
+        entityFqid: e.fqid,
+      });
+    }
+  }
+}
+function checkActionTransitions(ctx: LintContext): void {
+  for (const a of ctx.index.actions) {
+    if (a.type !== "workflow") continue;
+
+    if (!a.transition?.to) {
+      emit(ctx, {
+        ruleId: "action/workflow-transition-missing",
+        severity: "error",
+        category: "required",
+        rule: "type: workflow требует transition.to",
+        message: `действие «${a.id}»: type = workflow, но transition.to не задан`,
+        domainId: a.domainId,
+        propertyPath: `actions[${a.id}].transition`,
+      });
+      continue;
+    }
+
+    if (!a.entity) {
+      emit(ctx, {
+        ruleId: "action/workflow-entity-missing",
+        severity: "error",
+        category: "required",
+        rule: "type: workflow требует entity",
+        message: `действие «${a.id}»: type = workflow, но entity не указан`,
+        domainId: a.domainId,
+        propertyPath: `actions[${a.id}].entity`,
+      });
+      continue;
+    }
+
+    const entity = ctx.index.entitiesByFqid[a.entity];
+    if (!entity) continue;
+
+    if (!a.attribute) {
+      emit(ctx, {
+        ruleId: "action/workflow-attribute-missing",
+        severity: "error",
+        category: "required",
+        rule: "type: workflow требует attribute",
+        message: `действие «${a.id}»: type = workflow, но attribute не указан`,
+        domainId: a.domainId,
+        propertyPath: `actions[${a.id}].attribute`,
+      });
+      continue;
+    }
+
+    const attr = findAttributeWithInheritance(ctx, a.entity, a.attribute);
+    if (!attr) {
+      emit(ctx, {
+        ruleId: "action/workflow-attribute-unknown",
+        severity: "error",
+        category: "reference",
+        rule: "attribute действия workflow существует",
+        message: `действие «${a.id}»: attribute «${a.attribute}» не найден в «${a.entity}»`,
+        domainId: a.domainId,
+        propertyPath: `actions[${a.id}].attribute`,
+      });
+      continue;
+    }
+
+    const dt =
+      attr.dataTypeKind === "custom"
+        ? ctx.index.dataTypes.find(
+            (d) => d.domainId === entity.domainId && d.id === attr.dataType,
+          )
+        : null;
+
+    if (!dt || dt.kind !== "Workflow") {
+      emit(ctx, {
+        ruleId: "action/workflow-attribute-not-workflow",
+        severity: "error",
+        category: "semantic",
+        rule: "attribute действия workflow — Workflow",
+        message: `действие «${a.id}»: attribute «${a.attribute}» имеет тип «${attr.dataType}», ожидается Workflow`,
+        domainId: a.domainId,
+        propertyPath: `actions[${a.id}].attribute`,
+      });
+      continue;
+    }
+
+    const statuses = new Set(dt.statuses || []);
+    if (!statuses.has(a.transition.to)) {
+      emit(ctx, {
+        ruleId: "action/workflow-transition-unknown",
+        severity: "error",
+        category: "reference",
+        rule: "transition.to — статус workflow",
+        message: `действие «${a.id}»: transition.to «${a.transition.to}» не найден среди статусов «${attr.dataType}»`,
+        domainId: a.domainId,
+        propertyPath: `actions[${a.id}].transition.to`,
+      });
+    }
+  }
+}
+
+function checkViewGroupComponents(ctx: LintContext): void {
+  const components = ctx.index.viewGroupComponents || [];
+  if (components.length === 0) return;
+
+  // Индекс: domainId → viewId → Set<widgetId>
+  const widgetsByView = new Map<string, Map<string, Set<string>>>();
+  for (const w of ctx.index.viewWidgets) {
+    let byView = widgetsByView.get(w.domainId);
+    if (!byView) {
+      byView = new Map();
+      widgetsByView.set(w.domainId, byView);
+    }
+    let set = byView.get(w.parentViewId);
+    if (!set) {
+      set = new Set();
+      byView.set(w.parentViewId, set);
+    }
+    set.add(w.id);
+  }
+
+  for (const c of components) {
+    if (c.widget.startsWith("external:")) continue;
+    if (c.widget.includes("/")) continue; // кросс-домен пропускаем
+
+    const known = widgetsByView.get(c.domainId)?.get(c.viewId);
+    if (!known) continue;
+
+    if (!known.has(c.widget)) {
+      emit(ctx, {
+        ruleId: "view/group-component-widget-unknown",
+        severity: "error",
+        category: "reference",
+        rule: "group.components[].widget существует",
+        message: `View «${c.viewId}», группа «${c.groupId}»: компонент [${c.index}].widget «${c.widget}» не найден среди widgets[] этого view`,
+        hint: "Проверьте id виджета в views[].widgets[]",
+        domainId: c.domainId,
+        propertyPath: `views[${c.viewId}].groups[${c.groupId}].components`,
+      });
+    }
+  }
+}
+
+function checkLinkedObjectsGroups(ctx: LintContext): void {
+  // Индекс join-id из всех transitiveLinkages
+  const knownJoins = new Set<string>();
+  for (const tl of ctx.index.transitiveLinkages || []) {
+    const walk = (joins: any[] | undefined): void => {
+      if (!Array.isArray(joins)) return;
+      for (const j of joins) {
+        if (j?.id) knownJoins.add(String(j.id));
+        if (j?.joins) walk(j.joins);
+      }
+    };
+    walk(tl.joins as any[]);
+  }
+
+  for (const w of ctx.index.viewWidgets) {
+    if (w.type !== "linked_objects_groups") continue;
+
+    const hasLinkages = (w.linkedGroupsLinkages || []).length > 0;
+    const hasJoins = (w.linkedGroupsJoins || []).length > 0;
+
+    if (!hasLinkages && !hasJoins) {
+      emit(ctx, {
+        ruleId: "view/linked-groups-empty",
+        severity: "error",
+        category: "required",
+        rule: "linked_objects_groups требует linkages или joins",
+        message: `Виджет «${w.id}» во view «${w.parentViewId}»: не задано ни linkages, ни joins`,
+        domainId: w.domainId,
+        propertyPath: `views[${w.parentViewId}].widgets[${w.id}]`,
+      });
+    }
+
+    for (const jid of w.linkedGroupsJoins || []) {
+      if (!knownJoins.has(jid)) {
+        emit(ctx, {
+          ruleId: "view/linked-groups-join-unknown",
+          severity: "warning",
+          category: "reference",
+          rule: "linked_objects_groups.joins[] существует",
+          message: `Виджет «${w.id}»: join «${jid}» не найден в transitiveLinkages`,
+          domainId: w.domainId,
+          propertyPath: `views[${w.parentViewId}].widgets[${w.id}].joins`,
+        });
+      }
+    }
+  }
+}
+
+// Константа — вынести наверх (рядом с GRAPH_ICON_COLORS)
+const FORBIDDEN_SORTING_ATTRS = new Set(["id", "tenantId", "organizationId"]);
+
+function checkEntitySorting(ctx: LintContext, e: EntityRecord): void {
+  for (const s of e.sorting || []) {
+    const seen = new Map<string, number>();
+
+    for (const b of s.by) {
+      if (FORBIDDEN_SORTING_ATTRS.has(b.attribute)) {
+        emit(ctx, {
+          ruleId: "entity/sorting-forbidden-attribute",
+          severity: "warning",
+          category: "semantic",
+          rule: "sorting[].by[].attribute не id/tenantId/organizationId",
+          message: `сущность «${e.entityId}», sorting[${s.id}]: атрибут «${b.attribute}» запрещён в сортировке`,
+          hint: "Используйте createdAt или предметный атрибут",
+          domainId: e.domainId,
+          entityFqid: e.fqid,
+          propertyPath: `entities[${e.entityId}].sorting[${s.id}].by`,
+        });
+      }
+      seen.set(b.attribute, (seen.get(b.attribute) || 0) + 1);
+    }
+
+    seen.forEach((count, attr) => {
+      if (count > 1) {
+        emit(ctx, {
+          ruleId: "entity/sorting-duplicate-attribute",
+          severity: "warning",
+          category: "semantic",
+          rule: "sorting[].by[] без дубликатов attribute",
+          message: `сущность «${e.entityId}», sorting[${s.id}]: атрибут «${attr}» указан ${count} раза`,
+          domainId: e.domainId,
+          entityFqid: e.fqid,
+          propertyPath: `entities[${e.entityId}].sorting[${s.id}].by`,
+        });
+      }
+    });
+  }
+}
+
+function checkIdentificationRules(
+  ctx: LintContext,
+  e: EntityRecord,
+  ruleId: string,
+  rules: EntityIdentificationRule[],
+  pathPrefix: string,
+): void {
+  for (let i = 0; i < rules.length; i++) {
+    const r = rules[i];
+    const path = `${pathPrefix}[${i}]`;
+
+    if (r.attribute) {
+      const attr = findAttributeWithInheritance(ctx, e.fqid, r.attribute);
+      if (attr && attr.dataType === "Array") {
+        emit(ctx, {
+          ruleId: "entity/identification-array-attribute",
+          severity: "error",
+          category: "semantic",
+          rule: "identification не использует Array",
+          message: `сущность «${e.entityId}»: identification[${ruleId}]${path}: атрибут «${r.attribute}» имеет тип Array`,
+          hint: "Array нельзя использовать для идентификации — сломает дедупликацию",
+          domainId: e.domainId,
+          entityFqid: e.fqid,
+          attributeId: r.attribute,
+          propertyPath: `entities[${e.entityId}].identification[${ruleId}].rule`,
+        });
+      }
+    }
+
+    if (Array.isArray(r.and)) {
+      checkIdentificationRules(ctx, e, ruleId, r.and, `${path}.and`);
+    }
+    if (Array.isArray(r.or)) {
+      checkIdentificationRules(ctx, e, ruleId, r.or, `${path}.or`);
+    }
+  }
+}
+
+function checkEntityIdentification(ctx: LintContext, e: EntityRecord): void {
+  for (const idr of e.identification || []) {
+    checkIdentificationRules(ctx, e, idr.id, idr.rule || [], "");
+  }
+}
+
+function checkReconciliationOrder(ctx: LintContext, e: EntityRecord): void {
+  const recon = e.reconciliation || [];
+  if (recon.length === 0) return;
+
+  let defaultIndex = -1;
+  let defaultCount = 0;
+
+  for (let i = 0; i < recon.length; i++) {
+    if (recon[i].default && recon[i].default!.length > 0) {
+      defaultCount++;
+      defaultIndex = i;
+    }
+  }
+
+  if (defaultCount > 1) {
+    emit(ctx, {
+      ruleId: "entity/reconciliation-default-multiple",
+      severity: "error",
+      category: "semantic",
+      rule: "reconciliation.default — один раз",
+      message: `сущность «${e.entityId}»: default задан ${defaultCount} раз`,
+      domainId: e.domainId,
+      entityFqid: e.fqid,
+      propertyPath: `entities[${e.entityId}].reconciliation`,
+    });
+  }
+
+  if (defaultIndex >= 0 && defaultIndex !== recon.length - 1) {
+    emit(ctx, {
+      ruleId: "entity/reconciliation-default-not-last",
+      severity: "error",
+      category: "semantic",
+      rule: "reconciliation.default — последний элемент",
+      message: `сущность «${e.entityId}»: default должен быть последним элементом reconciliation`,
+      hint: "Все attribute+sourcePriority должны идти до default",
+      domainId: e.domainId,
+      entityFqid: e.fqid,
+      propertyPath: `entities[${e.entityId}].reconciliation`,
+    });
+  }
+}
+
+function checkReconciliationSources(ctx: LintContext, e: EntityRecord): void {
+  const recon = e.reconciliation || [];
+
+  for (let ri = 0; ri < recon.length; ri++) {
+    const item = recon[ri];
+    const lists: Array<{ name: string; values: string[] }> = [];
+    if (item.sourcePriority && item.sourcePriority.length > 0) {
+      lists.push({ name: "sourcePriority", values: item.sourcePriority });
+    }
+    if (item.default && item.default.length > 0) {
+      lists.push({ name: "default", values: item.default });
+    }
+
+    for (const { name, values } of lists) {
+      const seen = new Set<string>();
+      let asteriskIndex = -1;
+
+      for (let i = 0; i < values.length; i++) {
+        const v = values[i];
+        if (seen.has(v)) {
+          emit(ctx, {
+            ruleId: "entity/reconciliation-duplicate-source",
+            severity: "warning",
+            category: "semantic",
+            rule: `${name}[] без дубликатов source`,
+            message: `сущность «${e.entityId}»: reconciliation[${ri}].${name}: «${v}» повторяется`,
+            domainId: e.domainId,
+            entityFqid: e.fqid,
+            propertyPath: `entities[${e.entityId}].reconciliation`,
+          });
+        }
+        seen.add(v);
+        if (v === "*") asteriskIndex = i;
+      }
+
+      if (asteriskIndex >= 0 && asteriskIndex !== values.length - 1) {
+        emit(ctx, {
+          ruleId: "entity/reconciliation-asterisk-not-last",
+          severity: "warning",
+          category: "semantic",
+          rule: `"*" — последний элемент в ${name}[]`,
+          message: `сущность «${e.entityId}»: reconciliation[${ri}].${name}: "*" должен быть последним`,
+          domainId: e.domainId,
+          entityFqid: e.fqid,
+          propertyPath: `entities[${e.entityId}].reconciliation`,
+        });
+      }
+    }
+  }
+}
+
+function checkLinkageSearchability(ctx: LintContext): void {
+  for (const l of ctx.index.entityLinkages) {
+    if (!l.useForSearch) continue;
+    if (!l.attributes || l.attributes.length === 0) continue;
+
+    const hasSearchable = l.attributes.some((a) => a.searchable !== false);
+    if (!hasSearchable) {
+      emit(ctx, {
+        ruleId: "linkage/use-for-search-no-attributes",
+        severity: "warning",
+        category: "semantic",
+        rule: "useForSearch: true требует хотя бы один searchable атрибут",
+        message: `связь «${l.id}»: useForSearch = true, но все атрибуты связи имеют searchable: false`,
+        hint: "Либо снимите useForSearch, либо отметьте хотя бы один атрибут searchable: true",
+        domainId: l.domainId,
+        propertyPath: `linkages[${l.id}].useForSearch`,
+      });
+    }
+  }
+}
+
+function checkViewEntityExistence(ctx: LintContext): void {
+  for (const [domainId, schema] of Object.entries(ctx.index.schemasByDomain)) {
+    const views = schema?.sections?.views?.items || [];
+    for (const v of views) {
+      if (v.type !== "entity" || !v.entity) continue;
+      const fqid = String(v.entity).includes("/")
+        ? String(v.entity).toLowerCase()
+        : `${domainId}/${String(v.entity)}`.toLowerCase();
+      if (!ctx.index.entitiesByFqid[fqid]) {
+        emit(ctx, {
+          ruleId: "view/entity-unknown",
+          severity: "error",
+          category: "reference",
+          rule: "entity во view существует",
+          message: `View «${v.id}»: entity «${v.entity}» не найдена в домене`,
+          hint: "Проверьте id сущности в entities[] (регистр не важен, но сущность должна существовать)",
+          domainId,
+          propertyPath: `views[${v.id}].entity`,
+        });
       }
     }
   }

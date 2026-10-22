@@ -75,6 +75,9 @@ export interface AttributeRecord {
   comments?: boolean;
   /** Для Table — максимальное число строк. */
   maxRows?: number;
+  /** Значение по умолчанию (Zod: DataTypeDefault). Для сравнения с
+   *  dataRules[].effect: default — Zod-правило проверяет совместимость. */
+  default?: string | number | boolean;
   /** Для Array<...> — constraint-виды элемента. */
   itemConstraints?: string[];
 
@@ -299,7 +302,6 @@ export interface MixinRecord {
 }
 
 // ============ Кастомный тип данных ============
-
 
 export interface DataTypeRecord {
   id: string;
@@ -644,6 +646,11 @@ export interface ViewWidgetRecord {
   // ============ type: join ============
   joinId?: string;
   openView?: string;
+  /** widget.joins[] — транзитивные связи для linked_objects_groups. */
+  linkedGroupsJoins?: string[];
+
+  /** control.displayMode для linked_objects_groups (flat/grouped). */
+  displayMode?: "flat" | "grouped";
 }
 
 export interface ViewActionPanelRecord {
@@ -722,8 +729,11 @@ export interface ModelIndex {
   actionsById: Record<string, ActionRecord>;
   /** PR 6: все группы всех view домена. */
   viewGroups: ViewGroupRecord[];
+  /** group.components[].widget — ссылки на виджеты внутри групп. */
+  viewGroupComponents: ViewGroupComponentRecord[];
   /** PR 6: все виджеты всех view домена. */
   viewWidgets: ViewWidgetRecord[];
+  viewMenuActions: ViewMenuActionRecord[];
   /** PR 6: все ссылки actionPanel[].widget. */
   viewActionPanels: ViewActionPanelRecord[];
   /** PR 6b: все колонки всех table-представлений домена. */
@@ -1183,13 +1193,13 @@ export interface DomainSchemaLocalizationItem {
   keysCount: number;
 }
 
- export interface DomainSchemaExchangeSettingsItem {
-   enable: boolean;
-   entitiesCount: number;
-   label?: string;
-   noCmsSync: boolean;
-   attributeFormats?: ExchangeSettingsAttributeFormats;
- }
+export interface DomainSchemaExchangeSettingsItem {
+  enable: boolean;
+  entitiesCount: number;
+  label?: string;
+  noCmsSync: boolean;
+  attributeFormats?: ExchangeSettingsAttributeFormats;
+}
 
 export interface DomainSchemaSummary {
   domainId: string;
@@ -1303,43 +1313,43 @@ export type DataRuleNested =
   | { type: "table"; attributes: DataRuleNestedAttribute[] }
   | { type: "array"; items: DataRuleNestedItem[] };
 
-   // ============ exchangeSettings ============
+// ============ exchangeSettings ============
 
- export interface ExchangeSettingsAttributeFormats {
-   Date?: string;
-   Time?: string;
-   Timestamp?: string;
-   TimestampRange?: string;
- }
+export interface ExchangeSettingsAttributeFormats {
+  Date?: string;
+  Time?: string;
+  Timestamp?: string;
+  TimestampRange?: string;
+}
 
- export interface ExchangeEntitySettings {
-   /** FQID сущности (lowercase) — из ключа entities[]. */
-   entityFqid: string;
-   /** Оригинальный ключ из YAML — для сообщений линтера. */
-   entityIdRaw: string;
-   domainLabel?: string;
-   enable?: boolean;
-   label?: string;
-   /** Атрибут, по которому идентифицируется сущность (для Reference). */
-   forExport?: string;
-   /** Атрибуты/связи для upsert (распарсенные из строки через запятую). */
-   upsertWith?: string[];
-   /** Атрибуты/связи для игнорирования (распарсенные из строки). */
-   ignoreAttributes?: string[];
-   /** Либо массив id, либо "all". */
-   exportSystemAttributes?: string[] | "all";
-   noCmsSync?: boolean;
- }
+export interface ExchangeEntitySettings {
+  /** FQID сущности (lowercase) — из ключа entities[]. */
+  entityFqid: string;
+  /** Оригинальный ключ из YAML — для сообщений линтера. */
+  entityIdRaw: string;
+  domainLabel?: string;
+  enable?: boolean;
+  label?: string;
+  /** Атрибут, по которому идентифицируется сущность (для Reference). */
+  forExport?: string;
+  /** Атрибуты/связи для upsert (распарсенные из строки через запятую). */
+  upsertWith?: string[];
+  /** Атрибуты/связи для игнорирования (распарсенные из строки). */
+  ignoreAttributes?: string[];
+  /** Либо массив id, либо "all". */
+  exportSystemAttributes?: string[] | "all";
+  noCmsSync?: boolean;
+}
 
- export interface ExchangeSettingsRecord {
-   domainId: string;
-   enable?: boolean;
-   description?: string;
-   label?: string;
-   noCmsSync?: boolean;
-   attributeFormats?: ExchangeSettingsAttributeFormats;
-   entities: ExchangeEntitySettings[];
- }
+export interface ExchangeSettingsRecord {
+  domainId: string;
+  enable?: boolean;
+  description?: string;
+  label?: string;
+  noCmsSync?: boolean;
+  attributeFormats?: ExchangeSettingsAttributeFormats;
+  entities: ExchangeEntitySettings[];
+}
 
 export interface DataRuleRecord {
   id: string;
@@ -1632,6 +1642,12 @@ export interface ActionRecord {
   attribute?: string;
   /** Для open_list — виджет-ссылка. */
   widgetId?: string;
+
+  /** Для type: workflow — целевой статус. */
+  transition?: { to: string };
+
+  /** Для type: open_external_widget_modal — параметры внешнего виджета. */
+  widgetParams?: { widget: string; [key: string]: any };
 }
 
 // ============ PR 6c: filter / sortingBy ============
@@ -1756,4 +1772,27 @@ export interface DomainSchemaWidgetItem {
   type: string;
   description: string;
   label?: string;
+}
+
+export interface ViewMenuActionRecord {
+  domainId: string;
+  /** Top-level view id. */
+  viewId: string;
+  /** Nested panel-view id, в котором объявлен menu[]. */
+  panelViewId: string;
+  /** id действия из menu[i].action. */
+  action: string;
+  /** Индекс в panel.menu[]. */
+  index: number;
+}
+export interface ViewGroupComponentRecord {
+  domainId: string;
+  /** id top-level view. */
+  viewId: string;
+  /** id группы, в которой объявлен компонент. */
+  groupId: string;
+  /** id виджета (может быть `external:*` или FQID). */
+  widget: string;
+  /** Индекс компонента в group.components[]. */
+  index: number;
 }

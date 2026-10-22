@@ -5,26 +5,30 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Domain Graph Analyzer</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='8' cy='8' r='4' fill='%236366f1'/%3E%3Ccircle cx='24' cy='8' r='4' fill='%2310b981'/%3E%3Ccircle cx='16' cy='24' r='4' fill='%23f59e0b'/%3E%3Cpath d='M8 8 L24 8 M8 8 L16 24 M24 8 L16 24' stroke='%236366f1' stroke-width='1.5' fill='none'/%3E%3C/svg%3E">
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0,0&display=block">
-<link rel="stylesheet" href="https://esm.sh/reactflow@11.11.4/dist/style.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reactflow@11.11.4/dist/style.css" />
 <link rel="stylesheet" href="/web.bundle.css" />
+
 <script type="importmap">
 {
   "imports": {
-    "react": "https://esm.sh/react@18.2.0",
-    "react/": "https://esm.sh/react@18.2.0/",
-    "react-dom": "https://esm.sh/react-dom@18.2.0?external=react&dev",
-    "react-dom/": "https://esm.sh/react-dom@18.2.0/",
+    "react": "https://cdn.jsdelivr.net/npm/react@18.2.0/+esm",
+    "react/jsx-runtime": "https://cdn.jsdelivr.net/npm/react@18.2.0/jsx-runtime.js/+esm",
+    "react-dom": "https://cdn.jsdelivr.net/npm/react-dom@18.2.0/+esm",
+    "react-dom/client": "https://cdn.jsdelivr.net/npm/react-dom@18.2.0/client.js/+esm",
     "reactflow": "https://esm.sh/reactflow@11.11.4?external=react,react-dom",
-    "dagre": "https://esm.sh/dagre@0.8.5",
-    "zustand": "https://esm.sh/zustand@4.5.2?external=react",
-    "zustand/": "https://esm.sh/zustand@4.5.2/"
+    "dagre": "https://cdn.jsdelivr.net/npm/@dagrejs/dagre@3.1.1/+esm",
+     "zustand": "https://esm.sh/zustand@4.5.2?external=react"
   }
 }
 </script>
-</script>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.52.2/min/vs/loader.min.js"></script>
 </head>
 <body>
