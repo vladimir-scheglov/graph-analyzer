@@ -9,6 +9,7 @@ import { scanRqlInText } from "./rql-check";
 
 import type {
   DomainSchemaAllViewItem,
+  EntityLinkage,
   ViewElementRef,
 } from "../../../shared/model-types";
 
@@ -40,6 +41,14 @@ const SYSTEM_ATTRIBUTES_FOR_COMPLETION: Array<{
   { id: "entityId", dataType: "String", description: "Идентификатор сущности" },
   { id: "entityName", dataType: "String", description: "Название сущности" },
 ];
+
+interface AttributeCompletionContext {
+  kind: "entity" | "linkage" | "unknown" | "precomputed";
+  entityFqid?: string;
+  linkageId?: string;
+  linkageAttributes?: any[];
+  precomputedItems?: RefSuggestion[];
+}
 
 /**
  * Возвращает текущее значение `type:` у action-блока, в котором находится
@@ -2401,8 +2410,13 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "Скрыть значение из выбора",
     },
   ],
-  searchingObject: [
-    { name: "attributes", type: "array", description: "Атрибуты для поиска" },
+  searchingItem: [
+    {
+      name: "attribute",
+      type: "ref",
+      description: "Атрибут сущности для поиска",
+      required: true,
+    },
   ],
   sourceObject: [
     {
@@ -5333,6 +5347,54 @@ const SNIPPETS: SnippetDef[] = [
   },
 ];
 
+/**
+ * true, если курсор стоит на `- <partial>` внутри `searching:` сущности.
+ * Покрывает оба стиля YAML (короткий и с доп. отступом) и partial-ввод
+ * (`- `, `- a`, `- attr`).
+ */
+function isAtSearchingItemStart(model: any, position: any): boolean {
+  const lineText = model.getLineContent(position.lineNumber);
+  const before = lineText.slice(0, position.column - 1);
+
+  if (!/^\s*-\s*[a-zA-Z_]*\s*$/.test(before)) return false;
+
+  const currentIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
+
+  // Только внутри entities[] (searching бывает только там)
+  let section = "";
+  for (let i = position.lineNumber - 1; i >= 1; i--) {
+    const pl = model.getLineContent(i);
+    const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
+    if (pIndent === 0) {
+      const m = pl.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (m) {
+        section = m[1];
+        break;
+      }
+    }
+  }
+  if (section !== "entities") return false;
+
+  // Walk-up: пропускаем sibling-элементы списка, ищем `searching:`
+  for (let i = position.lineNumber - 1; i >= 1; i--) {
+    const pl = model.getLineContent(i);
+    if (!pl.trim() || pl.trim().startsWith("#")) continue;
+    const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
+
+    // Предыдущий `- xxx:` на нашем indent — sibling, пропускаем
+    if (pIndent === currentIndent && /^\s*-\s+\S/.test(pl)) {
+      continue;
+    }
+
+    if (pIndent <= currentIndent) {
+      if (/^\s*searching\s*:\s*$/.test(pl)) return true;
+      // Другой ключ выше — не searching
+      return false;
+    }
+  }
+  return false;
+}
+
 // ============ Определение контекста ============
 /**
  * Определяет контекст для полей внутри элементов массивов
@@ -5419,6 +5481,11 @@ export function detectContextAtPosition(
   position: any,
   _lineContexts: Map<number, any>,
 ): string | null {
+  // ===== searching[]: `- <partial>` внутри searching: → предлагаем `attribute:` =====
+  if (isAtSearchingItemStart(model, position)) {
+    return "searchingItem";
+  }
+
   // ===== Pre-check: 2+ поля внутри элементов массивов =====
   const arrayCtx = detectArrayItemContext(model, position);
   if (arrayCtx) return arrayCtx;
@@ -5676,7 +5743,6 @@ export function detectContextAtPosition(
   }
   if (parentKey === "sorting") return "sortingItem";
   if (parentKey === "by") return "sortingByItem";
-  if (parentKey === "searching") return "searchingObject";
   if (parentKey === "identification") return "identificationItem";
   if (parentKey === "reconciliation") return "reconciliationItem";
   if (parentKey === "projection") return "projectionItem";
@@ -6054,8 +6120,10 @@ interface CollectionsCache {
   widgets?: SectionRef[];
   groups?: SectionRef[];
   columns?: SectionRef[];
-  attributes?: RefSuggestion[];
+  /** Ключ — "entity:<fqid>" | "linkage:<id>" | "__unknown__". */
+  attributes?: Map<string, RefSuggestion[]>;
   scenarios?: RefSuggestion[];
+  joinTargetIndex?: Map<string, { targetFqid: string; linkageFqid: string }>;
 }
 
 const _colCache: CollectionsCache = { indexRef: null, domainRef: null };
@@ -6081,6 +6149,7 @@ function ensureCache(): CollectionsCache {
     _colCache.columns = undefined;
     _colCache.attributes = undefined;
     _colCache.scenarios = undefined;
+    _colCache.joinTargetIndex = undefined;
   }
   return _colCache;
 }
@@ -6194,14 +6263,16 @@ function getDataTypeStatuses(model: any, position: any): string[] {
   return Array.isArray(dt.statuses) ? dt.statuses : [];
 }
 
-function cachedAttributes(): RefSuggestion[] {
-  const c = ensureCache();
-  if (c.attributes) return c.attributes;
+/** Строит список атрибутов с учётом контекста сущности. */
+function computeAttributesForEntity(
+  entityFqid: string | null,
+  includeAllDomain: boolean,
+): RefSuggestion[] {
   const cur = (ctx.currentDomainId || "").toLowerCase();
   const seen = new Set<string>();
   const out: RefSuggestion[] = [];
 
-  // ============ Системные атрибуты — всегда доступны ============
+  // 1. Системные атрибуты
   SYSTEM_ATTRIBUTES_FOR_COMPLETION.forEach((sys) => {
     seen.add(sys.id);
     out.push({
@@ -6214,7 +6285,7 @@ function cachedAttributes(): RefSuggestion[] {
     });
   });
 
-  const mkDoc = (a: any, contextLabel: string) => {
+  const mkDoc = (a: any, contextLabel: string): string => {
     const parts: string[] = [];
     if (a.dataType) parts.push(a.dataType);
     if (a.description) parts.push(a.description);
@@ -6224,38 +6295,1051 @@ function cachedAttributes(): RefSuggestion[] {
     return parts.join(" · ");
   };
 
-  ctx.modelIndex?.entities?.forEach((e: any) => {
-    if ((e.domainId || "").toLowerCase() !== cur) return;
-    e.attributes?.forEach((a: any) => {
-      if (a?.id && !seen.has(a.id)) {
-        seen.add(a.id);
-        out.push({
-          label: a.id,
-          insertText: " " + a.id,
-          kind: 0,
-          sortText: "0_" + a.id,
-          detail: `entity: ${e.entityId}`,
-          documentation: mkDoc(a, `entity: ${e.entityId}`),
-        });
-      }
-      a?.nestedAttributes?.forEach((na: any) => {
-        if (na?.id && !seen.has(na.id)) {
-          seen.add(na.id);
-          out.push({
-            label: na.id,
-            insertText: " " + na.id,
-            kind: 0,
-            sortText: "1_" + na.id,
-            detail: `table: ${e.entityId}.${a.id}`,
-            documentation: mkDoc(na, `table: ${e.entityId}.${a.id}`),
-          });
-        }
+  const pushAttr = (
+    e: any,
+    a: any,
+    prefix: string,
+    contextLabel: string,
+  ): void => {
+    if (!a?.id || seen.has(a.id)) return;
+    seen.add(a.id);
+    out.push({
+      label: a.id,
+      insertText: " " + a.id,
+      kind: 0,
+      sortText: prefix + a.id,
+      detail: contextLabel,
+      documentation: mkDoc(a, contextLabel),
+    });
+    a.nestedAttributes?.forEach((na: any) => {
+      if (!na?.id || seen.has(na.id)) return;
+      seen.add(na.id);
+      out.push({
+        label: na.id,
+        insertText: " " + na.id,
+        kind: 0,
+        sortText: "1_" + na.id,
+        detail: `table: ${e.entityId}.${a.id}`,
+        documentation: mkDoc(na, `table: ${e.entityId}.${a.id}`),
       });
     });
-  });
-  c.attributes = out;
+  };
+
+  // 2. Цепочка наследования: self → ancestor
+  if (entityFqid && ctx.modelIndex) {
+    const start = ctx.modelIndex.entitiesByFqid[entityFqid.toLowerCase()];
+    if (start) {
+      const chain: any[] = [];
+      const visited = new Set<string>();
+      let e: any = start;
+      while (e && !visited.has(e.fqid)) {
+        visited.add(e.fqid);
+        chain.push(e);
+        e = e.inherits ? ctx.modelIndex.entitiesByFqid[e.inherits] : undefined;
+      }
+      chain.forEach((e, idx) => {
+        const isSelf = idx === 0;
+        const prefix = isSelf ? "0_" : "1_";
+        const contextLabel = isSelf
+          ? `entity: ${e.entityId}`
+          : `inherited from ${e.entityId}`;
+        e.attributes?.forEach((a: any) => pushAttr(e, a, prefix, contextLabel));
+      });
+    }
+  }
+
+  // 3. Остальные атрибуты домена — только если контекст не определён
+  //    или явно попросили (includeAllDomain). SortText 9_ — в самом низу.
+  if (includeAllDomain) {
+    ctx.modelIndex?.entities?.forEach((e: any) => {
+      if ((e.domainId || "").toLowerCase() !== cur) return;
+      e.attributes?.forEach((a: any) =>
+        pushAttr(e, a, "9_", `entity: ${e.entityId}`),
+      );
+    });
+  }
+
   return out;
 }
+
+function computeAttributesForContext(
+  context: AttributeCompletionContext,
+): RefSuggestion[] {
+  if (context.kind === "precomputed") {
+    return context.precomputedItems || [];
+  }
+  const out: RefSuggestion[] = [];
+  const seen = new Set<string>();
+
+  const mkDoc = (a: any, contextLabel: string): string => {
+    const parts: string[] = [];
+    if (a.dataType) parts.push(a.dataType);
+    if (a.description) parts.push(a.description);
+    if (a.constraints?.length)
+      parts.push(`constraints: ${a.constraints.join(", ")}`);
+    parts.push(contextLabel);
+    return parts.join(" · ");
+  };
+
+  const pushAttr = (
+    ownerLabel: string,
+    a: any,
+    prefix: string,
+    contextLabel: string,
+  ): void => {
+    if (!a?.id || seen.has(a.id)) return;
+    seen.add(a.id);
+    out.push({
+      label: a.id,
+      insertText: " " + a.id,
+      kind: 0,
+      sortText: prefix + a.id,
+      detail: contextLabel,
+      documentation: mkDoc(a, contextLabel),
+    });
+    a.nestedAttributes?.forEach((na: any) => {
+      if (!na?.id || seen.has(na.id)) return;
+      seen.add(na.id);
+      out.push({
+        label: na.id,
+        insertText: " " + na.id,
+        kind: 0,
+        sortText: "1_" + na.id,
+        detail: `table: ${ownerLabel}.${a.id}`,
+        documentation: mkDoc(na, `table: ${ownerLabel}.${a.id}`),
+      });
+    });
+  };
+
+  // 1. Собственные + унаследованные (self → ancestors)
+  if (context.kind === "entity" && context.entityFqid) {
+    const start = ctx.modelIndex?.entitiesByFqid[context.entityFqid];
+    if (start) {
+      const chain: any[] = [];
+      const visited = new Set<string>();
+      let e: any = start;
+      while (e && !visited.has(e.fqid)) {
+        visited.add(e.fqid);
+        chain.push(e);
+        e = e.inherits ? ctx.modelIndex?.entitiesByFqid[e.inherits] : undefined;
+      }
+      chain.forEach((e: any, idx: number) => {
+        const isSelf = idx === 0;
+        const prefix = isSelf ? "0_" : "1_";
+        const contextLabel = isSelf
+          ? `entity: ${e.entityId}`
+          : `inherited from ${e.entityId}`;
+        e.attributes?.forEach((a: any) =>
+          pushAttr(e.entityId, a, prefix, contextLabel),
+        );
+      });
+    }
+  }
+
+  // 2. Атрибуты связи (self)
+  if (context.kind === "linkage") {
+    (context.linkageAttributes || []).forEach((a: any) =>
+      pushAttr(
+        context.linkageId || "?",
+        a,
+        "0_",
+        `linkage: ${context.linkageId}`,
+      ),
+    );
+  }
+
+  // 3. Системные — в самом конце (только для entity/linkage)
+  if (context.kind === "entity" || context.kind === "linkage") {
+    SYSTEM_ATTRIBUTES_FOR_COMPLETION.forEach((sys) => {
+      if (seen.has(sys.id)) return;
+      seen.add(sys.id);
+      out.push({
+        label: sys.id,
+        insertText: " " + sys.id,
+        kind: 0,
+        sortText: "2_" + sys.id,
+        detail: sys.dataType,
+        documentation: sys.description + " · системный",
+      });
+    });
+  }
+
+  // 4. Fallback (unknown-контекст): все атрибуты домена в самом низу
+  if (context.kind === "unknown") {
+    const cur = (ctx.currentDomainId || "").toLowerCase();
+    ctx.modelIndex?.entities?.forEach((e: any) => {
+      if ((e.domainId || "").toLowerCase() !== cur) return;
+      e.attributes?.forEach((a: any) =>
+        pushAttr(e.entityId, a, "9_", `entity: ${e.entityId}`),
+      );
+    });
+    // системные в fallback — тоже внизу, но перед чужими
+    SYSTEM_ATTRIBUTES_FOR_COMPLETION.forEach((sys) => {
+      if (seen.has(sys.id)) return;
+      seen.add(sys.id);
+      out.push({
+        label: sys.id,
+        insertText: " " + sys.id,
+        kind: 0,
+        sortText: "8_" + sys.id,
+        detail: sys.dataType,
+        documentation: sys.description + " · системный",
+      });
+    });
+  }
+
+  return out;
+}
+
+function unquote(v: string): string {
+  const t = v.replace(/\s+#.*$/, "").trim();
+  if (
+    (t.startsWith('"') && t.endsWith('"')) ||
+    (t.startsWith("'") && t.endsWith("'"))
+  ) {
+    return t.slice(1, -1);
+  }
+  return t;
+}
+
+/**
+ * Ищет `fieldName:` среди прямых sibling-полей текущего YAML-блока
+ * (например, `join:` рядом с `attribute:` в блоке `- attribute: ...`).
+ */
+function findSiblingFieldValue(
+  model: any,
+  position: any,
+  fieldName: string,
+): string | null {
+  const lineCount = model.getLineCount();
+  const currentLine = position.lineNumber;
+  const lineText = model.getLineContent(currentLine);
+  const currentIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
+
+  // Границы текущего `- <key>:` блока
+  let blockStart = -1;
+  let blockDashIndent = -1;
+  for (let i = currentLine; i >= 1; i--) {
+    const l = model.getLineContent(i);
+    const dashMatch = l.match(/^(\s*)-\s+\S/);
+    if (dashMatch && dashMatch[1].length < currentIndent) {
+      blockStart = i;
+      blockDashIndent = dashMatch[1].length;
+      break;
+    }
+  }
+  if (blockStart < 0) return null;
+
+  let blockEnd = lineCount;
+  for (let i = blockStart + 1; i <= lineCount; i++) {
+    const l = model.getLineContent(i);
+    const dashMatch = l.match(/^(\s*)-\s+\S/);
+    if (dashMatch && dashMatch[1].length === blockDashIndent) {
+      blockEnd = i - 1;
+      break;
+    }
+  }
+
+  const re = /^(\s*)(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*(.+?)\s*$/;
+  for (let i = blockStart; i <= blockEnd; i++) {
+    const l = model.getLineContent(i);
+    const m = l.match(re);
+    if (!m) continue;
+    if (m[2] !== fieldName) continue;
+    return unquote(m[3]);
+  }
+  return null;
+}
+
+/**
+ * Идёт вверх по YAML-уровням, ища `fieldName:` в одном из родительских
+ * блоков (например, `linkage:` на уровне `- id: widget_xxx`, когда мы
+ * находимся в `widgets[].attributes[].attribute:`).
+ */
+function findAncestorFieldValue(
+  model: any,
+  position: any,
+  fieldName: string,
+  maxLevelsUp = 5,
+): string | null {
+  const lineCount = model.getLineCount();
+  const currentLine = position.lineNumber;
+  const lineText = model.getLineContent(currentLine);
+  let currentIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
+
+  for (let level = 0; level < maxLevelsUp; level++) {
+    // Родительский блок: первая строка выше с меньшим indent
+    let parentStartLine = -1;
+    let parentIndent = -1;
+    for (let i = currentLine - 1; i >= 1; i--) {
+      const l = model.getLineContent(i);
+      if (!l.trim() || l.trim().startsWith("#")) continue;
+      const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
+      if (ind < currentIndent) {
+        parentStartLine = i;
+        parentIndent = ind;
+        break;
+      }
+    }
+    if (parentStartLine < 0) return null;
+
+    let parentEndLine = lineCount;
+    for (let i = parentStartLine + 1; i <= lineCount; i++) {
+      const l = model.getLineContent(i);
+      if (!l.trim()) continue;
+      const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
+      if (ind <= parentIndent) {
+        parentEndLine = i - 1;
+        break;
+      }
+    }
+
+    const re = /^(\s*)(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*(.+?)\s*$/;
+    for (let i = parentStartLine; i <= parentEndLine; i++) {
+      const l = model.getLineContent(i);
+      const m = l.match(re);
+      if (!m) continue;
+      const ind = m[1].length;
+      if (ind !== parentIndent && ind !== parentIndent + 2) continue;
+      if (m[2] !== fieldName) continue;
+      return unquote(m[3]);
+    }
+
+    currentIndent = parentIndent;
+  }
+  return null;
+}
+
+function buildJoinTargetIndex(): Map<
+  string,
+  { targetFqid: string; linkageFqid: string }
+> {
+  const map = new Map<string, { targetFqid: string; linkageFqid: string }>();
+
+  const linkageMap = new Map<string, any>();
+  for (const l of ctx.modelIndex?.entityLinkages || []) {
+    linkageMap.set(`${l.domainId}/${l.id}`.toLowerCase(), l);
+  }
+
+  const getChildEntity = (
+    linkageFqid: string,
+    parentFqid: string,
+    side: 1 | 2 | undefined,
+  ): string | null => {
+    const linkage = linkageMap.get(linkageFqid.toLowerCase());
+    if (!linkage) return null;
+    const parentLower = parentFqid.toLowerCase();
+    const s1 = linkage.side1Fqid;
+    const s2 = linkage.side2Fqid;
+
+    if (s1 === s2) return s1 === parentLower ? s2 : null;
+
+    const effectiveSide: 1 | 2 = side === 2 ? 2 : 1;
+    const parentSide = effectiveSide === 1 ? s1 : s2;
+    const childSide = effectiveSide === 1 ? s2 : s1;
+    if (parentSide === parentLower) return childSide;
+    if (s1 === parentLower) return s2;
+    if (s2 === parentLower) return s1;
+    return null;
+  };
+
+  const walk = (
+    domainId: string,
+    parentFqid: string,
+    joins: any[] | undefined,
+  ): void => {
+    if (!joins) return;
+    for (const j of joins) {
+      if (!j || typeof j !== "object") continue;
+      if (typeof j.id !== "string" || !j.id) continue;
+      if (typeof j.linkage !== "string" || !j.linkage) continue;
+      const linkageFqid = j.linkage.includes("/")
+        ? j.linkage.toLowerCase()
+        : `${domainId}/${j.linkage}`.toLowerCase();
+      const child = getChildEntity(
+        linkageFqid,
+        parentFqid,
+        j.side === 1 || j.side === 2 ? j.side : undefined,
+      );
+      if (!child) continue;
+      const key = `${domainId}#${j.id}`.toLowerCase();
+      if (!map.has(key)) map.set(key, { targetFqid: child, linkageFqid });
+      walk(domainId, child, j.joins);
+    }
+  };
+
+  for (const tl of ctx.modelIndex?.transitiveLinkages || []) {
+    walk(tl.domainId, tl.entity.toLowerCase(), tl.joins as any[]);
+  }
+  return map;
+}
+
+function findLinkageByRef(
+  ref: string,
+  currentDomain: string,
+): EntityLinkage | null {
+  const trimmed = (ref || "").trim();
+  if (!trimmed) return null;
+  const slash = trimmed.indexOf("/");
+  const targetDomain =
+    slash > 0
+      ? trimmed.slice(0, slash).toLowerCase()
+      : currentDomain.toLowerCase();
+  const id = slash > 0 ? trimmed.slice(slash + 1) : trimmed;
+  return (
+    (ctx.modelIndex?.entityLinkages || []).find(
+      (l) => (l.domainId || "").toLowerCase() === targetDomain && l.id === id,
+    ) || null
+  );
+}
+
+/**
+ * Резолвит join-id (list-view legacy `source.joins[]`) в FQID
+ * «противоположной» сущности от `source.entity` этого view.
+ */
+function resolveJoinTargetFqid(
+  joinId: string,
+  viewId: string | null,
+  currentDomain: string,
+): string | null {
+  if (!joinId) return null;
+
+  // (1) legacy view.source.joins — как в linter.ts (приоритет первый)
+  if (viewId) {
+    const srcJoin = (ctx.modelIndex?.viewSourceJoins || []).find(
+      (j) =>
+        j.domainId.toLowerCase() === currentDomain &&
+        j.viewId === viewId &&
+        j.id === joinId,
+    );
+    if (srcJoin) {
+      const lk = findLinkageByRef(srcJoin.linkage, currentDomain);
+      const schema = ctx.modelIndex?.schemasByDomain?.[currentDomain];
+      const viewItem = schema?.sections?.views?.items?.find(
+        (v) => v.id === viewId,
+      );
+      const sourceEntity = viewItem?.sourceEntity;
+      if (lk && sourceEntity) {
+        const srcFqid = sourceEntity.includes("/")
+          ? sourceEntity.toLowerCase()
+          : `${currentDomain}/${sourceEntity}`.toLowerCase();
+        if (lk.side1Fqid === srcFqid) return lk.side2Fqid;
+        if (lk.side2Fqid === srcFqid) return lk.side1Fqid;
+      }
+    }
+  }
+
+  // (2) transitiveLinkages (глобально; приоритет — текущий домен)
+  const c = ensureCache();
+  if (!c.joinTargetIndex) {
+    c.joinTargetIndex = buildJoinTargetIndex();
+  }
+  const direct = c.joinTargetIndex.get(
+    `${currentDomain}#${joinId}`.toLowerCase(),
+  );
+  if (direct) return direct.targetFqid;
+
+  // (3) fallback: join-id из другого домена (редко, но по docs возможно)
+  const suffix = `#${joinId.toLowerCase()}`;
+  for (const [k, v] of c.joinTargetIndex) {
+    if (k.endsWith(suffix)) return v.targetFqid;
+  }
+  return null;
+}
+
+/**
+ * Внутри `widget`-а определяет, в каком из его «содержательных» полей
+ * находится cursor:
+ *   - "attributes"       — legacy `widgets[].attributes[].attribute`
+ *                          (массив атрибутов связи)
+ *   - "control.columns"  — `widgets[].control.columns[].attribute`
+ *                          (атрибут связанной сущности)
+ *   - null               — не в этих полях
+ */
+function detectWidgetFieldContainer(
+  model: any,
+  position: any,
+): "attributes" | "control.columns" | null {
+  const lineText = model.getLineContent(position.lineNumber);
+  const currentIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
+
+  let sawColumns = false;
+
+  for (let i = position.lineNumber - 1; i >= 1; i--) {
+    const l = model.getLineContent(i);
+    if (!l.trim() || l.trim().startsWith("#")) continue;
+    const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind >= currentIndent) continue;
+
+    const trimmed = l.trim();
+    if (/^columns\s*:\s*$/.test(trimmed)) {
+      sawColumns = true;
+      continue;
+    }
+    if (/^attributes\s*:\s*$/.test(trimmed)) {
+      return sawColumns ? "control.columns" : "attributes";
+    }
+    if (/^[a-zA-Z_][\w]*\s*:/.test(trimmed)) {
+      // Другой контейнер — если уже прошли columns, значит это control.columns
+      return sawColumns ? "control.columns" : null;
+    }
+  }
+  return sawColumns ? "control.columns" : null;
+}
+
+/** Противоположная сторона связи widget.linkage относительно view.entity. */
+function computeOppositeEntityForWidget(
+  widget: any,
+  viewId: string | null,
+  currentDomain: string,
+): string | null {
+  if (!viewId || !widget?.linkage) return null;
+  const schema = ctx.modelIndex?.schemasByDomain?.[currentDomain];
+  const viewItem = schema?.sections?.views?.items?.find((v) => v.id === viewId);
+  const viewEntityRaw = viewItem?.entity || viewItem?.sourceEntity;
+  if (!viewEntityRaw) return null;
+
+  const viewFqid = String(viewEntityRaw).includes("/")
+    ? String(viewEntityRaw).toLowerCase()
+    : `${currentDomain}/${viewEntityRaw}`.toLowerCase();
+
+  const lk = findLinkageByRef(widget.linkage, currentDomain);
+  return computeOppositeEntityForLinkage(lk, viewFqid);
+}
+
+/** Резолвит FQID сущности для строки YAML (self/inherits-aware). */
+function detectEntityFqidForPosition(model: any, position: any): string | null {
+  const cur = (ctx.currentDomainId || "").toLowerCase();
+  if (!cur || !ctx.lineMap || !ctx.modelIndex) return null;
+
+  const lineCtx = ctx.lineMap.lineContexts.get(position.lineNumber);
+  if (!lineCtx) return null;
+
+  // 1. Прямой контекст сущности (entities[])
+  if (lineCtx.entityId) {
+    return `${cur}/${lineCtx.entityId}`.toLowerCase();
+  }
+
+  const schema = ctx.modelIndex.schemasByDomain?.[cur];
+  if (!schema) return null;
+
+  // 2. Контекст top-level view
+  const viewCrumb = lineCtx.breadcrumbs.find((b) => b.type === "view");
+  if (viewCrumb) {
+    const viewItem = schema.sections.views.items?.find(
+      (v) => v.id === viewCrumb.id,
+    );
+    const viewEntity = viewItem?.entity || viewItem?.sourceEntity;
+    if (viewEntity) {
+      return viewEntity.includes("/")
+        ? viewEntity.toLowerCase()
+        : `${cur}/${viewEntity}`.toLowerCase();
+    }
+  }
+
+  // 3. Контекст dataRule
+  const drCrumb = lineCtx.breadcrumbs.find((b) => b.type === "dataRule");
+  if (drCrumb) {
+    const drItem = ctx.modelIndex.dataRules.find(
+      (r: any) =>
+        (r.domainId || "").toLowerCase() === cur && r.id === drCrumb.id,
+    );
+    if (drItem?.entity) return drItem.entity;
+  }
+
+  // 4. Контекст action
+  const actCrumb = lineCtx.breadcrumbs.find((b) => b.type === "action");
+  if (actCrumb) {
+    const actItem = ctx.modelIndex.actions.find(
+      (a: any) =>
+        (a.domainId || "").toLowerCase() === cur && a.id === actCrumb.id,
+    );
+    if (actItem?.entity) return actItem.entity;
+  }
+
+  return null;
+}
+
+/**
+ * Определяет, к чему относится поле `attribute:` в текущей позиции.
+ *
+ * Приоритет:
+ *   1. linkаge-контекст (linkages[].sorting[].by[].attribute) → linkage.attributes
+ *   2. entity-контекст (widgets[].attribute, columns[].attribute,
+ *      searching[].attribute, sorting[].by[].attribute, projection[], …)
+ *   3. unknown (fallback) — все атрибуты домена
+ */
+function detectAttributeCompletionContext(
+  model: any,
+  position: any,
+): AttributeCompletionContext | null {
+  const cur = (ctx.currentDomainId || "").toLowerCase();
+  if (!cur || !ctx.lineMap || !ctx.modelIndex) {
+    return { kind: "unknown" };
+  }
+
+  const lineCtx = ctx.lineMap.lineContexts.get(position.lineNumber);
+  if (!lineCtx) return { kind: "unknown" };
+
+  // 1. linkages[].sorting[].by[].attribute — linkage как «self»
+  const lkCrumb = lineCtx.breadcrumbs.find((b) => b.type === "linkage");
+  if (lkCrumb) {
+    const lk = findLinkageByRef(lkCrumb.id, cur);
+    return {
+      kind: "linkage",
+      linkageId: lkCrumb.id,
+      linkageAttributes: lk?.attributes || [],
+    };
+  }
+
+  // 2. filter.linkages.use[].link_attributes[] / linkedEntity[]
+  const filterCtx = detectFilterLinkageContext(model, position, lineCtx);
+  if (filterCtx) {
+    if (filterCtx.mode === "link_attributes") {
+      if (filterCtx.linkageRecord) {
+        return {
+          kind: "linkage",
+          linkageId: filterCtx.linkageRecord.id,
+          linkageAttributes: filterCtx.linkageRecord.attributes || [],
+        };
+      }
+      return null;
+    }
+    if (filterCtx.joinTargetFqid) {
+      return { kind: "entity", entityFqid: filterCtx.joinTargetFqid };
+    }
+    if (filterCtx.linkageRecord && filterCtx.viewEntityFqid) {
+      const opposite = computeOppositeEntityForLinkage(
+        filterCtx.linkageRecord,
+        filterCtx.viewEntityFqid,
+      );
+      if (opposite) return { kind: "entity", entityFqid: opposite };
+    }
+    return null;
+  }
+
+  // 3. NEW (B4.1): prefixRules[].source.key/value
+  const prefixCtx = detectPrefixRuleSourceContext(model, position, cur);
+  if (prefixCtx) return prefixCtx;
+
+  // 4. NEW (B4.2): uiRule.widgets[].nested.attributes[].attribute
+  const uiRuleNestedCtx = detectUiRuleNestedAttributeContext(
+    model,
+    position,
+    lineCtx,
+  );
+  if (uiRuleNestedCtx) return uiRuleNestedCtx;
+
+  // 5. sibling join: → target entity
+  const siblingJoin = findSiblingFieldValue(model, position, "join");
+  if (siblingJoin) {
+    const viewCrumb = lineCtx.breadcrumbs.find((b) => b.type === "view");
+    const targetFqid = resolveJoinTargetFqid(
+      siblingJoin,
+      viewCrumb?.id || null,
+      cur,
+    );
+    if (targetFqid) return { kind: "entity", entityFqid: targetFqid };
+  }
+
+  // 6. widget.type=linkage
+  const widgetCrumb = lineCtx.breadcrumbs.find((b) => b.type === "widget");
+  if (widgetCrumb) {
+    const vCrumb = lineCtx.breadcrumbs.find((b) => b.type === "view");
+    const widget = (ctx.modelIndex.viewWidgets || []).find(
+      (w: any) =>
+        w.id === widgetCrumb.id && (!vCrumb || w.parentViewId === vCrumb.id),
+    );
+    if (widget?.type === "linkage" && widget.linkage) {
+      const container = detectWidgetFieldContainer(model, position);
+      if (container === "attributes") {
+        const lk = findLinkageByRef(widget.linkage, cur);
+        return {
+          kind: "linkage",
+          linkageId: lk?.id || widget.linkage,
+          linkageAttributes: lk?.attributes || [],
+        };
+      }
+      if (container === "control.columns") {
+        const opposite = computeOppositeEntityForWidget(
+          widget,
+          vCrumb?.id || null,
+          cur,
+        );
+        if (opposite) return { kind: "entity", entityFqid: opposite };
+      }
+    }
+  }
+
+  // 7. ancestor linkage
+  const ancestorLinkage = findAncestorFieldValue(model, position, "linkage");
+  if (ancestorLinkage) {
+    const lk = findLinkageByRef(ancestorLinkage, cur);
+    if (lk) {
+      return {
+        kind: "linkage",
+        linkageId: lk.id,
+        linkageAttributes: lk.attributes || [],
+      };
+    }
+  }
+
+  // 8. NEW (B4.3/B4.4): tree-filter[].entity
+  const filterEntityFqid = findFilterEntityFqid(model, position, cur);
+  if (filterEntityFqid) {
+    return { kind: "entity", entityFqid: filterEntityFqid };
+  }
+
+  // 9. entity crumb (list-view source.entity)
+  const entityFqid = detectEntityFqidForPosition(model, position);
+  if (entityFqid) return { kind: "entity", entityFqid };
+
+  return { kind: "unknown" };
+}
+
+interface FilterLinkageContext {
+  mode: "link_attributes" | "linkedEntity";
+  linkageRecord: any | null;
+  joinTargetFqid: string | null;
+  viewEntityFqid: string | null;
+}
+
+/**
+ * Возвращает FQID сущности для tree-view filter-блока:
+ *   views[type=tree].table.filter[i].entity
+ * Для list-view (filter: без entity:) — возвращает null.
+ * Для любого не-views контекста — null.
+ */
+function findFilterEntityFqid(
+  model: any,
+  position: any,
+  currentDomain: string,
+): string | null {
+  const lineText = model.getLineContent(position.lineNumber);
+  const currentIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
+
+  for (let i = position.lineNumber - 1; i >= 1; i--) {
+    const l = model.getLineContent(i);
+    if (!l.trim() || l.trim().startsWith("#")) continue;
+    const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind >= currentIndent) continue;
+    const trimmed = l.trim();
+
+    // `- entity:` / `entity:` — tree-filter
+    const em = trimmed.match(/^(?:-\s+)?entity\s*:\s*(.+?)\s*$/);
+    if (em) {
+      const v = unquote(em[1]);
+      return v.includes("/")
+        ? v.toLowerCase()
+        : `${currentDomain}/${v}`.toLowerCase();
+    }
+
+    // `filter:` на list-уровне — сущности нет, дальше не ищем
+    if (/^filter\s*:\s*$/.test(trimmed)) return null;
+
+    // вышли за пределы filter/table — стоп
+    if (/^(table|source|views?)\s*:/.test(trimmed)) return null;
+  }
+  return null;
+}
+
+/**
+ * cursor внутри `prefixRules[].source.key:` или `source.value:` →
+ * контекст = сущность из sibling `source.entity`.
+ */
+function detectPrefixRuleSourceContext(
+  model: any,
+  position: any,
+  cur: string,
+): AttributeCompletionContext | null {
+  const lineText = model.getLineContent(position.lineNumber);
+
+  // Мы точно в поле key: или value:?
+  if (!/^\s*(key|value)\s*:/.test(lineText)) return null;
+
+  const currentIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
+
+  // Ищем `source:` на меньшем indent
+  let sourceBlockIndent = -1;
+  let sourceBlockStart = -1;
+  for (let i = position.lineNumber - 1; i >= 1; i--) {
+    const l = model.getLineContent(i);
+    if (!l.trim() || l.trim().startsWith("#")) continue;
+    const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind >= currentIndent) continue;
+    const trimmed = l.trim();
+    if (/^source\s*:\s*$/.test(trimmed)) {
+      sourceBlockStart = i;
+      sourceBlockIndent = ind;
+      break;
+    }
+    if (/^[a-zA-Z_][\w]*\s*:/.test(trimmed)) return null;
+  }
+  if (sourceBlockStart < 0) return null;
+
+  // Ищем `entity:` внутри source-блока
+  for (let i = sourceBlockStart + 1; i <= model.getLineCount(); i++) {
+    const l = model.getLineContent(i);
+    const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind <= sourceBlockIndent) break;
+    const trimmed = l.trim();
+    const em = trimmed.match(/^(?:-\s+)?entity\s*:\s*(.+?)\s*$/);
+    if (em) {
+      const v = unquote(em[1]);
+      const fqid = v.includes("/")
+        ? v.toLowerCase()
+        : `${cur}/${v}`.toLowerCase();
+      return { kind: "entity", entityFqid: fqid };
+    }
+  }
+  return null;
+}
+
+/**
+ * cursor внутри `uiRule.widgets[].nested.attributes[].attribute:` →
+ * колонки Table-атрибута, на который ссылается sibling `widget:`.
+ */
+function detectUiRuleNestedAttributeContext(
+  model: any,
+  position: any,
+  lineCtx: any,
+): AttributeCompletionContext | null {
+  const cur = (ctx.currentDomainId || "").toLowerCase();
+  if (!cur || !ctx.modelIndex) return null;
+
+  // Мы в uiRule? (breadcrumb, не текстовый walk — надёжнее)
+  const uiRuleCrumb = lineCtx.breadcrumbs.find(
+    (b: any) => b.type === "uiRule",
+  );
+  if (!uiRuleCrumb) return null;
+
+  // Убеждаемся, что cursor именно в nested.attributes[]
+  const lineText = model.getLineContent(position.lineNumber);
+  const currentIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
+
+  let container: "attributes" | "other" | null = null;
+  for (let i = position.lineNumber - 1; i >= 1; i--) {
+    const l = model.getLineContent(i);
+    if (!l.trim() || l.trim().startsWith("#")) continue;
+    const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind >= currentIndent) continue;
+    const trimmed = l.trim();
+
+    if (/^attributes\s*:\s*$/.test(trimmed)) {
+      container = "attributes";
+      break;
+    }
+    if (/^(widget|nested|columns|groups|widgets)\s*:/.test(trimmed)) {
+      container = "other";
+      break;
+    }
+  }
+  if (container !== "attributes") return null;
+
+  // Резолвим uiRule → view → entity
+  const uiRule = ctx.modelIndex.uiRules.find(
+    (r: any) =>
+      (r.domainId || "").toLowerCase() === cur && r.id === uiRuleCrumb.id,
+  );
+  if (!uiRule || !uiRule.view) return null;
+
+  const schema = ctx.modelIndex.schemasByDomain?.[cur];
+  const viewItem = schema?.sections?.views?.items?.find(
+    (v) => v.id === uiRule.view,
+  );
+  const viewEntityRaw = viewItem?.entity || viewItem?.sourceEntity;
+  if (!viewEntityRaw) return null;
+
+  const entityFqid = String(viewEntityRaw).includes("/")
+    ? String(viewEntityRaw).toLowerCase()
+    : `${cur}/${viewEntityRaw}`.toLowerCase();
+
+  // Sibling `widget:` (в том же `- widget:`-блоке)
+  const widgetId = findAncestorFieldValue(model, position, "widget");
+  if (!widgetId) return null;
+
+  const widget = (ctx.modelIndex.viewWidgets || []).find(
+    (w: any) => w.id === widgetId && w.parentViewId === uiRule.view,
+  );
+  if (!widget?.attribute) return null;
+
+  // Резолвим атрибут через цепочку наследования
+  const startEntity = ctx.modelIndex.entitiesByFqid[entityFqid];
+  if (!startEntity) return null;
+
+  let attr: any = null;
+  const visited = new Set<string>();
+  let e: any = startEntity;
+  while (e && !visited.has(e.fqid)) {
+    visited.add(e.fqid);
+    const hit = e.attributes.find((a: any) => a.id === widget.attribute);
+    if (hit) {
+      attr = hit;
+      break;
+    }
+    e = e.inherits ? ctx.modelIndex.entitiesByFqid[e.inherits] : undefined;
+  }
+  if (!attr?.nestedAttributes || attr.nestedAttributes.length === 0) {
+    return null;
+  }
+
+  const items: RefSuggestion[] = [];
+  const seen = new Set<string>();
+  attr.nestedAttributes.forEach((na: any) => {
+    if (!na?.id || seen.has(na.id)) return;
+    seen.add(na.id);
+    const parts: string[] = [];
+    if (na.dataType) parts.push(na.dataType);
+    if (na.description) parts.push(na.description);
+    parts.push(`column of ${attr.id}`);
+    items.push({
+      label: String(na.id),
+      insertText: " " + String(na.id),
+      kind: 0,
+      sortText: "0_" + String(na.id),
+      detail: `column of ${attr.id}`,
+      documentation: parts.join(" · "),
+    });
+  });
+
+  if (items.length === 0) return null;
+
+  return { kind: "precomputed", precomputedItems: items };
+}
+
+function detectFilterLinkageContext(
+  model: any,
+  position: any,
+  lineCtx: any,
+): FilterLinkageContext | null {
+  const cur = (ctx.currentDomainId || "").toLowerCase();
+  if (!cur) return null;
+
+  const viewCrumb = lineCtx.breadcrumbs.find((b: any) => b.type === "view");
+  if (!viewCrumb) return null;
+
+  // 1. Определяем контейнер
+  const lineText = model.getLineContent(position.lineNumber);
+  const currentIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
+
+  let container: "link_attributes" | "linkedEntity" | null = null;
+  for (let i = position.lineNumber - 1; i >= 1; i--) {
+    const l = model.getLineContent(i);
+    if (!l.trim() || l.trim().startsWith("#")) continue;
+    const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind >= currentIndent) continue;
+    const trimmed = l.trim();
+    if (/^link_attributes\s*:\s*$/.test(trimmed)) {
+      container = "link_attributes";
+      break;
+    }
+    if (/^linkedEntity\s*:\s*$/.test(trimmed)) {
+      container = "linkedEntity";
+      break;
+    }
+    // вышли из filter-структуры, не встретив целевой контейнер
+    return null;
+  }
+  if (!container) return null;
+
+  // 2. Sibling linkage / join
+  const linkageRef = findSiblingFieldValue(model, position, "linkage");
+  const joinRef = !linkageRef
+    ? findSiblingFieldValue(model, position, "join")
+    : null;
+
+  const linkageRecord = linkageRef ? findLinkageByRef(linkageRef, cur) : null;
+  const joinTargetFqid = joinRef
+    ? resolveJoinTargetFqid(joinRef, viewCrumb.id, cur)
+    : null;
+
+  // 3. Определяем viewEntityFqid:
+  //    a) tree-режим — filter[].entity;
+  //    b) list-режим — view.source.entity.
+  let viewEntityFqid: string | null = null;
+
+  for (let i = position.lineNumber - 1; i >= 1; i--) {
+    const l = model.getLineContent(i);
+    if (!l.trim() || l.trim().startsWith("#")) continue;
+    const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind >= currentIndent) continue;
+
+    const trimmed = l.trim();
+
+    // `- entity:` / `entity:` — tree-filter
+    const em = trimmed.match(/^(?:-\s+)?entity\s*:\s*(.+?)\s*$/);
+    if (em) {
+      const v = unquote(em[1]);
+      viewEntityFqid = v.includes("/")
+        ? v.toLowerCase()
+        : `${cur}/${v}`.toLowerCase();
+      break;
+    }
+
+    // `filter:` — значит tree-item ещё не встретили → list
+    if (/^(?:-\s+)?filter\s*:\s*$/.test(trimmed)) break;
+
+    // `table:` / `source:` — стоп
+    if (/^(?:-\s+)?(table|source)\s*:/.test(trimmed)) break;
+  }
+
+  if (!viewEntityFqid) {
+    const schema = ctx.modelIndex?.schemasByDomain?.[cur];
+    const viewItem = schema?.sections?.views?.items?.find(
+      (v) => v.id === viewCrumb.id,
+    );
+    const src = viewItem?.sourceEntity || viewItem?.entity;
+    if (src) {
+      const s = String(src);
+      viewEntityFqid = s.includes("/")
+        ? s.toLowerCase()
+        : `${cur}/${s}`.toLowerCase();
+    }
+  }
+
+  return {
+    mode: container,
+    linkageRecord,
+    joinTargetFqid,
+    viewEntityFqid,
+  };
+}
+
+function computeOppositeEntityForLinkage(
+  linkageRecord: any,
+  viewFqid: string,
+): string | null {
+  if (!linkageRecord || !viewFqid) return null;
+  const v = viewFqid.toLowerCase();
+  if ((linkageRecord.side1Fqid || "").toLowerCase() === v)
+    return linkageRecord.side2Fqid || null;
+  if ((linkageRecord.side2Fqid || "").toLowerCase() === v)
+    return linkageRecord.side1Fqid || null;
+  return null;
+}
+
+function cachedAttributes(
+  context: AttributeCompletionContext,
+): RefSuggestion[] {
+  // precomputed — не кэшируем: список зависит от конкретного widget+attribute,
+  // а не только от entity/linkage.
+  if (context.kind === "precomputed") {
+    return computeAttributesForContext(context);
+  }
+  const c = ensureCache();
+  if (!c.attributes) c.attributes = new Map();
+  const key =
+    context.kind === "entity"
+      ? `entity:${context.entityFqid}`
+      : context.kind === "linkage"
+        ? `linkage:${context.linkageId}`
+        : "__unknown__";
+  if (c.attributes.has(key)) return c.attributes.get(key)!;
+  const result = computeAttributesForContext(context);
+  c.attributes.set(key, result);
+  return result;
+}
+
 function cachedScenarios(): RefSuggestion[] {
   const c = ensureCache();
   if (c.scenarios) return c.scenarios;
@@ -7100,63 +8184,80 @@ export function registerMonacoProviders(monaco: any): void {
 
       // ============ Далее — обычная YAML-логика ============
 
-      // ============ searching.attributes[]: массив ID атрибутов ============
-      // Пользователь пишет `- <word>` (без `:`) внутри searching.attributes[].
-      // YAML допускает как увеличивающий отступ списка, так и равный родительскому
-      // ключу — поддерживаем оба варианта.
+      // ============ searching[]: массив атрибутов ============
+      // Поддерживаем две формы:
+      //   A. Канонично:   searching: [{ attribute: <cursor> }, ...]
+      //   B. Legacy/docs: searching: { attributes: [<cursor>, ...] }
       {
         const lineText0 = model.getLineContent(position.lineNumber);
         const before0 = lineText0.slice(0, position.column - 1);
-        const m0 = before0.match(/^(\s*)-\s+([\w]*)$/);
-        if (m0) {
-          const currentIndent = m0[1].length;
+
+        const inSearching = (currentIndent: number): boolean => {
+          for (let i = position.lineNumber - 1; i >= 1; i--) {
+            const l = model.getLineContent(i);
+            if (!l.trim() || l.trim().startsWith("#")) continue;
+            const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
+            if (lIndent >= currentIndent) continue;
+            const trimmed = l.trim();
+            if (/^searching\s*:\s*$/.test(trimmed)) return true;
+            // любой другой ключ на меньшем отступе — вышли из searching
+            if (/^[a-zA-Z_][\w]*\s*:/.test(trimmed)) return false;
+            if (lIndent === 0) return false;
+          }
+          return false;
+        };
+
+        const buildSuggestions = (): { suggestions: any[] } => {
+          const context = detectAttributeCompletionContext(model, position);
+          if (!context) return { suggestions: [] };
+          const wordAtPos0 = model.getWordUntilPosition(position);
+          const range0 = {
+            startLineNumber: position.lineNumber,
+            startColumn: wordAtPos0.startColumn,
+            endLineNumber: position.lineNumber,
+            endColumn: wordAtPos0.endColumn,
+          };
+          const attrs = cachedAttributes(context);
+          return {
+            suggestions: attrs.map((v) => ({
+              label: v.label,
+              kind: Kind.Field,
+              insertText: v.label,
+              filterText: v.label,
+              sortText: v.sortText,
+              detail: v.detail,
+              documentation: v.documentation,
+              range: range0,
+            })),
+          };
+        };
+
+        // A. Каноничная форма: `- attribute: <cursor>`
+        const mA = before0.match(/^(\s*)-\s+attribute\s*:\s*(.*)$/);
+        if (mA) {
+          if (inSearching(mA[1].length)) return buildSuggestions();
+        }
+
+        // B. Legacy: `- <cursor>` внутри `searching.attributes:`
+        const mB = before0.match(/^(\s*)-\s+([\w]*)$/);
+        if (mB) {
+          const currentIndent = mB[1].length;
           let sawAttributes = false;
-          let sawSearching = false;
           for (let i = position.lineNumber - 1; i >= 1; i--) {
             const l = model.getLineContent(i);
             if (!l.trim() || l.trim().startsWith("#")) continue;
             const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
             const trimmed = l.trim();
-
-            // Пропускаем другие элементы этого же списка
             if (trimmed.startsWith("-")) continue;
-
-            // Идём вверх только по строкам с indent ≤ текущего
-            // (равенство — для same-indent list items).
             if (lIndent > currentIndent) continue;
-
             if (!sawAttributes && /^attributes\s*:/.test(trimmed)) {
               sawAttributes = true;
               continue;
             }
             if (sawAttributes && /^searching\s*:/.test(trimmed)) {
-              sawSearching = true;
-              break;
+              return buildSuggestions();
             }
-            // Любой другой ключ на меньшем отступе — вышли из нужного контекста
             if (lIndent < currentIndent) break;
-          }
-          if (sawSearching) {
-            const wordAtPos0 = model.getWordUntilPosition(position);
-            const range0 = {
-              startLineNumber: position.lineNumber,
-              startColumn: wordAtPos0.startColumn,
-              endLineNumber: position.lineNumber,
-              endColumn: wordAtPos0.endColumn,
-            };
-            const attrs = cachedAttributes();
-            return {
-              suggestions: attrs.map((v) => ({
-                label: v.label,
-                kind: Kind.Field,
-                insertText: v.label,
-                filterText: v.label,
-                sortText: v.sortText,
-                detail: v.detail,
-                documentation: v.documentation,
-                range: range0,
-              })),
-            };
           }
         }
       }
@@ -7900,7 +9001,9 @@ export function registerMonacoProviders(monaco: any): void {
 
         // ---------- attribute / scenario ----------
         case "attribute": {
-          const items = withKind(cachedAttributes(), Kind.Field);
+          const context = detectAttributeCompletionContext(model, position);
+          if (!context) return { suggestions: [] };
+          const items = withKind(cachedAttributes(context), Kind.Field);
           return (
             r(model, position, ["attribute"], items, Kind) || {
               suggestions: [],
@@ -8068,11 +9171,55 @@ export function registerMonacoProviders(monaco: any): void {
           }
           return { suggestions: [] };
         }
+
+        case "linkageAttribute": {
+          const wId = lineCtxRef(model, position, "widget");
+          const vId = lineCtxRef(model, position, "view");
+          if (!wId) return { suggestions: [] };
+
+          const widget = (ctx.modelIndex?.viewWidgets || []).find(
+            (w: any) => w.id === wId && (!vId || w.parentViewId === vId),
+          );
+          if (!widget?.linkage) return { suggestions: [] };
+
+          const lk = findLinkageByRef(widget.linkage, cur);
+          if (!lk) return { suggestions: [] };
+
+          const items: RefSuggestion[] = (lk.attributes || [])
+            .filter((a: any) => a && a.id)
+            .map((a: any) => ({
+              label: String(a.id),
+              insertText: " " + String(a.id),
+              kind: Kind.Field,
+              sortText: "0_" + String(a.id),
+              detail: `linkage: ${lk.id}`,
+              documentation: [
+                a.dataType || "",
+                a.description || "",
+                `linkage: ${lk.id}`,
+              ]
+                .filter(Boolean)
+                .join(" · "),
+            }));
+
+          return (
+            r(model, position, ["linkageAttribute"], items, Kind) || {
+              suggestions: [],
+            }
+          );
+        }
       }
 
       return { suggestions: [] };
     },
   });
+}
+
+function lineCtxRef(_model: any, position: any, type: string): string | null {
+  const lc = ctx.lineMap?.lineContexts.get(position.lineNumber);
+  if (!lc) return null;
+  const crumb = lc.breadcrumbs.find((b) => b.type === type);
+  return crumb?.id || null;
 }
 
 export function applyRqlMarkers(monaco: any, model: any): void {
@@ -10179,79 +11326,76 @@ export function applyUiRuleRefMarkers(
  * на уровне полей виджета (`widgetItemIndent + 2`).
  */
 function findWidgetTypeForControl(
-    lines: string[],
-    controlLine: number, // 1-based
+  lines: string[],
+  controlLine: number, // 1-based
 ): string {
-    if (controlLine < 1 || controlLine > lines.length) return "";
-    const controlText = lines[controlLine - 1];
-    if (!controlText) return "";
+  if (controlLine < 1 || controlLine > lines.length) return "";
+  const controlText = lines[controlLine - 1];
+  if (!controlText) return "";
 
-    const controlIndent = (controlText.match(/^(\s*)/) || ["", ""])[1].length;
+  const controlIndent = (controlText.match(/^(\s*)/) || ["", ""])[1].length;
 
-    // `- control:` — открывает виджет; `  control:` — обычное поле виджета.
-    const isControlOpener =
-        /^\s*-\s+control\s*:\s*(?:#.*)?$/.test(controlText);
+  // `- control:` — открывает виджет; `  control:` — обычное поле виджета.
+  const isControlOpener = /^\s*-\s+control\s*:\s*(?:#.*)?$/.test(controlText);
 
-    // Индент dash'а виджета.
-    const widgetItemIndent = isControlOpener
-        ? controlIndent
-        : controlIndent - 2;
-    if (widgetItemIndent < 0) return "";
-    const widgetFieldIndent = widgetItemIndent + 2;
+  // Индент dash'а виджета.
+  const widgetItemIndent = isControlOpener ? controlIndent : controlIndent - 2;
+  if (widgetItemIndent < 0) return "";
+  const widgetFieldIndent = widgetItemIndent + 2;
 
-    // ============ Границы виджет-блока ============
-    let blockStart = controlLine;
-    if (!isControlOpener) {
-        for (let i = controlLine - 1; i >= 1; i--) {
-            const l = lines[i - 1];
-            if (!l || !l.trim() || l.trim().startsWith("#")) continue;
-            const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
-            const m = l.match(/^(\s*)-\s+\S/);
-            if (m && m[1].length === widgetItemIndent) {
-                blockStart = i;
-                break;
-            }
-            if (ind < widgetItemIndent) break;
-        }
+  // ============ Границы виджет-блока ============
+  let blockStart = controlLine;
+  if (!isControlOpener) {
+    for (let i = controlLine - 1; i >= 1; i--) {
+      const l = lines[i - 1];
+      if (!l || !l.trim() || l.trim().startsWith("#")) continue;
+      const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
+      const m = l.match(/^(\s*)-\s+\S/);
+      if (m && m[1].length === widgetItemIndent) {
+        blockStart = i;
+        break;
+      }
+      if (ind < widgetItemIndent) break;
+    }
+  }
+
+  let blockEnd = lines.length + 1;
+  for (let i = blockStart + 1; i <= lines.length; i++) {
+    const l = lines[i - 1];
+    if (!l || !l.trim()) continue;
+    const m = l.match(/^(\s*)-\s+\S/);
+    if (m && m[1].length <= widgetItemIndent) {
+      blockEnd = i;
+      break;
+    }
+  }
+
+  // ============ Поиск `type:` на уровне полей виджета ============
+  let blockScalarIndent = -1;
+  for (let i = blockStart; i < blockEnd; i++) {
+    const l = lines[i - 1];
+    if (!l || !l.trim()) continue;
+    const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
+
+    // Пропускаем содержимое block scalar.
+    if (blockScalarIndent >= 0) {
+      if (ind > blockScalarIndent) continue;
+      blockScalarIndent = -1;
+    }
+    if (l.trim().startsWith("#")) continue;
+
+    // Начало block scalar (`label: |`, `description: >-` и т.п.).
+    if (/^\s*(?:-\s+)?[a-zA-Z_][\w]*\s*:\s*[|>][+\-]?\s*(?:#.*)?$/.test(l)) {
+      blockScalarIndent = ind;
+      continue;
     }
 
-    let blockEnd = lines.length + 1;
-    for (let i = blockStart + 1; i <= lines.length; i++) {
-        const l = lines[i - 1];
-        if (!l || !l.trim()) continue;
-        const m = l.match(/^(\s*)-\s+\S/);
-        if (m && m[1].length <= widgetItemIndent) {
-            blockEnd = i;
-            break;
-        }
-    }
+    // Поля самого виджета — только этот уровень.
+    if (ind !== widgetFieldIndent) continue;
 
-    // ============ Поиск `type:` на уровне полей виджета ============
-    let blockScalarIndent = -1;
-    for (let i = blockStart; i < blockEnd; i++) {
-        const l = lines[i - 1];
-        if (!l || !l.trim()) continue;
-        const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
+    const tm = l.match(/^\s*type\s*:\s*["']?([\w.-]+)["']?/);
+    if (tm) return tm[1];
+  }
 
-        // Пропускаем содержимое block scalar.
-        if (blockScalarIndent >= 0) {
-            if (ind > blockScalarIndent) continue;
-            blockScalarIndent = -1;
-        }
-        if (l.trim().startsWith("#")) continue;
-
-        // Начало block scalar (`label: |`, `description: >-` и т.п.).
-        if (/^\s*(?:-\s+)?[a-zA-Z_][\w]*\s*:\s*[|>][+\-]?\s*(?:#.*)?$/.test(l)) {
-            blockScalarIndent = ind;
-            continue;
-        }
-
-        // Поля самого виджета — только этот уровень.
-        if (ind !== widgetFieldIndent) continue;
-
-        const tm = l.match(/^\s*type\s*:\s*["']?([\w.-]+)["']?/);
-        if (tm) return tm[1];
-    }
-
-    return "";
+  return "";
 }

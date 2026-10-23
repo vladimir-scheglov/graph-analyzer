@@ -31,6 +31,7 @@ import {
     DEFAULT_SEARCH_OPTIONS,
 } from "../../lib/yaml/yaml-search";
 import yaml from "js-yaml";
+import { computeFocus, FocusKind, FocusTarget } from '../../lib/yaml/entity-focus';
 
 type RightTab = 'issues' | 'refs' | 'backlinks' | 'server';
 
@@ -181,6 +182,13 @@ export function YamlViewerModal() {
         useState<SearchMatch | null>(null);
     const searchPanelRef = useRef<YamlSearchPanelHandle>(null);
     const searchDecorationsRef = useRef<any>(null);
+    const [focusIncludeDeps, setFocusIncludeDeps] = useState(false);
+    const [navContextMenu, setNavContextMenu] = useState<{
+        x: number;
+        y: number;
+        node: NavNode;
+        sectionKey: string;
+    } | null>(null);
 
     const { goto: gotoDomain } = useNavigation();
 
@@ -191,6 +199,9 @@ export function YamlViewerModal() {
     const toggleLockRef = useRef<() => void>(() => { });
     const isLockedRef = useRef(isLocked);
     const isProgrammaticChange = useRef(false);
+
+    const [focusTarget, setFocusTarget] = useState<FocusTarget | null>(null);
+    const focusDecorationsRef = useRef<any>(null);
 
     useEffect(() => {
         isLockedRef.current = isLocked;
@@ -211,6 +222,17 @@ export function YamlViewerModal() {
         if (!lineMap) return null;
         return lineMap.lineContexts.get(cursorLine) || null;
     }, [lineMap, cursorLine]);
+
+    const focusResult = useMemo(() => {
+        if (!focusTarget || !lineMap || !index || !domainId) return null;
+        try {
+            return computeFocus(focusTarget, lineMap, index, domainId, content, {
+                includeTertiary: focusIncludeDeps,
+            });
+        } catch {
+            return null;
+        }
+    }, [focusTarget, focusIncludeDeps, lineMap, index, domainId, content]);
 
     // ============ Issues ============
     const domainIssues = useMemo(() => {
@@ -1567,7 +1589,27 @@ export function YamlViewerModal() {
         }
         setSaveError(null);
         setSaveFeedback(false);
+        setFocusTarget(null);
+        setFocusIncludeDeps(false);
     }, [filePath, open]);
+
+    useEffect(() => {
+        if (!navContextMenu) return;
+        const onDoc = (e: MouseEvent) => {
+            const el = document.querySelector(".yaml-nav-ctx-menu");
+            if (el && el.contains(e.target as Node)) return;
+            setNavContextMenu(null);
+        };
+        const onEsc = (e: KeyboardEvent) => {
+            if (e.key === "Escape") setNavContextMenu(null);
+        };
+        document.addEventListener("mousedown", onDoc);
+        document.addEventListener("keydown", onEsc, true);
+        return () => {
+            document.removeEventListener("mousedown", onDoc);
+            document.removeEventListener("keydown", onEsc, true);
+        };
+    }, [navContextMenu]);
 
     useEffect(() => {
         const handler = (e: Event) => {
@@ -1728,6 +1770,92 @@ export function YamlViewerModal() {
         };
     }, [monacoReady, editorCreated, lineMap, content, liveVersion]);
 
+    useEffect(() => {
+        if (!monacoReady || !editorCreated || !editorRef.current) return;
+        const m = (window as any).monaco;
+        if (!m) return;
+        const model = editorRef.current.getModel();
+        if (!model) return;
+
+        if (focusDecorationsRef.current) {
+            try { focusDecorationsRef.current.clear(); } catch { }
+            focusDecorationsRef.current = null;
+        }
+
+        if (!focusTarget || !focusResult) return;
+
+        // строки с маркерами всегда видимы
+        const linesWithMarkers = new Set<number>();
+        try {
+            const markers = m.editor.getModelMarkers({ resource: model.uri });
+            /*for (const mrk of markers) {
+                // Monaco: 1=Hint, 2=Info, 4=Warning, 8=Error.
+                // Info/hint НЕ защищают от затенения — они не «проблема».
+                if (mrk.severity < 4) continue;
+                for (let l = mrk.startLineNumber; l <= mrk.endLineNumber; l++) {
+                    linesWithMarkers.add(l);
+                }
+            }*/
+        } catch { }
+        for (const issue of effectiveIssues) {
+            if (issue.severity === "info") continue;
+            if (typeof issue.line === "number" && issue.line > 0) {
+                linesWithMarkers.add(issue.line);
+            }
+        }
+        if (yamlSyntaxIssue) {
+            if (typeof yamlSyntaxIssue.line === "number") {
+                linesWithMarkers.add(yamlSyntaxIssue.line);
+            }
+        }
+
+        if (focusResult.lineLevel.size === 0) return; // нечего затенять
+
+        const decorations: any[] = [];
+        const lineLevel = focusResult.lineLevel;
+        const totalLines = model.getLineCount();
+        for (let l = 1; l <= totalLines; l++) {
+            const lvl = lineLevel.get(l);
+            if (lvl === "primary" || lvl === "secondary") continue;
+            if (linesWithMarkers.has(l)) continue;
+
+            const maxCol = Math.max(1, model.getLineMaxColumn(l));
+            if (lvl === "tertiary") {
+                decorations.push({
+                    range: new m.Range(l, 1, l, maxCol),
+                    options: {
+                        isWholeLine: true,
+                        className: "yaml-focus-tertiary",
+                        inlineClassName: "yaml-focus-tertiary-text",
+                    },
+                });
+            } else {
+                decorations.push({
+                    range: new m.Range(l, 1, l, maxCol),
+                    options: {
+                        isWholeLine: true,
+                        className: "yaml-focus-unrelated",
+                        inlineClassName: "yaml-focus-unrelated-text",
+                    },
+                });
+            }
+        }
+
+        try {
+            focusDecorationsRef.current = editorRef.current.createDecorationsCollection(decorations);
+        } catch { }
+
+        return () => {
+            if (focusDecorationsRef.current) {
+                try { focusDecorationsRef.current.clear(); } catch { }
+                focusDecorationsRef.current = null;
+            }
+        };
+    }, [
+        monacoReady, editorCreated, focusTarget, focusResult,
+        effectiveIssues, yamlSyntaxIssue, focusIncludeDeps
+    ]);
+
     const crossDomainStats = useMemo(() => {
         if (!index || !domainId) return null;
         const currentDomainLower = domainId.toLowerCase();
@@ -1803,6 +1931,21 @@ export function YamlViewerModal() {
         () => effectiveIssues.filter((i: any) => i.__isUnknown).length,
         [effectiveIssues],
     );
+
+    const handleFocus = useCallback((node: NavNode, sectionKey: string) => {
+        const kind: FocusKind = sectionKey === "entities" ? "entity" : "linkage";
+        setFocusTarget((prev) => {
+            if (prev && prev.kind === kind && prev.id === node.id) return null;
+            return { kind, id: node.id };
+        });
+    }, []);
+
+    const handleFocusWithDeps = useCallback((node: NavNode, sectionKey: string) => {
+        const kind: FocusKind = sectionKey === "entities" ? "entity" : "linkage";
+        setFocusTarget({ kind, id: node.id });
+        setFocusIncludeDeps(kind === "entity");
+        setNavContextMenu(null);
+    }, []);
 
     if (!open) return null;
 
@@ -2082,6 +2225,19 @@ export function YamlViewerModal() {
                     </div>
                 )}
 
+                {focusTarget && (
+                    <FocusBar
+                        target={focusTarget}
+                        result={focusResult}
+                        includeDeps={focusIncludeDeps}
+                        onToggleDeps={setFocusIncludeDeps}
+                        onClear={() => {
+                            setFocusTarget(null);
+                            setFocusIncludeDeps(false);
+                        }}
+                    />
+                )}
+
                 {/* Save error */}
                 {saveError && (
                     <div className="yaml-save-error">
@@ -2203,6 +2359,8 @@ export function YamlViewerModal() {
                                                 activeIdx={activeNavIdx}
                                                 onJump={jumpTo}
                                                 onHover={setActiveNavIdx}
+                                                focusTarget={focusTarget}
+                                                onFocus={handleFocus}
                                             />
                                         ) : (
                                             lineMap.sections.map((section) => (
@@ -2219,6 +2377,11 @@ export function YamlViewerModal() {
                                                     sectionKey={section.key}
                                                     entityIssuesMap={entityIssuesMap}
                                                     attrIssuesMap={attrIssuesMap}
+                                                    focusTarget={focusTarget}
+                                                    onFocus={handleFocus}
+                                                    onContextMenu={(node, sectionKey, x, y) =>
+                                                        setNavContextMenu({ node, sectionKey, x, y })
+                                                    }
                                                 />
                                             ))
                                         )}
@@ -2740,6 +2903,23 @@ export function YamlViewerModal() {
                 </div>
             </div>
 
+            {navContextMenu && (
+                <NavContextMenu
+                    state={navContextMenu}
+                    focusTarget={focusTarget}
+                    onFocus={() => handleFocus(navContextMenu.node, navContextMenu.sectionKey)}
+                    onFocusWithDeps={() =>
+                        handleFocusWithDeps(navContextMenu.node, navContextMenu.sectionKey)
+                    }
+                    onClearFocus={() => {
+                        setFocusTarget(null);
+                        setFocusIncludeDeps(false);
+                        setNavContextMenu(null);
+                    }}
+                    onClose={() => setNavContextMenu(null)}
+                />
+            )}
+
             {/* Help modal */}
             {showHelp && <YamlViewerHelp onClose={() => setShowHelp(false)} />}
         </div>
@@ -3136,6 +3316,20 @@ function classifyIssue(
             : "still";
     }
 
+    // --- Attribute description ---
+    if (ruleId.includes("attribute-description") && issue.attributeId) {
+        const entityId = issue.entityFqid?.split("/").pop();
+        if (!entityId) return "unknown";
+        const attrLine = findAttributeLineInMap(entityId, issue.attributeId, lineMap);
+        if (attrLine == null) {
+            // атрибут переименован или удалён — старая проблема неактуальна
+            return "resolved";
+        }
+        return hasFieldInAttributeBlock("description", attrLine, lines)
+            ? "resolved"
+            : "still";
+    }
+
     // --- Attribute camelCase ---
     if (ruleId.includes("attribute-camelcase") && issue.attributeId) {
         const entityId = issue.entityFqid?.split("/").pop();
@@ -3280,12 +3474,16 @@ function FilteredNavList({
     nodes,
     activeIdx,
     onJump,
-    onHover
+    onHover,
+    focusTarget,
+    onFocus,
 }: {
     nodes: ReturnType<typeof flatNavNodesType>;
     activeIdx: number;
     onJump: (line: number) => void;
     onHover: (idx: number) => void;
+    focusTarget: FocusTarget | null;
+    onFocus: (node: NavNode, sectionKey: string) => void;
 }) {
     if (nodes.length === 0) {
         return (
@@ -3297,35 +3495,70 @@ function FilteredNavList({
 
     return (
         <div className="yaml-nav-filtered">
-            {nodes.map((n: any, i: number) => (
-                <button
-                    key={n.key + '#' + i}
-                    className={
-                        'yaml-nav-filtered-item' +
-                        (i === activeIdx ? ' yaml-nav-filtered-item--active' : '') +
-                        (n.hasIssues ? ' yaml-nav-filtered-item--issues' : '')
-                    }
-                    onClick={() => onJump(n.line)}
-                    onMouseEnter={() => onHover(i)}
-                    title={n.issuesPreview || undefined}
-                >
-                    <code className="yaml-nav-filtered-item__id">
-                        {n.label}
-                    </code>
-                    <span className="yaml-nav-filtered-item__section">
-                        {n.sectionKey}
-                    </span>
-                    {n.hasIssues && (
-                        <span
-                            className="yaml-nav-filtered-item__issues"
-                            title={n.issuesPreview || "Есть проблемы"}
+            {nodes.map((n: any, i: number) => {
+                const canFocus =
+                    n.depth === 0 &&
+                    (n.sectionKey === "entities" || n.sectionKey === "linkages");
+                const isFocusActive = !!(
+                    canFocus &&
+                    focusTarget &&
+                    ((focusTarget.kind === "entity" &&
+                        n.sectionKey === "entities" &&
+                        focusTarget.id === n.node.id) ||
+                        (focusTarget.kind === "linkage" &&
+                            n.sectionKey === "linkages" &&
+                            focusTarget.id === n.node.id))
+                );
+                return (
+                    <div
+                        key={n.key + '#' + i}
+                        className={
+                            "yaml-nav-filtered-row" +
+                            (i === activeIdx ? " yaml-nav-filtered-row--active" : "")
+                        }
+                        onMouseEnter={() => onHover(i)}
+                    >
+                        <button
+                            type="button"
+                            className={
+                                "yaml-nav-filtered-item__main" +
+                                (n.hasIssues ? " yaml-nav-filtered-item__main--issues" : "")
+                            }
+                            onClick={() => onJump(n.line)}
+                            title={n.issuesPreview || undefined}
                         >
-                            <MIcon name="warning" size="sm" />
-                        </span>
-                    )}
-                    <span className="yaml-nav-filtered-item__line">:{n.line}</span>
-                </button>
-            ))}
+                            <code className="yaml-nav-filtered-item__id">
+                                {n.label}
+                            </code>
+                            <span className="yaml-nav-filtered-item__section">
+                                {n.sectionKey}
+                            </span>
+                            {n.hasIssues && (
+                                <span
+                                    className="yaml-nav-filtered-item__issues"
+                                    title={n.issuesPreview || "Есть проблемы"}
+                                >
+                                    <MIcon name="warning" size="sm" />
+                                </span>
+                            )}
+                            <span className="yaml-nav-filtered-item__line">:{n.line}</span>
+                        </button>
+                        {canFocus && (
+                            <button
+                                type="button"
+                                className={
+                                    "yaml-nav-filtered-item__focus" +
+                                    (isFocusActive ? " yaml-nav-filtered-item__focus--active" : "")
+                                }
+                                onClick={() => onFocus(n.node, n.sectionKey)}
+                                title={isFocusActive ? "Снять фокус" : "Фокус на этом элементе"}
+                            >
+                                <MIcon name="my_location" size="sm" />
+                            </button>
+                        )}
+                    </div>
+                );
+            })}
         </div>
     );
 }
@@ -3353,7 +3586,10 @@ function SectionNav({
     filteredNavNodes,
     sectionKey,
     entityIssuesMap,
-    attrIssuesMap
+    attrIssuesMap,
+    focusTarget,
+    onFocus,
+    onContextMenu,
 }: {
     section: SectionBlock;
     expandedNodes: Set<string>;
@@ -3366,6 +3602,9 @@ function SectionNav({
     sectionKey: string;
     entityIssuesMap: Map<string, any[]>;
     attrIssuesMap: Map<string, any[]>;
+    focusTarget: FocusTarget | null;
+    onFocus: (node: NavNode, sectionKey: string) => void;
+    onContextMenu: (node: NavNode, sectionKey: string, x: number, y: number) => void;
 }) {
     const detailsRef = React.useRef<HTMLDetailsElement>(null);
 
@@ -3434,6 +3673,9 @@ function SectionNav({
                                 issuesPreview={buildIssuesPreview(issuesList)}
                                 entityIssuesMap={entityIssuesMap}
                                 attrIssuesMap={attrIssuesMap}
+                                focusTarget={focusTarget}
+                                onFocus={onFocus}
+                                onContextMenu={onContextMenu}
                             />
                         );
                     })}
@@ -3457,7 +3699,10 @@ function NavItem({
     hasIssues,
     issuesPreview,
     entityIssuesMap,
-    attrIssuesMap
+    attrIssuesMap,
+    focusTarget,
+    onFocus,
+    onContextMenu,
 }: {
     node: NavNode;
     parentKey: string;
@@ -3473,6 +3718,9 @@ function NavItem({
     issuesPreview: string;
     entityIssuesMap: Map<string, any[]>;
     attrIssuesMap: Map<string, any[]>;
+    focusTarget: FocusTarget | null;
+    onFocus: (node: NavNode, sectionKey: string) => void;
+    onContextMenu: (node: NavNode, sectionKey: string, x: number, y: number) => void;
 }) {
     const key = parentKey + '#' + node.id;
     const hasChildren = !!node.children && node.children.length > 0;
@@ -3491,6 +3739,13 @@ function NavItem({
                 className={
                     'yaml-nav-item__row' + (isActive ? ' yaml-nav-item__row--active' : '')
                 }
+                onContextMenu={(e) => {
+                    if (depth !== 0) return;
+                    if (sectionKey !== "entities" && sectionKey !== "linkages") return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onContextMenu(node, sectionKey, e.clientX, e.clientY);
+                }}
             >
                 {hasChildren ? (
                     <button
@@ -3526,6 +3781,23 @@ function NavItem({
                         </span>
                     )}
                 </button>
+                {(sectionKey === "entities" || sectionKey === "linkages") && depth === 0 && (
+                    <button
+                        type="button"
+                        className={
+                            "yaml-nav-item__focus" +
+                            (focusTarget &&
+                                ((focusTarget.kind === "entity" && sectionKey === "entities" && focusTarget.id === node.id) ||
+                                    (focusTarget.kind === "linkage" && sectionKey === "linkages" && focusTarget.id === node.id))
+                                ? " yaml-nav-item__focus--active"
+                                : "")
+                        }
+                        onClick={(e) => { e.stopPropagation(); onFocus(node, sectionKey); }}
+                        title={focusTarget && focusTarget.id === node.id ? "Снять фокус" : "Фокус на этом элементе"}
+                    >
+                        <MIcon name="my_location" size="sm" />
+                    </button>
+                )}
             </div>
 
             {hasChildren && expanded && (
@@ -3552,6 +3824,9 @@ function NavItem({
                                 issuesPreview={buildIssuesPreview(childIssues)}
                                 entityIssuesMap={entityIssuesMap}
                                 attrIssuesMap={attrIssuesMap}
+                                focusTarget={focusTarget}
+                                onFocus={onFocus}
+                                onContextMenu={onContextMenu}
                             />
                         );
                     })}
@@ -4179,4 +4454,139 @@ function resolveAttributeBacklinks(
     }
 
     return out;
+}
+
+function FocusBar({
+    target,
+    result,
+    includeDeps,
+    onToggleDeps,
+    onClear,
+}: {
+    target: FocusTarget;
+    result: { relatedLines: number; totalLines: number } | null;
+    includeDeps: boolean;
+    onToggleDeps: (v: boolean) => void;
+    onClear: () => void;
+}) {
+    const notFound = !result || result.relatedLines === 0;
+    return (
+        <div className="yaml-focus-bar">
+            <span className="yaml-focus-bar__icon">
+                <MIcon name="my_location" size="sm" />
+            </span>
+            <span className="yaml-focus-bar__label">
+                Фокус: <strong>{target.id}</strong>
+                <span className="yaml-focus-bar__kind">
+                    {target.kind === "entity" ? " (сущность)" : " (связь)"}
+                </span>
+            </span>
+            {result && (
+                <span className="yaml-focus-bar__counter">
+                    {result.relatedLines} / {result.totalLines} строк
+                </span>
+            )}
+            {target.kind === "entity" && (
+                <label
+                    className="yaml-focus-bar__deps"
+                    title="Показать dataTypes / sequences / counterColorPatterns из атрибутов и views"
+                >
+                    <input
+                        type="checkbox"
+                        checked={includeDeps}
+                        onChange={(e) => onToggleDeps(e.target.checked)}
+                    />
+                    Зависимости
+                </label>
+            )}
+            {notFound && (
+                <span className="yaml-focus-bar__warn">⚠ не найдено в YAML</span>
+            )}
+            <button
+                className="yaml-focus-bar__close"
+                onClick={onClear}
+                title="Снять фокус"
+            >
+                ✕
+            </button>
+        </div>
+    );
+}
+
+function NavContextMenu({
+    state,
+    focusTarget,
+    onFocus,
+    onFocusWithDeps,
+    onClearFocus,
+    onClose,
+}: {
+    state: { x: number; y: number; node: NavNode; sectionKey: string };
+    focusTarget: FocusTarget | null;
+    onFocus: () => void;
+    onFocusWithDeps: () => void;
+    onClearFocus: () => void;
+    onClose: () => void;
+}) {
+    const kind: FocusKind =
+        state.sectionKey === "entities" ? "entity" : "linkage";
+    const isThisFocused =
+        !!focusTarget &&
+        focusTarget.kind === kind &&
+        focusTarget.id === state.node.id;
+
+    // прижимаем к краям, чтобы не вылезало за viewport
+    const MENU_W = 230;
+    const MENU_H = 120;
+    const x = Math.max(8, Math.min(state.x, window.innerWidth - MENU_W - 8));
+    const y = Math.max(8, Math.min(state.y, window.innerHeight - MENU_H - 8));
+
+    return (
+        <div
+            className="yaml-nav-ctx-menu"
+            style={{ left: x, top: y }}
+            onMouseDown={(e) => e.stopPropagation()}
+        >
+            <button
+                type="button"
+                className="yaml-nav-ctx-menu__item"
+                onClick={() => {
+                    onFocus();
+                    onClose();
+                }}
+            >
+                <MIcon name="my_location" size="sm" />
+                {isThisFocused ? "Снять фокус" : "Фокус"}
+            </button>
+            {kind === "entity" && (
+                <button
+                    type="button"
+                    className="yaml-nav-ctx-menu__item"
+                    onClick={() => {
+                        onFocusWithDeps();
+                        onClose();
+                    }}
+                >
+                    <MIcon name="account_tree" size="sm" />
+                    Фокус с зависимостями
+                </button>
+            )}
+            {focusTarget && !isThisFocused && (
+                <>
+                    <div className="yaml-nav-ctx-menu__divider" />
+                    <button
+                        type="button"
+                        className="yaml-nav-ctx-menu__item"
+                        onClick={() => {
+                            onClearFocus();
+                            onClose();
+                        }}
+                    >
+                        <MIcon name="close" size="sm" />
+                        Снять текущий фокус
+                    </button>
+                </>
+            )}
+        </div>
+    );
 }

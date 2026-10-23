@@ -1819,7 +1819,7 @@ import { useCallback, useEffect, useMemo as useMemo6, useRef } from "react";
 function useTooltip() {
   const setTooltip = useGraphStore((s) => s.setTooltip);
   const hideTimer = useRef(null);
-  const cache = useRef(/* @__PURE__ */ new Map());
+  const cache2 = useRef(/* @__PURE__ */ new Map());
   useEffect(() => {
     const onMove = (e) => {
       window.__lastMouse = { x: e.clientX, y: e.clientY };
@@ -1892,10 +1892,10 @@ function useTooltip() {
       if (hideTimer.current)
         clearTimeout(hideTimer.current);
       hideTimer.current = setTimeout(() => {
-        let html = cache.current.get(nodeId);
+        let html = cache2.current.get(nodeId);
         if (!html) {
           html = htmlBuilder();
-          cache.current.set(nodeId, html);
+          cache2.current.set(nodeId, html);
         }
         show(html, event);
       }, SHOW_DELAY);
@@ -1903,7 +1903,7 @@ function useTooltip() {
     [show]
   );
   const clearCache = useCallback(() => {
-    cache.current.clear();
+    cache2.current.clear();
   }, []);
   return useMemo6(
     () => ({ show, hide, scheduleHide, showForNode, clearCache }),
@@ -7067,17 +7067,21 @@ function useModelIndex() {
     error: null
   });
   useEffect11(() => {
-    cachedPromise = null;
-    cachedPromise = fetch("/api/model").then((r) => {
-      if (!r.ok)
-        throw new Error(`HTTP ${r.status}`);
-      return r.json();
-    }).catch((err) => {
-      cachedPromise = null;
-      throw err;
-    });
     let cancelled = false;
-    cachedPromise.then((index) => {
+    if (!cache || cache.version !== modelVersion) {
+      const promise = fetch("/api/model").then((r) => {
+        if (!r.ok)
+          throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      });
+      promise.catch(() => {
+        if (cache && cache.promise === promise)
+          cache = null;
+      });
+      cache = { version: modelVersion, promise };
+    }
+    setState((s) => ({ ...s, loading: true, error: null }));
+    cache.promise.then((index) => {
       if (!cancelled)
         setState({ index, loading: false, error: null });
     }).catch((err) => {
@@ -7090,12 +7094,12 @@ function useModelIndex() {
   }, [modelVersion]);
   return state;
 }
-var cachedPromise;
+var cache;
 var init_useModelIndex = __esm({
   "src/web/hooks/useModelIndex.ts"() {
     "use strict";
     init_useGraphStore();
-    cachedPromise = null;
+    cache = null;
   }
 });
 
@@ -14638,18 +14642,18 @@ function useModelDiff() {
     error: null
   });
   useEffect28(() => {
-    if (!cachedPromise2) {
-      cachedPromise2 = fetch("/api/model/diff").then((r) => {
+    if (!cachedPromise) {
+      cachedPromise = fetch("/api/model/diff").then((r) => {
         if (!r.ok)
           throw new Error(`HTTP ${r.status}`);
         return r.json();
       }).catch((err) => {
-        cachedPromise2 = null;
+        cachedPromise = null;
         throw err;
       });
     }
     let cancelled = false;
-    cachedPromise2.then((data) => {
+    cachedPromise.then((data) => {
       if (cancelled)
         return;
       setState({
@@ -14674,11 +14678,11 @@ function useModelDiff() {
   }, []);
   return state;
 }
-var cachedPromise2;
+var cachedPromise;
 var init_useModelDiff = __esm({
   "src/web/hooks/useModelDiff.ts"() {
     "use strict";
-    cachedPromise2 = null;
+    cachedPromise = null;
   }
 });
 
@@ -22621,6 +22625,42 @@ function provideDefinition(monaco, model, position) {
   }
   return null;
 }
+function isAtSearchingItemStart(model, position) {
+  const lineText = model.getLineContent(position.lineNumber);
+  const before = lineText.slice(0, position.column - 1);
+  if (!/^\s*-\s*[a-zA-Z_]*\s*$/.test(before))
+    return false;
+  const currentIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
+  let section = "";
+  for (let i = position.lineNumber - 1; i >= 1; i--) {
+    const pl = model.getLineContent(i);
+    const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
+    if (pIndent === 0) {
+      const m = pl.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (m) {
+        section = m[1];
+        break;
+      }
+    }
+  }
+  if (section !== "entities")
+    return false;
+  for (let i = position.lineNumber - 1; i >= 1; i--) {
+    const pl = model.getLineContent(i);
+    if (!pl.trim() || pl.trim().startsWith("#"))
+      continue;
+    const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
+    if (pIndent === currentIndent && /^\s*-\s+\S/.test(pl)) {
+      continue;
+    }
+    if (pIndent <= currentIndent) {
+      if (/^\s*searching\s*:\s*$/.test(pl))
+        return true;
+      return false;
+    }
+  }
+  return false;
+}
 function detectArrayItemContext(model, position) {
   const lineText = model.getLineContent(position.lineNumber);
   const beforeCursor = lineText.slice(0, position.column - 1);
@@ -22697,6 +22737,9 @@ function detectArrayItemContext(model, position) {
   return null;
 }
 function detectContextAtPosition(model, position, _lineContexts) {
+  if (isAtSearchingItemStart(model, position)) {
+    return "searchingItem";
+  }
   const arrayCtx = detectArrayItemContext(model, position);
   if (arrayCtx)
     return arrayCtx;
@@ -22949,8 +22992,6 @@ function detectContextAtPosition(model, position, _lineContexts) {
     return "sortingItem";
   if (parentKey === "by")
     return "sortingByItem";
-  if (parentKey === "searching")
-    return "searchingObject";
   if (parentKey === "identification")
     return "identificationItem";
   if (parentKey === "reconciliation")
@@ -23349,6 +23390,7 @@ function ensureCache() {
     _colCache.columns = void 0;
     _colCache.attributes = void 0;
     _colCache.scenarios = void 0;
+    _colCache.joinTargetIndex = void 0;
   }
   return _colCache;
 }
@@ -23459,24 +23501,9 @@ function getDataTypeStatuses(model, position) {
     return [];
   return Array.isArray(dt.statuses) ? dt.statuses : [];
 }
-function cachedAttributes() {
-  const c = ensureCache();
-  if (c.attributes)
-    return c.attributes;
-  const cur = (ctx.currentDomainId || "").toLowerCase();
-  const seen = /* @__PURE__ */ new Set();
+function computeAttributesForContext(context) {
   const out = [];
-  SYSTEM_ATTRIBUTES_FOR_COMPLETION.forEach((sys) => {
-    seen.add(sys.id);
-    out.push({
-      label: sys.id,
-      insertText: " " + sys.id,
-      kind: 0,
-      sortText: "0_" + sys.id,
-      detail: sys.dataType,
-      documentation: sys.description + " \xB7 \u0441\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0439"
-    });
-  });
+  const seen = /* @__PURE__ */ new Set();
   const mkDoc = (a, contextLabel) => {
     const parts = [];
     if (a.dataType)
@@ -23488,38 +23515,569 @@ function cachedAttributes() {
     parts.push(contextLabel);
     return parts.join(" \xB7 ");
   };
-  ctx.modelIndex?.entities?.forEach((e) => {
-    if ((e.domainId || "").toLowerCase() !== cur)
+  const pushAttr = (ownerLabel, a, prefix, contextLabel) => {
+    if (!a?.id || seen.has(a.id))
       return;
-    e.attributes?.forEach((a) => {
-      if (a?.id && !seen.has(a.id)) {
-        seen.add(a.id);
-        out.push({
-          label: a.id,
-          insertText: " " + a.id,
-          kind: 0,
-          sortText: "0_" + a.id,
-          detail: `entity: ${e.entityId}`,
-          documentation: mkDoc(a, `entity: ${e.entityId}`)
-        });
-      }
-      a?.nestedAttributes?.forEach((na) => {
-        if (na?.id && !seen.has(na.id)) {
-          seen.add(na.id);
-          out.push({
-            label: na.id,
-            insertText: " " + na.id,
-            kind: 0,
-            sortText: "1_" + na.id,
-            detail: `table: ${e.entityId}.${a.id}`,
-            documentation: mkDoc(na, `table: ${e.entityId}.${a.id}`)
-          });
-        }
+    seen.add(a.id);
+    out.push({
+      label: a.id,
+      insertText: " " + a.id,
+      kind: 0,
+      sortText: prefix + a.id,
+      detail: contextLabel,
+      documentation: mkDoc(a, contextLabel)
+    });
+    a.nestedAttributes?.forEach((na) => {
+      if (!na?.id || seen.has(na.id))
+        return;
+      seen.add(na.id);
+      out.push({
+        label: na.id,
+        insertText: " " + na.id,
+        kind: 0,
+        sortText: "1_" + na.id,
+        detail: `table: ${ownerLabel}.${a.id}`,
+        documentation: mkDoc(na, `table: ${ownerLabel}.${a.id}`)
       });
     });
-  });
-  c.attributes = out;
+  };
+  if (context.kind === "entity" && context.entityFqid) {
+    const start = ctx.modelIndex?.entitiesByFqid[context.entityFqid];
+    if (start) {
+      const chain = [];
+      const visited = /* @__PURE__ */ new Set();
+      let e = start;
+      while (e && !visited.has(e.fqid)) {
+        visited.add(e.fqid);
+        chain.push(e);
+        e = e.inherits ? ctx.modelIndex?.entitiesByFqid[e.inherits] : void 0;
+      }
+      chain.forEach((e2, idx) => {
+        const isSelf = idx === 0;
+        const prefix = isSelf ? "0_" : "1_";
+        const contextLabel = isSelf ? `entity: ${e2.entityId}` : `inherited from ${e2.entityId}`;
+        e2.attributes?.forEach(
+          (a) => pushAttr(e2.entityId, a, prefix, contextLabel)
+        );
+      });
+    }
+  }
+  if (context.kind === "linkage") {
+    (context.linkageAttributes || []).forEach(
+      (a) => pushAttr(
+        context.linkageId || "?",
+        a,
+        "0_",
+        `linkage: ${context.linkageId}`
+      )
+    );
+  }
+  if (context.kind === "entity" || context.kind === "linkage") {
+    SYSTEM_ATTRIBUTES_FOR_COMPLETION.forEach((sys) => {
+      if (seen.has(sys.id))
+        return;
+      seen.add(sys.id);
+      out.push({
+        label: sys.id,
+        insertText: " " + sys.id,
+        kind: 0,
+        sortText: "2_" + sys.id,
+        detail: sys.dataType,
+        documentation: sys.description + " \xB7 \u0441\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0439"
+      });
+    });
+  }
+  if (context.kind === "unknown") {
+    const cur = (ctx.currentDomainId || "").toLowerCase();
+    ctx.modelIndex?.entities?.forEach((e) => {
+      if ((e.domainId || "").toLowerCase() !== cur)
+        return;
+      e.attributes?.forEach(
+        (a) => pushAttr(e.entityId, a, "9_", `entity: ${e.entityId}`)
+      );
+    });
+    SYSTEM_ATTRIBUTES_FOR_COMPLETION.forEach((sys) => {
+      if (seen.has(sys.id))
+        return;
+      seen.add(sys.id);
+      out.push({
+        label: sys.id,
+        insertText: " " + sys.id,
+        kind: 0,
+        sortText: "8_" + sys.id,
+        detail: sys.dataType,
+        documentation: sys.description + " \xB7 \u0441\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u0439"
+      });
+    });
+  }
   return out;
+}
+function unquote(v) {
+  const t = v.replace(/\s+#.*$/, "").trim();
+  if (t.startsWith('"') && t.endsWith('"') || t.startsWith("'") && t.endsWith("'")) {
+    return t.slice(1, -1);
+  }
+  return t;
+}
+function findSiblingFieldValue(model, position, fieldName) {
+  const lineCount = model.getLineCount();
+  const currentLine = position.lineNumber;
+  const lineText = model.getLineContent(currentLine);
+  const currentIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
+  let blockStart = -1;
+  let blockDashIndent = -1;
+  for (let i = currentLine; i >= 1; i--) {
+    const l = model.getLineContent(i);
+    const dashMatch = l.match(/^(\s*)-\s+\S/);
+    if (dashMatch && dashMatch[1].length < currentIndent) {
+      blockStart = i;
+      blockDashIndent = dashMatch[1].length;
+      break;
+    }
+  }
+  if (blockStart < 0)
+    return null;
+  let blockEnd = lineCount;
+  for (let i = blockStart + 1; i <= lineCount; i++) {
+    const l = model.getLineContent(i);
+    const dashMatch = l.match(/^(\s*)-\s+\S/);
+    if (dashMatch && dashMatch[1].length === blockDashIndent) {
+      blockEnd = i - 1;
+      break;
+    }
+  }
+  const re = /^(\s*)(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*(.+?)\s*$/;
+  for (let i = blockStart; i <= blockEnd; i++) {
+    const l = model.getLineContent(i);
+    const m = l.match(re);
+    if (!m)
+      continue;
+    if (m[2] !== fieldName)
+      continue;
+    return unquote(m[3]);
+  }
+  return null;
+}
+function findAncestorFieldValue(model, position, fieldName, maxLevelsUp = 5) {
+  const lineCount = model.getLineCount();
+  const currentLine = position.lineNumber;
+  const lineText = model.getLineContent(currentLine);
+  let currentIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
+  for (let level = 0; level < maxLevelsUp; level++) {
+    let parentStartLine = -1;
+    let parentIndent = -1;
+    for (let i = currentLine - 1; i >= 1; i--) {
+      const l = model.getLineContent(i);
+      if (!l.trim() || l.trim().startsWith("#"))
+        continue;
+      const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
+      if (ind < currentIndent) {
+        parentStartLine = i;
+        parentIndent = ind;
+        break;
+      }
+    }
+    if (parentStartLine < 0)
+      return null;
+    let parentEndLine = lineCount;
+    for (let i = parentStartLine + 1; i <= lineCount; i++) {
+      const l = model.getLineContent(i);
+      if (!l.trim())
+        continue;
+      const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
+      if (ind <= parentIndent) {
+        parentEndLine = i - 1;
+        break;
+      }
+    }
+    const re = /^(\s*)(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*(.+?)\s*$/;
+    for (let i = parentStartLine; i <= parentEndLine; i++) {
+      const l = model.getLineContent(i);
+      const m = l.match(re);
+      if (!m)
+        continue;
+      const ind = m[1].length;
+      if (ind !== parentIndent && ind !== parentIndent + 2)
+        continue;
+      if (m[2] !== fieldName)
+        continue;
+      return unquote(m[3]);
+    }
+    currentIndent = parentIndent;
+  }
+  return null;
+}
+function buildJoinTargetIndex() {
+  const map2 = /* @__PURE__ */ new Map();
+  const linkageMap = /* @__PURE__ */ new Map();
+  for (const l of ctx.modelIndex?.entityLinkages || []) {
+    linkageMap.set(`${l.domainId}/${l.id}`.toLowerCase(), l);
+  }
+  const getChildEntity = (linkageFqid, parentFqid, side) => {
+    const linkage = linkageMap.get(linkageFqid.toLowerCase());
+    if (!linkage)
+      return null;
+    const parentLower = parentFqid.toLowerCase();
+    const s1 = linkage.side1Fqid;
+    const s2 = linkage.side2Fqid;
+    if (s1 === s2)
+      return s1 === parentLower ? s2 : null;
+    const effectiveSide = side === 2 ? 2 : 1;
+    const parentSide = effectiveSide === 1 ? s1 : s2;
+    const childSide = effectiveSide === 1 ? s2 : s1;
+    if (parentSide === parentLower)
+      return childSide;
+    if (s1 === parentLower)
+      return s2;
+    if (s2 === parentLower)
+      return s1;
+    return null;
+  };
+  const walk = (domainId, parentFqid, joins) => {
+    if (!joins)
+      return;
+    for (const j of joins) {
+      if (!j || typeof j !== "object")
+        continue;
+      if (typeof j.id !== "string" || !j.id)
+        continue;
+      if (typeof j.linkage !== "string" || !j.linkage)
+        continue;
+      const linkageFqid = j.linkage.includes("/") ? j.linkage.toLowerCase() : `${domainId}/${j.linkage}`.toLowerCase();
+      const child = getChildEntity(
+        linkageFqid,
+        parentFqid,
+        j.side === 1 || j.side === 2 ? j.side : void 0
+      );
+      if (!child)
+        continue;
+      const key = `${domainId}#${j.id}`.toLowerCase();
+      if (!map2.has(key))
+        map2.set(key, { targetFqid: child, linkageFqid });
+      walk(domainId, child, j.joins);
+    }
+  };
+  for (const tl of ctx.modelIndex?.transitiveLinkages || []) {
+    walk(tl.domainId, tl.entity.toLowerCase(), tl.joins);
+  }
+  return map2;
+}
+function findLinkageByRef(ref, currentDomain) {
+  const trimmed = (ref || "").trim();
+  if (!trimmed)
+    return null;
+  const slash = trimmed.indexOf("/");
+  const targetDomain = slash > 0 ? trimmed.slice(0, slash).toLowerCase() : currentDomain.toLowerCase();
+  const id = slash > 0 ? trimmed.slice(slash + 1) : trimmed;
+  return (ctx.modelIndex?.entityLinkages || []).find(
+    (l) => (l.domainId || "").toLowerCase() === targetDomain && l.id === id
+  ) || null;
+}
+function resolveJoinTargetFqid(joinId, viewId, currentDomain) {
+  if (!joinId)
+    return null;
+  if (viewId) {
+    const srcJoin = (ctx.modelIndex?.viewSourceJoins || []).find(
+      (j) => j.domainId.toLowerCase() === currentDomain && j.viewId === viewId && j.id === joinId
+    );
+    if (srcJoin) {
+      const lk = findLinkageByRef(srcJoin.linkage, currentDomain);
+      const schema2 = ctx.modelIndex?.schemasByDomain?.[currentDomain];
+      const viewItem = schema2?.sections?.views?.items?.find(
+        (v) => v.id === viewId
+      );
+      const sourceEntity = viewItem?.sourceEntity;
+      if (lk && sourceEntity) {
+        const srcFqid = sourceEntity.includes("/") ? sourceEntity.toLowerCase() : `${currentDomain}/${sourceEntity}`.toLowerCase();
+        if (lk.side1Fqid === srcFqid)
+          return lk.side2Fqid;
+        if (lk.side2Fqid === srcFqid)
+          return lk.side1Fqid;
+      }
+    }
+  }
+  const c = ensureCache();
+  if (!c.joinTargetIndex) {
+    c.joinTargetIndex = buildJoinTargetIndex();
+  }
+  const direct = c.joinTargetIndex.get(
+    `${currentDomain}#${joinId}`.toLowerCase()
+  );
+  if (direct)
+    return direct.targetFqid;
+  const suffix = `#${joinId.toLowerCase()}`;
+  for (const [k, v] of c.joinTargetIndex) {
+    if (k.endsWith(suffix))
+      return v.targetFqid;
+  }
+  return null;
+}
+function detectWidgetFieldContainer(model, position) {
+  const lineText = model.getLineContent(position.lineNumber);
+  const currentIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
+  let sawColumns = false;
+  for (let i = position.lineNumber - 1; i >= 1; i--) {
+    const l = model.getLineContent(i);
+    if (!l.trim() || l.trim().startsWith("#"))
+      continue;
+    const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind >= currentIndent)
+      continue;
+    const trimmed = l.trim();
+    if (/^columns\s*:\s*$/.test(trimmed)) {
+      sawColumns = true;
+      continue;
+    }
+    if (/^attributes\s*:\s*$/.test(trimmed)) {
+      return sawColumns ? "control.columns" : "attributes";
+    }
+    if (/^[a-zA-Z_][\w]*\s*:/.test(trimmed)) {
+      return sawColumns ? "control.columns" : null;
+    }
+  }
+  return sawColumns ? "control.columns" : null;
+}
+function computeOppositeEntityForWidget(widget, viewId, currentDomain) {
+  if (!viewId || !widget?.linkage)
+    return null;
+  const schema2 = ctx.modelIndex?.schemasByDomain?.[currentDomain];
+  const viewItem = schema2?.sections?.views?.items?.find((v) => v.id === viewId);
+  const viewEntityRaw = viewItem?.entity || viewItem?.sourceEntity;
+  if (!viewEntityRaw)
+    return null;
+  const viewFqid = String(viewEntityRaw).includes("/") ? String(viewEntityRaw).toLowerCase() : `${currentDomain}/${viewEntityRaw}`.toLowerCase();
+  const lk = findLinkageByRef(widget.linkage, currentDomain);
+  return computeOppositeEntityForLinkage(lk, viewFqid);
+}
+function detectEntityFqidForPosition(model, position) {
+  const cur = (ctx.currentDomainId || "").toLowerCase();
+  if (!cur || !ctx.lineMap || !ctx.modelIndex)
+    return null;
+  const lineCtx = ctx.lineMap.lineContexts.get(position.lineNumber);
+  if (!lineCtx)
+    return null;
+  if (lineCtx.entityId) {
+    return `${cur}/${lineCtx.entityId}`.toLowerCase();
+  }
+  const schema2 = ctx.modelIndex.schemasByDomain?.[cur];
+  if (!schema2)
+    return null;
+  const viewCrumb = lineCtx.breadcrumbs.find((b) => b.type === "view");
+  if (viewCrumb) {
+    const viewItem = schema2.sections.views.items?.find(
+      (v) => v.id === viewCrumb.id
+    );
+    const viewEntity = viewItem?.entity || viewItem?.sourceEntity;
+    if (viewEntity) {
+      return viewEntity.includes("/") ? viewEntity.toLowerCase() : `${cur}/${viewEntity}`.toLowerCase();
+    }
+  }
+  const drCrumb = lineCtx.breadcrumbs.find((b) => b.type === "dataRule");
+  if (drCrumb) {
+    const drItem = ctx.modelIndex.dataRules.find(
+      (r) => (r.domainId || "").toLowerCase() === cur && r.id === drCrumb.id
+    );
+    if (drItem?.entity)
+      return drItem.entity;
+  }
+  const actCrumb = lineCtx.breadcrumbs.find((b) => b.type === "action");
+  if (actCrumb) {
+    const actItem = ctx.modelIndex.actions.find(
+      (a) => (a.domainId || "").toLowerCase() === cur && a.id === actCrumb.id
+    );
+    if (actItem?.entity)
+      return actItem.entity;
+  }
+  return null;
+}
+function detectAttributeCompletionContext(model, position) {
+  const cur = (ctx.currentDomainId || "").toLowerCase();
+  if (!cur || !ctx.lineMap || !ctx.modelIndex) {
+    return { kind: "unknown" };
+  }
+  const lineCtx = ctx.lineMap.lineContexts.get(position.lineNumber);
+  if (!lineCtx)
+    return { kind: "unknown" };
+  const lkCrumb = lineCtx.breadcrumbs.find((b) => b.type === "linkage");
+  if (lkCrumb) {
+    const lk = findLinkageByRef(lkCrumb.id, cur);
+    return {
+      kind: "linkage",
+      linkageId: lkCrumb.id,
+      linkageAttributes: lk?.attributes || []
+    };
+  }
+  const filterCtx = detectFilterLinkageContext(model, position, lineCtx);
+  if (filterCtx) {
+    if (filterCtx.mode === "link_attributes") {
+      if (filterCtx.linkageRecord) {
+        return {
+          kind: "linkage",
+          linkageId: filterCtx.linkageRecord.id,
+          linkageAttributes: filterCtx.linkageRecord.attributes || []
+        };
+      }
+      return null;
+    }
+    if (filterCtx.joinTargetFqid) {
+      return { kind: "entity", entityFqid: filterCtx.joinTargetFqid };
+    }
+    if (filterCtx.linkageRecord && filterCtx.viewEntityFqid) {
+      const opposite = computeOppositeEntityForLinkage(
+        filterCtx.linkageRecord,
+        filterCtx.viewEntityFqid
+      );
+      if (opposite)
+        return { kind: "entity", entityFqid: opposite };
+    }
+    return null;
+  }
+  const siblingJoin = findSiblingFieldValue(model, position, "join");
+  if (siblingJoin) {
+    const viewCrumb = lineCtx.breadcrumbs.find((b) => b.type === "view");
+    const targetFqid = resolveJoinTargetFqid(
+      siblingJoin,
+      viewCrumb?.id || null,
+      cur
+    );
+    if (targetFqid)
+      return { kind: "entity", entityFqid: targetFqid };
+  }
+  const widgetCrumb = lineCtx.breadcrumbs.find((b) => b.type === "widget");
+  if (widgetCrumb) {
+    const vCrumb = lineCtx.breadcrumbs.find((b) => b.type === "view");
+    const widget = (ctx.modelIndex.viewWidgets || []).find(
+      (w) => w.id === widgetCrumb.id && (!vCrumb || w.parentViewId === vCrumb.id)
+    );
+    if (widget?.type === "linkage" && widget.linkage) {
+      const container = detectWidgetFieldContainer(model, position);
+      if (container === "attributes") {
+        const lk = findLinkageByRef(widget.linkage, cur);
+        return {
+          kind: "linkage",
+          linkageId: lk?.id || widget.linkage,
+          linkageAttributes: lk?.attributes || []
+        };
+      }
+      if (container === "control.columns") {
+        const opposite = computeOppositeEntityForWidget(
+          widget,
+          vCrumb?.id || null,
+          cur
+        );
+        if (opposite)
+          return { kind: "entity", entityFqid: opposite };
+      }
+    }
+  }
+  const ancestorLinkage = findAncestorFieldValue(model, position, "linkage");
+  if (ancestorLinkage) {
+    const lk = findLinkageByRef(ancestorLinkage, cur);
+    if (lk) {
+      return {
+        kind: "linkage",
+        linkageId: lk.id,
+        linkageAttributes: lk.attributes || []
+      };
+    }
+  }
+  const entityFqid = detectEntityFqidForPosition(model, position);
+  if (entityFqid)
+    return { kind: "entity", entityFqid };
+  return { kind: "unknown" };
+}
+function detectFilterLinkageContext(model, position, lineCtx) {
+  const cur = (ctx.currentDomainId || "").toLowerCase();
+  if (!cur)
+    return null;
+  const viewCrumb = lineCtx.breadcrumbs.find((b) => b.type === "view");
+  if (!viewCrumb)
+    return null;
+  const lineText = model.getLineContent(position.lineNumber);
+  const currentIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
+  let container = null;
+  for (let i = position.lineNumber - 1; i >= 1; i--) {
+    const l = model.getLineContent(i);
+    if (!l.trim() || l.trim().startsWith("#"))
+      continue;
+    const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind >= currentIndent)
+      continue;
+    const trimmed = l.trim();
+    if (/^link_attributes\s*:\s*$/.test(trimmed)) {
+      container = "link_attributes";
+      break;
+    }
+    if (/^linkedEntity\s*:\s*$/.test(trimmed)) {
+      container = "linkedEntity";
+      break;
+    }
+    return null;
+  }
+  if (!container)
+    return null;
+  const linkageRef = findSiblingFieldValue(model, position, "linkage");
+  const joinRef = !linkageRef ? findSiblingFieldValue(model, position, "join") : null;
+  const linkageRecord = linkageRef ? findLinkageByRef(linkageRef, cur) : null;
+  const joinTargetFqid = joinRef ? resolveJoinTargetFqid(joinRef, viewCrumb.id, cur) : null;
+  let viewEntityFqid = null;
+  for (let i = position.lineNumber - 1; i >= 1; i--) {
+    const l = model.getLineContent(i);
+    if (!l.trim() || l.trim().startsWith("#"))
+      continue;
+    const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind >= currentIndent)
+      continue;
+    const trimmed = l.trim();
+    const em = trimmed.match(/^(?:-\s+)?entity\s*:\s*(.+?)\s*$/);
+    if (em) {
+      const v = unquote(em[1]);
+      viewEntityFqid = v.includes("/") ? v.toLowerCase() : `${cur}/${v}`.toLowerCase();
+      break;
+    }
+    if (/^(?:-\s+)?filter\s*:\s*$/.test(trimmed))
+      break;
+    if (/^(?:-\s+)?(table|source)\s*:/.test(trimmed))
+      break;
+  }
+  if (!viewEntityFqid) {
+    const schema2 = ctx.modelIndex?.schemasByDomain?.[cur];
+    const viewItem = schema2?.sections?.views?.items?.find(
+      (v) => v.id === viewCrumb.id
+    );
+    const src = viewItem?.sourceEntity || viewItem?.entity;
+    if (src) {
+      const s = String(src);
+      viewEntityFqid = s.includes("/") ? s.toLowerCase() : `${cur}/${s}`.toLowerCase();
+    }
+  }
+  return {
+    mode: container,
+    linkageRecord,
+    joinTargetFqid,
+    viewEntityFqid
+  };
+}
+function computeOppositeEntityForLinkage(linkageRecord, viewFqid) {
+  if (!linkageRecord || !viewFqid)
+    return null;
+  const v = viewFqid.toLowerCase();
+  if ((linkageRecord.side1Fqid || "").toLowerCase() === v)
+    return linkageRecord.side2Fqid || null;
+  if ((linkageRecord.side2Fqid || "").toLowerCase() === v)
+    return linkageRecord.side1Fqid || null;
+  return null;
+}
+function cachedAttributes(context) {
+  const c = ensureCache();
+  if (!c.attributes)
+    c.attributes = /* @__PURE__ */ new Map();
+  const key = context.kind === "entity" ? `entity:${context.entityFqid}` : context.kind === "linkage" ? `linkage:${context.linkageId}` : "__unknown__";
+  if (c.attributes.has(key))
+    return c.attributes.get(key);
+  const result = computeAttributesForContext(context);
+  c.attributes.set(key, result);
+  return result;
 }
 function cachedScenarios() {
   const c = ensureCache();
@@ -24207,11 +24765,58 @@ ${indent}description: ""`
       {
         const lineText0 = model.getLineContent(position.lineNumber);
         const before0 = lineText0.slice(0, position.column - 1);
-        const m0 = before0.match(/^(\s*)-\s+([\w]*)$/);
-        if (m0) {
-          const currentIndent = m0[1].length;
+        const inSearching = (currentIndent) => {
+          for (let i = position.lineNumber - 1; i >= 1; i--) {
+            const l = model.getLineContent(i);
+            if (!l.trim() || l.trim().startsWith("#"))
+              continue;
+            const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
+            if (lIndent >= currentIndent)
+              continue;
+            const trimmed = l.trim();
+            if (/^searching\s*:\s*$/.test(trimmed))
+              return true;
+            if (/^[a-zA-Z_][\w]*\s*:/.test(trimmed))
+              return false;
+            if (lIndent === 0)
+              return false;
+          }
+          return false;
+        };
+        const buildSuggestions = () => {
+          const context = detectAttributeCompletionContext(model, position);
+          if (!context)
+            return { suggestions: [] };
+          const wordAtPos0 = model.getWordUntilPosition(position);
+          const range0 = {
+            startLineNumber: position.lineNumber,
+            startColumn: wordAtPos0.startColumn,
+            endLineNumber: position.lineNumber,
+            endColumn: wordAtPos0.endColumn
+          };
+          const attrs = cachedAttributes(context);
+          return {
+            suggestions: attrs.map((v) => ({
+              label: v.label,
+              kind: Kind.Field,
+              insertText: v.label,
+              filterText: v.label,
+              sortText: v.sortText,
+              detail: v.detail,
+              documentation: v.documentation,
+              range: range0
+            }))
+          };
+        };
+        const mA = before0.match(/^(\s*)-\s+attribute\s*:\s*(.*)$/);
+        if (mA) {
+          if (inSearching(mA[1].length))
+            return buildSuggestions();
+        }
+        const mB = before0.match(/^(\s*)-\s+([\w]*)$/);
+        if (mB) {
+          const currentIndent = mB[1].length;
           let sawAttributes = false;
-          let sawSearching = false;
           for (let i = position.lineNumber - 1; i >= 1; i--) {
             const l = model.getLineContent(i);
             if (!l.trim() || l.trim().startsWith("#"))
@@ -24227,33 +24832,10 @@ ${indent}description: ""`
               continue;
             }
             if (sawAttributes && /^searching\s*:/.test(trimmed)) {
-              sawSearching = true;
-              break;
+              return buildSuggestions();
             }
             if (lIndent < currentIndent)
               break;
-          }
-          if (sawSearching) {
-            const wordAtPos0 = model.getWordUntilPosition(position);
-            const range0 = {
-              startLineNumber: position.lineNumber,
-              startColumn: wordAtPos0.startColumn,
-              endLineNumber: position.lineNumber,
-              endColumn: wordAtPos0.endColumn
-            };
-            const attrs = cachedAttributes();
-            return {
-              suggestions: attrs.map((v) => ({
-                label: v.label,
-                kind: Kind.Field,
-                insertText: v.label,
-                filterText: v.label,
-                sortText: v.sortText,
-                detail: v.detail,
-                documentation: v.documentation,
-                range: range0
-              }))
-            };
           }
         }
       }
@@ -24891,7 +25473,10 @@ ${indent}description: ""`
             Kind
           ) || { suggestions: [] };
         case "attribute": {
-          const items = withKind(cachedAttributes(), Kind.Field);
+          const context = detectAttributeCompletionContext(model, position);
+          if (!context)
+            return { suggestions: [] };
+          const items = withKind(cachedAttributes(context), Kind.Field);
           return r(model, position, ["attribute"], items, Kind) || {
             suggestions: []
           };
@@ -25025,10 +25610,46 @@ ${indent}description: ""`
           }
           return { suggestions: [] };
         }
+        case "linkageAttribute": {
+          const wId = lineCtxRef(model, position, "widget");
+          const vId = lineCtxRef(model, position, "view");
+          if (!wId)
+            return { suggestions: [] };
+          const widget = (ctx.modelIndex?.viewWidgets || []).find(
+            (w) => w.id === wId && (!vId || w.parentViewId === vId)
+          );
+          if (!widget?.linkage)
+            return { suggestions: [] };
+          const lk = findLinkageByRef(widget.linkage, cur);
+          if (!lk)
+            return { suggestions: [] };
+          const items = (lk.attributes || []).filter((a) => a && a.id).map((a) => ({
+            label: String(a.id),
+            insertText: " " + String(a.id),
+            kind: Kind.Field,
+            sortText: "0_" + String(a.id),
+            detail: `linkage: ${lk.id}`,
+            documentation: [
+              a.dataType || "",
+              a.description || "",
+              `linkage: ${lk.id}`
+            ].filter(Boolean).join(" \xB7 ")
+          }));
+          return r(model, position, ["linkageAttribute"], items, Kind) || {
+            suggestions: []
+          };
+        }
       }
       return { suggestions: [] };
     }
   });
+}
+function lineCtxRef(_model, position, type2) {
+  const lc = ctx.lineMap?.lineContexts.get(position.lineNumber);
+  if (!lc)
+    return null;
+  const crumb = lc.breadcrumbs.find((b) => b.type === type2);
+  return crumb?.id || null;
 }
 function applyRqlMarkers(monaco, model) {
   try {
@@ -27396,8 +28017,13 @@ var init_monaco_providers = __esm({
           description: "\u0421\u043A\u0440\u044B\u0442\u044C \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0435 \u0438\u0437 \u0432\u044B\u0431\u043E\u0440\u0430"
         }
       ],
-      searchingObject: [
-        { name: "attributes", type: "array", description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0434\u043B\u044F \u043F\u043E\u0438\u0441\u043A\u0430" }
+      searchingItem: [
+        {
+          name: "attribute",
+          type: "ref",
+          description: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0434\u043B\u044F \u043F\u043E\u0438\u0441\u043A\u0430",
+          required: true
+        }
       ],
       sourceObject: [
         {
@@ -35850,6 +36476,369 @@ var init_js_yaml = __esm({
   }
 });
 
+// src/web/lib/yaml/entity-focus.ts
+function buildTopLevelRanges(lineMap) {
+  const result = /* @__PURE__ */ new Map();
+  for (const section of lineMap.sections) {
+    const sectionEndExclusive = section.line + section.linesCount;
+    const nodes = section.nodes;
+    for (let i = 0; i < nodes.length; i++) {
+      const node = nodes[i];
+      const start = node.line;
+      const next = nodes[i + 1];
+      const end = next ? next.line - 1 : sectionEndExclusive - 1;
+      result.set(`${section.key}#${node.id}`, {
+        startLine: start,
+        endLine: end
+      });
+    }
+  }
+  return result;
+}
+function markRange(lineLevel, range, level) {
+  for (let l = range.startLine; l <= range.endLine; l++) {
+    const cur = lineLevel.get(l);
+    if (!cur || FOCUS_RANK[level] > FOCUS_RANK[cur]) {
+      lineLevel.set(l, level);
+    }
+  }
+}
+function normalize(entityIdOrFqid, domainId) {
+  const trimmed = entityIdOrFqid.trim();
+  if (!trimmed)
+    return "";
+  if (trimmed.includes("/"))
+    return trimmed.toLowerCase();
+  return `${domainId}/${trimmed}`.toLowerCase();
+}
+function treeHierarchyTouchesEntity(node, entityLower) {
+  if (String(node.entity).toLowerCase() === entityLower)
+    return true;
+  for (const c of node.children || []) {
+    if (treeHierarchyTouchesEntity(c, entityLower))
+      return true;
+  }
+  return false;
+}
+function treeTouchesLinkage(node, linkageIdLower) {
+  for (const c of node.children || []) {
+    const lk = String(c.linkage || "").toLowerCase();
+    const id = lk.includes("/") ? lk.split("/").pop() : lk;
+    if (id === linkageIdLower)
+      return true;
+    if (treeTouchesLinkage(c, linkageIdLower))
+      return true;
+  }
+  return false;
+}
+function transitiveTouchesLinkage(joins, linkageIdLower) {
+  for (const j of joins) {
+    const lk = String(j.linkage || "").toLowerCase();
+    const id = lk.includes("/") ? lk.split("/").pop() : lk;
+    if (id === linkageIdLower)
+      return true;
+    if (j.joins && transitiveTouchesLinkage(j.joins, linkageIdLower))
+      return true;
+  }
+  return false;
+}
+function viewTouchesEntity(v, entityLower, domainId, index) {
+  if (v.type === "entity" && v.entity) {
+    return normalize(v.entity, domainId) === entityLower;
+  }
+  if (v.type === "list" && v.sourceEntity) {
+    return normalize(v.sourceEntity, domainId) === entityLower;
+  }
+  if (v.type === "tree" && v.tree) {
+    const tree = index.trees.find(
+      (t) => t.domainId === domainId && t.id === v.tree
+    );
+    if (!tree)
+      return false;
+    return treeHierarchyTouchesEntity(tree.hierarchy, entityLower);
+  }
+  return false;
+}
+function viewTouchesLinkage(v, linkageIdLower, domainId, index) {
+  for (const w of index.viewWidgets || []) {
+    if (w.domainId !== domainId)
+      continue;
+    if (w.parentViewId !== v.id)
+      continue;
+    if (w.type === "linkage" && w.linkage) {
+      const lk = w.linkage.toLowerCase();
+      const id = lk.includes("/") ? lk.split("/").pop() : lk;
+      if (id === linkageIdLower)
+        return true;
+    }
+  }
+  for (const j of index.viewSourceJoins || []) {
+    if (j.domainId !== domainId)
+      continue;
+    if (j.viewId !== v.id)
+      continue;
+    const lk = j.linkage.toLowerCase();
+    const id = lk.includes("/") ? lk.split("/").pop() : lk;
+    if (id === linkageIdLower)
+      return true;
+  }
+  for (const f of index.viewTableFilters || []) {
+    if (f.domainId !== domainId)
+      continue;
+    if (f.viewId !== v.id)
+      continue;
+    for (const lk of f.linkages) {
+      if (!lk.linkage)
+        continue;
+      const l = lk.linkage.toLowerCase();
+      const id = l.includes("/") ? l.split("/").pop() : l;
+      if (id === linkageIdLower)
+        return true;
+    }
+  }
+  return false;
+}
+function collectSecondaryForEntity(entityFqid, domainId, index) {
+  const out = [];
+  const entityLower = entityFqid.toLowerCase();
+  for (const l of index.entityLinkages) {
+    if (l.domainId !== domainId)
+      continue;
+    if (l.side1Fqid === entityLower || l.side2Fqid === entityLower) {
+      out.push({ sectionKey: "linkages", id: l.id });
+    }
+  }
+  for (const e of index.entities) {
+    if (e.domainId !== domainId)
+      continue;
+    if (e.inherits === entityLower) {
+      out.push({ sectionKey: "entities", id: e.entityId });
+    }
+  }
+  for (const a of index.actions || []) {
+    if (a.domainId !== domainId)
+      continue;
+    if (a.entity === entityLower)
+      out.push({ sectionKey: "actions", id: a.id });
+  }
+  for (const r of index.dataRules || []) {
+    if (r.domainId !== domainId)
+      continue;
+    if (r.entity === entityLower)
+      out.push({ sectionKey: "dataRules", id: r.id });
+  }
+  for (const m of index.mixins || []) {
+    if (m.domainId !== domainId)
+      continue;
+    if (m.targetEntityFqid === entityLower || m.sourceEntityFqid === entityLower) {
+      out.push({ sectionKey: "mixins", id: m.id });
+    }
+  }
+  for (const t of index.trees || []) {
+    if (t.domainId !== domainId)
+      continue;
+    if (treeHierarchyTouchesEntity(t.hierarchy, entityLower)) {
+      out.push({ sectionKey: "trees", id: t.id });
+    }
+  }
+  const schema2 = index.schemasByDomain?.[domainId];
+  if (schema2) {
+    for (const v of schema2.sections.views.items) {
+      if (viewTouchesEntity(v, entityLower, domainId, index)) {
+        out.push({ sectionKey: "views", id: v.id });
+      }
+    }
+  }
+  return out;
+}
+function collectSecondaryForLinkage(linkageId, domainId, index) {
+  const out = [];
+  const linkageIdLower = linkageId.toLowerCase();
+  const linkage = (index.entityLinkages || []).find(
+    (l) => l.domainId === domainId && l.id === linkageId
+  );
+  if (!linkage)
+    return out;
+  const side1Entity = index.entitiesByFqid[linkage.side1Fqid];
+  if (side1Entity && side1Entity.domainId === domainId) {
+    out.push({ sectionKey: "entities", id: side1Entity.entityId });
+  }
+  const side2Entity = index.entitiesByFqid[linkage.side2Fqid];
+  if (side2Entity && side2Entity.domainId === domainId && side2Entity.entityId !== side1Entity?.entityId) {
+    out.push({ sectionKey: "entities", id: side2Entity.entityId });
+  }
+  for (const a of index.actions || []) {
+    if (a.domainId !== domainId)
+      continue;
+    if (!a.linkage)
+      continue;
+    const lk = a.linkage.toLowerCase();
+    const id = lk.includes("/") ? lk.split("/").pop() : lk;
+    if (id === linkageIdLower)
+      out.push({ sectionKey: "actions", id: a.id });
+  }
+  for (const r of index.dataRules || []) {
+    if (r.domainId !== domainId)
+      continue;
+    if (!r.linkage)
+      continue;
+    const lk = r.linkage.toLowerCase();
+    const id = lk.includes("/") ? lk.split("/").pop() : lk;
+    if (id === linkageIdLower)
+      out.push({ sectionKey: "dataRules", id: r.id });
+  }
+  for (const m of index.mixins || []) {
+    if (m.domainId !== domainId)
+      continue;
+    if (!m.linkageFqid)
+      continue;
+    const lk = m.linkageFqid.toLowerCase();
+    const id = lk.includes("/") ? lk.split("/").pop() : lk;
+    if (id === linkageIdLower)
+      out.push({ sectionKey: "mixins", id: m.id });
+  }
+  for (const t of index.trees || []) {
+    if (t.domainId !== domainId)
+      continue;
+    if (treeTouchesLinkage(t.hierarchy, linkageIdLower)) {
+      out.push({ sectionKey: "trees", id: t.id });
+    }
+  }
+  for (const tl of index.transitiveLinkages || []) {
+    if (tl.domainId !== domainId)
+      continue;
+    if (transitiveTouchesLinkage(tl.joins, linkageIdLower)) {
+      out.push({ sectionKey: "transitiveLinkages", id: tl.id });
+    }
+  }
+  const schema2 = index.schemasByDomain?.[domainId];
+  if (schema2) {
+    for (const v of schema2.sections.views.items) {
+      if (viewTouchesLinkage(v, linkageIdLower, domainId, index)) {
+        out.push({ sectionKey: "views", id: v.id });
+      }
+    }
+  }
+  return out;
+}
+function computeFocus(target, lineMap, index, domainId, content, options = {}) {
+  const includeTertiary = options.includeTertiary === true;
+  const lineLevel = /* @__PURE__ */ new Map();
+  const ranges = buildTopLevelRanges(lineMap);
+  const primaryKey = target.kind === "entity" ? `entities#${target.id}` : `linkages#${target.id}`;
+  const primaryRange = ranges.get(primaryKey);
+  if (primaryRange)
+    markRange(lineLevel, primaryRange, "primary");
+  let secondary = [];
+  if (target.kind === "entity") {
+    const fqid = `${domainId}/${target.id}`.toLowerCase();
+    secondary = collectSecondaryForEntity(fqid, domainId, index);
+  } else {
+    secondary = collectSecondaryForLinkage(target.id, domainId, index);
+  }
+  for (const s of secondary) {
+    const r = ranges.get(`${s.sectionKey}#${s.id}`);
+    if (r)
+      markRange(lineLevel, r, "secondary");
+  }
+  if (includeTertiary && target.kind === "entity") {
+    const relatedLinkages = secondary.filter((s) => s.sectionKey === "linkages").map((s) => s.id);
+    const relatedViews = secondary.filter((s) => s.sectionKey === "views").map((s) => s.id);
+    const fqid = `${domainId}/${target.id}`.toLowerCase();
+    const tertiary = collectTertiaryForEntity(
+      fqid,
+      domainId,
+      index,
+      relatedLinkages,
+      relatedViews
+    );
+    for (const s of tertiary) {
+      const r = ranges.get(`${s.sectionKey}#${s.id}`);
+      if (r)
+        markRange(lineLevel, r, "tertiary");
+    }
+  }
+  const totalLines = content.length === 0 ? 1 : content.split("\n").length;
+  return { lineLevel, relatedLines: lineLevel.size, totalLines };
+}
+function collectTertiaryForEntity(entityFqid, domainId, index, relatedLinkages, relatedViews) {
+  const out = [];
+  const entityLower = entityFqid.toLowerCase();
+  const customTypeIds = new Set(
+    (index.dataTypes || []).filter((d) => d.domainId === domainId).map((d) => d.id)
+  );
+  const sequenceIds = new Set(
+    (index.sequences || []).filter((s) => s.domainId === domainId).map((s) => s.id)
+  );
+  const patternIds = new Set(
+    (index.counterColorPatterns || []).filter((p) => p.domainId === domainId).map((p) => p.id)
+  );
+  const knownDataTypes = /* @__PURE__ */ new Set();
+  const knownSequences = /* @__PURE__ */ new Set();
+  const knownPatterns = /* @__PURE__ */ new Set();
+  const addFromAttr = (a) => {
+    if (a.dataType && customTypeIds.has(a.dataType)) {
+      knownDataTypes.add(a.dataType);
+    }
+    if (a.itemDataType && customTypeIds.has(a.itemDataType)) {
+      knownDataTypes.add(a.itemDataType);
+    }
+    if (a.sequence) {
+      const seq2 = a.sequence.includes("/") ? a.sequence.split("/").pop() : a.sequence;
+      if (sequenceIds.has(seq2))
+        knownSequences.add(seq2);
+    }
+  };
+  const entity = index.entitiesByFqid[entityLower];
+  if (entity) {
+    for (const a of entity.attributes || [])
+      addFromAttr(a);
+  }
+  for (const lid of relatedLinkages) {
+    const lk = (index.entityLinkages || []).find(
+      (l) => l.domainId === domainId && l.id === lid
+    );
+    if (lk)
+      for (const a of lk.attributes || [])
+        addFromAttr(a);
+  }
+  const viewEls = index.viewElementsByDomain?.[domainId];
+  if (viewEls) {
+    for (const viewId of relatedViews) {
+      const elements = viewEls[viewId];
+      if (!elements)
+        continue;
+      for (const w of elements.widgetsWithType || []) {
+        if (w.counterColorPattern && patternIds.has(w.counterColorPattern)) {
+          knownPatterns.add(w.counterColorPattern);
+        }
+      }
+      for (const c of elements.columnsWithType || []) {
+        if (c.counterColorPattern && patternIds.has(c.counterColorPattern)) {
+          knownPatterns.add(c.counterColorPattern);
+        }
+      }
+    }
+  }
+  knownDataTypes.forEach((id) => out.push({ sectionKey: "dataTypes", id }));
+  knownSequences.forEach((id) => out.push({ sectionKey: "sequences", id }));
+  knownPatterns.forEach(
+    (id) => out.push({ sectionKey: "counterColorPatterns", id })
+  );
+  return out;
+}
+var FOCUS_RANK;
+var init_entity_focus = __esm({
+  "src/web/lib/yaml/entity-focus.ts"() {
+    "use strict";
+    FOCUS_RANK = {
+      primary: 3,
+      secondary: 2,
+      tertiary: 1
+    };
+  }
+});
+
 // src/web/components/modals/YamlViewerModal.tsx
 import React40, { useCallback as useCallback18, useEffect as useEffect36, useMemo as useMemo42, useRef as useRef14, useState as useState32 } from "react";
 import { Fragment as Fragment17, jsx as jsx74, jsxs as jsxs71 } from "react/jsx-runtime";
@@ -35980,6 +36969,8 @@ function YamlViewerModal() {
   const [activeSearchMatch, setActiveSearchMatch] = useState32(null);
   const searchPanelRef = useRef14(null);
   const searchDecorationsRef = useRef14(null);
+  const [focusIncludeDeps, setFocusIncludeDeps] = useState32(false);
+  const [navContextMenu, setNavContextMenu] = useState32(null);
   const { goto: gotoDomain } = useNavigation();
   const editorRef = useRef14(null);
   const containerRef = useRef14(null);
@@ -35989,6 +36980,8 @@ function YamlViewerModal() {
   });
   const isLockedRef = useRef14(isLocked);
   const isProgrammaticChange = useRef14(false);
+  const [focusTarget, setFocusTarget] = useState32(null);
+  const focusDecorationsRef = useRef14(null);
   useEffect36(() => {
     isLockedRef.current = isLocked;
   }, [isLocked]);
@@ -36007,6 +37000,17 @@ function YamlViewerModal() {
       return null;
     return lineMap.lineContexts.get(cursorLine) || null;
   }, [lineMap, cursorLine]);
+  const focusResult = useMemo42(() => {
+    if (!focusTarget || !lineMap || !index || !domainId)
+      return null;
+    try {
+      return computeFocus(focusTarget, lineMap, index, domainId, content, {
+        includeTertiary: focusIncludeDeps
+      });
+    } catch {
+      return null;
+    }
+  }, [focusTarget, focusIncludeDeps, lineMap, index, domainId, content]);
   const domainIssues = useMemo42(() => {
     if (!index || !domainId)
       return [];
@@ -37280,7 +38284,29 @@ ${label.message}` : ""),
     }
     setSaveError(null);
     setSaveFeedback(false);
+    setFocusTarget(null);
+    setFocusIncludeDeps(false);
   }, [filePath, open]);
+  useEffect36(() => {
+    if (!navContextMenu)
+      return;
+    const onDoc = (e) => {
+      const el = document.querySelector(".yaml-nav-ctx-menu");
+      if (el && el.contains(e.target))
+        return;
+      setNavContextMenu(null);
+    };
+    const onEsc = (e) => {
+      if (e.key === "Escape")
+        setNavContextMenu(null);
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onEsc, true);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onEsc, true);
+    };
+  }, [navContextMenu]);
   useEffect36(() => {
     const handler = (e) => {
       const detail = e.detail;
@@ -37440,6 +38466,95 @@ ${label.message}` : ""),
         decorationsCollection.current.clear();
     };
   }, [monacoReady, editorCreated, lineMap, content, liveVersion]);
+  useEffect36(() => {
+    if (!monacoReady || !editorCreated || !editorRef.current)
+      return;
+    const m = window.monaco;
+    if (!m)
+      return;
+    const model = editorRef.current.getModel();
+    if (!model)
+      return;
+    if (focusDecorationsRef.current) {
+      try {
+        focusDecorationsRef.current.clear();
+      } catch {
+      }
+      focusDecorationsRef.current = null;
+    }
+    if (!focusTarget || !focusResult)
+      return;
+    const linesWithMarkers = /* @__PURE__ */ new Set();
+    try {
+      const markers = m.editor.getModelMarkers({ resource: model.uri });
+    } catch {
+    }
+    for (const issue of effectiveIssues) {
+      if (issue.severity === "info")
+        continue;
+      if (typeof issue.line === "number" && issue.line > 0) {
+        linesWithMarkers.add(issue.line);
+      }
+    }
+    if (yamlSyntaxIssue) {
+      if (typeof yamlSyntaxIssue.line === "number") {
+        linesWithMarkers.add(yamlSyntaxIssue.line);
+      }
+    }
+    if (focusResult.lineLevel.size === 0)
+      return;
+    const decorations = [];
+    const lineLevel = focusResult.lineLevel;
+    const totalLines = model.getLineCount();
+    for (let l = 1; l <= totalLines; l++) {
+      const lvl = lineLevel.get(l);
+      if (lvl === "primary" || lvl === "secondary")
+        continue;
+      if (linesWithMarkers.has(l))
+        continue;
+      const maxCol = Math.max(1, model.getLineMaxColumn(l));
+      if (lvl === "tertiary") {
+        decorations.push({
+          range: new m.Range(l, 1, l, maxCol),
+          options: {
+            isWholeLine: true,
+            className: "yaml-focus-tertiary",
+            inlineClassName: "yaml-focus-tertiary-text"
+          }
+        });
+      } else {
+        decorations.push({
+          range: new m.Range(l, 1, l, maxCol),
+          options: {
+            isWholeLine: true,
+            className: "yaml-focus-unrelated",
+            inlineClassName: "yaml-focus-unrelated-text"
+          }
+        });
+      }
+    }
+    try {
+      focusDecorationsRef.current = editorRef.current.createDecorationsCollection(decorations);
+    } catch {
+    }
+    return () => {
+      if (focusDecorationsRef.current) {
+        try {
+          focusDecorationsRef.current.clear();
+        } catch {
+        }
+        focusDecorationsRef.current = null;
+      }
+    };
+  }, [
+    monacoReady,
+    editorCreated,
+    focusTarget,
+    focusResult,
+    effectiveIssues,
+    yamlSyntaxIssue,
+    focusIncludeDeps
+  ]);
   const crossDomainStats = useMemo42(() => {
     if (!index || !domainId)
       return null;
@@ -37508,6 +38623,20 @@ ${label.message}` : ""),
     () => effectiveIssues.filter((i) => i.__isUnknown).length,
     [effectiveIssues]
   );
+  const handleFocus = useCallback18((node, sectionKey) => {
+    const kind = sectionKey === "entities" ? "entity" : "linkage";
+    setFocusTarget((prev) => {
+      if (prev && prev.kind === kind && prev.id === node.id)
+        return null;
+      return { kind, id: node.id };
+    });
+  }, []);
+  const handleFocusWithDeps = useCallback18((node, sectionKey) => {
+    const kind = sectionKey === "entities" ? "entity" : "linkage";
+    setFocusTarget({ kind, id: node.id });
+    setFocusIncludeDeps(kind === "entity");
+    setNavContextMenu(null);
+  }, []);
   if (!open)
     return null;
   const canSave = !isRemoteMode && !isLocked && isDirty;
@@ -37751,6 +38880,19 @@ ${label.message}` : ""),
                   }
                 )
               ] }),
+              focusTarget && /* @__PURE__ */ jsx74(
+                FocusBar,
+                {
+                  target: focusTarget,
+                  result: focusResult,
+                  includeDeps: focusIncludeDeps,
+                  onToggleDeps: setFocusIncludeDeps,
+                  onClear: () => {
+                    setFocusTarget(null);
+                    setFocusIncludeDeps(false);
+                  }
+                }
+              ),
               saveError && /* @__PURE__ */ jsxs71("div", { className: "yaml-save-error", children: [
                 "\u274C ",
                 saveError,
@@ -37872,7 +39014,9 @@ ${label.message}` : ""),
                                   nodes: filteredNavNodes,
                                   activeIdx: activeNavIdx,
                                   onJump: jumpTo,
-                                  onHover: setActiveNavIdx
+                                  onHover: setActiveNavIdx,
+                                  focusTarget,
+                                  onFocus: handleFocus
                                 }
                               ) : lineMap.sections.map((section) => /* @__PURE__ */ jsx74(
                                 SectionNav,
@@ -37887,7 +39031,10 @@ ${label.message}` : ""),
                                   filteredNavNodes,
                                   sectionKey: section.key,
                                   entityIssuesMap,
-                                  attrIssuesMap
+                                  attrIssuesMap,
+                                  focusTarget,
+                                  onFocus: handleFocus,
+                                  onContextMenu: (node, sectionKey, x, y) => setNavContextMenu({ node, sectionKey, x, y })
                                 },
                                 section.key
                               )) })
@@ -38276,6 +39423,21 @@ ${label.message}` : ""),
             ]
           }
         ),
+        navContextMenu && /* @__PURE__ */ jsx74(
+          NavContextMenu,
+          {
+            state: navContextMenu,
+            focusTarget,
+            onFocus: () => handleFocus(navContextMenu.node, navContextMenu.sectionKey),
+            onFocusWithDeps: () => handleFocusWithDeps(navContextMenu.node, navContextMenu.sectionKey),
+            onClearFocus: () => {
+              setFocusTarget(null);
+              setFocusIncludeDeps(false);
+              setNavContextMenu(null);
+            },
+            onClose: () => setNavContextMenu(null)
+          }
+        ),
         showHelp && /* @__PURE__ */ jsx74(YamlViewerHelp, { onClose: () => setShowHelp(false) })
       ]
     }
@@ -38433,6 +39595,28 @@ function hasFieldInEntityBlock(fieldName, entityLine, lines) {
   }
   return false;
 }
+function hasFieldInAttributeBlock(fieldName, attrLine, lines) {
+  const startIdx = attrLine - 1;
+  const baseLine = lines[startIdx];
+  if (!baseLine)
+    return false;
+  const attrIndent = (baseLine.match(/^(\s*)/) || ["", ""])[1].length;
+  for (let i = startIdx + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim())
+      continue;
+    const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    const trimmed = line.trim();
+    if (indent === attrIndent && trimmed.startsWith("-"))
+      break;
+    if (indent < attrIndent)
+      break;
+    const re = new RegExp(`^${fieldName}\\s*:`);
+    if (re.test(trimmed))
+      return true;
+  }
+  return false;
+}
 function findAttributeLineInMap(entityId, attrId, lineMap) {
   if (!entityId || !attrId)
     return null;
@@ -38524,6 +39708,16 @@ function classifyIssue(issue, currentText, lineMap) {
     if (!entityLine)
       return "unknown";
     return hasFieldInEntityBlock("description", entityLine, lines) ? "resolved" : "still";
+  }
+  if (ruleId.includes("attribute-description") && issue.attributeId) {
+    const entityId = issue.entityFqid?.split("/").pop();
+    if (!entityId)
+      return "unknown";
+    const attrLine = findAttributeLineInMap(entityId, issue.attributeId, lineMap);
+    if (attrLine == null) {
+      return "resolved";
+    }
+    return hasFieldInAttributeBlock("description", attrLine, lines) ? "resolved" : "still";
   }
   if (ruleId.includes("attribute-camelcase") && issue.attributeId) {
     const entityId = issue.entityFqid?.split("/").pop();
@@ -38633,37 +39827,62 @@ function FilteredNavList({
   nodes,
   activeIdx,
   onJump,
-  onHover
+  onHover,
+  focusTarget,
+  onFocus
 }) {
   if (nodes.length === 0) {
     return /* @__PURE__ */ jsx74("div", { className: "yaml-viewer-nav__empty", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" });
   }
-  return /* @__PURE__ */ jsx74("div", { className: "yaml-nav-filtered", children: nodes.map((n, i) => /* @__PURE__ */ jsxs71(
-    "button",
-    {
-      className: "yaml-nav-filtered-item" + (i === activeIdx ? " yaml-nav-filtered-item--active" : "") + (n.hasIssues ? " yaml-nav-filtered-item--issues" : ""),
-      onClick: () => onJump(n.line),
-      onMouseEnter: () => onHover(i),
-      title: n.issuesPreview || void 0,
-      children: [
-        /* @__PURE__ */ jsx74("code", { className: "yaml-nav-filtered-item__id", children: n.label }),
-        /* @__PURE__ */ jsx74("span", { className: "yaml-nav-filtered-item__section", children: n.sectionKey }),
-        n.hasIssues && /* @__PURE__ */ jsx74(
-          "span",
-          {
-            className: "yaml-nav-filtered-item__issues",
-            title: n.issuesPreview || "\u0415\u0441\u0442\u044C \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B",
-            children: /* @__PURE__ */ jsx74(MIcon, { name: "warning", size: "sm" })
-          }
-        ),
-        /* @__PURE__ */ jsxs71("span", { className: "yaml-nav-filtered-item__line", children: [
-          ":",
-          n.line
-        ] })
-      ]
-    },
-    n.key + "#" + i
-  )) });
+  return /* @__PURE__ */ jsx74("div", { className: "yaml-nav-filtered", children: nodes.map((n, i) => {
+    const canFocus = n.depth === 0 && (n.sectionKey === "entities" || n.sectionKey === "linkages");
+    const isFocusActive = !!(canFocus && focusTarget && (focusTarget.kind === "entity" && n.sectionKey === "entities" && focusTarget.id === n.node.id || focusTarget.kind === "linkage" && n.sectionKey === "linkages" && focusTarget.id === n.node.id));
+    return /* @__PURE__ */ jsxs71(
+      "div",
+      {
+        className: "yaml-nav-filtered-row" + (i === activeIdx ? " yaml-nav-filtered-row--active" : ""),
+        onMouseEnter: () => onHover(i),
+        children: [
+          /* @__PURE__ */ jsxs71(
+            "button",
+            {
+              type: "button",
+              className: "yaml-nav-filtered-item__main" + (n.hasIssues ? " yaml-nav-filtered-item__main--issues" : ""),
+              onClick: () => onJump(n.line),
+              title: n.issuesPreview || void 0,
+              children: [
+                /* @__PURE__ */ jsx74("code", { className: "yaml-nav-filtered-item__id", children: n.label }),
+                /* @__PURE__ */ jsx74("span", { className: "yaml-nav-filtered-item__section", children: n.sectionKey }),
+                n.hasIssues && /* @__PURE__ */ jsx74(
+                  "span",
+                  {
+                    className: "yaml-nav-filtered-item__issues",
+                    title: n.issuesPreview || "\u0415\u0441\u0442\u044C \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B",
+                    children: /* @__PURE__ */ jsx74(MIcon, { name: "warning", size: "sm" })
+                  }
+                ),
+                /* @__PURE__ */ jsxs71("span", { className: "yaml-nav-filtered-item__line", children: [
+                  ":",
+                  n.line
+                ] })
+              ]
+            }
+          ),
+          canFocus && /* @__PURE__ */ jsx74(
+            "button",
+            {
+              type: "button",
+              className: "yaml-nav-filtered-item__focus" + (isFocusActive ? " yaml-nav-filtered-item__focus--active" : ""),
+              onClick: () => onFocus(n.node, n.sectionKey),
+              title: isFocusActive ? "\u0421\u043D\u044F\u0442\u044C \u0444\u043E\u043A\u0443\u0441" : "\u0424\u043E\u043A\u0443\u0441 \u043D\u0430 \u044D\u0442\u043E\u043C \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u0435",
+              children: /* @__PURE__ */ jsx74(MIcon, { name: "my_location", size: "sm" })
+            }
+          )
+        ]
+      },
+      n.key + "#" + i
+    );
+  }) });
 }
 function SectionNav({
   section,
@@ -38676,7 +39895,10 @@ function SectionNav({
   filteredNavNodes,
   sectionKey,
   entityIssuesMap,
-  attrIssuesMap
+  attrIssuesMap,
+  focusTarget,
+  onFocus,
+  onContextMenu
 }) {
   const detailsRef = React40.useRef(null);
   React40.useEffect(() => {
@@ -38742,7 +39964,10 @@ function SectionNav({
               hasIssues: !!issuesList && issuesList.length > 0,
               issuesPreview: buildIssuesPreview(issuesList),
               entityIssuesMap,
-              attrIssuesMap
+              attrIssuesMap,
+              focusTarget,
+              onFocus,
+              onContextMenu
             },
             node.id
           );
@@ -38765,7 +39990,10 @@ function NavItem({
   hasIssues,
   issuesPreview,
   entityIssuesMap,
-  attrIssuesMap
+  attrIssuesMap,
+  focusTarget,
+  onFocus,
+  onContextMenu
 }) {
   const key = parentKey + "#" + node.id;
   const hasChildren = !!node.children && node.children.length > 0;
@@ -38780,6 +40008,15 @@ function NavItem({
       "div",
       {
         className: "yaml-nav-item__row" + (isActive ? " yaml-nav-item__row--active" : ""),
+        onContextMenu: (e) => {
+          if (depth !== 0)
+            return;
+          if (sectionKey !== "entities" && sectionKey !== "linkages")
+            return;
+          e.preventDefault();
+          e.stopPropagation();
+          onContextMenu(node, sectionKey, e.clientX, e.clientY);
+        },
         children: [
           hasChildren ? /* @__PURE__ */ jsx74(
             "button",
@@ -38815,6 +40052,19 @@ function NavItem({
                 )
               ]
             }
+          ),
+          (sectionKey === "entities" || sectionKey === "linkages") && depth === 0 && /* @__PURE__ */ jsx74(
+            "button",
+            {
+              type: "button",
+              className: "yaml-nav-item__focus" + (focusTarget && (focusTarget.kind === "entity" && sectionKey === "entities" && focusTarget.id === node.id || focusTarget.kind === "linkage" && sectionKey === "linkages" && focusTarget.id === node.id) ? " yaml-nav-item__focus--active" : ""),
+              onClick: (e) => {
+                e.stopPropagation();
+                onFocus(node, sectionKey);
+              },
+              title: focusTarget && focusTarget.id === node.id ? "\u0421\u043D\u044F\u0442\u044C \u0444\u043E\u043A\u0443\u0441" : "\u0424\u043E\u043A\u0443\u0441 \u043D\u0430 \u044D\u0442\u043E\u043C \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u0435",
+              children: /* @__PURE__ */ jsx74(MIcon, { name: "my_location", size: "sm" })
+            }
           )
         ]
       }
@@ -38837,7 +40087,10 @@ function NavItem({
           hasIssues: !!childIssues && childIssues.length > 0,
           issuesPreview: buildIssuesPreview(childIssues),
           entityIssuesMap,
-          attrIssuesMap
+          attrIssuesMap,
+          focusTarget,
+          onFocus,
+          onContextMenu
         },
         child.id
       );
@@ -39353,6 +40606,130 @@ function resolveAttributeBacklinks(lines, targetEntity, targetAttr) {
   }
   return out;
 }
+function FocusBar({
+  target,
+  result,
+  includeDeps,
+  onToggleDeps,
+  onClear
+}) {
+  const notFound = !result || result.relatedLines === 0;
+  return /* @__PURE__ */ jsxs71("div", { className: "yaml-focus-bar", children: [
+    /* @__PURE__ */ jsx74("span", { className: "yaml-focus-bar__icon", children: /* @__PURE__ */ jsx74(MIcon, { name: "my_location", size: "sm" }) }),
+    /* @__PURE__ */ jsxs71("span", { className: "yaml-focus-bar__label", children: [
+      "\u0424\u043E\u043A\u0443\u0441: ",
+      /* @__PURE__ */ jsx74("strong", { children: target.id }),
+      /* @__PURE__ */ jsx74("span", { className: "yaml-focus-bar__kind", children: target.kind === "entity" ? " (\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C)" : " (\u0441\u0432\u044F\u0437\u044C)" })
+    ] }),
+    result && /* @__PURE__ */ jsxs71("span", { className: "yaml-focus-bar__counter", children: [
+      result.relatedLines,
+      " / ",
+      result.totalLines,
+      " \u0441\u0442\u0440\u043E\u043A"
+    ] }),
+    target.kind === "entity" && /* @__PURE__ */ jsxs71(
+      "label",
+      {
+        className: "yaml-focus-bar__deps",
+        title: "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C dataTypes / sequences / counterColorPatterns \u0438\u0437 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u0438 views",
+        children: [
+          /* @__PURE__ */ jsx74(
+            "input",
+            {
+              type: "checkbox",
+              checked: includeDeps,
+              onChange: (e) => onToggleDeps(e.target.checked)
+            }
+          ),
+          "\u0417\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438"
+        ]
+      }
+    ),
+    notFound && /* @__PURE__ */ jsx74("span", { className: "yaml-focus-bar__warn", children: "\u26A0 \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u0432 YAML" }),
+    /* @__PURE__ */ jsx74(
+      "button",
+      {
+        className: "yaml-focus-bar__close",
+        onClick: onClear,
+        title: "\u0421\u043D\u044F\u0442\u044C \u0444\u043E\u043A\u0443\u0441",
+        children: "\u2715"
+      }
+    )
+  ] });
+}
+function NavContextMenu({
+  state,
+  focusTarget,
+  onFocus,
+  onFocusWithDeps,
+  onClearFocus,
+  onClose
+}) {
+  const kind = state.sectionKey === "entities" ? "entity" : "linkage";
+  const isThisFocused = !!focusTarget && focusTarget.kind === kind && focusTarget.id === state.node.id;
+  const MENU_W = 230;
+  const MENU_H = 120;
+  const x = Math.max(8, Math.min(state.x, window.innerWidth - MENU_W - 8));
+  const y = Math.max(8, Math.min(state.y, window.innerHeight - MENU_H - 8));
+  return /* @__PURE__ */ jsxs71(
+    "div",
+    {
+      className: "yaml-nav-ctx-menu",
+      style: { left: x, top: y },
+      onMouseDown: (e) => e.stopPropagation(),
+      children: [
+        /* @__PURE__ */ jsxs71(
+          "button",
+          {
+            type: "button",
+            className: "yaml-nav-ctx-menu__item",
+            onClick: () => {
+              onFocus();
+              onClose();
+            },
+            children: [
+              /* @__PURE__ */ jsx74(MIcon, { name: "my_location", size: "sm" }),
+              isThisFocused ? "\u0421\u043D\u044F\u0442\u044C \u0444\u043E\u043A\u0443\u0441" : "\u0424\u043E\u043A\u0443\u0441"
+            ]
+          }
+        ),
+        kind === "entity" && /* @__PURE__ */ jsxs71(
+          "button",
+          {
+            type: "button",
+            className: "yaml-nav-ctx-menu__item",
+            onClick: () => {
+              onFocusWithDeps();
+              onClose();
+            },
+            children: [
+              /* @__PURE__ */ jsx74(MIcon, { name: "account_tree", size: "sm" }),
+              "\u0424\u043E\u043A\u0443\u0441 \u0441 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u044F\u043C\u0438"
+            ]
+          }
+        ),
+        focusTarget && !isThisFocused && /* @__PURE__ */ jsxs71(Fragment17, { children: [
+          /* @__PURE__ */ jsx74("div", { className: "yaml-nav-ctx-menu__divider" }),
+          /* @__PURE__ */ jsxs71(
+            "button",
+            {
+              type: "button",
+              className: "yaml-nav-ctx-menu__item",
+              onClick: () => {
+                onClearFocus();
+                onClose();
+              },
+              children: [
+                /* @__PURE__ */ jsx74(MIcon, { name: "close", size: "sm" }),
+                "\u0421\u043D\u044F\u0442\u044C \u0442\u0435\u043A\u0443\u0449\u0438\u0439 \u0444\u043E\u043A\u0443\u0441"
+              ]
+            }
+          )
+        ] })
+      ]
+    }
+  );
+}
 var KNOWN_ACTION_TYPES_UI, BACKLINK_KIND_LABELS;
 var init_YamlViewerModal = __esm({
   "src/web/components/modals/YamlViewerModal.tsx"() {
@@ -39372,6 +40749,7 @@ var init_YamlViewerModal = __esm({
     init_YamlSearchPanel();
     init_yaml_search();
     init_js_yaml();
+    init_entity_focus();
     KNOWN_ACTION_TYPES_UI = /* @__PURE__ */ new Set([
       "open_panel",
       "open_modal",

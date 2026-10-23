@@ -354,20 +354,16 @@ function parseAttribute(
       constraintDetails.length > 0 ? constraintDetails : undefined,
     usedInViews: 0,
     usedInRules: 0,
-    default:
-      raw.default !== undefined && raw.default !== null
-        ? raw.default
-        : undefined,
   };
 
-  if (raw.default !== undefined && raw.default !== null) {
-    if (
-      typeof raw.default === "string" ||
+  if (
+    raw.default !== undefined &&
+    raw.default !== null &&
+    (typeof raw.default === "string" ||
       typeof raw.default === "number" ||
-      typeof raw.default === "boolean"
-    ) {
-      record.default = raw.default;
-    }
+      typeof raw.default === "boolean")
+  ) {
+    record.default = raw.default;
   }
 
   // Базовые флаги
@@ -552,11 +548,28 @@ function parseEntity(
 
   // searching
   if (Array.isArray(raw.searching)) {
+    // Каноническая форма: [{attribute: x}, ...]. Допускаем и [x, y] — YAML-шорткат.
     entity.searching = raw.searching
-      .map((s: any) =>
-        s && s.attribute ? { attribute: String(s.attribute) } : null,
-      )
+      .map((s: any) => {
+        if (typeof s === "string" && s) return { attribute: s };
+        if (s && typeof s === "object" && typeof s.attribute === "string") {
+          return { attribute: s.attribute };
+        }
+        return null;
+      })
       .filter((x): x is { attribute: string } => x !== null);
+    entity.searchingForm = "array";
+  } else if (
+    raw.searching &&
+    typeof raw.searching === "object" &&
+    Array.isArray(raw.searching.attributes)
+  ) {
+    // Legacy / R-Vision docs: {attributes: [a, b, ...]}. Нормализуем в [{attribute}],
+    // но помечаем форму — линтер выкатит warning.
+    entity.searching = raw.searching.attributes
+      .map((a: any) => (typeof a === "string" && a ? { attribute: a } : null))
+      .filter((x): x is { attribute: string } => x !== null);
+    entity.searchingForm = "object";
   }
 
   // identification
@@ -2177,9 +2190,10 @@ function parseTree(raw: any, domainId: string): TreeRecord | null {
   const entityFqid = normalizeFqid(raw.hierarchy.entity, domainId);
   if (!entityFqid) return null;
 
+  const rawType = typeof raw.type === "string" ? raw.type.toLowerCase() : "";
   const type: TreeRecord["type"] =
-    raw.type === "orderable" || raw.type === "multiparent"
-      ? raw.type
+    rawType === "orderable" || rawType === "multiparent"
+      ? (rawType as TreeRecord["type"])
       : "ordinary";
 
   const hierarchy: TreeRecord["hierarchy"] = { entity: entityFqid };
@@ -2305,10 +2319,17 @@ function parseMenuItem(raw: any, domainId: string): MenuItemRecord | null {
 function parseMenu(raw: any, domainId: string): MenuRecord | null {
   if (!raw || typeof raw !== "object") return null;
   if (typeof raw.id !== "string" || !raw.id) return null;
+
+  const rawType = typeof raw.type === "string" ? raw.type : undefined;
+  const rawPlacement =
+    typeof raw.placement === "string" ? raw.placement : undefined;
+
   const type: MenuRecord["type"] =
-    raw.type === "root_menu" ? "root_menu" : "root_group";
+    rawType === "root_menu" ? "root_menu" : "root_group";
   const placement: MenuRecord["placement"] =
-    raw.placement === "settings" ? "settings" : "top";
+    rawPlacement === "settings" ? "settings" : "top";
+  const rawLabelMissing = !raw.label;
+
   const out: MenuRecord = {
     id: raw.id,
     domainId,
@@ -2317,6 +2338,17 @@ function parseMenu(raw: any, domainId: string): MenuRecord | null {
     label: String(raw.label || raw.id),
     placement,
   };
+
+  // Сохраняем оригинальные значения только при невалидных / отсутствующих,
+  // чтобы линтер мог ругаться, а нормализованные значения оставались
+  // пригодными для UI.
+  if (rawType !== undefined && rawType !== type) {
+    out.__rawType = rawType;
+  }
+  if (rawPlacement !== undefined && rawPlacement !== placement) {
+    out.__rawPlacement = rawPlacement;
+  }
+  if (rawLabelMissing) out.__rawLabelMissing = true;
   if (typeof raw.icon === "string") {
     const iconFqid = normalizeFqid(raw.icon, domainId);
     if (iconFqid) out.icon = iconFqid;
@@ -2485,13 +2517,14 @@ function parseAction(raw: any, domainId: string): ActionRecord | null {
   const entityFqid = normalizeFqid(raw.entity, domainId);
   if (entityFqid) out.entity = entityFqid;
 
-  if (
-    type === "open_page" &&
-    typeof raw.pageView === "string" &&
-    raw.pageView
-  ) {
-    const fqid = normalizeFqid(raw.pageView, domainId);
-    if (fqid) out.pageView = fqid;
+  if (type === "open_page") {
+    if (typeof raw.view === "string" && raw.view) {
+      const fqid = normalizeFqid(raw.view, domainId);
+      if (fqid) out.pageView = fqid;
+    } else if (typeof raw.pageView === "string" && raw.pageView) {
+      const fqid = normalizeFqid(raw.pageView, domainId);
+      if (fqid) out.pageView = fqid;
+    }
   }
   // modal / panel / view — все через normalizeFqid
   if (typeof raw.modal === "string") {
@@ -2656,28 +2689,6 @@ function parseAction(raw: any, domainId: string): ActionRecord | null {
   }
 
   if (typeof raw.attribute === "string") out.attribute = raw.attribute;
-
-  // ============ workflow: transition.to ============
-  if (
-    type === "workflow" &&
-    raw.transition &&
-    typeof raw.transition === "object"
-  ) {
-    if (typeof raw.transition.to === "string" && raw.transition.to) {
-      out.transition = { to: raw.transition.to };
-    }
-  }
-
-  // ============ open_external_widget_modal: params ============
-  if (
-    type === "open_external_widget_modal" &&
-    raw.params &&
-    typeof raw.params === "object"
-  ) {
-    if (typeof raw.params.widget === "string" && raw.params.widget) {
-      out.widgetParams = { widget: raw.params.widget, ...raw.params };
-    }
-  }
 
   if (typeof raw.widgetId === "string") {
     const fqid = normalizeFqid(raw.widgetId, domainId);
@@ -3564,6 +3575,44 @@ function collectViewMeta(raw: any, domainId: string): ViewMetaResult {
             }
             if (joins.length > 0) rec.linkedGroupsJoins = joins;
           }
+
+          // columns[]
+          if (Array.isArray(w.columns)) {
+            const cols: ViewWidgetColumnRef[] = [];
+            for (const c of w.columns) {
+              if (!c || typeof c !== "object") continue;
+              if (typeof c.id !== "string" || !c.id) continue;
+              const cr: ViewWidgetColumnRef = { id: c.id };
+              if (typeof c.attribute === "string" && c.attribute) {
+                cr.attribute = c.attribute;
+              }
+              if (typeof c.join === "string" && c.join) cr.join = c.join;
+              if (
+                typeof c.linkageAttribute === "string" &&
+                c.linkageAttribute
+              ) {
+                cr.linkageAttribute = c.linkageAttribute;
+              }
+              cols.push(cr);
+            }
+            if (cols.length > 0) rec.linkedGroupsColumns = cols;
+          }
+
+          // groupingBy[] — по docs [{attribute: x}, ...] или [x, y, ...]
+          if (Array.isArray(w.groupingBy)) {
+            const ids: string[] = [];
+            for (const g of w.groupingBy) {
+              if (typeof g === "string" && g) ids.push(g);
+              else if (
+                g &&
+                typeof g === "object" &&
+                typeof g.attribute === "string"
+              ) {
+                ids.push(g.attribute);
+              }
+            }
+            if (ids.length > 0) rec.linkedGroupsGroupingBy = ids;
+          }
         }
 
         // join-widget
@@ -3598,26 +3647,37 @@ function collectViewMeta(raw: any, domainId: string): ViewMetaResult {
             if (!comp || typeof comp !== "object") continue;
             // Пропускаем inherit-компоненты (в них нет реальной ссылки)
             if ("inherit" in comp) continue;
+
             if (typeof comp.widget === "string" && comp.widget) {
               groupComponents.push({
                 domainId,
                 viewId: topViewId,
                 groupId: String(g.id),
+                kind: "widget",
                 widget: comp.widget,
                 index: ci,
               });
-            }
-            // Инлайн-объект widget {id, linkageId?, referenceId?}
-            else if (
+            } else if (
               comp.widget &&
               typeof comp.widget === "object" &&
               typeof comp.widget.id === "string"
             ) {
+              // Инлайн-объект widget {id, linkageId?, referenceId?}
               groupComponents.push({
                 domainId,
                 viewId: topViewId,
                 groupId: String(g.id),
+                kind: "widget",
                 widget: comp.widget.id,
+                index: ci,
+              });
+            } else if (typeof comp.block === "string" && comp.block) {
+              groupComponents.push({
+                domainId,
+                viewId: topViewId,
+                groupId: String(g.id),
+                kind: "block",
+                block: comp.block,
                 index: ci,
               });
             }

@@ -22,206 +22,236 @@ interface Rule {
   note: string;
 }
 
+// ============ Unicode-aware word boundary ============
+// Стандартный \b в JS работает только для ASCII: [A-Za-z0-9_].
+// Кириллица (а также любые другие \p{L}) не считается word-символом,
+// поэтому \bпаспорт\b никогда не срабатывает. Используем lookaround
+// на \p{L}\p{N}_ с флагом u.
+function U(src: string): RegExp {
+  return new RegExp(
+    `(?<![\\p{L}\\p{N}_])(?:${src})(?![\\p{L}\\p{N}_])`,
+    "iu",
+  );
+}
+
 const RULES: Rule[] = [
   // ============ SPECIAL — спецкатегории ============
   {
-    pattern: /\b(passport|паспорт|passportnumber|passportno)\b/i,
-    category: 'document',
-    severity: 'critical',
-    reason: 'документ, удостоверяющий личность',
-    regulation: 'GDPR Art. 9 / 152-ФЗ',
-    note: 'Спецкатегория ПДн — требует повышенной защиты'
+    pattern: U("passport|паспорт|passportnumber|passportno"),
+    category: "document",
+    severity: "critical",
+    reason: "документ, удостоверяющий личность",
+    regulation: "GDPR Art. 9 / 152-ФЗ",
+    note: "Спецкатегория ПДн — требует повышенной защиты",
   },
   {
-    pattern: /\b(ssn|socialsecurity|nationalid|nationalnumber)\b/i,
-    category: 'document',
-    severity: 'critical',
-    reason: 'национальный идентификационный номер',
-    regulation: 'GDPR Art. 9 / 152-ФЗ',
-    note: 'Спецкатегория ПДн'
+    pattern: U("ssn|socialsecurity|nationalid|nationalnumber"),
+    category: "document",
+    severity: "critical",
+    reason: "национальный идентификационный номер",
+    regulation: "GDPR Art. 9 / 152-ФЗ",
+    note: "Спецкатегория ПДн",
   },
   {
-    pattern: /\b(inn|инн|snils|снилс|ogrn|огрн|kpp|кпп)\b/i,
-    category: 'document',
-    severity: 'critical',
-    reason: 'российский идентификатор',
-    regulation: '152-ФЗ',
-    note: 'Регуляторно значимый идентификатор'
+    pattern: U("inn|инн|snils|снилс|ogrn|огрн|kpp|кпп"),
+    category: "document",
+    severity: "critical",
+    reason: "российский идентификатор",
+    regulation: "152-ФЗ",
+    note: "Регуляторно значимый идентификатор",
   },
   {
-    pattern: /\b(driverlicense|driverlicence|licence|водительское)\b/i,
-    category: 'document',
-    severity: 'high',
-    reason: 'водительское удостоверение',
-    regulation: '152-ФЗ',
-    note: 'Персональный документ'
+    pattern: U("driverlicense|driverlicence|licence|водительское"),
+    category: "document",
+    severity: "high",
+    reason: "водительское удостоверение",
+    regulation: "152-ФЗ",
+    note: "Персональный документ",
   },
   {
-    pattern: /\b(birthdate|dateofbirth|birthday|дата рождения|др)\b/i,
-    category: 'identity',
-    severity: 'high',
-    reason: 'дата рождения',
-    regulation: 'GDPR Art. 4 / 152-ФЗ',
-    note: 'Персональные данные + квази-идентификатор'
+    // "др" отдельно не выделяем — слишком много ложных.
+    // Ловим только "birth..." и "дата рождения" в любых разделителях.
+    pattern: U("birthdate|dateofbirth|birthday|дата[ _\\-]?рождения"),
+    category: "identity",
+    severity: "high",
+    reason: "дата рождения",
+    regulation: "GDPR Art. 4 / 152-ФЗ",
+    note: "Персональные данные + квази-идентификатор",
   },
   {
-    pattern: /\b(religion|религия|вероисповедание)\b/i,
-    category: 'special',
-    severity: 'critical',
-    reason: 'религиозные убеждения',
-    regulation: 'GDPR Art. 9 / 152-ФЗ спецкатегория',
-    note: 'Спецкатегория — нельзя обрабатывать без явного согласия'
+    pattern: U("religion|религия|вероисповедание"),
+    category: "special",
+    severity: "critical",
+    reason: "религиозные убеждения",
+    regulation: "GDPR Art. 9 / 152-ФЗ спецкатегория",
+    note: "Спецкатегория — нельзя обрабатывать без явного согласия",
   },
   {
-    pattern: /\b(ethnicity|ethnic|национальность|раса|race)\b/i,
-    category: 'special',
-    severity: 'critical',
-    reason: 'этническая принадлежность',
-    regulation: 'GDPR Art. 9',
-    note: 'Спецкатегория'
+    pattern: U("ethnicity|ethnic|национальность|раса|race"),
+    category: "special",
+    severity: "critical",
+    reason: "этническая принадлежность",
+    regulation: "GDPR Art. 9",
+    note: "Спецкатегория",
   },
   {
-    pattern: /\b(politicalview|political|политическ)\b/i,
-    category: 'special',
-    severity: 'critical',
-    reason: 'политические убеждения',
-    regulation: 'GDPR Art. 9',
-    note: 'Спецкатегория'
+    pattern: U("politicalview|political|политическ"),
+    category: "special",
+    severity: "critical",
+    reason: "политические убеждения",
+    regulation: "GDPR Art. 9",
+    note: "Спецкатегория",
   },
   {
-    pattern: /\b(health|medical|diagnosis|диагноз|здоровь|болезн|медицин)\b/i,
-    category: 'special',
-    severity: 'critical',
-    reason: 'данные о здоровье',
-    regulation: 'GDPR Art. 9 / 152-ФЗ спецкатегория',
-    note: 'Медицинская тайна'
+    pattern: U("health|medical|diagnosis|диагноз|здоровь|болезн|медицин"),
+    category: "special",
+    severity: "critical",
+    reason: "данные о здоровье",
+    regulation: "GDPR Art. 9 / 152-ФЗ спецкатегория",
+    note: "Медицинская тайна",
   },
   {
-    pattern: /\b(biometric|fingerprint|retina|faceid|voiceprint|отпечат|биометр)\b/i,
-    category: 'biometric',
-    severity: 'critical',
-    reason: 'биометрические данные',
-    regulation: 'GDPR Art. 9 / 152-ФЗ',
-    note: 'Биометрия — спецкатегория, требует отдельного согласия'
+    pattern: U(
+      "biometric|fingerprint|retina|faceid|voiceprint|отпечат|биометр",
+    ),
+    category: "biometric",
+    severity: "critical",
+    reason: "биометрические данные",
+    regulation: "GDPR Art. 9 / 152-ФЗ",
+    note: "Биометрия — спецкатегория, требует отдельного согласия",
   },
   {
-    pattern: /\b(sexual|orientation|сексуальн)\b/i,
-    category: 'special',
-    severity: 'critical',
-    reason: 'сексуальная ориентация',
-    regulation: 'GDPR Art. 9',
-    note: 'Спецкатегория'
+    pattern: U("sexual|orientation|сексуальн"),
+    category: "special",
+    severity: "critical",
+    reason: "сексуальная ориентация",
+    regulation: "GDPR Art. 9",
+    note: "Спецкатегория",
   },
 
   // ============ FINANCIAL ============
   {
-    pattern: /\b(cardnumber|cardno|pan|creditcard|debitcard|карта номер)\b/i,
-    category: 'financial',
-    severity: 'critical',
-    reason: 'номер банковской карты',
-    regulation: 'PCI DSS',
-    note: 'Запрещено хранить в открытом виде'
+    // "pan" — слишком короткое, ловит "panel", "companion".
+    // Оставляем только pan в контексте "card"/"cc" не делаем — оставляем как есть,
+    // но добавим явный "cardpan".
+    pattern: U(
+      "cardnumber|cardno|cardpan|creditcard|debitcard|карта[ _\\-]?номер",
+    ),
+    category: "financial",
+    severity: "critical",
+    reason: "номер банковской карты",
+    regulation: "PCI DSS",
+    note: "Запрещено хранить в открытом виде",
   },
   {
-    pattern: /\b(cvv|cvc|cvv2|cvc2)\b/i,
-    category: 'financial',
-    severity: 'critical',
-    reason: 'CVV/CVC код карты',
-    regulation: 'PCI DSS',
-    note: 'Запрещено хранить вообще'
+    pattern: U("cvv|cvc|cvv2|cvc2"),
+    category: "financial",
+    severity: "critical",
+    reason: "CVV/CVC код карты",
+    regulation: "PCI DSS",
+    note: "Запрещено хранить вообще",
   },
   {
-    pattern: /\b(iban|swift|bic|bankaccount|bankaccountnumber|расчетный счет|р\/с)\b/i,
-    category: 'financial',
-    severity: 'critical',
-    reason: 'банковские реквизиты',
-    regulation: '152-ФЗ / PCI DSS',
-    note: 'Финансовая информация'
+    pattern: U(
+      "iban|swift|bic|bankaccount|bankaccountnumber|расчетн\\w*[ _\\-]?счет|р\\/с",
+    ),
+    category: "financial",
+    severity: "critical",
+    reason: "банковские реквизиты",
+    regulation: "152-ФЗ / PCI DSS",
+    note: "Финансовая информация",
   },
 
   // ============ IDENTITY / CONTACT ============
   {
-    pattern: /\b(firstname|lastname|middlename|surname|givenname|patronymic|fullname|имя|фамилия|отчество)\b/i,
-    category: 'identity',
-    severity: 'high',
-    reason: 'ФИО',
-    regulation: 'GDPR Art. 4 / 152-ФЗ',
-    note: 'Персональные данные'
+    pattern: U(
+      "firstname|lastname|middlename|surname|givenname|patronymic|fullname|имя|фамилия|отчество",
+    ),
+    category: "identity",
+    severity: "high",
+    reason: "ФИО",
+    regulation: "GDPR Art. 4 / 152-ФЗ",
+    note: "Персональные данные",
   },
   {
-    pattern: /\b(e?mail|emailaddress|почта|электронн)\b/i,
-    category: 'contact',
-    severity: 'high',
-    reason: 'email',
-    regulation: 'GDPR Art. 4 / 152-ФЗ',
-    note: 'Контактные данные'
+    // "e?mail" ловит "mail" и "email", но не "e-mail". Добавляем явный вариант.
+    pattern: U("e[-_]?mail|emailaddress|почта|электронн"),
+    category: "contact",
+    severity: "high",
+    reason: "email",
+    regulation: "GDPR Art. 4 / 152-ФЗ",
+    note: "Контактные данные",
   },
   {
-    pattern: /\b(phone|mobile|mobilephone|telephone|tel|phoneNumber|телефон|мобильн)\b/i,
-    category: 'contact',
-    severity: 'high',
-    reason: 'телефон',
-    regulation: 'GDPR Art. 4 / 152-ФЗ',
-    note: 'Контактные данные'
+    pattern: U(
+      "phone|mobile|mobilephone|telephone|tel|phoneNumber|телефон|мобильн",
+    ),
+    category: "contact",
+    severity: "high",
+    reason: "телефон",
+    regulation: "GDPR Art. 4 / 152-ФЗ",
+    note: "Контактные данные",
   },
   {
-    pattern: /\b(address|postaladdress|streetaddress|homeaddress|адрес|улица|дом)\b/i,
-    category: 'contact',
-    severity: 'high',
-    reason: 'почтовый адрес',
-    regulation: 'GDPR Art. 4 / 152-ФЗ',
-    note: 'Контактные данные'
+    pattern: U(
+      "address|postaladdress|streetaddress|homeaddress|адрес|улица|дом",
+    ),
+    category: "contact",
+    severity: "high",
+    reason: "почтовый адрес",
+    regulation: "GDPR Art. 4 / 152-ФЗ",
+    note: "Контактные данные",
   },
 
   // ============ LOCATION ============
   {
-    pattern: /\b(geolocation|location|coordinates|координат|местополож)\b/i,
-    category: 'location',
-    severity: 'high',
-    reason: 'геолокация',
-    regulation: 'GDPR Art. 4',
-    note: 'Квази-идентификатор, особо чувствительно'
+    pattern: U("geolocation|location|coordinates|координат|местополож"),
+    category: "location",
+    severity: "high",
+    reason: "геолокация",
+    regulation: "GDPR Art. 4",
+    note: "Квази-идентификатор, особо чувствительно",
   },
   {
-    pattern: /\b(city|город|region|регион|country|страна|zip|postcode|индекс)\b/i,
-    category: 'location',
-    severity: 'medium',
-    reason: 'географические данные',
-    note: 'Квази-идентификатор в комбинации'
+    pattern: U("city|город|region|регион|country|страна|zip|postcode|индекс"),
+    category: "location",
+    severity: "medium",
+    reason: "географические данные",
+    note: "Квази-идентификатор в комбинации",
   },
 
   // ============ TECHNICAL ============
   {
-    pattern: /\b(ipaddress|ipaddr|ip|ipv4|ipv6|host|хост)\b/i,
-    category: 'technical',
-    severity: 'medium',
-    reason: 'IP-адрес',
-    regulation: 'GDPR (Recital 30)',
-    note: 'PII в контексте персональных сущностей'
+    pattern: U("ipaddress|ipaddr|ip|ipv4|ipv6|host|хост"),
+    category: "technical",
+    severity: "medium",
+    reason: "IP-адрес",
+    regulation: "GDPR (Recital 30)",
+    note: "PII в контексте персональных сущностей",
   },
   {
-    pattern: /\b(deviceid|deviceidentifier|macaddress|imei|mac)\b/i,
-    category: 'technical',
-    severity: 'medium',
-    reason: 'идентификатор устройства',
-    regulation: 'GDPR',
-    note: 'Квази-идентификатор'
+    pattern: U("deviceid|deviceidentifier|macaddress|imei|mac"),
+    category: "technical",
+    severity: "medium",
+    reason: "идентификатор устройства",
+    regulation: "GDPR",
+    note: "Квази-идентификатор",
   },
   {
-    pattern: /\b(cookie|cookies|trackingid|useragent)\b/i,
-    category: 'technical',
-    severity: 'medium',
-    reason: 'трекер',
-    regulation: 'GDPR / ePrivacy',
-    note: 'Требует согласия на cookie'
+    pattern: U("cookie|cookies|trackingid|useragent"),
+    category: "technical",
+    severity: "medium",
+    reason: "трекер",
+    regulation: "GDPR / ePrivacy",
+    note: "Требует согласия на cookie",
   },
   {
-    pattern: /\b(userid|user_id|accountid|customerid|clientid|personid)\b/i,
-    category: 'technical',
-    severity: 'low',
-    reason: 'внутренний идентификатор',
-    note: 'PII в связке с другими данными'
-  }
+    pattern: U("userid|user_id|accountid|customerid|clientid|personid"),
+    category: "technical",
+    severity: "low",
+    reason: "внутренний идентификатор",
+    note: "PII в связке с другими данными",
+  },
 ];
 
 // ============ Контекст сущности ============

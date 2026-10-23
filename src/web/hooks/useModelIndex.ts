@@ -8,10 +8,15 @@ interface ModelIndexState {
   error: string | null;
 }
 
-let cachedPromise: Promise<ModelIndex> | null = null;
+interface CachedEntry {
+  version: number;
+  promise: Promise<ModelIndex>;
+}
+
+let cache: CachedEntry | null = null;
 
 export function invalidateModelIndexCache(): void {
-  cachedPromise = null;
+  cache = null;
 }
 
 export function useModelIndex(): ModelIndexState {
@@ -23,20 +28,28 @@ export function useModelIndex(): ModelIndexState {
   });
 
   useEffect(() => {
-    // На каждое изменение modelVersion сбрасываем кэш
-    cachedPromise = null;
-    cachedPromise = fetch("/api/model")
-      .then((r) => {
+    let cancelled = false;
+
+    // Кэш по версии: несколько компонентов с одинаковым modelVersion
+    // используют ОДИН promise вместо N fetch'ей.
+    if (!cache || cache.version !== modelVersion) {
+      const promise = fetch("/api/model").then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .catch((err) => {
-        cachedPromise = null;
-        throw err;
+        return r.json() as Promise<ModelIndex>;
       });
 
-    let cancelled = false;
-    cachedPromise
+      // При ошибке — обнулить кэш, но только если он всё ещё указывает
+      // на этот promise. Иначе можно снести свежий запрос (race с bumpModelVersion).
+      promise.catch(() => {
+        if (cache && cache.promise === promise) cache = null;
+      });
+
+      cache = { version: modelVersion, promise };
+    }
+
+    setState((s) => ({ ...s, loading: true, error: null }));
+
+    cache.promise
       .then((index) => {
         if (!cancelled) setState({ index, loading: false, error: null });
       })
@@ -44,6 +57,7 @@ export function useModelIndex(): ModelIndexState {
         if (!cancelled)
           setState({ index: null, loading: false, error: err.message });
       });
+
     return () => {
       cancelled = true;
     };

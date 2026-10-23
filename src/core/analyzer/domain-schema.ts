@@ -139,6 +139,19 @@ export function buildDomainSchemaSummary(
         item.tree = String(v.tree);
       }
 
+      // ============ tree-view (chunk size / ordering / variant) ============
+      if (v?.type === "tree") {
+        if (typeof v.nodeChunkSize === "number") {
+          item.nodeChunkSize = v.nodeChunkSize;
+        }
+        if (typeof v.ordering === "boolean") {
+          item.ordering = v.ordering;
+        }
+        if (typeof v.variant === "string" && v.variant) {
+          item.variant = v.variant;
+        }
+      }
+
       // ============ tabs_list ============
       if (v?.type === "tabs_list") {
         if (Array.isArray(v.tabs)) {
@@ -193,29 +206,47 @@ export function buildDomainSchemaSummary(
         if (Array.isArray(v.tree)) {
           const collectTree = (
             nodes: any[],
-          ): { views: string[]; autoTrees: string[] } => {
+          ): {
+            views: string[];
+            autoTrees: string[];
+            hasAutoTree: boolean;
+            hasChildren: boolean;
+          } => {
             const out: string[] = [];
             const autoTrees: string[] = [];
+            let hasAutoTree = false;
+            let hasChildren = false;
             for (const n of nodes) {
               if (!n || typeof n !== "object") continue;
               if (typeof n.view === "string") out.push(n.view);
               if (n.autoTree && typeof n.autoTree.entity === "string") {
+                hasAutoTree = true;
                 const fqid = n.autoTree.entity;
                 autoTrees.push(fqid.includes("/") ? fqid.toLowerCase() : fqid);
               }
-              if (Array.isArray(n.children)) {
+              if (Array.isArray(n.children) && n.children.length > 0) {
+                hasChildren = true;
                 const sub = collectTree(n.children);
                 out.push(...sub.views);
                 autoTrees.push(...sub.autoTrees);
+                if (sub.hasAutoTree) hasAutoTree = true;
+                if (sub.hasChildren) hasChildren = true;
               }
             }
-            return { views: out, autoTrees };
+            return { views: out, autoTrees, hasAutoTree, hasChildren };
           };
-          const { views: treeViews, autoTrees } = collectTree(v.tree);
+          const {
+            views: treeViews,
+            autoTrees,
+            hasAutoTree,
+            hasChildren,
+          } = collectTree(v.tree);
           if (treeViews.length > 0) item.dashboardTreeViews = treeViews;
           if (autoTrees.length > 0) {
             item.dashboardTreeAutoTreeEntities = autoTrees;
           }
+          if (hasAutoTree) item.dashboardTreeHasAutoTree = true;
+          if (hasChildren) item.dashboardTreeHasChildren = true;
         }
         if (typeof v.defaultItem === "string" && v.defaultItem) {
           item.defaultItem = v.defaultItem;

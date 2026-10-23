@@ -712,3 +712,197 @@
     font-size: 10px;
     font-weight: 700;
 }
+/* ============ Фокус на сущности / связи в YAML ============ */
+.monaco-editor .yaml-focus-unrelated {
+    /* служебный класс-маркер, визуально ничего не делает */
+}
+
+.monaco-editor .yaml-focus-unrelated-text {
+    opacity: 0.32;
+    transition: opacity 0.1s;
+}
+
+.yaml-focus-bar__deps {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    color: var(--text-400);
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s, color 0.15s;
+    white-space: nowrap;
+}
+.yaml-focus-bar__deps:hover {
+    background: var(--bg-750);
+    color: var(--text-200);
+}
+.yaml-focus-bar__deps input {
+    accent-color: var(--accent);
+    cursor: pointer;
+    width: 12px;
+    height: 12px;
+}
+
+.yaml-focus-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 14px;
+    background: var(--accent-soft);
+    border-bottom: 1px solid var(--accent);
+    flex-shrink: 0;
+    font-size: 12px;
+}
+.yaml-focus-bar__icon {
+    color: var(--accent-hover);
+    display: inline-flex;
+    align-items: center;
+}
+.yaml-focus-bar__label {
+    color: var(--text-200);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+.yaml-focus-bar__label strong {
+    font-family: "JetBrains Mono", monospace;
+    font-weight: 600;
+    color: var(--accent-hover);
+}
+.yaml-focus-bar__kind {
+    color: var(--text-500);
+    font-size: 11px;
+}
+.yaml-focus-bar__counter {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    color: var(--text-400);
+    padding: 1px 8px;
+    background: var(--bg-750);
+    border-radius: 10px;
+}
+.yaml-focus-bar__warn {
+    color: var(--warning);
+    font-size: 11px;
+}
+.yaml-focus-bar__close {
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-500);
+    cursor: pointer;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    transition: all 0.15s;
+}
+.yaml-focus-bar__close:hover {
+    background: var(--bg-700);
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+/* Кнопка 🎯 в NavItem */
+.yaml-nav-item__focus {
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: var(--text-500);
+    cursor: pointer;
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+.yaml-nav-item__row:hover .yaml-nav-item__focus {
+    opacity: 0.7;
+}
+.yaml-nav-item__focus:hover {
+    opacity: 1 !important;
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--accent-hover);
+}
+.yaml-nav-item__focus--active {
+    opacity: 1 !important;
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--accent-hover);
+}
+.yaml-nav-filtered-row {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding-right: 4px;
+    border-radius: 4px;
+    transition: background-color 0.1s;
+}
+.yaml-nav-filtered-row:hover,
+.yaml-nav-filtered-row--active {
+    background: var(--bg-800);
+}
+
+.yaml-nav-filtered-item__main {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-width: 0;
+    padding: 5px 8px;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    text-align: left;
+    font-family: inherit;
+    color: inherit;
+    transition: background-color 0.1s;
+}
+.yaml-nav-filtered-item__main--issues .yaml-nav-filtered-item__id {
+    color: #fbbf24;
+}
+/* Контекстное меню навигации */
+.yaml-nav-ctx-menu {
+    position: fixed;
+    z-index: 500;
+    background: var(--bg-800);
+    border: 1px solid var(--border-hover);
+    border-radius: 8px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+    padding: 4px;
+    min-width: 200px;
+    animation: popoverIn 0.12s ease;
+}
+.yaml-nav-ctx-menu__item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 10px;
+    background: transparent;
+    border: none;
+    border-radius: 5px;
+    color: var(--text-200);
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.1s;
+}
+.yaml-nav-ctx-menu__item:hover {
+    background: var(--bg-700);
+}
+.yaml-nav-ctx-menu__divider {
+    height: 1px;
+    background: var(--border);
+    margin: 4px 6px;
+}

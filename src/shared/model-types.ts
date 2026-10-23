@@ -107,8 +107,6 @@ export interface PrefixRuleRecord {
   source: { entity: string; key: string; value: string };
 }
 
-
-
 // ============ Сущность ============
 
 export interface EntitySortingRecord {
@@ -193,6 +191,8 @@ export interface EntityRecord {
   icons?: string | null;
   graphView?: { iconColor: string };
   kind?: "regular" | "abstract" | "static";
+  /** В какой форме searching[] пришёл в YAML — для линтера. */
+  searchingForm?: "array" | "object";
 }
 
 // ============ Миксин ============
@@ -459,30 +459,6 @@ export interface UiRuleColumnRef {
   presets?: string[];
 }
 
-export interface UiRuleRecord {
-  id: string;
-  domainId: string;
-  name: string;
-  description: string;
-  target: UiRuleTarget | string;
-  view: string;
-  contextViews: string[];
-  /** Контекст данных правила (entity | linkage). */
-  contextData?: {
-    type: "entity" | "linkage";
-    entity?: string;
-    linkage?: string;
-  };
-  condition: string;
-  effect: UiRuleEffect | string;
-  widgets: UiRuleWidgetRef[];
-  groups: UiRuleGroupRef[];
-  columns: UiRuleColumnRef[];
-  presets: string[];
-  message: string;
-  help: string;
-}
-
 export interface UiPresetRecord {
   id: string;
   domainId: string;
@@ -518,14 +494,6 @@ export interface UiRuleRecord {
   presets: string[];
   message: string;
   help: string;
-}
-
-// ============ Элементы view (для валидации UI Rules) ============
-
-export interface ViewElementsRecord {
-  widgets: string[];
-  groups: string[];
-  columns: string[];
 }
 
 // ============ Статистика и валидация ============
@@ -665,6 +633,11 @@ export interface ViewWidgetRecord {
 
   /** control.displayMode для linked_objects_groups (flat/grouped). */
   displayMode?: "flat" | "grouped";
+
+  /** linked_objects_groups: columns[] (атрибуты groupingBy + totalCount). */
+  linkedGroupsColumns?: ViewWidgetColumnRef[];
+  /** linked_objects_groups: groupingBy[] — id атрибутов для группировки. */
+  linkedGroupsGroupingBy?: string[];
 }
 
 export interface ViewActionPanelRecord {
@@ -806,20 +779,6 @@ export interface SnapshotSequence {
   domainId: string;
 }
 
-export interface ModelSnapshot {
-  generatedAt: string;
-  entities: SnapshotEntity[];
-  mixins: SnapshotMixin[];
-  dataTypes: SnapshotDataType[];
-  sequences: SnapshotSequence[];
-
-  /**
-   * Опционально: старые снапшоты (до апгрейда) этого поля не имеют.
-   * При первом запуске новой версии все записи будут помечены как `added`.
-   */
-  genericSections?: Record<string, GenericSnapshotEntry[]>;
-}
-
 // ============ Semantic diff ============
 
 export interface DiffEntityRef {
@@ -925,6 +884,12 @@ export interface ModelSnapshot {
   mixins: SnapshotMixin[];
   dataTypes: SnapshotDataType[];
   sequences: SnapshotSequence[];
+
+  /**
+   * Опционально: старые снапшоты (до апгрейда) этого поля не имеют.
+   * При первом запуске новой версии все записи будут помечены как `added`.
+   */
+  genericSections?: Record<string, GenericSnapshotEntry[]>;
 }
 
 export interface DiffDomainRef {
@@ -1062,6 +1027,12 @@ export interface DomainSchemaViewItem {
   sourceEntity?: string;
   tree?: string;
 
+  nodeChunkSize?: number;
+  /** ordering: перетаскивание узлов (только для tree.type: orderable). */
+  ordering?: boolean;
+  /** splitted | merged. */
+  variant?: string;
+
   // ============ tabs_list ============
   /** id view из tabs[] (список должен ссылаться на list-view). */
   tabs?: string[];
@@ -1084,6 +1055,10 @@ export interface DomainSchemaViewItem {
   menuItem?: string;
   /** Для list — source.type (Zod: только "operational"). */
   sourceType?: string;
+  /** dashboard_tree: был ли tree[].autoTree хотя бы в одном узле. */
+  dashboardTreeHasAutoTree?: boolean;
+  /** dashboard_tree: был ли tree[].children хотя бы в одном узле. */
+  dashboardTreeHasChildren?: boolean;
 }
 
 export interface DomainSchemaMenuItem {
@@ -1475,6 +1450,13 @@ export interface MenuRecord {
   items?: MenuItemRecord[];
   defaultItem?: string;
   description?: string;
+
+  /** Оригинальный type, если он не распознан (для линтера). */
+  __rawType?: string;
+  /** Оригинальный placement, если он не распознан (для линтера). */
+  __rawPlacement?: string;
+  /** true — в YAML не задан label (парсер подставил id). */
+  __rawLabelMissing?: boolean;
 }
 
 // ============ Medias ============
@@ -1811,12 +1793,14 @@ export interface ViewMenuActionRecord {
 }
 export interface ViewGroupComponentRecord {
   domainId: string;
-  /** id top-level view. */
   viewId: string;
-  /** id группы, в которой объявлен компонент. */
   groupId: string;
-  /** id виджета (может быть `external:*` или FQID). */
-  widget: string;
+  /** Тип ссылки из компонента. */
+  kind: "widget" | "block";
+  /** Для kind: "widget" — id виджета. */
+  widget?: string;
+  /** Для kind: "block" — id блока (группы type: block). */
+  block?: string;
   /** Индекс компонента в group.components[]. */
   index: number;
 }
