@@ -46,20 +46,28 @@ export function useNodeInteractions({
 
       if (s.pathMode) {
         if (!s.pathMode.anchorId) {
+          // Сохраняем kind — иначе "Путь до..." деградирует до "Путь от..."
           s.setPathMode({
+            kind: s.pathMode.kind,
             anchorId: node.id,
             anchorDomainId: node.data.domainId,
           });
           s.setPathSel([node.id]);
           return;
         }
-        const startId = s.pathMode.anchorId;
-        const endId = node.id;
-        if (startId === endId) {
+        const anchorId = s.pathMode.anchorId;
+        const clickedId = node.id;
+        if (anchorId === clickedId) {
           s.setPathMode(null);
           s.setPathSel([]);
           return;
         }
+        // kind === "to": якорь — цель, клик — старт
+        const [startId, endId] =
+          s.pathMode.kind === "to"
+            ? [clickedId, anchorId]
+            : [anchorId, clickedId];
+
         const res = findPath(startId, endId, filteredEdges);
         if (res) {
           s.setPathResult(res);

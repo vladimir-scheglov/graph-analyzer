@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useGraphStore } from '../../state/useGraphStore';
 import { useModelIndex } from '../../hooks/useModelIndex';
 import { useYamlContent, invalidateYamlCache } from '../../hooks/useYamlContent';
@@ -16,6 +16,7 @@ import {
     applyViewRefMarkers,
     applyAttributeMarkers,
     applyUiRuleRefMarkers,
+    applyAttributeRefMarkers,
 } from '../../lib/monaco/monaco-providers';
 import { useNavigation } from '../../hooks/useNavigation';
 import { extractExternalRefs, groupExternalRefs, ExternalRefGroup } from '../../lib/yaml/external-refs';
@@ -32,8 +33,65 @@ import {
 } from "../../lib/yaml/yaml-search";
 import yaml from "js-yaml";
 import { computeFocus, FocusKind, FocusTarget } from '../../lib/yaml/entity-focus';
+import { SYSTEM_ATTRIBUTE_IDS } from '../../../core/analyzer/linter';
+import {
+    buildRecheckModel,
+    recheck,
+    type RecheckModel,
+} from '../../../core/analyzer/local-recheck';
+import { ModelIndex } from '../../../shared/model-types';
+import { KNOWN_ACTION_TYPES } from "../../../shared/action-types";
 
 type RightTab = 'issues' | 'refs' | 'backlinks' | 'server';
+
+/**
+ * Извлекает значение `version:` с indent 0 (top-level metadata).
+ * Вложенные `version:` (если есть в entities/attributes) игнорируются.
+ */
+function extractTopLevelVersion(text: string | null | undefined): string | null {
+    if (!text) return null;
+    const lines = text.split("\n");
+    for (const line of lines) {
+        if (!line.trim()) continue;
+        if (/^\s/.test(line)) continue; // не top-level
+        const m = line.match(
+            /^version\s*:\s*["']?([^"'\s#]+)["']?\s*(?:#.*)?$/,
+        );
+        if (m) return m[1];
+    }
+    return null;
+}
+
+/**
+ * Бампает patch-часть SemVer: `0.0.54` → `0.0.55`.
+ * Возвращает null для не-чистых SemVer (с pre-release/build-суффиксом) —
+ * такие версии пользователь должен править вручную.
+ */
+function bumpPatchVersion(v: string): string | null {
+    const m = v.match(/^(\d+)\.(\d+)\.(\d+)$/);
+    if (!m) return null;
+    const patch = parseInt(m[3], 10) + 1;
+    return `${m[1]}.${m[2]}.${patch}`;
+}
+
+/**
+ * Заменяет top-level `version:` на новое значение, сохраняя отступ,
+ * кавычки и trailing-комментарий.
+ */
+function replaceTopLevelVersion(text: string, newVersion: string): string {
+    const lines = text.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+        if (/^\s/.test(lines[i])) continue; // не top-level
+        const m = lines[i].match(
+            /^(version\s*:\s*)(["']?)([^"'\s#]+)(["']?)(\s*(?:#.*)?)$/,
+        );
+        if (m) {
+            lines[i] = `${m[1]}${m[2]}${newVersion}${m[4]}${m[5]}`;
+            return lines.join("\n");
+        }
+    }
+    return text;
+}
 
 export function YamlViewerModal() {
     const { index } = useModelIndex();
@@ -43,11 +101,37 @@ export function YamlViewerModal() {
     const filePath = useGraphStore((s) => s.yamlViewerFilePath);
     const fqid = useGraphStore((s) => s.yamlViewerFqid);
     const domainId = useGraphStore((s) => s.yamlViewerDomainId);
+    const pendingIssue = useGraphStore((s) => s.yamlViewerPendingIssue);
+    const setPendingIssue = useGraphStore((s) => s.setYamlViewerPendingIssue);
 
     const remoteInfo = useMemo(() => readRemoteInfo(), []);
-    const isRemoteMode = !!(remoteInfo && remoteInfo.server);
+    const mode: "local" | "hybrid" | "remote" = !remoteInfo?.server
+        ? "local"
+        : remoteInfo.mode === "hybrid"
+            ? "hybrid"
+            : "remote";
 
     const [reloadKey, setReloadKey] = useState(0);
+
+    const CHECKS_ENABLED_KEY = "dg-yaml-checks-enabled";
+    const [checksEnabled, setChecksEnabled] = useState<boolean>(() => {
+        try {
+            const v = localStorage.getItem(CHECKS_ENABLED_KEY);
+            return v === null ? true : v === "true";
+        } catch {
+            return true;
+        }
+    });
+
+    const toggleChecks = useCallback(() => {
+        setChecksEnabled((prev) => {
+            const next = !prev;
+            try {
+                localStorage.setItem(CHECKS_ENABLED_KEY, String(next));
+            } catch { }
+            return next;
+        });
+    }, []);
 
     useEffect(() => {
         if (open) setReloadKey((k) => k + 1);
@@ -56,9 +140,14 @@ export function YamlViewerModal() {
     const { content: fetchedContent, loading, error: loadError } = useYamlContent(
         open ? filePath : null,
         reloadKey,
+        mode === "remote",
     );
 
     const [content, setContent] = useState('');
+    const [yamlSyntaxIssue, setYamlSyntaxIssue] = useState<any>(null);
+    // Deferred-версия content для тяжёлых вычислений: не блокирует keystroke'и
+    // и Monaco-render. Обновляется в фоне, приоритезируя ввод.
+    const deferredContent = useDeferredValue(content);
     const [savedContent, setSavedContent] = useState('');
     const [liveVersion, setLiveVersion] = useState(0);
     const liveDebounce = useRef<any>(null);
@@ -70,9 +159,10 @@ export function YamlViewerModal() {
     const diffContainerRef = useRef<HTMLDivElement>(null);
     const diffEditorRef = useRef<any>(null);
     const [cursorLine, setCursorLine] = useState(1);
-    const [leftWidth, setLeftWidth] = useState(280);
+    const [leftWidth, setLeftWidth] = useState(380);
     const isDraggingLeft = useRef(false);
     const decorationsCollection = useRef<any>(null);
+
 
     const startResizingLeft = (e: React.MouseEvent) => {
         e.preventDefault();
@@ -103,6 +193,47 @@ export function YamlViewerModal() {
             document.removeEventListener('mouseup', onMouseUp);
         };
     }, []);
+
+    useEffect(() => {
+        if (!checksEnabled) {
+            setYamlSyntaxIssue(null);
+            return;
+        }
+        if (!deferredContent) {
+            setYamlSyntaxIssue(null);
+            return;
+        }
+        const t = setTimeout(() => {
+            try {
+                const textToValidate = deferredContent.replace(/!rql/g, "");
+                yaml.load(textToValidate);
+                setYamlSyntaxIssue(null);
+            } catch (e: any) {
+                const errLine =
+                    e.mark?.line !== undefined ? e.mark.line + 1 : 1;
+                const errCol =
+                    e.mark?.column !== undefined ? e.mark.column + 1 : 1;
+                const errMsg =
+                    e.reason ||
+                    e.message.split("\n")[0] ||
+                    "Ошибка синтаксиса YAML";
+                setYamlSyntaxIssue({
+                    ruleId: "yaml-syntax",
+                    rule: "Синтаксис YAML",
+                    severity: "error" as const,
+                    category: "validation",
+                    message: errMsg,
+                    domainId,
+                    line: errLine,
+                    column: errCol,
+                    propertyPath: "",
+                    __clientOnly: true,
+                    __key: "yaml-syntax",
+                });
+            }
+        }, 2000);
+        return () => clearTimeout(t);
+    }, [deferredContent, domainId, checksEnabled]);
 
     // При загрузке файла — сбросить оба
     useEffect(() => {
@@ -151,6 +282,7 @@ export function YamlViewerModal() {
     const isDirty = content !== savedContent;
     const [isSaving, setIsSaving] = useState(false);
     const [saveError, setSaveError] = useState<string | null>(null);
+    const [saveStage, setSaveStage] = useState<"idle" | "writing" | "publishing">("idle");
     const [copyFeedback, setCopyFeedback] = useState(false);
     const [saveFeedback, setSaveFeedback] = useState(false);
 
@@ -202,6 +334,19 @@ export function YamlViewerModal() {
 
     const [focusTarget, setFocusTarget] = useState<FocusTarget | null>(null);
     const focusDecorationsRef = useRef<any>(null);
+    const saveAbortRef = useRef<AbortController | null>(null);
+
+    // Синхронизация dirty-state в store — чтобы openFileInEditor мог
+    // предупредить о потере изменений перед переключением файла.
+    useEffect(() => {
+        useGraphStore.getState().setYamlViewerDirty(!!open && isDirty);
+    }, [open, isDirty]);
+
+    // Сброс флага при закрытии модалки
+    useEffect(() => {
+        if (open) return;
+        useGraphStore.getState().setYamlViewerDirty(false);
+    }, [open]);
 
     useEffect(() => {
         isLockedRef.current = isLocked;
@@ -214,9 +359,9 @@ export function YamlViewerModal() {
     }, [index, domainId]);
 
     const lineMap = useMemo(() => {
-        if (!content || !schema) return null;
-        return buildLineMap(content, schema);
-    }, [content, schema]);
+        if (!deferredContent || !schema) return null;
+        return buildLineMap(deferredContent, schema);
+    }, [deferredContent, schema]);
 
     const currentContext = useMemo(() => {
         if (!lineMap) return null;
@@ -226,48 +371,19 @@ export function YamlViewerModal() {
     const focusResult = useMemo(() => {
         if (!focusTarget || !lineMap || !index || !domainId) return null;
         try {
-            return computeFocus(focusTarget, lineMap, index, domainId, content, {
+            return computeFocus(focusTarget, lineMap, index, domainId, deferredContent, {
                 includeTertiary: focusIncludeDeps,
             });
         } catch {
             return null;
         }
-    }, [focusTarget, focusIncludeDeps, lineMap, index, domainId, content]);
+    }, [focusTarget, focusIncludeDeps, lineMap, index, domainId, deferredContent]);
 
     // ============ Issues ============
     const domainIssues = useMemo(() => {
         if (!index || !domainId) return [];
         return index.lint.lintReport.issues.filter((i) => i.domainId === domainId);
     }, [index, domainId]);
-
-    // Проверка синтаксиса YAML (включая отступы)
-    const yamlSyntaxIssue = useMemo(() => {
-        if (!content) return null;
-        try {
-            // Убираем кастомные теги !rql, чтобы js-yaml не ругался на них
-            const textToValidate = content.replace(/!rql/g, "");
-            yaml.load(textToValidate);
-            return null;
-        } catch (e: any) {
-            const errLine = e.mark?.line !== undefined ? e.mark.line + 1 : 1;
-            const errCol = e.mark?.column !== undefined ? e.mark.column + 1 : 1;
-            const errMsg = e.reason || e.message.split('\n')[0] || "Ошибка синтаксиса YAML";
-
-            return {
-                ruleId: "yaml-syntax",
-                rule: "Синтаксис YAML",
-                severity: "error" as const,
-                category: "validation",
-                message: errMsg,
-                domainId,
-                line: errLine,
-                column: errCol,
-                propertyPath: "",
-                __clientOnly: true,
-                __key: "yaml-syntax",
-            };
-        }
-    }, [content, domainId]);
 
     // ============ Счётчики для шапки ============
     const counters = useMemo(() => {
@@ -338,9 +454,10 @@ export function YamlViewerModal() {
 
     /** Объединённые issues: серверный линтер + клиентский RQL-чек. */
     const allIssues = useMemo(() => {
-        if (!lineMap || !content || !domainId) return domainIssues;
+        if (!checksEnabled) return domainIssues;
+        if (!lineMap || !deferredContent || !domainId) return domainIssues;
 
-        const rqlIssues = scanRqlInText(content, lineMap.lineContexts, index || null);
+        const rqlIssues = scanRqlInText(deferredContent, lineMap.lineContexts, index || null);
 
         const mapped = rqlIssues.map((r, idx) => ({
             ruleId: 'rql-check',
@@ -363,19 +480,32 @@ export function YamlViewerModal() {
         }
 
         return combined;
-    }, [domainIssues, lineMap, content, index, domainId, yamlSyntaxIssue]);
+    }, [domainIssues, lineMap, deferredContent, index, domainId, yamlSyntaxIssue, checksEnabled]);
+
+    const recheckModel: RecheckModel = useMemo(
+        () => buildRecheckModel(deferredContent || ""),
+        [deferredContent],
+    );
 
     const effectiveIssues = useMemo(() => {
+        if (!checksEnabled) return allIssues;
         if (!isDirty || !lineMap) return allIssues;
+        if (deferredContent === savedContent) return allIssues;
         const out: any[] = [];
         for (const issue of allIssues) {
-            const state = classifyIssue(issue, content, lineMap);
+            const state = classifyIssue(
+                issue,
+                deferredContent,
+                lineMap,
+                recheckModel,
+                index,
+            );
             if (state === "resolved") continue;
             if (state === "unknown") out.push({ ...issue, __isUnknown: true });
             else out.push(issue);
         }
         return out;
-    }, [allIssues, isDirty, content, lineMap]);
+    }, [allIssues, isDirty, deferredContent, lineMap, savedContent, recheckModel, index]);
 
     const filteredIssues = useMemo(
         () => effectiveIssues.filter((i: any) => severityFilter.has(i.severity)),
@@ -383,8 +513,12 @@ export function YamlViewerModal() {
     );
 
     const backlinks = useMemo(() => {
-        if (!content) return { entity: [] as Backlink[], attribute: [] as Backlink[], target: null as CursorTarget | null };
-        const lines = content.split("\n");
+        if (rightTab !== "backlinks" || !deferredContent) {
+            return { entity: [], attribute: [], target: null };
+        }
+
+        if (!deferredContent) return { entity: [] as Backlink[], attribute: [] as Backlink[], target: null as CursorTarget | null };
+        const lines = deferredContent.split("\n");
         const target = detectCursorTarget(lines, cursorLine);
         if (!target) return { entity: [], attribute: [], target };
 
@@ -399,29 +533,16 @@ export function YamlViewerModal() {
         }
 
         return { entity, attribute, target };
-    }, [content, cursorLine]);
-
-    // ============ External refs ============
-    const [refsVersion, setRefsVersion] = useState(0);
-
-    useEffect(() => {
-        if (!editorCreated || !editorRef.current) return;
-        const disposable = editorRef.current.onDidChangeModelContent(() => {
-            setRefsVersion((v) => v + 1);
-        });
-        return () => {
-            try { disposable?.dispose?.(); } catch { }
-        };
-    }, [editorCreated]);
+    }, [deferredContent, cursorLine, rightTab]);
 
     const externalRefs = useMemo(() => {
-        if (!content || !domainId) return { refs: [], groups: [] as ExternalRefGroup[] };
-        const refs = extractExternalRefs(content, domainId);
+        if (!deferredContent || !domainId) return { refs: [], groups: [] as ExternalRefGroup[] };
+        const refs = extractExternalRefs(deferredContent, domainId);
         return { refs, groups: groupExternalRefs(refs) };
-    }, [content, domainId, liveVersion]);
+    }, [deferredContent, domainId, liveVersion]);
 
     const scenarioRefs = useMemo(() => {
-        if (!content) return [] as Array<{
+        if (!deferredContent) return [] as Array<{
             scenarioId: string;
             actions: Array<{
                 line: number;
@@ -431,7 +552,7 @@ export function YamlViewerModal() {
                 workerTag?: string;
             }>;
         }>;
-        const lines = content.split("\n");
+        const lines = deferredContent.split("\n");
         const result: Array<{
             line: number;
             scenarioId: string;
@@ -497,7 +618,7 @@ export function YamlViewerModal() {
         return Array.from(grouped.entries())
             .sort(([a], [b]) => a.localeCompare(b))
             .map(([scenarioId, actions]) => ({ scenarioId, actions }));
-    }, [content, liveVersion]);
+    }, [deferredContent]);
 
     // ============ Flat nav nodes ============
     const flatNavNodes = useMemo(() => {
@@ -568,7 +689,6 @@ export function YamlViewerModal() {
         if (!open) return;
         if (!monacoReady) return;
         if (loading) return;
-        if (!index) return;
         if (!filePath) return;
         if (!fetchedContent) return;
         if (!containerRef.current) return;
@@ -609,6 +729,8 @@ export function YamlViewerModal() {
         let editor: any = null;
         let ro: ResizeObserver | null = null;
         const layouts: ReturnType<typeof setTimeout>[] = [];
+        let cursorTimer: ReturnType<typeof setTimeout> | null = null;
+        let suggestTimer: ReturnType<typeof setTimeout> | null = null;
 
         try {
             editor = m.editor.create(containerRef.current, {
@@ -646,11 +768,7 @@ export function YamlViewerModal() {
                     showStatusBar: false as any,
                 } as any,
 
-                quickSuggestions: {
-                    other: 'on' as any,
-                    comments: 'off' as any,
-                    strings: 'off' as any,
-                },
+                quickSuggestions: false,
                 suggestOnTriggerCharacters: true,
             }, {
                 storageService: {
@@ -666,12 +784,6 @@ export function YamlViewerModal() {
                 } as any, // Приводим к any, чтобы не реализовывать все методы интерфейса
             });
             editorRef.current = editor;
-            /*try {
-                editor.updateOptions({
-                    wordBasedSuggestions: false as any,
-                    suggest: { filterGraceful: false as any } as any,
-                });
-            } catch {}*/
             setTimeout(() => {
                 const suggestController = editor.getContribution('editor.contrib.suggestController');
                 if (suggestController && suggestController.widget) {
@@ -710,12 +822,21 @@ export function YamlViewerModal() {
             editor.onKeyDown((e: any) => {
                 if (!isLockedRef.current) return;
 
-                // Разрешаем навигацию и Escape
-                const navKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End', 'Escape', 'Tab'];
+                // Разрешаем навигацию, Escape, Tab, Shift и модификаторы.
+                // Shift нужен, чтобы двойной Shift → разблокировка не показывал
+                // тост «Файл заблокирован»: слушатель двойного Shift висит на
+                // document (capture) и перехватывает раньше, но Monaco не должен
+                // сам по себе реагировать на Shift как на «попытку ввода».
+                const navKeys = [
+                    'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+                    'PageUp', 'PageDown', 'Home', 'End',
+                    'Escape', 'Tab',
+                    'Shift', 'Control', 'Alt', 'Meta',
+                ];
                 if (navKeys.includes(e.browserEvent.key)) return;
 
-                // Разрешаем системные шорткаты (Ctrl+C, Ctrl+F, Ctrl+S, Ctrl+Z)
-                if (e.ctrlKey || e.metaKey) return;
+                // Разрешаем системные шорткаты (Ctrl+C, Ctrl+F, Ctrl+S, Ctrl+Z, Alt+...)
+                if (e.ctrlKey || e.metaKey || e.altKey) return;
 
                 // Блокируем ввод (буквы, Backspace, Delete, Enter)
                 e.preventDefault();
@@ -731,29 +852,81 @@ export function YamlViewerModal() {
                 useGraphStore.getState().showSnackbar("Вставка в заблокированный файл запрещена.");
             });
 
-            editor.onDidType((text: string) => {
-                if (!text) return;
-                if (!/^[a-zA-Z0-9_\-а-яА-Я ]$/.test(text)) return;
-
-                setTimeout(() => {
-                    if (!editorRef.current) return;
-                    const pos = editorRef.current.getPosition();
-                    const model = editorRef.current.getModel();
-                    if (!pos || !model) return;
-                    const lineText = model.getLineContent(pos.lineNumber);
-                    const before = lineText.slice(0, pos.column - 1);
-
-                    // Триггерим, если:
-                    // - пользователь набрал букву (ввод значения)
-                    // - только что набрал пробел после ":" (начало значения)
-                    if (/[a-zA-Z0-9_\-а-яА-Я]$/.test(before) || /:\s$/.test(before)) {
-                        editorRef.current.trigger("yaml-viewer", "editor.action.triggerSuggest", {});
-                    }
-                }, 10);
+            editor.onDidChangeCursorPosition((e: any) => {
+                if (cursorTimer) clearTimeout(cursorTimer);
+                const line = e.position.lineNumber;
+                cursorTimer = setTimeout(() => setCursorLine(line), 120);
             });
 
-            editor.onDidChangeCursorPosition((e: any) => {
-                setCursorLine(e.position.lineNumber);
+            // ============ Auto-suggest при наборе ============
+            // quickSuggestions отключён — для custom YAML-провайдера Monaco
+            // не открывает suggest на обычных буквах. Триггерим вручную.
+            // Guard `.suggest-widget.visible` — если виджет уже открыт,
+            // Monaco сам фильтрует по введённому символу.
+
+            const isSuggestOpen = (): boolean => {
+                const el = document.querySelector(
+                    ".suggest-widget",
+                ) as HTMLElement | null;
+                if (!el) return false;
+                return el.offsetParent !== null && el.style.display !== "none";
+            };
+
+            editor.onDidType((text: string) => {
+                if (!text) return;
+                if (isSuggestOpen()) return;
+
+                const isTriggerChar = /^[:.\/\s-]$/.test(text);
+                const isWordChar = /^[\w\u0400-\u04FF]$/.test(text);
+                if (!isTriggerChar && !isWordChar) return;
+
+                if (suggestTimer) clearTimeout(suggestTimer);
+                suggestTimer = setTimeout(
+                    () => {
+                        if (!editorRef.current) return;
+                        if (isSuggestOpen()) return;
+
+                        const pos = editorRef.current.getPosition();
+                        const model = editorRef.current.getModel();
+                        if (!pos || !model) return;
+
+                        const lineText = model.getLineContent(pos.lineNumber);
+                        const before = lineText.slice(0, pos.column - 1);
+
+                        // Игнорируем комментарии, RQL-теги и содержимое block scalar
+                        if (/^\s*#/.test(before)) return;
+                        if (/^\s*!rql\b/.test(before)) return;
+                        if (/^\s*[|>][+\-]?\s*$/.test(before)) return;
+
+                        // Контексты, где suggest осмыслен:
+                        //   `key: <cursor>`                 — значение (dataType, type, attribute, ...)
+                        //   `key: val<cursor>`              — дорисовываем значение
+                        //   `- <cursor>`                    — элемент списка (`- id:`)
+                        //   `- key: <cursor>`               — поле объекта внутри списка
+                        //   `<indent><word>`                — field-name в объекте (`      na|` → name) ← ГЛАВНОЕ
+                        //   `<indent>- <word>`              — field-name в списке
+                        const inValue = /:\s*[^\s#]*$/.test(before);
+                        const inListItem = /^\s*-\s*[\w.]*$/.test(before);
+                        const inItemField = /^\s*-\s+\w+\s*:\s*[^\s#]*$/.test(
+                            before,
+                        );
+                        const inFieldName = /^\s+[\w.]*$/.test(before);
+
+                        if (
+                            inValue ||
+                            inListItem ||
+                            inItemField ||
+                            inFieldName
+                        ) {
+                            editorRef.current.trigger(
+                                "yaml-viewer",
+                                "editor.action.triggerSuggest",
+                                {},
+                            );
+                        }
+                    },
+                    isTriggerChar ? 50 : 220,
+                );
             });
 
             setTimeout(() => {
@@ -786,6 +959,8 @@ export function YamlViewerModal() {
 
         return () => {
             layouts.forEach(clearTimeout);
+            if (cursorTimer) clearTimeout(cursorTimer);
+            if (suggestTimer) clearTimeout(suggestTimer);
             try { ro?.disconnect(); } catch { }
             try { editor?.dispose(); } catch { }
             if (editorRef.current === editor) {
@@ -794,7 +969,7 @@ export function YamlViewerModal() {
             }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [open, monacoReady, filePath, loading, index, fetchedContent]);
+    }, [open, monacoReady, filePath, loading, fetchedContent]);
 
     useEffect(() => {
         if (!editorRef.current) return;
@@ -810,7 +985,9 @@ export function YamlViewerModal() {
         toggleLockRef.current = handleToggleLock;
     });
 
-    // Двойной Shift → переключение режима редактирования
+    // Двойной Shift → переключение режима редактирования.
+    // ВАЖНО: capture: true — иначе Monaco (при фокусе в редакторе) делает
+    // stopPropagation в своём onKeyDown, и событие не доходит до document.
     useEffect(() => {
         if (!open) return;
 
@@ -846,11 +1023,12 @@ export function YamlViewerModal() {
             }
         };
 
-        document.addEventListener("keydown", onKeyDown);
-        document.addEventListener("keyup", onKeyUp);
+        // capture: true — срабатывает РАНЬШЕ Monaco
+        document.addEventListener("keydown", onKeyDown, true);
+        document.addEventListener("keyup", onKeyUp, true);
         return () => {
-            document.removeEventListener("keydown", onKeyDown);
-            document.removeEventListener("keyup", onKeyUp);
+            document.removeEventListener("keydown", onKeyDown, true);
+            document.removeEventListener("keyup", onKeyUp, true);
         };
     }, [open]);
 
@@ -882,23 +1060,6 @@ export function YamlViewerModal() {
         if (open) return;
         resetProviderContext();
     }, [open]);
-
-    // ============ RQL markers ============
-    useEffect(() => {
-        if (!monacoReady || !editorCreated || !editorRef.current) return;
-        const m = (window as any).monaco;
-        if (!m) return;
-        const model = editorRef.current.getModel();
-        if (!model) return;
-        const t = setTimeout(() => {
-            applyRqlMarkers(m, model);
-            requestAnimationFrame(() => {
-                if (!editorRef.current) return;
-                try { editorRef.current.layout(); } catch { }
-            });
-        }, 100);
-        return () => clearTimeout(t);
-    }, [monacoReady, editorCreated, lineMap]);
 
     useEffect(() => {
         if (!monacoReady || !editorCreated || !editorRef.current) return;
@@ -964,6 +1125,26 @@ export function YamlViewerModal() {
         const m = (window as any).monaco;
         if (!m) return;
 
+        if (!checksEnabled) {
+            const model = editorRef.current.getModel();
+            if (model) {
+                const sources = [
+                    "fqid-validator",
+                    "dataType-validator",
+                    "enum-validator",
+                    "view-ref-validator",
+                    "attribute-validator",
+                    "ui-rule-validator",
+                    "attribute-ref-validator",
+                    "rql-check",
+                ];
+                for (const src of sources) {
+                    try { m.editor.setModelMarkers(model, src, []); } catch { }
+                }
+            }
+            return;
+        }
+
         let timer: any = null;
 
         const runAll = () => {
@@ -976,6 +1157,12 @@ export function YamlViewerModal() {
             try { applyViewRefMarkers(m, model, index, domainId); } catch { /* ignore */ }
             try { applyAttributeMarkers(m, model); } catch { /* ignore */ }
             try { applyUiRuleRefMarkers(m, model, index, domainId); } catch { /* ignore */ }
+            try { applyAttributeRefMarkers(m, model); } catch { /* ignore */ }
+            try { applyRqlMarkers(m, model); } catch { /* ignore */ }
+            requestAnimationFrame(() => {
+                if (!editorRef.current) return;
+                try { editorRef.current.layout(); } catch { }
+            });
         };
 
         const schedule = () => {
@@ -992,7 +1179,7 @@ export function YamlViewerModal() {
             if (timer) clearTimeout(timer);
             try { disposable?.dispose?.(); } catch { /* ignore */ }
         };
-    }, [monacoReady, editorCreated, index, domainId]);
+    }, [checksEnabled, monacoReady, editorCreated, index, domainId]);
 
     useEffect(() => {
         if (!monacoReady || !editorCreated || !editorRef.current) return;
@@ -1057,10 +1244,18 @@ export function YamlViewerModal() {
     }, [domainId, ignoredVersion]);
 
     useEffect(() => {
-        if (!monacoReady || !editorCreated || !editorRef.current || !lineMap) return;
+        if (!monacoReady || !editorCreated || !editorRef.current) return;
         const m = (window as any).monaco;
         const model = editorRef.current.getModel();
         if (!m || !model) return;
+
+        if (!checksEnabled) {
+            try { m.editor.setModelMarkers(model, "dg-linter", []); } catch { }
+            try { m.editor.setModelMarkers(model, "yaml-syntax", []); } catch { }
+            return;
+        }
+
+        if (!lineMap) return;
 
         const currentText = model.getValue();
         const isDirty = content !== savedContent;
@@ -1069,20 +1264,26 @@ export function YamlViewerModal() {
             .filter((issue) => !isIgnored(issue, ignored))
             .map((issue) => {
                 const state = isDirty
-                    ? classifyIssue(issue, currentText, lineMap)
+                    ? classifyIssue(issue, currentText, lineMap, recheckModel, index)
                     : "still";
                 if (state === "resolved") return null;
+
+                // Показываем маркер и для "still", и для "unknown".
+                // "still" — правило проверено локально, проблема точно осталась.
+                // "unknown" — правило не покрыто classifyIssue (view/uiRule/
+                // dataRule/mixin/tree/exchangeSettings); локально проверить
+                // нельзя, но маркер не должен исчезать на каждом keystroke —
+                // пользователь теряет контекст. Маркер останется до Ctrl+S,
+                // после чего серверный линтер пересчитает.
+                // Без суффикса «⏱ возможно устарело» — он был визуальным шумом.
                 const line = findIssueLine(issue, lineMap);
                 if (line == null) return null;
-                const isStale = state === "unknown";
                 return {
                     severity:
                         issue.severity === "error" ? m.MarkerSeverity.Error :
                             issue.severity === "warning" ? m.MarkerSeverity.Warning :
                                 m.MarkerSeverity.Info,
-                    message: isStale
-                        ? `⏱ ${issue.message}\n\nВозможно, устарело — сохраните файл, чтобы серверный линтер перепроверил.`
-                        : `[${issue.rule}] ${issue.message}${issue.hint ? "\n\n💡 " + issue.hint : ""}`,
+                    message: `[${issue.rule}] ${issue.message}${issue.hint ? "\n\n💡 " + issue.hint : ""}`,
                     startLineNumber: line,
                     startColumn: 1,
                     endLineNumber: line,
@@ -1135,7 +1336,7 @@ export function YamlViewerModal() {
         return () => {
             try { m.editor.setModelMarkers(model, 'dg-linter', []); } catch { }
         };
-    }, [monacoReady, editorCreated, lineMap, domainIssues, isLocked, content, severityFilter, savedContent]);
+    }, [index, recheckModel, checksEnabled, monacoReady, editorCreated, lineMap, domainIssues, isLocked, content, severityFilter, savedContent]);
 
     // ============ Jump ============
     const jumpTo = useCallback((line: number) => {
@@ -1190,53 +1391,44 @@ export function YamlViewerModal() {
         setActiveFoldLevel(null);
     }, []);
 
-    // ============ Auto-jump ============
+    // ============ Auto-jump to pending issue ============
+    // Срабатывает когда:
+    //   - редактор открыт,
+    //   - есть «намерение» из LintModal,
+    //   - Monaco создан и lineMap построен.
+    // Откладываем jumpTo на 50ms — Monaco должен отрисоваться.
     useEffect(() => {
-        if (!open || !lineMap || !fqid || !editorCreated || !editorRef.current) return;
-        const entityId = fqid.split('/')[1];
-        if (!entityId) return;
+        if (!open) return;
+        if (!pendingIssue) return;
+        if (!editorCreated || !editorRef.current) return;
+        if (!lineMap) return;
 
-        // Поиск без учёта регистра — fqid в нижнем регистре, а ключи в lineMap в оригинальном
-        let line: number | null = null;
-        const targetKey = `entities#${entityId}`.toLowerCase();
-        for (const [key, value] of lineMap.itemLines.entries()) {
-            if (key.toLowerCase() === targetKey) {
-                line = value;
-                break;
-            }
+        const line = findIssueLine(pendingIssue, lineMap);
+        if (line == null) {
+            // Строку найти не удалось — сбрасываем намерение,
+            // чтобы не зависло до следующего клика
+            setPendingIssue(null);
+            return;
         }
 
-        if (!line) {
-            // Fallback: ищем строку с "- id: <entityId>" прямо в тексте
-            const model = editorRef.current.getModel();
-            if (model) {
-                const escaped = entityId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-                const re = new RegExp(`^\\s*-\\s+id\\s*:\\s*["']?${escaped}["']?\\s*(?:#.*)?$`, "i");
-                const lineCount = model.getLineCount();
-                for (let i = 1; i <= lineCount; i++) {
-                    if (re.test(model.getLineContent(i))) {
-                        line = i;
-                        break;
-                    }
-                }
-            }
-        }
-
-        if (!line) return;
-
-        const sectionEl = document.querySelector(
-            '.yaml-nav-section[data-section-key="entities"]'
-        ) as HTMLDetailsElement | null;
-        if (sectionEl) sectionEl.open = true;
-
-        // Задержка 400мс — Monaco должен успеть отрисоваться и получить размеры
         const t = setTimeout(() => {
-            if (editorRef.current) {
-                try { jumpTo(line!); } catch { }
+            setPendingIssue(null);
+            if (!editorRef.current) return;
+            try {
+                jumpTo(line);
+            } catch {
+                /* ignore */
             }
-        }, 400);
+        }, 50);
         return () => clearTimeout(t);
-    }, [open, lineMap, fqid, editorCreated, jumpTo]);
+    }, [
+        open,
+        pendingIssue,
+        editorCreated,
+        lineMap,
+        jumpTo,
+        setPendingIssue,
+    ]);
 
     // ============ Toggle helpers ============
     const toggleNode = useCallback((key: string) => {
@@ -1303,6 +1495,179 @@ export function YamlViewerModal() {
     }, [isLocked, isDirty, savedContent]);
 
     // ============ Save ============
+    const handleSave = useCallback(async () => {
+        if (isLocked || isSaving || !editorRef.current) return;
+
+        let valueToSave = editorRef.current.getValue();
+
+        if (valueToSave === savedContent) {
+            setSaveFeedback(true);
+            setTimeout(() => setSaveFeedback(false), 1500);
+            return;
+        }
+
+        // ============ Auto-bump version (только remote) ============
+        // В remote-режиме каждый save = publishExpertise. Сервер отклонит
+        // публикацию, если version не больше предыдущей. Если пользователь
+        // не изменил version — предлагаем поднять patch автоматически.
+        if (mode === "remote") {
+            const oldVersion = extractTopLevelVersion(savedContent);
+            const newVersion = extractTopLevelVersion(valueToSave);
+
+            if (oldVersion && newVersion && oldVersion === newVersion) {
+                const bumped = bumpPatchVersion(oldVersion);
+                if (bumped) {
+                    const ok = confirm(
+                        `Версия схемы не изменилась: ${oldVersion}.\n\n` +
+                        `Для публикации version должна быть больше, чем на сервере.\n` +
+                        `Поднять до ${bumped} и сохранить?`,
+                    );
+                    if (!ok) return;
+
+                    valueToSave = replaceTopLevelVersion(valueToSave, bumped);
+
+                    // Синхронизируем Monaco, чтобы пользователь увидел новую version
+                    isProgrammaticChange.current = true;
+                    try {
+                        editorRef.current.setValue(valueToSave);
+                    } finally {
+                        isProgrammaticChange.current = false;
+                    }
+                    setContent(valueToSave);
+                }
+                // Если version не-SemVer (с суффиксом) — молча пропускаем,
+                // сервер сам отругает LOWER_VERSION и пользователь увидит hint.
+            }
+        }
+
+        // Дальше — как обычно, но работаем с valueToSave
+        setIsSaving(true);
+        setSaveStage(mode === "remote" ? "publishing" : "writing");
+        setSaveError(null);
+
+        // Таймаут на запрос: publish может подвесить ответ.
+        const controller = new AbortController();
+        saveAbortRef.current = controller;
+        const timeoutId = setTimeout(() => controller.abort(), 120_000);
+
+        try {
+            const res = await fetch('/file', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: filePath, content: valueToSave }),
+                signal: controller.signal,
+            });
+
+            if (!res.ok) {
+                const errText = await res.text();
+                let errMsg = errText;
+                try {
+                    const j = JSON.parse(errText);
+                    if (j.error) errMsg = j.error;
+                } catch { }
+                throw new Error(errMsg);
+            }
+
+            invalidateYamlCache(filePath || undefined);
+
+            // Триггерим перезапрос /api/model
+            useGraphStore.getState().bumpModelVersion();
+
+            // Небольшая задержка, чтобы сервер успел ребилдить
+            setTimeout(() => {
+                useGraphStore.getState().bumpModelVersion();
+            }, 800);
+
+
+            // Обновляем savedContent и content одновременно
+            setSavedContent(valueToSave);
+            setContent(valueToSave);
+            setLiveVersion((v) => v + 1);
+
+            try {
+                editorRef.current?.pushUndoStop();
+            } catch { }
+
+            // ============ Публикация (remote) ============
+            // Разбираем ответ: локальная запись уже прошла (data.ok === true),
+            // publish — отдельное поле.
+            let publishInfo: any = null;
+            try {
+                const data = await res.json();
+                if (data && data.publish) publishInfo = data.publish;
+            } catch {
+                /* ignore — старый сервер мог вернуть не-JSON; не блокируем сохранение */
+            }
+
+            // ============ Read-back: сверяем диск с Monaco ============
+            let diskContent: string | null = null;
+            try {
+                const back = await fetch(
+                    "/file?path=" + encodeURIComponent(filePath || ""),
+                );
+                if (back.ok) diskContent = await back.text();
+            } catch {
+                /* ignore — диагностика, не блокирует save */
+            }
+
+            // ============ Собираем итог: error / feedback ============
+            // «Сохранён» показываем ТОЛЬКО если ни ошибки publish,
+            // ни расхождения с диском не было.
+            let hadError = false;
+
+            if (
+                diskContent !== null &&
+                diskContent !== valueToSave &&
+                editorRef.current
+            ) {
+                isProgrammaticChange.current = true;
+                try {
+                    editorRef.current.setValue(diskContent);
+                } finally {
+                    isProgrammaticChange.current = false;
+                }
+                setSavedContent(diskContent);
+                setContent(diskContent);
+                setLiveVersion((v) => v + 1);
+                hadError = true;
+                setSaveError(
+                    "На диске оказалось другое содержимое. Monaco синхронизирован. " +
+                    "Проверьте, не запущен ли --refresh параллельно.",
+                );
+            }
+
+            if (publishInfo && publishInfo.ok === true) {
+                // publish успешен — "✓ сохранён" и toast
+                useGraphStore.getState().showSnackbar(
+                    `✅ Опубликовано: ${publishInfo.domain?.name || filePath}`,
+                );
+            } else if (publishInfo && publishInfo.ok === false) {
+                // локально сохранили, publish упал — БЕЗ "✓ сохранён"
+                hadError = true;
+                const hint = publishInfo.hint ? `\n${publishInfo.hint}` : "";
+                setSaveError(
+                    `Локально сохранено. Публикация не удалась: ${publishInfo.error}${hint}`,
+                );
+                useGraphStore.getState().showSnackbar(
+                    `⚠️ Локально сохранено, публикация не удалась: ${publishInfo.error}`,
+                );
+            }
+            // local / hybrid — hadError остаётся false, просто показать feedback
+
+            if (!hadError) {
+                setSaveFeedback(true);
+                setTimeout(() => setSaveFeedback(false), 2000);
+            }
+        } catch (err: any) {
+            setSaveError(err.message || 'Ошибка сохранения');
+        } finally {
+            clearTimeout(timeoutId);
+            saveAbortRef.current = null;
+            setIsSaving(false);
+            setSaveStage("idle");
+        }
+    }, [isLocked, savedContent, filePath, mode]);
+
     const handleServerValidate = useCallback(async () => {
         if (!editorRef.current) return;
         const sourceCode = editorRef.current.getValue();
@@ -1335,76 +1700,6 @@ export function YamlViewerModal() {
             setServerValidating(false);
         }
     }, []);
-
-    const handleSave = useCallback(async () => {
-        if (isLocked || !editorRef.current) return;
-        if (isRemoteMode) return;
-
-        const currentValue = editorRef.current.getValue();
-
-        if (currentValue === savedContent) {
-            setSaveFeedback(true);
-            setTimeout(() => setSaveFeedback(false), 1500);
-            return;
-        }
-
-        // Предупреждение при наличии errors
-        const errorCount = domainIssues.filter((i) => i.severity === "error").length;
-        if (errorCount > 0) {
-            const ok = confirm(
-                `В схеме ${errorCount} ${errorCount === 1 ? "ошибка" : "ошибок"}. ` +
-                `Всё равно сохранить? Ошибки могут привести к поломке домена.`,
-            );
-            if (!ok) return;
-        }
-
-        setIsSaving(true);
-        setSaveError(null);
-
-        try {
-            const res = await fetch('/file', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ path: filePath, content: currentValue })
-            });
-
-            if (!res.ok) {
-                const errText = await res.text();
-                let errMsg = errText;
-                try {
-                    const j = JSON.parse(errText);
-                    if (j.error) errMsg = j.error;
-                } catch { }
-                throw new Error(errMsg);
-            }
-
-            invalidateYamlCache(filePath || undefined);
-
-            // Триггерим перезапрос /api/model
-            useGraphStore.getState().bumpModelVersion();
-
-            // Небольшая задержка, чтобы сервер успел ребилдить
-            setTimeout(() => {
-                useGraphStore.getState().bumpModelVersion();
-            }, 800);
-
-            // Обновляем savedContent и content одновременно
-            setSavedContent(currentValue);
-            setContent(currentValue);
-            setLiveVersion((v) => v + 1);
-
-            try {
-                editorRef.current?.pushUndoStop();
-            } catch { }
-
-            setSaveFeedback(true);
-            setTimeout(() => setSaveFeedback(false), 2000);
-        } catch (err: any) {
-            setSaveError(err.message || 'Ошибка сохранения');
-        } finally {
-            setIsSaving(false);
-        }
-    }, [isLocked, isRemoteMode, savedContent, filePath]);
 
     // ============ Close ============
     const handleClose = useCallback(() => {
@@ -1704,54 +1999,63 @@ export function YamlViewerModal() {
 
     useEffect(() => {
         if (!monacoReady || !editorCreated || !editorRef.current) return;
+        if (!checksEnabled) {
+            if (decorationsCollection.current) {
+                decorationsCollection.current.clear();
+            }
+            return;
+        }
         if (!lineMap || !content) return;
+
+        // Safety-net: на больших файлах подсветка неиспользуемых атрибутов
+        // не оправдывает затрат CPU (O(n) по 1.2M символов). Отключаем.
+        if (content.length > 250_000) {
+            if (decorationsCollection.current) decorationsCollection.current.clear();
+            return;
+        }
+
         const m = (window as any).monaco;
         const model = editorRef.current.getModel();
         if (!m || !model) return;
 
         // Убираем комментарии, чтобы не считать их за использования
         const textWithoutComments = content.replace(/#[^\n]*/g, "");
-        const newDecorations: any[] = [];
 
+        // ============ O(n) — один проход по тексту, а не per-attr ============
+        // 1) Частоты word-токенов (attrId встречается в тексте)
+        const wordCounts = new Map<string, number>();
+        for (const mw of textWithoutComments.matchAll(
+            /[a-zA-Z_][a-zA-Z0-9_]*/g,
+        )) {
+            const w = mw[0];
+            wordCounts.set(w, (wordCounts.get(w) || 0) + 1);
+        }
+        // 2) Частоты определений (`id: xxx`, `- id: xxx`)
+        const defCounts = new Map<string, number>();
+        for (const md of textWithoutComments.matchAll(
+            /(?:^|[\s-])id\s*:\s*['"]?([a-zA-Z_][a-zA-Z0-9_]*)/g,
+        )) {
+            const id = md[1];
+            defCounts.set(id, (defCounts.get(id) || 0) + 1);
+        }
+
+        const newDecorations: any[] = [];
         const entitiesSection = lineMap.sections.find((s) => s.key === "entities");
         if (entitiesSection) {
             entitiesSection.nodes.forEach((entityNode) => {
                 if (!entityNode.children) return;
                 entityNode.children.forEach((attrNode) => {
-                    // ============ Декорация применима только к настоящим атрибутам ============
-                    // collectChildren() присваивает type = containerName.replace(/s$/, ""):
-                    //   attributes[]        → "attribute"     ← подсвечиваем
-                    //   attributes[].…     → "attribute"     ← подсвечиваем (Table/Array)
-                    //   sorting[]          → "sorting"       ← пропускаем
-                    //   searching[]        → "searching"     ← пропускаем
-                    //   identification[]   → "identification"← пропускаем
-                    //   reconciliation[]   → "reconciliation"← пропускаем
-                    //   prefixRules[]      → "prefixRule"    ← пропускаем
-                    //   treeNode.types[]   → "types" / "type"← пропускаем
-                    //   views[].views[]    → "view" / "views"← пропускаем
                     if (attrNode.type !== "attribute") return;
-
                     const attrId = attrNode.id;
-                    const escaped = attrId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-                    // 1. Считаем, сколько раз этот ID вообще встречается в тексте (как отдельное слово)
-                    const wordRegex = new RegExp(`\\b${escaped}\\b`, "g");
-                    const allMatches = textWithoutComments.match(wordRegex)?.length || 0;
-
-                    // 2. Считаем, сколько раз он встречается как "id: attrId" (т.е. само объявление)
-                    const defRegex = new RegExp(`id:\\s*['"]?${escaped}['"]?`, "g");
-                    const defMatches = textWithoutComments.match(defRegex)?.length || 0;
-
-                    // 3. Если упоминаний больше, чем объявлений — значит атрибут где-то используется
-                    const usages = allMatches - defMatches;
-
-                    if (usages <= 0) {
+                    const total = wordCounts.get(attrId) || 0;
+                    const defs = defCounts.get(attrId) || 0;
+                    if (total - defs <= 0) {
                         newDecorations.push({
                             range: new m.Range(attrNode.line, 1, attrNode.line, 1),
                             options: {
                                 isWholeLine: true,
                                 className: "unused-attribute-line",
-                                inlineClassName: "unused-attribute-text", // <--- Красим сам текст
+                                inlineClassName: "unused-attribute-text",
                                 hoverMessage: {
                                     value: `⚠️ Атрибут «${attrId}» не используется ни в представлениях, ни в правилах данных`,
                                 },
@@ -1763,12 +2067,13 @@ export function YamlViewerModal() {
         }
 
         if (decorationsCollection.current) decorationsCollection.current.clear();
-        decorationsCollection.current = editorRef.current.createDecorationsCollection(newDecorations);
+        decorationsCollection.current =
+            editorRef.current.createDecorationsCollection(newDecorations);
 
         return () => {
             if (decorationsCollection.current) decorationsCollection.current.clear();
         };
-    }, [monacoReady, editorCreated, lineMap, content, liveVersion]);
+    }, [monacoReady, editorCreated, lineMap, content, checksEnabled]);
 
     useEffect(() => {
         if (!monacoReady || !editorCreated || !editorRef.current) return;
@@ -1949,7 +2254,7 @@ export function YamlViewerModal() {
 
     if (!open) return null;
 
-    const canSave = !isRemoteMode && !isLocked && isDirty;
+    const canSave = !isLocked && isDirty;
     const issueCount = effectiveIssues.length;
     const refsCount = externalRefs.refs.length;
 
@@ -1967,8 +2272,43 @@ export function YamlViewerModal() {
                     <div className="help-modal__title">
                         📄 {filePath?.split('/').pop() || 'Файл схемы'}
                         {domainId && <span className="help-modal__badge">{domainId}</span>}
-                        {isDirty && <span className="help-modal__badge help-modal__badge--dirty">● изменён</span>}
-                        {saveFeedback && <span className="help-modal__badge help-modal__badge--ok">✓ сохранён</span>}
+                        {/* Приоритет бейджей: saving > saved > dirty.
+                            Одновременно виден только один. */}
+                        {isSaving ? (
+                            <span
+                                className="help-modal__badge help-modal__badge--saving"
+                                title={
+                                    saveStage === "publishing"
+                                        ? "Идёт публикация на сервере"
+                                        : "Идёт запись файла на диск"
+                                }
+                            >
+                                {saveStage === "publishing"
+                                    ? "● публикация…"
+                                    : "● сохранение…"}
+                            </span>
+                        ) : loading ? (
+                            <span
+                                className="help-modal__badge help-modal__badge--loading"
+                                title={
+                                    mode === "remote"
+                                        ? "Запрашиваем актуальную схему с сервера"
+                                        : "Загрузка файла"
+                                }
+                            >
+                                {mode === "remote"
+                                    ? "● загрузка с сервера…"
+                                    : "● загрузка…"}
+                            </span>
+                        ) : saveFeedback ? (
+                            <span className="help-modal__badge help-modal__badge--ok">
+                                ✓ сохранён
+                            </span>
+                        ) : isDirty ? (
+                            <span className="help-modal__badge help-modal__badge--dirty">
+                                ● изменён
+                            </span>
+                        ) : null}
                     </div>
 
                     <div className="help-modal__actions">
@@ -2075,7 +2415,7 @@ export function YamlViewerModal() {
                         <button
                             className={'help-modal__icon-btn' + (!isLocked ? ' active' : '')}
                             onClick={handleToggleLock}
-                            title={isLocked ? 'Разблокировать для редактирования' : 'Заблокировать (сбросить изменения)'}
+                            title={isLocked ? 'Разблокировать для редактирования (двойной Shift)' : 'Заблокировать (сбросить изменения)'}
                         >
                             <MIcon name={isLocked ? 'lock' : 'lock_open'} />
                         </button>
@@ -2093,13 +2433,13 @@ export function YamlViewerModal() {
                             onClick={handleSave}
                             disabled={!canSave || isSaving}
                             title={
-                                isRemoteMode
-                                    ? 'Сохранение недоступно в режиме --server'
-                                    : isLocked
-                                        ? 'Разблокируйте файл для сохранения'
-                                        : isDirty
-                                            ? 'Сохранить изменения (Ctrl+S)'
-                                            : 'Нет изменений для сохранения'
+                                isLocked
+                                    ? 'Разблокируйте файл для сохранения'
+                                    : isDirty
+                                        ? mode === 'remote'
+                                            ? 'Сохранить и опубликовать на сервере (Ctrl+S)'
+                                            : 'Сохранить изменения (Ctrl+S)'
+                                        : 'Нет изменений для сохранения'
                             }
                         >
                             <MIcon name={isSaving ? 'hourglass' : 'save'} />
@@ -2130,6 +2470,18 @@ export function YamlViewerModal() {
                                 <MIcon name="menu_book" />
                             </button>
                         )}
+
+                        <button
+                            className={"help-modal__icon-btn" + (checksEnabled ? " active" : "")}
+                            onClick={toggleChecks}
+                            title={
+                                checksEnabled
+                                    ? "Проверки включены. Нажмите, чтобы отключить (быстрый режим для медленных машин)"
+                                    : "Проверки отключены. Нажмите, чтобы включить"
+                            }
+                        >
+                            <MIcon name={checksEnabled ? "rule" : "block"} />
+                        </button>
 
                         <button
                             className="help-modal__icon-btn"
@@ -2532,9 +2884,36 @@ export function YamlViewerModal() {
                                 />
                             )}
 
-                            {(loading || (!monacoReady && !monacoError)) && (
+                            {loading && (
                                 <div className="yaml-viewer-editor__loading">
-                                    {loading ? 'Загрузка содержимого...' : 'Загрузка Monaco...'}
+                                    <div className="yaml-viewer-editor__loading-inner">
+                                        <div className="yaml-viewer-editor__spinner" />
+                                        <div className="yaml-viewer-editor__loading-text">
+                                            {mode === "remote"
+                                                ? "Загрузка актуальной схемы с сервера…"
+                                                : "Загрузка содержимого…"}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {!loading && !monacoReady && !monacoError && (
+                                <div className="yaml-viewer-editor__loading">
+                                    Загрузка Monaco…
+                                </div>
+                            )}
+
+                            {loadError && (
+                                <div className="yaml-viewer-editor__error">
+                                    Ошибка загрузки схемы: {loadError}
+                                    <div style={{ marginTop: 8 }}>
+                                        <button
+                                            className="btn"
+                                            onClick={() => setReloadKey((k) => k + 1)}
+                                        >
+                                            Повторить
+                                        </button>
+                                    </div>
                                 </div>
                             )}
 
@@ -3134,6 +3513,47 @@ function hasFieldInAttributeBlock(
 type IssueState = "still" | "resolved" | "unknown";
 
 /**
+ * Резолвит строку сущности или её атрибута по паре (entityId, attributeId?).
+ *
+ * Поведение:
+ *  - находит сущность регистронезависимо (с учётом того, что ModelIndex
+ *    хранит fqid в lowercase, а в YAML — как в схеме);
+ *  - если `attributeId` задан — ищет строку атрибута с camelCase-фоллбэком
+ *    (переиспользует `findAttributeLineInMap`);
+ *  - если атрибут не найден, но сущность есть — возвращает null,
+ *    чтобы маркер не «уезжал» на строку сущности при переименованном
+ *    атрибуте;
+ *  - если сущности нет — null.
+ *
+ * Единая точка для обеих веток `findIssueLine`: и для propertyPath
+ * `entities[...].attributes[...]`, и для пары `entityFqid + attributeId`.
+ */
+function resolveEntityOrAttributeLine(
+    lineMap: LineMap,
+    entityId: string,
+    attributeId: string | null | undefined,
+): number | null {
+    if (!entityId) return null;
+
+    const entitiesSection = lineMap.sections.find((s) => s.key === "entities");
+    if (!entitiesSection) return null;
+
+    const entityNode = entitiesSection.nodes.find(
+        (n) => n.id.toLowerCase() === entityId.toLowerCase(),
+    );
+    if (!entityNode) return null;
+
+    if (!attributeId) return entityNode.line;
+
+    const line = findAttributeLineInMap(
+        entityNode.id,
+        attributeId,
+        lineMap,
+    );
+    return line;
+}
+
+/**
  * Ищет строку атрибута в lineMap, толерантно к переименованию под camelCase.
  * Возвращает 1-based строку или null.
  */
@@ -3180,32 +3600,6 @@ function findAttributeLineInMap(
 
     return null;
 }
-
-/**
- * Множество валидных action-типов — синхронизировано с
- * KNOWN_ACTION_TYPES в linter.ts и ACTION_TYPE_DESCRIPTIONS в
- * monaco-providers.ts. При добавлении нового типа правь во всех трёх местах.
- */
-const KNOWN_ACTION_TYPES_UI = new Set<string>([
-    "open_panel",
-    "open_modal",
-    "open_page",
-    "open_graph_view",
-    "open_board_view",
-    "open_list",
-    "open_tree",
-    "open_view",
-    "remove",
-    "bulk",
-    "tree_bulk",
-    "set_attribute_value",
-    "automation",
-    "scenario",
-    "generate_qr_code",
-    "copy_entity_link",
-    "open_external_widget_modal",
-    "workflow",
-]);
 
 /**
  * Находит текущее значение `type:` у action с заданным id в тексте.
@@ -3277,118 +3671,70 @@ function getActionTypeFromText(
  */
 function classifyIssue(
     issue: any,
-    currentText: string,
-    lineMap: LineMap | null,
+    _currentText: string,
+    _lineMap: LineMap | null,
+    recheckModel: RecheckModel,
+    index: ModelIndex | null,
 ): IssueState {
     if (issue.__clientOnly) return "still";
-    if (!lineMap) return "unknown";
+    return recheck(issue, recheckModel, index) as IssueState;
+}
 
-    const ruleId = String(issue.ruleId || "").toLowerCase();
-    const lines = currentText.split("\n");
+/**
+ * Разбирает propertyPath вида `views[a].widgets[b].side` на цепочку
+ * пар `[section, id]` и ищет самый глубокий узел в `lineMap.sections`.
+ *
+ * Нужно для правил, чей propertyPath указывает на вложенный item:
+ *   - views[x].widgets[y].*   → строка виджета, не view
+ *   - views[x].table.columns[c].* → строка колонки
+ *   - linkages[x].attributes[a].* → строка атрибута связи
+ *
+ * Если id = ".." (как `menus[..].items[issues]`), возвращает текущий
+ * уровень — lineMap не знает, какой именно parent имеется в виду.
+ */
+function findNestedPathLine(
+    lineMap: LineMap,
+    propertyPath: string,
+): number | null {
+    const pairs: Array<[string, string]> = [];
+    const re = /([a-zA-Z][a-zA-Z0-9_]*)\[([^\]]+)\]/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(propertyPath)) !== null) {
+        pairs.push([m[1], m[2]]);
+    }
+    if (pairs.length < 2) return null; // только top-level — пусть решает старый fallback
 
-    const getEntityLine = (entityId: string): number | null => {
-        const key = `entities#${entityId}`.toLowerCase();
-        for (const [k, line] of lineMap.itemLines.entries()) {
-            if (k.toLowerCase() === key) return line;
+    const [firstKey, firstId] = pairs[0];
+    if (firstId === "..") return null;
+
+    const section = lineMap.sections.find((s) => s.key === firstKey);
+    if (!section) return null;
+
+    let current = section.nodes.find((n) => n.id === firstId);
+    if (!current) return null;
+    let line = current.line;
+
+    const findNode = (nodes: NavNode[], id: string): NavNode | null => {
+        for (const n of nodes) {
+            if (n.id === id) return n;
+            if (n.children) {
+                const hit = findNode(n.children, id);
+                if (hit) return hit;
+            }
         }
         return null;
     };
 
-    // --- Entity label ---
-    if (ruleId.includes("entity-label") && issue.entityFqid) {
-        const entityId = issue.entityFqid.split("/").pop();
-        if (!entityId) return "unknown";
-        const entityLine = getEntityLine(entityId);
-        if (!entityLine) return "unknown";
-        return hasFieldInEntityBlock("label", entityLine, lines)
-            ? "resolved"
-            : "still";
+    for (let i = 1; i < pairs.length; i++) {
+        const id = pairs[i][1];
+        if (id === "..") return line;
+        if (!current.children) return line;
+        const next = findNode(current.children, id);
+        if (!next) return line;
+        current = next;
+        line = next.line;
     }
-
-    // --- Entity description ---
-    if (ruleId.includes("entity-description") && issue.entityFqid) {
-        const entityId = issue.entityFqid.split("/").pop();
-        if (!entityId) return "unknown";
-        const entityLine = getEntityLine(entityId);
-        if (!entityLine) return "unknown";
-        return hasFieldInEntityBlock("description", entityLine, lines)
-            ? "resolved"
-            : "still";
-    }
-
-    // --- Attribute description ---
-    if (ruleId.includes("attribute-description") && issue.attributeId) {
-        const entityId = issue.entityFqid?.split("/").pop();
-        if (!entityId) return "unknown";
-        const attrLine = findAttributeLineInMap(entityId, issue.attributeId, lineMap);
-        if (attrLine == null) {
-            // атрибут переименован или удалён — старая проблема неактуальна
-            return "resolved";
-        }
-        return hasFieldInAttributeBlock("description", attrLine, lines)
-            ? "resolved"
-            : "still";
-    }
-
-    // --- Attribute camelCase ---
-    if (ruleId.includes("attribute-camelcase") && issue.attributeId) {
-        const entityId = issue.entityFqid?.split("/").pop();
-        if (!entityId) return "unknown";
-
-        const attrLine = findAttributeLineInMap(
-            entityId,
-            issue.attributeId,
-            lineMap,
-        );
-
-        if (attrLine == null) {
-            // Атрибут с таким именем (ни старым, ни camelCase-версией) не найден.
-            // Правило «id в camelCase» ложно для несуществующего атрибута —
-            // возвращаем resolved, а не still. Это ключевое исправление:
-            // переименованный/удалённый атрибут больше не считается «проблемой».
-            return "resolved";
-        }
-
-        const line = lines[attrLine - 1] || "";
-        const match = line.match(/-\s+id:\s*['"]?([a-zA-Z0-9_\-]+)/);
-        if (!match || !match[1]) return "unknown";
-        return /^[a-z][a-zA-Z0-9]*$/.test(match[1]) ? "resolved" : "still";
-    }
-
-    // --- Entity camelCase ---
-    if (ruleId.includes("entity-camelcase") && issue.entityFqid) {
-        const entityId = issue.entityFqid.split("/").pop() || "";
-        if (!entityId) return "unknown";
-
-        if (/^[A-Z][a-zA-Z0-9]*$/.test(entityId)) return "resolved";
-
-        // Атрибут сущности могли переименовать в PascalCase-эквивалент
-        const pascal = entityId
-            .split(/[_\-]+/)
-            .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
-            .join("");
-        const entityLine = getEntityLine(pascal);
-        return entityLine != null ? "resolved" : "still";
-    }
-
-    // ============ action/unknown-type ============
-    if (ruleId === "action/unknown-type" && issue.propertyPath) {
-        const m = String(issue.propertyPath).match(/^actions\[(.+?)\]\.type$/);
-        if (!m) return "unknown";
-        const actionId = m[1];
-
-        const currentType = getActionTypeFromText(actionId, lines, lineMap);
-
-        // action удалён или поле type убрано — проблемы нет
-        if (currentType == null) return "resolved";
-
-        return KNOWN_ACTION_TYPES_UI.has(currentType) ? "resolved" : "still";
-    }
-
-    // ============ Все прочие правила: не можем проверить локально ============
-    // Возвращаем 'unknown', а НЕ 'resolved' — чтобы не скрывать проблемы
-    // пользователя, которые ещё актуальны, но требуют пересборки индекса.
-    return "unknown";
+    return line;
 }
 
 function findIssueLine(issue: any, lineMap: LineMap | null): number | null {
@@ -3402,62 +3748,58 @@ function findIssueLine(issue: any, lineMap: LineMap | null): number | null {
     // 2. Поиск по propertyPath (если есть)
     if (issue.propertyPath) {
         const path = issue.propertyPath;
+
+        // 2a. entities — единый резолвер (entity + attr с camelCase-фоллбэком)
         const entityMatch = path.match(/entities\[([^\]]+)\]/);
         if (entityMatch) {
             const entityId = entityMatch[1];
             const attrMatch = path.match(/attributes\[([^\]]+)\]/);
-
-            if (attrMatch) {
-                // Для attribute-путей НЕ падаем в fallback на строку сущности:
-                // иначе маркер «уезжает» на id сущности, когда атрибут переименован.
-                // Если не нашли — возвращаем null, маркер просто не рисуется.
-                return findAttributeLineInMap(entityId, attrMatch[1], lineMap);
-            }
-
-            const line = lineMap.itemLines.get(`entities#${entityId}`);
+            const line = resolveEntityOrAttributeLine(
+                lineMap,
+                entityId,
+                attrMatch ? attrMatch[1] : null,
+            );
             if (line != null) return line;
+
+            // если атрибут не нашли — не падаем на строку сущности:
+            // лучше не рисовать маркер, чем рисовать его не там.
+            if (attrMatch) return null;
+
+            // fallback на itemLines (регистр как в YAML)
+            const fallback = lineMap.itemLines.get(`entities#${entityId}`);
+            if (fallback != null) return fallback;
         }
+
+        // 2b. Вложенные пути: views[x].widgets[y], views[x].table.columns[c],
+        //     linkages[x].attributes[a] и т.п.
+        const nested = findNestedPathLine(lineMap, path);
+        if (nested != null) return nested;
+
+        // 2c. Fallback: top-level <section>[id]
         const sectionItemMatch = path.match(/^([a-zA-Z]+)\[([^\]]+)\]/);
         if (sectionItemMatch) {
-            const line = lineMap.itemLines.get(`${sectionItemMatch[1]}#${sectionItemMatch[2]}`);
+            const line = lineMap.itemLines.get(
+                `${sectionItemMatch[1]}#${sectionItemMatch[2]}`,
+            );
             if (line != null) return line;
         }
     }
 
-    // 3. Поиск по entityFqid (для проблем без propertyPath — description, label и т.д.)
+    // 3. Поиск по entityFqid — единый резолвер с camelCase-фоллбэком
     if (issue.entityFqid) {
-        const entityId = issue.entityFqid.split("/")[1]; // регистр может быть любым
-        const entitiesSection = lineMap.sections.find((s) => s.key === "entities");
+        const entityId = issue.entityFqid.split("/")[1];
+        if (!entityId) return null;
 
-        if (entitiesSection) {
-            // Ищем сущность без учета регистра
-            const entityNode = entitiesSection.nodes.find(
-                (n) => n.id.toLowerCase() === entityId.toLowerCase()
-            );
+        const line = resolveEntityOrAttributeLine(
+            lineMap,
+            entityId,
+            issue.attributeId ?? null,
+        );
+        if (line != null) return line;
 
-            if (entityNode) {
-                // Если проблема на конкретном атрибуте
-                if (issue.attributeId && entityNode.children) {
-                    const findAttrRecursive = (nodes: NavNode[], attrId: string): number | null => {
-                        for (const child of nodes) {
-                            if (child.id.toLowerCase() === attrId.toLowerCase()) {
-                                return child.line;
-                            }
-                            if (child.children) {
-                                const res = findAttrRecursive(child.children, attrId);
-                                if (res) return res;
-                            }
-                        }
-                        return null;
-                    };
-                    const attrLine = findAttrRecursive(entityNode.children, issue.attributeId);
-                    if (attrLine != null) return attrLine;
-                }
-
-                // Если атрибут не указан или не найден — возвращаем строку сущности
-                return entityNode.line;
-            }
-        }
+        // Если атрибут задан, но не найден — null (не «уезжаем» на сущность).
+        // Если атрибута нет — вернули бы line сущности из helper'а выше.
+        if (issue.attributeId) return null;
     }
 
     // 4. Фоллбэк по секции
@@ -4589,4 +4931,15 @@ function NavContextMenu({
             )}
         </div>
     );
+}
+
+function unquoteLite(s: string): string {
+    const t = String(s || "").trim();
+    if (
+        (t.startsWith('"') && t.endsWith('"')) ||
+        (t.startsWith("'") && t.endsWith("'"))
+    ) {
+        return t.slice(1, -1);
+    }
+    return t;
 }

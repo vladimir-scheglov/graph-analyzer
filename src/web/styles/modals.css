@@ -482,6 +482,8 @@
     text-align: left;
     cursor: pointer;
     transition: background-color 0.1s;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 22px;
 }
 .yaml-search-item:hover {
     background: var(--bg-800);
@@ -845,6 +847,8 @@
     padding-right: 4px;
     border-radius: 4px;
     transition: background-color 0.1s;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 24px;
 }
 .yaml-nav-filtered-row:hover,
 .yaml-nav-filtered-row--active {
@@ -905,4 +909,42 @@
     height: 1px;
     background: var(--border);
     margin: 4px 6px;
+}
+/* Кликабельный блок проблемы в линтере */
+.lint-issue--clickable {
+  cursor: pointer;
+  transition: background-color 0.12s, border-color 0.12s;
+  border-left: 2px solid transparent;
+}
+.lint-issue--clickable:hover {
+  background: var(--bg-700);
+  border-left-color: var(--accent);
+}
+.lint-issue--clickable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Бейдж «В редакторе» */
+.lint-issue__editor-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  padding: 1px 8px;
+  border-radius: 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--text-500);
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s, background-color 0.12s;
+}
+.lint-issue--clickable:hover .lint-issue__editor-hint {
+  opacity: 1;
+  color: var(--accent-hover);
+  background: var(--accent-soft);
+}
+.lint-issue__editor-hint .material-symbols-outlined {
+  font-size: 12px;
 }

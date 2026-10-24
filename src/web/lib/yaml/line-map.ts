@@ -90,6 +90,7 @@ const CHILD_CONTAINERS = new Set([
   "actionPanel",
   "menuOptions",
   "items",
+  "columns",
   // dataTypes (enum / workflow / table)
   "values",
   "statuses",

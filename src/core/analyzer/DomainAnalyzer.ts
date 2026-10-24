@@ -73,6 +73,7 @@ export class DomainAnalyzer {
     this.brokenDomains.clear();
     this.missingDomains.clear();
     this.fqidReferences = [];
+    this.metadata.clear(); // ← добавили
     this.stats.totalFiles = 0;
     this.stats.processedFiles = 0;
     this.stats.skippedFiles = 0;
@@ -80,6 +81,7 @@ export class DomainAnalyzer {
     this.stats.domains = 0;
     this.stats.links = 0;
     this.stats.fqidReferences = 0;
+    this.loadMetadata();
   }
 
   private loadMetadata(): void {
@@ -106,6 +108,14 @@ export class DomainAnalyzer {
   private processFile(filePath: string): void {
     try {
       const content = fs.readFileSync(filePath, "utf8");
+      // В кэше могут быть .ro-файлы не-domain типов (calculations, templates, …).
+      // У них может быть валидный, но специфический YAML (например, SQL с '' внутри),
+      // который наш парсер иногда не понимает. Не считаем их «broken» — просто skip.
+      if (!/^type\s*:\s*domain\s*$/m.test(content)) {
+        this.stats.skippedFiles++;
+        return;
+      }
+      
       const { data } = loadYaml(content);
 
       if (data.type !== "domain") {

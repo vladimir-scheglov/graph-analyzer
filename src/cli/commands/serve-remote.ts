@@ -51,7 +51,13 @@ export async function serveRemote(params: ServeRemoteParams): Promise<void> {
     }
 
     rootDir = cachedDir;
-    remoteInfo = { cacheDir: cachedDir, fromCache: true, server, fetchedAt };
+    remoteInfo = {
+      cacheDir: cachedDir,
+      fromCache: true,
+      server,
+      fetchedAt,
+      mode: "remote",
+    };
 
     const currentIndex = path.join(cachedDir, "_index.json");
     const previousIndex = path.join(cachedDir, "_index_previous.json");
@@ -105,6 +111,7 @@ export async function serveRemote(params: ServeRemoteParams): Promise<void> {
         opts: { refresh, resetCache, secure },
       });
       rootDir = remoteInfo.cacheDir;
+      remoteInfo = { ...remoteInfo, mode: "remote" };
     } catch (err: any) {
       error("Ошибка загрузки: " + err.message);
       process.exit(1);
@@ -148,5 +155,6 @@ export async function serveRemote(params: ServeRemoteParams): Promise<void> {
     remoteInfo,
     credentials,
     refreshCommand,
+    mode: "remote",
   });
 }

@@ -3,12 +3,14 @@ import { useGraphStore } from "../../state/useGraphStore";
 import { MIcon } from "../common/MIcon";
 import { openFileInEditor } from "../../lib/open-file";
 import { plural, relativeTimeShort } from "../../lib/format";
+import type { EntityRecord } from "../../../shared/model-types";
 
 export interface DomainListRowProps {
     node: any;
     isSelected: boolean;
     isFavorite: boolean;
     isFocused: boolean;
+    entityMatches?: EntityRecord[];
     onSelect: (nodeId: string, domainId: string) => void;
 }
 
@@ -17,6 +19,7 @@ export function DomainListRow({
     isSelected,
     isFavorite,
     isFocused,
+    entityMatches,
     onSelect,
 }: DomainListRowProps) {
     const d = node.data;
@@ -74,6 +77,13 @@ export function DomainListRow({
         .filter(Boolean)
         .join(" ");
 
+    const openEntityInCatalog = (e: React.MouseEvent, fqid: string) => {
+        e.stopPropagation();
+        const st = useGraphStore.getState();
+        st.setEntityCatalogInitialFqid(fqid);
+        st.setEntityCatalogOpen(true);
+    };    
+
     return (
         <div
             className={className}
@@ -119,6 +129,33 @@ export function DomainListRow({
                         title={d.description}
                     >
                         {d.description}
+                    </div>
+                )}
+                {entityMatches && entityMatches.length > 0 && (
+                    <div className="domain-list-row__entity-matches">
+                        <MIcon name="data_object" size="sm" />
+                        {entityMatches.slice(0, 5).map((e) => (
+                            <button
+                                key={e.fqid}
+                                type="button"
+                                className="domain-list-row__entity-chip"
+                                onClick={(ev) => openEntityInCatalog(ev, e.fqid)}
+                                title={`Открыть «${e.entityId}» в каталоге сущностей`}
+                            >
+                                {e.entityId}
+                            </button>
+                        ))}
+                        {entityMatches.length > 5 && (
+                            <span
+                                className="domain-list-row__entity-chip domain-list-row__entity-chip--more"
+                                title={entityMatches
+                                    .slice(5)
+                                    .map((e) => e.entityId)
+                                    .join(", ")}
+                            >
+                                +{entityMatches.length - 5}
+                            </span>
+                        )}
                     </div>
                 )}
             </div>

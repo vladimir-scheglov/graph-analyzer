@@ -3,6 +3,8 @@ import { useGraphStore, ListSort } from "../../state/useGraphStore";
 import { MIcon } from "../common/MIcon";
 import { plural } from "../../lib/format";
 import { DomainListRow } from "./DomainListRow";
+import { useModelIndex } from "../../hooks/useModelIndex";
+import type { EntityRecord } from "../../../shared/model-types";
 
 const SORT_OPTIONS: Array<{ value: ListSort; label: string }> = [
     { value: "default", label: "По умолчанию" },
@@ -110,6 +112,7 @@ export function DomainList() {
     const onlyInvalid = useGraphStore((s) => s.onlyInvalid);
     const setOnlyInvalid = useGraphStore((s) => s.setOnlyInvalid);
     const validationResults = useGraphStore((s) => s.validationResults);
+    const { index } = useModelIndex();
 
     const domainNodes = useMemo(
         () => nodes.filter((n) => n.data.nodeType === "domain"),
@@ -120,22 +123,67 @@ export function DomainList() {
         [nodes],
     );
 
+    // ============ Поиск сущностей (inline) ============
+    // При непустом query ищем сущности по entityId и по FQID
+    // ("it.assets.rvision.ru/AssetGroups"). Совпадения группируем по домену,
+    // чтобы показать их чипами в строке домена.
+    const entityMatchesByDomain = useMemo<Map<string, EntityRecord[]>>(() => {
+        const m = new Map<string, EntityRecord[]>();
+        const q = query.trim().toLowerCase();
+        if (!q || !index) return m;
+        for (const e of index.entities) {
+            const entityId = e.entityId.toLowerCase();
+            const fqid = e.fqid.toLowerCase();
+            if (entityId.indexOf(q) === -1 && fqid.indexOf(q) === -1) {
+                continue;
+            }
+            const key = e.domainId.toLowerCase();
+            if (!m.has(key)) m.set(key, []);
+            m.get(key)!.push(e);
+        }
+        // Стабильная сортировка: короткие id — первыми
+        m.forEach((arr) =>
+            arr.sort((a, b) => {
+                if (a.entityId.length !== b.entityId.length) {
+                    return a.entityId.length - b.entityId.length;
+                }
+                return a.entityId.localeCompare(b.entityId);
+            }),
+        );
+        return m;
+    }, [query, index]);
+
     const filtered = useMemo(() => {
         let result = domainNodes;
 
+        // Домены, где найдена хотя бы одна сущность — показываем
+        // даже если не проходят bookmarksOnly / onlyInvalid.
+        const entityMatchedDomainIds = new Set(
+            Array.from(entityMatchesByDomain.keys()),
+        );
+
         if (bookmarksOnly) {
-            result = result.filter((n) => bookmarks.has(n.id));
+            result = result.filter(
+                (n) =>
+                    bookmarks.has(n.id) ||
+                    entityMatchedDomainIds.has(n.data.domainId.toLowerCase()),
+            );
         }
         if (onlyInvalid && validationResults) {
             result = result.filter((n) => {
+                if (entityMatchedDomainIds.has(n.data.domainId.toLowerCase()))
+                    return true;
                 const v = validationResults.get(n.data.domainId);
                 return v && v.status === "invalid";
             });
         }
-        if (query.trim()) {
-            const q = query.toLowerCase();
+
+        const q = query.trim().toLowerCase();
+        if (q) {
             result = result.filter((n) => {
                 const d = n.data;
+
+                // 1) Совпадение по полям домена (как раньше)
                 const hay = [
                     d.domainId,
                     d.name,
@@ -146,11 +194,26 @@ export function DomainList() {
                     .map(String)
                     .map((s) => s.toLowerCase())
                     .join(" ");
-                return hay.includes(q);
+                if (hay.includes(q)) return true;
+
+                // 2) Совпадение по сущности в этом домене
+                if (entityMatchedDomainIds.has(d.domainId.toLowerCase()))
+                    return true;
+
+                return false;
             });
         }
         return sortNodes(result, sort);
-    }, [domainNodes, query, onlyInvalid, validationResults, sort, bookmarksOnly, bookmarks]);
+    }, [
+        domainNodes,
+        query,
+        onlyInvalid,
+        validationResults,
+        sort,
+        bookmarksOnly,
+        bookmarks,
+        entityMatchesByDomain,
+    ]);
 
     const favorites = useMemo(
         () => filtered.filter((n) => bookmarks.has(n.id)),
@@ -352,6 +415,23 @@ export function DomainList() {
 
                 <div className="domain-list__stats">
                     {filtered.length} {plural(filtered.length, "домен", "доменов")}
+                    {entityMatchesByDomain.size > 0 && (
+                        <span className="domain-list__stats-entities">
+                            {" · "}
+                            {Array.from(entityMatchesByDomain.values()).reduce(
+                                (sum, arr) => sum + arr.length,
+                                0,
+                            )}{" "}
+                            {plural(
+                                Array.from(entityMatchesByDomain.values()).reduce(
+                                    (sum, arr) => sum + arr.length,
+                                    0,
+                                ),
+                                "сущность",
+                                "сущностей",
+                            )}
+                        </span>
+                    )}
                 </div>
             </div>
 
@@ -404,6 +484,9 @@ export function DomainList() {
                                     focusedIdx >= 0 &&
                                     flatRows[focusedIdx]?.node.id === n.id
                                 }
+                                entityMatches={entityMatchesByDomain.get(
+                                    n.data.domainId.toLowerCase(),
+                                )}
                                 onSelect={onSelect}
                             />
                         ))}
@@ -436,6 +519,9 @@ export function DomainList() {
                                         focusedIdx >= 0 &&
                                         flatRows[focusedIdx]?.node.id === n.id
                                     }
+                                    entityMatches={entityMatchesByDomain.get(
+                                        n.data.domainId.toLowerCase(),
+                                    )}
                                     onSelect={onSelect}
                                 />
                             ))}
@@ -455,6 +541,9 @@ export function DomainList() {
                                 isSelected={panelNodeId === n.id}
                                 isFavorite={false}
                                 isFocused={false}
+                                entityMatches={entityMatchesByDomain.get(
+                                    n.data.domainId.toLowerCase(),
+                                )}
                                 onSelect={onSelect}
                             />
                         ))}

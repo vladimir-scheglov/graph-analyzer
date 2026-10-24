@@ -53,8 +53,25 @@ declare global {
 
 export function readGraphData(): GraphData {
   const el = document.getElementById("graph-data");
-  if (!el) throw new Error("#graph-data not found");
-  return JSON.parse(el.textContent || "{}");
+  if (!el) {
+    console.warn(
+      "[domains-analyzer] #graph-data не найден — рендер пустого графа",
+    );
+    return { nodes: [], edges: [] };
+  }
+  try {
+    const parsed = JSON.parse(el.textContent || "{}");
+    if (!parsed || typeof parsed !== "object") {
+      return { nodes: [], edges: [] };
+    }
+    // Защита от битых массивов
+    if (!Array.isArray(parsed.nodes)) parsed.nodes = [];
+    if (!Array.isArray(parsed.edges)) parsed.edges = [];
+    return parsed;
+  } catch (err) {
+    console.warn("[domains-analyzer] не удалось распарсить #graph-data", err);
+    return { nodes: [], edges: [] };
+  }
 }
 
 export function readRemoteInfo(): any {

@@ -574,3 +574,58 @@
 .domain-list-row {
   min-height: 56px;
 }
+/* ============ Поиск сущностей в списке доменов ============ */
+.domain-list-row__entity-matches {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    margin-top: 4px;
+    padding-left: 0;
+}
+
+.domain-list-row__entity-matches .material-symbols-outlined {
+    font-size: 13px;
+    color: var(--text-500);
+    flex-shrink: 0;
+}
+
+.domain-list-row__entity-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 7px;
+    background: var(--accent-soft);
+    border: 1px solid transparent;
+    border-radius: 10px;
+    color: var(--accent-hover);
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.domain-list-row__entity-chip:hover {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+
+.domain-list-row__entity-chip--more {
+    background: var(--bg-700);
+    color: var(--text-400);
+    cursor: help;
+}
+
+.domain-list-row__entity-chip--more:hover {
+    background: var(--bg-700);
+    color: var(--text-200);
+}
+
+.domain-list__stats-entities {
+    color: var(--accent-hover);
+}

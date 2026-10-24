@@ -80,3 +80,16 @@ export function readJsonBody(req: http.IncomingMessage): Promise<any> {
     req.on("error", reject);
   });
 }
+
+/**
+ * Ошибка HTTP-запроса. Наследуется от Error, добавляет .status
+ * (HTTP-код) — используется для перелогина при 401.
+ */
+export class HttpError extends Error {
+  readonly status: number;
+  constructor(status: number, message?: string) {
+    super(message || `HTTP ${status}`);
+    this.name = "HttpError";
+    this.status = status;
+  }
+}

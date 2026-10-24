@@ -30,7 +30,7 @@ export function renderHTML(
   );
 
   return loadTemplate()
-    .replace("__GRAPH_DATA__", safeGraphData)
-    .replace("__REMOTE_INFO__", safeRemoteInfo)
-    .replace("__REFRESH_COMMAND__", safeRefresh);
+    .replace("__GRAPH_DATA__", () => safeGraphData)
+    .replace("__REMOTE_INFO__", () => safeRemoteInfo)
+    .replace("__REFRESH_COMMAND__", () => safeRefresh);
 }

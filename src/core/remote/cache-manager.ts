@@ -4,7 +4,7 @@ import crypto from "crypto";
 import type { RemoteInfo } from "../../shared/types";
 import { sanitizeFileName } from "../utils/file-utils";
 import { writeProgress, endProgress, makeProgressBar } from "../utils/logger";
-import { apiLogin } from "./auth";
+import { apiLogin, withTokenRefresh } from "./auth";
 import {
   apiFetchFolders,
   apiFetchExpertises,
@@ -29,10 +29,8 @@ export function getCachePath(baseDir: string, serverUrl: string): string {
 }
 
 export function checkRemoteCacheExists(serverUrl: string): string | null {
-  const cacheDir = getCachePath(
-    path.join(__dirname, "..", "..", ".."),
-    serverUrl,
-  );
+  // БЫЛО: path.join(__dirname, "..", "..", "..") — dist/ или src/, зависит от сборки
+  const cacheDir = getCachePath(process.cwd(), serverUrl);
   const completeFlag = path.join(cacheDir, ".complete");
   return fs.existsSync(completeFlag) ? cacheDir : null;
 }
@@ -127,14 +125,19 @@ export async function prepareRemoteCache(
   endProgress();
   console.log(`🔐 Логин: ✅ (${username})`);
 
+  const refreshCreds = {
+    token: token as string | null,
+    loginUrl,
+    username,
+    password,
+    secure: rejectUnauthorized,
+  };
+
   writeProgress("📁 Загрузка структуры папок...");
   let folders: RemoteFolder[];
   try {
-    folders = await apiFetchFolders(
-      apiUrl,
-      token,
-      tenantId,
-      rejectUnauthorized,
+    folders = await withTokenRefresh(refreshCreds, (t) =>
+      apiFetchFolders(apiUrl, t, tenantId, rejectUnauthorized),
     );
   } catch (err: any) {
     endProgress();
@@ -149,18 +152,23 @@ export async function prepareRemoteCache(
   writeProgress("📄 Загрузка списка доменов...");
   let domains;
   try {
-    domains = await apiFetchExpertises(
-      apiUrl,
-      token,
-      tenantId,
-      rootFolder.id,
-      rejectUnauthorized,
+    domains = await withTokenRefresh(refreshCreds, (t) =>
+      apiFetchExpertises(
+        apiUrl,
+        t,
+        tenantId,
+        rootFolder.id,
+        rejectUnauthorized,
+      ),
     );
   } catch (err: any) {
     endProgress();
     throw new Error("Домены: " + err.message);
   }
   endProgress();
+
+  // Синхронизируем локальный token — он мог обновиться при перелогине
+  token = refreshCreds.token as string;
 
   const enabledDomains = domains.filter(
     (d) => d.status === "ENABLED" && d.type === "DOMAIN",
@@ -218,12 +226,8 @@ export async function prepareRemoteCache(
       `💾 Скачивание схем ${makeProgressBar(i + 1, total)} — ${shortName}`,
     );
     try {
-      const sourceCode = await apiFetchExpertiseSource(
-        apiUrl,
-        token,
-        tenantId,
-        d.id,
-        rejectUnauthorized,
+      const sourceCode = await withTokenRefresh(refreshCreds, (t) =>
+        apiFetchExpertiseSource(apiUrl, t, tenantId, d.id, rejectUnauthorized),
       );
       if (!sourceCode || typeof sourceCode !== "string") {
         errors.push({
@@ -244,6 +248,7 @@ export async function prepareRemoteCache(
     }
   }
   endProgress();
+  token = refreshCreds.token as string;
 
   if (errors.length > 0) {
     fs.writeFileSync(

@@ -2329,6 +2329,8 @@ function parseMenu(raw: any, domainId: string): MenuRecord | null {
   const placement: MenuRecord["placement"] =
     rawPlacement === "settings" ? "settings" : "top";
   const rawLabelMissing = !raw.label;
+  const rawTypeMissing = rawType === undefined;
+  const rawPlacementMissing = rawPlacement === undefined;
 
   const out: MenuRecord = {
     id: raw.id,
@@ -2349,6 +2351,8 @@ function parseMenu(raw: any, domainId: string): MenuRecord | null {
     out.__rawPlacement = rawPlacement;
   }
   if (rawLabelMissing) out.__rawLabelMissing = true;
+  if (rawTypeMissing) out.__rawTypeMissing = true;
+  if (rawPlacementMissing) out.__rawPlacementMissing = true;
   if (typeof raw.icon === "string") {
     const iconFqid = normalizeFqid(raw.icon, domainId);
     if (iconFqid) out.icon = iconFqid;
@@ -2375,7 +2379,10 @@ function parseMenu(raw: any, domainId: string): MenuRecord | null {
 function parseMedia(raw: any, domainId: string): MediaRecord | null {
   if (!raw || typeof raw !== "object") return null;
   if (typeof raw.id !== "string" || !raw.id) return null;
-  const type: MediaRecord["type"] = raw.type === "data" ? "data" : "icon_name";
+
+  const rawType = typeof raw.type === "string" ? raw.type : undefined;
+  const type: MediaRecord["type"] = rawType === "data" ? "data" : "icon_name";
+
   const out: MediaRecord = {
     id: raw.id,
     domainId,
@@ -2387,6 +2394,11 @@ function parseMedia(raw: any, domainId: string): MediaRecord | null {
   }
   if (type === "data" && typeof raw.data === "string") {
     out.data = raw.data;
+  }
+  if (rawType === undefined) {
+    out.__rawTypeMissing = true;
+  } else if (rawType !== "icon_name" && rawType !== "data") {
+    out.__rawType = rawType;
   }
   return out;
 }
@@ -2924,26 +2936,6 @@ function parseUiRule(raw: any, domainId: string): UiRuleRecord | null {
   };
 }
 
-/**
- * Извлекает локальное имя виджета из строки (FQID / external) или объекта
- * { id, linkageId?, referenceId? }.
- * Возвращает null для внешних виджетов (external:*) — их не проверяем локально.
- */
-function extractWidgetId(w: any): string | null {
-  if (typeof w === "string") {
-    if (!w) return null;
-    if (w.startsWith("external:")) return null;
-    const slash = w.lastIndexOf("/");
-    const dot = w.lastIndexOf(".");
-    const cut = Math.max(slash, dot);
-    return cut >= 0 ? w.slice(cut + 1) : w;
-  }
-  if (w && typeof w === "object") {
-    if (typeof w.id === "string") return extractWidgetId(w.id);
-  }
-  return null;
-}
-
 /** Inline-объявление виджета: `{ widget: { id, linkageId?, referenceId? } }`. */
 function isInlineWidgetObject(w: any): boolean {
   return (
@@ -3458,21 +3450,21 @@ function collectViewMeta(raw: any, domainId: string): ViewMetaResult {
   const seenColumns = new Set<string>();
   const filters: ViewTableFilterRecord[] = [];
   const sortings: ViewTableSortingRecord[] = [];
-  const seenFilterViews = new Set<string>();
-  const seenSortingViews = new Set<string>();
   const pagings: ViewTablePagingRecord[] = [];
   const tableActions: ViewTableActionRecord[] = [];
-  const seenPagingViews = new Set<string>();
-  const seenActionsViews = new Set<string>();
   const sourceJoins: ViewSourceJoinRecord[] = [];
   const menuActions: ViewMenuActionRecord[] = [];
   const groupComponents: ViewGroupComponentRecord[] = [];
 
   const views = Array.isArray(raw?.views) ? raw.views : [];
 
+  // ============ walk: обходит view рекурсивно (top-level + nested) ============
+  // Обрабатывает только то, что относится к любому уровню вложенности:
+  // widgets, groups, actionPanel, panel.menu, table.columns, source.joins.
   const walk = (view: any, topViewId: string): void => {
     if (!view || typeof view !== "object") return;
 
+    // ============ widgets[] ============
     if (Array.isArray(view.widgets)) {
       for (const w of view.widgets) {
         if (!w?.id) continue;
@@ -3531,6 +3523,15 @@ function collectViewMeta(raw: any, domainId: string): ViewMetaResult {
             if (typeof c.join === "string" && c.join) cr.join = c.join;
             if (typeof c.linkageAttribute === "string" && c.linkageAttribute) {
               cr.linkageAttribute = c.linkageAttribute;
+            }
+            // PR-5: control.type / control.tree — для проверки tree_path
+            if (c.control && typeof c.control === "object") {
+              if (typeof c.control.type === "string" && c.control.type) {
+                cr.controlType = c.control.type;
+              }
+              if (typeof c.control.tree === "string" && c.control.tree) {
+                cr.controlTree = c.control.tree;
+              }
             }
             cols.push(cr);
           }
@@ -3628,6 +3629,7 @@ function collectViewMeta(raw: any, domainId: string): ViewMetaResult {
       }
     }
 
+    // ============ groups[] ============
     if (Array.isArray(view.groups)) {
       for (const g of view.groups) {
         if (!g?.id) continue;
@@ -3704,6 +3706,7 @@ function collectViewMeta(raw: any, domainId: string): ViewMetaResult {
       }
     }
 
+    // ============ actionPanel[] ============
     if (Array.isArray(view.actionPanel)) {
       for (const ap of view.actionPanel) {
         let widgetId: string | null = null;
@@ -3721,7 +3724,7 @@ function collectViewMeta(raw: any, domainId: string): ViewMetaResult {
       }
     }
 
-    // ============ PR 6b: table.columns[] ============
+    // ============ table.columns[] ============
     if (Array.isArray(view.table?.columns)) {
       for (const c of view.table.columns) {
         if (!c?.id) continue;
@@ -3788,205 +3791,198 @@ function collectViewMeta(raw: any, domainId: string): ViewMetaResult {
       }
     }
 
+    // ============ рекурсия во вложенные views ============
     if (Array.isArray(view.views)) {
       for (const nv of view.views) walk(nv, topViewId);
     }
-
-    for (const v of views) {
-      if (!v?.id) continue;
-      const viewId = String(v.id);
-
-      // ============ filter ============
-      const t = v.table;
-      if (t && typeof t === "object" && !seenFilterViews.has(viewId)) {
-        const attributes: ViewTableFilterAttribute[] = [];
-        const linkages: ViewTableFilterLinkage[] = [];
-
-        // filter.attributes
-        const fa = t.filter?.attributes;
-        if (
-          fa &&
-          typeof fa === "object" &&
-          fa.type === "specific" &&
-          Array.isArray(fa.use)
-        ) {
-          for (const u of fa.use) {
-            if (!u || typeof u !== "object") continue;
-            if (typeof u.attribute !== "string" || !u.attribute) continue;
-            attributes.push({ attribute: u.attribute });
-          }
-        }
-
-        // filter.linkages
-        const fl = t.filter?.linkages;
-        if (
-          fl &&
-          typeof fl === "object" &&
-          fl.type === "specific" &&
-          Array.isArray(fl.use)
-        ) {
-          for (const u of fl.use) {
-            if (!u || typeof u !== "object") continue;
-            const rec: ViewTableFilterLinkage = {};
-
-            if (typeof u.linkage === "string" && u.linkage) {
-              const fqid = normalizeFqid(u.linkage, domainId);
-              if (fqid) rec.linkage = fqid;
-            }
-            if (typeof u.join === "string" && u.join) rec.join = u.join;
-
-            if (Array.isArray(u.link_attributes)) {
-              const arr = u.link_attributes
-                .map((x: any) =>
-                  x && typeof x === "object" && typeof x.attribute === "string"
-                    ? x.attribute
-                    : null,
-                )
-                .filter((x: string | null): x is string => !!x);
-              if (arr.length > 0) rec.linkAttributes = arr;
-            }
-            if (Array.isArray(u.linkedEntity)) {
-              const arr = u.linkedEntity
-                .map((x: any) =>
-                  x && typeof x === "object" && typeof x.attribute === "string"
-                    ? x.attribute
-                    : null,
-                )
-                .filter((x: string | null): x is string => !!x);
-              if (arr.length > 0) rec.linkedEntity = arr;
-            }
-
-            if (Object.keys(rec).length > 0) linkages.push(rec);
-          }
-        }
-
-        if (attributes.length > 0 || linkages.length > 0) {
-          filters.push({ domainId, viewId, attributes, linkages });
-          seenFilterViews.add(viewId);
-        }
-      }
-
-      // ============ sortingBy ============
-      if (t && typeof t === "object" && !seenSortingViews.has(viewId)) {
-        const sb = t.sortingBy;
-        if (sb && typeof sb === "object") {
-          const cols: ViewTableSortingColumn[] = [];
-          if (Array.isArray(sb.columns)) {
-            for (const c of sb.columns) {
-              if (!c || typeof c !== "object") continue;
-              if (typeof c.column !== "string" || !c.column) continue;
-              if (typeof c.sorting !== "string" || !c.sorting) continue;
-              cols.push({ column: c.column, sorting: c.sorting });
-            }
-          }
-
-          const rec: ViewTableSortingRecord = {
-            domainId,
-            viewId,
-            columns: cols,
-          };
-
-          if (sb.defaults && typeof sb.defaults === "object") {
-            if (typeof sb.defaults.column === "string" && sb.defaults.column) {
-              rec.defaultColumn = sb.defaults.column;
-            }
-            if (
-              sb.defaults.direction === "asc" ||
-              sb.defaults.direction === "desc"
-            ) {
-              rec.defaultDirection = sb.defaults.direction;
-            }
-          }
-
-          if (cols.length > 0 || rec.defaultColumn) {
-            sortings.push(rec);
-            seenSortingViews.add(viewId);
-          }
-        }
-      }
-
-      // ============ paging ============
-      if (
-        t &&
-        typeof t === "object" &&
-        t.paging &&
-        !seenPagingViews.has(viewId)
-      ) {
-        const p = t.paging;
-        const rawSizes = Array.isArray(p.sizes) ? p.sizes : [];
-        const sizes: number[] = [];
-        for (const s of rawSizes) {
-          const n = typeof s === "number" ? s : Number(s);
-          if (Number.isFinite(n) && n > 0 && Number.isInteger(n)) sizes.push(n);
-        }
-        const rawDefaultSize = p.defaultSize;
-        let defaultSize: number | undefined;
-        if (rawDefaultSize !== undefined) {
-          const n =
-            typeof rawDefaultSize === "number"
-              ? rawDefaultSize
-              : Number(rawDefaultSize);
-          if (Number.isFinite(n) && n > 0 && Number.isInteger(n))
-            defaultSize = n;
-        }
-        if (rawSizes.length > 0 || rawDefaultSize !== undefined) {
-          pagings.push({
-            domainId,
-            viewId,
-            rawSizes,
-            sizes,
-            rawDefaultSize,
-            defaultSize,
-          });
-          seenPagingViews.add(viewId);
-        }
-      }
-
-      // ============ table.actions[] ============
-      if (
-        t &&
-        typeof t === "object" &&
-        Array.isArray(t.actions) &&
-        !seenActionsViews.has(viewId)
-      ) {
-        for (const a of t.actions) {
-          if (!a || typeof a !== "object") continue;
-          const type = String(a.type || "");
-          if (!type) continue;
-
-          const rec: ViewTableActionRecord = {
-            domainId,
-            viewId,
-            type,
-            items: [],
-          };
-
-          if (typeof a.action === "string" && a.action) {
-            rec.action = a.action;
-          }
-          const rawItems = Array.isArray(a.menu)
-            ? a.menu
-            : Array.isArray(a.items)
-              ? a.items
-              : [];
-          for (const it of rawItems) {
-            if (!it || typeof it !== "object") continue;
-            if (typeof it.action !== "string" || !it.action) continue;
-            const item: ViewTableActionItemRef = { action: it.action };
-            if (typeof it.label === "string") item.label = it.label;
-            if (typeof it.icon === "string") item.icon = it.icon;
-            rec.items.push(item);
-          }
-          tableActions.push(rec);
-        }
-        seenActionsViews.add(viewId);
-      }
-    }
   };
 
+  // ============ обход всех top-level views (walk) ============
   for (const v of views) {
     if (!v?.id) continue;
     walk(v, String(v.id));
+  }
+
+  // ============ filter / sortingBy / paging / table.actions[] ============
+  // Эти секции относятся ТОЛЬКО к top-level view (list / tree).
+  // Вынесено из walk() — иначе на каждый рекурсивный вызов проходились
+  // бы ВСЕ top-level views (O(n²) с guard'ами seen*).
+  //
+  // Каждая view обрабатывается ровно один раз — guard'ы больше не нужны.
+  for (const v of views) {
+    if (!v?.id) continue;
+    const viewId = String(v.id);
+    const t = v.table;
+
+    // ============ filter ============
+    if (t && typeof t === "object") {
+      const attributes: ViewTableFilterAttribute[] = [];
+      const linkages: ViewTableFilterLinkage[] = [];
+
+      // filter.attributes
+      const fa = t.filter?.attributes;
+      if (
+        fa &&
+        typeof fa === "object" &&
+        fa.type === "specific" &&
+        Array.isArray(fa.use)
+      ) {
+        for (const u of fa.use) {
+          if (!u || typeof u !== "object") continue;
+          if (typeof u.attribute !== "string" || !u.attribute) continue;
+          attributes.push({ attribute: u.attribute });
+        }
+      }
+
+      // filter.linkages
+      const fl = t.filter?.linkages;
+      if (
+        fl &&
+        typeof fl === "object" &&
+        fl.type === "specific" &&
+        Array.isArray(fl.use)
+      ) {
+        for (const u of fl.use) {
+          if (!u || typeof u !== "object") continue;
+          const rec: ViewTableFilterLinkage = {};
+
+          if (typeof u.linkage === "string" && u.linkage) {
+            const fqid = normalizeFqid(u.linkage, domainId);
+            if (fqid) rec.linkage = fqid;
+          }
+          if (typeof u.join === "string" && u.join) rec.join = u.join;
+
+          if (Array.isArray(u.link_attributes)) {
+            const arr = u.link_attributes
+              .map((x: any) =>
+                x && typeof x === "object" && typeof x.attribute === "string"
+                  ? x.attribute
+                  : null,
+              )
+              .filter((x: string | null): x is string => !!x);
+            if (arr.length > 0) rec.linkAttributes = arr;
+          }
+          if (Array.isArray(u.linkedEntity)) {
+            const arr = u.linkedEntity
+              .map((x: any) =>
+                x && typeof x === "object" && typeof x.attribute === "string"
+                  ? x.attribute
+                  : null,
+              )
+              .filter((x: string | null): x is string => !!x);
+            if (arr.length > 0) rec.linkedEntity = arr;
+          }
+
+          if (Object.keys(rec).length > 0) linkages.push(rec);
+        }
+      }
+
+      if (attributes.length > 0 || linkages.length > 0) {
+        filters.push({ domainId, viewId, attributes, linkages });
+      }
+    }
+
+    // ============ sortingBy ============
+    if (t && typeof t === "object") {
+      const sb = t.sortingBy;
+      if (sb && typeof sb === "object") {
+        const cols: ViewTableSortingColumn[] = [];
+        if (Array.isArray(sb.columns)) {
+          for (const c of sb.columns) {
+            if (!c || typeof c !== "object") continue;
+            if (typeof c.column !== "string" || !c.column) continue;
+            if (typeof c.sorting !== "string" || !c.sorting) continue;
+            cols.push({ column: c.column, sorting: c.sorting });
+          }
+        }
+
+        const rec: ViewTableSortingRecord = {
+          domainId,
+          viewId,
+          columns: cols,
+        };
+
+        if (sb.defaults && typeof sb.defaults === "object") {
+          if (typeof sb.defaults.column === "string" && sb.defaults.column) {
+            rec.defaultColumn = sb.defaults.column;
+          }
+          if (
+            sb.defaults.direction === "asc" ||
+            sb.defaults.direction === "desc"
+          ) {
+            rec.defaultDirection = sb.defaults.direction;
+          }
+        }
+
+        if (cols.length > 0 || rec.defaultColumn) {
+          sortings.push(rec);
+        }
+      }
+    }
+
+    // ============ paging ============
+    if (t && typeof t === "object" && t.paging) {
+      const p = t.paging;
+      const rawSizes = Array.isArray(p.sizes) ? p.sizes : [];
+      const sizes: number[] = [];
+      for (const s of rawSizes) {
+        const n = typeof s === "number" ? s : Number(s);
+        if (Number.isFinite(n) && n > 0 && Number.isInteger(n)) sizes.push(n);
+      }
+      const rawDefaultSize = p.defaultSize;
+      let defaultSize: number | undefined;
+      if (rawDefaultSize !== undefined) {
+        const n =
+          typeof rawDefaultSize === "number"
+            ? rawDefaultSize
+            : Number(rawDefaultSize);
+        if (Number.isFinite(n) && n > 0 && Number.isInteger(n)) defaultSize = n;
+      }
+      if (rawSizes.length > 0 || rawDefaultSize !== undefined) {
+        pagings.push({
+          domainId,
+          viewId,
+          rawSizes,
+          sizes,
+          rawDefaultSize,
+          defaultSize,
+        });
+      }
+    }
+
+    // ============ table.actions[] ============
+    if (t && typeof t === "object" && Array.isArray(t.actions)) {
+      for (const a of t.actions) {
+        if (!a || typeof a !== "object") continue;
+        const type = String(a.type || "");
+        if (!type) continue;
+
+        const rec: ViewTableActionRecord = {
+          domainId,
+          viewId,
+          type,
+          items: [],
+        };
+
+        if (typeof a.action === "string" && a.action) {
+          rec.action = a.action;
+        }
+        const rawItems = Array.isArray(a.menu)
+          ? a.menu
+          : Array.isArray(a.items)
+            ? a.items
+            : [];
+        for (const it of rawItems) {
+          if (!it || typeof it !== "object") continue;
+          if (typeof it.action !== "string" || !it.action) continue;
+          const item: ViewTableActionItemRef = { action: it.action };
+          if (typeof it.label === "string") item.label = it.label;
+          if (typeof it.icon === "string") item.icon = it.icon;
+          rec.items.push(item);
+        }
+        tableActions.push(rec);
+      }
+    }
   }
 
   return {

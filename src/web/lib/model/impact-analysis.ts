@@ -31,11 +31,20 @@ export interface ImpactResult {
   }>;
 
   /** Связи linkages, где участвует сущность. */
+  /** Связи linkages, где участвует сущность (в т.ч. кросс-доменные). */
   linkages: Array<{
     domainId: string;
     linkageId: string;
+    linkageName: string;
+    linkageType: string;
+    undirected: boolean;
+    /** Сторона, на которой стоит текущая сущность (1 или 2). */
     side: 1 | 2;
-    peerFqid: string | null;
+    /**
+     * FQID сущности-соседа (lowercase). Для симметричных self-linkage
+     * (side1Fqid === side2Fqid) совпадает с текущим fqid.
+     */
+    peerFqid: string;
   }>;
 
   /** Миксины, расширяющие эту сущность. */
@@ -97,14 +106,47 @@ export function computeImpact(
     }
   }
 
-  // Linkages — ищем через все домены, где мы их собирали
-  // (в ModelIndex мы их не храним напрямую — собираем из linkedViaLinkages и rawData)
-  // Простой вариант: linkedViaLinkages даёт только ID, без peer.
-  // Значит, чтобы получить peer, нужно смотреть в rawData — что мы не храним в индексе.
-  // Компромисс: в ModelIndex добавляем поле linkagePeers.
+  // Linkages — все связи, где участвует сущность (в любом загруженном домене).
+  // `entityLinkages` уже содержит нормализованные lowercase FQID сторон.
   const linkages: ImpactResult["linkages"] = [];
-  // заполняется из index.linkagesByEntity (если добавим — см. ниже).
-  // Пока оставляем пустым; на следующем шаге расширим модель.
+
+  for (const l of index.entityLinkages) {
+    if (l.side1Fqid === fqid) {
+      linkages.push({
+        domainId: l.domainId,
+        linkageId: l.id,
+        linkageName: l.name,
+        linkageType: l.type,
+        undirected: l.undirected === true,
+        side: 1,
+        peerFqid: l.side2Fqid,
+      });
+    } else if (l.side2Fqid === fqid) {
+      linkages.push({
+        domainId: l.domainId,
+        linkageId: l.id,
+        linkageName: l.name,
+        linkageType: l.type,
+        undirected: l.undirected === true,
+        side: 2,
+        peerFqid: l.side1Fqid,
+      });
+    }
+  }
+
+  // Self-ссылки (Task → Task) — первыми. Остальные — по имени для
+  // стабильности между рендерами (иначе при hover на DOM-порядок
+  // дёргается, если появятся новые linkage в индексе).
+  linkages.sort((a, b) => {
+    const aSelf = a.peerFqid === fqid ? 0 : 1;
+    const bSelf = b.peerFqid === fqid ? 0 : 1;
+    if (aSelf !== bSelf) return aSelf - bSelf;
+    const byName = (a.linkageName || a.linkageId).localeCompare(
+      b.linkageName || b.linkageId,
+    );
+    if (byName !== 0) return byName;
+    return a.peerFqid.localeCompare(b.peerFqid);
+  });
 
   // Mixins
   const mixins = index.mixinsByEntityFqid[fqid] || [];

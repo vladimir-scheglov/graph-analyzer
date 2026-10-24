@@ -177,16 +177,28 @@ export function Toolbar(props: ToolbarProps) {
 
                 <div className="toolbar__spacer" />
 
-                {props.remoteInfo?.server && props.remoteInfo?.fetchedAt && (
+                {props.remoteInfo?.server && props.remoteInfo?.mode === "hybrid" && (
                     <div
                         className="toolbar__cache"
-                        title={`Источник: ${props.remoteInfo.server}\nОбновлён: ${new Date(props.remoteInfo.fetchedAt).toLocaleString("ru-RU")}`}
+                        title={`Локальный каталог: ${props.remoteInfo.cacheDir}\nСервер: ${props.remoteInfo.server}\nВалидация доступна, сохранение — локальное`}
                         onClick={props.onShowToast}
                     >
-                        <MIcon name="database" />
-                        <span>Получено {relativeTime(props.remoteInfo.fetchedAt)}</span>
+                        <MIcon name="folder" />
+                        <span>Локально + сервер</span>
                     </div>
                 )}
+                {props.remoteInfo?.server &&
+                    props.remoteInfo?.mode !== "hybrid" &&
+                    props.remoteInfo?.fetchedAt && (
+                        <div
+                            className="toolbar__cache"
+                            title={`Источник: ${props.remoteInfo.server}\nОбновлён: ${new Date(props.remoteInfo.fetchedAt).toLocaleString("ru-RU")}\nСохранение = публикация (требует повышения version)`}
+                            onClick={props.onShowToast}
+                        >
+                            <MIcon name="database" />
+                            <span>Получено {relativeTime(props.remoteInfo.fetchedAt)}</span>
+                        </div>
+                    )}
 
                 <button
                     className="btn btn--icon"

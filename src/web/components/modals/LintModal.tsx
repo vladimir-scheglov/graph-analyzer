@@ -8,6 +8,7 @@ import type {
     LintRuleCategory
 } from '../../../shared/lint-types';
 import { ModalHelp, HelpSection, HelpText, HelpList, HelpButton } from '../common/ModalHelp';
+import { openFileInEditor } from '../../lib/open-file';
 
 const CATEGORY_LABELS: Record<LintRuleCategory, string> = {
     reference: 'Ссылочная целостность',
@@ -94,6 +95,48 @@ export function LintModal() {
         store.setLintOpen(false);
         store.setEntityCatalogInitialFqid(fqid);
         store.setEntityCatalogOpen(true);
+    };
+
+    /**
+     * Открыть YAML-редактор с позиционированием на строке проблемы.
+     * Если файл схемы недоступен — fallback на каталог сущностей.
+     */
+    const openIssueInEditor = (issue: LintIssue) => {
+        // filePath ищем по domainId среди узлов графа
+        const domainId = issue.domainId;
+        const node = store.nodes.find(
+            (n) =>
+                (n.data.domainId || "").toLowerCase() ===
+                domainId.toLowerCase(),
+        );
+        const filePath = node?.data.filePath;
+
+        if (!filePath) {
+            // Fallback: файла нет (missing/broken/remote без cache) —
+            // открываем каталог, если есть сущность
+            if (issue.entityFqid) {
+                openEntity(issue.entityFqid);
+            } else {
+                store.showSnackbar(
+                    "Файл схемы недоступен — откройте домен вручную",
+                );
+            }
+            return;
+        }
+
+        // Сначала пробуем открыть файл — если редактор уже открыт
+        // на другом файле с несохранёнными правками, пользователь может
+        // отменить переключение. Тогда линтер не закрываем и pendingIssue
+        // не ставим — иначе он «повиснет» без файла.
+        const ok = openFileInEditor(
+            filePath,
+            issue.entityFqid ?? null,
+            domainId,
+        );
+        if (!ok) return;
+
+        store.setLintOpen(false);
+        store.setYamlViewerPendingIssue(issue);
     };
 
     if (!open) return null;
@@ -260,7 +303,20 @@ export function LintModal() {
                                             {isOpen && (
                                                 <div className="lint-rule__body">
                                                     {g.issues.slice(0, 100).map((issue, i) => (
-                                                        <div key={i} className="lint-issue">
+                                                        <div
+                                                            key={i}
+                                                            className="lint-issue lint-issue--clickable"
+                                                            onClick={() => openIssueInEditor(issue)}
+                                                            role="button"
+                                                            tabIndex={0}
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === "Enter" || e.key === " ") {
+                                                                    e.preventDefault();
+                                                                    openIssueInEditor(issue);
+                                                                }
+                                                            }}
+                                                            title="Открыть в редакторе на этой строке"
+                                                        >
                                                             <div className="lint-issue__message">{issue.message}</div>
                                                             {issue.hint && (
                                                                 <div className="lint-issue__hint">
@@ -272,7 +328,11 @@ export function LintModal() {
                                                                 {issue.entityFqid && (
                                                                     <button
                                                                         className="lint-issue__link"
-                                                                        onClick={() => openEntity(issue.entityFqid!)}
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            openEntity(issue.entityFqid!);
+                                                                        }}
+                                                                        title="Открыть сущность в каталоге"
                                                                     >
                                                                         {issue.entityFqid}
                                                                         {issue.attributeId && `.${issue.attributeId}`}
@@ -283,6 +343,10 @@ export function LintModal() {
                                                                         {issue.domainId}
                                                                     </code>
                                                                 )}
+                                                                <span className="lint-issue__editor-hint">
+                                                                    <MIcon name="open_in_new" size="sm" />
+                                                                    В редакторе
+                                                                </span>
                                                             </div>
                                                         </div>
                                                     ))}

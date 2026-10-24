@@ -12,6 +12,8 @@ import type {
   EntityLinkage,
   ViewElementRef,
 } from "../../../shared/model-types";
+import { SYSTEM_ATTRIBUTE_IDS } from "../../../core/analyzer/linter";
+import { ACTION_TYPE_DESCRIPTIONS } from "../../../shared/action-types";
 
 /**
  * Системные атрибуты, доступные для reference-полей
@@ -236,383 +238,6 @@ function buildRefFieldCompletion(
   return { suggestions: out };
 }
 
-function provideValueCompletions(
-  monaco: any,
-  model: any,
-  position: any,
-  beforeCursor: string,
-  range: any,
-  Kind: any,
-): { suggestions: any[] } | null {
-  const lineMatch = beforeCursor.match(
-    /^(\s*)(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*([\w./:#@$-]*)$/,
-  );
-  if (!lineMatch) return null;
-  const fieldName = lineMatch[2];
-  const vctx = detectValueContext(model, position);
-
-  // ============ dataType ============
-  // Регекс матчит только сам ключ "dataType:" — дальше может быть что угодно.
-  // Фильтрация значения делается Monaco через filterText, а не через regex.
-  const dtPrefix = beforeCursor.match(/^(\s*(?:-\s+)?dataType\s*:)/);
-  if (dtPrefix) {
-    // Range: от символа сразу после ":" до курсора.
-    // Это "съедает" любые пробелы между ":" и значением + частично набранный
-    // тип + закрывающую кавычку, если курсор стоит перед ней.
-    // insertText всегда с ведущим пробелом — поэтому в буфере получится
-    // "dataType: <T>" независимо от того, набрал пользователь пробел или нет.
-    const startColumn = dtPrefix[1].length + 1;
-    const lineText = model.getLineContent(position.lineNumber);
-    const charAtCursor = lineText.charAt(position.column - 1);
-    const endColumn =
-      charAtCursor === '"' || charAtCursor === "'"
-        ? position.column + 1
-        : position.column;
-
-    const range = {
-      startLineNumber: position.lineNumber,
-      startColumn,
-      endLineNumber: position.lineNumber,
-      endColumn,
-    };
-
-    const Kind = monaco.languages.CompletionItemKind;
-    const mk = (label: string, kind: number, sortText: string) => ({
-      label,
-      kind,
-      insertText: " " + label, // ← ведущий пробел — Fix №1
-      filterText: label, // ← чистый фильтр — Fix №2
-      sortText,
-      range,
-    });
-
-    // Контекст: внутри dataTypes[] — только Enum / Table / Workflow
-    const inDataTypesSection = (() => {
-      for (let i = position.lineNumber - 1; i >= 1; i--) {
-        const pl = model.getLineContent(i);
-        const pIndent = (pl.match(/^(\s*)/) || ["", ""])[1].length;
-        if (pIndent === 0) {
-          const m = pl.match(/^([a-zA-Z_][\w]*)\s*:/);
-          return m?.[1] === "dataTypes";
-        }
-      }
-      return false;
-    })();
-
-    if (inDataTypesSection) {
-      return {
-        suggestions: ["Enum", "Table", "Workflow"].map((t) =>
-          mk(t, Kind.Value, "0_" + t),
-        ),
-      };
-    }
-
-    const suggestions: any[] = [];
-
-    // Base типы — первыми (sortText '0_')
-    BASE_DATA_TYPES_COMPLETION.forEach((t) => {
-      suggestions.push(mk(t, Kind.Value, "0_" + t));
-    });
-
-    // Кастомные типы — только текущего домена, дедуп по id
-    const curDomain = (ctx.currentDomainId || "").toLowerCase();
-    const seen = new Set<string>();
-    ctx.modelIndex?.dataTypes
-      .filter((dt: any) => (dt.domainId || "").toLowerCase() === curDomain)
-      .forEach((dt: any) => {
-        if (!dt?.id || seen.has(dt.id)) return;
-        seen.add(dt.id);
-        const kind =
-          dt.kind === "Enum"
-            ? Kind.Enum
-            : dt.kind === "Workflow"
-              ? Kind.Interface
-              : Kind.Struct;
-        suggestions.push(mk(dt.id, kind, "1_" + dt.id));
-      });
-
-    return { suggestions };
-  }
-
-  // ============ type ============
-  if (fieldName === "type") {
-    const typeMap: Record<string, string[]> = {
-      view: [
-        "entity",
-        "list",
-        "tree",
-        "tabs_list",
-        "dashboard",
-        "dashboard_tree",
-      ],
-      viewNested: ["panel", "modal", "page"],
-      widget: [
-        "attribute",
-        "action",
-        "linkage",
-        "linkage_list",
-        "linked_objects_groups",
-        "join",
-        "history",
-        "runs_history",
-        "comments",
-        "card",
-        "conversation",
-        "visualization",
-        "calculation",
-        "template_editor",
-        "addressBook",
-      ],
-      group: ["block", "form", "tab", "tabs", "resizable_block_pair"],
-      action: [
-        "open_panel",
-        "open_modal",
-        "open_page",
-        "open_graph_view",
-        "open_board_view",
-        "open_list",
-        "open_tree",
-        "open_view",
-        "remove",
-        "bulk",
-        "tree_bulk",
-        "set_attribute_value",
-        "automation",
-        "scenario",
-        "generate_qr_code",
-        "copy_entity_link",
-        "open_external_widget_modal",
-      ],
-      linkage: ["1_1", "1_n", "n_n"],
-      dataType: ["Enum", "Table", "Workflow"],
-      tree: ["ordinary", "orderable", "multiparent"],
-      viewWidgetControl: [
-        "uuid",
-        "text",
-        "text_area",
-        "date",
-        "time",
-        "timestamp",
-        "timestamp_range",
-        "integer",
-        "decimal",
-        "float",
-        "integer_slider",
-        "decimal_slider",
-        "float_slider",
-        "bool_text",
-        "checkbox",
-        "switch",
-        "select",
-        "level",
-        "radio",
-        "multi_select",
-        "mitre_multi_select",
-        "tag_list",
-        "tag",
-        "ip",
-        "mac",
-        "cidr",
-        "file",
-        "link",
-        "url",
-        "counter",
-        "tree_path",
-        "drag_drop_area",
-        "rql",
-        "external",
-      ],
-      viewWidgetLinkageControl: [
-        "select",
-        "multi_select",
-        "table",
-        "list",
-        "tree",
-      ],
-    };
-    if (typeMap[vctx.itemType]) {
-      return makeValues(typeMap[vctx.itemType], Kind, range);
-    }
-    return null;
-  }
-
-  // ============ effect (dataRules / uiRules) ============
-  if (fieldName === "effect") {
-    if (vctx.itemType === "dataRuleRule") {
-      return makeValues(
-        ["hidden", "readonly", "required", "default", "allowed"],
-        Kind,
-        range,
-      );
-    }
-    if (vctx.itemType === "uiRuleRule") {
-      return makeValues(
-        [
-          "hidden",
-          "show",
-          "hiddenEmpty",
-          "readonly",
-          "editable",
-          "inherit",
-          "variant",
-        ],
-        Kind,
-        range,
-      );
-    }
-  }
-
-  // ============ target ============
-  if (fieldName === "target") {
-    if (vctx.itemType === "dataRule") {
-      return makeValues(["entity", "entityAttribute", "linkage"], Kind, range);
-    }
-    if (vctx.itemType === "uiRule") {
-      return makeValues(
-        ["list_view", "entity_view", "entity_attribute"],
-        Kind,
-        range,
-      );
-    }
-    if (vctx.itemType === "accessRule") {
-      return makeValues(
-        [
-          "entity",
-          "action",
-          "linkage",
-          "any_entity",
-          "any_action",
-          "any_linkage",
-        ],
-        Kind,
-        range,
-      );
-    }
-  }
-
-  // ============ inherits / entity / side1 / side2 ============
-  if (["inherits", "entity", "side1", "side2"].includes(fieldName)) {
-    return makeEntities(ctx, Kind, range);
-  }
-
-  // ============ linkage — СУЖЕНИЕ К СПИСКУ СВЯЗЕЙ (было: сущности) ============
-  if (fieldName === "linkage") {
-    const ids = collectSectionIds(ctx, "linkages");
-    return makeValues(ids, Kind, range, Kind.Reference);
-  }
-
-  // ============ widget — СУЖЕНИЕ К СПИСКУ ВИДЖЕТОВ (было: views) ============
-  if (fieldName === "widget") {
-    const ids = collectWidgetIds(ctx);
-    return makeValues(ids, Kind, range, Kind.Reference);
-  }
-
-  // ============ group — СУЖЕНИЕ К СПИСКУ ГРУПП ============
-  if (fieldName === "group") {
-    const ids = collectGroupIds(ctx);
-    return makeValues(ids, Kind, range, Kind.Reference);
-  }
-
-  // ============ column — СУЖЕНИЕ К СПИСКУ КОЛОНОК ============
-  if (fieldName === "column") {
-    const ids = collectColumnIds(ctx);
-    return makeValues(ids, Kind, range, Kind.Reference);
-  }
-
-  // ============ action ============
-  if (fieldName === "action") {
-    const ids = collectSectionIds(ctx, "actions");
-    return makeValues(ids, Kind, range, Kind.Reference);
-  }
-
-  // ============ sequence ============
-  if (fieldName === "sequence") {
-    const ids = collectSectionIds(ctx, "sequences");
-    return makeValues(ids, Kind, range, Kind.Reference);
-  }
-
-  // ============ counterColorPattern ============
-  if (fieldName === "counterColorPattern") {
-    const ids = collectSectionIds(ctx, "counterColorPattern");
-    return makeValues(ids, Kind, range, Kind.Reference);
-  }
-
-  // ============ view / modal / panel / form ============
-  if (
-    fieldName === "view" ||
-    fieldName === "modal" ||
-    fieldName === "panel" ||
-    fieldName === "form" ||
-    fieldName === "addLinksView"
-  ) {
-    let filterType: string | undefined;
-    if (fieldName === "modal") filterType = "modal";
-    else if (fieldName === "panel") filterType = "panel";
-    else if (fieldName === "form")
-      filterType = "group"; // form — это группа, но по id они в views[] нет; используем фильтр по context
-    else if (fieldName === "addLinksView") filterType = "list";
-    else if (fieldName === "view") {
-      // view: по контексту
-      if (vctx.itemType === "menuItem" || vctx.itemType === "menu")
-        filterType = "list";
-      else if (vctx.itemType === "action") filterType = "list";
-    }
-    // form — это группы type:form, они лежат в views[].groups[]
-    if (fieldName === "form") {
-      const out: string[] = [];
-      const seen = new Set<string>();
-      if (ctx.modelIndex?.viewElementsByDomain) {
-        Object.values(ctx.modelIndex.viewElementsByDomain).forEach((byView) => {
-          Object.values(byView).forEach((els: any) => {
-            (els.groups || []).forEach((g: string) => {
-              if (!seen.has(g)) {
-                seen.add(g);
-                out.push(g);
-              }
-            });
-          });
-        });
-      }
-      return makeValues(out, Kind, range, Kind.Reference);
-    }
-    const ids = collectSectionIds(ctx, "views", filterType);
-    return makeValues(ids, Kind, range, Kind.Reference);
-  }
-
-  // ============ menuItem ============
-  if (fieldName === "menuItem") {
-    const ids = collectSectionIds(ctx, "menus");
-    return makeValues(ids, Kind, range, Kind.Reference);
-  }
-
-  // ============ mode (transitive search) ============
-  if (fieldName === "mode" && vctx.itemType === "transitiveSearch") {
-    return makeValues(["entity", "linkage", "both"], Kind, range);
-  }
-
-  // ============ direction (с учётом контекста) ============
-  if (fieldName === "direction") {
-    if (vctx.container === "layout") {
-      return makeValues(["column"], Kind, range);
-    }
-    if (
-      vctx.itemType === "sortingByItem" ||
-      vctx.container === "by" ||
-      vctx.container === "defaults"
-    ) {
-      return makeValues(["asc", "desc"], Kind, range);
-    }
-    return null;
-  }
-
-  // ============ placement ============
-  if (fieldName === "placement") {
-    return makeValues(["top", "settings"], Kind, range);
-  }
-
-  return null;
-}
-
 export function updateProviderContext(partial: Partial<ProviderContext>): void {
   Object.assign(ctx, partial);
 }
@@ -744,27 +369,6 @@ const WIDGET_TYPE_DESCRIPTIONS: Record<string, string> = {
   calculation: "Расчёт по схеме",
   template_editor: "Редактор шаблонов",
   addressBook: "Адресная книга",
-};
-
-const ACTION_TYPE_DESCRIPTIONS: Record<string, string> = {
-  open_panel: "Открыть панель (компактное представление)",
-  open_modal: "Открыть модальное окно (создание/редактирование)",
-  open_page: "Открыть полноэкранную карточку",
-  open_graph_view: "Открыть диаграмму связей",
-  open_board_view: "Открыть доску",
-  open_list: "Открыть списочное представление с контекстом",
-  open_tree: "Открыть древовидное представление",
-  open_view: "Открыть представление без контекста",
-  remove: "Удалить объект",
-  bulk: "Массовое действие над объектами",
-  tree_bulk: "Массовое действие в древовидном представлении",
-  set_attribute_value: "Установить значение атрибута",
-  automation: "Запустить автоматизацию",
-  scenario: "Запустить сценарий/скрипт",
-  workflow: "Переключить атрибут в статус рабочего процесса",
-  generate_qr_code: "Сгенерировать QR-код",
-  copy_entity_link: "Скопировать URL объекта",
-  open_external_widget_modal: "Открыть внешний виджет в модальном окне",
 };
 
 const EFFECT_DESCRIPTIONS: Record<string, string> = {
@@ -1226,12 +830,6 @@ function collectRefsForField(
   }
 
   return out;
-}
-
-interface ValueCtx {
-  section: string;
-  container: string;
-  itemType: string;
 }
 
 function detectValueContext(model: any, position: any): ValueCtx {
@@ -8165,7 +7763,7 @@ export function registerMonacoProviders(monaco: any): void {
       if (!ctx.modelIndex) return { suggestions: [] };
       const Kind = monaco.languages.CompletionItemKind;
 
-      setTimeout(ensureSuggestDetailsVisible, 30);
+      //setTimeout(ensureSuggestDetailsVisible, 30);
 
       // ============ RQL-контекст: только RQL-конструкции ============
       // ============ RQL-контекст ============
@@ -9243,6 +8841,307 @@ export function applyRqlMarkers(monaco: any, model: any): void {
   } catch {}
 }
 
+// ============ Attribute-reference markers (searching / sorting / projection) ============
+
+interface LocalEntityInfo {
+  id: string;
+  inherits: string | null;
+  attrs: Set<string>;
+}
+
+interface AttrRefMarker {
+  line: number;
+  col: number;
+  end: number;
+  value: string;
+  kind: "searching" | "sorting" | "projection";
+  entityId: string;
+}
+
+function isInInheritanceChain(
+  startEntityId: string,
+  targetEntityId: string,
+  entities: Map<string, LocalEntityInfo>,
+): boolean {
+  let cur = entities.get(startEntityId.toLowerCase());
+  const visited = new Set<string>();
+  const targetLower = targetEntityId.toLowerCase();
+  while (cur && !visited.has(cur.id.toLowerCase())) {
+    if (cur.id.toLowerCase() === targetLower) return true;
+    visited.add(cur.id.toLowerCase());
+    if (!cur.inherits) return false;
+    if (cur.inherits.includes("/")) {
+      // cross-domain — сравним напрямую с FQID
+      return cur.inherits.toLowerCase() === targetLower;
+    }
+    cur = entities.get(cur.inherits.toLowerCase());
+  }
+  return false;
+}
+
+function resolveAttributeRefInEntities(
+  entityId: string,
+  ref: string,
+  entities: Map<string, LocalEntityInfo>,
+): boolean {
+  // FQID — кросс-домен, локально не проверить
+  if (ref.includes("/")) return true;
+
+  const current = entities.get(entityId.toLowerCase());
+  if (!current) return true; // сущность не из этого файла — не ругаемся
+
+  // `Entity.attr` — атрибут предка
+  const dot = ref.indexOf(".");
+  if (dot > 0) {
+    const targetEntityId = ref.slice(0, dot);
+    const attrId = ref.slice(dot + 1);
+    if (!isInInheritanceChain(entityId, targetEntityId, entities)) {
+      return false;
+    }
+    const target = entities.get(targetEntityId.toLowerCase());
+    return !!target && target.attrs.has(attrId);
+  }
+
+  // `attrId` — current + ancestors
+  let cur: LocalEntityInfo | undefined = current;
+  const visited = new Set<string>();
+  while (cur && !visited.has(cur.id.toLowerCase())) {
+    visited.add(cur.id.toLowerCase());
+    if (cur.attrs.has(ref)) return true;
+    if (!cur.inherits) break;
+    if (cur.inherits.includes("/")) {
+      // cross-domain parent: пробуем через modelIndex (может быть stale,
+      // но лучше, чем ничего)
+      const parentEntity = ctx.modelIndex?.entitiesByFqid[
+        cur.inherits.toLowerCase()
+      ];
+      if (parentEntity) {
+        if (parentEntity.attributes.some((a) => a.id === ref)) return true;
+      }
+      break;
+    }
+    cur = entities.get(cur.inherits.toLowerCase());
+  }
+  return false;
+}
+
+/**
+ * Inline-маркеры для `attribute:` внутри:
+ *   - entities[].searching[].attribute
+ *   - entities[].sorting[].by[].attribute
+ *   - entities[].projection[].attribute
+ *
+ * Не зависит от `ctx.modelIndex` — резолвит по текущему содержимому YAML
+ * (два прохода: собрать entities → проверить ссылки).
+ */
+export function applyAttributeRefMarkers(
+  monaco: any,
+  model: any,
+): void {
+  try {
+    const lines = model.getValue().split("\n");
+    const entities = new Map<string, LocalEntityInfo>();
+    const markers: AttrRefMarker[] = [];
+
+    interface StackEntry {
+      indent: number;
+      key: string;
+    }
+
+    // ============ Pass 1: entities + attributes + inherits ============
+    {
+      const stack: StackEntry[] = [];
+      let section = "";
+      let currentEntityId: string | null = null;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#")) continue;
+        const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
+
+        while (
+          stack.length > 0 &&
+          stack[stack.length - 1].indent >= indent
+        ) {
+          stack.pop();
+        }
+
+        if (indent === 0) {
+          const sm = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+          section = sm?.[1] || "";
+          stack.length = 0;
+          currentEntityId = null;
+          continue;
+        }
+
+        if (section !== "entities") continue;
+
+        // `- id: X`
+        const idM = line.match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
+        if (idM) {
+          const idIndent = idM[1].length;
+          const id = unquote(idM[2]);
+          const parentKey =
+            stack.length > 0 ? stack[stack.length - 1].key : "";
+
+          if (parentKey === "" || parentKey === "entities") {
+            // новая сущность
+            currentEntityId = id;
+            if (!entities.has(id.toLowerCase())) {
+              entities.set(id.toLowerCase(), {
+                id,
+                inherits: null,
+                attrs: new Set(),
+              });
+            }
+            stack.push({ indent: idIndent, key: "id" });
+            continue;
+          }
+
+          if (parentKey === "attributes" && currentEntityId) {
+            const info = entities.get(currentEntityId.toLowerCase());
+            if (info) info.attrs.add(id);
+            stack.push({ indent: idIndent, key: "id" });
+            continue;
+          }
+
+          // nested — тоже добавляем (не помешает)
+          if (currentEntityId) {
+            const info = entities.get(currentEntityId.toLowerCase());
+            if (info) info.attrs.add(id);
+          }
+          stack.push({ indent: idIndent, key: "id" });
+          continue;
+        }
+
+        // `inherits: X`
+        const inhM = line.match(/^\s*inherits\s*:\s*([^\s#]+)/);
+        if (inhM && currentEntityId) {
+          const info = entities.get(currentEntityId.toLowerCase());
+          if (info) info.inherits = unquote(inhM[1]);
+        }
+
+        // generic key
+        const km = line.match(/^\s*(?:-\s+)?([a-zA-Z_][\w]*)\s*:/);
+        if (km) {
+          stack.push({ indent, key: km[1] });
+        }
+      }
+    }
+
+    // ============ Pass 2: searching / sorting / projection refs ============
+    {
+      const stack: StackEntry[] = [];
+      let section = "";
+      let currentEntityId: string | null = null;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#")) continue;
+        const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
+
+        while (
+          stack.length > 0 &&
+          stack[stack.length - 1].indent >= indent
+        ) {
+          stack.pop();
+        }
+
+        if (indent === 0) {
+          const sm = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+          section = sm?.[1] || "";
+          stack.length = 0;
+          currentEntityId = null;
+          continue;
+        }
+
+        if (section !== "entities") continue;
+
+        const idM = line.match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
+        if (idM) {
+          const idIndent = idM[1].length;
+          const parentKey =
+            stack.length > 0 ? stack[stack.length - 1].key : "";
+          if (parentKey === "" || parentKey === "entities") {
+            currentEntityId = unquote(idM[2]);
+          }
+          stack.push({ indent: idIndent, key: "id" });
+          continue;
+        }
+
+        // `attribute: X` или `- attribute: X`
+        const attrRefM = line.match(
+          /^(\s*)(?:-\s+)?attribute\s*:\s*(["']?)([^\s#"']+)\2\s*(?:#.*)?$/,
+        );
+        if (attrRefM && currentEntityId) {
+          const value = attrRefM[3];
+
+          // определим контейнер по стеку
+          const stackKeys = stack.map((s) => s.key);
+          let kind: AttrRefMarker["kind"] | null = null;
+          if (stackKeys.includes("searching")) kind = "searching";
+          else if (stackKeys.includes("sorting")) kind = "sorting";
+          else if (stackKeys.includes("projection")) kind = "projection";
+
+          if (kind) {
+            const ok = resolveAttributeRefInEntities(
+              currentEntityId,
+              value,
+              entities,
+            );
+            if (!ok) {
+              const valueStart = line.indexOf(
+                value,
+                attrRefM[1].length + (attrRefM[0].includes("- ") ? 2 : 0),
+              );
+              const start = Math.max(0, valueStart);
+              markers.push({
+                line: i + 1,
+                col: start + 1,
+                end: start + 1 + value.length,
+                value,
+                kind,
+                entityId: currentEntityId,
+              });
+            }
+          }
+
+          stack.push({ indent, key: "attribute" });
+          continue;
+        }
+
+        // generic key
+        const km = line.match(/^\s*(?:-\s+)?([a-zA-Z_][\w]*)\s*:/);
+        if (km) {
+          stack.push({ indent, key: km[1] });
+        }
+      }
+    }
+
+    // ============ Emit ============
+    const monacoMarkers = markers.map((mk) => ({
+      severity: monaco.MarkerSeverity.Warning,
+      message: `Атрибут «${mk.value}» не найден в сущности «${mk.entityId}» (${mk.kind})`,
+      startLineNumber: mk.line,
+      startColumn: mk.col,
+      endLineNumber: mk.line,
+      endColumn: mk.end,
+      source: "attribute-ref-validator",
+    }));
+
+    monaco.editor.setModelMarkers(
+      model,
+      "attribute-ref-validator",
+      monacoMarkers,
+    );
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("[attribute-ref-validator]", err);
+  }
+}
+
 const BASE_DATA_TYPES_SET = new Set<string>([
   "String",
   "Integer",
@@ -10017,8 +9916,6 @@ export function applyDataTypeMarkers(
         continue;
       }
 
-      if (!inDataTypesSection) continue;
-
       // Базовый indent "- " для элементов dataTypes[] (запоминаем по первому " - ")
       if (dashIndent === -1) {
         const dashM = line.match(/^(\s*)-\s+\S/);
@@ -10042,6 +9939,7 @@ export function applyDataTypeMarkers(
       // "    dataType: Table"  → dtIndent === dashIndent + 2
       // "        dataType: String" (внутри attributes) → глубже → не top-level
       const isTopLevel =
+        inDataTypesSection &&
         dashIndent !== -1 &&
         (dtIndent === dashIndent || dtIndent === dashIndent + 2);
 
@@ -10195,8 +10093,10 @@ export function applyFqidMarkers(
 
         if (!domainIds.has(domainLower)) {
           markers.push({
-            severity: monaco.MarkerSeverity.Error,
-            message: `Домен «${domainPart}» не найден в индексе`,
+            severity: monaco.MarkerSeverity.Info,
+            message:
+              `Домен «${domainPart}» не загружен в кэш — проверьте ссылку на сервере ` +
+              `(возможно, опечатка в FQDN)`,
             startLineNumber: i + 1,
             startColumn,
             endLineNumber: i + 1,
@@ -10304,8 +10204,8 @@ export function applyFqidMarkers(
       // Домен FQID не существует
       if (!domainIds.has(targetDomain)) {
         markers.push({
-          severity: monaco.MarkerSeverity.Error,
-          message: `Домен «${targetDomain}» не найден в индексе`,
+          severity: monaco.MarkerSeverity.Info,
+          message: `Домен «${targetDomain}» не загружен в кэш — проверьте ссылку на сервере`,
           startLineNumber: i + 1,
           startColumn: startCol,
           endLineNumber: i + 1,
@@ -10874,21 +10774,6 @@ export function applyViewRefMarkers(
 }
 
 // ============ Attribute-markers: уникальность id + системные имена ============
-
-const SYSTEM_ATTRIBUTE_IDS = new Set<string>([
-  "id",
-  "label",
-  "createdAt",
-  "updatedAt",
-  "createdBy",
-  "updatedBy",
-  "organizationId",
-  "tenantId",
-  "domainId",
-  "entityId",
-  "entityName",
-  "version",
-]);
 
 export function applyAttributeMarkers(monaco: any, model: any): void {
   try {

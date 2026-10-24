@@ -211,6 +211,67 @@ export function ImpactAnalysisPanel(props: ImpactAnalysisPanelProps) {
                     )}
                 </section>
 
+                {/* === Связи === */}
+                <section className="impact-section">
+                    <h3 className="impact-section__title">
+                        <MIcon name="link" size="sm" />
+                        Связи ({impact.linkages.length})
+                    </h3>
+                    {impact.linkages.length === 0 ? (
+                        <div className="impact-row impact-row--empty">
+                            Не участвует в связях linkages
+                        </div>
+                    ) : (
+                        <div className="impact-refs">
+                            {impact.linkages.map((l) => {
+                                const isSelf = l.peerFqid === entity.fqid;
+                                const peer = !isSelf
+                                    ? props.index.entitiesByFqid[l.peerFqid]
+                                    : null;
+
+                                return (
+                                    <div
+                                        key={`${l.domainId}#${l.linkageId}#${l.side}`}
+                                        className="impact-ref"
+                                    >
+                                        <code className="impact-ref__attr">
+                                            {l.linkageName || l.linkageId}
+                                        </code>
+                                        <span className="impact-ref__arrow">
+                                            {l.undirected ? "↔" : "→"}
+                                        </span>
+                                        {isSelf ? (
+                                            <span className="impact-link impact-link--self">
+                                                сама на себя
+                                            </span>
+                                        ) : peer ? (
+                                            <button
+                                                className="impact-link"
+                                                onClick={() => props.onSelectEntity(peer.fqid)}
+                                            >
+                                                {peer.entityId}
+                                                <span className="impact-link__domain">
+                                                    {peer.domainId}
+                                                </span>
+                                            </button>
+                                        ) : (
+                                            <span
+                                                className="impact-link impact-link--missing"
+                                                title="Сущность-сосед не найдена в индексе"
+                                            >
+                                                {l.peerFqid}
+                                            </span>
+                                        )}
+                                        <span className="impact-ref__side">
+                                            side {l.side} · {l.linkageType}
+                                        </span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </section>
+
                 {/* === Миксины === */}
                 {impact.mixins.length > 0 && (
                     <section className="impact-section">

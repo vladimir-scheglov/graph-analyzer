@@ -30,6 +30,10 @@ import type {
   DomainSonarScores,
 } from "../../shared/lint-types";
 import { checkRqlExpression } from "./rql-check";
+import {
+  KNOWN_ACTION_TYPES,
+  ACTION_OPERATIONS_BY_TYPE,
+} from "../../shared/action-types";
 
 // ============ Правила именования ============
 
@@ -54,7 +58,7 @@ const DATE_PATTERN =
   /\b(date|birthdate|createdat|updatedat|expiresat|startedat)\b/i;
 const MAC_PATTERN = /\bmac(address)?\b/i;
 
-const SYSTEM_ATTRIBUTE_IDS = new Set([
+export const SYSTEM_ATTRIBUTE_IDS = new Set([
   "id",
   "label",
   "createdAt",
@@ -68,36 +72,6 @@ const SYSTEM_ATTRIBUTE_IDS = new Set([
   "entityName",
   "version",
 ]);
-
-// ============ Action enums ============
-
-const KNOWN_ACTION_TYPES = new Set<string>([
-  "open_panel",
-  "open_modal",
-  "open_page",
-  "open_graph_view",
-  "open_board_view",
-  "open_list",
-  "open_tree",
-  "open_view",
-  "remove",
-  "bulk",
-  "tree_bulk",
-  "set_attribute_value",
-  "automation",
-  "scenario",
-  "generate_qr_code",
-  "copy_entity_link",
-  "open_external_widget_modal",
-  "workflow",
-]);
-
-const ACTION_OPERATIONS_BY_TYPE: Record<string, Set<string>> = {
-  open_modal: new Set(["create", "edit"]),
-  open_page: new Set(["create", "edit", "view"]),
-  bulk: new Set(["remove", "edit", "edit_attribute", "import", "export"]),
-  tree_bulk: new Set(["edit", "remove"]),
-};
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -806,6 +780,8 @@ interface LintContext {
       >
     >
   >;
+  /** Множество загруженных доменов (lowercase) — для cross-domain проверок. */
+  loadedDomainsLower: Set<string>;
 }
 
 function precomputeLintIndex(index: ModelIndex): {
@@ -813,6 +789,7 @@ function precomputeLintIndex(index: ModelIndex): {
   presetSets: LintContext["presetSets"];
   parentViewByDomain: LintContext["parentViewByDomain"];
   widgetInfoByDomain: LintContext["widgetInfoByDomain"];
+  loadedDomainsLower: Set<string>;
 } {
   const viewElementSets: LintContext["viewElementSets"] = new Map();
   for (const [domainId, byView] of Object.entries(
@@ -884,11 +861,17 @@ function precomputeLintIndex(index: ModelIndex): {
     widgetInfoByDomain.set(domainId, byViewMap);
   }
 
+  const loadedDomainsLower = new Set<string>();
+  for (const d of index.domains) {
+    loadedDomainsLower.add(String(d.id).toLowerCase());
+  }
+
   return {
     viewElementSets,
     presetSets,
     parentViewByDomain,
     widgetInfoByDomain,
+    loadedDomainsLower,
   };
 }
 
@@ -902,6 +885,26 @@ function emit(
   },
 ): void {
   ctx.issues.push(issue);
+}
+
+/**
+ * Если FQID ссылается на домен, который НЕ загружен в текущий кэш —
+ * возвращает `{ domain }`. Иначе `null`.
+ *
+ * Локальные FQID (`current.domain/Entity`) возвращают `null` всегда,
+ * потому что текущий домен заведомо загружен.
+ */
+function crossDomainNotLoaded(
+  ctx: LintContext,
+  fqid: string,
+): { domain: string } | null {
+  if (!fqid || typeof fqid !== "string") return null;
+  const slash = fqid.indexOf("/");
+  if (slash <= 0) return null;
+  const domainPart = fqid.slice(0, slash).trim();
+  if (!domainPart) return null;
+  if (ctx.loadedDomainsLower.has(domainPart.toLowerCase())) return null;
+  return { domain: domainPart };
 }
 
 // ============ Правила ============
@@ -1093,31 +1096,63 @@ function checkReference(
     });
   }
   if (a.referenceEntity && !ctx.index.entitiesByFqid[a.referenceEntity]) {
-    emit(ctx, {
-      ruleId: "reference/entity-unknown",
-      severity: "error",
-      category: "reference",
-      rule: "Reference указывает на существующую сущность",
-      message: `атрибут «${e.entityId}.${a.id}» ссылается на несуществующую сущность ${a.referenceEntity}`,
-      domainId: e.domainId,
-      entityFqid: e.fqid,
-      attributeId: a.id,
-    });
+    const cd = crossDomainNotLoaded(ctx, a.referenceEntity);
+    emit(
+      ctx,
+      cd
+        ? {
+            ruleId: "reference/entity-unknown",
+            severity: "info",
+            category: "reference",
+            rule: "Reference указывает на существующую сущность",
+            message: `атрибут «${e.entityId}.${a.id}» ссылается на ${a.referenceEntity} — домен «${cd.domain}» не загружен в кэш`,
+            hint: "Запустите --refresh или проверьте ссылку на сервере",
+            domainId: e.domainId,
+            entityFqid: e.fqid,
+            attributeId: a.id,
+          }
+        : {
+            ruleId: "reference/entity-unknown",
+            severity: "error",
+            category: "reference",
+            rule: "Reference указывает на существующую сущность",
+            message: `атрибут «${e.entityId}.${a.id}» ссылается на несуществующую сущность ${a.referenceEntity}`,
+            domainId: e.domainId,
+            entityFqid: e.fqid,
+            attributeId: a.id,
+          },
+    );
   }
   if (
     a.itemReferenceEntity &&
     !ctx.index.entitiesByFqid[a.itemReferenceEntity]
   ) {
-    emit(ctx, {
-      ruleId: "reference/array-entity-unknown",
-      severity: "error",
-      category: "reference",
-      rule: "Array<Reference> указывает на существующую сущность",
-      message: `атрибут «${e.entityId}.${a.id}» ссылается на несуществующую сущность ${a.itemReferenceEntity}`,
-      domainId: e.domainId,
-      entityFqid: e.fqid,
-      attributeId: a.id,
-    });
+    const cd = crossDomainNotLoaded(ctx, a.itemReferenceEntity);
+    emit(
+      ctx,
+      cd
+        ? {
+            ruleId: "reference/array-entity-unknown",
+            severity: "info",
+            category: "reference",
+            rule: "Array<Reference> указывает на существующую сущность",
+            message: `атрибут «${e.entityId}.${a.id}» ссылается на ${a.itemReferenceEntity} — домен «${cd.domain}» не загружен в кэш`,
+            hint: "Запустите --refresh или проверьте ссылку на сервере",
+            domainId: e.domainId,
+            entityFqid: e.fqid,
+            attributeId: a.id,
+          }
+        : {
+            ruleId: "reference/array-entity-unknown",
+            severity: "error",
+            category: "reference",
+            rule: "Array<Reference> указывает на существующую сущность",
+            message: `атрибут «${e.entityId}.${a.id}» ссылается на несуществующую сущность ${a.itemReferenceEntity}`,
+            domainId: e.domainId,
+            entityFqid: e.fqid,
+            attributeId: a.id,
+          },
+    );
   }
 }
 
@@ -2046,15 +2081,30 @@ function checkMixins(ctx: LintContext): void {
       } else {
         const linkageRecord = linkageMap.get(m.linkageFqid.toLowerCase());
         if (!linkageRecord) {
-          emit(ctx, {
-            ruleId: "mixin/linkage-unknown",
-            severity: "error",
-            category: "reference",
-            rule: "linkage существует",
-            message: `Примесь «${m.id}»: linkage «${m.linkageFqid}» не найдена`,
-            domainId,
-            propertyPath: `mixins[${m.id}].linkage`,
-          });
+          const cd = crossDomainNotLoaded(ctx, m.linkageFqid);
+          emit(
+            ctx,
+            cd
+              ? {
+                  ruleId: "mixin/linkage-unknown",
+                  severity: "info",
+                  category: "reference",
+                  rule: "linkage существует",
+                  message: `Примесь «${m.id}»: linkage «${m.linkageFqid}» — домен «${cd.domain}» не загружен в кэш`,
+                  hint: "Запустите --refresh или проверьте ссылку на сервере",
+                  domainId,
+                  propertyPath: `mixins[${m.id}].linkage`,
+                }
+              : {
+                  ruleId: "mixin/linkage-unknown",
+                  severity: "error",
+                  category: "reference",
+                  rule: "linkage существует",
+                  message: `Примесь «${m.id}»: linkage «${m.linkageFqid}» не найдена`,
+                  domainId,
+                  propertyPath: `mixins[${m.id}].linkage`,
+                },
+          );
         } else {
           // ============ undirected запрещено для mixin linkage ============
           if (linkageRecord.undirected === true) {
@@ -3870,15 +3920,30 @@ function checkSpecialViews(ctx: LintContext): void {
             ? entityRef.toLowerCase()
             : `${domainId}/${entityRef}`.toLowerCase();
           if (!ctx.index.entitiesByFqid[fqid]) {
-            emit(ctx, {
-              ruleId: "view/dashboard-tree-autotree-entity-unknown",
-              severity: "error",
-              category: "reference",
-              rule: "dashboard_tree.tree[].autoTree.entity существует",
-              message: `View «${viewId}»: autoTree.entity «${entityRef}» не найден`,
-              domainId,
-              propertyPath: `views[${viewId}].tree`,
-            });
+            const cd = crossDomainNotLoaded(ctx, fqid);
+            emit(
+              ctx,
+              cd
+                ? {
+                    ruleId: "view/dashboard-tree-autotree-entity-unknown",
+                    severity: "info",
+                    category: "reference",
+                    rule: "dashboard_tree.tree[].autoTree.entity существует",
+                    message: `View «${viewId}»: autoTree.entity «${entityRef}» — домен «${cd.domain}» не загружен в кэш`,
+                    hint: "Запустите --refresh или проверьте ссылку на сервере",
+                    domainId,
+                    propertyPath: `views[${viewId}].tree`,
+                  }
+                : {
+                    ruleId: "view/dashboard-tree-autotree-entity-unknown",
+                    severity: "error",
+                    category: "reference",
+                    rule: "dashboard_tree.tree[].autoTree.entity существует",
+                    message: `View «${viewId}»: autoTree.entity «${entityRef}» не найден`,
+                    domainId,
+                    propertyPath: `views[${viewId}].tree`,
+                  },
+            );
           }
         }
 
@@ -4190,7 +4255,7 @@ function checkViewLinkageRefs(ctx: LintContext): void {
       });
     }
 
-    // ============ control.type=table обязателен columns[] и addLinksView ============
+    // ============ control.type=table: columns[] обязательны ============
     if (w.controlType === "table") {
       if (!w.controlColumns || w.controlColumns.length === 0) {
         emit(ctx, {
@@ -4204,17 +4269,39 @@ function checkViewLinkageRefs(ctx: LintContext): void {
           propertyPath: `views[${w.parentViewId}].widgets[${w.id}].control.columns`,
         });
       }
-      if (!w.addLinksView) {
+      // addLinksView — обязателен ТОЛЬКО для type: linkage.
+      // У linked_objects_groups его в документации нет — не требуем.
+      if (w.type === "linkage" && !w.addLinksView) {
         emit(ctx, {
           ruleId: "view/linkage-table-addlinksview-missing",
           severity: "error",
           category: "required",
           rule: "linkage-виджет с control.type=table требует addLinksView",
-          message: `Виджет «${w.id}» во view «${w.parentViewId}»: control.type = table, но addLinksView не задан`,
+          message: `Виджет «${w.id}» во view «${w.parentViewId}»: type = linkage, control.type = table, но addLinksView не задан`,
           hint: "Укажите список для выбора: control: { type: table, addLinksView: lists_xxx, ... }",
           domainId: w.domainId,
           propertyPath: `views[${w.parentViewId}].widgets[${w.id}].control.addLinksView`,
         });
+      }
+
+      // tree_path: control.tree обязателен, если у виджета нет addLinksView
+      for (const col of w.controlColumns || []) {
+        if (
+          col.controlType === "tree_path" &&
+          !col.controlTree &&
+          !w.addLinksView
+        ) {
+          emit(ctx, {
+            ruleId: "view/linkage-widget-tree-required",
+            severity: "error",
+            category: "required",
+            rule: "control.tree обязателен при control.type: tree_path (если нет addLinksView)",
+            message: `Колонка «${col.id}» виджета «${w.id}»: control.tree не задан, addLinksView отсутствует`,
+            hint: "Укажите control.tree: <treeId> или задайте addLinksView на виджете",
+            domainId: w.domainId,
+            propertyPath: `views[${w.parentViewId}].widgets[${w.id}].control.columns`,
+          });
+        }
       }
     }
 
@@ -4406,8 +4493,19 @@ function checkViewColumns(ctx: LintContext): void {
   }
 
   for (const c of columns) {
-    if (c.controlType === "tree_path" && c.controlTree) {
-      if (!c.controlTree.includes("/")) {
+    if (c.controlType === "tree_path") {
+      if (!c.controlTree) {
+        emit(ctx, {
+          ruleId: "view/column-tree-required",
+          severity: "error",
+          category: "required",
+          rule: "control.tree обязателен при control.type: tree_path",
+          message: `Колонка «${c.id}» во view «${c.viewId}»: control.tree не задан`,
+          hint: "Укажите control.tree: <treeId> или FQID",
+          domainId: c.domainId,
+          propertyPath: `views[${c.viewId}].table.columns[${c.id}].control.tree`,
+        });
+      } else if (!c.controlTree.includes("/")) {
         const known = treeIdsByDomain.get(c.domainId);
         if (known && !known.has(c.controlTree)) {
           emit(ctx, {
@@ -4422,39 +4520,6 @@ function checkViewColumns(ctx: LintContext): void {
           });
         }
       }
-    }
-
-    // Колонки с join/linkageAttribute относятся к другой сущности
-    // (связанной через связь), локально проверить нельзя — пропускаем.
-    if (c.join || c.linkageAttribute) continue;
-    if (!c.attribute) continue;
-    if (SYSTEM_ATTRIBUTE_IDS.has(c.attribute)) continue;
-    if (c.controlType === "tree_path") continue;
-    // Кросс-доменные FQID (domain.tld/Entity.attr) не проверяем локально.
-    if (c.attribute.includes("/")) continue;
-
-    const viewEntities = viewEntitiesByDomain.get(c.domainId)?.get(c.viewId);
-    if (!viewEntities || viewEntities.length === 0) continue;
-
-    const res = resolveAttributeInView(ctx, viewEntities, c.attribute);
-    if (!res.ok) {
-      const entityLabel =
-        viewEntities.length === 1
-          ? viewEntities[0]
-          : `${viewEntities.map((f) => f.split("/").pop()).join(", ")}`;
-      emit(ctx, {
-        ruleId: "view/column-attribute-unknown",
-        severity: "warning",
-        category: "reference",
-        rule: "column.attribute существует в сущности представления",
-        message:
-          viewEntities.length === 1
-            ? `Колонка «${c.id}» во view «${c.viewId}»: attribute «${c.attribute}» не найден в «${entityLabel}»`
-            : `Колонка «${c.id}» во view «${c.viewId}»: attribute «${c.attribute}» не найден ни в одной из сущностей дерева (${entityLabel})`,
-        hint: "Проверьте id атрибута в attributes[] соответствующей сущности (или нотацию Entity.attr для родителя)",
-        domainId: c.domainId,
-        propertyPath: `views[${c.viewId}].table.columns[${c.id}].attribute`,
-      });
     }
   }
 
@@ -5178,6 +5243,7 @@ function checkViews(ctx: LintContext): void {
     ctx.index.schemasByDomain || {},
   )) {
     // Top-level view types
+    // Top-level view types
     const topViews = schema?.sections?.views?.items || [];
     for (const v of topViews) {
       if (!v.type) continue;
@@ -5192,6 +5258,76 @@ function checkViews(ctx: LintContext): void {
           domainId,
           propertyPath: `views[${v.id}].type`,
         });
+      }
+
+      // ============ source (list) — required ============
+      if (v.type === "list") {
+        if (v.sourceMissing) {
+          emit(ctx, {
+            ruleId: "required/list-source",
+            severity: "error",
+            category: "required",
+            rule: "source обязателен для list-view",
+            message: `View «${v.id}»: source не задан (Zod: required)`,
+            hint: "Добавьте source: { type: operational, entity: <Entity> }",
+            domainId,
+            propertyPath: `views[${v.id}].source`,
+          });
+        } else {
+          if (v.sourceTypeMissing) {
+            emit(ctx, {
+              ruleId: "required/list-source-type",
+              severity: "error",
+              category: "required",
+              rule: "source.type обязателен",
+              message: `View «${v.id}»: source.type не задан (Zod: required)`,
+              hint: "Допустимое значение: operational",
+              domainId,
+              propertyPath: `views[${v.id}].source.type`,
+            });
+          }
+          if (v.sourceEntityMissing) {
+            emit(ctx, {
+              ruleId: "required/list-source-entity",
+              severity: "error",
+              category: "required",
+              rule: "source.entity обязателен",
+              message: `View «${v.id}»: source.entity не задан (Zod: required)`,
+              domainId,
+              propertyPath: `views[${v.id}].source.entity`,
+            });
+          } else if (v.sourceEntity) {
+            const fqid = v.sourceEntity.includes("/")
+              ? v.sourceEntity.toLowerCase()
+              : `${domainId}/${v.sourceEntity}`.toLowerCase();
+            if (!ctx.index.entitiesByFqid[fqid]) {
+              const cd = crossDomainNotLoaded(ctx, fqid);
+              emit(
+                ctx,
+                cd
+                  ? {
+                      ruleId: "view/source-entity-unknown",
+                      severity: "info",
+                      category: "reference",
+                      rule: "source.entity существует",
+                      message: `View «${v.id}»: source.entity «${v.sourceEntity}» — домен «${cd.domain}» не загружен в кэш`,
+                      hint: "Запустите --refresh или проверьте ссылку на сервере",
+                      domainId,
+                      propertyPath: `views[${v.id}].source.entity`,
+                    }
+                  : {
+                      ruleId: "view/source-entity-unknown",
+                      severity: "error",
+                      category: "reference",
+                      rule: "source.entity существует",
+                      message: `View «${v.id}»: source.entity «${v.sourceEntity}» не найдена`,
+                      domainId,
+                      propertyPath: `views[${v.id}].source.entity`,
+                    },
+              );
+            }
+          }
+        }
       }
     }
 
@@ -5294,24 +5430,6 @@ function checkViews(ctx: LintContext): void {
           domainId,
           propertyPath: `views[${v.parentViewId}].views[${v.id}].type`,
         });
-      }
-
-      // source.entity (list)
-      if (v.type === "list" && v.sourceEntity) {
-        const fqid = v.sourceEntity.includes("/")
-          ? v.sourceEntity.toLowerCase()
-          : `${domainId}/${v.sourceEntity}`.toLowerCase();
-        if (!ctx.index.entitiesByFqid[fqid]) {
-          emit(ctx, {
-            ruleId: "view/source-entity-unknown",
-            severity: "error",
-            category: "reference",
-            rule: "source.entity существует",
-            message: `View «${v.id}»: source.entity «${v.sourceEntity}» не найдена`,
-            domainId,
-            propertyPath: `views[${v.id}].source.entity`,
-          });
-        }
       }
 
       // actionPanel[].widget — на любом view
@@ -5565,15 +5683,30 @@ function checkDataRuleTarget(ctx: LintContext, dr: DataRuleRecord): void {
         `${l.domainId}/${l.id}`.toLowerCase() === dr.linkage!.toLowerCase(),
     );
     if (!linkage) {
-      emit(ctx, {
-        ruleId: "dataRule/linkage-unknown",
-        severity: "error",
-        category: "reference",
-        rule: "linkage правила существует",
-        message: `правило «${dr.id}»: linkage = "${dr.linkage}" не найдена`,
-        domainId: dr.domainId,
-        propertyPath: `dataRules[${dr.id}].linkage`,
-      });
+      const cd = crossDomainNotLoaded(ctx, dr.linkage);
+      emit(
+        ctx,
+        cd
+          ? {
+              ruleId: "dataRule/linkage-unknown",
+              severity: "info",
+              category: "reference",
+              rule: "linkage правила существует",
+              message: `правило «${dr.id}»: linkage = "${dr.linkage}" — домен «${cd.domain}» не загружен в кэш`,
+              hint: "Запустите --refresh или проверьте ссылку на сервере",
+              domainId: dr.domainId,
+              propertyPath: `dataRules[${dr.id}].linkage`,
+            }
+          : {
+              ruleId: "dataRule/linkage-unknown",
+              severity: "error",
+              category: "reference",
+              rule: "linkage правила существует",
+              message: `правило «${dr.id}»: linkage = "${dr.linkage}" не найдена`,
+              domainId: dr.domainId,
+              propertyPath: `dataRules[${dr.id}].linkage`,
+            },
+      );
       return;
     }
 
@@ -5608,15 +5741,30 @@ function checkDataRuleTarget(ctx: LintContext, dr: DataRuleRecord): void {
 
   const entity = ctx.index.entitiesByFqid[dr.entity];
   if (!entity) {
-    emit(ctx, {
-      ruleId: "dataRule/entity-unknown",
-      severity: "error",
-      category: "reference",
-      rule: "entity правила существует",
-      message: `правило «${dr.id}»: entity = "${dr.entity}" не найдена`,
-      domainId: dr.domainId,
-      propertyPath: `dataRules[${dr.id}].entity`,
-    });
+    const cd = crossDomainNotLoaded(ctx, dr.entity);
+    emit(
+      ctx,
+      cd
+        ? {
+            ruleId: "dataRule/entity-unknown",
+            severity: "info",
+            category: "reference",
+            rule: "entity правила существует",
+            message: `правило «${dr.id}»: entity = "${dr.entity}" — домен «${cd.domain}» не загружен в кэш`,
+            hint: "Запустите --refresh или проверьте ссылку на сервере",
+            domainId: dr.domainId,
+            propertyPath: `dataRules[${dr.id}].entity`,
+          }
+        : {
+            ruleId: "dataRule/entity-unknown",
+            severity: "error",
+            category: "reference",
+            rule: "entity правила существует",
+            message: `правило «${dr.id}»: entity = "${dr.entity}" не найдена`,
+            domainId: dr.domainId,
+            propertyPath: `dataRules[${dr.id}].entity`,
+          },
+    );
     return;
   }
 
@@ -5747,16 +5895,32 @@ function checkEntityExternals(ctx: LintContext): void {
   for (const e of ctx.index.entities) {
     for (const fqid of e.externals?.entities || []) {
       if (!ctx.index.entitiesByFqid[fqid]) {
-        emit(ctx, {
-          ruleId: "entity/externals-entity-unknown",
-          severity: "error",
-          category: "reference",
-          rule: "externals.entities[] — существующие сущности",
-          message: `Сущность «${e.entityId}»: externals «${fqid}» не найдена`,
-          domainId: e.domainId,
-          entityFqid: e.fqid,
-          propertyPath: `entities[${e.entityId}].externals.entities`,
-        });
+        const cd = crossDomainNotLoaded(ctx, fqid);
+        emit(
+          ctx,
+          cd
+            ? {
+                ruleId: "entity/externals-entity-unknown",
+                severity: "info",
+                category: "reference",
+                rule: "externals.entities[] — существующие сущности",
+                message: `Сущность «${e.entityId}»: externals «${fqid}» — домен «${cd.domain}» не загружен в кэш`,
+                hint: "Запустите --refresh или проверьте ссылку на сервере",
+                domainId: e.domainId,
+                entityFqid: e.fqid,
+                propertyPath: `entities[${e.entityId}].externals.entities`,
+              }
+            : {
+                ruleId: "entity/externals-entity-unknown",
+                severity: "error",
+                category: "reference",
+                rule: "externals.entities[] — существующие сущности",
+                message: `Сущность «${e.entityId}»: externals «${fqid}» не найдена`,
+                domainId: e.domainId,
+                entityFqid: e.fqid,
+                propertyPath: `entities[${e.entityId}].externals.entities`,
+              },
+        );
       }
     }
   }
@@ -6065,15 +6229,30 @@ function checkDataRuleEffectLinkages(
   for (const l of linkages) {
     const record = linkageByFqid.get(l.linkage.toLowerCase());
     if (!record) {
-      emit(ctx, {
-        ruleId: "dataRule/linkage-action-unknown",
-        severity: "error",
-        category: "reference",
-        rule: "linkages[].linkage существует",
-        message: `правило «${dr.id}»: linkages[].linkage = "${l.linkage}" не найдена`,
-        domainId: dr.domainId,
-        propertyPath: `dataRules[${dr.id}].rule.linkages`,
-      });
+      const cd = crossDomainNotLoaded(ctx, l.linkage);
+      emit(
+        ctx,
+        cd
+          ? {
+              ruleId: "dataRule/linkage-action-unknown",
+              severity: "info",
+              category: "reference",
+              rule: "linkages[].linkage существует",
+              message: `правило «${dr.id}»: linkages[].linkage = "${l.linkage}" — домен «${cd.domain}» не загружен в кэш`,
+              hint: "Запустите --refresh или проверьте ссылку на сервере",
+              domainId: dr.domainId,
+              propertyPath: `dataRules[${dr.id}].rule.linkages`,
+            }
+          : {
+              ruleId: "dataRule/linkage-action-unknown",
+              severity: "error",
+              category: "reference",
+              rule: "linkages[].linkage существует",
+              message: `правило «${dr.id}»: linkages[].linkage = "${l.linkage}" не найдена`,
+              domainId: dr.domainId,
+              propertyPath: `dataRules[${dr.id}].rule.linkages`,
+            },
+      );
       continue;
     }
 
@@ -6540,7 +6719,7 @@ function checkTreeMaxInstances(ctx: LintContext, tree: TreeRecord): void {
     }
   };
   walk(tree.hierarchy.children);
-} 
+}
 
 function checkTreeMultiparent(ctx: LintContext, tree: TreeRecord): void {
   if (tree.type !== "multiparent") return;
@@ -6636,15 +6815,30 @@ function checkTransitiveLinkages(ctx: LintContext): void {
     for (const j of joins) {
       const linkage = linkageByFqid.get(j.linkage.toLowerCase());
       if (!linkage) {
-        emit(ctx, {
-          ruleId: "transitiveLinkage/linkage-unknown",
-          severity: "error",
-          category: "reference",
-          rule: "joins[].linkage существует",
-          message: `транзитивная связь «${tl.id}», ${path}: linkage = "${j.linkage}" не найдена`,
-          domainId: tl.domainId,
-          propertyPath: path + ".linkage",
-        });
+        const cd = crossDomainNotLoaded(ctx, j.linkage);
+        emit(
+          ctx,
+          cd
+            ? {
+                ruleId: "transitiveLinkage/linkage-unknown",
+                severity: "info",
+                category: "reference",
+                rule: "joins[].linkage существует",
+                message: `транзитивная связь «${tl.id}», ${path}: linkage = "${j.linkage}" — домен «${cd.domain}» не загружен в кэш`,
+                hint: "Запустите --refresh или проверьте ссылку на сервере",
+                domainId: tl.domainId,
+                propertyPath: path + ".linkage",
+              }
+            : {
+                ruleId: "transitiveLinkage/linkage-unknown",
+                severity: "error",
+                category: "reference",
+                rule: "joins[].linkage существует",
+                message: `транзитивная связь «${tl.id}», ${path}: linkage = "${j.linkage}" не найдена`,
+                domainId: tl.domainId,
+                propertyPath: path + ".linkage",
+              },
+        );
         continue;
       }
 
@@ -6834,6 +7028,18 @@ function checkMenus(ctx: LintContext): void {
         propertyPath: `menus[${menu.id}].placement`,
       });
     }
+    if (menu.__rawPlacementMissing) {
+      emit(ctx, {
+        ruleId: "required/menu-placement",
+        severity: "error",
+        category: "required",
+        rule: "placement обязателен",
+        message: `меню «${menu.id}»: placement не задан (Zod: required)`,
+        hint: "Допустимые значения: top | settings",
+        domainId: menu.domainId,
+        propertyPath: `menus[${menu.id}].placement`,
+      });
+    }
 
     // ============ type ============
     if (menu.__rawType !== undefined) {
@@ -6843,6 +7049,18 @@ function checkMenus(ctx: LintContext): void {
         category: "semantic",
         rule: "type: root_group | root_menu",
         message: `меню «${menu.id}»: неизвестный type «${menu.__rawType}»`,
+        domainId: menu.domainId,
+        propertyPath: `menus[${menu.id}].type`,
+      });
+    }
+    if (menu.__rawTypeMissing) {
+      emit(ctx, {
+        ruleId: "required/menu-type",
+        severity: "error",
+        category: "required",
+        rule: "type обязателен",
+        message: `меню «${menu.id}»: type не задан (Zod: required)`,
+        hint: "Допустимые значения: root_group | root_menu",
         domainId: menu.domainId,
         propertyPath: `menus[${menu.id}].type`,
       });
@@ -6999,6 +7217,31 @@ function checkMedias(ctx: LintContext): void {
       seen.add(key);
     }
 
+    // ============ required type ============
+    if (m.__rawTypeMissing) {
+      emit(ctx, {
+        ruleId: "required/media-type",
+        severity: "error",
+        category: "required",
+        rule: "type обязателен",
+        message: `медиа «${m.id}»: type не задан (Zod: required)`,
+        hint: "Допустимые значения: icon_name | data",
+        domainId: m.domainId,
+        propertyPath: `medias[${m.id}].type`,
+      });
+    }
+    if (m.__rawType !== undefined) {
+      emit(ctx, {
+        ruleId: "media/type-invalid",
+        severity: "error",
+        category: "semantic",
+        rule: "type: icon_name | data",
+        message: `медиа «${m.id}»: неизвестный type «${m.__rawType}»`,
+        domainId: m.domainId,
+        propertyPath: `medias[${m.id}].type`,
+      });
+    }
+
     // ============ type-specific ============
     if (m.type === "icon_name" && !m.iconName) {
       emit(ctx, {
@@ -7098,28 +7341,58 @@ function checkAccessRules(ctx: LintContext): void {
     // ============ entity/linkage — существование ============
     if (rule.target === "entity" && rule.entity) {
       if (!entityByFqid.has(rule.entity)) {
-        emit(ctx, {
-          ruleId: "accessRule/entity-unknown",
-          severity: "error",
-          category: "reference",
-          rule: "entity существует",
-          message: `правило доступа #${ruleIdx + 1}: entity "${rule.entity}" не найдена`,
-          domainId: rule.domainId,
-          propertyPath: `accessRules[${ruleIdx}].entity`,
-        });
+        const cd = crossDomainNotLoaded(ctx, rule.entity);
+        emit(
+          ctx,
+          cd
+            ? {
+                ruleId: "accessRule/entity-unknown",
+                severity: "info",
+                category: "reference",
+                rule: "entity существует",
+                message: `правило доступа #${ruleIdx + 1}: entity "${rule.entity}" — домен «${cd.domain}» не загружен в кэш`,
+                hint: "Запустите --refresh или проверьте ссылку на сервере",
+                domainId: rule.domainId,
+                propertyPath: `accessRules[${ruleIdx}].entity`,
+              }
+            : {
+                ruleId: "accessRule/entity-unknown",
+                severity: "error",
+                category: "reference",
+                rule: "entity существует",
+                message: `правило доступа #${ruleIdx + 1}: entity "${rule.entity}" не найдена`,
+                domainId: rule.domainId,
+                propertyPath: `accessRules[${ruleIdx}].entity`,
+              },
+        );
       }
     }
     if (rule.target === "linkage" && rule.linkage) {
       if (!linkageByFqid.has(rule.linkage.toLowerCase())) {
-        emit(ctx, {
-          ruleId: "accessRule/linkage-unknown",
-          severity: "error",
-          category: "reference",
-          rule: "linkage существует",
-          message: `правило доступа #${ruleIdx + 1}: linkage "${rule.linkage}" не найдена`,
-          domainId: rule.domainId,
-          propertyPath: `accessRules[${ruleIdx}].linkage`,
-        });
+        const cd = crossDomainNotLoaded(ctx, rule.linkage);
+        emit(
+          ctx,
+          cd
+            ? {
+                ruleId: "accessRule/linkage-unknown",
+                severity: "info",
+                category: "reference",
+                rule: "linkage существует",
+                message: `правило доступа #${ruleIdx + 1}: linkage "${rule.linkage}" — домен «${cd.domain}» не загружен в кэш`,
+                hint: "Запустите --refresh или проверьте ссылку на сервере",
+                domainId: rule.domainId,
+                propertyPath: `accessRules[${ruleIdx}].linkage`,
+              }
+            : {
+                ruleId: "accessRule/linkage-unknown",
+                severity: "error",
+                category: "reference",
+                rule: "linkage существует",
+                message: `правило доступа #${ruleIdx + 1}: linkage "${rule.linkage}" не найдена`,
+                domainId: rule.domainId,
+                propertyPath: `accessRules[${ruleIdx}].linkage`,
+              },
+        );
       }
     }
 
@@ -7454,7 +7727,7 @@ function checkUniqueIds(ctx: LintContext): void {
     (d, id) => `counterColorPatterns[${id}]`,
   );
 
-    checkSection(
+  checkSection(
     ctx.index.trees.map((t) => ({ id: t.id, domainId: t.domainId })),
     "trees",
     (d, id) => `trees[${id}]`,
@@ -7470,11 +7743,7 @@ function checkUniqueIds(ctx: LintContext): void {
       if (w?.id) domainWidgets.push({ id: String(w.id), domainId });
     }
   }
-  checkSection(
-    domainWidgets,
-    "widgets",
-    (_d, id) => `widgets[${id}]`,
-  );
+  checkSection(domainWidgets, "widgets", (_d, id) => `widgets[${id}]`);
 
   // menuItems (menus[].items[])
   const menuItems: Array<{ id: string; domainId: string }> = [];
@@ -7484,11 +7753,7 @@ function checkUniqueIds(ctx: LintContext): void {
       if (it?.id) menuItems.push({ id: it.id, domainId: menu.domainId });
     }
   }
-  checkSection(
-    menuItems,
-    "menuItems",
-    (_d, id) => `menus[..].items[${id}]`,
-  );
+  checkSection(menuItems, "menuItems", (_d, id) => `menus[..].items[${id}]`);
 }
 
 function checkActionOpenListContext(ctx: LintContext): void {
@@ -7553,15 +7818,30 @@ function checkActionOpenPageView(ctx: LintContext): void {
 
     const view = viewsByFqid.get(viewRef.toLowerCase());
     if (!view) {
-      emit(ctx, {
-        ruleId: "action/open-page-view-invalid",
-        severity: "error",
-        category: "reference",
-        rule: "view существует",
-        message: `Действие «${a.id}»: view «${viewRef}» не найден`,
-        domainId: a.domainId,
-        propertyPath: `actions[${a.id}].view`,
-      });
+      const cd = crossDomainNotLoaded(ctx, viewRef);
+      emit(
+        ctx,
+        cd
+          ? {
+              ruleId: "action/open-page-view-invalid",
+              severity: "info",
+              category: "reference",
+              rule: "view существует",
+              message: `Действие «${a.id}»: view «${viewRef}» — домен «${cd.domain}» не загружен в кэш`,
+              hint: "Запустите --refresh или проверьте ссылку на сервере",
+              domainId: a.domainId,
+              propertyPath: `actions[${a.id}].view`,
+            }
+          : {
+              ruleId: "action/open-page-view-invalid",
+              severity: "error",
+              category: "reference",
+              rule: "view существует",
+              message: `Действие «${a.id}»: view «${viewRef}» не найден`,
+              domainId: a.domainId,
+              propertyPath: `actions[${a.id}].view`,
+            },
+      );
       continue;
     }
 
@@ -7897,6 +8177,7 @@ export function lintModel(index: ModelIndex): LintReport {
     presetSets,
     parentViewByDomain,
     widgetInfoByDomain,
+    loadedDomainsLower,
   } = precomputeLintIndex(index);
   const ctx: LintContext = {
     index,
@@ -7905,6 +8186,7 @@ export function lintModel(index: ModelIndex): LintReport {
     presetSets,
     parentViewByDomain,
     widgetInfoByDomain,
+    loadedDomainsLower,
   };
 
   // ============ Structure (Zod-compatible, editor-visible) ============
@@ -8407,27 +8689,35 @@ function checkCounterColorPatterns(ctx: LintContext): void {
 
 function checkLinkageSides(ctx: LintContext): void {
   for (const l of ctx.index.entityLinkages) {
-    if (!ctx.index.entitiesByFqid[l.side1Fqid]) {
-      emit(ctx, {
-        ruleId: "linkage/side1-unknown",
-        severity: "error",
-        category: "reference",
-        rule: "side1 ссылается на существующую сущность",
-        message: `связь «${l.id}»: side1 = "${l.side1Fqid}" не найдена в индексе`,
-        domainId: l.domainId,
-        propertyPath: `linkages[${l.id}].side1`,
-      });
-    }
-    if (!ctx.index.entitiesByFqid[l.side2Fqid]) {
-      emit(ctx, {
-        ruleId: "linkage/side2-unknown",
-        severity: "error",
-        category: "reference",
-        rule: "side2 ссылается на существующую сущность",
-        message: `связь «${l.id}»: side2 = "${l.side2Fqid}" не найдена в индексе`,
-        domainId: l.domainId,
-        propertyPath: `linkages[${l.id}].side2`,
-      });
+    for (const [side, fqid] of [
+      ["side1", l.side1Fqid] as const,
+      ["side2", l.side2Fqid] as const,
+    ]) {
+      if (ctx.index.entitiesByFqid[fqid]) continue;
+      const cd = crossDomainNotLoaded(ctx, fqid);
+      emit(
+        ctx,
+        cd
+          ? {
+              ruleId: `linkage/${side}-unknown`,
+              severity: "info",
+              category: "reference",
+              rule: `${side} ссылается на существующую сущность`,
+              message: `связь «${l.id}»: ${side} = "${fqid}" — домен «${cd.domain}» не загружен в кэш`,
+              hint: "Запустите --refresh или проверьте ссылку на сервере",
+              domainId: l.domainId,
+              propertyPath: `linkages[${l.id}].${side}`,
+            }
+          : {
+              ruleId: `linkage/${side}-unknown`,
+              severity: "error",
+              category: "reference",
+              rule: `${side} ссылается на существующую сущность`,
+              message: `связь «${l.id}»: ${side} = "${fqid}" не найдена в индексе`,
+              domainId: l.domainId,
+              propertyPath: `linkages[${l.id}].${side}`,
+            },
+      );
     }
   }
 }
@@ -9209,16 +9499,31 @@ function checkViewEntityExistence(ctx: LintContext): void {
         ? String(v.entity).toLowerCase()
         : `${domainId}/${String(v.entity)}`.toLowerCase();
       if (!ctx.index.entitiesByFqid[fqid]) {
-        emit(ctx, {
-          ruleId: "view/entity-unknown",
-          severity: "error",
-          category: "reference",
-          rule: "entity во view существует",
-          message: `View «${v.id}»: entity «${v.entity}» не найдена в домене`,
-          hint: "Проверьте id сущности в entities[] (регистр не важен, но сущность должна существовать)",
-          domainId,
-          propertyPath: `views[${v.id}].entity`,
-        });
+        const cd = crossDomainNotLoaded(ctx, fqid);
+        emit(
+          ctx,
+          cd
+            ? {
+                ruleId: "view/entity-unknown",
+                severity: "info",
+                category: "reference",
+                rule: "entity во view существует",
+                message: `View «${v.id}»: entity «${v.entity}» не найдена — домен «${cd.domain}» не загружен в кэш`,
+                hint: "Запустите --refresh или проверьте ссылку на сервере",
+                domainId,
+                propertyPath: `views[${v.id}].entity`,
+              }
+            : {
+                ruleId: "view/entity-unknown",
+                severity: "error",
+                category: "reference",
+                rule: "entity во view существует",
+                message: `View «${v.id}»: entity «${v.entity}» не найдена в домене`,
+                hint: "Проверьте id сущности в entities[] (регистр не важен, но сущность должна существовать)",
+                domainId,
+                propertyPath: `views[${v.id}].entity`,
+              },
+        );
       }
     }
   }

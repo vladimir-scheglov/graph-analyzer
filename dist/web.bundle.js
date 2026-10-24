@@ -139,6 +139,10 @@ var init_useGraphStore = __esm({
       setYamlViewerFqid: (v) => set2({ yamlViewerFqid: v }),
       yamlViewerDomainId: null,
       setYamlViewerDomainId: (v) => set2({ yamlViewerDomainId: v }),
+      yamlViewerPendingIssue: null,
+      setYamlViewerPendingIssue: (v) => set2({ yamlViewerPendingIssue: v }),
+      yamlViewerDirty: false,
+      setYamlViewerDirty: (v) => set2({ yamlViewerDirty: v }),
       modelVersion: 0,
       bumpModelVersion: () => set2((s) => ({ modelVersion: s.modelVersion + 1 })),
       viewMode: readString("dg-view-mode", "list"),
@@ -903,9 +907,26 @@ var init_layout = __esm({
 // src/web/state/initial.ts
 function readGraphData() {
   const el = document.getElementById("graph-data");
-  if (!el)
-    throw new Error("#graph-data not found");
-  return JSON.parse(el.textContent || "{}");
+  if (!el) {
+    console.warn(
+      "[domains-analyzer] #graph-data \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D \u2014 \u0440\u0435\u043D\u0434\u0435\u0440 \u043F\u0443\u0441\u0442\u043E\u0433\u043E \u0433\u0440\u0430\u0444\u0430"
+    );
+    return { nodes: [], edges: [] };
+  }
+  try {
+    const parsed = JSON.parse(el.textContent || "{}");
+    if (!parsed || typeof parsed !== "object") {
+      return { nodes: [], edges: [] };
+    }
+    if (!Array.isArray(parsed.nodes))
+      parsed.nodes = [];
+    if (!Array.isArray(parsed.edges))
+      parsed.edges = [];
+    return parsed;
+  } catch (err) {
+    console.warn("[domains-analyzer] \u043D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0440\u0430\u0441\u043F\u0430\u0440\u0441\u0438\u0442\u044C #graph-data", err);
+    return { nodes: [], edges: [] };
+  }
 }
 function readRemoteInfo() {
   const el = document.getElementById("remote-info");
@@ -1819,7 +1840,7 @@ import { useCallback, useEffect, useMemo as useMemo6, useRef } from "react";
 function useTooltip() {
   const setTooltip = useGraphStore((s) => s.setTooltip);
   const hideTimer = useRef(null);
-  const cache2 = useRef(/* @__PURE__ */ new Map());
+  const cache3 = useRef(/* @__PURE__ */ new Map());
   useEffect(() => {
     const onMove = (e) => {
       window.__lastMouse = { x: e.clientX, y: e.clientY };
@@ -1892,10 +1913,10 @@ function useTooltip() {
       if (hideTimer.current)
         clearTimeout(hideTimer.current);
       hideTimer.current = setTimeout(() => {
-        let html = cache2.current.get(nodeId);
+        let html = cache3.current.get(nodeId);
         if (!html) {
           html = htmlBuilder();
-          cache2.current.set(nodeId, html);
+          cache3.current.set(nodeId, html);
         }
         show(html, event);
       }, SHOW_DELAY);
@@ -1903,7 +1924,7 @@ function useTooltip() {
     [show]
   );
   const clearCache = useCallback(() => {
-    cache2.current.clear();
+    cache3.current.clear();
   }, []);
   return useMemo6(
     () => ({ show, hide, scheduleHide, showForNode, clearCache }),
@@ -4251,8 +4272,15 @@ var init_tooltip_builders = __esm({
 // src/web/lib/open-file.ts
 function openFileInEditor(filePath, fqid = null, domainIdHint = null) {
   if (!filePath)
-    return;
+    return false;
   const store = useGraphStore.getState();
+  if (store.yamlViewerOpen && store.yamlViewerFilePath && store.yamlViewerFilePath !== filePath && store.yamlViewerDirty) {
+    const ok = window.confirm(
+      "\u0415\u0441\u0442\u044C \u043D\u0435\u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D\u043D\u044B\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u0432 \u0442\u0435\u043A\u0443\u0449\u0435\u043C \u0444\u0430\u0439\u043B\u0435.\n\n\u041F\u0435\u0440\u0435\u043A\u043B\u044E\u0447\u0438\u0442\u044C\u0441\u044F \u043D\u0430 \u0434\u0440\u0443\u0433\u043E\u0439 \u0444\u0430\u0439\u043B \u0431\u0435\u0437 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F?"
+    );
+    if (!ok)
+      return false;
+  }
   store.setYamlViewerFilePath(filePath);
   store.setYamlViewerFqid(fqid);
   let domainId = domainIdHint;
@@ -4278,6 +4306,7 @@ function openFileInEditor(filePath, fqid = null, domainIdHint = null) {
   }
   store.setYamlViewerDomainId(domainId);
   store.setYamlViewerOpen(true);
+  return true;
 }
 var init_open_file = __esm({
   "src/web/lib/open-file.ts"() {
@@ -4301,19 +4330,21 @@ function useNodeInteractions({
       if (s.pathMode) {
         if (!s.pathMode.anchorId) {
           s.setPathMode({
+            kind: s.pathMode.kind,
             anchorId: node.id,
             anchorDomainId: node.data.domainId
           });
           s.setPathSel([node.id]);
           return;
         }
-        const startId = s.pathMode.anchorId;
-        const endId = node.id;
-        if (startId === endId) {
+        const anchorId = s.pathMode.anchorId;
+        const clickedId = node.id;
+        if (anchorId === clickedId) {
           s.setPathMode(null);
           s.setPathSel([]);
           return;
         }
+        const [startId, endId] = s.pathMode.kind === "to" ? [clickedId, anchorId] : [anchorId, clickedId];
         const res = findPath(startId, endId, filteredEdges);
         if (res) {
           s.setPathResult(res);
@@ -6079,12 +6110,27 @@ function Toolbar(props) {
         }
       ) }),
       /* @__PURE__ */ jsx9("div", { className: "toolbar__spacer" }),
-      props.remoteInfo?.server && props.remoteInfo?.fetchedAt && /* @__PURE__ */ jsxs8(
+      props.remoteInfo?.server && props.remoteInfo?.mode === "hybrid" && /* @__PURE__ */ jsxs8(
+        "div",
+        {
+          className: "toolbar__cache",
+          title: `\u041B\u043E\u043A\u0430\u043B\u044C\u043D\u044B\u0439 \u043A\u0430\u0442\u0430\u043B\u043E\u0433: ${props.remoteInfo.cacheDir}
+\u0421\u0435\u0440\u0432\u0435\u0440: ${props.remoteInfo.server}
+\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u0430, \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u0435 \u2014 \u043B\u043E\u043A\u0430\u043B\u044C\u043D\u043E\u0435`,
+          onClick: props.onShowToast,
+          children: [
+            /* @__PURE__ */ jsx9(MIcon, { name: "folder" }),
+            /* @__PURE__ */ jsx9("span", { children: "\u041B\u043E\u043A\u0430\u043B\u044C\u043D\u043E + \u0441\u0435\u0440\u0432\u0435\u0440" })
+          ]
+        }
+      ),
+      props.remoteInfo?.server && props.remoteInfo?.mode !== "hybrid" && props.remoteInfo?.fetchedAt && /* @__PURE__ */ jsxs8(
         "div",
         {
           className: "toolbar__cache",
           title: `\u0418\u0441\u0442\u043E\u0447\u043D\u0438\u043A: ${props.remoteInfo.server}
-\u041E\u0431\u043D\u043E\u0432\u043B\u0451\u043D: ${new Date(props.remoteInfo.fetchedAt).toLocaleString("ru-RU")}`,
+\u041E\u0431\u043D\u043E\u0432\u043B\u0451\u043D: ${new Date(props.remoteInfo.fetchedAt).toLocaleString("ru-RU")}
+\u0421\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u0435 = \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u044F (\u0442\u0440\u0435\u0431\u0443\u0435\u0442 \u043F\u043E\u0432\u044B\u0448\u0435\u043D\u0438\u044F version)`,
           onClick: props.onShowToast,
           children: [
             /* @__PURE__ */ jsx9(MIcon, { name: "database" }),
@@ -8921,6 +8967,7 @@ function DomainListRow({
   isSelected,
   isFavorite,
   isFocused,
+  entityMatches,
   onSelect
 }) {
   const d = node.data;
@@ -8976,6 +9023,12 @@ function DomainListRow({
     isProblematic ? "domain-list-row--problematic" : "",
     isFavorite ? "domain-list-row--fav" : ""
   ].filter(Boolean).join(" ");
+  const openEntityInCatalog = (e, fqid) => {
+    e.stopPropagation();
+    const st = useGraphStore.getState();
+    st.setEntityCatalogInitialFqid(fqid);
+    st.setEntityCatalogOpen(true);
+  };
   return /* @__PURE__ */ jsxs36(
     "div",
     {
@@ -9017,7 +9070,32 @@ function DomainListRow({
               title: d.description,
               children: d.description
             }
-          )
+          ),
+          entityMatches && entityMatches.length > 0 && /* @__PURE__ */ jsxs36("div", { className: "domain-list-row__entity-matches", children: [
+            /* @__PURE__ */ jsx37(MIcon, { name: "data_object", size: "sm" }),
+            entityMatches.slice(0, 5).map((e) => /* @__PURE__ */ jsx37(
+              "button",
+              {
+                type: "button",
+                className: "domain-list-row__entity-chip",
+                onClick: (ev) => openEntityInCatalog(ev, e.fqid),
+                title: `\u041E\u0442\u043A\u0440\u044B\u0442\u044C \xAB${e.entityId}\xBB \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439`,
+                children: e.entityId
+              },
+              e.fqid
+            )),
+            entityMatches.length > 5 && /* @__PURE__ */ jsxs36(
+              "span",
+              {
+                className: "domain-list-row__entity-chip domain-list-row__entity-chip--more",
+                title: entityMatches.slice(5).map((e) => e.entityId).join(", "),
+                children: [
+                  "+",
+                  entityMatches.length - 5
+                ]
+              }
+            )
+          ] })
         ] }),
         /* @__PURE__ */ jsxs36("div", { className: "domain-list-row__meta", children: [
           d.author && /* @__PURE__ */ jsxs36(
@@ -9158,6 +9236,7 @@ function DomainList() {
   const onlyInvalid = useGraphStore((s) => s.onlyInvalid);
   const setOnlyInvalid = useGraphStore((s) => s.setOnlyInvalid);
   const validationResults = useGraphStore((s) => s.validationResults);
+  const { index } = useModelIndex();
   const domainNodes = useMemo18(
     () => nodes.filter((n) => n.data.nodeType === "domain"),
     [nodes]
@@ -9166,19 +9245,52 @@ function DomainList() {
     () => nodes.filter((n) => n.data.nodeType !== "domain"),
     [nodes]
   );
+  const entityMatchesByDomain = useMemo18(() => {
+    const m = /* @__PURE__ */ new Map();
+    const q = query.trim().toLowerCase();
+    if (!q || !index)
+      return m;
+    for (const e of index.entities) {
+      const entityId = e.entityId.toLowerCase();
+      const fqid = e.fqid.toLowerCase();
+      if (entityId.indexOf(q) === -1 && fqid.indexOf(q) === -1) {
+        continue;
+      }
+      const key = e.domainId.toLowerCase();
+      if (!m.has(key))
+        m.set(key, []);
+      m.get(key).push(e);
+    }
+    m.forEach(
+      (arr) => arr.sort((a, b) => {
+        if (a.entityId.length !== b.entityId.length) {
+          return a.entityId.length - b.entityId.length;
+        }
+        return a.entityId.localeCompare(b.entityId);
+      })
+    );
+    return m;
+  }, [query, index]);
   const filtered = useMemo18(() => {
     let result = domainNodes;
+    const entityMatchedDomainIds = new Set(
+      Array.from(entityMatchesByDomain.keys())
+    );
     if (bookmarksOnly) {
-      result = result.filter((n) => bookmarks.has(n.id));
+      result = result.filter(
+        (n) => bookmarks.has(n.id) || entityMatchedDomainIds.has(n.data.domainId.toLowerCase())
+      );
     }
     if (onlyInvalid && validationResults) {
       result = result.filter((n) => {
+        if (entityMatchedDomainIds.has(n.data.domainId.toLowerCase()))
+          return true;
         const v = validationResults.get(n.data.domainId);
         return v && v.status === "invalid";
       });
     }
-    if (query.trim()) {
-      const q = query.toLowerCase();
+    const q = query.trim().toLowerCase();
+    if (q) {
       result = result.filter((n) => {
         const d = n.data;
         const hay = [
@@ -9188,11 +9300,24 @@ function DomainList() {
           d.author,
           ...d.tags || []
         ].map(String).map((s) => s.toLowerCase()).join(" ");
-        return hay.includes(q);
+        if (hay.includes(q))
+          return true;
+        if (entityMatchedDomainIds.has(d.domainId.toLowerCase()))
+          return true;
+        return false;
       });
     }
     return sortNodes(result, sort);
-  }, [domainNodes, query, onlyInvalid, validationResults, sort, bookmarksOnly, bookmarks]);
+  }, [
+    domainNodes,
+    query,
+    onlyInvalid,
+    validationResults,
+    sort,
+    bookmarksOnly,
+    bookmarks,
+    entityMatchesByDomain
+  ]);
   const favorites = useMemo18(
     () => filtered.filter((n) => bookmarks.has(n.id)),
     [filtered, bookmarks]
@@ -9379,7 +9504,23 @@ function DomainList() {
       /* @__PURE__ */ jsxs37("div", { className: "domain-list__stats", children: [
         filtered.length,
         " ",
-        plural(filtered.length, "\u0434\u043E\u043C\u0435\u043D", "\u0434\u043E\u043C\u0435\u043D\u043E\u0432")
+        plural(filtered.length, "\u0434\u043E\u043C\u0435\u043D", "\u0434\u043E\u043C\u0435\u043D\u043E\u0432"),
+        entityMatchesByDomain.size > 0 && /* @__PURE__ */ jsxs37("span", { className: "domain-list__stats-entities", children: [
+          " \xB7 ",
+          Array.from(entityMatchesByDomain.values()).reduce(
+            (sum, arr) => sum + arr.length,
+            0
+          ),
+          " ",
+          plural(
+            Array.from(entityMatchesByDomain.values()).reduce(
+              (sum, arr) => sum + arr.length,
+              0
+            ),
+            "\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C",
+            "\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439"
+          )
+        ] })
       ] })
     ] }),
     hasAnyFilter && /* @__PURE__ */ jsxs37("div", { className: "domain-list__chips", children: [
@@ -9414,6 +9555,9 @@ function DomainList() {
             isSelected: panelNodeId === n.id,
             isFavorite: true,
             isFocused: focusedIdx >= 0 && flatRows[focusedIdx]?.node.id === n.id,
+            entityMatches: entityMatchesByDomain.get(
+              n.data.domainId.toLowerCase()
+            ),
             onSelect
           },
           n.id
@@ -9438,6 +9582,9 @@ function DomainList() {
             isSelected: panelNodeId === n.id,
             isFavorite: false,
             isFocused: focusedIdx >= 0 && flatRows[focusedIdx]?.node.id === n.id,
+            entityMatches: entityMatchesByDomain.get(
+              n.data.domainId.toLowerCase()
+            ),
             onSelect
           },
           n.id
@@ -9457,6 +9604,9 @@ function DomainList() {
             isSelected: panelNodeId === n.id,
             isFavorite: false,
             isFocused: false,
+            entityMatches: entityMatchesByDomain.get(
+              n.data.domainId.toLowerCase()
+            ),
             onSelect
           },
           n.id
@@ -9481,6 +9631,7 @@ var init_DomainList = __esm({
     init_MIcon();
     init_format();
     init_DomainListRow();
+    init_useModelIndex();
     SORT_OPTIONS = [
       { value: "default", label: "\u041F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E" },
       { value: "name", label: "\u041F\u043E \u0438\u043C\u0435\u043D\u0438" },
@@ -13003,6 +13154,41 @@ function computeImpact(fqid, index) {
     }
   }
   const linkages = [];
+  for (const l of index.entityLinkages) {
+    if (l.side1Fqid === fqid) {
+      linkages.push({
+        domainId: l.domainId,
+        linkageId: l.id,
+        linkageName: l.name,
+        linkageType: l.type,
+        undirected: l.undirected === true,
+        side: 1,
+        peerFqid: l.side2Fqid
+      });
+    } else if (l.side2Fqid === fqid) {
+      linkages.push({
+        domainId: l.domainId,
+        linkageId: l.id,
+        linkageName: l.name,
+        linkageType: l.type,
+        undirected: l.undirected === true,
+        side: 2,
+        peerFqid: l.side1Fqid
+      });
+    }
+  }
+  linkages.sort((a, b) => {
+    const aSelf = a.peerFqid === fqid ? 0 : 1;
+    const bSelf = b.peerFqid === fqid ? 0 : 1;
+    if (aSelf !== bSelf)
+      return aSelf - bSelf;
+    const byName = (a.linkageName || a.linkageId).localeCompare(
+      b.linkageName || b.linkageId
+    );
+    if (byName !== 0)
+      return byName;
+    return a.peerFqid.localeCompare(b.peerFqid);
+  });
   const mixins = index.mixinsByEntityFqid[fqid] || [];
   const mixinDomains = Array.from(new Set(mixins.map((m) => m.domainId)));
   return {
@@ -13203,6 +13389,53 @@ function ImpactAnalysisPanel(props) {
             }
           )
         ] }, `${refEntity.fqid}#${attributeId}`)) })
+      ] }),
+      /* @__PURE__ */ jsxs52("section", { className: "impact-section", children: [
+        /* @__PURE__ */ jsxs52("h3", { className: "impact-section__title", children: [
+          /* @__PURE__ */ jsx55(MIcon, { name: "link", size: "sm" }),
+          "\u0421\u0432\u044F\u0437\u0438 (",
+          impact.linkages.length,
+          ")"
+        ] }),
+        impact.linkages.length === 0 ? /* @__PURE__ */ jsx55("div", { className: "impact-row impact-row--empty", children: "\u041D\u0435 \u0443\u0447\u0430\u0441\u0442\u0432\u0443\u0435\u0442 \u0432 \u0441\u0432\u044F\u0437\u044F\u0445 linkages" }) : /* @__PURE__ */ jsx55("div", { className: "impact-refs", children: impact.linkages.map((l) => {
+          const isSelf = l.peerFqid === entity.fqid;
+          const peer = !isSelf ? props.index.entitiesByFqid[l.peerFqid] : null;
+          return /* @__PURE__ */ jsxs52(
+            "div",
+            {
+              className: "impact-ref",
+              children: [
+                /* @__PURE__ */ jsx55("code", { className: "impact-ref__attr", children: l.linkageName || l.linkageId }),
+                /* @__PURE__ */ jsx55("span", { className: "impact-ref__arrow", children: l.undirected ? "\u2194" : "\u2192" }),
+                isSelf ? /* @__PURE__ */ jsx55("span", { className: "impact-link impact-link--self", children: "\u0441\u0430\u043C\u0430 \u043D\u0430 \u0441\u0435\u0431\u044F" }) : peer ? /* @__PURE__ */ jsxs52(
+                  "button",
+                  {
+                    className: "impact-link",
+                    onClick: () => props.onSelectEntity(peer.fqid),
+                    children: [
+                      peer.entityId,
+                      /* @__PURE__ */ jsx55("span", { className: "impact-link__domain", children: peer.domainId })
+                    ]
+                  }
+                ) : /* @__PURE__ */ jsx55(
+                  "span",
+                  {
+                    className: "impact-link impact-link--missing",
+                    title: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C-\u0441\u043E\u0441\u0435\u0434 \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430 \u0432 \u0438\u043D\u0434\u0435\u043A\u0441\u0435",
+                    children: l.peerFqid
+                  }
+                ),
+                /* @__PURE__ */ jsxs52("span", { className: "impact-ref__side", children: [
+                  "side ",
+                  l.side,
+                  " \xB7 ",
+                  l.linkageType
+                ] })
+              ]
+            },
+            `${l.domainId}#${l.linkageId}#${l.side}`
+          );
+        }) })
       ] }),
       impact.mixins.length > 0 && /* @__PURE__ */ jsxs52("section", { className: "impact-section", children: [
         /* @__PURE__ */ jsxs52("h3", { className: "impact-section__title", children: [
@@ -14635,6 +14868,7 @@ var init_EntityMatrixModal = __esm({
 // src/web/hooks/useModelDiff.ts
 import { useEffect as useEffect28, useState as useState17 } from "react";
 function useModelDiff() {
+  const modelVersion = useGraphStore((s) => s.modelVersion);
   const [state, setState] = useState17({
     diff: null,
     hasSnapshot: false,
@@ -14642,18 +14876,21 @@ function useModelDiff() {
     error: null
   });
   useEffect28(() => {
-    if (!cachedPromise) {
-      cachedPromise = fetch("/api/model/diff").then((r) => {
+    let cancelled = false;
+    if (!cache2 || cache2.version !== modelVersion) {
+      const promise = fetch("/api/model/diff").then((r) => {
         if (!r.ok)
           throw new Error(`HTTP ${r.status}`);
         return r.json();
-      }).catch((err) => {
-        cachedPromise = null;
-        throw err;
       });
+      promise.catch(() => {
+        if (cache2 && cache2.promise === promise)
+          cache2 = null;
+      });
+      cache2 = { version: modelVersion, promise };
     }
-    let cancelled = false;
-    cachedPromise.then((data) => {
+    setState((s) => ({ ...s, loading: true, error: null }));
+    cache2.promise.then((data) => {
       if (cancelled)
         return;
       setState({
@@ -14675,14 +14912,15 @@ function useModelDiff() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [modelVersion]);
   return state;
 }
-var cachedPromise;
+var cache2;
 var init_useModelDiff = __esm({
   "src/web/hooks/useModelDiff.ts"() {
     "use strict";
-    cachedPromise = null;
+    init_useGraphStore();
+    cache2 = null;
   }
 });
 
@@ -17755,24 +17993,31 @@ function SectionItems({
                 s.actionsCount,
                 " ",
                 s.actionsCount === 1 ? "\u044D\u043A\u0448\u0435\u043D" : "\u044D\u043A\u0448\u0435\u043D\u043E\u0432",
-                s.domainsCount > 1 && /* @__PURE__ */ jsxs62(
-                  "span",
-                  {
-                    className: "domain-schema-item__badge",
-                    style: {
-                      marginLeft: 8,
-                      background: "rgba(99,102,241,0.15)",
-                      color: "var(--accent-hover)"
-                    },
-                    title: `\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u0432 ${s.domainsCount} \u0434\u043E\u043C\u0435\u043D\u0430\u0445`,
-                    children: [
-                      "+",
-                      s.domainsCount - 1,
-                      " \u0434\u043E\u043C\u0435\u043D",
-                      s.domainsCount - 1 === 1 ? "" : "\u043E\u0432"
-                    ]
-                  }
-                )
+                (() => {
+                  const rec = index.scenariosById?.[s.id];
+                  const globalCount = rec?.domains.length ?? 1;
+                  if (globalCount <= 1)
+                    return null;
+                  const extra = globalCount - 1;
+                  return /* @__PURE__ */ jsxs62(
+                    "span",
+                    {
+                      className: "domain-schema-item__badge",
+                      style: {
+                        marginLeft: 8,
+                        background: "rgba(99,102,241,0.15)",
+                        color: "var(--accent-hover)"
+                      },
+                      title: `\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u0432 ${globalCount} \u0434\u043E\u043C\u0435\u043D\u0430\u0445`,
+                      children: [
+                        "+",
+                        extra,
+                        " \u0434\u043E\u043C\u0435\u043D",
+                        extra === 1 ? "" : "\u043E\u0432"
+                      ]
+                    }
+                  );
+                })()
               ] })
             ]
           }
@@ -18631,6 +18876,32 @@ function LintModal() {
     store.setEntityCatalogInitialFqid(fqid);
     store.setEntityCatalogOpen(true);
   };
+  const openIssueInEditor = (issue) => {
+    const domainId = issue.domainId;
+    const node = store.nodes.find(
+      (n) => (n.data.domainId || "").toLowerCase() === domainId.toLowerCase()
+    );
+    const filePath = node?.data.filePath;
+    if (!filePath) {
+      if (issue.entityFqid) {
+        openEntity(issue.entityFqid);
+      } else {
+        store.showSnackbar(
+          "\u0424\u0430\u0439\u043B \u0441\u0445\u0435\u043C\u044B \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u0435\u043D \u2014 \u043E\u0442\u043A\u0440\u043E\u0439\u0442\u0435 \u0434\u043E\u043C\u0435\u043D \u0432\u0440\u0443\u0447\u043D\u0443\u044E"
+        );
+      }
+      return;
+    }
+    const ok = openFileInEditor(
+      filePath,
+      issue.entityFqid ?? null,
+      domainId
+    );
+    if (!ok)
+      return;
+    store.setLintOpen(false);
+    store.setYamlViewerPendingIssue(issue);
+  };
   if (!open)
     return null;
   return /* @__PURE__ */ jsx67(
@@ -18793,27 +19064,52 @@ function LintModal() {
                         }
                       ),
                       isOpen && /* @__PURE__ */ jsxs64("div", { className: "lint-rule__body", children: [
-                        g.issues.slice(0, 100).map((issue, i) => /* @__PURE__ */ jsxs64("div", { className: "lint-issue", children: [
-                          /* @__PURE__ */ jsx67("div", { className: "lint-issue__message", children: issue.message }),
-                          issue.hint && /* @__PURE__ */ jsxs64("div", { className: "lint-issue__hint", children: [
-                            /* @__PURE__ */ jsx67(MIcon, { name: "lightbulb", size: "sm" }),
-                            issue.hint
-                          ] }),
-                          /* @__PURE__ */ jsxs64("div", { className: "lint-issue__context", children: [
-                            issue.entityFqid && /* @__PURE__ */ jsxs64(
-                              "button",
-                              {
-                                className: "lint-issue__link",
-                                onClick: () => openEntity(issue.entityFqid),
-                                children: [
-                                  issue.entityFqid,
-                                  issue.attributeId && `.${issue.attributeId}`
-                                ]
+                        g.issues.slice(0, 100).map((issue, i) => /* @__PURE__ */ jsxs64(
+                          "div",
+                          {
+                            className: "lint-issue lint-issue--clickable",
+                            onClick: () => openIssueInEditor(issue),
+                            role: "button",
+                            tabIndex: 0,
+                            onKeyDown: (e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                openIssueInEditor(issue);
                               }
-                            ),
-                            !issue.entityFqid && issue.domainId && /* @__PURE__ */ jsx67("code", { className: "lint-issue__link-static", children: issue.domainId })
-                          ] })
-                        ] }, i)),
+                            },
+                            title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0432 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0435 \u043D\u0430 \u044D\u0442\u043E\u0439 \u0441\u0442\u0440\u043E\u043A\u0435",
+                            children: [
+                              /* @__PURE__ */ jsx67("div", { className: "lint-issue__message", children: issue.message }),
+                              issue.hint && /* @__PURE__ */ jsxs64("div", { className: "lint-issue__hint", children: [
+                                /* @__PURE__ */ jsx67(MIcon, { name: "lightbulb", size: "sm" }),
+                                issue.hint
+                              ] }),
+                              /* @__PURE__ */ jsxs64("div", { className: "lint-issue__context", children: [
+                                issue.entityFqid && /* @__PURE__ */ jsxs64(
+                                  "button",
+                                  {
+                                    className: "lint-issue__link",
+                                    onClick: (e) => {
+                                      e.stopPropagation();
+                                      openEntity(issue.entityFqid);
+                                    },
+                                    title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435",
+                                    children: [
+                                      issue.entityFqid,
+                                      issue.attributeId && `.${issue.attributeId}`
+                                    ]
+                                  }
+                                ),
+                                !issue.entityFqid && issue.domainId && /* @__PURE__ */ jsx67("code", { className: "lint-issue__link-static", children: issue.domainId }),
+                                /* @__PURE__ */ jsxs64("span", { className: "lint-issue__editor-hint", children: [
+                                  /* @__PURE__ */ jsx67(MIcon, { name: "open_in_new", size: "sm" }),
+                                  "\u0412 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0435"
+                                ] })
+                              ] })
+                            ]
+                          },
+                          i
+                        )),
                         g.issues.length > 100 && /* @__PURE__ */ jsxs64("div", { className: "lint-issue__more", children: [
                           "...\u0438 \u0435\u0449\u0451 ",
                           g.issues.length - 100
@@ -18839,6 +19135,7 @@ var init_LintModal = __esm({
     init_useModelIndex();
     init_MIcon();
     init_ModalHelp();
+    init_open_file();
     CATEGORY_LABELS = {
       reference: "\u0421\u0441\u044B\u043B\u043E\u0447\u043D\u0430\u044F \u0446\u0435\u043B\u043E\u0441\u0442\u043D\u043E\u0441\u0442\u044C",
       semantic: "\u0421\u0435\u043C\u0430\u043D\u0442\u0438\u043A\u0430",
@@ -20438,34 +20735,58 @@ var init_PiiModal = __esm({
 
 // src/web/hooks/useYamlContent.ts
 import { useEffect as useEffect33, useState as useState29 } from "react";
-function useYamlContent(filePath, reloadKey = 0) {
+function useYamlContent(filePath, reloadKey = 0, fresh = false) {
   const [state, setState] = useState29({
     content: "",
     loading: !!filePath,
-    error: null
+    error: null,
+    fresh
   });
   useEffect33(() => {
     if (!filePath) {
-      setState({ content: "", loading: false, error: null });
+      setState({ content: "", loading: false, error: null, fresh });
       return;
     }
-    setState((prev) => ({ ...prev, loading: true, error: null }));
+    setState((prev) => ({
+      ...prev,
+      loading: true,
+      error: null,
+      fresh
+    }));
     let cancelled = false;
-    fetch("/file?path=" + encodeURIComponent(filePath)).then((r) => {
-      if (!r.ok)
+    const endpoint = fresh ? "/file/fresh" : "/file";
+    const url = endpoint + "?path=" + encodeURIComponent(filePath);
+    console.log(`[useYamlContent] fetch ${url}`);
+    fetch(url).then(async (r) => {
+      if (!r.ok) {
+        const contentType = r.headers.get("Content-Type") || "";
+        if (contentType.includes("application/json")) {
+          try {
+            const j = await r.json();
+            if (j?.error)
+              throw new Error(j.error);
+          } catch {
+          }
+        }
         throw new Error(`HTTP ${r.status}`);
+      }
       return r.text();
     }).then((text) => {
       if (!cancelled)
-        setState({ content: text, loading: false, error: null });
+        setState({ content: text, loading: false, error: null, fresh });
     }).catch((err) => {
       if (!cancelled)
-        setState({ content: "", loading: false, error: err.message });
+        setState({
+          content: "",
+          loading: false,
+          error: err.message,
+          fresh
+        });
     });
     return () => {
       cancelled = true;
     };
-  }, [filePath, reloadKey]);
+  }, [filePath, reloadKey, fresh]);
   return state;
 }
 function invalidateYamlCache(_filePath) {
@@ -21405,6 +21726,7 @@ var init_line_map = __esm({
       "actionPanel",
       "menuOptions",
       "items",
+      "columns",
       // dataTypes (enum / workflow / table)
       "values",
       "statuses",
@@ -21852,6 +22174,86 @@ var init_rql_check = __esm({
   }
 });
 
+// src/core/analyzer/rql-check.ts
+var init_rql_check2 = __esm({
+  "src/core/analyzer/rql-check.ts"() {
+    "use strict";
+  }
+});
+
+// src/shared/action-types.ts
+var ACTION_TYPES, KNOWN_ACTION_TYPES, ACTION_TYPE_DESCRIPTIONS;
+var init_action_types = __esm({
+  "src/shared/action-types.ts"() {
+    "use strict";
+    ACTION_TYPES = [
+      "open_panel",
+      "open_modal",
+      "open_page",
+      "open_graph_view",
+      "open_board_view",
+      "open_list",
+      "open_tree",
+      "open_view",
+      "remove",
+      "bulk",
+      "tree_bulk",
+      "set_attribute_value",
+      "automation",
+      "scenario",
+      "generate_qr_code",
+      "copy_entity_link",
+      "open_external_widget_modal",
+      "workflow"
+    ];
+    KNOWN_ACTION_TYPES = new Set(ACTION_TYPES);
+    ACTION_TYPE_DESCRIPTIONS = {
+      open_panel: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043F\u0430\u043D\u0435\u043B\u044C (\u043A\u043E\u043C\u043F\u0430\u043A\u0442\u043D\u043E\u0435 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0435)",
+      open_modal: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043C\u043E\u0434\u0430\u043B\u044C\u043D\u043E\u0435 \u043E\u043A\u043D\u043E (\u0441\u043E\u0437\u0434\u0430\u043D\u0438\u0435/\u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435)",
+      open_page: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043F\u043E\u043B\u043D\u043E\u044D\u043A\u0440\u0430\u043D\u043D\u0443\u044E \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0443",
+      open_graph_view: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0434\u0438\u0430\u0433\u0440\u0430\u043C\u043C\u0443 \u0441\u0432\u044F\u0437\u0435\u0439",
+      open_board_view: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0434\u043E\u0441\u043A\u0443",
+      open_list: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u043F\u0438\u0441\u043E\u0447\u043D\u043E\u0435 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0435 \u0441 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u043E\u043C",
+      open_tree: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0434\u0440\u0435\u0432\u043E\u0432\u0438\u0434\u043D\u043E\u0435 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0435",
+      open_view: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0435 \u0431\u0435\u0437 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u0430",
+      remove: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u043E\u0431\u044A\u0435\u043A\u0442",
+      bulk: "\u041C\u0430\u0441\u0441\u043E\u0432\u043E\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u043D\u0430\u0434 \u043E\u0431\u044A\u0435\u043A\u0442\u0430\u043C\u0438",
+      tree_bulk: "\u041C\u0430\u0441\u0441\u043E\u0432\u043E\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u0432 \u0434\u0440\u0435\u0432\u043E\u0432\u0438\u0434\u043D\u043E\u043C \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0438",
+      set_attribute_value: "\u0423\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430",
+      automation: "\u0417\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u044C \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0437\u0430\u0446\u0438\u044E",
+      scenario: "\u0417\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u044C \u0441\u0446\u0435\u043D\u0430\u0440\u0438\u0439/\u0441\u043A\u0440\u0438\u043F\u0442",
+      workflow: "\u041F\u0435\u0440\u0435\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0430\u0442\u0440\u0438\u0431\u0443\u0442 \u0432 \u0441\u0442\u0430\u0442\u0443\u0441 \u0440\u0430\u0431\u043E\u0447\u0435\u0433\u043E \u043F\u0440\u043E\u0446\u0435\u0441\u0441\u0430",
+      generate_qr_code: "\u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C QR-\u043A\u043E\u0434",
+      copy_entity_link: "\u0421\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C URL \u043E\u0431\u044A\u0435\u043A\u0442\u0430",
+      open_external_widget_modal: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0432\u043D\u0435\u0448\u043D\u0438\u0439 \u0432\u0438\u0434\u0436\u0435\u0442 \u0432 \u043C\u043E\u0434\u0430\u043B\u044C\u043D\u043E\u043C \u043E\u043A\u043D\u0435"
+    };
+  }
+});
+
+// src/core/analyzer/linter.ts
+var SYSTEM_ATTRIBUTE_IDS;
+var init_linter = __esm({
+  "src/core/analyzer/linter.ts"() {
+    "use strict";
+    init_rql_check2();
+    init_action_types();
+    SYSTEM_ATTRIBUTE_IDS = /* @__PURE__ */ new Set([
+      "id",
+      "label",
+      "createdAt",
+      "updatedAt",
+      "createdBy",
+      "updatedBy",
+      "organizationId",
+      "tenantId",
+      "domainId",
+      "entityId",
+      "entityName",
+      "version"
+    ]);
+  }
+});
+
 // src/web/lib/monaco/monaco-providers.ts
 function findActionTypeForLine(lines, currentLineIdx) {
   if (currentLineIdx < 1 || currentLineIdx > lines.length)
@@ -21891,20 +22293,6 @@ function findActionTypeForLine(lines, currentLineIdx) {
       return tm[1];
   }
   return null;
-}
-function ensureSuggestDetailsVisible() {
-  const w = window;
-  const editors = w.monaco?.editor?.getEditors?.() ?? [];
-  for (const ed of editors) {
-    try {
-      const ctrl = ed.getContribution?.("editor.contrib.suggestController");
-      const widget = ctrl?.widget?.value;
-      if (widget && typeof widget._setDetailsVisible === "function") {
-        widget._setDetailsVisible(true);
-      }
-    } catch {
-    }
-  }
 }
 function updateProviderContext(partial) {
   Object.assign(ctx, partial);
@@ -23502,6 +23890,9 @@ function getDataTypeStatuses(model, position) {
   return Array.isArray(dt.statuses) ? dt.statuses : [];
 }
 function computeAttributesForContext(context) {
+  if (context.kind === "precomputed") {
+    return context.precomputedItems || [];
+  }
   const out = [];
   const seen = /* @__PURE__ */ new Set();
   const mkDoc = (a, contextLabel) => {
@@ -23932,6 +24323,16 @@ function detectAttributeCompletionContext(model, position) {
     }
     return null;
   }
+  const prefixCtx = detectPrefixRuleSourceContext(model, position, cur);
+  if (prefixCtx)
+    return prefixCtx;
+  const uiRuleNestedCtx = detectUiRuleNestedAttributeContext(
+    model,
+    position,
+    lineCtx
+  );
+  if (uiRuleNestedCtx)
+    return uiRuleNestedCtx;
   const siblingJoin = findSiblingFieldValue(model, position, "join");
   if (siblingJoin) {
     const viewCrumb = lineCtx.breadcrumbs.find((b) => b.type === "view");
@@ -23981,10 +24382,172 @@ function detectAttributeCompletionContext(model, position) {
       };
     }
   }
+  const filterEntityFqid = findFilterEntityFqid(model, position, cur);
+  if (filterEntityFqid) {
+    return { kind: "entity", entityFqid: filterEntityFqid };
+  }
   const entityFqid = detectEntityFqidForPosition(model, position);
   if (entityFqid)
     return { kind: "entity", entityFqid };
   return { kind: "unknown" };
+}
+function findFilterEntityFqid(model, position, currentDomain) {
+  const lineText = model.getLineContent(position.lineNumber);
+  const currentIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
+  for (let i = position.lineNumber - 1; i >= 1; i--) {
+    const l = model.getLineContent(i);
+    if (!l.trim() || l.trim().startsWith("#"))
+      continue;
+    const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind >= currentIndent)
+      continue;
+    const trimmed = l.trim();
+    const em = trimmed.match(/^(?:-\s+)?entity\s*:\s*(.+?)\s*$/);
+    if (em) {
+      const v = unquote(em[1]);
+      return v.includes("/") ? v.toLowerCase() : `${currentDomain}/${v}`.toLowerCase();
+    }
+    if (/^filter\s*:\s*$/.test(trimmed))
+      return null;
+    if (/^(table|source|views?)\s*:/.test(trimmed))
+      return null;
+  }
+  return null;
+}
+function detectPrefixRuleSourceContext(model, position, cur) {
+  const lineText = model.getLineContent(position.lineNumber);
+  if (!/^\s*(key|value)\s*:/.test(lineText))
+    return null;
+  const currentIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
+  let sourceBlockIndent = -1;
+  let sourceBlockStart = -1;
+  for (let i = position.lineNumber - 1; i >= 1; i--) {
+    const l = model.getLineContent(i);
+    if (!l.trim() || l.trim().startsWith("#"))
+      continue;
+    const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind >= currentIndent)
+      continue;
+    const trimmed = l.trim();
+    if (/^source\s*:\s*$/.test(trimmed)) {
+      sourceBlockStart = i;
+      sourceBlockIndent = ind;
+      break;
+    }
+    if (/^[a-zA-Z_][\w]*\s*:/.test(trimmed))
+      return null;
+  }
+  if (sourceBlockStart < 0)
+    return null;
+  for (let i = sourceBlockStart + 1; i <= model.getLineCount(); i++) {
+    const l = model.getLineContent(i);
+    const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind <= sourceBlockIndent)
+      break;
+    const trimmed = l.trim();
+    const em = trimmed.match(/^(?:-\s+)?entity\s*:\s*(.+?)\s*$/);
+    if (em) {
+      const v = unquote(em[1]);
+      const fqid = v.includes("/") ? v.toLowerCase() : `${cur}/${v}`.toLowerCase();
+      return { kind: "entity", entityFqid: fqid };
+    }
+  }
+  return null;
+}
+function detectUiRuleNestedAttributeContext(model, position, lineCtx) {
+  const cur = (ctx.currentDomainId || "").toLowerCase();
+  if (!cur || !ctx.modelIndex)
+    return null;
+  const uiRuleCrumb = lineCtx.breadcrumbs.find(
+    (b) => b.type === "uiRule"
+  );
+  if (!uiRuleCrumb)
+    return null;
+  const lineText = model.getLineContent(position.lineNumber);
+  const currentIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
+  let container = null;
+  for (let i = position.lineNumber - 1; i >= 1; i--) {
+    const l = model.getLineContent(i);
+    if (!l.trim() || l.trim().startsWith("#"))
+      continue;
+    const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind >= currentIndent)
+      continue;
+    const trimmed = l.trim();
+    if (/^attributes\s*:\s*$/.test(trimmed)) {
+      container = "attributes";
+      break;
+    }
+    if (/^(widget|nested|columns|groups|widgets)\s*:/.test(trimmed)) {
+      container = "other";
+      break;
+    }
+  }
+  if (container !== "attributes")
+    return null;
+  const uiRule = ctx.modelIndex.uiRules.find(
+    (r) => (r.domainId || "").toLowerCase() === cur && r.id === uiRuleCrumb.id
+  );
+  if (!uiRule || !uiRule.view)
+    return null;
+  const schema2 = ctx.modelIndex.schemasByDomain?.[cur];
+  const viewItem = schema2?.sections?.views?.items?.find(
+    (v) => v.id === uiRule.view
+  );
+  const viewEntityRaw = viewItem?.entity || viewItem?.sourceEntity;
+  if (!viewEntityRaw)
+    return null;
+  const entityFqid = String(viewEntityRaw).includes("/") ? String(viewEntityRaw).toLowerCase() : `${cur}/${viewEntityRaw}`.toLowerCase();
+  const widgetId = findAncestorFieldValue(model, position, "widget");
+  if (!widgetId)
+    return null;
+  const widget = (ctx.modelIndex.viewWidgets || []).find(
+    (w) => w.id === widgetId && w.parentViewId === uiRule.view
+  );
+  if (!widget?.attribute)
+    return null;
+  const startEntity = ctx.modelIndex.entitiesByFqid[entityFqid];
+  if (!startEntity)
+    return null;
+  let attr = null;
+  const visited = /* @__PURE__ */ new Set();
+  let e = startEntity;
+  while (e && !visited.has(e.fqid)) {
+    visited.add(e.fqid);
+    const hit = e.attributes.find((a) => a.id === widget.attribute);
+    if (hit) {
+      attr = hit;
+      break;
+    }
+    e = e.inherits ? ctx.modelIndex.entitiesByFqid[e.inherits] : void 0;
+  }
+  if (!attr?.nestedAttributes || attr.nestedAttributes.length === 0) {
+    return null;
+  }
+  const items = [];
+  const seen = /* @__PURE__ */ new Set();
+  attr.nestedAttributes.forEach((na) => {
+    if (!na?.id || seen.has(na.id))
+      return;
+    seen.add(na.id);
+    const parts = [];
+    if (na.dataType)
+      parts.push(na.dataType);
+    if (na.description)
+      parts.push(na.description);
+    parts.push(`column of ${attr.id}`);
+    items.push({
+      label: String(na.id),
+      insertText: " " + String(na.id),
+      kind: 0,
+      sortText: "0_" + String(na.id),
+      detail: `column of ${attr.id}`,
+      documentation: parts.join(" \xB7 ")
+    });
+  });
+  if (items.length === 0)
+    return null;
+  return { kind: "precomputed", precomputedItems: items };
 }
 function detectFilterLinkageContext(model, position, lineCtx) {
   const cur = (ctx.currentDomainId || "").toLowerCase();
@@ -24069,6 +24632,9 @@ function computeOppositeEntityForLinkage(linkageRecord, viewFqid) {
   return null;
 }
 function cachedAttributes(context) {
+  if (context.kind === "precomputed") {
+    return computeAttributesForContext(context);
+  }
   const c = ensureCache();
   if (!c.attributes)
     c.attributes = /* @__PURE__ */ new Map();
@@ -24750,7 +25316,6 @@ ${indent}description: ""`
       if (!ctx.modelIndex)
         return { suggestions: [] };
       const Kind = monaco.languages.CompletionItemKind;
-      setTimeout(ensureSuggestDetailsVisible, 30);
       if (isInsideRql(model, position)) {
         const aliasResult = buildRqlAliasCompletions(
           model,
@@ -25669,6 +26234,224 @@ function applyRqlMarkers(monaco, model) {
   } catch {
   }
 }
+function isInInheritanceChain(startEntityId, targetEntityId, entities) {
+  let cur = entities.get(startEntityId.toLowerCase());
+  const visited = /* @__PURE__ */ new Set();
+  const targetLower = targetEntityId.toLowerCase();
+  while (cur && !visited.has(cur.id.toLowerCase())) {
+    if (cur.id.toLowerCase() === targetLower)
+      return true;
+    visited.add(cur.id.toLowerCase());
+    if (!cur.inherits)
+      return false;
+    if (cur.inherits.includes("/")) {
+      return cur.inherits.toLowerCase() === targetLower;
+    }
+    cur = entities.get(cur.inherits.toLowerCase());
+  }
+  return false;
+}
+function resolveAttributeRefInEntities(entityId, ref, entities) {
+  if (ref.includes("/"))
+    return true;
+  const current = entities.get(entityId.toLowerCase());
+  if (!current)
+    return true;
+  const dot = ref.indexOf(".");
+  if (dot > 0) {
+    const targetEntityId = ref.slice(0, dot);
+    const attrId = ref.slice(dot + 1);
+    if (!isInInheritanceChain(entityId, targetEntityId, entities)) {
+      return false;
+    }
+    const target = entities.get(targetEntityId.toLowerCase());
+    return !!target && target.attrs.has(attrId);
+  }
+  let cur = current;
+  const visited = /* @__PURE__ */ new Set();
+  while (cur && !visited.has(cur.id.toLowerCase())) {
+    visited.add(cur.id.toLowerCase());
+    if (cur.attrs.has(ref))
+      return true;
+    if (!cur.inherits)
+      break;
+    if (cur.inherits.includes("/")) {
+      const parentEntity = ctx.modelIndex?.entitiesByFqid[cur.inherits.toLowerCase()];
+      if (parentEntity) {
+        if (parentEntity.attributes.some((a) => a.id === ref))
+          return true;
+      }
+      break;
+    }
+    cur = entities.get(cur.inherits.toLowerCase());
+  }
+  return false;
+}
+function applyAttributeRefMarkers(monaco, model) {
+  try {
+    const lines = model.getValue().split("\n");
+    const entities = /* @__PURE__ */ new Map();
+    const markers = [];
+    {
+      const stack = [];
+      let section = "";
+      let currentEntityId = null;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#"))
+          continue;
+        const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
+        while (stack.length > 0 && stack[stack.length - 1].indent >= indent) {
+          stack.pop();
+        }
+        if (indent === 0) {
+          const sm = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+          section = sm?.[1] || "";
+          stack.length = 0;
+          currentEntityId = null;
+          continue;
+        }
+        if (section !== "entities")
+          continue;
+        const idM = line.match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
+        if (idM) {
+          const idIndent = idM[1].length;
+          const id = unquote(idM[2]);
+          const parentKey = stack.length > 0 ? stack[stack.length - 1].key : "";
+          if (parentKey === "" || parentKey === "entities") {
+            currentEntityId = id;
+            if (!entities.has(id.toLowerCase())) {
+              entities.set(id.toLowerCase(), {
+                id,
+                inherits: null,
+                attrs: /* @__PURE__ */ new Set()
+              });
+            }
+            stack.push({ indent: idIndent, key: "id" });
+            continue;
+          }
+          if (parentKey === "attributes" && currentEntityId) {
+            const info = entities.get(currentEntityId.toLowerCase());
+            if (info)
+              info.attrs.add(id);
+            stack.push({ indent: idIndent, key: "id" });
+            continue;
+          }
+          if (currentEntityId) {
+            const info = entities.get(currentEntityId.toLowerCase());
+            if (info)
+              info.attrs.add(id);
+          }
+          stack.push({ indent: idIndent, key: "id" });
+          continue;
+        }
+        const inhM = line.match(/^\s*inherits\s*:\s*([^\s#]+)/);
+        if (inhM && currentEntityId) {
+          const info = entities.get(currentEntityId.toLowerCase());
+          if (info)
+            info.inherits = unquote(inhM[1]);
+        }
+        const km = line.match(/^\s*(?:-\s+)?([a-zA-Z_][\w]*)\s*:/);
+        if (km) {
+          stack.push({ indent, key: km[1] });
+        }
+      }
+    }
+    {
+      const stack = [];
+      let section = "";
+      let currentEntityId = null;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#"))
+          continue;
+        const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
+        while (stack.length > 0 && stack[stack.length - 1].indent >= indent) {
+          stack.pop();
+        }
+        if (indent === 0) {
+          const sm = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+          section = sm?.[1] || "";
+          stack.length = 0;
+          currentEntityId = null;
+          continue;
+        }
+        if (section !== "entities")
+          continue;
+        const idM = line.match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
+        if (idM) {
+          const idIndent = idM[1].length;
+          const parentKey = stack.length > 0 ? stack[stack.length - 1].key : "";
+          if (parentKey === "" || parentKey === "entities") {
+            currentEntityId = unquote(idM[2]);
+          }
+          stack.push({ indent: idIndent, key: "id" });
+          continue;
+        }
+        const attrRefM = line.match(
+          /^(\s*)(?:-\s+)?attribute\s*:\s*(["']?)([^\s#"']+)\2\s*(?:#.*)?$/
+        );
+        if (attrRefM && currentEntityId) {
+          const value = attrRefM[3];
+          const stackKeys = stack.map((s) => s.key);
+          let kind = null;
+          if (stackKeys.includes("searching"))
+            kind = "searching";
+          else if (stackKeys.includes("sorting"))
+            kind = "sorting";
+          else if (stackKeys.includes("projection"))
+            kind = "projection";
+          if (kind) {
+            const ok = resolveAttributeRefInEntities(
+              currentEntityId,
+              value,
+              entities
+            );
+            if (!ok) {
+              const valueStart = line.indexOf(
+                value,
+                attrRefM[1].length + (attrRefM[0].includes("- ") ? 2 : 0)
+              );
+              const start = Math.max(0, valueStart);
+              markers.push({
+                line: i + 1,
+                col: start + 1,
+                end: start + 1 + value.length,
+                value,
+                kind,
+                entityId: currentEntityId
+              });
+            }
+          }
+          stack.push({ indent, key: "attribute" });
+          continue;
+        }
+        const km = line.match(/^\s*(?:-\s+)?([a-zA-Z_][\w]*)\s*:/);
+        if (km) {
+          stack.push({ indent, key: km[1] });
+        }
+      }
+    }
+    const monacoMarkers = markers.map((mk) => ({
+      severity: monaco.MarkerSeverity.Warning,
+      message: `\u0410\u0442\u0440\u0438\u0431\u0443\u0442 \xAB${mk.value}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D \u0432 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \xAB${mk.entityId}\xBB (${mk.kind})`,
+      startLineNumber: mk.line,
+      startColumn: mk.col,
+      endLineNumber: mk.line,
+      endColumn: mk.end,
+      source: "attribute-ref-validator"
+    }));
+    monaco.editor.setModelMarkers(
+      model,
+      "attribute-ref-validator",
+      monacoMarkers
+    );
+  } catch (err) {
+    console.warn("[attribute-ref-validator]", err);
+  }
+}
 function applyEnumFieldMarkers(monaco, model) {
   try {
     const lines = model.getValue().split("\n");
@@ -26089,8 +26872,6 @@ function applyDataTypeMarkers(monaco, model, index, currentDomainId) {
         dashIndent = -1;
         continue;
       }
-      if (!inDataTypesSection)
-        continue;
       if (dashIndent === -1) {
         const dashM = line.match(/^(\s*)-\s+\S/);
         if (dashM)
@@ -26108,7 +26889,7 @@ function applyDataTypeMarkers(monaco, model, index, currentDomainId) {
         continue;
       const startCol = valueStartInLine + 1;
       const endCol = startCol + value.length;
-      const isTopLevel = dashIndent !== -1 && (dtIndent === dashIndent || dtIndent === dashIndent + 2);
+      const isTopLevel = inDataTypesSection && dashIndent !== -1 && (dtIndent === dashIndent || dtIndent === dashIndent + 2);
       if (isTopLevel) {
         if (!["Enum", "Table", "Workflow"].includes(value)) {
           markers.push({
@@ -26205,8 +26986,8 @@ function applyFqidMarkers(monaco, model, index, currentDomainId) {
         const fullLower = full.toLowerCase();
         if (!domainIds.has(domainLower)) {
           markers.push({
-            severity: monaco.MarkerSeverity.Error,
-            message: `\u0414\u043E\u043C\u0435\u043D \xAB${domainPart}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D \u0432 \u0438\u043D\u0434\u0435\u043A\u0441\u0435`,
+            severity: monaco.MarkerSeverity.Info,
+            message: `\u0414\u043E\u043C\u0435\u043D \xAB${domainPart}\xBB \u043D\u0435 \u0437\u0430\u0433\u0440\u0443\u0436\u0435\u043D \u0432 \u043A\u044D\u0448 \u2014 \u043F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u0441\u0441\u044B\u043B\u043A\u0443 \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435 (\u0432\u043E\u0437\u043C\u043E\u0436\u043D\u043E, \u043E\u043F\u0435\u0447\u0430\u0442\u043A\u0430 \u0432 FQDN)`,
             startLineNumber: i + 1,
             startColumn,
             endLineNumber: i + 1,
@@ -26292,8 +27073,8 @@ function applyFqidMarkers(monaco, model, index, currentDomainId) {
       const endCol = startCol + rawLinkageId.length;
       if (!domainIds.has(targetDomain)) {
         markers.push({
-          severity: monaco.MarkerSeverity.Error,
-          message: `\u0414\u043E\u043C\u0435\u043D \xAB${targetDomain}\xBB \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D \u0432 \u0438\u043D\u0434\u0435\u043A\u0441\u0435`,
+          severity: monaco.MarkerSeverity.Info,
+          message: `\u0414\u043E\u043C\u0435\u043D \xAB${targetDomain}\xBB \u043D\u0435 \u0437\u0430\u0433\u0440\u0443\u0436\u0435\u043D \u0432 \u043A\u044D\u0448 \u2014 \u043F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u0441\u0441\u044B\u043B\u043A\u0443 \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435`,
           startLineNumber: i + 1,
           startColumn: startCol,
           endLineNumber: i + 1,
@@ -27196,12 +27977,14 @@ function findWidgetTypeForControl(lines, controlLine) {
   }
   return "";
 }
-var SYSTEM_ATTRIBUTES_FOR_COMPLETION, providersRegistered, ctx, REF_FIELDS, ATTRIBUTE_LIKE_FIELDS, BASE_DATA_TYPE_DESCRIPTIONS, GRAPH_VIEW_COLORS, GRAPH_VIEW_COLOR_LABELS, RECONCILIATION_MERGE_STRATEGIES, RECONCILIATION_MERGE_LABELS, WIDGET_TYPE_DESCRIPTIONS, ACTION_TYPE_DESCRIPTIONS, EFFECT_DESCRIPTIONS, TARGET_DESCRIPTIONS, CONTROL_TYPE_DESCRIPTIONS, BASE_DATA_TYPES_COMPLETION, BOOLEAN_FIELD_NAMES, mkSimple, FIELD_DEFINITIONS, SNIPPETS, _colCache, RQL_FIELDS2, BASE_DATA_TYPES_SET, TYPE_ENUM_BY_CTX, EFFECT_ENUM_BY_CTX, TARGET_ENUM_BY_CTX, OPERATION_ENUM_BY_ACTION_TYPE, SYSTEM_ATTRIBUTE_IDS;
+var SYSTEM_ATTRIBUTES_FOR_COMPLETION, providersRegistered, ctx, REF_FIELDS, ATTRIBUTE_LIKE_FIELDS, BASE_DATA_TYPE_DESCRIPTIONS, GRAPH_VIEW_COLORS, GRAPH_VIEW_COLOR_LABELS, RECONCILIATION_MERGE_STRATEGIES, RECONCILIATION_MERGE_LABELS, WIDGET_TYPE_DESCRIPTIONS, EFFECT_DESCRIPTIONS, TARGET_DESCRIPTIONS, CONTROL_TYPE_DESCRIPTIONS, BASE_DATA_TYPES_COMPLETION, BOOLEAN_FIELD_NAMES, mkSimple, FIELD_DEFINITIONS, SNIPPETS, _colCache, RQL_FIELDS2, BASE_DATA_TYPES_SET, TYPE_ENUM_BY_CTX, EFFECT_ENUM_BY_CTX, TARGET_ENUM_BY_CTX, OPERATION_ENUM_BY_ACTION_TYPE;
 var init_monaco_providers = __esm({
   "src/web/lib/monaco/monaco-providers.ts"() {
     "use strict";
     init_line_map();
     init_rql_check();
+    init_linter();
+    init_action_types();
     SYSTEM_ATTRIBUTES_FOR_COMPLETION = [
       { id: "id", dataType: "Uuid", description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u043E\u0431\u044A\u0435\u043A\u0442\u0430" },
       {
@@ -27332,26 +28115,6 @@ var init_monaco_providers = __esm({
       calculation: "\u0420\u0430\u0441\u0447\u0451\u0442 \u043F\u043E \u0441\u0445\u0435\u043C\u0435",
       template_editor: "\u0420\u0435\u0434\u0430\u043A\u0442\u043E\u0440 \u0448\u0430\u0431\u043B\u043E\u043D\u043E\u0432",
       addressBook: "\u0410\u0434\u0440\u0435\u0441\u043D\u0430\u044F \u043A\u043D\u0438\u0433\u0430"
-    };
-    ACTION_TYPE_DESCRIPTIONS = {
-      open_panel: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043F\u0430\u043D\u0435\u043B\u044C (\u043A\u043E\u043C\u043F\u0430\u043A\u0442\u043D\u043E\u0435 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0435)",
-      open_modal: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043C\u043E\u0434\u0430\u043B\u044C\u043D\u043E\u0435 \u043E\u043A\u043D\u043E (\u0441\u043E\u0437\u0434\u0430\u043D\u0438\u0435/\u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435)",
-      open_page: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043F\u043E\u043B\u043D\u043E\u044D\u043A\u0440\u0430\u043D\u043D\u0443\u044E \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0443",
-      open_graph_view: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0434\u0438\u0430\u0433\u0440\u0430\u043C\u043C\u0443 \u0441\u0432\u044F\u0437\u0435\u0439",
-      open_board_view: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0434\u043E\u0441\u043A\u0443",
-      open_list: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u043F\u0438\u0441\u043E\u0447\u043D\u043E\u0435 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0435 \u0441 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u043E\u043C",
-      open_tree: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0434\u0440\u0435\u0432\u043E\u0432\u0438\u0434\u043D\u043E\u0435 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0435",
-      open_view: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0435 \u0431\u0435\u0437 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u0430",
-      remove: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u043E\u0431\u044A\u0435\u043A\u0442",
-      bulk: "\u041C\u0430\u0441\u0441\u043E\u0432\u043E\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u043D\u0430\u0434 \u043E\u0431\u044A\u0435\u043A\u0442\u0430\u043C\u0438",
-      tree_bulk: "\u041C\u0430\u0441\u0441\u043E\u0432\u043E\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u0432 \u0434\u0440\u0435\u0432\u043E\u0432\u0438\u0434\u043D\u043E\u043C \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0438",
-      set_attribute_value: "\u0423\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430",
-      automation: "\u0417\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u044C \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0437\u0430\u0446\u0438\u044E",
-      scenario: "\u0417\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u044C \u0441\u0446\u0435\u043D\u0430\u0440\u0438\u0439/\u0441\u043A\u0440\u0438\u043F\u0442",
-      workflow: "\u041F\u0435\u0440\u0435\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0430\u0442\u0440\u0438\u0431\u0443\u0442 \u0432 \u0441\u0442\u0430\u0442\u0443\u0441 \u0440\u0430\u0431\u043E\u0447\u0435\u0433\u043E \u043F\u0440\u043E\u0446\u0435\u0441\u0441\u0430",
-      generate_qr_code: "\u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C QR-\u043A\u043E\u0434",
-      copy_entity_link: "\u0421\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C URL \u043E\u0431\u044A\u0435\u043A\u0442\u0430",
-      open_external_widget_modal: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0432\u043D\u0435\u0448\u043D\u0438\u0439 \u0432\u0438\u0434\u0436\u0435\u0442 \u0432 \u043C\u043E\u0434\u0430\u043B\u044C\u043D\u043E\u043C \u043E\u043A\u043D\u0435"
     };
     EFFECT_DESCRIPTIONS = {
       hidden: "\u0421\u043A\u0440\u044B\u0442\u044C \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u044B \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F",
@@ -31153,20 +31916,6 @@ var init_monaco_providers = __esm({
       bulk: ["remove", "edit", "edit_attribute", "import", "export"],
       tree_bulk: ["edit", "remove"]
     };
-    SYSTEM_ATTRIBUTE_IDS = /* @__PURE__ */ new Set([
-      "id",
-      "label",
-      "createdAt",
-      "updatedAt",
-      "createdBy",
-      "updatedBy",
-      "organizationId",
-      "tenantId",
-      "domainId",
-      "entityId",
-      "entityName",
-      "version"
-    ]);
   }
 });
 
@@ -36839,9 +37588,736 @@ var init_entity_focus = __esm({
   }
 });
 
+// src/core/analyzer/local-recheck.ts
+function unq(s) {
+  const t = String(s || "").replace(/\s+#.*$/, "").trim();
+  if (t.startsWith('"') && t.endsWith('"') || t.startsWith("'") && t.endsWith("'"))
+    return t.slice(1, -1);
+  return t;
+}
+function indentOf(l) {
+  return (l.match(/^(\s*)/) || ["", ""])[1].length;
+}
+function buildRecheckModel(content) {
+  const lines = content.split("\n");
+  const entities = [];
+  const entityByLowerId = /* @__PURE__ */ new Map();
+  const linkages = /* @__PURE__ */ new Map();
+  const actions = /* @__PURE__ */ new Map();
+  const counterColors = /* @__PURE__ */ new Map();
+  let section = "";
+  let entityDashIndent = -1;
+  let attrDashIndent = -1;
+  let currentEntity = null;
+  let currentAttr = null;
+  const fieldRegex = /^(\s*)(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*(.+?)\s*(?:#.*)?$/;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#"))
+      continue;
+    const ind = indentOf(line);
+    if (ind === 0) {
+      const sm = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+      section = sm?.[1] || "";
+      entityDashIndent = -1;
+      attrDashIndent = -1;
+      currentEntity = null;
+      currentAttr = null;
+      continue;
+    }
+    if (section === "entities") {
+      if (entityDashIndent === -1) {
+        const dm = line.match(/^(\s*)-\s+\S/);
+        if (dm)
+          entityDashIndent = dm[1].length;
+      }
+      const idm = line.match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
+      if (idm && idm[1].length === entityDashIndent && (!currentEntity || attrDashIndent === -1 || idm[1].length <= entityDashIndent)) {
+        const isInsideAttributes = currentAttr !== null && idm[1].length > entityDashIndent;
+        if (!isInsideAttributes) {
+          if (currentEntity) {
+            currentEntity.endLine = i;
+            if (currentAttr)
+              currentAttr.endLine = i;
+            currentAttr = null;
+          }
+          const id = unq(idm[2]);
+          const e = {
+            id,
+            idLower: id.toLowerCase(),
+            line: i,
+            endLine: lines.length,
+            fields: {},
+            attrIds: [],
+            attrs: /* @__PURE__ */ new Map()
+          };
+          entities.push(e);
+          if (!entityByLowerId.has(e.idLower))
+            entityByLowerId.set(e.idLower, e);
+          currentEntity = e;
+          entityDashIndent = idm[1].length;
+          attrDashIndent = -1;
+          continue;
+        }
+      }
+      if (currentEntity) {
+        if (attrDashIndent === -1) {
+          const dm = line.match(/^(\s*)-\s+\S/);
+          if (dm && dm[1].length > entityDashIndent)
+            attrDashIndent = dm[1].length;
+        }
+        const am = line.match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
+        if (am && am[1].length === attrDashIndent && attrDashIndent > -1) {
+          if (currentAttr)
+            currentAttr.endLine = i;
+          const id = unq(am[2]);
+          const a = {
+            id,
+            line: i,
+            endLine: lines.length,
+            fields: {}
+          };
+          currentEntity.attrIds.push(id);
+          if (!currentEntity.attrs.has(id.toLowerCase()))
+            currentEntity.attrs.set(id.toLowerCase(), a);
+          currentAttr = a;
+          continue;
+        }
+        const fm = line.match(fieldRegex);
+        if (fm) {
+          const key = fm[2];
+          const value = unq(fm[3]);
+          if (currentAttr && ind > attrDashIndent) {
+            if ((key === "entity" || key === "dataType" || key === "template" || key === "sequence" || key === "defaultPrefix" || key === "incrementTemplate" || key === "description" || key === "name") && !(key in currentAttr.fields)) {
+              currentAttr.fields[key] = value;
+            }
+          } else if (!currentAttr || ind <= attrDashIndent) {
+            if (key === "inherits" || key === "label" || key === "description" || key === "name")
+              currentEntity.fields[key] = value;
+          }
+        }
+        const itemEm = line.match(/^(\s*)entity\s*:\s*([^\s#]+)/);
+        if (itemEm && currentAttr) {
+          const itemInd = itemEm[1].length;
+          for (let j = i - 1; j >= Math.max(0, currentAttr.line); j--) {
+            const l2 = lines[j];
+            const ind2 = indentOf(l2);
+            if (ind2 < itemInd && /^\s*item\s*:\s*$/.test(l2)) {
+              currentAttr.fields["item.entity"] = unq(itemEm[2]);
+              break;
+            }
+            if (ind2 < itemInd && l2.trim() && !l2.trim().startsWith("-") && !l2.trim().startsWith("item"))
+              break;
+          }
+        }
+      }
+      continue;
+    }
+    if (section === "linkages") {
+      if (entityDashIndent === -1) {
+        const dm = line.match(/^(\s*)-\s+\S/);
+        if (dm)
+          entityDashIndent = dm[1].length;
+      }
+      const idm = line.match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
+      if (idm && idm[1].length === entityDashIndent) {
+        const id = unq(idm[2]);
+        const lk2 = {
+          id,
+          line: i,
+          endLine: lines.length,
+          fields: {},
+          nameFrom: { side1: null, side2: null }
+        };
+        linkages.set(id, lk2);
+        entityDashIndent = idm[1].length;
+        currentEntity = null;
+        currentAttr = null;
+        linkages._current = lk2;
+        continue;
+      }
+      const lk = linkages._current;
+      if (lk) {
+        const fm = line.match(fieldRegex);
+        if (fm) {
+          const key = fm[2];
+          const value = unq(fm[3]);
+          if (key === "side1" || key === "side2" || key === "type" || key === "undirected" || key === "excludeOnGraph")
+            lk.fields[key] = value;
+        }
+        const nm = line.match(/^\s*side([12])\s*:\s*([^\s#]+)/);
+        if (nm && /nameFrom/.test(lines.slice(Math.max(0, i - 3), i).join("\n"))) {
+          lk.nameFrom["side" + nm[1]] = unq(nm[2]);
+        }
+        const im = line.match(/^\s*iconColor\s*:\s*([^\s#]+)/);
+        if (im && /view\s*:/.test(lines.slice(Math.max(0, i - 3), i).join("\n"))) {
+          lk.fields["view.iconColor"] = unq(im[1]);
+        }
+      }
+      continue;
+    }
+    if (section === "actions") {
+      if (entityDashIndent === -1) {
+        const dm = line.match(/^(\s*)-\s+\S/);
+        if (dm)
+          entityDashIndent = dm[1].length;
+      }
+      const idm = line.match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
+      if (idm && idm[1].length === entityDashIndent) {
+        const id = unq(idm[2]);
+        const act2 = {
+          id,
+          line: i,
+          endLine: lines.length,
+          fields: {}
+        };
+        actions.set(id, act2);
+        actions._current = act2;
+        continue;
+      }
+      const act = actions._current;
+      if (act) {
+        const fm = line.match(fieldRegex);
+        if (fm) {
+          const key = fm[2];
+          const value = unq(fm[3]);
+          if (key === "type" || key === "entity" || key === "linkage" || key === "operation" || key === "join")
+            act.fields[key] = value;
+        }
+        const am = line.match(/^\s*automation\s*:\s*$/);
+        if (am)
+          act.fields.__inAutomation = "1";
+        const aidm = line.match(/^\s*id\s*:\s*([^\s#]+)/);
+        if (aidm && act.fields.__inAutomation === "1" && !/^\s*-\s+id\s*:/.test(line)) {
+          act.fields["automation.id"] = unq(aidm[1]);
+        }
+      }
+      continue;
+    }
+    if (section === "counterColorPattern" || section === "counterColorPatterns") {
+      if (entityDashIndent === -1) {
+        const dm = line.match(/^(\s*)-\s+\S/);
+        if (dm)
+          entityDashIndent = dm[1].length;
+      }
+      const idm = line.match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
+      if (idm && idm[1].length === entityDashIndent) {
+        const id = unq(idm[2]);
+        counterColors.set(id, { id, red: "", yellow: "" });
+        counterColors._current = id;
+        continue;
+      }
+      const curId = counterColors._current;
+      if (curId) {
+        const rm = line.match(/^\s*red\s*:\s*([^\s#]+)/);
+        if (rm)
+          counterColors.get(curId).red = unq(rm[1]);
+        const ym = line.match(/^\s*yellow\s*:\s*([^\s#]+)/);
+        if (ym)
+          counterColors.get(curId).yellow = unq(ym[1]);
+      }
+      continue;
+    }
+  }
+  if (currentEntity)
+    currentEntity.endLine = lines.length;
+  return {
+    lines,
+    entities,
+    entityByLowerId,
+    linkages,
+    actions,
+    counterColors
+  };
+}
+function localEntityExists(model, id) {
+  return model.entityByLowerId.has(id.trim().toLowerCase());
+}
+function hasAttributeInChain(model, entity, attrId, depth = 0) {
+  if (depth > 10)
+    return false;
+  if (entity.attrs.has(attrId.toLowerCase()))
+    return true;
+  const inh = entity.fields["inherits"];
+  if (!inh)
+    return false;
+  if (inh.includes("/"))
+    return true;
+  const parent = model.entityByLowerId.get(inh.toLowerCase());
+  if (!parent)
+    return false;
+  return hasAttributeInChain(model, parent, attrId, depth + 1);
+}
+function findLinkageByPath(model, propertyPath) {
+  const m = propertyPath.match(/linkages\[([^\]]+)\]\./);
+  if (!m)
+    return null;
+  return model.linkages.get(m[1]) || null;
+}
+function findActionById(model, id) {
+  return model.actions.get(id) || null;
+}
+function getActionTypeFromModel(model, actionId) {
+  return findActionById(model, actionId)?.fields["type"] ?? null;
+}
+function recheck(issue, model, _index) {
+  if (issue.__clientOnly)
+    return "still";
+  const ruleId = String(issue.ruleId || "").toLowerCase();
+  if (ruleId.startsWith("duplicate-id/")) {
+    const all = [...(issue.propertyPath || "").matchAll(/\[([^\]]+)\]/g)];
+    if (all.length === 0)
+      return "unknown";
+    const id = all[all.length - 1][1].trim();
+    if (!id || id === "..")
+      return "unknown";
+    const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(
+      `^\\s*-\\s+id\\s*:\\s*["']?${escaped}["']?\\s*(?:#.*)?$`,
+      "gm"
+    );
+    const count = (model.lines.join("\n").match(re) || []).length;
+    return count > 1 ? "still" : "resolved";
+  }
+  if (ruleId === "view/widget-linkage-side-on-undirected") {
+    const m = issue.propertyPath?.match(/widgets\[([^\]]+)\]/);
+    if (!m)
+      return "unknown";
+    return fieldExistsInItemBlock(model, m[1], "side");
+  }
+  if (ruleId.startsWith("identifier/")) {
+    if (!issue.entityFqid || !issue.attributeId)
+      return "unknown";
+    const entityId = issue.entityFqid.split("/").pop() || "";
+    const entity = model.entityByLowerId.get(entityId.toLowerCase());
+    if (!entity)
+      return "resolved";
+    const attr = entity.attrs.get(issue.attributeId.toLowerCase());
+    if (!attr)
+      return "resolved";
+    const template = attr.fields["template"] || "";
+    const sequence = attr.fields["sequence"] || "";
+    const defaultPrefix = attr.fields["defaultPrefix"] || "";
+    const incrementTemplate = attr.fields["incrementTemplate"] || "";
+    if (ruleId === "identifier/template-and-sequence") {
+      return template && sequence ? "still" : "resolved";
+    }
+    if (ruleId === "identifier/segment-and-sequence") {
+      return sequence ? "unknown" : "resolved";
+    }
+    if (ruleId === "identifier/no-spec") {
+      if (attr.fields["dataType"] !== "Identifier")
+        return "resolved";
+      return template || sequence ? "resolved" : "still";
+    }
+    if (ruleId === "identifier/no-inc") {
+      if (!template)
+        return "resolved";
+      const segments = [...template.matchAll(/{(.*?)}/g)].map(
+        (m) => m[1].trim()
+      );
+      return segments.includes("@inc") ? "resolved" : "still";
+    }
+    if (ruleId === "identifier/unknown-segment") {
+      if (!template)
+        return "resolved";
+      const KNOWN = /* @__PURE__ */ new Set(["@inc", "@prefix", "@YYYY", "@YY", "@MM", "@DD"]);
+      const segments = [...template.matchAll(/{(.*?)}/g)].map(
+        (m) => m[1].trim()
+      );
+      return segments.every((s) => KNOWN.has(s)) ? "resolved" : "still";
+    }
+    if (ruleId === "identifier/prefix-no-default") {
+      return template.includes("{@prefix}") && !defaultPrefix ? "still" : "resolved";
+    }
+    if (ruleId === "identifier/bad-increment-template") {
+      if (!incrementTemplate)
+        return "resolved";
+      return /^0{2,10}$/.test(incrementTemplate) ? "resolved" : "still";
+    }
+    return "unknown";
+  }
+  if (ruleId === "reference/entity-unknown" || ruleId === "reference/array-entity-unknown") {
+    if (!issue.entityFqid || !issue.attributeId)
+      return "unknown";
+    const entityId = issue.entityFqid.split("/").pop() || "";
+    const entity = model.entityByLowerId.get(entityId.toLowerCase());
+    if (!entity)
+      return "resolved";
+    const attr = entity.attrs.get(issue.attributeId.toLowerCase());
+    if (!attr)
+      return "resolved";
+    const target = ruleId === "reference/array-entity-unknown" ? attr.fields["item.entity"] : attr.fields["entity"];
+    if (!target)
+      return "resolved";
+    if (target.includes("/"))
+      return "unknown";
+    return localEntityExists(model, target) ? "resolved" : "still";
+  }
+  if (ruleId === "reference/attribute-entity-missing" || ruleId === "reference/array-reference-entity-missing") {
+    if (!issue.entityFqid || !issue.attributeId)
+      return "unknown";
+    const entityId = issue.entityFqid.split("/").pop() || "";
+    const entity = model.entityByLowerId.get(entityId.toLowerCase());
+    if (!entity)
+      return "resolved";
+    const attr = entity.attrs.get(issue.attributeId.toLowerCase());
+    if (!attr)
+      return "resolved";
+    const target = ruleId === "reference/array-reference-entity-missing" ? attr.fields["item.entity"] : attr.fields["entity"];
+    return target ? "resolved" : "still";
+  }
+  if (ruleId === "semantic/label-attribute-unknown" && issue.entityFqid) {
+    const entityId = issue.entityFqid.split("/").pop() || "";
+    const entity = model.entityByLowerId.get(entityId.toLowerCase());
+    if (!entity)
+      return "resolved";
+    const label = entity.fields["label"];
+    if (!label)
+      return "resolved";
+    const placeholders = [...label.matchAll(/{(.+?)}/g)].map((m) => m[1].trim()).filter(
+      (p) => p && !SYSTEM_ATTRS2.has(p) && !p.includes(".") && !p.includes("/")
+    );
+    for (const ph of placeholders) {
+      if (!hasAttributeInChain(model, entity, ph))
+        return "still";
+    }
+    return "resolved";
+  }
+  if (ruleId === "semantic/self-inheritance" && issue.entityFqid) {
+    const entityId = issue.entityFqid.split("/").pop() || "";
+    const entity = model.entityByLowerId.get(entityId.toLowerCase());
+    if (!entity)
+      return "resolved";
+    const inh = entity.fields["inherits"];
+    if (!inh)
+      return "resolved";
+    return inh.toLowerCase() === entityId.toLowerCase() ? "still" : "resolved";
+  }
+  if (ruleId === "semantic/duplicate-attribute" && issue.entityFqid && issue.attributeId) {
+    const entityId = issue.entityFqid.split("/").pop() || "";
+    const entity = model.entityByLowerId.get(entityId.toLowerCase());
+    if (!entity)
+      return "resolved";
+    const count = entity.attrIds.filter(
+      (id) => id.toLowerCase() === issue.attributeId.toLowerCase()
+    ).length;
+    return count > 1 ? "still" : "resolved";
+  }
+  if (ruleId === "duplicate-id/entities") {
+    const id = issue.propertyPath?.match(/entities\[([^\]]+)\]/)?.[1];
+    if (!id)
+      return "unknown";
+    const count = model.entities.filter(
+      (e) => e.idLower === id.toLowerCase()
+    ).length;
+    return count > 1 ? "still" : "resolved";
+  }
+  if (ruleId === "naming/entity-camelcase" && issue.entityFqid) {
+    const entityId = issue.entityFqid.split("/").pop() || "";
+    const entity = model.entityByLowerId.get(entityId.toLowerCase());
+    if (!entity)
+      return "resolved";
+    return /^[A-Z][a-zA-Z0-9]*$/.test(entity.id) ? "resolved" : "still";
+  }
+  if (ruleId === "naming/attribute-camelcase" && issue.attributeId) {
+    const entityId = issue.entityFqid?.split("/").pop();
+    if (!entityId)
+      return "unknown";
+    const entity = model.entityByLowerId.get(entityId.toLowerCase());
+    if (!entity)
+      return "resolved";
+    const attr = entity.attrs.get(issue.attributeId.toLowerCase());
+    if (!attr)
+      return "resolved";
+    return /^[a-z][a-zA-Z0-9]*$/.test(attr.id) ? "resolved" : "still";
+  }
+  if (ruleId === "naming/system-id-attribute" && issue.entityFqid && issue.attributeId) {
+    const entityId = issue.entityFqid.split("/").pop() || "";
+    const entity = model.entityByLowerId.get(entityId.toLowerCase());
+    if (!entity)
+      return "resolved";
+    return entity.attrs.has(issue.attributeId.toLowerCase()) ? "still" : "resolved";
+  }
+  if (ruleId === "recommended/entity-description" && issue.entityFqid) {
+    const entityId = issue.entityFqid.split("/").pop() || "";
+    const entity = model.entityByLowerId.get(entityId.toLowerCase());
+    if (!entity)
+      return "resolved";
+    return (entity.fields["description"] || "").trim() ? "resolved" : "still";
+  }
+  if (ruleId === "recommended/entity-label" && issue.entityFqid) {
+    const entityId = issue.entityFqid.split("/").pop() || "";
+    const entity = model.entityByLowerId.get(entityId.toLowerCase());
+    if (!entity)
+      return "resolved";
+    return (entity.fields["label"] || "").trim() ? "resolved" : "still";
+  }
+  if (ruleId === "recommended/attribute-description" && issue.attributeId) {
+    const entityId = issue.entityFqid?.split("/").pop();
+    if (!entityId)
+      return "unknown";
+    const entity = model.entityByLowerId.get(entityId.toLowerCase());
+    if (!entity)
+      return "resolved";
+    const attr = entity.attrs.get(issue.attributeId.toLowerCase());
+    if (!attr)
+      return "resolved";
+    return (attr.fields["description"] || "").trim() ? "resolved" : "still";
+  }
+  if (ruleId === "required/entity-name" && issue.entityFqid) {
+    const entityId = issue.entityFqid.split("/").pop() || "";
+    const entity = model.entityByLowerId.get(entityId.toLowerCase());
+    if (!entity)
+      return "resolved";
+    const name = entity.fields["name"];
+    return name && name !== entity.id ? "resolved" : "still";
+  }
+  if (ruleId === "linkage/undirected-only-nn" && issue.propertyPath) {
+    const lk = findLinkageByPath(model, issue.propertyPath);
+    if (!lk)
+      return "resolved";
+    const type2 = (lk.fields["type"] || "").trim();
+    const und = (lk.fields["undirected"] || "").toLowerCase();
+    if (!type2)
+      return "resolved";
+    if (und !== "true")
+      return "resolved";
+    return type2 === "n_n" ? "resolved" : "still";
+  }
+  if (ruleId === "linkage/exclude-on-graph-invalid" && issue.propertyPath) {
+    const lk = findLinkageByPath(model, issue.propertyPath);
+    if (!lk)
+      return "resolved";
+    const v = (lk.fields["excludeOnGraph"] || "").toLowerCase();
+    if (!v)
+      return "resolved";
+    return v === "true" || v === "false" || v === "off" ? "resolved" : "still";
+  }
+  if (ruleId === "linkage/name-from-missing" && issue.propertyPath) {
+    const lk = findLinkageByPath(model, issue.propertyPath);
+    if (!lk)
+      return "resolved";
+    const msg = (issue.message || "").toLowerCase();
+    if (msg.includes("side1"))
+      return lk.nameFrom.side1 ? "resolved" : "still";
+    if (msg.includes("side2"))
+      return lk.nameFrom.side2 ? "resolved" : "still";
+    return lk.nameFrom.side1 && lk.nameFrom.side2 ? "resolved" : "still";
+  }
+  if (ruleId === "linkage/view-iconColor-invalid" && issue.propertyPath) {
+    const lk = findLinkageByPath(model, issue.propertyPath);
+    if (!lk)
+      return "resolved";
+    const c = lk.fields["view.iconColor"];
+    if (!c)
+      return "resolved";
+    return GRAPH_COLORS.has(c) ? "resolved" : "still";
+  }
+  if ((ruleId === "linkage/side1-unknown" || ruleId === "linkage/side2-unknown") && issue.propertyPath) {
+    const lk = findLinkageByPath(model, issue.propertyPath);
+    if (!lk)
+      return "resolved";
+    const sideKey = ruleId === "linkage/side1-unknown" ? "side1" : "side2";
+    const v = lk.fields[sideKey];
+    if (!v)
+      return "resolved";
+    if (v.includes("/"))
+      return "unknown";
+    return localEntityExists(model, v) ? "resolved" : "still";
+  }
+  if (ruleId === "action/unknown-type" && issue.propertyPath) {
+    const m = issue.propertyPath.match(/^actions\[(.+?)\]\.type$/);
+    if (!m)
+      return "unknown";
+    const t = getActionTypeFromModel(model, m[1]);
+    if (!t)
+      return "resolved";
+    return KNOWN_ACTION_TYPES.has(t) ? "resolved" : "still";
+  }
+  if (ruleId === "action/automation-id-invalid" && issue.propertyPath) {
+    const m = issue.propertyPath.match(/^actions\[(.+?)\]\./);
+    if (!m)
+      return "unknown";
+    const act = findActionById(model, m[1]);
+    if (!act)
+      return "resolved";
+    const id = act.fields["automation.id"];
+    if (!id)
+      return "resolved";
+    return UUID_RE.test(id) ? "resolved" : "still";
+  }
+  if (ruleId.startsWith("countercolorpattern/")) {
+    const m = issue.propertyPath?.match(/counterColorPatterns\[([^\]]+)\]/);
+    if (!m)
+      return "unknown";
+    const cc = model.counterColors.get(m[1]);
+    if (!cc)
+      return "resolved";
+    const validRed = COUNTER_TIME_RE.test(cc.red) || COUNTER_PERCENT_RE.test(cc.red);
+    const validYellow = COUNTER_TIME_RE.test(cc.yellow) || COUNTER_PERCENT_RE.test(cc.yellow);
+    if (ruleId === "countercolorpattern/red-format")
+      return validRed ? "resolved" : "still";
+    if (ruleId === "countercolorpattern/yellow-format")
+      return validYellow ? "resolved" : "still";
+    if (ruleId === "countercolorpattern/format-mismatch") {
+      if (!validRed || !validYellow)
+        return "resolved";
+      return cc.red.includes("%") === cc.yellow.includes("%") ? "resolved" : "still";
+    }
+    if (ruleId === "countercolorpattern/yellow-gt-red") {
+      if (!validRed || !validYellow)
+        return "resolved";
+      if (cc.red.includes("%") !== cc.yellow.includes("%"))
+        return "resolved";
+      if (cc.red.includes("%")) {
+        const r = parseInt(cc.red.replace("%", ""), 10);
+        const y = parseInt(cc.yellow.replace("%", ""), 10);
+        return y <= r ? "resolved" : "still";
+      }
+      const parseT = (s) => {
+        let total = 0;
+        for (const mm of s.matchAll(/([1-9][0-9]*)([wdhm])/g)) {
+          const n = parseInt(mm[1], 10);
+          if (mm[2] === "w")
+            total += n * 10080;
+          else if (mm[2] === "d")
+            total += n * 1440;
+          else if (mm[2] === "h")
+            total += n * 60;
+          else
+            total += n;
+        }
+        return total;
+      };
+      return parseT(cc.yellow) <= parseT(cc.red) ? "resolved" : "still";
+    }
+  }
+  return "unknown";
+}
+function fieldExistsInItemBlock(model, itemId, fieldName) {
+  if (!itemId || !fieldName)
+    return "unknown";
+  const lines = model.lines;
+  const escapedId = itemId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const idRe = new RegExp(
+    `^(\\s*)(-\\s+)?id\\s*:\\s*["']?${escapedId}["']?\\s*(?:#.*)?$`
+  );
+  let startLine = -1;
+  let startIndent = -1;
+  let isListItem = false;
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(idRe);
+    if (!m)
+      continue;
+    startLine = i;
+    startIndent = m[1].length;
+    isListItem = !!m[2];
+    break;
+  }
+  if (startLine < 0)
+    return "resolved";
+  const fieldRe = new RegExp(`^\\s*${fieldName}\\s*:`);
+  for (let i = startLine + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim() || line.trim().startsWith("#"))
+      continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (isListItem && ind === startIndent && /^\s*-\s+/.test(line)) {
+      return "resolved";
+    }
+    if (ind <= startIndent && !/^\s*-/.test(line)) {
+      return "resolved";
+    }
+    if (fieldRe.test(line))
+      return "still";
+  }
+  return "resolved";
+}
+var GRAPH_COLORS, SYSTEM_ATTRS2, COUNTER_TIME_RE, COUNTER_PERCENT_RE, UUID_RE;
+var init_local_recheck = __esm({
+  "src/core/analyzer/local-recheck.ts"() {
+    "use strict";
+    init_action_types();
+    GRAPH_COLORS = /* @__PURE__ */ new Set([
+      "red",
+      "pink",
+      "lightpink",
+      "orange",
+      "peach",
+      "yellow",
+      "green",
+      "lightgreen",
+      "turquoise",
+      "lightblue",
+      "blue",
+      "violet",
+      "purple",
+      "grey"
+    ]);
+    SYSTEM_ATTRS2 = /* @__PURE__ */ new Set([
+      "id",
+      "label",
+      "createdAt",
+      "updatedAt",
+      "createdBy",
+      "updatedBy",
+      "organizationId",
+      "tenantId",
+      "domainId",
+      "entityId",
+      "entityName",
+      "version"
+    ]);
+    COUNTER_TIME_RE = /^([1-9][0-9]*[wdhm])+$/;
+    COUNTER_PERCENT_RE = /^(?!0%)([1-9][0-9]?|100)%$/;
+    UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  }
+});
+
 // src/web/components/modals/YamlViewerModal.tsx
-import React40, { useCallback as useCallback18, useEffect as useEffect36, useMemo as useMemo42, useRef as useRef14, useState as useState32 } from "react";
+import React40, { useCallback as useCallback18, useDeferredValue, useEffect as useEffect36, useMemo as useMemo42, useRef as useRef14, useState as useState32 } from "react";
 import { Fragment as Fragment17, jsx as jsx74, jsxs as jsxs71 } from "react/jsx-runtime";
+function extractTopLevelVersion(text) {
+  if (!text)
+    return null;
+  const lines = text.split("\n");
+  for (const line of lines) {
+    if (!line.trim())
+      continue;
+    if (/^\s/.test(line))
+      continue;
+    const m = line.match(
+      /^version\s*:\s*["']?([^"'\s#]+)["']?\s*(?:#.*)?$/
+    );
+    if (m)
+      return m[1];
+  }
+  return null;
+}
+function bumpPatchVersion(v) {
+  const m = v.match(/^(\d+)\.(\d+)\.(\d+)$/);
+  if (!m)
+    return null;
+  const patch = parseInt(m[3], 10) + 1;
+  return `${m[1]}.${m[2]}.${patch}`;
+}
+function replaceTopLevelVersion(text, newVersion) {
+  const lines = text.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s/.test(lines[i]))
+      continue;
+    const m = lines[i].match(
+      /^(version\s*:\s*)(["']?)([^"'\s#]+)(["']?)(\s*(?:#.*)?)$/
+    );
+    if (m) {
+      lines[i] = `${m[1]}${m[2]}${newVersion}${m[4]}${m[5]}`;
+      return lines.join("\n");
+    }
+  }
+  return text;
+}
 function YamlViewerModal() {
   const { index } = useModelIndex();
   const { ready: monacoReady, error: monacoError } = useMonacoLoader();
@@ -36849,18 +38325,42 @@ function YamlViewerModal() {
   const filePath = useGraphStore((s) => s.yamlViewerFilePath);
   const fqid = useGraphStore((s) => s.yamlViewerFqid);
   const domainId = useGraphStore((s) => s.yamlViewerDomainId);
+  const pendingIssue = useGraphStore((s) => s.yamlViewerPendingIssue);
+  const setPendingIssue = useGraphStore((s) => s.setYamlViewerPendingIssue);
   const remoteInfo = useMemo42(() => readRemoteInfo(), []);
-  const isRemoteMode = !!(remoteInfo && remoteInfo.server);
+  const mode = !remoteInfo?.server ? "local" : remoteInfo.mode === "hybrid" ? "hybrid" : "remote";
   const [reloadKey, setReloadKey] = useState32(0);
+  const CHECKS_ENABLED_KEY = "dg-yaml-checks-enabled";
+  const [checksEnabled, setChecksEnabled] = useState32(() => {
+    try {
+      const v = localStorage.getItem(CHECKS_ENABLED_KEY);
+      return v === null ? true : v === "true";
+    } catch {
+      return true;
+    }
+  });
+  const toggleChecks = useCallback18(() => {
+    setChecksEnabled((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(CHECKS_ENABLED_KEY, String(next));
+      } catch {
+      }
+      return next;
+    });
+  }, []);
   useEffect36(() => {
     if (open)
       setReloadKey((k) => k + 1);
   }, [open]);
   const { content: fetchedContent, loading, error: loadError } = useYamlContent(
     open ? filePath : null,
-    reloadKey
+    reloadKey,
+    mode === "remote"
   );
   const [content, setContent] = useState32("");
+  const [yamlSyntaxIssue, setYamlSyntaxIssue] = useState32(null);
+  const deferredContent = useDeferredValue(content);
   const [savedContent, setSavedContent] = useState32("");
   const [liveVersion, setLiveVersion] = useState32(0);
   const liveDebounce = useRef14(null);
@@ -36872,7 +38372,7 @@ function YamlViewerModal() {
   const diffContainerRef = useRef14(null);
   const diffEditorRef = useRef14(null);
   const [cursorLine, setCursorLine] = useState32(1);
-  const [leftWidth, setLeftWidth] = useState32(280);
+  const [leftWidth, setLeftWidth] = useState32(380);
   const isDraggingLeft = useRef14(false);
   const decorationsCollection = useRef14(null);
   const startResizingLeft = (e) => {
@@ -36906,6 +38406,41 @@ function YamlViewerModal() {
       document.removeEventListener("mouseup", onMouseUp);
     };
   }, []);
+  useEffect36(() => {
+    if (!checksEnabled) {
+      setYamlSyntaxIssue(null);
+      return;
+    }
+    if (!deferredContent) {
+      setYamlSyntaxIssue(null);
+      return;
+    }
+    const t = setTimeout(() => {
+      try {
+        const textToValidate = deferredContent.replace(/!rql/g, "");
+        yaml.load(textToValidate);
+        setYamlSyntaxIssue(null);
+      } catch (e) {
+        const errLine = e.mark?.line !== void 0 ? e.mark.line + 1 : 1;
+        const errCol = e.mark?.column !== void 0 ? e.mark.column + 1 : 1;
+        const errMsg = e.reason || e.message.split("\n")[0] || "\u041E\u0448\u0438\u0431\u043A\u0430 \u0441\u0438\u043D\u0442\u0430\u043A\u0441\u0438\u0441\u0430 YAML";
+        setYamlSyntaxIssue({
+          ruleId: "yaml-syntax",
+          rule: "\u0421\u0438\u043D\u0442\u0430\u043A\u0441\u0438\u0441 YAML",
+          severity: "error",
+          category: "validation",
+          message: errMsg,
+          domainId,
+          line: errLine,
+          column: errCol,
+          propertyPath: "",
+          __clientOnly: true,
+          __key: "yaml-syntax"
+        });
+      }
+    }, 2e3);
+    return () => clearTimeout(t);
+  }, [deferredContent, domainId, checksEnabled]);
   useEffect36(() => {
     if (loading)
       return;
@@ -36948,6 +38483,7 @@ function YamlViewerModal() {
   const isDirty = content !== savedContent;
   const [isSaving, setIsSaving] = useState32(false);
   const [saveError, setSaveError] = useState32(null);
+  const [saveStage, setSaveStage] = useState32("idle");
   const [copyFeedback, setCopyFeedback] = useState32(false);
   const [saveFeedback, setSaveFeedback] = useState32(false);
   const [expandedNodes, setExpandedNodes] = useState32(/* @__PURE__ */ new Set());
@@ -36982,6 +38518,15 @@ function YamlViewerModal() {
   const isProgrammaticChange = useRef14(false);
   const [focusTarget, setFocusTarget] = useState32(null);
   const focusDecorationsRef = useRef14(null);
+  const saveAbortRef = useRef14(null);
+  useEffect36(() => {
+    useGraphStore.getState().setYamlViewerDirty(!!open && isDirty);
+  }, [open, isDirty]);
+  useEffect36(() => {
+    if (open)
+      return;
+    useGraphStore.getState().setYamlViewerDirty(false);
+  }, [open]);
   useEffect36(() => {
     isLockedRef.current = isLocked;
   }, [isLocked]);
@@ -36991,10 +38536,10 @@ function YamlViewerModal() {
     return index.schemasByDomain[domainId] || null;
   }, [index, domainId]);
   const lineMap = useMemo42(() => {
-    if (!content || !schema2)
+    if (!deferredContent || !schema2)
       return null;
-    return buildLineMap(content, schema2);
-  }, [content, schema2]);
+    return buildLineMap(deferredContent, schema2);
+  }, [deferredContent, schema2]);
   const currentContext = useMemo42(() => {
     if (!lineMap)
       return null;
@@ -37004,44 +38549,18 @@ function YamlViewerModal() {
     if (!focusTarget || !lineMap || !index || !domainId)
       return null;
     try {
-      return computeFocus(focusTarget, lineMap, index, domainId, content, {
+      return computeFocus(focusTarget, lineMap, index, domainId, deferredContent, {
         includeTertiary: focusIncludeDeps
       });
     } catch {
       return null;
     }
-  }, [focusTarget, focusIncludeDeps, lineMap, index, domainId, content]);
+  }, [focusTarget, focusIncludeDeps, lineMap, index, domainId, deferredContent]);
   const domainIssues = useMemo42(() => {
     if (!index || !domainId)
       return [];
     return index.lint.lintReport.issues.filter((i) => i.domainId === domainId);
   }, [index, domainId]);
-  const yamlSyntaxIssue = useMemo42(() => {
-    if (!content)
-      return null;
-    try {
-      const textToValidate = content.replace(/!rql/g, "");
-      yaml.load(textToValidate);
-      return null;
-    } catch (e) {
-      const errLine = e.mark?.line !== void 0 ? e.mark.line + 1 : 1;
-      const errCol = e.mark?.column !== void 0 ? e.mark.column + 1 : 1;
-      const errMsg = e.reason || e.message.split("\n")[0] || "\u041E\u0448\u0438\u0431\u043A\u0430 \u0441\u0438\u043D\u0442\u0430\u043A\u0441\u0438\u0441\u0430 YAML";
-      return {
-        ruleId: "yaml-syntax",
-        rule: "\u0421\u0438\u043D\u0442\u0430\u043A\u0441\u0438\u0441 YAML",
-        severity: "error",
-        category: "validation",
-        message: errMsg,
-        domainId,
-        line: errLine,
-        column: errCol,
-        propertyPath: "",
-        __clientOnly: true,
-        __key: "yaml-syntax"
-      };
-    }
-  }, [content, domainId]);
   const counters = useMemo42(() => {
     if (!schema2)
       return null;
@@ -37110,9 +38629,11 @@ function YamlViewerModal() {
     return m;
   }, [domainIssues]);
   const allIssues = useMemo42(() => {
-    if (!lineMap || !content || !domainId)
+    if (!checksEnabled)
       return domainIssues;
-    const rqlIssues = scanRqlInText(content, lineMap.lineContexts, index || null);
+    if (!lineMap || !deferredContent || !domainId)
+      return domainIssues;
+    const rqlIssues = scanRqlInText(deferredContent, lineMap.lineContexts, index || null);
     const mapped = rqlIssues.map((r, idx) => ({
       ruleId: "rql-check",
       rule: r.message.length > 60 ? r.message.slice(0, 60) + "\u2026" : r.message,
@@ -37130,13 +38651,27 @@ function YamlViewerModal() {
       combined.unshift(yamlSyntaxIssue);
     }
     return combined;
-  }, [domainIssues, lineMap, content, index, domainId, yamlSyntaxIssue]);
+  }, [domainIssues, lineMap, deferredContent, index, domainId, yamlSyntaxIssue, checksEnabled]);
+  const recheckModel = useMemo42(
+    () => buildRecheckModel(deferredContent || ""),
+    [deferredContent]
+  );
   const effectiveIssues = useMemo42(() => {
+    if (!checksEnabled)
+      return allIssues;
     if (!isDirty || !lineMap)
+      return allIssues;
+    if (deferredContent === savedContent)
       return allIssues;
     const out = [];
     for (const issue of allIssues) {
-      const state = classifyIssue(issue, content, lineMap);
+      const state = classifyIssue(
+        issue,
+        deferredContent,
+        lineMap,
+        recheckModel,
+        index
+      );
       if (state === "resolved")
         continue;
       if (state === "unknown")
@@ -37145,15 +38680,18 @@ function YamlViewerModal() {
         out.push(issue);
     }
     return out;
-  }, [allIssues, isDirty, content, lineMap]);
+  }, [allIssues, isDirty, deferredContent, lineMap, savedContent, recheckModel, index]);
   const filteredIssues = useMemo42(
     () => effectiveIssues.filter((i) => severityFilter.has(i.severity)),
     [effectiveIssues, severityFilter]
   );
   const backlinks = useMemo42(() => {
-    if (!content)
+    if (rightTab !== "backlinks" || !deferredContent) {
       return { entity: [], attribute: [], target: null };
-    const lines = content.split("\n");
+    }
+    if (!deferredContent)
+      return { entity: [], attribute: [], target: null };
+    const lines = deferredContent.split("\n");
     const target = detectCursorTarget(lines, cursorLine);
     if (!target)
       return { entity: [], attribute: [], target };
@@ -37166,31 +38704,17 @@ function YamlViewerModal() {
       attribute.push(...resolveAttributeBacklinks(lines, target.parentId, target.id));
     }
     return { entity, attribute, target };
-  }, [content, cursorLine]);
-  const [refsVersion, setRefsVersion] = useState32(0);
-  useEffect36(() => {
-    if (!editorCreated || !editorRef.current)
-      return;
-    const disposable = editorRef.current.onDidChangeModelContent(() => {
-      setRefsVersion((v) => v + 1);
-    });
-    return () => {
-      try {
-        disposable?.dispose?.();
-      } catch {
-      }
-    };
-  }, [editorCreated]);
+  }, [deferredContent, cursorLine, rightTab]);
   const externalRefs = useMemo42(() => {
-    if (!content || !domainId)
+    if (!deferredContent || !domainId)
       return { refs: [], groups: [] };
-    const refs = extractExternalRefs(content, domainId);
+    const refs = extractExternalRefs(deferredContent, domainId);
     return { refs, groups: groupExternalRefs(refs) };
-  }, [content, domainId, liveVersion]);
+  }, [deferredContent, domainId, liveVersion]);
   const scenarioRefs = useMemo42(() => {
-    if (!content)
+    if (!deferredContent)
       return [];
-    const lines = content.split("\n");
+    const lines = deferredContent.split("\n");
     const result = [];
     let inActions = false;
     let currentAction = null;
@@ -37241,7 +38765,7 @@ function YamlViewerModal() {
       grouped.get(r.scenarioId).push(r);
     }
     return Array.from(grouped.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([scenarioId, actions]) => ({ scenarioId, actions }));
-  }, [content, liveVersion]);
+  }, [deferredContent]);
   const flatNavNodes = useMemo42(() => {
     if (!lineMap)
       return [];
@@ -37294,8 +38818,6 @@ function YamlViewerModal() {
       return;
     if (loading)
       return;
-    if (!index)
-      return;
     if (!filePath)
       return;
     if (!fetchedContent)
@@ -37337,6 +38859,8 @@ function YamlViewerModal() {
     let editor = null;
     let ro = null;
     const layouts = [];
+    let cursorTimer = null;
+    let suggestTimer = null;
     try {
       editor = m.editor.create(containerRef.current, {
         value: fetchedContent,
@@ -37372,11 +38896,7 @@ function YamlViewerModal() {
           showInlineDetails: true,
           showStatusBar: false
         },
-        quickSuggestions: {
-          other: "on",
-          comments: "off",
-          strings: "off"
-        },
+        quickSuggestions: false,
         suggestOnTriggerCharacters: true
       }, {
         storageService: {
@@ -37433,10 +38953,25 @@ function YamlViewerModal() {
       editor.onKeyDown((e) => {
         if (!isLockedRef.current)
           return;
-        const navKeys = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "Home", "End", "Escape", "Tab"];
+        const navKeys = [
+          "ArrowUp",
+          "ArrowDown",
+          "ArrowLeft",
+          "ArrowRight",
+          "PageUp",
+          "PageDown",
+          "Home",
+          "End",
+          "Escape",
+          "Tab",
+          "Shift",
+          "Control",
+          "Alt",
+          "Meta"
+        ];
         if (navKeys.includes(e.browserEvent.key))
           return;
-        if (e.ctrlKey || e.metaKey)
+        if (e.ctrlKey || e.metaKey || e.altKey)
           return;
         e.preventDefault();
         e.stopPropagation();
@@ -37450,27 +38985,65 @@ function YamlViewerModal() {
         isProgrammaticChange.current = false;
         useGraphStore.getState().showSnackbar("\u0412\u0441\u0442\u0430\u0432\u043A\u0430 \u0432 \u0437\u0430\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0439 \u0444\u0430\u0439\u043B \u0437\u0430\u043F\u0440\u0435\u0449\u0435\u043D\u0430.");
       });
+      editor.onDidChangeCursorPosition((e) => {
+        if (cursorTimer)
+          clearTimeout(cursorTimer);
+        const line = e.position.lineNumber;
+        cursorTimer = setTimeout(() => setCursorLine(line), 120);
+      });
+      const isSuggestOpen = () => {
+        const el = document.querySelector(
+          ".suggest-widget"
+        );
+        if (!el)
+          return false;
+        return el.offsetParent !== null && el.style.display !== "none";
+      };
       editor.onDidType((text) => {
         if (!text)
           return;
-        if (!/^[a-zA-Z0-9_\-а-яА-Я ]$/.test(text))
+        if (isSuggestOpen())
           return;
-        setTimeout(() => {
-          if (!editorRef.current)
-            return;
-          const pos = editorRef.current.getPosition();
-          const model = editorRef.current.getModel();
-          if (!pos || !model)
-            return;
-          const lineText = model.getLineContent(pos.lineNumber);
-          const before = lineText.slice(0, pos.column - 1);
-          if (/[a-zA-Z0-9_\-а-яА-Я]$/.test(before) || /:\s$/.test(before)) {
-            editorRef.current.trigger("yaml-viewer", "editor.action.triggerSuggest", {});
-          }
-        }, 10);
-      });
-      editor.onDidChangeCursorPosition((e) => {
-        setCursorLine(e.position.lineNumber);
+        const isTriggerChar = /^[:.\/\s-]$/.test(text);
+        const isWordChar = /^[\w\u0400-\u04FF]$/.test(text);
+        if (!isTriggerChar && !isWordChar)
+          return;
+        if (suggestTimer)
+          clearTimeout(suggestTimer);
+        suggestTimer = setTimeout(
+          () => {
+            if (!editorRef.current)
+              return;
+            if (isSuggestOpen())
+              return;
+            const pos = editorRef.current.getPosition();
+            const model = editorRef.current.getModel();
+            if (!pos || !model)
+              return;
+            const lineText = model.getLineContent(pos.lineNumber);
+            const before = lineText.slice(0, pos.column - 1);
+            if (/^\s*#/.test(before))
+              return;
+            if (/^\s*!rql\b/.test(before))
+              return;
+            if (/^\s*[|>][+\-]?\s*$/.test(before))
+              return;
+            const inValue = /:\s*[^\s#]*$/.test(before);
+            const inListItem = /^\s*-\s*[\w.]*$/.test(before);
+            const inItemField = /^\s*-\s+\w+\s*:\s*[^\s#]*$/.test(
+              before
+            );
+            const inFieldName = /^\s+[\w.]*$/.test(before);
+            if (inValue || inListItem || inItemField || inFieldName) {
+              editorRef.current.trigger(
+                "yaml-viewer",
+                "editor.action.triggerSuggest",
+                {}
+              );
+            }
+          },
+          isTriggerChar ? 50 : 220
+        );
       });
       setTimeout(() => {
         if (!editorRef.current)
@@ -37519,6 +39092,10 @@ function YamlViewerModal() {
     }
     return () => {
       layouts.forEach(clearTimeout);
+      if (cursorTimer)
+        clearTimeout(cursorTimer);
+      if (suggestTimer)
+        clearTimeout(suggestTimer);
       try {
         ro?.disconnect();
       } catch {
@@ -37532,7 +39109,7 @@ function YamlViewerModal() {
         setEditorCreated(false);
       }
     };
-  }, [open, monacoReady, filePath, loading, index, fetchedContent]);
+  }, [open, monacoReady, filePath, loading, fetchedContent]);
   useEffect36(() => {
     if (!editorRef.current)
       return;
@@ -37581,11 +39158,11 @@ function YamlViewerModal() {
         lastShiftRelease = Date.now();
       }
     };
-    document.addEventListener("keydown", onKeyDown);
-    document.addEventListener("keyup", onKeyUp);
+    document.addEventListener("keydown", onKeyDown, true);
+    document.addEventListener("keyup", onKeyUp, true);
     return () => {
-      document.removeEventListener("keydown", onKeyDown);
-      document.removeEventListener("keyup", onKeyUp);
+      document.removeEventListener("keydown", onKeyDown, true);
+      document.removeEventListener("keyup", onKeyUp, true);
     };
   }, [open]);
   useEffect36(() => {
@@ -37616,28 +39193,6 @@ function YamlViewerModal() {
       return;
     resetProviderContext();
   }, [open]);
-  useEffect36(() => {
-    if (!monacoReady || !editorCreated || !editorRef.current)
-      return;
-    const m = window.monaco;
-    if (!m)
-      return;
-    const model = editorRef.current.getModel();
-    if (!model)
-      return;
-    const t = setTimeout(() => {
-      applyRqlMarkers(m, model);
-      requestAnimationFrame(() => {
-        if (!editorRef.current)
-          return;
-        try {
-          editorRef.current.layout();
-        } catch {
-        }
-      });
-    }, 100);
-    return () => clearTimeout(t);
-  }, [monacoReady, editorCreated, lineMap]);
   useEffect36(() => {
     if (!monacoReady || !editorCreated || !editorRef.current)
       return;
@@ -37697,6 +39252,28 @@ function YamlViewerModal() {
     const m = window.monaco;
     if (!m)
       return;
+    if (!checksEnabled) {
+      const model = editorRef.current.getModel();
+      if (model) {
+        const sources = [
+          "fqid-validator",
+          "dataType-validator",
+          "enum-validator",
+          "view-ref-validator",
+          "attribute-validator",
+          "ui-rule-validator",
+          "attribute-ref-validator",
+          "rql-check"
+        ];
+        for (const src of sources) {
+          try {
+            m.editor.setModelMarkers(model, src, []);
+          } catch {
+          }
+        }
+      }
+      return;
+    }
     let timer = null;
     const runAll = () => {
       if (!editorRef.current)
@@ -37728,6 +39305,22 @@ function YamlViewerModal() {
         applyUiRuleRefMarkers(m, model, index, domainId);
       } catch {
       }
+      try {
+        applyAttributeRefMarkers(m, model);
+      } catch {
+      }
+      try {
+        applyRqlMarkers(m, model);
+      } catch {
+      }
+      requestAnimationFrame(() => {
+        if (!editorRef.current)
+          return;
+        try {
+          editorRef.current.layout();
+        } catch {
+        }
+      });
     };
     const schedule = () => {
       if (timer)
@@ -37744,7 +39337,7 @@ function YamlViewerModal() {
       } catch {
       }
     };
-  }, [monacoReady, editorCreated, index, domainId]);
+  }, [checksEnabled, monacoReady, editorCreated, index, domainId]);
   useEffect36(() => {
     if (!monacoReady || !editorCreated || !editorRef.current)
       return;
@@ -37799,27 +39392,37 @@ ${label.message}` : ""),
     }
   }, [domainId, ignoredVersion]);
   useEffect36(() => {
-    if (!monacoReady || !editorCreated || !editorRef.current || !lineMap)
+    if (!monacoReady || !editorCreated || !editorRef.current)
       return;
     const m = window.monaco;
     const model = editorRef.current.getModel();
     if (!m || !model)
       return;
+    if (!checksEnabled) {
+      try {
+        m.editor.setModelMarkers(model, "dg-linter", []);
+      } catch {
+      }
+      try {
+        m.editor.setModelMarkers(model, "yaml-syntax", []);
+      } catch {
+      }
+      return;
+    }
+    if (!lineMap)
+      return;
     const currentText = model.getValue();
     const isDirty2 = content !== savedContent;
     const markers = domainIssues.filter((issue) => severityFilter.has(issue.severity)).filter((issue) => !isIgnored(issue, ignored)).map((issue) => {
-      const state = isDirty2 ? classifyIssue(issue, currentText, lineMap) : "still";
+      const state = isDirty2 ? classifyIssue(issue, currentText, lineMap, recheckModel, index) : "still";
       if (state === "resolved")
         return null;
       const line = findIssueLine(issue, lineMap);
       if (line == null)
         return null;
-      const isStale = state === "unknown";
       return {
         severity: issue.severity === "error" ? m.MarkerSeverity.Error : issue.severity === "warning" ? m.MarkerSeverity.Warning : m.MarkerSeverity.Info,
-        message: isStale ? `\u23F1 ${issue.message}
-
-\u0412\u043E\u0437\u043C\u043E\u0436\u043D\u043E, \u0443\u0441\u0442\u0430\u0440\u0435\u043B\u043E \u2014 \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u0435 \u0444\u0430\u0439\u043B, \u0447\u0442\u043E\u0431\u044B \u0441\u0435\u0440\u0432\u0435\u0440\u043D\u044B\u0439 \u043B\u0438\u043D\u0442\u0435\u0440 \u043F\u0435\u0440\u0435\u043F\u0440\u043E\u0432\u0435\u0440\u0438\u043B.` : `[${issue.rule}] ${issue.message}${issue.hint ? "\n\n\u{1F4A1} " + issue.hint : ""}`,
+        message: `[${issue.rule}] ${issue.message}${issue.hint ? "\n\n\u{1F4A1} " + issue.hint : ""}`,
         startLineNumber: line,
         startColumn: 1,
         endLineNumber: line,
@@ -37871,7 +39474,7 @@ ${label.message}` : ""),
       } catch {
       }
     };
-  }, [monacoReady, editorCreated, lineMap, domainIssues, isLocked, content, severityFilter, savedContent]);
+  }, [index, recheckModel, checksEnabled, monacoReady, editorCreated, lineMap, domainIssues, isLocked, content, severityFilter, savedContent]);
   const jumpTo = useCallback18((line) => {
     const editor = editorRef.current;
     if (!editor)
@@ -37920,50 +39523,37 @@ ${label.message}` : ""),
     setActiveFoldLevel(null);
   }, []);
   useEffect36(() => {
-    if (!open || !lineMap || !fqid || !editorCreated || !editorRef.current)
+    if (!open)
       return;
-    const entityId = fqid.split("/")[1];
-    if (!entityId)
+    if (!pendingIssue)
       return;
-    let line = null;
-    const targetKey = `entities#${entityId}`.toLowerCase();
-    for (const [key, value] of lineMap.itemLines.entries()) {
-      if (key.toLowerCase() === targetKey) {
-        line = value;
-        break;
-      }
+    if (!editorCreated || !editorRef.current)
+      return;
+    if (!lineMap)
+      return;
+    const line = findIssueLine(pendingIssue, lineMap);
+    if (line == null) {
+      setPendingIssue(null);
+      return;
     }
-    if (!line) {
-      const model = editorRef.current.getModel();
-      if (model) {
-        const escaped = entityId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const re = new RegExp(`^\\s*-\\s+id\\s*:\\s*["']?${escaped}["']?\\s*(?:#.*)?$`, "i");
-        const lineCount = model.getLineCount();
-        for (let i = 1; i <= lineCount; i++) {
-          if (re.test(model.getLineContent(i))) {
-            line = i;
-            break;
-          }
-        }
-      }
-    }
-    if (!line)
-      return;
-    const sectionEl = document.querySelector(
-      '.yaml-nav-section[data-section-key="entities"]'
-    );
-    if (sectionEl)
-      sectionEl.open = true;
     const t = setTimeout(() => {
-      if (editorRef.current) {
-        try {
-          jumpTo(line);
-        } catch {
-        }
+      setPendingIssue(null);
+      if (!editorRef.current)
+        return;
+      try {
+        jumpTo(line);
+      } catch {
       }
-    }, 400);
+    }, 50);
     return () => clearTimeout(t);
-  }, [open, lineMap, fqid, editorCreated, jumpTo]);
+  }, [
+    open,
+    pendingIssue,
+    editorCreated,
+    lineMap,
+    jumpTo,
+    setPendingIssue
+  ]);
   const toggleNode = useCallback18((key) => {
     setExpandedNodes((prev) => {
       const s = new Set(prev);
@@ -38025,6 +39615,136 @@ ${label.message}` : ""),
       setIsLocked(true);
     }
   }, [isLocked, isDirty, savedContent]);
+  const handleSave = useCallback18(async () => {
+    if (isLocked || isSaving || !editorRef.current)
+      return;
+    let valueToSave = editorRef.current.getValue();
+    if (valueToSave === savedContent) {
+      setSaveFeedback(true);
+      setTimeout(() => setSaveFeedback(false), 1500);
+      return;
+    }
+    if (mode === "remote") {
+      const oldVersion = extractTopLevelVersion(savedContent);
+      const newVersion = extractTopLevelVersion(valueToSave);
+      if (oldVersion && newVersion && oldVersion === newVersion) {
+        const bumped = bumpPatchVersion(oldVersion);
+        if (bumped) {
+          const ok = confirm(
+            `\u0412\u0435\u0440\u0441\u0438\u044F \u0441\u0445\u0435\u043C\u044B \u043D\u0435 \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u0430\u0441\u044C: ${oldVersion}.
+
+\u0414\u043B\u044F \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u0438 version \u0434\u043E\u043B\u0436\u043D\u0430 \u0431\u044B\u0442\u044C \u0431\u043E\u043B\u044C\u0448\u0435, \u0447\u0435\u043C \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435.
+\u041F\u043E\u0434\u043D\u044F\u0442\u044C \u0434\u043E ${bumped} \u0438 \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C?`
+          );
+          if (!ok)
+            return;
+          valueToSave = replaceTopLevelVersion(valueToSave, bumped);
+          isProgrammaticChange.current = true;
+          try {
+            editorRef.current.setValue(valueToSave);
+          } finally {
+            isProgrammaticChange.current = false;
+          }
+          setContent(valueToSave);
+        }
+      }
+    }
+    setIsSaving(true);
+    setSaveStage(mode === "remote" ? "publishing" : "writing");
+    setSaveError(null);
+    const controller = new AbortController();
+    saveAbortRef.current = controller;
+    const timeoutId = setTimeout(() => controller.abort(), 12e4);
+    try {
+      const res = await fetch("/file", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: filePath, content: valueToSave }),
+        signal: controller.signal
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        let errMsg = errText;
+        try {
+          const j = JSON.parse(errText);
+          if (j.error)
+            errMsg = j.error;
+        } catch {
+        }
+        throw new Error(errMsg);
+      }
+      invalidateYamlCache(filePath || void 0);
+      useGraphStore.getState().bumpModelVersion();
+      setTimeout(() => {
+        useGraphStore.getState().bumpModelVersion();
+      }, 800);
+      setSavedContent(valueToSave);
+      setContent(valueToSave);
+      setLiveVersion((v) => v + 1);
+      try {
+        editorRef.current?.pushUndoStop();
+      } catch {
+      }
+      let publishInfo = null;
+      try {
+        const data = await res.json();
+        if (data && data.publish)
+          publishInfo = data.publish;
+      } catch {
+      }
+      let diskContent = null;
+      try {
+        const back = await fetch(
+          "/file?path=" + encodeURIComponent(filePath || "")
+        );
+        if (back.ok)
+          diskContent = await back.text();
+      } catch {
+      }
+      let hadError = false;
+      if (diskContent !== null && diskContent !== valueToSave && editorRef.current) {
+        isProgrammaticChange.current = true;
+        try {
+          editorRef.current.setValue(diskContent);
+        } finally {
+          isProgrammaticChange.current = false;
+        }
+        setSavedContent(diskContent);
+        setContent(diskContent);
+        setLiveVersion((v) => v + 1);
+        hadError = true;
+        setSaveError(
+          "\u041D\u0430 \u0434\u0438\u0441\u043A\u0435 \u043E\u043A\u0430\u0437\u0430\u043B\u043E\u0441\u044C \u0434\u0440\u0443\u0433\u043E\u0435 \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u0435. Monaco \u0441\u0438\u043D\u0445\u0440\u043E\u043D\u0438\u0437\u0438\u0440\u043E\u0432\u0430\u043D. \u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435, \u043D\u0435 \u0437\u0430\u043F\u0443\u0449\u0435\u043D \u043B\u0438 --refresh \u043F\u0430\u0440\u0430\u043B\u043B\u0435\u043B\u044C\u043D\u043E."
+        );
+      }
+      if (publishInfo && publishInfo.ok === true) {
+        useGraphStore.getState().showSnackbar(
+          `\u2705 \u041E\u043F\u0443\u0431\u043B\u0438\u043A\u043E\u0432\u0430\u043D\u043E: ${publishInfo.domain?.name || filePath}`
+        );
+      } else if (publishInfo && publishInfo.ok === false) {
+        hadError = true;
+        const hint = publishInfo.hint ? `
+${publishInfo.hint}` : "";
+        setSaveError(
+          `\u041B\u043E\u043A\u0430\u043B\u044C\u043D\u043E \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u043E. \u041F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u044F \u043D\u0435 \u0443\u0434\u0430\u043B\u0430\u0441\u044C: ${publishInfo.error}${hint}`
+        );
+        useGraphStore.getState().showSnackbar(
+          `\u26A0\uFE0F \u041B\u043E\u043A\u0430\u043B\u044C\u043D\u043E \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u043E, \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u044F \u043D\u0435 \u0443\u0434\u0430\u043B\u0430\u0441\u044C: ${publishInfo.error}`
+        );
+      }
+      if (!hadError) {
+        setSaveFeedback(true);
+        setTimeout(() => setSaveFeedback(false), 2e3);
+      }
+    } catch (err) {
+      setSaveError(err.message || "\u041E\u0448\u0438\u0431\u043A\u0430 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F");
+    } finally {
+      clearTimeout(timeoutId);
+      saveAbortRef.current = null;
+      setIsSaving(false);
+      setSaveStage("idle");
+    }
+  }, [isLocked, savedContent, filePath, mode]);
   const handleServerValidate = useCallback18(async () => {
     if (!editorRef.current)
       return;
@@ -38058,64 +39778,6 @@ ${label.message}` : ""),
       setServerValidating(false);
     }
   }, []);
-  const handleSave = useCallback18(async () => {
-    if (isLocked || !editorRef.current)
-      return;
-    if (isRemoteMode)
-      return;
-    const currentValue = editorRef.current.getValue();
-    if (currentValue === savedContent) {
-      setSaveFeedback(true);
-      setTimeout(() => setSaveFeedback(false), 1500);
-      return;
-    }
-    const errorCount = domainIssues.filter((i) => i.severity === "error").length;
-    if (errorCount > 0) {
-      const ok = confirm(
-        `\u0412 \u0441\u0445\u0435\u043C\u0435 ${errorCount} ${errorCount === 1 ? "\u043E\u0448\u0438\u0431\u043A\u0430" : "\u043E\u0448\u0438\u0431\u043E\u043A"}. \u0412\u0441\u0451 \u0440\u0430\u0432\u043D\u043E \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C? \u041E\u0448\u0438\u0431\u043A\u0438 \u043C\u043E\u0433\u0443\u0442 \u043F\u0440\u0438\u0432\u0435\u0441\u0442\u0438 \u043A \u043F\u043E\u043B\u043E\u043C\u043A\u0435 \u0434\u043E\u043C\u0435\u043D\u0430.`
-      );
-      if (!ok)
-        return;
-    }
-    setIsSaving(true);
-    setSaveError(null);
-    try {
-      const res = await fetch("/file", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: filePath, content: currentValue })
-      });
-      if (!res.ok) {
-        const errText = await res.text();
-        let errMsg = errText;
-        try {
-          const j = JSON.parse(errText);
-          if (j.error)
-            errMsg = j.error;
-        } catch {
-        }
-        throw new Error(errMsg);
-      }
-      invalidateYamlCache(filePath || void 0);
-      useGraphStore.getState().bumpModelVersion();
-      setTimeout(() => {
-        useGraphStore.getState().bumpModelVersion();
-      }, 800);
-      setSavedContent(currentValue);
-      setContent(currentValue);
-      setLiveVersion((v) => v + 1);
-      try {
-        editorRef.current?.pushUndoStop();
-      } catch {
-      }
-      setSaveFeedback(true);
-      setTimeout(() => setSaveFeedback(false), 2e3);
-    } catch (err) {
-      setSaveError(err.message || "\u041E\u0448\u0438\u0431\u043A\u0430 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F");
-    } finally {
-      setIsSaving(false);
-    }
-  }, [isLocked, isRemoteMode, savedContent, filePath]);
   const handleClose = useCallback18(() => {
     if (isDirty && !isLocked) {
       if (!confirm("\u0415\u0441\u0442\u044C \u043D\u0435\u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D\u043D\u044B\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F. \u0417\u0430\u043A\u0440\u044B\u0442\u044C \u0431\u0435\u0437 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F?"))
@@ -38418,13 +40080,38 @@ ${label.message}` : ""),
   useEffect36(() => {
     if (!monacoReady || !editorCreated || !editorRef.current)
       return;
+    if (!checksEnabled) {
+      if (decorationsCollection.current) {
+        decorationsCollection.current.clear();
+      }
+      return;
+    }
     if (!lineMap || !content)
       return;
+    if (content.length > 25e4) {
+      if (decorationsCollection.current)
+        decorationsCollection.current.clear();
+      return;
+    }
     const m = window.monaco;
     const model = editorRef.current.getModel();
     if (!m || !model)
       return;
     const textWithoutComments = content.replace(/#[^\n]*/g, "");
+    const wordCounts = /* @__PURE__ */ new Map();
+    for (const mw of textWithoutComments.matchAll(
+      /[a-zA-Z_][a-zA-Z0-9_]*/g
+    )) {
+      const w = mw[0];
+      wordCounts.set(w, (wordCounts.get(w) || 0) + 1);
+    }
+    const defCounts = /* @__PURE__ */ new Map();
+    for (const md of textWithoutComments.matchAll(
+      /(?:^|[\s-])id\s*:\s*['"]?([a-zA-Z_][a-zA-Z0-9_]*)/g
+    )) {
+      const id = md[1];
+      defCounts.set(id, (defCounts.get(id) || 0) + 1);
+    }
     const newDecorations = [];
     const entitiesSection = lineMap.sections.find((s) => s.key === "entities");
     if (entitiesSection) {
@@ -38435,20 +40122,15 @@ ${label.message}` : ""),
           if (attrNode.type !== "attribute")
             return;
           const attrId = attrNode.id;
-          const escaped = attrId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-          const wordRegex = new RegExp(`\\b${escaped}\\b`, "g");
-          const allMatches = textWithoutComments.match(wordRegex)?.length || 0;
-          const defRegex = new RegExp(`id:\\s*['"]?${escaped}['"]?`, "g");
-          const defMatches = textWithoutComments.match(defRegex)?.length || 0;
-          const usages = allMatches - defMatches;
-          if (usages <= 0) {
+          const total = wordCounts.get(attrId) || 0;
+          const defs = defCounts.get(attrId) || 0;
+          if (total - defs <= 0) {
             newDecorations.push({
               range: new m.Range(attrNode.line, 1, attrNode.line, 1),
               options: {
                 isWholeLine: true,
                 className: "unused-attribute-line",
                 inlineClassName: "unused-attribute-text",
-                // <--- Красим сам текст
                 hoverMessage: {
                   value: `\u26A0\uFE0F \u0410\u0442\u0440\u0438\u0431\u0443\u0442 \xAB${attrId}\xBB \u043D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u043D\u0438 \u0432 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F\u0445, \u043D\u0438 \u0432 \u043F\u0440\u0430\u0432\u0438\u043B\u0430\u0445 \u0434\u0430\u043D\u043D\u044B\u0445`
                 }
@@ -38465,7 +40147,7 @@ ${label.message}` : ""),
       if (decorationsCollection.current)
         decorationsCollection.current.clear();
     };
-  }, [monacoReady, editorCreated, lineMap, content, liveVersion]);
+  }, [monacoReady, editorCreated, lineMap, content, checksEnabled]);
   useEffect36(() => {
     if (!monacoReady || !editorCreated || !editorRef.current)
       return;
@@ -38639,7 +40321,7 @@ ${label.message}` : ""),
   }, []);
   if (!open)
     return null;
-  const canSave = !isRemoteMode && !isLocked && isDirty;
+  const canSave = !isLocked && isDirty;
   const issueCount = effectiveIssues.length;
   const refsCount = externalRefs.refs.length;
   return /* @__PURE__ */ jsxs71(
@@ -38659,8 +40341,21 @@ ${label.message}` : ""),
                   "\u{1F4C4} ",
                   filePath?.split("/").pop() || "\u0424\u0430\u0439\u043B \u0441\u0445\u0435\u043C\u044B",
                   domainId && /* @__PURE__ */ jsx74("span", { className: "help-modal__badge", children: domainId }),
-                  isDirty && /* @__PURE__ */ jsx74("span", { className: "help-modal__badge help-modal__badge--dirty", children: "\u25CF \u0438\u0437\u043C\u0435\u043D\u0451\u043D" }),
-                  saveFeedback && /* @__PURE__ */ jsx74("span", { className: "help-modal__badge help-modal__badge--ok", children: "\u2713 \u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D" })
+                  isSaving ? /* @__PURE__ */ jsx74(
+                    "span",
+                    {
+                      className: "help-modal__badge help-modal__badge--saving",
+                      title: saveStage === "publishing" ? "\u0418\u0434\u0451\u0442 \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u044F \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435" : "\u0418\u0434\u0451\u0442 \u0437\u0430\u043F\u0438\u0441\u044C \u0444\u0430\u0439\u043B\u0430 \u043D\u0430 \u0434\u0438\u0441\u043A",
+                      children: saveStage === "publishing" ? "\u25CF \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u044F\u2026" : "\u25CF \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u0435\u2026"
+                    }
+                  ) : loading ? /* @__PURE__ */ jsx74(
+                    "span",
+                    {
+                      className: "help-modal__badge help-modal__badge--loading",
+                      title: mode === "remote" ? "\u0417\u0430\u043F\u0440\u0430\u0448\u0438\u0432\u0430\u0435\u043C \u0430\u043A\u0442\u0443\u0430\u043B\u044C\u043D\u0443\u044E \u0441\u0445\u0435\u043C\u0443 \u0441 \u0441\u0435\u0440\u0432\u0435\u0440\u0430" : "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0444\u0430\u0439\u043B\u0430",
+                      children: mode === "remote" ? "\u25CF \u0437\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0441 \u0441\u0435\u0440\u0432\u0435\u0440\u0430\u2026" : "\u25CF \u0437\u0430\u0433\u0440\u0443\u0437\u043A\u0430\u2026"
+                    }
+                  ) : saveFeedback ? /* @__PURE__ */ jsx74("span", { className: "help-modal__badge help-modal__badge--ok", children: "\u2713 \u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D" }) : isDirty ? /* @__PURE__ */ jsx74("span", { className: "help-modal__badge help-modal__badge--dirty", children: "\u25CF \u0438\u0437\u043C\u0435\u043D\u0451\u043D" }) : null
                 ] }),
                 /* @__PURE__ */ jsxs71("div", { className: "help-modal__actions", children: [
                   serverAvailable && /* @__PURE__ */ jsx74(
@@ -38740,7 +40435,7 @@ ${label.message}` : ""),
                     {
                       className: "help-modal__icon-btn" + (!isLocked ? " active" : ""),
                       onClick: handleToggleLock,
-                      title: isLocked ? "\u0420\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0434\u043B\u044F \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F" : "\u0417\u0430\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u0442\u044C (\u0441\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F)",
+                      title: isLocked ? "\u0420\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0434\u043B\u044F \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F (\u0434\u0432\u043E\u0439\u043D\u043E\u0439 Shift)" : "\u0417\u0430\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u0442\u044C (\u0441\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F)",
                       children: /* @__PURE__ */ jsx74(MIcon, { name: isLocked ? "lock" : "lock_open" })
                     }
                   ),
@@ -38759,7 +40454,7 @@ ${label.message}` : ""),
                       className: "help-modal__icon-btn" + (saveFeedback ? " active" : ""),
                       onClick: handleSave,
                       disabled: !canSave || isSaving,
-                      title: isRemoteMode ? "\u0421\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u0435 \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E \u0432 \u0440\u0435\u0436\u0438\u043C\u0435 --server" : isLocked ? "\u0420\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u0443\u0439\u0442\u0435 \u0444\u0430\u0439\u043B \u0434\u043B\u044F \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F" : isDirty ? "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F (Ctrl+S)" : "\u041D\u0435\u0442 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439 \u0434\u043B\u044F \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F",
+                      title: isLocked ? "\u0420\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u0443\u0439\u0442\u0435 \u0444\u0430\u0439\u043B \u0434\u043B\u044F \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F" : isDirty ? mode === "remote" ? "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u0438 \u043E\u043F\u0443\u0431\u043B\u0438\u043A\u043E\u0432\u0430\u0442\u044C \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435 (Ctrl+S)" : "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F (Ctrl+S)" : "\u041D\u0435\u0442 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439 \u0434\u043B\u044F \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F",
                       children: /* @__PURE__ */ jsx74(MIcon, { name: isSaving ? "hourglass" : "save" })
                     }
                   ),
@@ -38787,6 +40482,15 @@ ${label.message}` : ""),
                       },
                       title: "\u0421\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0439 \u043E\u0431\u0437\u043E\u0440 \u0441\u0445\u0435\u043C\u044B",
                       children: /* @__PURE__ */ jsx74(MIcon, { name: "menu_book" })
+                    }
+                  ),
+                  /* @__PURE__ */ jsx74(
+                    "button",
+                    {
+                      className: "help-modal__icon-btn" + (checksEnabled ? " active" : ""),
+                      onClick: toggleChecks,
+                      title: checksEnabled ? "\u041F\u0440\u043E\u0432\u0435\u0440\u043A\u0438 \u0432\u043A\u043B\u044E\u0447\u0435\u043D\u044B. \u041D\u0430\u0436\u043C\u0438\u0442\u0435, \u0447\u0442\u043E\u0431\u044B \u043E\u0442\u043A\u043B\u044E\u0447\u0438\u0442\u044C (\u0431\u044B\u0441\u0442\u0440\u044B\u0439 \u0440\u0435\u0436\u0438\u043C \u0434\u043B\u044F \u043C\u0435\u0434\u043B\u0435\u043D\u043D\u044B\u0445 \u043C\u0430\u0448\u0438\u043D)" : "\u041F\u0440\u043E\u0432\u0435\u0440\u043A\u0438 \u043E\u0442\u043A\u043B\u044E\u0447\u0435\u043D\u044B. \u041D\u0430\u0436\u043C\u0438\u0442\u0435, \u0447\u0442\u043E\u0431\u044B \u0432\u043A\u043B\u044E\u0447\u0438\u0442\u044C",
+                      children: /* @__PURE__ */ jsx74(MIcon, { name: checksEnabled ? "rule" : "block" })
                     }
                   ),
                   /* @__PURE__ */ jsx74(
@@ -39153,7 +40857,23 @@ ${label.message}` : ""),
                         }
                       }
                     ),
-                    (loading || !monacoReady && !monacoError) && /* @__PURE__ */ jsx74("div", { className: "yaml-viewer-editor__loading", children: loading ? "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u0433\u043E..." : "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 Monaco..." }),
+                    loading && /* @__PURE__ */ jsx74("div", { className: "yaml-viewer-editor__loading", children: /* @__PURE__ */ jsxs71("div", { className: "yaml-viewer-editor__loading-inner", children: [
+                      /* @__PURE__ */ jsx74("div", { className: "yaml-viewer-editor__spinner" }),
+                      /* @__PURE__ */ jsx74("div", { className: "yaml-viewer-editor__loading-text", children: mode === "remote" ? "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0430\u043A\u0442\u0443\u0430\u043B\u044C\u043D\u043E\u0439 \u0441\u0445\u0435\u043C\u044B \u0441 \u0441\u0435\u0440\u0432\u0435\u0440\u0430\u2026" : "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u0433\u043E\u2026" })
+                    ] }) }),
+                    !loading && !monacoReady && !monacoError && /* @__PURE__ */ jsx74("div", { className: "yaml-viewer-editor__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 Monaco\u2026" }),
+                    loadError && /* @__PURE__ */ jsxs71("div", { className: "yaml-viewer-editor__error", children: [
+                      "\u041E\u0448\u0438\u0431\u043A\u0430 \u0437\u0430\u0433\u0440\u0443\u0437\u043A\u0438 \u0441\u0445\u0435\u043C\u044B: ",
+                      loadError,
+                      /* @__PURE__ */ jsx74("div", { style: { marginTop: 8 }, children: /* @__PURE__ */ jsx74(
+                        "button",
+                        {
+                          className: "btn",
+                          onClick: () => setReloadKey((k) => k + 1),
+                          children: "\u041F\u043E\u0432\u0442\u043E\u0440\u0438\u0442\u044C"
+                        }
+                      ) })
+                    ] }),
                     monacoError && /* @__PURE__ */ jsxs71("div", { className: "yaml-viewer-editor__error", children: [
                       "\u041E\u0448\u0438\u0431\u043A\u0430 Monaco: ",
                       monacoError
@@ -39558,64 +41278,25 @@ function isIgnored(issue, ignoredSet) {
   const sig = `dg-linter|${issue.message || ""}`;
   return ignoredSet.has(sig);
 }
-function hasFieldInEntityBlock(fieldName, entityLine, lines) {
-  const startIdx = entityLine - 1;
-  const baseLine = lines[startIdx];
-  if (!baseLine)
-    return false;
-  const entityIndent = (baseLine.match(/^(\s*)/) || ["", ""])[1].length;
-  let childIndent = -1;
-  for (let i = startIdx + 1; i < lines.length; i++) {
-    const line = lines[i];
-    if (!line.trim())
-      continue;
-    const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
-    if (indent <= entityIndent)
-      return false;
-    childIndent = indent;
-    break;
-  }
-  if (childIndent === -1)
-    return false;
-  for (let i = startIdx + 1; i < lines.length; i++) {
-    const line = lines[i];
-    if (!line.trim())
-      continue;
-    const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
-    if (indent < childIndent)
-      break;
-    if (indent === childIndent) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith("-") || trimmed.startsWith("#"))
-        continue;
-      const re = new RegExp(`^${fieldName}\\s*:`);
-      if (re.test(trimmed))
-        return true;
-    }
-  }
-  return false;
-}
-function hasFieldInAttributeBlock(fieldName, attrLine, lines) {
-  const startIdx = attrLine - 1;
-  const baseLine = lines[startIdx];
-  if (!baseLine)
-    return false;
-  const attrIndent = (baseLine.match(/^(\s*)/) || ["", ""])[1].length;
-  for (let i = startIdx + 1; i < lines.length; i++) {
-    const line = lines[i];
-    if (!line.trim())
-      continue;
-    const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
-    const trimmed = line.trim();
-    if (indent === attrIndent && trimmed.startsWith("-"))
-      break;
-    if (indent < attrIndent)
-      break;
-    const re = new RegExp(`^${fieldName}\\s*:`);
-    if (re.test(trimmed))
-      return true;
-  }
-  return false;
+function resolveEntityOrAttributeLine(lineMap, entityId, attributeId) {
+  if (!entityId)
+    return null;
+  const entitiesSection = lineMap.sections.find((s) => s.key === "entities");
+  if (!entitiesSection)
+    return null;
+  const entityNode = entitiesSection.nodes.find(
+    (n) => n.id.toLowerCase() === entityId.toLowerCase()
+  );
+  if (!entityNode)
+    return null;
+  if (!attributeId)
+    return entityNode.line;
+  const line = findAttributeLineInMap(
+    entityNode.id,
+    attributeId,
+    lineMap
+  );
+  return line;
 }
 function findAttributeLineInMap(entityId, attrId, lineMap) {
   if (!entityId || !attrId)
@@ -39643,121 +41324,55 @@ function findAttributeLineInMap(entityId, attrId, lineMap) {
   }
   return null;
 }
-function getActionTypeFromText(actionId, lines, lineMap) {
-  const section = lineMap.sections.find((s) => s.key === "actions");
-  if (!section)
-    return null;
-  const actionNode = section.nodes.find((n) => n.id === actionId);
-  if (!actionNode)
-    return null;
-  const startLine = actionNode.line;
-  const startLineText = lines[startLine - 1] || "";
-  const dashIndent = (startLineText.match(/^(\s*)/) || ["", ""])[1].length;
-  for (let i = startLine; i < lines.length; i++) {
-    const line = lines[i];
-    if (!line)
-      continue;
-    const dashMatch = line.match(/^(\s*)-\s+id\s*:/);
-    if (dashMatch && dashMatch[1].length === dashIndent) {
-      return null;
-    }
-    const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
-    const trimmed = line.trim();
-    if (indent < dashIndent && trimmed && /^[a-zA-Z_]/.test(trimmed)) {
-      return null;
-    }
-    if (indent > dashIndent) {
-      const typeMatch = line.match(
-        /^\s*type\s*:\s*['"]?([\w.-]+)['"]?\s*(?:#.*)?$/
-      );
-      if (typeMatch)
-        return typeMatch[1];
-    }
-  }
-  return null;
-}
-function classifyIssue(issue, currentText, lineMap) {
+function classifyIssue(issue, _currentText, _lineMap, recheckModel, index) {
   if (issue.__clientOnly)
     return "still";
-  if (!lineMap)
-    return "unknown";
-  const ruleId = String(issue.ruleId || "").toLowerCase();
-  const lines = currentText.split("\n");
-  const getEntityLine = (entityId) => {
-    const key = `entities#${entityId}`.toLowerCase();
-    for (const [k, line] of lineMap.itemLines.entries()) {
-      if (k.toLowerCase() === key)
-        return line;
+  return recheck(issue, recheckModel, index);
+}
+function findNestedPathLine(lineMap, propertyPath) {
+  const pairs2 = [];
+  const re = /([a-zA-Z][a-zA-Z0-9_]*)\[([^\]]+)\]/g;
+  let m;
+  while ((m = re.exec(propertyPath)) !== null) {
+    pairs2.push([m[1], m[2]]);
+  }
+  if (pairs2.length < 2)
+    return null;
+  const [firstKey, firstId] = pairs2[0];
+  if (firstId === "..")
+    return null;
+  const section = lineMap.sections.find((s) => s.key === firstKey);
+  if (!section)
+    return null;
+  let current = section.nodes.find((n) => n.id === firstId);
+  if (!current)
+    return null;
+  let line = current.line;
+  const findNode = (nodes, id) => {
+    for (const n of nodes) {
+      if (n.id === id)
+        return n;
+      if (n.children) {
+        const hit = findNode(n.children, id);
+        if (hit)
+          return hit;
+      }
     }
     return null;
   };
-  if (ruleId.includes("entity-label") && issue.entityFqid) {
-    const entityId = issue.entityFqid.split("/").pop();
-    if (!entityId)
-      return "unknown";
-    const entityLine = getEntityLine(entityId);
-    if (!entityLine)
-      return "unknown";
-    return hasFieldInEntityBlock("label", entityLine, lines) ? "resolved" : "still";
+  for (let i = 1; i < pairs2.length; i++) {
+    const id = pairs2[i][1];
+    if (id === "..")
+      return line;
+    if (!current.children)
+      return line;
+    const next = findNode(current.children, id);
+    if (!next)
+      return line;
+    current = next;
+    line = next.line;
   }
-  if (ruleId.includes("entity-description") && issue.entityFqid) {
-    const entityId = issue.entityFqid.split("/").pop();
-    if (!entityId)
-      return "unknown";
-    const entityLine = getEntityLine(entityId);
-    if (!entityLine)
-      return "unknown";
-    return hasFieldInEntityBlock("description", entityLine, lines) ? "resolved" : "still";
-  }
-  if (ruleId.includes("attribute-description") && issue.attributeId) {
-    const entityId = issue.entityFqid?.split("/").pop();
-    if (!entityId)
-      return "unknown";
-    const attrLine = findAttributeLineInMap(entityId, issue.attributeId, lineMap);
-    if (attrLine == null) {
-      return "resolved";
-    }
-    return hasFieldInAttributeBlock("description", attrLine, lines) ? "resolved" : "still";
-  }
-  if (ruleId.includes("attribute-camelcase") && issue.attributeId) {
-    const entityId = issue.entityFqid?.split("/").pop();
-    if (!entityId)
-      return "unknown";
-    const attrLine = findAttributeLineInMap(
-      entityId,
-      issue.attributeId,
-      lineMap
-    );
-    if (attrLine == null) {
-      return "resolved";
-    }
-    const line = lines[attrLine - 1] || "";
-    const match = line.match(/-\s+id:\s*['"]?([a-zA-Z0-9_\-]+)/);
-    if (!match || !match[1])
-      return "unknown";
-    return /^[a-z][a-zA-Z0-9]*$/.test(match[1]) ? "resolved" : "still";
-  }
-  if (ruleId.includes("entity-camelcase") && issue.entityFqid) {
-    const entityId = issue.entityFqid.split("/").pop() || "";
-    if (!entityId)
-      return "unknown";
-    if (/^[A-Z][a-zA-Z0-9]*$/.test(entityId))
-      return "resolved";
-    const pascal = entityId.split(/[_\-]+/).map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join("");
-    const entityLine = getEntityLine(pascal);
-    return entityLine != null ? "resolved" : "still";
-  }
-  if (ruleId === "action/unknown-type" && issue.propertyPath) {
-    const m = String(issue.propertyPath).match(/^actions\[(.+?)\]\.type$/);
-    if (!m)
-      return "unknown";
-    const actionId = m[1];
-    const currentType = getActionTypeFromText(actionId, lines, lineMap);
-    if (currentType == null)
-      return "resolved";
-    return KNOWN_ACTION_TYPES_UI.has(currentType) ? "resolved" : "still";
-  }
-  return "unknown";
+  return line;
 }
 function findIssueLine(issue, lineMap) {
   if (!lineMap)
@@ -39771,49 +41386,44 @@ function findIssueLine(issue, lineMap) {
     if (entityMatch) {
       const entityId = entityMatch[1];
       const attrMatch = path.match(/attributes\[([^\]]+)\]/);
-      if (attrMatch) {
-        return findAttributeLineInMap(entityId, attrMatch[1], lineMap);
-      }
-      const line = lineMap.itemLines.get(`entities#${entityId}`);
+      const line = resolveEntityOrAttributeLine(
+        lineMap,
+        entityId,
+        attrMatch ? attrMatch[1] : null
+      );
       if (line != null)
         return line;
+      if (attrMatch)
+        return null;
+      const fallback = lineMap.itemLines.get(`entities#${entityId}`);
+      if (fallback != null)
+        return fallback;
     }
+    const nested = findNestedPathLine(lineMap, path);
+    if (nested != null)
+      return nested;
     const sectionItemMatch = path.match(/^([a-zA-Z]+)\[([^\]]+)\]/);
     if (sectionItemMatch) {
-      const line = lineMap.itemLines.get(`${sectionItemMatch[1]}#${sectionItemMatch[2]}`);
+      const line = lineMap.itemLines.get(
+        `${sectionItemMatch[1]}#${sectionItemMatch[2]}`
+      );
       if (line != null)
         return line;
     }
   }
   if (issue.entityFqid) {
     const entityId = issue.entityFqid.split("/")[1];
-    const entitiesSection = lineMap.sections.find((s) => s.key === "entities");
-    if (entitiesSection) {
-      const entityNode = entitiesSection.nodes.find(
-        (n) => n.id.toLowerCase() === entityId.toLowerCase()
-      );
-      if (entityNode) {
-        if (issue.attributeId && entityNode.children) {
-          const findAttrRecursive = (nodes, attrId) => {
-            for (const child of nodes) {
-              if (child.id.toLowerCase() === attrId.toLowerCase()) {
-                return child.line;
-              }
-              if (child.children) {
-                const res = findAttrRecursive(child.children, attrId);
-                if (res)
-                  return res;
-              }
-            }
-            return null;
-          };
-          const attrLine = findAttrRecursive(entityNode.children, issue.attributeId);
-          if (attrLine != null)
-            return attrLine;
-        }
-        return entityNode.line;
-      }
-    }
+    if (!entityId)
+      return null;
+    const line = resolveEntityOrAttributeLine(
+      lineMap,
+      entityId,
+      issue.attributeId ?? null
+    );
+    if (line != null)
+      return line;
+    if (issue.attributeId)
+      return null;
   }
   const sectionMatch = (issue.propertyPath || "").match(/^([a-zA-Z]+)/);
   if (sectionMatch) {
@@ -40730,7 +42340,7 @@ function NavContextMenu({
     }
   );
 }
-var KNOWN_ACTION_TYPES_UI, BACKLINK_KIND_LABELS;
+var BACKLINK_KIND_LABELS;
 var init_YamlViewerModal = __esm({
   "src/web/components/modals/YamlViewerModal.tsx"() {
     "use strict";
@@ -40750,26 +42360,7 @@ var init_YamlViewerModal = __esm({
     init_yaml_search();
     init_js_yaml();
     init_entity_focus();
-    KNOWN_ACTION_TYPES_UI = /* @__PURE__ */ new Set([
-      "open_panel",
-      "open_modal",
-      "open_page",
-      "open_graph_view",
-      "open_board_view",
-      "open_list",
-      "open_tree",
-      "open_view",
-      "remove",
-      "bulk",
-      "tree_bulk",
-      "set_attribute_value",
-      "automation",
-      "scenario",
-      "generate_qr_code",
-      "copy_entity_link",
-      "open_external_widget_modal",
-      "workflow"
-    ]);
+    init_local_recheck();
     BACKLINK_KIND_LABELS = {
       inheritance: "\u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435",
       reference: "reference",

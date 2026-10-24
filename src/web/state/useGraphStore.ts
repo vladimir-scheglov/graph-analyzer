@@ -371,6 +371,16 @@ export interface GraphState {
   setYamlViewerFqid: (v: string | null) => void;
   yamlViewerDomainId: string | null;
   setYamlViewerDomainId: (v: string | null) => void;
+  /**
+   * «Намерение» — какой issue подсветить после открытия редактора.
+   * Устанавливается из LintModal (или другого места) ПЕРЕД openFileInEditor,
+   * сбрасывается в YamlViewerModal после jumpTo (или сразу, если строка не найдена).
+   */
+  yamlViewerPendingIssue: any | null;
+  setYamlViewerPendingIssue: (v: any | null) => void;
+  /** true — в открытом YAML-редакторе есть несохранённые изменения. */
+  yamlViewerDirty: boolean;
+  setYamlViewerDirty: (v: boolean) => void;
   modelVersion: number;
   bumpModelVersion: () => void;
 
@@ -541,6 +551,10 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   setYamlViewerFqid: (v) => set({ yamlViewerFqid: v }),
   yamlViewerDomainId: null,
   setYamlViewerDomainId: (v) => set({ yamlViewerDomainId: v }),
+  yamlViewerPendingIssue: null,
+  setYamlViewerPendingIssue: (v) => set({ yamlViewerPendingIssue: v }),
+  yamlViewerDirty: false,
+  setYamlViewerDirty: (v) => set({ yamlViewerDirty: v }),
   modelVersion: 0,
   bumpModelVersion: () => set((s) => ({ modelVersion: s.modelVersion + 1 })),
   viewMode: readString("dg-view-mode", "list") as ViewMode,

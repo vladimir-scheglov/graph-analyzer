@@ -9,6 +9,7 @@ import {
   handleFileRequest,
   handleFileSave,
   handleFilePrevious,
+  handleFileFresh,
 } from "./routes/file";
 import { handleUserGuide } from "./routes/user-guide";
 import {
@@ -40,16 +41,58 @@ export interface StartServerOptions {
   remoteInfo: RemoteInfo | null;
   credentials: RemoteCredentials | null;
   refreshCommand: string | null;
+  mode: "local" | "hybrid" | "remote";
 }
 
 export function startServer(opts: StartServerOptions): http.Server {
-  const { port, rootDir, analyzer, remoteInfo, credentials, refreshCommand } =
-    opts;
+  const {
+    port,
+    rootDir,
+    analyzer,
+    remoteInfo,
+    credentials,
+    refreshCommand,
+    mode,
+  } = opts;
 
   state.credentials = credentials;
   state.validation = credentials
     ? { credentials, analyzer, state: null }
     : null;
+
+  // ============ domainIndex (только remote) ============
+  // Нужен для publishExpertise: id экспертизы и folderId берём из _index.json.
+  state.domainIndex = null;
+  if (mode === "remote" && remoteInfo?.cacheDir) {
+    try {
+      const idxPath = path.join(remoteInfo.cacheDir, "_index.json");
+      if (fs.existsSync(idxPath)) {
+        const idx = JSON.parse(fs.readFileSync(idxPath, "utf8"));
+        const m = new Map<
+          string,
+          import("../shared/types").DomainPublishInfo
+        >();
+        for (const d of idx.domains || []) {
+          if (
+            typeof d?.sourceId === "string" &&
+            typeof d?.id === "string" &&
+            typeof d?.folderId === "string"
+          ) {
+            m.set(d.sourceId, {
+              id: d.id,
+              folderId: d.folderId,
+              sourceId: d.sourceId,
+              name: d.name || d.sourceId,
+            });
+          }
+        }
+        state.domainIndex = m;
+        console.log(`📂 Publish index: ${m.size} доменов`);
+      }
+    } catch (err: any) {
+      console.warn("[publish] failed to load _index.json:", err.message);
+    }
+  }
 
   const rawDomains = analyzer.getRawDomainsForModelIndex();
   const modelIndex = buildModelIndex(rawDomains);
@@ -141,11 +184,38 @@ export function startServer(opts: StartServerOptions): http.Server {
     // ============ File routes ============
     // ВАЖНО: /file/previous ДОЛЖЕН идти ПЕРЕД /file,
     // иначе попадает в handleFileRequest и отдаёт текущий файл
-    else if (url.startsWith("/file/previous")) {
+    else if (url.startsWith("/file/fresh")) {
+      try {
+        await handleFileFresh(
+          req,
+          res,
+          rootDir,
+          mode,
+          credentials,
+          state.domainIndex,
+        );
+      } catch (err: any) {
+        try {
+          if (!res.headersSent) {
+            res.writeHead(500, { "Content-Type": "application/json" });
+          }
+          res.end(JSON.stringify({ error: err.message }));
+        } catch {
+          /* ignore */
+        }
+      }
+    } else if (url.startsWith("/file/previous")) {
       handleFilePrevious(req, res, rootDir);
     } else if (url.startsWith("/file") && req.method === "POST") {
       try {
-        await handleFileSave(req, res, rootDir, !!remoteInfo?.server);
+        await handleFileSave(
+          req,
+          res,
+          rootDir,
+          mode,
+          credentials,
+          state.domainIndex,
+        );
         // Асинхронный ребилд модели в фоне (ответ клиенту уже отправлен)
         setImmediate(() => {
           try {
@@ -154,6 +224,24 @@ export function startServer(opts: StartServerOptions): http.Server {
             const rawDomains = analyzer.getRawDomainsForModelIndex();
             const newIndex = buildModelIndex(rawDomains);
             setModelIndex(newIndex);
+
+            // Обновляем semantic diff относительно сохранённого snapshot.
+            // Без этого /api/model/diff будет возвращать lastDiff,
+            // установленный один раз при старте сервера.
+            try {
+              const currentSnapshot = createSnapshotFromModelIndex(newIndex);
+              const snapshotResult = updateModelSnapshot(
+                rootDir,
+                currentSnapshot,
+              );
+              setModelDiff(
+                snapshotResult.effectiveDiff,
+                !snapshotResult.isFirstRun,
+              );
+            } catch (e) {
+              console.warn("[rebuild] snapshot/diff update failed:", e);
+            }
+
             console.log("[rebuild] model rebuilt after file save");
           } catch (e) {
             console.error("[rebuild] failed:", e);
@@ -221,6 +309,11 @@ export function startServer(opts: StartServerOptions): http.Server {
       res.end("Not found");
     }
   });
+
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    console.error(`❌ Некорректный порт: ${port}. Завершаю работу.`);
+    process.exit(1);
+  }
 
   server.listen(port, () => {
     const graphData = (analyzer as any).__graphData;

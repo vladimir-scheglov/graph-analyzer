@@ -1,4 +1,4 @@
-import { httpPost } from "./http-client";
+import { httpPost, HttpError } from "./http-client";
 import type { RemoteFolder, RemoteDomain } from "../../shared/types";
 
 const FOLDERS_QUERY = `query resourceFolders {
@@ -46,7 +46,7 @@ export async function apiFetchFolders(
     { Authorization: "Bearer " + token, "x-tenant-id": tenantId },
     rejectUnauthorized,
   );
-  if (res.status !== 200) throw new Error("HTTP " + res.status);
+  if (res.status !== 200) throw new HttpError(res.status);
   const folders = res.json?.data?.resourceFolders;
   if (!Array.isArray(folders)) throw new Error("Некорректный ответ");
   return folders;
@@ -79,7 +79,7 @@ export async function apiFetchExpertises(
     rejectUnauthorized,
   );
 
-  if (res.status !== 200) throw new Error("HTTP " + res.status);
+  if (res.status !== 200) throw new HttpError(res.status);
   const data = res.json?.data?.expertises;
   if (!data) throw new Error("Некорректный ответ");
 
@@ -125,7 +125,7 @@ export async function apiFetchExpertiseSource(
     { Authorization: "Bearer " + token, "x-tenant-id": tenantId },
     rejectUnauthorized,
   );
-  if (res.status !== 200) throw new Error("HTTP " + res.status);
+  if (res.status !== 200) throw new HttpError(res.status);
   const e = res.json?.data?.expertise;
   if (!e) throw new Error("Некорректный ответ");
   return e.sourceCode;
@@ -148,4 +148,59 @@ export async function apiCheckRobject(
     { Authorization: "Bearer " + token, "x-tenant-id": tenantId },
     rejectUnauthorized,
   );
+}
+
+const PUBLISH_MUTATION = `mutation publishExpertise($input: PublishExpertiseInput!) {
+  publishExpertise(input: $input) {
+    id
+    name
+    __typename
+  }
+}`;
+
+export interface PublishExpertiseInput {
+  id: string;
+  folderId: string;
+  organizationId: string;
+  sourceCode: string;
+  type: "DOMAIN";
+}
+
+/**
+ * Публикует экспертизу. Бросает Error с полями `status` (HTTP)
+ * и `code` (серверный extensions.code, если есть).
+ */
+export async function apiPublishExpertise(
+  apiUrl: string,
+  token: string,
+  tenantId: string,
+  input: PublishExpertiseInput,
+  rejectUnauthorized: boolean,
+): Promise<{ id: string; name: string }> {
+  const res = await httpPost(
+    apiUrl,
+    {
+      operationName: "publishExpertise",
+      variables: { input },
+      query: PUBLISH_MUTATION,
+    },
+    { Authorization: "Bearer " + token, "x-tenant-id": tenantId },
+    rejectUnauthorized,
+  );
+
+  if (res.status !== 200) {
+    throw new HttpError(res.status);
+  }
+
+  if (Array.isArray(res.json?.errors) && res.json.errors.length > 0) {
+    const err = res.json.errors[0];
+    const code = err?.extensions?.code || "";
+    const e: any = new Error(err?.message || "Ошибка публикации");
+    e.code = code;
+    throw e;
+  }
+
+  const data = res.json?.data?.publishExpertise;
+  if (!data) throw new Error("Некорректный ответ publishExpertise");
+  return { id: data.id, name: data.name };
 }

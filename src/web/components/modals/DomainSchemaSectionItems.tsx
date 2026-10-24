@@ -487,20 +487,27 @@ export function SectionItems({
                                     {" · "}
                                     {s.actionsCount}{" "}
                                     {s.actionsCount === 1 ? "экшен" : "экшенов"}
-                                    {s.domainsCount > 1 && (
-                                        <span
-                                            className="domain-schema-item__badge"
-                                            style={{
-                                                marginLeft: 8,
-                                                background: "rgba(99,102,241,0.15)",
-                                                color: "var(--accent-hover)",
-                                            }}
-                                            title={`Используется в ${s.domainsCount} доменах`}
-                                        >
-                                            +{s.domainsCount - 1} домен
-                                            {s.domainsCount - 1 === 1 ? "" : "ов"}
-                                        </span>
-                                    )}
+                                    {(() => {
+                                        // s.domainsCount из DomainSchemaSummary всегда 1 —
+                                        // реальный глобальный счётчик берём из ModelIndex.
+                                        const rec = index.scenariosById?.[s.id];
+                                        const globalCount = rec?.domains.length ?? 1;
+                                        if (globalCount <= 1) return null;
+                                        const extra = globalCount - 1;
+                                        return (
+                                            <span
+                                                className="domain-schema-item__badge"
+                                                style={{
+                                                    marginLeft: 8,
+                                                    background: "rgba(99,102,241,0.15)",
+                                                    color: "var(--accent-hover)",
+                                                }}
+                                                title={`Используется в ${globalCount} доменах`}
+                                            >
+                                                +{extra} домен{extra === 1 ? "" : "ов"}
+                                            </span>
+                                        );
+                                    })()}
                                 </span>
                             </div>
                             {isExpanded && (

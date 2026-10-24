@@ -4048,6 +4048,8 @@ tr.highlighted .entity-matrix-row-head {
 
 .yaml-nav-item {
   display: block;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 26px;
 }
 .yaml-nav-item__head:hover {
   background: var(--bg-800);
@@ -4211,6 +4213,8 @@ tr.highlighted .entity-matrix-row-head {
 .yaml-nav-section {
   margin-bottom: 4px;
   border-radius: 6px;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 40px;
 }
 .yaml-nav-section[open] {
   padding-bottom: 4px;
@@ -4432,7 +4436,36 @@ tr.highlighted .entity-matrix-row-head {
   justify-content: center;
   color: var(--text-500);
   font-size: 13px;
-  background: #0d1424; 
+  background: #0d1424;
+  z-index: 10;
+}
+
+.yaml-viewer-editor__loading-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.yaml-viewer-editor__spinner {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 3px solid rgba(148, 163, 184, 0.25);
+  border-top-color: var(--accent);
+  animation: yamlSaveSpin 0.8s linear infinite;
+}
+
+.yaml-viewer-editor__loading-text {
+  font-size: 13px;
+  color: var(--text-400);
+}
+
+.yaml-viewer-editor__error {
+  color: var(--danger);
+  flex-direction: column;
+  padding: 24px;
+  text-align: center;
 }
 .yaml-viewer-editor__error { color: var(--danger); }
 
@@ -4551,6 +4584,8 @@ tr.highlighted .entity-matrix-row-head {
   color: inherit;                /* ← новое */
   transition: background-color 0.1s;
   margin-bottom: 2px;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 32px;
 }
 .yaml-viewer-nav__header {
   padding: 8px 12px;
@@ -4721,6 +4756,78 @@ tr.highlighted .entity-matrix-row-head {
   color: var(--success);
 }
 
+/* «● сохранение…» / «● публикация…» в шапке — анимированный бейдж */
+.help-modal__badge--saving {
+  background: rgba(99, 102, 241, 0.18);
+  color: var(--accent-hover);
+  animation: badgeSavingPulse 1.2s ease-in-out infinite;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  position: relative;
+  overflow: hidden;
+}
+.help-modal__badge--saving::after {
+  /* бегущая полоска-прогресс */
+  content: "";
+  position: absolute;
+  left: -40%;
+  top: 0;
+  bottom: 0;
+  width: 40%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.25),
+    transparent
+  );
+  animation: badgeSavingSweep 1.4s ease-in-out infinite;
+}
+/* «● загрузка…» — визуально похож на saving, но спокойнее (без pulse) */
+.help-modal__badge--loading {
+  background: rgba(148, 163, 184, 0.18);
+  color: var(--text-300);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  position: relative;
+  overflow: hidden;
+}
+.help-modal__badge--loading::after {
+  content: "";
+  position: absolute;
+  left: -40%;
+  top: 0;
+  bottom: 0;
+  width: 40%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.18),
+    transparent
+  );
+  animation: badgeSavingSweep 1.4s ease-in-out infinite;
+}
+
+@keyframes badgeSavingPulse {
+  0%,
+  100% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes badgeSavingSweep {
+  0% {
+    left: -40%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
 /* Save error banner */
 .yaml-save-error {
   display: flex;
@@ -4731,6 +4838,7 @@ tr.highlighted .entity-matrix-row-head {
   border-bottom: 1px solid var(--danger);
   color: var(--danger);
   font-size: 12px;
+  white-space: pre-line;
 }
 .yaml-save-error button {
   margin-left: auto;
@@ -4949,4 +5057,28 @@ tr.highlighted .entity-matrix-row-head {
 }
 .yaml-ext-ref:hover .yaml-ext-ref__target {
   color: var(--accent-hover);
+}
+.impact-link--self {
+  font-style: italic;
+  opacity: 0.75;
+  cursor: default;
+}
+
+.impact-link--missing {
+  font-size: 10px;
+  color: var(--warning);
+  cursor: default;
+  padding: 2px 8px;
+}
+
+.impact-ref__side {
+  margin-left: auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  color: var(--text-500);
+  padding: 1px 6px;
+  background: var(--bg-750);
+  border-radius: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }

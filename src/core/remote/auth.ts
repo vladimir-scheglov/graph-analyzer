@@ -42,3 +42,47 @@ export async function apiLogin(
   }
   return token;
 }
+/**
+ * Мини-обёртка «одна попытка с текущим токеном → 401 → перелогин → повтор».
+ *
+ * `creds.token` модифицируется in-place: при первом вызове с пустым токеном
+ * логинимся; при 401 — сбрасываем и перелогиниваемся; при успехе — кэшируем.
+ *
+ * Не подходит для `apiCheckRobject`: та возвращает `Response` со `.status`
+ * без throw, и 401 — это часть бизнес-логики (валидация). Там перелогин
+ * делается вручную в `runValidation` / `handleValidateSingle`.
+ */
+export async function withTokenRefresh<T>(
+  creds: {
+    token: string | null;
+    loginUrl: string;
+    username: string;
+    password: string;
+    secure: boolean;
+  },
+  fn: (token: string) => Promise<T>,
+): Promise<T> {
+  if (!creds.token) {
+    creds.token = await apiLogin(
+      creds.loginUrl,
+      creds.username,
+      creds.password,
+      creds.secure,
+    );
+  }
+
+  try {
+    return await fn(creds.token);
+  } catch (e: any) {
+    if (e?.status === 401) {
+      creds.token = await apiLogin(
+        creds.loginUrl,
+        creds.username,
+        creds.password,
+        creds.secure,
+      );
+      return await fn(creds.token);
+    }
+    throw e;
+  }
+}

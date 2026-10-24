@@ -581,6 +581,10 @@ export interface ViewWidgetColumnRef {
   join?: string;
   /** id атрибута связи — если атрибут ищется в linkage.attributes. */
   linkageAttribute?: string;
+  /** control.type — нужен для проверки tree_path. */
+  controlType?: string;
+  /** control.tree — id дерева (для tree_path). */
+  controlTree?: string;
 }
 
 export interface ViewWidgetLinkageRef {
@@ -1055,6 +1059,12 @@ export interface DomainSchemaViewItem {
   menuItem?: string;
   /** Для list — source.type (Zod: только "operational"). */
   sourceType?: string;
+  /** Для list — source.type не задан в YAML (Zod: обязательное). */
+  sourceTypeMissing?: boolean;
+  /** Для list — source.entity не задан в YAML (Zod: обязательное). */
+  sourceEntityMissing?: boolean;
+  /** Для list — весь source отсутствует (Zod: обязательный объект). */
+  sourceMissing?: boolean;
   /** dashboard_tree: был ли tree[].autoTree хотя бы в одном узле. */
   dashboardTreeHasAutoTree?: boolean;
   /** dashboard_tree: был ли tree[].children хотя бы в одном узле. */
@@ -1451,12 +1461,16 @@ export interface MenuRecord {
   defaultItem?: string;
   description?: string;
 
-  /** Оригинальный type, если он не распознан (для линтера). */
+    /** Оригинальный type, если он не распознан (для линтера). */
   __rawType?: string;
   /** Оригинальный placement, если он не распознан (для линтера). */
   __rawPlacement?: string;
   /** true — в YAML не задан label (парсер подставил id). */
   __rawLabelMissing?: boolean;
+  /** true — в YAML не задан type (Zod: обязательное). */
+  __rawTypeMissing?: boolean;
+  /** true — в YAML не задан placement (Zod: обязательное). */
+  __rawPlacementMissing?: boolean;
 }
 
 // ============ Medias ============
@@ -1468,6 +1482,10 @@ export interface MediaRecord {
   iconName?: string;
   data?: string;
   description: string;
+  /** Оригинальный type, если он не распознан (для линтера). */
+  __rawType?: string;
+  /** true — в YAML не задан type (Zod: обязательное). */
+  __rawTypeMissing?: boolean;
 }
 
 // ============ Permissions ============

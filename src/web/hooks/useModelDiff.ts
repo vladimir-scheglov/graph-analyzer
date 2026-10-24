@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useGraphStore } from "../state/useGraphStore";
 import type { SemanticDiff } from "../../shared/model-types";
 
 interface ModelDiffState {
@@ -13,9 +14,19 @@ interface ApiResponse {
   hasSnapshot: boolean;
 }
 
-let cachedPromise: Promise<ApiResponse> | null = null;
+interface CachedEntry {
+  version: number;
+  promise: Promise<ApiResponse>;
+}
+
+let cache: CachedEntry | null = null;
+
+export function invalidateModelDiffCache(): void {
+  cache = null;
+}
 
 export function useModelDiff(): ModelDiffState {
+  const modelVersion = useGraphStore((s) => s.modelVersion);
   const [state, setState] = useState<ModelDiffState>({
     diff: null,
     hasSnapshot: false,
@@ -24,19 +35,27 @@ export function useModelDiff(): ModelDiffState {
   });
 
   useEffect(() => {
-    if (!cachedPromise) {
-      cachedPromise = fetch("/api/model/diff")
-        .then((r) => {
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          return r.json() as Promise<ApiResponse>;
-        })
-        .catch((err) => {
-          cachedPromise = null;
-          throw err;
-        });
-    }
     let cancelled = false;
-    cachedPromise
+
+    // Кэш по версии — несколько модалок с одинаковым modelVersion
+    // используют один fetch. После bumpModelVersion — новый запрос.
+    if (!cache || cache.version !== modelVersion) {
+      const promise = fetch("/api/model/diff").then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json() as Promise<ApiResponse>;
+      });
+
+      // Не сносим свежий кэш race'ом от предыдущего rejected-promise.
+      promise.catch(() => {
+        if (cache && cache.promise === promise) cache = null;
+      });
+
+      cache = { version: modelVersion, promise };
+    }
+
+    setState((s) => ({ ...s, loading: true, error: null }));
+
+    cache.promise
       .then((data) => {
         if (cancelled) return;
         setState({
@@ -55,14 +74,11 @@ export function useModelDiff(): ModelDiffState {
           error: err.message,
         });
       });
+
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [modelVersion]);
 
   return state;
-}
-
-export function invalidateModelDiffCache(): void {
-  cachedPromise = null;
 }

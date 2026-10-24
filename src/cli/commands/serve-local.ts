@@ -24,5 +24,6 @@ export function serveLocal(dirPath: string, port: number): void {
     remoteInfo: null,
     credentials: null,
     refreshCommand: null,
+    mode: "local",
   });
 }

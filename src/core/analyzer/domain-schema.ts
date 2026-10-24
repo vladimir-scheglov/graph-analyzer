@@ -128,11 +128,21 @@ export function buildDomainSchemaSummary(
         label: v?.label ? String(v.label) : undefined,
         isMixin: v?.isMixin === true,
       };
-      if (v?.type === "list" && v?.source?.entity) {
-        item.sourceEntity = String(v.source.entity);
-      }
-      if (v?.type === "list" && v?.source?.type) {
-        item.sourceType = String(v.source.type);
+      if (v?.type === "list") {
+        if (!v?.source || typeof v.source !== "object") {
+          item.sourceMissing = true;
+        } else {
+          if (v.source.entity) {
+            item.sourceEntity = String(v.source.entity);
+          } else {
+            item.sourceEntityMissing = true;
+          }
+          if (v.source.type) {
+            item.sourceType = String(v.source.type);
+          } else {
+            item.sourceTypeMissing = true;
+          }
+        }
       }
       if (v?.label) item.label = String(v.label);
       if (v?.type === "tree" && typeof v?.tree === "string" && v.tree) {

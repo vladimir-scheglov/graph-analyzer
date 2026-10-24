@@ -114,6 +114,41 @@ export interface RemoteInfo {
   fromCache: boolean;
   server: string;
   fetchedAt: string | null;
+  /**
+   * 'remote'  — файлы в кэше, сохранение через publishExpertise;
+   * 'hybrid'  — файлы локальные, только локальное сохранение + серверная валидация.
+   * undefined → обратная совместимость, считается 'remote'.
+   */
+  mode?: "remote" | "hybrid";
+}
+
+/** Результат публикации при сохранении в remote-режиме. */
+export interface PublishResult {
+  ok: boolean;
+  /** Текст ошибки, если ok === false. */
+  error?: string;
+  /** Код ошибки сервера (exp.extensions.code), если ok === false. */
+  code?: string;
+  /** Дружелюбная подсказка, если код известен (LOWER_VERSION и т.п.). */
+  hint?: string;
+  /** Идентификатор и имя опубликованной экспертизы (если ok === true). */
+  domain?: { id: string; name: string };
+}
+
+/** Ответ /file (POST). */
+export interface SaveResponse {
+  ok: true;
+  bytes: number;
+  /** null для local/hybrid-режима. */
+  publish: PublishResult | null;
+}
+
+/** Информация о домене, нужная для publishExpertise. */
+export interface DomainPublishInfo {
+  id: string;
+  folderId: string;
+  sourceId: string;
+  name: string;
 }
 
 export interface RemoteFolder {
