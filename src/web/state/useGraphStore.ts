@@ -395,6 +395,21 @@ export interface GraphState {
 
   listSort: ListSort;
   setListSort: (s: ListSort) => void;
+
+  yamlViewerPendingGeneration: {
+    blocks: import("../../core/analyzer/schema-generator/types").GeneratedBlock[];
+    yamlByBlock: Record<string, string>;
+  } | null;
+  setYamlViewerPendingGeneration: (
+    v: GraphState["yamlViewerPendingGeneration"],
+  ) => void;
+
+  generateSchemaOpen: boolean;
+  setGenerateSchemaOpen: (v: boolean) => void;
+  generateSchemaDomainId: string | null;
+  setGenerateSchemaDomainId: (v: string | null) => void;
+  generateSchemaEntityId: string | null;
+  setGenerateSchemaEntityId: (v: string | null) => void;
 }
 
 // ============ Хелперы для чтения localStorage ============
@@ -919,6 +934,17 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   setRfInstance: (r) => set({ rfInstance: r }),
   didInitialFit: false,
   setDidInitialFit: (v) => set({ didInitialFit: v }),
+
+  yamlViewerPendingGeneration: null,
+  setYamlViewerPendingGeneration: (v) =>
+    set({ yamlViewerPendingGeneration: v }),
+
+  generateSchemaOpen: false,
+  setGenerateSchemaOpen: (v) => set({ generateSchemaOpen: v }),
+  generateSchemaDomainId: null,
+  setGenerateSchemaDomainId: (v) => set({ generateSchemaDomainId: v }),
+  generateSchemaEntityId: null,
+  setGenerateSchemaEntityId: (v) => set({ generateSchemaEntityId: v }),
 
   // Сброс всего
   resetAll: () =>

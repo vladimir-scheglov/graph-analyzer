@@ -42,6 +42,7 @@ import {
 import { ModelIndex } from '../../../shared/model-types';
 import { KNOWN_ACTION_TYPES } from "../../../shared/action-types";
 import { SectionQuickNav } from "./SectionQuickNav";
+import { planEdits } from "../../lib/yaml/apply-generation";
 
 type RightTab = 'issues' | 'refs' | 'backlinks' | 'server';
 
@@ -167,6 +168,8 @@ export function YamlViewerModal() {
     const monacoTheme = appTheme === "light" ? "dg-light" : "dg-dark";
     const [editorTopLine, setEditorTopLine] = useState(1);
     const [scrollSignal, setScrollSignal] = useState(0);
+    const pendingGeneration = useGraphStore((s) => s.yamlViewerPendingGeneration);
+    const setPendingGeneration = useGraphStore((s) => s.setYamlViewerPendingGeneration);
 
     const startResizingLeft = (e: React.MouseEvent) => {
         e.preventDefault();
@@ -2497,6 +2500,44 @@ export function YamlViewerModal() {
         const t = setTimeout(doScroll, 50);
         return () => clearTimeout(t);
     }, [searchResult, activeSearchMatch, editorCreated]);
+
+    useEffect(() => {
+        if (!pendingGeneration) return;
+        if (!editorCreated || !editorRef.current) return;
+        if (!schema) return;
+
+        const editor = editorRef.current;
+        const currentContent = editor.getValue();
+        const lm = buildLineMap(currentContent, schema);
+        const edits = planEdits(
+            currentContent,
+            pendingGeneration.blocks,
+            pendingGeneration.yamlByBlock,
+            lm,
+        );
+
+        setPendingGeneration(null);
+
+        if (edits.length === 0) {
+            useGraphStore.getState().showSnackbar("Не удалось вычислить позиции для вставки");
+            return;
+        }
+
+        isProgrammaticChange.current = true;
+        try {
+            editor.executeEdits("dg-generate", edits);
+            editor.pushUndoStop();
+        } finally {
+            isProgrammaticChange.current = false;
+        }
+
+        setContent(editor.getValue());
+        setLiveVersion((v) => v + 1);
+
+        useGraphStore
+            .getState()
+            .showSnackbar(`Добавлено блоков: ${pendingGeneration.blocks.length}`);
+    }, [pendingGeneration, editorCreated, schema, setPendingGeneration]);
 
     if (!open) return null;
 
@@ -5166,6 +5207,25 @@ function NavContextMenu({
                 >
                     <MIcon name="account_tree" size="sm" />
                     Фокус с зависимостями
+                </button>
+            )}
+            {kind === "entity" && (
+                <button
+                    type="button"
+                    className="yaml-nav-ctx-menu__item"
+                    onClick={() => {
+                        const st = useGraphStore.getState();
+                        const domainId = st.yamlViewerDomainId;
+                        if (domainId) {
+                            st.setGenerateSchemaDomainId(domainId);
+                            st.setGenerateSchemaEntityId(state.node.id);
+                            st.setGenerateSchemaOpen(true);
+                        }
+                        onClose();
+                    }}
+                >
+                    <MIcon name="auto_fix_high" size="sm" />
+                    Сгенерировать типовой блок
                 </button>
             )}
             {focusTarget && !isThisFocused && (

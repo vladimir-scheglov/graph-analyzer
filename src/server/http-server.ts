@@ -38,6 +38,8 @@ import {
 } from "../core/analyzer/model-snapshot";
 import { computeSemanticDiff } from "../core/analyzer/semantic-diff";
 import { prepareRemoteCache } from "../core/remote/cache-manager";
+import { handleGenerateRequest } from "./routes/generate";
+
 
 export interface StartServerOptions {
   port: number;
@@ -404,6 +406,17 @@ export function startServer(opts: StartServerOptions): http.Server {
         } catch {
           /* ignore */
         }
+      }
+    } else if (url === "/api/generate" && req.method === "POST") {
+      try {
+        await handleGenerateRequest(req, res, analyzer);
+      } catch (err: any) {
+        try {
+          if (!res.headersSent) {
+            res.writeHead(500, { "Content-Type": "application/json" });
+          }
+          res.end(JSON.stringify({ error: err.message }));
+        } catch {}
       }
     }
 

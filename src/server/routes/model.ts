@@ -77,3 +77,6 @@ export function handleModelSummary(res: ServerResponse): void {
     }),
   );
 }
+export function getModelIndex(): ModelIndex | null {
+  return cachedIndex;
+}

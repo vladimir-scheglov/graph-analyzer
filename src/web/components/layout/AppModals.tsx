@@ -16,7 +16,8 @@ import {
     EntityHierarchyModal,
     RulesModal,
     EntitiesCatalogModal,
-    AttributeFinderModal
+    AttributeFinderModal,
+    GenerateSchemaModal
 } from '../modals';
 import type { Command } from '../../lib/commands';
 import { EntityMatrixModal } from '../modals/EntityMatrixModal';
@@ -149,6 +150,7 @@ export function AppModals(props: AppModalsProps) {
             <DomainCompareModal />
             <PiiModal />
             <YamlViewerModal />
+            <GenerateSchemaModal />
         </>
     );
 }

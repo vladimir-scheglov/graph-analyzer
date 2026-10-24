@@ -242,6 +242,21 @@ function EntityDetailCard({
                 >
                     🎯 Открыть в каталоге
                 </button>
+
+                {/* в блоке <div className="domain-schema-item__actions"> или рядом */}
+                <button
+                    className="domain-schema-item__open"
+                    onClick={(ev) => {
+                        ev.stopPropagation();
+                        const st = useGraphStore.getState();
+                        st.setGenerateSchemaDomainId(domainId);
+                        st.setGenerateSchemaEntityId(entityId);
+                        st.setGenerateSchemaOpen(true);
+                    }}
+                    title="Сгенерировать типовой блок (actions + views + menu)"
+                >
+                    <MIcon name="auto_fix_high" size="sm" />
+                </button>
             </div>
         </div>
     );

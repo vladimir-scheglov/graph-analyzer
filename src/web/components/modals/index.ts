@@ -22,3 +22,4 @@ export { MartinMetricsModal } from "./MartinMetricsModal";
 export { DomainCompareModal } from "./DomainCompareModal";
 export { PiiModal } from "./PiiModal";
 export { YamlViewerModal } from "./YamlViewerModal";
+export { GenerateSchemaModal } from "./GenerateSchemaModal";

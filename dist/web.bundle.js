@@ -501,6 +501,14 @@ var init_useGraphStore = __esm({
       setRfInstance: (r) => set2({ rfInstance: r }),
       didInitialFit: false,
       setDidInitialFit: (v) => set2({ didInitialFit: v }),
+      yamlViewerPendingGeneration: null,
+      setYamlViewerPendingGeneration: (v) => set2({ yamlViewerPendingGeneration: v }),
+      generateSchemaOpen: false,
+      setGenerateSchemaOpen: (v) => set2({ generateSchemaOpen: v }),
+      generateSchemaDomainId: null,
+      setGenerateSchemaDomainId: (v) => set2({ generateSchemaDomainId: v }),
+      generateSchemaEntityId: null,
+      setGenerateSchemaEntityId: (v) => set2({ generateSchemaEntityId: v }),
       // Сброс всего
       resetAll: () => set2({
         filters: {
@@ -17917,14 +17925,31 @@ function EntityDetailCard({
         ] }, a.id);
       })
     ] }) : /* @__PURE__ */ jsx66("div", { className: "domain-schema-detail-card__empty", children: "\u041D\u0435\u0442 \u0441\u043E\u0431\u0441\u0442\u0432\u0435\u043D\u043D\u044B\u0445 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432" }),
-    /* @__PURE__ */ jsx66("div", { className: "domain-schema-detail-card__actions", children: /* @__PURE__ */ jsx66(
-      "button",
-      {
-        className: "btn btn--primary",
-        onClick: () => onOpenEntity(entityId),
-        children: "\u{1F3AF} \u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435"
-      }
-    ) })
+    /* @__PURE__ */ jsxs63("div", { className: "domain-schema-detail-card__actions", children: [
+      /* @__PURE__ */ jsx66(
+        "button",
+        {
+          className: "btn btn--primary",
+          onClick: () => onOpenEntity(entityId),
+          children: "\u{1F3AF} \u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435"
+        }
+      ),
+      /* @__PURE__ */ jsx66(
+        "button",
+        {
+          className: "domain-schema-item__open",
+          onClick: (ev) => {
+            ev.stopPropagation();
+            const st = useGraphStore.getState();
+            st.setGenerateSchemaDomainId(domainId);
+            st.setGenerateSchemaEntityId(entityId);
+            st.setGenerateSchemaOpen(true);
+          },
+          title: "\u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0442\u0438\u043F\u043E\u0432\u043E\u0439 \u0431\u043B\u043E\u043A (actions + views + menu)",
+          children: /* @__PURE__ */ jsx66(MIcon, { name: "auto_fix_high", size: "sm" })
+        }
+      )
+    ] })
   ] });
 }
 function DataTypeDetailCard({
@@ -38752,6 +38777,230 @@ var init_SectionQuickNav = __esm({
   }
 });
 
+// src/web/lib/yaml/apply-generation.ts
+function toArrayItem(yamlObj, indent) {
+  const lines = yamlObj.replace(/\n+$/, "").split("\n");
+  if (lines.length === 0 || !lines[0])
+    return "";
+  return lines.map((l, i) => i === 0 ? `${indent}- ${l}` : `${indent}  ${l}`).join("\n");
+}
+function planEdits(content, blocks, yamlByBlock, lineMap) {
+  const lines = content.split("\n");
+  const edits = [];
+  const bySection = /* @__PURE__ */ new Map();
+  for (const b of blocks) {
+    if (!bySection.has(b.section))
+      bySection.set(b.section, []);
+    bySection.get(b.section).push(b);
+  }
+  for (const [sectionKey, sectionBlocks] of bySection) {
+    if (sectionKey === "menus") {
+      edits.push(...planMenuEdits(lines, sectionBlocks, yamlByBlock));
+      continue;
+    }
+    const edit = planSectionAppend(
+      lines,
+      lineMap,
+      sectionKey,
+      sectionBlocks,
+      yamlByBlock
+    );
+    if (edit)
+      edits.push(edit);
+  }
+  return edits;
+}
+function planSectionAppend(lines, lineMap, sectionKey, blocks, yamlByBlock) {
+  const itemsText = blocks.map((b) => toArrayItem(yamlByBlock[b.blockId] || "", "  ")).filter(Boolean).join("\n");
+  if (!itemsText)
+    return null;
+  const section = lineMap.sections.find((s) => s.key === sectionKey);
+  if (!section) {
+    const last = lines.length;
+    const col = (lines[last - 1] || "").length + 1;
+    return {
+      range: {
+        startLineNumber: last,
+        startColumn: col,
+        endLineNumber: last,
+        endColumn: col
+      },
+      text: `
+${sectionKey}:
+${itemsText}`
+    };
+  }
+  if (section.count === 0) {
+    const lineIdx = section.line - 1;
+    const line = lines[lineIdx] || "";
+    const m = line.match(new RegExp(`^(\\s*)${sectionKey}:\\s*(\\[\\])?\\s*$`));
+    if (m) {
+      const indent = m[1];
+      return {
+        range: {
+          startLineNumber: section.line,
+          startColumn: 1,
+          endLineNumber: section.line,
+          endColumn: line.length + 1
+        },
+        text: `${indent}${sectionKey}:
+${itemsText}`
+      };
+    }
+    const last = lines.length;
+    const col = (lines[last - 1] || "").length + 1;
+    return {
+      range: {
+        startLineNumber: last,
+        startColumn: col,
+        endLineNumber: last,
+        endColumn: col
+      },
+      text: `
+${sectionKey}:
+${itemsText}`
+    };
+  }
+  const endLine1Based = Math.min(
+    section.line + section.linesCount,
+    lines.length
+  );
+  const insertLine = Math.max(1, Math.min(endLine1Based, lines.length));
+  const lineText = lines[insertLine - 1] || "";
+  return {
+    range: {
+      startLineNumber: insertLine,
+      startColumn: lineText.length + 1,
+      endLineNumber: insertLine,
+      endColumn: lineText.length + 1
+    },
+    text: "\n" + itemsText
+  };
+}
+function planMenuEdits(lines, blocks, yamlByBlock) {
+  const byRoot = /* @__PURE__ */ new Map();
+  for (const b of blocks) {
+    const rootId = b.menuRootId;
+    if (!rootId)
+      continue;
+    if (!byRoot.has(rootId))
+      byRoot.set(rootId, []);
+    byRoot.get(rootId).push(b);
+  }
+  const edits = [];
+  for (const [rootId, rootBlocks] of byRoot) {
+    const edit = planMenuRootInsert(lines, rootId, rootBlocks, yamlByBlock);
+    if (edit)
+      edits.push(edit);
+  }
+  return edits;
+}
+function planMenuRootInsert(lines, rootId, blocks, yamlByBlock) {
+  let rootLineIdx = -1;
+  let rootIndent = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^(\s*)-\s+id:\s*([^\s#]+)/);
+    if (m && m[2].replace(/["']/g, "") === rootId) {
+      rootLineIdx = i;
+      rootIndent = m[1].length;
+      break;
+    }
+  }
+  if (rootLineIdx < 0)
+    return null;
+  let rootEnd = lines.length;
+  for (let i = rootLineIdx + 1; i < lines.length; i++) {
+    const ind = (lines[i].match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind === 0) {
+      rootEnd = i;
+      break;
+    }
+    const dash = lines[i].match(/^(\s*)-\s+id:/);
+    if (dash && dash[1].length === rootIndent) {
+      rootEnd = i;
+      break;
+    }
+  }
+  let itemsLineIdx = -1;
+  let itemsIndent = -1;
+  let itemsIsEmpty = false;
+  for (let i = rootLineIdx + 1; i < rootEnd; i++) {
+    const m = lines[i].match(/^(\s*)items:\s*(\[\])?\s*$/);
+    if (!m)
+      continue;
+    itemsLineIdx = i;
+    itemsIndent = m[1].length;
+    itemsIsEmpty = !!m[2];
+    if (!itemsIsEmpty && i + 1 < rootEnd) {
+      const nextInd = (lines[i + 1].match(/^(\s*)/) || ["", ""])[1].length;
+      if (nextInd > itemsIndent)
+        itemsIsEmpty = false;
+      else
+        itemsIsEmpty = true;
+    } else if (i + 1 >= rootEnd) {
+      itemsIsEmpty = true;
+    }
+    break;
+  }
+  const itemIndent = " ".repeat(
+    (itemsIndent >= 0 ? itemsIndent : rootIndent + 2) + 2
+  );
+  const itemsText = blocks.map((b) => toArrayItem(yamlByBlock[b.blockId] || "", itemIndent)).filter(Boolean).join("\n");
+  if (!itemsText)
+    return null;
+  if (itemsLineIdx < 0) {
+    const lineText2 = lines[rootLineIdx];
+    return {
+      range: {
+        startLineNumber: rootLineIdx + 1,
+        startColumn: lineText2.length + 1,
+        endLineNumber: rootLineIdx + 1,
+        endColumn: lineText2.length + 1
+      },
+      text: `
+${" ".repeat(rootIndent + 2)}items:
+${itemsText}`
+    };
+  }
+  if (itemsIsEmpty) {
+    const lineText2 = lines[itemsLineIdx];
+    return {
+      range: {
+        startLineNumber: itemsLineIdx + 1,
+        startColumn: 1,
+        endLineNumber: itemsLineIdx + 1,
+        endColumn: lineText2.length + 1
+      },
+      text: `${" ".repeat(itemsIndent)}items:
+${itemsText}`
+    };
+  }
+  let insertBefore = rootEnd;
+  for (let i = itemsLineIdx + 1; i < rootEnd; i++) {
+    const ind = (lines[i].match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind <= itemsIndent) {
+      insertBefore = i;
+      break;
+    }
+  }
+  const insertAfter = Math.max(itemsLineIdx, insertBefore - 1);
+  const lineText = lines[insertAfter] || "";
+  return {
+    range: {
+      startLineNumber: insertAfter + 1,
+      startColumn: lineText.length + 1,
+      endLineNumber: insertAfter + 1,
+      endColumn: lineText.length + 1
+    },
+    text: "\n" + itemsText
+  };
+}
+var init_apply_generation = __esm({
+  "src/web/lib/yaml/apply-generation.ts"() {
+    "use strict";
+  }
+});
+
 // src/web/components/modals/YamlViewerModal.tsx
 import React42, { useCallback as useCallback18, useDeferredValue, useEffect as useEffect37, useMemo as useMemo43, useRef as useRef15, useState as useState34 } from "react";
 import { Fragment as Fragment18, jsx as jsx76, jsxs as jsxs73 } from "react/jsx-runtime";
@@ -38855,6 +39104,8 @@ function YamlViewerModal() {
   const monacoTheme = appTheme === "light" ? "dg-light" : "dg-dark";
   const [editorTopLine, setEditorTopLine] = useState34(1);
   const [scrollSignal, setScrollSignal] = useState34(0);
+  const pendingGeneration = useGraphStore((s) => s.yamlViewerPendingGeneration);
+  const setPendingGeneration = useGraphStore((s) => s.setYamlViewerPendingGeneration);
   const startResizingLeft = (e) => {
     e.preventDefault();
     isDraggingLeft.current = true;
@@ -40998,6 +41249,38 @@ ${publishInfo.hint}` : "";
     const t = setTimeout(doScroll, 50);
     return () => clearTimeout(t);
   }, [searchResult, activeSearchMatch, editorCreated]);
+  useEffect37(() => {
+    if (!pendingGeneration)
+      return;
+    if (!editorCreated || !editorRef.current)
+      return;
+    if (!schema2)
+      return;
+    const editor = editorRef.current;
+    const currentContent = editor.getValue();
+    const lm = buildLineMap(currentContent, schema2);
+    const edits = planEdits(
+      currentContent,
+      pendingGeneration.blocks,
+      pendingGeneration.yamlByBlock,
+      lm
+    );
+    setPendingGeneration(null);
+    if (edits.length === 0) {
+      useGraphStore.getState().showSnackbar("\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0432\u044B\u0447\u0438\u0441\u043B\u0438\u0442\u044C \u043F\u043E\u0437\u0438\u0446\u0438\u0438 \u0434\u043B\u044F \u0432\u0441\u0442\u0430\u0432\u043A\u0438");
+      return;
+    }
+    isProgrammaticChange.current = true;
+    try {
+      editor.executeEdits("dg-generate", edits);
+      editor.pushUndoStop();
+    } finally {
+      isProgrammaticChange.current = false;
+    }
+    setContent(editor.getValue());
+    setLiveVersion((v) => v + 1);
+    useGraphStore.getState().showSnackbar(`\u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u043E \u0431\u043B\u043E\u043A\u043E\u0432: ${pendingGeneration.blocks.length}`);
+  }, [pendingGeneration, editorCreated, schema2, setPendingGeneration]);
   if (!open)
     return null;
   const canSave = !isLocked && isDirty;
@@ -43006,6 +43289,27 @@ function NavContextMenu({
             ]
           }
         ),
+        kind === "entity" && /* @__PURE__ */ jsxs73(
+          "button",
+          {
+            type: "button",
+            className: "yaml-nav-ctx-menu__item",
+            onClick: () => {
+              const st = useGraphStore.getState();
+              const domainId = st.yamlViewerDomainId;
+              if (domainId) {
+                st.setGenerateSchemaDomainId(domainId);
+                st.setGenerateSchemaEntityId(state.node.id);
+                st.setGenerateSchemaOpen(true);
+              }
+              onClose();
+            },
+            children: [
+              /* @__PURE__ */ jsx76(MIcon, { name: "auto_fix_high", size: "sm" }),
+              "\u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0442\u0438\u043F\u043E\u0432\u043E\u0439 \u0431\u043B\u043E\u043A"
+            ]
+          }
+        ),
         focusTarget && !isThisFocused && /* @__PURE__ */ jsxs73(Fragment18, { children: [
           /* @__PURE__ */ jsx76("div", { className: "yaml-nav-ctx-menu__divider" }),
           /* @__PURE__ */ jsxs73(
@@ -43050,6 +43354,7 @@ var init_YamlViewerModal = __esm({
     init_entity_focus();
     init_local_recheck();
     init_SectionQuickNav();
+    init_apply_generation();
     BACKLINK_KIND_LABELS = {
       inheritance: "\u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435",
       reference: "reference",
@@ -43059,6 +43364,449 @@ var init_YamlViewerModal = __esm({
       mixin: "\u043F\u0440\u0438\u043C\u0435\u0441\u044C",
       action: "\u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435",
       widget: "\u0432\u0438\u0434\u0436\u0435\u0442"
+    };
+  }
+});
+
+// src/web/hooks/useGenerateSchema.ts
+import { useCallback as useCallback19, useEffect as useEffect38, useState as useState35 } from "react";
+function useGenerateSchema({
+  domainId,
+  entityId,
+  profile,
+  options,
+  enabled
+}) {
+  const modelVersion = useGraphStore((s) => s.modelVersion);
+  const [state, setState] = useState35({
+    result: null,
+    loading: false,
+    error: null
+  });
+  const [tick, setTick] = useState35(0);
+  const optionsKey = JSON.stringify(options);
+  useEffect38(() => {
+    if (!enabled || !domainId || !entityId)
+      return;
+    let cancelled = false;
+    setState({ result: null, loading: true, error: null });
+    fetch("/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domainId, entityId, profile, options })
+    }).then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) })).then(({ ok, data }) => {
+      if (cancelled)
+        return;
+      if (!ok)
+        setState({
+          result: null,
+          loading: false,
+          error: data?.error || `HTTP ${ok}`
+        });
+      else
+        setState({ result: data, loading: false, error: null });
+    }).catch((e) => {
+      if (!cancelled)
+        setState({ result: null, loading: false, error: e.message });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, domainId, entityId, profile, optionsKey, modelVersion, tick]);
+  const reload = useCallback19(() => setTick((v) => v + 1), []);
+  return { ...state, reload };
+}
+var init_useGenerateSchema = __esm({
+  "src/web/hooks/useGenerateSchema.ts"() {
+    "use strict";
+    init_useGraphStore();
+  }
+});
+
+// src/web/components/modals/GenerateSchemaModal.tsx
+import { useCallback as useCallback20, useEffect as useEffect39, useMemo as useMemo44, useState as useState36 } from "react";
+import { jsx as jsx77, jsxs as jsxs74 } from "react/jsx-runtime";
+function iconForBlock(b) {
+  if (b.section === "actions")
+    return "bolt";
+  if (b.section === "views")
+    return b.payload?.type === "list" ? "table_rows" : "view_quilt";
+  if (b.section === "menus")
+    return "menu";
+  if (b.section === "medias")
+    return "image";
+  return "circle";
+}
+function GenerateSchemaModal() {
+  const store = useGraphStore();
+  const open = useGraphStore((s) => s.generateSchemaOpen);
+  const domainId = useGraphStore((s) => s.generateSchemaDomainId);
+  const entityId = useGraphStore((s) => s.generateSchemaEntityId);
+  const [profile, setProfile] = useState36("crud");
+  const [tab, setTab] = useState36("blocks");
+  const [selected, setSelected] = useState36(/* @__PURE__ */ new Set());
+  const [options, setOptions] = useState36({
+    includeBulk: true,
+    includePage: false,
+    includeLinkageWidgets: true,
+    skipExisting: true,
+    excludeReadonlyFromCreate: false,
+    menuRootId: void 0
+  });
+  useEffect39(() => {
+    if (!open)
+      return;
+    setProfile("crud");
+    setTab("blocks");
+    setSelected(/* @__PURE__ */ new Set());
+    setOptions({
+      includeBulk: true,
+      includePage: false,
+      includeLinkageWidgets: true,
+      skipExisting: true,
+      excludeReadonlyFromCreate: false,
+      menuRootId: void 0
+    });
+  }, [open, domainId, entityId]);
+  const gen = useGenerateSchema({ domainId, entityId, profile, options, enabled: open });
+  useEffect39(() => {
+    if (!gen.result)
+      return;
+    const next = /* @__PURE__ */ new Set();
+    for (const b of gen.result.blocks)
+      next.add(b.blockId);
+    setSelected(next);
+  }, [gen.result]);
+  const grouped = useMemo44(() => {
+    if (!gen.result)
+      return [];
+    const map2 = /* @__PURE__ */ new Map();
+    for (const b of gen.result.blocks) {
+      if (!map2.has(b.section))
+        map2.set(b.section, []);
+      map2.get(b.section).push(b);
+    }
+    return Array.from(map2.entries());
+  }, [gen.result]);
+  const toggleBlock = useCallback20(
+    (blockId) => {
+      if (!gen.result)
+        return;
+      setSelected((prev) => {
+        const next = new Set(prev);
+        if (next.has(blockId)) {
+          const toRemove = /* @__PURE__ */ new Set([blockId]);
+          const queue = [blockId];
+          while (queue.length > 0) {
+            const cur = queue.pop();
+            const block = gen.result.blockIndex?.[cur];
+            if (!block)
+              continue;
+            for (const dep of block.dependents || []) {
+              if (!toRemove.has(dep)) {
+                toRemove.add(dep);
+                queue.push(dep);
+              }
+            }
+          }
+          for (const id of toRemove)
+            next.delete(id);
+        } else {
+          next.add(blockId);
+        }
+        return next;
+      });
+    },
+    [gen.result]
+  );
+  const dependentsMissing = useMemo44(() => {
+    if (!gen.result)
+      return /* @__PURE__ */ new Set();
+    const missing = /* @__PURE__ */ new Set();
+    for (const blockId of selected) {
+      const block = gen.result.blockIndex?.[blockId];
+      if (!block)
+        continue;
+      for (const dep of block.dependsOn || []) {
+        if (gen.result.blockIndex?.[dep] && !selected.has(dep))
+          missing.add(blockId);
+      }
+    }
+    return missing;
+  }, [selected, gen.result]);
+  const pullDependencies = useCallback20(() => {
+    if (!gen.result)
+      return;
+    setSelected((prev) => {
+      const next = new Set(prev);
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (const blockId of Array.from(next)) {
+          const block = gen.result.blockIndex?.[blockId];
+          if (!block)
+            continue;
+          for (const dep of block.dependsOn || []) {
+            if (gen.result.blockIndex?.[dep] && !next.has(dep)) {
+              next.add(dep);
+              changed = true;
+            }
+          }
+        }
+      }
+      return next;
+    });
+  }, [gen.result]);
+  const errors = gen.result?.preflight?.newIssues?.filter((i) => i.severity === "error") ?? [];
+  const warnings = gen.result?.preflight?.newIssues?.filter((i) => i.severity === "warning") ?? [];
+  const canApply = !gen.loading && !!gen.result && selected.size > 0 && dependentsMissing.size === 0 && errors.length === 0;
+  const apply = useCallback20(() => {
+    if (!gen.result || !domainId)
+      return;
+    const blocks = gen.result.blocks.filter((b) => selected.has(b.blockId));
+    if (blocks.length === 0)
+      return;
+    useGraphStore.getState().setYamlViewerPendingGeneration({
+      blocks,
+      yamlByBlock: gen.result.yamlByBlock
+    });
+    useGraphStore.getState().setGenerateSchemaOpen(false);
+    const node = store.nodes.find((n) => n.data.domainId === domainId);
+    if (!node?.data.filePath) {
+      store.showSnackbar("\u0424\u0430\u0439\u043B \u0441\u0445\u0435\u043C\u044B \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D \u2014 \u043D\u0435 \u043C\u043E\u0433\u0443 \u043F\u0440\u0438\u043C\u0435\u043D\u0438\u0442\u044C");
+      return;
+    }
+    if (store.yamlViewerOpen && store.yamlViewerFilePath === node.data.filePath) {
+      return;
+    }
+    store.setYamlViewerFilePath(node.data.filePath);
+    store.setYamlViewerFqid(null);
+    store.setYamlViewerDomainId(domainId);
+    store.setYamlViewerOpen(true);
+  }, [gen.result, selected, domainId, store]);
+  if (!open || !domainId || !entityId)
+    return null;
+  return /* @__PURE__ */ jsx77(
+    "div",
+    {
+      className: "help-overlay help-overlay--fullscreen",
+      style: { zIndex: 450 },
+      onMouseDown: () => useGraphStore.getState().setGenerateSchemaOpen(false),
+      children: /* @__PURE__ */ jsxs74(
+        "div",
+        {
+          className: "help-modal generate-schema-modal",
+          onMouseDown: (e) => e.stopPropagation(),
+          children: [
+            /* @__PURE__ */ jsxs74("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs74("div", { className: "help-modal__title", children: [
+                /* @__PURE__ */ jsx77(MIcon, { name: "auto_fix_high", size: "sm" }),
+                /* @__PURE__ */ jsx77("span", { className: "icon-label", children: "\u0413\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u044F \u0441\u0445\u0435\u043C\u044B" }),
+                /* @__PURE__ */ jsx77("span", { className: "help-modal__badge", children: entityId }),
+                /* @__PURE__ */ jsx77("span", { className: "help-modal__badge", children: domainId })
+              ] }),
+              /* @__PURE__ */ jsx77(
+                "button",
+                {
+                  className: "help-modal__close",
+                  onClick: () => useGraphStore.getState().setGenerateSchemaOpen(false),
+                  children: "\u2715"
+                }
+              )
+            ] }),
+            /* @__PURE__ */ jsxs74("div", { className: "generate-schema-body", children: [
+              /* @__PURE__ */ jsxs74("div", { className: "generate-schema-options", children: [
+                /* @__PURE__ */ jsxs74("label", { className: "generate-schema-field", children: [
+                  /* @__PURE__ */ jsx77("span", { children: "\u041F\u0440\u043E\u0444\u0438\u043B\u044C:" }),
+                  /* @__PURE__ */ jsx77("select", { value: profile, onChange: (e) => setProfile(e.target.value), children: Object.entries(PROFILE_LABELS).map(([v, l]) => /* @__PURE__ */ jsx77("option", { value: v, children: l }, v)) })
+                ] }),
+                /* @__PURE__ */ jsxs74("div", { className: "generate-schema-checkboxes", children: [
+                  /* @__PURE__ */ jsxs74("label", { children: [
+                    /* @__PURE__ */ jsx77(
+                      "input",
+                      {
+                        type: "checkbox",
+                        checked: options.includeBulk,
+                        onChange: (e) => setOptions({ ...options, includeBulk: e.target.checked })
+                      }
+                    ),
+                    "\u041C\u0430\u0441\u0441\u043E\u0432\u043E\u0435 \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435"
+                  ] }),
+                  /* @__PURE__ */ jsxs74("label", { children: [
+                    /* @__PURE__ */ jsx77(
+                      "input",
+                      {
+                        type: "checkbox",
+                        checked: options.includePage,
+                        onChange: (e) => setOptions({ ...options, includePage: e.target.checked })
+                      }
+                    ),
+                    "\u041F\u043E\u043B\u043D\u043E\u044D\u043A\u0440\u0430\u043D\u043D\u0430\u044F \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0430"
+                  ] }),
+                  /* @__PURE__ */ jsxs74("label", { children: [
+                    /* @__PURE__ */ jsx77(
+                      "input",
+                      {
+                        type: "checkbox",
+                        checked: options.includeLinkageWidgets,
+                        onChange: (e) => setOptions({ ...options, includeLinkageWidgets: e.target.checked })
+                      }
+                    ),
+                    "\u0421\u0432\u044F\u0437\u0438 (linkage-\u0432\u0438\u0434\u0436\u0435\u0442\u044B)"
+                  ] }),
+                  /* @__PURE__ */ jsxs74("label", { children: [
+                    /* @__PURE__ */ jsx77(
+                      "input",
+                      {
+                        type: "checkbox",
+                        checked: options.skipExisting,
+                        onChange: (e) => setOptions({ ...options, skipExisting: e.target.checked })
+                      }
+                    ),
+                    "\u041F\u0440\u043E\u043F\u0443\u0441\u043A\u0430\u0442\u044C \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0435\u0435 (append-only)"
+                  ] }),
+                  /* @__PURE__ */ jsxs74("label", { children: [
+                    /* @__PURE__ */ jsx77(
+                      "input",
+                      {
+                        type: "checkbox",
+                        checked: options.excludeReadonlyFromCreate,
+                        onChange: (e) => setOptions({ ...options, excludeReadonlyFromCreate: e.target.checked })
+                      }
+                    ),
+                    "\u0418\u0441\u043A\u043B\u044E\u0447\u0430\u0442\u044C readonly \u0438\u0437 \u0444\u043E\u0440\u043C\u044B \u0441\u043E\u0437\u0434\u0430\u043D\u0438\u044F"
+                  ] })
+                ] }),
+                gen.result?.skipped && gen.result.skipped.length > 0 && /* @__PURE__ */ jsxs74("div", { className: "generate-schema-skipped", children: [
+                  /* @__PURE__ */ jsx77(MIcon, { name: "info", size: "sm" }),
+                  /* @__PURE__ */ jsxs74("span", { children: [
+                    "\u041F\u0440\u043E\u043F\u0443\u0449\u0435\u043D\u043E (\u0443\u0436\u0435 \u0435\u0441\u0442\u044C): ",
+                    gen.result.skipped.length
+                  ] })
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxs74("div", { className: "generate-schema-tabs", children: [
+                /* @__PURE__ */ jsxs74(
+                  "button",
+                  {
+                    className: "generate-schema-tab" + (tab === "blocks" ? " active" : ""),
+                    onClick: () => setTab("blocks"),
+                    children: [
+                      /* @__PURE__ */ jsx77(MIcon, { name: "list", size: "sm" }),
+                      " \u0411\u043B\u043E\u043A\u0438 (",
+                      gen.result?.blocks?.length ?? 0,
+                      ")"
+                    ]
+                  }
+                ),
+                /* @__PURE__ */ jsxs74(
+                  "button",
+                  {
+                    className: "generate-schema-tab" + (tab === "yaml" ? " active" : ""),
+                    onClick: () => setTab("yaml"),
+                    children: [
+                      /* @__PURE__ */ jsx77(MIcon, { name: "code", size: "sm" }),
+                      " YAML-diff (",
+                      selected.size,
+                      ")"
+                    ]
+                  }
+                )
+              ] }),
+              tab === "blocks" && /* @__PURE__ */ jsxs74("div", { className: "generate-schema-blocks", children: [
+                gen.loading && /* @__PURE__ */ jsx77("div", { className: "generate-schema-loading", children: "\u0413\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u044F\u2026" }),
+                gen.error && /* @__PURE__ */ jsxs74("div", { className: "generate-schema-error", children: [
+                  "\u041E\u0448\u0438\u0431\u043A\u0430: ",
+                  gen.error
+                ] }),
+                !gen.loading && !gen.error && gen.result && grouped.length === 0 && /* @__PURE__ */ jsx77("div", { className: "generate-schema-empty", children: "\u041D\u0435\u0447\u0435\u0433\u043E \u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u2014 \u0432\u0441\u0451 \u0443\u0436\u0435 \u0435\u0441\u0442\u044C" }),
+                !gen.loading && !gen.error && grouped.map(([sectionKey, sectionBlocks]) => /* @__PURE__ */ jsxs74("div", { className: "generate-schema-section", children: [
+                  /* @__PURE__ */ jsxs74("div", { className: "generate-schema-section-head", children: [
+                    /* @__PURE__ */ jsx77(MIcon, { name: SECTION_LABELS3[sectionKey]?.icon || "folder", size: "sm" }),
+                    /* @__PURE__ */ jsx77("span", { children: SECTION_LABELS3[sectionKey]?.label || sectionKey }),
+                    /* @__PURE__ */ jsx77("span", { className: "generate-schema-section-count", children: sectionBlocks.length })
+                  ] }),
+                  sectionBlocks.map((b) => {
+                    const isSelected = selected.has(b.blockId);
+                    const hasMissingDep = dependentsMissing.has(b.blockId);
+                    return /* @__PURE__ */ jsxs74(
+                      "label",
+                      {
+                        className: "generate-schema-block" + (hasMissingDep ? " generate-schema-block--warn" : ""),
+                        children: [
+                          /* @__PURE__ */ jsx77(
+                            "input",
+                            {
+                              type: "checkbox",
+                              checked: isSelected,
+                              onChange: () => toggleBlock(b.blockId)
+                            }
+                          ),
+                          /* @__PURE__ */ jsx77(MIcon, { name: iconForBlock(b), size: "sm" }),
+                          /* @__PURE__ */ jsx77("span", { className: "generate-schema-block-title", children: b.title }),
+                          /* @__PURE__ */ jsx77("code", { className: "generate-schema-block-id", children: b.blockId }),
+                          hasMissingDep && /* @__PURE__ */ jsx77("span", { className: "generate-schema-block-warn", title: "\u0421\u043D\u044F\u0442\u0430 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u044C", children: /* @__PURE__ */ jsx77(MIcon, { name: "warning", size: "sm" }) })
+                        ]
+                      },
+                      b.blockId
+                    );
+                  })
+                ] }, sectionKey))
+              ] }),
+              tab === "yaml" && /* @__PURE__ */ jsxs74("div", { className: "generate-schema-yaml", children: [
+                gen.result && selected.size === 0 && /* @__PURE__ */ jsx77("div", { className: "generate-schema-empty", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u0432\u044B\u0431\u0440\u0430\u043D\u043E" }),
+                gen.result && gen.result.blocks.filter((b) => selected.has(b.blockId)).map((b) => /* @__PURE__ */ jsxs74("div", { className: "generate-schema-yaml-block", children: [
+                  /* @__PURE__ */ jsxs74("div", { className: "generate-schema-yaml-title", children: [
+                    "# ",
+                    b.title
+                  ] }),
+                  /* @__PURE__ */ jsx77("pre", { children: gen.result.yamlByBlock[b.blockId] || "" })
+                ] }, b.blockId))
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxs74("div", { className: "generate-schema-footer", children: [
+              /* @__PURE__ */ jsxs74("div", { className: "generate-schema-preflight", children: [
+                errors.length > 0 && /* @__PURE__ */ jsxs74("span", { className: "generate-schema-badge generate-schema-badge--error", children: [
+                  "\u26A0 ",
+                  errors.length,
+                  " \u043D\u043E\u0432\u044B\u0445 \u043E\u0448\u0438\u0431\u043E\u043A"
+                ] }),
+                warnings.length > 0 && /* @__PURE__ */ jsxs74("span", { className: "generate-schema-badge generate-schema-badge--warn", children: [
+                  "\u26A0 ",
+                  warnings.length,
+                  " \u043F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u0439"
+                ] }),
+                errors.length === 0 && warnings.length === 0 && gen.result && /* @__PURE__ */ jsx77("span", { className: "generate-schema-badge generate-schema-badge--ok", children: "\u2713 0 \u043D\u043E\u0432\u044B\u0445 lint-\u043F\u0440\u043E\u0431\u043B\u0435\u043C" })
+              ] }),
+              /* @__PURE__ */ jsxs74("div", { className: "generate-schema-actions", children: [
+                /* @__PURE__ */ jsx77("button", { className: "btn", onClick: () => useGraphStore.getState().setGenerateSchemaOpen(false), children: "\u041E\u0442\u043C\u0435\u043D\u0430" }),
+                /* @__PURE__ */ jsx77("button", { className: "btn", onClick: pullDependencies, disabled: !gen.result, children: "\u0414\u043E\u0442\u044F\u043D\u0443\u0442\u044C \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438" }),
+                /* @__PURE__ */ jsx77("button", { className: "btn btn--primary", onClick: apply, disabled: !canApply, children: "\u041F\u0440\u0438\u043C\u0435\u043D\u0438\u0442\u044C (append)" })
+              ] })
+            ] })
+          ]
+        }
+      )
+    }
+  );
+}
+var SECTION_LABELS3, PROFILE_LABELS;
+var init_GenerateSchemaModal = __esm({
+  "src/web/components/modals/GenerateSchemaModal.tsx"() {
+    "use strict";
+    init_useGraphStore();
+    init_useGenerateSchema();
+    init_MIcon();
+    SECTION_LABELS3 = {
+      actions: { label: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F", icon: "bolt" },
+      views: { label: "\u041F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F", icon: "view_quilt" },
+      menus: { label: "\u041C\u0435\u043D\u044E", icon: "menu" },
+      medias: { label: "\u0418\u043A\u043E\u043D\u043A\u0438", icon: "image" }
+    };
+    PROFILE_LABELS = {
+      crud: "CRUD (\u0441\u043E\u0437\u0434\u0430\u043D\u0438\u0435 + \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435 + \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435)",
+      "crud-with-page": "CRUD \u0441 \u043F\u043E\u043B\u043D\u043E\u044D\u043A\u0440\u0430\u043D\u043D\u043E\u0439 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u043E\u0439",
+      dictionary: "\u0421\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A (\u0442\u043E\u043B\u044C\u043A\u043E entity-view)"
     };
   }
 });
@@ -43091,40 +43839,41 @@ var init_modals = __esm({
     init_DomainCompareModal();
     init_PiiModal();
     init_YamlViewerModal();
+    init_GenerateSchemaModal();
   }
 });
 
 // src/web/components/layout/AppModals.tsx
-import { Fragment as Fragment19, jsx as jsx77, jsxs as jsxs74 } from "react/jsx-runtime";
+import { Fragment as Fragment19, jsx as jsx78, jsxs as jsxs75 } from "react/jsx-runtime";
 function AppModals(props) {
   const helpOpen = useGraphStore((s) => s.helpOpen);
   const hotkeysOpen = useGraphStore((s) => s.hotkeysOpen);
   const contextMenu = useGraphStore((s) => s.contextMenu);
   const snackbar = useGraphStore((s) => s.snackbar);
-  return /* @__PURE__ */ jsxs74(Fragment19, { children: [
-    /* @__PURE__ */ jsx77(HoverTooltip, {}),
-    /* @__PURE__ */ jsx77(
+  return /* @__PURE__ */ jsxs75(Fragment19, { children: [
+    /* @__PURE__ */ jsx78(HoverTooltip, {}),
+    /* @__PURE__ */ jsx78(
       CommandPalette,
       {
         commands: props.commands,
         onOpenFile: (filePath, fqid) => openFileInEditor(filePath, fqid)
       }
     ),
-    /* @__PURE__ */ jsx77(
+    /* @__PURE__ */ jsx78(
       HelpModal,
       {
         open: helpOpen,
         onClose: () => useGraphStore.getState().setHelpOpen(false)
       }
     ),
-    /* @__PURE__ */ jsx77(
+    /* @__PURE__ */ jsx78(
       HotkeysModal,
       {
         open: hotkeysOpen,
         onClose: () => useGraphStore.getState().setHotkeysOpen(false)
       }
     ),
-    /* @__PURE__ */ jsx77(
+    /* @__PURE__ */ jsx78(
       ValidationModal,
       {
         allDomains: props.allDomains,
@@ -43132,7 +43881,7 @@ function AppModals(props) {
         bookmarkedDomains: props.bookmarkedDomains
       }
     ),
-    /* @__PURE__ */ jsx77(
+    /* @__PURE__ */ jsx78(
       TopoSortModal,
       {
         allDomains: props.allDomains,
@@ -43140,7 +43889,7 @@ function AppModals(props) {
         bookmarkedDomains: props.bookmarkedDomains
       }
     ),
-    /* @__PURE__ */ jsx77(
+    /* @__PURE__ */ jsx78(
       LearningPathModal,
       {
         visibleDomains: props.visibleDomains,
@@ -43148,10 +43897,10 @@ function AppModals(props) {
         onStartTour: props.onStartTour
       }
     ),
-    /* @__PURE__ */ jsx77(TourOverlay, {}),
-    /* @__PURE__ */ jsx77(EntityHierarchyModal, { entities: props.entities }),
-    /* @__PURE__ */ jsx77(RulesModal, { violations: props.ruleViolations }),
-    /* @__PURE__ */ jsx77(
+    /* @__PURE__ */ jsx78(TourOverlay, {}),
+    /* @__PURE__ */ jsx78(EntityHierarchyModal, { entities: props.entities }),
+    /* @__PURE__ */ jsx78(RulesModal, { violations: props.ruleViolations }),
+    /* @__PURE__ */ jsx78(
       ContextMenu,
       {
         menu: contextMenu,
@@ -43159,7 +43908,7 @@ function AppModals(props) {
         onAction: props.onContextAction
       }
     ),
-    props.toastVisible && props.remoteInfo?.fromCache && /* @__PURE__ */ jsx77(
+    props.toastVisible && props.remoteInfo?.fromCache && /* @__PURE__ */ jsx78(
       Toast,
       {
         message: "\u{1F4E6} \u0413\u0440\u0430\u0444 \u043F\u043E\u0441\u0442\u0440\u043E\u0435\u043D \u0438\u0437 <b>\u043A\u044D\u0448\u0430</b>" + (props.remoteInfo.fetchedAt ? " (\u043E\u0442 " + new Date(props.remoteInfo.fetchedAt).toLocaleString("ru-RU") + ")" : "") + ". \u0414\u0430\u043D\u043D\u044B\u0435 \u043C\u043E\u0433\u0443\u0442 \u0431\u044B\u0442\u044C \u0443\u0441\u0442\u0430\u0440\u0435\u0432\u0448\u0438\u043C\u0438.",
@@ -43174,21 +43923,22 @@ function AppModals(props) {
         } : void 0
       }
     ),
-    /* @__PURE__ */ jsx77(Snackbar, { snackbar }),
-    /* @__PURE__ */ jsx77(EntityGraphModal, {}),
-    /* @__PURE__ */ jsx77(ModelValidationModal, {}),
-    /* @__PURE__ */ jsx77(GlossaryModal, {}),
-    /* @__PURE__ */ jsx77(ModelDiffModal, {}),
-    /* @__PURE__ */ jsx77(EntitiesCatalogModal, {}),
-    /* @__PURE__ */ jsx77(AttributeFinderModal, {}),
-    /* @__PURE__ */ jsx77(EntityMatrixModal, {}),
-    /* @__PURE__ */ jsx77(AttributeMatrixModal, {}),
-    /* @__PURE__ */ jsx77(DomainSchemaModal, {}),
-    /* @__PURE__ */ jsx77(LintModal, {}),
-    /* @__PURE__ */ jsx77(MartinMetricsModal, {}),
-    /* @__PURE__ */ jsx77(DomainCompareModal, {}),
-    /* @__PURE__ */ jsx77(PiiModal, {}),
-    /* @__PURE__ */ jsx77(YamlViewerModal, {})
+    /* @__PURE__ */ jsx78(Snackbar, { snackbar }),
+    /* @__PURE__ */ jsx78(EntityGraphModal, {}),
+    /* @__PURE__ */ jsx78(ModelValidationModal, {}),
+    /* @__PURE__ */ jsx78(GlossaryModal, {}),
+    /* @__PURE__ */ jsx78(ModelDiffModal, {}),
+    /* @__PURE__ */ jsx78(EntitiesCatalogModal, {}),
+    /* @__PURE__ */ jsx78(AttributeFinderModal, {}),
+    /* @__PURE__ */ jsx78(EntityMatrixModal, {}),
+    /* @__PURE__ */ jsx78(AttributeMatrixModal, {}),
+    /* @__PURE__ */ jsx78(DomainSchemaModal, {}),
+    /* @__PURE__ */ jsx78(LintModal, {}),
+    /* @__PURE__ */ jsx78(MartinMetricsModal, {}),
+    /* @__PURE__ */ jsx78(DomainCompareModal, {}),
+    /* @__PURE__ */ jsx78(PiiModal, {}),
+    /* @__PURE__ */ jsx78(YamlViewerModal, {}),
+    /* @__PURE__ */ jsx78(GenerateSchemaModal, {})
   ] });
 }
 var init_AppModals = __esm({
@@ -43217,15 +43967,15 @@ var init_AppModals = __esm({
 });
 
 // src/web/App.tsx
-import React43, { useCallback as useCallback19, useEffect as useEffect38, useMemo as useMemo44, useRef as useRef16 } from "react";
-import { jsx as jsx78, jsxs as jsxs75 } from "react/jsx-runtime";
+import React44, { useCallback as useCallback21, useEffect as useEffect40, useMemo as useMemo45, useRef as useRef16 } from "react";
+import { jsx as jsx79, jsxs as jsxs76 } from "react/jsx-runtime";
 function App() {
   const nodes = useGraphStore((s) => s.nodes);
   const edges = useGraphStore((s) => s.edges);
   const rules = useGraphStore((s) => s.rules);
   const viewMode = useGraphStore((s) => s.viewMode);
   const didInit = useRef16(false);
-  useEffect38(() => {
+  useEffect40(() => {
     if (didInit.current)
       return;
     didInit.current = true;
@@ -43235,7 +43985,7 @@ function App() {
     document.documentElement.setAttribute("data-theme", st.theme);
   }, []);
   const CACHE_TOAST_KEY = REMOTE_INFO?.server ? `dg-cache-toast-hidden:${REMOTE_INFO.server.replace(/\/+$/, "")}` : null;
-  const [toastVisible, setToastVisible] = React43.useState(() => {
+  const [toastVisible, setToastVisible] = React44.useState(() => {
     if (!REMOTE_INFO?.fromCache)
       return false;
     if (!CACHE_TOAST_KEY)
@@ -43246,8 +43996,8 @@ function App() {
       return true;
     }
   });
-  const [dontShowCacheToast, setDontShowCacheToast] = React43.useState(false);
-  const handleDontShowCacheToast = React43.useCallback(
+  const [dontShowCacheToast, setDontShowCacheToast] = React44.useState(false);
+  const handleDontShowCacheToast = React44.useCallback(
     (checked) => {
       setDontShowCacheToast(checked);
       if (!CACHE_TOAST_KEY)
@@ -43271,16 +44021,16 @@ function App() {
     isolatedCount,
     filteredIdsHash
   } = useGraphFilters();
-  const edgesForFocus = useMemo44(() => {
+  const edgesForFocus = useMemo45(() => {
     const ids = new Set(filteredNodes.map((n) => n.id));
     return displayEdges.filter((e) => ids.has(e.source) && ids.has(e.target));
   }, [displayEdges, filteredNodes]);
   const highlight = useGraphHighlight(filteredEdges, edgesForFocus);
-  const cyclesInfo = useMemo44(
+  const cyclesInfo = useMemo45(
     () => findCycles(displayNodes, displayEdges),
     [displayNodes, displayEdges]
   );
-  const healthMap = useMemo44(() => {
+  const healthMap = useMemo45(() => {
     const map2 = /* @__PURE__ */ new Map();
     displayNodes.forEach((n) => {
       const h = computeHealth(n, displayEdges, displayNodes, cyclesInfo.cycleNodes, null);
@@ -43288,11 +44038,11 @@ function App() {
     });
     return map2;
   }, [displayNodes, displayEdges, cyclesInfo]);
-  const ruleViolations = useMemo44(
+  const ruleViolations = useMemo45(
     () => evaluateRules(displayEdges, displayNodes, rules),
     [displayEdges, displayNodes, rules]
   );
-  const violationsByEdge = useMemo44(() => {
+  const violationsByEdge = useMemo45(() => {
     const m = /* @__PURE__ */ new Map();
     ruleViolations.forEach((v) => {
       if (!m.has(v.edgeId))
@@ -43301,7 +44051,7 @@ function App() {
     });
     return m;
   }, [ruleViolations]);
-  const edgesForRender = useMemo44(() => {
+  const edgesForRender = useMemo45(() => {
     if (highlight && (highlight.type === "focus" || highlight.type === "cycle" || highlight.type === "path")) {
       return edgesForFocus;
     }
@@ -43310,12 +44060,12 @@ function App() {
   const heatmapValues = useHeatmapValues(displayNodes, displayEdges, healthMap);
   const visibleNodes = useVisibleNodes(filteredNodes, highlight, healthMap, heatmapValues);
   const visibleEdges = useVisibleEdges(edgesForRender, highlight, violationsByEdge);
-  const perfMode = useMemo44(
+  const perfMode = useMemo45(
     () => filteredEdges.length > PERF_THRESHOLD,
     [filteredEdges.length]
   );
   const showEdgeLabels = useGraphStore((s) => s.showEdgeLabels);
-  const displayEdgesForRender = useMemo44(() => {
+  const displayEdgesForRender = useMemo45(() => {
     const hideLabels = perfMode && !showEdgeLabels;
     if (!hideLabels)
       return visibleEdges;
@@ -43351,7 +44101,7 @@ function App() {
   const interactions = useNodeInteractions({ filteredEdges });
   useGraphEvents({ displayNodes, displayEdges });
   useGlobalClickDelegation(goto, tooltip.hide);
-  const handleResetAll = useCallback19(() => {
+  const handleResetAll = useCallback21(() => {
     useGraphStore.getState().resetAll();
     invalidateLayout();
     setTimeout(() => {
@@ -43364,7 +44114,7 @@ function App() {
       }
     }, 200);
   }, [invalidateLayout]);
-  const startTour = useCallback19((path) => {
+  const startTour = useCallback21((path) => {
     const st = useGraphStore.getState();
     st.setTour({
       stages: path.stages,
@@ -43378,20 +44128,20 @@ function App() {
     st.setPathResult(null);
     st.setPathSel([]);
   }, []);
-  const allDomainsList = useMemo44(
+  const allDomainsList = useMemo45(
     () => nodes.filter((n) => n.data.nodeType === "domain").map((n) => ({ id: n.id, domainId: n.data.domainId })),
     [nodes]
   );
-  const visibleDomainsList = useMemo44(
+  const visibleDomainsList = useMemo45(
     () => visibleNodes.filter((n) => n.data.nodeType === "domain").map((n) => ({ id: n.id, domainId: n.data.domainId })),
     [visibleNodes]
   );
   const bookmarks = useGraphStore((s) => s.bookmarks);
-  const bookmarkedDomainsList = useMemo44(
+  const bookmarkedDomainsList = useMemo45(
     () => nodes.filter((n) => bookmarks.has(n.id) && n.data.nodeType === "domain").map((n) => ({ id: n.id, domainId: n.data.domainId })),
     [nodes, bookmarks]
   );
-  const entityIndex = useMemo44(() => buildEntityIndex(GRAPH_DATA.entities || []), []);
+  const entityIndex = useMemo45(() => buildEntityIndex(GRAPH_DATA.entities || []), []);
   const filters = useGraphStore((s) => s.filters);
   const namespaceFilter = useGraphStore((s) => s.namespaceFilter);
   const tagFilters = useGraphStore((s) => s.tagFilters);
@@ -43399,7 +44149,7 @@ function App() {
   const bookmarksOnly = useGraphStore((s) => s.bookmarksOnly);
   const onlyInvalid = useGraphStore((s) => s.onlyInvalid);
   const hiddenNodeIds = useGraphStore((s) => s.hiddenNodeIds);
-  const activeFiltersCount = useMemo44(() => {
+  const activeFiltersCount = useMemo45(() => {
     let c = 0;
     if (!filters.domain)
       c++;
@@ -43433,8 +44183,8 @@ function App() {
     onlyInvalid,
     hiddenNodeIds
   ]);
-  return /* @__PURE__ */ jsxs75("div", { className: "app", children: [
-    /* @__PURE__ */ jsx78(
+  return /* @__PURE__ */ jsxs76("div", { className: "app", children: [
+    /* @__PURE__ */ jsx79(
       Sidebar,
       {
         healthMap,
@@ -43452,8 +44202,8 @@ function App() {
         onExportStats: exportsApi.exportStats
       }
     ),
-    /* @__PURE__ */ jsxs75("main", { className: "main", children: [
-      /* @__PURE__ */ jsx78(
+    /* @__PURE__ */ jsxs76("main", { className: "main", children: [
+      /* @__PURE__ */ jsx79(
         Toolbar,
         {
           counts,
@@ -43495,7 +44245,7 @@ function App() {
           onShowToast: () => setToastVisible(true)
         }
       ),
-      /* @__PURE__ */ jsx78(
+      /* @__PURE__ */ jsx79(
         GraphArea,
         {
           visibleNodes,
@@ -43516,7 +44266,7 @@ function App() {
         }
       )
     ] }),
-    /* @__PURE__ */ jsx78(
+    /* @__PURE__ */ jsx79(
       AppModals,
       {
         commands,
@@ -43530,7 +44280,7 @@ function App() {
         remoteInfo: REMOTE_INFO,
         refreshCommand: REFRESH_COMMAND,
         toastVisible,
-        onToastClose: useCallback19(() => setToastVisible(false), []),
+        onToastClose: useCallback21(() => setToastVisible(false), []),
         showDontShowAgain: !!CACHE_TOAST_KEY,
         dontShowCacheToast,
         onDontShowCacheToastChange: handleDontShowCacheToast
@@ -43563,7 +44313,7 @@ var init_App = __esm({
 
 // src/web/entry.tsx
 import { createRoot } from "react-dom/client";
-import { jsx as jsx79 } from "react/jsx-runtime";
+import { jsx as jsx80 } from "react/jsx-runtime";
 var require_entry = __commonJS({
   "src/web/entry.tsx"() {
     init_App();
@@ -43592,7 +44342,7 @@ var require_entry = __commonJS({
     var container = document.getElementById("root");
     if (!container)
       throw new Error("#root not found");
-    createRoot(container).render(/* @__PURE__ */ jsx79(App, {}));
+    createRoot(container).render(/* @__PURE__ */ jsx80(App, {}));
   }
 });
 export default require_entry();
