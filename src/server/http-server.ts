@@ -349,7 +349,7 @@ export function startServer(opts: StartServerOptions): http.Server {
         }
       }
     } else if (url.startsWith("/file")) {
-      handleFileRequest(req, res);
+      handleFileRequest(req, res, rootDir);
     }
 
     // ============ API: model ============

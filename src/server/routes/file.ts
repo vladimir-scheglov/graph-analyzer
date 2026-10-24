@@ -18,6 +18,7 @@ import { apiFetchExpertiseSource } from "../../core/remote/schemas-loader";
 export function handleFileRequest(
   req: IncomingMessage,
   res: ServerResponse,
+  rootDir: string,
 ): void {
   const url = new URL(req.url!, "http://localhost");
   const filePath = url.searchParams.get("path");
@@ -26,8 +27,20 @@ export function handleFileRequest(
     res.end("Missing path");
     return;
   }
+
+  const rootResolved = path.resolve(rootDir);
+  const resolved = path.resolve(filePath);
+  if (
+    resolved !== rootResolved &&
+    !resolved.startsWith(rootResolved + path.sep)
+  ) {
+    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("Path outside root");
+    return;
+  }
+
   try {
-    const content = fs.readFileSync(filePath, "utf8");
+    const content = fs.readFileSync(resolved, "utf8");
     res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
     res.end(content);
   } catch {
@@ -301,7 +314,7 @@ export async function handleFileFresh(
 
   // Только remote и только при наличии кредов и индекса
   if (mode !== "remote" || !credentials || !domainIndex) {
-    handleFileRequest(req, res);
+    handleFileRequest(req, res, rootDir);
     return;
   }
 
@@ -312,7 +325,7 @@ export async function handleFileFresh(
     console.warn(
       `[fresh] ${baseName}: не найден в _index.json — fallback на локальный кэш`,
     );
-    handleFileRequest(req, res);
+    handleFileRequest(req, res, rootDir);
     return;
   }
 

@@ -41,6 +41,7 @@ import {
 } from '../../../core/analyzer/local-recheck';
 import { ModelIndex } from '../../../shared/model-types';
 import { KNOWN_ACTION_TYPES } from "../../../shared/action-types";
+import { SectionQuickNav } from "./SectionQuickNav";
 
 type RightTab = 'issues' | 'refs' | 'backlinks' | 'server';
 
@@ -164,7 +165,8 @@ export function YamlViewerModal() {
     const decorationsCollection = useRef<any>(null);
     const appTheme = useGraphStore((s) => s.theme);
     const monacoTheme = appTheme === "light" ? "dg-light" : "dg-dark";
-
+    const [editorTopLine, setEditorTopLine] = useState(1);
+    const [scrollSignal, setScrollSignal] = useState(0);
 
     const startResizingLeft = (e: React.MouseEvent) => {
         e.preventDefault();
@@ -337,6 +339,7 @@ export function YamlViewerModal() {
     const [focusTarget, setFocusTarget] = useState<FocusTarget | null>(null);
     const focusDecorationsRef = useRef<any>(null);
     const saveAbortRef = useRef<AbortController | null>(null);
+    const editorTopLineRef = useRef(1);
 
     // Синхронизация dirty-state в store — чтобы openFileInEditor мог
     // предупредить о потере изменений перед переключением файла.
@@ -879,6 +882,17 @@ export function YamlViewerModal() {
                 if (cursorTimer) clearTimeout(cursorTimer);
                 const line = e.position.lineNumber;
                 cursorTimer = setTimeout(() => setCursorLine(line), 120);
+            });
+
+            editor.onDidScrollChange(() => {
+                if (!editorRef.current) return;
+                const ranges = editorRef.current.getVisibleRanges();
+                const top = ranges[0]?.startLineNumber;
+                if (top && top !== editorTopLineRef.current) {
+                    editorTopLineRef.current = top;
+                    setEditorTopLine(top);
+                    setScrollSignal((v) => v + 1);
+                }
             });
 
             // ============ Auto-suggest при наборе ============
@@ -3187,6 +3201,15 @@ export function YamlViewerModal() {
                                     );
                                 })}
                             </div>
+                        )}
+
+                        {lineMap && (
+                            <SectionQuickNav
+                                lineMap={lineMap}
+                                topLine={editorTopLine}
+                                autoOpenSignal={scrollSignal}
+                                onJump={(line) => jumpTo(line)}
+                            />
                         )}
 
                         {!isLocked && (

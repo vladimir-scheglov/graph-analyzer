@@ -43,9 +43,11 @@ export async function handleValidateStream(
     "X-Accel-Buffering": "no",
   });
 
-  req.on("close", () => {
-    if (state.validation) {
-      // validated context's state is stored inside
+  // Клиент оборвал SSE (AbortController.abort() на фронте или закрытие вкладки) —
+  // останавливаем воркеры, чтобы они не продолжали дёргать API валидации.
+  res.on("close", () => {
+    if (state.validation?.state && !res.writableEnded) {
+      state.validation.state.cancelled = true;
     }
   });
 
@@ -70,9 +72,13 @@ export function handleValidateCancel(
   res: ServerResponse,
   state: ServerState,
 ): void {
-  // state.validation's internal state can be cancelled via context
+  const ctx = state.validation;
+  const wasRunning = !!(ctx?.state && !ctx.state.cancelled);
+  if (ctx?.state) {
+    ctx.state.cancelled = true;
+  }
   res.writeHead(200, { "Content-Type": "application/json" });
-  res.end('{"ok":true}');
+  res.end(JSON.stringify({ ok: true, cancelled: wasRunning }));
 }
 
 export function handleValidationResults(
