@@ -1,7 +1,11 @@
 import http from "http";
 import fs from "fs";
 import path from "path";
-import type { RemoteCredentials, RemoteInfo } from "../shared/types";
+import type {
+  DomainPublishInfo,
+  RemoteCredentials,
+  RemoteInfo,
+} from "../shared/types";
 import { DomainAnalyzer } from "../core/analyzer/DomainAnalyzer";
 import { ValidationContext } from "../core/validation/validate";
 import { renderHTML } from "./html-template";
@@ -33,6 +37,7 @@ import {
   updateModelSnapshot,
 } from "../core/analyzer/model-snapshot";
 import { computeSemanticDiff } from "../core/analyzer/semantic-diff";
+import { prepareRemoteCache } from "../core/remote/cache-manager";
 
 export interface StartServerOptions {
   port: number;
@@ -42,6 +47,108 @@ export interface StartServerOptions {
   credentials: RemoteCredentials | null;
   refreshCommand: string | null;
   mode: "local" | "hybrid" | "remote";
+}
+
+/** Блокировка параллельных обновлений кеша. */
+let refreshing = false;
+
+interface RefreshCtx {
+  analyzer: DomainAnalyzer;
+  credentials: RemoteCredentials | null;
+  remoteInfo: RemoteInfo | null;
+  mode: "local" | "hybrid" | "remote";
+}
+
+async function handleRefreshCache(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  ctx: { analyzer: DomainAnalyzer },
+): Promise<void> {
+  if (
+    state.mode !== "remote" ||
+    !state.credentials ||
+    !state.remoteInfo?.server
+  ) {
+    res.writeHead(403, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        error:
+          "Обновление кеша доступно только в режиме --server " +
+          "(без локального каталога)",
+      }),
+    );
+    return;
+  }
+
+  if (refreshing) {
+    res.writeHead(429, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Обновление уже выполняется" }));
+    return;
+  }
+
+  refreshing = true;
+  const startedAt = Date.now();
+  const serverUrl = state.remoteInfo.server;
+  const credentials = state.credentials;
+
+  console.log(`[refresh-cache] start: ${serverUrl}`);
+
+  try {
+    const newRemoteInfo = await prepareRemoteCache({
+      serverUrl,
+      username: credentials.username,
+      password: credentials.password,
+      baseDir: process.cwd(),
+      opts: {
+        refresh: true,
+        resetCache: false,
+        secure: credentials.secure,
+      },
+    });
+
+    // Пересобрать analyzer + model index
+    ctx.analyzer.reset();
+    (ctx.analyzer as any).__graphData = ctx.analyzer.analyze();
+
+    const rawDomains = ctx.analyzer.getRawDomainsForModelIndex();
+    const newIndex = buildModelIndex(rawDomains);
+    setModelIndex(newIndex);
+
+    // Обновить publish-index
+    state.domainIndex = loadDomainIndex(newRemoteInfo.cacheDir);
+
+    // ============ КЛЮЧЕВОЕ: обновить state.remoteInfo ============
+    // Иначе renderHTML на следующем GET / инжектит старый fetchedAt.
+    state.remoteInfo = { ...newRemoteInfo, mode: "remote" };
+
+    const elapsedMs = Date.now() - startedAt;
+    console.log(
+      `[refresh-cache] OK: ${newIndex.domains.length} доменов, ` +
+        `${newIndex.stats.entityCount} сущностей, ${elapsedMs}мс`,
+    );
+
+    res.writeHead(200, {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+    });
+    res.end(
+      JSON.stringify({
+        ok: true,
+        cacheDir: newRemoteInfo.cacheDir,
+        fetchedAt: newRemoteInfo.fetchedAt,
+        domainCount: newIndex.domains.length,
+        entityCount: newIndex.stats.entityCount,
+        attributeCount: newIndex.stats.attributeCount,
+        elapsedMs,
+      }),
+    );
+  } catch (err: any) {
+    console.error(`[refresh-cache] failed:`, err.message);
+    res.writeHead(500, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: err.message }));
+  } finally {
+    refreshing = false;
+  }
 }
 
 export function startServer(opts: StartServerOptions): http.Server {
@@ -59,38 +166,19 @@ export function startServer(opts: StartServerOptions): http.Server {
   state.validation = credentials
     ? { credentials, analyzer, state: null }
     : null;
+  state.remoteInfo = remoteInfo;
+  state.refreshCommand = refreshCommand;
+  state.mode = mode;
+  state.analyzer = analyzer;
 
   // ============ domainIndex (только remote) ============
   // Нужен для publishExpertise: id экспертизы и folderId берём из _index.json.
   state.domainIndex = null;
   if (mode === "remote" && remoteInfo?.cacheDir) {
-    try {
-      const idxPath = path.join(remoteInfo.cacheDir, "_index.json");
-      if (fs.existsSync(idxPath)) {
-        const idx = JSON.parse(fs.readFileSync(idxPath, "utf8"));
-        const m = new Map<
-          string,
-          import("../shared/types").DomainPublishInfo
-        >();
-        for (const d of idx.domains || []) {
-          if (
-            typeof d?.sourceId === "string" &&
-            typeof d?.id === "string" &&
-            typeof d?.folderId === "string"
-          ) {
-            m.set(d.sourceId, {
-              id: d.id,
-              folderId: d.folderId,
-              sourceId: d.sourceId,
-              name: d.name || d.sourceId,
-            });
-          }
-        }
-        state.domainIndex = m;
-        console.log(`📂 Publish index: ${m.size} доменов`);
-      }
-    } catch (err: any) {
-      console.warn("[publish] failed to load _index.json:", err.message);
+    const m = loadDomainIndex(remoteInfo.cacheDir);
+    if (m) {
+      state.domainIndex = m;
+      console.log(`📂 Publish index: ${m.size} доменов`);
     }
   }
 
@@ -144,8 +232,13 @@ export function startServer(opts: StartServerOptions): http.Server {
     // ============ Static ============
     if (url === "/") {
       const graphData = (analyzer as any).__graphData || analyzer.analyze();
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-      res.end(renderHTML(graphData, remoteInfo, refreshCommand));
+      res.writeHead(200, {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        Pragma: "no-cache",
+        Expires: "0",
+      });
+      res.end(renderHTML(graphData, state.remoteInfo, state.refreshCommand));
     } else if (url === "/web.bundle.js") {
       try {
         const content = fs.readFileSync(
@@ -266,6 +359,17 @@ export function startServer(opts: StartServerOptions): http.Server {
       handleModelSummary(res);
     } else if (url === "/api/model/diff" && req.method === "GET") {
       handleModelDiff(res);
+    } else if (url === "/api/refresh-cache" && req.method === "POST") {
+      try {
+        await handleRefreshCache(req, res, { analyzer });
+      } catch (err: any) {
+        try {
+          if (!res.headersSent) {
+            res.writeHead(500, { "Content-Type": "application/json" });
+          }
+          res.end(JSON.stringify({ error: err.message }));
+        } catch {}
+      }
     }
 
     // ============ API: validation ============
@@ -327,4 +431,33 @@ export function startServer(opts: StartServerOptions): http.Server {
   });
 
   return server;
+}
+
+function loadDomainIndex(
+  cacheDir: string,
+): Map<string, DomainPublishInfo> | null {
+  try {
+    const idxPath = path.join(cacheDir, "_index.json");
+    if (!fs.existsSync(idxPath)) return null;
+    const idx = JSON.parse(fs.readFileSync(idxPath, "utf8"));
+    const m = new Map<string, DomainPublishInfo>();
+    for (const d of idx.domains || []) {
+      if (
+        typeof d?.sourceId === "string" &&
+        typeof d?.id === "string" &&
+        typeof d?.folderId === "string"
+      ) {
+        m.set(d.sourceId, {
+          id: d.id,
+          folderId: d.folderId,
+          sourceId: d.sourceId,
+          name: d.name || d.sourceId,
+        });
+      }
+    }
+    return m;
+  } catch (err: any) {
+    console.warn("[publish] failed to load _index.json:", err.message);
+    return null;
+  }
 }

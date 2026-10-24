@@ -13,18 +13,27 @@ export function Popover({ trigger, children, align = 'left', width = 320 }: Popo
 
     useEffect(() => {
         if (!open) return;
-        const onDoc = (e: MouseEvent) => {
-            if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
-        };
-        const onEsc = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') setOpen(false);
-        };
-        document.addEventListener('mousedown', onDoc);
-        document.addEventListener('keydown', onEsc, true);
-        return () => {
-            document.removeEventListener('mousedown', onDoc);
-            document.removeEventListener('keydown', onEsc, true);
-        };
+        const t = setTimeout(() => {
+            const el = wrapRef.current?.querySelector(
+                ".popover",
+            ) as HTMLElement | null;
+            if (!el) return;
+
+            // Сбрасываем возможные прошлые сдвиги
+            el.style.marginLeft = "";
+            el.style.marginRight = "";
+
+            const rect = el.getBoundingClientRect();
+            const margin = 8;
+            if (rect.right > window.innerWidth - margin) {
+                const shift = rect.right - (window.innerWidth - margin);
+                el.style.marginRight = `${shift}px`;
+            } else if (rect.left < margin) {
+                const shift = margin - rect.left;
+                el.style.marginLeft = `${shift}px`;
+            }
+        }, 50);
+        return () => clearTimeout(t);
     }, [open]);
 
     useEffect(() => {

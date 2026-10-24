@@ -46,7 +46,7 @@ export const YamlSearchPanel = forwardRef<YamlSearchPanelHandle, YamlSearchPanel
             onEscape, onJump,
         } = props;
 
-        const inputRef = useRef<HTMLInputElement>(null);
+        const inputRef = useRef<HTMLTextAreaElement>(null);
         const [result, setResult] = useState<SearchResult | null>(null);
         const [activeMatch, setActiveMatch] = useState<SearchMatch | null>(null);
         const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -119,6 +119,9 @@ export const YamlSearchPanel = forwardRef<YamlSearchPanelHandle, YamlSearchPanel
                 setActiveMatch(m);
                 onActiveMatchChange(m);
                 onJump(m.line);
+                // Возвращаем фокус в поле — иначе следующий Ctrl+Enter
+                // попадёт на кнопку списка и не сработает.
+                inputRef.current?.focus();
             },
             [onActiveMatchChange, onJump],
         );
@@ -142,20 +145,43 @@ export const YamlSearchPanel = forwardRef<YamlSearchPanelHandle, YamlSearchPanel
             [flatMatches, activeMatch, selectMatch],
         );
 
-        const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-            if (e.key === "Enter") {
+        const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+            // Ctrl/Cmd+Enter — следующий матч (как в VSCode)
+            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
                 e.preventDefault();
                 stepMatch(e.shiftKey ? -1 : 1);
-            } else if (e.key === "Escape") {
+                return;
+            }
+
+            // Enter без модификатора — новая строка (естественно для textarea)
+            // Ctrl/Cmd+G — «найти следующее» тоже работает
+            if (e.key === "Enter") {
+                // не preventDefault — textarea добавит \n
+                // но нужно вручную вызвать onQueryChange, чтобы state обновился
+                // (React textarea onChange сработает сам, Enter внутри textarea не меняет значение по умолчанию)
+                return;
+            }
+
+            if (e.key === "Escape") {
                 e.preventDefault();
                 if (query) onQueryChange("");
                 else onEscape();
-            } else if (e.key === "ArrowDown" && flatMatches.length > 0) {
-                e.preventDefault();
-                stepMatch(1);
+                return;
+            }
+
+            // Навигация стрелками оставляем — но только если нет модификаторов
+            if (e.key === "ArrowDown" && flatMatches.length > 0) {
+                // если в textarea много строк, стрелка должна двигать курсор, а не матчи.
+                // Поэтому навигацию оставляем только когда query — однострочный:
+                if (!query.includes("\n")) {
+                    e.preventDefault();
+                    stepMatch(1);
+                }
             } else if (e.key === "ArrowUp" && flatMatches.length > 0) {
-                e.preventDefault();
-                stepMatch(-1);
+                if (!query.includes("\n")) {
+                    e.preventDefault();
+                    stepMatch(-1);
+                }
             }
         };
 
@@ -168,18 +194,30 @@ export const YamlSearchPanel = forwardRef<YamlSearchPanelHandle, YamlSearchPanel
             });
         };
 
+        useEffect(() => {
+            const el = inputRef.current;
+            if (!el) return;
+            // сброс — чтобы scrollHeight уменьшился при удалении строк
+            el.style.height = "auto";
+            // ограничиваем сверху ~6 строками (13px * 1.4 * 6 ≈ 110px + padding)
+            el.style.height = Math.min(el.scrollHeight, 120) + "px";
+        }, [query]);
+
         return (
             <div className="yaml-search-panel">
                 <div className="yaml-search-input-wrap">
                     <MIcon name="search" size="sm" />
-                    <input
+                    <textarea
                         ref={inputRef}
-                        type="text"
-                        className="yaml-search-input"
+                        rows={1}
+                        className={
+                            "yaml-search-input" +
+                            (query.includes("\n") ? " yaml-search-input--multiline" : "")
+                        }
                         value={query}
                         onChange={e => onQueryChange(e.target.value)}
                         onKeyDown={onKeyDown}
-                        placeholder="Поиск по файлу..."
+                        placeholder="Поиск по файлу (Ctrl+Enter — далее)"
                         spellCheck={false}
                         autoComplete="off"
                     />
@@ -259,7 +297,7 @@ export const YamlSearchPanel = forwardRef<YamlSearchPanelHandle, YamlSearchPanel
                 {!query && (
                     <div className="yaml-search-hint">
                         <div className="yaml-search-hint-row">
-                            <kbd>Enter</kbd> / <kbd>Shift</kbd>+<kbd>Enter</kbd> — следующий/предыдущий
+                            <kbd>Ctrl</kbd>+<kbd>Enter</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Enter</kbd> — следующий/предыдущий
                         </div>
                         <div className="yaml-search-hint-row">
                             <kbd>↑</kbd> / <kbd>↓</kbd> — то же
@@ -313,7 +351,16 @@ function SearchGroup({ group, activeMatch, expanded, onToggle, onSelect }: Searc
                                 <span className="yaml-search-item-context">
                                     {m.truncatedBefore && <span className="yaml-search-item-ellipsis">…</span>}
                                     <span className="yaml-search-item-plain">{m.before}</span>
-                                    <mark className="yaml-search-item-match">{m.match}</mark>
+                                    <span className="yaml-search-item-match" title={
+                                        `${m.line}:${m.column}` +
+                                        (m.matchLineCount > 1
+                                            ? ` — ${m.matchLineCount} стр.`
+                                            : "")
+                                    }>
+                                        {m.matchLineCount > 1 && m.match.length > 40
+                                            ? m.match.slice(0, 40) + "…"
+                                            : m.match}
+                                    </span>
                                     <span className="yaml-search-item-plain">{m.after}</span>
                                     {m.truncatedAfter && <span className="yaml-search-item-ellipsis">…</span>}
                                 </span>

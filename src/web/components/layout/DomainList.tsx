@@ -468,7 +468,8 @@ export function DomainList() {
             )}
 
             <div className="domain-list__body" ref={bodyRef}>
-                {favorites.length > 0 && !bookmarksOnly && (
+                {/* ============ Избранное (всегда, если есть) ============ */}
+                {favorites.length > 0 && (
                     <div className="domain-list__section domain-list__section--fav">
                         <div className="domain-list__section-title">
                             <MIcon name="star" size="sm" fill />
@@ -493,20 +494,16 @@ export function DomainList() {
                     </div>
                 )}
 
-                {bookmarksOnly && favorites.length === 0 && (
-                    <div className="domain-list__empty">
-                        <MIcon name="star_border" size="lg" />
-                        <div>Нет избранных доменов{query ? " по запросу" : ""}</div>
-                    </div>
-                )}
-
+                {/* ============ Не избранные — обычный режим ============ */}
                 {!bookmarksOnly &&
                     groups.map((g) => (
                         <div key={g.key} className="domain-list__section">
                             {grouping !== "flat" && (
                                 <div className="domain-list__section-title">
                                     <code className="domain-list__section-key">{g.label}</code>
-                                    <span className="domain-list__section-count">{g.nodes.length}</span>
+                                    <span className="domain-list__section-count">
+                                        {g.nodes.length}
+                                    </span>
                                 </div>
                             )}
                             {g.nodes.map((n) => (
@@ -528,7 +525,34 @@ export function DomainList() {
                         </div>
                     ))}
 
-                {problematicNodes.length > 0 && (
+                {/* ============ Режим «только избранное» + поиск по сущностям ============ */}
+                {bookmarksOnly && others.length > 0 && (
+                    <div className="domain-list__section">
+                        <div className="domain-list__section-title">
+                            <MIcon name="search" size="sm" />
+                            Совпадения в сущностях ({others.length})
+                        </div>
+                        {others.map((n) => (
+                            <DomainListRow
+                                key={n.id}
+                                node={n}
+                                isSelected={panelNodeId === n.id}
+                                isFavorite={false}
+                                isFocused={
+                                    focusedIdx >= 0 &&
+                                    flatRows[focusedIdx]?.node.id === n.id
+                                }
+                                entityMatches={entityMatchesByDomain.get(
+                                    n.data.domainId.toLowerCase(),
+                                )}
+                                onSelect={onSelect}
+                            />
+                        ))}
+                    </div>
+                )}
+
+                {/* ============ Проблемные домены (только в обычном режиме) ============ */}
+                {!bookmarksOnly && problematicNodes.length > 0 && (
                     <div className="domain-list__section domain-list__section--problematic">
                         <div className="domain-list__section-title">
                             <MIcon name="warning" size="sm" />
@@ -550,7 +574,8 @@ export function DomainList() {
                     </div>
                 )}
 
-                {filtered.length === 0 && !query.trim() && !hasAnyFilter && (
+                {/* ============ Пустые состояния ============ */}
+                {filtered.length === 0 && !hasAnyFilter && (
                     <div className="domain-list__empty">
                         <MIcon name="folder_off" size="lg" />
                         <div>Нет доменов</div>
@@ -558,8 +583,19 @@ export function DomainList() {
                 )}
                 {filtered.length === 0 && hasAnyFilter && (
                     <div className="domain-list__empty">
-                        <MIcon name="search_off" size="lg" />
-                        <div>Ничего не найдено по текущим фильтрам</div>
+                        {bookmarksOnly ? (
+                            <>
+                                <MIcon name="star_border" size="lg" />
+                                <div>
+                                    Нет избранных доменов{query ? " по запросу" : ""}
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <MIcon name="search_off" size="lg" />
+                                <div>Ничего не найдено по текущим фильтрам</div>
+                            </>
+                        )}
                     </div>
                 )}
             </div>

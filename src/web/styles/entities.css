@@ -4424,7 +4424,7 @@ tr.highlighted .entity-matrix-row-head {
   flex: 1;
   min-width: 0;
   position: relative;
-  background: #0d1424;
+  background: var(--editor-bg);
   overflow: hidden;
 }
 .yaml-viewer-editor__loading,
@@ -4436,7 +4436,7 @@ tr.highlighted .entity-matrix-row-head {
   justify-content: center;
   color: var(--text-500);
   font-size: 13px;
-  background: #0d1424;
+  background: var(--editor-bg);
   z-index: 10;
 }
 

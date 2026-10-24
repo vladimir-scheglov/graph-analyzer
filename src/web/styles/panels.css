@@ -1825,3 +1825,7 @@
     font-style: normal;
     margin-right: 2px;
 }
+.monaco-editor .unused-attribute-line {
+    background-color: var(--editor-unused-bg) !important;
+    border-left: 2px solid var(--editor-unused-border);
+}

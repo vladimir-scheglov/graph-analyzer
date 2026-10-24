@@ -20,6 +20,7 @@ import type {
   ViewActionPanelRecord,
   ViewGroupRecord,
   ViewWidgetRecord,
+  ActionRecord,
 } from "../../shared/model-types";
 import type {
   LintIssue,
@@ -435,6 +436,55 @@ function checkIdentifier(
     }
   }
 
+  // ============ sequence ============
+  if (a.sequence) {
+    const slash = a.sequence.indexOf("/");
+    const seqDomain =
+      slash > 0
+        ? a.sequence.slice(0, slash).toLowerCase()
+        : e.domainId.toLowerCase();
+    const seqId = slash > 0 ? a.sequence.slice(slash + 1) : a.sequence;
+
+    // a.sequence уже нормализован в lowercase, s.id — из YAML как есть.
+    // Сравниваем case-insensitive.
+    const found = ctx.index.sequences.find(
+      (s) =>
+        s.id.toLowerCase() === seqId.toLowerCase() &&
+        s.domainId.toLowerCase() === seqDomain,
+    );
+
+    if (!found) {
+      const fullFqid = `${seqDomain}/${seqId}`;
+      const cd = crossDomainNotLoaded(ctx, fullFqid);
+      emit(
+        ctx,
+        cd
+          ? {
+              ruleId: "identifier/sequence-unknown",
+              severity: "info",
+              category: "reference",
+              rule: "sequence ссылается на существующую последовательность",
+              message: `атрибут «${e.entityId}.${a.id}»: sequence «${a.sequence}» — домен «${cd.domain}» не загружен в кэш`,
+              hint: "Запустите --refresh или проверьте ссылку на сервере",
+              domainId: e.domainId,
+              entityFqid: e.fqid,
+              attributeId: a.id,
+            }
+          : {
+              ruleId: "identifier/sequence-unknown",
+              severity: "error",
+              category: "reference",
+              rule: "sequence ссылается на существующую последовательность",
+              message: `атрибут «${e.entityId}.${a.id}»: sequence «${a.sequence}» не найдена`,
+              hint: "Проверьте id в sequences[] домена или FQID на другой домен",
+              domainId: e.domainId,
+              entityFqid: e.fqid,
+              attributeId: a.id,
+            },
+      );
+    }
+  }
+
   // prefixRules
   // prefixRules
   if (a.prefixRules && a.prefixRules.length > 0) {
@@ -474,6 +524,11 @@ function checkIdentifier(
         // Здесь НЕТ нотации "Entity.attr" — источник задан явно через source.entity,
         // поэтому ищем только по прямой id.
         const srcAttrs = new Set(srcEntity.attributes.map((x) => x.id));
+        const keyAttr = srcEntity.attributes.find((x) => x.id === r.source.key);
+        const valueAttr = srcEntity.attributes.find(
+          (x) => x.id === r.source.value,
+        );
+
         if (r.source.key && !srcAttrs.has(r.source.key)) {
           emit(ctx, {
             ruleId: "identifier/prefix-source-key-unknown",
@@ -498,7 +553,289 @@ function checkIdentifier(
             attributeId: a.id,
           });
         }
+
+        // ============ source.value должен быть String ============
+        if (valueAttr && valueAttr.dataType !== "String") {
+          emit(ctx, {
+            ruleId: "identifier/prefix-source-value-not-string",
+            severity: "error",
+            category: "semantic",
+            rule: "prefixRules[].source.value — String",
+            message: `атрибут «${e.entityId}.${a.id}»: source.value «${r.source.value}» имеет тип «${valueAttr.dataType}», ожидается String`,
+            domainId: e.domainId,
+            entityFqid: e.fqid,
+            attributeId: a.id,
+          });
+        }
+
+        // ============ attribute ↔ source.key — совместимость типов ============
+        if (r.attribute && keyAttr) {
+          const attrRecord = findAttributeWithInheritance(
+            ctx,
+            e.fqid,
+            r.attribute,
+          );
+          if (attrRecord && attrRecord.dataType !== keyAttr.dataType) {
+            emit(ctx, {
+              ruleId: "identifier/prefix-source-key-type-mismatch",
+              severity: "warning",
+              category: "semantic",
+              rule: "attribute и source.key имеют одинаковый тип",
+              message: `атрибут «${e.entityId}.${a.id}»: «${r.attribute}» (${attrRecord.dataType}) ≠ source.key «${r.source.key}» (${keyAttr.dataType})`,
+              domainId: e.domainId,
+              entityFqid: e.fqid,
+              attributeId: a.id,
+            });
+          }
+        }
       }
+    }
+  }
+}
+
+function checkAttributeConstraints(ctx: LintContext): void {
+  const num = (v: any): number | null => {
+    if (typeof v === "number" && Number.isFinite(v)) return v;
+    if (typeof v === "string") {
+      const n = Number(v);
+      if (Number.isFinite(n)) return n;
+      const m = v.match(/^\s*([0-9]+(?:\.[0-9]+)?)/);
+      if (m) return Number(m[1]);
+    }
+    return null;
+  };
+
+  const allowedKindsByType: Record<string, string[]> = {
+    Integer: ["range", "required", "unique"],
+    Decimal: ["range", "required", "unique"],
+    Float: ["range", "required", "unique"],
+    String: ["length", "regexp", "required", "unique"],
+    Text: ["length", "regexp", "required"],
+    Attachment: ["size", "mime_types", "required"],
+    Uuid: ["required", "unique"],
+    Reference: ["required", "unique"],
+    Array: ["required", "unique"],
+    Table: ["required", "unique"],
+    Bool: ["required"],
+    Date: ["required"],
+    Time: ["required"],
+    Timestamp: ["required"],
+    TimestampRange: ["required"],
+    MAC: ["required"],
+    IpAddress: ["required"],
+    CIDR: ["required"],
+    URL: ["required"],
+    Identifier: [],
+    Calculation: [],
+    Counter: [],
+    Workflow: [],
+  };
+
+  const visit = (
+    ownerLabel: string,
+    domainId: string,
+    e: EntityRecord | null,
+    a: AttributeRecord,
+  ): void => {
+    const dt = a.dataType;
+    const isAttachmentLike =
+      dt === "Attachment" ||
+      (dt === "Array" && a.itemDataType === "Attachment");
+    const allowedForType = allowedKindsByType[dt];
+
+    const checkKind = (
+      kind: string,
+      min: any,
+      max: any,
+      regexp: string | undefined,
+      where: string,
+    ): void => {
+      // ============ kind ↔ dataType ============
+      if (allowedForType && !allowedForType.includes(kind)) {
+        // Array<Attachment>: size/mime_types валидны на уровне item,
+        // не атрибута — обрабатываем отдельным блоком ниже.
+        if (!(dt === "Array" && isAttachmentLike)) {
+          emit(ctx, {
+            ruleId: "validation/constraint-kind-mismatch",
+            severity: "error",
+            category: "validation",
+            rule: "constraint.kind совместим с dataType",
+            message: `${ownerLabel}: «${a.id}» (${dt}), constraint «${kind}» не поддерживается`,
+            hint:
+              allowedForType.length > 0
+                ? `Допустимые kind: ${allowedForType.join(", ")}`
+                : "Для этого типа constraints не поддерживаются",
+            domainId,
+            ...(e ? { entityFqid: e.fqid } : {}),
+            attributeId: a.id,
+            propertyPath: where,
+          });
+        }
+      }
+
+      // ============ min ≤ max ============
+      if (kind === "range" || kind === "length" || kind === "size") {
+        const nMin = num(min);
+        const nMax = num(max);
+        if (nMin != null && nMax != null && nMin > nMax) {
+          emit(ctx, {
+            ruleId: "validation/constraint-min-gt-max",
+            severity: "error",
+            category: "validation",
+            rule: "min ≤ max",
+            message: `${ownerLabel}: «${a.id}», constraint «${kind}»: min (${nMin}) > max (${nMax})`,
+            domainId,
+            ...(e ? { entityFqid: e.fqid } : {}),
+            attributeId: a.id,
+            propertyPath: where,
+          });
+        }
+      }
+
+      // ============ regexp валидность ============
+      if (kind === "regexp" && typeof regexp === "string" && regexp) {
+        try {
+          new RegExp(regexp);
+        } catch (err: any) {
+          emit(ctx, {
+            ruleId: "validation/constraint-regexp-invalid",
+            severity: "error",
+            category: "validation",
+            rule: "constraint.regexp — валидное регулярное выражение",
+            message: `${ownerLabel}: «${a.id}»: regexp «${regexp}» — ${err.message}`,
+            domainId,
+            ...(e ? { entityFqid: e.fqid } : {}),
+            attributeId: a.id,
+            propertyPath: where,
+          });
+        }
+      }
+    };
+
+    // ============ constraintDetails ============
+    if (Array.isArray(a.constraintDetails)) {
+      for (const c of a.constraintDetails) {
+        checkKind(c.kind, c.min, c.max, c.regexp, `${ownerLabel}.constraints`);
+      }
+    }
+
+    // ============ Array<item> constraints ============
+    if (dt === "Array" && Array.isArray(a.itemConstraints)) {
+      const itemDt = a.itemDataType || "";
+      const ALLOWED_FOR_ITEM: Record<string, string[]> = {
+        Integer: ["range", "required", "unique"],
+        Decimal: ["range", "required", "unique"],
+        Float: ["range", "required", "unique"],
+        String: ["length", "regexp", "required", "unique"],
+        Text: ["length", "regexp", "required"],
+        Attachment: ["size", "mime_types", "required"],
+      };
+      const allowedItem = ALLOWED_FOR_ITEM[itemDt];
+      if (allowedItem) {
+        for (const k of a.itemConstraints) {
+          if (!allowedItem.includes(k)) {
+            emit(ctx, {
+              ruleId: "validation/constraint-kind-mismatch",
+              severity: "error",
+              category: "validation",
+              rule: "constraint.kind совместим с типом элемента массива",
+              message: `${ownerLabel}: «${a.id}» (Array<${itemDt}>), item-constraint «${k}» не поддерживается`,
+              hint: `Допустимые kind: ${allowedItem.join(", ")}`,
+              domainId,
+              ...(e ? { entityFqid: e.fqid } : {}),
+              attributeId: a.id,
+              propertyPath: `${ownerLabel}.item.constraints`,
+            });
+          }
+        }
+      }
+    }
+  };
+
+  // ============ entities ============
+  for (const e of ctx.index.entities) {
+    for (const a of e.attributes) {
+      visit(`entities[${e.entityId}]`, e.domainId, e, a);
+    }
+  }
+
+  // ============ linkages ============
+  for (const l of ctx.index.entityLinkages) {
+    for (const a of l.attributes || []) {
+      visit(`linkages[${l.id}]`, l.domainId, null, a);
+    }
+  }
+
+  // ============ dataTypes[].attributes ============
+  for (const dt of ctx.index.dataTypes) {
+    if (dt.kind !== "Table") continue;
+    for (const a of dt.tableAttributes || []) {
+      visit(`dataTypes[${dt.id}]`, dt.domainId, null, a);
+    }
+  }
+}
+
+function checkAttributeWidgetControlType(ctx: LintContext): void {
+  // Объединённые допустимые control.type для всех контекстов (modal/panel/cell).
+  const allowedByType: Record<string, Set<string>> = {
+    Uuid: new Set(["uuid", "text"]),
+    Identifier: new Set(["uuid", "text"]),
+    Timestamp: new Set(["timestamp", "text"]),
+    Date: new Set(["date", "text"]),
+    Time: new Set(["time", "text"]),
+    TimestampRange: new Set(["timestamp_range", "text"]),
+    String: new Set(["text", "text_area"]),
+    MAC: new Set(["mac", "text"]),
+    Integer: new Set(["integer", "integer_slider", "text"]),
+    Decimal: new Set(["decimal", "decimal_slider", "text"]),
+    Float: new Set(["float", "float_slider", "text"]),
+    Bool: new Set(["switch", "checkbox", "bool_text"]),
+    Enum: new Set(["select", "radio", "tag", "level", "text"]),
+    IpAddress: new Set(["ip", "text"]),
+    CIDR: new Set(["cidr", "text"]),
+    Attachment: new Set(["file", "drag_drop_area", "text"]),
+    Reference: new Set(["select", "tag", "link"]),
+    Workflow: new Set(["select", "level", "text"]),
+    URL: new Set(["link"]),
+    Text: new Set(["text", "text_area"]),
+  };
+
+  const viewEntitiesByDomain = buildViewEntitiesByDomain(ctx);
+
+  for (const w of ctx.index.viewWidgets || []) {
+    if (w.type !== "attribute") continue;
+    if (!w.controlType || !w.attribute) continue;
+
+    const viewEntities = viewEntitiesByDomain
+      .get(w.domainId)
+      ?.get(w.parentViewId);
+    if (!viewEntities || viewEntities.length === 0) continue;
+
+    let foundAttr: AttributeRecord | null = null;
+    for (const fqid of viewEntities) {
+      const found = findAttributeWithInheritance(ctx, fqid, w.attribute);
+      if (found) {
+        foundAttr = found;
+        break;
+      }
+    }
+    if (!foundAttr) continue; // unknown-attribute ловится другим правилом
+
+    const dt = foundAttr.dataType;
+    const allowed = allowedByType[dt];
+    if (!allowed) continue; // кастомный / Array / Table — не проверяем
+
+    if (!allowed.has(w.controlType)) {
+      emit(ctx, {
+        ruleId: "view/widget-control-type-mismatch",
+        severity: "warning",
+        category: "semantic",
+        rule: "control.type соответствует dataType",
+        message: `Виджет «${w.id}»: control.type «${w.controlType}» недопустим для dataType «${dt}»`,
+        hint: `Допустимые: ${[...allowed].join(", ")}`,
+        domainId: w.domainId,
+        propertyPath: `views[${w.parentViewId}].widgets[${w.id}].control.type`,
+      });
     }
   }
 }
@@ -703,18 +1040,15 @@ function checkEntityLinkageSemantics(ctx: LintContext): void {
 
     // nameFrom.side1 === side2 для направленных
     const isDirected = !(l.type === "n_n" && l.undirected);
-    if (
-      isDirected &&
-      l.nameFrom?.side1 &&
-      l.nameFrom?.side2 &&
-      l.nameFrom.side1 === l.nameFrom.side2
-    ) {
+    const s1 = (l.nameFrom?.side1 || "").trim();
+    const s2 = (l.nameFrom?.side2 || "").trim();
+    if (isDirected && s1 && s2 && s1 === s2) {
       emit(ctx, {
         ruleId: "semantic/linkage-namefrom-equal",
         severity: "warning",
         category: "semantic",
         rule: "Для направленных связей nameFrom.side1 ≠ nameFrom.side2",
-        message: `связь «${l.id}»: nameFrom.side1 === nameFrom.side2 («${l.nameFrom.side1}»)`,
+        message: `связь «${l.id}»: nameFrom.side1 === nameFrom.side2 («${l.nameFrom?.side1}»)`,
         hint: "Сделайте глагольные формы разными или пометьте связь как undirected",
         domainId: l.domainId,
         propertyPath: `linkages[${l.id}].nameFrom`,
@@ -2473,6 +2807,9 @@ function checkActions(ctx: LintContext): void {
     } else {
       set.add(a.id);
     }
+
+    // ============ Required fields по типу ============
+    checkActionRequiredFields(ctx, a);
   }
 
   // Кэши: known views на домен + linkage lookup на домен
@@ -4823,6 +5160,19 @@ function checkDataTypes(ctx: LintContext): void {
       const view = dt.enumView || [];
       const seen = new Set<string>();
 
+      if (!Array.isArray(dt.values) || dt.values.length === 0) {
+        emit(ctx, {
+          ruleId: "required/enum-values",
+          severity: "error",
+          category: "required",
+          rule: "У Enum задан непустой values[]",
+          message: `Тип «${dt.id}»: values пуст`,
+          hint: "Добавьте хотя бы одно значение перечисления",
+          domainId: dt.domainId,
+          propertyPath: `dataTypes[${dt.id}].values`,
+        });
+      }
+
       for (let i = 0; i < view.length; i++) {
         const v = view[i];
         if (!v.value) continue;
@@ -4869,16 +5219,53 @@ function checkDataTypes(ctx: LintContext): void {
     // ============ Workflow ============
     if (dt.kind === "Workflow") {
       const statusIds = new Set(dt.statuses || []);
+      const statusCount = dt.statuses?.length ?? 0;
 
-      if (dt.initial && !statusIds.has(dt.initial)) {
+      if (statusCount < 2) {
         emit(ctx, {
-          ruleId: "dataType/workflow-initial-unknown",
+          ruleId: "validation/workflow-min-statuses",
           severity: "error",
-          category: "reference",
-          rule: "initial существует в statuses[]",
-          message: `Тип «${dt.id}»: initial «${dt.initial}» не найден в statuses[]`,
+          category: "validation",
+          rule: "Workflow содержит минимум 2 статуса",
+          message: `Тип «${dt.id}»: ${statusCount} статус(ов), требуется ≥ 2`,
+          domainId: dt.domainId,
+          propertyPath: `dataTypes[${dt.id}].statuses`,
+        });
+      }
+
+      if (!dt.initial) {
+        emit(ctx, {
+          ruleId: "required/workflow-initial",
+          severity: "error",
+          category: "required",
+          rule: "У Workflow задан initial",
+          message: `Тип «${dt.id}»: initial не задан`,
           domainId: dt.domainId,
           propertyPath: `dataTypes[${dt.id}].initial`,
+        });
+      } else {
+        if (!statusIds.has(dt.initial)) {
+          emit(ctx, {
+            ruleId: "dataType/workflow-initial-unknown",
+            severity: "error",
+            category: "reference",
+            rule: "initial существует в statuses[]",
+            message: `Тип «${dt.id}»: initial «${dt.initial}» не найден в statuses[]`,
+            domainId: dt.domainId,
+            propertyPath: `dataTypes[${dt.id}].initial`,
+          });
+        }
+      }
+
+      if (!dt.transitions || dt.transitions.length === 0) {
+        emit(ctx, {
+          ruleId: "required/workflow-transitions",
+          severity: "error",
+          category: "required",
+          rule: "У Workflow задан transitions[]",
+          message: `Тип «${dt.id}»: transitions пуст`,
+          domainId: dt.domainId,
+          propertyPath: `dataTypes[${dt.id}].transitions`,
         });
       }
 
@@ -4968,6 +5355,37 @@ function checkDataTypes(ctx: LintContext): void {
 
     // ============ Table ============
     if (dt.kind === "Table") {
+      if (!Array.isArray(dt.columns) || dt.columns.length === 0) {
+        emit(ctx, {
+          ruleId: "required/table-attributes",
+          severity: "error",
+          category: "required",
+          rule: "У Table задан непустой attributes[]",
+          message: `Тип «${dt.id}»: attributes пуст`,
+          hint: "Добавьте хотя бы одну колонку",
+          domainId: dt.domainId,
+          propertyPath: `dataTypes[${dt.id}].attributes`,
+        });
+      }
+
+      // ============ columns[].id обязателен ============
+      if (dt.tableView) {
+        for (let i = 0; i < dt.tableView.columns.length; i++) {
+          const col = dt.tableView.columns[i];
+          if (!col.id) {
+            emit(ctx, {
+              ruleId: "required/table-view-column-id",
+              severity: "error",
+              category: "required",
+              rule: "У колонки Table.view задан id",
+              message: `Тип «${dt.id}»: view.columns[${i}].id пуст`,
+              domainId: dt.domainId,
+              propertyPath: `dataTypes[${dt.id}].view.columns[${i}].id`,
+            });
+          }
+        }
+      }
+
       if (
         dt.maxRows !== undefined &&
         (!Number.isInteger(dt.maxRows) || dt.maxRows < 1)
@@ -5480,9 +5898,20 @@ function checkViews(ctx: LintContext): void {
       // ============ Только nested: form / block / tabs / pinnedBlock ============
       if (!isNested || !v.parentViewId) continue;
 
-      // modal.form
-      if (v.type === "modal" && v.form) {
-        if (!findGroup(v.parentViewId, v.form, "form")) {
+      // modal.form — обязателен
+      if (v.type === "modal") {
+        if (!v.form) {
+          emit(ctx, {
+            ruleId: "required/view-modal-form",
+            severity: "error",
+            category: "required",
+            rule: "modal требует form",
+            message: `View «${v.id}»: type = modal, но form не задан`,
+            hint: "Укажите id группы type: form",
+            domainId,
+            propertyPath: `views[${v.parentViewId}].views[${v.id}].form`,
+          });
+        } else if (!findGroup(v.parentViewId, v.form, "form")) {
           emit(ctx, {
             ruleId: "view/modal-form-unknown",
             severity: "error",
@@ -5491,6 +5920,22 @@ function checkViews(ctx: LintContext): void {
             message: `View «${v.id}»: form «${v.form}» не найден или не типа form`,
             domainId,
             propertyPath: `views[${v.parentViewId}].views[${v.id}].form`,
+          });
+        }
+      }
+
+      // panel.tabs — обязателен
+      if (v.type === "panel" && isNested) {
+        if (!v.tabs || v.tabs.length === 0) {
+          emit(ctx, {
+            ruleId: "required/view-panel-tabs",
+            severity: "error",
+            category: "required",
+            rule: "panel требует tabs",
+            message: `View «${v.id}»: type = panel, но tabs пуст`,
+            hint: "Добавьте хотя бы одну вкладку",
+            domainId,
+            propertyPath: `views[${v.parentViewId}].views[${v.id}].tabs`,
           });
         }
       }
@@ -5848,7 +6293,15 @@ function checkDataRuleTarget(ctx: LintContext, dr: DataRuleRecord): void {
 }
 
 function checkTableAttributeConstraints(ctx: LintContext): void {
-  const ALLOWED = new Set(["required", "unique"]);
+  const ALLOWED = new Set([
+    "required",
+    "unique",
+    "range",
+    "length",
+    "regexp",
+    "size",
+    "mime_types",
+  ]);
   for (const dt of ctx.index.dataTypes) {
     if (dt.kind !== "Table") continue;
     for (const a of dt.tableAttributes || []) {
@@ -5893,6 +6346,20 @@ function checkEntitySortingRql(ctx: LintContext): void {
 
 function checkEntityExternals(ctx: LintContext): void {
   for (const e of ctx.index.entities) {
+    // ============ E1: невалидный externals.type ============
+    if (e.__rawExternalsType !== undefined) {
+      emit(ctx, {
+        ruleId: "entity/externals-type-invalid",
+        severity: "error",
+        category: "semantic",
+        rule: "externals.type: composition | selection",
+        message: `Сущность «${e.entityId}»: неизвестный externals.type «${e.__rawExternalsType}»`,
+        domainId: e.domainId,
+        entityFqid: e.fqid,
+        propertyPath: `entities[${e.entityId}].externals.type`,
+      });
+    }
+
     for (const fqid of e.externals?.entities || []) {
       if (!ctx.index.entitiesByFqid[fqid]) {
         const cd = crossDomainNotLoaded(ctx, fqid);
@@ -6254,6 +6721,27 @@ function checkDataRuleEffectLinkages(
             },
       );
       continue;
+    }
+
+    // ============ E5: связь касается сущности правила ============
+    if (dr.target === "entity" && dr.entity) {
+      const touches =
+        isSameOrAncestor(ctx, dr.entity, record.side1Fqid) ||
+        isSameOrAncestor(ctx, dr.entity, record.side2Fqid) ||
+        isSameOrAncestor(ctx, record.side1Fqid, dr.entity) ||
+        isSameOrAncestor(ctx, record.side2Fqid, dr.entity);
+      if (!touches) {
+        emit(ctx, {
+          ruleId: "dataRule/linkage-not-related",
+          severity: "warning",
+          category: "semantic",
+          rule: "Связь правила касается сущности",
+          message: `правило «${dr.id}», linkage «${l.linkage}»: связь не касается сущности «${dr.entity}»`,
+          hint: "Связь должна иметь эту сущность или её предка/потомка хотя бы с одной стороны",
+          domainId: dr.domainId,
+          propertyPath: `dataRules[${dr.id}].rule.linkages`,
+        });
+      }
     }
 
     // side для симметричной направленной связи
@@ -7934,24 +8422,27 @@ function checkBulkInContextMenus(ctx: LintContext): void {
 
 function checkLinkageNameFrom(ctx: LintContext): void {
   for (const l of ctx.index.entityLinkages) {
-    if (!l.nameFrom?.side1) {
+    const s1 = l.nameFrom?.side1;
+    const s2 = l.nameFrom?.side2;
+
+    if (typeof s1 !== "string" || !s1.trim()) {
       emit(ctx, {
         ruleId: "linkage/name-from-missing",
         severity: "error",
         category: "required",
         rule: "nameFrom.side1 обязателен",
-        message: `Связь «${l.id}»: nameFrom.side1 не задан`,
+        message: `Связь «${l.id}»: nameFrom.side1 не задан или пуст`,
         domainId: l.domainId,
         propertyPath: `linkages[${l.id}].nameFrom.side1`,
       });
     }
-    if (!l.nameFrom?.side2) {
+    if (typeof s2 !== "string" || !s2.trim()) {
       emit(ctx, {
         ruleId: "linkage/name-from-missing",
         severity: "error",
         category: "required",
         rule: "nameFrom.side2 обязателен",
-        message: `Связь «${l.id}»: nameFrom.side2 не задан`,
+        message: `Связь «${l.id}»: nameFrom.side2 не задан или пуст`,
         domainId: l.domainId,
         propertyPath: `linkages[${l.id}].nameFrom.side2`,
       });
@@ -8017,13 +8508,25 @@ function checkViewSourceType(ctx: LintContext): void {
 }
 
 function checkPageMenuItem(ctx: LintContext): void {
-  for (const [domainId, schema] of Object.entries(
-    ctx.index.schemasByDomain || {},
-  )) {
+  // Известные menuItem-id по домену: menus[].id + menus[].items[].id.
+  const knownByDomain = new Map<string, Set<string>>();
+  for (const m of ctx.index.menus || []) {
+    let set = knownByDomain.get(m.domainId);
+    if (!set) {
+      set = new Set();
+      knownByDomain.set(m.domainId, set);
+    }
+    set.add(m.id);
+    for (const it of m.items || []) set.add(it.id);
+  }
+
+  for (const [domainId, schema] of Object.entries(ctx.index.schemasByDomain)) {
     const allViews = schema?.allViews || [];
     for (const v of allViews) {
       if (v.type !== "page") continue;
-      if (!v.parentViewId) continue; // top-level page в R-Vision не бывает
+      if (!v.parentViewId) continue;
+
+      // ============ required: menuItem задан ============
       if (!v.menuItem) {
         emit(ctx, {
           ruleId: "view/page-menu-item-missing",
@@ -8031,6 +8534,24 @@ function checkPageMenuItem(ctx: LintContext): void {
           category: "required",
           rule: "page.menuItem обязателен",
           message: `View «${v.id}» (page): menuItem не задан`,
+          domainId,
+          propertyPath: `views[${v.parentViewId}].views[${v.id}].menuItem`,
+        });
+        continue;
+      }
+
+      // ============ E4: menuItem существует в menus[] ============
+      if (v.menuItem.includes("/")) continue; // cross-domain — не проверяем
+      const known = knownByDomain.get(domainId);
+      if (!known) continue; // нет menus[] — правило не применимо
+      if (!known.has(v.menuItem)) {
+        emit(ctx, {
+          ruleId: "view/page-menu-item-unknown",
+          severity: "warning",
+          category: "reference",
+          rule: "page.menuItem существует в menus[]",
+          message: `View «${v.id}»: menuItem «${v.menuItem}» не найден среди menus[]/items[]`,
+          hint: "Укажите id корневого меню или одного из items[]",
           domainId,
           propertyPath: `views[${v.parentViewId}].views[${v.id}].menuItem`,
         });
@@ -8216,6 +8737,27 @@ export function lintModel(index: ModelIndex): LintReport {
       checkIdentifier(ctx, e, a);
       checkCalculation(ctx, e, a);
       checkWorkflowConstraints(ctx, e, a);
+      checkAttributeDefault(ctx, e, a);
+
+      // ============ C4 ============
+      if (
+        (a.dataType === "Enum" ||
+          a.dataType === "Workflow" ||
+          a.dataType === "Table") &&
+        a.dataTypeKind === "base"
+      ) {
+        emit(ctx, {
+          ruleId: "validation/raw-custom-datatype",
+          severity: "warning",
+          category: "semantic",
+          rule: "Enum / Workflow / Table — только через dataTypes[]",
+          message: `атрибут «${e.entityId}.${a.id}»: dataType = «${a.dataType}» напрямую`,
+          hint: "Опишите custom-тип в dataTypes[] и сошлитесь на его id",
+          domainId: e.domainId,
+          entityFqid: e.fqid,
+          attributeId: a.id,
+        });
+      }
     }
   }
 
@@ -8235,18 +8777,10 @@ export function lintModel(index: ModelIndex): LintReport {
   checkDataTypes(ctx);
 
   checkCounterColorPatternFormat(ctx);
+  // ============ Attribute constraints (C1) ============
+  checkAttributeConstraints(ctx);
 
-  // ============ exchangeSettings ============
-  checkExchangeSettings(ctx);
-
-  // ============ Mixins ============
-  checkMixins(ctx);
-
-  // ============ Actions ============
-  checkActions(ctx);
-  checkActionTransitions(ctx);
-
-  // ============ Views ============
+  // ============ Views (уже есть) ============
   checkViews(ctx);
   checkViewEntityExistence(ctx);
   checkViewLinkageRefs(ctx);
@@ -8258,6 +8792,20 @@ export function lintModel(index: ModelIndex): LintReport {
   checkViewTreeFilters(ctx);
   checkSpecialViews(ctx);
   checkViewMenuActions(ctx);
+
+  // ============ Attribute widget control.type (C2) ============
+  checkAttributeWidgetControlType(ctx);
+
+  // ============ exchangeSettings ============
+  checkExchangeSettings(ctx);
+
+  // ============ Mixins ============
+  checkMixins(ctx);
+
+  // ============ Actions ============
+  checkActions(ctx);
+  checkActionWidgetActions(ctx);
+  checkActionTransitions(ctx);
 
   // ============ RQL в condition ============
   checkRqlConditions(ctx);
@@ -8721,21 +9269,90 @@ function checkLinkageSides(ctx: LintContext): void {
     }
   }
 }
-const COUNTER_TIME_RE = /^([1-9][0-9]*[wdhm])+$/;
+const COUNTER_TIME_RE = /^([1-9][0-9]*[wdhms])+$/;
 const COUNTER_PERCENT_RE = /^(?!0%)([1-9][0-9]?|100)%$/;
 
 function parseCounterTimeToMinutes(s: string): number {
   let total = 0;
-  const matches = s.matchAll(/([1-9][0-9]*)([wdhm])/g);
-  for (const m of matches) {
-    const n = parseInt(m[1], 10);
-    const u = m[2];
-    if (u === "w") total += n * 60 * 24 * 7;
-    else if (u === "d") total += n * 60 * 24;
-    else if (u === "h") total += n * 60;
-    else if (u === "m") total += n;
+  for (const mm of s.matchAll(/([1-9][0-9]*)([wdhms])/g)) {
+    const n = parseInt(mm[1], 10);
+    if (mm[2] === "w") total += n * 10080;
+    else if (mm[2] === "d") total += n * 1440;
+    else if (mm[2] === "h") total += n * 60;
+    else if (mm[2] === "m") total += n;
+    else if (mm[2] === "s") total += n / 60;
   }
   return total;
+}
+
+function checkActionRequiredFields(ctx: LintContext, a: ActionRecord): void {
+  const emitRequired = (field: string, hint?: string) => {
+    emit(ctx, {
+      ruleId: `required/action-${field}`,
+      severity: "error",
+      category: "required",
+      rule: `type: ${a.type} требует ${field}`,
+      message: `Действие «${a.id}»: type = ${a.type}, но ${field} не задан`,
+      hint,
+      domainId: a.domainId,
+      propertyPath: `actions[${a.id}].${field}`,
+    });
+  };
+
+  switch (a.type) {
+    case "open_modal":
+      if (!a.modal) emitRequired("modal");
+      if (!a.entity) emitRequired("entity");
+      if (!a.operation) emitRequired("operation", "create | edit");
+      break;
+
+    case "open_panel":
+      if (!a.panel) emitRequired("panel");
+      if (!a.entity) emitRequired("entity");
+      break;
+
+    case "open_page":
+      if (!a.pageView && !a.view) emitRequired("view");
+      if (!a.entity) emitRequired("entity");
+      if (!a.operation) emitRequired("operation", "create | edit | view");
+      break;
+
+    case "open_graph_view":
+    case "open_board_view":
+    case "remove":
+    case "generate_qr_code":
+    case "copy_entity_link":
+      if (!a.entity) emitRequired("entity");
+      break;
+
+    case "open_list":
+    case "open_tree":
+    case "open_view":
+      if (!a.view) emitRequired("view");
+      break;
+
+    case "bulk":
+      if (!a.operation) emitRequired("operation");
+      break;
+
+    case "tree_bulk":
+      if (!a.operation) emitRequired("operation");
+      if (!a.bulkSettings || a.bulkSettings.length === 0) {
+        emitRequired(
+          "bulkSettings",
+          "Добавьте хотя бы одну сущность для массового редактирования",
+        );
+      }
+      break;
+
+    case "set_attribute_value":
+      if (!a.entity) emitRequired("entity");
+      if (!a.values || a.values.length === 0) emitRequired("values");
+      break;
+
+    // open_view/set/scenario/automation/generate_qr_code —
+    // проверяются по остальным полям, required не добавляем.
+  }
 }
 
 function checkCounterColorPatternFormat(ctx: LintContext): void {
@@ -8985,13 +9602,14 @@ function checkLinkageAttributeTypes(ctx: LintContext): void {
         const dt = ctx.index.dataTypes.find(
           (d) => d.domainId === l.domainId && d.id === a.dataType,
         );
-        if (dt && dt.kind === "Table") {
+        if (dt) {
           emit(ctx, {
-            ruleId: "linkage/attribute-table-type",
+            ruleId: "linkage/attribute-custom-type",
             severity: "error",
             category: "validation",
-            rule: "Table не поддерживается в атрибутах связи",
-            message: `связь «${l.id}», атрибут «${a.id}»: тип Table запрещён`,
+            rule: "Custom-типы (Enum/Workflow/Table) недопустимы в атрибутах связи",
+            message: `связь «${l.id}», атрибут «${a.id}»: custom-тип «${a.dataType}» (${dt.kind})`,
+            hint: "Используйте базовые типы данных",
             domainId: l.domainId,
             propertyPath: `linkages[${l.id}].attributes[${a.id}].dataType`,
           });
@@ -9494,7 +10112,22 @@ function checkViewEntityExistence(ctx: LintContext): void {
   for (const [domainId, schema] of Object.entries(ctx.index.schemasByDomain)) {
     const views = schema?.sections?.views?.items || [];
     for (const v of views) {
-      if (v.type !== "entity" || !v.entity) continue;
+      if (v.type !== "entity") continue;
+
+      if (!v.entity) {
+        emit(ctx, {
+          ruleId: "required/view-entity-field",
+          severity: "error",
+          category: "required",
+          rule: "entity-view требует entity",
+          message: `View «${v.id}»: type = entity, но entity не задан`,
+          hint: "Укажите сущность, отображаемую в представлении",
+          domainId,
+          propertyPath: `views[${v.id}].entity`,
+        });
+        continue;
+      }
+
       const fqid = String(v.entity).includes("/")
         ? String(v.entity).toLowerCase()
         : `${domainId}/${String(v.entity)}`.toLowerCase();
@@ -9633,4 +10266,104 @@ function checkDuplicateEntityIdLint(ctx: LintContext): void {
       });
     }
   });
+}
+
+function checkActionWidgetActions(ctx: LintContext): void {
+  const actionsByDomain = new Map<string, Set<string>>();
+  for (const a of ctx.index.actions) {
+    let set = actionsByDomain.get(a.domainId);
+    if (!set) {
+      set = new Set();
+      actionsByDomain.set(a.domainId, set);
+    }
+    set.add(a.id);
+  }
+
+  for (const w of ctx.index.viewWidgets || []) {
+    if (w.type !== "action") continue;
+    if (!w.actionIds || w.actionIds.length === 0) continue;
+
+    const known = actionsByDomain.get(w.domainId) || new Set<string>();
+    for (const actId of w.actionIds) {
+      if (actId.includes("/")) continue; // cross-domain — не проверяем
+      if (!known.has(actId)) {
+        emit(ctx, {
+          ruleId: "view/widget-action-unknown",
+          severity: "warning",
+          category: "reference",
+          rule: "widget.actions[] существует в actions[]",
+          message: `Виджет «${w.id}» во view «${w.parentViewId}»: action «${actId}» не найден`,
+          domainId: w.domainId,
+          propertyPath: `views[${w.parentViewId}].widgets[${w.id}].actions`,
+        });
+      }
+    }
+  }
+}
+function checkAttributeDefault(
+  ctx: LintContext,
+  e: EntityRecord,
+  a: AttributeRecord,
+): void {
+  if (a.default === undefined) return;
+  const v = a.default;
+  const dt = a.dataType;
+
+  const fail = (expected: string): void => {
+    emit(ctx, {
+      ruleId: "semantic/attribute-default-type-mismatch",
+      severity: "warning",
+      category: "semantic",
+      rule: "attribute.default соответствует dataType",
+      message: `атрибут «${e.entityId}.${a.id}»: default ${JSON.stringify(v)} не соответствует dataType «${dt}» (${expected})`,
+      domainId: e.domainId,
+      entityFqid: e.fqid,
+      attributeId: a.id,
+    });
+  };
+
+  switch (dt) {
+    case "Bool":
+      if (typeof v !== "boolean") fail("boolean");
+      break;
+    case "Integer":
+      if (typeof v !== "number" || !Number.isInteger(v)) fail("integer");
+      break;
+    case "Decimal":
+    case "Float":
+      if (typeof v !== "number" || !Number.isFinite(v)) fail("number");
+      break;
+    case "String":
+    case "Text":
+    case "URL":
+    case "MAC":
+    case "IpAddress":
+    case "CIDR":
+    case "Uuid":
+    case "Date":
+    case "Time":
+    case "Timestamp":
+    case "TimestampRange":
+      if (typeof v !== "string") fail("string");
+      break;
+    case "Enum":
+    case "Workflow": {
+      const dtRec = ctx.index.dataTypes.find(
+        (d) => d.domainId === e.domainId && d.id === a.dataType,
+      );
+      if (!dtRec) break;
+      const members = new Set<string>(
+        dtRec.kind === "Enum" ? dtRec.values || [] : dtRec.statuses || [],
+      );
+      if (typeof v !== "string" || !members.has(v)) {
+        fail(
+          `одно из: ${[...members].slice(0, 5).join(", ")}${members.size > 5 ? "…" : ""}`,
+        );
+      }
+      break;
+    }
+    // Attachment / Counter / Identifier / Reference / Array / Table /
+    // Calculation / Configuration / Variable / RQL / Automation —
+    // default не поддерживается: молчим, чтобы не шуметь.
+  }
 }

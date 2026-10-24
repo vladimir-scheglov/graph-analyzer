@@ -193,6 +193,7 @@ export interface EntityRecord {
   kind?: "regular" | "abstract" | "static";
   /** В какой форме searching[] пришёл в YAML — для линтера. */
   searchingForm?: "array" | "object";
+  __rawExternalsType?: string;
 }
 
 // ============ Миксин ============
@@ -642,6 +643,7 @@ export interface ViewWidgetRecord {
   linkedGroupsColumns?: ViewWidgetColumnRef[];
   /** linked_objects_groups: groupingBy[] — id атрибутов для группировки. */
   linkedGroupsGroupingBy?: string[];
+  actionIds?: string[];
 }
 
 export interface ViewActionPanelRecord {

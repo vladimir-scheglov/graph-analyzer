@@ -20,6 +20,9 @@
   --danger: #ef4444;
   --graph-bg: #0a0e1a;
   --graph-dots: #1e293b;
+  --editor-bg: #0d1424;
+   --editor-unused-bg: rgba(255, 255, 255, 0.03);
+  --editor-unused-border: rgba(245, 158, 11, 0.4);
 }
 
 [data-theme="light"] {
@@ -44,4 +47,7 @@
   --danger: #b91c1c;
   --graph-bg: #f8fafc;
   --graph-dots: #cbd5e1;
+  --editor-bg: #ffffff;
+  --editor-unused-bg: rgba(15, 23, 42, 0.03);
+  --editor-unused-border: rgba(180, 83, 9, 0.45);
 }

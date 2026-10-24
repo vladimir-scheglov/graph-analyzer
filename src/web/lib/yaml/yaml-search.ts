@@ -15,15 +15,18 @@ export const DEFAULT_SEARCH_OPTIONS: SearchOptions = {
 };
 
 export interface SearchMatch {
-  line: number; // 1-based
-  column: number; // 1-based
+  line: number;
+  column: number;
   length: number;
+  endLine?: number;
+  endColumn?: number;
   lineText: string;
   before: string;
   match: string;
   after: string;
   truncatedBefore: boolean;
   truncatedAfter: boolean;
+  matchLineCount: number;
 }
 
 export interface SearchSectionGroup {
@@ -99,6 +102,26 @@ function findSectionAtLine(
 }
 
 export function searchYaml(
+  content: string,
+  query: string,
+  options: SearchOptions,
+  lineMap: LineMap | null,
+  maxMatches = 500,
+): SearchResult {
+  const opts: SearchOptions = {
+    useRegex: !!options.useRegex,
+    caseSensitive: !!options.caseSensitive,
+    wholeWord: !!options.wholeWord,
+    includeComments: !!options.includeComments,
+  };
+
+  if (query.includes("\n")) {
+    return searchMultiline(content, query, opts, lineMap, maxMatches);
+  }
+  return searchSingleLine(content, query, opts, lineMap, maxMatches);
+}
+
+export function searchSingleLine(
   content: string,
   query: string,
   options: SearchOptions,
@@ -193,21 +216,21 @@ export function searchYaml(
       const afterRaw = line.slice(m.index + matched.length);
 
       const match: SearchMatch = {
-        line: lineNum,
-        column: m.index + 1,
+        line: lineNum, // 1-based
+        column: m.index + 1, // 1-based
         length: matched.length,
+        // endLine / endColumn НЕ заполняем — для однострочного матча Range
+        // строится как (line, column, line, column + length). Это гарантирует
+        // валидность независимо от любых пограничных случаев.
         lineText: line,
-        before:
-          beforeRaw.length > CONTEXT_BEFORE
-            ? "…" + beforeRaw.slice(-CONTEXT_BEFORE)
-            : beforeRaw,
+        before: beforeRaw,
         match: matched,
-        after:
-          afterRaw.length > CONTEXT_AFTER
-            ? afterRaw.slice(0, CONTEXT_AFTER) + "…"
-            : afterRaw,
+        after: afterRaw,
         truncatedBefore: beforeRaw.length > CONTEXT_BEFORE,
         truncatedAfter: afterRaw.length > CONTEXT_AFTER,
+        matchLineCount: 1,
+        endLine: lineNum,
+        endColumn: m.index + 1,
       };
 
       let group = groupsByKey.get(sectionKey);
@@ -236,5 +259,232 @@ export function searchYaml(
     truncated,
     error: null,
     elapsedMs: Math.round(now() - startedAt),
+  };
+}
+
+function buildLineStarts(content: string): { starts: number[]; text: string } {
+  const starts: number[] = [0];
+  for (let i = 0; i < content.length; i++) {
+    if (content[i] === "\n") starts.push(i + 1);
+  }
+  return { starts, text: content };
+}
+
+function offsetToPos(
+  starts: number[],
+  offset: number,
+): { line: number; col: number } {
+  // бинарный поиск: последний start ≤ offset
+  let lo = 0;
+  let hi = starts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (starts[mid] <= offset) lo = mid;
+    else hi = mid - 1;
+  }
+  return { line: lo + 1, col: offset - starts[lo] + 1 };
+}
+
+function lineTextAt(content: string, starts: number[], line: number): string {
+  const s = starts[line - 1] ?? 0;
+  const e = line < starts.length ? starts[line] - 1 : content.length;
+  return content.slice(s, e);
+}
+
+function isCommentLine(text: string): boolean {
+  return /^\s*#/.test(text);
+}
+
+function searchMultiline(
+  content: string,
+  query: string,
+  opts: SearchOptions,
+  lineMap: LineMap | null,
+  maxMatches: number,
+): SearchResult {
+  const startedAt =
+    typeof performance !== "undefined" ? performance.now() : Date.now();
+  const empty = (error: string | null): SearchResult => ({
+    query,
+    options: opts,
+    groups: [],
+    totalMatches: 0,
+    truncated: false,
+    error,
+    elapsedMs: Math.round((performance.now?.() ?? Date.now()) - startedAt),
+  });
+
+  if (!query) return empty(null);
+
+  const { starts } = buildLineStarts(content);
+  const intervals = lineMap ? buildSectionIntervals(lineMap) : [];
+
+  // Компилируем matcher
+  let findNext: (from: number) => { index: number; length: number } | null;
+  if (opts.useRegex) {
+    let re: RegExp;
+    try {
+      re = new RegExp(query, `g${opts.caseSensitive ? "" : "i"}`);
+    } catch (err: any) {
+      return empty(err?.message || "Невалидная регулярка");
+    }
+    findNext = (from) => {
+      re.lastIndex = from;
+      const m = re.exec(content);
+      if (!m) return null;
+      if (m[0].length === 0) {
+        // zero-length — пропускаем
+        return { index: -1, length: 0 };
+      }
+      return { index: m.index, length: m[0].length };
+    };
+  } else {
+    const haystack = opts.caseSensitive ? content : content.toLowerCase();
+    const needle = opts.caseSensitive ? query : query.toLowerCase();
+    findNext = (from) => {
+      const idx = haystack.indexOf(needle, from);
+      return idx < 0 ? null : { index: idx, length: needle.length };
+    };
+  }
+
+  const groupsByKey = new Map<string, SearchSectionGroup>();
+  let totalMatches = 0;
+  let emitted = 0;
+  let truncated = false;
+  let cursor = 0;
+
+  // Обход всех вхождений
+  while (cursor <= content.length) {
+    const hit = findNext(cursor);
+    if (!hit) break;
+    if (hit.index < 0) {
+      cursor++;
+      if (cursor > content.length) break;
+      continue;
+    }
+
+    const startOffset = hit.index;
+    const endOffset = startOffset + hit.length;
+    const startPos = offsetToPos(starts, startOffset);
+    const endPos = offsetToPos(starts, Math.max(startOffset, endOffset - 1));
+    // exclusive endColumn = endPos.col + 1
+    const endColumnExclusive = endPos.col + 1;
+    const endLine = endPos.line;
+
+    const matchLineCount = endLine - startPos.line + 1;
+
+    // ============ includeComments ============
+    if (!opts.includeComments) {
+      let touchesComment = false;
+      for (let ln = startPos.line; ln <= endLine; ln++) {
+        const lt = lineTextAt(content, starts, ln);
+        if (isCommentLine(lt)) {
+          touchesComment = true;
+          break;
+        }
+      }
+      if (touchesComment) {
+        cursor = endOffset;
+        continue;
+      }
+    }
+
+    totalMatches++;
+
+    if (emitted < maxMatches) {
+      // ============ Секция ============
+      let sectionKey = "__header__";
+      let sectionLabel = "Шапка файла";
+      let sectionLine = 0;
+      if (intervals.length > 0) {
+        const iv = findSectionAtLine(intervals, startPos.line);
+        if (iv) {
+          sectionKey = iv.key;
+          sectionLabel = iv.label;
+          sectionLine = iv.line;
+        } else if (startPos.line >= intervals[0].startLine) {
+          let prev = intervals[0];
+          for (const cur of intervals) {
+            if (cur.startLine <= startPos.line) prev = cur;
+            else break;
+          }
+          sectionKey = prev.key;
+          sectionLabel = prev.label;
+          sectionLine = prev.line;
+        }
+      }
+
+      // ============ Контекст ============
+      const fullLine = lineTextAt(content, starts, startPos.line);
+      const startColIdx = startPos.col - 1;
+
+      // Строка в списке: до первой строки матча
+      const firstLineEnd = fullLine.length;
+      const beforeRaw = fullLine.slice(0, startColIdx);
+      const afterCol = Math.min(
+        firstLineEnd,
+        startColIdx +
+          (matchLineCount === 1 ? hit.length : fullLine.length - startColIdx),
+      );
+      const afterRaw = fullLine.slice(afterCol);
+
+      const matchText =
+        matchLineCount === 1
+          ? content.slice(startOffset, endOffset)
+          : fullLine.slice(startColIdx) +
+            (matchLineCount > 1 ? `…${matchLineCount - 1}стр` : "");
+
+      const before =
+        beforeRaw.length > CONTEXT_BEFORE
+          ? "…" + beforeRaw.slice(-CONTEXT_BEFORE)
+          : beforeRaw;
+      const after =
+        afterRaw.length > CONTEXT_AFTER
+          ? afterRaw.slice(0, CONTEXT_AFTER) + "…"
+          : afterRaw;
+
+      const match: SearchMatch = {
+        line: startPos.line,
+        column: startPos.col,
+        length: hit.length,
+        endLine,
+        endColumn: endColumnExclusive,
+        lineText: fullLine,
+        before,
+        match: matchText,
+        after,
+        truncatedBefore: beforeRaw.length > CONTEXT_BEFORE,
+        truncatedAfter: afterRaw.length > CONTEXT_AFTER,
+        matchLineCount,
+      };
+
+      let group = groupsByKey.get(sectionKey);
+      if (!group) {
+        group = { sectionKey, sectionLabel, sectionLine, matches: [] };
+        groupsByKey.set(sectionKey, group);
+      }
+      group.matches.push(match);
+      emitted++;
+    } else {
+      truncated = true;
+    }
+
+    cursor = endOffset > cursor ? endOffset : cursor + 1;
+  }
+
+  const groups = Array.from(groupsByKey.values()).sort((a, b) => {
+    if (a.sectionKey === "__header__") return -1;
+    if (b.sectionKey === "__header__") return 1;
+    return a.sectionLine - b.sectionLine;
+  });
+
+  return {
+    query,
+    options: opts,
+    groups,
+    totalMatches,
+    truncated,
+    error: null,
+    elapsedMs: Math.round((performance.now?.() ?? Date.now()) - startedAt),
   };
 }

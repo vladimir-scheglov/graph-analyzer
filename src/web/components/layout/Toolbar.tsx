@@ -10,6 +10,7 @@ import { DataMenu } from '../popovers/DataMenu';
 import { relativeTime } from '../../lib/format';
 import { ModelMenu } from '../popovers';
 import { ActiveModesBar } from "./ActiveModesBar";
+import { CacheMenu } from "../popovers/CacheMenu";
 
 export interface ToolbarProps {
     counts: { domain: number; missing: number; broken: number; linkage: number; fqid: number };
@@ -177,28 +178,43 @@ export function Toolbar(props: ToolbarProps) {
 
                 <div className="toolbar__spacer" />
 
-                {props.remoteInfo?.server && props.remoteInfo?.mode === "hybrid" && (
-                    <div
-                        className="toolbar__cache"
-                        title={`Локальный каталог: ${props.remoteInfo.cacheDir}\nСервер: ${props.remoteInfo.server}\nВалидация доступна, сохранение — локальное`}
-                        onClick={props.onShowToast}
+                {props.remoteInfo?.server && (
+                    <Popover
+                        width={380}
+                        align="right"
+                        trigger={(open) => (
+                            <button
+                                className={
+                                    "toolbar__cache-btn" +
+                                    (open ? " toolbar__cache-btn--active" : "")
+                                }
+                                title={
+                                    props.remoteInfo.mode === "hybrid"
+                                        ? `Локальный каталог: ${props.remoteInfo.cacheDir}\nСервер: ${props.remoteInfo.server}\nВалидация доступна, сохранение — локальное`
+                                        : `Источник: ${props.remoteInfo.server}\nОбновлён: ${props.remoteInfo.fetchedAt
+                                            ? new Date(props.remoteInfo.fetchedAt).toLocaleString("ru-RU")
+                                            : "—"
+                                        }\nСохранение = публикация (требует повышения version)`
+                                }
+                            >
+                                <MIcon
+                                    name={props.remoteInfo.mode === "hybrid" ? "folder" : "database"}
+                                />
+                                <span>
+                                    {props.remoteInfo.mode === "hybrid"
+                                        ? "Локально + сервер"
+                                        : props.remoteInfo.fetchedAt
+                                            ? `Получено ${relativeTime(props.remoteInfo.fetchedAt)}`
+                                            : "Кеш"}
+                                </span>
+                            </button>
+                        )}
                     >
-                        <MIcon name="folder" />
-                        <span>Локально + сервер</span>
-                    </div>
+                        {(close) => (
+                            <CacheMenu remoteInfo={props.remoteInfo} close={close} />
+                        )}
+                    </Popover>
                 )}
-                {props.remoteInfo?.server &&
-                    props.remoteInfo?.mode !== "hybrid" &&
-                    props.remoteInfo?.fetchedAt && (
-                        <div
-                            className="toolbar__cache"
-                            title={`Источник: ${props.remoteInfo.server}\nОбновлён: ${new Date(props.remoteInfo.fetchedAt).toLocaleString("ru-RU")}\nСохранение = публикация (требует повышения version)`}
-                            onClick={props.onShowToast}
-                        >
-                            <MIcon name="database" />
-                            <span>Получено {relativeTime(props.remoteInfo.fetchedAt)}</span>
-                        </div>
-                    )}
 
                 <button
                     className="btn btn--icon"

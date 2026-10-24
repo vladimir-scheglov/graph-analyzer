@@ -550,20 +550,33 @@ export function buildDomainSchemaSummary(
         item.menuItem = nv.menuItem;
       }
 
+      // ============ page-специфика: block / pinnedBlock ============
       if (nv.type === "page") {
         if (typeof nv.block === "string" && nv.block) item.block = nv.block;
+        if (nv.pinnedView?.block)
+          item.pinnedBlock = String(nv.pinnedView.block);
+      }
+
+      // ============ tabs — общее для page и panel ============
+      // Формат в YAML: tabs: [{ tab: "<ViewId>" }, { inherit: ... }].
+      // Строковая форма "tabs: [view1, view2]" тоже встречается в старых схемах.
+      if (nv.type === "page" || nv.type === "panel") {
         if (Array.isArray(nv.tabs)) {
           const tabs = nv.tabs
-            .map((t: any) =>
-              t && typeof t === "object" && typeof t.tab === "string"
-                ? t.tab
-                : null,
-            )
+            .map((t: any) => {
+              if (typeof t === "string" && t) return t;
+              if (
+                t &&
+                typeof t === "object" &&
+                typeof t.tab === "string" &&
+                t.tab
+              ) {
+                return t.tab;
+              }
+              return null;
+            })
             .filter((x: string | null): x is string => !!x);
           if (tabs.length > 0) item.tabs = tabs;
-        }
-        if (nv.pinnedView?.block) {
-          item.pinnedBlock = String(nv.pinnedView.block);
         }
       }
 

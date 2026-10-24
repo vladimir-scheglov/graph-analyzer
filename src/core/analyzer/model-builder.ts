@@ -650,15 +650,22 @@ function parseEntity(
   ) {
     const extEntities: string[] = [];
     for (const x of raw.externals.entities) {
-      const raw = typeof x === "string" ? x : x?.entity;
-      if (!raw) continue;
-      const fqid = normalizeFqid(String(raw), domainId);
+      const rawRef = typeof x === "string" ? x : x?.entity;
+      if (!rawRef) continue;
+      const fqid = normalizeFqid(String(rawRef), domainId);
       if (fqid) extEntities.push(fqid);
     }
     entity.externals = {
       entities: extEntities,
       type: raw.externals.type === "selection" ? "selection" : "composition",
     };
+    if (
+      raw.externals.type !== undefined &&
+      raw.externals.type !== "selection" &&
+      raw.externals.type !== "composition"
+    ) {
+      entity.__rawExternalsType = String(raw.externals.type);
+    }
   }
 
   // bind
@@ -776,8 +783,8 @@ function parseDataType(raw: any, domainId: string): DataTypeRecord | null {
     if (Array.isArray(v.columns)) {
       for (const c of v.columns) {
         if (!c || typeof c !== "object") continue;
-        if (typeof c.id !== "string" || !c.id) continue;
-        const col: DataTypeViewColumn = { id: c.id };
+        const colId = typeof c.id === "string" ? c.id : "";
+        const col: DataTypeViewColumn = { id: colId };
         if (typeof c.attribute === "string" && c.attribute) {
           col.attribute = c.attribute;
         }
@@ -2169,7 +2176,7 @@ function parseTreeSorting(
           if (!ib || typeof ib.attribute !== "string") continue;
           inner.push({
             attribute: ib.attribute,
-            direction: ib.direction === "desc" ? "desc" : "asc",
+            direction: ib.direction === "asc" ? "asc" : "desc",
           });
         }
       }
@@ -3625,6 +3632,27 @@ function collectViewMeta(raw: any, domainId: string): ViewMetaResult {
             rec.openView = w.openView;
           }
         }
+
+        // ============ action-widget: actions[] (dropdown) ============
+        if (w.type === "action" && Array.isArray(w.actions)) {
+          const acts: string[] = [];
+          for (const a of w.actions) {
+            if (typeof a === "string" && a) {
+              acts.push(a);
+              continue;
+            }
+            if (
+              a &&
+              typeof a === "object" &&
+              typeof a.action === "string" &&
+              a.action
+            ) {
+              acts.push(a.action);
+            }
+          }
+          if (acts.length > 0) rec.actionIds = acts;
+        }
+        
         widgets.push(rec);
       }
     }

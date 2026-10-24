@@ -162,6 +162,8 @@ export function YamlViewerModal() {
     const [leftWidth, setLeftWidth] = useState(380);
     const isDraggingLeft = useRef(false);
     const decorationsCollection = useRef<any>(null);
+    const appTheme = useGraphStore((s) => s.theme);
+    const monacoTheme = appTheme === "light" ? "dg-light" : "dg-dark";
 
 
     const startResizingLeft = (e: React.MouseEvent) => {
@@ -724,6 +726,27 @@ export function YamlViewerModal() {
                     'editorSuggestWidget.focusHighlightForeground': '#a78bfa',
                 }
             });
+
+            m.editor.defineTheme("dg-light", {
+                base: "vs",
+                inherit: true,
+                rules: [],
+                colors: {
+                    "editor.background": "#ffffff",
+                    "editor.foreground": "#0f172a",
+                    "editorLineNumber.foreground": "#94a3b8",
+                    "editorLineNumber.activeForeground": "#475569",
+
+                    // === Цвета для автокомплита (Suggest Widget) ===
+                    "editorSuggestWidget.background": "#ffffff",
+                    "editorSuggestWidget.foreground": "#0f172a",
+                    "editorSuggestWidget.selectedBackground": "#f1f5f9",
+                    "editorSuggestWidget.highlightForeground": "#4f46e5",
+                    "editorSuggestWidget.border": "#e2e8f0",
+                    "editorSuggestWidget.selectedForeground": "#0f172a",
+                    "editorSuggestWidget.focusHighlightForeground": "#4338ca",
+                },
+            });
         } catch { }
 
         let editor: any = null;
@@ -736,7 +759,7 @@ export function YamlViewerModal() {
             editor = m.editor.create(containerRef.current, {
                 value: fetchedContent,
                 language: 'yaml',
-                theme: 'dg-dark',
+                theme: monacoTheme,
                 readOnly: false,
                 glyphMargin: true,
                 automaticLayout: false,
@@ -1061,62 +1084,161 @@ export function YamlViewerModal() {
         resetProviderContext();
     }, [open]);
 
+    // Ref с id декораций — ЖИВЁТ между перезапусками эффекта.
+    // deltaDecorations принимает previous ids и удаляет их атомарно.
+    const searchDecorIdsRef = useRef<string[]>([]);
+
     useEffect(() => {
-        if (!monacoReady || !editorCreated || !editorRef.current) return;
+        if (!monacoReady || !editorCreated) return;
         const m = (window as any).monaco;
-        if (!m) return;
         const ed = editorRef.current;
+        if (!m || !ed) return;
+        const model = editorRef.current.getModel();
 
-        // очищаем старые
-        if (searchDecorationsRef.current) {
-            try { searchDecorationsRef.current.clear(); } catch { }
-            searchDecorationsRef.current = null;
-        }
+        const buildRange = (match: any): any | null => {
+            const startLine = match.line;
+            const startCol = match.column;
+            const len = match.length;
 
-        if (!searchResult || searchResult.groups.length === 0) return;
+            if (!Number.isInteger(startLine) || startLine < 1) return null;
+            if (!Number.isInteger(startCol) || startCol < 1) return null;
+            if (!Number.isInteger(len) || len <= 0) return null;
 
-        const decorations: any[] = [];
-        for (const g of searchResult.groups) {
-            for (const match of g.matches) {
-                const isActive =
-                    activeSearchMatch !== null &&
-                    activeSearchMatch.line === match.line &&
-                    activeSearchMatch.column === match.column &&
-                    activeSearchMatch.length === match.length;
-                decorations.push({
-                    range: new m.Range(
-                        match.line,
-                        match.column,
-                        match.line,
-                        match.column + match.length,
-                    ),
-                    options: {
-                        inlineClassName: isActive
-                            ? "yaml-search-match-active"
-                            : "yaml-search-match",
-                        overviewRuler: {
-                            color: isActive ? "#fbbf24" : "#f59e0b",
-                            position: m.editor.OverviewRulerLane.Center,
-                        },
-                    },
-                });
+            const lineCount = model.getLineCount();
+            if (startLine > lineCount) return null;
+
+            // ============ Многострочный: ТОЛЬКО если явно задан валидный endLine ============
+            // Требуем matchLineCount > 1 И endLine > startLine. Иначе — однострочный путь.
+            // Это защита от searchSingleLine, который может отдавать endLine=0/NaN.
+            const isMultiline =
+                match.matchLineCount > 1 &&
+                Number.isInteger(match.endLine) &&
+                Number.isInteger(match.endColumn) &&
+                match.endLine > startLine;
+
+            if (isMultiline) {
+                const endLine = match.endLine as number;
+                const endCol = match.endColumn as number;
+                if (endLine > lineCount) return null;
+
+                const maxColStart = model.getLineMaxColumn(startLine);
+                const maxColEnd = model.getLineMaxColumn(endLine);
+                const safeStartCol = Math.min(startCol, maxColStart);
+                const safeEndCol = Math.min(endCol, maxColEnd);
+                if (safeEndCol < 1) return null;
+
+                try {
+                    return new m.Range(startLine, safeStartCol, endLine, safeEndCol);
+                } catch {
+                    return null;
+                }
             }
-        }
 
-        try {
-            searchDecorationsRef.current = ed.createDecorationsCollection(decorations);
-        } catch {
-            // createDecorationsCollection есть в Monaco ≥ 0.34; для более старых —
-            // fallback через deltaDecorations, если понадобится.
-        }
+            // ============ Однострочный — простой Range, ignore endLine/endColumn ============
+            // Именно эта форма работала до multiline-патча.
+            const maxCol = model.getLineMaxColumn(startLine);
+            const safeStartCol = Math.min(startCol, maxCol);
+            const safeEndCol = Math.min(startCol + len, maxCol);
+            if (safeEndCol <= safeStartCol) return null;
 
-        return () => {
-            if (searchDecorationsRef.current) {
-                try { searchDecorationsRef.current.clear(); } catch { }
-                searchDecorationsRef.current = null;
+            try {
+                return new m.Range(startLine, safeStartCol, startLine, safeEndCol);
+            } catch {
+                return null;
             }
         };
-    }, [monacoReady, editorCreated, searchResult, activeSearchMatch]);
+
+        const applyNow = () => {
+            const ed2 = editorRef.current;
+            if (!ed2) return;
+
+            // ============ Очистка ============
+            if (!searchQuery) {
+                try {
+                    searchDecorIdsRef.current = ed2.deltaDecorations(
+                        searchDecorIdsRef.current,
+                        [],
+                    );
+                } catch { }
+                searchDecorIdsRef.current = [];
+                return;
+            }
+
+            if (!searchResult || searchResult.groups.length === 0) return;
+
+            const decorations: any[] = [];
+            let skippedInvalid = 0;
+            for (const g of searchResult.groups) {
+                for (const match of g.matches) {
+                    const range = buildRange(match);
+                    if (!range) {
+                        skippedInvalid++;
+                        continue;
+                    }
+                    const isActive =
+                        activeSearchMatch != null &&
+                        activeSearchMatch.line === match.line &&
+                        activeSearchMatch.column === match.column &&
+                        activeSearchMatch.length === match.length;
+                    decorations.push({
+                        range,
+                        options: {
+                            inlineClassName: isActive
+                                ? "yaml-search-match-active"
+                                : "yaml-search-match",
+                        },
+                    });
+                }
+            }
+
+            try {
+                // Атомарная замена: previous ids удаляются, новые добавляются
+                searchDecorIdsRef.current = ed2.deltaDecorations(
+                    searchDecorIdsRef.current,
+                    decorations,
+                );
+            } catch (err) {
+                console.error("[search-dec] deltaDecorations failed:", err);
+                return;
+            }
+        };
+
+        applyNow();
+
+        // Переприменение при изменении модели (setValue от reload)
+        const sub = ed.onDidChangeModelContent(() => {
+            setTimeout(applyNow, 0);
+        });
+
+        return () => {
+            try { sub.dispose(); } catch { }
+            // ВАЖНО: НЕ очищаем searchDecorIdsRef.
+            // При следующем applyNow ids передадутся — старые удалятся атомарно.
+        };
+    }, [monacoReady, editorCreated, searchResult, activeSearchMatch, searchQuery]);
+
+    // Auto-scroll к первому матчу при появлении результатов.
+    // Без этого пользователь видит верх файла, а матчи могут быть
+    // на любой из 10000 строк — Monaco виртуализирует и рисует только
+    // ~20 видимых строк, поэтому декорации есть в модели, но не в DOM.
+    useEffect(() => {
+        if (!editorCreated || !editorRef.current) return;
+        if (!searchResult || searchResult.groups.length === 0) return;
+
+        const firstMatch = searchResult.groups[0]?.matches[0];
+        if (!firstMatch) return;
+
+        // Не перебиваем активный матч, если пользователь уже переключался
+        if (activeSearchMatch) return;
+
+        const ed = editorRef.current;
+        try {
+            ed.revealLineInCenter(firstMatch.line);
+            ed.setPosition({ lineNumber: firstMatch.line, column: firstMatch.column });
+            // Без focus: false — layout нужен, но фокус в поиск не забираем
+            ed.layout();
+        } catch { }
+    }, [searchResult, activeSearchMatch, editorCreated]);
 
     // ============ Consolidated markers: FQID + dataType + enum ============
     useEffect(() => {
@@ -1339,13 +1461,39 @@ export function YamlViewerModal() {
     }, [index, recheckModel, checksEnabled, monacoReady, editorCreated, lineMap, domainIssues, isLocked, content, severityFilter, savedContent]);
 
     // ============ Jump ============
-    const jumpTo = useCallback((line: number) => {
-        const editor = editorRef.current;
-        if (!editor) return;
-        editor.revealLineInCenter(line);
-        editor.setPosition({ lineNumber: line, column: 1 });
-        editor.focus();
-    }, []);
+    const jumpTo = useCallback(
+        (line: number, opts?: { focus?: boolean }) => {
+            const editor = editorRef.current;
+            if (!editor) return;
+
+            try {
+                editor.revealLineInCenter(line);
+            } catch { }
+
+            try {
+                editor.setPosition({ lineNumber: line, column: 1 });
+            } catch { }
+
+            // Явный layout — Monaco пересчитывает viewport
+            try { editor.layout(); } catch { }
+
+            if (opts?.focus !== false) {
+                editor.focus();
+            } else {
+                // Без фокуса revealLineInCenter иногда откладывает скролл
+                // до следующего тика — форсируем ещё раз в rAF.
+                requestAnimationFrame(() => {
+                    const ed = editorRef.current;
+                    if (!ed) return;
+                    try {
+                        ed.revealLineInCenter(line);
+                        ed.layout();
+                    } catch { }
+                });
+            }
+        },
+        [],
+    );
 
     const [activeFoldLevel, setActiveFoldLevel] = useState<number | null>(null);
 
@@ -2252,6 +2400,90 @@ export function YamlViewerModal() {
         setNavContextMenu(null);
     }, []);
 
+    // Смена темы приложения → глобально переключаем тему Monaco.
+    // setTheme применяется ко всем инстансам: YamlViewer, Diff-редактор, FileTab.
+    useEffect(() => {
+        if (!monacoReady) return;
+        const m = (window as any).monaco;
+        if (!m) return;
+        try {
+            m.editor.setTheme(monacoTheme);
+        } catch {
+            /* ignore */
+        }
+    }, [monacoTheme, monacoReady]);
+
+    // Auto-scroll к первому матчу при появлении результатов.
+    // Без этого матчи есть в модели, но за пределами 20 видимых строк
+    // (Monaco virtualiz'ует строки), и в DOM нет классов → визуально "нет подсветки".
+    useEffect(() => {
+        if (!editorCreated || !editorRef.current) return;
+        if (!searchResult || searchResult.groups.length === 0) return;
+
+        const firstMatch = searchResult.groups[0]?.matches[0];
+        if (!firstMatch) return;
+
+        // Не перебиваем активный матч — если пользователь уже Ctrl+Enter'ом
+        // ушёл к 5-му, не должны прыгать назад.
+        if (activeSearchMatch) return;
+
+        const m = (window as any).monaco;
+        if (!m) return;
+
+        const doScroll = () => {
+            const ed = editorRef.current;
+            if (!ed) return;
+
+            // ============ Метод 1: revealPositionInCenterIfOutsideViewport ============
+            // Не требует фокуса и не скроллит, если уже видно.
+            try {
+                ed.revealPositionInCenterIfOutsideViewport(
+                    { lineNumber: firstMatch.line, column: firstMatch.column },
+                    m.editor.ScrollType.Immediate,
+                );
+            } catch (err) {
+                console.warn("[search-jump] revealPosition failed:", err);
+            }
+
+            try {
+                ed.setPosition({
+                    lineNumber: firstMatch.line,
+                    column: firstMatch.column,
+                });
+            } catch { }
+
+            // ============ Метод 2 (fallback): прямой setScrollTop ============
+            // Если после revealPosition строка всё ещё не в viewport —
+            // считаем scrollTop вручную. Не требует фокуса, работает всегда.
+            requestAnimationFrame(() => {
+                const ed2 = editorRef.current;
+                if (!ed2) return;
+                try {
+                    const visible = ed2.getVisibleRanges();
+                    const isVisible = visible.some(
+                        (r) =>
+                            r.startLineNumber <= firstMatch.line &&
+                            firstMatch.line <= r.endLineNumber,
+                    );
+                    if (!isVisible) {
+                        const lineTop = ed2.getTopForLineNumber(firstMatch.line);
+                        const layout = ed2.getLayoutInfo();
+                        const lineHeight = ed2.getOption(m.editor.EditorOption.lineHeight);
+                        ed2.setScrollTop(
+                            Math.max(0, lineTop - layout.height / 2 + lineHeight / 2),
+                        );
+                    }
+                } catch (err) {
+                    console.warn("[search-jump] fallback failed:", err);
+                }
+            });
+        };
+
+        // Небольшая задержка: Monaco иногда не готов сразу после setValue/debounce
+        const t = setTimeout(doScroll, 50);
+        return () => clearTimeout(t);
+    }, [searchResult, activeSearchMatch, editorCreated]);
+
     if (!open) return null;
 
     const canSave = !isLocked && isDirty;
@@ -2755,7 +2987,7 @@ export function YamlViewerModal() {
                                         onResultChange={setSearchResult}
                                         onActiveMatchChange={setActiveSearchMatch}
                                         onEscape={() => setNavTab("navigation")}
-                                        onJump={jumpTo}
+                                        onJump={(line) => jumpTo(line, { focus: false })}
                                     />
                                 </div>
                             </>
