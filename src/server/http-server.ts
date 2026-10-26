@@ -38,8 +38,12 @@ import {
 } from "../core/analyzer/model-snapshot";
 import { computeSemanticDiff } from "../core/analyzer/semantic-diff";
 import { prepareRemoteCache } from "../core/remote/cache-manager";
-import { handleGenerateRequest } from "./routes/generate";
-
+import { handleGenerateBatchStream, handleGenerateRequest } from "./routes/generate";
+import { handleGenerateBatchRequest } from "./routes/generate";
+import {
+  handleGeneratedManifest,
+  handleClearGeneratedManifest,
+} from "./routes/generate";
 
 export interface StartServerOptions {
   port: number;
@@ -274,6 +278,28 @@ export function startServer(opts: StartServerOptions): http.Server {
     } else if (url === "/favicon.ico") {
       res.writeHead(204);
       res.end();
+    } else if (url === "/api/generate-batch" && req.method === "POST") {
+      try {
+        await handleGenerateBatchRequest(req, res, analyzer);
+      } catch (err: any) {
+        try {
+          if (!res.headersSent) {
+            res.writeHead(500, { "Content-Type": "application/json" });
+          }
+          res.end(JSON.stringify({ error: err.message }));
+        } catch {}
+      }
+    } else if (url === "/api/generate-batch-stream" && req.method === "POST") {
+      try {
+        await handleGenerateBatchStream(req, res, analyzer);
+      } catch (err: any) {
+        try {
+          if (!res.headersSent) {
+            res.writeHead(500, { "Content-Type": "application/json" });
+          }
+          res.end(JSON.stringify({ error: err.message }));
+        } catch {}
+      }
     }
 
     // ============ File routes ============
@@ -364,6 +390,34 @@ export function startServer(opts: StartServerOptions): http.Server {
     } else if (url === "/api/refresh-cache" && req.method === "POST") {
       try {
         await handleRefreshCache(req, res, { analyzer });
+      } catch (err: any) {
+        try {
+          if (!res.headersSent) {
+            res.writeHead(500, { "Content-Type": "application/json" });
+          }
+          res.end(JSON.stringify({ error: err.message }));
+        } catch {}
+      }
+    } else if (
+      url.startsWith("/api/generated-manifest") &&
+      req.method === "GET"
+    ) {
+      try {
+        await handleGeneratedManifest(req, res, analyzer);
+      } catch (err: any) {
+        try {
+          if (!res.headersSent) {
+            res.writeHead(500, { "Content-Type": "application/json" });
+          }
+          res.end(JSON.stringify({ error: err.message }));
+        } catch {}
+      }
+    } else if (
+      url.startsWith("/api/generated-manifest") &&
+      req.method === "DELETE"
+    ) {
+      try {
+        await handleClearGeneratedManifest(req, res, analyzer);
       } catch (err: any) {
         try {
           if (!res.headersSent) {

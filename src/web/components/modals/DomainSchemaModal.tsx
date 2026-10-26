@@ -358,6 +358,19 @@ export function DomainSchemaModal() {
                             <div className="domain-schema-header__actions">
                                 <button
                                     className="btn"
+                                    onClick={() => {
+                                        const st = useGraphStore.getState();
+                                        st.setGenerateBatchDomainId(schema.domainId);
+                                        st.setGenerateBatchOpen(true);
+                                        st.setDomainSchemaOpen(false);
+                                    }}
+                                    title="Сгенерировать типовые блоки для нескольких сущностей разом"
+                                >
+                                    <MIcon name="auto_awesome" size="sm" />
+                                    Сгенерировать для домена
+                                </button>
+                                <button
+                                    className="btn"
                                     onClick={() => goto(schema.domainId)}
                                 >
                                     <MIcon name="my_location" size="sm" /> К домену на графе
@@ -384,6 +397,19 @@ export function DomainSchemaModal() {
                                     }}
                                 >
                                     <MIcon name="description" size="sm" /> Экспорт в Markdown
+                                </button>
+                                <button
+                                    className="btn"
+                                    onClick={() => {
+                                        const st = useGraphStore.getState();
+                                        st.setSidecarDomainId(schema.domainId);
+                                        st.setSidecarOpen(true);
+                                        st.setDomainSchemaOpen(false);
+                                    }}
+                                    title="Посмотреть, что было сгенерировано для этого домена"
+                                >
+                                    <MIcon name="database" size="sm" />
+                                    Сгенерированные блоки
                                 </button>
                             </div>
 

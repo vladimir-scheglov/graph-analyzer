@@ -17,7 +17,8 @@ import {
     RulesModal,
     EntitiesCatalogModal,
     AttributeFinderModal,
-    GenerateSchemaModal
+    GenerateSchemaModal,
+    GeneratedManifestModal
 } from '../modals';
 import type { Command } from '../../lib/commands';
 import { EntityMatrixModal } from '../modals/EntityMatrixModal';
@@ -32,6 +33,7 @@ import { MartinMetricsModal } from '../modals/MartinMetricsModal';
 import { DomainCompareModal } from '../modals/DomainCompareModal';
 import { PiiModal } from '../modals/PiiModal';
 import { YamlViewerModal } from '../modals/YamlViewerModal';
+import { GenerateBatchModal } from '../modals/GenerateBatchModal';
 
 
 export interface AppModalsProps {
@@ -151,6 +153,8 @@ export function AppModals(props: AppModalsProps) {
             <PiiModal />
             <YamlViewerModal />
             <GenerateSchemaModal />
+            <GenerateBatchModal />
+            <GeneratedManifestModal />
         </>
     );
 }

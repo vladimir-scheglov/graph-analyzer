@@ -6,6 +6,10 @@ import type {
   LearningPath,
 } from "../lib/types";
 import type { LayoutType } from "../lib/layout";
+import type {
+  GeneratedBlock,
+  ManifestBlockStatus,
+} from "../../core/analyzer/schema-generator/types";
 
 // ============ Типы состояния ============
 
@@ -397,8 +401,11 @@ export interface GraphState {
   setListSort: (s: ListSort) => void;
 
   yamlViewerPendingGeneration: {
-    blocks: import("../../core/analyzer/schema-generator/types").GeneratedBlock[];
+    blocks: GeneratedBlock[];
     yamlByBlock: Record<string, string>;
+    manifestStatus?: Record<string, ManifestBlockStatus>;
+    replaceModified?: boolean;
+    restoreOrphanedIds?: string[];
   } | null;
   setYamlViewerPendingGeneration: (
     v: GraphState["yamlViewerPendingGeneration"],
@@ -410,6 +417,34 @@ export interface GraphState {
   setGenerateSchemaDomainId: (v: string | null) => void;
   generateSchemaEntityId: string | null;
   setGenerateSchemaEntityId: (v: string | null) => void;
+
+  yamlViewerPendingManifest: {
+    domainId: string;
+    profile: string;
+    entities: Array<{
+      entityId: string;
+      blocks: Array<{
+        blockId: string;
+        hash: string;
+        title: string;
+        parentViewId?: string;
+      }>;
+      orphanedIds?: string[];
+    }>;
+  } | null;
+  setYamlViewerPendingManifest: (
+    v: GraphState["yamlViewerPendingManifest"],
+  ) => void;
+  generateBatchOpen: boolean;
+  setGenerateBatchOpen: (v: boolean) => void;
+  generateBatchDomainId: string | null;
+  setGenerateBatchDomainId: (v: string | null) => void;
+  sidecarOpen: boolean;
+  setSidecarOpen: (v: boolean) => void;
+  sidecarDomainId: string | null;
+  setSidecarDomainId: (v: string | null) => void;
+  yamlViewerPendingBlock: { blockId: string; parentViewId?: string } | null;
+  setYamlViewerPendingBlock: (v: GraphState["yamlViewerPendingBlock"]) => void;
 }
 
 // ============ Хелперы для чтения localStorage ============
@@ -945,6 +980,18 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   setGenerateSchemaDomainId: (v) => set({ generateSchemaDomainId: v }),
   generateSchemaEntityId: null,
   setGenerateSchemaEntityId: (v) => set({ generateSchemaEntityId: v }),
+  yamlViewerPendingManifest: null,
+  setYamlViewerPendingManifest: (v) => set({ yamlViewerPendingManifest: v }),
+  generateBatchOpen: false,
+  setGenerateBatchOpen: (v) => set({ generateBatchOpen: v }),
+  generateBatchDomainId: null,
+  setGenerateBatchDomainId: (v) => set({ generateBatchDomainId: v }),
+  sidecarOpen: false,
+  setSidecarOpen: (v) => set({ sidecarOpen: v }),
+  sidecarDomainId: null,
+  setSidecarDomainId: (v) => set({ sidecarDomainId: v }),
+  yamlViewerPendingBlock: null,
+  setYamlViewerPendingBlock: (v) => set({ yamlViewerPendingBlock: v }),
 
   // Сброс всего
   resetAll: () =>

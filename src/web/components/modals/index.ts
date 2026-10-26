@@ -23,3 +23,4 @@ export { DomainCompareModal } from "./DomainCompareModal";
 export { PiiModal } from "./PiiModal";
 export { YamlViewerModal } from "./YamlViewerModal";
 export { GenerateSchemaModal } from "./GenerateSchemaModal";
+export { GeneratedManifestModal } from "./GeneratedManifestModal";

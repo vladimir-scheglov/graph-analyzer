@@ -1,9 +1,17 @@
 import type { EntityGenerationContext } from "../detect";
 import type { GeneratedBlock } from "../types";
 
+/**
+ * Medias — доменные (не per-entity). Иконки используются совместно
+ * всеми сущностями домена. Поэтому:
+ *  - проверка на существование — по `ctx.existing.medias` (все medias домена,
+ *    детектится в `detectEntityContext` через `index.medias.filter(d => d.domainId)`);
+ *  - `skipExisting` игнорируется — при `skipExisting: false` перезапись medias
+ *    невозможна (они append-only), а дубликат `iconsAdd` сломал бы YAML.
+ */
 export function buildMedias(
   ctx: EntityGenerationContext,
-  options: { skipExisting: boolean; hasPage: boolean },
+  options: { hasPage: boolean },
 ): {
   blocks: GeneratedBlock[];
   skipped: Array<{
@@ -29,6 +37,8 @@ export function buildMedias(
   }> = [];
 
   for (const c of candidates) {
+    // medias — domain-level: всегда пропускаем существующие, независимо
+    // от skipExisting. Дубликат `- id: iconsAdd` в medias[] сломал бы YAML.
     if (ctx.existing.medias.has(c.id)) {
       skipped.push({
         blockId: `media:${c.id}`,

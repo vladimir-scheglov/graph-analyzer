@@ -81,18 +81,22 @@ export function buildActions(
     );
   }
 
-  tryAdd(
-    `actions_open${E}Panel`,
-    {
-      id: `actions_open${E}Panel`,
-      name: "Детали",
-      type: "open_panel",
-      panel: `panels_info${E}`,
-      entity: E,
-      description: "Открыть панель с информацией",
-    },
-    [viewBlockId],
-  );
+  // actions_openXPanel — только если у сущности есть panel UI
+  // (иначе action будет ссылаться на несуществующий panels_infoX)
+  if (ctx.flags.hasPanelUi) {
+    tryAdd(
+      `actions_open${E}Panel`,
+      {
+        id: `actions_open${E}Panel`,
+        name: "Детали",
+        type: "open_panel",
+        panel: `panels_info${E}`,
+        entity: E,
+        description: "Открыть панель с информацией",
+      },
+      [viewBlockId],
+    );
+  }
 
   if (options.includePage) {
     tryAdd(

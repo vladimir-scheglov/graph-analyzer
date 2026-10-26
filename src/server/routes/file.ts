@@ -12,6 +12,8 @@ import type {
   SaveResponse,
 } from "../../shared/types";
 import { apiFetchExpertiseSource } from "../../core/remote/schemas-loader";
+import { mergeGeneratedManifest } from "../../core/analyzer/schema-generator/manifest";
+
 
 // ============ GET /file?path=... ============
 
@@ -148,6 +150,7 @@ export async function handleFileSave(
 
   const filePath = body?.path;
   const content = body?.content;
+  const generated = body?.generated;
   if (typeof filePath !== "string" || typeof content !== "string") {
     res.writeHead(400, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "path и content обязательны" }));
@@ -235,6 +238,45 @@ export async function handleFileSave(
     } catch (e: any) {
       // Не блокируем ответ клиенту — publish уже прошёл
       console.warn("[publish] failed to update _index.json:", e.message);
+    }
+  }
+
+  // ── Запись sidecar-манифеста (после успешной записи content на диск) ──
+  if (generated && typeof generated === "object") {
+    try {
+      if (
+        typeof generated.domainId === "string" &&
+        typeof generated.profile === "string" &&
+        Array.isArray(generated.entities)
+      ) {
+        for (const ent of generated.entities) {
+          if (
+            !ent ||
+            typeof ent.entityId !== "string" ||
+            !Array.isArray(ent.blocks)
+          )
+            continue;
+          const blocks = ent.blocks.filter(
+            (b: any) =>
+              b &&
+              typeof b.blockId === "string" &&
+              typeof b.hash === "string" &&
+              typeof b.title === "string",
+          );
+          const orphanedIds = Array.isArray(ent.orphanedIds)
+            ? ent.orphanedIds.filter((s: any) => typeof s === "string")
+            : undefined;
+          mergeGeneratedManifest(rootDir, {
+            domainId: generated.domainId,
+            entityId: ent.entityId,
+            profile: generated.profile,
+            blocks,
+            orphanedIds,
+          });
+        }
+      }
+    } catch (e: any) {
+      console.warn("[manifest] write failed:", e.message);
     }
   }
 

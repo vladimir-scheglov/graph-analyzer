@@ -43,6 +43,7 @@ import { ModelIndex } from '../../../shared/model-types';
 import { KNOWN_ACTION_TYPES } from "../../../shared/action-types";
 import { SectionQuickNav } from "./SectionQuickNav";
 import { planEdits } from "../../lib/yaml/apply-generation";
+import { findBlockRange } from "../../lib/yaml/view-insert";
 
 type RightTab = 'issues' | 'refs' | 'backlinks' | 'server';
 
@@ -105,6 +106,8 @@ export function YamlViewerModal() {
     const domainId = useGraphStore((s) => s.yamlViewerDomainId);
     const pendingIssue = useGraphStore((s) => s.yamlViewerPendingIssue);
     const setPendingIssue = useGraphStore((s) => s.setYamlViewerPendingIssue);
+    const pendingBlock = useGraphStore((s) => s.yamlViewerPendingBlock);
+    const setPendingBlock = useGraphStore((s) => s.setYamlViewerPendingBlock);
 
     const remoteInfo = useMemo(() => readRemoteInfo(), []);
     const mode: "local" | "hybrid" | "remote" = !remoteInfo?.server
@@ -354,6 +357,7 @@ export function YamlViewerModal() {
     useEffect(() => {
         if (open) return;
         useGraphStore.getState().setYamlViewerDirty(false);
+        useGraphStore.getState().setYamlViewerPendingManifest(null);
     }, [open]);
 
     useEffect(() => {
@@ -1716,10 +1720,17 @@ export function YamlViewerModal() {
         const timeoutId = setTimeout(() => controller.abort(), 120_000);
 
         try {
+            const body: any = { path: filePath, content: valueToSave };
+
+            const pendingManifest = useGraphStore.getState().yamlViewerPendingManifest;
+            if (pendingManifest) {
+                body.generated = pendingManifest;
+            }
+
             const res = await fetch('/file', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ path: filePath, content: valueToSave }),
+                body: JSON.stringify(body),
                 signal: controller.signal,
             });
 
@@ -1748,6 +1759,10 @@ export function YamlViewerModal() {
             setSavedContent(valueToSave);
             setContent(valueToSave);
             setLiveVersion((v) => v + 1);
+
+            if (pendingManifest) {
+                useGraphStore.getState().setYamlViewerPendingManifest(null);
+            }
 
             try {
                 editorRef.current?.pushUndoStop();
@@ -2514,6 +2529,9 @@ export function YamlViewerModal() {
             pendingGeneration.blocks,
             pendingGeneration.yamlByBlock,
             lm,
+            pendingGeneration.manifestStatus,
+            !!pendingGeneration.replaceModified,
+            pendingGeneration.restoreOrphanedIds,
         );
 
         setPendingGeneration(null);
@@ -2538,6 +2556,37 @@ export function YamlViewerModal() {
             .getState()
             .showSnackbar(`Добавлено блоков: ${pendingGeneration.blocks.length}`);
     }, [pendingGeneration, editorCreated, schema, setPendingGeneration]);
+
+    // ============ Auto-jump to pending block ============
+    // Устанавливается из sidecar (клик на blockId в манифесте). Ждём,
+    // пока Monaco создан и контент загружен, вычисляем диапазон через
+    // findBlockRange и прыгаем на startLine.
+    useEffect(() => {
+        if (!open) return;
+        if (!pendingBlock) return;
+        if (!editorCreated || !editorRef.current) return;
+        if (loading) return;
+
+        const content = editorRef.current.getValue();
+        if (!content) return;
+
+        const range = findBlockRange(
+            content,
+            pendingBlock.blockId,
+            pendingBlock.parentViewId,
+        );
+        setPendingBlock(null);
+        if (!range) return;
+
+        const t = setTimeout(() => {
+            try {
+                jumpTo(range.startLine);
+            } catch {
+                /* ignore */
+            }
+        }, 50);
+        return () => clearTimeout(t);
+    }, [open, pendingBlock, editorCreated, loading, jumpTo, setPendingBlock]);
 
     if (!open) return null;
 

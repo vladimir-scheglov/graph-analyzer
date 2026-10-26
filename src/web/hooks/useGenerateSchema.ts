@@ -8,6 +8,14 @@ export interface GenerateOptions {
   skipExisting?: boolean;
   excludeReadonlyFromCreate?: boolean;
   menuRootId?: string;
+  skipManuallyModified?: boolean;
+  replaceModified?: boolean;
+  restoreOrphanedIds?: string[];
+  treeType?: "ordinary" | "orderable" | "multiparent";
+  treeVariant?: "merged" | "splitted";
+  treeLinkageIds?: string[];
+  treeChunkSize?: number;
+  treeOrdering?: boolean;
 }
 
 export interface UseGenerateSchemaParams {

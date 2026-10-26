@@ -1,9 +1,11 @@
-import type { EntityRecord, ModelIndex } from "../../../shared/model-types";
+import type { EntityRecord, ModelIndex, TreeRecord } from "../../../shared/model-types";
 import type { RawDomainEntry } from "../model-builder";
 
 export type LinkageWidgetKind = "linkage" | "linkage_list";
 
 export interface LinkageRole {
+  /** Домен, где объявлена linkage. Нужен для резолва в index.entityLinkages. */
+  domainId: string;
   linkageId: string;
   side: 1 | 2;
   isSymmetric: boolean;
@@ -25,13 +27,25 @@ export interface EntityGenerationContext {
 
   existing: {
     actions: Set<string>;
-    views: Set<string>;
+    views: Set<string>; // все viewId: top-level + nested
+    /**
+     * widgetId → viewId, в котором он лежит.
+     * Используется при регенерации: если viewX уже есть, генерим только
+     * недостающие widget'ы, а существующие skip'аем.
+     */
+    viewWidgetIds: Map<string, Set<string>>;
+    viewGroupIds: Map<string, Set<string>>;
+    viewNestedIds: Map<string, Set<string>>;
+
+    // legacy — оставляем для обратной совместимости (плоские множества)
     widgets: Set<string>;
     groups: Set<string>;
     columns: Set<string>;
     menus: Set<string>;
     menuItems: Set<string>;
     medias: Set<string>;
+    trees: Set<string>;
+    treeRecords: Map<string, TreeRecord>;
   };
 
   menuRoots: Array<{ id: string; route: string; type: string }>;
@@ -45,6 +59,7 @@ export interface EntityGenerationContext {
     hasListUi: boolean;
     isDictionary: boolean;
     hasPanelUi: boolean;
+    hasTreeCandidates: boolean;
   };
 }
 
@@ -102,6 +117,31 @@ export function detectEntityContext(
   for (const c of index.viewColumns || [])
     if (c.domainId === domainId) existingColumns.add(c.id);
 
+  // === per-view структуры для регенерации ===
+  const viewWidgetIds = new Map<string, Set<string>>();
+  for (const w of index.viewWidgets || []) {
+    if (w.domainId !== domainId) continue;
+    if (!viewWidgetIds.has(w.parentViewId))
+      viewWidgetIds.set(w.parentViewId, new Set());
+    viewWidgetIds.get(w.parentViewId)!.add(w.id);
+  }
+  const viewGroupIds = new Map<string, Set<string>>();
+  for (const g of index.viewGroups || []) {
+    if (g.domainId !== domainId) continue;
+    if (!viewGroupIds.has(g.parentViewId))
+      viewGroupIds.set(g.parentViewId, new Set());
+    viewGroupIds.get(g.parentViewId)!.add(g.id);
+  }
+  const viewNestedIds = new Map<string, Set<string>>();
+  if (schema?.allViews) {
+    for (const v of schema.allViews) {
+      if (!v.parentViewId) continue;
+      if (!viewNestedIds.has(v.parentViewId))
+        viewNestedIds.set(v.parentViewId, new Set());
+      viewNestedIds.get(v.parentViewId)!.add(v.id);
+    }
+  }
+
   const existingMenus = new Set<string>();
   const existingMenuItems = new Set<string>();
   const menuRoots: Array<{ id: string; route: string; type: string }> = [];
@@ -143,6 +183,7 @@ export function detectEntityContext(
     const label = rawLabel || lk.name || lk.id;
 
     linkages.push({
+      domainId: lk.domainId,
       linkageId: lk.id,
       side,
       isSymmetric: lk.side1Fqid === lk.side2Fqid,
@@ -166,6 +207,16 @@ export function detectEntityContext(
   const isDictionary = !hasListUi && isReadonly;
   const hasPanelUi = ui?.panel !== false;
 
+  const existingTreeRecords = new Map<string, TreeRecord>();
+  for (const t of index.trees || []) {
+    if (t.domainId === domainId) existingTreeRecords.set(t.id, t);
+  }
+  const existingTrees = new Set(existingTreeRecords.keys());
+
+  const hasTreeCandidates = linkages.some(
+    (lk) => lk.side === 1 && lk.widgetKind === "linkage_list",
+  );
+
   return {
     domainId,
     entityId: entity.entityId,
@@ -179,10 +230,22 @@ export function detectEntityContext(
       menus: existingMenus,
       menuItems: existingMenuItems,
       medias: existingMedias,
+      viewWidgetIds,
+      viewGroupIds,
+      viewNestedIds,
+      trees: existingTrees,
+      treeRecords: existingTreeRecords,
     },
     menuRoots,
     menuRoot,
     linkages,
-    flags: { hasPage, isReadonly, hasListUi, isDictionary, hasPanelUi },
+    flags: {
+      hasPage,
+      isReadonly,
+      hasListUi,
+      isDictionary,
+      hasPanelUi,
+      hasTreeCandidates,
+    },
   };
 }

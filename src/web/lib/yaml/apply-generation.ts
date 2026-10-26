@@ -1,5 +1,10 @@
 import type { GeneratedBlock } from "../../../core/analyzer/schema-generator/types";
+import { mergeViewTree } from "../../../core/analyzer/schema-generator/util-merge-views";
 import type { LineMap } from "./line-map";
+import { findBlockRange, findViewInsertPoints } from "./view-insert";
+import type { ManifestBlockStatus } from "../../../core/analyzer/schema-generator/types";
+
+
 
 export interface MonacoEdit {
   range: {
@@ -23,21 +28,223 @@ function toArrayItem(yamlObj: string, indent: string): string {
     .join("\n");
 }
 
+function emitYaml(payload: any): string {
+  const yaml = require("js-yaml");
+  return yaml.dump(payload, {
+    indent: 2,
+    lineWidth: 120,
+    noRefs: true,
+    sortKeys: false,
+  });
+}
+
+function planEditsIntoExistingView(
+  content: string,
+  viewId: string,
+  merged: { widgets: any[]; groups: any[]; views: any[] },
+): MonacoEdit[] {
+  const points = findViewInsertPoints(content, viewId);
+  const lines = content.split("\n");
+  const edits: MonacoEdit[] = [];
+
+  for (const point of points) {
+    const items = (merged as any)[point.section] as any[] | undefined;
+    if (!items || items.length === 0) continue;
+
+    // пустая секция в одну строку — заменить строку целиком
+    if (point.inlineEmptyLine != null) {
+      const lineText = lines[point.inlineEmptyLine - 1] || "";
+      const containerIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
+      const dashIndent = " ".repeat(containerIndent + 2);
+      const itemsText = items
+        .map((it) => toArrayItem(emitYaml(it), dashIndent))
+        .join("\n");
+      edits.push({
+        range: {
+          startLineNumber: point.inlineEmptyLine,
+          startColumn: 1,
+          endLineNumber: point.inlineEmptyLine,
+          endColumn: lineText.length + 1,
+        },
+        text: `${" ".repeat(containerIndent)}${point.section}:\n${itemsText}`,
+      });
+      continue;
+    }
+
+    const dashIndent = " ".repeat(point.dashIndent ?? point.viewOpenIndent + 4);
+    const itemsText = items
+      .map((it) => toArrayItem(emitYaml(it), dashIndent))
+      .join("\n");
+
+    if (point.exists && point.insertAfterLine != null) {
+      // вставить в конец существующего массива
+      const insertLine = point.insertAfterLine;
+      const lineText = lines[insertLine - 1] || "";
+      edits.push({
+        range: {
+          startLineNumber: insertLine,
+          startColumn: lineText.length + 1,
+          endLineNumber: insertLine,
+          endColumn: lineText.length + 1,
+        },
+        text: "\n" + itemsText,
+      });
+    } else {
+      // секции нет — создать после `- id: viewX`
+      const containerIndent = " ".repeat(point.viewOpenIndent + 2);
+      const block = `\n${containerIndent}${point.section}:\n${itemsText}`;
+      const openLineText = lines[point.viewOpenLine - 1] || "";
+      edits.push({
+        range: {
+          startLineNumber: point.viewOpenLine,
+          startColumn: openLineText.length + 1,
+          endLineNumber: point.viewOpenLine,
+          endColumn: openLineText.length + 1,
+        },
+        text: block,
+      });
+    }
+  }
+
+  return edits;
+}
+
+function replaceBlockInYaml(
+  content: string,
+  block: GeneratedBlock,
+  newYaml: string,
+): MonacoEdit | null {
+  const range = findBlockRange(content, block.blockId, block.parentViewId);
+  if (!range) return null;
+  const lines = content.split("\n");
+  const dashIndent = " ".repeat(range.indent);
+  const newText = toArrayItem(newYaml, dashIndent);
+  return {
+    range: {
+      startLineNumber: range.startLine,
+      startColumn: 1,
+      endLineNumber: range.endLine,
+      endColumn: (lines[range.endLine - 1] || "").length + 1,
+    },
+    text: newText,
+  };
+}
+
+
 export function planEdits(
   content: string,
   blocks: GeneratedBlock[],
   yamlByBlock: Record<string, string>,
   lineMap: LineMap,
+  manifestStatus?: Record<string, ManifestBlockStatus>,
+  replaceModified = false,
+  restoreOrphanedIds?: string[],
 ): MonacoEdit[] {
-  const lines = content.split("\n");
+  const status = manifestStatus ?? {};
+  const restore = new Set(restoreOrphanedIds ?? []);
   const edits: MonacoEdit[] = [];
 
-  const bySection = new Map<string, GeneratedBlock[]>();
+  const viewRootIdsNew = new Set<string>();
+  const viewRootIdsOrphaned = new Set<string>();
   for (const b of blocks) {
+    if (b.section !== "views" || b.parentViewId) continue;
+    const st = status[b.blockId];
+    if (st === "new" || st == null) viewRootIdsNew.add(b.payload?.id);
+    if (st === "orphaned" && restore.has(b.blockId))
+      viewRootIdsOrphaned.add(b.payload?.id);
+  }
+
+  const appendBlocks: GeneratedBlock[] = [];
+  const replaceBlocks: GeneratedBlock[] = [];
+
+  for (const b of blocks) {
+    const st = status[b.blockId];
+    if (st === "unchanged") continue;
+    if (st === "orphaned" && !restore.has(b.blockId)) continue;
+    if (st === "modified" && !replaceModified) continue;
+
+    if (
+      b.parentViewId &&
+      (viewRootIdsNew.has(b.parentViewId) ||
+        viewRootIdsOrphaned.has(b.parentViewId))
+    ) {
+      appendBlocks.push(b);
+      continue;
+    }
+    if (st === "outdated" || st === "modified") replaceBlocks.push(b);
+    else appendBlocks.push(b);
+  }
+
+  // ── 2. Replace для outdated ──
+  for (const b of replaceBlocks) {
+    const yaml = yamlByBlock[b.blockId];
+    if (!yaml) continue;
+    const edit = replaceBlockInYaml(content, b, yaml);
+    if (edit) edits.push(edit);
+  }
+
+  // ── 3. Append (существующая логика) ──
+  const lines = content.split("\n");
+  const viewsSection = lineMap.sections.find((s) => s.key === "views");
+  const existingViewIds = new Set(viewsSection?.nodes.map((n) => n.id) || []);
+
+  const viewsByParent = new Map<string, GeneratedBlock[]>();
+  const allViewIds = new Set<string>();
+  for (const b of appendBlocks) {
+    if (b.section !== "views") continue;
+    if (!b.parentViewId) {
+      allViewIds.add(b.payload?.id);
+      continue;
+    }
+    allViewIds.add(b.parentViewId);
+    if (!viewsByParent.has(b.parentViewId))
+      viewsByParent.set(b.parentViewId, []);
+    viewsByParent.get(b.parentViewId)!.push(b);
+  }
+
+  for (const viewId of allViewIds) {
+    if (!viewId) continue;
+    const children = viewsByParent.get(viewId) || [];
+    const root = appendBlocks.find(
+      (b) =>
+        b.section === "views" && !b.parentViewId && b.payload?.id === viewId,
+    );
+
+    if (existingViewIds.has(viewId)) {
+      if (children.length === 0) continue;
+      const merged = {
+        widgets: [] as any[],
+        groups: [] as any[],
+        views: [] as any[],
+      };
+      for (const child of children) {
+        const kind = child.blockId.split(":")[0];
+        if (kind === "widget") merged.widgets.push(child.payload);
+        else if (kind === "group") merged.groups.push(child.payload);
+        else if (kind === "view") merged.views.push(child.payload);
+      }
+      if (
+        merged.widgets.length + merged.groups.length + merged.views.length ===
+        0
+      )
+        continue;
+      edits.push(...planEditsIntoExistingView(content, viewId, merged));
+    } else if (root) {
+      const merged = mergeViewTree(root, children);
+      const edit = planSectionAppend(lines, lineMap, "views", [merged], {
+        [merged.blockId]: emitYaml(merged.payload),
+      });
+      if (edit) edits.push(edit);
+    }
+  }
+
+  // ── 4. Остальные секции ──
+  const bySection = new Map<string, GeneratedBlock[]>();
+  for (const b of appendBlocks) {
+    if (b.section === "views") continue;
     if (!bySection.has(b.section)) bySection.set(b.section, []);
     bySection.get(b.section)!.push(b);
   }
-
   for (const [sectionKey, sectionBlocks] of bySection) {
     if (sectionKey === "menus") {
       edits.push(...planMenuEdits(lines, sectionBlocks, yamlByBlock));
@@ -118,11 +325,18 @@ function planSectionAppend(
   }
 
   // ===== 3. Секция непустая — вставка в конец секции =====
-  const endLine1Based = Math.min(
-    section.line + section.linesCount,
+  // section.line — 1-based, section.linesCount = end - start, где end — 0-based
+  // индекс следующего заголовка. Значит section.line + section.linesCount — 1-based
+  // строка СЛЕДУЮЩЕЙ секции. Нам нужна последняя строка ТЕКУЩЕЙ, поэтому -1.
+  let insertLine = Math.min(
+    section.line + section.linesCount - 1,
     lines.length,
   );
-  const insertLine = Math.max(1, Math.min(endLine1Based, lines.length));
+  // Пропускаем пустые строки между секциями — вставляем в последнюю непустую
+  // строку секции (или в конец файла, если секция последняя и файл с трейлинг \n)
+  while (insertLine > section.line && !(lines[insertLine - 1] || "").trim()) {
+    insertLine--;
+  }
   const lineText = lines[insertLine - 1] || "";
   return {
     range: {
