@@ -445,6 +445,10 @@ export interface GraphState {
   setSidecarDomainId: (v: string | null) => void;
   yamlViewerPendingBlock: { blockId: string; parentViewId?: string } | null;
   setYamlViewerPendingBlock: (v: GraphState["yamlViewerPendingBlock"]) => void;
+  yamlViewerLocked: boolean;
+  setYamlViewerLocked: (v: boolean) => void;
+  yamlQuickNavEnabled: boolean;
+  setYamlQuickNavEnabled: (v: boolean) => void;
 }
 
 // ============ Хелперы для чтения localStorage ============
@@ -992,6 +996,15 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   setSidecarDomainId: (v) => set({ sidecarDomainId: v }),
   yamlViewerPendingBlock: null,
   setYamlViewerPendingBlock: (v) => set({ yamlViewerPendingBlock: v }),
+  yamlViewerLocked: true,
+  setYamlViewerLocked: (v) => set({ yamlViewerLocked: v }),
+  yamlQuickNavEnabled: readBool("dg-yaml-quicknav-enabled", true),
+  setYamlQuickNavEnabled: (v) => {
+    try {
+      localStorage.setItem("dg-yaml-quicknav-enabled", String(v));
+    } catch {}
+    set({ yamlQuickNavEnabled: v });
+  },
 
   // Сброс всего
   resetAll: () =>

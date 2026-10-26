@@ -44,6 +44,7 @@ import { KNOWN_ACTION_TYPES } from "../../../shared/action-types";
 import { SectionQuickNav } from "./SectionQuickNav";
 import { planEdits } from "../../lib/yaml/apply-generation";
 import { findBlockRange } from "../../lib/yaml/view-insert";
+import { Popover } from "../common/Popover";
 
 type RightTab = 'issues' | 'refs' | 'backlinks' | 'server';
 
@@ -108,6 +109,8 @@ export function YamlViewerModal() {
     const setPendingIssue = useGraphStore((s) => s.setYamlViewerPendingIssue);
     const pendingBlock = useGraphStore((s) => s.yamlViewerPendingBlock);
     const setPendingBlock = useGraphStore((s) => s.setYamlViewerPendingBlock);
+    const yamlQuickNavEnabled = useGraphStore((s) => s.yamlQuickNavEnabled);
+    const setYamlQuickNavEnabled = useGraphStore((s) => s.setYamlQuickNavEnabled);
 
     const remoteInfo = useMemo(() => readRemoteInfo(), []);
     const mode: "local" | "hybrid" | "remote" = !remoteInfo?.server
@@ -241,7 +244,7 @@ export function YamlViewerModal() {
                     __key: "yaml-syntax",
                 });
             }
-        }, 2000);
+        }, 400);
         return () => clearTimeout(t);
     }, [deferredContent, domainId, checksEnabled]);
 
@@ -260,6 +263,16 @@ export function YamlViewerModal() {
         const handler = () => {
             // Если изменение сделали мы программно (при загрузке файла) — игнорируем
             if (isProgrammaticChange.current) return;
+
+            if (yamlSyntaxIssue !== null) {
+                const model = editorRef.current?.getModel();
+                const m = (window as any).monaco;
+                if (model && m) {
+                    try { m.editor.setModelMarkers(model, "yaml-syntax", []); } catch { /* ignore */ }
+                }
+                setYamlSyntaxIssue(null);
+            }
+
 
             // Авто-разблокировка при редактировании (в т.ч. Quick Fix)
             if (isLockedRef.current) {
@@ -346,6 +359,12 @@ export function YamlViewerModal() {
     const focusDecorationsRef = useRef<any>(null);
     const saveAbortRef = useRef<AbortController | null>(null);
     const editorTopLineRef = useRef(1);
+
+    const setYamlViewerLocked = useGraphStore((s) => s.setYamlViewerLocked);
+
+    useEffect(() => {
+        setYamlViewerLocked(isLocked);
+    }, [isLocked, setYamlViewerLocked]);
 
     // Синхронизация dirty-state в store — чтобы openFileInEditor мог
     // предупредить о потере изменений перед переключением файла.
@@ -779,6 +798,7 @@ export function YamlViewerModal() {
                 lineNumbers: 'on',
                 scrollBeyondLastLine: false,
                 folding: true,
+                foldingStrategy: 'indentation',
                 breadcrumbs: { enabled: true },
                 fontFamily: 'JetBrains Mono, SF Mono, Monaco, monospace',
                 renderWhitespace: 'selection',
@@ -791,7 +811,7 @@ export function YamlViewerModal() {
                 wordBasedSuggestions: false as any,
                 suggest: {
                     showWords: false,
-                    showSnippets: false,
+                    showSnippets: true,
                     showMethods: false,
                     showFunctions: false,
                     filterGraceful: false as any,
@@ -803,6 +823,8 @@ export function YamlViewerModal() {
 
                 quickSuggestions: false,
                 suggestOnTriggerCharacters: true,
+                acceptSuggestionOnEnter: 'off',
+                tabCompletion: 'on',
             }, {
                 storageService: {
                     get: () => null,
@@ -829,6 +851,36 @@ export function YamlViewerModal() {
             setContent(fetchedContent);
             setSavedContent(fetchedContent);
             setEditorCreated(true);
+
+            // Хелпер: открыт ли suggest widget. DOM-проверка надёжнее Monaco-API —
+            // работает во всех версиях.
+            const isSuggestWidgetOpen = (): boolean => {
+                const el = document.querySelector('.suggest-widget') as HTMLElement | null;
+                if (!el) return false;
+                if (el.offsetParent === null || el.style.display === 'none') return false;
+                // Пустой виджет (No suggestions) — 0 строк в списке.
+                // В Monaco 0.52 нет класса .empty, поэтому считаем по items.
+                const rows = el.querySelectorAll('.monaco-list-row');
+                return rows.length > 0;
+            };
+
+            editor.addCommand(m.KeyCode.Enter, () => {
+                // В заблокированном файле Enter не обрабатываем —
+                // его заблокирует наш editor.onKeyDown.
+                if (isLockedRef.current) return;
+
+                if (isSuggestWidgetOpen()) {
+                    // Принимаем выбранный. В Monaco 0.52 при открытии виджета
+                    // первый элемент selected автоматически — acceptSelectedSuggestion
+                    // принимает именно его, даже если пользователь не жал стрелки.
+                    editor.trigger('dg-enter', 'acceptSelectedSuggestion', null);
+                    return;
+                }
+
+                // Обычный Enter с auto-indent.
+                // 'keyboard', 'type' — встроенный handler, работает в 0.30–0.52.
+                editor.trigger('keyboard', 'type', { text: '\n' });
+            });
 
             // Многократный layout — Monaco должен узнать свою реальную высоту
             // после того, как toolbar и соседние панели отрендерились
@@ -917,7 +969,7 @@ export function YamlViewerModal() {
             };
 
             editor.onDidType((text: string) => {
-                if (!text) return;
+                if (!text || text === '\n') return;
                 if (isSuggestOpen()) return;
 
                 const isTriggerChar = /^[:.\/\s-]$/.test(text);
@@ -967,6 +1019,13 @@ export function YamlViewerModal() {
                                 "editor.action.triggerSuggest",
                                 {},
                             );
+                            setTimeout(() => {
+                                if (!editorRef.current) return;
+                                const el = document.querySelector('.suggest-widget') as HTMLElement | null;
+                                if (el && el.classList.contains('empty')) {
+                                    editorRef.current.trigger("yaml-viewer", "hideSuggestWidget", null);
+                                }
+                            }, 50);
                         }
                     },
                     isTriggerChar ? 50 : 220,
@@ -1479,7 +1538,7 @@ export function YamlViewerModal() {
         return () => {
             try { m.editor.setModelMarkers(model, 'dg-linter', []); } catch { }
         };
-    }, [index, recheckModel, checksEnabled, monacoReady, editorCreated, lineMap, domainIssues, isLocked, content, severityFilter, savedContent]);
+    }, [yamlSyntaxIssue, index, recheckModel, checksEnabled, monacoReady, editorCreated, lineMap, domainIssues, isLocked, severityFilter, savedContent]);
 
     // ============ Jump ============
     const jumpTo = useCallback(
@@ -1523,6 +1582,12 @@ export function YamlViewerModal() {
         setActiveFoldLevel(null);
     }, [filePath, open]);
 
+    const getFoldingController = useCallback((ed: any): any => {
+        const contributions = ed?._contributions;
+        const instances: Map<string, any> | undefined = contributions?._instances?._store;
+        return instances?.get("editor.contrib.folding") ?? null;
+    }, []);
+
     const gotoStart = useCallback(() => {
         if (!editorRef.current) return;
         editorRef.current.setPosition({ lineNumber: 1, column: 1 });
@@ -1539,26 +1604,338 @@ export function YamlViewerModal() {
         ed.focus();
     }, []);
 
+    const foldLines = useCallback((lines: number[]) => {
+        const ed = editorRef.current;
+        const model = ed?.getModel();
+        if (!ed || !model || lines.length === 0) return;
+
+        if (!ed.hasTextFocus()) ed.focus();
+
+        ed.trigger("dg-fold", "editor.unfoldAll", null);
+
+        const monaco = (window as any).monaco;
+        if (!monaco) return;
+
+        const sorted = [...lines].sort((a, b) => b - a);
+        for (const line of sorted) {
+            ed.setSelection(new monaco.Selection(line, 1, line, 1));
+            ed.trigger("dg-fold", "editor.fold", null);
+        }
+    }, []);
+
     const toggleFold = useCallback((level: 1 | 2 | 3 | 4 | 5) => {
         const ed = editorRef.current;
         if (!ed) return;
+
         if (activeFoldLevel === level) {
-            // Повторный клик по активному уровню — развернуть всё
-            ed.getAction("editor.unfoldAll")?.run();
+            ed.trigger("dg-fold", "editor.unfoldAll", null);
             setActiveFoldLevel(null);
             return;
         }
-        const action = ed.getAction(`editor.foldLevel${level}`);
-        if (action) {
-            action.run();
-            setActiveFoldLevel(level);
-        }
+
+        ed.trigger("dg-fold", "editor.unfoldAll", null);
+        ed.trigger("dg-fold", `editor.foldLevel${level}`, null);
+        setActiveFoldLevel(level);
+
+        console.log("[toggleFold]", {
+            level,
+            visibleRanges: ed.getVisibleRanges().length,
+        });
     }, [activeFoldLevel]);
 
-    const unfoldAll = useCallback(() => {
-        editorRef.current?.getAction("editor.unfoldAll")?.run();
+    const foldAll = useCallback(() => {
+        editorRef.current?.trigger("dg-fold", "editor.foldAll", null);
         setActiveFoldLevel(null);
     }, []);
+
+    const unfoldAll = useCallback(() => {
+        editorRef.current?.trigger("dg-fold", "editor.unfoldAll", null);
+        setActiveFoldLevel(null);
+    }, []);
+
+    /**
+     * Есть ли на этой строке собственный foldable-регион.
+     * Проверяем, что следующий непустой не-комментарий имеет БОЛЬШИЙ indent.
+     */
+    const hasFoldableRange = useCallback((model: any, lineNumber: number): boolean => {
+        const line = model.getLineContent(lineNumber);
+        const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
+        const total = model.getLineCount();
+        for (let j = lineNumber + 1; j <= total; j++) {
+            const next = model.getLineContent(j);
+            if (!next.trim()) continue;
+            const nextIndent = (next.match(/^(\s*)/) || ["", ""])[1].length;
+            return nextIndent > indent;
+        }
+        return false;
+    }, []);
+
+    const foldByLines = useCallback((lines: number[]) => {
+        const ed = editorRef.current;
+        if (!ed || lines.length === 0) return;
+
+        setTimeout(async () => {
+            const fc = (ed as any)._contributions?._instances?._store?.get(
+                "editor.contrib.folding",
+            );
+            if (!fc) {
+                console.warn("[foldByLines] FoldingController не найден");
+                return;
+            }
+
+            let fm: any = fc.foldingModel;
+            if (!fm && fc.foldingModelPromise) {
+                try {
+                    fm = await fc.foldingModelPromise;
+                } catch {
+                    /* ignore */
+                }
+            }
+            if (!fm || typeof fm.toggleCollapseState !== "function") {
+                console.warn("[foldByLines] toggleCollapseState недоступен");
+                return;
+            }
+
+            // Снизу вверх — координаты ниже не сдвигаются
+            const sorted = [...lines].sort((a, b) => b - a);
+            const regions: any[] = [];
+            let noRegion = 0;
+            let already = 0;
+
+            for (const line of sorted) {
+                try {
+                    const region = fm.getRegionAtLine(line);
+                    if (!region) {
+                        noRegion++;
+                        continue;
+                    }
+                    if (region.isCollapsed === true) {
+                        already++;
+                        continue;
+                    }
+                    regions.push(region);
+                } catch (err) {
+                    console.warn("[foldByLines] getRegionAtLine failed:", line, err);
+                }
+            }
+
+            if (regions.length === 0) {
+                console.log("[foldByLines] nothing to fold:", {
+                    total: lines.length,
+                    noRegion,
+                    already,
+                });
+                return;
+            }
+
+            // toggleCollapseState принимает массив регионов.
+            // Передаём все разом — Monaco пересчитает декорации один раз.
+            try {
+                fm.toggleCollapseState(regions, "dg-foldByLines");
+            } catch (err) {
+                console.warn("[foldByLines] toggleCollapseState (array) failed:", err);
+                // Fallback: по одному
+                for (const r of regions) {
+                    try {
+                        fm.toggleCollapseState(r, "dg-foldByLines");
+                    } catch (e) {
+                        console.warn("[foldByLines] toggle single failed:", e);
+                    }
+                }
+            }
+
+            // Vue-чек: что видно после fold
+            console.log("[foldByLines]", {
+                total: lines.length,
+                folded: regions.length,
+                already,
+                noRegion,
+                visibleRanges: ed.getVisibleRanges().length,
+            });
+        }, 0);
+    }, []);
+
+    const foldSiblings = useCallback(() => {
+        const ed = editorRef.current;
+        const model = ed?.getModel();
+        const pos = ed?.getPosition();
+        if (!ed || !model || !pos) return;
+
+        const total = model.getLineCount();
+        const cursorLine = pos.lineNumber;
+        const cursorContent = model.getLineContent(cursorLine);
+        const cursorIndent = (cursorContent.match(/^(\s*)/) || ["", ""])[1].length;
+
+        // Шаг 1. Найти anchor — ближайший вверх `- id:` с indent <= cursorIndent.
+        // Если курсор уже на `- id:`, anchor = курсор.
+        let anchorLine = -1;
+        let anchorIndent = -1;
+        for (let i = cursorLine; i >= 1; i--) {
+            const line = model.getLineContent(i);
+            if (!line.trim() || line.trim().startsWith("#")) continue;
+            const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+            if (ind > cursorIndent) continue;
+            const m = line.match(/^(\s*)-\s+id\s*:/);
+            if (m) {
+                anchorLine = i;
+                anchorIndent = m[1].length;
+                break;
+            }
+        }
+
+        if (anchorLine < 0) {
+            console.log("[foldSiblings] не найден - id: предок");
+            setActiveFoldLevel(null);
+            return;
+        }
+
+        // Шаг 2. Собрать все `- id:` на anchorIndent, кроме anchorLine.
+        const targets: number[] = [];
+        for (let i = 1; i <= total; i++) {
+            if (i === anchorLine) continue;
+            const line = model.getLineContent(i);
+            const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+            if (ind !== anchorIndent) continue;
+            if (!/^\s*-\s+id\s*:/.test(line)) continue;
+            if (!hasFoldableRange(model, i)) continue;
+            targets.push(i);
+        }
+
+        console.log("[foldSiblings]", {
+            cursorLine,
+            anchorLine,
+            anchorIndent,
+            targets,
+        });
+
+        foldByLines(targets);
+        setActiveFoldLevel(null);
+    }, [hasFoldableRange, foldByLines]);
+
+    const foldBlocksByKey = useCallback((key: string) => {
+        const ed = editorRef.current;
+        const model = ed?.getModel();
+        if (!ed || !model) return;
+
+        setTimeout(async () => {
+            const fc = (ed as any)._contributions?._instances?._store?.get(
+                "editor.contrib.folding",
+            );
+            if (!fc) return;
+
+            let fm: any = fc.foldingModel;
+            if (!fm && fc.foldingModelPromise) {
+                try {
+                    fm = await fc.foldingModelPromise;
+                } catch {
+                    /* ignore */
+                }
+            }
+            if (!fm || typeof fm.toggleCollapseState !== "function") return;
+
+            const total = model.getLineCount();
+            const re = new RegExp(`^(\\s*)${key}\\s*:\\s*(?:#.*)?$`);
+            const startIndexes: Uint32Array | undefined = fm._regions?._startIndexes;
+
+            // Быстрый lookup: startLine → regionIndex
+            const startMap = new Map<number, number>();
+            if (startIndexes) {
+                for (let i = 0; i < startIndexes.length; i++) {
+                    startMap.set(startIndexes[i], i);
+                }
+            }
+
+            const regions: any[] = [];
+            const notFoldStart: number[] = [];
+
+            for (let i = 1; i <= total; i++) {
+                if (!re.test(model.getLineContent(i))) continue;
+                if (!hasFoldableRange(model, i)) continue;
+
+                // Проверяем через startMap: если line — точно старт региона
+                const idx = startMap.get(i);
+                if (idx == null) {
+                    notFoldStart.push(i);
+                    continue;
+                }
+                try {
+                    const region = fm._regions.toRegion(idx);
+                    if (region && region.isCollapsed !== true) {
+                        regions.push(region);
+                    }
+                } catch {
+                    notFoldStart.push(i);
+                }
+            }
+
+            if (regions.length === 0) {
+                console.log(`[foldBlocksByKey] "${key}": nothing to fold`, {
+                    notFoldStart,
+                });
+                setActiveFoldLevel(null);
+                return;
+            }
+
+            try {
+                fm.toggleCollapseState(regions, "dg-fold-key");
+            } catch {
+                for (const r of regions) {
+                    try {
+                        fm.toggleCollapseState(r, "dg-fold-key");
+                    } catch { /* ignore */ }
+                }
+            }
+
+            console.log(`[foldBlocksByKey] "${key}":`, {
+                folded: regions.length,
+                notFoldStart,
+            });
+            setActiveFoldLevel(null);
+        }, 0);
+    }, [hasFoldableRange]);
+
+
+    const foldToLevel = useCallback((targetLevel: 1 | 2 | 3 | 4 | 5) => {
+        const ed = editorRef.current;
+        if (!ed) return;
+
+        if (activeFoldLevel === targetLevel) {
+            ed.trigger("dg-fold", "editor.unfoldAll", null);
+            setActiveFoldLevel(null);
+            return;
+        }
+
+        const savedPos = ed.getPosition();
+
+        ed.trigger("dg-fold", "editor.unfoldAll", null);
+        // Сброс курсора: без этого foldLevelN оставит регион с курсором развёрнутым
+        ed.setPosition({ lineNumber: 1, column: 1 });
+        ed.trigger("dg-fold", `editor.foldLevel${targetLevel}`, null);
+
+        // Возвращаем курсор в ближайший видимый регион (не в свёрнутый)
+        if (savedPos) {
+            setTimeout(() => {
+                const ranges = ed.getVisibleRanges();
+                let targetLine = 1;
+                for (const r of ranges) {
+                    if (
+                        r.startLineNumber <= savedPos.lineNumber &&
+                        savedPos.lineNumber <= r.endLineNumber
+                    ) {
+                        targetLine = savedPos.lineNumber;
+                        break;
+                    }
+                    if (r.startLineNumber <= savedPos.lineNumber) {
+                        targetLine = r.startLineNumber;
+                    }
+                }
+                ed.setPosition({ lineNumber: targetLine, column: 1 });
+                ed.revealLineInCenter(targetLine);
+            }, 0);
+        }
+
+        setActiveFoldLevel(targetLevel);
+    }, [activeFoldLevel]);
 
     // ============ Auto-jump to pending issue ============
     // Срабатывает когда:
@@ -2253,7 +2630,7 @@ export function YamlViewerModal() {
         return () => {
             if (decorationsCollection.current) decorationsCollection.current.clear();
         };
-    }, [monacoReady, editorCreated, lineMap, content, checksEnabled]);
+    }, [monacoReady, editorCreated, lineMap, deferredContent, checksEnabled]);
 
     useEffect(() => {
         if (!monacoReady || !editorCreated || !editorRef.current) return;
@@ -2547,6 +2924,18 @@ export function YamlViewerModal() {
             editor.pushUndoStop();
         } finally {
             isProgrammaticChange.current = false;
+        }
+
+        useGraphStore.getState().setYamlViewerPendingIssue(null);
+        useGraphStore.getState().setYamlViewerPendingBlock(null);
+
+        // после executeEdits — оставить курсор на первой строке первого edit'а
+        if (edits.length > 0) {
+            const first = edits[0].range;
+            try {
+                editor.setPosition({ lineNumber: first.startLineNumber, column: 1 });
+                editor.revealLineInCenter(first.startLineNumber);
+            } catch { /* ignore */ }
         }
 
         setContent(editor.getValue());
@@ -3141,34 +3530,6 @@ export function YamlViewerModal() {
 
                             {/* Right: quickjumps + fold controls */}
                             <div className="yaml-viewer-toolbar-right">
-                                {lineMap && (
-                                    <div className="yaml-viewer-quickjumps">
-                                        {lineMap.sections.map((s) => {
-                                            const icon =
-                                                s.key === "entities" ? "category"
-                                                    : s.key === "linkages" ? "link"
-                                                        : s.key === "dataTypes" ? "data_object"
-                                                            : s.key === "actions" ? "bolt"
-                                                                : s.key === "views" ? "visibility"
-                                                                    : s.key === "menus" ? "menu"
-                                                                        : s.key === "mixins" ? "merge"
-                                                                            : s.key === "dataRules" ? "rule"
-                                                                                : s.key === "medias" ? "image"
-                                                                                    : "arrow_right";
-                                            return (
-                                                <button
-                                                    key={s.key}
-                                                    className="yaml-viewer-quickjump"
-                                                    onClick={() => jumpTo(s.line)}
-                                                    title={`${s.label} (${s.count})`}
-                                                >
-                                                    <MIcon name={icon} size="sm" />
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-                                )}
-
                                 <div className="yaml-viewer-fold-controls">
                                     {([1, 2, 3, 4, 5] as const).map((lvl) => (
                                         <button
@@ -3177,7 +3538,10 @@ export function YamlViewerModal() {
                                                 "yaml-viewer-fold-btn" +
                                                 (activeFoldLevel === lvl ? " yaml-viewer-fold-btn--active" : "")
                                             }
-                                            onClick={() => toggleFold(lvl)}
+                                            onClick={() => {
+                                                if (activeFoldLevel === lvl) unfoldAll();
+                                                else foldToLevel(lvl);
+                                            }}
                                             title={
                                                 activeFoldLevel === lvl
                                                     ? `Развернуть всё (уровень ${lvl} активен)`
@@ -3194,6 +3558,105 @@ export function YamlViewerModal() {
                                     >
                                         <MIcon name="unfold_more" size="sm" />
                                     </button>
+                                    <Popover
+                                        align="right"
+                                        width={280}
+                                        trigger={(open) => (
+                                            <button
+                                                className={
+                                                    "yaml-viewer-fold-btn" +
+                                                    (open ? " yaml-viewer-fold-btn--active" : "")
+                                                }
+                                                title="Дополнительные действия свёртки"
+                                            >
+                                                <MIcon name="more_horiz" size="sm" />
+                                            </button>
+                                        )}
+                                    >
+                                        {(close) => (
+                                            <div className="menu">
+                                                <button
+                                                    className="menu__item"
+                                                    onClick={() => { foldAll(); close(); }}
+                                                >
+                                                    <span className="menu__icon">
+                                                        <MIcon name="unfold_less" size="sm" />
+                                                    </span>
+                                                    <span className="menu__text">Свернуть всё</span>
+                                                </button>
+                                                <button
+                                                    className="menu__item"
+                                                    onClick={() => { unfoldAll(); close(); }}
+                                                >
+                                                    <span className="menu__icon">
+                                                        <MIcon name="unfold_more" size="sm" />
+                                                    </span>
+                                                    <span className="menu__text">Развернуть всё</span>
+                                                </button>
+                                                <div className="menu__divider" />
+                                                <button
+                                                    className="menu__item"
+                                                    onClick={() => { foldSiblings(); close(); }}
+                                                    title="Свернуть все элементы списка того же уровня, кроме текущего"
+                                                >
+                                                    <span className="menu__icon">
+                                                        <MIcon name="splitscreen" size="sm" />
+                                                    </span>
+                                                    <span className="menu__text">Свернуть сиблингов курсора</span>
+                                                </button>
+                                                <div className="menu__divider" />
+                                                <div className="menu__label">Свернуть все блоки</div>
+                                                <button
+                                                    className="menu__item"
+                                                    onClick={() => { foldBlocksByKey("attributes"); close(); }}
+                                                >
+                                                    <span className="menu__icon">
+                                                        <MIcon name="view_list" size="sm" />
+                                                    </span>
+                                                    <span className="menu__text">attributes</span>
+                                                </button>
+                                                <button
+                                                    className="menu__item"
+                                                    onClick={() => { foldBlocksByKey("widgets"); close(); }}
+                                                >
+                                                    <span className="menu__icon">
+                                                        <MIcon name="widgets" size="sm" />
+                                                    </span>
+                                                    <span className="menu__text">widgets</span>
+                                                </button>
+                                                <button
+                                                    className="menu__item"
+                                                    onClick={() => { foldBlocksByKey("groups"); close(); }}
+                                                >
+                                                    <span className="menu__icon">
+                                                        <MIcon name="view_module" size="sm" />
+                                                    </span>
+                                                    <span className="menu__text">groups</span>
+                                                </button>
+                                                <button
+                                                    className="menu__item"
+                                                    onClick={() => { foldBlocksByKey("views"); close(); }}
+                                                >
+                                                    <span className="menu__icon">
+                                                        <MIcon name="view_quilt" size="sm" />
+                                                    </span>
+                                                    <span className="menu__text">views</span>
+                                                </button>
+                                                <div className="menu__divider" />
+                                                <label className="menu__checkbox">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={!yamlQuickNavEnabled}
+                                                        onChange={() => setYamlQuickNavEnabled(!yamlQuickNavEnabled)}
+                                                    />
+                                                    <span className="menu__check" />
+                                                    <span className="menu__text">
+                                                        Скрыть оглавление при скролле
+                                                    </span>
+                                                </label>
+                                            </div>
+                                        )}
+                                    </Popover>
                                 </div>
                             </div>
                         </div>
@@ -3299,6 +3762,7 @@ export function YamlViewerModal() {
                                 topLine={editorTopLine}
                                 autoOpenSignal={scrollSignal}
                                 onJump={(line) => jumpTo(line)}
+                                enabled={yamlQuickNavEnabled}
                             />
                         )}
 
@@ -5222,6 +5686,8 @@ function NavContextMenu({
         focusTarget.kind === kind &&
         focusTarget.id === state.node.id;
 
+    const isLocked = useGraphStore((s) => s.yamlViewerLocked);
+
     // прижимаем к краям, чтобы не вылезало за viewport
     const MENU_W = 230;
     const MENU_H = 120;
@@ -5262,6 +5728,8 @@ function NavContextMenu({
                 <button
                     type="button"
                     className="yaml-nav-ctx-menu__item"
+                    disabled={isLocked}
+                    title={isLocked ? "Файл заблокирован — снимите блокировку (двойной Shift)" : undefined}
                     onClick={() => {
                         const st = useGraphStore.getState();
                         const domainId = st.yamlViewerDomainId;

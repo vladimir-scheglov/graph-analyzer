@@ -1,10 +1,12 @@
 import type { GeneratedBlock } from "../../../core/analyzer/schema-generator/types";
 import { mergeViewTree } from "../../../core/analyzer/schema-generator/util-merge-views";
 import type { LineMap } from "./line-map";
-import { findBlockRange, findViewInsertPoints } from "./view-insert";
+import {
+  extractExistingIds,
+  findBlockRange,
+  findViewInsertPoints,
+} from "./view-insert";
 import type { ManifestBlockStatus } from "../../../core/analyzer/schema-generator/types";
-
-
 
 export interface MonacoEdit {
   range: {
@@ -46,17 +48,24 @@ function planEditsIntoExistingView(
   const points = findViewInsertPoints(content, viewId);
   const lines = content.split("\n");
   const edits: MonacoEdit[] = [];
-
+  
   for (const point of points) {
     const items = (merged as any)[point.section] as any[] | undefined;
     if (!items || items.length === 0) continue;
 
-    // пустая секция в одну строку — заменить строку целиком
+    // ── дедупликация по фактическому содержимому Monaco ──
+    const existingIds = extractExistingIds(content, viewId, point.section);
+    const newItems = items.filter(
+      (it: any) => it?.id && !existingIds.has(it.id),
+    );
+    if (newItems.length === 0) continue;
+
+    // пустая секция `[]` — заменяем
     if (point.inlineEmptyLine != null) {
       const lineText = lines[point.inlineEmptyLine - 1] || "";
       const containerIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
       const dashIndent = " ".repeat(containerIndent + 2);
-      const itemsText = items
+      const itemsText = newItems
         .map((it) => toArrayItem(emitYaml(it), dashIndent))
         .join("\n");
       edits.push({
@@ -72,12 +81,11 @@ function planEditsIntoExistingView(
     }
 
     const dashIndent = " ".repeat(point.dashIndent ?? point.viewOpenIndent + 4);
-    const itemsText = items
+    const itemsText = newItems
       .map((it) => toArrayItem(emitYaml(it), dashIndent))
       .join("\n");
 
     if (point.exists && point.insertAfterLine != null) {
-      // вставить в конец существующего массива
       const insertLine = point.insertAfterLine;
       const lineText = lines[insertLine - 1] || "";
       edits.push({
@@ -90,7 +98,6 @@ function planEditsIntoExistingView(
         text: "\n" + itemsText,
       });
     } else {
-      // секции нет — создать после `- id: viewX`
       const containerIndent = " ".repeat(point.viewOpenIndent + 2);
       const block = `\n${containerIndent}${point.section}:\n${itemsText}`;
       const openLineText = lines[point.viewOpenLine - 1] || "";
@@ -129,7 +136,6 @@ function replaceBlockInYaml(
     text: newText,
   };
 }
-
 
 export function planEdits(
   content: string,
@@ -190,10 +196,13 @@ export function planEdits(
 
   const viewsByParent = new Map<string, GeneratedBlock[]>();
   const allViewIds = new Set<string>();
+  const viewRootsById = new Map<string, GeneratedBlock>();
+
   for (const b of appendBlocks) {
     if (b.section !== "views") continue;
     if (!b.parentViewId) {
       allViewIds.add(b.payload?.id);
+      viewRootsById.set(b.payload?.id, b);
       continue;
     }
     allViewIds.add(b.parentViewId);
@@ -202,15 +211,19 @@ export function planEdits(
     viewsByParent.get(b.parentViewId)!.push(b);
   }
 
+  // Все новые root-view (не existing) собираем в один вызов planSectionAppend.
+  // Иначе два root-view дают два edit'а на одну позицию — Monaco executeEdits
+  // теряет один из них (баг: 1939:39 × 2).
+  const newMergedRoots: GeneratedBlock[] = [];
+  const newMergedYaml: Record<string, string> = {};
+
   for (const viewId of allViewIds) {
     if (!viewId) continue;
     const children = viewsByParent.get(viewId) || [];
-    const root = appendBlocks.find(
-      (b) =>
-        b.section === "views" && !b.parentViewId && b.payload?.id === viewId,
-    );
+    const root = viewRootsById.get(viewId);
 
     if (existingViewIds.has(viewId)) {
+      // существующий root-view → аппендим недостающих children внутрь
       if (children.length === 0) continue;
       const merged = {
         widgets: [] as any[],
@@ -230,12 +243,23 @@ export function planEdits(
         continue;
       edits.push(...planEditsIntoExistingView(content, viewId, merged));
     } else if (root) {
+      // новый root-view → в общий батч
       const merged = mergeViewTree(root, children);
-      const edit = planSectionAppend(lines, lineMap, "views", [merged], {
-        [merged.blockId]: emitYaml(merged.payload),
-      });
-      if (edit) edits.push(edit);
+      newMergedRoots.push(merged);
+      newMergedYaml[merged.blockId] = emitYaml(merged.payload);
     }
+  }
+
+  // ОДИН edit на всю секцию views — все новые root-view подряд
+  if (newMergedRoots.length > 0) {
+    const edit = planSectionAppend(
+      lines,
+      lineMap,
+      "views",
+      newMergedRoots,
+      newMergedYaml,
+    );
+    if (edit) edits.push(edit);
   }
 
   // ── 4. Остальные секции ──

@@ -36,6 +36,7 @@ export interface EntityGenerationContext {
     viewWidgetIds: Map<string, Set<string>>;
     viewGroupIds: Map<string, Set<string>>;
     viewNestedIds: Map<string, Set<string>>;
+    viewIdConflicts: ViewIdConflict[];
 
     // legacy — оставляем для обратной совместимости (плоские множества)
     widgets: Set<string>;
@@ -61,6 +62,13 @@ export interface EntityGenerationContext {
     hasPanelUi: boolean;
     hasTreeCandidates: boolean;
   };
+}
+
+export interface ViewIdConflict {
+  kind: "entity" | "list" | "panel" | "modal" | "page";
+  existingId: string;
+  expectedId: string;
+  entityFqid: string;
 }
 
 function findRawEntityUi(
@@ -116,6 +124,48 @@ export function detectEntityContext(
     if (g.domainId === domainId) existingGroups.add(g.id);
   for (const c of index.viewColumns || [])
     if (c.domainId === domainId) existingColumns.add(c.id);
+
+  const E = entity.entityId;
+  const entityFqidLower = entity.fqid.toLowerCase();
+  const expectedEntityViewId = `view${E}`;
+  const expectedListViewId = `lists_${E.toLowerCase()}`;
+
+  const viewIdConflicts: ViewIdConflict[] = [];
+
+  // entity-view: ищем в sections.views.items любую view с type=entity
+  // и entity === наш fqid, но с id ≠ view${E}.
+  for (const v of schema?.sections?.views?.items ?? []) {
+    if (v.type === "entity" && v.entity) {
+      const viewEntityFqid = String(v.entity).includes("/")
+        ? String(v.entity).toLowerCase()
+        : `${domainId}/${v.entity}`.toLowerCase();
+      if (viewEntityFqid === entityFqidLower && v.id !== expectedEntityViewId) {
+        viewIdConflicts.push({
+          kind: "entity",
+          existingId: v.id,
+          expectedId: expectedEntityViewId,
+          entityFqid: entity.fqid,
+        });
+      }
+    }
+  }
+
+  // list-view: то же для type=list и source.entity === fqid.
+  for (const v of schema?.sections?.views?.items ?? []) {
+    if (v.type === "list" && v.sourceEntity) {
+      const viewEntityFqid = String(v.sourceEntity).includes("/")
+        ? String(v.sourceEntity).toLowerCase()
+        : `${domainId}/${v.sourceEntity}`.toLowerCase();
+      if (viewEntityFqid === entityFqidLower && v.id !== expectedListViewId) {
+        viewIdConflicts.push({
+          kind: "list",
+          existingId: v.id,
+          expectedId: expectedListViewId,
+          entityFqid: entity.fqid,
+        });
+      }
+    }
+  }
 
   // === per-view структуры для регенерации ===
   const viewWidgetIds = new Map<string, Set<string>>();
@@ -235,6 +285,7 @@ export function detectEntityContext(
       viewNestedIds,
       trees: existingTrees,
       treeRecords: existingTreeRecords,
+      viewIdConflicts,
     },
     menuRoots,
     menuRoot,

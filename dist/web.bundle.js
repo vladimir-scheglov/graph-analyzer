@@ -521,6 +521,16 @@ var init_useGraphStore = __esm({
       setSidecarDomainId: (v) => set2({ sidecarDomainId: v }),
       yamlViewerPendingBlock: null,
       setYamlViewerPendingBlock: (v) => set2({ yamlViewerPendingBlock: v }),
+      yamlViewerLocked: true,
+      setYamlViewerLocked: (v) => set2({ yamlViewerLocked: v }),
+      yamlQuickNavEnabled: readBool("dg-yaml-quicknav-enabled", true),
+      setYamlQuickNavEnabled: (v) => {
+        try {
+          localStorage.setItem("dg-yaml-quicknav-enabled", String(v));
+        } catch {
+        }
+        set2({ yamlQuickNavEnabled: v });
+      },
       // Сброс всего
       resetAll: () => set2({
         filters: {
@@ -4843,6 +4853,27 @@ function Popover({ trigger, children, align = "left", width = 320 }) {
       }
     }, 50);
     return () => clearTimeout(t);
+  }, [open]);
+  useEffect10(() => {
+    if (!open)
+      return;
+    const onDoc = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    };
+    const onEsc = (e) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onEsc, true);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onEsc, true);
+    };
   }, [open]);
   useEffect10(() => {
     const handler = () => setOpen(false);
@@ -38703,7 +38734,8 @@ function SectionQuickNav({
   lineMap,
   topLine,
   autoOpenSignal,
-  onJump
+  onJump,
+  enabled = true
 }) {
   const [expanded, setExpanded] = useState33(false);
   const closeTimer = useRef14(null);
@@ -38730,10 +38762,12 @@ function SectionQuickNav({
   useEffect36(() => {
     if (!autoOpenSignal)
       return;
+    if (!enabled)
+      return;
     setExpanded(true);
     scheduleClose();
     return cancelClose;
-  }, [autoOpenSignal]);
+  }, [autoOpenSignal, enabled]);
   useEffect36(() => cancelClose, []);
   if (lineMap.sections.length === 0)
     return null;
@@ -38758,7 +38792,7 @@ function SectionQuickNav({
               if (expanded)
                 scheduleClose(0);
             },
-            title: expanded ? "\u0421\u043A\u0440\u044B\u0442\u044C \u043E\u0433\u043B\u0430\u0432\u043B\u0435\u043D\u0438\u0435" : "\u041E\u0433\u043B\u0430\u0432\u043B\u0435\u043D\u0438\u0435 \u0441\u0435\u043A\u0446\u0438\u0439",
+            title: expanded ? "\u0421\u043A\u0440\u044B\u0442\u044C \u043E\u0433\u043B\u0430\u0432\u043B\u0435\u043D\u0438\u0435" : enabled ? "\u041E\u0433\u043B\u0430\u0432\u043B\u0435\u043D\u0438\u0435 \u0441\u0435\u043A\u0446\u0438\u0439" : "\u041E\u0433\u043B\u0430\u0432\u043B\u0435\u043D\u0438\u0435 \u0441\u0435\u043A\u0446\u0438\u0439 (\u043D\u0435 \u043E\u0442\u043A\u0440\u044B\u0432\u0430\u0435\u0442\u0441\u044F \u043F\u0440\u0438 \u0441\u043A\u0440\u043E\u043B\u043B\u0435)",
             "aria-expanded": expanded,
             children: /* @__PURE__ */ jsx75(MIcon, { name: "toc", size: "sm" })
           }
@@ -38834,6 +38868,18 @@ var init_util_clone = __esm({
 });
 
 // src/core/analyzer/schema-generator/util-merge-views.ts
+function pushUnique(arr, item) {
+  if (!item || typeof item !== "object")
+    return;
+  const id = item.id;
+  if (!id) {
+    arr.push(item);
+    return;
+  }
+  if (arr.some((x) => x && x.id === id))
+    return;
+  arr.push(item);
+}
 function mergeViewTree(rootBlock, children) {
   const merged = cloneDeep(rootBlock);
   const payload = merged.payload;
@@ -38847,19 +38893,19 @@ function mergeViewTree(rootBlock, children) {
     if (!Array.isArray(payload.widgets))
       payload.widgets = [];
     for (const w of widgets)
-      payload.widgets.push(w.payload);
+      pushUnique(payload.widgets, w.payload);
   }
   if (groups.length > 0 || Array.isArray(payload.groups)) {
     if (!Array.isArray(payload.groups))
       payload.groups = [];
     for (const g of groups)
-      payload.groups.push(g.payload);
+      pushUnique(payload.groups, g.payload);
   }
   if (nested.length > 0 || Array.isArray(payload.views)) {
     if (!Array.isArray(payload.views))
       payload.views = [];
     for (const v of nested)
-      payload.views.push(v.payload);
+      pushUnique(payload.views, v.payload);
   }
   return merged;
 }
@@ -38978,10 +39024,12 @@ function findViewInsertPoints(content, viewId) {
       section,
       exists: true,
       insertAfterLine: lastItemEnd > 0 ? lastItemEnd : i + 1,
-      // 1-based = k (0-based lastItemEnd)
       dashIndent,
       viewOpenLine,
-      viewOpenIndent
+      viewOpenIndent,
+      containerStartLine: i + 1,
+      containerEndLine: viewEnd
+      // 0-based exclusive, превращается в 1-based ниже
     });
   }
   for (const sec of ["widgets", "groups", "views"]) {
@@ -39048,7 +39096,11 @@ function findSubsectionRange(content, parent, subsectionName) {
       break;
     }
   }
-  return { startLine: containerStart + 1, endLine: containerEnd, indent: containerIndent };
+  return {
+    startLine: containerStart + 1,
+    endLine: containerEnd,
+    indent: containerIndent
+  };
 }
 function findItemRangeIn(content, range, itemId) {
   const lines = content.split("\n");
@@ -39158,6 +39210,29 @@ function findBlockRange(content, blockId, parentViewId) {
     return sec ? findItemRangeIn(content, sec, rest) : null;
   }
   return null;
+}
+function extractExistingIds(content, viewId, section) {
+  const ids = /* @__PURE__ */ new Set();
+  const points = findViewInsertPoints(content, viewId);
+  const point = points.find((p) => p.section === section);
+  if (!point || !point.exists)
+    return ids;
+  if (!point.containerStartLine || point.containerEndLine == null)
+    return ids;
+  if (point.dashIndent == null)
+    return ids;
+  const lines = content.split("\n");
+  const start0 = point.containerStartLine;
+  const end0 = point.containerEndLine;
+  const dashIndent = point.dashIndent;
+  const idRegex = /^(\s*)-\s+id\s*:\s*["']?([^\s"'#]+)["']?/;
+  for (let i = start0; i < end0 && i < lines.length; i++) {
+    const m = lines[i].match(idRegex);
+    if (m && m[1].length === dashIndent) {
+      ids.add(m[2]);
+    }
+  }
+  return ids;
 }
 var init_view_insert = __esm({
   "src/web/lib/yaml/view-insert.ts"() {
@@ -42301,11 +42376,17 @@ function planEditsIntoExistingView(content, viewId, merged) {
     const items = merged[point.section];
     if (!items || items.length === 0)
       continue;
+    const existingIds = extractExistingIds(content, viewId, point.section);
+    const newItems = items.filter(
+      (it) => it?.id && !existingIds.has(it.id)
+    );
+    if (newItems.length === 0)
+      continue;
     if (point.inlineEmptyLine != null) {
       const lineText = lines[point.inlineEmptyLine - 1] || "";
       const containerIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
       const dashIndent2 = " ".repeat(containerIndent + 2);
-      const itemsText2 = items.map((it) => toArrayItem(emitYaml(it), dashIndent2)).join("\n");
+      const itemsText2 = newItems.map((it) => toArrayItem(emitYaml(it), dashIndent2)).join("\n");
       edits.push({
         range: {
           startLineNumber: point.inlineEmptyLine,
@@ -42319,7 +42400,7 @@ ${itemsText2}`
       continue;
     }
     const dashIndent = " ".repeat(point.dashIndent ?? point.viewOpenIndent + 4);
-    const itemsText = items.map((it) => toArrayItem(emitYaml(it), dashIndent)).join("\n");
+    const itemsText = newItems.map((it) => toArrayItem(emitYaml(it), dashIndent)).join("\n");
     if (point.exists && point.insertAfterLine != null) {
       const insertLine = point.insertAfterLine;
       const lineText = lines[insertLine - 1] || "";
@@ -42415,11 +42496,13 @@ function planEdits(content, blocks, yamlByBlock, lineMap, manifestStatus, replac
   const existingViewIds = new Set(viewsSection?.nodes.map((n) => n.id) || []);
   const viewsByParent = /* @__PURE__ */ new Map();
   const allViewIds = /* @__PURE__ */ new Set();
+  const viewRootsById = /* @__PURE__ */ new Map();
   for (const b of appendBlocks) {
     if (b.section !== "views")
       continue;
     if (!b.parentViewId) {
       allViewIds.add(b.payload?.id);
+      viewRootsById.set(b.payload?.id, b);
       continue;
     }
     allViewIds.add(b.parentViewId);
@@ -42427,13 +42510,13 @@ function planEdits(content, blocks, yamlByBlock, lineMap, manifestStatus, replac
       viewsByParent.set(b.parentViewId, []);
     viewsByParent.get(b.parentViewId).push(b);
   }
+  const newMergedRoots = [];
+  const newMergedYaml = {};
   for (const viewId of allViewIds) {
     if (!viewId)
       continue;
     const children = viewsByParent.get(viewId) || [];
-    const root = appendBlocks.find(
-      (b) => b.section === "views" && !b.parentViewId && b.payload?.id === viewId
-    );
+    const root = viewRootsById.get(viewId);
     if (existingViewIds.has(viewId)) {
       if (children.length === 0)
         continue;
@@ -42456,12 +42539,20 @@ function planEdits(content, blocks, yamlByBlock, lineMap, manifestStatus, replac
       edits.push(...planEditsIntoExistingView(content, viewId, merged));
     } else if (root) {
       const merged = mergeViewTree(root, children);
-      const edit = planSectionAppend(lines, lineMap, "views", [merged], {
-        [merged.blockId]: emitYaml(merged.payload)
-      });
-      if (edit)
-        edits.push(edit);
+      newMergedRoots.push(merged);
+      newMergedYaml[merged.blockId] = emitYaml(merged.payload);
     }
+  }
+  if (newMergedRoots.length > 0) {
+    const edit = planSectionAppend(
+      lines,
+      lineMap,
+      "views",
+      newMergedRoots,
+      newMergedYaml
+    );
+    if (edit)
+      edits.push(edit);
   }
   const bySection = /* @__PURE__ */ new Map();
   for (const b of appendBlocks) {
@@ -42736,6 +42827,8 @@ function YamlViewerModal() {
   const setPendingIssue = useGraphStore((s) => s.setYamlViewerPendingIssue);
   const pendingBlock = useGraphStore((s) => s.yamlViewerPendingBlock);
   const setPendingBlock = useGraphStore((s) => s.setYamlViewerPendingBlock);
+  const yamlQuickNavEnabled = useGraphStore((s) => s.yamlQuickNavEnabled);
+  const setYamlQuickNavEnabled = useGraphStore((s) => s.setYamlQuickNavEnabled);
   const remoteInfo = useMemo43(() => readRemoteInfo(), []);
   const mode = !remoteInfo?.server ? "local" : remoteInfo.mode === "hybrid" ? "hybrid" : "remote";
   const [reloadKey, setReloadKey] = useState34(0);
@@ -42853,7 +42946,7 @@ function YamlViewerModal() {
           __key: "yaml-syntax"
         });
       }
-    }, 2e3);
+    }, 400);
     return () => clearTimeout(t);
   }, [deferredContent, domainId, checksEnabled]);
   useEffect37(() => {
@@ -42870,6 +42963,17 @@ function YamlViewerModal() {
     const handler = () => {
       if (isProgrammaticChange.current)
         return;
+      if (yamlSyntaxIssue !== null) {
+        const model = editorRef.current?.getModel();
+        const m = window.monaco;
+        if (model && m) {
+          try {
+            m.editor.setModelMarkers(model, "yaml-syntax", []);
+          } catch {
+          }
+        }
+        setYamlSyntaxIssue(null);
+      }
       if (isLockedRef.current) {
         setIsLocked(false);
         useGraphStore.getState().showSnackbar("\u0424\u0430\u0439\u043B \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u0440\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043D \u0434\u043B\u044F \u043F\u0440\u0438\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439");
@@ -42935,6 +43039,10 @@ function YamlViewerModal() {
   const focusDecorationsRef = useRef15(null);
   const saveAbortRef = useRef15(null);
   const editorTopLineRef = useRef15(1);
+  const setYamlViewerLocked = useGraphStore((s) => s.setYamlViewerLocked);
+  useEffect37(() => {
+    setYamlViewerLocked(isLocked);
+  }, [isLocked, setYamlViewerLocked]);
   useEffect37(() => {
     useGraphStore.getState().setYamlViewerDirty(!!open && isDirty);
   }, [open, isDirty]);
@@ -43311,6 +43419,7 @@ function YamlViewerModal() {
         lineNumbers: "on",
         scrollBeyondLastLine: false,
         folding: true,
+        foldingStrategy: "indentation",
         breadcrumbs: { enabled: true },
         fontFamily: "JetBrains Mono, SF Mono, Monaco, monospace",
         renderWhitespace: "selection",
@@ -43323,7 +43432,7 @@ function YamlViewerModal() {
         wordBasedSuggestions: false,
         suggest: {
           showWords: false,
-          showSnippets: false,
+          showSnippets: true,
           showMethods: false,
           showFunctions: false,
           filterGraceful: false,
@@ -43333,7 +43442,9 @@ function YamlViewerModal() {
           showStatusBar: false
         },
         quickSuggestions: false,
-        suggestOnTriggerCharacters: true
+        suggestOnTriggerCharacters: true,
+        acceptSuggestionOnEnter: "off",
+        tabCompletion: "on"
       }, {
         storageService: {
           get: () => null,
@@ -43363,6 +43474,24 @@ function YamlViewerModal() {
       setContent(fetchedContent);
       setSavedContent(fetchedContent);
       setEditorCreated(true);
+      const isSuggestWidgetOpen = () => {
+        const el = document.querySelector(".suggest-widget");
+        if (!el)
+          return false;
+        if (el.offsetParent === null || el.style.display === "none")
+          return false;
+        const rows = el.querySelectorAll(".monaco-list-row");
+        return rows.length > 0;
+      };
+      editor.addCommand(m.KeyCode.Enter, () => {
+        if (isLockedRef.current)
+          return;
+        if (isSuggestWidgetOpen()) {
+          editor.trigger("dg-enter", "acceptSelectedSuggestion", null);
+          return;
+        }
+        editor.trigger("keyboard", "type", { text: "\n" });
+      });
       const forceLayout2 = () => {
         if (!editorRef.current)
           return;
@@ -43447,7 +43576,7 @@ function YamlViewerModal() {
         return el.offsetParent !== null && el.style.display !== "none";
       };
       editor.onDidType((text) => {
-        if (!text)
+        if (!text || text === "\n")
           return;
         if (isSuggestOpen())
           return;
@@ -43487,6 +43616,14 @@ function YamlViewerModal() {
                 "editor.action.triggerSuggest",
                 {}
               );
+              setTimeout(() => {
+                if (!editorRef.current)
+                  return;
+                const el = document.querySelector(".suggest-widget");
+                if (el && el.classList.contains("empty")) {
+                  editorRef.current.trigger("yaml-viewer", "hideSuggestWidget", null);
+                }
+              }, 50);
             }
           },
           isTriggerChar ? 50 : 220
@@ -43995,7 +44132,7 @@ ${label.message}` : ""),
       } catch {
       }
     };
-  }, [index, recheckModel, checksEnabled, monacoReady, editorCreated, lineMap, domainIssues, isLocked, content, severityFilter, savedContent]);
+  }, [yamlSyntaxIssue, index, recheckModel, checksEnabled, monacoReady, editorCreated, lineMap, domainIssues, isLocked, severityFilter, savedContent]);
   const jumpTo = useCallback18(
     (line, opts) => {
       const editor = editorRef.current;
@@ -44034,6 +44171,11 @@ ${label.message}` : ""),
   useEffect37(() => {
     setActiveFoldLevel(null);
   }, [filePath, open]);
+  const getFoldingController = useCallback18((ed) => {
+    const contributions = ed?._contributions;
+    const instances = contributions?._instances?._store;
+    return instances?.get("editor.contrib.folding") ?? null;
+  }, []);
   const gotoStart = useCallback18(() => {
     if (!editorRef.current)
       return;
@@ -44050,25 +44192,293 @@ ${label.message}` : ""),
     ed.revealLine(lineCount);
     ed.focus();
   }, []);
+  const foldLines = useCallback18((lines) => {
+    const ed = editorRef.current;
+    const model = ed?.getModel();
+    if (!ed || !model || lines.length === 0)
+      return;
+    if (!ed.hasTextFocus())
+      ed.focus();
+    ed.trigger("dg-fold", "editor.unfoldAll", null);
+    const monaco = window.monaco;
+    if (!monaco)
+      return;
+    const sorted = [...lines].sort((a, b) => b - a);
+    for (const line of sorted) {
+      ed.setSelection(new monaco.Selection(line, 1, line, 1));
+      ed.trigger("dg-fold", "editor.fold", null);
+    }
+  }, []);
   const toggleFold = useCallback18((level) => {
     const ed = editorRef.current;
     if (!ed)
       return;
     if (activeFoldLevel === level) {
-      ed.getAction("editor.unfoldAll")?.run();
+      ed.trigger("dg-fold", "editor.unfoldAll", null);
       setActiveFoldLevel(null);
       return;
     }
-    const action = ed.getAction(`editor.foldLevel${level}`);
-    if (action) {
-      action.run();
-      setActiveFoldLevel(level);
-    }
+    ed.trigger("dg-fold", "editor.unfoldAll", null);
+    ed.trigger("dg-fold", `editor.foldLevel${level}`, null);
+    setActiveFoldLevel(level);
+    console.log("[toggleFold]", {
+      level,
+      visibleRanges: ed.getVisibleRanges().length
+    });
   }, [activeFoldLevel]);
-  const unfoldAll = useCallback18(() => {
-    editorRef.current?.getAction("editor.unfoldAll")?.run();
+  const foldAll = useCallback18(() => {
+    editorRef.current?.trigger("dg-fold", "editor.foldAll", null);
     setActiveFoldLevel(null);
   }, []);
+  const unfoldAll = useCallback18(() => {
+    editorRef.current?.trigger("dg-fold", "editor.unfoldAll", null);
+    setActiveFoldLevel(null);
+  }, []);
+  const hasFoldableRange = useCallback18((model, lineNumber) => {
+    const line = model.getLineContent(lineNumber);
+    const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    const total = model.getLineCount();
+    for (let j = lineNumber + 1; j <= total; j++) {
+      const next = model.getLineContent(j);
+      if (!next.trim())
+        continue;
+      const nextIndent = (next.match(/^(\s*)/) || ["", ""])[1].length;
+      return nextIndent > indent;
+    }
+    return false;
+  }, []);
+  const foldByLines = useCallback18((lines) => {
+    const ed = editorRef.current;
+    if (!ed || lines.length === 0)
+      return;
+    setTimeout(async () => {
+      const fc = ed._contributions?._instances?._store?.get(
+        "editor.contrib.folding"
+      );
+      if (!fc) {
+        console.warn("[foldByLines] FoldingController \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D");
+        return;
+      }
+      let fm = fc.foldingModel;
+      if (!fm && fc.foldingModelPromise) {
+        try {
+          fm = await fc.foldingModelPromise;
+        } catch {
+        }
+      }
+      if (!fm || typeof fm.toggleCollapseState !== "function") {
+        console.warn("[foldByLines] toggleCollapseState \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u0435\u043D");
+        return;
+      }
+      const sorted = [...lines].sort((a, b) => b - a);
+      const regions = [];
+      let noRegion = 0;
+      let already = 0;
+      for (const line of sorted) {
+        try {
+          const region = fm.getRegionAtLine(line);
+          if (!region) {
+            noRegion++;
+            continue;
+          }
+          if (region.isCollapsed === true) {
+            already++;
+            continue;
+          }
+          regions.push(region);
+        } catch (err) {
+          console.warn("[foldByLines] getRegionAtLine failed:", line, err);
+        }
+      }
+      if (regions.length === 0) {
+        console.log("[foldByLines] nothing to fold:", {
+          total: lines.length,
+          noRegion,
+          already
+        });
+        return;
+      }
+      try {
+        fm.toggleCollapseState(regions, "dg-foldByLines");
+      } catch (err) {
+        console.warn("[foldByLines] toggleCollapseState (array) failed:", err);
+        for (const r of regions) {
+          try {
+            fm.toggleCollapseState(r, "dg-foldByLines");
+          } catch (e) {
+            console.warn("[foldByLines] toggle single failed:", e);
+          }
+        }
+      }
+      console.log("[foldByLines]", {
+        total: lines.length,
+        folded: regions.length,
+        already,
+        noRegion,
+        visibleRanges: ed.getVisibleRanges().length
+      });
+    }, 0);
+  }, []);
+  const foldSiblings = useCallback18(() => {
+    const ed = editorRef.current;
+    const model = ed?.getModel();
+    const pos = ed?.getPosition();
+    if (!ed || !model || !pos)
+      return;
+    const total = model.getLineCount();
+    const cursorLine2 = pos.lineNumber;
+    const cursorContent = model.getLineContent(cursorLine2);
+    const cursorIndent = (cursorContent.match(/^(\s*)/) || ["", ""])[1].length;
+    let anchorLine = -1;
+    let anchorIndent = -1;
+    for (let i = cursorLine2; i >= 1; i--) {
+      const line = model.getLineContent(i);
+      if (!line.trim() || line.trim().startsWith("#"))
+        continue;
+      const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+      if (ind > cursorIndent)
+        continue;
+      const m = line.match(/^(\s*)-\s+id\s*:/);
+      if (m) {
+        anchorLine = i;
+        anchorIndent = m[1].length;
+        break;
+      }
+    }
+    if (anchorLine < 0) {
+      console.log("[foldSiblings] \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D - id: \u043F\u0440\u0435\u0434\u043E\u043A");
+      setActiveFoldLevel(null);
+      return;
+    }
+    const targets = [];
+    for (let i = 1; i <= total; i++) {
+      if (i === anchorLine)
+        continue;
+      const line = model.getLineContent(i);
+      const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+      if (ind !== anchorIndent)
+        continue;
+      if (!/^\s*-\s+id\s*:/.test(line))
+        continue;
+      if (!hasFoldableRange(model, i))
+        continue;
+      targets.push(i);
+    }
+    console.log("[foldSiblings]", {
+      cursorLine: cursorLine2,
+      anchorLine,
+      anchorIndent,
+      targets
+    });
+    foldByLines(targets);
+    setActiveFoldLevel(null);
+  }, [hasFoldableRange, foldByLines]);
+  const foldBlocksByKey = useCallback18((key) => {
+    const ed = editorRef.current;
+    const model = ed?.getModel();
+    if (!ed || !model)
+      return;
+    setTimeout(async () => {
+      const fc = ed._contributions?._instances?._store?.get(
+        "editor.contrib.folding"
+      );
+      if (!fc)
+        return;
+      let fm = fc.foldingModel;
+      if (!fm && fc.foldingModelPromise) {
+        try {
+          fm = await fc.foldingModelPromise;
+        } catch {
+        }
+      }
+      if (!fm || typeof fm.toggleCollapseState !== "function")
+        return;
+      const total = model.getLineCount();
+      const re = new RegExp(`^(\\s*)${key}\\s*:\\s*(?:#.*)?$`);
+      const startIndexes = fm._regions?._startIndexes;
+      const startMap = /* @__PURE__ */ new Map();
+      if (startIndexes) {
+        for (let i = 0; i < startIndexes.length; i++) {
+          startMap.set(startIndexes[i], i);
+        }
+      }
+      const regions = [];
+      const notFoldStart = [];
+      for (let i = 1; i <= total; i++) {
+        if (!re.test(model.getLineContent(i)))
+          continue;
+        if (!hasFoldableRange(model, i))
+          continue;
+        const idx = startMap.get(i);
+        if (idx == null) {
+          notFoldStart.push(i);
+          continue;
+        }
+        try {
+          const region = fm._regions.toRegion(idx);
+          if (region && region.isCollapsed !== true) {
+            regions.push(region);
+          }
+        } catch {
+          notFoldStart.push(i);
+        }
+      }
+      if (regions.length === 0) {
+        console.log(`[foldBlocksByKey] "${key}": nothing to fold`, {
+          notFoldStart
+        });
+        setActiveFoldLevel(null);
+        return;
+      }
+      try {
+        fm.toggleCollapseState(regions, "dg-fold-key");
+      } catch {
+        for (const r of regions) {
+          try {
+            fm.toggleCollapseState(r, "dg-fold-key");
+          } catch {
+          }
+        }
+      }
+      console.log(`[foldBlocksByKey] "${key}":`, {
+        folded: regions.length,
+        notFoldStart
+      });
+      setActiveFoldLevel(null);
+    }, 0);
+  }, [hasFoldableRange]);
+  const foldToLevel = useCallback18((targetLevel) => {
+    const ed = editorRef.current;
+    if (!ed)
+      return;
+    if (activeFoldLevel === targetLevel) {
+      ed.trigger("dg-fold", "editor.unfoldAll", null);
+      setActiveFoldLevel(null);
+      return;
+    }
+    const savedPos = ed.getPosition();
+    ed.trigger("dg-fold", "editor.unfoldAll", null);
+    ed.setPosition({ lineNumber: 1, column: 1 });
+    ed.trigger("dg-fold", `editor.foldLevel${targetLevel}`, null);
+    if (savedPos) {
+      setTimeout(() => {
+        const ranges = ed.getVisibleRanges();
+        let targetLine = 1;
+        for (const r of ranges) {
+          if (r.startLineNumber <= savedPos.lineNumber && savedPos.lineNumber <= r.endLineNumber) {
+            targetLine = savedPos.lineNumber;
+            break;
+          }
+          if (r.startLineNumber <= savedPos.lineNumber) {
+            targetLine = r.startLineNumber;
+          }
+        }
+        ed.setPosition({ lineNumber: targetLine, column: 1 });
+        ed.revealLineInCenter(targetLine);
+      }, 0);
+    }
+    setActiveFoldLevel(targetLevel);
+  }, [activeFoldLevel]);
   useEffect37(() => {
     if (!open)
       return;
@@ -44702,7 +45112,7 @@ ${publishInfo.hint}` : "";
       if (decorationsCollection.current)
         decorationsCollection.current.clear();
     };
-  }, [monacoReady, editorCreated, lineMap, content, checksEnabled]);
+  }, [monacoReady, editorCreated, lineMap, deferredContent, checksEnabled]);
   useEffect37(() => {
     if (!monacoReady || !editorCreated || !editorRef.current)
       return;
@@ -44972,6 +45382,16 @@ ${publishInfo.hint}` : "";
       editor.pushUndoStop();
     } finally {
       isProgrammaticChange.current = false;
+    }
+    useGraphStore.getState().setYamlViewerPendingIssue(null);
+    useGraphStore.getState().setYamlViewerPendingBlock(null);
+    if (edits.length > 0) {
+      const first = edits[0].range;
+      try {
+        editor.setPosition({ lineNumber: first.startLineNumber, column: 1 });
+        editor.revealLineInCenter(first.startLineNumber);
+      } catch {
+      }
     }
     setContent(editor.getValue());
     setLiveVersion((v) => v + 1);
@@ -45484,42 +45904,164 @@ ${publishInfo.hint}` : "";
                         cursorLine
                       ] })
                     ] }) : /* @__PURE__ */ jsx76("span", { className: "yaml-viewer-breadcrumbs__item", children: "\u2014" }) }),
-                    /* @__PURE__ */ jsxs73("div", { className: "yaml-viewer-toolbar-right", children: [
-                      lineMap && /* @__PURE__ */ jsx76("div", { className: "yaml-viewer-quickjumps", children: lineMap.sections.map((s) => {
-                        const icon = s.key === "entities" ? "category" : s.key === "linkages" ? "link" : s.key === "dataTypes" ? "data_object" : s.key === "actions" ? "bolt" : s.key === "views" ? "visibility" : s.key === "menus" ? "menu" : s.key === "mixins" ? "merge" : s.key === "dataRules" ? "rule" : s.key === "medias" ? "image" : "arrow_right";
-                        return /* @__PURE__ */ jsx76(
-                          "button",
-                          {
-                            className: "yaml-viewer-quickjump",
-                            onClick: () => jumpTo(s.line),
-                            title: `${s.label} (${s.count})`,
-                            children: /* @__PURE__ */ jsx76(MIcon, { name: icon, size: "sm" })
+                    /* @__PURE__ */ jsx76("div", { className: "yaml-viewer-toolbar-right", children: /* @__PURE__ */ jsxs73("div", { className: "yaml-viewer-fold-controls", children: [
+                      [1, 2, 3, 4, 5].map((lvl) => /* @__PURE__ */ jsx76(
+                        "button",
+                        {
+                          className: "yaml-viewer-fold-btn" + (activeFoldLevel === lvl ? " yaml-viewer-fold-btn--active" : ""),
+                          onClick: () => {
+                            if (activeFoldLevel === lvl)
+                              unfoldAll();
+                            else
+                              foldToLevel(lvl);
                           },
-                          s.key
-                        );
-                      }) }),
-                      /* @__PURE__ */ jsxs73("div", { className: "yaml-viewer-fold-controls", children: [
-                        [1, 2, 3, 4, 5].map((lvl) => /* @__PURE__ */ jsx76(
-                          "button",
-                          {
-                            className: "yaml-viewer-fold-btn" + (activeFoldLevel === lvl ? " yaml-viewer-fold-btn--active" : ""),
-                            onClick: () => toggleFold(lvl),
-                            title: activeFoldLevel === lvl ? `\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0451 (\u0443\u0440\u043E\u0432\u0435\u043D\u044C ${lvl} \u0430\u043A\u0442\u0438\u0432\u0435\u043D)` : `\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0434\u043E \u0443\u0440\u043E\u0432\u043D\u044F ${lvl}`,
-                            children: lvl
-                          },
-                          lvl
-                        )),
-                        /* @__PURE__ */ jsx76(
-                          "button",
-                          {
-                            className: "yaml-viewer-fold-btn",
-                            onClick: unfoldAll,
-                            title: "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0451",
-                            children: /* @__PURE__ */ jsx76(MIcon, { name: "unfold_more", size: "sm" })
-                          }
-                        )
-                      ] })
-                    ] })
+                          title: activeFoldLevel === lvl ? `\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0451 (\u0443\u0440\u043E\u0432\u0435\u043D\u044C ${lvl} \u0430\u043A\u0442\u0438\u0432\u0435\u043D)` : `\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0434\u043E \u0443\u0440\u043E\u0432\u043D\u044F ${lvl}`,
+                          children: lvl
+                        },
+                        lvl
+                      )),
+                      /* @__PURE__ */ jsx76(
+                        "button",
+                        {
+                          className: "yaml-viewer-fold-btn",
+                          onClick: unfoldAll,
+                          title: "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0451",
+                          children: /* @__PURE__ */ jsx76(MIcon, { name: "unfold_more", size: "sm" })
+                        }
+                      ),
+                      /* @__PURE__ */ jsx76(
+                        Popover,
+                        {
+                          align: "right",
+                          width: 280,
+                          trigger: (open2) => /* @__PURE__ */ jsx76(
+                            "button",
+                            {
+                              className: "yaml-viewer-fold-btn" + (open2 ? " yaml-viewer-fold-btn--active" : ""),
+                              title: "\u0414\u043E\u043F\u043E\u043B\u043D\u0438\u0442\u0435\u043B\u044C\u043D\u044B\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u0441\u0432\u0451\u0440\u0442\u043A\u0438",
+                              children: /* @__PURE__ */ jsx76(MIcon, { name: "more_horiz", size: "sm" })
+                            }
+                          ),
+                          children: (close) => /* @__PURE__ */ jsxs73("div", { className: "menu", children: [
+                            /* @__PURE__ */ jsxs73(
+                              "button",
+                              {
+                                className: "menu__item",
+                                onClick: () => {
+                                  foldAll();
+                                  close();
+                                },
+                                children: [
+                                  /* @__PURE__ */ jsx76("span", { className: "menu__icon", children: /* @__PURE__ */ jsx76(MIcon, { name: "unfold_less", size: "sm" }) }),
+                                  /* @__PURE__ */ jsx76("span", { className: "menu__text", children: "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0451" })
+                                ]
+                              }
+                            ),
+                            /* @__PURE__ */ jsxs73(
+                              "button",
+                              {
+                                className: "menu__item",
+                                onClick: () => {
+                                  unfoldAll();
+                                  close();
+                                },
+                                children: [
+                                  /* @__PURE__ */ jsx76("span", { className: "menu__icon", children: /* @__PURE__ */ jsx76(MIcon, { name: "unfold_more", size: "sm" }) }),
+                                  /* @__PURE__ */ jsx76("span", { className: "menu__text", children: "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0451" })
+                                ]
+                              }
+                            ),
+                            /* @__PURE__ */ jsx76("div", { className: "menu__divider" }),
+                            /* @__PURE__ */ jsxs73(
+                              "button",
+                              {
+                                className: "menu__item",
+                                onClick: () => {
+                                  foldSiblings();
+                                  close();
+                                },
+                                title: "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0435 \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u044B \u0441\u043F\u0438\u0441\u043A\u0430 \u0442\u043E\u0433\u043E \u0436\u0435 \u0443\u0440\u043E\u0432\u043D\u044F, \u043A\u0440\u043E\u043C\u0435 \u0442\u0435\u043A\u0443\u0449\u0435\u0433\u043E",
+                                children: [
+                                  /* @__PURE__ */ jsx76("span", { className: "menu__icon", children: /* @__PURE__ */ jsx76(MIcon, { name: "splitscreen", size: "sm" }) }),
+                                  /* @__PURE__ */ jsx76("span", { className: "menu__text", children: "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0441\u0438\u0431\u043B\u0438\u043D\u0433\u043E\u0432 \u043A\u0443\u0440\u0441\u043E\u0440\u0430" })
+                                ]
+                              }
+                            ),
+                            /* @__PURE__ */ jsx76("div", { className: "menu__divider" }),
+                            /* @__PURE__ */ jsx76("div", { className: "menu__label", children: "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0435 \u0431\u043B\u043E\u043A\u0438" }),
+                            /* @__PURE__ */ jsxs73(
+                              "button",
+                              {
+                                className: "menu__item",
+                                onClick: () => {
+                                  foldBlocksByKey("attributes");
+                                  close();
+                                },
+                                children: [
+                                  /* @__PURE__ */ jsx76("span", { className: "menu__icon", children: /* @__PURE__ */ jsx76(MIcon, { name: "view_list", size: "sm" }) }),
+                                  /* @__PURE__ */ jsx76("span", { className: "menu__text", children: "attributes" })
+                                ]
+                              }
+                            ),
+                            /* @__PURE__ */ jsxs73(
+                              "button",
+                              {
+                                className: "menu__item",
+                                onClick: () => {
+                                  foldBlocksByKey("widgets");
+                                  close();
+                                },
+                                children: [
+                                  /* @__PURE__ */ jsx76("span", { className: "menu__icon", children: /* @__PURE__ */ jsx76(MIcon, { name: "widgets", size: "sm" }) }),
+                                  /* @__PURE__ */ jsx76("span", { className: "menu__text", children: "widgets" })
+                                ]
+                              }
+                            ),
+                            /* @__PURE__ */ jsxs73(
+                              "button",
+                              {
+                                className: "menu__item",
+                                onClick: () => {
+                                  foldBlocksByKey("groups");
+                                  close();
+                                },
+                                children: [
+                                  /* @__PURE__ */ jsx76("span", { className: "menu__icon", children: /* @__PURE__ */ jsx76(MIcon, { name: "view_module", size: "sm" }) }),
+                                  /* @__PURE__ */ jsx76("span", { className: "menu__text", children: "groups" })
+                                ]
+                              }
+                            ),
+                            /* @__PURE__ */ jsxs73(
+                              "button",
+                              {
+                                className: "menu__item",
+                                onClick: () => {
+                                  foldBlocksByKey("views");
+                                  close();
+                                },
+                                children: [
+                                  /* @__PURE__ */ jsx76("span", { className: "menu__icon", children: /* @__PURE__ */ jsx76(MIcon, { name: "view_quilt", size: "sm" }) }),
+                                  /* @__PURE__ */ jsx76("span", { className: "menu__text", children: "views" })
+                                ]
+                              }
+                            ),
+                            /* @__PURE__ */ jsx76("div", { className: "menu__divider" }),
+                            /* @__PURE__ */ jsxs73("label", { className: "menu__checkbox", children: [
+                              /* @__PURE__ */ jsx76(
+                                "input",
+                                {
+                                  type: "checkbox",
+                                  checked: !yamlQuickNavEnabled,
+                                  onChange: () => setYamlQuickNavEnabled(!yamlQuickNavEnabled)
+                                }
+                              ),
+                              /* @__PURE__ */ jsx76("span", { className: "menu__check" }),
+                              /* @__PURE__ */ jsx76("span", { className: "menu__text", children: "\u0421\u043A\u0440\u044B\u0442\u044C \u043E\u0433\u043B\u0430\u0432\u043B\u0435\u043D\u0438\u0435 \u043F\u0440\u0438 \u0441\u043A\u0440\u043E\u043B\u043B\u0435" })
+                            ] })
+                          ] })
+                        }
+                      )
+                    ] }) })
                   ] }),
                   /* @__PURE__ */ jsxs73("div", { className: "yaml-viewer-editor__canvas", children: [
                     /* @__PURE__ */ jsx76(
@@ -45591,7 +46133,8 @@ ${publishInfo.hint}` : "";
                       lineMap,
                       topLine: editorTopLine,
                       autoOpenSignal: scrollSignal,
-                      onJump: (line) => jumpTo(line)
+                      onJump: (line) => jumpTo(line),
+                      enabled: yamlQuickNavEnabled
                     }
                   ),
                   !isLocked && /* @__PURE__ */ jsxs73("div", { className: "yaml-viewer-editor__mode", children: [
@@ -46972,6 +47515,7 @@ function NavContextMenu({
 }) {
   const kind = state.sectionKey === "entities" ? "entity" : "linkage";
   const isThisFocused = !!focusTarget && focusTarget.kind === kind && focusTarget.id === state.node.id;
+  const isLocked = useGraphStore((s) => s.yamlViewerLocked);
   const MENU_W = 230;
   const MENU_H = 120;
   const x = Math.max(8, Math.min(state.x, window.innerWidth - MENU_W - 8));
@@ -47018,6 +47562,8 @@ function NavContextMenu({
           {
             type: "button",
             className: "yaml-nav-ctx-menu__item",
+            disabled: isLocked,
+            title: isLocked ? "\u0424\u0430\u0439\u043B \u0437\u0430\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043D \u2014 \u0441\u043D\u0438\u043C\u0438\u0442\u0435 \u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u043A\u0443 (\u0434\u0432\u043E\u0439\u043D\u043E\u0439 Shift)" : void 0,
             onClick: () => {
               const st = useGraphStore.getState();
               const domainId = st.yamlViewerDomainId;
@@ -47080,6 +47626,7 @@ var init_YamlViewerModal = __esm({
     init_SectionQuickNav();
     init_apply_generation();
     init_view_insert();
+    init_Popover();
     BACKLINK_KIND_LABELS = {
       inheritance: "\u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435",
       reference: "reference",
@@ -47369,7 +47916,8 @@ var init_GenerateSchemaSkipReasons = __esm({
       "no-menu-root": "\u041D\u0435\u0442 root_group \u0432 menus[] \u2014 \u043D\u0435\u043A\u0443\u0434\u0430 \u0434\u043E\u0431\u0430\u0432\u043B\u044F\u0442\u044C \u043F\u0443\u043D\u043A\u0442 \u043C\u0435\u043D\u044E",
       "technical-no-ui": "\u0422\u0435\u0445\u043D\u0438\u0447\u0435\u0441\u043A\u0430\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u2014 UI \u043D\u0435 \u0442\u0440\u0435\u0431\u0443\u0435\u0442\u0441\u044F",
       "no-linkages-side1": "\u041D\u0435\u0442 \u0438\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u0445 \u0441\u0432\u044F\u0437\u0435\u0439 (side-1) \u0434\u043B\u044F \u043F\u043E\u0441\u0442\u0440\u043E\u0435\u043D\u0438\u044F \u0434\u0435\u0440\u0435\u0432\u0430",
-      "splitted-needs-list": "\u0414\u043B\u044F splitted-\u0432\u0430\u0440\u0438\u0430\u043D\u0442\u0430 \u043D\u0443\u0436\u0435\u043D list-view"
+      "splitted-needs-list": "\u0414\u043B\u044F splitted-\u0432\u0430\u0440\u0438\u0430\u043D\u0442\u0430 \u043D\u0443\u0436\u0435\u043D list-view",
+      "id-conflict": "\u0412 YAML \u0443\u0436\u0435 \u0435\u0441\u0442\u044C view \u0434\u043B\u044F \u044D\u0442\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u043F\u043E\u0434 \u0434\u0440\u0443\u0433\u0438\u043C id"
     };
   }
 });
@@ -47763,6 +48311,14 @@ function GenerateSchemaModal() {
     treeChain: void 0,
     treeUseExistingId: void 0
   });
+  const yamlViewerOpen = useGraphStore((s) => s.yamlViewerOpen);
+  const yamlViewerLocked = useGraphStore((s) => s.yamlViewerLocked);
+  const yamlViewerFilePath = useGraphStore((s) => s.yamlViewerFilePath);
+  const targetFile = useMemo45(() => {
+    const nodes = useGraphStore.getState().nodes;
+    return nodes.find((n) => n.data.domainId === domainId)?.data.filePath ?? null;
+  }, [domainId]);
+  const editorLocked = !!(yamlViewerOpen && yamlViewerLocked && yamlViewerFilePath && targetFile && yamlViewerFilePath === targetFile);
   useEffect39(() => {
     if (!open)
       return;
@@ -47985,7 +48541,7 @@ function GenerateSchemaModal() {
     });
   }, [allIssues]);
   const skipped = gen.result?.skipped ?? [];
-  const canApply = !gen.loading && !!gen.result && profile !== "technical" && selected.size > 0 && dependentsMissing.size === 0 && errorCount === 0;
+  const canApply = !gen.loading && !!gen.result && profile !== "technical" && selected.size > 0 && dependentsMissing.size === 0 && errorCount === 0 && !editorLocked;
   const apply = useCallback20(() => {
     if (!gen.result || !domainId || !entityId)
       return;
@@ -48013,6 +48569,8 @@ function GenerateSchemaModal() {
     ).map(([id]) => id);
     if (blocksToApply.length === 0 && orphanedIds.length === 0)
       return;
+    const blockIds = blocksToApply.map((b) => b.blockId);
+    const dupes = blockIds.filter((id, i) => blockIds.indexOf(id) !== i);
     const st = useGraphStore.getState();
     st.setYamlViewerPendingGeneration({
       blocks: blocksToApply,
@@ -48110,6 +48668,35 @@ function GenerateSchemaModal() {
                     children: "\u2715"
                   }
                 )
+              ] })
+            ] }),
+            gen.result?.skipped?.some((s) => s.reason === "id-conflict") && /* @__PURE__ */ jsxs75("div", { className: "generate-schema-id-conflict", children: [
+              /* @__PURE__ */ jsxs75("div", { className: "generate-schema-id-conflict__head", children: [
+                /* @__PURE__ */ jsx78(MIcon, { name: "warning", size: "sm" }),
+                /* @__PURE__ */ jsx78("strong", { children: "\u041A\u043E\u043D\u0444\u043B\u0438\u043A\u0442 id view" })
+              ] }),
+              /* @__PURE__ */ jsxs75("div", { className: "generate-schema-id-conflict__body", children: [
+                "\u0414\u043B\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 ",
+                /* @__PURE__ */ jsx78("code", { children: entityId }),
+                " \u0443\u0436\u0435 \u0435\u0441\u0442\u044C view \u043F\u043E\u0434 \u043D\u0435\u0441\u0442\u0430\u043D\u0434\u0430\u0440\u0442\u043D\u044B\u043C id. \u0413\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u044F ",
+                /* @__PURE__ */ jsx78("strong", { children: "\u043D\u0435 \u0441\u043E\u0437\u0434\u0430\u0451\u0442" }),
+                " \u043D\u043E\u0432\u0443\u044E view, \u0447\u0442\u043E\u0431\u044B \u043D\u0435 \u0431\u044B\u043B\u043E \u0434\u0443\u0431\u043B\u0438\u043A\u0430\u0442\u0430.",
+                /* @__PURE__ */ jsx78("br", {}),
+                "\u0427\u0442\u043E\u0431\u044B \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u044C \u0433\u0435\u043D\u0435\u0440\u0430\u0442\u043E\u0440:",
+                /* @__PURE__ */ jsxs75("ul", { children: [
+                  /* @__PURE__ */ jsxs75("li", { children: [
+                    "\u041F\u0435\u0440\u0435\u0438\u043C\u0435\u043D\u0443\u0439 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0443\u044E view: ",
+                    /* @__PURE__ */ jsx78("code", { children: "projectView" }),
+                    " \u2192 ",
+                    /* @__PURE__ */ jsx78("code", { children: "viewProject" }),
+                    ", ",
+                    /* @__PURE__ */ jsx78("code", { children: "lists.project" }),
+                    " \u2192 ",
+                    /* @__PURE__ */ jsx78("code", { children: "lists_project" }),
+                    " (\u0432 YAML-\u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0435)."
+                  ] }),
+                  /* @__PURE__ */ jsx78("li", { children: "\u0418\u043B\u0438 \u0443\u0434\u0430\u043B\u0438 \u0441\u0442\u0430\u0440\u044B\u0435 views \u0438 \u0441\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u0443\u0439 \u0437\u0430\u043D\u043E\u0432\u043E." })
+                ] })
               ] })
             ] }),
             /* @__PURE__ */ jsx78("div", { className: "generate-schema-tabs", children: tabs.map((t) => /* @__PURE__ */ jsxs75(
@@ -48786,6 +49373,7 @@ function GenerateSchemaModal() {
             ] }),
             /* @__PURE__ */ jsxs75("div", { className: "generate-schema-footer", children: [
               /* @__PURE__ */ jsxs75("div", { className: "generate-schema-preflight", children: [
+                editorLocked && /* @__PURE__ */ jsx78("span", { className: "generate-schema-badge generate-schema-badge--warn", children: "\u{1F512} \u0444\u0430\u0439\u043B \u0437\u0430\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043D \u0432 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0435" }),
                 errorCount > 0 && /* @__PURE__ */ jsxs75(
                   "button",
                   {
@@ -48862,7 +49450,7 @@ function GenerateSchemaModal() {
                     className: "btn btn--primary",
                     onClick: apply,
                     disabled: !canApply,
-                    title: profile === "technical" ? "\u041F\u0440\u043E\u0444\u0438\u043B\u044C \xAB\u0422\u0435\u0445\u043D\u0438\u0447\u0435\u0441\u043A\u0430\u044F\xBB \u043D\u0435 \u0433\u0435\u043D\u0435\u0440\u0438\u0440\u0443\u0435\u0442 \u0431\u043B\u043E\u043A\u0438" : dependentsMissing.size > 0 ? "\u0421\u043D\u044F\u0442\u044B \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u044B\u0435 \u0431\u043B\u043E\u043A\u0438 \u2014 \u0432\u043A\u043B\u044E\u0447\u0438\u0442\u0435 \u0438\u0445 \u0438\u043B\u0438 \u0441\u043D\u0438\u043C\u0438\u0442\u0435 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u044B\u0439" : errorCount > 0 ? "\u0418\u0441\u043F\u0440\u0430\u0432\u044C\u0442\u0435 \u043D\u043E\u0432\u044B\u0435 \u043E\u0448\u0438\u0431\u043A\u0438 \u0438\u043B\u0438 \u0441\u043D\u0438\u043C\u0438\u0442\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0435 \u0431\u043B\u043E\u043A\u0438" : selected.size === 0 ? "\u041D\u0435 \u0432\u044B\u0431\u0440\u0430\u043D\u043E \u043D\u0438 \u043E\u0434\u043D\u043E\u0433\u043E \u0431\u043B\u043E\u043A\u0430" : void 0,
+                    title: editorLocked ? "\u0424\u0430\u0439\u043B \u0441\u0445\u0435\u043C\u044B \u0437\u0430\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043D \u0432 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0435 \u2014 \u0440\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u0443\u0439\u0442\u0435 (\u0434\u0432\u043E\u0439\u043D\u043E\u0439 Shift) \u0438\u043B\u0438 \u0437\u0430\u043A\u0440\u043E\u0439\u0442\u0435 \u0435\u0433\u043E" : profile === "technical" ? "\u041F\u0440\u043E\u0444\u0438\u043B\u044C \xAB\u0422\u0435\u0445\u043D\u0438\u0447\u0435\u0441\u043A\u0430\u044F\xBB \u043D\u0435 \u0433\u0435\u043D\u0435\u0440\u0438\u0440\u0443\u0435\u0442 \u0431\u043B\u043E\u043A\u0438" : dependentsMissing.size > 0 ? "\u0421\u043D\u044F\u0442\u044B \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u044B\u0435 \u0431\u043B\u043E\u043A\u0438 \u2014 \u0432\u043A\u043B\u044E\u0447\u0438\u0442\u0435 \u0438\u0445 \u0438\u043B\u0438 \u0441\u043D\u0438\u043C\u0438\u0442\u0435 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u044B\u0439" : errorCount > 0 ? "\u0418\u0441\u043F\u0440\u0430\u0432\u044C\u0442\u0435 \u043D\u043E\u0432\u044B\u0435 \u043E\u0448\u0438\u0431\u043A\u0438 \u0438\u043B\u0438 \u0441\u043D\u0438\u043C\u0438\u0442\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0435 \u0431\u043B\u043E\u043A\u0438" : selected.size === 0 ? "\u041D\u0435 \u0432\u044B\u0431\u0440\u0430\u043D\u043E \u043D\u0438 \u043E\u0434\u043D\u043E\u0433\u043E \u0431\u043B\u043E\u043A\u0430" : void 0,
                     children: [
                       "\u041F\u0440\u0438\u043C\u0435\u043D\u0438\u0442\u044C (",
                       selected.size,

@@ -7,6 +7,7 @@ const REASON_LABELS: Record<string, string> = {
   "technical-no-ui": "Техническая сущность — UI не требуется",
   "no-linkages-side1": "Нет исходящих связей (side-1) для построения дерева",
   "splitted-needs-list": "Для splitted-варианта нужен list-view",
+  "id-conflict": "В YAML уже есть view для этой сущности под другим id",
 };
 
 export function humanizeSkipReason(reason: string): string {

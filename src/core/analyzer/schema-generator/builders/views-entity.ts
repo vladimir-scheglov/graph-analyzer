@@ -19,6 +19,14 @@ function shouldSkipViewEntity(
   const viewId = `view${E}`;
   if (options.skipExisting && ctx.existing.views.has(viewId))
     return { skipped: true, reason: "already-exists" };
+  // entity-view под другим id — генерация создаст дубликат.
+  // Skip, чтобы не было двух entity-view для одной сущности.
+  if (
+    options.skipExisting &&
+    ctx.existing.viewIdConflicts.some((c) => c.kind === "entity")
+  ) {
+    return { skipped: true, reason: "id-conflict" };
+  }
   return { skipped: false };
 }
 

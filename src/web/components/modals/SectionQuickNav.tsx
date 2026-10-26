@@ -9,6 +9,7 @@ export interface SectionQuickNavProps {
     /** Флаг «пользователь только что скроллил» — панель раскрывается. */
     autoOpenSignal: number;
     onJump: (line: number) => void;
+    enabled?: boolean;
 }
 
 const ICON_BY_SECTION: Record<string, string> = {
@@ -41,6 +42,7 @@ export function SectionQuickNav({
     topLine,
     autoOpenSignal,
     onJump,
+    enabled = true,
 }: SectionQuickNavProps) {
     const [expanded, setExpanded] = useState(false);
     const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -69,11 +71,12 @@ export function SectionQuickNav({
     // Каждый новый скролл: раскрываем + перезапускаем таймер авто-скрытия
     useEffect(() => {
         if (!autoOpenSignal) return;
+        if (!enabled) return; 
         setExpanded(true);
         scheduleClose();
         return cancelClose;
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [autoOpenSignal]);
+    }, [autoOpenSignal, enabled]);
 
     // Размонтирование — сброс таймера
     useEffect(() => cancelClose, []);
@@ -100,7 +103,13 @@ export function SectionQuickNav({
                     setExpanded((v) => !v);
                     if (expanded) scheduleClose(0);
                 }}
-                title={expanded ? "Скрыть оглавление" : "Оглавление секций"}
+                title={
+                    expanded
+                        ? "Скрыть оглавление"
+                        : enabled
+                            ? "Оглавление секций"
+                            : "Оглавление секций (не открывается при скролле)"
+                }
                 aria-expanded={expanded}
             >
                 <MIcon name="toc" size="sm" />

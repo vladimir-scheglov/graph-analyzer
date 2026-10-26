@@ -1369,7 +1369,7 @@
   max-height: 32px;
   padding: 0 8px 0 0;
   flex-shrink: 0;
-  overflow: hidden;
+  overflow: visible;
   gap: 6px;
 }
 
@@ -1428,38 +1428,6 @@
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
-}
-
-.yaml-viewer-quickjumps {
-  display: flex;
-  gap: 2px;
-  flex-shrink: 1;
-  min-width: 0;
-  max-width: 380px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: thin;
-}
-.yaml-viewer-quickjumps::-webkit-scrollbar { height: 0; }
-
-.yaml-viewer-quickjump {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  color: var(--text-400);
-  cursor: pointer;
-  transition: all 0.15s;
-  flex-shrink: 0;
-}
-.yaml-viewer-quickjump:hover {
-  background: var(--bg-700);
-  border-color: var(--border);
-  color: var(--text-100);
 }
 
 /* Fold controls */

@@ -4856,8 +4856,8 @@ tr.highlighted .entity-matrix-row-head {
 /* Индикатор режима редактирования */
 .yaml-viewer-editor__mode {
   position: absolute;
-  top: 40px;
-  right: 16px;
+  top: 44px;
+  right: 62px;
   padding: 4px 10px;
   background: rgba(251, 191, 36, 0.15);
   border: 1px solid rgba(251, 191, 36, 0.4);

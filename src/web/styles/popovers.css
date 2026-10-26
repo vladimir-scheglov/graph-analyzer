@@ -18,7 +18,8 @@
 .popover--right { right: 0; }
 
 /* Menu (содержимое поповеров) */
-.menu { padding: 6px; }
+.menu { 
+  padding: 6px; 
 .menu__header {
   display: flex;
   justify-content: space-between;
@@ -169,6 +170,7 @@
   background: var(--accent-soft);
   border-color: var(--accent);
   color: var(--accent-hover);
+}
 }
 
 /* Context menu */

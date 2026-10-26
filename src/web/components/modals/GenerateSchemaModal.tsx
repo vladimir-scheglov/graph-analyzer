@@ -139,6 +139,23 @@ export function GenerateSchemaModal() {
         treeUseExistingId: undefined as string | undefined,
     });
 
+    const yamlViewerOpen = useGraphStore((s) => s.yamlViewerOpen);
+    const yamlViewerLocked = useGraphStore((s) => s.yamlViewerLocked);
+    const yamlViewerFilePath = useGraphStore((s) => s.yamlViewerFilePath);
+
+    const targetFile = useMemo(() => {
+        const nodes = useGraphStore.getState().nodes;
+        return nodes.find((n) => n.data.domainId === domainId)?.data.filePath ?? null;
+    }, [domainId]);
+
+    const editorLocked = !!(
+        yamlViewerOpen &&
+        yamlViewerLocked &&
+        yamlViewerFilePath &&
+        targetFile &&
+        yamlViewerFilePath === targetFile
+    );
+
     useEffect(() => {
         if (!open) return;
         setProfile("crud");
@@ -380,7 +397,8 @@ export function GenerateSchemaModal() {
         profile !== "technical" &&
         selected.size > 0 &&
         dependentsMissing.size === 0 &&
-        errorCount === 0;
+        errorCount === 0 &&
+        !editorLocked;
 
     const apply = useCallback(() => {
         if (!gen.result || !domainId || !entityId) return;
@@ -414,6 +432,9 @@ export function GenerateSchemaModal() {
             .map(([id]) => id);
 
         if (blocksToApply.length === 0 && orphanedIds.length === 0) return;
+
+        const blockIds = blocksToApply.map((b) => b.blockId);
+        const dupes = blockIds.filter((id, i) => blockIds.indexOf(id) !== i);
 
         const st = useGraphStore.getState();
         st.setYamlViewerPendingGeneration({
@@ -527,6 +548,24 @@ export function GenerateSchemaModal() {
                         </button>
                     </div>
                 </div>
+                {gen.result?.skipped?.some((s) => s.reason === "id-conflict") && (
+                    <div className="generate-schema-id-conflict">
+                        <div className="generate-schema-id-conflict__head">
+                            <MIcon name="warning" size="sm" />
+                            <strong>Конфликт id view</strong>
+                        </div>
+                        <div className="generate-schema-id-conflict__body">
+                            Для сущности <code>{entityId}</code> уже есть view под нестандартным id.
+                            Генерация <strong>не создаёт</strong> новую view, чтобы не было дубликата.
+                            <br />
+                            Чтобы использовать генератор:
+                            <ul>
+                                <li>Переименуй существующую view: <code>projectView</code> → <code>viewProject</code>, <code>lists.project</code> → <code>lists_project</code> (в YAML-редакторе).</li>
+                                <li>Или удали старые views и сгенерируй заново.</li>
+                            </ul>
+                        </div>
+                    </div>
+                )}
 
                 {/* ============ TABS ============ */}
                 <div className="generate-schema-tabs">
@@ -1318,6 +1357,11 @@ export function GenerateSchemaModal() {
                 {/* ============ FOOTER ============ */}
                 <div className="generate-schema-footer">
                     <div className="generate-schema-preflight">
+                        {editorLocked && (
+                            <span className="generate-schema-badge generate-schema-badge--warn">
+                                🔒 файл заблокирован в редакторе
+                            </span>
+                        )}
                         {errorCount > 0 && (
                             <button
                                 className="generate-schema-badge generate-schema-badge--error generate-schema-badge--clickable"
@@ -1387,16 +1431,18 @@ export function GenerateSchemaModal() {
                             onClick={apply}
                             disabled={!canApply}
                             title={
-                                profile === "technical"
-                                    ? "Профиль «Техническая» не генерирует блоки"
-                                    : dependentsMissing.size > 0
-                                        ? "Сняты зависимые блоки — включите их или снимите зависимый"
-                                        : errorCount > 0
-                                            ? "Исправьте новые ошибки или снимите проблемные блоки"
-                                            : selected.size === 0
-                                                ? "Не выбрано ни одного блока"
-                                                : undefined
-                            }
+                                editorLocked
+                                    ? "Файл схемы заблокирован в редакторе — разблокируйте (двойной Shift) или закройте его" : (
+                                        profile === "technical"
+                                            ? "Профиль «Техническая» не генерирует блоки"
+                                            : dependentsMissing.size > 0
+                                                ? "Сняты зависимые блоки — включите их или снимите зависимый"
+                                                : errorCount > 0
+                                                    ? "Исправьте новые ошибки или снимите проблемные блоки"
+                                                    : selected.size === 0
+                                                        ? "Не выбрано ни одного блока"
+                                                        : undefined
+                                    )}
                         >
                             Применить ({selected.size})
                         </button>

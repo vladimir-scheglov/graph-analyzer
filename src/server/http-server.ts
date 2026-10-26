@@ -337,37 +337,34 @@ export function startServer(opts: StartServerOptions): http.Server {
           credentials,
           state.domainIndex,
         );
-        // Асинхронный ребилд модели в фоне (ответ клиенту уже отправлен)
-        setImmediate(() => {
+
+        // СИНХРОННЫЙ ребилд ДО того, как закроется response.
+        // Иначе следующий /api/generate увидит устаревший ModelIndex.
+        try {
+          analyzer.reset();
+          (analyzer as any).__graphData = analyzer.analyze();
+          const rawDomains = analyzer.getRawDomainsForModelIndex();
+          const newIndex = buildModelIndex(rawDomains);
+          setModelIndex(newIndex);
+
           try {
-            analyzer.reset();
-            (analyzer as any).__graphData = analyzer.analyze();
-            const rawDomains = analyzer.getRawDomainsForModelIndex();
-            const newIndex = buildModelIndex(rawDomains);
-            setModelIndex(newIndex);
-
-            // Обновляем semantic diff относительно сохранённого snapshot.
-            // Без этого /api/model/diff будет возвращать lastDiff,
-            // установленный один раз при старте сервера.
-            try {
-              const currentSnapshot = createSnapshotFromModelIndex(newIndex);
-              const snapshotResult = updateModelSnapshot(
-                rootDir,
-                currentSnapshot,
-              );
-              setModelDiff(
-                snapshotResult.effectiveDiff,
-                !snapshotResult.isFirstRun,
-              );
-            } catch (e) {
-              console.warn("[rebuild] snapshot/diff update failed:", e);
-            }
-
-            console.log("[rebuild] model rebuilt after file save");
+            const currentSnapshot = createSnapshotFromModelIndex(newIndex);
+            const snapshotResult = updateModelSnapshot(
+              rootDir,
+              currentSnapshot,
+            );
+            setModelDiff(
+              snapshotResult.effectiveDiff,
+              !snapshotResult.isFirstRun,
+            );
           } catch (e) {
-            console.error("[rebuild] failed:", e);
+            console.warn("[rebuild] snapshot/diff failed:", e);
           }
-        });
+
+          console.log("[rebuild] model rebuilt after file save");
+        } catch (e) {
+          console.error("[rebuild] failed:", e);
+        }
       } catch (err: any) {
         try {
           res.writeHead(500, { "Content-Type": "application/json" });

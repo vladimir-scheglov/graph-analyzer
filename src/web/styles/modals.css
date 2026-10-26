@@ -915,6 +915,10 @@
     text-align: left;
     transition: background 0.1s;
 }
+.yaml-nav-ctx-menu__item:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
 .yaml-nav-ctx-menu__item:hover {
     background: var(--bg-700);
 }
@@ -2414,4 +2418,48 @@
     color: var(--text-500);
     font-size: 12px;
     margin-left: 8px;
+}
+.generate-schema-id-conflict {
+    margin: 0 16px 12px;
+    padding: 12px 14px;
+    background: rgba(245, 158, 11, 0.08);
+    border: 1px solid var(--warning);
+    border-left: 3px solid var(--warning);
+    border-radius: 8px;
+    font-size: 12px;
+    color: var(--text-300);
+    line-height: 1.55;
+}
+.generate-schema-id-conflict__head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--warning);
+    margin-bottom: 6px;
+}
+.generate-schema-id-conflict__body code {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    padding: 1px 6px;
+    background: var(--bg-750);
+    border-radius: 4px;
+    color: var(--accent-hover);
+}
+.generate-schema-id-conflict__body ul {
+    margin: 6px 0 0;
+    padding-left: 20px;
+}
+
+.monaco-editor .suggest-widget.empty {
+    display: none !important;
+    pointer-events: none !important;
+}
+.monaco-editor .suggest-widget:not(:has(.monaco-list-row)) {
+    display: none !important;
+    pointer-events: none !important;
+}
+.monaco-editor .suggest-widget.dg-suggest-empty {
+    display: none !important;
+    pointer-events: none !important;
 }

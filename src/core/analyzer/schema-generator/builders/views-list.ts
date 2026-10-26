@@ -48,6 +48,22 @@ export function buildViewList(
       ],
     };
   }
+  if (
+    options.skipExisting &&
+    ctx.existing.viewIdConflicts.some((c) => c.kind === "list")
+  ) {
+    return {
+      blocks: [],
+      skipped: [
+        {
+          blockId: `view:${viewId}`,
+          section: "views",
+          id: viewId,
+          reason: "id-conflict",
+        },
+      ],
+    };
+  }
 
   const columns = ctx.entity.attributes.map((a) => ({
     id: a.id,
