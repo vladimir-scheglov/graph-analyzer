@@ -203,6 +203,7 @@ export async function prepareRemoteCache(
           createdAt: d.createdAt || null,
           updatedAt: d.updatedAt || null,
           objectType: d.objectType || null,
+          hasDraft: null as boolean | null,
           updater: d.updater
             ? { displayName: d.updater.displayName, id: d.updater.id }
             : null,
@@ -226,9 +227,10 @@ export async function prepareRemoteCache(
       `💾 Скачивание схем ${makeProgressBar(i + 1, total)} — ${shortName}`,
     );
     try {
-      const sourceCode = await withTokenRefresh(refreshCreds, (t) =>
+      const fetched = await withTokenRefresh(refreshCreds, (t) =>
         apiFetchExpertiseSource(apiUrl, t, tenantId, d.id, rejectUnauthorized),
       );
+      const sourceCode = fetched.source;
       if (!sourceCode || typeof sourceCode !== "string") {
         errors.push({
           id: d.id,

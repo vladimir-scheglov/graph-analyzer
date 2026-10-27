@@ -17,6 +17,8 @@ import {
     applyAttributeMarkers,
     applyUiRuleRefMarkers,
     applyAttributeRefMarkers,
+    applyActionRequiredFieldsMarkers,
+    INLINE_COVERED_RULE_IDS,
 } from '../../lib/monaco/monaco-providers';
 import { useNavigation } from '../../hooks/useNavigation';
 import { extractExternalRefs, groupExternalRefs, ExternalRefGroup } from '../../lib/yaml/external-refs';
@@ -45,8 +47,12 @@ import { SectionQuickNav } from "./SectionQuickNav";
 import { planEdits } from "../../lib/yaml/apply-generation";
 import { findBlockRange } from "../../lib/yaml/view-insert";
 import { Popover } from "../common/Popover";
+import { relativeTime } from '../../lib/format';
+import type { YamlExpertiseMeta } from '../../hooks/useYamlContent';
+import { computeUnusedInYaml, UnusedAnalysis } from '../../lib/yaml/unused-analysis';
 
 type RightTab = 'issues' | 'refs' | 'backlinks' | 'server';
+type DiffAgainst = "previous" | "published" | null;
 
 /**
  * Извлекает значение `version:` с indent 0 (top-level metadata).
@@ -145,11 +151,28 @@ export function YamlViewerModal() {
         if (open) setReloadKey((k) => k + 1);
     }, [open]);
 
-    const { content: fetchedContent, loading, error: loadError } = useYamlContent(
+    const {
+        content: fetchedContent,
+        loading,
+        error: loadError,
+        contentSource,
+        meta: contentMeta,
+    } = useYamlContent(
         open ? filePath : null,
         reloadKey,
         mode === "remote",
     );
+
+    // После saveDraft / publish — обновляем updatedAt/updatedBy оптимистично,
+    // чтобы в шапке не висело «сохранён 5 минут назад» сразу после сохранения.
+    const [metaOverride, setMetaOverride] = useState<Partial<YamlExpertiseMeta> | null>(null);
+    const yamlMeta: YamlExpertiseMeta | null = contentMeta
+        ? { ...contentMeta, ...(metaOverride || {}) }
+        : null;
+
+    useEffect(() => {
+        useGraphStore.getState().setYamlViewerContentSource(open ? contentSource : null);
+    }, [open, contentSource]);
 
     const [content, setContent] = useState('');
     const [yamlSyntaxIssue, setYamlSyntaxIssue] = useState<any>(null);
@@ -162,8 +185,9 @@ export function YamlViewerModal() {
     const skipNextEffect = useRef(false);
     const [editorCreated, setEditorCreated] = useState(false);
     const [ignoredVersion, setIgnoredVersion] = useState(0);
-    const [diffMode, setDiffMode] = useState(false);
+    const [diffAgainst, setDiffAgainst] = useState<DiffAgainst>(null);
     const [previousContent, setPreviousContent] = useState<string | null>(null);
+    const [publishedContent, setPublishedContent] = useState<string | null>(null);
     const diffContainerRef = useRef<HTMLDivElement>(null);
     const diffEditorRef = useRef<any>(null);
     const [cursorLine, setCursorLine] = useState(1);
@@ -176,6 +200,7 @@ export function YamlViewerModal() {
     const [scrollSignal, setScrollSignal] = useState(0);
     const pendingGeneration = useGraphStore((s) => s.yamlViewerPendingGeneration);
     const setPendingGeneration = useGraphStore((s) => s.setYamlViewerPendingGeneration);
+    const yamlHighlightUnused = useGraphStore((s) => s.yamlHighlightUnused);
 
     const startResizingLeft = (e: React.MouseEvent) => {
         e.preventDefault();
@@ -351,6 +376,7 @@ export function YamlViewerModal() {
     const editorRef = useRef<any>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const saveRef = useRef<() => void>(() => { });
+    const publishRef = useRef<() => void>(() => { });
     const toggleLockRef = useRef<() => void>(() => { });
     const isLockedRef = useRef(isLocked);
     const isProgrammaticChange = useRef(false);
@@ -383,6 +409,15 @@ export function YamlViewerModal() {
         isLockedRef.current = isLocked;
     }, [isLocked]);
 
+    // Добавить рядом с остальными refs (после searchDecorationsRef и т. п.):
+    const lastAutoScrolledQueryRef = useRef<string | null>(null);
+
+    // Сбросить, когда поиск очищается — чтобы при повторном вводе того же
+    // запроса всё-таки прокрутило к первому матчу.
+    useEffect(() => {
+        if (!searchQuery) lastAutoScrolledQueryRef.current = null;
+    }, [searchQuery]);
+
     // ============ Line map / schema ============
     const schema = useMemo(() => {
         if (!index || !domainId) return null;
@@ -411,9 +446,19 @@ export function YamlViewerModal() {
     }, [focusTarget, focusIncludeDeps, lineMap, index, domainId, deferredContent]);
 
     // ============ Issues ============
+    // Полный набор серверных issues — для панели «Проблемы», навигации,
+    // счётчиков. НЕ фильтруем inline-покрытые: пользователь должен видеть
+    // их в панели (это реальные проблемы схемы), даже если в редакторе
+    // уже есть inline-маркер.
+    //
+    // Фильтр INLINE_COVERED_RULE_IDS применяется отдельно — только
+    // при установке маркеров dg-linter (см. эффект ниже), чтобы не
+    // дублировать маркеры в gutter/overview-ruler.
     const domainIssues = useMemo(() => {
         if (!index || !domainId) return [];
-        return index.lint.lintReport.issues.filter((i) => i.domainId === domainId);
+        return index.lint.lintReport.issues.filter(
+            (i) => i.domainId === domainId,
+        );
     }, [index, domainId]);
 
     // ============ Счётчики для шапки ============
@@ -652,6 +697,19 @@ export function YamlViewerModal() {
     }, [deferredContent]);
 
     // ============ Flat nav nodes ============
+    // Анализ «что не используется» — обновляется вместе с контентом.
+    // В отличие от серверного индекса, реагирует на генерацию и правки
+    // сразу, без необходимости сохранять.
+    const unusedAnalysis = useMemo(() => {
+        if (!yamlHighlightUnused) return null;
+        if (!lineMap || !deferredContent) return null;
+        try {
+            return computeUnusedInYaml(deferredContent, lineMap);
+        } catch {
+            return null;
+        }
+    }, [deferredContent, lineMap, yamlHighlightUnused]);
+
     const flatNavNodes = useMemo(() => {
         if (!lineMap) return [];
         const result: Array<{
@@ -1085,6 +1143,7 @@ export function YamlViewerModal() {
     // ============ Ctrl+S ============
     useEffect(() => {
         saveRef.current = handleSave;
+        publishRef.current = handlePublish;
         toggleLockRef.current = handleToggleLock;
     });
 
@@ -1139,9 +1198,13 @@ export function YamlViewerModal() {
         if (!editorCreated || !editorRef.current) return;
         const m = (window as any).monaco;
         if (!m) return;
-        const id = editorRef.current.addCommand(
+        editorRef.current.addCommand(
             m.KeyMod.CtrlCmd | m.KeyCode.KeyS,
             () => saveRef.current()
+        );
+        editorRef.current.addCommand(
+            m.KeyMod.CtrlCmd | m.KeyMod.Shift | m.KeyCode.KeyS,
+            () => publishRef.current()
         );
         return () => {
             // Monaco не всегда отдаёт dispose — очистим при dispose редактора
@@ -1303,22 +1366,66 @@ export function YamlViewerModal() {
     // ~20 видимых строк, поэтому декорации есть в модели, но не в DOM.
     useEffect(() => {
         if (!editorCreated || !editorRef.current) return;
+        if (!searchQuery) return;
         if (!searchResult || searchResult.groups.length === 0) return;
+
+        // Результат относится к прошлому запросу: query ввели быстрее, чем
+        // отработал debounce в YamlSearchPanel. Прокручивать по нему нельзя —
+        // уедем к матчу старого запроса.
+        if (searchResult.query !== searchQuery) return;
+
+        // Уже прокручивали к первому матчу для этого запроса. Дальше
+        // searchResult будет меняться на каждое изменение content — без этой
+        // проверки редактор дёргается при каждом keystroke.
+        if (lastAutoScrolledQueryRef.current === searchQuery) return;
+
+        // Не перебиваем активный матч — если пользователь уже Ctrl+Enter'ом
+        // ушёл к 5-му, не должны прыгать назад.
+        if (activeSearchMatch) return;
 
         const firstMatch = searchResult.groups[0]?.matches[0];
         if (!firstMatch) return;
 
-        // Не перебиваем активный матч, если пользователь уже переключался
-        if (activeSearchMatch) return;
+        lastAutoScrolledQueryRef.current = searchQuery;
 
-        const ed = editorRef.current;
-        try {
-            ed.revealLineInCenter(firstMatch.line);
-            ed.setPosition({ lineNumber: firstMatch.line, column: firstMatch.column });
-            // Без focus: false — layout нужен, но фокус в поиск не забираем
-            ed.layout();
-        } catch { }
-    }, [searchResult, activeSearchMatch, editorCreated]);
+        const m = (window as any).monaco;
+        if (!m) return;
+
+        const doScroll = () => {
+            const ed = editorRef.current;
+            if (!ed) return;
+            try {
+                ed.revealPositionInCenterIfOutsideViewport(
+                    { lineNumber: firstMatch.line, column: firstMatch.column },
+                    m.editor.ScrollType.Immediate,
+                );
+            } catch { /* ignore */ }
+            try {
+                ed.setPosition({ lineNumber: firstMatch.line, column: firstMatch.column });
+            } catch { /* ignore */ }
+            requestAnimationFrame(() => {
+                const ed2 = editorRef.current;
+                if (!ed2) return;
+                try {
+                    const visible = ed2.getVisibleRanges();
+                    const isVisible = visible.some(
+                        (r) => r.startLineNumber <= firstMatch.line && firstMatch.line <= r.endLineNumber,
+                    );
+                    if (!isVisible) {
+                        const lineTop = ed2.getTopForLineNumber(firstMatch.line);
+                        const layout = ed2.getLayoutInfo();
+                        const lineHeight = ed2.getOption(m.editor.EditorOption.lineHeight);
+                        ed2.setScrollTop(
+                            Math.max(0, lineTop - layout.height / 2 + lineHeight / 2),
+                        );
+                    }
+                } catch { /* ignore */ }
+            });
+        };
+
+        const t = setTimeout(doScroll, 50);
+        return () => clearTimeout(t);
+    }, [searchResult, activeSearchMatch, editorCreated, searchQuery]);
 
     // ============ Consolidated markers: FQID + dataType + enum ============
     useEffect(() => {
@@ -1339,6 +1446,7 @@ export function YamlViewerModal() {
                     "ui-rule-validator",
                     "attribute-ref-validator",
                     "rql-check",
+                    "action-required-validator",
                 ];
                 for (const src of sources) {
                     try { m.editor.setModelMarkers(model, src, []); } catch { }
@@ -1361,6 +1469,45 @@ export function YamlViewerModal() {
             try { applyUiRuleRefMarkers(m, model, index, domainId); } catch { /* ignore */ }
             try { applyAttributeRefMarkers(m, model); } catch { /* ignore */ }
             try { applyRqlMarkers(m, model); } catch { /* ignore */ }
+
+            // Post-filter по severityFilter: inline-валидаторы не знают про
+            // панельный фильтр, поэтому их маркеры оставались даже при
+            // выключенном severity. Перебираем все inline-источники и
+            // оставляем только те, чья severity включена пользователем.
+            try {
+                const severityMap: Record<number, "error" | "warning" | "info"> = {
+                    [m.MarkerSeverity.Error]: "error",
+                    [m.MarkerSeverity.Warning]: "warning",
+                    [m.MarkerSeverity.Info]: "info",
+                    [m.MarkerSeverity.Hint]: "info",
+                };
+                const INLINE_SOURCES = [
+                    "attribute-validator",
+                    "fqid-validator",
+                    "dataType-validator",
+                    "enum-validator",
+                    "view-ref-validator",
+                    "ui-rule-validator",
+                    "attribute-ref-validator",
+                    "action-required-validator",
+                    "rql-check",
+                ];
+                for (const source of INLINE_SOURCES) {
+                    const markers = m.editor.getModelMarkers({
+                        resource: model.uri,
+                        owner: source,
+                    });
+                    if (markers.length === 0) continue;
+                    const filtered = markers.filter((mk: any) => {
+                        const sev = severityMap[mk.severity];
+                        return sev != null && severityFilter.has(sev);
+                    });
+                    if (filtered.length !== markers.length) {
+                        m.editor.setModelMarkers(model, source, filtered);
+                    }
+                }
+            } catch { /* ignore */ }
+
             requestAnimationFrame(() => {
                 if (!editorRef.current) return;
                 try { editorRef.current.layout(); } catch { }
@@ -1381,7 +1528,7 @@ export function YamlViewerModal() {
             if (timer) clearTimeout(timer);
             try { disposable?.dispose?.(); } catch { /* ignore */ }
         };
-    }, [checksEnabled, monacoReady, editorCreated, index, domainId]);
+    }, [checksEnabled, monacoReady, editorCreated, index, domainId, severityFilter]);
 
     useEffect(() => {
         if (!monacoReady || !editorCreated || !editorRef.current) return;
@@ -1463,6 +1610,12 @@ export function YamlViewerModal() {
         const isDirty = content !== savedContent;
         const markers = domainIssues
             .filter((issue) => severityFilter.has(issue.severity))
+            // Скрываем серверные маркеры для правил, покрытых inline-
+            // валидаторами. Иначе на одной строке — 2 маркера: inline
+            // (attribute-validator) и dg-linter. При checksEnabled=false
+            // этот эффект выходит раньше — серверные маркеры остаются
+            // единственным источником (inline не запускается).
+            .filter((issue) => !INLINE_COVERED_RULE_IDS.has(issue.ruleId))
             .filter((issue) => !isIgnored(issue, ignored))
             .map((issue) => {
                 const state = isDirty
@@ -2044,95 +2197,53 @@ export function YamlViewerModal() {
     const handleSave = useCallback(async () => {
         if (isLocked || isSaving || !editorRef.current) return;
 
-        let valueToSave = editorRef.current.getValue();
-
+        const valueToSave = editorRef.current.getValue();
         if (valueToSave === savedContent) {
             setSaveFeedback(true);
             setTimeout(() => setSaveFeedback(false), 1500);
             return;
         }
 
-        // ============ Auto-bump version (только remote) ============
-        // В remote-режиме каждый save = publishExpertise. Сервер отклонит
-        // публикацию, если version не больше предыдущей. Если пользователь
-        // не изменил version — предлагаем поднять patch автоматически.
-        if (mode === "remote") {
-            const oldVersion = extractTopLevelVersion(savedContent);
-            const newVersion = extractTopLevelVersion(valueToSave);
-
-            if (oldVersion && newVersion && oldVersion === newVersion) {
-                const bumped = bumpPatchVersion(oldVersion);
-                if (bumped) {
-                    const ok = confirm(
-                        `Версия схемы не изменилась: ${oldVersion}.\n\n` +
-                        `Для публикации version должна быть больше, чем на сервере.\n` +
-                        `Поднять до ${bumped} и сохранить?`,
-                    );
-                    if (!ok) return;
-
-                    valueToSave = replaceTopLevelVersion(valueToSave, bumped);
-
-                    // Синхронизируем Monaco, чтобы пользователь увидел новую version
-                    isProgrammaticChange.current = true;
-                    try {
-                        editorRef.current.setValue(valueToSave);
-                    } finally {
-                        isProgrammaticChange.current = false;
-                    }
-                    setContent(valueToSave);
-                }
-                // Если version не-SemVer (с суффиксом) — молча пропускаем,
-                // сервер сам отругает LOWER_VERSION и пользователь увидит hint.
-            }
-        }
-
-        // Дальше — как обычно, но работаем с valueToSave
         setIsSaving(true);
-        setSaveStage(mode === "remote" ? "publishing" : "writing");
+        setSaveStage("writing");
         setSaveError(null);
 
-        // Таймаут на запрос: publish может подвесить ответ.
         const controller = new AbortController();
         saveAbortRef.current = controller;
         const timeoutId = setTimeout(() => controller.abort(), 120_000);
 
         try {
-            const body: any = { path: filePath, content: valueToSave };
+            const body: any = {
+                path: filePath,
+                content: valueToSave,
+                action: "save",
+            };
+            const pendingManifest =
+                useGraphStore.getState().yamlViewerPendingManifest;
+            if (pendingManifest) body.generated = pendingManifest;
 
-            const pendingManifest = useGraphStore.getState().yamlViewerPendingManifest;
-            if (pendingManifest) {
-                body.generated = pendingManifest;
-            }
-
-            const res = await fetch('/file', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+            const res = await fetch("/file", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(body),
                 signal: controller.signal,
             });
-
             if (!res.ok) {
                 const errText = await res.text();
                 let errMsg = errText;
                 try {
                     const j = JSON.parse(errText);
                     if (j.error) errMsg = j.error;
-                } catch { }
+                } catch { /* ignore */ }
                 throw new Error(errMsg);
             }
 
             invalidateYamlCache(filePath || undefined);
-
-            // Триггерим перезапрос /api/model
             useGraphStore.getState().bumpModelVersion();
-
-            // Небольшая задержка, чтобы сервер успел ребилдить
             setTimeout(() => {
                 useGraphStore.getState().bumpModelVersion();
             }, 800);
 
-
-            // Обновляем savedContent и content одновременно
             setSavedContent(valueToSave);
             setContent(valueToSave);
             setLiveVersion((v) => v + 1);
@@ -2143,33 +2254,17 @@ export function YamlViewerModal() {
 
             try {
                 editorRef.current?.pushUndoStop();
-            } catch { }
+            } catch { /* ignore */ }
 
-            // ============ Публикация (remote) ============
-            // Разбираем ответ: локальная запись уже прошла (data.ok === true),
-            // publish — отдельное поле.
-            let publishInfo: any = null;
-            try {
-                const data = await res.json();
-                if (data && data.publish) publishInfo = data.publish;
-            } catch {
-                /* ignore — старый сервер мог вернуть не-JSON; не блокируем сохранение */
-            }
-
-            // ============ Read-back: сверяем диск с Monaco ============
+            // Read-back: сверяем диск с Monaco
             let diskContent: string | null = null;
             try {
                 const back = await fetch(
                     "/file?path=" + encodeURIComponent(filePath || ""),
                 );
                 if (back.ok) diskContent = await back.text();
-            } catch {
-                /* ignore — диагностика, не блокирует save */
-            }
+            } catch { /* ignore */ }
 
-            // ============ Собираем итог: error / feedback ============
-            // «Сохранён» показываем ТОЛЬКО если ни ошибки publish,
-            // ни расхождения с диском не было.
             let hadError = false;
 
             if (
@@ -2188,18 +2283,198 @@ export function YamlViewerModal() {
                 setLiveVersion((v) => v + 1);
                 hadError = true;
                 setSaveError(
-                    "На диске оказалось другое содержимое. Monaco синхронизирован. " +
-                    "Проверьте, не запущен ли --refresh параллельно.",
+                    "На диске оказалось другое содержимое. Monaco синхронизирован.",
                 );
             }
 
+            let draftInfo: any = null;
+            try {
+                const data = await res.json();
+                if (data && data.draft) draftInfo = data.draft;
+            } catch { /* ignore */ }
+
+            if (draftInfo && draftInfo.ok === true) {
+                // После saveDraft на сервере точно есть черновик — даже если
+                // до этого был "published". Позволяет сразу публиковать
+                // без дополнительного редактирования.
+                useGraphStore.getState().setYamlViewerContentSource("draft");
+                setMetaOverride((prev) => ({
+                    ...(prev || {}),
+                    updatedAt: new Date().toISOString(),
+                    updatedBy: "вы",
+                }));
+                useGraphStore.getState().showSnackbar(
+                    `✅ Черновик сохранён: ${draftInfo.domain?.name || filePath}`,
+                );
+            } else if (draftInfo && draftInfo.ok === false) {
+                hadError = true;
+                const hint = draftInfo.hint ? `\n${draftInfo.hint}` : "";
+                setSaveError(
+                    `Локально сохранено. Черновик на сервере не сохранён: ${draftInfo.error}${hint}`,
+                );
+                useGraphStore.getState().showSnackbar(
+                    `⚠️ Локально сохранено, черновик не удался: ${draftInfo.error}`,
+                );
+            }
+
+            if (!hadError) {
+                setSaveFeedback(true);
+                setTimeout(() => setSaveFeedback(false), 2000);
+            }
+        } catch (err: any) {
+            setSaveError(err.message || "Ошибка сохранения");
+        } finally {
+            clearTimeout(timeoutId);
+            saveAbortRef.current = null;
+            setIsSaving(false);
+            setSaveStage("idle");
+        }
+    }, [isLocked, savedContent, filePath, mode, isSaving]);
+
+    const handlePublish = useCallback(async () => {
+        if (isLocked || isSaving || !editorRef.current) return;
+
+        let valueToSave = editorRef.current.getValue();
+
+        // Autobump: только для remote и local — в hybrid publish недоступен.
+        // При publish version должна быть > серверной (а для local — «осмысленно выше»).
+        if (mode === "remote" || mode === "local") {
+            const oldVersion = extractTopLevelVersion(savedContent);
+            const newVersion = extractTopLevelVersion(valueToSave);
+            if (oldVersion && newVersion && oldVersion === newVersion) {
+                const bumped = bumpPatchVersion(oldVersion);
+                if (bumped) {
+                    const ok = confirm(
+                        `Версия схемы не изменилась: ${oldVersion}.\n\n` +
+                        `Для публикации version должна быть больше, чем на сервере.\n` +
+                        `Поднять до ${bumped} и опубликовать?`,
+                    );
+                    if (!ok) return;
+
+                    valueToSave = replaceTopLevelVersion(valueToSave, bumped);
+                    isProgrammaticChange.current = true;
+                    try {
+                        editorRef.current.setValue(valueToSave);
+                    } finally {
+                        isProgrammaticChange.current = false;
+                    }
+                    setContent(valueToSave);
+                }
+            }
+        }
+
+        setIsSaving(true);
+        setSaveStage(mode === "remote" ? "publishing" : "writing");
+        setSaveError(null);
+
+        const controller = new AbortController();
+        saveAbortRef.current = controller;
+        const timeoutId = setTimeout(() => controller.abort(), 120_000);
+
+        try {
+            const body: any = {
+                path: filePath,
+                content: valueToSave,
+                action: "publish",
+            };
+            const pendingManifest =
+                useGraphStore.getState().yamlViewerPendingManifest;
+            if (pendingManifest) body.generated = pendingManifest;
+
+            const res = await fetch("/file", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+                signal: controller.signal,
+            });
+            if (!res.ok) {
+                const errText = await res.text();
+                let errMsg = errText;
+                try {
+                    const j = JSON.parse(errText);
+                    if (j.error) errMsg = j.error;
+                } catch { /* ignore */ }
+                throw new Error(errMsg);
+            }
+
+            invalidateYamlCache(filePath || undefined);
+            useGraphStore.getState().bumpModelVersion();
+            setTimeout(() => {
+                useGraphStore.getState().bumpModelVersion();
+            }, 800);
+
+            setSavedContent(valueToSave);
+            setContent(valueToSave);
+            setLiveVersion((v) => v + 1);
+
+            if (pendingManifest) {
+                useGraphStore.getState().setYamlViewerPendingManifest(null);
+            }
+
+            try {
+                editorRef.current?.pushUndoStop();
+            } catch { /* ignore */ }
+
+            // Read-back
+            let diskContent: string | null = null;
+            try {
+                const back = await fetch(
+                    "/file?path=" + encodeURIComponent(filePath || ""),
+                );
+                if (back.ok) diskContent = await back.text();
+            } catch { /* ignore */ }
+
+            let hadError = false;
+
+            if (
+                diskContent !== null &&
+                diskContent !== valueToSave &&
+                editorRef.current
+            ) {
+                isProgrammaticChange.current = true;
+                try {
+                    editorRef.current.setValue(diskContent);
+                } finally {
+                    isProgrammaticChange.current = false;
+                }
+                setSavedContent(diskContent);
+                setContent(diskContent);
+                setLiveVersion((v) => v + 1);
+                hadError = true;
+                setSaveError(
+                    "На диске оказалось другое содержимое. Monaco синхронизирован.",
+                );
+            }
+
+            let publishInfo: any = null;
+            try {
+                const data = await res.json();
+                if (data && data.publish) publishInfo = data.publish;
+            } catch { /* ignore */ }
+
             if (publishInfo && publishInfo.ok === true) {
-                // publish успешен — "✓ сохранён" и toast
+                // После успешной публикации черновик на сервере очищен —
+                // редактор теперь показывает опубликованную версию.
+                useGraphStore.getState().setYamlViewerContentSource("published");
+                // Сбрасываем закэшированную published-версию: если пользователь
+                // её запрашивал для diff — она уже неактуальна. И выходим из
+                // diff-режима, если он был.
+                setPublishedContent(null);
+                setDiffAgainst(null);
+
+                // Обновляем meta оптимистично: publishedVersion = version из YAML,
+                // updatedAt = сейчас, updatedBy = "вы".
+                const newVersion = extractTopLevelVersion(valueToSave);
+                setMetaOverride((prev) => ({
+                    ...(prev || {}),
+                    ...(newVersion ? { publishedVersion: newVersion } : {}),
+                    updatedAt: new Date().toISOString(),
+                    updatedBy: "вы",
+                }));
                 useGraphStore.getState().showSnackbar(
                     `✅ Опубликовано: ${publishInfo.domain?.name || filePath}`,
                 );
             } else if (publishInfo && publishInfo.ok === false) {
-                // локально сохранили, publish упал — БЕЗ "✓ сохранён"
                 hadError = true;
                 const hint = publishInfo.hint ? `\n${publishInfo.hint}` : "";
                 setSaveError(
@@ -2209,21 +2484,63 @@ export function YamlViewerModal() {
                     `⚠️ Локально сохранено, публикация не удалась: ${publishInfo.error}`,
                 );
             }
-            // local / hybrid — hadError остаётся false, просто показать feedback
 
             if (!hadError) {
                 setSaveFeedback(true);
                 setTimeout(() => setSaveFeedback(false), 2000);
             }
         } catch (err: any) {
-            setSaveError(err.message || 'Ошибка сохранения');
+            setSaveError(err.message || "Ошибка публикации");
         } finally {
             clearTimeout(timeoutId);
             saveAbortRef.current = null;
             setIsSaving(false);
             setSaveStage("idle");
         }
-    }, [isLocked, savedContent, filePath, mode]);
+    }, [isLocked, savedContent, filePath, mode, isSaving]);
+
+    const handleDiffPublished = useCallback(async () => {
+        if (!filePath) return;
+
+        // Уже открыт в режиме published — закрываем.
+        if (diffAgainst === "published") {
+            setDiffAgainst(null);
+            return;
+        }
+
+        // Лениво грузим опубликованную версию. Кэшируем: published не
+        // меняется до следующего publish (после него мы сбрасываем кэш).
+        if (publishedContent === null) {
+            try {
+                const r = await fetch(
+                    "/file/published?path=" + encodeURIComponent(filePath),
+                );
+                if (!r.ok) {
+                    const t = await r.text();
+                    let msg = `HTTP ${r.status}`;
+                    try {
+                        const j = JSON.parse(t);
+                        if (j?.error) msg = j.error;
+                    } catch { /* ignore */ }
+                    throw new Error(msg);
+                }
+                const text = await r.text();
+                setPublishedContent(text);
+                setDiffAgainst("published");
+            } catch (e: any) {
+                useGraphStore.getState().showSnackbar(
+                    "Не удалось загрузить опубликованную версию: " +
+                    (e?.message || String(e)),
+                );
+            }
+        } else {
+            setDiffAgainst("published");
+        }
+    }, [filePath, diffAgainst, publishedContent]);
+
+    const handleDiffPrevious = useCallback(() => {
+        setDiffAgainst(diffAgainst === "previous" ? null : "previous");
+    }, [diffAgainst]);
 
     const handleServerValidate = useCallback(async () => {
         if (!editorRef.current) return;
@@ -2260,11 +2577,28 @@ export function YamlViewerModal() {
 
     // ============ Close ============
     const handleClose = useCallback(() => {
-        if (isDirty && !isLocked) {
-            if (!confirm('Есть несохранённые изменения. Закрыть без сохранения?')) return;
+        if (isSaving) {
+            if (
+                !confirm(
+                    "Идёт сохранение. Прервать и закрыть без сохранения?",
+                )
+            )
+                return;
+            try {
+                saveAbortRef.current?.abort();
+            } catch {
+                /* ignore */
+            }
+        } else if (isDirty && !isLocked) {
+            if (
+                !confirm(
+                    "Есть несохранённые изменения. Закрыть без сохранения?",
+                )
+            )
+                return;
         }
         useGraphStore.getState().setYamlViewerOpen(false);
-    }, [isDirty, isLocked]);
+    }, [isDirty, isLocked, isSaving]);
 
     // ============ Keyboard nav ============
     useEffect(() => {
@@ -2443,6 +2777,9 @@ export function YamlViewerModal() {
         setSaveFeedback(false);
         setFocusTarget(null);
         setFocusIncludeDeps(false);
+        setDiffAgainst(null);
+        setPublishedContent(null);
+        setMetaOverride(null);
     }, [filePath, open]);
 
     useEffect(() => {
@@ -2510,14 +2847,16 @@ export function YamlViewerModal() {
     }, [open, filePath, saveFeedback]);
 
     useEffect(() => {
-        if (!diffMode || !monacoReady || !editorCreated || !diffContainerRef.current) return;
-        if (previousContent == null) return;
+        if (diffAgainst === null || !monacoReady || !editorCreated || !diffContainerRef.current) return;
+        const original =
+            diffAgainst === "published" ? publishedContent : previousContent;
+        if (original == null) return;
         const w = window as any;
         const m = w.monaco;
         if (!m || !editorRef.current) return;
 
         const modifiedContent = editorRef.current.getValue();
-        const originalModel = m.editor.createModel(previousContent, 'yaml');
+        const originalModel = m.editor.createModel(original, 'yaml');
         const modifiedModel = m.editor.createModel(modifiedContent, 'yaml');
 
         const diffEditor = m.editor.createDiffEditor(diffContainerRef.current, {
@@ -2537,7 +2876,7 @@ export function YamlViewerModal() {
             try { modifiedModel.dispose(); } catch { }
             diffEditorRef.current = null;
         };
-    }, [diffMode, monacoReady, editorCreated, previousContent]);
+    }, [diffAgainst, monacoReady, editorCreated, previousContent, publishedContent]);
 
     useEffect(() => {
         if (!editorRef.current) return;
@@ -2822,77 +3161,6 @@ export function YamlViewerModal() {
         }
     }, [monacoTheme, monacoReady]);
 
-    // Auto-scroll к первому матчу при появлении результатов.
-    // Без этого матчи есть в модели, но за пределами 20 видимых строк
-    // (Monaco virtualiz'ует строки), и в DOM нет классов → визуально "нет подсветки".
-    useEffect(() => {
-        if (!editorCreated || !editorRef.current) return;
-        if (!searchResult || searchResult.groups.length === 0) return;
-
-        const firstMatch = searchResult.groups[0]?.matches[0];
-        if (!firstMatch) return;
-
-        // Не перебиваем активный матч — если пользователь уже Ctrl+Enter'ом
-        // ушёл к 5-му, не должны прыгать назад.
-        if (activeSearchMatch) return;
-
-        const m = (window as any).monaco;
-        if (!m) return;
-
-        const doScroll = () => {
-            const ed = editorRef.current;
-            if (!ed) return;
-
-            // ============ Метод 1: revealPositionInCenterIfOutsideViewport ============
-            // Не требует фокуса и не скроллит, если уже видно.
-            try {
-                ed.revealPositionInCenterIfOutsideViewport(
-                    { lineNumber: firstMatch.line, column: firstMatch.column },
-                    m.editor.ScrollType.Immediate,
-                );
-            } catch (err) {
-                console.warn("[search-jump] revealPosition failed:", err);
-            }
-
-            try {
-                ed.setPosition({
-                    lineNumber: firstMatch.line,
-                    column: firstMatch.column,
-                });
-            } catch { }
-
-            // ============ Метод 2 (fallback): прямой setScrollTop ============
-            // Если после revealPosition строка всё ещё не в viewport —
-            // считаем scrollTop вручную. Не требует фокуса, работает всегда.
-            requestAnimationFrame(() => {
-                const ed2 = editorRef.current;
-                if (!ed2) return;
-                try {
-                    const visible = ed2.getVisibleRanges();
-                    const isVisible = visible.some(
-                        (r) =>
-                            r.startLineNumber <= firstMatch.line &&
-                            firstMatch.line <= r.endLineNumber,
-                    );
-                    if (!isVisible) {
-                        const lineTop = ed2.getTopForLineNumber(firstMatch.line);
-                        const layout = ed2.getLayoutInfo();
-                        const lineHeight = ed2.getOption(m.editor.EditorOption.lineHeight);
-                        ed2.setScrollTop(
-                            Math.max(0, lineTop - layout.height / 2 + lineHeight / 2),
-                        );
-                    }
-                } catch (err) {
-                    console.warn("[search-jump] fallback failed:", err);
-                }
-            });
-        };
-
-        // Небольшая задержка: Monaco иногда не готов сразу после setValue/debounce
-        const t = setTimeout(doScroll, 50);
-        return () => clearTimeout(t);
-    }, [searchResult, activeSearchMatch, editorCreated]);
-
     useEffect(() => {
         if (!pendingGeneration) return;
         if (!editorCreated || !editorRef.current) return;
@@ -2977,11 +3245,58 @@ export function YamlViewerModal() {
         return () => clearTimeout(t);
     }, [open, pendingBlock, editorCreated, loading, jumpTo, setPendingBlock]);
 
-    if (!open) return null;
 
     const canSave = !isLocked && isDirty;
+
+    // contentSource читаем из store, чтобы учитывать ручное обновление
+    // после saveDraft / publish (хук useYamlContent обновляется только
+    // при следующем fetch).
+    const yamlContentSource = useGraphStore((s) => s.yamlViewerContentSource);
+
+    // Публиковать можно не только при локальных изменениях, но и когда
+    // на сервере есть черновик — даже если редактор не тронут.
+    const canPublish =
+        !isLocked && (isDirty || yamlContentSource === "draft");
+
+    // ============ Disabled-флаги (для кнопок шапки) ============
+    // Save/Publish дополнительно блокируются на время первичной
+    // загрузки (loading из useYamlContent) — content/savedContent ещё
+    // пустые, isDirty = false, но и это уже покрывается canSave; явный
+    // `loading` нужен для tooltip «Загрузка…» и защиты от клика в
+    // момент между fetch и setContent.
+    const saveDisabled = !canSave || isSaving || loading;
+    const publishDisabled =
+        !canPublish || isSaving || mode === "hybrid" || loading;
+    // Lock во время save: смена isLocked ломает state текущей операции.
+    const lockDisabled = isSaving || loading;
+    // Copy при loading: Monaco пуст.
+    const copyDisabled = loading;
+    // Diff во время save: база устарела, показывать бессмысленно.
+    const diffDisabled = isSaving;
+    // Server validate: не запускаем параллельно с save (race на сервере).
+    const validateDisabled = serverValidating || isSaving;
+    // More-меню: пункты, которые закрывают редактор или сравнивают
+    // домены — блокируем на время save.
+    const moreDisabled = isSaving || loading;
+
+    // Визуал для disabled: в проекте CSS `:disabled` для .btn и
+    // .help-modal__icon-btn отсутствует, поэтому применяем inline.
+    // Рекомендую также добавить CSS (см. конец ответа) — уберём дублирование.
+    const dimStyle = (
+        isDisabled: boolean,
+    ): React.CSSProperties | undefined =>
+        isDisabled
+            ? {
+                opacity: 0.4,
+                cursor: "not-allowed",
+                filter: "grayscale(0.6)",
+            }
+            : undefined;
+
     const issueCount = effectiveIssues.length;
     const refsCount = externalRefs.refs.length;
+
+    if (!open) return null;
 
     return (
         <div
@@ -2994,11 +3309,42 @@ export function YamlViewerModal() {
             >
                 {/* ============ HEADER ============ */}
                 <div className="help-modal__header">
-                    <div className="help-modal__title">
-                        📄 {filePath?.split('/').pop() || 'Файл схемы'}
+                    <div className="help-modal__title" style={{ flexWrap: "wrap", rowGap: 4 }}>
+                        <MIcon name="description" size="sm" />
+                        <span className="yaml-viewer-title__filename">
+                            {filePath?.split('/').pop() || 'Файл схемы'}
+                        </span>
                         {domainId && <span className="help-modal__badge">{domainId}</span>}
-                        {/* Приоритет бейджей: saving > saved > dirty.
-                            Одновременно виден только один. */}
+
+                        {/* Статусы: черновик, diff, сохранение/изменён */}
+                        {yamlContentSource === "draft" && (
+                            <span
+                                className="help-modal__badge"
+                                style={{
+                                    background: "rgba(245, 158, 11, 0.15)",
+                                    color: "#f59e0b",
+                                }}
+                                title="В редакторе открыт черновик с сервера (не опубликован)"
+                            >
+                                черновик
+                            </span>
+                        )}
+                        {diffAgainst !== null && (
+                            <span
+                                className="help-modal__badge"
+                                style={{
+                                    background: "rgba(99, 102, 241, 0.15)",
+                                    color: "#818cf8",
+                                }}
+                                title={
+                                    diffAgainst === "published"
+                                        ? "Показан diff: черновик ↔ опубликованная версия"
+                                        : "Показан diff: текущий файл ↔ предыдущее сохранение на диске"
+                                }
+                            >
+                                {diffAgainst === "published" ? "diff: publish" : "diff: previous"}
+                            </span>
+                        )}
                         {isSaving ? (
                             <span
                                 className="help-modal__badge help-modal__badge--saving"
@@ -3008,9 +3354,7 @@ export function YamlViewerModal() {
                                         : "Идёт запись файла на диск"
                                 }
                             >
-                                {saveStage === "publishing"
-                                    ? "● публикация…"
-                                    : "● сохранение…"}
+                                {saveStage === "publishing" ? "● публикация…" : "● сохранение…"}
                             </span>
                         ) : loading ? (
                             <span
@@ -3034,9 +3378,195 @@ export function YamlViewerModal() {
                                 ● изменён
                             </span>
                         ) : null}
+
+                        {/* Meta-строка: версия (draft), время, автор */}
+                        {yamlMeta && (yamlMeta.publishedVersion || yamlMeta.updatedAt || yamlMeta.updatedBy) && (
+                            <span
+                                style={{
+                                    marginLeft: 12,
+                                    paddingLeft: 12,
+                                    borderLeft: "1px solid var(--border)",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 8,
+                                    fontSize: 11,
+                                    fontWeight: 400,
+                                    color: "var(--text-500)",
+                                }}
+                            >
+                                {yamlContentSource === "draft" && yamlMeta.publishedVersion && (
+                                    <span title="Версия опубликованной схемы (черновик не публикуется с новой version)">
+                                        опубликовано v{yamlMeta.publishedVersion}
+                                    </span>
+                                )}
+                                {yamlMeta.updatedAt && (
+                                    <span title={new Date(yamlMeta.updatedAt).toLocaleString("ru-RU")}>
+                                        сохранён {relativeTime(yamlMeta.updatedAt)}
+                                    </span>
+                                )}
+                                {yamlMeta.updatedBy && (
+                                    <span title="Автор последних изменений">
+                                        · {yamlMeta.updatedBy}
+                                    </span>
+                                )}
+                            </span>
+                        )}
                     </div>
 
-                    <div className="help-modal__actions">
+                    <div
+                        className="help-modal__actions"
+                        style={{ gap: 6, alignItems: "center" }}
+                    >
+                        {/* === PRIMARY: Save / Publish === */}
+                        <button
+                            className="btn btn--primary"
+                            onClick={handleSave}
+                            disabled={saveDisabled}
+                            style={dimStyle(saveDisabled)}
+                            title={
+                                isLocked
+                                    ? "Разблокируйте файл для сохранения (двойной Shift)"
+                                    : isSaving
+                                        ? "Сохранение уже выполняется"
+                                        : loading
+                                            ? "Загрузка схемы…"
+                                            : !isDirty
+                                                ? "Нет изменений для сохранения"
+                                                : mode === "remote"
+                                                    ? "Сохранить черновик на сервере (Ctrl+S)"
+                                                    : "Сохранить изменения (Ctrl+S)"
+                            }
+                        >
+                            <MIcon
+                                name={
+                                    isSaving && saveStage === "writing" ? "hourglass" : "save"
+                                }
+                                size="sm"
+                            />
+                            <span>Сохранить</span>
+                        </button>
+
+                        <button
+                            className="btn"
+                            onClick={handlePublish}
+                            disabled={publishDisabled}
+                            style={dimStyle(publishDisabled)}
+                            title={
+                                mode === "hybrid"
+                                    ? "Публикация недоступна в гибридном режиме (только локальное сохранение)"
+                                    : isLocked
+                                        ? "Разблокируйте файл для публикации"
+                                        : isSaving
+                                            ? "Дождитесь окончания текущего сохранения"
+                                            : loading
+                                                ? "Загрузка схемы…"
+                                                : !isDirty && yamlContentSource === "draft"
+                                                    ? "Опубликовать черновик с сервера (Ctrl+Shift+S)"
+                                                    : !isDirty
+                                                        ? "Нет изменений для публикации"
+                                                        : mode === "remote"
+                                                            ? "Опубликовать на сервере (Ctrl+Shift+S). Поднимает version."
+                                                            : "Сохранить с повышением version (Ctrl+Shift+S)"
+                            }
+                        >
+                            <MIcon
+                                name={
+                                    isSaving && saveStage === "publishing"
+                                        ? "hourglass"
+                                        : "cloud_upload"
+                                }
+                                size="sm"
+                            />
+                            <span>Опубликовать</span>
+                        </button>
+
+                        <span
+                            style={{
+                                width: 1,
+                                height: 20,
+                                background: "var(--border)",
+                                margin: "0 4px",
+                                display: "inline-block",
+                            }}
+                        />
+
+                        {/* === STATE: Lock, Copy === */}
+                        <button
+                            className={"help-modal__icon-btn" + (!isLocked ? " active" : "")}
+                            onClick={handleToggleLock}
+                            disabled={lockDisabled}
+                            style={dimStyle(lockDisabled)}
+                            title={
+                                isSaving
+                                    ? "Дождитесь окончания сохранения"
+                                    : loading
+                                        ? "Загрузка схемы…"
+                                        : isLocked
+                                            ? "Разблокировать для редактирования (двойной Shift)"
+                                            : "Заблокировать (сбросить изменения)"
+                            }
+                        >
+                            <MIcon name={isLocked ? "lock" : "lock_open"} />
+                        </button>
+
+                        <button
+                            className={"help-modal__icon-btn" + (copyFeedback ? " active" : "")}
+                            onClick={handleCopy}
+                            disabled={copyDisabled}
+                            style={dimStyle(copyDisabled)}
+                            title={
+                                loading
+                                    ? "Загрузка схемы…"
+                                    : "Копировать содержимое в буфер"
+                            }
+                        >
+                            <MIcon name={copyFeedback ? "check" : "content_copy"} />
+                        </button>
+
+                        {/* === VIEW: Diff previous / Diff published === */}
+                        {previousContent && (
+                            <button
+                                className={
+                                    "help-modal__icon-btn" +
+                                    (diffAgainst === "previous" ? " active" : "")
+                                }
+                                onClick={handleDiffPrevious}
+                                disabled={diffDisabled}
+                                style={dimStyle(diffDisabled)}
+                                title={
+                                    isSaving
+                                        ? "Дождитесь окончания сохранения"
+                                        : diffAgainst === "previous"
+                                            ? "Вернуться к редактору"
+                                            : "Diff с предыдущим сохранением на диске"
+                                }
+                            >
+                                <MIcon name="difference" />
+                            </button>
+                        )}
+
+                        {yamlContentSource === "draft" && (
+                            <button
+                                className={
+                                    "help-modal__icon-btn" +
+                                    (diffAgainst === "published" ? " active" : "")
+                                }
+                                onClick={handleDiffPublished}
+                                disabled={diffDisabled}
+                                style={dimStyle(diffDisabled)}
+                                title={
+                                    isSaving
+                                        ? "Дождитесь окончания сохранения"
+                                        : diffAgainst === "published"
+                                            ? "Вернуться к редактору"
+                                            : "Diff: черновик (в редакторе) ↔ опубликованная версия (на сервере)"
+                                }
+                            >
+                                <MIcon name="cloud_download" />
+                            </button>
+                        )}
+
+                        {/* === SERVER VALIDATE === */}
                         {serverAvailable && (
                             <button
                                 className={
@@ -3049,11 +3579,18 @@ export function YamlViewerModal() {
                                         : "")
                                 }
                                 onClick={handleServerValidate}
-                                disabled={serverValidating}
+                                disabled={validateDisabled}
+                                style={dimStyle(validateDisabled)}
                                 title={
                                     serverValidating
                                         ? "Проверка на сервере..."
-                                        : "Проверить на сервере"
+                                        : isSaving
+                                            ? "Дождитесь окончания сохранения"
+                                            : serverValidation && !serverValidating
+                                                ? serverValidation.isValid
+                                                    ? "Сервер: схема валидна"
+                                                    : `Сервер: ${serverValidation.diagnostics?.length || "!"} ошибок`
+                                                : "Проверить на сервере"
                                 }
                             >
                                 <MIcon
@@ -3070,156 +3607,255 @@ export function YamlViewerModal() {
                             </button>
                         )}
 
-                        <button
-                            className="help-modal__icon-btn"
-                            onClick={() => setLeftCollapsed(!leftCollapsed)}
-                            title={leftCollapsed ? "Развернуть навигацию" : "Свернуть навигацию"}
-                        >
-                            <MIcon name={leftCollapsed ? "chevron_right" : "chevron_left"} />
-                        </button>
-
-                        <button
-                            className="help-modal__icon-btn"
-                            onClick={() => setRightCollapsed(!rightCollapsed)}
-                            title={
-                                rightCollapsed
-                                    ? "Развернуть панель проблем"
-                                    : "Свернуть панель проблем"
-                            }
-                        >
-                            <MIcon name={rightCollapsed ? "chevron_left" : "chevron_right"} />
-                        </button>
-                        {index?.pii?.byDomain?.some((d: any) => d.domainId === domainId) && (
-                            <button
-                                className="help-modal__icon-btn"
-                                onClick={() => {
-                                    useGraphStore.getState().setYamlViewerOpen(false);
-                                    useGraphStore.getState().setPiiOpen(true);
-                                }}
-                                title="PII-атрибуты в домене"
-                            >
-                                <MIcon name="shield_lock" />
-                            </button>
-                        )}
-
-                        <button
-                            className="help-modal__icon-btn"
-                            onClick={() => {
-                                useGraphStore.getState().setYamlViewerOpen(false);
-                                useGraphStore.getState().setDomainComparePrefillA(domainId);
-                                useGraphStore.getState().setDomainCompareOpen(true);
+                        <span
+                            style={{
+                                width: 1,
+                                height: 20,
+                                background: "var(--border)",
+                                margin: "0 4px",
+                                display: "inline-block",
                             }}
-                            disabled={isDirty}
-                            title={
-                                isDirty
-                                    ? "Сохраните или отмените изменения перед переходом"
-                                    : "Сравнить домены"
-                            }
+                        />
+
+                        {/* === MORE: dropdown со вторичными действиями === */}
+                        <Popover
+                            width={280}
+                            align="right"
+                            trigger={(open) => (
+                                <button
+                                    className={"help-modal__icon-btn" + (open ? " active" : "")}
+                                    title="Дополнительные действия"
+                                >
+                                    <MIcon name="more_horiz" />
+                                </button>
+                            )}
                         >
-                            <MIcon name="compare_arrows" />
-                        </button>
+                            {(close) => (
+                                <div className="menu">
+                                    {domainId && (
+                                        <button
+                                            className="menu__item"
+                                            disabled={moreDisabled}
+                                            style={dimStyle(moreDisabled)}
+                                            onClick={() => {
+                                                const st = useGraphStore.getState();
+                                                st.setDomainSchemaDomainId(domainId);
+                                                if (navQuery.trim())
+                                                    st.setDomainSchemaPrefillQuery(
+                                                        navQuery.trim(),
+                                                    );
+                                                if (onlyProblematic)
+                                                    st.setDomainSchemaPrefillOnlyProblematic(true);
+                                                st.setDomainSchemaOpen(true);
+                                                close();
+                                            }}
+                                            title={
+                                                moreDisabled
+                                                    ? "Дождитесь окончания сохранения"
+                                                    : "Открыть структурированный обзор схемы"
+                                            }
+                                        >
+                                            <span className="menu__icon">
+                                                <MIcon name="menu_book" size="sm" />
+                                            </span>
+                                            <span className="menu__text">Схема домена</span>
+                                        </button>
+                                    )}
 
-                        {domainId ? (
-                            <button
-                                className="help-modal__icon-btn"
-                                onClick={() => {
-                                    useGraphStore.getState().setYamlViewerOpen(false);
-                                    gotoDomain(domainId);
-                                }}
-                                disabled={isDirty}
-                                title={
-                                    isDirty
-                                        ? "Сохраните или отмените изменения перед переходом"
-                                        : "Показать на графе"
-                                }
-                            >
-                                <MIcon name="my_location" />
-                            </button>
-                        ) : null}
+                                    {index?.pii?.byDomain?.some(
+                                        (d: any) => d.domainId === domainId,
+                                    ) && (
+                                            <button
+                                                className="menu__item"
+                                                disabled={moreDisabled}
+                                                style={dimStyle(moreDisabled)}
+                                                onClick={() => {
+                                                    useGraphStore.getState().setYamlViewerOpen(false);
+                                                    useGraphStore.getState().setPiiOpen(true);
+                                                    close();
+                                                }}
+                                                title={
+                                                    moreDisabled
+                                                        ? "Дождитесь окончания сохранения"
+                                                        : "PII-атрибуты в домене"
+                                                }
+                                            >
+                                                <span className="menu__icon">
+                                                    <MIcon name="shield_lock" size="sm" />
+                                                </span>
+                                                <span className="menu__text">
+                                                    PII-атрибуты в домене
+                                                </span>
+                                            </button>
+                                        )}
 
-                        <button
-                            className={'help-modal__icon-btn' + (!isLocked ? ' active' : '')}
-                            onClick={handleToggleLock}
-                            title={isLocked ? 'Разблокировать для редактирования (двойной Shift)' : 'Заблокировать (сбросить изменения)'}
-                        >
-                            <MIcon name={isLocked ? 'lock' : 'lock_open'} />
-                        </button>
+                                    <button
+                                        className="menu__item"
+                                        disabled={isDirty || isSaving || loading}
+                                        style={dimStyle(isDirty || isSaving || loading)}
+                                        onClick={() => {
+                                            useGraphStore.getState().setYamlViewerOpen(false);
+                                            useGraphStore
+                                                .getState()
+                                                .setDomainComparePrefillA(domainId);
+                                            useGraphStore.getState().setDomainCompareOpen(true);
+                                            close();
+                                        }}
+                                        title={
+                                            isDirty
+                                                ? "Сохраните или отмените изменения перед переходом"
+                                                : isSaving
+                                                    ? "Дождитесь окончания сохранения"
+                                                    : undefined
+                                        }
+                                    >
+                                        <span className="menu__icon">
+                                            <MIcon name="compare_arrows" size="sm" />
+                                        </span>
+                                        <span className="menu__text">Сравнить домены</span>
+                                    </button>
 
-                        <button
-                            className={'help-modal__icon-btn' + (copyFeedback ? ' active' : '')}
-                            onClick={handleCopy}
-                            title="Копировать содержимое в буфер"
-                        >
-                            <MIcon name={copyFeedback ? 'check' : 'content_copy'} />
-                        </button>
+                                    {domainId && (
+                                        <button
+                                            className="menu__item"
+                                            disabled={isDirty || isSaving || loading}
+                                            style={dimStyle(isDirty || isSaving || loading)}
+                                            onClick={() => {
+                                                useGraphStore.getState().setYamlViewerOpen(false);
+                                                gotoDomain(domainId);
+                                                close();
+                                            }}
+                                            title={
+                                                isDirty
+                                                    ? "Сохраните или отмените изменения перед переходом"
+                                                    : isSaving
+                                                        ? "Дождитесь окончания сохранения"
+                                                        : undefined
+                                            }
+                                        >
+                                            <span className="menu__icon">
+                                                <MIcon name="my_location" size="sm" />
+                                            </span>
+                                            <span className="menu__text">
+                                                Показать на графе
+                                            </span>
+                                        </button>
+                                    )}
 
-                        <button
-                            className={'help-modal__icon-btn' + (saveFeedback ? ' active' : '')}
-                            onClick={handleSave}
-                            disabled={!canSave || isSaving}
-                            title={
-                                isLocked
-                                    ? 'Разблокируйте файл для сохранения'
-                                    : isDirty
-                                        ? mode === 'remote'
-                                            ? 'Сохранить и опубликовать на сервере (Ctrl+S)'
-                                            : 'Сохранить изменения (Ctrl+S)'
-                                        : 'Нет изменений для сохранения'
-                            }
-                        >
-                            <MIcon name={isSaving ? 'hourglass' : 'save'} />
-                        </button>
+                                    <div className="menu__divider" />
 
-                        {previousContent && (
-                            <button
-                                className={'help-modal__icon-btn' + (diffMode ? ' active' : '')}
-                                onClick={() => setDiffMode(!diffMode)}
-                                title={diffMode ? 'Вернуться к редактору' : 'Показать diff с предыдущим сохранением'}
-                            >
-                                <MIcon name="difference" />
-                            </button>
-                        )}
+                                    <button
+                                        className="menu__item"
+                                        onClick={() => {
+                                            setLeftCollapsed(!leftCollapsed);
+                                            close();
+                                        }}
+                                    >
+                                        <span className="menu__icon">
+                                            <MIcon
+                                                name={
+                                                    leftCollapsed ? "chevron_right" : "chevron_left"
+                                                }
+                                                size="sm"
+                                            />
+                                        </span>
+                                        <span className="menu__text">
+                                            {leftCollapsed ? "Показать" : "Скрыть"} навигацию
+                                        </span>
+                                    </button>
 
-                        {domainId && (
-                            <button
-                                className="help-modal__icon-btn"
-                                onClick={() => {
-                                    const st = useGraphStore.getState();
-                                    st.setDomainSchemaDomainId(domainId);
-                                    if (navQuery.trim()) st.setDomainSchemaPrefillQuery(navQuery.trim());
-                                    if (onlyProblematic) st.setDomainSchemaPrefillOnlyProblematic(true);
-                                    st.setDomainSchemaOpen(true);
-                                }}
-                                title="Структурированный обзор схемы"
-                            >
-                                <MIcon name="menu_book" />
-                            </button>
-                        )}
+                                    <button
+                                        className="menu__item"
+                                        onClick={() => {
+                                            setRightCollapsed(!rightCollapsed);
+                                            close();
+                                        }}
+                                    >
+                                        <span className="menu__icon">
+                                            <MIcon
+                                                name={
+                                                    rightCollapsed ? "chevron_left" : "chevron_right"
+                                                }
+                                                size="sm"
+                                            />
+                                        </span>
+                                        <span className="menu__text">
+                                            {rightCollapsed ? "Показать" : "Скрыть"} панель проблем
+                                        </span>
+                                    </button>
 
-                        <button
-                            className={"help-modal__icon-btn" + (checksEnabled ? " active" : "")}
-                            onClick={toggleChecks}
-                            title={
-                                checksEnabled
-                                    ? "Проверки включены. Нажмите, чтобы отключить (быстрый режим для медленных машин)"
-                                    : "Проверки отключены. Нажмите, чтобы включить"
-                            }
-                        >
-                            <MIcon name={checksEnabled ? "rule" : "block"} />
-                        </button>
+                                    <button
+                                        className="menu__item"
+                                        onClick={() => {
+                                            toggleChecks();
+                                            close();
+                                        }}
+                                    >
+                                        <span className="menu__icon">
+                                            <MIcon
+                                                name={checksEnabled ? "rule" : "block"}
+                                                size="sm"
+                                            />
+                                        </span>
+                                        <span className="menu__text">
+                                            {checksEnabled
+                                                ? "Выключить проверки"
+                                                : "Включить проверки"}
+                                        </span>
+                                    </button>
 
-                        <button
-                            className="help-modal__icon-btn"
-                            onClick={() => setShowHelp(true)}
-                            title="Справка по навигации"
-                        >
-                            <MIcon name="help" />
-                        </button>
+                                    <button
+                                        className="menu__item"
+                                        onClick={() => {
+                                            useGraphStore.getState().setYamlHighlightUnused(!yamlHighlightUnused);
+                                            close();
+                                        }}
+                                    >
+                                        <span className="menu__icon">
+                                            <MIcon
+                                                name={
+                                                    yamlHighlightUnused
+                                                        ? "visibility"
+                                                        : "visibility_off"
+                                                }
+                                                size="sm"
+                                            />
+                                        </span>
+                                        <span className="menu__text">
+                                            {yamlHighlightUnused
+                                                ? "Не затенять неиспользуемые"
+                                                : "Затенять неиспользуемые"}
+                                        </span>
+                                    </button>
+
+                                    <div className="menu__divider" />
+
+                                    <button
+                                        className="menu__item"
+                                        onClick={() => {
+                                            setShowHelp(true);
+                                            close();
+                                        }}
+                                    >
+                                        <span className="menu__icon">
+                                            <MIcon name="help" size="sm" />
+                                        </span>
+                                        <span className="menu__text">Справка по редактору</span>
+                                    </button>
+                                </div>
+                            )}
+                        </Popover>
 
                         <button
                             className="help-modal__close"
                             onClick={handleClose}
-                            title={isDirty && !isLocked ? 'Закрыть без сохранения' : 'Закрыть'}
+                            title={
+                                isSaving
+                                    ? "Прервать сохранение и закрыть"
+                                    : isDirty && !isLocked
+                                        ? "Закрыть без сохранения"
+                                        : "Закрыть"
+                            }
                         >
                             ✕
                         </button>
@@ -3459,6 +4095,7 @@ export function YamlViewerModal() {
                                                     onContextMenu={(node, sectionKey, x, y) =>
                                                         setNavContextMenu({ node, sectionKey, x, y })
                                                     }
+                                                    unusedAnalysis={unusedAnalysis}
                                                 />
                                             ))
                                         )}
@@ -3670,7 +4307,7 @@ export function YamlViewerModal() {
                             />
 
                             {/* Diff-контейнер — рендерится только в diff-режиме */}
-                            {diffMode && (
+                            {diffAgainst !== null && (
                                 <div
                                     ref={diffContainerRef}
                                     style={{
@@ -4741,6 +5378,7 @@ function SectionNav({
     focusTarget,
     onFocus,
     onContextMenu,
+    unusedAnalysis,
 }: {
     section: SectionBlock;
     expandedNodes: Set<string>;
@@ -4756,6 +5394,7 @@ function SectionNav({
     focusTarget: FocusTarget | null;
     onFocus: (node: NavNode, sectionKey: string) => void;
     onContextMenu: (node: NavNode, sectionKey: string, x: number, y: number) => void;
+    unusedAnalysis: UnusedAnalysis | null;
 }) {
     const detailsRef = React.useRef<HTMLDetailsElement>(null);
 
@@ -4827,6 +5466,7 @@ function SectionNav({
                                 focusTarget={focusTarget}
                                 onFocus={onFocus}
                                 onContextMenu={onContextMenu}
+                                unusedAnalysis={unusedAnalysis}
                             />
                         );
                     })}
@@ -4854,6 +5494,7 @@ function NavItem({
     focusTarget,
     onFocus,
     onContextMenu,
+    unusedAnalysis,
 }: {
     node: NavNode;
     parentKey: string;
@@ -4872,10 +5513,37 @@ function NavItem({
     focusTarget: FocusTarget | null;
     onFocus: (node: NavNode, sectionKey: string) => void;
     onContextMenu: (node: NavNode, sectionKey: string, x: number, y: number) => void;
+    unusedAnalysis: UnusedAnalysis | null;
 }) {
     const key = parentKey + '#' + node.id;
     const hasChildren = !!node.children && node.children.length > 0;
     const expanded = expandedNodes.has(key);
+
+    // ============ Unused (затенение) ============
+    // Для сущностей (depth=0) — по `entityId`, для атрибутов (depth=1) —
+    // по ключу `entityId:attrId` из parentKey (`entities#EntityId`).
+    // Nested (>1) не покрываем: Table-колонки и nested-свойства — отдельная
+    // задача, эвристика word-count для них шумит.
+    let isUnused = false;
+    let unusedHint: string | null = null;
+    if (unusedAnalysis && sectionKey === "entities") {
+        if (depth === 0 && unusedAnalysis.entities.has(node.id.toLowerCase())) {
+            isUnused = true;
+            unusedHint =
+                "Сущность нигде не используется: нет views, linkages, inherits и ссылок в других секциях";
+        } else if (depth === 1) {
+            const parts = parentKey.split("#");
+            const entityId = parts[1];
+            if (entityId) {
+                const attrKey = `${entityId.toLowerCase()}:${node.id.toLowerCase()}`;
+                if (unusedAnalysis.attributes.has(attrKey)) {
+                    isUnused = true;
+                    unusedHint =
+                        "Атрибут не используется ни в views, ни в правилах, ни в фильтрах, ни в search/sorting";
+                }
+            }
+        }
+    }
 
     // Индекс этого узла в плоском списке — для подсветки активного
     const globalIdx = useMemo(
@@ -4914,12 +5582,16 @@ function NavItem({
                 )}
                 <button
                     type="button"
-                    className="yaml-nav-item__head"
+                    className={
+                        "yaml-nav-item__head" +
+                        (isUnused ? " yaml-nav-item__head--unused" : "")
+                    }
                     onClick={() => {
                         onJump(node.line);
                         if (globalIdx >= 0) onSetActive(globalIdx);
                     }}
                     onMouseEnter={() => globalIdx >= 0 && onSetActive(globalIdx)}
+                    title={isUnused ? unusedHint || undefined : undefined}
                 >
                     <code className="yaml-nav-item__id">{node.id}</code>
                     {node.meta && <span className="yaml-nav-item__meta">{node.meta}</span>}
@@ -4978,6 +5650,7 @@ function NavItem({
                                 focusTarget={focusTarget}
                                 onFocus={onFocus}
                                 onContextMenu={onContextMenu}
+                                unusedAnalysis={unusedAnalysis}
                             />
                         );
                     })}

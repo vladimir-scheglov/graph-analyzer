@@ -2463,3 +2463,28 @@
     display: none !important;
     pointer-events: none !important;
 }
+/* Единый визуал для disabled-кнопок в шапке редактора и меню */
+.btn:disabled,
+.help-modal__icon-btn:disabled,
+.help-modal__close:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    filter: grayscale(0.6);
+    pointer-events: none;
+}
+
+.btn:disabled *,
+.help-modal__icon-btn:disabled * {
+    pointer-events: none;
+}
+
+.menu__item:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+/* Убираем hover-подсветку с disabled */
+.menu__item:disabled:hover {
+    background: transparent;
+}

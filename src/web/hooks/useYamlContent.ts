@@ -1,11 +1,20 @@
 import { useEffect, useState } from "react";
 
+export type YamlContentSource = "draft" | "published" | "local";
+
+export interface YamlExpertiseMeta {
+  publishedVersion: string;
+  updatedAt: string | null;
+  updatedBy: string | null;
+}
+
 interface YamlContentState {
   content: string;
   loading: boolean;
   error: string | null;
-  /** true, если запрос был fresh (к серверу), а не из локального кэша. */
   fresh: boolean;
+  contentSource: YamlContentSource | null;
+  meta: YamlExpertiseMeta | null;
 }
 
 export function useYamlContent(
@@ -18,11 +27,20 @@ export function useYamlContent(
     loading: !!filePath,
     error: null,
     fresh,
+    contentSource: null,
+    meta: null,
   });
 
   useEffect(() => {
     if (!filePath) {
-      setState({ content: "", loading: false, error: null, fresh });
+      setState({
+        content: "",
+        loading: false,
+        error: null,
+        fresh,
+        contentSource: null,
+        meta: null,
+      });
       return;
     }
     setState((prev) => ({
@@ -36,12 +54,9 @@ export function useYamlContent(
     const endpoint = fresh ? "/file/fresh" : "/file";
     const url = endpoint + "?path=" + encodeURIComponent(filePath);
 
-    console.log(`[useYamlContent] fetch ${url}`);
-
     fetch(url)
       .then(async (r) => {
         if (!r.ok) {
-          // Сервер мог вернуть JSON с деталями ошибки
           const contentType = r.headers.get("Content-Type") || "";
           if (contentType.includes("application/json")) {
             try {
@@ -53,21 +68,63 @@ export function useYamlContent(
           }
           throw new Error(`HTTP ${r.status}`);
         }
-        return r.text();
+
+        const header = r.headers.get("X-Content-Source");
+        const contentSource: YamlContentSource | null =
+          header === "draft" || header === "published" || header === "local"
+            ? header
+            : null;
+
+        const versionHeader = r.headers.get("X-Published-Version");
+        const updatedAtHeader = r.headers.get("X-Updated-At");
+        const updatedByHeader = r.headers.get("X-Updated-By");
+
+        let updatedBy: string | null = null;
+        if (updatedByHeader) {
+          try {
+            updatedBy = decodeURIComponent(updatedByHeader);
+          } catch {
+            updatedBy = updatedByHeader;
+          }
+        }
+
+        const meta: YamlExpertiseMeta | null =
+          versionHeader || updatedAtHeader || updatedBy
+            ? {
+                publishedVersion: versionHeader || "",
+                updatedAt: updatedAtHeader || null,
+                updatedBy,
+              }
+            : null;
+
+        const text = await r.text();
+        return { text, contentSource, meta };
       })
-      .then((text) => {
-        if (!cancelled)
-          setState({ content: text, loading: false, error: null, fresh });
+      .then(({ text, contentSource, meta }) => {
+        if (!cancelled) {
+          setState({
+            content: text,
+            loading: false,
+            error: null,
+            fresh,
+            contentSource,
+            meta,
+          });
+        }
       })
       .catch((err) => {
-        if (!cancelled)
+        if (!cancelled) {
           setState({
             content: "",
             loading: false,
             error: err.message,
             fresh,
+            contentSource: null,
+            meta: null,
           });
+        }
       });
+
     return () => {
       cancelled = true;
     };

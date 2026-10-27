@@ -1954,3 +1954,16 @@
     background: var(--accent);
     color: #fff;
 }
+.yaml-nav-item__head--unused .yaml-nav-item__id {
+    opacity: 0.5;
+    font-style: italic;
+}
+
+.yaml-nav-item__head--unused .yaml-nav-item__meta {
+    opacity: 0.4;
+}
+
+/* При hover — нормальная видимость, чтобы пользователь мог прочитать */
+.yaml-nav-item__head--unused:hover .yaml-nav-item__id {
+    opacity: 0.85;
+}

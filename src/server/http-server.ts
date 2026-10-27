@@ -14,6 +14,7 @@ import {
   handleFileSave,
   handleFilePrevious,
   handleFileFresh,
+  handleFilePublished,
 } from "./routes/file";
 import { handleUserGuide } from "./routes/user-guide";
 import {
@@ -305,7 +306,27 @@ export function startServer(opts: StartServerOptions): http.Server {
     // ============ File routes ============
     // ВАЖНО: /file/previous ДОЛЖЕН идти ПЕРЕД /file,
     // иначе попадает в handleFileRequest и отдаёт текущий файл
-    else if (url.startsWith("/file/fresh")) {
+    else if (url.startsWith("/file/published")) {
+      try {
+        await handleFilePublished(
+          req,
+          res,
+          rootDir,
+          mode,
+          credentials,
+          state.domainIndex,
+        );
+      } catch (err: any) {
+        try {
+          if (!res.headersSent) {
+            res.writeHead(500, { "Content-Type": "application/json" });
+          }
+          res.end(JSON.stringify({ error: err.message }));
+        } catch {
+          /* ignore */
+        }
+      }
+    } else if (url.startsWith("/file/fresh")) {
       try {
         await handleFileFresh(
           req,

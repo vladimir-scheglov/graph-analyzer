@@ -449,6 +449,12 @@ export interface GraphState {
   setYamlViewerLocked: (v: boolean) => void;
   yamlQuickNavEnabled: boolean;
   setYamlQuickNavEnabled: (v: boolean) => void;
+  yamlViewerContentSource: "draft" | "published" | "local" | null;
+  setYamlViewerContentSource: (
+    v: "draft" | "published" | "local" | null,
+  ) => void;
+  yamlHighlightUnused: boolean;
+  setYamlHighlightUnused: (v: boolean) => void;
 }
 
 // ============ Хелперы для чтения localStorage ============
@@ -1004,6 +1010,15 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       localStorage.setItem("dg-yaml-quicknav-enabled", String(v));
     } catch {}
     set({ yamlQuickNavEnabled: v });
+  },
+  yamlViewerContentSource: null,
+  setYamlViewerContentSource: (v) => set({ yamlViewerContentSource: v }),
+  yamlHighlightUnused: readBool("dg-yaml-highlight-unused", true),
+  setYamlHighlightUnused: (v) => {
+    try {
+      localStorage.setItem("dg-yaml-highlight-unused", String(v));
+    } catch {}
+    set({ yamlHighlightUnused: v });
   },
 
   // Сброс всего

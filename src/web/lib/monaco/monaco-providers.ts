@@ -16,6 +16,26 @@ import { SYSTEM_ATTRIBUTE_IDS } from "../../../core/analyzer/linter";
 import { ACTION_TYPE_DESCRIPTIONS } from "../../../shared/action-types";
 
 /**
+ * Правила серверного линтера, которые полностью покрываются
+ * inline-валидаторами (`applyAttributeMarkers` и др.).
+ *
+ * Их серверные маркеры нужно скрывать, когда inline-проверки включены,
+ * иначе на один атрибут приходится по 2 маркера (inline + серверный).
+ * При выключенных inline-проверках (`checksEnabled = false`) серверные
+ * маркеры снова показываются — там inline не работает, скрывать нельзя.
+ *
+ * См. также src/web/components/modals/YamlViewerModal.tsx — фильтрация
+ * `domainIssues` по этому набору.
+ */
+export const INLINE_COVERED_RULE_IDS: ReadonlySet<string> = new Set([
+  "naming/attribute-camelcase",
+  "recommended/attribute-description",
+  "naming/system-id-attribute",
+  "semantic/duplicate-attribute",
+  "duplicate-id/entities",
+]);
+
+/**
  * Системные атрибуты, доступные для reference-полей
  * (sorting, searching, projection, identification, reconciliation,
  *  attribute-виджеты, колонки таблиц).
@@ -5133,6 +5153,21 @@ export function detectContextAtPosition(
 
   if (!parentKey) return null;
 
+  // ============ Actions: nested containers ============
+  if (section === "actions") {
+    if (parentKey === "attributes" || parentKey === "linkages") {
+      const insideBulk = isInsideBulkSettings(
+        (n) => model.getLineContent(n),
+        position.lineNumber,
+        currentIndent,
+      );
+      if (parentKey === "attributes") {
+        return insideBulk ? "actionBulkSettingsAttributes" : "actionAttributes";
+      }
+      return insideBulk ? "actionBulkSettingsLinkages" : "actionLinkages";
+    }
+  }
+
   // ============ 3. Секции верхнего уровня ============
   const hasDash = /^\s*-\s*[a-zA-Z]*$/.test(beforeCursor);
 
@@ -6706,9 +6741,7 @@ function detectUiRuleNestedAttributeContext(
   if (!cur || !ctx.modelIndex) return null;
 
   // Мы в uiRule? (breadcrumb, не текстовый walk — надёжнее)
-  const uiRuleCrumb = lineCtx.breadcrumbs.find(
-    (b: any) => b.type === "uiRule",
-  );
+  const uiRuleCrumb = lineCtx.breadcrumbs.find((b: any) => b.type === "uiRule");
   if (!uiRuleCrumb) return null;
 
   // Убеждаемся, что cursor именно в nested.attributes[]
@@ -8187,6 +8220,35 @@ export function registerMonacoProviders(monaco: any): void {
               list: ["grid"],
               desc: { grid: "Расположение виджетов сеткой" },
             },
+            // ============ NEW: bulk-edit (без bulkSettings) ============
+            actionAttributes: {
+              list: ["specific"],
+              desc: {
+                specific: "Редактирование только перечисленных атрибутов",
+              },
+            },
+            actionLinkages: {
+              list: ["specific"],
+              desc: {
+                specific: "Редактирование только перечисленных виджетов связей",
+              },
+            },
+
+            // ============ NEW: bulkSettings (tree_bulk) ============
+            actionBulkSettingsAttributes: {
+              list: ["all", "specific"],
+              desc: {
+                all: "Редактирование всех атрибутов сущности",
+                specific: "Редактирование только перечисленных атрибутов",
+              },
+            },
+            actionBulkSettingsLinkages: {
+              list: ["all", "specific"],
+              desc: {
+                all: "Редактирование во всех виджетах связей",
+                specific: "Редактирование только перечисленных виджетов",
+              },
+            },
           };
           const entry = map[vctx.itemType];
           return entry
@@ -8435,6 +8497,15 @@ export function registerMonacoProviders(monaco: any): void {
         case "entity":
         case "side1":
         case "side2": {
+          // В nameFrom поля side1/side2 — свободный текст, не ссылки на сущности.
+          // Отдаём пустой список, чтобы не подсказывать «не то».
+          if (
+            (fieldName === "side1" || fieldName === "side2") &&
+            vctx.container === "nameFrom"
+          ) {
+            return { suggestions: [] };
+          }
+
           const refs = collectRefsForField(
             cachedEntities(),
             ctx.currentDomainId,
@@ -8841,6 +8912,169 @@ export function applyRqlMarkers(monaco: any, model: any): void {
   } catch {}
 }
 
+// ============ Actions: required fields by type ============
+
+interface ActionBlockInfo {
+  id: string;
+  /** 1-based */
+  typeLine: number | null;
+  type: string | null;
+  fields: Map<string, { value: string; line: number }>;
+}
+
+/**
+ * Собирает блоки `actions[]` с полями прямого уровня (`itemIndent + 2`).
+ * Секция `actions` — только top-level.
+ */
+function collectActionBlocks(lines: string[]): ActionBlockInfo[] {
+  const blocks: ActionBlockInfo[] = [];
+  let inActions = false;
+  let actionsIndent = -1;
+  let current: ActionBlockInfo | null = null;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim() || line.trim().startsWith("#")) continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+
+    if (ind === 0) {
+      const sm = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+      if (sm) {
+        inActions = sm[1] === "actions";
+        actionsIndent = -1;
+        if (current) {
+          blocks.push(current);
+          current = null;
+        }
+      }
+      continue;
+    }
+    if (!inActions) continue;
+
+    if (actionsIndent === -1) {
+      const m = line.match(/^(\s*)-\s+\S/);
+      if (m) actionsIndent = m[1].length;
+    }
+
+    const idM = line.match(/^(\s*)-\s+id\s*:\s*["']?([^\s"'#]+)["']?/);
+    if (idM && idM[1].length === actionsIndent) {
+      if (current) blocks.push(current);
+      current = {
+        id: idM[2],
+        typeLine: null,
+        type: null,
+        fields: new Map(),
+      };
+      continue;
+    }
+
+    if (!current) continue;
+
+    const fieldIndent = actionsIndent + 2;
+    if (ind !== fieldIndent) continue;
+
+    const fm = line.match(/^\s*([a-zA-Z_][\w]*)\s*:\s*(.*?)\s*(?:#.*)?$/);
+    if (!fm) continue;
+    const key = fm[1];
+    const value = fm[2].trim();
+    if (!current.fields.has(key)) {
+      current.fields.set(key, { value, line: i + 1 });
+    }
+    if (key === "type" && value) {
+      current.typeLine = i + 1;
+      current.type = value.replace(/^["']|["']$/g, "");
+    }
+  }
+  if (current) blocks.push(current);
+
+  return blocks;
+}
+
+/** Обязательные поля по типу action. Копия логики linter.ts:checkActionRequiredFields. */
+const ACTION_REQUIRED_FIELDS: Record<string, string[]> = {
+  open_modal: ["modal", "entity", "operation"],
+  open_panel: ["panel", "entity"],
+  open_page: ["view", "entity", "operation"], // view или pageView
+  open_graph_view: ["entity"],
+  open_board_view: ["entity"],
+  remove: ["entity"],
+  generate_qr_code: ["entity"],
+  copy_entity_link: ["entity"],
+  open_list: ["view"],
+  open_tree: ["view"],
+  open_view: ["view"],
+  bulk: ["operation"],
+  tree_bulk: ["operation", "bulkSettings"],
+  set_attribute_value: ["entity", "values"],
+};
+
+/** Поля-контейнеры: значение inline пустое, проверяется только наличие ключа. */
+const ACTION_CONTAINER_FIELDS = new Set([
+  "values",
+  "bulkSettings",
+  "control",
+  "automation",
+  "transition",
+  "params",
+  "widgetParams",
+  "openBoardsFromGraph",
+]);
+
+export function applyActionRequiredFieldsMarkers(
+  monaco: any,
+  model: any,
+): void {
+  try {
+    const lines = model.getValue().split("\n");
+    const blocks = collectActionBlocks(lines);
+    const markers: any[] = [];
+
+    for (const block of blocks) {
+      const type = block.type;
+      if (!type) continue;
+
+      const required = ACTION_REQUIRED_FIELDS[type];
+      if (!required) continue;
+
+      const typeLine = block.typeLine;
+      if (!typeLine) continue;
+
+      for (const field of required) {
+        // open_page: `view` можно заменить на `pageView`
+        if (
+          type === "open_page" &&
+          field === "view" &&
+          (block.fields.has("pageView") || block.fields.has("view"))
+        ) {
+          continue;
+        }
+
+        if (ACTION_CONTAINER_FIELDS.has(field)) {
+          if (block.fields.has(field)) continue;
+        } else {
+          const f = block.fields.get(field);
+          if (f && f.value) continue;
+        }
+
+        markers.push({
+          severity: monaco.MarkerSeverity.Warning,
+          message: `type: ${type} требует поле «${field}»`,
+          startLineNumber: typeLine,
+          startColumn: 1,
+          endLineNumber: typeLine,
+          endColumn: 1_000_000,
+          source: "action-required-validator",
+        });
+      }
+    }
+
+    monaco.editor.setModelMarkers(model, "action-required-validator", markers);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("[action-required-validator]", err);
+  }
+}
+
 // ============ Attribute-reference markers (searching / sorting / projection) ============
 
 interface LocalEntityInfo {
@@ -8887,6 +9121,11 @@ function resolveAttributeRefInEntities(
   // FQID — кросс-домен, локально не проверить
   if (ref.includes("/")) return true;
 
+  // Системный атрибут доступен на любой сущности, в YAML не объявляется.
+  // Проверяем ДО dotted-разбора: `createdAt` не содержит точки и не
+  // должен идти в цепочку наследования.
+  if (SYSTEM_ATTRIBUTE_IDS.has(ref)) return true;
+
   const current = entities.get(entityId.toLowerCase());
   if (!current) return true; // сущность не из этого файла — не ругаемся
 
@@ -8895,6 +9134,13 @@ function resolveAttributeRefInEntities(
   if (dot > 0) {
     const targetEntityId = ref.slice(0, dot);
     const attrId = ref.slice(dot + 1);
+
+    // `Entity.createdAt` — системный атрибут родителя тоже валиден.
+    if (SYSTEM_ATTRIBUTE_IDS.has(attrId)) {
+      // Проверим только, что Entity вообще предок (иначе опечатка в Entity).
+      return isInInheritanceChain(entityId, targetEntityId, entities);
+    }
+
     if (!isInInheritanceChain(entityId, targetEntityId, entities)) {
       return false;
     }
@@ -8912,9 +9158,8 @@ function resolveAttributeRefInEntities(
     if (cur.inherits.includes("/")) {
       // cross-domain parent: пробуем через modelIndex (может быть stale,
       // но лучше, чем ничего)
-      const parentEntity = ctx.modelIndex?.entitiesByFqid[
-        cur.inherits.toLowerCase()
-      ];
+      const parentEntity =
+        ctx.modelIndex?.entitiesByFqid[cur.inherits.toLowerCase()];
       if (parentEntity) {
         if (parentEntity.attributes.some((a) => a.id === ref)) return true;
       }
@@ -8934,10 +9179,7 @@ function resolveAttributeRefInEntities(
  * Не зависит от `ctx.modelIndex` — резолвит по текущему содержимому YAML
  * (два прохода: собрать entities → проверить ссылки).
  */
-export function applyAttributeRefMarkers(
-  monaco: any,
-  model: any,
-): void {
+export function applyAttributeRefMarkers(monaco: any, model: any): void {
   try {
     const lines = model.getValue().split("\n");
     const entities = new Map<string, LocalEntityInfo>();
@@ -8960,10 +9202,7 @@ export function applyAttributeRefMarkers(
         if (!trimmed || trimmed.startsWith("#")) continue;
         const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
 
-        while (
-          stack.length > 0 &&
-          stack[stack.length - 1].indent >= indent
-        ) {
+        while (stack.length > 0 && stack[stack.length - 1].indent >= indent) {
           stack.pop();
         }
 
@@ -8982,8 +9221,7 @@ export function applyAttributeRefMarkers(
         if (idM) {
           const idIndent = idM[1].length;
           const id = unquote(idM[2]);
-          const parentKey =
-            stack.length > 0 ? stack[stack.length - 1].key : "";
+          const parentKey = stack.length > 0 ? stack[stack.length - 1].key : "";
 
           if (parentKey === "" || parentKey === "entities") {
             // новая сущность
@@ -9042,10 +9280,7 @@ export function applyAttributeRefMarkers(
         if (!trimmed || trimmed.startsWith("#")) continue;
         const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
 
-        while (
-          stack.length > 0 &&
-          stack[stack.length - 1].indent >= indent
-        ) {
+        while (stack.length > 0 && stack[stack.length - 1].indent >= indent) {
           stack.pop();
         }
 
@@ -9062,8 +9297,7 @@ export function applyAttributeRefMarkers(
         const idM = line.match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
         if (idM) {
           const idIndent = idM[1].length;
-          const parentKey =
-            stack.length > 0 ? stack[stack.length - 1].key : "";
+          const parentKey = stack.length > 0 ? stack[stack.length - 1].key : "";
           if (parentKey === "" || parentKey === "entities") {
             currentEntityId = unquote(idM[2]);
           }
@@ -9361,6 +9595,10 @@ const TYPE_ENUM_BY_CTX: Record<string, string[]> = {
   "entities|treeNodeType": ["root", "branch", "leaf"],
   "views|viewDashboardLayout": ["grid"],
   "views|viewWidgetDragDropContext": ["Array", "Attachment", "Table"],
+  "actions|actionBulkSettingsAttributes": ["all", "specific"],
+  "actions|actionBulkSettingsLinkages": ["all", "specific"],
+  "actions|actionAttributes": ["specific"],
+  "actions|actionLinkages": ["specific"],
 };
 
 const EFFECT_ENUM_BY_CTX: Record<string, string[]> = {
@@ -9847,7 +10085,31 @@ function computeItemTypeFast(
   if (container === "openBoardsFromGraph") return "actionOpenBoardsFromGraph";
 
   // ===== прочие секции =====
-  if (section === "actions") return "action";
+  if (section === "actions") {
+    // Bulk-edit (без bulkSettings)
+    if (container === "attributes") {
+      return isInsideBulkSettings(
+        (n) => lines[n - 1] ?? "",
+        containerLine,
+        containerIndent,
+      )
+        ? "actionBulkSettingsAttributes"
+        : "actionAttributes";
+    }
+    if (container === "linkages") {
+      return isInsideBulkSettings(
+        (n) => lines[n - 1] ?? "",
+        containerLine,
+        containerIndent,
+      )
+        ? "actionBulkSettingsLinkages"
+        : "actionLinkages";
+    }
+    if (container === "values") return "actionValue";
+    if (container === "control") return "actionControl";
+    if (container === "automation") return "actionAutomation";
+    return "action";
+  }
   if (section === "dataRules")
     return container === "rule" ? "dataRuleRule" : "dataRule";
   if (section === "uiRules")
@@ -10005,6 +10267,39 @@ export function applyDataTypeMarkers(
 }
 
 /**
+ * Возвращает имя ближайшего родительского контейнера для строки lineIdx0
+ * (0-based): ключ последней строки выше с меньшим indent — либо контейнер
+ * (`key:` без значения), либо item-opener (`- key: value`).
+ *
+ * Пример:
+ *   nameFrom:               ← indent 4
+ *     side1: Message        ← indent 6, currentIndent=6 → вернёт "nameFrom"
+ */
+function getParentContainerKey(lines: string[], lineIdx0: number): string {
+  const currentLine = lines[lineIdx0];
+  if (!currentLine) return "";
+  const currentIndent = (currentLine.match(/^(\s*)/) || ["", ""])[1].length;
+
+  for (let j = lineIdx0 - 1; j >= 0; j--) {
+    const l = lines[j];
+    if (!l.trim() || l.trim().startsWith("#")) continue;
+    const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind >= currentIndent) continue;
+
+    // Контейнер: `key:` без значения
+    const cm = l.match(/^\s*([a-zA-Z_][\w]*)\s*:\s*(?:#.*)?$/);
+    if (cm) return cm[1];
+
+    // Или item-opener: `- key: value` / `- key:`
+    const im = l.match(/^\s*-\s+([a-zA-Z_][\w]*)\s*:/);
+    if (im) return im[1];
+
+    if (ind === 0) break;
+  }
+  return "";
+}
+
+/**
  * Подсветка невалидных FQID-ссылок в YAML.
  * Работает только для полей, где ожидается FQID:
  *   inherits, entity, side1, side2, linkage, view, modal, panel,
@@ -10040,15 +10335,11 @@ export function applyFqidMarkers(
       entityIdsByDomain.get(domLower)!.add(String(e.entityId).toLowerCase());
     });
 
-    // Поля, значения которых могут быть FQID-ссылкой на сущность
-    // Только entity/linkage/attribute refs.
-    // View-поля (view/modal/panel/form/tab/list/page/fromView/addLinksView)
-    // валидируются отдельно в applyViewRefMarkers.
-    // ВАЖНО: `linkage` здесь НЕ в списке.
-    // `linkage:` — это ссылка на связь (FQID `<domain>/<linkageId>`),
-    // а не на сущность. Проверяется отдельным блоком ниже.
+    // Field regex — только реальные FQID-поля на сущность.
+    // `attribute`, `item`, `source`, `linkedEntity` намеренно убраны: это
+    // атрибуты / объекты / массивы, а не ссылки на сущности.
     const REF_FIELD_PATTERN =
-      /^\s*(?:-\s+)?(inherits|entity|side1|side2|attribute|item|source|linkedEntity)\s*:\s*(.+)$/;
+      /^\s*(?:-\s+)?(inherits|entity|side1|side2)\s*:\s*(.+)$/;
 
     const FQID_IN_VALUE = /([a-z0-9][\w.\-]*\.[a-z0-9][\w.\-]*)\/([\w\-]+)/gi;
     const LOCAL_ENTITY_VALUE = /^([A-Z][\w]*)$/; // CamelCase локальный id
@@ -10059,6 +10350,18 @@ export function applyFqidMarkers(
       const line = lines[i];
       const fieldMatch = line.match(REF_FIELD_PATTERN);
       if (!fieldMatch) continue;
+
+      const fieldName = fieldMatch[1];
+
+      // nameFrom.side1 / nameFrom.side2 — это глагольные формы связи
+      // ("Содержит", "Связан с"), а не ссылки на сущности. Проверять их
+      // по entityFqids некорректно.
+      if (
+        (fieldName === "side1" || fieldName === "side2") &&
+        getParentContainerKey(lines, i) === "nameFrom"
+      ) {
+        continue;
+      }
 
       const rawValue = fieldMatch[2];
       const valueWithoutComment = rawValue.split(" #")[0].trim();
@@ -10119,7 +10422,7 @@ export function applyFqidMarkers(
       // ===== Сценарий 2: локальная сущность (без домена) =====
       // Для inherits/entity — проверяем существование в текущем домене
       if (!fqidFound && currentLower) {
-        const field = fieldMatch[1];
+        const field = fieldName;
         // Только для полей, где значение — это entity id
         if (
           field === "inherits" ||
@@ -10177,6 +10480,28 @@ export function applyFqidMarkers(
               String(l.id).toLowerCase(),
             );
           }
+        }
+      }
+    }
+
+    // Дополняем knownLinkagesByDomain из текущего YAML (секция linkages:)
+    {
+      let inLinkagesSection = false;
+      const idRegex = /^\s*-\s+id\s*:\s*["']?([^\s"'#]+)["']?/;
+      for (const line of lines) {
+        if (!line.trim() || line.trim().startsWith("#")) continue;
+        const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind === 0) {
+          const sm = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+          if (sm) inLinkagesSection = sm[1] === "linkages";
+          continue;
+        }
+        if (!inLinkagesSection) continue;
+        const m = line.match(idRegex);
+        if (m) {
+          ensureLinkageSet((currentDomainId || "").toLowerCase()).add(
+            m[1].toLowerCase(),
+          );
         }
       }
     }
@@ -10641,6 +10966,23 @@ export function applyFqidMarkers(
 }
 
 /**
+ * Возвращает имя top-level YAML-секции, в которой находится строка lineIdx0
+ * (0-based). Секция — первый ключ с indent 0 над строкой.
+ */
+function getSectionAtLine(lines: string[], lineIdx0: number): string {
+  for (let j = lineIdx0; j >= 0; j--) {
+    const l = lines[j];
+    if (!l) continue;
+    // top-level ключ — только если нет ведущих пробелов
+    if (/^\S/.test(l) && !l.trim().startsWith("#")) {
+      const m = l.match(/^([a-zA-Z_][\w]*)\s*:/);
+      return m ? m[1] : "";
+    }
+  }
+  return "";
+}
+
+/**
  * Валидатор view-ссылок (view, modal, panel, form, tab, list, page,
  * fromView, addLinksView). В отличие от applyFqidMarkers, проверяет
  * по набору view-id текущего домена, а FQID на чужие домены пропускает.
@@ -10708,6 +11050,13 @@ export function applyViewRefMarkers(
       kind: "view" | "group",
     ): void => {
       let value = rawValue.split(" #")[0].trim();
+      if (!value) return;
+
+      // `view: # todo` — после поля идёт только комментарий. Не ссылка.
+      // Проверяем ДО снятия кавычек: `view: "#fix"` — легальный View ID,
+      // там `#` внутри строки, а не комментарий.
+      if (value.startsWith("#")) return;
+
       if (
         (value.startsWith('"') && value.endsWith('"')) ||
         (value.startsWith("'") && value.endsWith("'"))
@@ -10743,6 +11092,39 @@ export function applyViewRefMarkers(
       }
     };
 
+    // ============ Дополняем пулы из ТЕКУЩЕГО содержимого редактора ============
+    // Критично после генерации: executeEdits вставляет новые views/groups в
+    // Monaco, но ModelIndex на сервере остаётся старым (файл не сохранён,
+    // /api/model возвращает кэш). Без этого все только что сгенерированные
+    // view-id ловят false-positive «не найден в домене». То же — для ручных
+    // правок до сохранения.
+    //
+    // Мы не различаем view-id и group-id по тексту YAML (для этого нужен
+    // контекстный парсер), поэтому добавляем id в оба пула. Это ослабляет
+    // валидацию (опечатка, совпавшая с чужим id, не будет поймана), но
+    // полностью исключает ложные маркеры на свежих данных. Реальная
+    // проверка всё равно произойдёт после сохранения → ребилд индекса →
+    // повторный прогон валидатора.
+    {
+      const idRegex = /^\s*-\s+id\s*:\s*["']?([^\s"'#]+)["']?/;
+      let inViewsSection = false;
+      for (const line of lines) {
+        if (!line.trim() || line.trim().startsWith("#")) continue;
+        const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind === 0) {
+          const sm = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+          if (sm) inViewsSection = sm[1] === "views";
+          continue;
+        }
+        if (!inViewsSection) continue;
+        const m = line.match(idRegex);
+        if (!m) continue;
+        const id = m[1].toLowerCase();
+        localViewIds.add(id);
+        localGroupIds.add(id);
+      }
+    }
+
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const vm = line.match(VIEW_REF_PATTERN);
@@ -10755,6 +11137,15 @@ export function applyViewRefMarkers(
         const lineCtx = ctx.lineMap?.lineContexts.get(i + 1);
         const inMixins = lineCtx?.section === "mixins";
         if (inMixins && (fieldName === "panel" || fieldName === "list")) {
+          continue;
+        }
+        // `dataTypes[].view` — конфиг представления Enum/Workflow/Table
+        // (массив `{status,color}` / `{value,color}` / `{columns,paging,…}`),
+        // не ссылка на view-id. Проверять по пулу view-id некорректно.
+        if (
+          fieldName === "view" &&
+          getSectionAtLine(lines, i) === "dataTypes"
+        ) {
           continue;
         }
         checkRef(i, line, vm[2], localViewIds, "view");
@@ -10801,7 +11192,35 @@ export function applyAttributeMarkers(monaco: any, model: any): void {
       }
     }
 
-    monaco.editor.setModelMarkers(model, "attribute-validator", markers);
+    // ============ Финальный дедуп ============
+    // Один маркер на (line, column, severity, message). Закрывает все
+    // случаи, когда `scanEntities`/другие места положили несколько
+    // одинаковых маркеров на одну и ту же позицию:
+    //   - `attrIdList` содержит дубликаты (парсер засчитал `- id:` из
+    //     вложенного `prefixRules`/`constraints` за атрибут);
+    //   - `entityBlocks` содержит несколько блоков с одинаковым id,
+    //     ссылающихся на одну и ту же строку;
+    //   - любой будущий `markers.push`, добавленный без дедупа.
+    // Визуально 4 одинаковых сообщения в тултипе — это один и тот же
+    // маркер Monaco, отрисованный в одном gutter'е; пользователь видит
+    // 4 строки в тултипе. Дедуп даёт ровно одну.
+    const seenFinal = new Set<string>();
+    const deduped: typeof markers = [];
+    for (const mk of markers) {
+      const key = [
+        mk.startLineNumber,
+        mk.startColumn,
+        mk.endLineNumber,
+        mk.endColumn,
+        mk.severity,
+        mk.message || "",
+      ].join("\u0000");
+      if (seenFinal.has(key)) continue;
+      seenFinal.add(key);
+      deduped.push(mk);
+    }
+
+    monaco.editor.setModelMarkers(model, "attribute-validator", deduped);
   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn("[attribute-validator]", err);
@@ -10836,7 +11255,12 @@ function scanEntities(
   interface EntityBlock {
     id: string;
     idLine: number;
-    attrIdList: Array<{ id: string; idLine: number; idIndent: number }>;
+    attrIdList: Array<{
+      id: string;
+      idLine: number;
+      idIndent: number;
+      description: string | null;
+    }>;
   }
   const entityBlocks: EntityBlock[] = [];
 
@@ -10918,7 +11342,7 @@ function scanEntities(
     }
 
     // Собираем "- " элементы внутри attributes[]
-    const attrIdList: Array<{ id: string; idLine: number; idIndent: number }> =
+    const attrIdList: Array<{ id: string; idLine: number; idIndent: number; description: string | null; }> =
       [];
     if (attributesLine >= 0) {
       let attrDashIndent = -1;
@@ -10971,10 +11395,34 @@ function scanEntities(
             }
           }
           if (attrId) {
+            // description на уровне полей атрибута (attrFieldIndent).
+            // Собираем даже пустую строку — она эквивалентна отсутствию
+            // (линтер тоже ругается на пустой description, см.
+            // checkAttributeRecommended в linter.ts: `if (!a.description)`).
+            let description: string | null = null;
+            for (let n = k + 1; n < attrEnd; n++) {
+              const nl = lines[n];
+              if (!nl.trim() || nl.trim().startsWith("#")) continue;
+              const nInd = (nl.match(/^(\s*)/) || ["", ""])[1].length;
+              if (nInd !== attrFieldIndent) continue;
+              const dm = nl.match(/^\s*description\s*:\s*(.*?)\s*(?:#.*)?$/);
+              if (dm) {
+                let v = dm[1].trim();
+                if (
+                  (v.startsWith('"') && v.endsWith('"')) ||
+                  (v.startsWith("'") && v.endsWith("'"))
+                ) {
+                  v = v.slice(1, -1);
+                }
+                description = v;
+                break;
+              }
+            }
             attrIdList.push({
               id: attrId,
               idLine: attrIdLine,
               idIndent: attrDashIndent,
+              description,
             });
           }
           k = attrEnd - 1;
@@ -11030,19 +11478,68 @@ function scanEntities(
     }
 
     // ============ 2.2. Системные имена ============
-    for (const a of eb.attrIdList) {
-      if (!SYSTEM_ATTRIBUTE_IDS.has(a.id)) continue;
-      const line = lines[a.idLine - 1];
-      const startCol = line.indexOf(a.id) + 1;
-      markers.push({
-        severity: monaco.MarkerSeverity.Error,
-        message: `Идентификатор «${a.id}» зарезервирован системным атрибутом. Выберите другое имя.`,
-        startLineNumber: a.idLine,
-        startColumn: startCol > 0 ? startCol : 1,
-        endLineNumber: a.idLine,
-        endColumn: startCol > 0 ? startCol + a.id.length : 1_000_000,
-        source: "attribute-validator",
-      });
+    const seenForSystemId = new Set<string>();
+    for (const eb of entityBlocks) {
+      for (const a of eb.attrIdList) {
+        if (!SYSTEM_ATTRIBUTE_IDS.has(a.id)) continue;
+        const key = `${eb.id.toLowerCase()}:${a.id.toLowerCase()}`;
+        if (seenForSystemId.has(key)) continue;
+        seenForSystemId.add(key);
+        const line = lines[a.idLine - 1];
+        const startCol = line.indexOf(a.id) + 1;
+        markers.push({
+          severity: monaco.MarkerSeverity.Error,
+          message: `Идентификатор «${eb.id}.${a.id}» зарезервирован системным атрибутом. Выберите другое имя.`,
+          startLineNumber: a.idLine,
+          startColumn: startCol > 0 ? startCol : 1,
+          endLineNumber: a.idLine,
+          endColumn: startCol > 0 ? startCol + a.id.length : 1_000_000,
+          source: "attribute-validator",
+        });
+      }
+    }
+
+    // ============ 2.3. camelCase ============
+    const RE_ATTRIBUTE_CAMEL = /^[a-z][a-zA-Z0-9]*$/;
+    const seenForCamel = new Set<string>();
+    for (const eb of entityBlocks) {
+      for (const a of eb.attrIdList) {
+        if (RE_ATTRIBUTE_CAMEL.test(a.id)) continue;
+        const key = `${eb.id.toLowerCase()}:${a.id.toLowerCase()}`;
+        if (seenForCamel.has(key)) continue;
+        seenForCamel.add(key);
+        const lineText = lines[a.idLine - 1] || "";
+        const startCol = lineText.indexOf(a.id) + 1;
+        markers.push({
+          severity: monaco.MarkerSeverity.Warning,
+          message: `attribute.id «${eb.id}.${a.id}» не в camelCase (первая буква строчная, разделителей нет)`,
+          startLineNumber: a.idLine,
+          startColumn: startCol > 0 ? startCol : 1,
+          endLineNumber: a.idLine,
+          endColumn: startCol > 0 ? startCol + a.id.length : 1_000_000,
+          source: "attribute-validator",
+        });
+      }
+    }
+
+    // ============ 2.4. description ============
+    const seenForDescription = new Set<string>();
+    for (const eb of entityBlocks) {
+      for (const a of eb.attrIdList) {
+        if (a.description && a.description.trim()) continue;
+        const key = `${eb.id.toLowerCase()}:${a.id.toLowerCase()}`;
+        if (seenForDescription.has(key)) continue;
+        seenForDescription.add(key);
+        markers.push({
+          severity: monaco.MarkerSeverity.Info,
+          message: `у атрибута «${eb.id}.${a.id}» нет description`,
+          startLineNumber: a.idLine,
+          startColumn: 1,
+          endLineNumber: a.idLine,
+          endColumn: 1_000_000,
+          source: "attribute-validator",
+        });
+      }
     }
   }
 }
@@ -11283,4 +11780,30 @@ function findWidgetTypeForControl(
   }
 
   return "";
+}
+
+/**
+ * true, если текущий контейнер (`attributes:` / `linkages:`) находится
+ * внутри `bulkSettings:` ближайшего action-блока.
+ *
+ * Работает по текстовому walk-up (без стека): идём вверх от startLine1Based-1,
+ * ищем первое совпадение `bulkSettings:`, `- id:` (начался другой action)
+ * или `indent === 0` (вышли из actions).
+ */
+function isInsideBulkSettings(
+  getLine: (lineNumber1Based: number) => string,
+  startLine1Based: number,
+  minIndent: number,
+): boolean {
+  for (let i = startLine1Based - 1; i >= 1; i--) {
+    const l = getLine(i);
+    if (!l || !l.trim() || l.trim().startsWith("#")) continue;
+    const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind >= minIndent) continue;
+
+    if (/^\s*(?:-\s+)?bulkSettings\s*:\s*$/.test(l)) return true;
+    if (/^\s*-\s+id\s*:\s*\S/.test(l)) return false;
+    if (ind === 0) return false;
+  }
+  return false;
 }

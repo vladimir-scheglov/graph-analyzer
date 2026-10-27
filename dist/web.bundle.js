@@ -531,6 +531,16 @@ var init_useGraphStore = __esm({
         }
         set2({ yamlQuickNavEnabled: v });
       },
+      yamlViewerContentSource: null,
+      setYamlViewerContentSource: (v) => set2({ yamlViewerContentSource: v }),
+      yamlHighlightUnused: readBool("dg-yaml-highlight-unused", true),
+      setYamlHighlightUnused: (v) => {
+        try {
+          localStorage.setItem("dg-yaml-highlight-unused", String(v));
+        } catch {
+        }
+        set2({ yamlHighlightUnused: v });
+      },
       // Сброс всего
       resetAll: () => set2({
         filters: {
@@ -20964,11 +20974,20 @@ function useYamlContent(filePath, reloadKey = 0, fresh = false) {
     content: "",
     loading: !!filePath,
     error: null,
-    fresh
+    fresh,
+    contentSource: null,
+    meta: null
   });
   useEffect33(() => {
     if (!filePath) {
-      setState({ content: "", loading: false, error: null, fresh });
+      setState({
+        content: "",
+        loading: false,
+        error: null,
+        fresh,
+        contentSource: null,
+        meta: null
+      });
       return;
     }
     setState((prev) => ({
@@ -20980,7 +20999,6 @@ function useYamlContent(filePath, reloadKey = 0, fresh = false) {
     let cancelled = false;
     const endpoint = fresh ? "/file/fresh" : "/file";
     const url = endpoint + "?path=" + encodeURIComponent(filePath);
-    console.log(`[useYamlContent] fetch ${url}`);
     fetch(url).then(async (r) => {
       if (!r.ok) {
         const contentType = r.headers.get("Content-Type") || "";
@@ -20994,18 +21012,48 @@ function useYamlContent(filePath, reloadKey = 0, fresh = false) {
         }
         throw new Error(`HTTP ${r.status}`);
       }
-      return r.text();
-    }).then((text) => {
-      if (!cancelled)
-        setState({ content: text, loading: false, error: null, fresh });
+      const header = r.headers.get("X-Content-Source");
+      const contentSource = header === "draft" || header === "published" || header === "local" ? header : null;
+      const versionHeader = r.headers.get("X-Published-Version");
+      const updatedAtHeader = r.headers.get("X-Updated-At");
+      const updatedByHeader = r.headers.get("X-Updated-By");
+      let updatedBy = null;
+      if (updatedByHeader) {
+        try {
+          updatedBy = decodeURIComponent(updatedByHeader);
+        } catch {
+          updatedBy = updatedByHeader;
+        }
+      }
+      const meta = versionHeader || updatedAtHeader || updatedBy ? {
+        publishedVersion: versionHeader || "",
+        updatedAt: updatedAtHeader || null,
+        updatedBy
+      } : null;
+      const text = await r.text();
+      return { text, contentSource, meta };
+    }).then(({ text, contentSource, meta }) => {
+      if (!cancelled) {
+        setState({
+          content: text,
+          loading: false,
+          error: null,
+          fresh,
+          contentSource,
+          meta
+        });
+      }
     }).catch((err) => {
-      if (!cancelled)
+      if (!cancelled) {
         setState({
           content: "",
           loading: false,
           error: err.message,
-          fresh
+          fresh,
+          contentSource: null,
+          meta: null
         });
+      }
     });
     return () => {
       cancelled = true;
@@ -23397,6 +23445,19 @@ function detectContextAtPosition(model, position, _lineContexts) {
   }
   if (!parentKey)
     return null;
+  if (section === "actions") {
+    if (parentKey === "attributes" || parentKey === "linkages") {
+      const insideBulk = isInsideBulkSettings(
+        (n) => model.getLineContent(n),
+        position.lineNumber,
+        currentIndent
+      );
+      if (parentKey === "attributes") {
+        return insideBulk ? "actionBulkSettingsAttributes" : "actionAttributes";
+      }
+      return insideBulk ? "actionBulkSettingsLinkages" : "actionLinkages";
+    }
+  }
   const hasDash = /^\s*-\s*[a-zA-Z]*$/.test(beforeCursor);
   if (parentKey === "menus")
     return hasDash ? "menuRoot" : "menuRootList";
@@ -24682,9 +24743,7 @@ function detectUiRuleNestedAttributeContext(model, position, lineCtx) {
   const cur = (ctx.currentDomainId || "").toLowerCase();
   if (!cur || !ctx.modelIndex)
     return null;
-  const uiRuleCrumb = lineCtx.breadcrumbs.find(
-    (b) => b.type === "uiRule"
-  );
+  const uiRuleCrumb = lineCtx.breadcrumbs.find((b) => b.type === "uiRule");
   if (!uiRuleCrumb)
     return null;
   const lineText = model.getLineContent(position.lineNumber);
@@ -25919,6 +25978,34 @@ ${indent}description: ""`
             viewDashboardLayout: {
               list: ["grid"],
               desc: { grid: "\u0420\u0430\u0441\u043F\u043E\u043B\u043E\u0436\u0435\u043D\u0438\u0435 \u0432\u0438\u0434\u0436\u0435\u0442\u043E\u0432 \u0441\u0435\u0442\u043A\u043E\u0439" }
+            },
+            // ============ NEW: bulk-edit (без bulkSettings) ============
+            actionAttributes: {
+              list: ["specific"],
+              desc: {
+                specific: "\u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435 \u0442\u043E\u043B\u044C\u043A\u043E \u043F\u0435\u0440\u0435\u0447\u0438\u0441\u043B\u0435\u043D\u043D\u044B\u0445 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432"
+              }
+            },
+            actionLinkages: {
+              list: ["specific"],
+              desc: {
+                specific: "\u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435 \u0442\u043E\u043B\u044C\u043A\u043E \u043F\u0435\u0440\u0435\u0447\u0438\u0441\u043B\u0435\u043D\u043D\u044B\u0445 \u0432\u0438\u0434\u0436\u0435\u0442\u043E\u0432 \u0441\u0432\u044F\u0437\u0435\u0439"
+              }
+            },
+            // ============ NEW: bulkSettings (tree_bulk) ============
+            actionBulkSettingsAttributes: {
+              list: ["all", "specific"],
+              desc: {
+                all: "\u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435 \u0432\u0441\u0435\u0445 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438",
+                specific: "\u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435 \u0442\u043E\u043B\u044C\u043A\u043E \u043F\u0435\u0440\u0435\u0447\u0438\u0441\u043B\u0435\u043D\u043D\u044B\u0445 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432"
+              }
+            },
+            actionBulkSettingsLinkages: {
+              list: ["all", "specific"],
+              desc: {
+                all: "\u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435 \u0432\u043E \u0432\u0441\u0435\u0445 \u0432\u0438\u0434\u0436\u0435\u0442\u0430\u0445 \u0441\u0432\u044F\u0437\u0435\u0439",
+                specific: "\u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435 \u0442\u043E\u043B\u044C\u043A\u043E \u043F\u0435\u0440\u0435\u0447\u0438\u0441\u043B\u0435\u043D\u043D\u044B\u0445 \u0432\u0438\u0434\u0436\u0435\u0442\u043E\u0432"
+              }
             }
           };
           const entry = map2[vctx.itemType];
@@ -26131,6 +26218,9 @@ ${indent}description: ""`
         case "entity":
         case "side1":
         case "side2": {
+          if ((fieldName === "side1" || fieldName === "side2") && vctx.container === "nameFrom") {
+            return { suggestions: [] };
+          }
           const refs = collectRefsForField(
             cachedEntities(),
             ctx.currentDomainId,
@@ -26478,6 +26568,8 @@ function isInInheritanceChain(startEntityId, targetEntityId, entities) {
 function resolveAttributeRefInEntities(entityId, ref, entities) {
   if (ref.includes("/"))
     return true;
+  if (SYSTEM_ATTRIBUTE_IDS.has(ref))
+    return true;
   const current = entities.get(entityId.toLowerCase());
   if (!current)
     return true;
@@ -26485,6 +26577,9 @@ function resolveAttributeRefInEntities(entityId, ref, entities) {
   if (dot > 0) {
     const targetEntityId = ref.slice(0, dot);
     const attrId = ref.slice(dot + 1);
+    if (SYSTEM_ATTRIBUTE_IDS.has(attrId)) {
+      return isInInheritanceChain(entityId, targetEntityId, entities);
+    }
     if (!isInInheritanceChain(entityId, targetEntityId, entities)) {
       return false;
     }
@@ -27034,8 +27129,29 @@ function computeItemTypeFast(lines, section, container, containerLine, container
   }
   if (container === "openBoardsFromGraph")
     return "actionOpenBoardsFromGraph";
-  if (section === "actions")
+  if (section === "actions") {
+    if (container === "attributes") {
+      return isInsideBulkSettings(
+        (n) => lines[n - 1] ?? "",
+        containerLine,
+        containerIndent
+      ) ? "actionBulkSettingsAttributes" : "actionAttributes";
+    }
+    if (container === "linkages") {
+      return isInsideBulkSettings(
+        (n) => lines[n - 1] ?? "",
+        containerLine,
+        containerIndent
+      ) ? "actionBulkSettingsLinkages" : "actionLinkages";
+    }
+    if (container === "values")
+      return "actionValue";
+    if (container === "control")
+      return "actionControl";
+    if (container === "automation")
+      return "actionAutomation";
     return "action";
+  }
   if (section === "dataRules")
     return container === "rule" ? "dataRuleRule" : "dataRule";
   if (section === "uiRules")
@@ -27159,6 +27275,29 @@ function applyDataTypeMarkers(monaco, model, index, currentDomainId) {
     console.warn("[dataType-validator]", err);
   }
 }
+function getParentContainerKey(lines, lineIdx0) {
+  const currentLine = lines[lineIdx0];
+  if (!currentLine)
+    return "";
+  const currentIndent = (currentLine.match(/^(\s*)/) || ["", ""])[1].length;
+  for (let j = lineIdx0 - 1; j >= 0; j--) {
+    const l = lines[j];
+    if (!l.trim() || l.trim().startsWith("#"))
+      continue;
+    const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind >= currentIndent)
+      continue;
+    const cm = l.match(/^\s*([a-zA-Z_][\w]*)\s*:\s*(?:#.*)?$/);
+    if (cm)
+      return cm[1];
+    const im = l.match(/^\s*-\s+([a-zA-Z_][\w]*)\s*:/);
+    if (im)
+      return im[1];
+    if (ind === 0)
+      break;
+  }
+  return "";
+}
 function applyFqidMarkers(monaco, model, index, currentDomainId) {
   try {
     const text = model.getValue();
@@ -27179,7 +27318,7 @@ function applyFqidMarkers(monaco, model, index, currentDomainId) {
       }
       entityIdsByDomain.get(domLower).add(String(e.entityId).toLowerCase());
     });
-    const REF_FIELD_PATTERN = /^\s*(?:-\s+)?(inherits|entity|side1|side2|attribute|item|source|linkedEntity)\s*:\s*(.+)$/;
+    const REF_FIELD_PATTERN = /^\s*(?:-\s+)?(inherits|entity|side1|side2)\s*:\s*(.+)$/;
     const FQID_IN_VALUE = /([a-z0-9][\w.\-]*\.[a-z0-9][\w.\-]*)\/([\w\-]+)/gi;
     const LOCAL_ENTITY_VALUE = /^([A-Z][\w]*)$/;
     const currentLower = (currentDomainId || "").toLowerCase();
@@ -27188,6 +27327,10 @@ function applyFqidMarkers(monaco, model, index, currentDomainId) {
       const fieldMatch = line.match(REF_FIELD_PATTERN);
       if (!fieldMatch)
         continue;
+      const fieldName = fieldMatch[1];
+      if ((fieldName === "side1" || fieldName === "side2") && getParentContainerKey(lines, i) === "nameFrom") {
+        continue;
+      }
       const rawValue = fieldMatch[2];
       const valueWithoutComment = rawValue.split(" #")[0].trim();
       let normalizedValue = valueWithoutComment;
@@ -27231,7 +27374,7 @@ function applyFqidMarkers(monaco, model, index, currentDomainId) {
         }
       }
       if (!fqidFound && currentLower) {
-        const field = fieldMatch[1];
+        const field = fieldName;
         if (field === "inherits" || field === "entity" || field === "side1" || field === "side2") {
           if (LOCAL_ENTITY_VALUE.test(normalizedValue)) {
             const localSet = entityIdsByDomain.get(currentLower);
@@ -27276,6 +27419,29 @@ function applyFqidMarkers(monaco, model, index, currentDomainId) {
               String(l.id).toLowerCase()
             );
           }
+        }
+      }
+    }
+    {
+      let inLinkagesSection = false;
+      const idRegex = /^\s*-\s+id\s*:\s*["']?([^\s"'#]+)["']?/;
+      for (const line of lines) {
+        if (!line.trim() || line.trim().startsWith("#"))
+          continue;
+        const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind === 0) {
+          const sm = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+          if (sm)
+            inLinkagesSection = sm[1] === "linkages";
+          continue;
+        }
+        if (!inLinkagesSection)
+          continue;
+        const m = line.match(idRegex);
+        if (m) {
+          ensureLinkageSet((currentDomainId || "").toLowerCase()).add(
+            m[1].toLowerCase()
+          );
         }
       }
     }
@@ -27678,6 +27844,18 @@ function applyFqidMarkers(monaco, model, index, currentDomainId) {
     console.warn("[fqid-validator]", err);
   }
 }
+function getSectionAtLine(lines, lineIdx0) {
+  for (let j = lineIdx0; j >= 0; j--) {
+    const l = lines[j];
+    if (!l)
+      continue;
+    if (/^\S/.test(l) && !l.trim().startsWith("#")) {
+      const m = l.match(/^([a-zA-Z_][\w]*)\s*:/);
+      return m ? m[1] : "";
+    }
+  }
+  return "";
+}
 function applyViewRefMarkers(monaco, model, index, currentDomainId) {
   try {
     const text = model.getValue();
@@ -27722,6 +27900,10 @@ function applyViewRefMarkers(monaco, model, index, currentDomainId) {
     const GROUP_REF_PATTERN = /^\s*(?:-\s+)?(tab|form|block)\s*:\s*(.+)$/;
     const checkRef = (i, line, rawValue, pool, kind) => {
       let value = rawValue.split(" #")[0].trim();
+      if (!value)
+        return;
+      if (value.startsWith("#"))
+        return;
       if (value.startsWith('"') && value.endsWith('"') || value.startsWith("'") && value.endsWith("'")) {
         value = value.slice(1, -1);
       }
@@ -27751,6 +27933,29 @@ function applyViewRefMarkers(monaco, model, index, currentDomainId) {
         });
       }
     };
+    {
+      const idRegex = /^\s*-\s+id\s*:\s*["']?([^\s"'#]+)["']?/;
+      let inViewsSection = false;
+      for (const line of lines) {
+        if (!line.trim() || line.trim().startsWith("#"))
+          continue;
+        const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind === 0) {
+          const sm = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+          if (sm)
+            inViewsSection = sm[1] === "views";
+          continue;
+        }
+        if (!inViewsSection)
+          continue;
+        const m = line.match(idRegex);
+        if (!m)
+          continue;
+        const id = m[1].toLowerCase();
+        localViewIds.add(id);
+        localGroupIds.add(id);
+      }
+    }
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const vm = line.match(VIEW_REF_PATTERN);
@@ -27759,6 +27964,9 @@ function applyViewRefMarkers(monaco, model, index, currentDomainId) {
         const lineCtx = ctx.lineMap?.lineContexts.get(i + 1);
         const inMixins = lineCtx?.section === "mixins";
         if (inMixins && (fieldName === "panel" || fieldName === "list")) {
+          continue;
+        }
+        if (fieldName === "view" && getSectionAtLine(lines, i) === "dataTypes") {
           continue;
         }
         checkRef(i, line, vm[2], localViewIds, "view");
@@ -27798,7 +28006,23 @@ function applyAttributeMarkers(monaco, model) {
         i = j - 1;
       }
     }
-    monaco.editor.setModelMarkers(model, "attribute-validator", markers);
+    const seenFinal = /* @__PURE__ */ new Set();
+    const deduped = [];
+    for (const mk of markers) {
+      const key = [
+        mk.startLineNumber,
+        mk.startColumn,
+        mk.endLineNumber,
+        mk.endColumn,
+        mk.severity,
+        mk.message || ""
+      ].join("\0");
+      if (seenFinal.has(key))
+        continue;
+      seenFinal.add(key);
+      deduped.push(mk);
+    }
+    monaco.editor.setModelMarkers(model, "attribute-validator", deduped);
   } catch (err) {
     console.warn("[attribute-validator]", err);
   }
@@ -27943,10 +28167,29 @@ function scanEntities(lines, startIdx, endIdx, markers, monaco) {
             }
           }
           if (attrId) {
+            let description = null;
+            for (let n = k + 1; n < attrEnd; n++) {
+              const nl = lines[n];
+              if (!nl.trim() || nl.trim().startsWith("#"))
+                continue;
+              const nInd = (nl.match(/^(\s*)/) || ["", ""])[1].length;
+              if (nInd !== attrFieldIndent)
+                continue;
+              const dm = nl.match(/^\s*description\s*:\s*(.*?)\s*(?:#.*)?$/);
+              if (dm) {
+                let v = dm[1].trim();
+                if (v.startsWith('"') && v.endsWith('"') || v.startsWith("'") && v.endsWith("'")) {
+                  v = v.slice(1, -1);
+                }
+                description = v;
+                break;
+              }
+            }
             attrIdList.push({
               id: attrId,
               idLine: attrIdLine,
-              idIndent: attrDashIndent
+              idIndent: attrDashIndent,
+              description
             });
           }
           k = attrEnd - 1;
@@ -27999,20 +28242,70 @@ function scanEntities(lines, startIdx, endIdx, markers, monaco) {
         });
       }
     }
-    for (const a of eb.attrIdList) {
-      if (!SYSTEM_ATTRIBUTE_IDS.has(a.id))
-        continue;
-      const line = lines[a.idLine - 1];
-      const startCol = line.indexOf(a.id) + 1;
-      markers.push({
-        severity: monaco.MarkerSeverity.Error,
-        message: `\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \xAB${a.id}\xBB \u0437\u0430\u0440\u0435\u0437\u0435\u0440\u0432\u0438\u0440\u043E\u0432\u0430\u043D \u0441\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u043C \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u043C. \u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u0440\u0443\u0433\u043E\u0435 \u0438\u043C\u044F.`,
-        startLineNumber: a.idLine,
-        startColumn: startCol > 0 ? startCol : 1,
-        endLineNumber: a.idLine,
-        endColumn: startCol > 0 ? startCol + a.id.length : 1e6,
-        source: "attribute-validator"
-      });
+    const seenForSystemId = /* @__PURE__ */ new Set();
+    for (const eb2 of entityBlocks) {
+      for (const a of eb2.attrIdList) {
+        if (!SYSTEM_ATTRIBUTE_IDS.has(a.id))
+          continue;
+        const key = `${eb2.id.toLowerCase()}:${a.id.toLowerCase()}`;
+        if (seenForSystemId.has(key))
+          continue;
+        seenForSystemId.add(key);
+        const line = lines[a.idLine - 1];
+        const startCol = line.indexOf(a.id) + 1;
+        markers.push({
+          severity: monaco.MarkerSeverity.Error,
+          message: `\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \xAB${eb2.id}.${a.id}\xBB \u0437\u0430\u0440\u0435\u0437\u0435\u0440\u0432\u0438\u0440\u043E\u0432\u0430\u043D \u0441\u0438\u0441\u0442\u0435\u043C\u043D\u044B\u043C \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u043C. \u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u0440\u0443\u0433\u043E\u0435 \u0438\u043C\u044F.`,
+          startLineNumber: a.idLine,
+          startColumn: startCol > 0 ? startCol : 1,
+          endLineNumber: a.idLine,
+          endColumn: startCol > 0 ? startCol + a.id.length : 1e6,
+          source: "attribute-validator"
+        });
+      }
+    }
+    const RE_ATTRIBUTE_CAMEL = /^[a-z][a-zA-Z0-9]*$/;
+    const seenForCamel = /* @__PURE__ */ new Set();
+    for (const eb2 of entityBlocks) {
+      for (const a of eb2.attrIdList) {
+        if (RE_ATTRIBUTE_CAMEL.test(a.id))
+          continue;
+        const key = `${eb2.id.toLowerCase()}:${a.id.toLowerCase()}`;
+        if (seenForCamel.has(key))
+          continue;
+        seenForCamel.add(key);
+        const lineText = lines[a.idLine - 1] || "";
+        const startCol = lineText.indexOf(a.id) + 1;
+        markers.push({
+          severity: monaco.MarkerSeverity.Warning,
+          message: `attribute.id \xAB${eb2.id}.${a.id}\xBB \u043D\u0435 \u0432 camelCase (\u043F\u0435\u0440\u0432\u0430\u044F \u0431\u0443\u043A\u0432\u0430 \u0441\u0442\u0440\u043E\u0447\u043D\u0430\u044F, \u0440\u0430\u0437\u0434\u0435\u043B\u0438\u0442\u0435\u043B\u0435\u0439 \u043D\u0435\u0442)`,
+          startLineNumber: a.idLine,
+          startColumn: startCol > 0 ? startCol : 1,
+          endLineNumber: a.idLine,
+          endColumn: startCol > 0 ? startCol + a.id.length : 1e6,
+          source: "attribute-validator"
+        });
+      }
+    }
+    const seenForDescription = /* @__PURE__ */ new Set();
+    for (const eb2 of entityBlocks) {
+      for (const a of eb2.attrIdList) {
+        if (a.description && a.description.trim())
+          continue;
+        const key = `${eb2.id.toLowerCase()}:${a.id.toLowerCase()}`;
+        if (seenForDescription.has(key))
+          continue;
+        seenForDescription.add(key);
+        markers.push({
+          severity: monaco.MarkerSeverity.Info,
+          message: `\u0443 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430 \xAB${eb2.id}.${a.id}\xBB \u043D\u0435\u0442 description`,
+          startLineNumber: a.idLine,
+          startColumn: 1,
+          endLineNumber: a.idLine,
+          endColumn: 1e6,
+          source: "attribute-validator"
+        });
+      }
     }
   }
 }
@@ -28201,7 +28494,24 @@ function findWidgetTypeForControl(lines, controlLine) {
   }
   return "";
 }
-var SYSTEM_ATTRIBUTES_FOR_COMPLETION, providersRegistered, ctx, REF_FIELDS, ATTRIBUTE_LIKE_FIELDS, BASE_DATA_TYPE_DESCRIPTIONS, GRAPH_VIEW_COLORS, GRAPH_VIEW_COLOR_LABELS, RECONCILIATION_MERGE_STRATEGIES, RECONCILIATION_MERGE_LABELS, WIDGET_TYPE_DESCRIPTIONS, EFFECT_DESCRIPTIONS, TARGET_DESCRIPTIONS, CONTROL_TYPE_DESCRIPTIONS, BASE_DATA_TYPES_COMPLETION, BOOLEAN_FIELD_NAMES, mkSimple, FIELD_DEFINITIONS, SNIPPETS, _colCache, RQL_FIELDS2, BASE_DATA_TYPES_SET, TYPE_ENUM_BY_CTX, EFFECT_ENUM_BY_CTX, TARGET_ENUM_BY_CTX, OPERATION_ENUM_BY_ACTION_TYPE;
+function isInsideBulkSettings(getLine, startLine1Based, minIndent) {
+  for (let i = startLine1Based - 1; i >= 1; i--) {
+    const l = getLine(i);
+    if (!l || !l.trim() || l.trim().startsWith("#"))
+      continue;
+    const ind = (l.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind >= minIndent)
+      continue;
+    if (/^\s*(?:-\s+)?bulkSettings\s*:\s*$/.test(l))
+      return true;
+    if (/^\s*-\s+id\s*:\s*\S/.test(l))
+      return false;
+    if (ind === 0)
+      return false;
+  }
+  return false;
+}
+var INLINE_COVERED_RULE_IDS, SYSTEM_ATTRIBUTES_FOR_COMPLETION, providersRegistered, ctx, REF_FIELDS, ATTRIBUTE_LIKE_FIELDS, BASE_DATA_TYPE_DESCRIPTIONS, GRAPH_VIEW_COLORS, GRAPH_VIEW_COLOR_LABELS, RECONCILIATION_MERGE_STRATEGIES, RECONCILIATION_MERGE_LABELS, WIDGET_TYPE_DESCRIPTIONS, EFFECT_DESCRIPTIONS, TARGET_DESCRIPTIONS, CONTROL_TYPE_DESCRIPTIONS, BASE_DATA_TYPES_COMPLETION, BOOLEAN_FIELD_NAMES, mkSimple, FIELD_DEFINITIONS, SNIPPETS, _colCache, RQL_FIELDS2, BASE_DATA_TYPES_SET, TYPE_ENUM_BY_CTX, EFFECT_ENUM_BY_CTX, TARGET_ENUM_BY_CTX, OPERATION_ENUM_BY_ACTION_TYPE;
 var init_monaco_providers = __esm({
   "src/web/lib/monaco/monaco-providers.ts"() {
     "use strict";
@@ -28209,6 +28519,13 @@ var init_monaco_providers = __esm({
     init_rql_check();
     init_linter();
     init_action_types();
+    INLINE_COVERED_RULE_IDS = /* @__PURE__ */ new Set([
+      "naming/attribute-camelcase",
+      "recommended/attribute-description",
+      "naming/system-id-attribute",
+      "semantic/duplicate-attribute",
+      "duplicate-id/entities"
+    ]);
     SYSTEM_ATTRIBUTES_FOR_COMPLETION = [
       { id: "id", dataType: "Uuid", description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u043E\u0431\u044A\u0435\u043A\u0442\u0430" },
       {
@@ -32116,7 +32433,11 @@ var init_monaco_providers = __esm({
       ],
       "entities|treeNodeType": ["root", "branch", "leaf"],
       "views|viewDashboardLayout": ["grid"],
-      "views|viewWidgetDragDropContext": ["Array", "Attachment", "Table"]
+      "views|viewWidgetDragDropContext": ["Array", "Attachment", "Table"],
+      "actions|actionBulkSettingsAttributes": ["all", "specific"],
+      "actions|actionBulkSettingsLinkages": ["all", "specific"],
+      "actions|actionAttributes": ["specific"],
+      "actions|actionLinkages": ["specific"]
     };
     EFFECT_ENUM_BY_CTX = {
       dataRuleRule: ["hidden", "readonly", "required", "default", "allowed"],
@@ -38233,7 +38554,7 @@ function buildRecheckModel(content) {
         if (fm) {
           const key = fm[2];
           const value = unq(fm[3]);
-          if (key === "type" || key === "entity" || key === "linkage" || key === "operation" || key === "join")
+          if (key === "type" || key === "entity" || key === "linkage" || key === "operation" || key === "join" || key === "modal" || key === "panel" || key === "view" || key === "pageView" || key === "attribute" || key === "scenario" || key === "workerTag" || key === "bulkSettings" || key === "values")
             act.fields[key] = value;
         }
         const am = line.match(/^\s*automation\s*:\s*$/);
@@ -38330,6 +38651,21 @@ function recheck(issue, model, _index) {
     );
     const count = (model.lines.join("\n").match(re) || []).length;
     return count > 1 ? "still" : "resolved";
+  }
+  if (ruleId.startsWith("required/action-")) {
+    const field = ruleId.slice("required/action-".length);
+    const m = issue.propertyPath?.match(/^actions\[(.+?)\]/);
+    if (!m)
+      return "unknown";
+    const act = findActionById(model, m[1]);
+    if (!act)
+      return "resolved";
+    const isContainer = field === "values" || field === "bulkSettings" || field === "control" || field === "automation" || field === "transition" || field === "params" || field === "widgetParams" || field === "openBoardsFromGraph";
+    if (isContainer) {
+      return act.fields[field] !== void 0 ? "resolved" : "still";
+    }
+    const v = act.fields[field];
+    return v !== void 0 && v !== "" ? "resolved" : "still";
   }
   if (ruleId === "view/widget-linkage-side-on-undirected") {
     const m = issue.propertyPath?.match(/widgets\[([^\]]+)\]/);
@@ -42774,6 +43110,64 @@ var init_apply_generation = __esm({
   }
 });
 
+// src/web/lib/yaml/unused-analysis.ts
+function computeUnusedInYaml(content, lineMap) {
+  const empty = {
+    entities: /* @__PURE__ */ new Set(),
+    attributes: /* @__PURE__ */ new Set()
+  };
+  if (!content)
+    return empty;
+  const text = content.replace(/#[^\n]*/g, "");
+  const wordCounts = /* @__PURE__ */ new Map();
+  for (const m of text.matchAll(WORD_RE)) {
+    const w = m[0];
+    wordCounts.set(w, (wordCounts.get(w) || 0) + 1);
+  }
+  const defCounts = /* @__PURE__ */ new Map();
+  for (const line of text.split("\n")) {
+    const m = line.match(DEF_ID_RE);
+    if (!m)
+      continue;
+    defCounts.set(m[1], (defCounts.get(m[1]) || 0) + 1);
+  }
+  const entitiesSection = lineMap.sections.find((s) => s.key === "entities");
+  if (!entitiesSection)
+    return empty;
+  for (const entityNode of entitiesSection.nodes) {
+    const entityId = entityNode.id;
+    const entityTotal = wordCounts.get(entityId) || 0;
+    const entityDefs = defCounts.get(entityId) || 0;
+    if (entityTotal <= entityDefs) {
+      empty.entities.add(entityId.toLowerCase());
+    }
+    for (const attrNode of entityNode.children || []) {
+      if (attrNode.type !== "attribute")
+        continue;
+      const attrId = attrNode.id;
+      if (SYSTEM_ATTRIBUTE_IDS.has(attrId))
+        continue;
+      const attrTotal = wordCounts.get(attrId) || 0;
+      const attrDefs = defCounts.get(attrId) || 0;
+      if (attrTotal <= attrDefs) {
+        empty.attributes.add(
+          `${entityId.toLowerCase()}:${attrId.toLowerCase()}`
+        );
+      }
+    }
+  }
+  return empty;
+}
+var WORD_RE, DEF_ID_RE;
+var init_unused_analysis = __esm({
+  "src/web/lib/yaml/unused-analysis.ts"() {
+    "use strict";
+    init_linter();
+    WORD_RE = /[a-zA-Z_][a-zA-Z0-9_]*/g;
+    DEF_ID_RE = /^\s*-\s+id\s*:\s*["']?([a-zA-Z_][a-zA-Z0-9_]*)["']?/;
+  }
+});
+
 // src/web/components/modals/YamlViewerModal.tsx
 import React42, { useCallback as useCallback18, useDeferredValue, useEffect as useEffect37, useMemo as useMemo43, useRef as useRef15, useState as useState34 } from "react";
 import { Fragment as Fragment18, jsx as jsx76, jsxs as jsxs73 } from "react/jsx-runtime";
@@ -42855,11 +43249,22 @@ function YamlViewerModal() {
     if (open)
       setReloadKey((k) => k + 1);
   }, [open]);
-  const { content: fetchedContent, loading, error: loadError } = useYamlContent(
+  const {
+    content: fetchedContent,
+    loading,
+    error: loadError,
+    contentSource,
+    meta: contentMeta
+  } = useYamlContent(
     open ? filePath : null,
     reloadKey,
     mode === "remote"
   );
+  const [metaOverride, setMetaOverride] = useState34(null);
+  const yamlMeta = contentMeta ? { ...contentMeta, ...metaOverride || {} } : null;
+  useEffect37(() => {
+    useGraphStore.getState().setYamlViewerContentSource(open ? contentSource : null);
+  }, [open, contentSource]);
   const [content, setContent] = useState34("");
   const [yamlSyntaxIssue, setYamlSyntaxIssue] = useState34(null);
   const deferredContent = useDeferredValue(content);
@@ -42869,8 +43274,9 @@ function YamlViewerModal() {
   const skipNextEffect = useRef15(false);
   const [editorCreated, setEditorCreated] = useState34(false);
   const [ignoredVersion, setIgnoredVersion] = useState34(0);
-  const [diffMode, setDiffMode] = useState34(false);
+  const [diffAgainst, setDiffAgainst] = useState34(null);
   const [previousContent, setPreviousContent] = useState34(null);
+  const [publishedContent, setPublishedContent] = useState34(null);
   const diffContainerRef = useRef15(null);
   const diffEditorRef = useRef15(null);
   const [cursorLine, setCursorLine] = useState34(1);
@@ -42883,6 +43289,7 @@ function YamlViewerModal() {
   const [scrollSignal, setScrollSignal] = useState34(0);
   const pendingGeneration = useGraphStore((s) => s.yamlViewerPendingGeneration);
   const setPendingGeneration = useGraphStore((s) => s.setYamlViewerPendingGeneration);
+  const yamlHighlightUnused = useGraphStore((s) => s.yamlHighlightUnused);
   const startResizingLeft = (e) => {
     e.preventDefault();
     isDraggingLeft.current = true;
@@ -43031,6 +43438,8 @@ function YamlViewerModal() {
   const containerRef = useRef15(null);
   const saveRef = useRef15(() => {
   });
+  const publishRef = useRef15(() => {
+  });
   const toggleLockRef = useRef15(() => {
   });
   const isLockedRef = useRef15(isLocked);
@@ -43055,6 +43464,11 @@ function YamlViewerModal() {
   useEffect37(() => {
     isLockedRef.current = isLocked;
   }, [isLocked]);
+  const lastAutoScrolledQueryRef = useRef15(null);
+  useEffect37(() => {
+    if (!searchQuery)
+      lastAutoScrolledQueryRef.current = null;
+  }, [searchQuery]);
   const schema2 = useMemo43(() => {
     if (!index || !domainId)
       return null;
@@ -43084,7 +43498,9 @@ function YamlViewerModal() {
   const domainIssues = useMemo43(() => {
     if (!index || !domainId)
       return [];
-    return index.lint.lintReport.issues.filter((i) => i.domainId === domainId);
+    return index.lint.lintReport.issues.filter(
+      (i) => i.domainId === domainId
+    );
   }, [index, domainId]);
   const counters = useMemo43(() => {
     if (!schema2)
@@ -43291,6 +43707,17 @@ function YamlViewerModal() {
     }
     return Array.from(grouped.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([scenarioId, actions]) => ({ scenarioId, actions }));
   }, [deferredContent]);
+  const unusedAnalysis = useMemo43(() => {
+    if (!yamlHighlightUnused)
+      return null;
+    if (!lineMap || !deferredContent)
+      return null;
+    try {
+      return computeUnusedInYaml(deferredContent, lineMap);
+    } catch {
+      return null;
+    }
+  }, [deferredContent, lineMap, yamlHighlightUnused]);
   const flatNavNodes = useMemo43(() => {
     if (!lineMap)
       return [];
@@ -43707,6 +44134,7 @@ function YamlViewerModal() {
   }, [leftCollapsed, rightCollapsed]);
   useEffect37(() => {
     saveRef.current = handleSave;
+    publishRef.current = handlePublish;
     toggleLockRef.current = handleToggleLock;
   });
   useEffect37(() => {
@@ -43755,9 +44183,13 @@ function YamlViewerModal() {
     const m = window.monaco;
     if (!m)
       return;
-    const id = editorRef.current.addCommand(
+    editorRef.current.addCommand(
       m.KeyMod.CtrlCmd | m.KeyCode.KeyS,
       () => saveRef.current()
+    );
+    editorRef.current.addCommand(
+      m.KeyMod.CtrlCmd | m.KeyMod.Shift | m.KeyCode.KeyS,
+      () => publishRef.current()
     );
     return () => {
     };
@@ -43887,21 +44319,62 @@ function YamlViewerModal() {
   useEffect37(() => {
     if (!editorCreated || !editorRef.current)
       return;
+    if (!searchQuery)
+      return;
     if (!searchResult || searchResult.groups.length === 0)
+      return;
+    if (searchResult.query !== searchQuery)
+      return;
+    if (lastAutoScrolledQueryRef.current === searchQuery)
+      return;
+    if (activeSearchMatch)
       return;
     const firstMatch = searchResult.groups[0]?.matches[0];
     if (!firstMatch)
       return;
-    if (activeSearchMatch)
+    lastAutoScrolledQueryRef.current = searchQuery;
+    const m = window.monaco;
+    if (!m)
       return;
-    const ed = editorRef.current;
-    try {
-      ed.revealLineInCenter(firstMatch.line);
-      ed.setPosition({ lineNumber: firstMatch.line, column: firstMatch.column });
-      ed.layout();
-    } catch {
-    }
-  }, [searchResult, activeSearchMatch, editorCreated]);
+    const doScroll = () => {
+      const ed = editorRef.current;
+      if (!ed)
+        return;
+      try {
+        ed.revealPositionInCenterIfOutsideViewport(
+          { lineNumber: firstMatch.line, column: firstMatch.column },
+          m.editor.ScrollType.Immediate
+        );
+      } catch {
+      }
+      try {
+        ed.setPosition({ lineNumber: firstMatch.line, column: firstMatch.column });
+      } catch {
+      }
+      requestAnimationFrame(() => {
+        const ed2 = editorRef.current;
+        if (!ed2)
+          return;
+        try {
+          const visible = ed2.getVisibleRanges();
+          const isVisible = visible.some(
+            (r) => r.startLineNumber <= firstMatch.line && firstMatch.line <= r.endLineNumber
+          );
+          if (!isVisible) {
+            const lineTop = ed2.getTopForLineNumber(firstMatch.line);
+            const layout = ed2.getLayoutInfo();
+            const lineHeight = ed2.getOption(m.editor.EditorOption.lineHeight);
+            ed2.setScrollTop(
+              Math.max(0, lineTop - layout.height / 2 + lineHeight / 2)
+            );
+          }
+        } catch {
+        }
+      });
+    };
+    const t = setTimeout(doScroll, 50);
+    return () => clearTimeout(t);
+  }, [searchResult, activeSearchMatch, editorCreated, searchQuery]);
   useEffect37(() => {
     if (!monacoReady || !editorCreated || !editorRef.current)
       return;
@@ -43921,7 +44394,8 @@ function YamlViewerModal() {
           "attribute-validator",
           "ui-rule-validator",
           "attribute-ref-validator",
-          "rql-check"
+          "rql-check",
+          "action-required-validator"
         ];
         for (const src of sources) {
           try {
@@ -43971,6 +44445,41 @@ function YamlViewerModal() {
         applyRqlMarkers(m, model);
       } catch {
       }
+      try {
+        const severityMap = {
+          [m.MarkerSeverity.Error]: "error",
+          [m.MarkerSeverity.Warning]: "warning",
+          [m.MarkerSeverity.Info]: "info",
+          [m.MarkerSeverity.Hint]: "info"
+        };
+        const INLINE_SOURCES = [
+          "attribute-validator",
+          "fqid-validator",
+          "dataType-validator",
+          "enum-validator",
+          "view-ref-validator",
+          "ui-rule-validator",
+          "attribute-ref-validator",
+          "action-required-validator",
+          "rql-check"
+        ];
+        for (const source of INLINE_SOURCES) {
+          const markers = m.editor.getModelMarkers({
+            resource: model.uri,
+            owner: source
+          });
+          if (markers.length === 0)
+            continue;
+          const filtered = markers.filter((mk) => {
+            const sev = severityMap[mk.severity];
+            return sev != null && severityFilter.has(sev);
+          });
+          if (filtered.length !== markers.length) {
+            m.editor.setModelMarkers(model, source, filtered);
+          }
+        }
+      } catch {
+      }
       requestAnimationFrame(() => {
         if (!editorRef.current)
           return;
@@ -43995,7 +44504,7 @@ function YamlViewerModal() {
       } catch {
       }
     };
-  }, [checksEnabled, monacoReady, editorCreated, index, domainId]);
+  }, [checksEnabled, monacoReady, editorCreated, index, domainId, severityFilter]);
   useEffect37(() => {
     if (!monacoReady || !editorCreated || !editorRef.current)
       return;
@@ -44071,7 +44580,7 @@ ${label.message}` : ""),
       return;
     const currentText = model.getValue();
     const isDirty2 = content !== savedContent;
-    const markers = domainIssues.filter((issue) => severityFilter.has(issue.severity)).filter((issue) => !isIgnored(issue, ignored)).map((issue) => {
+    const markers = domainIssues.filter((issue) => severityFilter.has(issue.severity)).filter((issue) => !INLINE_COVERED_RULE_IDS.has(issue.ruleId)).filter((issue) => !isIgnored(issue, ignored)).map((issue) => {
       const state = isDirty2 ? classifyIssue(issue, currentText, lineMap, recheckModel, index) : "still";
       if (state === "resolved")
         return null;
@@ -44575,49 +45084,27 @@ ${label.message}` : ""),
   const handleSave = useCallback18(async () => {
     if (isLocked || isSaving || !editorRef.current)
       return;
-    let valueToSave = editorRef.current.getValue();
+    const valueToSave = editorRef.current.getValue();
     if (valueToSave === savedContent) {
       setSaveFeedback(true);
       setTimeout(() => setSaveFeedback(false), 1500);
       return;
     }
-    if (mode === "remote") {
-      const oldVersion = extractTopLevelVersion(savedContent);
-      const newVersion = extractTopLevelVersion(valueToSave);
-      if (oldVersion && newVersion && oldVersion === newVersion) {
-        const bumped = bumpPatchVersion(oldVersion);
-        if (bumped) {
-          const ok = confirm(
-            `\u0412\u0435\u0440\u0441\u0438\u044F \u0441\u0445\u0435\u043C\u044B \u043D\u0435 \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u0430\u0441\u044C: ${oldVersion}.
-
-\u0414\u043B\u044F \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u0438 version \u0434\u043E\u043B\u0436\u043D\u0430 \u0431\u044B\u0442\u044C \u0431\u043E\u043B\u044C\u0448\u0435, \u0447\u0435\u043C \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435.
-\u041F\u043E\u0434\u043D\u044F\u0442\u044C \u0434\u043E ${bumped} \u0438 \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C?`
-          );
-          if (!ok)
-            return;
-          valueToSave = replaceTopLevelVersion(valueToSave, bumped);
-          isProgrammaticChange.current = true;
-          try {
-            editorRef.current.setValue(valueToSave);
-          } finally {
-            isProgrammaticChange.current = false;
-          }
-          setContent(valueToSave);
-        }
-      }
-    }
     setIsSaving(true);
-    setSaveStage(mode === "remote" ? "publishing" : "writing");
+    setSaveStage("writing");
     setSaveError(null);
     const controller = new AbortController();
     saveAbortRef.current = controller;
     const timeoutId = setTimeout(() => controller.abort(), 12e4);
     try {
-      const body = { path: filePath, content: valueToSave };
+      const body = {
+        path: filePath,
+        content: valueToSave,
+        action: "save"
+      };
       const pendingManifest = useGraphStore.getState().yamlViewerPendingManifest;
-      if (pendingManifest) {
+      if (pendingManifest)
         body.generated = pendingManifest;
-      }
       const res = await fetch("/file", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -44650,11 +45137,146 @@ ${label.message}` : ""),
         editorRef.current?.pushUndoStop();
       } catch {
       }
-      let publishInfo = null;
+      let diskContent = null;
+      try {
+        const back = await fetch(
+          "/file?path=" + encodeURIComponent(filePath || "")
+        );
+        if (back.ok)
+          diskContent = await back.text();
+      } catch {
+      }
+      let hadError = false;
+      if (diskContent !== null && diskContent !== valueToSave && editorRef.current) {
+        isProgrammaticChange.current = true;
+        try {
+          editorRef.current.setValue(diskContent);
+        } finally {
+          isProgrammaticChange.current = false;
+        }
+        setSavedContent(diskContent);
+        setContent(diskContent);
+        setLiveVersion((v) => v + 1);
+        hadError = true;
+        setSaveError(
+          "\u041D\u0430 \u0434\u0438\u0441\u043A\u0435 \u043E\u043A\u0430\u0437\u0430\u043B\u043E\u0441\u044C \u0434\u0440\u0443\u0433\u043E\u0435 \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u0435. Monaco \u0441\u0438\u043D\u0445\u0440\u043E\u043D\u0438\u0437\u0438\u0440\u043E\u0432\u0430\u043D."
+        );
+      }
+      let draftInfo = null;
       try {
         const data = await res.json();
-        if (data && data.publish)
-          publishInfo = data.publish;
+        if (data && data.draft)
+          draftInfo = data.draft;
+      } catch {
+      }
+      if (draftInfo && draftInfo.ok === true) {
+        useGraphStore.getState().setYamlViewerContentSource("draft");
+        setMetaOverride((prev) => ({
+          ...prev || {},
+          updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+          updatedBy: "\u0432\u044B"
+        }));
+        useGraphStore.getState().showSnackbar(
+          `\u2705 \u0427\u0435\u0440\u043D\u043E\u0432\u0438\u043A \u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D: ${draftInfo.domain?.name || filePath}`
+        );
+      } else if (draftInfo && draftInfo.ok === false) {
+        hadError = true;
+        const hint = draftInfo.hint ? `
+${draftInfo.hint}` : "";
+        setSaveError(
+          `\u041B\u043E\u043A\u0430\u043B\u044C\u043D\u043E \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u043E. \u0427\u0435\u0440\u043D\u043E\u0432\u0438\u043A \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435 \u043D\u0435 \u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D: ${draftInfo.error}${hint}`
+        );
+        useGraphStore.getState().showSnackbar(
+          `\u26A0\uFE0F \u041B\u043E\u043A\u0430\u043B\u044C\u043D\u043E \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u043E, \u0447\u0435\u0440\u043D\u043E\u0432\u0438\u043A \u043D\u0435 \u0443\u0434\u0430\u043B\u0441\u044F: ${draftInfo.error}`
+        );
+      }
+      if (!hadError) {
+        setSaveFeedback(true);
+        setTimeout(() => setSaveFeedback(false), 2e3);
+      }
+    } catch (err) {
+      setSaveError(err.message || "\u041E\u0448\u0438\u0431\u043A\u0430 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F");
+    } finally {
+      clearTimeout(timeoutId);
+      saveAbortRef.current = null;
+      setIsSaving(false);
+      setSaveStage("idle");
+    }
+  }, [isLocked, savedContent, filePath, mode, isSaving]);
+  const handlePublish = useCallback18(async () => {
+    if (isLocked || isSaving || !editorRef.current)
+      return;
+    let valueToSave = editorRef.current.getValue();
+    if (mode === "remote" || mode === "local") {
+      const oldVersion = extractTopLevelVersion(savedContent);
+      const newVersion = extractTopLevelVersion(valueToSave);
+      if (oldVersion && newVersion && oldVersion === newVersion) {
+        const bumped = bumpPatchVersion(oldVersion);
+        if (bumped) {
+          const ok = confirm(
+            `\u0412\u0435\u0440\u0441\u0438\u044F \u0441\u0445\u0435\u043C\u044B \u043D\u0435 \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u0430\u0441\u044C: ${oldVersion}.
+
+\u0414\u043B\u044F \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u0438 version \u0434\u043E\u043B\u0436\u043D\u0430 \u0431\u044B\u0442\u044C \u0431\u043E\u043B\u044C\u0448\u0435, \u0447\u0435\u043C \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435.
+\u041F\u043E\u0434\u043D\u044F\u0442\u044C \u0434\u043E ${bumped} \u0438 \u043E\u043F\u0443\u0431\u043B\u0438\u043A\u043E\u0432\u0430\u0442\u044C?`
+          );
+          if (!ok)
+            return;
+          valueToSave = replaceTopLevelVersion(valueToSave, bumped);
+          isProgrammaticChange.current = true;
+          try {
+            editorRef.current.setValue(valueToSave);
+          } finally {
+            isProgrammaticChange.current = false;
+          }
+          setContent(valueToSave);
+        }
+      }
+    }
+    setIsSaving(true);
+    setSaveStage(mode === "remote" ? "publishing" : "writing");
+    setSaveError(null);
+    const controller = new AbortController();
+    saveAbortRef.current = controller;
+    const timeoutId = setTimeout(() => controller.abort(), 12e4);
+    try {
+      const body = {
+        path: filePath,
+        content: valueToSave,
+        action: "publish"
+      };
+      const pendingManifest = useGraphStore.getState().yamlViewerPendingManifest;
+      if (pendingManifest)
+        body.generated = pendingManifest;
+      const res = await fetch("/file", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        let errMsg = errText;
+        try {
+          const j = JSON.parse(errText);
+          if (j.error)
+            errMsg = j.error;
+        } catch {
+        }
+        throw new Error(errMsg);
+      }
+      invalidateYamlCache(filePath || void 0);
+      useGraphStore.getState().bumpModelVersion();
+      setTimeout(() => {
+        useGraphStore.getState().bumpModelVersion();
+      }, 800);
+      setSavedContent(valueToSave);
+      setContent(valueToSave);
+      setLiveVersion((v) => v + 1);
+      if (pendingManifest) {
+        useGraphStore.getState().setYamlViewerPendingManifest(null);
+      }
+      try {
+        editorRef.current?.pushUndoStop();
       } catch {
       }
       let diskContent = null;
@@ -44679,10 +45301,27 @@ ${label.message}` : ""),
         setLiveVersion((v) => v + 1);
         hadError = true;
         setSaveError(
-          "\u041D\u0430 \u0434\u0438\u0441\u043A\u0435 \u043E\u043A\u0430\u0437\u0430\u043B\u043E\u0441\u044C \u0434\u0440\u0443\u0433\u043E\u0435 \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u0435. Monaco \u0441\u0438\u043D\u0445\u0440\u043E\u043D\u0438\u0437\u0438\u0440\u043E\u0432\u0430\u043D. \u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435, \u043D\u0435 \u0437\u0430\u043F\u0443\u0449\u0435\u043D \u043B\u0438 --refresh \u043F\u0430\u0440\u0430\u043B\u043B\u0435\u043B\u044C\u043D\u043E."
+          "\u041D\u0430 \u0434\u0438\u0441\u043A\u0435 \u043E\u043A\u0430\u0437\u0430\u043B\u043E\u0441\u044C \u0434\u0440\u0443\u0433\u043E\u0435 \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u0435. Monaco \u0441\u0438\u043D\u0445\u0440\u043E\u043D\u0438\u0437\u0438\u0440\u043E\u0432\u0430\u043D."
         );
       }
+      let publishInfo = null;
+      try {
+        const data = await res.json();
+        if (data && data.publish)
+          publishInfo = data.publish;
+      } catch {
+      }
       if (publishInfo && publishInfo.ok === true) {
+        useGraphStore.getState().setYamlViewerContentSource("published");
+        setPublishedContent(null);
+        setDiffAgainst(null);
+        const newVersion = extractTopLevelVersion(valueToSave);
+        setMetaOverride((prev) => ({
+          ...prev || {},
+          ...newVersion ? { publishedVersion: newVersion } : {},
+          updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+          updatedBy: "\u0432\u044B"
+        }));
         useGraphStore.getState().showSnackbar(
           `\u2705 \u041E\u043F\u0443\u0431\u043B\u0438\u043A\u043E\u0432\u0430\u043D\u043E: ${publishInfo.domain?.name || filePath}`
         );
@@ -44702,14 +45341,52 @@ ${publishInfo.hint}` : "";
         setTimeout(() => setSaveFeedback(false), 2e3);
       }
     } catch (err) {
-      setSaveError(err.message || "\u041E\u0448\u0438\u0431\u043A\u0430 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F");
+      setSaveError(err.message || "\u041E\u0448\u0438\u0431\u043A\u0430 \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u0438");
     } finally {
       clearTimeout(timeoutId);
       saveAbortRef.current = null;
       setIsSaving(false);
       setSaveStage("idle");
     }
-  }, [isLocked, savedContent, filePath, mode]);
+  }, [isLocked, savedContent, filePath, mode, isSaving]);
+  const handleDiffPublished = useCallback18(async () => {
+    if (!filePath)
+      return;
+    if (diffAgainst === "published") {
+      setDiffAgainst(null);
+      return;
+    }
+    if (publishedContent === null) {
+      try {
+        const r = await fetch(
+          "/file/published?path=" + encodeURIComponent(filePath)
+        );
+        if (!r.ok) {
+          const t = await r.text();
+          let msg = `HTTP ${r.status}`;
+          try {
+            const j = JSON.parse(t);
+            if (j?.error)
+              msg = j.error;
+          } catch {
+          }
+          throw new Error(msg);
+        }
+        const text = await r.text();
+        setPublishedContent(text);
+        setDiffAgainst("published");
+      } catch (e) {
+        useGraphStore.getState().showSnackbar(
+          "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C \u043E\u043F\u0443\u0431\u043B\u0438\u043A\u043E\u0432\u0430\u043D\u043D\u0443\u044E \u0432\u0435\u0440\u0441\u0438\u044E: " + (e?.message || String(e))
+        );
+      }
+    } else {
+      setDiffAgainst("published");
+    }
+  }, [filePath, diffAgainst, publishedContent]);
+  const handleDiffPrevious = useCallback18(() => {
+    setDiffAgainst(diffAgainst === "previous" ? null : "previous");
+  }, [diffAgainst]);
   const handleServerValidate = useCallback18(async () => {
     if (!editorRef.current)
       return;
@@ -44744,12 +45421,23 @@ ${publishInfo.hint}` : "";
     }
   }, []);
   const handleClose = useCallback18(() => {
-    if (isDirty && !isLocked) {
-      if (!confirm("\u0415\u0441\u0442\u044C \u043D\u0435\u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D\u043D\u044B\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F. \u0417\u0430\u043A\u0440\u044B\u0442\u044C \u0431\u0435\u0437 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F?"))
+    if (isSaving) {
+      if (!confirm(
+        "\u0418\u0434\u0451\u0442 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u0435. \u041F\u0440\u0435\u0440\u0432\u0430\u0442\u044C \u0438 \u0437\u0430\u043A\u0440\u044B\u0442\u044C \u0431\u0435\u0437 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F?"
+      ))
+        return;
+      try {
+        saveAbortRef.current?.abort();
+      } catch {
+      }
+    } else if (isDirty && !isLocked) {
+      if (!confirm(
+        "\u0415\u0441\u0442\u044C \u043D\u0435\u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D\u043D\u044B\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F. \u0417\u0430\u043A\u0440\u044B\u0442\u044C \u0431\u0435\u0437 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F?"
+      ))
         return;
     }
     useGraphStore.getState().setYamlViewerOpen(false);
-  }, [isDirty, isLocked]);
+  }, [isDirty, isLocked, isSaving]);
   useEffect37(() => {
     if (!open)
       return;
@@ -44913,6 +45601,9 @@ ${publishInfo.hint}` : "";
     setSaveFeedback(false);
     setFocusTarget(null);
     setFocusIncludeDeps(false);
+    setDiffAgainst(null);
+    setPublishedContent(null);
+    setMetaOverride(null);
   }, [filePath, open]);
   useEffect37(() => {
     if (!navContextMenu)
@@ -44985,16 +45676,17 @@ ${publishInfo.hint}` : "";
     };
   }, [open, filePath, saveFeedback]);
   useEffect37(() => {
-    if (!diffMode || !monacoReady || !editorCreated || !diffContainerRef.current)
+    if (diffAgainst === null || !monacoReady || !editorCreated || !diffContainerRef.current)
       return;
-    if (previousContent == null)
+    const original = diffAgainst === "published" ? publishedContent : previousContent;
+    if (original == null)
       return;
     const w = window;
     const m = w.monaco;
     if (!m || !editorRef.current)
       return;
     const modifiedContent = editorRef.current.getValue();
-    const originalModel = m.editor.createModel(previousContent, "yaml");
+    const originalModel = m.editor.createModel(original, "yaml");
     const modifiedModel = m.editor.createModel(modifiedContent, "yaml");
     const diffEditor = m.editor.createDiffEditor(diffContainerRef.current, {
       readOnly: true,
@@ -45021,7 +45713,7 @@ ${publishInfo.hint}` : "";
       }
       diffEditorRef.current = null;
     };
-  }, [diffMode, monacoReady, editorCreated, previousContent]);
+  }, [diffAgainst, monacoReady, editorCreated, previousContent, publishedContent]);
   useEffect37(() => {
     if (!editorRef.current)
       return;
@@ -45296,63 +45988,6 @@ ${publishInfo.hint}` : "";
     }
   }, [monacoTheme, monacoReady]);
   useEffect37(() => {
-    if (!editorCreated || !editorRef.current)
-      return;
-    if (!searchResult || searchResult.groups.length === 0)
-      return;
-    const firstMatch = searchResult.groups[0]?.matches[0];
-    if (!firstMatch)
-      return;
-    if (activeSearchMatch)
-      return;
-    const m = window.monaco;
-    if (!m)
-      return;
-    const doScroll = () => {
-      const ed = editorRef.current;
-      if (!ed)
-        return;
-      try {
-        ed.revealPositionInCenterIfOutsideViewport(
-          { lineNumber: firstMatch.line, column: firstMatch.column },
-          m.editor.ScrollType.Immediate
-        );
-      } catch (err) {
-        console.warn("[search-jump] revealPosition failed:", err);
-      }
-      try {
-        ed.setPosition({
-          lineNumber: firstMatch.line,
-          column: firstMatch.column
-        });
-      } catch {
-      }
-      requestAnimationFrame(() => {
-        const ed2 = editorRef.current;
-        if (!ed2)
-          return;
-        try {
-          const visible = ed2.getVisibleRanges();
-          const isVisible = visible.some(
-            (r) => r.startLineNumber <= firstMatch.line && firstMatch.line <= r.endLineNumber
-          );
-          if (!isVisible) {
-            const lineTop = ed2.getTopForLineNumber(firstMatch.line);
-            const layout = ed2.getLayoutInfo();
-            const lineHeight = ed2.getOption(m.editor.EditorOption.lineHeight);
-            ed2.setScrollTop(
-              Math.max(0, lineTop - layout.height / 2 + lineHeight / 2)
-            );
-          }
-        } catch (err) {
-          console.warn("[search-jump] fallback failed:", err);
-        }
-      });
-    };
-    const t = setTimeout(doScroll, 50);
-    return () => clearTimeout(t);
-  }, [searchResult, activeSearchMatch, editorCreated]);
-  useEffect37(() => {
     if (!pendingGeneration)
       return;
     if (!editorCreated || !editorRef.current)
@@ -45425,11 +46060,25 @@ ${publishInfo.hint}` : "";
     }, 50);
     return () => clearTimeout(t);
   }, [open, pendingBlock, editorCreated, loading, jumpTo, setPendingBlock]);
-  if (!open)
-    return null;
   const canSave = !isLocked && isDirty;
+  const yamlContentSource = useGraphStore((s) => s.yamlViewerContentSource);
+  const canPublish = !isLocked && (isDirty || yamlContentSource === "draft");
+  const saveDisabled = !canSave || isSaving || loading;
+  const publishDisabled = !canPublish || isSaving || mode === "hybrid" || loading;
+  const lockDisabled = isSaving || loading;
+  const copyDisabled = loading;
+  const diffDisabled = isSaving;
+  const validateDisabled = serverValidating || isSaving;
+  const moreDisabled = isSaving || loading;
+  const dimStyle = (isDisabled) => isDisabled ? {
+    opacity: 0.4,
+    cursor: "not-allowed",
+    filter: "grayscale(0.6)"
+  } : void 0;
   const issueCount = effectiveIssues.length;
   const refsCount = externalRefs.refs.length;
+  if (!open)
+    return null;
   return /* @__PURE__ */ jsxs73(
     "div",
     {
@@ -45443,10 +46092,34 @@ ${publishInfo.hint}` : "";
             onMouseDown: (e) => e.stopPropagation(),
             children: [
               /* @__PURE__ */ jsxs73("div", { className: "help-modal__header", children: [
-                /* @__PURE__ */ jsxs73("div", { className: "help-modal__title", children: [
-                  "\u{1F4C4} ",
-                  filePath?.split("/").pop() || "\u0424\u0430\u0439\u043B \u0441\u0445\u0435\u043C\u044B",
+                /* @__PURE__ */ jsxs73("div", { className: "help-modal__title", style: { flexWrap: "wrap", rowGap: 4 }, children: [
+                  /* @__PURE__ */ jsx76(MIcon, { name: "description", size: "sm" }),
+                  /* @__PURE__ */ jsx76("span", { className: "yaml-viewer-title__filename", children: filePath?.split("/").pop() || "\u0424\u0430\u0439\u043B \u0441\u0445\u0435\u043C\u044B" }),
                   domainId && /* @__PURE__ */ jsx76("span", { className: "help-modal__badge", children: domainId }),
+                  yamlContentSource === "draft" && /* @__PURE__ */ jsx76(
+                    "span",
+                    {
+                      className: "help-modal__badge",
+                      style: {
+                        background: "rgba(245, 158, 11, 0.15)",
+                        color: "#f59e0b"
+                      },
+                      title: "\u0412 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0435 \u043E\u0442\u043A\u0440\u044B\u0442 \u0447\u0435\u0440\u043D\u043E\u0432\u0438\u043A \u0441 \u0441\u0435\u0440\u0432\u0435\u0440\u0430 (\u043D\u0435 \u043E\u043F\u0443\u0431\u043B\u0438\u043A\u043E\u0432\u0430\u043D)",
+                      children: "\u0447\u0435\u0440\u043D\u043E\u0432\u0438\u043A"
+                    }
+                  ),
+                  diffAgainst !== null && /* @__PURE__ */ jsx76(
+                    "span",
+                    {
+                      className: "help-modal__badge",
+                      style: {
+                        background: "rgba(99, 102, 241, 0.15)",
+                        color: "#818cf8"
+                      },
+                      title: diffAgainst === "published" ? "\u041F\u043E\u043A\u0430\u0437\u0430\u043D diff: \u0447\u0435\u0440\u043D\u043E\u0432\u0438\u043A \u2194 \u043E\u043F\u0443\u0431\u043B\u0438\u043A\u043E\u0432\u0430\u043D\u043D\u0430\u044F \u0432\u0435\u0440\u0441\u0438\u044F" : "\u041F\u043E\u043A\u0430\u0437\u0430\u043D diff: \u0442\u0435\u043A\u0443\u0449\u0438\u0439 \u0444\u0430\u0439\u043B \u2194 \u043F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0435\u0435 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u0435 \u043D\u0430 \u0434\u0438\u0441\u043A\u0435",
+                      children: diffAgainst === "published" ? "diff: publish" : "diff: previous"
+                    }
+                  ),
                   isSaving ? /* @__PURE__ */ jsx76(
                     "span",
                     {
@@ -45461,163 +46134,381 @@ ${publishInfo.hint}` : "";
                       title: mode === "remote" ? "\u0417\u0430\u043F\u0440\u0430\u0448\u0438\u0432\u0430\u0435\u043C \u0430\u043A\u0442\u0443\u0430\u043B\u044C\u043D\u0443\u044E \u0441\u0445\u0435\u043C\u0443 \u0441 \u0441\u0435\u0440\u0432\u0435\u0440\u0430" : "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0444\u0430\u0439\u043B\u0430",
                       children: mode === "remote" ? "\u25CF \u0437\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0441 \u0441\u0435\u0440\u0432\u0435\u0440\u0430\u2026" : "\u25CF \u0437\u0430\u0433\u0440\u0443\u0437\u043A\u0430\u2026"
                     }
-                  ) : saveFeedback ? /* @__PURE__ */ jsx76("span", { className: "help-modal__badge help-modal__badge--ok", children: "\u2713 \u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D" }) : isDirty ? /* @__PURE__ */ jsx76("span", { className: "help-modal__badge help-modal__badge--dirty", children: "\u25CF \u0438\u0437\u043C\u0435\u043D\u0451\u043D" }) : null
-                ] }),
-                /* @__PURE__ */ jsxs73("div", { className: "help-modal__actions", children: [
-                  serverAvailable && /* @__PURE__ */ jsx76(
-                    "button",
+                  ) : saveFeedback ? /* @__PURE__ */ jsx76("span", { className: "help-modal__badge help-modal__badge--ok", children: "\u2713 \u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D" }) : isDirty ? /* @__PURE__ */ jsx76("span", { className: "help-modal__badge help-modal__badge--dirty", children: "\u25CF \u0438\u0437\u043C\u0435\u043D\u0451\u043D" }) : null,
+                  yamlMeta && (yamlMeta.publishedVersion || yamlMeta.updatedAt || yamlMeta.updatedBy) && /* @__PURE__ */ jsxs73(
+                    "span",
                     {
-                      className: "help-modal__icon-btn" + (serverValidating ? " active" : "") + (serverValidation && !serverValidating ? serverValidation.isValid ? " help-modal__icon-btn--success" : " help-modal__icon-btn--error" : ""),
-                      onClick: handleServerValidate,
-                      disabled: serverValidating,
-                      title: serverValidating ? "\u041F\u0440\u043E\u0432\u0435\u0440\u043A\u0430 \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435..." : "\u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435",
-                      children: /* @__PURE__ */ jsx76(
-                        MIcon,
-                        {
-                          name: serverValidating ? "hourglass_top" : serverValidation ? serverValidation.isValid ? "cloud_done" : "cloud_off" : "cloud_upload"
-                        }
-                      )
-                    }
-                  ),
-                  /* @__PURE__ */ jsx76(
-                    "button",
-                    {
-                      className: "help-modal__icon-btn",
-                      onClick: () => setLeftCollapsed(!leftCollapsed),
-                      title: leftCollapsed ? "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u043D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044E" : "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u043D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044E",
-                      children: /* @__PURE__ */ jsx76(MIcon, { name: leftCollapsed ? "chevron_right" : "chevron_left" })
-                    }
-                  ),
-                  /* @__PURE__ */ jsx76(
-                    "button",
-                    {
-                      className: "help-modal__icon-btn",
-                      onClick: () => setRightCollapsed(!rightCollapsed),
-                      title: rightCollapsed ? "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u043F\u0430\u043D\u0435\u043B\u044C \u043F\u0440\u043E\u0431\u043B\u0435\u043C" : "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u043F\u0430\u043D\u0435\u043B\u044C \u043F\u0440\u043E\u0431\u043B\u0435\u043C",
-                      children: /* @__PURE__ */ jsx76(MIcon, { name: rightCollapsed ? "chevron_left" : "chevron_right" })
-                    }
-                  ),
-                  index?.pii?.byDomain?.some((d) => d.domainId === domainId) && /* @__PURE__ */ jsx76(
-                    "button",
-                    {
-                      className: "help-modal__icon-btn",
-                      onClick: () => {
-                        useGraphStore.getState().setYamlViewerOpen(false);
-                        useGraphStore.getState().setPiiOpen(true);
+                      style: {
+                        marginLeft: 12,
+                        paddingLeft: 12,
+                        borderLeft: "1px solid var(--border)",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 8,
+                        fontSize: 11,
+                        fontWeight: 400,
+                        color: "var(--text-500)"
                       },
-                      title: "PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0432 \u0434\u043E\u043C\u0435\u043D\u0435",
-                      children: /* @__PURE__ */ jsx76(MIcon, { name: "shield_lock" })
-                    }
-                  ),
-                  /* @__PURE__ */ jsx76(
-                    "button",
-                    {
-                      className: "help-modal__icon-btn",
-                      onClick: () => {
-                        useGraphStore.getState().setYamlViewerOpen(false);
-                        useGraphStore.getState().setDomainComparePrefillA(domainId);
-                        useGraphStore.getState().setDomainCompareOpen(true);
-                      },
-                      disabled: isDirty,
-                      title: isDirty ? "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u0435 \u0438\u043B\u0438 \u043E\u0442\u043C\u0435\u043D\u0438\u0442\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u043F\u0435\u0440\u0435\u0434 \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u043E\u043C" : "\u0421\u0440\u0430\u0432\u043D\u0438\u0442\u044C \u0434\u043E\u043C\u0435\u043D\u044B",
-                      children: /* @__PURE__ */ jsx76(MIcon, { name: "compare_arrows" })
-                    }
-                  ),
-                  domainId ? /* @__PURE__ */ jsx76(
-                    "button",
-                    {
-                      className: "help-modal__icon-btn",
-                      onClick: () => {
-                        useGraphStore.getState().setYamlViewerOpen(false);
-                        gotoDomain(domainId);
-                      },
-                      disabled: isDirty,
-                      title: isDirty ? "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u0435 \u0438\u043B\u0438 \u043E\u0442\u043C\u0435\u043D\u0438\u0442\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u043F\u0435\u0440\u0435\u0434 \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u043E\u043C" : "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u043D\u0430 \u0433\u0440\u0430\u0444\u0435",
-                      children: /* @__PURE__ */ jsx76(MIcon, { name: "my_location" })
-                    }
-                  ) : null,
-                  /* @__PURE__ */ jsx76(
-                    "button",
-                    {
-                      className: "help-modal__icon-btn" + (!isLocked ? " active" : ""),
-                      onClick: handleToggleLock,
-                      title: isLocked ? "\u0420\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0434\u043B\u044F \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F (\u0434\u0432\u043E\u0439\u043D\u043E\u0439 Shift)" : "\u0417\u0430\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u0442\u044C (\u0441\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F)",
-                      children: /* @__PURE__ */ jsx76(MIcon, { name: isLocked ? "lock" : "lock_open" })
-                    }
-                  ),
-                  /* @__PURE__ */ jsx76(
-                    "button",
-                    {
-                      className: "help-modal__icon-btn" + (copyFeedback ? " active" : ""),
-                      onClick: handleCopy,
-                      title: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u0435 \u0432 \u0431\u0443\u0444\u0435\u0440",
-                      children: /* @__PURE__ */ jsx76(MIcon, { name: copyFeedback ? "check" : "content_copy" })
-                    }
-                  ),
-                  /* @__PURE__ */ jsx76(
-                    "button",
-                    {
-                      className: "help-modal__icon-btn" + (saveFeedback ? " active" : ""),
-                      onClick: handleSave,
-                      disabled: !canSave || isSaving,
-                      title: isLocked ? "\u0420\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u0443\u0439\u0442\u0435 \u0444\u0430\u0439\u043B \u0434\u043B\u044F \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F" : isDirty ? mode === "remote" ? "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u0438 \u043E\u043F\u0443\u0431\u043B\u0438\u043A\u043E\u0432\u0430\u0442\u044C \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435 (Ctrl+S)" : "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F (Ctrl+S)" : "\u041D\u0435\u0442 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439 \u0434\u043B\u044F \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F",
-                      children: /* @__PURE__ */ jsx76(MIcon, { name: isSaving ? "hourglass" : "save" })
-                    }
-                  ),
-                  previousContent && /* @__PURE__ */ jsx76(
-                    "button",
-                    {
-                      className: "help-modal__icon-btn" + (diffMode ? " active" : ""),
-                      onClick: () => setDiffMode(!diffMode),
-                      title: diffMode ? "\u0412\u0435\u0440\u043D\u0443\u0442\u044C\u0441\u044F \u043A \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0443" : "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C diff \u0441 \u043F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0438\u043C \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u0435\u043C",
-                      children: /* @__PURE__ */ jsx76(MIcon, { name: "difference" })
-                    }
-                  ),
-                  domainId && /* @__PURE__ */ jsx76(
-                    "button",
-                    {
-                      className: "help-modal__icon-btn",
-                      onClick: () => {
-                        const st = useGraphStore.getState();
-                        st.setDomainSchemaDomainId(domainId);
-                        if (navQuery.trim())
-                          st.setDomainSchemaPrefillQuery(navQuery.trim());
-                        if (onlyProblematic)
-                          st.setDomainSchemaPrefillOnlyProblematic(true);
-                        st.setDomainSchemaOpen(true);
-                      },
-                      title: "\u0421\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0439 \u043E\u0431\u0437\u043E\u0440 \u0441\u0445\u0435\u043C\u044B",
-                      children: /* @__PURE__ */ jsx76(MIcon, { name: "menu_book" })
-                    }
-                  ),
-                  /* @__PURE__ */ jsx76(
-                    "button",
-                    {
-                      className: "help-modal__icon-btn" + (checksEnabled ? " active" : ""),
-                      onClick: toggleChecks,
-                      title: checksEnabled ? "\u041F\u0440\u043E\u0432\u0435\u0440\u043A\u0438 \u0432\u043A\u043B\u044E\u0447\u0435\u043D\u044B. \u041D\u0430\u0436\u043C\u0438\u0442\u0435, \u0447\u0442\u043E\u0431\u044B \u043E\u0442\u043A\u043B\u044E\u0447\u0438\u0442\u044C (\u0431\u044B\u0441\u0442\u0440\u044B\u0439 \u0440\u0435\u0436\u0438\u043C \u0434\u043B\u044F \u043C\u0435\u0434\u043B\u0435\u043D\u043D\u044B\u0445 \u043C\u0430\u0448\u0438\u043D)" : "\u041F\u0440\u043E\u0432\u0435\u0440\u043A\u0438 \u043E\u0442\u043A\u043B\u044E\u0447\u0435\u043D\u044B. \u041D\u0430\u0436\u043C\u0438\u0442\u0435, \u0447\u0442\u043E\u0431\u044B \u0432\u043A\u043B\u044E\u0447\u0438\u0442\u044C",
-                      children: /* @__PURE__ */ jsx76(MIcon, { name: checksEnabled ? "rule" : "block" })
-                    }
-                  ),
-                  /* @__PURE__ */ jsx76(
-                    "button",
-                    {
-                      className: "help-modal__icon-btn",
-                      onClick: () => setShowHelp(true),
-                      title: "\u0421\u043F\u0440\u0430\u0432\u043A\u0430 \u043F\u043E \u043D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u0438",
-                      children: /* @__PURE__ */ jsx76(MIcon, { name: "help" })
-                    }
-                  ),
-                  /* @__PURE__ */ jsx76(
-                    "button",
-                    {
-                      className: "help-modal__close",
-                      onClick: handleClose,
-                      title: isDirty && !isLocked ? "\u0417\u0430\u043A\u0440\u044B\u0442\u044C \u0431\u0435\u0437 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F" : "\u0417\u0430\u043A\u0440\u044B\u0442\u044C",
-                      children: "\u2715"
+                      children: [
+                        yamlContentSource === "draft" && yamlMeta.publishedVersion && /* @__PURE__ */ jsxs73("span", { title: "\u0412\u0435\u0440\u0441\u0438\u044F \u043E\u043F\u0443\u0431\u043B\u0438\u043A\u043E\u0432\u0430\u043D\u043D\u043E\u0439 \u0441\u0445\u0435\u043C\u044B (\u0447\u0435\u0440\u043D\u043E\u0432\u0438\u043A \u043D\u0435 \u043F\u0443\u0431\u043B\u0438\u043A\u0443\u0435\u0442\u0441\u044F \u0441 \u043D\u043E\u0432\u043E\u0439 version)", children: [
+                          "\u043E\u043F\u0443\u0431\u043B\u0438\u043A\u043E\u0432\u0430\u043D\u043E v",
+                          yamlMeta.publishedVersion
+                        ] }),
+                        yamlMeta.updatedAt && /* @__PURE__ */ jsxs73("span", { title: new Date(yamlMeta.updatedAt).toLocaleString("ru-RU"), children: [
+                          "\u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D ",
+                          relativeTime(yamlMeta.updatedAt)
+                        ] }),
+                        yamlMeta.updatedBy && /* @__PURE__ */ jsxs73("span", { title: "\u0410\u0432\u0442\u043E\u0440 \u043F\u043E\u0441\u043B\u0435\u0434\u043D\u0438\u0445 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439", children: [
+                          "\xB7 ",
+                          yamlMeta.updatedBy
+                        ] })
+                      ]
                     }
                   )
-                ] })
+                ] }),
+                /* @__PURE__ */ jsxs73(
+                  "div",
+                  {
+                    className: "help-modal__actions",
+                    style: { gap: 6, alignItems: "center" },
+                    children: [
+                      /* @__PURE__ */ jsxs73(
+                        "button",
+                        {
+                          className: "btn btn--primary",
+                          onClick: handleSave,
+                          disabled: saveDisabled,
+                          style: dimStyle(saveDisabled),
+                          title: isLocked ? "\u0420\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u0443\u0439\u0442\u0435 \u0444\u0430\u0439\u043B \u0434\u043B\u044F \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F (\u0434\u0432\u043E\u0439\u043D\u043E\u0439 Shift)" : isSaving ? "\u0421\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u0435 \u0443\u0436\u0435 \u0432\u044B\u043F\u043E\u043B\u043D\u044F\u0435\u0442\u0441\u044F" : loading ? "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0441\u0445\u0435\u043C\u044B\u2026" : !isDirty ? "\u041D\u0435\u0442 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439 \u0434\u043B\u044F \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F" : mode === "remote" ? "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u0447\u0435\u0440\u043D\u043E\u0432\u0438\u043A \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435 (Ctrl+S)" : "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F (Ctrl+S)",
+                          children: [
+                            /* @__PURE__ */ jsx76(
+                              MIcon,
+                              {
+                                name: isSaving && saveStage === "writing" ? "hourglass" : "save",
+                                size: "sm"
+                              }
+                            ),
+                            /* @__PURE__ */ jsx76("span", { children: "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C" })
+                          ]
+                        }
+                      ),
+                      /* @__PURE__ */ jsxs73(
+                        "button",
+                        {
+                          className: "btn",
+                          onClick: handlePublish,
+                          disabled: publishDisabled,
+                          style: dimStyle(publishDisabled),
+                          title: mode === "hybrid" ? "\u041F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u044F \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u0430 \u0432 \u0433\u0438\u0431\u0440\u0438\u0434\u043D\u043E\u043C \u0440\u0435\u0436\u0438\u043C\u0435 (\u0442\u043E\u043B\u044C\u043A\u043E \u043B\u043E\u043A\u0430\u043B\u044C\u043D\u043E\u0435 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u0435)" : isLocked ? "\u0420\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u0443\u0439\u0442\u0435 \u0444\u0430\u0439\u043B \u0434\u043B\u044F \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u0438" : isSaving ? "\u0414\u043E\u0436\u0434\u0438\u0442\u0435\u0441\u044C \u043E\u043A\u043E\u043D\u0447\u0430\u043D\u0438\u044F \u0442\u0435\u043A\u0443\u0449\u0435\u0433\u043E \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F" : loading ? "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0441\u0445\u0435\u043C\u044B\u2026" : !isDirty && yamlContentSource === "draft" ? "\u041E\u043F\u0443\u0431\u043B\u0438\u043A\u043E\u0432\u0430\u0442\u044C \u0447\u0435\u0440\u043D\u043E\u0432\u0438\u043A \u0441 \u0441\u0435\u0440\u0432\u0435\u0440\u0430 (Ctrl+Shift+S)" : !isDirty ? "\u041D\u0435\u0442 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439 \u0434\u043B\u044F \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u0438" : mode === "remote" ? "\u041E\u043F\u0443\u0431\u043B\u0438\u043A\u043E\u0432\u0430\u0442\u044C \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435 (Ctrl+Shift+S). \u041F\u043E\u0434\u043D\u0438\u043C\u0430\u0435\u0442 version." : "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u0441 \u043F\u043E\u0432\u044B\u0448\u0435\u043D\u0438\u0435\u043C version (Ctrl+Shift+S)",
+                          children: [
+                            /* @__PURE__ */ jsx76(
+                              MIcon,
+                              {
+                                name: isSaving && saveStage === "publishing" ? "hourglass" : "cloud_upload",
+                                size: "sm"
+                              }
+                            ),
+                            /* @__PURE__ */ jsx76("span", { children: "\u041E\u043F\u0443\u0431\u043B\u0438\u043A\u043E\u0432\u0430\u0442\u044C" })
+                          ]
+                        }
+                      ),
+                      /* @__PURE__ */ jsx76(
+                        "span",
+                        {
+                          style: {
+                            width: 1,
+                            height: 20,
+                            background: "var(--border)",
+                            margin: "0 4px",
+                            display: "inline-block"
+                          }
+                        }
+                      ),
+                      /* @__PURE__ */ jsx76(
+                        "button",
+                        {
+                          className: "help-modal__icon-btn" + (!isLocked ? " active" : ""),
+                          onClick: handleToggleLock,
+                          disabled: lockDisabled,
+                          style: dimStyle(lockDisabled),
+                          title: isSaving ? "\u0414\u043E\u0436\u0434\u0438\u0442\u0435\u0441\u044C \u043E\u043A\u043E\u043D\u0447\u0430\u043D\u0438\u044F \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F" : loading ? "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0441\u0445\u0435\u043C\u044B\u2026" : isLocked ? "\u0420\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0434\u043B\u044F \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F (\u0434\u0432\u043E\u0439\u043D\u043E\u0439 Shift)" : "\u0417\u0430\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u0442\u044C (\u0441\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F)",
+                          children: /* @__PURE__ */ jsx76(MIcon, { name: isLocked ? "lock" : "lock_open" })
+                        }
+                      ),
+                      /* @__PURE__ */ jsx76(
+                        "button",
+                        {
+                          className: "help-modal__icon-btn" + (copyFeedback ? " active" : ""),
+                          onClick: handleCopy,
+                          disabled: copyDisabled,
+                          style: dimStyle(copyDisabled),
+                          title: loading ? "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0441\u0445\u0435\u043C\u044B\u2026" : "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u0435 \u0432 \u0431\u0443\u0444\u0435\u0440",
+                          children: /* @__PURE__ */ jsx76(MIcon, { name: copyFeedback ? "check" : "content_copy" })
+                        }
+                      ),
+                      previousContent && /* @__PURE__ */ jsx76(
+                        "button",
+                        {
+                          className: "help-modal__icon-btn" + (diffAgainst === "previous" ? " active" : ""),
+                          onClick: handleDiffPrevious,
+                          disabled: diffDisabled,
+                          style: dimStyle(diffDisabled),
+                          title: isSaving ? "\u0414\u043E\u0436\u0434\u0438\u0442\u0435\u0441\u044C \u043E\u043A\u043E\u043D\u0447\u0430\u043D\u0438\u044F \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F" : diffAgainst === "previous" ? "\u0412\u0435\u0440\u043D\u0443\u0442\u044C\u0441\u044F \u043A \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0443" : "Diff \u0441 \u043F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0438\u043C \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u0435\u043C \u043D\u0430 \u0434\u0438\u0441\u043A\u0435",
+                          children: /* @__PURE__ */ jsx76(MIcon, { name: "difference" })
+                        }
+                      ),
+                      yamlContentSource === "draft" && /* @__PURE__ */ jsx76(
+                        "button",
+                        {
+                          className: "help-modal__icon-btn" + (diffAgainst === "published" ? " active" : ""),
+                          onClick: handleDiffPublished,
+                          disabled: diffDisabled,
+                          style: dimStyle(diffDisabled),
+                          title: isSaving ? "\u0414\u043E\u0436\u0434\u0438\u0442\u0435\u0441\u044C \u043E\u043A\u043E\u043D\u0447\u0430\u043D\u0438\u044F \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F" : diffAgainst === "published" ? "\u0412\u0435\u0440\u043D\u0443\u0442\u044C\u0441\u044F \u043A \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0443" : "Diff: \u0447\u0435\u0440\u043D\u043E\u0432\u0438\u043A (\u0432 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0435) \u2194 \u043E\u043F\u0443\u0431\u043B\u0438\u043A\u043E\u0432\u0430\u043D\u043D\u0430\u044F \u0432\u0435\u0440\u0441\u0438\u044F (\u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435)",
+                          children: /* @__PURE__ */ jsx76(MIcon, { name: "cloud_download" })
+                        }
+                      ),
+                      serverAvailable && /* @__PURE__ */ jsx76(
+                        "button",
+                        {
+                          className: "help-modal__icon-btn" + (serverValidating ? " active" : "") + (serverValidation && !serverValidating ? serverValidation.isValid ? " help-modal__icon-btn--success" : " help-modal__icon-btn--error" : ""),
+                          onClick: handleServerValidate,
+                          disabled: validateDisabled,
+                          style: dimStyle(validateDisabled),
+                          title: serverValidating ? "\u041F\u0440\u043E\u0432\u0435\u0440\u043A\u0430 \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435..." : isSaving ? "\u0414\u043E\u0436\u0434\u0438\u0442\u0435\u0441\u044C \u043E\u043A\u043E\u043D\u0447\u0430\u043D\u0438\u044F \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F" : serverValidation && !serverValidating ? serverValidation.isValid ? "\u0421\u0435\u0440\u0432\u0435\u0440: \u0441\u0445\u0435\u043C\u0430 \u0432\u0430\u043B\u0438\u0434\u043D\u0430" : `\u0421\u0435\u0440\u0432\u0435\u0440: ${serverValidation.diagnostics?.length || "!"} \u043E\u0448\u0438\u0431\u043E\u043A` : "\u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435",
+                          children: /* @__PURE__ */ jsx76(
+                            MIcon,
+                            {
+                              name: serverValidating ? "hourglass_top" : serverValidation ? serverValidation.isValid ? "cloud_done" : "cloud_off" : "cloud_upload"
+                            }
+                          )
+                        }
+                      ),
+                      /* @__PURE__ */ jsx76(
+                        "span",
+                        {
+                          style: {
+                            width: 1,
+                            height: 20,
+                            background: "var(--border)",
+                            margin: "0 4px",
+                            display: "inline-block"
+                          }
+                        }
+                      ),
+                      /* @__PURE__ */ jsx76(
+                        Popover,
+                        {
+                          width: 280,
+                          align: "right",
+                          trigger: (open2) => /* @__PURE__ */ jsx76(
+                            "button",
+                            {
+                              className: "help-modal__icon-btn" + (open2 ? " active" : ""),
+                              title: "\u0414\u043E\u043F\u043E\u043B\u043D\u0438\u0442\u0435\u043B\u044C\u043D\u044B\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F",
+                              children: /* @__PURE__ */ jsx76(MIcon, { name: "more_horiz" })
+                            }
+                          ),
+                          children: (close) => /* @__PURE__ */ jsxs73("div", { className: "menu", children: [
+                            domainId && /* @__PURE__ */ jsxs73(
+                              "button",
+                              {
+                                className: "menu__item",
+                                disabled: moreDisabled,
+                                style: dimStyle(moreDisabled),
+                                onClick: () => {
+                                  const st = useGraphStore.getState();
+                                  st.setDomainSchemaDomainId(domainId);
+                                  if (navQuery.trim())
+                                    st.setDomainSchemaPrefillQuery(
+                                      navQuery.trim()
+                                    );
+                                  if (onlyProblematic)
+                                    st.setDomainSchemaPrefillOnlyProblematic(true);
+                                  st.setDomainSchemaOpen(true);
+                                  close();
+                                },
+                                title: moreDisabled ? "\u0414\u043E\u0436\u0434\u0438\u0442\u0435\u0441\u044C \u043E\u043A\u043E\u043D\u0447\u0430\u043D\u0438\u044F \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F" : "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0439 \u043E\u0431\u0437\u043E\u0440 \u0441\u0445\u0435\u043C\u044B",
+                                children: [
+                                  /* @__PURE__ */ jsx76("span", { className: "menu__icon", children: /* @__PURE__ */ jsx76(MIcon, { name: "menu_book", size: "sm" }) }),
+                                  /* @__PURE__ */ jsx76("span", { className: "menu__text", children: "\u0421\u0445\u0435\u043C\u0430 \u0434\u043E\u043C\u0435\u043D\u0430" })
+                                ]
+                              }
+                            ),
+                            index?.pii?.byDomain?.some(
+                              (d) => d.domainId === domainId
+                            ) && /* @__PURE__ */ jsxs73(
+                              "button",
+                              {
+                                className: "menu__item",
+                                disabled: moreDisabled,
+                                style: dimStyle(moreDisabled),
+                                onClick: () => {
+                                  useGraphStore.getState().setYamlViewerOpen(false);
+                                  useGraphStore.getState().setPiiOpen(true);
+                                  close();
+                                },
+                                title: moreDisabled ? "\u0414\u043E\u0436\u0434\u0438\u0442\u0435\u0441\u044C \u043E\u043A\u043E\u043D\u0447\u0430\u043D\u0438\u044F \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F" : "PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0432 \u0434\u043E\u043C\u0435\u043D\u0435",
+                                children: [
+                                  /* @__PURE__ */ jsx76("span", { className: "menu__icon", children: /* @__PURE__ */ jsx76(MIcon, { name: "shield_lock", size: "sm" }) }),
+                                  /* @__PURE__ */ jsx76("span", { className: "menu__text", children: "PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0432 \u0434\u043E\u043C\u0435\u043D\u0435" })
+                                ]
+                              }
+                            ),
+                            /* @__PURE__ */ jsxs73(
+                              "button",
+                              {
+                                className: "menu__item",
+                                disabled: isDirty || isSaving || loading,
+                                style: dimStyle(isDirty || isSaving || loading),
+                                onClick: () => {
+                                  useGraphStore.getState().setYamlViewerOpen(false);
+                                  useGraphStore.getState().setDomainComparePrefillA(domainId);
+                                  useGraphStore.getState().setDomainCompareOpen(true);
+                                  close();
+                                },
+                                title: isDirty ? "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u0435 \u0438\u043B\u0438 \u043E\u0442\u043C\u0435\u043D\u0438\u0442\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u043F\u0435\u0440\u0435\u0434 \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u043E\u043C" : isSaving ? "\u0414\u043E\u0436\u0434\u0438\u0442\u0435\u0441\u044C \u043E\u043A\u043E\u043D\u0447\u0430\u043D\u0438\u044F \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F" : void 0,
+                                children: [
+                                  /* @__PURE__ */ jsx76("span", { className: "menu__icon", children: /* @__PURE__ */ jsx76(MIcon, { name: "compare_arrows", size: "sm" }) }),
+                                  /* @__PURE__ */ jsx76("span", { className: "menu__text", children: "\u0421\u0440\u0430\u0432\u043D\u0438\u0442\u044C \u0434\u043E\u043C\u0435\u043D\u044B" })
+                                ]
+                              }
+                            ),
+                            domainId && /* @__PURE__ */ jsxs73(
+                              "button",
+                              {
+                                className: "menu__item",
+                                disabled: isDirty || isSaving || loading,
+                                style: dimStyle(isDirty || isSaving || loading),
+                                onClick: () => {
+                                  useGraphStore.getState().setYamlViewerOpen(false);
+                                  gotoDomain(domainId);
+                                  close();
+                                },
+                                title: isDirty ? "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u0435 \u0438\u043B\u0438 \u043E\u0442\u043C\u0435\u043D\u0438\u0442\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u043F\u0435\u0440\u0435\u0434 \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u043E\u043C" : isSaving ? "\u0414\u043E\u0436\u0434\u0438\u0442\u0435\u0441\u044C \u043E\u043A\u043E\u043D\u0447\u0430\u043D\u0438\u044F \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F" : void 0,
+                                children: [
+                                  /* @__PURE__ */ jsx76("span", { className: "menu__icon", children: /* @__PURE__ */ jsx76(MIcon, { name: "my_location", size: "sm" }) }),
+                                  /* @__PURE__ */ jsx76("span", { className: "menu__text", children: "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u043D\u0430 \u0433\u0440\u0430\u0444\u0435" })
+                                ]
+                              }
+                            ),
+                            /* @__PURE__ */ jsx76("div", { className: "menu__divider" }),
+                            /* @__PURE__ */ jsxs73(
+                              "button",
+                              {
+                                className: "menu__item",
+                                onClick: () => {
+                                  setLeftCollapsed(!leftCollapsed);
+                                  close();
+                                },
+                                children: [
+                                  /* @__PURE__ */ jsx76("span", { className: "menu__icon", children: /* @__PURE__ */ jsx76(
+                                    MIcon,
+                                    {
+                                      name: leftCollapsed ? "chevron_right" : "chevron_left",
+                                      size: "sm"
+                                    }
+                                  ) }),
+                                  /* @__PURE__ */ jsxs73("span", { className: "menu__text", children: [
+                                    leftCollapsed ? "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C" : "\u0421\u043A\u0440\u044B\u0442\u044C",
+                                    " \u043D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044E"
+                                  ] })
+                                ]
+                              }
+                            ),
+                            /* @__PURE__ */ jsxs73(
+                              "button",
+                              {
+                                className: "menu__item",
+                                onClick: () => {
+                                  setRightCollapsed(!rightCollapsed);
+                                  close();
+                                },
+                                children: [
+                                  /* @__PURE__ */ jsx76("span", { className: "menu__icon", children: /* @__PURE__ */ jsx76(
+                                    MIcon,
+                                    {
+                                      name: rightCollapsed ? "chevron_left" : "chevron_right",
+                                      size: "sm"
+                                    }
+                                  ) }),
+                                  /* @__PURE__ */ jsxs73("span", { className: "menu__text", children: [
+                                    rightCollapsed ? "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C" : "\u0421\u043A\u0440\u044B\u0442\u044C",
+                                    " \u043F\u0430\u043D\u0435\u043B\u044C \u043F\u0440\u043E\u0431\u043B\u0435\u043C"
+                                  ] })
+                                ]
+                              }
+                            ),
+                            /* @__PURE__ */ jsxs73(
+                              "button",
+                              {
+                                className: "menu__item",
+                                onClick: () => {
+                                  toggleChecks();
+                                  close();
+                                },
+                                children: [
+                                  /* @__PURE__ */ jsx76("span", { className: "menu__icon", children: /* @__PURE__ */ jsx76(
+                                    MIcon,
+                                    {
+                                      name: checksEnabled ? "rule" : "block",
+                                      size: "sm"
+                                    }
+                                  ) }),
+                                  /* @__PURE__ */ jsx76("span", { className: "menu__text", children: checksEnabled ? "\u0412\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0438" : "\u0412\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0438" })
+                                ]
+                              }
+                            ),
+                            /* @__PURE__ */ jsxs73(
+                              "button",
+                              {
+                                className: "menu__item",
+                                onClick: () => {
+                                  useGraphStore.getState().setYamlHighlightUnused(!yamlHighlightUnused);
+                                  close();
+                                },
+                                children: [
+                                  /* @__PURE__ */ jsx76("span", { className: "menu__icon", children: /* @__PURE__ */ jsx76(
+                                    MIcon,
+                                    {
+                                      name: yamlHighlightUnused ? "visibility" : "visibility_off",
+                                      size: "sm"
+                                    }
+                                  ) }),
+                                  /* @__PURE__ */ jsx76("span", { className: "menu__text", children: yamlHighlightUnused ? "\u041D\u0435 \u0437\u0430\u0442\u0435\u043D\u044F\u0442\u044C \u043D\u0435\u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u043C\u044B\u0435" : "\u0417\u0430\u0442\u0435\u043D\u044F\u0442\u044C \u043D\u0435\u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u043C\u044B\u0435" })
+                                ]
+                              }
+                            ),
+                            /* @__PURE__ */ jsx76("div", { className: "menu__divider" }),
+                            /* @__PURE__ */ jsxs73(
+                              "button",
+                              {
+                                className: "menu__item",
+                                onClick: () => {
+                                  setShowHelp(true);
+                                  close();
+                                },
+                                children: [
+                                  /* @__PURE__ */ jsx76("span", { className: "menu__icon", children: /* @__PURE__ */ jsx76(MIcon, { name: "help", size: "sm" }) }),
+                                  /* @__PURE__ */ jsx76("span", { className: "menu__text", children: "\u0421\u043F\u0440\u0430\u0432\u043A\u0430 \u043F\u043E \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0443" })
+                                ]
+                              }
+                            )
+                          ] })
+                        }
+                      ),
+                      /* @__PURE__ */ jsx76(
+                        "button",
+                        {
+                          className: "help-modal__close",
+                          onClick: handleClose,
+                          title: isSaving ? "\u041F\u0440\u0435\u0440\u0432\u0430\u0442\u044C \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u0435 \u0438 \u0437\u0430\u043A\u0440\u044B\u0442\u044C" : isDirty && !isLocked ? "\u0417\u0430\u043A\u0440\u044B\u0442\u044C \u0431\u0435\u0437 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F" : "\u0417\u0430\u043A\u0440\u044B\u0442\u044C",
+                          children: "\u2715"
+                        }
+                      )
+                    ]
+                  }
+                )
               ] }),
               counters && /* @__PURE__ */ jsxs73("div", { className: "yaml-viewer-info", children: [
                 /* @__PURE__ */ jsxs73("span", { className: "yaml-viewer-info__item", children: [
@@ -45844,7 +46735,8 @@ ${publishInfo.hint}` : "";
                                   attrIssuesMap,
                                   focusTarget,
                                   onFocus: handleFocus,
-                                  onContextMenu: (node, sectionKey, x, y) => setNavContextMenu({ node, sectionKey, x, y })
+                                  onContextMenu: (node, sectionKey, x, y) => setNavContextMenu({ node, sectionKey, x, y }),
+                                  unusedAnalysis
                                 },
                                 section.key
                               )) })
@@ -46072,7 +46964,7 @@ ${publishInfo.hint}` : "";
                       },
                       "monaco"
                     ),
-                    diffMode && /* @__PURE__ */ jsx76(
+                    diffAgainst !== null && /* @__PURE__ */ jsx76(
                       "div",
                       {
                         ref: diffContainerRef,
@@ -46746,7 +47638,8 @@ function SectionNav({
   attrIssuesMap,
   focusTarget,
   onFocus,
-  onContextMenu
+  onContextMenu,
+  unusedAnalysis
 }) {
   const detailsRef = React42.useRef(null);
   React42.useEffect(() => {
@@ -46815,7 +47708,8 @@ function SectionNav({
               attrIssuesMap,
               focusTarget,
               onFocus,
-              onContextMenu
+              onContextMenu,
+              unusedAnalysis
             },
             node.id
           );
@@ -46841,11 +47735,30 @@ function NavItem({
   attrIssuesMap,
   focusTarget,
   onFocus,
-  onContextMenu
+  onContextMenu,
+  unusedAnalysis
 }) {
   const key = parentKey + "#" + node.id;
   const hasChildren = !!node.children && node.children.length > 0;
   const expanded = expandedNodes.has(key);
+  let isUnused = false;
+  let unusedHint = null;
+  if (unusedAnalysis && sectionKey === "entities") {
+    if (depth === 0 && unusedAnalysis.entities.has(node.id.toLowerCase())) {
+      isUnused = true;
+      unusedHint = "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u043D\u0438\u0433\u0434\u0435 \u043D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F: \u043D\u0435\u0442 views, linkages, inherits \u0438 \u0441\u0441\u044B\u043B\u043E\u043A \u0432 \u0434\u0440\u0443\u0433\u0438\u0445 \u0441\u0435\u043A\u0446\u0438\u044F\u0445";
+    } else if (depth === 1) {
+      const parts = parentKey.split("#");
+      const entityId = parts[1];
+      if (entityId) {
+        const attrKey = `${entityId.toLowerCase()}:${node.id.toLowerCase()}`;
+        if (unusedAnalysis.attributes.has(attrKey)) {
+          isUnused = true;
+          unusedHint = "\u0410\u0442\u0440\u0438\u0431\u0443\u0442 \u043D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u043D\u0438 \u0432 views, \u043D\u0438 \u0432 \u043F\u0440\u0430\u0432\u0438\u043B\u0430\u0445, \u043D\u0438 \u0432 \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u0445, \u043D\u0438 \u0432 search/sorting";
+        }
+      }
+    }
+  }
   const globalIdx = useMemo43(
     () => filteredNavNodes.findIndex((n) => n.key === key),
     [filteredNavNodes, key]
@@ -46880,13 +47793,14 @@ function NavItem({
             "button",
             {
               type: "button",
-              className: "yaml-nav-item__head",
+              className: "yaml-nav-item__head" + (isUnused ? " yaml-nav-item__head--unused" : ""),
               onClick: () => {
                 onJump(node.line);
                 if (globalIdx >= 0)
                   onSetActive(globalIdx);
               },
               onMouseEnter: () => globalIdx >= 0 && onSetActive(globalIdx),
+              title: isUnused ? unusedHint || void 0 : void 0,
               children: [
                 /* @__PURE__ */ jsx76("code", { className: "yaml-nav-item__id", children: node.id }),
                 node.meta && /* @__PURE__ */ jsx76("span", { className: "yaml-nav-item__meta", children: node.meta }),
@@ -46938,7 +47852,8 @@ function NavItem({
           attrIssuesMap,
           focusTarget,
           onFocus,
-          onContextMenu
+          onContextMenu,
+          unusedAnalysis
         },
         child.id
       );
@@ -47627,6 +48542,8 @@ var init_YamlViewerModal = __esm({
     init_apply_generation();
     init_view_insert();
     init_Popover();
+    init_format();
+    init_unused_analysis();
     BACKLINK_KIND_LABELS = {
       inheritance: "\u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435",
       reference: "reference",

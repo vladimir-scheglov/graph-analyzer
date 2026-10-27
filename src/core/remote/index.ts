@@ -4,10 +4,16 @@ export {
   apiFetchFolders,
   apiFetchExpertises,
   apiFetchExpertiseSource,
+  apiFetchExpertisePublished,
   apiCheckRobject,
   apiPublishExpertise,
+  apiSaveExpertiseDraft,
+  PublishExpertiseInput,
+  SaveExpertiseDraftInput,
+  ExpertiseSourceResult,
+  ExpertisePublishedResult,
+  ExpertiseMeta,
 } from "./schemas-loader";
-export type { PublishExpertiseInput } from "./schemas-loader";
 export {
   getCachePath,
   checkRemoteCacheExists,

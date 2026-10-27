@@ -135,11 +135,24 @@ export interface PublishResult {
   domain?: { id: string; name: string };
 }
 
+/** Результат сохранения черновика (saveDraft). */
+export interface DraftResult {
+  ok: boolean;
+  error?: string;
+  code?: string;
+  hint?: string;
+  domain?: { id: string; name: string };
+}
+
 /** Ответ /file (POST). */
 export interface SaveResponse {
   ok: true;
   bytes: number;
-  /** null для local/hybrid-режима. */
+  /** Какое действие выполнялось. */
+  action: "save" | "publish";
+  /** remote, action=save. */
+  draft: DraftResult | null;
+  /** remote, action=publish. */
   publish: PublishResult | null;
 }
 
@@ -174,6 +187,8 @@ export interface RemoteDomain {
   updater: { id: string; displayName: string } | null;
   organization?: { id: string; name: string } | null;
 }
+
+
 
 // ============ Diff ============
 export interface CacheDiffEntry {

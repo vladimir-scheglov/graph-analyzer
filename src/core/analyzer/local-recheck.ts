@@ -390,7 +390,16 @@ export function buildRecheckModel(content: string): RecheckModel {
             key === "entity" ||
             key === "linkage" ||
             key === "operation" ||
-            key === "join"
+            key === "join" ||
+            key === "modal" ||
+            key === "panel" ||
+            key === "view" ||
+            key === "pageView" ||
+            key === "attribute" ||
+            key === "scenario" ||
+            key === "workerTag" ||
+            key === "bulkSettings" ||
+            key === "values"
           )
             act.fields[key] = value;
         }
@@ -523,6 +532,37 @@ export function recheck(
     );
     const count = (model.lines.join("\n").match(re) || []).length;
     return count > 1 ? "still" : "resolved";
+  }
+
+  // ============ required/action-<field> ============
+  // Серверные маркеры «type: X требует поле Y». Локальная проверка:
+  // находим action по id и смотрим, задано ли поле в его блоке.
+  if (ruleId.startsWith("required/action-")) {
+    const field = ruleId.slice("required/action-".length);
+    const m = issue.propertyPath?.match(/^actions\[(.+?)\]/);
+    if (!m) return "unknown";
+
+    const act = findActionById(model, m[1]);
+    if (!act) return "resolved";
+
+    // Для полей-контейнеров (values, bulkSettings, control, automation) —
+    // достаточно наличия ключа, значение inline-пустое.
+    const isContainer =
+      field === "values" ||
+      field === "bulkSettings" ||
+      field === "control" ||
+      field === "automation" ||
+      field === "transition" ||
+      field === "params" ||
+      field === "widgetParams" ||
+      field === "openBoardsFromGraph";
+
+    if (isContainer) {
+      return act.fields[field] !== undefined ? "resolved" : "still";
+    }
+
+    const v = act.fields[field];
+    return v !== undefined && v !== "" ? "resolved" : "still";
   }
 
   // ============ view/widget-linkage-side-on-undirected ============
