@@ -1157,3 +1157,11 @@
 .bar-item--active .bar-item__fill {
     background: linear-gradient(90deg, #f59e0b, #d97706);
 }
+.missing-ref-target--clickable {
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.missing-ref-target--clickable:hover {
+    background: var(--bg-700);
+    border-radius: 4px;
+}

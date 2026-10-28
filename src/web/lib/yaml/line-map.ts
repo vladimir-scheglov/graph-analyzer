@@ -576,12 +576,15 @@ export function findAttributeInEntity(
   const stack: NavNode[] = [...entity.children];
   while (stack.length > 0) {
     const node = stack.pop()!;
-    if (node.id === first) {
+    // Ищем только в attributes[], а не в sorting[] / identification[] /
+    // reconciliation[] / projection[] / searching[] — иначе одинаковый
+    // `- id: <attrId>` под другим контейнером перехватывает маркер.
+    if (node.id === first && node.type === "attribute") {
       if (segments.length === 1) return node.line;
       let current: NavNode | undefined = node;
       for (let i = 1; i < segments.length; i++) {
         const next = (current?.children || []).find(
-          (c) => c.id === segments[i],
+          (c) => c.id === segments[i] && c.type === "attribute",
         );
         if (!next) return node.line;
         current = next;

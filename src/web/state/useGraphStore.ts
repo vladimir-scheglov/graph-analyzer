@@ -112,6 +112,11 @@ export interface ClusterBox {
   count: number;
 }
 
+export interface WorkflowGraphTarget {
+  domainId: string;
+  dataTypeId: string;
+}
+
 // ============ Основной тип состояния ============
 
 export interface GraphState {
@@ -455,6 +460,8 @@ export interface GraphState {
   ) => void;
   yamlHighlightUnused: boolean;
   setYamlHighlightUnused: (v: boolean) => void;
+  workflowGraphTarget: WorkflowGraphTarget | null;
+  setWorkflowGraphTarget: (t: WorkflowGraphTarget | null) => void;
 }
 
 // ============ Хелперы для чтения localStorage ============
@@ -1020,6 +1027,8 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     } catch {}
     set({ yamlHighlightUnused: v });
   },
+  workflowGraphTarget: null,
+  setWorkflowGraphTarget: (t) => set({ workflowGraphTarget: t }),
 
   // Сброс всего
   resetAll: () =>

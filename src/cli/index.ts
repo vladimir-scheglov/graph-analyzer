@@ -4,6 +4,7 @@ import { serveLocal } from "./commands/serve-local";
 import { serveRemote } from "./commands/serve-remote";
 import { serveHybrid } from "./commands/serve-hybrid";
 import { error, warn } from "console";
+import { getCliInvocation } from "./constants";
 
 const DEFAULT_PORT = 3000;
 
@@ -68,12 +69,13 @@ export async function run(argv: string[]): Promise<void> {
         "Для режима «локальный каталог + сервер» нужны --login и --password.",
       );
       error("");
+      const CMD = getCliInvocation();
       error("  Только локально (без валидации):");
-      error(`    node graph-analyzer.js ${localArg}`);
+      error(`    ${CMD} ${localArg}`);
       error("");
       error("  Только из кэша (с валидацией, без локальных файлов):");
       error(
-        `    node graph-analyzer.js --server ${serverArg} --login <user> --password <pass>`,
+        `    ${CMD} --server ${serverArg} --login <user> --password <pass>`,
       );
       process.exit(1);
     }
@@ -104,7 +106,7 @@ export async function run(argv: string[]): Promise<void> {
       password,
       login: args.flags.login as string | undefined,
       port,
-      refresh: !!args.flags.refresh,
+      refresh: args.flags.refresh as boolean | string | undefined,
       resetCache: !!args.flags["reset-cache"],
       secure: !!args.flags.secure,
     });

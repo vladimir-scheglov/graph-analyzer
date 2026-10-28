@@ -60,9 +60,18 @@ export function useNavigation() {
       const map = domainToNodeId();
       const nodeId = map.get(domainId.toLowerCase());
       if (!nodeId) return;
+
       pushNav(domainId);
       setSelectedNodeId(nodeId);
-      useGraphStore.getState().setFocusNode(nodeId);
+
+      // focusNode — граф-специфичное состояние. В list-режиме
+      // его выставлять не нужно, иначе при переключении в граф
+      // пользователь увидит фокус, который не запрашивал.
+      const st = useGraphStore.getState();
+      if (st.viewMode === "graph") {
+        st.setFocusNode(nodeId);
+      }
+
       gotoWithoutNav(domainId);
     },
     [domainToNodeId, pushNav, setSelectedNodeId, gotoWithoutNav],

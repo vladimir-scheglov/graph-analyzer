@@ -34,6 +34,7 @@ import { DomainCompareModal } from '../modals/DomainCompareModal';
 import { PiiModal } from '../modals/PiiModal';
 import { YamlViewerModal } from '../modals/YamlViewerModal';
 import { GenerateBatchModal } from '../modals/GenerateBatchModal';
+import { WorkflowGraphModal } from '../modals/WorkflowGraphModal';
 
 
 export interface AppModalsProps {
@@ -155,6 +156,7 @@ export function AppModals(props: AppModalsProps) {
             <GenerateSchemaModal />
             <GenerateBatchModal />
             <GeneratedManifestModal />
+            <WorkflowGraphModal />
         </>
     );
 }

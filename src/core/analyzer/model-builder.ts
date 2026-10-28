@@ -83,6 +83,8 @@ import type {
   ViewMenuActionRecord,
   ViewGroupComponentRecord,
   AttributeConstraint,
+  ActionHookRecord,
+  ActionHooksRecord,
 } from "../../shared/model-types";
 import { buildDomainSchemaSummary } from "./domain-schema";
 import type { DomainSchemaSummary } from "../../shared/model-types";
@@ -2712,6 +2714,48 @@ function parseAction(raw: any, domainId: string): ActionRecord | null {
   if (typeof raw.widgetId === "string") {
     const fqid = normalizeFqid(raw.widgetId, domainId);
     if (fqid) out.widgetId = fqid;
+  }
+
+  // ============ scenario hooks ============
+  // Парсим всегда, независимо от type. Если hooks окажутся не на scenario —
+  // это поймает linter (action/hooks-not-scenario). Иначе теряем данные
+  // для UI и для линтера.
+  if (raw.hooks && typeof raw.hooks === "object") {
+    const rawHooks = raw.hooks as Record<string, unknown>;
+    const parsedHooks: ActionHooksRecord = {};
+
+    for (const hookKey of ["onStart", "onComplete", "onError"] as const) {
+      const rawHook = rawHooks[hookKey];
+      if (!rawHook || typeof rawHook !== "object") continue;
+
+      const rh = rawHook as Record<string, any>;
+      const hook: ActionHookRecord = {};
+
+      if (rh.artifacts && typeof rh.artifacts === "object") {
+        const artifacts: NonNullable<ActionHookRecord["artifacts"]> = {};
+        if (typeof rh.artifacts.autodownload === "boolean") {
+          artifacts.autodownload = rh.artifacts.autodownload;
+        }
+        hook.artifacts = artifacts;
+      }
+
+      if (rh.notify && typeof rh.notify === "object") {
+        const notify: NonNullable<ActionHookRecord["notify"]> = {};
+        if (typeof rh.notify.includeLinkToScenario === "boolean") {
+          notify.includeLinkToScenario = rh.notify.includeLinkToScenario;
+        }
+        if (typeof rh.notify.msg === "string") {
+          notify.msg = rh.notify.msg;
+        }
+        hook.notify = notify;
+      }
+
+      parsedHooks[hookKey] = hook;
+    }
+
+    if (Object.keys(parsedHooks).length > 0) {
+      out.hooks = parsedHooks;
+    }
   }
 
   return out;

@@ -867,6 +867,14 @@
 .yaml-nav-filtered-row--active {
     background: var(--bg-800);
 }
+.yaml-nav-filtered-row--unused .yaml-nav-filtered-item__id {
+    opacity: 0.5;
+    font-style: italic;
+}
+.yaml-nav-filtered-row--unused .yaml-nav-filtered-item__section,
+.yaml-nav-filtered-row--unused .yaml-nav-filtered-item__line {
+    opacity: 0.4;
+}
 
 .yaml-nav-filtered-item__main {
     display: flex;
@@ -2487,4 +2495,201 @@
 /* Убираем hover-подсветку с disabled */
 .menu__item:disabled:hover {
     background: transparent;
+}
+/* ============ Workflow graph ============ */
+
+.workflow-graph-modal {
+  width: 1100px;
+  max-width: 96vw;
+  height: 78vh;
+  max-height: 900px;
+  display: flex;
+  flex-direction: column;
+}
+
+.workflow-graph-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.workflow-graph-toolbar__left,
+.workflow-graph-toolbar__right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.workflow-graph-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-400);
+}
+.workflow-graph-stat code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  background: var(--bg-750);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.workflow-graph-stat--initial {
+  color: var(--success);
+}
+.workflow-graph-stat--final {
+  color: var(--accent-hover);
+}
+
+.workflow-graph-canvas {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  background: var(--bg-800);
+}
+
+.workflow-graph-empty {
+  padding: 60px 20px;
+  text-align: center;
+  color: var(--text-500);
+  font-size: 13px;
+}
+
+.workflow-graph-description {
+  padding: 8px 16px;
+  font-size: 12px;
+  color: var(--text-400);
+  border-top: 1px solid var(--border);
+  background: var(--bg-750);
+}
+
+.workflow-graph-legend {
+  display: flex;
+  gap: 16px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-500);
+  flex-wrap: wrap;
+}
+.workflow-graph-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.workflow-graph-legend__dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 2px solid var(--border);
+  background: var(--bg-800);
+}
+.workflow-graph-legend__dot--initial {
+  border-color: var(--success);
+}
+.workflow-graph-legend__dot--final {
+  border-color: var(--accent-hover);
+  border-style: double;
+  border-width: 3px;
+}
+.workflow-graph-legend__dot--wildcard {
+  border-color: var(--warning);
+  background: rgba(245, 158, 11, 0.15);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 10px;
+  color: var(--warning);
+}
+
+/* ============ Node ============ */
+
+.workflow-node {
+  min-width: 120px;
+  padding: 6px 12px 6px 14px;
+  border-radius: 8px;
+  border: 2px solid var(--border);
+  border-left-width: 4px;
+  background: var(--bg-800);
+  color: var(--text-100);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  cursor: grab;
+}
+.workflow-node:active {
+  cursor: grabbing;
+}
+
+.workflow-node--initial {
+  border-color: var(--success);
+  border-left-color: var(--success);
+}
+.workflow-node--final {
+  border-color: var(--accent-hover);
+  border-left-color: var(--accent-hover);
+  box-shadow: 0 0 0 1px var(--accent-hover), 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+.workflow-node--hidden {
+  border-style: dashed;
+  opacity: 0.6;
+}
+.workflow-node--wildcard {
+  border-color: var(--warning);
+  border-left-color: var(--warning);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.workflow-node__id {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-weight: 700;
+  color: var(--text-100);
+}
+.workflow-node__id .material-symbols-outlined {
+  font-size: 12px;
+  color: var(--success);
+}
+.workflow-node--final .workflow-node__id .material-symbols-outlined {
+  color: var(--accent-hover);
+}
+
+.workflow-node__name {
+  font-size: 10px;
+  color: var(--text-500);
+  font-family: 'Inter', sans-serif;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+
+.workflow-node__wildcard {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--warning);
+  line-height: 1;
+}
+
+.workflow-handle {
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  background: transparent;
 }

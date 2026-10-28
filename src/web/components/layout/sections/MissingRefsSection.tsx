@@ -17,6 +17,7 @@ export function MissingRefsSection({ items }: { items: MissingRefItem[] }) {
                             className="rank-item"
                             onClick={() => goto(item.node.data.domainId)}
                             style={{ cursor: 'pointer', padding: '4px 6px' }}
+                            title={`${item.count} битых ссылок из этого домена`}
                         >
                             <span className="rank-item__num">{i + 1}</span>
                             <span className="rank-item__label">{item.node.data.domainId}</span>
@@ -27,7 +28,18 @@ export function MissingRefsSection({ items }: { items: MissingRefItem[] }) {
                         {item.uniqueTargets.length > 0 && (
                             <div className="missing-ref-targets">
                                 {item.uniqueTargets.slice(0, 3).map((t, ti) => (
-                                    <div key={ti} className="missing-ref-target">
+                                    <div
+                                        key={ti}
+                                        className="missing-ref-target missing-ref-target--clickable"
+                                        onClick={() => {
+                                            // target — "domain.tld/Entity".
+                                            // Берём только домен: goto найдёт узел
+                                            // по domainId (включая missing_*).
+                                            const slash = t.indexOf("/");
+                                            if (slash > 0) goto(t.slice(0, slash));
+                                        }}
+                                        title={`Перейти к ${t}`}
+                                    >
                                         <MIcon name="warning" size="sm" />
                                         <span>{t}</span>
                                     </div>

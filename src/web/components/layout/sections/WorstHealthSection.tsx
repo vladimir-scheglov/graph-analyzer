@@ -10,7 +10,7 @@ export function WorstHealthSection({ items }: { items: WorstHealthItem[] }) {
     if (items.length === 0) return null;
 
     return (
-        <Section id="worst" title="Стена позора" icon="trending_down">
+        <Section id="worst" title="Наиболее проблемные" icon="trending_down">
             <div className="rank-list">
                 {items.slice(0, compact ? 5 : 20).map((item, i) => {
                     const hc = item.health >= 80 ? 'good' : item.health >= 50 ? 'mid' : 'bad';

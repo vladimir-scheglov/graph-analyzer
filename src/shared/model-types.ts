@@ -1670,8 +1670,29 @@ export interface ActionRecord {
   /** Для type: workflow — целевой статус. */
   transition?: { to: string };
 
+  /** Для type: scenario — хуки жизненного цикла. */
+  hooks?: ActionHooksRecord;
+
   /** Для type: open_external_widget_modal — параметры внешнего виджета. */
   widgetParams?: { widget: string; [key: string]: any };
+}
+
+// ============ Actions: hooks (только для type: scenario) ============
+
+export interface ActionHookRecord {
+    artifacts?: {
+        autodownload?: boolean;
+    };
+    notify?: {
+        includeLinkToScenario?: boolean;
+        msg?: string;
+    };
+}
+
+export interface ActionHooksRecord {
+    onStart?: ActionHookRecord;
+    onComplete?: ActionHookRecord;
+    onError?: ActionHookRecord;
 }
 
 // ============ PR 6c: filter / sortingBy ============

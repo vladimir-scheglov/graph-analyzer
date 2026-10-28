@@ -264,7 +264,7 @@ function EntityDetailCard({
 
 // ============ DataTypeDetailCard ============
 
-function DataTypeDetailCard({
+export function DataTypeDetailCard({
     dataTypeId,
     domainId,
     index,
@@ -276,13 +276,32 @@ function DataTypeDetailCard({
     const dt = index.dataTypes.find(
         (d) => d.id === dataTypeId && d.domainId === domainId,
     );
+    const setWorkflowGraphTarget = useGraphStore((s) => s.setWorkflowGraphTarget);
+
     if (!dt) return null;
 
     return (
         <div className="domain-schema-detail-card">
             {dt.description && (
-                <div className="domain-schema-detail-card__desc">
-                    {dt.description}
+                <div className="domain-schema-detail-card__desc">{dt.description}</div>
+            )}
+
+            {/* NEW: кнопка «Граф переходов» для Workflow */}
+            {dt.kind === "Workflow" && (
+                <div className="domain-schema-detail-card__actions" style={{ marginTop: 0, marginBottom: 8 }}>
+                    <button
+                        className="btn btn--primary"
+                        onClick={() =>
+                            setWorkflowGraphTarget({
+                                domainId,
+                                dataTypeId: dt.id,
+                            })
+                        }
+                        title="Открыть граф переходов между статусами"
+                    >
+                        <MIcon name="conversion_path" size="sm" />
+                        Граф переходов
+                    </button>
                 </div>
             )}
 

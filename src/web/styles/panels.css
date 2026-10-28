@@ -1967,3 +1967,48 @@
 .yaml-nav-item__head--unused:hover .yaml-nav-item__id {
     opacity: 0.85;
 }
+.monaco-editor .unused-entity-line {
+    background-color: var(--editor-unused-bg) !important;
+        border-left: 2px solid rgba(239, 68, 68, 0.5);
+
+}
+.monaco-editor .unused-entity-text {
+    opacity: 0.5;
+    font-style: italic;
+}
+/* Затенение неиспользуемой сущности / блока */
+.unused-entity-line {
+    background: rgba(148, 163, 184, 0.06);
+}
+.unused-entity-text {
+    color: var(--text-500) !important;
+    font-style: italic;
+}
+
+/* Затенение неиспользуемого атрибута */
+.unused-attribute-line {
+    background: rgba(251, 191, 36, 0.05);
+    border-left: 2px solid rgba(251, 191, 36, 0.4);
+}
+.unused-attribute-text {
+    color: var(--text-500) !important;
+    font-style: italic;
+}
+
+/* Для светлой темы — чуть плотнее, чтобы было заметно */
+[data-theme="light"] .unused-entity-line {
+    background: rgba(148, 163, 184, 0.12);
+}
+[data-theme="light"] .unused-attribute-line {
+    background: rgba(217, 119, 6, 0.08);
+    border-left-color: rgba(217, 119, 6, 0.5);
+}
+/* Иконка workflow-графа — акцентный цвет, чтобы отличалась от фокуса */
+.yaml-nav-item__workflow-graph .material-symbols-outlined,
+.yaml-nav-filtered-item__workflow-graph .material-symbols-outlined {
+    color: var(--accent-hover);
+}
+.yaml-nav-item__workflow-graph:hover .material-symbols-outlined,
+.yaml-nav-filtered-item__workflow-graph:hover .material-symbols-outlined {
+    color: var(--accent);
+}

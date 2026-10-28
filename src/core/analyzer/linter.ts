@@ -2979,6 +2979,64 @@ function checkActions(ctx: LintContext): void {
       });
     }
 
+    // ============ hooks: только для type: scenario ============
+    if (a.hooks && a.type !== "scenario") {
+      emit(ctx, {
+        ruleId: "action/hooks-not-scenario",
+        severity: "error",
+        category: "semantic",
+        rule: "hooks допустимы только для type: scenario",
+        message: `Действие «${a.id}»: hooks заданы при type «${a.type}»`,
+        hint: "Удалите hooks или замените type на scenario",
+        domainId: a.domainId,
+        propertyPath: `actions[${a.id}].hooks`,
+      });
+    }
+
+    // ============ hooks: непустые и осмысленные ============
+    if (a.hooks) {
+      for (const hookKey of ["onStart", "onComplete", "onError"] as const) {
+        const hook = a.hooks[hookKey];
+        if (!hook) continue;
+
+        const hasArtifacts = hook.artifacts !== undefined;
+        const hasNotify = hook.notify !== undefined;
+
+        if (!hasArtifacts && !hasNotify) {
+          emit(ctx, {
+            ruleId: "action/hooks-empty",
+            severity: "warning",
+            category: "semantic",
+            rule: `hooks.${hookKey} содержит artifacts или notify`,
+            message: `Действие «${a.id}»: hooks.${hookKey} — пустой объект`,
+            hint: "Укажите artifacts.autodownload и/или notify.msg",
+            domainId: a.domainId,
+            propertyPath: `actions[${a.id}].hooks.${hookKey}`,
+          });
+        }
+
+        if (hook.notify) {
+          const hasMsg =
+            typeof hook.notify.msg === "string" &&
+            hook.notify.msg.trim().length > 0;
+          const hasLink = hook.notify.includeLinkToScenario === true;
+
+          if (!hasMsg && !hasLink) {
+            emit(ctx, {
+              ruleId: "action/hooks-notify-empty",
+              severity: "warning",
+              category: "semantic",
+              rule: "notify содержит msg или includeLinkToScenario",
+              message: `Действие «${a.id}»: hooks.${hookKey}.notify пуст`,
+              hint: "Укажите msg и/или includeLinkToScenario: true",
+              domainId: a.domainId,
+              propertyPath: `actions[${a.id}].hooks.${hookKey}.notify`,
+            });
+          }
+        }
+      }
+    }
+
     // ============ automation.id ============
     if (a.automationId && !UUID_RE.test(a.automationId)) {
       emit(ctx, {

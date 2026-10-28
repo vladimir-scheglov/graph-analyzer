@@ -590,22 +590,65 @@ export function YamlViewerModal() {
 
     const backlinks = useMemo(() => {
         if (rightTab !== "backlinks" || !deferredContent) {
-            return { entity: [], attribute: [], target: null };
+            return { entity: [] as Backlink[], attribute: [] as Backlink[], target: null as CursorTarget | null };
         }
 
-        if (!deferredContent) return { entity: [] as Backlink[], attribute: [] as Backlink[], target: null as CursorTarget | null };
         const lines = deferredContent.split("\n");
         const target = detectCursorTarget(lines, cursorLine);
-        if (!target) return { entity: [], attribute: [], target };
+        if (!target || !target.id) {
+            return { entity: [], attribute: [], target };
+        }
 
         const entity: Backlink[] = [];
         const attribute: Backlink[] = [];
 
-        if (target.type === "entity" && target.id) {
-            entity.push(...resolveEntityBacklinks(lines, target.id));
-        } else if (target.type === "attribute" && target.id && target.parentId) {
-            entity.push(...resolveEntityBacklinks(lines, target.parentId));
-            attribute.push(...resolveAttributeBacklinks(lines, target.parentId, target.id));
+        switch (target.type) {
+            case "entity":
+                entity.push(...resolveEntityBacklinks(lines, target.id));
+                break;
+            case "attribute":
+                if (target.parentId) {
+                    entity.push(...resolveEntityBacklinks(lines, target.parentId));
+                    attribute.push(...resolveAttributeBacklinks(lines, target.parentId, target.id));
+                }
+                break;
+            case "linkage":
+                entity.push(...resolveLinkageBacklinks(lines, target.id));
+                break;
+            case "action":
+                entity.push(...resolveActionBacklinks(lines, target.id));
+                break;
+            case "view":
+                entity.push(...resolveViewBacklinks(lines, target.id));
+                break;
+            case "dataType":
+                entity.push(...resolveDataTypeBacklinks(lines, target.id));
+                break;
+            case "sequence":
+                entity.push(...resolveSequenceBacklinks(lines, target.id));
+                break;
+            case "media":
+                entity.push(...resolveMediaBacklinks(lines, target.id));
+                break;
+            case "tree":
+                entity.push(...resolveTreeBacklinks(lines, target.id));
+                break;
+            case "counterColorPattern":
+                entity.push(...resolveCounterColorBacklinks(lines, target.id));
+                break;
+            case "uiPreset":
+                entity.push(...resolveUiPresetBacklinks(lines, target.id));
+                break;
+            case "permission":
+                entity.push(...resolvePermissionBacklinks(lines, target.id));
+                break;
+            case "menuItem":
+                entity.push(...resolveMenuItemBacklinks(lines, target.id));
+                break;
+            case "dataRule":
+            case "mixin":
+                // для них пока — только через entity/attribute, отдельных резолверов нет
+                break;
         }
 
         return { entity, attribute, target };
@@ -872,11 +915,11 @@ export function YamlViewerModal() {
                     showSnippets: true,
                     showMethods: false,
                     showFunctions: false,
-                    filterGraceful: false as any,
-                    preview: true as any,
+                    filterGraceful: true as any,
+                    preview: false as any,
                     showDetails: true as any,
                     showInlineDetails: true as any,
-                    showStatusBar: false as any,
+                    showStatusBar: true as any,
                 } as any,
 
                 quickSuggestions: false,
@@ -1065,12 +1108,14 @@ export function YamlViewerModal() {
                             before,
                         );
                         const inFieldName = /^\s+[\w.]*$/.test(before);
+                        const inRootField = /^[a-zA-Z_][\w]*$/.test(before);
 
                         if (
                             inValue ||
                             inListItem ||
                             inItemField ||
-                            inFieldName
+                            inFieldName ||
+                            inRootField
                         ) {
                             editorRef.current.trigger(
                                 "yaml-viewer",
@@ -2895,70 +2940,143 @@ export function YamlViewerModal() {
 
     useEffect(() => {
         if (!monacoReady || !editorCreated || !editorRef.current) return;
-        if (!checksEnabled) {
-            if (decorationsCollection.current) {
-                decorationsCollection.current.clear();
-            }
+
+        // Затенение — визуализация, а не проверка:
+        //   • отключается через yamlHighlightUnused (общий флаг),
+        //   • НЕ зависит от checksEnabled,
+        //   • НЕ работает в режиме редактирования (isLocked=false),
+        //     чтобы не мешать при вводе.
+        if (!yamlHighlightUnused || !isLocked) {
+            if (decorationsCollection.current) decorationsCollection.current.clear();
             return;
         }
-        if (!lineMap || !content) return;
 
-        // Safety-net: на больших файлах подсветка неиспользуемых атрибутов
-        // не оправдывает затрат CPU (O(n) по 1.2M символов). Отключаем.
-        if (content.length > 250_000) {
+        if (!lineMap || !deferredContent) return;
+        if (deferredContent.length > 2_000_000) {
             if (decorationsCollection.current) decorationsCollection.current.clear();
             return;
         }
 
         const m = (window as any).monaco;
         const model = editorRef.current.getModel();
-        if (!m || !model) return;
-
-        // Убираем комментарии, чтобы не считать их за использования
-        const textWithoutComments = content.replace(/#[^\n]*/g, "");
-
-        // ============ O(n) — один проход по тексту, а не per-attr ============
-        // 1) Частоты word-токенов (attrId встречается в тексте)
-        const wordCounts = new Map<string, number>();
-        for (const mw of textWithoutComments.matchAll(
-            /[a-zA-Z_][a-zA-Z0-9_]*/g,
-        )) {
-            const w = mw[0];
-            wordCounts.set(w, (wordCounts.get(w) || 0) + 1);
-        }
-        // 2) Частоты определений (`id: xxx`, `- id: xxx`)
-        const defCounts = new Map<string, number>();
-        for (const md of textWithoutComments.matchAll(
-            /(?:^|[\s-])id\s*:\s*['"]?([a-zA-Z_][a-zA-Z0-9_]*)/g,
-        )) {
-            const id = md[1];
-            defCounts.set(id, (defCounts.get(id) || 0) + 1);
-        }
+        if (!m || !model || !unusedAnalysis) return;
 
         const newDecorations: any[] = [];
+
+        // ============ Entities (с вложенной логикой атрибутов) ============
         const entitiesSection = lineMap.sections.find((s) => s.key === "entities");
         if (entitiesSection) {
-            entitiesSection.nodes.forEach((entityNode) => {
+            entitiesSection.nodes.forEach((entityNode, entityIdx) => {
+                const entityKey = entityNode.id.toLowerCase();
+                const entityUnused = unusedAnalysis.entities.has(entityKey);
+
+                if (entityUnused) {
+                    pushBlockDecoration(
+                        newDecorations,
+                        m,
+                        entitiesSection,
+                        entityIdx,
+                        `⚠️ Сущность «${entityNode.id}» не используется нигде: ` +
+                        `нет inherits, Reference, linkages, views, actions, dataRules, mixins, trees, transitiveLinkages`,
+                    );
+                    return;
+                }
+
                 if (!entityNode.children) return;
                 entityNode.children.forEach((attrNode) => {
                     if (attrNode.type !== "attribute") return;
-                    const attrId = attrNode.id;
-                    const total = wordCounts.get(attrId) || 0;
-                    const defs = defCounts.get(attrId) || 0;
-                    if (total - defs <= 0) {
-                        newDecorations.push({
-                            range: new m.Range(attrNode.line, 1, attrNode.line, 1),
-                            options: {
-                                isWholeLine: true,
-                                className: "unused-attribute-line",
-                                inlineClassName: "unused-attribute-text",
-                                hoverMessage: {
-                                    value: `⚠️ Атрибут «${attrId}» не используется ни в представлениях, ни в правилах данных`,
-                                },
+                    const attrKey = `${entityKey}:${attrNode.id.toLowerCase()}`;
+                    if (!unusedAnalysis.attributes.has(attrKey)) return;
+                    newDecorations.push({
+                        range: new m.Range(attrNode.line, 1, attrNode.line, 1),
+                        options: {
+                            isWholeLine: true,
+                            className: "unused-attribute-line",
+                            inlineClassName: "unused-attribute-text",
+                            hoverMessage: {
+                                value: `⚠️ Атрибут «${attrNode.id}» не используется ни в представлениях, ни в правилах данных`,
                             },
-                        });
-                    }
+                        },
+                    });
                 });
+            });
+        }
+
+        // ============ Block-level: dataTypes, actions, sequences, … ============
+        const blockSections: Array<{
+            sectionKey: string;
+            ids: Set<string>;
+            label: string;
+        }> = [
+                { sectionKey: "dataTypes", ids: unusedAnalysis.dataTypes, label: "Тип данных" },
+                { sectionKey: "actions", ids: unusedAnalysis.actions, label: "Действие" },
+                { sectionKey: "sequences", ids: unusedAnalysis.sequences, label: "Последовательность" },
+                { sectionKey: "medias", ids: unusedAnalysis.medias, label: "Иконка" },
+                { sectionKey: "trees", ids: unusedAnalysis.trees, label: "Дерево" },
+                {
+                    sectionKey: "counterColorPattern",
+                    ids: unusedAnalysis.counterColorPatterns,
+                    label: "Цветовая схема счётчика",
+                },
+                { sectionKey: "uiPresets", ids: unusedAnalysis.uiPresets, label: "UI Preset" },
+                { sectionKey: "permissions", ids: unusedAnalysis.permissions, label: "Разрешение" },
+            ];
+
+        for (const cfg of blockSections) {
+            if (cfg.ids.size === 0) continue;
+            const section = lineMap.sections.find((s) => s.key === cfg.sectionKey);
+            if (!section) continue;
+            section.nodes.forEach((node, idx) => {
+                if (!cfg.ids.has(node.id)) return;
+                pushBlockDecoration(
+                    newDecorations,
+                    m,
+                    section,
+                    idx,
+                    `⚠️ ${cfg.label} «${node.id}» не используется`,
+                );
+            });
+        }
+
+        // ============ transitiveLinkages ============
+        if (unusedAnalysis.transitiveLinkages.size > 0) {
+            const section = lineMap.sections.find(
+                (s) => s.key === "transitiveLinkages",
+            );
+            if (section) {
+                section.nodes.forEach((node, idx) => {
+                    if (!unusedAnalysis.transitiveLinkages.has(node.id)) return;
+                    pushBlockDecoration(
+                        newDecorations,
+                        m,
+                        section,
+                        idx,
+                        `⚠️ Транзитивная связь «${node.id}» не используется: ` +
+                        `ни один join-id не упоминается в column.join / filter.join / widget.joinId`,
+                    );
+                });
+            }
+        }
+
+        // ============ nested views (panel/modal/page) ============
+        for (const nv of unusedAnalysis.nestedViews) {
+            newDecorations.push({
+                range: new m.Range(
+                    nv.startLine,
+                    1,
+                    Math.max(nv.startLine, nv.endLine),
+                    1,
+                ),
+                options: {
+                    isWholeLine: true,
+                    className: "unused-entity-line",
+                    inlineClassName: "unused-entity-text",
+                    hoverMessage: {
+                        value:
+                            `⚠️ Вложенное представление «${nv.id}» не используется: ` +
+                            `нет action.modal/panel/pageView, ссылающегося на него`,
+                    },
+                },
             });
         }
 
@@ -2969,7 +3087,15 @@ export function YamlViewerModal() {
         return () => {
             if (decorationsCollection.current) decorationsCollection.current.clear();
         };
-    }, [monacoReady, editorCreated, lineMap, deferredContent, checksEnabled]);
+    }, [
+        monacoReady,
+        editorCreated,
+        lineMap,
+        deferredContent,
+        yamlHighlightUnused,
+        isLocked,
+        unusedAnalysis,
+    ]);
 
     useEffect(() => {
         if (!monacoReady || !editorCreated || !editorRef.current) return;
@@ -4074,6 +4200,7 @@ export function YamlViewerModal() {
                                                 onHover={setActiveNavIdx}
                                                 focusTarget={focusTarget}
                                                 onFocus={handleFocus}
+                                                unusedAnalysis={unusedAnalysis}
                                             />
                                         ) : (
                                             lineMap.sections.map((section) => (
@@ -4534,23 +4661,24 @@ export function YamlViewerModal() {
                                 {!backlinks.target && (
                                     <div className="yaml-issues-empty">
                                         <div style={{ fontSize: 32, marginBottom: 8 }}>🎯</div>
-                                        Поставьте курсор на сущность или атрибут, чтобы увидеть входящие ссылки
+                                        Поставьте курсор на элемент (сущность, атрибут, linkage, action, view, dataType, …),
+                                        чтобы увидеть входящие ссылки
                                     </div>
                                 )}
 
-                                {backlinks.target &&
-                                    backlinks.entity.length === 0 &&
-                                    backlinks.attribute.length === 0 && (
-                                        <div className="yaml-issues-empty">
-                                            <div style={{ fontSize: 32, marginBottom: 8 }}>🔍</div>
-                                            На {backlinks.target.type === "attribute" ? "этот атрибут" : "эту сущность"} ничего не ссылается
-                                        </div>
-                                    )}
+                                {backlinks.target && backlinks.entity.length === 0 && backlinks.attribute.length === 0 && (
+                                    <div className="yaml-issues-empty">
+                                        <div style={{ fontSize: 32, marginBottom: 8 }}>🔍</div>
+                                        На {targetLabel(backlinks.target)} ничего не ссылается
+                                    </div>
+                                )}
 
                                 {backlinks.entity.length > 0 && (
                                     <>
                                         <div className="yaml-issues__header" style={{ fontSize: 10 }}>
-                                            На сущность {backlinks.target?.type === "attribute" ? backlinks.target.parentId : backlinks.target?.id} ({backlinks.entity.length})
+                                            {backlinks.target?.type === "attribute"
+                                                ? `На сущность ${backlinks.target.parentId} (${backlinks.entity.length})`
+                                                : `На ${targetLabel(backlinks.target)} ${backlinks.target?.id} (${backlinks.entity.length})`}
                                         </div>
                                         <div className="yaml-issues__list">
                                             {backlinks.entity.map((bl, idx) => (
@@ -5265,6 +5393,7 @@ function FilteredNavList({
     onHover,
     focusTarget,
     onFocus,
+    unusedAnalysis,
 }: {
     nodes: ReturnType<typeof flatNavNodesType>;
     activeIdx: number;
@@ -5272,6 +5401,7 @@ function FilteredNavList({
     onHover: (idx: number) => void;
     focusTarget: FocusTarget | null;
     onFocus: (node: NavNode, sectionKey: string) => void;
+    unusedAnalysis: UnusedAnalysis | null;
 }) {
     if (nodes.length === 0) {
         return (
@@ -5287,6 +5417,17 @@ function FilteredNavList({
                 const canFocus =
                     n.depth === 0 &&
                     (n.sectionKey === "entities" || n.sectionKey === "linkages");
+                const parentKey =
+                    n.key.includes("#")
+                        ? n.key.substring(0, n.key.lastIndexOf("#"))
+                        : n.sectionKey;
+                const unusedCheck = checkUnusedInNav(
+                    unusedAnalysis,
+                    n.sectionKey,
+                    n.node,
+                    n.depth,
+                    parentKey,
+                );            
                 const isFocusActive = !!(
                     canFocus &&
                     focusTarget &&
@@ -5302,8 +5443,10 @@ function FilteredNavList({
                         key={n.key + '#' + i}
                         className={
                             "yaml-nav-filtered-row" +
-                            (i === activeIdx ? " yaml-nav-filtered-row--active" : "")
+                            (i === activeIdx ? " yaml-nav-filtered-row--active" : "") +
+                            (unusedCheck.isUnused ? " yaml-nav-filtered-row--unused" : "")
                         }
+                        title={unusedCheck.hint || undefined}
                         onMouseEnter={() => onHover(i)}
                     >
                         <button
@@ -5342,6 +5485,25 @@ function FilteredNavList({
                                 title={isFocusActive ? "Снять фокус" : "Фокус на этом элементе"}
                             >
                                 <MIcon name="my_location" size="sm" />
+                            </button>
+                        )}
+
+                        {n.sectionKey === "dataTypes" && n.depth === 0 && n.node.meta === "Workflow" && (
+                            <button
+                                type="button"
+                                className="yaml-nav-filtered-item__focus yaml-nav-filtered-item__workflow-graph"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    const domainId = useGraphStore.getState().yamlViewerDomainId;
+                                    if (!domainId) return;
+                                    useGraphStore.getState().setWorkflowGraphTarget({
+                                        domainId,
+                                        dataTypeId: n.node.id,
+                                    });
+                                }}
+                                title="Граф переходов"
+                            >
+                                <MIcon name="conversion_path" size="sm" />
                             </button>
                         )}
                     </div>
@@ -5520,30 +5682,13 @@ function NavItem({
     const expanded = expandedNodes.has(key);
 
     // ============ Unused (затенение) ============
-    // Для сущностей (depth=0) — по `entityId`, для атрибутов (depth=1) —
-    // по ключу `entityId:attrId` из parentKey (`entities#EntityId`).
-    // Nested (>1) не покрываем: Table-колонки и nested-свойства — отдельная
-    // задача, эвристика word-count для них шумит.
-    let isUnused = false;
-    let unusedHint: string | null = null;
-    if (unusedAnalysis && sectionKey === "entities") {
-        if (depth === 0 && unusedAnalysis.entities.has(node.id.toLowerCase())) {
-            isUnused = true;
-            unusedHint =
-                "Сущность нигде не используется: нет views, linkages, inherits и ссылок в других секциях";
-        } else if (depth === 1) {
-            const parts = parentKey.split("#");
-            const entityId = parts[1];
-            if (entityId) {
-                const attrKey = `${entityId.toLowerCase()}:${node.id.toLowerCase()}`;
-                if (unusedAnalysis.attributes.has(attrKey)) {
-                    isUnused = true;
-                    unusedHint =
-                        "Атрибут не используется ни в views, ни в правилах, ни в фильтрах, ни в search/sorting";
-                }
-            }
-        }
-    }
+    const { isUnused, hint: unusedHint } = checkUnusedInNav(
+        unusedAnalysis,
+        sectionKey,
+        node,
+        depth,
+        parentKey,
+    );
 
     // Индекс этого узла в плоском списке — для подсветки активного
     const globalIdx = useMemo(
@@ -5619,6 +5764,24 @@ function NavItem({
                         title={focusTarget && focusTarget.id === node.id ? "Снять фокус" : "Фокус на этом элементе"}
                     >
                         <MIcon name="my_location" size="sm" />
+                    </button>
+                )}
+                {sectionKey === "dataTypes" && depth === 0 && node.meta === "Workflow" && (
+                    <button
+                        type="button"
+                        className="yaml-nav-item__focus yaml-nav-item__workflow-graph"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            const domainId = useGraphStore.getState().yamlViewerDomainId;
+                            if (!domainId) return;
+                            useGraphStore.getState().setWorkflowGraphTarget({
+                                domainId,
+                                dataTypeId: node.id,
+                            });
+                        }}
+                        title="Граф переходов"
+                    >
+                        <MIcon name="conversion_path" size="sm" />
                     </button>
                 )}
             </div>
@@ -5909,14 +6072,25 @@ function CrossDomainBadge({
 // ============ Backlinks ============
 
 interface CursorTarget {
-    type: 'entity' | 'attribute' | 'linkage' | 'action' | 'view' | 'dataRule' | 'mixin' | null;
+    type:
+    | 'entity' | 'attribute'
+    | 'linkage' | 'action' | 'view'
+    | 'dataRule' | 'mixin'
+    | 'dataType' | 'sequence' | 'media' | 'tree'
+    | 'counterColorPattern' | 'uiPreset' | 'permission' | 'menuItem'
+    | null;
     id: string | null;
     parentId?: string;
     section?: string;
 }
 
 interface Backlink {
-    kind: 'inheritance' | 'reference' | 'linkage' | 'view' | 'dataRule' | 'mixin' | 'action' | 'widget';
+    kind:
+    | 'inheritance' | 'reference' | 'linkage' | 'view'
+    | 'dataRule' | 'mixin' | 'action' | 'widget'
+    | 'dataType' | 'sequence' | 'media' | 'tree'
+    | 'counterColorPattern' | 'uiPreset' | 'permission' | 'menuItem'
+    | 'filter' | 'join';
     line: number;
     label: string;
     detail?: string;
@@ -5932,6 +6106,16 @@ const BACKLINK_KIND_LABELS: Record<Backlink['kind'], string> = {
     mixin: 'примесь',
     action: 'действие',
     widget: 'виджет',
+    dataType: 'тип данных',
+    sequence: 'последовательность',
+    media: 'иконка',
+    tree: 'дерево',
+    counterColorPattern: 'цветовая схема',
+    uiPreset: 'пресет',
+    permission: 'разрешение',
+    menuItem: 'пункт меню',
+    filter: 'фильтр',
+    join: 'транзитивная связь',
 };
 
 function detectCursorTarget(lines: string[], cursorLine: number): CursorTarget | null {
@@ -6010,6 +6194,27 @@ function detectCursorTarget(lines: string[], cursorLine: number): CursorTarget |
     if (section === "views") return { type: "view", id: root.id, section };
     if (section === "dataRules") return { type: "dataRule", id: root.id, section };
     if (section === "mixins") return { type: "mixin", id: root.id, section };
+    if (section === "dataTypes") return { type: "dataType", id: root.id, section };
+    if (section === "sequences") return { type: "sequence", id: root.id, section };
+    if (section === "medias") return { type: "media", id: root.id, section };
+    if (section === "trees") return { type: "tree", id: root.id, section };
+    if (section === "counterColorPattern" || section === "counterColorPatterns") {
+        return { type: "counterColorPattern", id: root.id, section };
+    }
+    if (section === "uiPresets") return { type: "uiPreset", id: root.id, section };
+    if (section === "permissions") return { type: "permission", id: root.id, section };
+    if (section === "menus") {
+        // menuItem — если между root_group и текущим - id: встретили items:
+        if (chain.length >= 2 && inner.line > root.line) {
+            const itemsRegex = /^\s*items\s*:\s*$/;
+            for (let i = root.line + 1; i < inner.line; i++) {
+                if (itemsRegex.test(lines[i])) {
+                    return { type: "menuItem", id: inner.id, section };
+                }
+            }
+        }
+        return null; // корневой пункт меню — не цель
+    }
     return null;
 }
 
@@ -6280,6 +6485,432 @@ function resolveAttributeBacklinks(
     return out;
 }
 
+// ============ Extended backlink resolvers ============
+
+interface FieldOccurrence {
+    line: number;
+    fieldName: string;
+    value: string;
+    isItemStart: boolean;
+    section: string;
+    parentChain: Array<{ kind: string; id: string; depth: number }>;
+}
+
+/** Один линейный проход по YAML. Возвращает только совпадения по value. */
+function walkFields(
+    lines: string[],
+    fieldNames: string[],
+    valueLower: string,
+): FieldOccurrence[] {
+    const out: FieldOccurrence[] = [];
+    const wanted = new Set(fieldNames);
+    let section = '';
+    const stack: Array<{ indent: number; kind: string; id: string }> = [];
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line.trim() || line.trim().startsWith('#')) continue;
+        const indent = (line.match(/^(\s*)/) || ['', ''])[1].length;
+
+        if (indent === 0) {
+            const sm = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+            if (sm) section = sm[1];
+            stack.length = 0;
+            continue;
+        }
+
+        while (stack.length && stack[stack.length - 1].indent >= indent) {
+            stack.pop();
+        }
+
+        const idm = line.match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
+        if (idm) {
+            stack.push({ indent, kind: 'item', id: idm[2].replace(/["']/g, '') });
+            continue;
+        }
+
+        const cm = line.match(/^(\s*)([a-zA-Z_][\w]*)\s*:\s*$/);
+        if (cm) {
+            stack.push({ indent, kind: cm[2], id: cm[2] });
+            continue;
+        }
+
+        const fm = line.match(/^(\s*)(?:-\s+)?([a-zA-Z_][\w]*)\s*:\s*(.+)$/);
+        if (!fm || !wanted.has(fm[2])) continue;
+
+        let v = fm[3].split(' #')[0].trim();
+        if ((v.startsWith('"') && v.endsWith('"')) ||
+            (v.startsWith("'") && v.endsWith("'"))) {
+            v = v.slice(1, -1);
+        }
+        if (v.toLowerCase() !== valueLower) continue;
+
+        out.push({
+            line: i + 1,
+            fieldName: fm[2],
+            value: v,
+            isItemStart: /^\s*-\s+\S/.test(line),
+            section,
+            parentChain: stack.map((s, idx) => ({
+                kind: s.kind,
+                id: s.id,
+                depth: idx,
+            })),
+        });
+    }
+
+    return out;
+}
+
+// ---- linkage ----
+function resolveLinkageBacklinks(lines: string[], linkageId: string): Backlink[] {
+    const out: Backlink[] = [];
+    const hits = walkFields(lines, ['linkage'], linkageId.toLowerCase());
+
+    for (const h of hits) {
+        const items = h.parentChain.filter(c => c.kind === 'item');
+        const containers = h.parentChain.filter(c => c.kind !== 'item').map(c => c.kind);
+        const rootId = items[0]?.id || '';
+
+        if (h.section === 'views') {
+            if (!h.isItemStart) {
+                // widget.linkage (singular) — type: linkage
+                out.push({
+                    kind: 'widget',
+                    line: h.line,
+                    label: rootId,
+                    detail: `widget ${items[1]?.id || ''}.linkage`,
+                    icon: 'view_quilt',
+                });
+            } else if (containers.includes('filter')) {
+                out.push({ kind: 'filter', line: h.line, label: rootId, detail: 'filter.linkages.use', icon: 'filter_alt' });
+            } else if (containers.includes('source')) {
+                out.push({ kind: 'join', line: h.line, label: rootId, detail: 'source.joins', icon: 'alt_route' });
+            } else if (containers.includes('widgets') && containers.includes('linkages')) {
+                out.push({
+                    kind: 'widget',
+                    line: h.line,
+                    label: rootId,
+                    detail: `widget ${items[1]?.id || ''}.linkages`,
+                    icon: 'view_quilt',
+                });
+            }
+        } else if (h.section === 'dataRules') {
+            const inRule = h.parentChain.some(c => c.kind === 'rule');
+            out.push({
+                kind: 'dataRule',
+                line: h.line,
+                label: rootId,
+                detail: inRule ? 'rule.linkages' : 'dataRule.linkage',
+                icon: 'rule',
+            });
+        } else if (h.section === 'mixins') {
+            out.push({ kind: 'mixin', line: h.line, label: rootId, detail: 'mixin.linkage', icon: 'merge' });
+        } else if (h.section === 'actions') {
+            out.push({ kind: 'action', line: h.line, label: rootId, detail: 'action.linkage (open_list)', icon: 'bolt' });
+        } else if (h.section === 'trees') {
+            out.push({ kind: 'tree', line: h.line, label: rootId, detail: 'hierarchy.children', icon: 'account_tree' });
+        } else if (h.section === 'transitiveLinkages') {
+            out.push({ kind: 'join', line: h.line, label: rootId, detail: 'joins', icon: 'conversion_path' });
+        }
+    }
+
+    return out;
+}
+
+// ---- action ----
+function resolveActionBacklinks(lines: string[], actionId: string): Backlink[] {
+    const out: Backlink[] = [];
+    const hits = walkFields(lines, ['action'], actionId.toLowerCase());
+
+    for (const h of hits) {
+        if (h.section !== 'views') continue;
+        const items = h.parentChain.filter(c => c.kind === 'item');
+        const containers = h.parentChain.filter(c => c.kind !== 'item').map(c => c.kind);
+        const viewId = items[0]?.id || '';
+
+        if (!h.isItemStart) {
+            out.push({
+                kind: 'widget',
+                line: h.line,
+                label: viewId,
+                detail: `widget ${items[1]?.id || ''}.action`,
+                icon: 'view_quilt',
+            });
+            continue;
+        }
+
+        if (containers.includes('widgets')) {
+            out.push({ kind: 'widget', line: h.line, label: viewId, detail: `widget ${items[1]?.id || ''}.actions`, icon: 'view_quilt' });
+        } else if (containers.includes('columns')) {
+            out.push({ kind: 'action', line: h.line, label: items[1]?.id || '', detail: 'column.actions', icon: 'view_column' });
+        } else if (containers.includes('footer')) {
+            out.push({ kind: 'action', line: h.line, label: items[1]?.id || '', detail: 'modal.footer', icon: 'open_in_new' });
+        } else if (containers.includes('buttons')) {
+            out.push({ kind: 'action', line: h.line, label: items[1]?.id || '', detail: 'modal.buttons.actions', icon: 'open_in_new' });
+        } else if (containers.includes('views') && containers.includes('menu')) {
+            out.push({ kind: 'action', line: h.line, label: items[1]?.id || '', detail: 'panel.menu', icon: 'view_sidebar' });
+        } else if (containers.includes('table') && containers.includes('menu')) {
+            out.push({ kind: 'action', line: h.line, label: viewId, detail: 'table.actions.menu', icon: 'table_rows' });
+        } else if (containers.includes('table') && containers.includes('actions')) {
+            out.push({ kind: 'action', line: h.line, label: viewId, detail: 'table.actions', icon: 'table_rows' });
+        }
+    }
+
+    // accessRules с target: action
+    let section = '';
+    const stack: Array<{ indent: number; kind: string }> = [];
+    let pendingAccessRule = false;
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line.trim() || line.trim().startsWith('#')) continue;
+        const indent = (line.match(/^(\s*)/) || ['', ''])[1].length;
+
+        if (indent === 0) {
+            const sm = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+            section = sm ? sm[1] : '';
+            stack.length = 0;
+            pendingAccessRule = false;
+            continue;
+        }
+        while (stack.length && stack[stack.length - 1].indent >= indent) stack.pop();
+
+        const idm = line.match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
+        if (idm && section === 'accessRules') {
+            pendingAccessRule = true;
+            stack.push({ indent, kind: 'item' });
+            continue;
+        }
+        if (idm) {
+            stack.push({ indent, kind: 'item' });
+            continue;
+        }
+        if (!pendingAccessRule || section !== 'accessRules') continue;
+
+        const tm = line.match(/^\s*target\s*:\s*action\b/);
+        if (tm) continue; // просто отметка, что это action-rule
+
+        const idAction = line.match(/^\s*id\s*:\s*([^\s#]+)/);
+        if (idAction) {
+            const actionVal = idAction[1].replace(/["']/g, '');
+            if (actionVal.toLowerCase() === actionId.toLowerCase()) {
+                out.push({ kind: 'action', line: i + 1, label: 'accessRule', detail: 'accessRules[target: action]', icon: 'lock' });
+            }
+        }
+    }
+
+    return out;
+}
+
+// ---- view ----
+function resolveViewBacklinks(lines: string[], viewId: string): Backlink[] {
+    const out: Backlink[] = [];
+    const target = viewId.toLowerCase();
+    const hits = walkFields(
+        lines,
+        ['modal', 'panel', 'view', 'pageView', 'addLinksView', 'fromView', 'inherits'],
+        target,
+    );
+
+    for (const h of hits) {
+        const rootId = h.parentChain.find(c => c.kind === 'item')?.id || '';
+
+        if (h.section === 'actions') {
+            out.push({ kind: 'action', line: h.line, label: rootId, detail: `action.${h.fieldName}`, icon: 'bolt' });
+        } else if (h.section === 'menus') {
+            out.push({ kind: 'menuItem', line: h.line, label: rootId, detail: 'menus[].view', icon: 'menu' });
+        } else if (h.section === 'mixins') {
+            out.push({ kind: 'mixin', line: h.line, label: rootId, detail: `mixin.${h.fieldName}`, icon: 'merge' });
+        } else if (h.section === 'views') {
+            const detail = h.fieldName === 'addLinksView'
+                ? 'widget.control.addLinksView'
+                : 'view.inherits';
+            out.push({ kind: 'view', line: h.line, label: rootId, detail, icon: 'view_quilt' });
+        }
+    }
+
+    return out;
+}
+
+// ---- dataType ----
+function resolveDataTypeBacklinks(lines: string[], dataTypeId: string): Backlink[] {
+    const out: Backlink[] = [];
+    const hits = walkFields(lines, ['dataType'], dataTypeId.toLowerCase());
+
+    for (const h of hits) {
+        const items = h.parentChain.filter(c => c.kind === 'item');
+        const containers = h.parentChain.filter(c => c.kind !== 'item').map(c => c.kind);
+
+        if (h.section === 'dataTypes') {
+            // skip `dataTypes[].dataType: Enum | Table | Workflow` — это kind, а не ссылка
+            if (!containers.includes('attributes')) continue;
+            out.push({ kind: 'dataType', line: h.line, label: items[0]?.id || '', detail: `table.${items[0]?.id || ''}.columns`, icon: 'data_object' });
+        } else if (h.section === 'entities') {
+            out.push({ kind: 'dataType', line: h.line, label: items[0]?.id || '', detail: `attribute ${items[1]?.id || ''}`, icon: 'category' });
+        } else if (h.section === 'linkages') {
+            out.push({ kind: 'dataType', line: h.line, label: items[0]?.id || '', detail: `linkage attribute`, icon: 'link' });
+        }
+    }
+
+    return out;
+}
+
+// ---- sequence ----
+function resolveSequenceBacklinks(lines: string[], sequenceId: string): Backlink[] {
+    const out: Backlink[] = [];
+    const hits = walkFields(lines, ['sequence'], sequenceId.toLowerCase());
+    for (const h of hits) {
+        const items = h.parentChain.filter(c => c.kind === 'item');
+        out.push({ kind: 'sequence', line: h.line, label: items[0]?.id || '', detail: `attribute ${items[1]?.id || ''}`, icon: 'linear_scale' });
+    }
+    return out;
+}
+
+// ---- media / icon ----
+function resolveMediaBacklinks(lines: string[], mediaId: string): Backlink[] {
+    const out: Backlink[] = [];
+    const hits = walkFields(lines, ['icon'], mediaId.toLowerCase());
+    for (const h of hits) {
+        const items = h.parentChain.filter(c => c.kind === 'item');
+        const containers = h.parentChain.filter(c => c.kind !== 'item').map(c => c.kind);
+
+        if (h.section === 'menus') {
+            out.push({ kind: 'menuItem', line: h.line, label: items[items.length - 1]?.id || '', detail: 'menu icon', icon: 'menu' });
+        } else if (h.section === 'views') {
+            if (containers.includes('widgets')) {
+                out.push({ kind: 'media', line: h.line, label: items[0]?.id || '', detail: `widget ${items[1]?.id || ''}.icon`, icon: 'widgets' });
+            } else if (containers.includes('columns')) {
+                out.push({ kind: 'media', line: h.line, label: items[1]?.id || '', detail: 'column action icon', icon: 'view_column' });
+            } else if (containers.includes('footer')) {
+                out.push({ kind: 'media', line: h.line, label: items[1]?.id || '', detail: 'modal.footer icon', icon: 'open_in_new' });
+            } else if (containers.includes('buttons')) {
+                out.push({ kind: 'media', line: h.line, label: items[1]?.id || '', detail: 'modal.button icon', icon: 'open_in_new' });
+            } else if (containers.includes('menu')) {
+                out.push({ kind: 'media', line: h.line, label: items[0]?.id || '', detail: 'table menu icon', icon: 'table_rows' });
+            }
+        }
+    }
+    return out;
+}
+
+// ---- tree ----
+function resolveTreeBacklinks(lines: string[], treeId: string): Backlink[] {
+    const out: Backlink[] = [];
+    const hits = walkFields(lines, ['tree'], treeId.toLowerCase());
+    for (const h of hits) {
+        if (h.section !== 'views') continue;
+        const items = h.parentChain.filter(c => c.kind === 'item');
+        const containers = h.parentChain.filter(c => c.kind !== 'item').map(c => c.kind);
+        if (containers.includes('control')) {
+            out.push({ kind: 'tree', line: h.line, label: items[1]?.id || '', detail: 'column.control.tree_path', icon: 'view_column' });
+        } else {
+            out.push({ kind: 'tree', line: h.line, label: items[0]?.id || '', detail: 'tree-view', icon: 'account_tree' });
+        }
+    }
+    return out;
+}
+
+// ---- counterColorPattern ----
+function resolveCounterColorBacklinks(lines: string[], patternId: string): Backlink[] {
+    const out: Backlink[] = [];
+    const hits = walkFields(lines, ['counterColorPattern'], patternId.toLowerCase());
+    for (const h of hits) {
+        if (h.section !== 'views') continue;
+        const items = h.parentChain.filter(c => c.kind === 'item');
+        const containers = h.parentChain.filter(c => c.kind !== 'item').map(c => c.kind);
+        if (containers.includes('widgets')) {
+            out.push({ kind: 'counterColorPattern', line: h.line, label: items[0]?.id || '', detail: `widget ${items[1]?.id || ''}`, icon: 'widgets' });
+        } else if (containers.includes('columns')) {
+            out.push({ kind: 'counterColorPattern', line: h.line, label: items[1]?.id || '', detail: 'column', icon: 'view_column' });
+        }
+    }
+    return out;
+}
+
+// ---- uiPreset ----
+function resolveUiPresetBacklinks(lines: string[], presetId: string): Backlink[] {
+    const out: Backlink[] = [];
+    const target = presetId.toLowerCase();
+
+    let section = '';
+    const stack: Array<{ indent: number; kind: string; id: string }> = [];
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line.trim() || line.trim().startsWith('#')) continue;
+        const indent = (line.match(/^(\s*)/) || ['', ''])[1].length;
+
+        if (indent === 0) {
+            const sm = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+            section = sm ? sm[1] : '';
+            stack.length = 0;
+            continue;
+        }
+
+        while (stack.length && stack[stack.length - 1].indent >= indent) stack.pop();
+
+        const idm = line.match(/^(\s*)-\s+id\s*:\s*([^\s#]+)/);
+        if (idm) {
+            stack.push({ indent, kind: 'item', id: idm[2].replace(/["']/g, '') });
+            continue;
+        }
+
+        // `presets: [X, Y]` inline
+        const inlineArr = line.match(/^\s*presets\s*:\s*\[([^\]]+)\]/);
+        if (inlineArr && section === 'uiRules') {
+            const vals = inlineArr[1].split(',').map(s => s.trim().replace(/["']/g, '').toLowerCase());
+            if (vals.includes(target)) {
+                const uiRuleId = stack.find(s => s.kind === 'item')?.id || '';
+                out.push({ kind: 'uiPreset', line: i + 1, label: uiRuleId, detail: 'uiRule.presets', icon: 'rule' });
+            }
+            continue;
+        }
+
+        // `- X` элемент внутри presets: контейнера
+        const itemOnly = line.match(/^(\s*)-\s+([^\s#:]+)\s*$/);
+        if (itemOnly && section === 'uiRules') {
+            const v = itemOnly[2].replace(/["']/g, '');
+            if (v.toLowerCase() === target && stack.some(s => s.kind === 'presets')) {
+                const uiRuleId = stack.find(s => s.kind === 'item')?.id || '';
+                out.push({ kind: 'uiPreset', line: i + 1, label: uiRuleId, detail: 'uiRule.presets', icon: 'rule' });
+            }
+            continue;
+        }
+
+        const cm = line.match(/^(\s*)([a-zA-Z_][\w]*)\s*:\s*$/);
+        if (cm) {
+            stack.push({ indent, kind: cm[2], id: cm[2] });
+            continue;
+        }
+    }
+
+    return out;
+}
+
+// ---- permission ----
+function resolvePermissionBacklinks(lines: string[], permissionId: string): Backlink[] {
+    const out: Backlink[] = [];
+    const hits = walkFields(lines, ['permission'], permissionId.toLowerCase());
+    for (const h of hits) {
+        if (h.section !== 'accessRules') continue;
+        out.push({ kind: 'permission', line: h.line, label: 'accessRule', detail: `scope ${h.parentChain.find(c => c.kind !== 'item' && c.kind !== 'linkages')?.kind || ''}`, icon: 'lock' });
+    }
+    return out;
+}
+
+// ---- menuItem ----
+function resolveMenuItemBacklinks(lines: string[], menuItemId: string): Backlink[] {
+    const out: Backlink[] = [];
+    const hits = walkFields(lines, ['menuItem'], menuItemId.toLowerCase());
+    for (const h of hits) {
+        if (h.section !== 'views') continue;
+        const items = h.parentChain.filter(c => c.kind === 'item');
+        out.push({ kind: 'menuItem', line: h.line, label: items[1]?.id || items[0]?.id || '', detail: 'page.menuItem', icon: 'open_in_new' });
+    }
+    return out;
+}
+
 function FocusBar({
     target,
     result,
@@ -6447,4 +7078,179 @@ function unquoteLite(s: string): string {
         return t.slice(1, -1);
     }
     return t;
+}
+
+function pushBlockDecoration(
+    out: any[],
+    monaco: any,
+    section: { nodes: Array<{ line: number }>; line: number; linesCount: number },
+    idx: number,
+    hoverText: string,
+): void {
+    const startLine = section.nodes[idx].line;
+    const nextNode = section.nodes[idx + 1];
+    const endLine = nextNode
+        ? nextNode.line - 1
+        : section.line + section.linesCount - 1;
+
+    out.push({
+        range: new monaco.Range(
+            startLine,
+            1,
+            Math.max(startLine, endLine),
+            1,
+        ),
+        options: {
+            isWholeLine: true,
+            className: "unused-entity-line",
+            inlineClassName: "unused-entity-text",
+            hoverMessage: { value: hoverText },
+        },
+    });
+}
+
+function checkUnusedInNav(
+    unusedAnalysis: UnusedAnalysis | null,
+    sectionKey: string,
+    node: NavNode,
+    depth: number,
+    parentKey: string,
+): { isUnused: boolean; hint: string | null } {
+    if (!unusedAnalysis) return { isUnused: false, hint: null };
+
+    // ============ entities + attributes ============
+    if (sectionKey === "entities") {
+        if (depth === 0) {
+            if (unusedAnalysis.entities.has(node.id.toLowerCase())) {
+                return {
+                    isUnused: true,
+                    hint:
+                        "Сущность не используется нигде: нет inherits, Reference, linkages, " +
+                        "views, actions, dataRules, mixins, trees, transitiveLinkages",
+                };
+            }
+        } else if (depth === 1) {
+            const parts = parentKey.split("#");
+            const entityId = parts[1];
+            if (entityId) {
+                const attrKey = `${entityId.toLowerCase()}:${node.id.toLowerCase()}`;
+                if (unusedAnalysis.attributes.has(attrKey)) {
+                    return {
+                        isUnused: true,
+                        hint:
+                            "Атрибут не используется ни в views, ни в правилах, " +
+                            "ни в фильтрах, ни в search/sorting",
+                    };
+                }
+            }
+        }
+        return { isUnused: false, hint: null };
+    }
+
+    // ============ block-level секции (depth 0) ============
+    if (depth === 0) {
+        if (sectionKey === "actions" && unusedAnalysis.actions.has(node.id)) {
+            return {
+                isUnused: true,
+                hint:
+                    "Действие не используется: нет виджета/меню/колонки, ссылающейся на него",
+            };
+        }
+        if (sectionKey === "dataTypes" && unusedAnalysis.dataTypes.has(node.id)) {
+            return {
+                isUnused: true,
+                hint: "Тип данных не используется ни одним атрибутом",
+            };
+        }
+        if (sectionKey === "sequences" && unusedAnalysis.sequences.has(node.id)) {
+            return {
+                isUnused: true,
+                hint: "Последовательность не используется ни одним Identifier-атрибутом",
+            };
+        }
+        if (sectionKey === "medias" && unusedAnalysis.medias.has(node.id)) {
+            return {
+                isUnused: true,
+                hint: "Иконка не используется ни в одном виджете или меню",
+            };
+        }
+        if (sectionKey === "trees" && unusedAnalysis.trees.has(node.id)) {
+            return {
+                isUnused: true,
+                hint: "Дерево не используется ни в одном tree-view",
+            };
+        }
+        if (
+            (sectionKey === "counterColorPattern" ||
+                sectionKey === "counterColorPatterns") &&
+            unusedAnalysis.counterColorPatterns.has(node.id)
+        ) {
+            return {
+                isUnused: true,
+                hint:
+                    "Цветовая схема счётчика не используется ни в одном виджете/колонке",
+            };
+        }
+        if (sectionKey === "uiPresets" && unusedAnalysis.uiPresets.has(node.id)) {
+            return {
+                isUnused: true,
+                hint: "UI Preset не используется ни в одном uiRule",
+            };
+        }
+        if (
+            sectionKey === "permissions" &&
+            unusedAnalysis.permissions.has(node.id)
+        ) {
+            return {
+                isUnused: true,
+                hint: "Разрешение не используется ни в одном accessRule",
+            };
+        }
+        if (
+            sectionKey === "transitiveLinkages" &&
+            unusedAnalysis.transitiveLinkages.has(node.id)
+        ) {
+            return {
+                isUnused: true,
+                hint:
+                    "Транзитивная связь не используется: " +
+                    "ни один join-id не упомянут в column.join / filter.join / widget.joinId",
+            };
+        }
+    }
+
+    // ============ nested views (panel / modal / page) ============
+    if (sectionKey === "views" && depth >= 1) {
+        if (unusedAnalysis.nestedViews.some((nv) => nv.id === node.id)) {
+            return {
+                isUnused: true,
+                hint:
+                    "Вложенное представление не используется: " +
+                    "нет action.modal / panel / pageView, ссылающегося на него",
+            };
+        }
+    }
+
+    return { isUnused: false, hint: null };
+}
+function targetLabel(target: CursorTarget | null): string {
+    if (!target) return 'элемент';
+    const labels: Record<string, string> = {
+        entity: 'сущность',
+        attribute: 'атрибут',
+        linkage: 'связь',
+        action: 'действие',
+        view: 'представление',
+        dataRule: 'правило',
+        mixin: 'примесь',
+        dataType: 'тип данных',
+        sequence: 'последовательность',
+        media: 'иконку',
+        tree: 'дерево',
+        counterColorPattern: 'цветовую схему',
+        uiPreset: 'пресет',
+        permission: 'разрешение',
+        menuItem: 'пункт меню',
+    };
+    return labels[target.type || ''] || 'элемент';
 }

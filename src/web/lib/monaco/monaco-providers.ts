@@ -15,6 +15,16 @@ import type {
 import { SYSTEM_ATTRIBUTE_IDS } from "../../../core/analyzer/linter";
 import { ACTION_TYPE_DESCRIPTIONS } from "../../../shared/action-types";
 
+const SORT = {
+  SNIPPET: "zzzz_", // всегда внизу
+  REQUIRED: "0_",
+  OPTIONAL: "1_",
+  SYSTEM_ATTR: "2_",
+  LOCAL_REF: "0_",
+  FOREIGN_REF: "9_",
+  FALLBACK_ATTR: "9_",
+} as const;
+
 /**
  * Правила серверного линтера, которые полностью покрываются
  * inline-валидаторами (`applyAttributeMarkers` и др.).
@@ -502,6 +512,8 @@ const BOOLEAN_FIELD_NAMES = new Set<string>([
   "contextPin",
   "ordering",
   "selection",
+  "autodownload",
+  "includeLinkToScenario",
 ]);
 
 // ============ Хелперы для value-completion ============
@@ -1468,9 +1480,1134 @@ interface FieldDef {
   type: string;
   description: string;
   required?: boolean;
+  priority?: 0 | 1 | 2;
 }
 
 const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
+  sortingItem: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор правила сортировки",
+      required: true,
+    },
+    {
+      name: "name",
+      type: "string",
+      description: "Название правила",
+    },
+    {
+      name: "by",
+      type: "array",
+      description: "Сортируемые атрибуты (attribute + direction)",
+      required: true,
+    },
+    {
+      name: "createIndex",
+      type: "boolean",
+      description: "Создать индекс для сортировки",
+    },
+  ],
+  sortingByItem: [
+    {
+      name: "attribute",
+      type: "ref",
+      description: "Атрибут для сортировки",
+      required: true,
+    },
+    {
+      name: "direction",
+      type: "enum",
+      description: "asc — по возрастанию, desc — по убыванию",
+    },
+  ],
+  identificationItem: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор правила",
+      required: true,
+    },
+    {
+      name: "rule",
+      type: "array",
+      description: "Массив условий (attribute / and / or)",
+    },
+    {
+      name: "filter",
+      type: "array",
+      description: "VRL-правило фильтрации (массив строк)",
+    },
+  ],
+  reconciliationItem: [
+    {
+      name: "attribute",
+      type: "ref",
+      description: "Атрибут с приоритетами источников",
+    },
+    {
+      name: "sourcePriority",
+      type: "array",
+      description: "Массив { source } в порядке убывания приоритета",
+    },
+    {
+      name: "default",
+      type: "array",
+      description: "Источники по умолчанию для всех атрибутов",
+    },
+    {
+      name: "mergeStrategy",
+      type: "object",
+      description: "Стратегия слияния значений",
+    },
+  ],
+  reconciliationSourceItem: [
+    {
+      name: "source",
+      type: "string",
+      description: 'Название источника (или "*" для остальных)',
+      required: true,
+    },
+  ],
+  reconciliationMergeStrategy: [
+    {
+      name: "type",
+      type: "enum",
+      description:
+        "replace | array_merge | array_concat | earliest_date | latest_date",
+      required: true,
+    },
+  ],
+  enumValue: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор значения",
+      required: true,
+    },
+    {
+      name: "name",
+      type: "string",
+      description: "Название",
+    },
+    {
+      name: "description",
+      type: "string",
+      description: "Описание",
+    },
+    {
+      name: "hidden",
+      type: "boolean",
+      description: "Скрыть значение из выбора",
+    },
+  ],
+  workflowStatus: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор статуса",
+      required: true,
+    },
+    {
+      name: "name",
+      type: "string",
+      description: "Название статуса",
+    },
+    {
+      name: "description",
+      type: "string",
+      description: "Описание",
+    },
+    {
+      name: "hidden",
+      type: "boolean",
+      description: "Скрыть из выбора",
+    },
+  ],
+  transition: [
+    {
+      name: "from",
+      type: "string",
+      description: "Идентификатор исходного статуса или *",
+      required: true,
+    },
+    {
+      name: "to",
+      type: "string",
+      description: "Идентификатор целевого статуса",
+      required: true,
+    },
+  ],
+  treeChildren: [
+    {
+      name: "linkage",
+      type: "ref",
+      description: "Связь между родителем и потомком",
+      required: true,
+    },
+    {
+      name: "entity",
+      type: "ref",
+      description: "Дочерняя сущность",
+      required: true,
+    },
+    {
+      name: "side",
+      type: "number",
+      description: "Сторона связи с родителем (1 или 2)",
+    },
+    {
+      name: "maxInstances",
+      type: "number",
+      description: "Максимум объектов сущности",
+    },
+    {
+      name: "maxChildren",
+      type: "number",
+      description: "Максимум дочерних через связь",
+    },
+    {
+      name: "children",
+      type: "array",
+      description: "Вложенные дочерние узлы",
+    },
+  ],
+  treeSorting: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор правила",
+      required: true,
+    },
+    {
+      name: "name",
+      type: "string",
+      description: "Название правила",
+    },
+    {
+      name: "by",
+      type: "array",
+      description: "Сортировка по сущностям и атрибутам",
+      required: true,
+    },
+  ],
+  treeSortingBy: [
+    {
+      name: "entity",
+      type: "ref",
+      description: "Сущность, для которой задаётся сортировка",
+      required: true,
+    },
+    {
+      name: "by",
+      type: "array",
+      description: "Атрибуты и направления",
+      required: true,
+    },
+  ],
+  treeSortingByBy: [
+    {
+      name: "attribute",
+      type: "ref",
+      description: "Атрибут для сортировки",
+      required: true,
+    },
+    {
+      name: "direction",
+      type: "enum",
+      description: "asc или desc (по умолчанию desc)",
+    },
+  ],
+  actionValue: [
+    {
+      name: "attribute",
+      type: "ref",
+      description: "Идентификатор атрибута",
+      required: true,
+    },
+    {
+      name: "value",
+      type: "string",
+      description: "Устанавливаемое значение",
+    },
+  ],
+  actionControl: [
+    {
+      name: "type",
+      type: "string",
+      description: "Тип редактора (опционально)",
+    },
+    {
+      name: "trueText",
+      type: "string",
+      description: "Отображаемый текст для True",
+      required: true,
+    },
+    {
+      name: "falseText",
+      type: "string",
+      description: "Отображаемый текст для False",
+      required: true,
+    },
+  ],
+  actionBulkSettings: [
+    {
+      name: "entity",
+      type: "ref",
+      description: "Сущность для массового редактирования",
+      required: true,
+    },
+    {
+      name: "attributes",
+      type: "object",
+      description: "Настройки атрибутов (type: all|specific, use[])",
+    },
+    {
+      name: "linkages",
+      type: "object",
+      description: "Настройки виджетов связей (type: all|specific, use[])",
+    },
+  ],
+  actionBulkAttributeUse: [
+    {
+      name: "attribute",
+      type: "ref",
+      description: "Data ID Ref атрибута сущности",
+      required: true,
+    },
+  ],
+  actionBulkLinkageUse: [
+    {
+      name: "widget",
+      type: "ref",
+      description: "View ID виджета связи (сторона N)",
+      required: true,
+    },
+  ],
+  dataRuleAttributeAction: [
+    {
+      name: "attribute",
+      type: "ref",
+      description: "Ссылка на атрибут",
+      required: true,
+    },
+    {
+      name: "constraint",
+      type: "rql",
+      description: "RQL-ограничение (для effect: allowed)",
+    },
+    {
+      name: "expression",
+      type: "rql",
+      description: "RQL-выражение (для default/allowed)",
+    },
+    {
+      name: "value",
+      type: "string",
+      description: "Статическое значение (для effect: default)",
+    },
+    {
+      name: "message",
+      type: "string",
+      description: "Сообщение об ошибке",
+    },
+    {
+      name: "help",
+      type: "string",
+      description: "Подсказка при наведении",
+    },
+  ],
+  dataRuleLinkageAction: [
+    {
+      name: "linkage",
+      type: "ref",
+      description: "Ссылка на связь",
+      required: true,
+    },
+    {
+      name: "side",
+      type: "enum",
+      description: "Сторона связи (1 или 2)",
+    },
+    {
+      name: "constraint",
+      type: "rql",
+      description: "RQL-ограничение",
+    },
+    {
+      name: "expression",
+      type: "rql",
+      description: "RQL-выражение",
+    },
+    {
+      name: "min_count",
+      type: "number",
+      description: "Минимальное число объектов",
+    },
+    {
+      name: "max_count",
+      type: "number",
+      description: "Максимальное число объектов",
+    },
+    {
+      name: "message",
+      type: "string",
+      description: "Сообщение об ошибке",
+    },
+    {
+      name: "help",
+      type: "string",
+      description: "Подсказка при наведении",
+    },
+  ],
+  dataRuleNested: [
+    {
+      name: "type",
+      type: "enum",
+      description: "table | array",
+      required: true,
+    },
+    {
+      name: "attributes",
+      type: "array",
+      description: "Колонки (для type: table)",
+    },
+    {
+      name: "items",
+      type: "array",
+      description: "Индексы элементов (для type: array)",
+    },
+  ],
+  dataRuleNestedAttribute: [
+    {
+      name: "attribute",
+      type: "ref",
+      description: "Атрибут таблицы",
+      required: true,
+    },
+    {
+      name: "constraint",
+      type: "rql",
+      description: "RQL-ограничение",
+    },
+    {
+      name: "expression",
+      type: "rql",
+      description: "RQL-выражение",
+    },
+    {
+      name: "value",
+      type: "string",
+      description: "Значение по умолчанию",
+    },
+    {
+      name: "message",
+      type: "string",
+      description: "Сообщение об ошибке",
+    },
+    {
+      name: "help",
+      type: "string",
+      description: "Подсказка",
+    },
+  ],
+  dataRuleNestedItem: [
+    {
+      name: "item",
+      type: "string",
+      description: "Индекс элемента массива (0, 1, ... или '*')",
+      required: true,
+    },
+    {
+      name: "constraint",
+      type: "rql",
+      description: "RQL-ограничение",
+    },
+    {
+      name: "expression",
+      type: "rql",
+      description: "RQL-выражение",
+    },
+    {
+      name: "value",
+      type: "string",
+      description: "Значение по умолчанию",
+    },
+    {
+      name: "message",
+      type: "string",
+      description: "Сообщение об ошибке",
+    },
+    {
+      name: "help",
+      type: "string",
+      description: "Подсказка",
+    },
+  ],
+  uiRuleWidget: [
+    {
+      name: "widget",
+      type: "ref",
+      description: "Идентификатор виджета (View ID)",
+      required: true,
+    },
+    {
+      name: "nested",
+      type: "object",
+      description: "Nested-эффект для Array/Table-виджетов",
+    },
+    {
+      name: "presets",
+      type: "array",
+      description: "Пресеты стилей",
+    },
+  ],
+  uiRuleGroup: [
+    {
+      name: "group",
+      type: "ref",
+      description: "Идентификатор группы",
+      required: true,
+    },
+    {
+      name: "presets",
+      type: "array",
+      description: "Пресеты стилей",
+    },
+  ],
+  uiRuleColumn: [
+    {
+      name: "column",
+      type: "ref",
+      description: "Идентификатор колонки (View ID)",
+      required: true,
+    },
+    {
+      name: "presets",
+      type: "array",
+      description: "Пресеты стилей",
+    },
+  ],
+  uiRuleNested: [
+    {
+      name: "type",
+      type: "enum",
+      description: "array или table",
+      required: true,
+    },
+    {
+      name: "attributes",
+      type: "array",
+      description: "Колонки таблицы (для type: table)",
+    },
+    {
+      name: "items",
+      type: "array",
+      description: "Элементы массива (для type: array)",
+    },
+  ],
+  uiRuleNestedAttribute: [
+    {
+      name: "attribute",
+      type: "ref",
+      description: "Идентификатор колонки таблицы",
+      required: true,
+    },
+  ],
+  uiRuleNestedItem: [
+    {
+      name: "item",
+      type: "string",
+      description: "Индекс элемента массива (0, 1, ... или '*')",
+      required: true,
+    },
+  ],
+  mixinView: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор примеси компонентов",
+      required: true,
+    },
+    {
+      name: "type",
+      type: "enum",
+      description: "form | tab | panel | page | list",
+      required: true,
+    },
+    {
+      name: "fromView",
+      type: "ref",
+      description: "Источник компонентов (для type: view)",
+    },
+    {
+      name: "to",
+      type: "object",
+      description: "Целевое представление",
+      required: true,
+    },
+    {
+      name: "change",
+      type: "object",
+      description: "Изменения целевого представления (add / delete)",
+    },
+    {
+      name: "replace",
+      type: "object",
+      description: "Замена компонентов (для type: view)",
+    },
+  ],
+  mixinViewTo: [
+    {
+      name: "panel",
+      type: "ref",
+      description: "Целевая панель (для type: panel)",
+    },
+    {
+      name: "tab",
+      type: "ref",
+      description: "Целевая вкладка (для type: tab)",
+    },
+    {
+      name: "form",
+      type: "ref",
+      description: "Целевая форма (для type: form)",
+    },
+    {
+      name: "list",
+      type: "ref",
+      description: "Целевой список (для type: list)",
+    },
+    {
+      name: "page",
+      type: "ref",
+      description: "Целевая страница (для type: page)",
+    },
+  ],
+  mixinChange: [
+    {
+      name: "add",
+      type: "object",
+      description: "Добавляемые компоненты",
+    },
+    {
+      name: "delete",
+      type: "object",
+      description: "Удаляемые компоненты",
+    },
+  ],
+  mixinChangeAdd: [
+    {
+      name: "components",
+      type: "array",
+      description: "Виджеты и блоки для добавления",
+    },
+    {
+      name: "tabs",
+      type: "object",
+      description: "Вкладки для добавления (для type: panel)",
+    },
+    {
+      name: "menu",
+      type: "object",
+      description: "Действия для добавления в меню",
+    },
+    {
+      name: "form",
+      type: "ref",
+      description: "Форма для добавления (для type: form)",
+    },
+    {
+      name: "list",
+      type: "ref",
+      description: "Список для добавления (для type: list)",
+    },
+    {
+      name: "block",
+      type: "ref",
+      description: "Блок для добавления (для type: page)",
+    },
+    {
+      name: "position",
+      type: "object",
+      description: "Расположение (begin | after | end)",
+    },
+  ],
+  viewTableColumn: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор столбца (View ID)",
+      required: true,
+    },
+    {
+      name: "attribute",
+      type: "ref",
+      description: "Атрибут для отображения (Data ID Ref / FQID)",
+    },
+    {
+      name: "label",
+      type: "string",
+      description: "Отображаемое название столбца",
+    },
+    {
+      name: "layout",
+      type: "object",
+      description: "Размер и видимость столбца",
+    },
+    {
+      name: "control",
+      type: "object",
+      description: "Тип редактора в столбце",
+    },
+    {
+      name: "join",
+      type: "ref",
+      description: "Транзитивная связь для колонки",
+    },
+    {
+      name: "use",
+      type: "array",
+      description: "Атрибуты атрибута-таблицы",
+    },
+    {
+      name: "aggregate",
+      type: "object",
+      description: "Агрегация (count)",
+    },
+    {
+      name: "actions",
+      type: "array",
+      description: "Действия при hover на ячейку",
+    },
+    {
+      name: "counterColorPattern",
+      type: "ref",
+      description: "Цветовая схема счётчика",
+    },
+  ],
+  viewTableColumnLayout: [
+    {
+      name: "visible",
+      type: "boolean",
+      description: "Видимость столбца (по умолчанию true)",
+    },
+    {
+      name: "width",
+      type: "object",
+      description: "Настройки ширины",
+    },
+  ],
+  viewTableColumnWidth: [
+    {
+      name: "default",
+      type: "number",
+      description: "Ширина по умолчанию (px)",
+      required: true,
+    },
+    {
+      name: "min",
+      type: "number",
+      description: "Минимальная ширина (px)",
+      required: true,
+    },
+    {
+      name: "max",
+      type: "number",
+      description: "Максимальная ширина (px)",
+      required: true,
+    },
+  ],
+  viewTableColumnControl: [
+    {
+      name: "type",
+      type: "string",
+      description:
+        "text | text_area | select | radio | tag | level | bool_text | timestamp | tree_path и др.",
+    },
+    {
+      name: "trueText",
+      type: "string",
+      description: "Отображаемый текст для True (для bool_text)",
+    },
+    {
+      name: "falseText",
+      type: "string",
+      description: "Отображаемый текст для False (для bool_text)",
+    },
+    {
+      name: "tree",
+      type: "ref",
+      description: "Дерево для отображения пути (для type: tree_path)",
+    },
+  ],
+  viewTableAction: [
+    {
+      name: "type",
+      type: "enum",
+      description: "row_click | row_double_click | row_context_menu",
+      required: true,
+    },
+    {
+      name: "action",
+      type: "ref",
+      description: "Действие при клике (для row_click, row_double_click)",
+    },
+    {
+      name: "items",
+      type: "array",
+      description: "Действия контекстного меню (для row_context_menu)",
+    },
+  ],
+  viewTableActionItem: [
+    {
+      name: "action",
+      type: "ref",
+      description: "Действие (View ID)",
+      required: true,
+    },
+    {
+      name: "label",
+      type: "string",
+      description: "Отображаемое название",
+    },
+    {
+      name: "icon",
+      type: "ref",
+      description: "Иконка (View ID медиа)",
+    },
+  ],
+  viewSource: [
+    {
+      name: "type",
+      type: "enum",
+      description: "operational (БД системы)",
+      required: true,
+    },
+    {
+      name: "entity",
+      type: "ref",
+      description: "Сущность, чьи объекты отображаются в списке",
+      required: true,
+    },
+    {
+      name: "joins",
+      type: "array",
+      description: "Связи для отображения данных связанных сущностей",
+    },
+  ],
+  viewSourceJoin: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор связи (Data ID)",
+      required: true,
+    },
+    {
+      name: "linkage",
+      type: "ref",
+      description: "Связь с другой сущностью",
+      required: true,
+    },
+    {
+      name: "side",
+      type: "enum",
+      description: "Сторона связи: 1 или 2",
+    },
+    {
+      name: "description",
+      type: "string",
+      description: "Описание связи",
+    },
+  ],
+  menuRoot: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор корневой группы",
+      required: true,
+    },
+    {
+      name: "route",
+      type: "string",
+      description: "Путь в URL (например, /assets)",
+      required: true,
+    },
+    {
+      name: "label",
+      type: "string",
+      description: "Заголовок раздела в меню",
+      required: true,
+    },
+    {
+      name: "description",
+      type: "string",
+      description: "Описание",
+    },
+    {
+      name: "icon",
+      type: "ref",
+      description: "Ссылка на медиа-ресурс",
+    },
+    {
+      name: "type",
+      type: "enum",
+      description: "root_group или root_menu",
+      required: true,
+    },
+    {
+      name: "placement",
+      type: "enum",
+      description: "top (главное меню) или settings (настройки)",
+      required: true,
+    },
+    {
+      name: "priority",
+      type: "number",
+      description: "Приоритет (≥1000, больше = выше)",
+    },
+    {
+      name: "view",
+      type: "ref",
+      description: "Ссылка на представление (для root_menu)",
+    },
+    {
+      name: "items",
+      type: "array",
+      description: "Дочерние элементы меню",
+    },
+    {
+      name: "default",
+      type: "string",
+      description: "id пункта по умолчанию (для root_group)",
+    },
+  ],
+  menuItem: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор пункта",
+      required: true,
+    },
+    {
+      name: "route",
+      type: "string",
+      description: "Путь в URL (после пути раздела)",
+      required: true,
+    },
+    {
+      name: "label",
+      type: "string",
+      description: "Заголовок пункта",
+      required: true,
+    },
+    {
+      name: "description",
+      type: "string",
+      description: "Описание",
+    },
+    {
+      name: "type",
+      type: "enum",
+      description: "Устанавливается menu",
+      required: true,
+    },
+    {
+      name: "view",
+      type: "ref",
+      description: "Ссылка на представление (список или вкладки)",
+      required: true,
+    },
+    {
+      name: "priority",
+      type: "number",
+      description: "Приоритет (≥1000)",
+    },
+  ],
+  media: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор иконки (View ID)",
+      required: true,
+    },
+    {
+      name: "description",
+      type: "string",
+      description: "Описание",
+    },
+    {
+      name: "type",
+      type: "enum",
+      description: "icon_name",
+      required: true,
+    },
+    {
+      name: "iconName",
+      type: "string",
+      description: "Идентификатор в библиотеке иконок",
+      required: true,
+    },
+    {
+      name: "data",
+      type: "string",
+      description: "Base64-строка (для type: data)",
+    },
+  ],
+  accessRuleItem: [
+    {
+      name: "kind",
+      type: "enum",
+      description: "permission | pass | condition",
+      required: true,
+    },
+    {
+      name: "permission",
+      type: "string",
+      description: "(kind: permission) Название разрешения",
+    },
+    {
+      name: "condition",
+      type: "rql",
+      description: "(kind: condition) RQL-условие",
+    },
+    {
+      name: "except",
+      type: "array",
+      description: "Исключения { attribute, condition? }",
+    },
+  ],
+  accessRuleException: [
+    {
+      name: "attribute",
+      type: "ref",
+      description: "Атрибут для исключения",
+      required: true,
+    },
+    {
+      name: "condition",
+      type: "rql",
+      description: "RQL-условие применения исключения",
+    },
+  ],
+  permission: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор разрешения",
+      required: true,
+    },
+    {
+      name: "name",
+      type: "string",
+      description: "Название разрешения",
+    },
+    {
+      name: "description",
+      type: "string",
+      description: "Описание",
+    },
+  ],
+  localization: [
+    {
+      name: "language",
+      type: "string",
+      description: "Код языка (ru, en, ...)",
+      required: true,
+    },
+    {
+      name: "keys",
+      type: "array",
+      description: "Массив { key, to, ordinal? }",
+      required: true,
+    },
+  ],
+  localizationKey: [
+    {
+      name: "key",
+      type: "string",
+      description: "Ключ локализации",
+      required: true,
+    },
+    {
+      name: "to",
+      type: "string",
+      description: "Перевод",
+      required: true,
+    },
+    {
+      name: "ordinal",
+      type: "object",
+      description: "Формы множественного числа (zero/one/two/few/many/other)",
+    },
+  ],
+  exchangeSettings: [
+    {
+      name: "enable",
+      type: "boolean",
+      description: "Включить обмен данными для домена (по умолчанию: true)",
+    },
+    {
+      name: "description",
+      type: "string",
+      description: "Описание требований к обмену",
+    },
+    {
+      name: "label",
+      type: "string",
+      description: "Название домена в списке импорта/экспорта",
+    },
+    {
+      name: "noCmsSync",
+      type: "boolean",
+      description: "Отключить sdk.cms.sync для создания/обновления",
+    },
+    {
+      name: "attributeFormats",
+      type: "object",
+      description: "Форматы Date/Time/Timestamp/TimestampRange (Moment)",
+    },
+    {
+      name: "entities",
+      type: "object",
+      description: "Настройки обмена по сущностям: { <EntityId>: { ... } }",
+    },
+  ],
+  exchangeAttributeFormats: [
+    {
+      name: "Date",
+      type: "string",
+      description: "Формат Date (DD-MM-YYYY)",
+    },
+    {
+      name: "Time",
+      type: "string",
+      description: "Формат Time (HH:mm:ss)",
+    },
+    {
+      name: "Timestamp",
+      type: "string",
+      description: "Формат Timestamp (DD-MM-YYYYTHH:mm:ss)",
+    },
+    {
+      name: "TimestampRange",
+      type: "string",
+      description: "Формат TimestampRange",
+    },
+  ],
+  treeNodeType: [
+    {
+      name: "type",
+      type: "enum",
+      description: "root | branch | leaf",
+      required: true,
+    },
+    {
+      name: "of",
+      type: "array",
+      description: "(type: branch/leaf) Список сущностей-контейнеров",
+    },
+  ],
   entity: [
     {
       name: "id",
@@ -1478,13 +2615,21 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "Уникальный идентификатор сущности",
       required: true,
     },
-    { name: "name", type: "string", description: "Человекочитаемое название" },
+    {
+      name: "name",
+      type: "string",
+      description: "Человекочитаемое название",
+    },
     {
       name: "label",
       type: "string",
       description: 'Шаблон отображаемого имени: "{attr1} {attr2}"',
     },
-    { name: "description", type: "string", description: "Описание сущности" },
+    {
+      name: "description",
+      type: "string",
+      description: "Описание сущности",
+    },
     {
       name: "inherits",
       type: "ref",
@@ -1495,7 +2640,11 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       type: "array",
       description: "Массив атрибутов сущности",
     },
-    { name: "sorting", type: "array", description: "Правила сортировки" },
+    {
+      name: "sorting",
+      type: "array",
+      description: "Правила сортировки",
+    },
     {
       name: "searching",
       type: "object",
@@ -1549,15 +2698,27 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "Идентификатор атрибута (camelCase)",
       required: true,
     },
-    { name: "name", type: "string", description: "Название атрибута" },
-    { name: "description", type: "string", description: "Описание атрибута" },
+    {
+      name: "name",
+      type: "string",
+      description: "Название атрибута",
+    },
+    {
+      name: "description",
+      type: "string",
+      description: "Описание атрибута",
+    },
     {
       name: "dataType",
       type: "enum",
       description: "Тип данных (String, Reference, Array и т.д.)",
       required: true,
     },
-    { name: "readonly", type: "boolean", description: "Только для чтения" },
+    {
+      name: "readonly",
+      type: "boolean",
+      description: "Только для чтения",
+    },
     {
       name: "constraints",
       type: "array",
@@ -1622,8 +2783,16 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "Уникальный идентификатор связи",
       required: true,
     },
-    { name: "name", type: "string", description: "Название связи" },
-    { name: "description", type: "string", description: "Описание связи" },
+    {
+      name: "name",
+      type: "string",
+      description: "Название связи",
+    },
+    {
+      name: "description",
+      type: "string",
+      description: "Описание связи",
+    },
     {
       name: "side1",
       type: "ref",
@@ -1662,8 +2831,16 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       type: "array",
       description: "Пользовательские атрибуты связи",
     },
-    { name: "sorting", type: "array", description: "Сортировка связей" },
-    { name: "view", type: "object", description: "Цвет отображения на графе" },
+    {
+      name: "sorting",
+      type: "array",
+      description: "Сортировка связей",
+    },
+    {
+      name: "view",
+      type: "object",
+      description: "Цвет отображения на графе",
+    },
     {
       name: "excludeOnGraph",
       type: "enum",
@@ -1691,15 +2868,27 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "Идентификатор атрибута связи",
       required: true,
     },
-    { name: "name", type: "string", description: "Название атрибута" },
-    { name: "description", type: "string", description: "Описание" },
+    {
+      name: "name",
+      type: "string",
+      description: "Название атрибута",
+    },
+    {
+      name: "description",
+      type: "string",
+      description: "Описание",
+    },
     {
       name: "dataType",
       type: "enum",
       description: "Тип данных",
       required: true,
     },
-    { name: "constraints", type: "array", description: "Валидация атрибута" },
+    {
+      name: "constraints",
+      type: "array",
+      description: "Валидация атрибута",
+    },
     {
       name: "searchable",
       type: "boolean",
@@ -1713,8 +2902,16 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "Идентификатор действия (View ID)",
       required: true,
     },
-    { name: "name", type: "string", description: "Название действия" },
-    { name: "description", type: "string", description: "Описание действия" },
+    {
+      name: "name",
+      type: "string",
+      description: "Название действия",
+    },
+    {
+      name: "description",
+      type: "string",
+      description: "Описание действия",
+    },
     {
       name: "type",
       type: "enum",
@@ -1727,8 +2924,16 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       type: "ref",
       description: "Сущность, к которой применяется действие",
     },
-    { name: "panel", type: "ref", description: "Панель (для open_panel)" },
-    { name: "modal", type: "ref", description: "Модалка (для open_modal)" },
+    {
+      name: "panel",
+      type: "ref",
+      description: "Панель (для open_panel)",
+    },
+    {
+      name: "modal",
+      type: "ref",
+      description: "Модалка (для open_modal)",
+    },
     {
       name: "view",
       type: "ref",
@@ -1743,16 +2948,23 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       name: "page",
       type: "enum",
       description:
-        "blank — открыть в новом окне, current — в текущем " +
-        "(только для open_list / open_tree / open_view)",
+        "blank — открыть в новом окне, current — в текущем (только для open_list / open_tree / open_view)",
     },
     {
       name: "automation",
       type: "object",
       description: "Ссылка на автоматизацию",
     },
-    { name: "scenario", type: "string", description: "Сценарий/скрипт" },
-    { name: "workerTag", type: "string", description: "Тег воркера сценария" },
+    {
+      name: "scenario",
+      type: "string",
+      description: "Сценарий/скрипт",
+    },
+    {
+      name: "workerTag",
+      type: "string",
+      description: "Тег воркера сценария",
+    },
     {
       name: "attribute",
       type: "ref",
@@ -1770,6 +2982,11 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description:
         "(type: open_external_widget_modal) Параметры внешнего виджета: { widget: <string> }",
     },
+    {
+      name: "hooks",
+      type: "object",
+      description: "Хуки жизненного цикла (только для type: scenario)",
+    },
   ],
   dataRule: [
     {
@@ -1784,7 +3001,11 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "Название правила",
       required: true,
     },
-    { name: "description", type: "string", description: "Описание" },
+    {
+      name: "description",
+      type: "string",
+      description: "Описание",
+    },
     {
       name: "target",
       type: "enum",
@@ -1810,9 +3031,7 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       name: "condition",
       type: "rql",
       description:
-        "Условие правила. RQL-выражение с тегом !rql " +
-        "(например: !rql @doc.status = 'NEW') или литерал true/false. " +
-        "Многострочное — через !rql |",
+        "Условие правила. RQL-выражение с тегом !rql (например: !rql @doc.status = 'NEW') или литерал true/false. Многострочное — через !rql |",
       required: true,
     },
     {
@@ -1821,8 +3040,16 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "Описание действия правила",
       required: true,
     },
-    { name: "message", type: "string", description: "Сообщение об ошибке" },
-    { name: "help", type: "string", description: "Справка при наведении" },
+    {
+      name: "message",
+      type: "string",
+      description: "Сообщение об ошибке",
+    },
+    {
+      name: "help",
+      type: "string",
+      description: "Справка при наведении",
+    },
   ],
   dataRuleRule: [
     {
@@ -1854,8 +3081,16 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "Идентификатор view (View ID)",
       required: true,
     },
-    { name: "label", type: "string", description: "Заголовок" },
-    { name: "description", type: "string", description: "Описание" },
+    {
+      name: "label",
+      type: "string",
+      description: "Заголовок",
+    },
+    {
+      name: "description",
+      type: "string",
+      description: "Описание",
+    },
     {
       name: "type",
       type: "enum",
@@ -1867,7 +3102,11 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       type: "ref",
       description: "Целевая сущность (для entity)",
     },
-    { name: "widgets", type: "array", description: "Виджеты представления" },
+    {
+      name: "widgets",
+      type: "array",
+      description: "Виджеты представления",
+    },
     {
       name: "groups",
       type: "array",
@@ -1893,7 +3132,11 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       type: "array",
       description: "Панель действий (для list)",
     },
-    { name: "isMixin", type: "boolean", description: "Использовать в примеси" },
+    {
+      name: "isMixin",
+      type: "boolean",
+      description: "Использовать в примеси",
+    },
   ],
   viewNested: [
     {
@@ -1908,17 +3151,41 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "panel | modal | page",
       required: true,
     },
-    { name: "description", type: "string", description: "Описание" },
-    { name: "label", type: "string", description: "Заголовок карточки" },
+    {
+      name: "description",
+      type: "string",
+      description: "Описание",
+    },
+    {
+      name: "label",
+      type: "string",
+      description: "Заголовок карточки",
+    },
     {
       name: "inherit",
       type: "ref",
       description: "Наследование от другой карточки",
     },
-    { name: "menu", type: "array", description: "Действия в меню (для panel)" },
-    { name: "tabs", type: "array", description: "Вкладки (для panel/page)" },
-    { name: "footer", type: "array", description: "Нижняя секция (modal)" },
-    { name: "onView", type: "array", description: "Действия при открытии" },
+    {
+      name: "menu",
+      type: "array",
+      description: "Действия в меню (для panel)",
+    },
+    {
+      name: "tabs",
+      type: "array",
+      description: "Вкладки (для panel/page)",
+    },
+    {
+      name: "footer",
+      type: "array",
+      description: "Нижняя секция (modal)",
+    },
+    {
+      name: "onView",
+      type: "array",
+      description: "Действия при открытии",
+    },
     {
       name: "form",
       type: "ref",
@@ -1939,7 +3206,11 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       type: "array",
       description: "Панель действий (для page)",
     },
-    { name: "block", type: "ref", description: "Единый блок (для page)" },
+    {
+      name: "block",
+      type: "ref",
+      description: "Единый блок (для page)",
+    },
     {
       name: "pinnedView",
       type: "object",
@@ -1959,22 +3230,46 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "attribute, action, linkage, join, history и др.",
       required: true,
     },
-    { name: "description", type: "string", description: "Описание" },
+    {
+      name: "description",
+      type: "string",
+      description: "Описание",
+    },
     {
       name: "attribute",
       type: "ref",
       description: "Ссылка на атрибут (для type: attribute)",
     },
-    { name: "control", type: "object", description: "Элемент управления" },
-    { name: "action", type: "ref", description: "Действие (для type: action)" },
+    {
+      name: "control",
+      type: "object",
+      description: "Элемент управления",
+    },
+    {
+      name: "action",
+      type: "ref",
+      description: "Действие (для type: action)",
+    },
     {
       name: "actions",
       type: "array",
       description: "Массив действий (для type: action)",
     },
-    { name: "linkage", type: "ref", description: "Связь (для type: linkage)" },
-    { name: "side", type: "enum", description: "Сторона связи: 1 или 2" },
-    { name: "label", type: "string", description: "Заголовок виджета" },
+    {
+      name: "linkage",
+      type: "ref",
+      description: "Связь (для type: linkage)",
+    },
+    {
+      name: "side",
+      type: "enum",
+      description: "Сторона связи: 1 или 2",
+    },
+    {
+      name: "label",
+      type: "string",
+      description: "Заголовок виджета",
+    },
   ],
   group: [
     {
@@ -1989,10 +3284,26 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "block, form, tab, tabs, resizable_block_pair",
       required: true,
     },
-    { name: "description", type: "string", description: "Описание" },
-    { name: "label", type: "string", description: "Заголовок группы" },
-    { name: "layout", type: "object", description: "Расположение компонентов" },
-    { name: "components", type: "array", description: "Компоненты группы" },
+    {
+      name: "description",
+      type: "string",
+      description: "Описание",
+    },
+    {
+      name: "label",
+      type: "string",
+      description: "Заголовок группы",
+    },
+    {
+      name: "layout",
+      type: "object",
+      description: "Расположение компонентов",
+    },
+    {
+      name: "components",
+      type: "array",
+      description: "Компоненты группы",
+    },
     {
       name: "inherits",
       type: "ref",
@@ -2011,21 +3322,10 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       type: "number",
       description: "Начальное значение (по умолчанию 1)",
     },
-    { name: "description", type: "string", description: "Описание" },
-  ],
-  enumValue: [
     {
-      name: "id",
+      name: "description",
       type: "string",
-      description: "Идентификатор значения",
-      required: true,
-    },
-    { name: "name", type: "string", description: "Название" },
-    { name: "description", type: "string", description: "Описание" },
-    {
-      name: "hidden",
-      type: "boolean",
-      description: "Скрыть значение из выбора",
+      description: "Описание",
     },
   ],
   searchingItem: [
@@ -2055,7 +3355,6 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "Связи для отображения данных",
     },
   ],
-  // ============ trees ============
   tree: [
     {
       name: "id",
@@ -2102,82 +3401,12 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       type: "number",
       description: "Максимум дочерних через связь",
     },
-    { name: "children", type: "array", description: "Дочерние узлы" },
-  ],
-  treeChildren: [
     {
-      name: "linkage",
-      type: "ref",
-      description: "Связь между родителем и потомком",
-      required: true,
-    },
-    {
-      name: "entity",
-      type: "ref",
-      description: "Дочерняя сущность",
-      required: true,
-    },
-    {
-      name: "maxInstances",
-      type: "number",
-      description: "Максимум объектов сущности",
-    },
-    {
-      name: "maxChildren",
-      type: "number",
-      description: "Максимум дочерних через связь",
-    },
-    {
-      name: "side",
-      type: "number",
-      description: "Сторона связи с родителем (1 или 2)",
-    },
-    { name: "children", type: "array", description: "Вложенные дочерние узлы" },
-  ],
-  treeSorting: [
-    {
-      name: "id",
-      type: "string",
-      description: "Идентификатор правила",
-      required: true,
-    },
-    { name: "name", type: "string", description: "Название правила" },
-    {
-      name: "by",
+      name: "children",
       type: "array",
-      description: "Сортировка по сущностям и атрибутам",
-      required: true,
+      description: "Дочерние узлы",
     },
   ],
-  treeSortingBy: [
-    {
-      name: "entity",
-      type: "ref",
-      description: "Сущность, для которой задаётся сортировка",
-      required: true,
-    },
-    {
-      name: "by",
-      type: "array",
-      description: "Атрибуты и направления",
-      required: true,
-    },
-  ],
-  treeSortingByBy: [
-    {
-      name: "attribute",
-      type: "ref",
-      description: "Атрибут для сортировки",
-      required: true,
-    },
-    {
-      name: "direction",
-      type: "enum",
-      description: "asc или desc (по умолчанию desc)",
-    },
-  ],
-
-  // ============ transitiveLinkages ============
   transitiveLinkage: [
     {
       name: "id",
@@ -2191,7 +3420,11 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "Сущность, для которой строится дерево",
       required: true,
     },
-    { name: "description", type: "string", description: "Описание" },
+    {
+      name: "description",
+      type: "string",
+      description: "Описание",
+    },
     {
       name: "joins",
       type: "array",
@@ -2212,8 +3445,16 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "Связь с сущностью",
       required: true,
     },
-    { name: "search", type: "object", description: "Настройки поиска по узлу" },
-    { name: "joins", type: "array", description: "Следующие связи в цепочке" },
+    {
+      name: "search",
+      type: "object",
+      description: "Настройки поиска по узлу",
+    },
+    {
+      name: "joins",
+      type: "array",
+      description: "Следующие связи в цепочке",
+    },
   ],
   transitiveJoinSearch: [
     {
@@ -2228,8 +3469,6 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "entity | linkage | both (по умолчанию both)",
     },
   ],
-
-  // ============ uiRules ============
   uiRule: [
     {
       name: "id",
@@ -2237,8 +3476,16 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "Идентификатор правила (Data ID)",
       required: true,
     },
-    { name: "name", type: "string", description: "Название правила" },
-    { name: "description", type: "string", description: "Описание" },
+    {
+      name: "name",
+      type: "string",
+      description: "Название правила",
+    },
+    {
+      name: "description",
+      type: "string",
+      description: "Описание",
+    },
     {
       name: "target",
       type: "enum",
@@ -2268,8 +3515,16 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "Описание эффекта правила",
       required: true,
     },
-    { name: "message", type: "string", description: "Сообщение пользователю" },
-    { name: "help", type: "string", description: "Текст справки" },
+    {
+      name: "message",
+      type: "string",
+      description: "Сообщение пользователю",
+    },
+    {
+      name: "help",
+      type: "string",
+      description: "Текст справки",
+    },
   ],
   uiRuleContext: [
     {
@@ -2308,74 +3563,6 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "Пресеты стилей (для effect: variant)",
     },
   ],
-  uiRuleWidget: [
-    {
-      name: "widget",
-      type: "ref",
-      description: "Идентификатор виджета (View ID)",
-      required: true,
-    },
-    {
-      name: "nested",
-      type: "object",
-      description: "Nested-эффект для Array/Table-виджетов",
-    },
-    { name: "presets", type: "array", description: "Пресеты стилей" },
-  ],
-  uiRuleGroup: [
-    {
-      name: "group",
-      type: "ref",
-      description: "Идентификатор группы",
-      required: true,
-    },
-    { name: "presets", type: "array", description: "Пресеты стилей" },
-  ],
-  uiRuleColumn: [
-    {
-      name: "column",
-      type: "ref",
-      description: "Идентификатор колонки (View ID)",
-      required: true,
-    },
-    { name: "presets", type: "array", description: "Пресеты стилей" },
-  ],
-  uiRuleNested: [
-    {
-      name: "type",
-      type: "enum",
-      description: "array или table",
-      required: true,
-    },
-    {
-      name: "attributes",
-      type: "array",
-      description: "Колонки таблицы (для type: table)",
-    },
-    {
-      name: "items",
-      type: "array",
-      description: "Элементы массива (для type: array)",
-    },
-  ],
-  uiRuleNestedAttribute: [
-    {
-      name: "attribute",
-      type: "ref",
-      description: "Идентификатор колонки таблицы",
-      required: true,
-    },
-  ],
-  uiRuleNestedItem: [
-    {
-      name: "item",
-      type: "string",
-      description: "Индекс элемента массива (0, 1, ... или '*')",
-      required: true,
-    },
-  ],
-
-  // ============ uiPresets ============
   uiPreset: [
     {
       name: "id",
@@ -2383,14 +3570,17 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "Идентификатор пресета (Data ID)",
       required: true,
     },
-    { name: "description", type: "string", description: "Описание" },
+    {
+      name: "description",
+      type: "string",
+      description: "Описание",
+    },
     {
       name: "props",
       type: "object",
       description: "Свойства стиля (color, font-weight, background, ...)",
     },
   ],
-  // ============ actions: расширение ============
   actionBulk: [
     {
       name: "operation",
@@ -2433,14 +3623,6 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "Массив ссылок на атрибуты (attribute: <id>)",
     },
   ],
-  actionBulkAttributeUse: [
-    {
-      name: "attribute",
-      type: "ref",
-      description: "Data ID Ref атрибута сущности",
-      required: true,
-    },
-  ],
   actionBulkLinkages: [
     {
       name: "type",
@@ -2454,42 +3636,6 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "Массив ссылок на виджеты связей (widget: <id>)",
     },
   ],
-  actionBulkLinkageUse: [
-    {
-      name: "widget",
-      type: "ref",
-      description: "View ID виджета связи (сторона N)",
-      required: true,
-    },
-  ],
-  actionValue: [
-    {
-      name: "attribute",
-      type: "ref",
-      description: "Идентификатор атрибута",
-      required: true,
-    },
-    { name: "value", type: "string", description: "Устанавливаемое значение" },
-  ],
-  actionControl: [
-    {
-      name: "type",
-      type: "string",
-      description: "Тип редактора (опционально)",
-    },
-    {
-      name: "trueText",
-      type: "string",
-      description: "Отображаемый текст для True",
-      required: true,
-    },
-    {
-      name: "falseText",
-      type: "string",
-      description: "Отображаемый текст для False",
-      required: true,
-    },
-  ],
   actionAutomation: [
     {
       name: "id",
@@ -2498,42 +3644,6 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       required: true,
     },
   ],
-  // ============ views: list-view ============
-  viewSource: [
-    {
-      name: "type",
-      type: "enum",
-      description: "operational (БД системы)",
-      required: true,
-    },
-    {
-      name: "entity",
-      type: "ref",
-      description: "Сущность, чьи объекты отображаются в списке",
-      required: true,
-    },
-    {
-      name: "joins",
-      type: "array",
-      description: "Связи для отображения данных связанных сущностей",
-    },
-  ],
-  viewSourceJoin: [
-    {
-      name: "id",
-      type: "string",
-      description: "Идентификатор связи (Data ID)",
-      required: true,
-    },
-    {
-      name: "linkage",
-      type: "ref",
-      description: "Связь с другой сущностью",
-      required: true,
-    },
-    { name: "side", type: "enum", description: "Сторона связи: 1 или 2" },
-    { name: "description", type: "string", description: "Описание связи" },
-  ],
   viewTable: [
     {
       name: "columns",
@@ -2541,10 +3651,26 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "Столбцы таблицы",
       required: true,
     },
-    { name: "filter", type: "object", description: "Настройки фильтрации" },
-    { name: "sortingBy", type: "object", description: "Правила сортировки" },
-    { name: "paging", type: "object", description: "Пагинация" },
-    { name: "refresh", type: "object", description: "Обновление данных" },
+    {
+      name: "filter",
+      type: "object",
+      description: "Настройки фильтрации",
+    },
+    {
+      name: "sortingBy",
+      type: "object",
+      description: "Правила сортировки",
+    },
+    {
+      name: "paging",
+      type: "object",
+      description: "Пагинация",
+    },
+    {
+      name: "refresh",
+      type: "object",
+      description: "Обновление данных",
+    },
     {
       name: "selection",
       type: "boolean",
@@ -2555,115 +3681,36 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       type: "array",
       description: "Действия при клике на строку",
     },
-    { name: "empty", type: "object", description: "Текст при пустой таблице" },
-  ],
-  viewTableColumn: [
     {
-      name: "id",
-      type: "string",
-      description: "Идентификатор столбца (View ID)",
-      required: true,
-    },
-    {
-      name: "attribute",
-      type: "ref",
-      description: "Атрибут для отображения (Data ID Ref / FQID)",
-    },
-    {
-      name: "label",
-      type: "string",
-      description: "Отображаемое название столбца",
-    },
-    {
-      name: "layout",
+      name: "empty",
       type: "object",
-      description: "Размер и видимость столбца",
-    },
-    { name: "control", type: "object", description: "Тип редактора в столбце" },
-    {
-      name: "join",
-      type: "ref",
-      description: "Транзитивная связь для колонки",
-    },
-    { name: "use", type: "array", description: "Атрибуты атрибута-таблицы" },
-    { name: "aggregate", type: "object", description: "Агрегация (count)" },
-    {
-      name: "counterColorPattern",
-      type: "ref",
-      description: "Цветовая схема счётчика",
-    },
-    {
-      name: "actions",
-      type: "array",
-      description: "Действия при hover на ячейку",
-    },
-  ],
-  viewTableColumnLayout: [
-    {
-      name: "visible",
-      type: "boolean",
-      description: "Видимость столбца (по умолчанию true)",
-    },
-    { name: "width", type: "object", description: "Настройки ширины" },
-  ],
-  viewTableColumnWidth: [
-    {
-      name: "default",
-      type: "number",
-      description: "Ширина по умолчанию (px)",
-      required: true,
-    },
-    {
-      name: "min",
-      type: "number",
-      description: "Минимальная ширина (px)",
-      required: true,
-    },
-    {
-      name: "max",
-      type: "number",
-      description: "Максимальная ширина (px)",
-      required: true,
-    },
-  ],
-  viewTableColumnControl: [
-    {
-      name: "type",
-      type: "string",
-      description:
-        "text | text_area | select | radio | tag | level | bool_text | timestamp | tree_path и др.",
-    },
-    {
-      name: "trueText",
-      type: "string",
-      description: "Отображаемый текст для True (для bool_text)",
-    },
-    {
-      name: "falseText",
-      type: "string",
-      description: "Отображаемый текст для False (для bool_text)",
-    },
-    {
-      name: "tree",
-      type: "ref",
-      description: "Дерево для отображения пути (для type: tree_path)",
+      description: "Текст при пустой таблице",
     },
   ],
   viewTableColumnAggregate: [
-    { name: "type", type: "enum", description: "count", required: true },
+    {
+      name: "type",
+      type: "enum",
+      description: "count",
+      required: true,
+    },
     {
       name: "condition",
       type: "rql",
-      description: "RQL-условие фильтрации связанных объектов",
+      description: "RQL-условие фильтрации",
     },
   ],
   viewTableFilter: [
     {
       name: "attributes",
       type: "object",
-      description: "Фильтрация по атрибутам сущности",
+      description: "Фильтрация по атрибутам",
     },
-    { name: "linkages", type: "object", description: "Фильтрация по связям" },
+    {
+      name: "linkages",
+      type: "object",
+      description: "Фильтрация по связям",
+    },
   ],
   viewTableFilterAttributes: [
     {
@@ -2685,7 +3732,11 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "Атрибут для фильтрации",
       required: true,
     },
-    { name: "use", type: "array", description: "Атрибуты атрибута-таблицы" },
+    {
+      name: "use",
+      type: "array",
+      description: "Атрибуты вложенной таблицы",
+    },
   ],
   viewTableFilterLinkages: [
     {
@@ -2701,21 +3752,25 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
     },
   ],
   viewTableFilterLinkagesUse: [
-    { name: "linkage", type: "ref", description: "Связь для фильтрации" },
+    {
+      name: "linkage",
+      type: "ref",
+      description: "Связь для фильтрации",
+    },
     {
       name: "join",
       type: "ref",
-      description: "Транзитивная связь для фильтрации",
+      description: "Транзитивная связь",
     },
     {
       name: "link_attributes",
       type: "array",
-      description: "Атрибуты связи для фильтрации",
+      description: "Атрибуты связи",
     },
     {
       name: "linkedEntity",
       type: "array",
-      description: "Атрибуты связанной сущности для фильтрации",
+      description: "Атрибуты связанной сущности",
     },
   ],
   viewTableSortingBy: [
@@ -2802,37 +3857,9 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
     {
       name: "interval",
       type: "number",
-      description: "Интервал в указанных единицах",
+      description: "Интервал в единицах unit",
       required: true,
     },
-  ],
-  viewTableAction: [
-    {
-      name: "type",
-      type: "enum",
-      description: "row_click | row_double_click | row_context_menu",
-      required: true,
-    },
-    {
-      name: "action",
-      type: "ref",
-      description: "Действие при клике (для row_click, row_double_click)",
-    },
-    {
-      name: "items",
-      type: "array",
-      description: "Действия контекстного меню (для row_context_menu)",
-    },
-  ],
-  viewTableActionItem: [
-    {
-      name: "action",
-      type: "ref",
-      description: "Действие (View ID)",
-      required: true,
-    },
-    { name: "label", type: "string", description: "Отображаемое название" },
-    { name: "icon", type: "ref", description: "Иконка (View ID медиа)" },
   ],
   viewTableEmpty: [
     {
@@ -2842,7 +3869,6 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       required: true,
     },
   ],
-  // ============ views: entity-view ============
   viewWidgetControl: [
     {
       name: "type",
@@ -2865,7 +3891,11 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       type: "string",
       description: "Отображаемый текст для False (для bool_text)",
     },
-    { name: "step", type: "number", description: "Шаг ползунка (для slider)" },
+    {
+      name: "step",
+      type: "number",
+      description: "Шаг ползунка (для slider)",
+    },
     {
       name: "icon",
       type: "ref",
@@ -2882,23 +3912,28 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
     {
       name: "addLinksView",
       type: "ref",
-      description:
-        "Список для выбора связанных объектов (модалка создания связи)",
+      description: "Список для выбора связанных объектов",
     },
-    // NEW
     {
       name: "displayMode",
       type: "enum",
-      description:
-        "flat | grouped — режим отображения (только для транзитивных связей)",
+      description: "flat | grouped (для транзитивных связей)",
     },
     {
       name: "columns",
       type: "array",
-      description: "Столбцы таблицы (только для type: table)",
+      description: "Столбцы (для type: table)",
     },
-    { name: "sortingBy", type: "array", description: "Правила сортировки" },
-    { name: "paging", type: "object", description: "Пагинация" },
+    {
+      name: "sortingBy",
+      type: "array",
+      description: "Правила сортировки",
+    },
+    {
+      name: "paging",
+      type: "object",
+      description: "Пагинация",
+    },
   ],
   viewWidgetLinkageColumn: [
     {
@@ -2930,19 +3965,27 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "Атрибут связи",
       required: true,
     },
-    { name: "label", type: "string", description: "Название атрибута в UI" },
-    { name: "control", type: "object", description: "Элемент управления" },
+    {
+      name: "label",
+      type: "string",
+      description: "Название атрибута в UI",
+    },
+    {
+      name: "control",
+      type: "object",
+      description: "Элемент управления",
+    },
   ],
   viewWidgetLinkageAttributeControl: [
     {
       name: "type",
       type: "string",
-      description: "Тип редактора (соответствует типу данных)",
+      description: "Тип редактора",
     },
     {
       name: "view",
       type: "ref",
-      description: "Представление выбора сущностей (для Reference)",
+      description: "Представление выбора (для Reference)",
     },
     {
       name: "editable",
@@ -2994,10 +4037,18 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
     {
       name: "inherit",
       type: "object",
-      description: "Настройки наследования от родительской группы",
+      description: "Настройки наследования",
     },
-    { name: "widget", type: "ref", description: "Ссылка на виджет" },
-    { name: "block", type: "ref", description: "Ссылка на вложенный блок" },
+    {
+      name: "widget",
+      type: "ref",
+      description: "Ссылка на виджет",
+    },
+    {
+      name: "block",
+      type: "ref",
+      description: "Ссылка на вложенный блок",
+    },
   ],
   viewButton: [
     {
@@ -3006,8 +4057,16 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "submit | close",
       required: true,
     },
-    { name: "label", type: "string", description: "Название кнопки" },
-    { name: "control", type: "object", description: "Элемент управления" },
+    {
+      name: "label",
+      type: "string",
+      description: "Название кнопки",
+    },
+    {
+      name: "control",
+      type: "object",
+      description: "Элемент управления",
+    },
     {
       name: "actions",
       type: "array",
@@ -3016,7 +4075,7 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
     {
       name: "hidden",
       type: "boolean",
-      description: "Скрыть кнопку (для type: submit)",
+      description: "Скрыть (для type: submit)",
     },
   ],
   viewButtonControl: [
@@ -3026,13 +4085,17 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "regular_button",
       required: true,
     },
-    { name: "icon", type: "ref", description: "Иконка кнопки" },
+    {
+      name: "icon",
+      type: "ref",
+      description: "Иконка кнопки",
+    },
   ],
   viewButtonAction: [
     {
       name: "action",
       type: "ref",
-      description: "Действие (только set_attribute_value)",
+      description: "Действие (обычно set_attribute_value)",
       required: true,
     },
   ],
@@ -3040,7 +4103,7 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
     {
       name: "action",
       type: "ref",
-      description: "Действие (View ID)",
+      description: "Ссылка на действие",
       required: true,
     },
     {
@@ -3053,7 +4116,7 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
     {
       name: "action",
       type: "ref",
-      description: "Действие (только automation / scenario)",
+      description: "Действие (automation / scenario)",
       required: true,
     },
     {
@@ -3062,44 +4125,60 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "run | run_close | run_submit",
       required: true,
     },
-    { name: "control", type: "object", description: "Элемент управления" },
+    {
+      name: "control",
+      type: "object",
+      description: "Элемент управления",
+    },
   ],
   viewActionPanelItem: [
     {
       name: "widget",
       type: "ref",
-      description: "Виджет действия (View ID)",
-      required: true,
-    },
-    { name: "inherit", type: "object", description: "Настройки наследования" },
-  ],
-  viewTab: [
-    {
-      name: "tab",
-      type: "ref",
-      description: "Вкладка (View ID группы типа tab)",
+      description: "Виджет действия",
       required: true,
     },
     {
       name: "inherit",
       type: "object",
-      description: "Настройки наследования вкладок",
+      description: "Настройки наследования",
+    },
+  ],
+  viewTab: [
+    {
+      name: "tab",
+      type: "ref",
+      description: "Вкладка (группа type: tab)",
+      required: true,
+    },
+    {
+      name: "inherit",
+      type: "object",
+      description: "Настройки наследования",
     },
   ],
   viewPinnedView: [
     {
       name: "block",
       type: "ref",
-      description: "Закреплённый блок (View ID)",
+      description: "Закреплённый блок",
       required: true,
     },
-    { name: "position", type: "enum", description: "top | bottom" },
+    {
+      name: "position",
+      type: "enum",
+      description: "top | bottom",
+    },
     {
       name: "minHeight",
       type: "string",
-      description: "Мин. высота (например, 25% или 200px)",
+      description: "Мин. высота (%, px)",
     },
-    { name: "maxHeight", type: "string", description: "Макс. высота" },
+    {
+      name: "maxHeight",
+      type: "string",
+      description: "Макс. высота (%, px)",
+    },
     {
       name: "height",
       type: "string",
@@ -3119,106 +4198,6 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "Список id для исключения (при type: except)",
     },
   ],
-  // ============ menus ============
-  menuRoot: [
-    {
-      name: "id",
-      type: "string",
-      description: "Идентификатор корневой группы",
-      required: true,
-    },
-    {
-      name: "route",
-      type: "string",
-      description: "Путь в URL (например, /assets)",
-      required: true,
-    },
-    {
-      name: "label",
-      type: "string",
-      description: "Заголовок раздела в меню",
-      required: true,
-    },
-    { name: "description", type: "string", description: "Описание" },
-    { name: "icon", type: "ref", description: "Ссылка на медиа-ресурс" },
-    {
-      name: "type",
-      type: "enum",
-      description: "root_group или root_menu",
-      required: true,
-    },
-    {
-      name: "placement",
-      type: "enum",
-      description: "top (главное меню) или settings (настройки)",
-      required: true,
-    },
-    {
-      name: "priority",
-      type: "number",
-      description: "Приоритет (≥1000, больше = выше)",
-    },
-    {
-      name: "view",
-      type: "ref",
-      description: "Ссылка на представление (для root_menu)",
-    },
-    { name: "items", type: "array", description: "Дочерние элементы меню" },
-  ],
-  menuItem: [
-    {
-      name: "id",
-      type: "string",
-      description: "Идентификатор пункта",
-      required: true,
-    },
-    {
-      name: "route",
-      type: "string",
-      description: "Путь в URL (после пути раздела)",
-      required: true,
-    },
-    {
-      name: "label",
-      type: "string",
-      description: "Заголовок пункта",
-      required: true,
-    },
-    { name: "description", type: "string", description: "Описание" },
-    {
-      name: "type",
-      type: "enum",
-      description: "Устанавливается menu",
-      required: true,
-    },
-    {
-      name: "view",
-      type: "ref",
-      description: "Ссылка на представление (список или вкладки)",
-      required: true,
-    },
-    { name: "priority", type: "number", description: "Приоритет (≥1000)" },
-  ],
-
-  // ============ medias ============
-  media: [
-    {
-      name: "id",
-      type: "string",
-      description: "Идентификатор иконки (View ID)",
-      required: true,
-    },
-    { name: "description", type: "string", description: "Описание" },
-    { name: "type", type: "enum", description: "icon_name", required: true },
-    {
-      name: "iconName",
-      type: "string",
-      description: "Идентификатор в библиотеке иконок",
-      required: true,
-    },
-  ],
-
-  // ============ mixins ============
   mixin: [
     {
       name: "id",
@@ -3226,8 +4205,16 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "Идентификатор примеси",
       required: true,
     },
-    { name: "name", type: "string", description: "Наименование примеси" },
-    { name: "description", type: "string", description: "Описание" },
+    {
+      name: "name",
+      type: "string",
+      description: "Наименование примеси",
+    },
+    {
+      name: "description",
+      type: "string",
+      description: "Описание",
+    },
     {
       name: "weight",
       type: "number",
@@ -3250,7 +4237,11 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "Направление примеси (from → to)",
       required: true,
     },
-    { name: "linkage", type: "ref", description: "Связь (для type: linkage)" },
+    {
+      name: "linkage",
+      type: "ref",
+      description: "Связь (для type: linkage)",
+    },
     {
       name: "views",
       type: "array",
@@ -3262,175 +4253,24 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
     {
       name: "from",
       type: "ref",
-      description: "Источник примеси (сущность, из которой берутся данные)",
+      description: "Источник примеси",
     },
     {
       name: "to",
       type: "ref",
-      description: "Целевая сущность (в которую встраивается)",
-    },
-  ],
-  mixinView: [
-    {
-      name: "id",
-      type: "string",
-      description: "Идентификатор примеси компонентов",
-      required: true,
-    },
-    {
-      name: "type",
-      type: "enum",
-      description: "form | tab | panel | page | list",
-      required: true,
-    },
-    {
-      name: "fromView",
-      type: "ref",
-      description: "Источник компонентов (для type: view)",
-    },
-    {
-      name: "to",
-      type: "object",
-      description: "Целевое представление",
-      required: true,
-    },
-    {
-      name: "change",
-      type: "object",
-      description: "Изменения целевого представления (add / delete)",
-    },
-    {
-      name: "replace",
-      type: "object",
-      description: "Замена компонентов (для type: view)",
-    },
-  ],
-  mixinViewTo: [
-    {
-      name: "panel",
-      type: "ref",
-      description: "Целевая панель (для type: panel)",
-    },
-    {
-      name: "tab",
-      type: "ref",
-      description: "Целевая вкладка (для type: tab)",
-    },
-    {
-      name: "form",
-      type: "ref",
-      description: "Целевая форма (для type: form)",
-    },
-    {
-      name: "list",
-      type: "ref",
-      description: "Целевой список (для type: list)",
-    },
-    {
-      name: "page",
-      type: "ref",
-      description: "Целевая страница (для type: page)",
-    },
-  ],
-  mixinChange: [
-    { name: "add", type: "object", description: "Добавляемые компоненты" },
-    { name: "delete", type: "object", description: "Удаляемые компоненты" },
-  ],
-  mixinChangeAdd: [
-    {
-      name: "components",
-      type: "array",
-      description: "Виджеты и блоки для добавления",
-    },
-    {
-      name: "tabs",
-      type: "object",
-      description: "Вкладки для добавления (для type: panel)",
-    },
-    {
-      name: "menu",
-      type: "object",
-      description: "Действия для добавления в меню",
-    },
-    {
-      name: "form",
-      type: "ref",
-      description: "Форма для добавления (для type: form)",
-    },
-    {
-      name: "list",
-      type: "ref",
-      description: "Список для добавления (для type: list)",
-    },
-    {
-      name: "block",
-      type: "ref",
-      description: "Блок для добавления (для type: page)",
-    },
-    {
-      name: "position",
-      type: "object",
-      description: "Расположение (begin | after | end)",
+      description: "Целевая сущность",
     },
   ],
   mixinPosition: [
     {
       name: "type",
       type: "enum",
-      description: "begin | after | end (по умолчанию end)",
+      description: "begin | after | end",
     },
     {
       name: "after",
       type: "object",
-      description: "Компонент, после которого вставлять (для type: after)",
-    },
-  ],
-
-  // ============ exchangeSettings ============
-  exchangeSettings: [
-    {
-      name: "enable",
-      type: "boolean",
-      description: "Включить обмен данными для домена (по умолчанию: true)",
-    },
-    {
-      name: "description",
-      type: "string",
-      description: "Описание требований к обмену",
-    },
-    {
-      name: "label",
-      type: "string",
-      description: "Название домена в списке импорта/экспорта",
-    },
-    {
-      name: "noCmsSync",
-      type: "boolean",
-      description: "Отключить sdk.cms.sync для создания/обновления",
-    },
-    {
-      name: "attributeFormats",
-      type: "object",
-      description: "Форматы Date/Time/Timestamp/TimestampRange (Moment)",
-    },
-    {
-      name: "entities",
-      type: "object",
-      description: "Настройки обмена по сущностям: { <EntityId>: { ... } }",
-    },
-  ],
-  exchangeAttributeFormats: [
-    { name: "Date", type: "string", description: "Формат Date (DD-MM-YYYY)" },
-    { name: "Time", type: "string", description: "Формат Time (HH:mm:ss)" },
-    {
-      name: "Timestamp",
-      type: "string",
-      description: "Формат Timestamp (DD-MM-YYYYTHH:mm:ss)",
-    },
-    {
-      name: "TimestampRange",
-      type: "string",
-      description: "Формат TimestampRange",
+      description: "Компонент, после которого вставлять",
     },
   ],
   exchangeEntity: [
@@ -3480,12 +4320,12 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
     {
       name: "domainLabel",
       type: "string",
-      description: "Переопределение отображаемого названия домена",
+      description: "Переопределение названия домена",
     },
     {
       name: "enable",
       type: "boolean",
-      description: "Включить обмен для этой сущности (по умолчанию true)",
+      description: "Включить обмен для сущности",
     },
     {
       name: "label",
@@ -3505,12 +4345,17 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
     {
       name: "ignoreAttributes",
       type: "string",
-      description: "Игнорируемые атрибуты (id через запятую)",
+      description: "Игнорируемые атрибуты (через запятую)",
     },
     {
       name: "exportSystemAttributes",
       type: "string",
-      description: "Системные атрибуты для экспорта (id или all)",
+      description: "Системные атрибуты для экспорта (или all)",
+    },
+    {
+      name: "noCmsSync",
+      type: "boolean",
+      description: "Отключить sdk.cms.sync для сущности",
     },
   ],
   attributeConstraint: [
@@ -3547,7 +4392,6 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "Список MIME-типов (только для kind: mime_types)",
     },
   ],
-
   arrayItem: [
     {
       name: "dataType",
@@ -3576,7 +4420,6 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "Ссылка на расчёт (для Calculation)",
     },
   ],
-
   calculation: [
     {
       name: "schemaId",
@@ -3591,7 +4434,6 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       required: true,
     },
   ],
-
   prefixRule: [
     {
       name: "id",
@@ -3612,7 +4454,6 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       required: true,
     },
   ],
-
   prefixRuleSource: [
     {
       name: "entity",
@@ -3634,43 +4475,7 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       required: true,
     },
   ],
-  sortingItem: [
-    {
-      name: "id",
-      type: "string",
-      description: "Идентификатор правила сортировки",
-      required: true,
-    },
-    { name: "name", type: "string", description: "Название правила" },
-    {
-      name: "by",
-      type: "array",
-      description: "Сортируемые атрибуты (attribute + direction)",
-      required: true,
-    },
-    {
-      name: "createIndex",
-      type: "boolean",
-      description: "Создать индекс для сортировки",
-    },
-  ],
-
-  sortingByItem: [
-    {
-      name: "attribute",
-      type: "ref",
-      description: "Атрибут для сортировки",
-      required: true,
-    },
-    {
-      name: "direction",
-      type: "enum",
-      description: "asc — по возрастанию, desc — по убыванию",
-    },
-  ],
-
-  searchingAttributesItem: [], // здесь field-completion не нужен — автокомплит значений отдельно
-
+  searchingAttributesItem: [],
   projectionItem: [
     {
       name: "attribute",
@@ -3679,26 +4484,6 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       required: true,
     },
   ],
-
-  identificationItem: [
-    {
-      name: "id",
-      type: "string",
-      description: "Идентификатор правила",
-      required: true,
-    },
-    {
-      name: "rule",
-      type: "array",
-      description: "Массив условий (attribute / and / or)",
-    },
-    {
-      name: "filter",
-      type: "array",
-      description: "VRL-правило фильтрации (массив строк)",
-    },
-  ],
-
   identificationRuleItem: [
     {
       name: "attribute",
@@ -3716,34 +4501,6 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "Вложенные условия через логическое ИЛИ",
     },
   ],
-
-  reconciliationItem: [
-    {
-      name: "attribute",
-      type: "ref",
-      description: "Атрибут с приоритетами источников",
-    },
-    {
-      name: "sourcePriority",
-      type: "array",
-      description: "Массив { source } в порядке убывания приоритета",
-    },
-    {
-      name: "default",
-      type: "array",
-      description: "Источники по умолчанию для всех атрибутов",
-    },
-  ],
-
-  reconciliationSourceItem: [
-    {
-      name: "source",
-      type: "string",
-      description: 'Название источника (или "*" для остальных)',
-      required: true,
-    },
-  ],
-
   reconciliationDefaultItem: [
     {
       name: "source",
@@ -3752,33 +4509,12 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       required: true,
     },
   ],
-
-  reconciliationMergeStrategy: [
-    {
-      name: "type",
-      type: "enum",
-      description:
-        "replace | array_merge | array_concat | earliest_date | latest_date",
-      required: true,
-    },
-  ],
-
   graphView: [
     {
       name: "iconColor",
       type: "enum",
       description: "Цвет иконки на графе (red / blue / green / …)",
     },
-  ],
-  permission: [
-    {
-      name: "id",
-      type: "string",
-      description: "Идентификатор разрешения",
-      required: true,
-    },
-    { name: "name", type: "string", description: "Название разрешения" },
-    { name: "description", type: "string", description: "Описание" },
   ],
   accessRule: [
     {
@@ -3793,8 +4529,16 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       type: "string",
       description: "(target: action) Идентификатор действия",
     },
-    { name: "entity", type: "ref", description: "(target: entity) Сущность" },
-    { name: "linkage", type: "ref", description: "(target: linkage) Связь" },
+    {
+      name: "entity",
+      type: "ref",
+      description: "(target: entity) Сущность",
+    },
+    {
+      name: "linkage",
+      type: "ref",
+      description: "(target: linkage) Связь",
+    },
     {
       name: "create",
       type: "array",
@@ -3821,56 +4565,6 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "(target: action) Правила доступа для запуска",
     },
   ],
-  localization: [
-    {
-      name: "language",
-      type: "string",
-      description: "Код языка (ru, en, ...)",
-      required: true,
-    },
-    {
-      name: "keys",
-      type: "array",
-      description: "Массив { key, to, ordinal? }",
-      required: true,
-    },
-  ],
-  accessRuleItem: [
-    {
-      name: "kind",
-      type: "enum",
-      description: "permission | pass | condition",
-      required: true,
-    },
-    {
-      name: "permission",
-      type: "string",
-      description: "(kind: permission) Название разрешения",
-    },
-    {
-      name: "condition",
-      type: "rql",
-      description: "(kind: condition) RQL-условие",
-    },
-    {
-      name: "except",
-      type: "array",
-      description: "Исключения { attribute, condition? }",
-    },
-  ],
-  accessRuleException: [
-    {
-      name: "attribute",
-      type: "ref",
-      description: "Атрибут для исключения",
-      required: true,
-    },
-    {
-      name: "condition",
-      type: "rql",
-      description: "RQL-условие применения исключения",
-    },
-  ],
   actionOpenBoardsFromGraph: [
     {
       name: "openBoards",
@@ -3884,19 +4578,6 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       description: "(при openBoards: true) Название кнопки",
     },
   ],
-  treeNodeType: [
-    {
-      name: "type",
-      type: "enum",
-      description: "root | branch | leaf",
-      required: true,
-    },
-    {
-      name: "of",
-      type: "array",
-      description: "(type: branch/leaf) Список сущностей-контейнеров",
-    },
-  ],
   treeNodeOf: [
     {
       name: "treeNode",
@@ -3906,7 +4587,11 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
     },
   ],
   viewDashboardLayout: [
-    { name: "type", type: "enum", description: "grid" },
+    {
+      name: "type",
+      type: "enum",
+      description: "grid",
+    },
     {
       name: "columns",
       type: "number",
@@ -3924,6 +4609,426 @@ const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
       name: "name",
       type: "string",
       description: "Имя атрибута сущности для прикрепления файла",
+    },
+  ],
+  dataTypeList: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор типа данных",
+      required: true,
+    },
+    {
+      name: "name",
+      type: "string",
+      description: "Название типа данных",
+    },
+    {
+      name: "description",
+      type: "string",
+      description: "Описание",
+    },
+    {
+      name: "dataType",
+      type: "enum",
+      description: "Enum | Table | Workflow",
+      required: true,
+    },
+    {
+      name: "values",
+      type: "array",
+      description: "Значения (для Enum)",
+    },
+    {
+      name: "view",
+      type: "array",
+      description: "Цвета значений/статусов/колонок",
+    },
+    {
+      name: "statuses",
+      type: "array",
+      description: "Статусы (для Workflow)",
+    },
+    {
+      name: "initial",
+      type: "string",
+      description: "Начальный статус (для Workflow)",
+    },
+    {
+      name: "transitions",
+      type: "array",
+      description: "Переходы (для Workflow)",
+    },
+    {
+      name: "finals",
+      type: "array",
+      description: "Конечные статусы (для Workflow)",
+    },
+    {
+      name: "attributes",
+      type: "array",
+      description: "Колонки (для Table)",
+    },
+    {
+      name: "maxRows",
+      type: "number",
+      description: "Максимум строк (для Table)",
+    },
+    {
+      name: "sorting",
+      type: "array",
+      description: "Сортировка (для Table)",
+    },
+  ],
+  dataType: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор типа данных",
+      required: true,
+    },
+    {
+      name: "name",
+      type: "string",
+      description: "Название типа данных",
+    },
+    {
+      name: "description",
+      type: "string",
+      description: "Описание",
+    },
+    {
+      name: "dataType",
+      type: "enum",
+      description:
+        "Enum — перечисление | Table — таблица | Workflow — рабочий процесс",
+      required: true,
+    },
+    {
+      name: "values",
+      type: "array",
+      description: "Значения (для Enum)",
+    },
+    {
+      name: "view",
+      type: "array",
+      description: "Цвета значений / статусов",
+    },
+    {
+      name: "statuses",
+      type: "array",
+      description: "Статусы (для Workflow)",
+    },
+    {
+      name: "initial",
+      type: "string",
+      description: "Начальный статус (для Workflow)",
+    },
+    {
+      name: "finals",
+      type: "array",
+      description: "Конечные статусы (для Workflow)",
+    },
+    {
+      name: "transitions",
+      type: "array",
+      description: "Переходы между статусами (для Workflow)",
+    },
+    {
+      name: "attributes",
+      type: "array",
+      description: "Колонки таблицы (для Table)",
+    },
+    {
+      name: "maxRows",
+      type: "number",
+      description: "Максимум строк (для Table)",
+    },
+    {
+      name: "sorting",
+      type: "array",
+      description: "Сортировка колонок (для Table)",
+    },
+  ],
+  counterColorPattern: [
+    {
+      name: "id",
+      type: "string",
+      description: "Идентификатор правила",
+      required: true,
+    },
+    {
+      name: "red",
+      type: "string",
+      description: "Порог красного (1w2d3h4m или 60%)",
+      required: true,
+    },
+    {
+      name: "yellow",
+      type: "string",
+      description: "Порог жёлтого (должен быть < red)",
+      required: true,
+    },
+  ],
+  viewWidgetLinkageAttribute: [
+    {
+      name: "attribute",
+      type: "ref",
+      description: "Атрибут связи",
+      required: true,
+    },
+    {
+      name: "label",
+      type: "string",
+      description: "Отображаемое название",
+    },
+    {
+      name: "control",
+      type: "object",
+      description: "Элемент управления",
+    },
+  ],
+  viewWidgetActionControl: [
+    {
+      name: "type",
+      type: "enum",
+      description: "regular_button | dropdown | drag_drop_area",
+      required: true,
+    },
+    {
+      name: "icon",
+      type: "ref",
+      description: "Иконка (для regular_button)",
+    },
+    {
+      name: "text",
+      type: "string",
+      description: "Текст (для drag_drop_area)",
+    },
+    {
+      name: "context",
+      type: "object",
+      description: "Контекст drag_drop_area",
+    },
+  ],
+  viewTableSortingColumn: [
+    {
+      name: "column",
+      type: "ref",
+      description: "Столбец",
+      required: true,
+    },
+    {
+      name: "sorting",
+      type: "ref",
+      description: "Правило сортировки",
+      required: true,
+    },
+  ],
+  actionTransition: [
+    {
+      name: "to",
+      type: "string",
+      description: "Целевой статус workflow",
+      required: true,
+    },
+  ],
+  bindAlias: [
+    {
+      name: "external",
+      type: "string",
+      description: "Внешнее имя алиаса",
+      required: true,
+    },
+    {
+      name: "internal",
+      type: "string",
+      description: "Внутреннее имя алиаса",
+      required: true,
+    },
+  ],
+  externals: [
+    {
+      name: "entity",
+      type: "ref",
+      description: "Внешняя сущность",
+      required: true,
+    },
+    {
+      name: "type",
+      type: "enum",
+      description: "composition | selection",
+    },
+  ],
+  override: [
+    {
+      name: "ancestors",
+      type: "array",
+      description: "FQID предков, к которым применяется override",
+    },
+    {
+      name: "attributes",
+      type: "array",
+      description: "Переопределяемые атрибуты",
+    },
+  ],
+  overrideAttribute: [
+    {
+      name: "attribute",
+      type: "ref",
+      description: "Атрибут",
+      required: true,
+    },
+    {
+      name: "value",
+      type: "string",
+      description: "Значение",
+    },
+  ],
+  mixinTabRef: [
+    {
+      name: "tab",
+      type: "ref",
+      description: "Вкладка",
+      required: true,
+    },
+    {
+      name: "label",
+      type: "string",
+      description: "Отображаемое название",
+    },
+  ],
+  mixinActionRef: [
+    {
+      name: "action",
+      type: "ref",
+      description: "Действие",
+      required: true,
+    },
+    {
+      name: "label",
+      type: "string",
+      description: "Отображаемое название",
+    },
+  ],
+  // ============ views: RQL include/exclude ============
+  viewWidgetInclude: [
+    {
+      name: "domain",
+      type: "string",
+      description: "FQID домена",
+      required: true,
+    },
+    {
+      name: "entities",
+      type: "array",
+      description: "Сущности, доступные в редакторе RQL",
+    },
+  ],
+  viewWidgetIncludeEntity: [
+    {
+      name: "entity",
+      type: "ref",
+      description: "Идентификатор сущности домена",
+      required: true,
+    },
+    {
+      name: "attributes",
+      type: "array",
+      description: "Атрибуты сущности (по умолчанию все)",
+    },
+    {
+      name: "linkages",
+      type: "array",
+      description: "Связи сущности (по умолчанию все)",
+    },
+  ],
+  viewWidgetIncludeLinkage: [
+    {
+      name: "side",
+      type: "enum",
+      description: "Сторона связи (по умолчанию 1)",
+    },
+    {
+      name: "linkage",
+      type: "ref",
+      description: "Идентификатор связи",
+      required: true,
+    },
+    {
+      name: "EntityAttributes",
+      type: "array",
+      description: "Атрибуты связанной сущности",
+    },
+  ],
+
+  // ============ views: columns[].actions[] ============
+  viewTableColumnActions: [
+    {
+      name: "action",
+      type: "ref",
+      description: "Действие при клике на ячейку",
+      required: true,
+    },
+    { name: "label", type: "string", description: "Отображаемое название" },
+    { name: "icon", type: "ref", description: "Иконка" },
+  ],
+
+  // ============ mixins: точечные ============
+  mixinColumnRef: [
+    {
+      name: "column",
+      type: "ref",
+      description: "Ссылка на колонку",
+      required: true,
+    },
+  ],
+  actionHooks: [
+    {
+      name: "onStart",
+      type: "object",
+      description: "Хук при запуске сценария",
+    },
+    {
+      name: "onComplete",
+      type: "object",
+      description: "Хук при успешном завершении сценария",
+    },
+    {
+      name: "onError",
+      type: "object",
+      description: "Хук при ошибке выполнения сценария",
+    },
+  ],
+  actionHookLifecycle: [
+    {
+      name: "artifacts",
+      type: "object",
+      description: "Управление артефактами, созданными сценарием",
+    },
+    {
+      name: "notify",
+      type: "object",
+      description: "Уведомление пользователя о событии",
+    },
+  ],
+  actionHookArtifacts: [
+    {
+      name: "autodownload",
+      type: "boolean",
+      description: "Автоматически скачивать артефакты сценария",
+    },
+  ],
+  actionHookNotify: [
+    {
+      name: "includeLinkToScenario",
+      type: "boolean",
+      description: "Добавить в уведомление ссылку на запуск сценария",
+    },
+    {
+      name: "msg",
+      type: "string",
+      description: "Текст уведомления",
     },
   ],
 };
@@ -5013,6 +6118,288 @@ function isAtSearchingItemStart(model: any, position: any): boolean {
   return false;
 }
 
+// ============ Path-based контекст (P0) ============
+// Резолвит YAML-контекст по пути "контейнерных" ключей над курсором,
+// игнорируя dash-item openers (`- id: X`, `- attribute: Y` — прозрачны).
+// Единственное исключение: `- attributes:` (dash с контейнерным значением)
+// остаётся в пути, т.к. сам является контейнером.
+
+interface ContainerEntry {
+  key: string;
+  indent: number;
+  isContainer: boolean;
+}
+
+function findContainerPath(model: any, position: any): string[] {
+  const currentLine = model.getLineContent(position.lineNumber);
+  const currentIndent = (currentLine.match(/^(\s*)/) || ["", ""])[1].length;
+  const stack: ContainerEntry[] = [];
+
+  for (let i = 1; i < position.lineNumber; i++) {
+    const line = model.getLineContent(i);
+    if (!line.trim() || line.trim().startsWith("#")) continue;
+    const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
+
+    while (stack.length > 0 && stack[stack.length - 1].indent >= indent) {
+      stack.pop();
+    }
+
+    const m = line.match(/^(\s*)(-\s+)?([a-zA-Z_][\w]*)\s*:\s*(.*)$/);
+    if (!m) continue;
+    const hasValue = m[4].trim().length > 0;
+    stack.push({ key: m[3], indent, isContainer: !hasValue });
+  }
+
+  // Убираем контейнеры, которые «закрыты» текущим отступом курсора
+  while (stack.length > 0 && stack[stack.length - 1].indent >= currentIndent) {
+    stack.pop();
+  }
+
+  return stack.filter((s) => s.isContainer).map((s) => s.key);
+}
+
+function computeItemTypeFromPath(model: any, position: any): string | null {
+  const path = findContainerPath(model, position);
+  return resolvePathToContext(path);
+}
+
+/**
+ * Путь контейнеров → имя контекста в FIELD_DEFINITIONS.
+ * Ключ — сегменты через `.`. Значение — `null` для «сознательно без полей»,
+ * отсутствие ключа — path не разрешён, будет fallback.
+ */
+const PATH_TO_CONTEXT: Record<string, string> = {
+  // ============ entities ============
+  entities: "entity",
+  "entities.attributes": "attribute",
+  "entities.attributes.item": "arrayItem",
+  "entities.attributes.constraints": "attributeConstraint",
+  "entities.attributes.prefixRules": "prefixRule",
+  "entities.attributes.prefixRules.source": "prefixRuleSource",
+  "entities.attributes.calculation": "calculation",
+  "entities.sorting": "sortingItem",
+  "entities.sorting.by": "sortingByItem",
+  "entities.identification": "identificationItem",
+  "entities.identification.rule": "identificationRuleItem",
+  "entities.identification.rule.and": "identificationRuleItem",
+  "entities.identification.rule.or": "identificationRuleItem",
+  "entities.reconciliation": "reconciliationItem",
+  "entities.reconciliation.sourcePriority": "reconciliationSourceItem",
+  "entities.reconciliation.default": "reconciliationDefaultItem",
+  "entities.reconciliation.mergeStrategy": "reconciliationMergeStrategy",
+  "entities.projection": "projectionItem",
+  "entities.searching": "searchingItem",
+  "entities.searching.attributes": "searchingItem",
+  "entities.graphView": "graphView",
+  "entities.treeNode.types": "treeNodeType",
+  "entities.treeNode.types.of": "treeNodeOf",
+
+  // ============ linkages ============
+  linkages: "linkage",
+  "linkages.attributes": "linkageAttribute",
+  "linkages.attributes.constraints": "attributeConstraint",
+  "linkages.nameFrom": "nameFrom",
+  "linkages.view": "graphView",
+  "linkages.sorting": "sortingItem",
+  "linkages.sorting.by": "sortingByItem",
+  "linkages.searching": "searchingItem",
+
+  // ============ dataTypes ============
+  dataTypes: "dataType",
+  "dataTypes.values": "enumValue",
+  "dataTypes.statuses": "workflowStatus",
+  "dataTypes.transitions": "transition",
+  "dataTypes.attributes": "attribute",
+  "dataTypes.attributes.constraints": "attributeConstraint",
+  "dataTypes.view.columns": "viewTableColumn",
+  "dataTypes.view.columns.layout": "viewTableColumnLayout",
+  "dataTypes.view.columns.layout.width": "viewTableColumnWidth",
+  "dataTypes.view.columns.control": "viewTableColumnControl",
+  "dataTypes.view.sortingBy.columns": "viewTableSortingColumn",
+  "dataTypes.view.sortingBy.defaults": "viewTableSortingByDefault",
+  "dataTypes.view.paging": "viewTablePaging",
+
+  // ============ sequences ============
+  sequences: "sequence",
+
+  // ============ counterColorPattern(s) ============
+  counterColorPattern: "counterColorPattern",
+  counterColorPatterns: "counterColorPattern",
+
+  // ============ trees ============
+  trees: "tree",
+  "trees.hierarchy": "treeHierarchy",
+  "trees.hierarchy.children": "treeChildren",
+  "trees.sorting": "treeSorting",
+  "trees.sorting.by": "treeSortingBy",
+  "trees.sorting.by.by": "treeSortingByBy",
+
+  // ============ transitiveLinkages ============
+  transitiveLinkages: "transitiveLinkage",
+  "transitiveLinkages.joins": "transitiveJoin",
+  "transitiveLinkages.joins.search": "transitiveJoinSearch",
+
+  // ============ mixins ============
+  mixins: "mixin",
+  "mixins.entity": "mixinEntity",
+  "mixins.views": "mixinView",
+  "mixins.views.to": "mixinViewTo",
+  "mixins.views.change": "mixinChange",
+  "mixins.views.change.add": "mixinChangeAdd",
+
+  // ============ dataRules ============
+  dataRules: "dataRule",
+  "dataRules.rule": "dataRuleRule",
+  "dataRules.rule.attributes": "dataRuleAttributeAction",
+  "dataRules.rule.linkages": "dataRuleLinkageAction",
+  "dataRules.rule.nested": "dataRuleNested",
+  "dataRules.rule.nested.attributes": "dataRuleNestedAttribute",
+  "dataRules.rule.nested.items": "dataRuleNestedItem",
+
+  // ============ actions ============
+  actions: "action",
+  "actions.values": "actionValue",
+  "actions.control": "actionControl",
+  "actions.automation": "actionAutomation",
+  "actions.bulkSettings": "actionBulkSettings",
+  "actions.bulkSettings.attributes.use": "actionBulkAttributeUse",
+  "actions.bulkSettings.linkages.use": "actionBulkLinkageUse",
+  "actions.attributes.use": "actionBulkAttributeUse",
+  "actions.linkages.use": "actionBulkLinkageUse",
+  "actions.transition": "actionTransition",
+  "actions.openBoardsFromGraph": "actionOpenBoardsFromGraph",
+  // ============ actions: hooks (type: scenario) ============
+  "actions.hooks": "actionHooks",
+  "actions.hooks.onStart": "actionHookLifecycle",
+  "actions.hooks.onComplete": "actionHookLifecycle",
+  "actions.hooks.onError": "actionHookLifecycle",
+  "actions.hooks.onStart.artifacts": "actionHookArtifacts",
+  "actions.hooks.onStart.notify": "actionHookNotify",
+  "actions.hooks.onComplete.artifacts": "actionHookArtifacts",
+  "actions.hooks.onComplete.notify": "actionHookNotify",
+  "actions.hooks.onError.artifacts": "actionHookArtifacts",
+  "actions.hooks.onError.notify": "actionHookNotify",
+
+  // ============ views ============
+  views: "view",
+  "views.widgets": "widget",
+  "views.widgets.control.columns": "viewWidgetLinkageColumn",
+  "views.widgets.control.context": "viewWidgetDragDropContext",
+  "views.widgets.attributes": "viewWidgetLinkageAttribute",
+  "views.groups": "group",
+  "views.groups.layout": "viewGroupLayout",
+  "views.groups.components": "viewGroupComponent",
+  "views.views": "viewNested",
+  "views.views.buttons": "viewButton",
+  "views.views.buttons.control": "viewButtonControl",
+  "views.views.buttons.actions": "viewButtonAction",
+  "views.views.footer": "viewFooterAction",
+  "views.views.menu": "viewMenuAction",
+  "views.views.actionPanel": "viewActionPanelItem",
+  "views.views.tabs": "viewTab",
+  "views.views.onView": "viewButtonAction",
+  "views.views.pinnedView": "viewPinnedView",
+  "views.source": "viewSource",
+  "views.source.joins": "viewSourceJoin",
+  "views.table.columns": "viewTableColumn",
+  "views.table.columns.layout": "viewTableColumnLayout",
+  "views.table.columns.layout.width": "viewTableColumnWidth",
+  "views.table.columns.control": "viewTableColumnControl",
+  "views.table.columns.aggregate": "viewTableColumnAggregate",
+  "views.table.filter": "viewTableFilter",
+  "views.table.filter.attributes.use": "viewTableFilterAttributesUse",
+  "views.table.filter.linkages.use": "viewTableFilterLinkagesUse",
+  "views.table.sortingBy.columns": "viewTableSortingColumn",
+  "views.table.sortingBy.defaults": "viewTableSortingByDefault",
+  "views.table.paging": "viewTablePaging",
+  "views.table.refresh": "viewTableRefresh",
+  "views.table.refresh.defaults": "viewTableRefreshDefaults",
+  "views.table.actions": "viewTableAction",
+  "views.table.actions.menu": "viewTableActionItem",
+  "views.table.empty": "viewTableEmpty",
+
+  // ============ menus ============
+  menus: "menuRoot",
+  "menus.items": "menuItem",
+
+  // ============ medias ============
+  medias: "media",
+
+  // ============ accessRules ============
+  accessRules: "accessRule",
+  "accessRules.create": "accessRuleItem",
+  "accessRules.delete": "accessRuleItem",
+  "accessRules.edit": "accessRuleItem",
+  "accessRules.view": "accessRuleItem",
+  "accessRules.launch": "accessRuleItem",
+  "accessRules.create.except": "accessRuleException",
+  "accessRules.delete.except": "accessRuleException",
+  "accessRules.edit.except": "accessRuleException",
+  "accessRules.view.except": "accessRuleException",
+  "accessRules.launch.except": "accessRuleException",
+
+  // ============ permissions ============
+  permissions: "permission",
+
+  // ============ localizations ============
+  localizations: "localization",
+  "localizations.keys": "localizationKey",
+
+  // ============ uiRules ============
+  uiRules: "uiRule",
+  "uiRules.context": "uiRuleContext",
+  "uiRules.rule": "uiRuleRule",
+  "uiRules.rule.widgets": "uiRuleWidget",
+  "uiRules.rule.groups": "uiRuleGroup",
+  "uiRules.rule.columns": "uiRuleColumn",
+  "uiRules.rule.nested": "uiRuleNested",
+  "uiRules.rule.nested.attributes": "uiRuleNestedAttribute",
+  "uiRules.rule.nested.items": "uiRuleNestedItem",
+
+  // ============ uiPresets ============
+  uiPresets: "uiPreset",
+
+  // ============ exchangeSettings ============
+  exchangeSettings: "exchangeSettings",
+  "exchangeSettings.attributeFormats": "exchangeAttributeFormats",
+
+  // ============ views: RQL include/exclude ============
+  "views.widgets.include": "viewWidgetInclude",
+  "views.widgets.include.entities": "viewWidgetIncludeEntity",
+  "views.widgets.include.entities.linkages": "viewWidgetIncludeLinkage",
+  "views.widgets.exclude": "viewWidgetInclude",
+  "views.widgets.exclude.entities": "viewWidgetIncludeEntity",
+  "views.widgets.exclude.entities.linkages": "viewWidgetIncludeLinkage",
+
+  // ============ views: inherit ============
+  "views.views.inherit": "inheritSettings",
+  "views.views.menu.inherit": "inheritSettings",
+  "views.views.tabs.inherit": "inheritSettings",
+  "views.views.actionPanel.inherit": "inheritSettings",
+
+  // ============ views: columns[].actions[] ============
+  "views.table.columns.actions": "viewTableColumnActions",
+  "views.table.columns.actions.menu": "viewTableActionItem",
+
+  // ============ mixins: components/tabs/menu (add) ============
+  "mixins.views.change.add.components": "viewGroupComponent",
+  "mixins.views.change.add.tabs.tabs": "mixinTabRef",
+  "mixins.views.change.add.menu.menu": "mixinActionRef",
+  "mixins.views.change.add.position": "mixinPosition",
+
+  // ============ mixins: components/tabs/menu (delete) ============
+  "mixins.views.change.delete.components": "viewGroupComponent",
+  "mixins.views.change.delete.tabs": "mixinTabRef",
+  "mixins.views.change.delete.menu": "mixinActionRef",
+  "mixins.views.change.delete.columns": "mixinColumnRef",
+
+  // ============ mixins: replace ============
+  "mixins.views.replace.components": "viewGroupComponent",
+  "mixins.views.replace.tabs": "mixinTabRef",
+  "mixins.views.replace.menu": "mixinActionRef",
+  "mixins.views.replace.actionPanel": "mixinActionRef",
+};
+
 // ============ Определение контекста ============
 /**
  * Определяет контекст для полей внутри элементов массивов
@@ -5380,7 +6767,11 @@ export function detectContextAtPosition(
   if (parentKey === "reconciliation") return "reconciliationItem";
   if (parentKey === "projection") return "projectionItem";
   if (parentKey === "nameFrom") return "nameFrom";
-  if (parentKey === "control") return "widgetControl";
+  if (parentKey === "control") {
+    // Специальные ветки уже выше (linkage / attribute / buttons / menu / columns).
+    // Здесь — общий fallback для attribute-widgets.
+    return "viewWidgetControl";
+  }
   if (parentKey === "sourcePriority") return "reconciliationSourceItem";
 
   if (parentKey === "default" && section === "entities")
@@ -5462,7 +6853,12 @@ export function detectContextAtPosition(
     if (parentKey === "groups") {
       return "group";
     }
-    if (parentKey === "layout") return "viewGroupLayout";
+    if (parentKey === "layout") {
+      const pathStr = findContainerPath(model, position).join(".");
+      if (pathStr === "views") return "viewDashboardLayout";
+      if (pathStr.endsWith("columns")) return "viewTableColumnLayout";
+      return "viewGroupLayout";
+    }
     if (parentKey === "components") return "viewGroupComponent";
     if (parentKey === "inherit" || parentKey === "inherits")
       return "inheritSettings";
@@ -5618,55 +7014,23 @@ export function detectContextAtPosition(
 
   // ============ 5. Внутри `- id: ...` — определяем по section и наличию attributes выше ============
   if (parentKey === "id") {
-    // 5a. Для views: определяем, в каком массиве находимся
-    //     (widgets / groups / views / actionPanel)
-    if (section === "views") {
-      for (let i = parentLine - 1; i >= 1; i--) {
-        const l = model.getLineContent(i);
-        if (!l.trim() || l.trim().startsWith("#")) continue;
-        const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
-        if (lIndent >= parentIndent) continue;
+    // NEW: path-based резолв (закрывает transitiveLinkages, trees, dataTypes[].values[],
+    // entities[].sorting[], entities[].attributes[] и т.д.)
+    const path = findContainerPath(model, position);
+    const pathCtx = resolvePathToContext(path);
+    if (pathCtx) return pathCtx;
+  }
 
-        const arrM = l.match(/^\s*(widgets|groups|views|actionPanel)\s*:\s*$/);
-        if (arrM) {
-          const arr = arrM[1];
-          if (arr === "widgets") return "widget";
-          if (arr === "groups") return "group";
-          if (arr === "views") return "viewNested";
-          if (arr === "actionPanel") return "widget"; // панель действий — массив action-виджетов
-        }
-
-        // предыдущий item верхнего уровня — граница
-        if (/^\s*-\s+id\s*:/.test(l) && lIndent < parentIndent) break;
-        if (lIndent === 0) break;
-      }
+  // NEW: parentKey — не `id`, но parentLine всё равно dash-item opener
+  // (`- attribute: X`, `- linkage: Y`, `- widget: Z`, `- tab: T`, `- action: A`).
+  // Это 2-я+ строка элемента, который начинается не с `id:`.
+  if (parentLine > 0 && parentKey !== "id") {
+    const parentText = model.getLineContent(parentLine);
+    if (/^\s*-\s+[a-zA-Z_][\w]*\s*:/.test(parentText)) {
+      const path = findContainerPath(model, position);
+      const pathCtx = resolvePathToContext(findContainerPath(model, position));
+      if (pathCtx) return pathCtx;
     }
-
-    // 5b. Ищем `attributes:` выше (entities, linkages)
-    for (let i = parentLine - 1; i >= 1; i--) {
-      const l = model.getLineContent(i);
-      if (!l.trim() || l.trim().startsWith("#")) continue;
-      const lIndent = (l.match(/^(\s*)/) || ["", ""])[1].length;
-
-      if (/^\s*attributes\s*:/.test(l) && lIndent < parentIndent) {
-        return section === "linkages" ? "linkageAttribute" : "attribute";
-      }
-      if (/^\s*- id\s*:/.test(l) && lIndent < parentIndent) break;
-      if (lIndent === 0) break;
-    }
-
-    // 5c. Fallback по section
-    if (section === "entities") return "entity";
-    if (section === "linkages") return "linkage";
-    if (section === "actions") return "action";
-    if (section === "dataRules") return "dataRule";
-    if (section === "views") return "view";
-    if (section === "mixins") return "mixin";
-    if (section === "sequences") return "sequence";
-    if (section === "dataTypes") return "dataType";
-    if (section === "accessRules") return "accessRule";
-    if (section === "permissions") return "permission";
-    if (section === "localizations") return "localization";
   }
 
   if (parentKey === "exchangeSettings") return "exchangeSettings";
@@ -5698,9 +7062,9 @@ function buildFieldSuggestion(monaco: any, field: FieldDef, range: any): any {
   return {
     label: field.name,
     kind: monaco.languages.CompletionItemKind.Field,
-    insertText: field.name,
+    insertText: field.name + ": ",
     filterText: field.name,
-    sortText: (isRequired ? "0_" : "1_") + field.name,
+    sortText: `${field.priority ?? (isRequired ? 0 : 1)}_${field.name}`,
     detail: `${field.type}${isRequired ? " · required" : ""}`,
     documentation: field.description,
     range,
@@ -5729,7 +7093,7 @@ function buildSnippetSuggestion(
     insertTextRules:
       monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
     filterText: snippet.prefix,
-    sortText: "0_" + snippet.prefix,
+    sortText: SORT.SNIPPET + snippet.prefix,
     detail: snippet.description,
     documentation: `Snippet: ${snippet.description}`,
     range,
@@ -7907,13 +9271,18 @@ export function registerMonacoProviders(monaco: any): void {
       if (!fieldMatch) {
         const lineIndent = (lineText.match(/^(\s*)/) || ["", ""])[1].length;
 
-        if (lineIndent === 0 && /^[a-zA-Z_]*$/.test(beforeCursor)) {
+        if (
+          lineIndent === 0 &&
+          /^[a-zA-Z_][a-zA-Z0-9_]*\s*$/.test(beforeCursor)
+        ) {
           const rootItems = [
             ["id", "Уникальный идентификатор домена (FQDN)"],
             ["name", "Название домена"],
             ["version", "Версия схемы (SemVer)"],
             ["type", "Тип элемента экспертизы (domain)"],
             ["description", "Описание домена"],
+            ["status", "Статус схемы"],
+            ["date", "Дата схемы"],
             ["tags", "Теги"],
             ["author", "Автор схемы"],
             ["entities", "Сущности домена"],
@@ -7942,9 +9311,9 @@ export function registerMonacoProviders(monaco: any): void {
           ] as const;
           const range = {
             startLineNumber: position.lineNumber,
-            startColumn: wordAtPos.startColumn,
+            startColumn: 1,
             endLineNumber: position.lineNumber,
-            endColumn: wordAtPos.endColumn,
+            endColumn: position.column,
           };
           return {
             suggestions: rootItems.map(([id, desc]) => ({
@@ -7989,7 +9358,9 @@ export function registerMonacoProviders(monaco: any): void {
             );
           }
         });
-        const fields = FIELD_DEFINITIONS[context];
+        const fields =
+          FIELD_DEFINITIONS[context] ??
+          FIELD_DEFINITIONS[context.replace(/List$/, "")];
         if (fields) {
           const range = {
             startLineNumber: position.lineNumber,
@@ -8005,8 +9376,25 @@ export function registerMonacoProviders(monaco: any): void {
       }
 
       // === 3. Value — switch по fieldName, СБОР ТОЛЬКО НУЖНОГО ===
+      // === 3. Value — switch по fieldName, СБОР ТОЛЬКО НУЖНОГО ===
       const fieldName = fieldMatch[2];
-      const vctx = detectValueContext(model, position);
+      const vctxRaw = detectValueContext(model, position);
+      const pathItemType = computeItemTypeFromPath(model, position);
+
+      // Приоритет: path-based, КРОМЕ мест, где detectValueContext уточняет
+      // через widget.type (единственный «динамический» путь на сегодня).
+      // Такие пути — whitelist.
+      const pathStr = findContainerPath(model, position).join(".");
+      const DYNAMIC_PATHS = new Set<string>([
+        "views.widgets.control", // control.type зависит от widget.type
+      ]);
+
+      const effectiveItemType =
+        DYNAMIC_PATHS.has(pathStr) && vctxRaw.itemType
+          ? vctxRaw.itemType
+          : (pathItemType ?? vctxRaw.itemType ?? "");
+
+      const vctx = { ...vctxRaw, itemType: effectiveItemType };
 
       const r = buildValueCompletion; // сокращение
       // ============ Boolean-поля: только true / false ============
@@ -11342,8 +12730,12 @@ function scanEntities(
     }
 
     // Собираем "- " элементы внутри attributes[]
-    const attrIdList: Array<{ id: string; idLine: number; idIndent: number; description: string | null; }> =
-      [];
+    const attrIdList: Array<{
+      id: string;
+      idLine: number;
+      idIndent: number;
+      description: string | null;
+    }> = [];
     if (attributesLine >= 0) {
       let attrDashIndent = -1;
       for (let k = attributesLine + 1; k < attributesEnd; k++) {
@@ -11806,4 +13198,64 @@ function isInsideBulkSettings(
     if (ind === 0) return false;
   }
   return false;
+}
+
+/**
+ * Резолвит path по PATH_TO_CONTEXT, поддерживая префиксные правила:
+ *   - exchangeSettings.entities.<X>              → exchangeEntitySettings
+ *   - exchangeSettings.entities.<X>.attributeFormats → ??? (не поддерживается схемой)
+ *   - mixins.views.<idx>.<change|replace>.add.*  → зеркалит mixins.views.change.add.*
+ *   - mixins.views.<idx>.<change|replace>.delete.* → зеркалит mixins.views.change.delete.*
+ *
+ * Порядок: сначала прямой lookup, потом префиксные правила.
+ */
+function resolvePathToContext(path: string[]): string | null {
+  if (path.length === 0) return null;
+  const direct = PATH_TO_CONTEXT[path.join(".")];
+  if (direct !== undefined) return direct;
+
+  // exchangeSettings.entities.<X>
+  if (
+    path.length === 3 &&
+    path[0] === "exchangeSettings" &&
+    path[1] === "entities"
+  ) {
+    return "exchangeEntitySettings";
+  }
+
+  // mixins.views.<idx>.<change|replace>.add[.components|.tabs.tabs|.menu.menu|.position]
+  // mixins.views уже отбрасывает индексы массивов (findContainerPath
+  // не пушит `-`), но на всякий случай нормализуем:
+  //   ["mixins","views","change","add","components"]
+  //   ["mixins","views","replace","components"]  ← тоже возможно
+  if (path[0] === "mixins" && path[1] === "views") {
+    if (path[2] === "change" && path[3] === "add") {
+      const tail = path.slice(4).join(".");
+      if (tail === "components") return "viewGroupComponent";
+      if (tail === "tabs.tabs") return "mixinTabRef";
+      if (tail === "menu.menu") return "mixinActionRef";
+      if (tail === "position") return "mixinPosition";
+      return "mixinChangeAdd";
+    }
+    if (path[2] === "change" && path[3] === "delete") {
+      const tail = path.slice(4).join(".");
+      if (tail === "components") return "viewGroupComponent";
+      if (tail === "tabs") return "mixinTabRef";
+      if (tail === "menu") return "mixinActionRef";
+      if (tail === "columns") return "mixinColumnRef";
+      return null;
+    }
+    if (path[2] === "replace") {
+      const tail = path.slice(3).join(".");
+      if (tail === "components") return "viewGroupComponent";
+      if (tail === "tabs") return "mixinTabRef";
+      if (tail === "menu") return "mixinActionRef";
+      if (tail === "actionPanel") return "mixinActionRef";
+      return null;
+    }
+    if (path.length === 3) return "mixinView";
+    if (path[2] === "to") return "mixinViewTo";
+  }
+
+  return null;
 }

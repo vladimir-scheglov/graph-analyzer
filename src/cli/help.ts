@@ -1,21 +1,27 @@
+import { getCliInvocation } from "./constants";
+
 export function printHelp(): void {
+  const CMD = getCliInvocation();
+
   console.log(`Usage:
 
   Локальный режим:
-    node graph-analyzer.js <directory-path> [port]
+    ${CMD} <directory-path> [port]
 
   Гибридный режим (локальные файлы + серверная валидация):
-    node graph-analyzer.js <directory-path> --server <url> --login <user> --password <pass> [options]
+    ${CMD} <directory-path> --server <url> --login <user> --password <pass> [options]
 
   Удалённый режим (кэш + публикация на сервер):
-    node graph-analyzer.js --server <url> --login <user> --password <pass> [options]
+    ${CMD} --server <url> --login <user> --password <pass> [options]
 
 Опции:
   --server <url>       Базовый URL сервера
   --login <user>       Имя пользователя
   --password <pass>    Пароль
   --port <port>        HTTP-порт (по умолчанию 3000)
-  --refresh            Обновить кэш (только удалённый режим)
+  --refresh [ttl]      Обновить кэш. Без значения — всегда.
+                       С TTL (1d / 10h / 30m / 5s) — только если
+                       кэш старше указанного времени.
   --reset-cache        Удалить кэш перед загрузкой (только удалённый режим)
   --secure             Проверять TLS-сертификат
   --help               Показать справку
@@ -30,8 +36,9 @@ export function printHelp(): void {
 Кэш: .cache/domains/<host>__<hash>/
 
 Примеры:
-  node graph-analyzer.js ./domains
-  node graph-analyzer.js ./domains --server https://your.server.com --login admin --password "qwerty"
-  node graph-analyzer.js --server https://your.server.com --login admin --password "qwerty"
-  node graph-analyzer.js --server https://your.server.com  # если кэш уже есть`);
+  ${CMD} ./domains
+  ${CMD} ./domains --server https://your.server.com --login admin --password "qwerty"
+  ${CMD} --server https://your.server.com --login admin --password "qwerty"
+  ${CMD} --server https://your.server.com  # если кэш уже есть
+`);
 }

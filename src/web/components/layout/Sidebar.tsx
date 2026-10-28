@@ -163,10 +163,10 @@ export function Sidebar(props: SidebarProps) {
                     <>
                         <TopConnectedSection items={stats.topConnected} />
                         <WorstHealthSection items={stats.worstHealth} />
-                        <MissingRefsSection items={stats.topMissingRefs} />
                     </>
                 )}
 
+                <MissingRefsSection items={stats.topMissingRefs} />
                 <NamespacesSection items={stats.namespaces} />
                 <TagsSection items={stats.tagCloud} />
 
