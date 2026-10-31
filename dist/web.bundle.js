@@ -549,6 +549,23 @@ var init_useGraphStore = __esm({
       setCheatsheetInitialSection: (id) => set2({ cheatsheetInitialSection: id }),
       generateSchemaPrefillProfile: null,
       setGenerateSchemaPrefillProfile: (p) => set2({ generateSchemaPrefillProfile: p }),
+      editorTabs: [],
+      addEditorTab: (path) => set2((s) => {
+        if (!s.editorTabs.includes(path)) {
+          return { editorTabs: [...s.editorTabs, path] };
+        }
+        return s;
+      }),
+      removeEditorTab: (path) => set2((s) => ({
+        editorTabs: s.editorTabs.filter((p) => p !== path)
+      })),
+      clearEditorTabs: () => set2({ editorTabs: [] }),
+      editorBookmarks: JSON.parse(localStorage.getItem("dg-yaml-editor-bookmarks") || "{}"),
+      setEditorBookmarks: (filePath, lines) => set2((s) => {
+        const next = { ...s.editorBookmarks, [filePath]: lines };
+        localStorage.setItem("dg-yaml-editor-bookmarks", JSON.stringify(next));
+        return { editorBookmarks: next };
+      }),
       // Сброс всего
       resetAll: () => set2({
         filters: {
@@ -48457,6 +48474,53 @@ var init_YamlQuickJump = __esm({
   }
 });
 
+// src/web/lib/diff-lines.ts
+function getLineDiff(oldStr, newStr) {
+  const oldLines = oldStr.split("\n");
+  const newLines = newStr.split("\n");
+  const dp = Array(oldLines.length + 1).fill(0).map(() => Array(newLines.length + 1).fill(0));
+  for (let i = 1; i <= oldLines.length; i++) {
+    for (let j = 1; j <= newLines.length; j++) {
+      if (oldLines[i - 1] === newLines[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+  }
+  const common2 = dp[oldLines.length][newLines.length];
+  return {
+    added: newLines.length - common2,
+    removed: oldLines.length - common2
+  };
+}
+var init_diff_lines = __esm({
+  "src/web/lib/diff-lines.ts"() {
+    "use strict";
+  }
+});
+
+// src/core/analyzer/schema-generator/util-hash.ts
+function hashPayload(payload) {
+  let str2;
+  try {
+    str2 = JSON.stringify(payload);
+  } catch {
+    str2 = "";
+  }
+  let h = 2166136261;
+  for (let i = 0; i < str2.length; i++) {
+    h ^= str2.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(16);
+}
+var init_util_hash = __esm({
+  "src/core/analyzer/schema-generator/util-hash.ts"() {
+    "use strict";
+  }
+});
+
 // src/web/components/modals/YamlViewerModal.tsx
 import React45, { useCallback as useCallback19, useDeferredValue, useEffect as useEffect41, useLayoutEffect as useLayoutEffect2, useMemo as useMemo46, useRef as useRef19, useState as useState38 } from "react";
 import { Fragment as Fragment21, jsx as jsx80, jsxs as jsxs77 } from "react/jsx-runtime";
@@ -48512,6 +48576,8 @@ function YamlViewerModal() {
   const setPendingBlock = useGraphStore((s) => s.setYamlViewerPendingBlock);
   const yamlQuickNavEnabled = useGraphStore((s) => s.yamlQuickNavEnabled);
   const setYamlQuickNavEnabled = useGraphStore((s) => s.setYamlQuickNavEnabled);
+  const [lastKnownMtime, setLastKnownMtime] = useState38(0);
+  const [lastEditAt, setLastEditAt] = useState38(null);
   const remoteInfo = useMemo46(() => readRemoteInfo(), []);
   const mode = !remoteInfo?.server ? "local" : remoteInfo.mode === "hybrid" ? "hybrid" : "remote";
   const [reloadKey, setReloadKey] = useState38(0);
@@ -48677,11 +48743,34 @@ function YamlViewerModal() {
   useEffect41(() => {
     if (loading)
       return;
-    if (fetchedContent === null || fetchedContent === void 0)
+    if (fetchedContent == null)
       return;
-    setContent(fetchedContent);
+    const backupKey = `dg-yaml-backup:${filePath}`;
+    const backupStr = sessionStorage.getItem(backupKey);
+    let contentToSet = fetchedContent;
+    if (backupStr) {
+      try {
+        const backup = JSON.parse(backupStr);
+        if (backup.savedContentHash === fetchedContent.length) {
+          if (confirm(`\u041D\u0430\u0439\u0434\u0435\u043D\u044B \u043D\u0435\u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D\u043D\u044B\u0435 \u043F\u0440\u0430\u0432\u043A\u0438 \u043E\u0442 ${new Date(backup.savedAt).toLocaleTimeString()}. \u0412\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C?`)) {
+            contentToSet = backup.content;
+          } else {
+            sessionStorage.removeItem(backupKey);
+          }
+        }
+      } catch {
+      }
+    }
+    setContent(contentToSet);
     setSavedContent(fetchedContent);
+    fetch(`/file?path=${encodeURIComponent(filePath || "")}&stat=1`).then((r) => r.json()).then((d) => setLastKnownMtime(d.mtime)).catch(() => {
+    });
   }, [loading, fetchedContent, filePath]);
+  const backupRestoredRef = useRef19(false);
+  const savedContentRef = useRef19(savedContent);
+  useEffect41(() => {
+    savedContentRef.current = savedContent;
+  }, [savedContent]);
   useEffect41(() => {
     if (!editorCreated || !editorRef.current)
       return;
@@ -48703,13 +48792,27 @@ function YamlViewerModal() {
         setIsLocked(false);
         useGraphStore.getState().showSnackbar("\u0424\u0430\u0439\u043B \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u0440\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043D \u0434\u043B\u044F \u043F\u0440\u0438\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439");
       }
+      setLastEditAt(Date.now());
       clearTimeout(liveDebounce.current);
       liveDebounce.current = setTimeout(() => {
         if (editorRef.current) {
-          setContent(editorRef.current.getValue());
+          const val = editorRef.current.getValue();
+          setContent(val);
           setLiveVersion((v) => v + 1);
+          if (filePath) {
+            const currentSaved = savedContentRef.current;
+            if (normalizeEol(val) !== normalizeEol(currentSaved)) {
+              sessionStorage.setItem(`dg-yaml-backup:${filePath}`, JSON.stringify({
+                content: val,
+                savedContentHash: hashPayload(normalizeEol(currentSaved)),
+                savedAt: Date.now()
+              }));
+            } else {
+              sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
+            }
+          }
         }
-      }, 300);
+      }, 500);
     };
     const sub = editorRef.current.onDidChangeModelContent(handler);
     return () => {
@@ -48719,12 +48822,12 @@ function YamlViewerModal() {
       } catch {
       }
     };
-  }, [editorCreated]);
+  }, [editorCreated, filePath]);
   const [rightTab, setRightTab] = useState38("issues");
   const [showHelp, setShowHelp] = useState38(false);
   const [isLocked, setIsLocked] = useState38(true);
   const [onlyProblematic, setOnlyProblematic] = useState38(false);
-  const isDirty = content !== savedContent;
+  const isDirty = normalizeEol(content) !== normalizeEol(savedContent);
   const [isSaving, setIsSaving] = useState38(false);
   const [saveError, setSaveError] = useState38(null);
   const [saveStage, setSaveStage] = useState38("idle");
@@ -48766,6 +48869,13 @@ function YamlViewerModal() {
   const focusDecorationsRef = useRef19(null);
   const saveAbortRef = useRef19(null);
   const editorTopLineRef = useRef19(1);
+  const tabs = useGraphStore((s) => s.editorTabs);
+  const addTab = useGraphStore((s) => s.addEditorTab);
+  const removeTab = useGraphStore((s) => s.removeEditorTab);
+  useEffect41(() => {
+    if (open2 && filePath)
+      addTab(filePath);
+  }, [open2, filePath, addTab]);
   const setYamlViewerLocked = useGraphStore((s) => s.setYamlViewerLocked);
   useEffect41(() => {
     setYamlViewerLocked(isLocked);
@@ -49113,6 +49223,27 @@ function YamlViewerModal() {
     lineMap.sections.forEach((s) => s.nodes.forEach((n) => walk(n, s.key, 0)));
     return result;
   }, [lineMap, expandedNodes, entityIssuesMap, attrIssuesMap]);
+  const fileBookmarks = useGraphStore(
+    (s) => (s.editorBookmarks || {})[filePath] || []
+  );
+  const setEditorBookmarks = useGraphStore((s) => s.setEditorBookmarks);
+  const bookmarkDetails = useMemo46(() => {
+    if (!fileBookmarks || fileBookmarks.length === 0)
+      return [];
+    const model = editorRef.current?.getModel();
+    const lines = content.split("\n");
+    return fileBookmarks.map((lineNum) => {
+      const raw = model ? model.getLineContent(lineNum) : lines[lineNum - 1] || "";
+      const trimmed = raw.trim();
+      return {
+        line: lineNum,
+        text: trimmed.slice(0, 80) + (trimmed.length > 80 ? "\u2026" : ""),
+        indent: raw.length - raw.trimStart().length,
+        raw
+        // на случай если понадобится полный текст
+      };
+    });
+  }, [fileBookmarks, content, editorCreated]);
   const filteredNavNodes = useMemo46(() => {
     let result = flatNavNodes;
     if (onlyProblematic) {
@@ -49142,6 +49273,33 @@ function YamlViewerModal() {
     const m = window.monaco;
     if (!m || !m.editor)
       return;
+    let initialContent = fetchedContent;
+    let restoredFromBackup = false;
+    const backupKey = `dg-yaml-backup:${filePath}`;
+    const backupStr = sessionStorage.getItem(backupKey);
+    if (backupStr) {
+      try {
+        const backup = JSON.parse(backupStr);
+        const currentHash = hashPayload(normalizeEol(fetchedContent));
+        if (backup.savedContentHash === currentHash) {
+          if (window.confirm(`\u041D\u0430\u0439\u0434\u0435\u043D\u044B \u043D\u0435\u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D\u043D\u044B\u0435 \u043F\u0440\u0430\u0432\u043A\u0438 \u043E\u0442 ${new Date(backup.savedAt).toLocaleTimeString()}. \u0412\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C?`)) {
+            initialContent = backup.content;
+            restoredFromBackup = true;
+            backupRestoredRef.current = true;
+          } else {
+            sessionStorage.removeItem(backupKey);
+          }
+        } else {
+          sessionStorage.removeItem(backupKey);
+        }
+      } catch {
+        sessionStorage.removeItem(backupKey);
+      }
+    }
+    if (restoredFromBackup) {
+      setIsLocked(false);
+      isLockedRef.current = false;
+    }
     try {
       registerMonacoProviders(m);
     } catch (err) {
@@ -49194,8 +49352,9 @@ function YamlViewerModal() {
     let cursorTimer = null;
     let suggestTimer = null;
     try {
+      isProgrammaticChange.current = true;
       editor = m.editor.create(containerRef.current, {
-        value: fetchedContent,
+        value: initialContent,
         language: "yaml",
         theme: monacoTheme,
         readOnly: false,
@@ -49250,6 +49409,7 @@ function YamlViewerModal() {
         // Приводим к any, чтобы не реализовывать все методы интерфейса
       });
       editorRef.current = editor;
+      isProgrammaticChange.current = false;
       setTimeout(() => {
         const suggestController = editor.getContribution("editor.contrib.suggestController");
         if (suggestController && suggestController.widget) {
@@ -49259,9 +49419,13 @@ function YamlViewerModal() {
           }
         }
       }, 50);
-      setContent(fetchedContent);
+      setContent(initialContent);
       setSavedContent(fetchedContent);
       setEditorCreated(true);
+      if (restoredFromBackup) {
+        useGraphStore.getState().setYamlViewerDirty(true);
+        setLiveVersion((v) => v + 1);
+      }
       const isSuggestWidgetOpen = () => {
         const el = document.querySelector(".suggest-widget");
         if (!el)
@@ -49320,7 +49484,8 @@ function YamlViewerModal() {
           "Shift",
           "Control",
           "Alt",
-          "Meta"
+          "Meta",
+          "F2"
         ];
         if (navKeys.includes(e.browserEvent.key))
           return;
@@ -49418,17 +49583,6 @@ function YamlViewerModal() {
           isTriggerChar ? 50 : 220
         );
       });
-      setTimeout(() => {
-        if (!editorRef.current)
-          return;
-        try {
-          if (isLocked) {
-            editorRef.current.updateOptions({ readOnly: false });
-            editorRef.current.updateOptions({ readOnly: true });
-          }
-        } catch {
-        }
-      }, 500);
       layouts.push(setTimeout(() => {
         try {
           editor?.layout();
@@ -49461,6 +49615,7 @@ function YamlViewerModal() {
         ro.observe(containerRef.current);
       }
     } catch (e) {
+      isProgrammaticChange.current = false;
       console.error("[yaml-viewer] create failed", e);
     }
     return () => {
@@ -50493,13 +50648,28 @@ ${label.message}` : ""),
           isProgrammaticChange.current = false;
         }
         setContent(savedContent);
+        if (filePath) {
+          sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
+        }
       }
       setIsLocked(true);
     }
-  }, [isLocked, isDirty, savedContent]);
+  }, [isLocked, isDirty, savedContent, filePath]);
   const handleSave = useCallback19(async () => {
     if (isLocked || isSaving || !editorRef.current)
       return;
+    try {
+      const statRes = await fetch(`/file?path=${encodeURIComponent(filePath || "")}&stat=1`);
+      if (statRes.ok) {
+        const { mtime } = await statRes.json();
+        if (lastKnownMtime > 0 && mtime > lastKnownMtime) {
+          const ok = confirm("\u0424\u0430\u0439\u043B \u0431\u044B\u043B \u0438\u0437\u043C\u0435\u043D\u0451\u043D \u0432\u043D\u0435 \u044D\u0442\u043E\u0433\u043E \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0430. \u041F\u0440\u043E\u0434\u043E\u043B\u0436\u0438\u0442\u044C \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u0435 \u0438 \u043F\u0435\u0440\u0435\u0437\u0430\u043F\u0438\u0441\u0430\u0442\u044C?");
+          if (!ok)
+            return;
+        }
+      }
+    } catch {
+    }
     const valueToSave = editorRef.current.getValue();
     if (valueToSave === savedContent) {
       setSaveFeedback(true);
@@ -50546,6 +50716,7 @@ ${label.message}` : ""),
       setSavedContent(valueToSave);
       setContent(valueToSave);
       setLiveVersion((v) => v + 1);
+      sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
       if (pendingManifest) {
         useGraphStore.getState().setYamlViewerPendingManifest(null);
       }
@@ -50617,6 +50788,7 @@ ${draftInfo.hint}` : "";
       saveAbortRef.current = null;
       setIsSaving(false);
       setSaveStage("idle");
+      sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
     }
   }, [isLocked, savedContent, filePath, mode, isSaving]);
   const handlePublish = useCallback19(async () => {
@@ -50688,6 +50860,7 @@ ${draftInfo.hint}` : "";
       setSavedContent(valueToSave);
       setContent(valueToSave);
       setLiveVersion((v) => v + 1);
+      sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
       if (pendingManifest) {
         useGraphStore.getState().setYamlViewerPendingManifest(null);
       }
@@ -50841,22 +51014,21 @@ ${publishInfo.hint}` : "";
       return;
     }
     if (isSaving) {
-      if (!confirm(
-        "\u0418\u0434\u0451\u0442 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u0435. \u041F\u0440\u0435\u0440\u0432\u0430\u0442\u044C \u0438 \u0437\u0430\u043A\u0440\u044B\u0442\u044C \u0431\u0435\u0437 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F?"
-      ))
+      if (!confirm("\u0418\u0434\u0451\u0442 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u0435. \u041F\u0440\u0435\u0440\u0432\u0430\u0442\u044C \u0438 \u0437\u0430\u043A\u0440\u044B\u0442\u044C \u0431\u0435\u0437 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F?"))
         return;
       try {
         saveAbortRef.current?.abort();
       } catch {
       }
     } else if (isDirty && !isLocked) {
-      if (!confirm(
-        "\u0415\u0441\u0442\u044C \u043D\u0435\u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D\u043D\u044B\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F. \u0417\u0430\u043A\u0440\u044B\u0442\u044C \u0431\u0435\u0437 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F?"
-      ))
+      if (!confirm("\u0415\u0441\u0442\u044C \u043D\u0435\u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D\u043D\u044B\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F. \u0417\u0430\u043A\u0440\u044B\u0442\u044C \u0431\u0435\u0437 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u044F?"))
         return;
+      if (filePath) {
+        sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
+      }
     }
     useGraphStore.getState().setYamlViewerOpen(false);
-  }, [isDirty, isLocked, isSaving]);
+  }, [isDirty, isLocked, isSaving, filePath]);
   useEffect41(() => {
     if (!open2)
       return;
@@ -51550,6 +51722,102 @@ ${publishInfo.hint}` : "";
     }, 50);
     return () => clearTimeout(t);
   }, [open2, pendingBlock, editorCreated, loading, jumpTo, setPendingBlock]);
+  const diffCount = useMemo46(() => {
+    if (!isDirty || !savedContent)
+      return null;
+    return getLineDiff(savedContent, content);
+  }, [isDirty, savedContent, content]);
+  useEffect41(() => {
+    if (!editorCreated || !editorRef.current || !filePath)
+      return;
+    const ed = editorRef.current;
+    const monaco = window.monaco;
+    const action = ed.addAction({
+      id: "toggle-bookmark",
+      label: "\u041F\u0435\u0440\u0435\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0437\u0430\u043A\u043B\u0430\u0434\u043A\u0443",
+      keybindings: [monaco.KeyCode.F2],
+      // ⚠️ ВАЖНО: отключает проверку "редактор доступен для записи"
+      precondition: void 0,
+      run: (editor) => {
+        const pos = editor.getPosition();
+        if (!pos)
+          return;
+        const line = pos.lineNumber;
+        const curBookmarks = useGraphStore.getState().editorBookmarks[filePath] || [];
+        let nextBookmarks;
+        if (curBookmarks.includes(line)) {
+          nextBookmarks = curBookmarks.filter((l) => l !== line);
+        } else {
+          nextBookmarks = [...curBookmarks, line].sort((a, b) => a - b);
+        }
+        useGraphStore.getState().setEditorBookmarks(filePath, nextBookmarks);
+        if (editor.getSelection()?.isEmpty()) {
+          const nextLine = nextBookmarks.find((l) => l > line) || nextBookmarks[0];
+          if (nextLine)
+            editor.revealLineInCenter(nextLine);
+        }
+      }
+    });
+    return () => action.dispose();
+  }, [editorCreated, filePath]);
+  useEffect41(() => {
+    if (!editorCreated || !editorRef.current)
+      return;
+    const ed = editorRef.current;
+    const monaco = window.monaco;
+    const actions2 = [
+      ed.addAction({
+        id: "open-in-catalog",
+        label: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435",
+        contextMenuGroupId: "navigation",
+        contextMenuOrder: 1,
+        precondition: "editorHasSelection",
+        run: (editor) => {
+          const selection = editor.getSelection();
+          const text = editor.getModel()?.getValueInRange(selection);
+          if (text && text.includes("/")) {
+            useGraphStore.getState().setEntityCatalogInitialFqid(text.trim());
+            useGraphStore.getState().setEntityCatalogOpen(true);
+          } else if (text) {
+            const fqid2 = `${domainId}/${text.trim()}`;
+            useGraphStore.getState().setEntityCatalogInitialFqid(fqid2);
+            useGraphStore.getState().setEntityCatalogOpen(true);
+          }
+        }
+      }),
+      ed.addAction({
+        id: "generate-for-entity",
+        label: "\u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0431\u043B\u043E\u043A\u0438 \u0434\u043B\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438",
+        contextMenuGroupId: "navigation",
+        contextMenuOrder: 2,
+        run: (editor) => {
+          const pos = editor.getPosition();
+          if (!pos || !lineMap)
+            return;
+          const ctx2 = lineMap.lineContexts.get(pos.lineNumber);
+          const entityCrumb = ctx2?.breadcrumbs.find((b) => b.type === "entity");
+          if (entityCrumb && domainId) {
+            useGraphStore.getState().setGenerateSchemaDomainId(domainId);
+            useGraphStore.getState().setGenerateSchemaEntityId(entityCrumb.id);
+            useGraphStore.getState().setGenerateSchemaOpen(true);
+          }
+        }
+      })
+    ];
+    return () => actions2.forEach((a) => a.dispose());
+  }, [editorCreated, domainId, lineMap]);
+  useEffect41(() => {
+    if (loading)
+      return;
+    if (fetchedContent === null || fetchedContent === void 0)
+      return;
+    if (backupRestoredRef.current) {
+      backupRestoredRef.current = false;
+      return;
+    }
+    setContent(fetchedContent);
+    setSavedContent(fetchedContent);
+  }, [loading, fetchedContent, filePath]);
   const canSave = !isLocked && isDirty;
   const yamlContentSource = useGraphStore((s) => s.yamlViewerContentSource);
   const canPublish = !isLocked && (isDirty || yamlContentSource === "draft");
@@ -51635,7 +51903,26 @@ ${publishInfo.hint}` : "";
                       title: mode === "remote" ? "\u0417\u0430\u043F\u0440\u0430\u0448\u0438\u0432\u0430\u0435\u043C \u0430\u043A\u0442\u0443\u0430\u043B\u044C\u043D\u0443\u044E \u0441\u0445\u0435\u043C\u0443 \u0441 \u0441\u0435\u0440\u0432\u0435\u0440\u0430" : "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0444\u0430\u0439\u043B\u0430",
                       children: mode === "remote" ? "\u25CF \u0437\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0441 \u0441\u0435\u0440\u0432\u0435\u0440\u0430\u2026" : "\u25CF \u0437\u0430\u0433\u0440\u0443\u0437\u043A\u0430\u2026"
                     }
-                  ) : saveFeedback ? /* @__PURE__ */ jsx80("span", { className: "help-modal__badge help-modal__badge--ok", children: "\u2713 \u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D" }) : isDirty ? /* @__PURE__ */ jsx80("span", { className: "help-modal__badge help-modal__badge--dirty", children: "\u25CF \u0438\u0437\u043C\u0435\u043D\u0451\u043D" }) : null,
+                  ) : saveFeedback ? /* @__PURE__ */ jsx80("span", { className: "help-modal__badge help-modal__badge--ok", children: "\u2713 \u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D" }) : null,
+                  isDirty ? /* @__PURE__ */ jsxs77(Fragment21, { children: [
+                    /* @__PURE__ */ jsx80("span", { className: "help-modal__badge help-modal__badge--dirty", children: "\u25CF \u0438\u0437\u043C\u0435\u043D\u0451\u043D" }),
+                    diffCount && /* @__PURE__ */ jsxs77("span", { className: "help-modal__badge", style: { fontFamily: "monospace", background: "var(--bg-750)" }, children: [
+                      /* @__PURE__ */ jsxs77("span", { style: { color: "var(--success)" }, children: [
+                        "+",
+                        diffCount.added
+                      ] }),
+                      " ",
+                      /* @__PURE__ */ jsxs77("span", { style: { color: "var(--danger)" }, children: [
+                        "-",
+                        diffCount.removed
+                      ] })
+                    ] })
+                  ] }) : null,
+                  staleIssueCount > 0 && /* @__PURE__ */ jsxs77("span", { className: "help-modal__badge help-modal__badge--warn", title: "\u041E\u0448\u0438\u0431\u043A\u0438 \u043C\u043E\u0433\u0443\u0442 \u0431\u044B\u0442\u044C \u043D\u0435\u0430\u043A\u0442\u0443\u0430\u043B\u044C\u043D\u044B. \u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u0435 \u0444\u0430\u0439\u043B \u0434\u043B\u044F \u043F\u0435\u0440\u0435\u0441\u0431\u043E\u0440\u043A\u0438.", children: [
+                    "\u26A0 ",
+                    staleIssueCount,
+                    " \u0443\u0441\u0442\u0430\u0440\u0435\u043B\u0438"
+                  ] }),
                   yamlMeta && (yamlMeta.publishedVersion || yamlMeta.updatedAt || yamlMeta.updatedBy) && /* @__PURE__ */ jsxs77(
                     "span",
                     {
@@ -52056,6 +52343,34 @@ ${publishInfo.hint}` : "";
                   }
                 )
               ] }),
+              open2 && /* @__PURE__ */ jsx80("div", { className: "yaml-viewer-tabs-bar", children: tabs.map((tab) => /* @__PURE__ */ jsxs77(
+                "div",
+                {
+                  className: `yaml-viewer-tab-item ${tab === filePath ? "active" : ""}`,
+                  onClick: () => {
+                    if (tab !== filePath) {
+                      if (isDirty && !confirm("\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u043D\u0435\u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D\u043D\u044B\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F?"))
+                        return;
+                      openFileInEditor(tab);
+                    }
+                  },
+                  children: [
+                    tab.split("/").pop()?.replace(".ro", ""),
+                    /* @__PURE__ */ jsx80("button", { onClick: (e) => {
+                      e.stopPropagation();
+                      removeTab(tab);
+                      if (tab === filePath) {
+                        const next = tabs.find((t) => t !== tab);
+                        if (next)
+                          openFileInEditor(next);
+                        else
+                          handleClose();
+                      }
+                    }, children: "\u2715" })
+                  ]
+                },
+                tab
+              )) }),
               counters && /* @__PURE__ */ jsxs77("div", { className: "yaml-viewer-info", children: [
                 /* @__PURE__ */ jsxs77("span", { className: "yaml-viewer-info__item", children: [
                   /* @__PURE__ */ jsx80("strong", { children: counters.entities }),
@@ -52174,15 +52489,26 @@ ${publishInfo.hint}` : "";
                               className: "yaml-viewer-nav__tab" + (navTab === "search" ? " active" : ""),
                               onClick: () => {
                                 setNavTab("search");
-                                setTimeout(
-                                  () => searchPanelRef.current?.focusInput(),
-                                  30
-                                );
+                                setTimeout(() => searchPanelRef.current?.focusInput(), 30);
                               },
                               children: [
                                 /* @__PURE__ */ jsx80(MIcon, { name: "search", size: "sm" }),
                                 "\u041F\u043E\u0438\u0441\u043A",
                                 searchResult && searchResult.totalMatches > 0 && /* @__PURE__ */ jsx80("span", { className: "yaml-viewer-nav__tab-badge", children: searchResult.totalMatches > 99 ? "99+" : searchResult.totalMatches })
+                              ]
+                            }
+                          ),
+                          /* @__PURE__ */ jsxs77(
+                            "button",
+                            {
+                              type: "button",
+                              className: "yaml-viewer-nav__tab" + (navTab === "bookmarks" ? " active" : ""),
+                              onClick: () => setNavTab("bookmarks"),
+                              title: "\u0417\u0430\u043A\u043B\u0430\u0434\u043A\u0438 (F2 \u043D\u0430 \u0441\u0442\u0440\u043E\u043A\u0435)",
+                              children: [
+                                /* @__PURE__ */ jsx80(MIcon, { name: "star", size: "sm", fill: fileBookmarks.length > 0 }),
+                                "\u0417\u0430\u043A\u043B\u0430\u0434\u043A\u0438",
+                                fileBookmarks.length > 0 && /* @__PURE__ */ jsx80("span", { className: "yaml-viewer-nav__tab-badge", children: fileBookmarks.length })
                               ]
                             }
                           )
@@ -52311,6 +52637,70 @@ ${publishInfo.hint}` : "";
                                 onJump: (line) => jumpTo(line, { focus: false })
                               }
                             )
+                          }
+                        ),
+                        /* @__PURE__ */ jsxs77(
+                          "div",
+                          {
+                            className: "yaml-viewer-nav__pane",
+                            style: navTab === "bookmarks" ? void 0 : { display: "none" },
+                            children: [
+                              /* @__PURE__ */ jsxs77("div", { className: "yaml-viewer-nav__header", children: [
+                                /* @__PURE__ */ jsx80("span", { children: "\u0417\u0430\u043A\u043B\u0430\u0434\u043A\u0438" }),
+                                /* @__PURE__ */ jsx80("span", { className: "yaml-viewer-nav__count", children: fileBookmarks.length }),
+                                fileBookmarks.length > 0 && /* @__PURE__ */ jsx80("div", { className: "yaml-viewer-nav__actions", children: /* @__PURE__ */ jsx80(
+                                  "button",
+                                  {
+                                    className: "yaml-viewer-nav__action",
+                                    onClick: () => {
+                                      if (confirm("\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0432\u0441\u0435 \u0437\u0430\u043A\u043B\u0430\u0434\u043A\u0438 \u0432 \u044D\u0442\u043E\u043C \u0444\u0430\u0439\u043B\u0435?")) {
+                                        setEditorBookmarks(filePath, []);
+                                      }
+                                    },
+                                    title: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0432\u0441\u0435 \u0437\u0430\u043A\u043B\u0430\u0434\u043A\u0438",
+                                    children: /* @__PURE__ */ jsx80(MIcon, { name: "delete_sweep", size: "sm" })
+                                  }
+                                ) })
+                              ] }),
+                              /* @__PURE__ */ jsx80("div", { className: "yaml-viewer-nav__list", children: bookmarkDetails.length === 0 ? /* @__PURE__ */ jsxs77("div", { className: "yaml-viewer-bookmarks-empty", children: [
+                                /* @__PURE__ */ jsx80(MIcon, { name: "star_border", size: "lg" }),
+                                /* @__PURE__ */ jsx80("div", { className: "yaml-viewer-bookmarks-empty__title", children: "\u041D\u0435\u0442 \u0437\u0430\u043A\u043B\u0430\u0434\u043E\u043A" }),
+                                /* @__PURE__ */ jsxs77("div", { className: "yaml-viewer-bookmarks-empty__hint", children: [
+                                  "\u041F\u043E\u0441\u0442\u0430\u0432\u044C\u0442\u0435 \u043A\u0443\u0440\u0441\u043E\u0440 \u043D\u0430 \u043D\u0443\u0436\u043D\u0443\u044E \u0441\u0442\u0440\u043E\u043A\u0443 \u0438 \u043D\u0430\u0436\u043C\u0438\u0442\u0435 ",
+                                  /* @__PURE__ */ jsx80("kbd", { children: "F2" }),
+                                  ", \u0447\u0442\u043E\u0431\u044B \u0437\u0430\u043A\u0440\u0435\u043F\u0438\u0442\u044C \u043C\u0435\u0441\u0442\u043E."
+                                ] })
+                              ] }) : /* @__PURE__ */ jsx80("div", { className: "yaml-viewer-bookmarks-list", children: bookmarkDetails.map((b) => /* @__PURE__ */ jsxs77(
+                                "div",
+                                {
+                                  className: "yaml-viewer-bookmark",
+                                  onClick: () => {
+                                    jumpTo(b.line, { focus: false });
+                                  },
+                                  title: `\u0421\u0442\u0440\u043E\u043A\u0430 ${b.line}: ${b.raw.trim() || "(\u043F\u0443\u0441\u0442\u0430\u044F \u0441\u0442\u0440\u043E\u043A\u0430)"}`,
+                                  children: [
+                                    /* @__PURE__ */ jsx80("span", { className: "yaml-viewer-bookmark__line", children: b.line }),
+                                    /* @__PURE__ */ jsx80("span", { className: "yaml-viewer-bookmark__text", children: b.text || /* @__PURE__ */ jsx80("span", { className: "yaml-viewer-bookmark__empty", children: "\u043F\u0443\u0441\u0442\u0430\u044F \u0441\u0442\u0440\u043E\u043A\u0430" }) }),
+                                    /* @__PURE__ */ jsx80(
+                                      "button",
+                                      {
+                                        className: "yaml-viewer-bookmark__delete",
+                                        onClick: (e) => {
+                                          e.stopPropagation();
+                                          const next = fileBookmarks.filter(
+                                            (l) => l !== b.line
+                                          );
+                                          setEditorBookmarks(filePath, next);
+                                        },
+                                        title: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0437\u0430\u043A\u043B\u0430\u0434\u043A\u0443",
+                                        children: /* @__PURE__ */ jsx80(MIcon, { name: "close", size: "sm" })
+                                      }
+                                    )
+                                  ]
+                                },
+                                b.line
+                              )) }) })
+                            ]
                           }
                         )
                       ] })
@@ -54632,7 +55022,7 @@ function targetLabel(target) {
   };
   return labels[target.type || ""] || "\u044D\u043B\u0435\u043C\u0435\u043D\u0442";
 }
-var BACKLINK_KIND_LABELS;
+var normalizeEol, BACKLINK_KIND_LABELS;
 var init_YamlViewerModal = __esm({
   "src/web/components/modals/YamlViewerModal.tsx"() {
     "use strict";
@@ -54661,6 +55051,10 @@ var init_YamlViewerModal = __esm({
     init_unused_analysis();
     init_YamlQuickJump();
     init_Hint();
+    init_open_file();
+    init_diff_lines();
+    init_util_hash();
+    normalizeEol = (s) => s.replace(/\r\n/g, "\n");
     BACKLINK_KIND_LABELS = {
       inheritance: "\u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435",
       reference: "reference",
@@ -54761,27 +55155,6 @@ var init_useGenerateSchema = __esm({
     "use strict";
     init_useGraphStore();
     init_scope();
-  }
-});
-
-// src/core/analyzer/schema-generator/util-hash.ts
-function hashPayload(payload) {
-  let str2;
-  try {
-    str2 = JSON.stringify(payload);
-  } catch {
-    str2 = "";
-  }
-  let h = 2166136261;
-  for (let i = 0; i < str2.length; i++) {
-    h ^= str2.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return (h >>> 0).toString(16);
-}
-var init_util_hash = __esm({
-  "src/core/analyzer/schema-generator/util-hash.ts"() {
-    "use strict";
   }
 });
 

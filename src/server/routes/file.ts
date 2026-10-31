@@ -21,7 +21,6 @@ import type {
   DomainPublishInfo,
 } from "../../shared/types";
 
-
 // ============ GET /file?path=... ============
 
 export function handleFileRequest(
@@ -31,6 +30,8 @@ export function handleFileRequest(
 ): void {
   const url = new URL(req.url!, "http://localhost");
   const filePath = url.searchParams.get("path");
+  const isStat = url.searchParams.get("stat") === "1";
+
   if (!filePath) {
     res.writeHead(400);
     res.end("Missing path");
@@ -45,6 +46,18 @@ export function handleFileRequest(
   ) {
     res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
     res.end("Path outside root");
+    return;
+  }
+
+  if (isStat) {
+    try {
+      const stat = fs.statSync(resolved);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ mtime: stat.mtimeMs }));
+    } catch (e) {
+      res.writeHead(404);
+      res.end(JSON.stringify({ error: "File not found" }));
+    }
     return;
   }
 
@@ -491,27 +504,27 @@ export async function handleFileFresh(
     return;
   }
 
-    const headers: Record<string, string> = {
-      "Content-Type": "text/plain; charset=utf-8",
-      "Cache-Control": "no-cache",
-      "X-Content-Source": fetched.fromDraft ? "draft" : "published",
-    };
-    if (fetched.meta.publishedVersion) {
-      headers["X-Published-Version"] = fetched.meta.publishedVersion;
+  const headers: Record<string, string> = {
+    "Content-Type": "text/plain; charset=utf-8",
+    "Cache-Control": "no-cache",
+    "X-Content-Source": fetched.fromDraft ? "draft" : "published",
+  };
+  if (fetched.meta.publishedVersion) {
+    headers["X-Published-Version"] = fetched.meta.publishedVersion;
+  }
+  if (fetched.meta.updatedAt) {
+    headers["X-Updated-At"] = fetched.meta.updatedAt;
+  }
+  if (fetched.meta.updatedBy) {
+    // http-заголовки требуют ASCII. Кириллица в displayName — encodeURIComponent.
+    try {
+      headers["X-Updated-By"] = encodeURIComponent(fetched.meta.updatedBy);
+    } catch {
+      /* ignore */
     }
-    if (fetched.meta.updatedAt) {
-      headers["X-Updated-At"] = fetched.meta.updatedAt;
-    }
-    if (fetched.meta.updatedBy) {
-      // http-заголовки требуют ASCII. Кириллица в displayName — encodeURIComponent.
-      try {
-        headers["X-Updated-By"] = encodeURIComponent(fetched.meta.updatedBy);
-      } catch {
-        /* ignore */
-      }
-    }
-    res.writeHead(200, headers);
-    res.end(fetched.source);
+  }
+  res.writeHead(200, headers);
+  res.end(fetched.source);
 }
 
 // ============ GET /file/published?path=... ============
@@ -547,37 +560,37 @@ export async function handleFilePublished(
     return;
   }
 
-    let fetched: ExpertisePublishedResult;
-    try {
-      fetched = await withTokenRefresh(credentials, (t) =>
-        apiFetchExpertisePublished(
-          credentials.apiUrl,
-          t,
-          credentials.tenantId,
-          info.id,
-          credentials.secure,
-        ),
-      );
-    } catch (e: any) {
-      res.writeHead(502, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: e.message }));
-      return;
-    }
+  let fetched: ExpertisePublishedResult;
+  try {
+    fetched = await withTokenRefresh(credentials, (t) =>
+      apiFetchExpertisePublished(
+        credentials.apiUrl,
+        t,
+        credentials.tenantId,
+        info.id,
+        credentials.secure,
+      ),
+    );
+  } catch (e: any) {
+    res.writeHead(502, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: e.message }));
+    return;
+  }
 
-    if (!fetched.source || typeof fetched.source !== "string") {
-      res.writeHead(502, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "Пустой sourceCode от сервера" }));
-      return;
-    }
+  if (!fetched.source || typeof fetched.source !== "string") {
+    res.writeHead(502, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Пустой sourceCode от сервера" }));
+    return;
+  }
 
-    const headers: Record<string, string> = {
-      "Content-Type": "text/plain; charset=utf-8",
-      "Cache-Control": "no-cache",
-      "X-Content-Source": "published",
-    };
-    if (fetched.meta.publishedVersion) {
-      headers["X-Published-Version"] = fetched.meta.publishedVersion;
-    }
-    res.writeHead(200, headers);
-    res.end(fetched.source);
+  const headers: Record<string, string> = {
+    "Content-Type": "text/plain; charset=utf-8",
+    "Cache-Control": "no-cache",
+    "X-Content-Source": "published",
+  };
+  if (fetched.meta.publishedVersion) {
+    headers["X-Published-Version"] = fetched.meta.publishedVersion;
+  }
+  res.writeHead(200, headers);
+  res.end(fetched.source);
 }

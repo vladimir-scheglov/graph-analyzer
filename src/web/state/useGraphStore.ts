@@ -469,6 +469,14 @@ export interface GraphState {
   setCheatsheetInitialSection: (id: string | null) => void;
   generateSchemaPrefillProfile: string | null;
   setGenerateSchemaPrefillProfile: (p: string | null) => void;
+
+  editorTabs: string[];
+  addEditorTab: (path: string) => void;
+  removeEditorTab: (path: string) => void;
+  clearEditorTabs: () => void;
+
+  editorBookmarks: Record<string, number[]>;
+  setEditorBookmarks: (filePath: string, lines: number[]) => void;
 }
 
 // ============ Хелперы для чтения localStorage ============
@@ -1044,6 +1052,28 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   generateSchemaPrefillProfile: null,
   setGenerateSchemaPrefillProfile: (p) =>
     set({ generateSchemaPrefillProfile: p }),
+
+  editorTabs: [],
+  addEditorTab: (path) =>
+    set((s) => {
+      if (!s.editorTabs.includes(path)) {
+        return { editorTabs: [...s.editorTabs, path] };
+      }
+      return s;
+    }),
+  removeEditorTab: (path) =>
+    set((s) => ({
+      editorTabs: s.editorTabs.filter((p) => p !== path),
+    })),
+  clearEditorTabs: () => set({ editorTabs: [] }),
+
+  editorBookmarks: JSON.parse(localStorage.getItem("dg-yaml-editor-bookmarks") || "{}"),
+  setEditorBookmarks: (filePath, lines) =>
+    set((s) => {
+      const next = { ...s.editorBookmarks, [filePath]: lines };
+      localStorage.setItem("dg-yaml-editor-bookmarks", JSON.stringify(next));
+      return { editorBookmarks: next };
+    }),
 
   // Сброс всего
   resetAll: () =>

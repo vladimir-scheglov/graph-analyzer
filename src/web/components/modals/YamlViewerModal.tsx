@@ -52,8 +52,12 @@ import type { YamlExpertiseMeta } from '../../hooks/useYamlContent';
 import { computeUnusedInYaml, UnusedAnalysis } from '../../lib/yaml/unused-analysis';
 import { YamlQuickJump } from "./YamlQuickJump";
 import { Hint, HINTS } from '../common/Hint';
+import { openFileInEditor } from '../../lib/open-file';
+import { getLineDiff } from '../../lib/diff-lines';
+import { hashPayload } from '../../../core/analyzer/schema-generator/util-hash';
 
 type RightTab = 'issues' | 'refs' | 'backlinks' | 'server';
+type NavTab = "navigation" | "search" | "bookmarks";
 type DiffAgainst = "previous" | "published" | null;
 
 /**
@@ -105,6 +109,8 @@ function replaceTopLevelVersion(text: string, newVersion: string): string {
     return text;
 }
 
+const normalizeEol = (s: string) => s.replace(/\r\n/g, "\n");
+
 export function YamlViewerModal() {
     const { index } = useModelIndex();
     const { ready: monacoReady, error: monacoError } = useMonacoLoader();
@@ -119,6 +125,8 @@ export function YamlViewerModal() {
     const setPendingBlock = useGraphStore((s) => s.setYamlViewerPendingBlock);
     const yamlQuickNavEnabled = useGraphStore((s) => s.yamlQuickNavEnabled);
     const setYamlQuickNavEnabled = useGraphStore((s) => s.setYamlQuickNavEnabled);
+    const [lastKnownMtime, setLastKnownMtime] = useState<number>(0);
+    const [lastEditAt, setLastEditAt] = useState<number | null>(null);
 
     const remoteInfo = useMemo(() => readRemoteInfo(), []);
     const mode: "local" | "hybrid" | "remote" = !remoteInfo?.server
@@ -311,10 +319,43 @@ export function YamlViewerModal() {
     // При загрузке файла — сбросить оба
     useEffect(() => {
         if (loading) return;
-        if (fetchedContent === null || fetchedContent === undefined) return;
-        setContent(fetchedContent);
+        if (fetchedContent == null) return;
+
+        // 1. Автосохранение (пункт 1)
+        const backupKey = `dg-yaml-backup:${filePath}`;
+        const backupStr = sessionStorage.getItem(backupKey);
+        let contentToSet = fetchedContent;
+
+        if (backupStr) {
+            try {
+                const backup = JSON.parse(backupStr);
+                // Проверяем, что файл на диске не менялся с момента бэкапа
+                if (backup.savedContentHash === fetchedContent.length /* условно хэш */) {
+                    if (confirm(`Найдены несохранённые правки от ${new Date(backup.savedAt).toLocaleTimeString()}. Восстановить?`)) {
+                        contentToSet = backup.content;
+                    } else {
+                        sessionStorage.removeItem(backupKey);
+                    }
+                }
+            } catch { }
+        }
+
+        setContent(contentToSet);
         setSavedContent(fetchedContent);
+
+        // 2. Запоминаем mtime для проверки конфликтов (пункт 2)
+        fetch(`/file?path=${encodeURIComponent(filePath || "")}&stat=1`)
+            .then(r => r.json())
+            .then(d => setLastKnownMtime(d.mtime))
+            .catch(() => { });
+
     }, [loading, fetchedContent, filePath]);
+
+    const backupRestoredRef = useRef(false);
+    const savedContentRef = useRef(savedContent);
+    useEffect(() => {
+        savedContentRef.current = savedContent;
+    }, [savedContent]);
 
     // Слушаем правки в редакторе → debounce → setContent
     useEffect(() => {
@@ -333,21 +374,35 @@ export function YamlViewerModal() {
                 setYamlSyntaxIssue(null);
             }
 
-
             // Авто-разблокировка при редактировании (в т.ч. Quick Fix)
             if (isLockedRef.current) {
                 setIsLocked(false);
                 useGraphStore.getState().showSnackbar("Файл автоматически разблокирован для применения изменений");
             }
 
+            setLastEditAt(Date.now());
             clearTimeout(liveDebounce.current);
             liveDebounce.current = setTimeout(() => {
                 if (editorRef.current) {
-                    // skipNextEffect больше не нужен
-                    setContent(editorRef.current.getValue());
+                    const val = editorRef.current.getValue();
+                    setContent(val);
                     setLiveVersion((v) => v + 1);
+
+                    // ─── АВТОСОХРАНЕНИЕ ───
+                    if (filePath) {
+                        const currentSaved = savedContentRef.current;
+                        if (normalizeEol(val) !== normalizeEol(currentSaved)) {
+                            sessionStorage.setItem(`dg-yaml-backup:${filePath}`, JSON.stringify({
+                                content: val,
+                                savedContentHash: hashPayload(normalizeEol(currentSaved)),
+                                savedAt: Date.now()
+                            }));
+                        } else {
+                            sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
+                        }
+                    }
                 }
-            }, 300);
+            }, 500); 
         };
 
         const sub = editorRef.current.onDidChangeModelContent(handler);
@@ -355,14 +410,14 @@ export function YamlViewerModal() {
             clearTimeout(liveDebounce.current);
             try { sub?.dispose?.(); } catch { }
         };
-    }, [editorCreated]);
+    }, [editorCreated, filePath]);
 
     // ============ UI state ============
     const [rightTab, setRightTab] = useState<RightTab>('issues');
     const [showHelp, setShowHelp] = useState(false);
     const [isLocked, setIsLocked] = useState(true);
     const [onlyProblematic, setOnlyProblematic] = useState(false);
-    const isDirty = content !== savedContent;
+    const isDirty = normalizeEol(content) !== normalizeEol(savedContent);
     const [isSaving, setIsSaving] = useState(false);
     const [saveError, setSaveError] = useState<string | null>(null);
     const [saveStage, setSaveStage] = useState<"idle" | "writing" | "publishing">("idle");
@@ -388,7 +443,7 @@ export function YamlViewerModal() {
     } | null>(null);
     const [serverValidating, setServerValidating] = useState(false);
     const [serverAvailable, setServerAvailable] = useState(false);
-    const [navTab, setNavTab] = useState<"navigation" | "search">("navigation");
+    const [navTab, setNavTab] = useState<NavTab>("navigation");
     const [searchQuery, setSearchQuery] = useState("");
     const [searchOptions, setSearchOptions] =
         useState<SearchOptions>(DEFAULT_SEARCH_OPTIONS);
@@ -420,6 +475,14 @@ export function YamlViewerModal() {
     const focusDecorationsRef = useRef<any>(null);
     const saveAbortRef = useRef<AbortController | null>(null);
     const editorTopLineRef = useRef(1);
+
+    const tabs = useGraphStore((s) => s.editorTabs);
+    const addTab = useGraphStore((s) => s.addEditorTab);
+    const removeTab = useGraphStore((s) => s.removeEditorTab);
+
+    useEffect(() => {
+        if (open && filePath) addTab(filePath);
+    }, [open, filePath, addTab]);
 
     const setYamlViewerLocked = useGraphStore((s) => s.setYamlViewerLocked);
 
@@ -846,6 +909,32 @@ export function YamlViewerModal() {
         return result;
     }, [lineMap, expandedNodes, entityIssuesMap, attrIssuesMap]);
 
+    // Получаем закладки для текущего файла
+    const fileBookmarks = useGraphStore(
+        (s) => (s.editorBookmarks || {})[filePath!] || [],
+    );
+    const setEditorBookmarks = useGraphStore((s) => s.setEditorBookmarks);
+
+    // Формируем список с текстом
+    const bookmarkDetails = useMemo(() => {
+        if (!fileBookmarks || fileBookmarks.length === 0) return [];
+
+        // Берем актуальный текст строк из Monaco
+        const model = editorRef.current?.getModel();
+        const lines = content.split("\n");
+
+        return fileBookmarks.map((lineNum) => {
+            const raw = model ? model.getLineContent(lineNum) : (lines[lineNum - 1] || "");
+            const trimmed = raw.trim();
+            return {
+                line: lineNum,
+                text: trimmed.slice(0, 80) + (trimmed.length > 80 ? "…" : ""),
+                indent: raw.length - raw.trimStart().length,
+                raw: raw // на случай если понадобится полный текст
+            };
+        });
+    }, [fileBookmarks, content, editorCreated]);
+
     const filteredNavNodes = useMemo(() => {
         let result = flatNavNodes;
         if (onlyProblematic) {
@@ -870,6 +959,40 @@ export function YamlViewerModal() {
 
         const m = (window as any).monaco;
         if (!m || !m.editor) return;
+
+        // ─── ВОССТАНОВЛЕНИЕ ИЗ БЭКАПА ───
+        let initialContent = fetchedContent;
+        let restoredFromBackup = false;
+        const backupKey = `dg-yaml-backup:${filePath}`;
+        const backupStr = sessionStorage.getItem(backupKey);
+
+        if (backupStr) {
+            try {
+                const backup = JSON.parse(backupStr);
+                const currentHash = hashPayload(normalizeEol(fetchedContent));
+
+                if (backup.savedContentHash === currentHash) {
+                    if (window.confirm(`Найдены несохранённые правки от ${new Date(backup.savedAt).toLocaleTimeString()}. Восстановить?`)) {
+                        initialContent = backup.content;
+                        restoredFromBackup = true;
+                        backupRestoredRef.current = true;
+                    } else {
+                        sessionStorage.removeItem(backupKey);
+                    }
+                } else {
+                    // Файл на диске изменился с момента бэкапа (например, git pull)
+                    sessionStorage.removeItem(backupKey);
+                }
+            } catch {
+                sessionStorage.removeItem(backupKey);
+            }
+        }
+
+        // Если восстанавливаем бэкап, принудительно переводим в режим редактирования!
+        if (restoredFromBackup) {
+            setIsLocked(false);
+            isLockedRef.current = false;
+        }
 
         try {
             registerMonacoProviders(m);
@@ -928,8 +1051,10 @@ export function YamlViewerModal() {
         let suggestTimer: ReturnType<typeof setTimeout> | null = null;
 
         try {
+            isProgrammaticChange.current = true;
+
             editor = m.editor.create(containerRef.current, {
-                value: fetchedContent,
+                value: initialContent,
                 language: 'yaml',
                 theme: monacoTheme,
                 readOnly: false,
@@ -982,6 +1107,7 @@ export function YamlViewerModal() {
                 } as any, // Приводим к any, чтобы не реализовывать все методы интерфейса
             });
             editorRef.current = editor;
+            isProgrammaticChange.current = false; 
             setTimeout(() => {
                 const suggestController = editor.getContribution('editor.contrib.suggestController');
                 if (suggestController && suggestController.widget) {
@@ -991,9 +1117,15 @@ export function YamlViewerModal() {
                     }
                 }
             }, 50);
-            setContent(fetchedContent);
+            setContent(initialContent);
             setSavedContent(fetchedContent);
             setEditorCreated(true);
+
+            if (restoredFromBackup) {
+                useGraphStore.getState().setYamlViewerDirty(true);
+                // Обновляем стейт, чтобы UI показал "● изменён"
+                setLiveVersion((v) => v + 1);
+            }
 
             // Хелпер: открыт ли suggest widget. DOM-проверка надёжнее Monaco-API —
             // работает во всех версиях.
@@ -1060,6 +1192,7 @@ export function YamlViewerModal() {
                     'PageUp', 'PageDown', 'Home', 'End',
                     'Escape', 'Tab',
                     'Shift', 'Control', 'Alt', 'Meta',
+                    'F2'
                 ];
                 if (navKeys.includes(e.browserEvent.key)) return;
 
@@ -1177,16 +1310,6 @@ export function YamlViewerModal() {
                 );
             });
 
-            setTimeout(() => {
-                if (!editorRef.current) return;
-                try {
-                    if (isLocked) {
-                        editorRef.current.updateOptions({ readOnly: false });
-                        editorRef.current.updateOptions({ readOnly: true });
-                    }
-                } catch { }
-            }, 500);
-
             layouts.push(setTimeout(() => { try { editor?.layout(); } catch { } }, 0));
             layouts.push(setTimeout(() => { try { editor?.layout(); } catch { } }, 100));
             layouts.push(setTimeout(() => { try { editor?.layout(); } catch { } }, 350));
@@ -1202,6 +1325,7 @@ export function YamlViewerModal() {
                 ro.observe(containerRef.current);
             }
         } catch (e) {
+            isProgrammaticChange.current = false;
             console.error('[yaml-viewer] create failed', e);
         }
 
@@ -2343,14 +2467,31 @@ export function YamlViewerModal() {
                     isProgrammaticChange.current = false;
                 }
                 setContent(savedContent);
+
+                // ─── УДАЛЯЕМ БЭКАП ───
+                if (filePath) {
+                    sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
+                }
             }
             setIsLocked(true);
         }
-    }, [isLocked, isDirty, savedContent]);
+    }, [isLocked, isDirty, savedContent, filePath]);
 
     // ============ Save ============
     const handleSave = useCallback(async () => {
         if (isLocked || isSaving || !editorRef.current) return;
+
+        // Проверка конфликта
+        try {
+            const statRes = await fetch(`/file?path=${encodeURIComponent(filePath || "")}&stat=1`);
+            if (statRes.ok) {
+                const { mtime } = await statRes.json();
+                if (lastKnownMtime > 0 && mtime > lastKnownMtime) {
+                    const ok = confirm("Файл был изменён вне этого редактора. Продолжить сохранение и перезаписать?");
+                    if (!ok) return;
+                }
+            }
+        } catch { }
 
         const valueToSave = editorRef.current.getValue();
         if (valueToSave === savedContent) {
@@ -2402,6 +2543,7 @@ export function YamlViewerModal() {
             setSavedContent(valueToSave);
             setContent(valueToSave);
             setLiveVersion((v) => v + 1);
+            sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
 
             if (pendingManifest) {
                 useGraphStore.getState().setYamlViewerPendingManifest(null);
@@ -2483,6 +2625,7 @@ export function YamlViewerModal() {
             saveAbortRef.current = null;
             setIsSaving(false);
             setSaveStage("idle");
+            sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
         }
     }, [isLocked, savedContent, filePath, mode, isSaving]);
 
@@ -2561,6 +2704,7 @@ export function YamlViewerModal() {
             setSavedContent(valueToSave);
             setContent(valueToSave);
             setLiveVersion((v) => v + 1);
+            sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
 
             if (pendingManifest) {
                 useGraphStore.getState().setYamlViewerPendingManifest(null);
@@ -2737,27 +2881,19 @@ export function YamlViewerModal() {
         }
 
         if (isSaving) {
-            if (
-                !confirm(
-                    "Идёт сохранение. Прервать и закрыть без сохранения?",
-                )
-            )
-                return;
-            try {
-                saveAbortRef.current?.abort();
-            } catch {
-                /* ignore */
-            }
+            if (!confirm("Идёт сохранение. Прервать и закрыть без сохранения?")) return;
+            try { saveAbortRef.current?.abort(); } catch { }
         } else if (isDirty && !isLocked) {
-            if (
-                !confirm(
-                    "Есть несохранённые изменения. Закрыть без сохранения?",
-                )
-            )
-                return;
+            if (!confirm("Есть несохранённые изменения. Закрыть без сохранения?")) return;
+
+            // ─── УДАЛЯЕМ БЭКАП ───
+            if (filePath) {
+                sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
+            }
         }
+
         useGraphStore.getState().setYamlViewerOpen(false);
-    }, [isDirty, isLocked, isSaving]);
+    }, [isDirty, isLocked, isSaving, filePath]);
 
     // ============ Keyboard nav ============
     useEffect(() => {
@@ -3486,6 +3622,112 @@ export function YamlViewerModal() {
         return () => clearTimeout(t);
     }, [open, pendingBlock, editorCreated, loading, jumpTo, setPendingBlock]);
 
+    const diffCount = useMemo(() => {
+        if (!isDirty || !savedContent) return null;
+        return getLineDiff(savedContent, content);
+    }, [isDirty, savedContent, content]);
+
+    useEffect(() => {
+        if (!editorCreated || !editorRef.current || !filePath) return;
+        const ed = editorRef.current;
+        const monaco = (window as any).monaco;
+
+        const action = ed.addAction({
+            id: 'toggle-bookmark',
+            label: 'Переключить закладку',
+            keybindings: [monaco.KeyCode.F2],
+            // ⚠️ ВАЖНО: отключает проверку "редактор доступен для записи"
+            precondition: undefined,
+            run: (editor) => {
+                const pos = editor.getPosition();
+                if (!pos) return;
+                const line = pos.lineNumber;
+
+                // Используем editorBookmarks из стора
+                const curBookmarks = useGraphStore.getState().editorBookmarks[filePath] || [];
+
+                let nextBookmarks;
+                if (curBookmarks.includes(line)) {
+                    nextBookmarks = curBookmarks.filter(l => l !== line);
+                } else {
+                    nextBookmarks = [...curBookmarks, line].sort((a, b) => a - b);
+                }
+                useGraphStore.getState().setEditorBookmarks(filePath, nextBookmarks);
+
+                // Если нажали F2 без выделения, прыгаем к следующей закладке
+                if (editor.getSelection()?.isEmpty()) {
+                    const nextLine = nextBookmarks.find(l => l > line) || nextBookmarks[0];
+                    if (nextLine) editor.revealLineInCenter(nextLine);
+                }
+            }
+        });
+        return () => action.dispose();
+    }, [editorCreated, filePath]);
+
+    useEffect(() => {
+        if (!editorCreated || !editorRef.current) return;
+        const ed = editorRef.current;
+        const monaco = (window as any).monaco;
+
+        const actions = [
+            ed.addAction({
+                id: 'open-in-catalog',
+                label: 'Открыть сущность в каталоге',
+                contextMenuGroupId: 'navigation',
+                contextMenuOrder: 1,
+                precondition: 'editorHasSelection',
+                run: (editor) => {
+                    const selection = editor.getSelection();
+                    const text = editor.getModel()?.getValueInRange(selection);
+                    if (text && text.includes("/")) {
+                        // Если выделен FQID (domain/Entity)
+                        useGraphStore.getState().setEntityCatalogInitialFqid(text.trim());
+                        useGraphStore.getState().setEntityCatalogOpen(true);
+                    } else if (text) {
+                        // Если выделен просто EntityId, ищем в текущем домене
+                        const fqid = `${domainId}/${text.trim()}`;
+                        useGraphStore.getState().setEntityCatalogInitialFqid(fqid);
+                        useGraphStore.getState().setEntityCatalogOpen(true);
+                    }
+                }
+            }),
+            ed.addAction({
+                id: 'generate-for-entity',
+                label: 'Сгенерировать блоки для сущности',
+                contextMenuGroupId: 'navigation',
+                contextMenuOrder: 2,
+                run: (editor) => {
+                    // Определить сущность по курсору
+                    const pos = editor.getPosition();
+                    if (!pos || !lineMap) return;
+                    const ctx = lineMap.lineContexts.get(pos.lineNumber);
+                    const entityCrumb = ctx?.breadcrumbs.find(b => b.type === "entity");
+                    if (entityCrumb && domainId) {
+                        useGraphStore.getState().setGenerateSchemaDomainId(domainId);
+                        useGraphStore.getState().setGenerateSchemaEntityId(entityCrumb.id);
+                        useGraphStore.getState().setGenerateSchemaOpen(true);
+                    }
+                }
+            })
+        ];
+
+        return () => actions.forEach(a => a.dispose());
+    }, [editorCreated, domainId, lineMap]);
+
+    useEffect(() => {
+        if (loading) return;
+        if (fetchedContent === null || fetchedContent === undefined) return;
+
+        // Если мы только что восстановили бэкап, НЕ затираем состояние диском
+        if (backupRestoredRef.current) {
+            backupRestoredRef.current = false;
+            return;
+        }
+
+        setContent(fetchedContent);
+        setSavedContent(fetchedContent);
+    }, [loading, fetchedContent, filePath]);
+
 
     const canSave = !isLocked && isDirty;
 
@@ -3631,11 +3873,29 @@ export function YamlViewerModal() {
                             <span className="help-modal__badge help-modal__badge--ok">
                                 ✓ сохранён
                             </span>
-                        ) : isDirty ? (
-                            <span className="help-modal__badge help-modal__badge--dirty">
-                                ● изменён
-                            </span>
                         ) : null}
+
+                        {isDirty ? (
+                            <>
+                                <span className="help-modal__badge help-modal__badge--dirty">
+                                    ● изменён
+                                </span>
+                                {/* Пункт 5: Diff-счётчик */}
+                                {diffCount && (
+                                    <span className="help-modal__badge" style={{ fontFamily: "monospace", background: "var(--bg-750)" }}>
+                                        <span style={{ color: "var(--success)" }}>+{diffCount.added}</span>{" "}
+                                        <span style={{ color: "var(--danger)" }}>-{diffCount.removed}</span>
+                                    </span>
+                                )}
+                            </>
+                        ) : null}
+
+                        {/* Пункт 14: Устаревшие ошибки */}
+                        {staleIssueCount > 0 && (
+                            <span className="help-modal__badge help-modal__badge--warn" title="Ошибки могут быть неактуальны. Сохраните файл для пересборки.">
+                                ⚠ {staleIssueCount} устарели
+                            </span>
+                        )}
 
                         {/* Meta-строка: версия (draft), время, автор */}
                         {yamlMeta && (yamlMeta.publishedVersion || yamlMeta.updatedAt || yamlMeta.updatedBy) && (
@@ -4173,6 +4433,35 @@ export function YamlViewerModal() {
                     </div>
                 </div>
 
+                {open && (
+                    <div className="yaml-viewer-tabs-bar">
+                        {tabs.map(tab => (
+                            <div
+                                key={tab}
+                                className={`yaml-viewer-tab-item ${tab === filePath ? 'active' : ''}`}
+                                onClick={() => {
+                                    if (tab !== filePath) {
+                                        if (isDirty && !confirm("Сбросить несохранённые изменения?")) return;
+                                        openFileInEditor(tab);
+                                    }
+                                }}
+                            >
+                                {tab.split('/').pop()?.replace('.ro', '')}
+                                <button onClick={(e) => {
+                                    e.stopPropagation();
+                                    removeTab(tab);
+                                    if (tab === filePath) {
+                                        // Открыть другой файл или закрыть модалку
+                                        const next = tabs.find(t => t !== tab);
+                                        if (next) openFileInEditor(next);
+                                        else handleClose();
+                                    }
+                                }}>✕</button>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
                 {/* Счётчики домена */}
                 {counters && (
                     <div className="yaml-viewer-info">
@@ -4300,19 +4589,31 @@ export function YamlViewerModal() {
                                         }
                                         onClick={() => {
                                             setNavTab("search");
-                                            setTimeout(
-                                                () => searchPanelRef.current?.focusInput(),
-                                                30,
-                                            );
+                                            setTimeout(() => searchPanelRef.current?.focusInput(), 30);
                                         }}
                                     >
                                         <MIcon name="search" size="sm" />
                                         Поиск
                                         {searchResult && searchResult.totalMatches > 0 && (
                                             <span className="yaml-viewer-nav__tab-badge">
-                                                {searchResult.totalMatches > 99
-                                                    ? "99+"
-                                                    : searchResult.totalMatches}
+                                                {searchResult.totalMatches > 99 ? "99+" : searchResult.totalMatches}
+                                            </span>
+                                        )}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className={
+                                            "yaml-viewer-nav__tab" +
+                                            (navTab === "bookmarks" ? " active" : "")
+                                        }
+                                        onClick={() => setNavTab("bookmarks")}
+                                        title="Закладки (F2 на строке)"
+                                    >
+                                        <MIcon name="star" size="sm" fill={fileBookmarks.length > 0} />
+                                        Закладки
+                                        {fileBookmarks.length > 0 && (
+                                            <span className="yaml-viewer-nav__tab-badge">
+                                                {fileBookmarks.length}
                                             </span>
                                         )}
                                     </button>
@@ -4431,6 +4732,80 @@ export function YamlViewerModal() {
                                         onEscape={() => setNavTab("navigation")}
                                         onJump={(line) => jumpTo(line, { focus: false })}
                                     />
+                                </div>
+
+                                <div
+                                    className="yaml-viewer-nav__pane"
+                                    style={navTab === "bookmarks" ? undefined : { display: "none" }}
+                                >
+                                    <div className="yaml-viewer-nav__header">
+                                        <span>Закладки</span>
+                                        <span className="yaml-viewer-nav__count">{fileBookmarks.length}</span>
+
+                                        {fileBookmarks.length > 0 && (
+                                            <div className="yaml-viewer-nav__actions">
+                                                <button
+                                                    className="yaml-viewer-nav__action"
+                                                    onClick={() => {
+                                                        if (confirm("Удалить все закладки в этом файле?")) {
+                                                            setEditorBookmarks(filePath!, []);
+                                                        }
+                                                    }}
+                                                    title="Удалить все закладки"
+                                                >
+                                                    <MIcon name="delete_sweep" size="sm" />
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="yaml-viewer-nav__list">
+                                        {bookmarkDetails.length === 0 ? (
+                                            <div className="yaml-viewer-bookmarks-empty">
+                                                <MIcon name="star_border" size="lg" />
+                                                <div className="yaml-viewer-bookmarks-empty__title">
+                                                    Нет закладок
+                                                </div>
+                                                <div className="yaml-viewer-bookmarks-empty__hint">
+                                                    Поставьте курсор на нужную строку и нажмите <kbd>F2</kbd>, чтобы закрепить место.
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="yaml-viewer-bookmarks-list">
+                                                {bookmarkDetails.map((b) => (
+                                                    <div
+                                                        key={b.line}
+                                                        className="yaml-viewer-bookmark"
+                                                        onClick={() => {
+                                                            jumpTo(b.line, { focus: false });
+                                                            // Если хотим оставлять навигацию на закладках — не меняем navTab
+                                                        }}
+                                                        title={`Строка ${b.line}: ${b.raw.trim() || "(пустая строка)"}`}
+                                                    >
+                                                        <span className="yaml-viewer-bookmark__line">
+                                                            {b.line}
+                                                        </span>
+                                                        <span className="yaml-viewer-bookmark__text">
+                                                            {b.text || <span className="yaml-viewer-bookmark__empty">пустая строка</span>}
+                                                        </span>
+                                                        <button
+                                                            className="yaml-viewer-bookmark__delete"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                const next = fileBookmarks.filter(
+                                                                    (l) => l !== b.line,
+                                                                );
+                                                                setEditorBookmarks(filePath!, next);
+                                                            }}
+                                                            title="Удалить закладку"
+                                                        >
+                                                            <MIcon name="close" size="sm" />
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             </>
                         )}
