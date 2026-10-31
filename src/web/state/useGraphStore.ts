@@ -477,6 +477,13 @@ export interface GraphState {
 
   editorBookmarks: Record<string, number[]>;
   setEditorBookmarks: (filePath: string, lines: number[]) => void;
+
+  publishPreviewOpen: boolean;
+  setPublishPreviewOpen: (v: boolean) => void;
+  publishPreviewData: any | null;
+  setPublishPreviewData: (v: any | null) => void;
+  publishPreviewConfirmAction: (() => void) | null;
+  setPublishPreviewConfirmAction: (fn: (() => void) | null) => void;
 }
 
 // ============ Хелперы для чтения localStorage ============
@@ -1067,13 +1074,23 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     })),
   clearEditorTabs: () => set({ editorTabs: [] }),
 
-  editorBookmarks: JSON.parse(localStorage.getItem("dg-yaml-editor-bookmarks") || "{}"),
+  editorBookmarks: JSON.parse(
+    localStorage.getItem("dg-yaml-editor-bookmarks") || "{}",
+  ),
   setEditorBookmarks: (filePath, lines) =>
     set((s) => {
       const next = { ...s.editorBookmarks, [filePath]: lines };
       localStorage.setItem("dg-yaml-editor-bookmarks", JSON.stringify(next));
       return { editorBookmarks: next };
     }),
+
+  publishPreviewOpen: false,
+  setPublishPreviewOpen: (v) => set({ publishPreviewOpen: v }),
+  publishPreviewData: null,
+  setPublishPreviewData: (v) => set({ publishPreviewData: v }),
+  publishPreviewConfirmAction: null,
+  setPublishPreviewConfirmAction: (fn) =>
+    set({ publishPreviewConfirmAction: fn }),
 
   // Сброс всего
   resetAll: () =>

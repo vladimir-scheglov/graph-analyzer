@@ -36,6 +36,7 @@ import { PiiModal } from '../modals/PiiModal';
 import { YamlViewerModal } from '../modals/YamlViewerModal';
 import { GenerateBatchModal } from '../modals/GenerateBatchModal';
 import { WorkflowGraphModal } from '../modals/WorkflowGraphModal';
+import { PublishPreviewModal } from '../modals/PublishPreviewModal';
 
 
 export interface AppModalsProps {
@@ -159,6 +160,7 @@ export function AppModals(props: AppModalsProps) {
             <GeneratedManifestModal />
             <WorkflowGraphModal />
             <CheatsheetModal />
+            <PublishPreviewModal />
         </>
     );
 }

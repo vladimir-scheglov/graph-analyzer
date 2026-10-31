@@ -2,17 +2,36 @@
   "name": "domains-analyzer",
   "description": "Analyze domains: schemas, entities, health, relations",
   "version": "2.0.0",
+  "author": "vscheglov",
+  "license": "MIT",
   "main": "dist/index.js",
   "type": "commonjs",
+  "bin": {
+    "domna": "./dist/index.js"
+  },
+   "files": [
+    "dist/",
+    "USER_GUIDE.md",
+    "README.md"
+  ],
   "scripts": {
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
-    "build:web": "node scripts/build-web.js",
-    "build:web:prod": "cross-env NODE_ENV=production node scripts/build-web.js",
-    "build:server": "tsc -p tsconfig.json",
-    "build": "npm run build:web && npm run build:server",
+    "copy:html": "node -e \"require('fs').mkdirSync('dist/web',{recursive:true}); require('fs').copyFileSync('src/web/index.html','dist/web/index.html')\"",
+    "build:web": "node scripts/build-web.js && npm run copy:html",
+    "build:web:prod": "cross-env NODE_ENV=production node scripts/build-web.js && npm run copy:html",
+    "build:server": "tsc -p tsconfig.build.json --sourceMap false",
+    "build": "npm run clean && npm run build:web:prod && npm run build:server",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --import tsx tests/**/*.test.ts"
+    "test": "node --test --import tsx tests/**/*.test.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "dependencies": {
     "js-yaml": "^4.3.2"

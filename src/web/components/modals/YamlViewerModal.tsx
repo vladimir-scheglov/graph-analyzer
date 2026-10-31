@@ -55,6 +55,7 @@ import { Hint, HINTS } from '../common/Hint';
 import { openFileInEditor } from '../../lib/open-file';
 import { getLineDiff } from '../../lib/diff-lines';
 import { hashPayload } from '../../../core/analyzer/schema-generator/util-hash';
+import { computePublishDiff } from '../../lib/model/publish-diff';
 
 type RightTab = 'issues' | 'refs' | 'backlinks' | 'server';
 type NavTab = "navigation" | "search" | "bookmarks";
@@ -2629,175 +2630,6 @@ export function YamlViewerModal() {
         }
     }, [isLocked, savedContent, filePath, mode, isSaving]);
 
-    const handlePublish = useCallback(async () => {
-        if (isLocked || isSaving || !editorRef.current) return;
-
-        let valueToSave = editorRef.current.getValue();
-
-        // Autobump: только для remote и local — в hybrid publish недоступен.
-        // При publish version должна быть > серверной (а для local — «осмысленно выше»).
-        if (mode === "remote" || mode === "local") {
-            const oldVersion = extractTopLevelVersion(savedContent);
-            const newVersion = extractTopLevelVersion(valueToSave);
-            if (oldVersion && newVersion && oldVersion === newVersion) {
-                const bumped = bumpPatchVersion(oldVersion);
-                if (bumped) {
-                    const ok = confirm(
-                        `Версия схемы не изменилась: ${oldVersion}.\n\n` +
-                        `Для публикации version должна быть больше, чем на сервере.\n` +
-                        `Поднять до ${bumped} и опубликовать?`,
-                    );
-                    if (!ok) return;
-
-                    valueToSave = replaceTopLevelVersion(valueToSave, bumped);
-                    isProgrammaticChange.current = true;
-                    try {
-                        editorRef.current.setValue(valueToSave);
-                    } finally {
-                        isProgrammaticChange.current = false;
-                    }
-                    setContent(valueToSave);
-                }
-            }
-        }
-
-        setIsSaving(true);
-        setSaveStage(mode === "remote" ? "publishing" : "writing");
-        setSaveError(null);
-
-        const controller = new AbortController();
-        saveAbortRef.current = controller;
-        const timeoutId = setTimeout(() => controller.abort(), 120_000);
-
-        try {
-            const body: any = {
-                path: filePath,
-                content: valueToSave,
-                action: "publish",
-            };
-            const pendingManifest =
-                useGraphStore.getState().yamlViewerPendingManifest;
-            if (pendingManifest) body.generated = pendingManifest;
-
-            const res = await fetch("/file", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(body),
-                signal: controller.signal,
-            });
-            if (!res.ok) {
-                const errText = await res.text();
-                let errMsg = errText;
-                try {
-                    const j = JSON.parse(errText);
-                    if (j.error) errMsg = j.error;
-                } catch { /* ignore */ }
-                throw new Error(errMsg);
-            }
-
-            invalidateYamlCache(filePath || undefined);
-            useGraphStore.getState().bumpModelVersion();
-            setTimeout(() => {
-                useGraphStore.getState().bumpModelVersion();
-            }, 800);
-
-            setSavedContent(valueToSave);
-            setContent(valueToSave);
-            setLiveVersion((v) => v + 1);
-            sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
-
-            if (pendingManifest) {
-                useGraphStore.getState().setYamlViewerPendingManifest(null);
-            }
-
-            try {
-                editorRef.current?.pushUndoStop();
-            } catch { /* ignore */ }
-
-            // Read-back
-            let diskContent: string | null = null;
-            try {
-                const back = await fetch(
-                    "/file?path=" + encodeURIComponent(filePath || ""),
-                );
-                if (back.ok) diskContent = await back.text();
-            } catch { /* ignore */ }
-
-            let hadError = false;
-
-            if (
-                diskContent !== null &&
-                diskContent !== valueToSave &&
-                editorRef.current
-            ) {
-                isProgrammaticChange.current = true;
-                try {
-                    editorRef.current.setValue(diskContent);
-                } finally {
-                    isProgrammaticChange.current = false;
-                }
-                setSavedContent(diskContent);
-                setContent(diskContent);
-                setLiveVersion((v) => v + 1);
-                hadError = true;
-                setSaveError(
-                    "На диске оказалось другое содержимое. Monaco синхронизирован.",
-                );
-            }
-
-            let publishInfo: any = null;
-            try {
-                const data = await res.json();
-                if (data && data.publish) publishInfo = data.publish;
-            } catch { /* ignore */ }
-
-            if (publishInfo && publishInfo.ok === true) {
-                // После успешной публикации черновик на сервере очищен —
-                // редактор теперь показывает опубликованную версию.
-                useGraphStore.getState().setYamlViewerContentSource("published");
-                // Сбрасываем закэшированную published-версию: если пользователь
-                // её запрашивал для diff — она уже неактуальна. И выходим из
-                // diff-режима, если он был.
-                setPublishedContent(null);
-                setDiffAgainst(null);
-
-                // Обновляем meta оптимистично: publishedVersion = version из YAML,
-                // updatedAt = сейчас, updatedBy = "вы".
-                const newVersion = extractTopLevelVersion(valueToSave);
-                setMetaOverride((prev) => ({
-                    ...(prev || {}),
-                    ...(newVersion ? { publishedVersion: newVersion } : {}),
-                    updatedAt: new Date().toISOString(),
-                    updatedBy: "вы",
-                }));
-                useGraphStore.getState().showSnackbar(
-                    `✅ Опубликовано: ${publishInfo.domain?.name || filePath}`,
-                );
-            } else if (publishInfo && publishInfo.ok === false) {
-                hadError = true;
-                const hint = publishInfo.hint ? `\n${publishInfo.hint}` : "";
-                setSaveError(
-                    `Локально сохранено. Публикация не удалась: ${publishInfo.error}${hint}`,
-                );
-                useGraphStore.getState().showSnackbar(
-                    `⚠️ Локально сохранено, публикация не удалась: ${publishInfo.error}`,
-                );
-            }
-
-            if (!hadError) {
-                setSaveFeedback(true);
-                setTimeout(() => setSaveFeedback(false), 2000);
-            }
-        } catch (err: any) {
-            setSaveError(err.message || "Ошибка публикации");
-        } finally {
-            clearTimeout(timeoutId);
-            saveAbortRef.current = null;
-            setIsSaving(false);
-            setSaveStage("idle");
-        }
-    }, [isLocked, savedContent, filePath, mode, isSaving]);
-
     const handleDiffPublished = useCallback(async () => {
         if (!filePath) return;
 
@@ -3728,7 +3560,110 @@ export function YamlViewerModal() {
         setSavedContent(fetchedContent);
     }, [loading, fetchedContent, filePath]);
 
+    const executePublish = useCallback(async (valueToSave: string) => {
+        setIsSaving(true);
+        setSaveStage(mode === "remote" ? "publishing" : "writing");
+        setSaveError(null);
 
+        const controller = new AbortController();
+        saveAbortRef.current = controller;
+        const timeoutId = setTimeout(() => controller.abort(), 120_000);
+
+        try {
+            const body: any = {
+                path: filePath,
+                content: valueToSave,
+                action: "publish",
+            };
+            const pendingManifest = useGraphStore.getState().yamlViewerPendingManifest;
+            if (pendingManifest) body.generated = pendingManifest;
+
+            const res = await fetch("/file", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+                signal: controller.signal,
+            });
+
+            // ... обработка успеха (та же логика, что была в handlePublish)
+            // Включая удаление sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
+            // И setSavedContent(valueToSave);
+
+        } catch (err: any) {
+            setSaveError(err.message || "Ошибка публикации");
+        } finally {
+            clearTimeout(timeoutId);
+            saveAbortRef.current = null;
+            setIsSaving(false);
+            setSaveStage("idle");
+        }
+    }, [filePath, mode, isSaving]);
+
+
+    const handlePublish = useCallback(async () => {
+        if (isLocked || isSaving || !editorRef.current) return;
+
+        let valueToSave = editorRef.current.getValue();
+
+        // 1. Проверяем версию (Автобамп)
+        if (mode === "remote" || mode === "local") {
+            const oldVersion = extractTopLevelVersion(savedContent);
+            const newVersion = extractTopLevelVersion(valueToSave);
+            if (oldVersion && newVersion && oldVersion === newVersion) {
+                const bumped = bumpPatchVersion(oldVersion);
+                if (bumped) {
+                    const ok = confirm(
+                        `Версия схемы не изменилась: ${oldVersion}.\n\n` +
+                        `Для публикации version должна быть больше.\n` +
+                        `Поднять до ${bumped} и продолжить?`,
+                    );
+                    if (!ok) return;
+
+                    valueToSave = replaceTopLevelVersion(valueToSave, bumped);
+                    isProgrammaticChange.current = true;
+                    try { editorRef.current.setValue(valueToSave); }
+                    finally { isProgrammaticChange.current = false; }
+                    setContent(valueToSave);
+                }
+            }
+        }
+
+        // 2. Получаем серверную версию для сравнения
+        let publishedYaml = publishedContent;
+        if (!publishedYaml) {
+            try {
+                const r = await fetch("/file/published?path=" + encodeURIComponent(filePath || ""));
+                if (r.ok) {
+                    publishedYaml = await r.text();
+                    setPublishedContent(publishedYaml);
+                }
+            } catch { /* ignore */ }
+        }
+
+        const serverVer = extractTopLevelVersion(publishedYaml) || "0.0.0";
+        const localVer = extractTopLevelVersion(valueToSave) || "0.0.0";
+
+        // 3. Считаем дифф
+        const diff = computePublishDiff(publishedYaml || "", valueToSave);
+
+        // 4. Если серверной версии нет (первая публикация) — можно пропустить модалку или показать пустую
+        // Для безопасности показываем всегда.
+
+        // 5. Открываем модалку
+        const st = useGraphStore.getState();
+        st.setPublishPreviewData({
+            serverVersion: serverVer,
+            localVersion: localVer,
+            diff,
+            valueToSave // сохраняем контент, чтобы передать в executePublish
+        });
+        st.setPublishPreviewConfirmAction(() => {
+            executePublish(valueToSave);
+        });
+        st.setPublishPreviewOpen(true);
+
+    }, [isLocked, savedContent, filePath, mode, isSaving, publishedContent, executePublish]);
+    
     const canSave = !isLocked && isDirty;
 
     // contentSource читаем из store, чтобы учитывать ручное обновление

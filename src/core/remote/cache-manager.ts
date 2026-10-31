@@ -1,4 +1,5 @@
 import fs from "fs";
+import os from "os";
 import path from "path";
 import crypto from "crypto";
 import type { RemoteInfo } from "../../shared/types";
@@ -18,19 +19,21 @@ export interface RemoteCacheOptions {
   secure?: boolean;
 }
 
-export function getCachePath(baseDir: string, serverUrl: string): string {
+export function getCachePath(serverUrl: string): string {
   const u = new URL(serverUrl);
   const hash = crypto
     .createHash("sha1")
     .update(serverUrl)
     .digest("hex")
     .slice(0, 8);
-  return path.join(baseDir, ".cache", "domains", `${u.hostname}__${hash}`);
+
+  // Глобальная папка: ~/.domna/cache/domains/<hostname>__<hash>
+  const rootDir = path.join(os.homedir(), ".domna", "cache", "domains");
+  return path.join(rootDir, `${u.hostname}__${hash}`);
 }
 
 export function checkRemoteCacheExists(serverUrl: string): string | null {
-  // БЫЛО: path.join(__dirname, "..", "..", "..") — dist/ или src/, зависит от сборки
-  const cacheDir = getCachePath(process.cwd(), serverUrl);
+  const cacheDir = getCachePath(serverUrl);
   const completeFlag = path.join(cacheDir, ".complete");
   return fs.existsSync(completeFlag) ? cacheDir : null;
 }
@@ -71,9 +74,9 @@ export interface PrepareRemoteCacheParams {
 export async function prepareRemoteCache(
   params: PrepareRemoteCacheParams,
 ): Promise<RemoteInfo> {
-  const { serverUrl, username, password, baseDir } = params;
+  const { serverUrl, username, password } = params;
   const opts = params.opts || {};
-  const cacheDir = getCachePath(baseDir, serverUrl);
+  const cacheDir = getCachePath(serverUrl);
   const completeFlag = path.join(cacheDir, ".complete");
   const currentIndexPath = path.join(cacheDir, "_index.json");
   const previousIndexPath = path.join(cacheDir, "_index_previous.json");

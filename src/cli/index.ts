@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { parseArgs } from "./args";
 import { printHelp } from "./help";
 import { serveLocal } from "./commands/serve-local";

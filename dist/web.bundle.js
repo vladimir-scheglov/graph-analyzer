@@ -560,12 +560,20 @@ var init_useGraphStore = __esm({
         editorTabs: s.editorTabs.filter((p) => p !== path)
       })),
       clearEditorTabs: () => set2({ editorTabs: [] }),
-      editorBookmarks: JSON.parse(localStorage.getItem("dg-yaml-editor-bookmarks") || "{}"),
+      editorBookmarks: JSON.parse(
+        localStorage.getItem("dg-yaml-editor-bookmarks") || "{}"
+      ),
       setEditorBookmarks: (filePath, lines) => set2((s) => {
         const next = { ...s.editorBookmarks, [filePath]: lines };
         localStorage.setItem("dg-yaml-editor-bookmarks", JSON.stringify(next));
         return { editorBookmarks: next };
       }),
+      publishPreviewOpen: false,
+      setPublishPreviewOpen: (v) => set2({ publishPreviewOpen: v }),
+      publishPreviewData: null,
+      setPublishPreviewData: (v) => set2({ publishPreviewData: v }),
+      publishPreviewConfirmAction: null,
+      setPublishPreviewConfirmAction: (fn) => set2({ publishPreviewConfirmAction: fn }),
       // Сброс всего
       resetAll: () => set2({
         filters: {
@@ -48521,6 +48529,107 @@ var init_util_hash = __esm({
   }
 });
 
+// src/web/lib/model/publish-diff.ts
+function computePublishDiff(oldYaml, newYaml) {
+  const result = {
+    addedEntities: [],
+    removedEntities: [],
+    changedEntities: [],
+    hasBreakingChanges: false
+  };
+  if (!oldYaml || !newYaml)
+    return result;
+  let oldData = {};
+  let newData = {};
+  try {
+    oldData = yaml.load(oldYaml) || {};
+    newData = yaml.load(newYaml) || {};
+  } catch {
+    return result;
+  }
+  const oldEntities = Array.isArray(oldData.entities) ? oldData.entities : [];
+  const newEntities = Array.isArray(newData.entities) ? newData.entities : [];
+  const oldMap = new Map(
+    oldEntities.map((e) => [String(e.id), e])
+  );
+  const newMap = new Map(
+    newEntities.map((e) => [String(e.id), e])
+  );
+  newMap.forEach((e, id) => {
+    if (!oldMap.has(id)) {
+      result.addedEntities.push({ id, name: e.name || id });
+    }
+  });
+  oldMap.forEach((e, id) => {
+    if (!newMap.has(id)) {
+      result.removedEntities.push({ id, name: e.name || id });
+      result.hasBreakingChanges = true;
+    }
+  });
+  newMap.forEach((newE, id) => {
+    const oldE = oldMap.get(id);
+    if (!oldE)
+      return;
+    const oldAttrs = Array.isArray(oldE.attributes) ? oldE.attributes : [];
+    const newAttrs = Array.isArray(newE.attributes) ? newE.attributes : [];
+    const oldAttrMap = new Map(
+      oldAttrs.map((a) => [String(a.id), a])
+    );
+    const newAttrMap = new Map(
+      newAttrs.map((a) => [String(a.id), a])
+    );
+    const attrChanges = [];
+    let isBreaking = false;
+    oldAttrMap.forEach((a, aid) => {
+      if (!newAttrMap.has(aid)) {
+        attrChanges.push({
+          id: aid,
+          typeA: a.dataType || "String",
+          typeB: "",
+          kind: "removed"
+        });
+        isBreaking = true;
+      }
+    });
+    newAttrMap.forEach((a, aid) => {
+      const oldA = oldAttrMap.get(aid);
+      if (!oldA) {
+        attrChanges.push({
+          id: aid,
+          typeA: "",
+          typeB: a.dataType || "String",
+          kind: "added"
+        });
+      } else if (oldA.dataType !== a.dataType) {
+        attrChanges.push({
+          id: aid,
+          typeA: oldA.dataType,
+          typeB: a.dataType,
+          kind: "changed"
+        });
+        isBreaking = true;
+      }
+    });
+    if (attrChanges.length > 0) {
+      result.changedEntities.push({
+        id,
+        name: newE.name || id,
+        attributes: attrChanges,
+        isBreaking
+      });
+      if (isBreaking)
+        result.hasBreakingChanges = true;
+    }
+  });
+  return result;
+}
+var init_publish_diff = __esm({
+  "src/web/lib/model/publish-diff.ts"() {
+    "use strict";
+    init_js_yaml();
+  }
+});
+
 // src/web/components/modals/YamlViewerModal.tsx
 import React45, { useCallback as useCallback19, useDeferredValue, useEffect as useEffect41, useLayoutEffect as useLayoutEffect2, useMemo as useMemo46, useRef as useRef19, useState as useState38 } from "react";
 import { Fragment as Fragment21, jsx as jsx80, jsxs as jsxs77 } from "react/jsx-runtime";
@@ -50791,153 +50900,6 @@ ${draftInfo.hint}` : "";
       sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
     }
   }, [isLocked, savedContent, filePath, mode, isSaving]);
-  const handlePublish = useCallback19(async () => {
-    if (isLocked || isSaving || !editorRef.current)
-      return;
-    let valueToSave = editorRef.current.getValue();
-    if (mode === "remote" || mode === "local") {
-      const oldVersion = extractTopLevelVersion(savedContent);
-      const newVersion = extractTopLevelVersion(valueToSave);
-      if (oldVersion && newVersion && oldVersion === newVersion) {
-        const bumped = bumpPatchVersion(oldVersion);
-        if (bumped) {
-          const ok = confirm(
-            `\u0412\u0435\u0440\u0441\u0438\u044F \u0441\u0445\u0435\u043C\u044B \u043D\u0435 \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u0430\u0441\u044C: ${oldVersion}.
-
-\u0414\u043B\u044F \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u0438 version \u0434\u043E\u043B\u0436\u043D\u0430 \u0431\u044B\u0442\u044C \u0431\u043E\u043B\u044C\u0448\u0435, \u0447\u0435\u043C \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435.
-\u041F\u043E\u0434\u043D\u044F\u0442\u044C \u0434\u043E ${bumped} \u0438 \u043E\u043F\u0443\u0431\u043B\u0438\u043A\u043E\u0432\u0430\u0442\u044C?`
-          );
-          if (!ok)
-            return;
-          valueToSave = replaceTopLevelVersion(valueToSave, bumped);
-          isProgrammaticChange.current = true;
-          try {
-            editorRef.current.setValue(valueToSave);
-          } finally {
-            isProgrammaticChange.current = false;
-          }
-          setContent(valueToSave);
-        }
-      }
-    }
-    setIsSaving(true);
-    setSaveStage(mode === "remote" ? "publishing" : "writing");
-    setSaveError(null);
-    const controller = new AbortController();
-    saveAbortRef.current = controller;
-    const timeoutId = setTimeout(() => controller.abort(), 12e4);
-    try {
-      const body = {
-        path: filePath,
-        content: valueToSave,
-        action: "publish"
-      };
-      const pendingManifest = useGraphStore.getState().yamlViewerPendingManifest;
-      if (pendingManifest)
-        body.generated = pendingManifest;
-      const res = await fetch("/file", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal: controller.signal
-      });
-      if (!res.ok) {
-        const errText = await res.text();
-        let errMsg = errText;
-        try {
-          const j = JSON.parse(errText);
-          if (j.error)
-            errMsg = j.error;
-        } catch {
-        }
-        throw new Error(errMsg);
-      }
-      invalidateYamlCache(filePath || void 0);
-      useGraphStore.getState().bumpModelVersion();
-      setTimeout(() => {
-        useGraphStore.getState().bumpModelVersion();
-      }, 800);
-      setSavedContent(valueToSave);
-      setContent(valueToSave);
-      setLiveVersion((v) => v + 1);
-      sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
-      if (pendingManifest) {
-        useGraphStore.getState().setYamlViewerPendingManifest(null);
-      }
-      try {
-        editorRef.current?.pushUndoStop();
-      } catch {
-      }
-      let diskContent = null;
-      try {
-        const back = await fetch(
-          "/file?path=" + encodeURIComponent(filePath || "")
-        );
-        if (back.ok)
-          diskContent = await back.text();
-      } catch {
-      }
-      let hadError = false;
-      if (diskContent !== null && diskContent !== valueToSave && editorRef.current) {
-        isProgrammaticChange.current = true;
-        try {
-          editorRef.current.setValue(diskContent);
-        } finally {
-          isProgrammaticChange.current = false;
-        }
-        setSavedContent(diskContent);
-        setContent(diskContent);
-        setLiveVersion((v) => v + 1);
-        hadError = true;
-        setSaveError(
-          "\u041D\u0430 \u0434\u0438\u0441\u043A\u0435 \u043E\u043A\u0430\u0437\u0430\u043B\u043E\u0441\u044C \u0434\u0440\u0443\u0433\u043E\u0435 \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u0435. Monaco \u0441\u0438\u043D\u0445\u0440\u043E\u043D\u0438\u0437\u0438\u0440\u043E\u0432\u0430\u043D."
-        );
-      }
-      let publishInfo = null;
-      try {
-        const data = await res.json();
-        if (data && data.publish)
-          publishInfo = data.publish;
-      } catch {
-      }
-      if (publishInfo && publishInfo.ok === true) {
-        useGraphStore.getState().setYamlViewerContentSource("published");
-        setPublishedContent(null);
-        setDiffAgainst(null);
-        const newVersion = extractTopLevelVersion(valueToSave);
-        setMetaOverride((prev) => ({
-          ...prev || {},
-          ...newVersion ? { publishedVersion: newVersion } : {},
-          updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-          updatedBy: "\u0432\u044B"
-        }));
-        useGraphStore.getState().showSnackbar(
-          `\u2705 \u041E\u043F\u0443\u0431\u043B\u0438\u043A\u043E\u0432\u0430\u043D\u043E: ${publishInfo.domain?.name || filePath}`
-        );
-      } else if (publishInfo && publishInfo.ok === false) {
-        hadError = true;
-        const hint = publishInfo.hint ? `
-${publishInfo.hint}` : "";
-        setSaveError(
-          `\u041B\u043E\u043A\u0430\u043B\u044C\u043D\u043E \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u043E. \u041F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u044F \u043D\u0435 \u0443\u0434\u0430\u043B\u0430\u0441\u044C: ${publishInfo.error}${hint}`
-        );
-        useGraphStore.getState().showSnackbar(
-          `\u26A0\uFE0F \u041B\u043E\u043A\u0430\u043B\u044C\u043D\u043E \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u043E, \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u044F \u043D\u0435 \u0443\u0434\u0430\u043B\u0430\u0441\u044C: ${publishInfo.error}`
-        );
-      }
-      if (!hadError) {
-        setSaveFeedback(true);
-        setTimeout(() => setSaveFeedback(false), 2e3);
-      }
-    } catch (err) {
-      setSaveError(err.message || "\u041E\u0448\u0438\u0431\u043A\u0430 \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u0438");
-    } finally {
-      clearTimeout(timeoutId);
-      saveAbortRef.current = null;
-      setIsSaving(false);
-      setSaveStage("idle");
-    }
-  }, [isLocked, savedContent, filePath, mode, isSaving]);
   const handleDiffPublished = useCallback19(async () => {
     if (!filePath)
       return;
@@ -51818,6 +51780,93 @@ ${publishInfo.hint}` : "";
     setContent(fetchedContent);
     setSavedContent(fetchedContent);
   }, [loading, fetchedContent, filePath]);
+  const executePublish = useCallback19(async (valueToSave) => {
+    setIsSaving(true);
+    setSaveStage(mode === "remote" ? "publishing" : "writing");
+    setSaveError(null);
+    const controller = new AbortController();
+    saveAbortRef.current = controller;
+    const timeoutId = setTimeout(() => controller.abort(), 12e4);
+    try {
+      const body = {
+        path: filePath,
+        content: valueToSave,
+        action: "publish"
+      };
+      const pendingManifest = useGraphStore.getState().yamlViewerPendingManifest;
+      if (pendingManifest)
+        body.generated = pendingManifest;
+      const res = await fetch("/file", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+    } catch (err) {
+      setSaveError(err.message || "\u041E\u0448\u0438\u0431\u043A\u0430 \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u0438");
+    } finally {
+      clearTimeout(timeoutId);
+      saveAbortRef.current = null;
+      setIsSaving(false);
+      setSaveStage("idle");
+    }
+  }, [filePath, mode, isSaving]);
+  const handlePublish = useCallback19(async () => {
+    if (isLocked || isSaving || !editorRef.current)
+      return;
+    let valueToSave = editorRef.current.getValue();
+    if (mode === "remote" || mode === "local") {
+      const oldVersion = extractTopLevelVersion(savedContent);
+      const newVersion = extractTopLevelVersion(valueToSave);
+      if (oldVersion && newVersion && oldVersion === newVersion) {
+        const bumped = bumpPatchVersion(oldVersion);
+        if (bumped) {
+          const ok = confirm(
+            `\u0412\u0435\u0440\u0441\u0438\u044F \u0441\u0445\u0435\u043C\u044B \u043D\u0435 \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u0430\u0441\u044C: ${oldVersion}.
+
+\u0414\u043B\u044F \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u0438 version \u0434\u043E\u043B\u0436\u043D\u0430 \u0431\u044B\u0442\u044C \u0431\u043E\u043B\u044C\u0448\u0435.
+\u041F\u043E\u0434\u043D\u044F\u0442\u044C \u0434\u043E ${bumped} \u0438 \u043F\u0440\u043E\u0434\u043E\u043B\u0436\u0438\u0442\u044C?`
+          );
+          if (!ok)
+            return;
+          valueToSave = replaceTopLevelVersion(valueToSave, bumped);
+          isProgrammaticChange.current = true;
+          try {
+            editorRef.current.setValue(valueToSave);
+          } finally {
+            isProgrammaticChange.current = false;
+          }
+          setContent(valueToSave);
+        }
+      }
+    }
+    let publishedYaml = publishedContent;
+    if (!publishedYaml) {
+      try {
+        const r = await fetch("/file/published?path=" + encodeURIComponent(filePath || ""));
+        if (r.ok) {
+          publishedYaml = await r.text();
+          setPublishedContent(publishedYaml);
+        }
+      } catch {
+      }
+    }
+    const serverVer = extractTopLevelVersion(publishedYaml) || "0.0.0";
+    const localVer = extractTopLevelVersion(valueToSave) || "0.0.0";
+    const diff = computePublishDiff(publishedYaml || "", valueToSave);
+    const st = useGraphStore.getState();
+    st.setPublishPreviewData({
+      serverVersion: serverVer,
+      localVersion: localVer,
+      diff,
+      valueToSave
+      // сохраняем контент, чтобы передать в executePublish
+    });
+    st.setPublishPreviewConfirmAction(() => {
+      executePublish(valueToSave);
+    });
+    st.setPublishPreviewOpen(true);
+  }, [isLocked, savedContent, filePath, mode, isSaving, publishedContent, executePublish]);
   const canSave = !isLocked && isDirty;
   const yamlContentSource = useGraphStore((s) => s.yamlViewerContentSource);
   const canPublish = !isLocked && (isDirty || yamlContentSource === "draft");
@@ -55054,6 +55103,7 @@ var init_YamlViewerModal = __esm({
     init_open_file();
     init_diff_lines();
     init_util_hash();
+    init_publish_diff();
     normalizeEol = (s) => s.replace(/\r\n/g, "\n");
     BACKLINK_KIND_LABELS = {
       inheritance: "\u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435",
@@ -66878,37 +66928,159 @@ var init_WorkflowGraphModal = __esm({
   }
 });
 
+// src/web/components/modals/PublishPreviewModal.tsx
+import { jsx as jsx87, jsxs as jsxs84 } from "react/jsx-runtime";
+function PublishPreviewModal() {
+  const open2 = useGraphStore((s) => s.publishPreviewOpen);
+  const data = useGraphStore((s) => s.publishPreviewData);
+  const close = () => useGraphStore.getState().setPublishPreviewOpen(false);
+  const confirm2 = useGraphStore((s) => s.publishPreviewConfirmAction);
+  if (!open2 || !data)
+    return null;
+  const { serverVersion, localVersion, diff } = data;
+  const hasBreaking = diff?.hasBreakingChanges;
+  return /* @__PURE__ */ jsx87("div", { className: "help-overlay help-overlay--fullscreen", style: { zIndex: 600 }, onMouseDown: close, children: /* @__PURE__ */ jsxs84("div", { className: "help-modal", style: { width: 800, maxHeight: "85vh", display: "flex", flexDirection: "column" }, onMouseDown: (e) => e.stopPropagation(), children: [
+    /* @__PURE__ */ jsxs84("div", { className: "help-modal__header", children: [
+      /* @__PURE__ */ jsxs84("div", { className: "help-modal__title", children: [
+        /* @__PURE__ */ jsx87(MIcon, { name: "cloud_upload", size: "sm" }),
+        /* @__PURE__ */ jsx87("span", { className: "icon-label", children: "\u041F\u0440\u0435\u0434\u043F\u0440\u043E\u0441\u043C\u043E\u0442\u0440 \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u0438" })
+      ] }),
+      /* @__PURE__ */ jsx87("button", { className: "help-modal__close", onClick: close, children: "\u2715" })
+    ] }),
+    /* @__PURE__ */ jsxs84("div", { className: "help-modal__body", style: { flex: 1, overflowY: "auto", padding: 24 }, children: [
+      /* @__PURE__ */ jsxs84("div", { style: { display: "flex", alignItems: "center", gap: 16, marginBottom: 24, padding: 16, background: "var(--bg-800)", borderRadius: 8 }, children: [
+        /* @__PURE__ */ jsxs84("div", { style: { flex: 1 }, children: [
+          /* @__PURE__ */ jsx87("div", { style: { fontSize: 10, color: "var(--text-500)", textTransform: "uppercase" }, children: "\u0412\u0435\u0440\u0441\u0438\u044F \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435" }),
+          /* @__PURE__ */ jsx87("div", { style: { fontSize: 18, fontFamily: "monospace", color: "var(--text-300)" }, children: serverVersion || "\u2014" })
+        ] }),
+        /* @__PURE__ */ jsx87(MIcon, { name: "trending_flat", style: { color: "var(--text-500)" } }),
+        /* @__PURE__ */ jsxs84("div", { style: { flex: 1 }, children: [
+          /* @__PURE__ */ jsx87("div", { style: { fontSize: 10, color: "var(--text-500)", textTransform: "uppercase" }, children: "\u041D\u043E\u0432\u0430\u044F \u0432\u0435\u0440\u0441\u0438\u044F" }),
+          /* @__PURE__ */ jsx87("div", { style: { fontSize: 18, fontFamily: "monospace", color: "var(--accent-hover)", fontWeight: 700 }, children: localVersion || "\u2014" })
+        ] })
+      ] }),
+      hasBreaking && /* @__PURE__ */ jsxs84("div", { style: { padding: 16, background: "rgba(239,68,68,0.1)", border: "1px solid var(--danger)", borderRadius: 8, marginBottom: 24 }, children: [
+        /* @__PURE__ */ jsxs84("div", { style: { fontWeight: 700, color: "var(--danger)", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }, children: [
+          /* @__PURE__ */ jsx87(MIcon, { name: "warning", size: "sm" }),
+          " \u0412\u043D\u0438\u043C\u0430\u043D\u0438\u0435! \u041E\u0431\u043D\u0430\u0440\u0443\u0436\u0435\u043D\u044B \u043D\u0435\u0441\u043E\u0432\u043C\u0435\u0441\u0442\u0438\u043C\u044B\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F"
+        ] }),
+        /* @__PURE__ */ jsxs84("div", { style: { fontSize: 12, color: "var(--text-300)", lineHeight: 1.5 }, children: [
+          "\u0421\u0435\u0440\u0432\u0435\u0440 \u043C\u043E\u0436\u0435\u0442 \u043E\u0442\u043A\u043B\u043E\u043D\u0438\u0442\u044C \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u044E \u0441 \u043E\u0448\u0438\u0431\u043A\u043E\u0439 ",
+          /* @__PURE__ */ jsx87("code", { children: "NotCompatible" }),
+          ", \u0430 \u043F\u043E\u0442\u0440\u0435\u0431\u0438\u0442\u0435\u043B\u0438 \u044D\u0442\u043E\u0439 \u0441\u0445\u0435\u043C\u044B (\u0434\u0440\u0443\u0433\u0438\u0435 \u0434\u043E\u043C\u0435\u043D\u044B) \u043C\u043E\u0433\u0443\u0442 \u0441\u043B\u043E\u043C\u0430\u0442\u044C\u0441\u044F."
+        ] })
+      ] }),
+      diff?.removedEntities?.length > 0 && /* @__PURE__ */ jsxs84("div", { style: { marginBottom: 16 }, children: [
+        /* @__PURE__ */ jsxs84("div", { style: { fontSize: 12, fontWeight: 700, color: "var(--danger)", marginBottom: 8 }, children: [
+          "\u{1F534} \u0423\u0434\u0430\u043B\u0435\u043D\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 (",
+          diff.removedEntities.length,
+          ")"
+        ] }),
+        /* @__PURE__ */ jsx87("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 }, children: diff.removedEntities.map((e) => /* @__PURE__ */ jsx87("span", { className: "entity-catalog-chip", style: { background: "rgba(239,68,68,0.15)", color: "var(--danger)", borderColor: "var(--danger)" }, children: e.id }, e.id)) })
+      ] }),
+      diff?.addedEntities?.length > 0 && /* @__PURE__ */ jsxs84("div", { style: { marginBottom: 16 }, children: [
+        /* @__PURE__ */ jsxs84("div", { style: { fontSize: 12, fontWeight: 700, color: "var(--success)", marginBottom: 8 }, children: [
+          "\u{1F7E2} \u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 (",
+          diff.addedEntities.length,
+          ")"
+        ] }),
+        /* @__PURE__ */ jsx87("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 }, children: diff.addedEntities.map((e) => /* @__PURE__ */ jsx87("span", { className: "entity-catalog-chip", style: { background: "rgba(16,185,129,0.15)", color: "var(--success)", borderColor: "var(--success)" }, children: e.id }, e.id)) })
+      ] }),
+      diff?.changedEntities?.length > 0 && /* @__PURE__ */ jsxs84("div", { style: { marginBottom: 16 }, children: [
+        /* @__PURE__ */ jsxs84("div", { style: { fontSize: 12, fontWeight: 700, color: "var(--warning)", marginBottom: 8 }, children: [
+          "\u{1F7E1} \u0418\u0437\u043C\u0435\u043D\u0435\u043D\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 (",
+          diff.changedEntities.length,
+          ")"
+        ] }),
+        /* @__PURE__ */ jsx87("div", { style: { display: "flex", flexDirection: "column", gap: 8 }, children: diff.changedEntities.map((e) => /* @__PURE__ */ jsxs84("div", { style: { background: "var(--bg-750)", padding: 12, borderRadius: 6, borderLeft: `3px solid ${e.isBreaking ? "var(--danger)" : "var(--warning)"}` }, children: [
+          /* @__PURE__ */ jsx87("div", { style: { fontWeight: 600, fontSize: 13, marginBottom: 4 }, children: e.id }),
+          e.attributes.map((a) => /* @__PURE__ */ jsxs84("div", { style: { display: "flex", gap: 8, fontSize: 11, fontFamily: "monospace", color: "var(--text-400)", marginTop: 2 }, children: [
+            a.kind === "removed" && /* @__PURE__ */ jsxs84("span", { style: { color: "var(--danger)" }, children: [
+              "- ",
+              a.id,
+              " (",
+              a.typeA,
+              ")"
+            ] }),
+            a.kind === "added" && /* @__PURE__ */ jsxs84("span", { style: { color: "var(--success)" }, children: [
+              "+ ",
+              a.id,
+              " (",
+              a.typeB,
+              ")"
+            ] }),
+            a.kind === "changed" && /* @__PURE__ */ jsxs84("span", { style: { color: "var(--warning)" }, children: [
+              "~ ",
+              a.id,
+              ": ",
+              a.typeA,
+              " \u2192 ",
+              a.typeB
+            ] })
+          ] }, a.id))
+        ] }, e.id)) })
+      ] }),
+      (!diff || diff.addedEntities.length === 0 && diff.removedEntities.length === 0 && diff.changedEntities.length === 0) && /* @__PURE__ */ jsxs84("div", { style: { textAlign: "center", color: "var(--text-500)", padding: 40 }, children: [
+        /* @__PURE__ */ jsx87(MIcon, { name: "check_circle", size: "xl", style: { color: "var(--success)", marginBottom: 8 } }),
+        /* @__PURE__ */ jsx87("div", { children: "\u0421\u0445\u0435\u043C\u0430 \u043D\u0435 \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u0430\u0441\u044C \u0441 \u043C\u043E\u043C\u0435\u043D\u0442\u0430 \u043F\u043E\u0441\u043B\u0435\u0434\u043D\u0435\u0439 \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u0438" })
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxs84("div", { className: "help-modal__footer", style: { padding: 16, borderTop: "1px solid var(--border)", display: "flex", justifyContent: "flex-end", gap: 12, background: "var(--bg-850)" }, children: [
+      /* @__PURE__ */ jsx87("button", { className: "btn", onClick: close, children: "\u041E\u0442\u043C\u0435\u043D\u0430" }),
+      /* @__PURE__ */ jsx87(
+        "button",
+        {
+          className: "btn " + (hasBreaking ? "btn--danger" : "btn--primary"),
+          onClick: () => {
+            close();
+            if (confirm2)
+              confirm2();
+          },
+          children: hasBreaking ? "\u0412\u0441\u0451 \u0440\u0430\u0432\u043D\u043E \u043E\u043F\u0443\u0431\u043B\u0438\u043A\u043E\u0432\u0430\u0442\u044C" : "\u041E\u043F\u0443\u0431\u043B\u0438\u043A\u043E\u0432\u0430\u0442\u044C"
+        }
+      )
+    ] })
+  ] }) });
+}
+var init_PublishPreviewModal = __esm({
+  "src/web/components/modals/PublishPreviewModal.tsx"() {
+    "use strict";
+    init_useGraphStore();
+    init_MIcon();
+  }
+});
+
 // src/web/components/layout/AppModals.tsx
-import { Fragment as Fragment27, jsx as jsx87, jsxs as jsxs84 } from "react/jsx-runtime";
+import { Fragment as Fragment27, jsx as jsx88, jsxs as jsxs85 } from "react/jsx-runtime";
 function AppModals(props) {
   const helpOpen = useGraphStore((s) => s.helpOpen);
   const hotkeysOpen = useGraphStore((s) => s.hotkeysOpen);
   const contextMenu = useGraphStore((s) => s.contextMenu);
   const snackbar = useGraphStore((s) => s.snackbar);
-  return /* @__PURE__ */ jsxs84(Fragment27, { children: [
-    /* @__PURE__ */ jsx87(HoverTooltip, {}),
-    /* @__PURE__ */ jsx87(
+  return /* @__PURE__ */ jsxs85(Fragment27, { children: [
+    /* @__PURE__ */ jsx88(HoverTooltip, {}),
+    /* @__PURE__ */ jsx88(
       CommandPalette,
       {
         commands: props.commands,
         onOpenFile: (filePath, fqid) => openFileInEditor(filePath, fqid)
       }
     ),
-    /* @__PURE__ */ jsx87(
+    /* @__PURE__ */ jsx88(
       HelpModal,
       {
         open: helpOpen,
         onClose: () => useGraphStore.getState().setHelpOpen(false)
       }
     ),
-    /* @__PURE__ */ jsx87(
+    /* @__PURE__ */ jsx88(
       HotkeysModal,
       {
         open: hotkeysOpen,
         onClose: () => useGraphStore.getState().setHotkeysOpen(false)
       }
     ),
-    /* @__PURE__ */ jsx87(
+    /* @__PURE__ */ jsx88(
       ValidationModal,
       {
         allDomains: props.allDomains,
@@ -66916,7 +67088,7 @@ function AppModals(props) {
         bookmarkedDomains: props.bookmarkedDomains
       }
     ),
-    /* @__PURE__ */ jsx87(
+    /* @__PURE__ */ jsx88(
       TopoSortModal,
       {
         allDomains: props.allDomains,
@@ -66924,7 +67096,7 @@ function AppModals(props) {
         bookmarkedDomains: props.bookmarkedDomains
       }
     ),
-    /* @__PURE__ */ jsx87(
+    /* @__PURE__ */ jsx88(
       LearningPathModal,
       {
         visibleDomains: props.visibleDomains,
@@ -66932,10 +67104,10 @@ function AppModals(props) {
         onStartTour: props.onStartTour
       }
     ),
-    /* @__PURE__ */ jsx87(TourOverlay, {}),
-    /* @__PURE__ */ jsx87(EntityHierarchyModal, { entities: props.entities }),
-    /* @__PURE__ */ jsx87(RulesModal, { violations: props.ruleViolations }),
-    /* @__PURE__ */ jsx87(
+    /* @__PURE__ */ jsx88(TourOverlay, {}),
+    /* @__PURE__ */ jsx88(EntityHierarchyModal, { entities: props.entities }),
+    /* @__PURE__ */ jsx88(RulesModal, { violations: props.ruleViolations }),
+    /* @__PURE__ */ jsx88(
       ContextMenu,
       {
         menu: contextMenu,
@@ -66943,7 +67115,7 @@ function AppModals(props) {
         onAction: props.onContextAction
       }
     ),
-    props.toastVisible && props.remoteInfo?.fromCache && /* @__PURE__ */ jsx87(
+    props.toastVisible && props.remoteInfo?.fromCache && /* @__PURE__ */ jsx88(
       Toast,
       {
         message: "\u{1F4E6} \u0413\u0440\u0430\u0444 \u043F\u043E\u0441\u0442\u0440\u043E\u0435\u043D \u0438\u0437 <b>\u043A\u044D\u0448\u0430</b>" + (props.remoteInfo.fetchedAt ? " (\u043E\u0442 " + new Date(props.remoteInfo.fetchedAt).toLocaleString("ru-RU") + ")" : "") + ". \u0414\u0430\u043D\u043D\u044B\u0435 \u043C\u043E\u0433\u0443\u0442 \u0431\u044B\u0442\u044C \u0443\u0441\u0442\u0430\u0440\u0435\u0432\u0448\u0438\u043C\u0438.",
@@ -66958,26 +67130,27 @@ function AppModals(props) {
         } : void 0
       }
     ),
-    /* @__PURE__ */ jsx87(Snackbar, { snackbar }),
-    /* @__PURE__ */ jsx87(EntityGraphModal, {}),
-    /* @__PURE__ */ jsx87(ModelValidationModal, {}),
-    /* @__PURE__ */ jsx87(GlossaryModal, {}),
-    /* @__PURE__ */ jsx87(ModelDiffModal, {}),
-    /* @__PURE__ */ jsx87(EntitiesCatalogModal, {}),
-    /* @__PURE__ */ jsx87(AttributeFinderModal, {}),
-    /* @__PURE__ */ jsx87(EntityMatrixModal, {}),
-    /* @__PURE__ */ jsx87(AttributeMatrixModal, {}),
-    /* @__PURE__ */ jsx87(DomainSchemaModal, {}),
-    /* @__PURE__ */ jsx87(LintModal, {}),
-    /* @__PURE__ */ jsx87(MartinMetricsModal, {}),
-    /* @__PURE__ */ jsx87(DomainCompareModal, {}),
-    /* @__PURE__ */ jsx87(PiiModal, {}),
-    /* @__PURE__ */ jsx87(YamlViewerModal, {}),
-    /* @__PURE__ */ jsx87(GenerateSchemaModal, {}),
-    /* @__PURE__ */ jsx87(GenerateBatchModal, {}),
-    /* @__PURE__ */ jsx87(GeneratedManifestModal, {}),
-    /* @__PURE__ */ jsx87(WorkflowGraphModal, {}),
-    /* @__PURE__ */ jsx87(CheatsheetModal, {})
+    /* @__PURE__ */ jsx88(Snackbar, { snackbar }),
+    /* @__PURE__ */ jsx88(EntityGraphModal, {}),
+    /* @__PURE__ */ jsx88(ModelValidationModal, {}),
+    /* @__PURE__ */ jsx88(GlossaryModal, {}),
+    /* @__PURE__ */ jsx88(ModelDiffModal, {}),
+    /* @__PURE__ */ jsx88(EntitiesCatalogModal, {}),
+    /* @__PURE__ */ jsx88(AttributeFinderModal, {}),
+    /* @__PURE__ */ jsx88(EntityMatrixModal, {}),
+    /* @__PURE__ */ jsx88(AttributeMatrixModal, {}),
+    /* @__PURE__ */ jsx88(DomainSchemaModal, {}),
+    /* @__PURE__ */ jsx88(LintModal, {}),
+    /* @__PURE__ */ jsx88(MartinMetricsModal, {}),
+    /* @__PURE__ */ jsx88(DomainCompareModal, {}),
+    /* @__PURE__ */ jsx88(PiiModal, {}),
+    /* @__PURE__ */ jsx88(YamlViewerModal, {}),
+    /* @__PURE__ */ jsx88(GenerateSchemaModal, {}),
+    /* @__PURE__ */ jsx88(GenerateBatchModal, {}),
+    /* @__PURE__ */ jsx88(GeneratedManifestModal, {}),
+    /* @__PURE__ */ jsx88(WorkflowGraphModal, {}),
+    /* @__PURE__ */ jsx88(CheatsheetModal, {}),
+    /* @__PURE__ */ jsx88(PublishPreviewModal, {})
   ] });
 }
 var init_AppModals = __esm({
@@ -67004,12 +67177,13 @@ var init_AppModals = __esm({
     init_YamlViewerModal();
     init_GenerateBatchModal();
     init_WorkflowGraphModal();
+    init_PublishPreviewModal();
   }
 });
 
 // src/web/App.tsx
 import React52, { useCallback as useCallback26, useEffect as useEffect49, useMemo as useMemo53, useRef as useRef23 } from "react";
-import { jsx as jsx88, jsxs as jsxs85 } from "react/jsx-runtime";
+import { jsx as jsx89, jsxs as jsxs86 } from "react/jsx-runtime";
 function App() {
   const nodes = useGraphStore((s) => s.nodes);
   const edges = useGraphStore((s) => s.edges);
@@ -67224,8 +67398,8 @@ function App() {
     onlyInvalid,
     hiddenNodeIds
   ]);
-  return /* @__PURE__ */ jsxs85("div", { className: "app", children: [
-    /* @__PURE__ */ jsx88(
+  return /* @__PURE__ */ jsxs86("div", { className: "app", children: [
+    /* @__PURE__ */ jsx89(
       Sidebar,
       {
         healthMap,
@@ -67243,8 +67417,8 @@ function App() {
         onExportStats: exportsApi.exportStats
       }
     ),
-    /* @__PURE__ */ jsxs85("main", { className: "main", children: [
-      /* @__PURE__ */ jsx88(
+    /* @__PURE__ */ jsxs86("main", { className: "main", children: [
+      /* @__PURE__ */ jsx89(
         Toolbar,
         {
           counts,
@@ -67286,7 +67460,7 @@ function App() {
           onShowToast: () => setToastVisible(true)
         }
       ),
-      /* @__PURE__ */ jsx88(
+      /* @__PURE__ */ jsx89(
         GraphArea,
         {
           visibleNodes,
@@ -67307,7 +67481,7 @@ function App() {
         }
       )
     ] }),
-    /* @__PURE__ */ jsx88(
+    /* @__PURE__ */ jsx89(
       AppModals,
       {
         commands,
@@ -67354,7 +67528,7 @@ var init_App = __esm({
 
 // src/web/entry.tsx
 import { createRoot } from "react-dom/client";
-import { jsx as jsx89 } from "react/jsx-runtime";
+import { jsx as jsx90 } from "react/jsx-runtime";
 var require_entry = __commonJS({
   "src/web/entry.tsx"() {
     init_App();
@@ -67383,7 +67557,7 @@ var require_entry = __commonJS({
     var container = document.getElementById("root");
     if (!container)
       throw new Error("#root not found");
-    createRoot(container).render(/* @__PURE__ */ jsx89(App, {}));
+    createRoot(container).render(/* @__PURE__ */ jsx90(App, {}));
   }
 });
 export default require_entry();
