@@ -35,7 +35,12 @@ export type GeneratorSectionKey =
   | "sequences"
   | "dataTypes"
   | "linkages"
-  | "trees";
+  | "trees"
+  | "entities"
+  | "transitiveLinkages"
+  | "columns"
+  | "counterColorPatterns"
+  | "exchangeSettings";
 
 export type GeneratorProfile =
   | "crud"
@@ -44,7 +49,18 @@ export type GeneratorProfile =
   | "no-modals"
   | "tree-view"
   | "technical"
-  | "custom";
+  | "tabs-list"
+  | "sorting-searching"
+  | "transitive-chain"
+  | "auto"
+  | "defaults"
+  | "custom"
+  | "domain-extras" // menu root + items + medias palette
+  | "enum-workflow-builder" // автогенерация Enum/Workflow из String-атрибутов
+  | "ui-status-colors" // заполнение view[] в dataTypes
+  | "exchange-settings" // скелет exchangeSettings
+  | "counter-color" // counterColorPatterns для Counter-атрибутов
+  | "linked-groups"; // linked_objects_groups виджеты в entity-view;
 
 export interface GeneratedBlock {
   blockId: string;
@@ -128,6 +144,83 @@ export interface GenerationOptions {
   treeChain?: TreeChain;
   /** Использовать существующее дерево из trees[]. Приоритетнее treeChain. */
   treeUseExistingId?: string;
+  // ── tabs-list ──────────────────────────────────────────────
+  /**
+   * id существующих list-view домена, которые войдут во вкладки.
+   * Каждый id должен резолвиться в view типа `list`.
+   */
+  tabsListIds?: string[];
+  /** id генерируемого tabs_list view. По умолчанию `tabs_<entityLower>`. */
+  tabsViewId?: string;
+  /** Заголовок вкладок. */
+  tabsLabel?: string;
+  /** id list-view для defaultTab. Пусто — первая из tabsListIds. */
+  tabsDefaultTab?: string;
+  /** Добавить menu item в корневое меню (использует `menuRootId`). */
+  tabsIncludeMenu?: boolean;
+  noModals?: boolean;
+  includeSorting?: boolean;
+  includeSearching?: boolean;
+
+  /** Цепочка связей для транзитивной связи. */
+  transitiveChain?: TreeChain;
+  /** id генерируемого дерева. Default: `<Entity>TransitiveTree`. */
+  transitiveTreeId?: string;
+  /** Добавить join-виджет в существующий `viewX`. Default: true. */
+  transitiveIncludeWidget?: boolean;
+  /** Добавить колонку в существующий `lists_<e>`. Default: true. */
+  transitiveIncludeListColumn?: boolean;
+  /** Label для виджета / колонки. Default: последний entityId из chain. */
+  transitiveLabel?: string;
+  /**
+   * id entity-view, в который добавить join-виджет.
+   * Должен принадлежать корню цепочки. Пусто → `view${EntityId}`.
+   */
+  transitiveWidgetViewId?: string;
+  /**
+   * id list-view (или tree-view), в который добавить join-колонку.
+   * Должен принадлежать корню цепочки. Пусто → `lists_${entityLower}`.
+   */
+  transitiveColumnViewId?: string;
+  scaffoldCreateMenuRoot?: boolean;
+  scaffoldCreateMedias?: boolean;
+  /** Включить Bool-атрибуты. Default: true. */
+  defaultsBool?: boolean;
+  /** Включить Enum-атрибуты. Default: true. */
+  defaultsEnum?: boolean;
+  /** Включить Workflow-атрибуты. Default: true. */
+  defaultsWorkflow?: boolean;
+  /** Default-значение для Bool. Default: false. */
+  defaultsBoolValue?: boolean;
+  // ── domain-extras ──
+  /** Генерировать menu items по сущностям домена. Default: true. */
+  menuIncludeItems?: boolean;
+
+  // ── enum-workflow-builder ──
+  /** Суффиксы attrId, при которых генерируется Enum. Default: см. ниже. */
+  enumSuffixes?: string[];
+  /** Значения по умолчанию для нового Enum. Default: ["unknown", "other"]. */
+  enumDefaultValues?: string[];
+  /** Также создавать скелет Workflow для суффикса "Status". Default: false. */
+  enumEnableWorkflow?: boolean;
+
+  // ── ui-status-colors ──
+  /** Палитра для автоназначения цветов. Default: см. ниже. */
+  uiStatusColorPalette?: string[];
+
+  // ── exchange-settings ──
+  exchangeEnable?: boolean;
+  /** "label" | "firstString" | "id" — как выбирать forExport. */
+  exchangeForExportStrategy?: "label" | "firstString" | "id";
+  exchangeNoCmsSync?: boolean;
+
+  // ── counter-color ──
+  counterColorDefaultRed?: string; // "100%"
+  counterColorDefaultYellow?: string; // "50%"
+
+  // ── linked-groups ──
+  /** Включать связи с 1 объектом (side=1). Default: false. */
+  linkedGroupsIncludeSingles?: boolean;
 }
 
 export interface GenerationResult {
@@ -141,6 +234,7 @@ export interface GenerationResult {
     section: GeneratorSectionKey;
     id: string;
     reason: string;
+    hint?: string;
   }>;
   preflight: PreflightResult;
   manifestStatus: Record<string, ManifestBlockStatus>;

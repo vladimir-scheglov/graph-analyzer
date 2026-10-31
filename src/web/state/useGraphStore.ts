@@ -411,6 +411,7 @@ export interface GraphState {
     manifestStatus?: Record<string, ManifestBlockStatus>;
     replaceModified?: boolean;
     restoreOrphanedIds?: string[];
+    forceReplaceIds?: string[];
   } | null;
   setYamlViewerPendingGeneration: (
     v: GraphState["yamlViewerPendingGeneration"],
@@ -462,6 +463,12 @@ export interface GraphState {
   setYamlHighlightUnused: (v: boolean) => void;
   workflowGraphTarget: WorkflowGraphTarget | null;
   setWorkflowGraphTarget: (t: WorkflowGraphTarget | null) => void;
+  cheatsheetOpen: boolean;
+  setCheatsheetOpen: (v: boolean) => void;
+  cheatsheetInitialSection: string | null;
+  setCheatsheetInitialSection: (id: string | null) => void;
+  generateSchemaPrefillProfile: string | null;
+  setGenerateSchemaPrefillProfile: (p: string | null) => void;
 }
 
 // ============ Хелперы для чтения localStorage ============
@@ -1029,6 +1036,14 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   },
   workflowGraphTarget: null,
   setWorkflowGraphTarget: (t) => set({ workflowGraphTarget: t }),
+  cheatsheetOpen: false,
+  setCheatsheetOpen: (v) => set({ cheatsheetOpen: v }),
+  cheatsheetInitialSection: null,
+  setCheatsheetInitialSection: (id) => set({ cheatsheetInitialSection: id }),
+
+  generateSchemaPrefillProfile: null,
+  setGenerateSchemaPrefillProfile: (p) =>
+    set({ generateSchemaPrefillProfile: p }),
 
   // Сброс всего
   resetAll: () =>

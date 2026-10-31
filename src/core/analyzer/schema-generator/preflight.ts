@@ -6,7 +6,6 @@ import { buildModelIndex } from "../model-builder";
 import type { RawDomainEntry } from "../model-builder";
 import type { ManifestBlockStatus } from "./types";
 
-
 export interface ApplyBlock {
   block: GeneratedBlock;
   mode: "append" | "replace";
@@ -55,7 +54,6 @@ function selectApplyBlocks(
   return out;
 }
 
-
 /**
  * Применить один блок к rawData домена (мутирует target.rawData).
  * Для секций, которые не умеем сливать, бросает — лучше упасть в preflight,
@@ -66,10 +64,46 @@ export function appendBlockToRaw(
   block: GeneratedBlock,
   mode: "append" | "replace" = "append",
 ): void {
+  if (block.section === "entities") {
+    if (!Array.isArray(rawData.entities)) rawData.entities = [];
+    const E = block.payload?.id;
+    if (!E) return;
+    const entity = rawData.entities.find((e: any) => e?.id === E);
+    if (!entity) return; // сущность удалена — восстанавливать некуда
+
+    // Merge: добавляем только недостающие ключи. Никакого replace —
+    // payload не полная сущность, а фрагмент.
+    if (block.payload.sorting && !Array.isArray(entity.sorting)) {
+      entity.sorting = block.payload.sorting;
+    }
+    if (block.payload.searching) {
+      const hasExisting =
+        Array.isArray(entity.searching) ||
+        (entity.searching && typeof entity.searching === "object");
+      if (!hasExisting) {
+        entity.searching = block.payload.searching;
+      }
+    }
+    return;
+  }
+
   if (block.section === "menus") {
-    if (!block.menuRootId)
-      throw new Error(`menus block ${block.blockId} without menuRootId`);
     if (!Array.isArray(rawData.menus)) rawData.menus = [];
+
+    // Top-level root_group / root_menu — без menuRootId.
+    if (!block.menuRootId) {
+      const idx = rawData.menus.findIndex(
+        (m: any) => m?.id === block.payload?.id,
+      );
+      if (idx >= 0) {
+        if (mode === "replace") rawData.menus[idx] = block.payload;
+        return;
+      }
+      rawData.menus.push(block.payload);
+      return;
+    }
+
+    // Вложенный menu item — старая логика.
     const root = rawData.menus.find((m: any) => m?.id === block.menuRootId);
     if (!root) throw new Error(`root_group ${block.menuRootId} not found`);
     if (!Array.isArray(root.items)) root.items = [];
@@ -122,6 +156,23 @@ export function appendBlockToRaw(
       return;
     }
     parent[targetKey].push(block.payload);
+    return;
+  }
+
+  if (block.section === "exchangeSettings") {
+    if (
+      !rawData.exchangeSettings ||
+      typeof rawData.exchangeSettings !== "object"
+    ) {
+      rawData.exchangeSettings = {};
+    }
+    const target = rawData.exchangeSettings;
+    const payload = block.payload || {};
+    if (mode === "replace") {
+      rawData.exchangeSettings = payload;
+    } else {
+      Object.assign(target, payload);
+    }
     return;
   }
 

@@ -1,4 +1,4 @@
-import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useGraphStore } from '../../state/useGraphStore';
 import { useModelIndex } from '../../hooks/useModelIndex';
 import { useYamlContent, invalidateYamlCache } from '../../hooks/useYamlContent';
@@ -50,6 +50,8 @@ import { Popover } from "../common/Popover";
 import { relativeTime } from '../../lib/format';
 import type { YamlExpertiseMeta } from '../../hooks/useYamlContent';
 import { computeUnusedInYaml, UnusedAnalysis } from '../../lib/yaml/unused-analysis';
+import { YamlQuickJump } from "./YamlQuickJump";
+import { Hint, HINTS } from '../common/Hint';
 
 type RightTab = 'issues' | 'refs' | 'backlinks' | 'server';
 type DiffAgainst = "previous" | "published" | null;
@@ -201,6 +203,39 @@ export function YamlViewerModal() {
     const pendingGeneration = useGraphStore((s) => s.yamlViewerPendingGeneration);
     const setPendingGeneration = useGraphStore((s) => s.setYamlViewerPendingGeneration);
     const yamlHighlightUnused = useGraphStore((s) => s.yamlHighlightUnused);
+    const [quickJumpOpen, setQuickJumpOpen] = useState(false);
+    const [quickJumpInitialQuery, setQuickJumpInitialQuery] = useState<string | null>(null);
+    // ref — чтобы window-обработчик видел актуальный open без пересоздания listener'а
+    const quickJumpOpenRef = useRef(false);
+    useLayoutEffect(() => {
+        quickJumpOpenRef.current = quickJumpOpen;
+    }, [quickJumpOpen]);
+
+    useEffect(() => {
+        if (!open) setQuickJumpOpen(false);
+    }, [open]);
+
+    // Поделиться: если в URL есть #q=..., открыть поповер с этим query.
+    // Одноразово — после подстановки hash убирается.
+    useEffect(() => {
+        if (!open) return;
+        try {
+            const hash = window.location.hash || "";
+            const m = hash.match(/[#&]q=([^&]*)/);
+            if (!m) return;
+            const decoded = decodeURIComponent(m[1]);
+            if (!decoded) return;
+            setQuickJumpInitialQuery(decoded);
+            setQuickJumpOpen(true);
+            // убрать hash, чтобы при перезагрузке не открывалось снова
+            const url = new URL(window.location.href);
+            url.hash = "";
+            window.history.replaceState(null, "", url.toString());
+        } catch {
+            /* ignore */
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open]);
 
     const startResizingLeft = (e: React.MouseEvent) => {
         e.preventDefault();
@@ -433,6 +468,13 @@ export function YamlViewerModal() {
         if (!lineMap) return null;
         return lineMap.lineContexts.get(cursorLine) || null;
     }, [lineMap, cursorLine]);
+
+    const entityIdUnderCursor = useMemo(() => {
+        return (
+            currentContext?.breadcrumbs.find((b) => b.type === "entity")?.id ||
+            null
+        );
+    }, [currentContext]);
 
     const focusResult = useMemo(() => {
         if (!focusTarget || !lineMap || !index || !domainId) return null;
@@ -1192,6 +1234,66 @@ export function YamlViewerModal() {
         toggleLockRef.current = handleToggleLock;
     });
 
+    // Shift+Tab — toggle поповера при открытой модалке.
+    // Перехватываем всегда при open=true, чтобы:
+    //  • не сработал outdent в Monaco;
+    //  • не сработал useHotkeys (глобальная палитра) — он на document:capture,
+    //    а мы — на window:capture → идём раньше;
+    //  • повторный Shift+Tab закрывал поповер, а не открывал палитру.
+    useEffect(() => {
+        if (!open) return;
+
+        const handler = (e: KeyboardEvent) => {
+            if (
+                e.key !== "Tab" ||
+                !e.shiftKey ||
+                e.ctrlKey ||
+                e.metaKey ||
+                e.altKey
+            ) {
+                return;
+            }
+            e.preventDefault();
+            e.stopPropagation();
+
+            if (quickJumpOpenRef.current) {
+                setQuickJumpOpen(false);
+            } else {
+                setQuickJumpInitialQuery(null);
+                setQuickJumpOpen(true);
+            }
+
+        };
+
+        window.addEventListener("keydown", handler, true);
+        return () => window.removeEventListener("keydown", handler, true);
+    }, [open]);
+
+    // F2 — открыть quick jump с предзаполненным словом под курсором
+    useEffect(() => {
+        if (!open || !editorCreated || !editorRef.current) return;
+        const m = (window as any).monaco;
+        if (!m) return;
+
+        const ed = editorRef.current;
+        if ((ed as any).__dgQuickJumpF2) return;
+        (ed as any).__dgQuickJumpF2 = true;
+
+        try {
+            ed.addCommand(m.KeyCode.F2, () => {
+                const ed2 = editorRef.current;
+                if (!ed2) return;
+                const pos = ed2.getPosition();
+                const model = ed2.getModel();
+                if (!pos || !model) return;
+                const word = model.getWordAtPosition(pos);
+                const text = (word?.word || "").trim();
+                setQuickJumpInitialQuery(text || null);
+                setQuickJumpOpen(true);
+            });
+        } catch { }
+    }, [open, editorCreated]);
+
     // Двойной Shift → переключение режима редактирования.
     // ВАЖНО: capture: true — иначе Monaco (при фокусе в редакторе) делает
     // stopPropagation в своём onKeyDown, и событие не доходит до document.
@@ -1740,7 +1842,7 @@ export function YamlViewerModal() {
 
     // ============ Jump ============
     const jumpTo = useCallback(
-        (line: number, opts?: { focus?: boolean }) => {
+        (line: number, opts?: { focus?: boolean; column?: number }) => {
             const editor = editorRef.current;
             if (!editor) return;
 
@@ -1749,17 +1851,14 @@ export function YamlViewerModal() {
             } catch { }
 
             try {
-                editor.setPosition({ lineNumber: line, column: 1 });
+                editor.setPosition({ lineNumber: line, column: opts?.column ?? 1 });
             } catch { }
 
-            // Явный layout — Monaco пересчитывает viewport
             try { editor.layout(); } catch { }
 
             if (opts?.focus !== false) {
                 editor.focus();
             } else {
-                // Без фокуса revealLineInCenter иногда откладывает скролл
-                // до следующего тика — форсируем ещё раз в rAF.
                 requestAnimationFrame(() => {
                     const ed = editorRef.current;
                     if (!ed) return;
@@ -1771,6 +1870,17 @@ export function YamlViewerModal() {
             }
         },
         [],
+    );
+
+    const handleQuickJumpSelect = useCallback(
+        (line: number, column?: number) => {
+            // Чистим «намерения» из других мест (LintModal / sidecar),
+            // чтобы они не перескочили поверх нашего прыжка.
+            setPendingIssue(null);
+            setPendingBlock(null);
+            jumpTo(line, { column });
+        },
+        [jumpTo, setPendingIssue, setPendingBlock],
     );
 
     const [activeFoldLevel, setActiveFoldLevel] = useState<number | null>(null);
@@ -2622,6 +2732,10 @@ export function YamlViewerModal() {
 
     // ============ Close ============
     const handleClose = useCallback(() => {
+        if (quickJumpOpenRef.current) {
+            return;
+        }
+
         if (isSaving) {
             if (
                 !confirm(
@@ -3303,6 +3417,7 @@ export function YamlViewerModal() {
             pendingGeneration.manifestStatus,
             !!pendingGeneration.replaceModified,
             pendingGeneration.restoreOrphanedIds,
+            pendingGeneration.forceReplaceIds,
         );
 
         setPendingGeneration(null);
@@ -3471,6 +3586,23 @@ export function YamlViewerModal() {
                                 {diffAgainst === "published" ? "diff: publish" : "diff: previous"}
                             </span>
                         )}
+                        {/* Lock / Edit-mode status — всегда видим, read-only */}
+                        <span
+                            className={
+                                "help-modal__badge help-modal__badge--mode " +
+                                (isLocked
+                                    ? "help-modal__badge--locked"
+                                    : "help-modal__badge--editing")
+                            }
+                            title={
+                                isLocked
+                                    ? "Файл заблокирован. Разблокируйте кнопкой 🔒 или двойным Shift"
+                                    : "Режим редактирования. Заблокируйте кнопкой 🔓 или двойным Shift"
+                            }
+                        >
+                            <MIcon name={isLocked ? "lock" : "edit"} size="sm" />
+                            <span>{isLocked ? "Заблокирован" : "Редактирование"}</span>
+                        </span>
                         {isSaving ? (
                             <span
                                 className="help-modal__badge help-modal__badge--saving"
@@ -3785,6 +3917,59 @@ export function YamlViewerModal() {
                                                 <MIcon name="menu_book" size="sm" />
                                             </span>
                                             <span className="menu__text">Схема домена</span>
+                                        </button>
+                                    )}
+
+                                    {domainId && entityIdUnderCursor && (
+                                        <button
+                                            className="menu__item"
+                                            disabled={moreDisabled}
+                                            style={dimStyle(moreDisabled)}
+                                            onClick={() => {
+                                                const st = useGraphStore.getState();
+                                                st.setGenerateSchemaDomainId(domainId);
+                                                st.setGenerateSchemaEntityId(entityIdUnderCursor);
+                                                st.setGenerateSchemaOpen(true);
+                                                close();
+                                            }}
+                                            title={
+                                                moreDisabled
+                                                    ? "Дождитесь окончания сохранения"
+                                                    : `Сгенерировать типовой блок для «${entityIdUnderCursor}»`
+                                            }
+                                        >
+                                            <span className="menu__icon">
+                                                <MIcon name="auto_fix_high" size="sm" />
+                                            </span>
+                                            <span className="menu__text">
+                                                Сгенерировать для «{entityIdUnderCursor}»
+                                            </span>
+                                        </button>
+                                    )}
+
+                                    {domainId && (
+                                        <button
+                                            className="menu__item"
+                                            disabled={moreDisabled}
+                                            style={dimStyle(moreDisabled)}
+                                            onClick={() => {
+                                                const st = useGraphStore.getState();
+                                                st.setGenerateSchemaDomainId(domainId);
+                                                st.setGenerateSchemaEntityId(null);
+                                                st.setGenerateSchemaPrefillProfile("domain-extras");
+                                                st.setGenerateSchemaOpen(true);
+                                                close();
+                                            }}
+                                            title={
+                                                moreDisabled
+                                                    ? "Дождитесь окончания сохранения"
+                                                    : "Профили без сущности: меню и иконки, Enum/Workflow, цвета статусов, exchangeSettings, counterColorPatterns"
+                                            }
+                                        >
+                                            <span className="menu__icon">
+                                                <MIcon name="auto_awesome_motion" size="sm" />
+                                            </span>
+                                            <span className="menu__text">Сгенерировать для домена</span>
                                         </button>
                                     )}
 
@@ -4294,47 +4479,54 @@ export function YamlViewerModal() {
 
                             {/* Right: quickjumps + fold controls */}
                             <div className="yaml-viewer-toolbar-right">
+                                <Hint info={HINTS.quickjump} className="yaml-viewer-quickjump-anchor">
+                                    <button
+                                        type="button"
+                                        className="yaml-viewer-fold-btn yaml-viewer-quickjump-btn"
+                                        onClick={() => {
+                                            setQuickJumpInitialQuery(null);
+                                            setQuickJumpOpen(true);
+                                        }}
+                                    >
+                                        <MIcon name="my_location" size="sm" />
+                                    </button>
+                                </Hint>
                                 <div className="yaml-viewer-fold-controls">
                                     {([1, 2, 3, 4, 5] as const).map((lvl) => (
-                                        <button
-                                            key={lvl}
-                                            className={
-                                                "yaml-viewer-fold-btn" +
-                                                (activeFoldLevel === lvl ? " yaml-viewer-fold-btn--active" : "")
-                                            }
-                                            onClick={() => {
-                                                if (activeFoldLevel === lvl) unfoldAll();
-                                                else foldToLevel(lvl);
-                                            }}
-                                            title={
-                                                activeFoldLevel === lvl
-                                                    ? `Развернуть всё (уровень ${lvl} активен)`
-                                                    : `Свернуть до уровня ${lvl}`
-                                            }
-                                        >
-                                            {lvl}
-                                        </button>
+                                        <Hint key={lvl} info={HINTS.fold}>
+                                            <button
+                                                className={
+                                                    "yaml-viewer-fold-btn" +
+                                                    (activeFoldLevel === lvl ? " yaml-viewer-fold-btn--active" : "")
+                                                }
+                                                onClick={() => {
+                                                    if (activeFoldLevel === lvl) unfoldAll();
+                                                    else foldToLevel(lvl);
+                                                }}
+                                            >
+                                                {lvl}
+                                            </button>
+                                        </Hint>
                                     ))}
-                                    <button
-                                        className="yaml-viewer-fold-btn"
-                                        onClick={unfoldAll}
-                                        title="Развернуть всё"
-                                    >
-                                        <MIcon name="unfold_more" size="sm" />
-                                    </button>
+                                    <Hint info={HINTS["fold-unfold"]}>
+                                        <button className="yaml-viewer-fold-btn" onClick={unfoldAll}>
+                                            <MIcon name="unfold_more" size="sm" />
+                                        </button>
+                                    </Hint>
                                     <Popover
                                         align="right"
                                         width={280}
                                         trigger={(open) => (
-                                            <button
-                                                className={
-                                                    "yaml-viewer-fold-btn" +
-                                                    (open ? " yaml-viewer-fold-btn--active" : "")
-                                                }
-                                                title="Дополнительные действия свёртки"
-                                            >
-                                                <MIcon name="more_horiz" size="sm" />
-                                            </button>
+                                            <Hint info={HINTS["fold-more"]}>
+                                                <button
+                                                    className={
+                                                        "yaml-viewer-fold-btn" +
+                                                        (open ? " yaml-viewer-fold-btn--active" : "")
+                                                    }
+                                                >
+                                                    <MIcon name="more_horiz" size="sm" />
+                                                </button>
+                                            </Hint>
                                         )}
                                     >
                                         {(close) => (
@@ -4529,101 +4721,85 @@ export function YamlViewerModal() {
                                 enabled={yamlQuickNavEnabled}
                             />
                         )}
-
-                        {!isLocked && (
-                            <div className="yaml-viewer-editor__mode">
-                                <MIcon name="edit" size="sm" />
-                                <span className="icon-label">Режим редактирования</span>
-                            </div>
-                        )}
                     </div>
 
                     {/* Right panel with tabs */}
                     <div className={"yaml-viewer-issues" + (rightCollapsed ? " yaml-viewer-issues--collapsed" : "")}>
                         <div className="yaml-viewer-tabs">
-                            <button
-                                className={"yaml-viewer-tab" + (rightTab === "issues" ? " active" : "")}
-                                onClick={() => setRightTab("issues")}
-                                title={`Проблемы${issueCount > 0 ? ` (${issueCount})` : ""}`}
-                            >
-                                <MIcon name="rule" size="sm" />
-                                {issueCount > 0 && (
-                                    <span
-                                        className="yaml-viewer-tab__badge"
-                                        title={staleIssueCount > 0 ? `из них ${staleIssueCount} — возможно, устарели` : undefined}
-                                    >
-                                        {issueCount}
-                                    </span>
-                                )}
-                            </button>
-                            <button
-                                className={"yaml-viewer-tab" + (rightTab === "refs" ? " active" : "")}
-                                onClick={() => setRightTab("refs")}
-                                title={`Ссылки${refsCount > 0 ? ` (${refsCount})` : ""}`}
-                            >
-                                <MIcon name="link" size="sm" />
-                                {refsCount > 0 && (
-                                    <span className="yaml-viewer-tab__badge">{refsCount}</span>
-                                )}
-                            </button>
-                            <button
-                                className={"yaml-viewer-tab" + (rightTab === "backlinks" ? " active" : "")}
-                                onClick={() => setRightTab("backlinks")}
-                                title={`Используется${backlinks.entity.length + backlinks.attribute.length > 0
-                                    ? ` (${backlinks.entity.length + backlinks.attribute.length})`
-                                    : ""
-                                    }`}
-                            >
-                                <MIcon name="call_received" size="sm" />
-                                {backlinks.entity.length + backlinks.attribute.length > 0 && (
-                                    <span className="yaml-viewer-tab__badge">
-                                        {backlinks.entity.length + backlinks.attribute.length}
-                                    </span>
-                                )}
-                            </button>
-                            {serverAvailable && (
+                            <Hint className='yaml-viewer-tab' info={HINTS["tab-issues"]} style={{ padding: 0 }}>
                                 <button
-                                    className={
-                                        "yaml-viewer-tab" +
-                                        (rightTab === "server" ? " active" : "") +
-                                        (serverValidation && !serverValidating
-                                            ? serverValidation.isValid
-                                                ? " yaml-viewer-tab--ok"
-                                                : " yaml-viewer-tab--err"
-                                            : "")
-                                    }
-                                    onClick={() => setRightTab("server")}
-                                    title={
-                                        serverValidation?.isValid
-                                            ? "Сервер: схема валидна"
-                                            : serverValidation && !serverValidation.isValid
-                                                ? `Сервер: ${serverValidation.diagnostics?.length || "!"} ошибок`
-                                                : "Серверная валидация"
-                                    }
+                                    className={"yaml-viewer-tab" + (rightTab === "issues" ? " active" : "")}
+                                    onClick={() => setRightTab("issues")}
                                 >
-                                    <MIcon
-                                        name={
-                                            serverValidating
-                                                ? "hourglass_top"
-                                                : serverValidation?.isValid
-                                                    ? "cloud_done"
-                                                    : serverValidation && !serverValidation.isValid
-                                                        ? "cloud_off"
-                                                        : "cloud"
-                                        }
-                                        size="sm"
-                                    />
-                                    {serverValidation && !serverValidation.isValid && (
-                                        <span className="yaml-viewer-tab__badge yaml-viewer-tab__badge--err">
-                                            {serverValidation.diagnostics?.length || "!"}
-                                        </span>
+                                    <MIcon name="rule" size="sm" />
+                                    {issueCount > 0 && (
+                                        <span className="yaml-viewer-tab__badge">{issueCount}</span>
                                     )}
-                                    {serverValidation?.isValid && (
-                                        <span className="yaml-viewer-tab__badge yaml-viewer-tab__badge--ok">
-                                            ✓
+                                </button>
+                            </Hint>
+                            <Hint className='yaml-viewer-tab' info={HINTS["tab-refs"]} style={{ padding: 0 }}>
+                                <button
+                                    className={"yaml-viewer-tab" + (rightTab === "refs" ? " active" : "")}
+                                    onClick={() => setRightTab("refs")}
+                                >
+                                    <MIcon name="link" size="sm" />
+                                    {refsCount > 0 && (
+                                        <span className="yaml-viewer-tab__badge">{refsCount}</span>
+                                    )}
+                                </button>
+                            </Hint>
+                            <Hint className='yaml-viewer-tab' info={HINTS["tab-backlinks"]} style={{ padding: 0 }}>
+                                <button
+                                    className={"yaml-viewer-tab" + (rightTab === "backlinks" ? " active" : "")}
+                                    onClick={() => setRightTab("backlinks")}
+                                >
+                                    <MIcon name="call_received" size="sm" />
+                                    {backlinks.entity.length + backlinks.attribute.length > 0 && (
+                                        <span className="yaml-viewer-tab__badge">
+                                            {backlinks.entity.length + backlinks.attribute.length}
                                         </span>
                                     )}
                                 </button>
+                            </Hint>
+                            {serverAvailable && (
+                                <Hint className='yaml-viewer-tab' info={HINTS["tab-server"]} style={{ padding: 0 }}>
+                                    <button
+                                        className={
+                                            "yaml-viewer-tab" +
+                                            (rightTab === "server" ? " active" : "") +
+                                            (serverValidation && !serverValidating
+                                                ? serverValidation.isValid
+                                                    ? " yaml-viewer-tab--ok"
+                                                    : " yaml-viewer-tab--err"
+                                                : "")
+                                        }
+                                        onClick={() => setRightTab("server")}
+                                    >
+                                        <MIcon
+                                            name={
+                                                serverValidating
+                                                    ? "hourglass_top"
+                                                    : serverValidation?.isValid
+                                                        ? "cloud_done"
+                                                        : serverValidation && !serverValidation.isValid
+                                                            ? "cloud_off"
+                                                            : "cloud"
+                                            }
+                                            size="sm"
+                                        />
+
+                                        {serverValidation && !serverValidation.isValid && (
+                                            <span className="yaml-viewer-tab__badge yaml-viewer-tab__badge--err">
+                                                {serverValidation.diagnostics?.length || "!"}
+                                            </span>
+                                        )}
+                                        {serverValidation?.isValid && (
+                                            <span className="yaml-viewer-tab__badge yaml-viewer-tab__badge--ok">
+                                                ✓
+                                            </span>
+                                        )}
+                                    </button>
+                                </Hint>
                             )}
                         </div>
 
@@ -4855,6 +5031,23 @@ export function YamlViewerModal() {
                     </div>
                 </div>
             </div>
+
+            {quickJumpOpen && lineMap && (
+                <YamlQuickJump
+                    lineMap={lineMap}
+                    content={content}
+                    index={index}
+                    domainId={domainId}
+                    cursorLine={cursorLine}
+                    domainIssues={effectiveIssues}
+                    initialQuery={quickJumpInitialQuery}
+                    onSelect={handleQuickJumpSelect}
+                    onClose={() => {
+                        setQuickJumpOpen(false);
+                        setQuickJumpInitialQuery(null);
+                    }}
+                />
+            )}
 
             {navContextMenu && (
                 <NavContextMenu
@@ -5427,7 +5620,7 @@ function FilteredNavList({
                     n.node,
                     n.depth,
                     parentKey,
-                );            
+                );
                 const isFocusActive = !!(
                     canFocus &&
                     focusTarget &&
@@ -5749,13 +5942,13 @@ function NavItem({
                         </span>
                     )}
                 </button>
-                {(sectionKey === "entities" || sectionKey === "linkages") && depth === 0 && (
+                {(/*sectionKey === "entities" || */sectionKey === "linkages") && depth === 0 && (
                     <button
                         type="button"
                         className={
                             "yaml-nav-item__focus" +
                             (focusTarget &&
-                                ((focusTarget.kind === "entity" && sectionKey === "entities" && focusTarget.id === node.id) ||
+                                (/*(focusTarget.kind === "entity" && sectionKey === "entities" && focusTarget.id === node.id) ||*/
                                     (focusTarget.kind === "linkage" && sectionKey === "linkages" && focusTarget.id === node.id))
                                 ? " yaml-nav-item__focus--active"
                                 : "")
@@ -5764,6 +5957,20 @@ function NavItem({
                         title={focusTarget && focusTarget.id === node.id ? "Снять фокус" : "Фокус на этом элементе"}
                     >
                         <MIcon name="my_location" size="sm" />
+                    </button>
+                )}
+                {sectionKey === "entities" && depth === 0 && (
+                    <button
+                        type="button"
+                        className="yaml-nav-item__more"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                            onContextMenu(node, sectionKey, rect.left, rect.bottom);
+                        }}
+                        title="Действия"
+                    >
+                        <MIcon name="more_horiz" size="sm" />
                     </button>
                 )}
                 {sectionKey === "dataTypes" && depth === 0 && node.meta === "Workflow" && (

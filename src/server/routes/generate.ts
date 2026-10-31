@@ -18,6 +18,7 @@ import type {
 } from "../../shared/manifest-types";
 import { findPayloadByBlockId } from "../../core/analyzer/schema-generator/block-resolver";
 import { hashPayload } from "../../core/analyzer/schema-generator/util-hash";
+import { isDomainScopeProfile } from "../../core/analyzer/schema-generator/scope";
 
 interface GenerateRequestBody {
   domainId: string;
@@ -27,49 +28,100 @@ interface GenerateRequestBody {
 }
 
 export async function handleGenerateRequest(
-  req: IncomingMessage,
-  res: ServerResponse,
-  analyzer: DomainAnalyzer,
+    req: IncomingMessage,
+    res: ServerResponse,
+    analyzer: DomainAnalyzer,
 ): Promise<void> {
-  let body: GenerateRequestBody;
-  try {
-    body = await readJsonBody(req);
-  } catch (e: any) {
-    res.writeHead(400, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "Некорректный JSON: " + e.message }));
-    return;
-  }
+    let body: {
+        domainId: string;
+        entityId?: string;
+        profile?: GeneratorProfile;
+        options?: Record<string, unknown>;
+    };
+    try {
+        body = await readJsonBody(req);
+    } catch (e: any) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Некорректный JSON: " + e.message }));
+        return;
+    }
 
-  if (!body.domainId || !body.entityId) {
-    res.writeHead(400, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "domainId и entityId обязательны" }));
-    return;
-  }
+    if (!body.domainId) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "domainId обязателен" }));
+        return;
+    }
 
-  try {
-    const allDomains = analyzer.getRawDomainsForModelIndex();
-    // Используем кэш, если он актуален, иначе — пересобираем.
-    const index = getModelIndex() ?? buildModelIndex(allDomains);
-    const result = generateForEntity(
-      allDomains,
-      index,
-      {
-        domainId: body.domainId,
-        entityId: body.entityId,
-        profile: body.profile ?? "crud",
-        options: body.options as any,
-      },
-      analyzer.getRootDir(),
-    );
-    res.writeHead(200, {
-      "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": "no-store",
-    });
-    res.end(JSON.stringify(result));
-  } catch (e: any) {
-    res.writeHead(500, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: e.message }));
-  }
+    const profile = body.profile ?? "crud";
+
+    try {
+        const allDomains = analyzer.getRawDomainsForModelIndex();
+        const index = getModelIndex() ?? buildModelIndex(allDomains);
+
+        // ── Domain-scope: entityId не нужен ──
+        if (isDomainScopeProfile(profile)) {
+            const domainResult = await generateForDomain(
+                allDomains,
+                index,
+                {
+                    domainId: body.domainId,
+                    profile,
+                    options: body.options as any,
+                },
+                analyzer.getRootDir(),
+            );
+
+            // Развернуть combined DomainGenerationResult в форму GenerationResult
+            // — UI уже умеет с ним работать (pendingManifest, yamlByBlock и т.д.).
+            const single = domainResult.results[0];
+            if (single?.error) {
+                res.writeHead(500, { "Content-Type": "application/json" });
+                res.end(JSON.stringify({ error: single.error }));
+                return;
+            }
+            if (!single?.result) {
+                res.writeHead(500, { "Content-Type": "application/json" });
+                res.end(JSON.stringify({ error: "Пустой результат генерации" }));
+                return;
+            }
+            res.writeHead(200, {
+                "Content-Type": "application/json; charset=utf-8",
+                "Cache-Control": "no-store",
+            });
+            res.end(JSON.stringify(single.result));
+            return;
+        }
+
+        // ── Entity-scope: entityId обязателен ──
+        if (!body.entityId) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({
+                error: `Профиль "${profile}" требует entityId`,
+            }));
+            return;
+        }
+
+        const result = generateForEntity(
+            allDomains,
+            index,
+            {
+                domainId: body.domainId,
+                entityId: body.entityId,
+                profile,
+                options: body.options as any,
+            },
+            analyzer.getRootDir(),
+        );
+
+        res.writeHead(200, {
+            "Content-Type": "application/json; charset=utf-8",
+            "Cache-Control": "no-store",
+        });
+        res.end(JSON.stringify(result));
+    } catch (e: any) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: e.message }));
+    }
 }
 
 export async function handleGenerateBatchRequest(

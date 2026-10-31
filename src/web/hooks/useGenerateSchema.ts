@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useGraphStore } from "../state/useGraphStore";
+import { isDomainScopeProfile } from "../../core/analyzer/schema-generator/scope";
 
 export interface GenerateOptions {
   includeBulk?: boolean;
@@ -16,6 +17,24 @@ export interface GenerateOptions {
   treeLinkageIds?: string[];
   treeChunkSize?: number;
   treeOrdering?: boolean;
+  tabsListIds?: string[];
+  tabsViewId?: string;
+  tabsLabel?: string;
+  tabsDefaultTab?: string;
+  tabsIncludeMenu?: boolean;
+  includeSorting?: boolean;
+  includeSearching?: boolean;
+  transitiveChain?: any[];
+  transitiveTreeId?: string;
+  transitiveIncludeWidget?: boolean;
+  transitiveIncludeListColumn?: boolean;
+  transitiveLabel?: string;
+  scaffoldCreateMenuRoot?: boolean;
+  scaffoldCreateMedias?: boolean;
+  defaultsBool?: boolean;
+  defaultsEnum?: boolean;
+  defaultsWorkflow?: boolean;
+  defaultsBoolValue?: boolean;
 }
 
 export interface UseGenerateSchemaParams {
@@ -50,14 +69,20 @@ export function useGenerateSchema({
   const optionsKey = JSON.stringify(options);
 
   useEffect(() => {
-    if (!enabled || !domainId || !entityId) return;
+    const isDomain = isDomainScopeProfile(profile as any);
+    const body: any = { domainId, profile, options };
+    if (!isDomain) body.entityId = entityId;
+
+    if (!enabled || !domainId) return;
+    if (!isDomain && !entityId) return;
+
     let cancelled = false;
     setState({ result: null, loading: true, error: null });
 
     fetch("/api/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ domainId, entityId, profile, options }),
+      body: JSON.stringify(body),
     })
       .then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) }))
       .then(({ ok, data }) => {

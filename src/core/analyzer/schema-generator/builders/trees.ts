@@ -143,7 +143,12 @@ export function buildTree(
 
   const hierarchy = { entity: E, children };
 
-  if (options.skipExisting && ctx.existing.trees.has(defaultTreeId)) {
+  const hasExplicitChain = !!options.treeChain && options.treeChain.length > 0;
+  if (
+    options.skipExisting &&
+    !hasExplicitChain &&
+    ctx.existing.trees.has(defaultTreeId)
+  ) {
     return {
       blocks: [],
       skipped: [
@@ -166,11 +171,7 @@ export function buildTree(
         blockId: `tree:${defaultTreeId}`,
         section: "trees",
         groupPath: ["trees"],
-        payload: {
-          id: defaultTreeId,
-          type: options.treeType,
-          hierarchy,
-        },
+        payload: { id: defaultTreeId, type: options.treeType, hierarchy },
         dependsOn: [],
         dependents: [],
         title: `Дерево ${defaultTreeId} (${countChainDepth(options.treeChain)} ур.)`,

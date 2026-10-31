@@ -13,6 +13,8 @@ export interface GenerateBatchOptions {
   treeLinkageIds?: string[];
   treeChunkSize?: number;
   treeOrdering?: boolean;
+  scaffoldCreateMenuRoot?: boolean;
+  scaffoldCreateMedias?: boolean;
 }
 
 export interface GenerateBatchProgress {

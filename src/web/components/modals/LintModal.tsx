@@ -27,9 +27,17 @@ const SEVERITY_LABELS: Record<LintSeverity, string> = {
 };
 
 const SEVERITY_ORDER: LintSeverity[] = ['error', 'warning', 'info'];
+const CATEGORY_TO_CHEATSHEET: Record<LintRuleCategory, string> = {
+    reference: "linkages",
+    semantic: "dataTypes",
+    naming: "reserved-names",
+    validation: "entities",
+    required: "validation-errors",
+    recommended: "validation-errors",
+    uirules: "uiRules",
+};
 
 export function LintModal() {
-    const store = useGraphStore();
     const { index, loading, error } = useModelIndex();
 
     const [filterCategory, setFilterCategory] = useState<LintRuleCategory | ''>('');
@@ -37,7 +45,8 @@ export function LintModal() {
     const [expandedRules, setExpandedRules] = useState<Set<string>>(new Set());
     const [showHelp, setShowHelp] = useState(false);
 
-    const open = store.lintOpen;
+    const open = useGraphStore(s => s.lintOpen);
+    const nodes = useGraphStore(s => s.nodes);
 
     const report = index?.lint.lintReport ?? null;
 
@@ -92,9 +101,9 @@ export function LintModal() {
     };
 
     const openEntity = (fqid: string) => {
-        store.setLintOpen(false);
-        store.setEntityCatalogInitialFqid(fqid);
-        store.setEntityCatalogOpen(true);
+        useGraphStore.getState().setLintOpen(false);
+        useGraphStore.getState().setEntityCatalogInitialFqid(fqid);
+        useGraphStore.getState().setEntityCatalogOpen(true);
     };
 
     /**
@@ -104,7 +113,7 @@ export function LintModal() {
     const openIssueInEditor = (issue: LintIssue) => {
         // filePath ищем по domainId среди узлов графа
         const domainId = issue.domainId;
-        const node = store.nodes.find(
+        const node = nodes.find(
             (n) =>
                 (n.data.domainId || "").toLowerCase() ===
                 domainId.toLowerCase(),
@@ -117,7 +126,7 @@ export function LintModal() {
             if (issue.entityFqid) {
                 openEntity(issue.entityFqid);
             } else {
-                store.showSnackbar(
+                useGraphStore.getState().showSnackbar(
                     "Файл схемы недоступен — откройте домен вручную",
                 );
             }
@@ -135,8 +144,14 @@ export function LintModal() {
         );
         if (!ok) return;
 
-        store.setLintOpen(false);
-        store.setYamlViewerPendingIssue(issue);
+        useGraphStore.getState().setLintOpen(false);
+        useGraphStore.getState().setYamlViewerPendingIssue(issue);
+    };
+
+    const openCheatsheet = (sectionId: string) => {
+        useGraphStore.getState().setLintOpen(false);
+        useGraphStore.getState().setCheatsheetInitialSection(sectionId);
+        useGraphStore.getState().setCheatsheetOpen(true);
     };
 
     if (!open) return null;
@@ -145,7 +160,7 @@ export function LintModal() {
         <div
             className="help-overlay help-overlay--fullscreen"
             style={{ zIndex: 500 }}
-            onMouseDown={() => store.setLintOpen(false)}
+            onMouseDown={() => useGraphStore.getState().setLintOpen(false)}
         >
             <div
                 className="help-modal entity-hierarchy-modal"
@@ -158,10 +173,18 @@ export function LintModal() {
                         {report && (<span className="help-modal__badge">{filteredIssues.length}</span>)}
                     </div>
                     <div className="help-modal__actions">
+                        <button
+                            className="help-modal__help-btn"
+                            onClick={() => openCheatsheet("validation-errors")}
+                            title="Открыть шпаргалку по ошибкам валидации"
+                        >
+                            <MIcon name="menu_book" />
+                            <span>Шпаргалка</span>
+                        </button>
                         <HelpButton open={showHelp} onToggle={() => setShowHelp(!showHelp)} label="Что проверяется?" />
                         <button
                             className="help-modal__close"
-                            onClick={() => store.setLintOpen(false)}
+                            onClick={() => useGraphStore.getState().setLintOpen(false)}
                         >
                             ✕
                         </button>
@@ -296,6 +319,37 @@ export function LintModal() {
                                                 <span className="lint-rule__title">{g.rule}</span>
                                                 <span className="lint-rule__category">
                                                     {CATEGORY_LABELS[g.category]}
+                                                </span>
+                                                <span
+                                                    role="button"
+                                                    tabIndex={0}
+                                                    className="lint-rule__cheatsheet-link"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        openCheatsheet(
+                                                            CATEGORY_TO_CHEATSHEET[g.category] || "validation-errors",
+                                                        );
+                                                    }}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === "Enter" || e.key === " ") {
+                                                            e.preventDefault();
+                                                            e.stopPropagation();
+                                                            openCheatsheet(
+                                                                CATEGORY_TO_CHEATSHEET[g.category] || "validation-errors",
+                                                            );
+                                                        }
+                                                    }}
+                                                    title="Открыть шпаргалку по этой категории"
+                                                    style={{
+                                                        display: "inline-flex",
+                                                        alignItems: "center",
+                                                        padding: "2px 4px",
+                                                        borderRadius: 4,
+                                                        cursor: "pointer",
+                                                        color: "var(--text-500)",
+                                                    }}
+                                                >
+                                                    <MIcon name="menu_book" size="sm" />
                                                 </span>
                                                 <span className="lint-rule__count">{g.issues.length}</span>
                                             </button>

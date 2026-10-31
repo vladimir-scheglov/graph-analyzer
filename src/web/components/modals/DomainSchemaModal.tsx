@@ -20,6 +20,9 @@ import {
     searchableStringsForGeneric,
 } from "./DomainSchemaHelpers";
 import { SECTION_LABELS } from "../../lib/consts";
+import { PROFILE_INFO } from "./GenerateSchemaProfiles";
+
+const DOMAIN_PROFILES = PROFILE_INFO.filter((p) => p.scope === "domain");
 
 export function DomainSchemaModal() {
     const store = useGraphStore();
@@ -44,6 +47,7 @@ export function DomainSchemaModal() {
     const setPrefillOnlyProblematic = useGraphStore(
         (s) => s.setDomainSchemaPrefillOnlyProblematic,
     );
+    const [enrichMenuOpen, setEnrichMenuOpen] = useState(false);
 
     useEffect(() => {
         if (!open) return;
@@ -369,6 +373,69 @@ export function DomainSchemaModal() {
                                     <MIcon name="auto_awesome" size="sm" />
                                     Сгенерировать для домена
                                 </button>
+                                <div style={{ position: "relative" }}>
+                                    <button
+                                        className="btn"
+                                        onClick={() => setEnrichMenuOpen((v) => !v)}
+                                        title="Обогатить домен: меню, Enum, цвета, обмен, счётчики"
+                                    >
+                                        <MIcon name="auto_fix_high" size="sm" />
+                                        Обогатить домен
+                                        <MIcon name="expand_more" size="sm" />
+                                    </button>
+                                    {enrichMenuOpen && (
+                                        <>
+                                            <div
+                                                onClick={() => setEnrichMenuOpen(false)}
+                                                style={{
+                                                    position: "fixed",
+                                                    inset: 0,
+                                                    zIndex: 10,
+                                                }}
+                                            />
+                                            <div
+                                                className="menu"
+                                                style={{
+                                                    position: "absolute",
+                                                    top: "calc(100% + 4px)",
+                                                    left: 0,
+                                                    zIndex: 11,
+                                                    minWidth: 260,
+                                                    background: "var(--bg-800)",
+                                                    border: "1px solid var(--border-hover)",
+                                                    borderRadius: 8,
+                                                    boxShadow: "0 12px 32px rgba(0,0,0,0.4)",
+                                                    padding: 4,
+                                                }}
+                                            >
+                                                {DOMAIN_PROFILES.map((p) => (
+                                                    <button
+                                                        key={p.id}
+                                                        className="menu__item"
+                                                        onClick={() => {
+                                                            const st = useGraphStore.getState();
+                                                            st.setGenerateSchemaDomainId(schema.domainId);
+                                                            st.setGenerateSchemaEntityId(null);
+                                                            st.setGenerateSchemaOpen(true);
+                                                            st.setDomainSchemaOpen(false);
+                                                            setEnrichMenuOpen(false);
+                                                            // Установить выбранный профиль через событие —
+                                                            // GenerateSchemaModal прочитает его из store
+                                                            // (см. п. 4.8.3).
+                                                            st.setGenerateSchemaPrefillProfile?.(p.id);
+                                                        }}
+                                                        title={p.when}
+                                                    >
+                                                        <span className="menu__icon">
+                                                            <MIcon name="auto_awesome" size="sm" />
+                                                        </span>
+                                                        <span className="menu__text">{p.label}</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
                                 <button
                                     className="btn"
                                     onClick={() => goto(schema.domainId)}
@@ -410,6 +477,19 @@ export function DomainSchemaModal() {
                                 >
                                     <MIcon name="database" size="sm" />
                                     Сгенерированные блоки
+                                </button>
+                                <button
+                                    className="btn"
+                                    onClick={() => {
+                                        const st = useGraphStore.getState();
+                                        st.setCheatsheetInitialSection("field-reference");
+                                        st.setCheatsheetOpen(true);
+                                        st.setDomainSchemaOpen(false);
+                                    }}
+                                    title="Справочник всех полей YAML"
+                                >
+                                    <MIcon name="menu_book" size="sm" />
+                                    Шпаргалка
                                 </button>
                             </div>
 

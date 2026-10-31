@@ -225,6 +225,19 @@ export function ModelMenu({ close }: ModelMenuProps) {
             <button
                 className="menu__item"
                 onClick={() => {
+                    useGraphStore.getState().setCheatsheetOpen(true);
+                    close();
+                }}
+            >
+                <span className="menu__icon">
+                    <MIcon name="menu_book" size="sm" />
+                </span>
+                <span className="menu__text">Шпаргалка по схеме</span>
+            </button>
+
+            <button
+                className="menu__item"
+                onClick={() => {
                     useGraphStore.getState().setGlossaryOpen(true);
                     close();
                 }}

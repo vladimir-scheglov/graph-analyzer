@@ -5,15 +5,10 @@ import { useGenerateSchemaBatch } from "../../hooks/useGenerateSchemaBatch";
 import { MIcon } from "../common/MIcon";
 import { hashPayload } from "../../../core/analyzer/schema-generator/util-hash";
 import type { GeneratedBlock } from "../../../core/analyzer/schema-generator/types";
+import { openFileInEditor } from "../../lib/open-file";
+import { PROFILE_INFO } from "./GenerateSchemaProfiles";
 
-const PROFILE_LABELS: Record<string, string> = {
-    crud: "CRUD",
-    "crud-with-page": "CRUD + полная карточка",
-    dictionary: "Справочник",
-    "no-modals": "Без модалок (readonly)",
-    "tree-view": "Дерево (tree-view)",
-    technical: "Техническая (без UI)",
-};
+const ENTITY_PROFILES = PROFILE_INFO.filter((p) => p.scope === "entity");
 
 export function GenerateBatchModal() {
     const store = useGraphStore();
@@ -34,6 +29,8 @@ export function GenerateBatchModal() {
         treeVariant: "merged" as const,
         treeChunkSize: 20,
         treeOrdering: false,
+        scaffoldCreateMenuRoot: false,
+        scaffoldCreateMedias: false,
     });
     const [initialised, setInitialised] = useState(false);
 
@@ -108,22 +105,24 @@ export function GenerateBatchModal() {
 
         if (blocksToApply.length === 0) return;
 
-        // Группируем по entityId для pendingManifest
-        const perEntity = new Map<string, Array<{ blockId: string; hash: string; title: string; parentViewId?: string }>>();
+        // ── Map<blockId, entityId> — O(N), без find в цикле ──
+        const blockOwner = new Map<string, string>();
+        for (const r of gen.result.results) {
+            if (!r.result?.blockIndex) continue;
+            for (const blockId of Object.keys(r.result.blockIndex)) {
+                blockOwner.set(blockId, r.entityId);
+            }
+        }
+
+        const perEntity = new Map<
+            string,
+            Array<{ blockId: string; hash: string; title: string; parentViewId?: string }>
+        >();
         for (const b of blocksToApply) {
-            // по blockId определяем entityId? Проще — использовать gen.result.results
-            // и для каждой сущности брать её blocks. Здесь объединённый массив
-            // уже содержит только нужные блоки; сопоставление — через title или payload.entity.
-            // Для точности используем маппинг blockId → entityId из результатов.
-            const owner = gen.result.results.find(
-                (r: any) =>
-                    r.result &&
-                    r.result.blockIndex &&
-                    r.result.blockIndex[b.blockId],
-            );
-            if (!owner) continue;
-            if (!perEntity.has(owner.entityId)) perEntity.set(owner.entityId, []);
-            perEntity.get(owner.entityId)!.push({
+            const entityId = blockOwner.get(b.blockId);
+            if (!entityId) continue;
+            if (!perEntity.has(entityId)) perEntity.set(entityId, []);
+            perEntity.get(entityId)!.push({
                 blockId: b.blockId,
                 hash: hashPayload(b.payload),
                 title: b.title,
@@ -135,19 +134,24 @@ export function GenerateBatchModal() {
         for (const [blockId, st] of Object.entries(status)) {
             if (st !== "orphaned") continue;
             if (blocksToApply.some((b) => b.blockId === blockId)) continue;
-            const owner = gen.result.results.find(
-                (r: any) =>
-                    r.result &&
-                    r.result.blockIndex &&
-                    r.result.blockIndex[blockId],
-            );
-            if (!owner) continue;
-            if (!orphanedByEntity.has(owner.entityId))
-                orphanedByEntity.set(owner.entityId, []);
-            orphanedByEntity.get(owner.entityId)!.push(blockId);
+            const entityId = blockOwner.get(blockId);
+            if (!entityId) continue;
+            if (!orphanedByEntity.has(entityId)) orphanedByEntity.set(entityId, []);
+            orphanedByEntity.get(entityId)!.push(blockId);
         }
 
         const st = useGraphStore.getState();
+
+        // ── ПРОВЕРКА ФАЙЛА ДО закрытия ──
+        const node = st.nodes.find((n) => n.data.domainId === domainId);
+        if (!node?.data.filePath) {
+            st.showSnackbar("Файл схемы не найден — модалка остаётся открытой");
+            return;
+        }
+
+        const ok = openFileInEditor(node.data.filePath, null, domainId);
+        if (!ok) return;
+
         st.setYamlViewerPendingGeneration({
             blocks: blocksToApply,
             yamlByBlock: combined.yamlByBlock,
@@ -163,20 +167,8 @@ export function GenerateBatchModal() {
                 orphanedIds: orphanedByEntity.get(entityId),
             })),
         });
-
         st.setGenerateBatchOpen(false);
-
-        // открыть редактор
-        const node = st.nodes.find((n) => n.data.domainId === domainId);
-        if (!node?.data.filePath) {
-            st.showSnackbar("Файл схемы не найден");
-            return;
-        }
-        st.setYamlViewerFilePath(node.data.filePath);
-        st.setYamlViewerFqid(null);
-        st.setYamlViewerDomainId(domainId);
-        st.setYamlViewerOpen(true);
-    }, [gen.result, domainId, profile, options.replaceModified, store]);
+    }, [gen.result, domainId, profile, options.replaceModified]);
 
     if (!open || !domainId) return null;
 
@@ -211,8 +203,10 @@ export function GenerateBatchModal() {
                         <label className="generate-schema-field">
                             <span>Профиль:</span>
                             <select value={profile} onChange={(e) => setProfile(e.target.value)}>
-                                {Object.entries(PROFILE_LABELS).map(([v, l]) => (
-                                    <option key={v} value={v}>{l}</option>
+                                {ENTITY_PROFILES.map((p) => (
+                                    <option key={p.id} value={p.id}>
+                                        {p.label}
+                                    </option>
                                 ))}
                             </select>
                         </label>
@@ -223,6 +217,58 @@ export function GenerateBatchModal() {
                             {selectedEntities.size} / {allEntities.length} сущностей
                         </span>
                     </div>
+
+                    {profile === "auto" && (
+                        <div className="generate-batch-extras">
+                            <div className="generate-batch-extras__title">
+                                <MIcon name="construction" size="sm" />
+                                Обвязка домена
+                            </div>
+
+                            <label
+                                className="generate-schema-option"
+                                title="Создаст root_group в menus[], если в домене его нет. Нужен для генерации меню для CRUD-сущностей"
+                            >
+                                <input
+                                    type="checkbox"
+                                    checked={options.scaffoldCreateMenuRoot}
+                                    onChange={(e) =>
+                                        setOptions({
+                                            ...options,
+                                            scaffoldCreateMenuRoot: e.target.checked,
+                                        })
+                                    }
+                                />
+                                <span>Создать корневое меню (root_group)</span>
+                            </label>
+
+                            <label
+                                className="generate-schema-option"
+                                title="Создаст набор базовых иконок (add/edit/delete/view/save/...), если в домене меньше 3 медиа"
+                            >
+                                <input
+                                    type="checkbox"
+                                    checked={options.scaffoldCreateMedias}
+                                    onChange={(e) =>
+                                        setOptions({
+                                            ...options,
+                                            scaffoldCreateMedias: e.target.checked,
+                                        })
+                                    }
+                                />
+                                <span>Добавить базовые иконки (10 шт.)</span>
+                            </label>
+
+                            <div className="generate-batch-hint">
+                                <MIcon name="info" size="sm" />
+                                <span>
+                                    Профиль «Авто»: словарные сущности → справочник, readonly
+                                    с list → без модалок, остальные → полный CRUD. Меню
+                                    и иконки создаются один раз, если их ещё нет.
+                                </span>
+                            </div>
+                        </div>
+                    )}
 
                     {profile === "tree-view" && (
                         <div className="generate-batch-hint">

@@ -9,7 +9,7 @@ import type {
 } from "./types";
 import { buildModelIndex, type RawDomainEntry } from "../model-builder";
 import type { ModelIndex } from "../../../shared/model-types";
-import { detectEntityContext } from "./detect";
+import { detectEntityContext, EntityGenerationContext } from "./detect";
 import { runCrudProfile } from "./profiles/crud";
 import { runPreflight } from "./preflight";
 import { runDictionaryProfile } from "./profiles/dictionary";
@@ -29,15 +29,53 @@ import {
   findPayloadByBlockId,
   isBlockReferencedInYaml,
 } from "./block-resolver";
+import { runTabsListProfile } from "./profiles/tabs-list";
+import { runSortingSearchingProfile } from "./profiles/sorting-searching";
+import { runTransitiveChainProfile } from "./profiles/transitive-chain";
+import { buildDomainExtras } from "./builders/domain-extras";
+import { runDefaultsProfile } from "./profiles/defaults";
+import { runLinkedGroupsProfile } from "./profiles/linked-groups";
+import { runDomainExtrasProfile } from "./profiles/domain-extras";
+import { runEnumWorkflowProfile } from "./profiles/enum-workflow";
+import { runUiStatusColorsProfile } from "./profiles/ui-status-colors";
+import { runExchangeSettingsProfile } from "./profiles/exchange-settings";
+import { runCounterColorProfile } from "./profiles/counter-color";
+import { isDomainScopeProfile } from "./scope";
+export { DOMAIN_SCOPE_PROFILES } from "./scope";
+export { runDomainExtrasProfile } from "./profiles/domain-extras";
+export { runEnumWorkflowProfile } from "./profiles/enum-workflow";
+export { runUiStatusColorsProfile } from "./profiles/ui-status-colors";
+export { runExchangeSettingsProfile } from "./profiles/exchange-settings";
+export { runCounterColorProfile } from "./profiles/counter-color";
+export { runLinkedGroupsProfile } from "./profiles/linked-groups";
 
 const DEFAULT_OPTIONS: Required<
   Omit<
     GenerationOptions,
-    "menuRootId" | "treeChain" | "treeUseExistingId" | "restoreOrphanedIds"
+    | "menuRootId"
+    | "treeChain"
+    | "treeUseExistingId"
+    | "restoreOrphanedIds"
+    | "tabsViewId"
+    | "tabsLabel"
+    | "tabsDefaultTab"
+    | "transitiveChain"
+    | "transitiveTreeId"
+    | "transitiveLabel"
+    | "transitiveWidgetViewId"
+    | "transitiveColumnViewId"
   >
 > & {
   treeChain?: TreeChain;
   treeUseExistingId?: string;
+  tabsViewId?: string;
+  tabsLabel?: string;
+  tabsDefaultTab?: string;
+  transitiveChain?: TreeChain;
+  transitiveTreeId?: string;
+  transitiveLabel?: string;
+  transitiveWidgetViewId?: string;
+  transitiveColumnViewId?: string;
 } = {
   includeBulk: true,
   includePage: false,
@@ -52,6 +90,54 @@ const DEFAULT_OPTIONS: Required<
   treeOrdering: false,
   treeChain: undefined,
   treeUseExistingId: undefined,
+  tabsListIds: [] as string[],
+  tabsViewId: undefined as string | undefined,
+  tabsLabel: undefined as string | undefined,
+  tabsDefaultTab: undefined as string | undefined,
+  tabsIncludeMenu: false,
+  noModals: false,
+  includeSorting: true,
+  includeSearching: true,
+  transitiveChain: undefined as TreeChain | undefined,
+  transitiveTreeId: undefined as string | undefined,
+  transitiveIncludeWidget: true,
+  transitiveIncludeListColumn: true,
+  transitiveLabel: undefined as string | undefined,
+  transitiveWidgetViewId: undefined,
+  transitiveColumnViewId: undefined,
+  scaffoldCreateMenuRoot: false,
+  scaffoldCreateMedias: false,
+  defaultsBool: true,
+  defaultsEnum: true,
+  defaultsWorkflow: true,
+  defaultsBoolValue: false,
+  menuIncludeItems: true,
+  enumSuffixes: [
+    "Type",
+    "Kind",
+    "Status",
+    "Category",
+    "Severity",
+    "State",
+    "Mode",
+    "Level",
+  ],
+  enumDefaultValues: ["unknown", "other"],
+  enumEnableWorkflow: false,
+  uiStatusColorPalette: [
+    "#94a3b8",
+    "#6366f1",
+    "#f59e0b",
+    "#10b981",
+    "#ef4444",
+    "#8b5cf6",
+  ],
+  exchangeEnable: true,
+  exchangeForExportStrategy: "label" as const,
+  exchangeNoCmsSync: false,
+  counterColorDefaultRed: "100%",
+  counterColorDefaultYellow: "50%",
+  linkedGroupsIncludeSingles: false,
 };
 
 export async function generateForDomain(
@@ -71,6 +157,73 @@ export async function generateForDomain(
 ): Promise<DomainGenerationResult> {
   const domain = allDomains.find((d) => d.id === request.domainId);
   if (!domain) throw new Error(`Domain ${request.domainId} not found`);
+
+  if (isDomainScopeProfile(request.profile)) {
+    opts?.onProgress?.({ phase: "start", current: 0, total: 1 });
+
+    let result: GenerationResult | null = null;
+    let error: string | null = null;
+
+    try {
+      result = generateDomainScope(
+        {
+          domainId: request.domainId,
+          profile: request.profile,
+          options: request.options,
+          skipPreflight: true,
+        },
+        allDomains,
+        index,
+        rootDir,
+      );
+    } catch (e: any) {
+      error = e.message || String(e);
+    }
+
+    opts?.onProgress?.({ phase: "done", current: 1, total: 1 });
+
+    const outcome: EntityGenerationOutcome = {
+      entityId: "(domain)",
+      result,
+      error,
+    };
+
+    const combined = result
+      ? {
+          blocks: result.blocks,
+          yamlByBlock: result.yamlByBlock,
+          manifestStatus: result.manifestStatus,
+          skipped: result.skipped,
+          emptySections: result.emptySections,
+          preflight: result.preflight,
+        }
+      : {
+          blocks: [] as GeneratedBlock[],
+          yamlByBlock: {} as Record<string, string>,
+          manifestStatus: {} as Record<string, ManifestBlockStatus>,
+          skipped: [] as GenerationResult["skipped"],
+          emptySections: [] as GeneratorSectionKey[],
+          preflight: {
+            newIssues: [] as LintIssue[],
+            fixedIssues: [] as LintIssue[],
+            conflicts: [],
+            elapsedMs: 0,
+          },
+        };
+
+    return {
+      domainId: request.domainId,
+      profile: request.profile,
+      results: [outcome],
+      combined,
+      stats: {
+        total: 1,
+        generated: result && result.blocks.length > 0 ? 1 : 0,
+        skipped: result && result.blocks.length === 0 ? 1 : 0,
+        failed: error ? 1 : 0,
+      },
+    };
+  }
 
   const allEntityIds = (domain.rawData?.entities ?? [])
     .map((e: any) => String(e?.id || ""))
@@ -145,6 +298,28 @@ export async function generateForDomain(
     for (const s of o.result.emptySections) emptySectionsSet.add(s);
   }
 
+  const needsExtras =
+    request.options?.scaffoldCreateMenuRoot ||
+    request.options?.scaffoldCreateMedias ||
+    request.options?.menuIncludeItems;
+
+  if (needsExtras) {
+    const extras = buildDomainExtras(request.domainId, index, allDomains, {
+      scaffoldCreateMenuRoot: !!request.options?.scaffoldCreateMenuRoot,
+      scaffoldCreateMedias: !!request.options?.scaffoldCreateMedias,
+      menuIncludeItems: request.options?.menuIncludeItems,
+    });
+    for (const b of extras.blocks) {
+      blocks.push(b);
+      try {
+        yamlByBlock[b.blockId] = emitYaml(b.payload);
+      } catch {
+        yamlByBlock[b.blockId] = "/* ошибка сериализации */";
+      }
+      manifestStatus[b.blockId] = "new";
+    }
+    skipped.push(...extras.skipped);
+  }
   opts?.onProgress?.({ phase: "preflight", current: total, total });
   const combinedBeforeIndex = buildModelIndex(allDomains);
   const preflight = runPreflight(
@@ -211,7 +386,7 @@ export function generateForEntity(
   request: GenerationRequest,
   rootDir: string,
 ): GenerationResult {
-  const options: Required<Omit<GenerationOptions, "menuRootId">> = {
+  const options: Required<GenerationOptions> = {
     ...DEFAULT_OPTIONS,
     ...(request.options || {}),
   } as any;
@@ -223,20 +398,55 @@ export function generateForEntity(
     request.entityId,
     request.options?.menuRootId,
   );
-  if (!ctx) {
+  if (!ctx)
     throw new Error(
       `Entity ${request.domainId}/${request.entityId} not found in index`,
     );
+
+  // ── Synthetic root_group, если scaffoldCreateMenuRoot и корня нет ──
+  const scaffoldBlocks: GeneratedBlock[] = [];
+  if (request.options?.scaffoldCreateMenuRoot && !ctx.menuRoot) {
+    const slug = (request.domainId || "").split(".")[0] || "domain";
+    const rootId = `menus_${slug}`;
+    const rootRoute = `/${slug}`;
+    const synthetic = {
+      id: rootId,
+      route: rootRoute,
+      type: "root_group" as const,
+    };
+
+    ctx.menuRoot = synthetic;
+    ctx.menuRoots = [synthetic];
+
+    scaffoldBlocks.push({
+      blockId: `menu:${rootId}`,
+      section: "menus",
+      groupPath: ["menus"],
+      payload: {
+        id: rootId,
+        route: rootRoute,
+        label:
+          index.domains.find((d) => d.id === request.domainId)?.name ||
+          request.domainId,
+        type: "root_group",
+        placement: "top",
+        items: [],
+      },
+      dependsOn: [],
+      dependents: [],
+      title: `Корневое меню ${rootId}`,
+    });
+  }
+
+  if (options.includePage === undefined) {
+    options.includePage = ctx.flags.hasPage;
   }
 
   // profile → options
-  if (request.profile === "crud-with-page") options.includePage = true;
-  if (
-    options.includePage === false &&
-    ctx.flags.hasPage &&
-    request.options?.includePage === undefined
-  ) {
+  if (request.profile === "crud-with-page") {
     options.includePage = true;
+  } else if (request.options?.includePage === undefined) {
+    options.includePage = ctx.flags.hasPage;
   }
 
   let profileResult;
@@ -246,22 +456,102 @@ export function generateForEntity(
     });
   } else if (request.profile === "tree-view") {
     profileResult = runTreeViewProfile(ctx, index, options);
+  } else if (request.profile === "tabs-list") {
+    profileResult = runTabsListProfile(ctx, {
+      tabsListIds: options.tabsListIds,
+      tabsViewId: options.tabsViewId,
+      tabsLabel: options.tabsLabel,
+      tabsDefaultTab: options.tabsDefaultTab,
+      tabsIncludeMenu: options.tabsIncludeMenu,
+      skipExisting: options.skipExisting,
+      menuRootId: options.menuRootId,
+    });
+  } else if (request.profile === "no-modals") {
+    // Профиль no-modals: read-only list+panel. Переопределяем
+    // YAML-флаги в shadow-контексте, чтобы runCrudProfile
+    // не сгенерил формы/модалки/create-edit actions.
+    const readonlyCtx: EntityGenerationContext = {
+      ...ctx,
+      flags: {
+        ...ctx.flags,
+        isReadonly: true,
+        hasListUi: true,
+        isDictionary: false,
+      },
+    };
+    options.includePage = false; // pages_infoX не генерим
+    options.noModals = true;
+    profileResult = runCrudProfile(readonlyCtx, index, options);
+  } else if (request.profile === "sorting-searching") {
+    profileResult = runSortingSearchingProfile(ctx, {
+      includeSorting: options.includeSorting,
+      includeSearching: options.includeSearching,
+    });
+  } else if (request.profile === "transitive-chain") {
+    profileResult = runTransitiveChainProfile(ctx, index, {
+      transitiveChain: options.transitiveChain,
+      transitiveTreeId: options.transitiveTreeId,
+      transitiveIncludeWidget: options.transitiveIncludeWidget,
+      transitiveIncludeListColumn: options.transitiveIncludeListColumn,
+      transitiveLabel: options.transitiveLabel,
+      transitiveWidgetViewId: options.transitiveWidgetViewId,
+      transitiveColumnViewId: options.transitiveColumnViewId,
+      skipExisting: options.skipExisting,
+    });
+  } else if (request.profile === "auto") {
+    // Автовыбор профиля по YAML-флагам сущности.
+    //   dictionary  → ui: { list: false, modals: false }
+    //   no-modals   → ui: { modals: false } + list
+    //   crud        → всё остальное
+    if (ctx.flags.isDictionary) {
+      profileResult = runDictionaryProfile(ctx, index, {
+        skipExisting: options.skipExisting,
+      });
+    } else if (ctx.flags.isReadonly && ctx.flags.hasListUi) {
+      const readonlyCtx: EntityGenerationContext = {
+        ...ctx,
+        flags: {
+          ...ctx.flags,
+          isReadonly: true,
+          hasListUi: true,
+          isDictionary: false,
+        },
+      };
+      options.includePage = false;
+      options.noModals = true;
+      profileResult = runCrudProfile(readonlyCtx, index, options);
+    } else {
+      profileResult = runCrudProfile(ctx, index, options);
+    }
+  } else if (request.profile === "defaults") {
+    profileResult = runDefaultsProfile(ctx, index, {
+      defaultsBool: options.defaultsBool,
+      defaultsEnum: options.defaultsEnum,
+      defaultsWorkflow: options.defaultsWorkflow,
+      defaultsBoolValue: options.defaultsBoolValue,
+      skipExisting: options.skipExisting,
+    });
+  } else if (request.profile === "linked-groups") {
+    profileResult = runLinkedGroupsProfile(ctx, index, {
+      includeSingles: options.linkedGroupsIncludeSingles === true,
+      skipExisting: options.skipExisting,
+    });
   } else if (request.profile === "custom") {
     throw new Error(`Profile "custom" is not implemented in this version`);
   } else {
     const useDictionary =
       request.profile === "dictionary" || ctx.flags.isDictionary;
     if (useDictionary) {
-      profileResult = runDictionaryProfile(ctx, {
+      profileResult = runDictionaryProfile(ctx, index, {
         skipExisting: options.skipExisting,
       });
     } else {
       if (request.profile === "crud-with-page") options.includePage = true;
-      profileResult = runCrudProfile(ctx, options);
+      profileResult = runCrudProfile(ctx, index, options);
     }
   }
 
-  const allBlocks = profileResult.blocks;
+  const allBlocks = [...scaffoldBlocks, ...profileResult.blocks];
   linkDependents(allBlocks);
 
   const rawDomain = allDomains.find((d) => d.id === request.domainId)?.rawData;
@@ -389,6 +679,160 @@ export function generateForEntity(
 
   return {
     request,
+    blocks: allBlocks,
+    blockIndex,
+    emptySections,
+    yamlByBlock,
+    skipped: profileResult.skipped,
+    preflight,
+    manifestStatus,
+  };
+}
+
+interface DomainScopeRequest {
+  domainId: string;
+  profile: GeneratorProfile;
+  options?: GenerationOptions;
+  skipPreflight?: boolean;
+}
+
+function generateDomainScope(
+  request: DomainScopeRequest,
+  allDomains: RawDomainEntry[],
+  index: ModelIndex,
+  rootDir: string,
+): GenerationResult {
+  const options: Required<GenerationOptions> = {
+    ...DEFAULT_OPTIONS,
+    ...(request.options || {}),
+  } as any;
+
+  let profileResult: {
+    blocks: GeneratedBlock[];
+    skipped: GenerationResult["skipped"];
+  };
+
+  switch (request.profile) {
+    case "domain-extras":
+      profileResult = runDomainExtrasProfile(
+        request.domainId,
+        index,
+        allDomains,
+        {
+          scaffoldCreateMenuRoot: options.scaffoldCreateMenuRoot,
+          scaffoldCreateMedias: options.scaffoldCreateMedias,
+          menuIncludeItems: options.menuIncludeItems !== false,
+        },
+      );
+      break;
+    case "enum-workflow-builder":
+      profileResult = runEnumWorkflowProfile(
+        request.domainId, index, {
+            suffixes: options.enumSuffixes,
+            defaultValues: options.enumDefaultValues,
+            enableWorkflow: options.enumEnableWorkflow === true,
+            skipExisting: options.skipExisting,
+        });
+    break;
+    case "ui-status-colors":
+      profileResult = runUiStatusColorsProfile(
+        request.domainId,
+        index,
+        allDomains,
+        {
+          palette: options.uiStatusColorPalette,
+          skipExisting: options.skipExisting,
+        },
+      );
+      break;
+    case "exchange-settings":
+      profileResult = runExchangeSettingsProfile(request.domainId, index, {
+        enable: options.exchangeEnable,
+        forExportStrategy: options.exchangeForExportStrategy,
+        noCmsSync: options.exchangeNoCmsSync,
+        skipExisting: options.skipExisting,
+      });
+      break;
+    case "counter-color":
+      profileResult = runCounterColorProfile(request.domainId, index, {
+        red: options.counterColorDefaultRed,
+        yellow: options.counterColorDefaultYellow,
+        skipExisting: options.skipExisting,
+      });
+      break;
+    default:
+      throw new Error(`Profile "${request.profile}" is not domain-scope`);
+  }
+
+  const allBlocks = profileResult.blocks;
+  linkDependents(allBlocks);
+
+  // Манифест: используем entityId = "(domain)" как псевдо-сущность.
+  const manifest = loadGeneratedManifest(rootDir);
+  const entityManifest =
+    manifest.domains[request.domainId]?.entities["(domain)"]?.blocks ?? {};
+
+  const rawDomain = allDomains.find((d) => d.id === request.domainId)?.rawData;
+
+  const manifestStatus: Record<string, ManifestBlockStatus> = {};
+  for (const b of allBlocks) {
+    const currentPayload = rawDomain
+      ? findPayloadByBlockId(rawDomain, b.blockId, b.parentViewId)
+      : null;
+    const entry = entityManifest[b.blockId];
+    const newHash = hashPayload(b.payload);
+
+    if (currentPayload == null) {
+      manifestStatus[b.blockId] = entry ? "orphaned" : "new";
+      continue;
+    }
+    const currentHash = hashPayload(currentPayload);
+    if (currentHash === newHash) manifestStatus[b.blockId] = "unchanged";
+    else if (entry && entry.hash === currentHash)
+      manifestStatus[b.blockId] = "outdated";
+    else manifestStatus[b.blockId] = "modified";
+  }
+  for (const blockId of Object.keys(entityManifest)) {
+    if (!(blockId in manifestStatus)) manifestStatus[blockId] = "orphaned";
+  }
+
+  const yamlByBlock: Record<string, string> = {};
+  for (const b of allBlocks) {
+    try {
+      yamlByBlock[b.blockId] = emitYaml(b.payload);
+    } catch {
+      yamlByBlock[b.blockId] = "/* ошибка сериализации */";
+    }
+  }
+
+  const preflight = request.skipPreflight
+    ? {
+        newIssues: [] as LintIssue[],
+        fixedIssues: [] as LintIssue[],
+        conflicts: [],
+        elapsedMs: 0,
+      }
+    : runPreflight(
+        allDomains,
+        request.domainId,
+        allBlocks,
+        manifestStatus,
+        !!options.replaceModified,
+        options.restoreOrphanedIds,
+      );
+
+  const presentSections = new Set<GeneratorSectionKey>();
+  for (const b of allBlocks) presentSections.add(b.section);
+  const emptySections: GeneratorSectionKey[] = [];
+  for (const s of ["actions", "views", "menus", "medias"] as const) {
+    if (!presentSections.has(s)) emptySections.push(s);
+  }
+
+  const blockIndex: Record<string, GeneratedBlock> = {};
+  for (const b of allBlocks) blockIndex[b.blockId] = b;
+
+  return {
+    request: { ...request, entityId: "(domain)" } as GenerationRequest,
     blocks: allBlocks,
     blockIndex,
     emptySections,

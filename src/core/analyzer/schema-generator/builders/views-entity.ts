@@ -19,14 +19,6 @@ function shouldSkipViewEntity(
   const viewId = `view${E}`;
   if (options.skipExisting && ctx.existing.views.has(viewId))
     return { skipped: true, reason: "already-exists" };
-  // entity-view под другим id — генерация создаст дубликат.
-  // Skip, чтобы не было двух entity-view для одной сущности.
-  if (
-    options.skipExisting &&
-    ctx.existing.viewIdConflicts.some((c) => c.kind === "entity")
-  ) {
-    return { skipped: true, reason: "id-conflict" };
-  }
   return { skipped: false };
 }
 
@@ -84,12 +76,13 @@ export function buildViewEntityWidgets(
     /** @deprecated больше не влияет на кнопки; actions_openXPage — в buildActions */
     includePage: boolean;
     includeLinkageWidgets: boolean;
+    parentViewId: string;
   },
   selectedActionIds: Set<string>,
 ): ViewEntityWidgetsResult {
   const E = ctx.entity.entityId;
   const eLower = E.toLowerCase();
-  const viewId = `view${E}`;
+  const viewId = options.parentViewId; 
 
   // dictionary — нет entity-view с виджетами (только root-контейнер)
   if (ctx.flags.isDictionary) {
@@ -259,6 +252,7 @@ export function buildViewEntityGroups(
   options: Required<Pick<GenerationOptions, "skipExisting">> & {
     includePage: boolean;
     excludeReadonlyFromCreate: boolean;
+    parentViewId: string;
   },
   widgets: Pick<
     ViewEntityWidgetsResult,
@@ -266,7 +260,7 @@ export function buildViewEntityGroups(
   >,
 ): ViewEntityGroupsResult {
   const E = ctx.entity.entityId;
-  const viewId = `view${E}`;
+  const viewId = options.parentViewId;
 
   if (ctx.flags.isDictionary) {
     return {
@@ -429,12 +423,13 @@ export function buildViewEntityNestedViews(
   ctx: EntityGenerationContext,
   options: Required<Pick<GenerationOptions, "skipExisting">> & {
     includePage: boolean;
+    parentViewId: string;
   },
   selectedActionIds: Set<string>,
   groups: Pick<ViewEntityGroupsResult, "infoTabId" | "linkageBlockTabIds">,
 ): ViewEntityNestedViewsResult {
   const E = ctx.entity.entityId;
-  const viewId = `view${E}`;
+  const viewId = options.parentViewId;
 
   if (ctx.flags.isDictionary) {
     return {

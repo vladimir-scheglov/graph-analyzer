@@ -113,6 +113,7 @@ export interface TreeChainBuilderProps {
     onChangeChain: (v: TreeChain | undefined) => void;
     onChangeUseExisting: (id: string | undefined) => void;
     existingTrees: ExistingTreeOption[];
+    hideExistingOption?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -131,7 +132,7 @@ export function TreeChainBuilder(props: TreeChainBuilderProps) {
         existingTrees,
     } = props;
 
-    const useExisting = !!useExistingId;
+    const useExisting = !props.hideExistingOption && !!useExistingId;
     const chain: TreeChain = value ?? [];
 
     const steps = useMemo(() => {
@@ -170,12 +171,11 @@ export function TreeChainBuilder(props: TreeChainBuilderProps) {
 
     const handleRemoveStep = (stepIdx: number) => {
         const newChain = chain.slice(0, stepIdx);
-        onChangeChain(newChain.length > 0 ? newChain : undefined);
+        onChangeChain(newChain);
     };
 
     const handleToggleUseExisting = (on: boolean) => {
-        if (on) onChangeChain(undefined);
-        else onChangeUseExisting(undefined);
+        onChangeChain(on ? undefined : []);
     };
 
     const preview = useMemo(() => {
@@ -197,31 +197,33 @@ export function TreeChainBuilder(props: TreeChainBuilderProps) {
 
     return (
         <div className="tree-chain">
-            <label className="tree-chain__existing-option">
-                <input
-                    type="checkbox"
-                    checked={useExisting}
-                    onChange={(e) => handleToggleUseExisting(e.target.checked)}
-                />
-                <span>Использовать существующее дерево</span>
-                {useExisting && (
-                    <select
-                        className="tree-chain__select"
-                        value={useExistingId ?? ""}
-                        onChange={(e) =>
-                            onChangeUseExisting(e.target.value || undefined)
-                        }
-                        style={{ marginLeft: "auto", maxWidth: 280 }}
-                    >
-                        <option value="">— выберите дерево —</option>
-                        {existingTrees.map((t) => (
-                            <option key={t.id} value={t.id}>
-                                {t.id} — {t.name}
-                            </option>
-                        ))}
-                    </select>
-                )}
-            </label>
+            {!props.hideExistingOption && (
+                <label className="tree-chain__existing-option">
+                    <input
+                        type="checkbox"
+                        checked={useExisting}
+                        onChange={(e) => handleToggleUseExisting(e.target.checked)}
+                    />
+                    <span>Использовать существующее дерево</span>
+                    {useExisting && (
+                        <select
+                            className="tree-chain__select"
+                            value={useExistingId ?? ""}
+                            onChange={(e) =>
+                                onChangeUseExisting(e.target.value || undefined)
+                            }
+                            style={{ marginLeft: "auto", maxWidth: 280 }}
+                        >
+                            <option value="">— выберите дерево —</option>
+                            {existingTrees.map((t) => (
+                                <option key={t.id} value={t.id}>
+                                    {t.id} — {t.name}
+                                </option>
+                            ))}
+                        </select>
+                    )}
+                </label>
+            )}
 
             {!useExisting && (
                 <>

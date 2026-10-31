@@ -18,6 +18,8 @@ const SECTION_LABELS: Record<string, string> = {
   linkages: "Связи",
   entities: "Сущности",
   sequences: "Последовательности",
+  transitiveLinkages: "Транзитивные связи",
+  columns: "Колонки (в view)",
 };
 
 const SECTION_ORDER = [
@@ -31,6 +33,8 @@ const SECTION_ORDER = [
   "linkages",
   "entities",
   "sequences",
+  "transitiveLinkages",
+  "columns",
 ];
 
 export function groupYamlBySection(

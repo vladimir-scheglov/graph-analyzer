@@ -1,0 +1,776 @@
+/* ============ Yaml Quick Jump (Shift+Tab) ============ */
+.yaml-quickjump-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 600;
+  background: rgba(0, 0, 0, 0.15);
+}
+.yaml-quickjump {
+  position: fixed;
+  top: 14%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 601;
+  width: 640px;
+  max-width: 92vw;
+  max-height: 60vh;
+  background: var(--bg-800);
+  border: 1px solid var(--border-hover);
+  border-radius: 12px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: yamlQuickJumpIn 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes yamlQuickJumpIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(-8px) scale(0.98); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+}
+
+.yaml-quickjump__input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-850);
+}
+.yaml-quickjump__input-wrap .material-symbols-outlined {
+  color: var(--text-500);
+  font-size: 18px;
+}
+.yaml-quickjump__input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-100);
+  font-family: inherit;
+  font-size: 14px;
+  min-width: 0;
+}
+.yaml-quickjump__input::placeholder { color: var(--text-500); }
+.yaml-quickjump__clear {
+  background: transparent;
+  border: none;
+  color: var(--text-500);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.yaml-quickjump__clear:hover {
+  background: var(--bg-700);
+  color: var(--text-200);
+}
+.yaml-quickjump__kbd {
+  padding: 2px 6px;
+  background: var(--bg-700);
+  border: 1px solid var(--border-hover);
+  border-radius: 4px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  color: var(--text-400);
+}
+
+.yaml-quickjump__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px;
+}
+.yaml-quickjump__list::-webkit-scrollbar { width: 6px; }
+.yaml-quickjump__list::-webkit-scrollbar-thumb {
+  background: var(--bg-600);
+  border-radius: 3px;
+}
+
+.yaml-quickjump-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-200);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.1s;
+}
+.yaml-quickjump-item--active { background: var(--accent-soft); }
+.yaml-quickjump-item__icon {
+  color: var(--accent-hover);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.yaml-quickjump-item__main {
+  flex: 1;
+  min-width: 0;
+}
+.yaml-quickjump-item__label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-100);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.yaml-quickjump-item__sublabel {
+  font-size: 11px;
+  color: var(--text-400);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.yaml-quickjump-item__breadcrumbs {
+  font-size: 10px;
+  color: var(--text-500);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.yaml-quickjump-item__line {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: var(--text-500);
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+.yaml-quickjump-item--active .yaml-quickjump-item__line {
+  color: var(--accent-hover);
+}
+.yaml-quickjump-item__you {
+  color: var(--accent);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.yaml-quickjump__empty {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--text-500);
+  font-size: 12px;
+}
+
+.yaml-quickjump__footer {
+  display: flex;
+  gap: 16px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-850);
+  font-size: 10.5px;
+  color: var(--text-500);
+  align-items: center;
+  flex-wrap: wrap;
+}
+.yaml-quickjump__footer kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  background: var(--bg-700);
+  border: 1px solid var(--border-hover);
+  border-radius: 3px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  color: var(--text-400);
+  font-weight: 600;
+  margin: 0 2px;
+}
+.yaml-quickjump__hint {
+  margin-left: auto;
+  font-family: "JetBrains Mono", monospace;
+  opacity: 0.7;
+}
+/* «Недавние» */
+.yaml-quickjump-item--recent .yaml-quickjump-item__icon {
+  color: var(--text-500);
+}
+.yaml-quickjump-item--recent .yaml-quickjump-item__sublabel {
+  color: var(--text-500);
+  font-style: italic;
+}
+
+/* «Выбор секции» — подсказка справа */
+.yaml-quickjump-item--section-pick .yaml-quickjump-item__label {
+  color: var(--accent-hover);
+}
+.yaml-quickjump-item__action-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  font-size: 10px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.yaml-quickjump-item__action-hint kbd {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  padding: 0 3px;
+  background: transparent;
+  border: none;
+  color: inherit;
+  opacity: 0.8;
+}
+
+/* Улучшенный empty-state с подсказкой */
+.yaml-quickjump__empty {
+  padding: 20px 16px;
+  text-align: center;
+  color: var(--text-500);
+  font-size: 12px;
+}
+.yaml-quickjump__empty-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-500);
+  font-family: "JetBrains Mono", monospace;
+  opacity: 0.75;
+  line-height: 1.6;
+  word-break: break-word;
+}
+/* ============ Группы в списке ============ */
+.yaml-quickjump__group {
+  margin-bottom: 4px;
+}
+.yaml-quickjump__group-title {
+  padding: 6px 10px 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-500);
+}
+
+/* ============ Preview на hover ============ */
+.yaml-quickjump-preview {
+  position: fixed;
+  z-index: 602;
+  background: var(--bg-800);
+  border: 1px solid var(--border-hover);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+  animation: yamlQuickJumpIn 0.12s ease;
+  pointer-events: none;
+  max-height: 380px;
+  display: flex;
+  flex-direction: column;
+}
+.yaml-quickjump-preview__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-850);
+  flex-shrink: 0;
+}
+.yaml-quickjump-preview__head .material-symbols-outlined {
+  color: var(--accent-hover);
+  font-size: 14px;
+}
+.yaml-quickjump-preview__title {
+  flex: 1;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-100);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.yaml-quickjump-preview__line {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  color: var(--text-500);
+}
+.yaml-quickjump-preview__body {
+  flex: 1;
+  overflow: hidden;
+  padding: 4px 0;
+}
+.yaml-quickjump-preview__row {
+  display: flex;
+  align-items: flex-start;
+  padding: 1px 0;
+}
+.yaml-quickjump-preview__row--target {
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.yaml-quickjump-preview__line-no {
+  width: 42px;
+  padding: 0 8px 0 10px;
+  text-align: right;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  color: var(--text-500);
+  flex-shrink: 0;
+  user-select: none;
+}
+.yaml-quickjump-preview__row--target .yaml-quickjump-preview__line-no {
+  color: var(--accent-hover);
+  font-weight: 700;
+}
+.yaml-quickjump-preview__code {
+  flex: 1;
+  margin: 0;
+  padding: 0 10px 0 6px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: var(--text-300);
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.yaml-quickjump-preview__row--target .yaml-quickjump-preview__code {
+  color: var(--text-100);
+}
+/* ============ Severity (только для items с severity) ============ */
+.yaml-quickjump-item--severity-error .yaml-quickjump-item__icon {
+  color: var(--danger);
+}
+.yaml-quickjump-item--severity-warning .yaml-quickjump-item__icon {
+  color: var(--warning);
+}
+.yaml-quickjump-item--severity-info .yaml-quickjump-item__icon {
+  color: var(--accent-hover);
+}
+.yaml-quickjump-item--severity-error .yaml-quickjump-item__label {
+  color: var(--danger);
+}
+
+/* ============ Help-строки ============ */
+.yaml-quickjump-item--help .yaml-quickjump-item__icon {
+  color: var(--accent-hover);
+  opacity: 0.8;
+}
+.yaml-quickjump-item--help .yaml-quickjump-item__label {
+  font-family: "JetBrains Mono", monospace;
+  color: var(--accent-hover);
+}
+
+/* ============ Подсветка совпадения в preview ============ */
+.yaml-quickjump-preview__code .search-hl {
+  background: rgba(251, 191, 36, 0.35);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+/* ============ Бейдж проблем на кнопке быстрого перехода ============ */
+.yaml-viewer-quickjump-btn {
+  position: relative;
+}
+.yaml-viewer-quickjump-btn__badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--danger);
+  color: #fff;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+  pointer-events: none;
+  box-shadow: 0 0 0 2px var(--bg-850);
+}
+
+/* ============ История запросов в пустом query ============ */
+.yaml-quickjump-item--help[data-query-history] {
+  /* если понадобится отдельный стиль — например, курсив */
+}
+.yaml-quickjump-item--help .yaml-quickjump-item__sublabel { font-style: italic; }
+/* ============ Кнопка share в шапке input ============ */
+.yaml-quickjump__share {
+  background: transparent;
+  border: none;
+  color: var(--text-500);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  transition: background-color 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+.yaml-quickjump__share:hover {
+  background: var(--bg-700);
+  color: var(--text-200);
+}
+.yaml-quickjump__share.active {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--success);
+}
+
+/* ============ Счётчик группы ============ */
+.yaml-quickjump__group-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-500);
+}
+.yaml-quickjump__group-count {
+  padding: 0 6px;
+  min-width: 18px;
+  height: 14px;
+  line-height: 14px;
+  border-radius: 7px;
+  background: var(--bg-700);
+  color: var(--text-400);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* ============ Избранное ============ */
+.yaml-quickjump-item__fav {
+  background: transparent;
+  border: none;
+  color: var(--text-500);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+}
+.yaml-quickjump-item:hover .yaml-quickjump-item__fav {
+  opacity: 0.65;
+}
+.yaml-quickjump-item__fav:hover {
+  opacity: 1 !important;
+  background: rgba(251, 191, 36, 0.15);
+  color: #fbbf24;
+}
+.yaml-quickjump-item__fav--active {
+  opacity: 1 !important;
+  color: #fbbf24;
+}
+
+/* ============ Мини-карта секций ============ */
+.yaml-quickjump-preview--minimap {
+  max-height: none;
+}
+.yaml-quickjump-minimap {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    overflow-y: auto;
+    background: var(--bg-900);
+    border-radius: 6px;
+    border: 1px solid var(--border);
+}
+
+.yaml-quickjump-minimap__block {
+    flex-basis: 0;
+    min-height: 24px;
+    border-bottom: 1px solid var(--bg-800);
+    display: flex;
+    align-items: center;
+    padding-left: 8px;
+    box-sizing: border-box;
+    background: var(--bg-700);
+    overflow: hidden;
+    cursor: pointer;
+}
+.yaml-quickjump-minimap__block:nth-child(even) {
+  background: rgba(99, 102, 241, 0.18);
+}
+.yaml-quickjump-minimap__block--target {
+    background: var(--accent-soft);
+    border-left: 3px solid var(--accent);
+    box-shadow: inset 0 0 0 1px var(--accent);
+}
+.yaml-quickjump-minimap__block--cursor {
+    background: rgba(251, 191, 36, 0.1);
+    border-left: 3px solid #fbbf24;
+}
+.yaml-quickjump-minimap__block:hover {
+  background: rgba(99, 102, 241, 0.3);
+}
+.yaml-quickjump-minimap__block--target:hover {
+  background: var(--accent-hover) !important;
+}
+.yaml-quickjump-minimap__label {
+    font-size: 10px;
+    color: var(--text-400);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
+}
+.yaml-quickjump-minimap__block--target .yaml-quickjump-minimap__label {
+  color: #ffffff;
+  font-weight: 600;
+}
+/* ============ Копировать все: счётчик и disabled-стиль ============ */
+.yaml-quickjump__share-count {
+  margin-left: 2px;
+  padding: 0 4px;
+  border-radius: 6px;
+  background: var(--bg-700);
+  color: var(--text-400);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  min-width: 14px;
+  text-align: center;
+}
+.yaml-quickjump__share:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.yaml-quickjump__share:disabled:hover {
+  background: transparent;
+  color: var(--text-500);
+}
+
+/* ============ Hint-tooltip для kbd в footer ============ */
+.yaml-quickjump__hint-kbd {
+  position: relative;
+  display: inline-flex;
+}
+.yaml-quickjump__hint-kbd > kbd {
+  cursor: help;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+.yaml-quickjump__hint-kbd:hover > kbd {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-hover);
+}
+
+.yaml-quickjump-hint-tooltip {
+  position: fixed;
+  z-index: 700;
+  background: var(--bg-800);
+  border: 1px solid var(--border-hover);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  padding: 10px 12px;
+  font-size: 11px;
+  color: var(--text-300);
+  pointer-events: none;
+  line-height: 1.5;
+  animation: yamlQuickJumpIn 0.12s ease;
+}
+
+.yaml-quickjump-hint-tooltip__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.yaml-quickjump-hint-tooltip__head .material-symbols-outlined {
+  font-size: 14px;
+}
+.yaml-quickjump-hint-tooltip__title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-100);
+  letter-spacing: 0.1px;
+}
+
+.yaml-quickjump-hint-tooltip__desc {
+  margin-bottom: 8px;
+  color: var(--text-400);
+}
+
+.yaml-quickjump-hint-tooltip__example {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  background: var(--bg-750);
+  border-radius: 6px;
+}
+.yaml-quickjump-hint-tooltip__example-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-500);
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.yaml-quickjump-hint-tooltip__example code {
+  background: transparent;
+  padding: 0;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  color: var(--accent-hover);
+  word-break: break-word;
+}
+
+.yaml-quickjump-hint-tooltip__hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  font-size: 10.5px;
+  color: var(--text-500);
+}
+.yaml-quickjump-hint-tooltip__hint .material-symbols-outlined {
+  color: var(--warning);
+  font-size: 12px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+/* Общая обёртка для Hint-анкоров */
+.hint-anchor {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    position: relative;
+}
+
+/* Кнопка «?» в шапке быстрых переходов */
+.yaml-quickjump__help {
+    width: 26px;
+    height: 26px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-500);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    flex-shrink: 0;
+}
+.yaml-quickjump__help:hover {
+    background: var(--bg-700);
+    color: var(--accent-hover);
+}
+.yaml-quickjump__help.active {
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+}
+
+/* Документация внутри попапа */
+.yaml-quickjump-docs {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    flex: 1;
+    overflow: hidden;
+}
+.yaml-quickjump-docs__head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+.yaml-quickjump-docs__title {
+    flex: 1;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-100);
+}
+.yaml-quickjump-docs__close {
+    background: transparent;
+    border: none;
+    color: var(--text-500);
+    cursor: pointer;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+}
+.yaml-quickjump-docs__close:hover {
+    background: var(--bg-700);
+    color: var(--text-200);
+}
+.yaml-quickjump-docs__body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 12px 16px 20px;
+    font-size: 12px;
+    color: var(--text-300);
+    line-height: 1.55;
+}
+.yaml-quickjump-docs__lead {
+    margin: 0 0 12px;
+    color: var(--text-400);
+}
+.yaml-quickjump-docs__body h3 {
+    margin: 16px 0 8px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-500);
+    font-weight: 700;
+}
+.yaml-quickjump-docs__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11.5px;
+}
+.yaml-quickjump-docs__table td,
+.yaml-quickjump-docs__table th {
+    padding: 6px 8px;
+    vertical-align: top;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+}
+.yaml-quickjump-docs__table th {
+    font-size: 10px;
+    color: var(--text-500);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+.yaml-quickjump-docs__table code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    padding: 1px 5px;
+    background: var(--bg-750);
+    border-radius: 4px;
+    color: var(--accent-hover);
+}
+.yaml-quickjump-docs__body ul {
+    margin: 6px 0 0;
+    padding-left: 20px;
+}
+.yaml-quickjump-docs__body li {
+    margin-bottom: 4px;
+}
+.yaml-quickjump-docs__body kbd {
+    display: inline-block;
+    padding: 1px 5px;
+    background: var(--bg-700);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    color: var(--text-200);
+}

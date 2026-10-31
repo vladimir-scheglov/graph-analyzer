@@ -1475,7 +1475,7 @@ function provideDefinition(monaco: any, model: any, position: any): any {
 
 // ============ Определения полей YAML по контексту ============
 
-interface FieldDef {
+export interface FieldDef {
   name: string;
   type: string;
   description: string;
@@ -1483,7 +1483,7 @@ interface FieldDef {
   priority?: 0 | 1 | 2;
 }
 
-const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
+export const FIELD_DEFINITIONS: Record<string, FieldDef[]> = {
   sortingItem: [
     {
       name: "id",

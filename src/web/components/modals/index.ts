@@ -24,3 +24,4 @@ export { PiiModal } from "./PiiModal";
 export { YamlViewerModal } from "./YamlViewerModal";
 export { GenerateSchemaModal } from "./GenerateSchemaModal";
 export { GeneratedManifestModal } from "./GeneratedManifestModal";
+export { CheatsheetModal } from "./CheatsheetModal";

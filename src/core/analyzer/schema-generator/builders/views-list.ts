@@ -11,16 +11,30 @@ export interface ViewListResult {
   }>;
 }
 
+const SYSTEM_SORTABLE = new Set([
+  "id",
+  "label",
+  "createdAt",
+  "updatedAt",
+  "entityName",
+  "entityId",
+  "domainId",
+  "createdBy",
+  "updatedBy",
+  "version",
+]);
+
 export function buildViewList(
   ctx: EntityGenerationContext,
   options: Required<Pick<GenerationOptions, "skipExisting" | "includeBulk">> & {
     includePage: boolean;
+    viewIdOverride?: string;
   },
   selectedActionIds: Set<string>,
 ): ViewListResult {
   const E = ctx.entity.entityId;
   const eLower = E.toLowerCase();
-  const viewId = `lists_${eLower}`;
+  const viewId = options.viewIdOverride || `lists_${eLower}`; 
 
   if (ctx.flags.isDictionary || !ctx.flags.hasListUi) {
     return {
@@ -48,22 +62,6 @@ export function buildViewList(
       ],
     };
   }
-  if (
-    options.skipExisting &&
-    ctx.existing.viewIdConflicts.some((c) => c.kind === "list")
-  ) {
-    return {
-      blocks: [],
-      skipped: [
-        {
-          blockId: `view:${viewId}`,
-          section: "views",
-          id: viewId,
-          reason: "id-conflict",
-        },
-      ],
-    };
-  }
 
   const columns = ctx.entity.attributes.map((a) => ({
     id: a.id,
@@ -72,10 +70,26 @@ export function buildViewList(
     layout: { width: { default: 120, min: 50, max: 300 } },
   }));
 
+  const attrIds = new Set(columns.map((c) => c.id));
   const sortingCols: Array<{ column: string; sorting: string }> = [];
   for (const s of ctx.entity.sorting || []) {
     if (!s.by || s.by.length === 0) continue;
-    sortingCols.push({ column: s.by[0].attribute, sorting: s.id });
+    const attr = s.by[0].attribute;
+
+    if (!attrIds.has(attr)) {
+      if (SYSTEM_SORTABLE.has(attr)) {
+        columns.push({
+          id: attr,
+          attribute: attr,
+          label: attr,
+          layout: { width: { default: 120, min: 50, max: 300 } },
+        });
+        attrIds.add(attr);
+      } else {
+        continue; // сортировка по несуществующей колонке — пропускаем
+      }
+    }
+    sortingCols.push({ column: attr, sorting: s.id });
   }
   const sortingBy =
     sortingCols.length > 0

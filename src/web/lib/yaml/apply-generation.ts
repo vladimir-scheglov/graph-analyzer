@@ -48,7 +48,7 @@ function planEditsIntoExistingView(
   const points = findViewInsertPoints(content, viewId);
   const lines = content.split("\n");
   const edits: MonacoEdit[] = [];
-  
+
   for (const point of points) {
     const items = (merged as any)[point.section] as any[] | undefined;
     if (!items || items.length === 0) continue;
@@ -137,6 +137,145 @@ function replaceBlockInYaml(
   };
 }
 
+function findEntityBlockBounds(
+  lines: string[],
+  entityId: string,
+): { start: number; end: number; indent: number } | null {
+  let entitiesStart = -1;
+  let entitiesEnd = lines.length;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind === 0 && /^entities\s*:\s*$/.test(line)) {
+      entitiesStart = i;
+      for (let j = i + 1; j < lines.length; j++) {
+        const lj = lines[j];
+        if (!lj.trim()) continue;
+        const inj = (lj.match(/^(\s*)/) || ["", ""])[1].length;
+        if (inj === 0) {
+          entitiesEnd = j;
+          break;
+        }
+      }
+      break;
+    }
+  }
+  if (entitiesStart < 0) return null;
+
+  let itemIndent = -1;
+  for (let i = entitiesStart + 1; i < entitiesEnd; i++) {
+    const line = lines[i];
+    if (!line.trim() || line.trim().startsWith("#")) continue;
+    const m = line.match(/^(\s*)-\s+\S/);
+    if (m) {
+      itemIndent = m[1].length;
+      break;
+    }
+  }
+  if (itemIndent < 0) return null;
+
+  const idRegex = /^(\s*)-\s+id\s*:\s*["']?([^\s"'#]+)["']?/;
+  let itemStart = -1;
+  for (let i = entitiesStart + 1; i < entitiesEnd; i++) {
+    const m = lines[i].match(idRegex);
+    if (m && m[1].length === itemIndent && m[2] === entityId) {
+      itemStart = i;
+      break;
+    }
+  }
+  if (itemStart < 0) return null;
+
+  let itemEnd = entitiesEnd;
+  for (let i = itemStart + 1; i < entitiesEnd; i++) {
+    const line = lines[i];
+    if (!line.trim()) continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind < itemIndent) {
+      itemEnd = i;
+      break;
+    }
+    const m = line.match(/^(\s*)-\s+\S/);
+    if (m && m[1].length === itemIndent) {
+      itemEnd = i;
+      break;
+    }
+  }
+
+  return { start: itemStart, end: itemEnd, indent: itemIndent };
+}
+
+function dumpAsArrayItem(value: any, indent: string): string {
+  const yaml = require("js-yaml");
+  const dumped = yaml
+    .dump([value], { indent: 2, lineWidth: 120, noRefs: true, sortKeys: false })
+    .replace(/\n+$/, "");
+  return dumped
+    .split("\n")
+    .map((l) => indent + l)
+    .join("\n");
+}
+
+function planEntityEnrichment(
+  lines: string[],
+  blocks: GeneratedBlock[],
+): MonacoEdit[] {
+  const edits: MonacoEdit[] = [];
+
+  for (const b of blocks) {
+    const E = b.payload?.id;
+    if (!E) continue;
+    const bounds = findEntityBlockBounds(lines, E);
+    if (!bounds) continue;
+
+    const fieldIndent = " ".repeat(bounds.indent + 2);
+    let hasSorting = false;
+    let hasSearching = false;
+    for (let i = bounds.start + 1; i < bounds.end; i++) {
+      const line = lines[i];
+      if (!line.trim()) continue;
+      const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+      if (ind !== bounds.indent + 2) continue;
+      const trimmed = line.trim();
+      if (/^sorting\s*:/.test(trimmed)) hasSorting = true;
+      if (/^searching\s*:/.test(trimmed)) hasSearching = true;
+    }
+
+    const parts: string[] = [];
+    if (b.payload.sorting && !hasSorting) {
+      parts.push(`${fieldIndent}sorting:`);
+      for (const s of b.payload.sorting) {
+        parts.push(dumpAsArrayItem(s, fieldIndent + "  "));
+      }
+    }
+    if (b.payload.searching && !hasSearching) {
+      parts.push(`${fieldIndent}searching:`);
+      for (const s of b.payload.searching) {
+        parts.push(dumpAsArrayItem(s, fieldIndent + "  "));
+      }
+    }
+    if (parts.length === 0) continue;
+
+    let insertAfter = bounds.end - 1;
+    while (insertAfter > bounds.start && !(lines[insertAfter] || "").trim()) {
+      insertAfter--;
+    }
+    const insertLine = insertAfter + 1;
+    const lineText = lines[insertAfter] || "";
+    edits.push({
+      range: {
+        startLineNumber: insertLine,
+        startColumn: lineText.length + 1,
+        endLineNumber: insertLine,
+        endColumn: lineText.length + 1,
+      },
+      text: "\n" + parts.join("\n"),
+    });
+  }
+
+  return edits;
+}
+
 export function planEdits(
   content: string,
   blocks: GeneratedBlock[],
@@ -145,9 +284,11 @@ export function planEdits(
   manifestStatus?: Record<string, ManifestBlockStatus>,
   replaceModified = false,
   restoreOrphanedIds?: string[],
+  forceReplaceIds?: string[],
 ): MonacoEdit[] {
   const status = manifestStatus ?? {};
   const restore = new Set(restoreOrphanedIds ?? []);
+  const forceReplace = new Set(forceReplaceIds ?? []);
   const edits: MonacoEdit[] = [];
 
   const viewRootIdsNew = new Set<string>();
@@ -167,7 +308,9 @@ export function planEdits(
     const st = status[b.blockId];
     if (st === "unchanged") continue;
     if (st === "orphaned" && !restore.has(b.blockId)) continue;
-    if (st === "modified" && !replaceModified) continue;
+
+    const isForce = forceReplace.has(b.blockId);
+    if (st === "modified" && !replaceModified && !isForce) continue;
 
     if (
       b.parentViewId &&
@@ -177,8 +320,12 @@ export function planEdits(
       appendBlocks.push(b);
       continue;
     }
-    if (st === "outdated" || st === "modified") replaceBlocks.push(b);
-    else appendBlocks.push(b);
+
+    if (st === "outdated" || st === "modified" || (isForce && st !== "new")) {
+      replaceBlocks.push(b);
+    } else {
+      appendBlocks.push(b);
+    }
   }
 
   // ── 2. Replace для outdated ──
@@ -270,8 +417,62 @@ export function planEdits(
     bySection.get(b.section)!.push(b);
   }
   for (const [sectionKey, sectionBlocks] of bySection) {
+    if (sectionKey === "exchangeSettings") {
+      edits.push(
+        ...planExchangeSettingsEdit(lines, sectionBlocks, yamlByBlock),
+      );
+      continue;
+    }
+    if (sectionKey === "columns") {
+      edits.push(...planColumnAppend(lines, sectionBlocks, yamlByBlock));
+      continue;
+    }
+    if (sectionKey === "entities") {
+      edits.push(...planEntityEnrichment(lines, sectionBlocks));
+      continue;
+    }
     if (sectionKey === "menus") {
-      edits.push(...planMenuEdits(lines, sectionBlocks, yamlByBlock));
+      const nested = sectionBlocks.filter((b) => !!b.menuRootId);
+      const topLevel = sectionBlocks.filter((b) => !b.menuRootId);
+
+      // Merge items into new roots (когда root и items создаются одним apply)
+      const newRootIds = new Set<string>();
+      for (const b of topLevel) {
+        if (status[b.blockId] === "new" || status[b.blockId] == null) {
+          const rid = b.payload?.id;
+          if (rid) newRootIds.add(rid);
+        }
+      }
+      const consumedItemIds = new Set<string>();
+      for (const b of topLevel) {
+        const rid = b.payload?.id;
+        if (!rid || !newRootIds.has(rid)) continue;
+        const items = nested.filter((it) => it.menuRootId === rid);
+        if (items.length === 0) continue;
+        b.payload = {
+          ...b.payload,
+          items: [...(b.payload.items || []), ...items.map((it) => it.payload)],
+        };
+        for (const it of items) consumedItemIds.add(it.blockId);
+        yamlByBlock[b.blockId] = emitYaml(b.payload);
+      }
+
+      const remainingNested = nested.filter(
+        (b) => !consumedItemIds.has(b.blockId),
+      );
+      if (remainingNested.length > 0) {
+        edits.push(...planMenuEdits(lines, remainingNested, yamlByBlock));
+      }
+      if (topLevel.length > 0) {
+        const edit = planSectionAppend(
+          lines,
+          lineMap,
+          "menus",
+          topLevel,
+          yamlByBlock,
+        );
+        if (edit) edits.push(edit);
+      }
       continue;
     }
     const edit = planSectionAppend(
@@ -505,4 +706,210 @@ function planMenuRootInsert(
     },
     text: "\n" + itemsText,
   };
+}
+
+function findTableColumnsInsertPoint(
+  content: string,
+  viewId: string,
+): { insertLine: number; dashIndent: number } | null {
+  const lines = content.split("\n");
+  let viewsStart = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^views\s*:\s*$/.test(lines[i])) {
+      viewsStart = i;
+      break;
+    }
+  }
+  if (viewsStart < 0) return null;
+
+  const idRegex = /^(\s*)-\s+id\s*:\s*["']?([^\s"'#]+)["']?\s*(?:#.*)?$/;
+  let viewStart = -1;
+  let viewEnd = lines.length;
+  let firstItemIndent = -1;
+  for (let i = viewsStart + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim()) continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind === 0) {
+      viewEnd = i;
+      break;
+    }
+    const m = line.match(idRegex);
+    if (!m) continue;
+    if (firstItemIndent < 0) firstItemIndent = m[1].length;
+    if (viewStart < 0) {
+      if (m[2] === viewId) viewStart = i;
+    } else if (m[1].length === firstItemIndent) {
+      viewEnd = i;
+      break;
+    }
+  }
+  if (viewStart < 0) return null;
+
+  let tableLine = -1;
+  let tableIndent = -1;
+  for (let i = viewStart + 1; i < viewEnd; i++) {
+    const m = lines[i].match(/^(\s*)table\s*:\s*$/);
+    if (m) {
+      tableLine = i;
+      tableIndent = m[1].length;
+      break;
+    }
+  }
+  if (tableLine < 0) return null;
+
+  let columnsLine = -1;
+  let columnsIndent = -1;
+  for (let i = tableLine + 1; i < viewEnd; i++) {
+    const line = lines[i];
+    if (!line.trim()) continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind <= tableIndent) break;
+    const m = line.match(/^(\s*)columns\s*:\s*$/);
+    if (m) {
+      columnsLine = i;
+      columnsIndent = m[1].length;
+      break;
+    }
+  }
+  if (columnsLine < 0) return null;
+
+  const dashIndent = columnsIndent + 2;
+  let lastItemEnd = columnsLine + 1;
+  for (let i = columnsLine + 1; i < viewEnd; i++) {
+    const line = lines[i];
+    if (!line.trim()) {
+      lastItemEnd = i + 1;
+      continue;
+    }
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind <= columnsIndent) break;
+    if (ind === dashIndent && /^\s*-\s+\S/.test(line)) {
+      lastItemEnd = i + 1;
+      for (let j = i + 1; j < viewEnd; j++) {
+        const lj = lines[j];
+        if (!lj.trim()) {
+          lastItemEnd = j + 1;
+          continue;
+        }
+        const inj = (lj.match(/^(\s*)/) || ["", ""])[1].length;
+        if (inj < dashIndent) break;
+        if (inj === dashIndent && /^\s*-\s+\S/.test(lj)) break;
+        lastItemEnd = j + 1;
+      }
+    }
+  }
+
+  return { insertLine: lastItemEnd, dashIndent };
+}
+
+function planColumnAppend(
+  lines: string[],
+  blocks: GeneratedBlock[],
+  yamlByBlock: Record<string, string>,
+): MonacoEdit[] {
+  const byView = new Map<string, GeneratedBlock[]>();
+  for (const b of blocks) {
+    if (!b.parentViewId) continue;
+    if (!byView.has(b.parentViewId)) byView.set(b.parentViewId, []);
+    byView.get(b.parentViewId)!.push(b);
+  }
+  const edits: MonacoEdit[] = [];
+  for (const [viewId, viewBlocks] of byView) {
+    const content = lines.join("\n");
+    const point = findTableColumnsInsertPoint(content, viewId);
+    if (!point) continue;
+
+    const dashIndent = " ".repeat(point.dashIndent);
+    const itemsText = viewBlocks
+      .map((b) => toArrayItem(yamlByBlock[b.blockId] || "", dashIndent))
+      .filter(Boolean)
+      .join("\n");
+    if (!itemsText) continue;
+
+    let insertLine = point.insertLine;
+    while (insertLine > 1 && !(lines[insertLine - 1] || "").trim()) {
+      insertLine--;
+    }
+    const lineText = lines[insertLine - 1] || "";
+    edits.push({
+      range: {
+        startLineNumber: insertLine,
+        startColumn: lineText.length + 1,
+        endLineNumber: insertLine,
+        endColumn: lineText.length + 1,
+      },
+      text: "\n" + itemsText,
+    });
+  }
+  return edits;
+}
+
+function indentBy(yaml: string, indent: string): string {
+  return yaml
+    .replace(/\n+$/, "")
+    .split("\n")
+    .map((l) => (l ? indent + l : l))
+    .join("\n");
+}
+
+function planExchangeSettingsEdit(
+  lines: string[],
+  blocks: GeneratedBlock[],
+  yamlByBlock: Record<string, string>,
+): MonacoEdit[] {
+  const block = blocks.find((b) => !!yamlByBlock[b.blockId]);
+  if (!block) return [];
+  const yaml = yamlByBlock[block.blockId];
+  if (!yaml) return [];
+
+  // Найти существующий top-level `exchangeSettings:`
+  let start = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^exchangeSettings\s*:/.test(lines[i])) {
+      start = i;
+      break;
+    }
+  }
+
+  if (start < 0) {
+    const last = lines.length;
+    const col = (lines[last - 1] || "").length + 1;
+    return [
+      {
+        range: {
+          startLineNumber: last,
+          startColumn: col,
+          endLineNumber: last,
+          endColumn: col,
+        },
+        text: `\nexchangeSettings:\n${indentBy(yaml, "  ")}`,
+      },
+    ];
+  }
+
+  // Заменить всю секцию до следующего top-level ключа
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim()) continue;
+    const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+    if (ind === 0 && !line.trim().startsWith("#")) {
+      end = i;
+      break;
+    }
+  }
+  const lastLine = end - 1;
+  const lastLineText = lines[lastLine] || "";
+  return [
+    {
+      range: {
+        startLineNumber: start + 1,
+        startColumn: 1,
+        endLineNumber: lastLine + 1,
+        endColumn: lastLineText.length + 1,
+      },
+      text: `exchangeSettings:\n${indentBy(yaml, "  ")}`,
+    },
+  ];
 }

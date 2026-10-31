@@ -11,7 +11,7 @@ import type { GeneratedBlock } from "../types";
  */
 export function buildMedias(
   ctx: EntityGenerationContext,
-  options: { hasPage: boolean },
+  options: { hasPage: boolean; noModals: boolean },
 ): {
   blocks: GeneratedBlock[];
   skipped: Array<{
@@ -22,8 +22,12 @@ export function buildMedias(
   }>;
 } {
   const candidates = [
-    { id: "iconsAdd", iconName: "plus" },
-    { id: "iconsEdit", iconName: "pencil" },
+    ...(options.noModals
+      ? []
+      : [
+          { id: "iconsAdd", iconName: "plus" },
+          { id: "iconsEdit", iconName: "pencil" },
+        ]),
     { id: "iconsDelete", iconName: "trash" },
     ...(options.hasPage ? [{ id: "iconsView", iconName: "eye" }] : []),
   ];

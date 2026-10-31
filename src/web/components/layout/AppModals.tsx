@@ -18,7 +18,8 @@ import {
     EntitiesCatalogModal,
     AttributeFinderModal,
     GenerateSchemaModal,
-    GeneratedManifestModal
+    GeneratedManifestModal,
+    CheatsheetModal
 } from '../modals';
 import type { Command } from '../../lib/commands';
 import { EntityMatrixModal } from '../modals/EntityMatrixModal';
@@ -157,6 +158,7 @@ export function AppModals(props: AppModalsProps) {
             <GenerateBatchModal />
             <GeneratedManifestModal />
             <WorkflowGraphModal />
+            <CheatsheetModal />
         </>
     );
 }

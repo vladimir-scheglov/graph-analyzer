@@ -3,7 +3,7 @@ import type { GeneratedBlock } from "../types";
 
 export function buildMenu(
   ctx: EntityGenerationContext,
-  options: { skipExisting: boolean },
+  options: { skipExisting: boolean; viewIdOverride?: string },
 ): {
   blocks: GeneratedBlock[];
   skipped: Array<{
@@ -15,7 +15,7 @@ export function buildMenu(
 } {
   const E = ctx.entity.entityId;
   const itemId = `${E}Menu`;
-  const listViewId = `lists_${E.toLowerCase()}`;
+  const listViewId = options.viewIdOverride || `lists_${E.toLowerCase()}`;
   const blockId = `menuItem:${ctx.menuRoot?.id || "?"}/${itemId}`;
 
   if (ctx.flags.isDictionary || !ctx.flags.hasListUi) {

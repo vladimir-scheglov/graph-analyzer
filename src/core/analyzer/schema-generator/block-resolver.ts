@@ -28,6 +28,9 @@ export function findPayloadByBlockId(
   if (kind === "media") {
     return (rawData.medias || []).find((m: any) => m?.id === rest) ?? null;
   }
+  if (kind === "menu") {
+    return (rawData.menus || []).find((m: any) => m?.id === rest) ?? null;
+  }
   if (kind === "menuItem") {
     const slash = rest.indexOf("/");
     if (slash < 0) return null;
@@ -68,6 +71,50 @@ export function findPayloadByBlockId(
   if (kind === "tree") {
     return (rawData.trees || []).find((t: any) => t?.id === rest) ?? null;
   }
+  if (kind === "dataRule") {
+    return (rawData.dataRules || []).find((r: any) => r?.id === rest) ?? null;
+  }
+  if (kind === "entity") {
+    const rawEntity = (rawData.entities || []).find((e: any) => e?.id === rest);
+    if (!rawEntity) return null;
+    const fragment: any = { id: rest };
+    if (Array.isArray(rawEntity.sorting)) {
+      fragment.sorting = rawEntity.sorting;
+    }
+    if (rawEntity.searching !== undefined) {
+      fragment.searching = rawEntity.searching;
+    }
+    // Пустой fragment = нет ни sorting, ни searching → блок "orphaned"
+    if (fragment.sorting === undefined && fragment.searching === undefined) {
+      return null;
+    }
+    return fragment;
+  }
+  if (kind === "transitiveLinkage") {
+    return (
+      (rawData.transitiveLinkages || []).find((t: any) => t?.id === rest) ??
+      null
+    );
+  }
+  if (kind === "column") {
+    const slash = rest.indexOf("/");
+    if (slash < 0) return null;
+    const parentId = rest.slice(0, slash);
+    const columnId = rest.slice(slash + 1);
+    const parent = (rawData.views || []).find((v: any) => v?.id === parentId);
+    if (!parent || !Array.isArray(parent?.table?.columns)) return null;
+    return parent.table.columns.find((c: any) => c?.id === columnId) ?? null;
+  }
+  if (kind === "counterColorPattern") {
+    const arr = rawData.counterColorPatterns ?? rawData.counterColorPattern;
+    return (
+      (Array.isArray(arr) ? arr : []).find((p: any) => p?.id === rest) ?? null
+    );
+  }
+  if (kind === "exchangeSettings") {
+    // блочный id: exchangeSettings:(root)
+    return rawData.exchangeSettings ?? null;
+  }
   return null;
 }
 
@@ -84,148 +131,148 @@ export function findPayloadByBlockId(
  * ссылка — это broken reference, восстановить без явной галки.
  */
 export function isBlockReferencedInYaml(
-    rawData: any,
-    blockId: string,
-    parentViewId?: string,
+  rawData: any,
+  blockId: string,
+  parentViewId?: string,
 ): boolean {
-    if (!rawData) return false;
-    const colon = blockId.indexOf(":");
-    if (colon < 0) return false;
-    const kind = blockId.slice(0, colon);
-    const rest = blockId.slice(colon + 1);
+  if (!rawData) return false;
+  const colon = blockId.indexOf(":");
+  if (colon < 0) return false;
+  const kind = blockId.slice(0, colon);
+  const rest = blockId.slice(colon + 1);
 
-    if (kind === "widget") {
-        const slash = rest.indexOf("/");
-        const widgetId = slash >= 0 ? rest.slice(slash + 1) : rest;
-        return hasWidgetReference(rawData, widgetId);
-    }
-    if (kind === "group") {
-        const slash = rest.indexOf("/");
-        const groupId = slash >= 0 ? rest.slice(slash + 1) : rest;
-        return hasGroupReference(rawData, groupId);
-    }
-    if (kind === "view") {
-        return hasNestedViewReference(rawData, rest);
-    }
-    return false;
+  if (kind === "widget") {
+    const slash = rest.indexOf("/");
+    const widgetId = slash >= 0 ? rest.slice(slash + 1) : rest;
+    return hasWidgetReference(rawData, widgetId);
+  }
+  if (kind === "group") {
+    const slash = rest.indexOf("/");
+    const groupId = slash >= 0 ? rest.slice(slash + 1) : rest;
+    return hasGroupReference(rawData, groupId);
+  }
+  if (kind === "view") {
+    return hasNestedViewReference(rawData, rest);
+  }
+  return false;
 }
 
 function walkViews(node: any, visit: (n: any) => boolean): boolean {
-    if (!node || typeof node !== "object") return false;
-    if (visit(node)) return true;
-    if (Array.isArray(node.views)) {
-        for (const nv of node.views) {
-            if (walkViews(nv, visit)) return true;
-        }
+  if (!node || typeof node !== "object") return false;
+  if (visit(node)) return true;
+  if (Array.isArray(node.views)) {
+    for (const nv of node.views) {
+      if (walkViews(nv, visit)) return true;
     }
-    return false;
+  }
+  return false;
 }
 
 function hasWidgetReference(rawData: any, widgetId: string): boolean {
-    if (!Array.isArray(rawData.views)) return false;
-    for (const v of rawData.views) {
-        if (
-            walkViews(v, (n) => {
-                if (Array.isArray(n.actionPanel)) {
-                    for (const ap of n.actionPanel) {
-                        if (ap?.widget === widgetId) return true;
-                    }
-                }
-                if (Array.isArray(n.groups)) {
-                    for (const g of n.groups) {
-                        if (!Array.isArray(g?.components)) continue;
-                        for (const c of g.components) {
-                            if (c?.widget === widgetId) return true;
-                        }
-                    }
-                }
-                return false;
-            })
-        ) {
-            return true;
+  if (!Array.isArray(rawData.views)) return false;
+  for (const v of rawData.views) {
+    if (
+      walkViews(v, (n) => {
+        if (Array.isArray(n.actionPanel)) {
+          for (const ap of n.actionPanel) {
+            if (ap?.widget === widgetId) return true;
+          }
         }
+        if (Array.isArray(n.groups)) {
+          for (const g of n.groups) {
+            if (!Array.isArray(g?.components)) continue;
+            for (const c of g.components) {
+              if (c?.widget === widgetId) return true;
+            }
+          }
+        }
+        return false;
+      })
+    ) {
+      return true;
     }
-    return false;
+  }
+  return false;
 }
 
 function hasGroupReference(rawData: any, groupId: string): boolean {
-    if (!Array.isArray(rawData.views)) return false;
-    for (const v of rawData.views) {
-        if (
-            walkViews(v, (n) => {
-                if (Array.isArray(n.groups)) {
-                    for (const g of n.groups) {
-                        if (!Array.isArray(g?.components)) continue;
-                        for (const c of g.components) {
-                            if (c?.block === groupId) return true;
-                        }
-                    }
-                }
-                // tabs[].tab может ссылаться на группу type: tab
-                if (Array.isArray(n.tabs)) {
-                    for (const t of n.tabs) {
-                        if (t?.tab === groupId) return true;
-                    }
-                }
-                // views[].block может ссылаться на группу type: block
-                if (n.block === groupId) return true;
-                return false;
-            })
-        ) {
-            return true;
+  if (!Array.isArray(rawData.views)) return false;
+  for (const v of rawData.views) {
+    if (
+      walkViews(v, (n) => {
+        if (Array.isArray(n.groups)) {
+          for (const g of n.groups) {
+            if (!Array.isArray(g?.components)) continue;
+            for (const c of g.components) {
+              if (c?.block === groupId) return true;
+            }
+          }
         }
+        // tabs[].tab может ссылаться на группу type: tab
+        if (Array.isArray(n.tabs)) {
+          for (const t of n.tabs) {
+            if (t?.tab === groupId) return true;
+          }
+        }
+        // views[].block может ссылаться на группу type: block
+        if (n.block === groupId) return true;
+        return false;
+      })
+    ) {
+      return true;
     }
-    return false;
+  }
+  return false;
 }
 
 function hasNestedViewReference(rawData: any, viewId: string): boolean {
-    if (Array.isArray(rawData.menus)) {
-        for (const m of rawData.menus) {
-            if (m?.view === viewId) return true;
-            if (Array.isArray(m?.items)) {
-                for (const it of m.items) {
-                    if (it?.view === viewId) return true;
-                }
-            }
+  if (Array.isArray(rawData.menus)) {
+    for (const m of rawData.menus) {
+      if (m?.view === viewId) return true;
+      if (Array.isArray(m?.items)) {
+        for (const it of m.items) {
+          if (it?.view === viewId) return true;
         }
+      }
     }
-    if (Array.isArray(rawData.actions)) {
-        for (const a of rawData.actions) {
-            if (
-                a?.view === viewId ||
-                a?.modal === viewId ||
-                a?.panel === viewId ||
-                a?.pageView === viewId
-            ) {
-                return true;
-            }
+  }
+  if (Array.isArray(rawData.actions)) {
+    for (const a of rawData.actions) {
+      if (
+        a?.view === viewId ||
+        a?.modal === viewId ||
+        a?.panel === viewId ||
+        a?.pageView === viewId
+      ) {
+        return true;
+      }
+    }
+  }
+  if (!Array.isArray(rawData.views)) return false;
+  for (const v of rawData.views) {
+    if (
+      walkViews(v, (n) => {
+        if (Array.isArray(n.tabs)) {
+          for (const t of n.tabs) {
+            if (t?.tab === viewId) return true;
+          }
         }
-    }
-    if (!Array.isArray(rawData.views)) return false;
-    for (const v of rawData.views) {
-        if (
-            walkViews(v, (n) => {
-                if (Array.isArray(n.tabs)) {
-                    for (const t of n.tabs) {
-                        if (t?.tab === viewId) return true;
-                    }
-                }
-                if (Array.isArray(n.menu)) {
-                    for (const m of n.menu) {
-                        if (m?.action === viewId) return true;
-                    }
-                }
-                if (Array.isArray(n.footer)) {
-                    for (const f of n.footer) {
-                        if (f?.action === viewId) return true;
-                    }
-                }
-                if (n.block === viewId) return true;
-                return false;
-            })
-        ) {
-            return true;
+        if (Array.isArray(n.menu)) {
+          for (const m of n.menu) {
+            if (m?.action === viewId) return true;
+          }
         }
+        if (Array.isArray(n.footer)) {
+          for (const f of n.footer) {
+            if (f?.action === viewId) return true;
+          }
+        }
+        if (n.block === viewId) return true;
+        return false;
+      })
+    ) {
+      return true;
     }
-    return false;
+  }
+  return false;
 }
