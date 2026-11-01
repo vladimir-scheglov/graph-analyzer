@@ -25,3 +25,5 @@ export { YamlViewerModal } from "./YamlViewerModal";
 export { GenerateSchemaModal } from "./GenerateSchemaModal";
 export { GeneratedManifestModal } from "./GeneratedManifestModal";
 export { CheatsheetModal } from "./CheatsheetModal";
+export { HealthDashboardModal } from "./HealthDashboardModal";
+export { DeletionSimulationModal } from "./DeletionSimulationModal";

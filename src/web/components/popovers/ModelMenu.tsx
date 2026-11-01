@@ -23,6 +23,20 @@ export function ModelMenu({ close }: ModelMenuProps) {
                 Обзор модели
             </div>
 
+            <button
+                className="menu__item"
+                onClick={() => {
+                    useGraphStore.getState().setHealthDashboardOpen(true);
+                    close();
+                }}
+            >
+                <span className="menu__icon">
+                    <MIcon name="dashboard" size="sm" />
+                </span>
+                <span className="menu__text">Health Dashboard</span>
+                <kbd className="menu__hotkey">⇧⌘H</kbd>
+            </button>
+
             <button className="menu__item" onClick={openCatalog}>
                 <span className="menu__icon">
                     <MIcon name="menu_book" size="sm" />

@@ -1177,6 +1177,7 @@ export interface DomainSchemaAllViewItem {
   menuItem?: string;
   /** Шаблон названия view (для проверки placeholders). */
   label?: string;
+  tree?: string;
 }
 
 export interface DomainSchemaPermissionItem {

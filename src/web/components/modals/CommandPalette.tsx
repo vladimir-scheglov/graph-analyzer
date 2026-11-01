@@ -1,11 +1,51 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useGraphStore } from '../../state/useGraphStore';
 import { useNavigation } from '../../hooks/useNavigation';
 import { useSearch } from '../../hooks/useSearch';
 import { MIcon } from '../common/MIcon';
 import { HighlightedText } from '../common/HighlightedText';
 import type { Command } from '../../lib/commands';
-import type { SearchResult } from '../../hooks/useSearch';
+import type { ModelSearchResult, ModelSearchKind } from '../../lib/search/types';
+import { useModelIndex } from '../../hooks/useModelIndex';
+
+const SYNTAX_HELP: Array<{ code: string; text: string }> = [
+    { code: 'entity:Server', text: 'сущности; Enter — каталог' },
+    { code: 'type:Reference', text: 'атрибуты по dataType' },
+    { code: 'constraint:required', text: 'атрибуты с ограничением' },
+    { code: 'has:mixin', text: 'сущности с миксинами' },
+    { code: 'has:table', text: 'с Table-атрибутом' },
+    { code: '-has:mixin', text: 'без миксинов (отрицание)' },
+    { code: 'ref:it.assets.*', text: 'с Reference на домен' },
+    { code: 'pii:critical', text: 'PII-хиты critical' },
+    { code: 'lint:error', text: 'с ошибками линтера' },
+    { code: 'domain:it.*', text: 'только эти домены' },
+    { code: 'namespace:it.assets', text: 'сужение по неймспейсу' },
+    { code: 'fqid:it.assets.rvision.ru/Server', text: 'точный прыжок' },
+    { code: 'Server domain:it.*', text: 'текст + сужение' },
+];
+
+function SearchSyntaxPanel({ onPick }: { onPick: (code: string) => void }) {
+    return (
+        <div className="search-modal__syntax">
+            <div className="search-modal__syntax-title">
+                Синтаксис: <code>field:value</code>, отрицание — <code>-</code> или <code>!</code>
+            </div>
+            <div className="search-modal__syntax-grid">
+                {SYNTAX_HELP.map((r) => (
+                    <button
+                        key={r.code}
+                        type="button"
+                        className="search-modal__syntax-example"
+                        onClick={() => onPick(r.code)}
+                    >
+                        <code>{r.code}</code>
+                        <span>{r.text}</span>
+                    </button>
+                ))}
+            </div>
+        </div>
+    );
+}
 
 export interface CommandPaletteProps {
     commands: Command[];
@@ -44,119 +84,6 @@ const CommandItem = React.memo(function CommandItem({
     );
 });
 
-interface DomainItemProps {
-    item: SearchResult;
-    itemIdx: number;
-    isActive: boolean;
-    query: string;
-    onHover: (idx: number) => void;
-    onSelect: () => void;
-    onOpenFile?: (filePath: string, fqid: string | null) => void;
-    onGoto: (domainId: string) => void;
-}
-
-const DomainItem = React.memo(function DomainItem({
-    item,
-    itemIdx,
-    isActive,
-    query,
-    onHover,
-    onSelect,
-    onOpenFile,
-    onGoto
-}: DomainItemProps) {
-    const n = item.node;
-    const matched = useMemo(
-        () => new Set(item.matches.map((m) => m.field)),
-        [item.matches]
-    );
-
-    const fqidMatch = useMemo(
-        () => item.matches.find((m) => m.field === 'fqid'),
-        [item.matches]
-    );
-
-    return (
-        <div
-            className={'palette-item' + (isActive ? ' active' : '')}
-            onMouseEnter={() => onHover(itemIdx)}
-            onClick={onSelect}
-        >
-            <span className="palette-item__icon">
-                <span className={'search-result__dot search-result__dot--' + n.data.nodeType} />
-            </span>
-            <div className="palette-item__content">
-                <div className="search-result__id">
-                    <HighlightedText text={n.data.domainId} query={query} />
-                    {matched.has('id') && <span className="search-result__badge">id</span>}
-                </div>
-
-                {n.data.name && n.data.name !== n.data.domainId && (
-                    <div className="search-result__label">
-                        <HighlightedText text={n.data.name} query={query} />
-                        {matched.has('name') && <span className="search-result__badge">name</span>}
-                    </div>
-                )}
-
-                {n.data.description && (
-                    <div className="search-result__desc">
-                        <HighlightedText text={n.data.description} query={query} />
-                        {matched.has('description') && (
-                            <span className="search-result__badge">description</span>
-                        )}
-                    </div>
-                )}
-
-                {Array.isArray(n.data.tags) && n.data.tags.length > 0 && (
-                    <div className="search-result__tags">
-                        {n.data.tags.slice(0, 5).map((tag: string, ti: number) => (
-                            <span key={ti} className="search-result__tag">
-                                <HighlightedText text={tag} query={query} />
-                            </span>
-                        ))}
-                        {matched.has('tags') && <span className="search-result__badge">tags</span>}
-                    </div>
-                )}
-
-                {fqidMatch && Array.isArray(fqidMatch.value) && fqidMatch.value.length > 0 && (
-                    <div className="search-result__fqid-block">
-                        <div className="search-result__fqid-head">
-                            <MIcon name="link" size="sm" />
-                            <span>FQID-ссылки ({fqidMatch.value.length})</span>
-                            <span className="search-result__badge">fqid</span>
-                        </div>
-                        {fqidMatch.value.slice(0, 3).map((f: any, fi: number) => (
-                            <div
-                                key={fi}
-                                className="search-result__fqid-item"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (onOpenFile && f.filePath) {
-                                        onOpenFile(f.filePath, f.fullFQID);
-                                    } else {
-                                        onGoto(n.data.domainId);
-                                    }
-                                }}
-                                title={onOpenFile ? 'Открыть файл на строке с FQID' : 'Перейти к домену'}
-                            >
-                                <HighlightedText text={f.fullFQID} query={query} />
-                                {f.propertyPath && (
-                                    <span className="search-result__fqid-path">{f.propertyPath}</span>
-                                )}
-                            </div>
-                        ))}
-                        {fqidMatch.value.length > 3 && (
-                            <div className="search-result__fqid-more">
-                                ...и ещё {fqidMatch.value.length - 3}
-                            </div>
-                        )}
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-});
-
 // ============ Главный компонент ============
 
 export function CommandPalette({ commands, onOpenFile }: CommandPaletteProps) {
@@ -169,8 +96,50 @@ export function CommandPalette({ commands, onOpenFile }: CommandPaletteProps) {
     const setSearchIndex = useGraphStore((s) => s.setSearchIndex);
 
     const { goto } = useNavigation();
-    const results = useSearch();
     const inputRef = useRef<HTMLInputElement>(null);
+
+    const [syntaxOpen, setSyntaxOpen] = useState(false);
+
+    const searchOutcome = useSearch();
+    const results = searchOutcome.results;
+
+    const dispatchResult = useCallback((r: ModelSearchResult) => {
+        const st = useGraphStore.getState();
+        switch (r.kind) {
+            case 'domain':
+                if (r.domainId) goto(r.domainId);
+                break;
+            case 'entity':
+            case 'attribute':
+                if (r.fqid) {
+                    st.setEntityCatalogInitialFqid(r.fqid);
+                    st.setEntityCatalogOpen(true);
+                }
+                break;
+            case 'pii':
+                if (r.piiHit) {
+                    st.setPiiInitialDomain(r.piiHit.entityFqid.split('/')[0]);
+                    st.setPiiInitialSeverity(r.piiHit.severity);
+                    st.setPiiOpen(true);
+                }
+                break;
+            case 'lint':
+                st.setLintOpen(true);
+                break;
+            case 'view':
+            case 'action':
+            case 'linkage':
+            case 'dataType':
+            case 'dataRule':
+            case 'mixin':
+            case 'menu':
+                if (r.domainId) {
+                    st.setDomainSchemaDomainId(r.domainId);
+                    st.setDomainSchemaOpen(true);
+                }
+                break;
+        }
+    }, [goto]);
 
     useEffect(() => {
         if (open) {
@@ -232,14 +201,26 @@ export function CommandPalette({ commands, onOpenFile }: CommandPaletteProps) {
                 close();
                 setTimeout(() => cmd.run && cmd.run(), 50);
             } else {
-                const domainItem = results[safeIndex - filteredCommands.length];
-                if (domainItem && domainItem.node) {
-                    goto(domainItem.node.data.domainId);
+                const item = results[safeIndex - filteredCommands.length];
+                if (item) {
+                    dispatchResult(item);
                     close();
                 }
             }
         }
     };
+
+    useEffect(() => {
+        if (open) {
+            setSyntaxOpen(false);
+            setTimeout(() => {
+                const input = inputRef.current;
+                if (!input) return;
+                input.focus();
+                input.setSelectionRange(0, input.value.length);
+            }, 50);
+        }
+    }, [open]);
 
     if (!open) return null;
 
@@ -257,7 +238,7 @@ export function CommandPalette({ commands, onOpenFile }: CommandPaletteProps) {
                         ref={inputRef}
                         className="search-modal__input"
                         type="text"
-                        placeholder="Команда, домен или FQID..."
+                        placeholder='Команда, домен, FQID или запрос: entity:Server · type:Reference'
                         value={query}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         onKeyDown={onKey}
@@ -265,16 +246,45 @@ export function CommandPalette({ commands, onOpenFile }: CommandPaletteProps) {
                         spellCheck={false}
                     />
                     <kbd className="search-modal__kbd">Esc</kbd>
+                    {query.trim() === '' && (
+                        <button
+                            className="search-modal__kbd"
+                            onClick={() => setSyntaxOpen(v => !v)}
+                            title="Синтаксис поиска"
+                        >
+                            ?
+                        </button>
+                    )}
                 </div>
 
                 <div className="search-modal__results">
-                    {query.trim() === '' && filteredCommands.length === 0 && results.length === 0 && (
+                    {!searchOutcome.ready && query.trim() !== '' && (
+                        <div className="search-modal__hint">Загрузка модели…</div>
+                    )}
+                    {searchOutcome.ready && query.trim() === '' && filteredCommands.length === 0 && results.length === 0 && (
                         <div className="search-modal__hint">
                             Начните вводить имя команды, домен или FQID
                         </div>
                     )}
-                    {query.trim() !== '' && filteredCommands.length === 0 && results.length === 0 && (
-                        <div className="search-modal__hint">Ничего не найдено по запросу «{query}»</div>
+                    {searchOutcome.ready && query.trim() !== '' && filteredCommands.length === 0 && results.length === 0 && (
+                        <div className="search-modal__hint">
+                            {searchOutcome.error
+                                ? <>Ошибка поиска: <code>{searchOutcome.error}</code></>
+                                : <>Ничего не найдено по запросу «{query}».</>}
+                            {query.includes(':') && (
+                                <>
+                                    {' '}
+                                    <button
+                                        type="button"
+                                        className="search-modal__hint-link search-modal__syntax-example"
+                                        style={{ display: 'inline' }}
+                                        onClick={() => setSyntaxOpen(true)}
+                                    >
+                                        Подсказка по синтаксису
+                                    </button>
+                                </>
+                            )}
+                        </div>
                     )}
 
                     {filteredCommands.length > 0 &&
@@ -302,24 +312,23 @@ export function CommandPalette({ commands, onOpenFile }: CommandPaletteProps) {
 
                     {results.length > 0 && (
                         <div className="palette-section">
-                            <div className="palette-section__title">Домены ({results.length})</div>
-                            {results.map((item, i) => {
+                            <div className="palette-section__title">
+                                {searchOutcome.total > results.length
+                                    ? `Найдено ${searchOutcome.total} — показаны первые ${results.length}`
+                                    : `Результаты (${results.length})`}
+                            </div>
+                            {results.map((r, i) => {
                                 const itemIdx = domainStartIdx + i;
                                 return (
-                                    <DomainItem
-                                        key={'dom-' + item.node.id}
-                                        item={item}
+                                    <ModelResultItem
+                                        key={r.key}
+                                        result={r}
                                         itemIdx={itemIdx}
                                         isActive={itemIdx === safeIndex}
                                         query={query}
                                         onHover={handleHover}
                                         onSelect={() => {
-                                            goto(item.node.data.domainId);
-                                            close();
-                                        }}
-                                        onOpenFile={onOpenFile}
-                                        onGoto={(domainId) => {
-                                            goto(domainId);
+                                            dispatchResult(r);
                                             close();
                                         }}
                                     />
@@ -327,7 +336,22 @@ export function CommandPalette({ commands, onOpenFile }: CommandPaletteProps) {
                             })}
                         </div>
                     )}
+
+                    {searchOutcome.error && (
+                        <div className="palette-section">
+                            <div className="palette-section__title" style={{ color: 'var(--danger)' }}>
+                                Ошибка поиска
+                            </div>
+                            <div style={{ padding: '8px 12px', fontSize: 12, color: 'var(--text-400)' }}>
+                                {searchOutcome.error}
+                            </div>
+                        </div>
+                    )}
                 </div>
+
+                {syntaxOpen && (
+                    <SearchSyntaxPanel onPick={(code) => { setSearchQuery(code); setSyntaxOpen(false); }} />
+                )}
 
                 <div className="search-modal__footer">
                     <span>
@@ -345,3 +369,69 @@ export function CommandPalette({ commands, onOpenFile }: CommandPaletteProps) {
         </div>
     );
 }
+
+const KIND_ICONS: Record<ModelSearchKind, string> = {
+    domain: 'hub',
+    entity: 'data_object',
+    attribute: 'edit_note',
+    linkage: 'link',
+    view: 'view_quilt',
+    action: 'bolt',
+    menu: 'menu',
+    dataType: 'category',
+    dataRule: 'rule',
+    mixin: 'merge',
+    pii: 'shield_lock',
+    lint: 'warning',
+};
+
+const ModelResultItem = React.memo(function ModelResultItem({
+    result,
+    itemIdx,
+    isActive,
+    query,
+    onHover,
+    onSelect,
+}: {
+    result: ModelSearchResult;
+    itemIdx: number;
+    isActive: boolean;
+    query: string;
+    onHover: (idx: number) => void;
+    onSelect: () => void;
+}) {
+    return (
+        <div
+            className={'palette-item' + (isActive ? ' active' : '')}
+            onMouseEnter={() => onHover(itemIdx)}
+            onClick={onSelect}
+        >
+            <span className="palette-item__icon">
+                <MIcon name={KIND_ICONS[result.kind]} size="sm" />
+            </span>
+            <div className="palette-item__content">
+                <div className="search-result__id">
+                    <HighlightedText text={result.label} query={query} />
+                    <span
+                        className="search-result__badge"
+                        style={{
+                            background:
+                                result.kind === 'pii'
+                                    ? 'rgba(239,68,68,0.2)'
+                                    : result.kind === 'lint'
+                                        ? 'rgba(245,158,11,0.2)'
+                                        : undefined,
+                        }}
+                    >
+                        {result.kind}
+                    </span>
+                </div>
+                {result.sublabel && (
+                    <div className="search-result__label">
+                        <HighlightedText text={result.sublabel} query={query} />
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+});

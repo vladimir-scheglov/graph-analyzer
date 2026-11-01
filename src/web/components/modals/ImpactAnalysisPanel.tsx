@@ -97,6 +97,17 @@ export function ImpactAnalysisPanel(props: ImpactAnalysisPanelProps) {
                         <MIcon name="description" size="sm" />
                         Открыть файл
                     </button>
+                    <button
+                        className="btn btn--danger"
+                        onClick={() => {
+                            useGraphStore.getState().setDeletionSimulationFqid(entity.fqid);
+                            useGraphStore.getState().setDeletionSimulationOpen(true);
+                        }}
+                        title="Симулировать удаление: покажет все сломанные зависимости"
+                    >
+                        <MIcon name="delete_forever" size="sm" />
+                        Что если удалить?
+                    </button>
                     <span className="impact-stat">Ссылок: {refsTotal}</span>
                     <span className="impact-stat">
                         Атрибутов: {entity.attributes.length}

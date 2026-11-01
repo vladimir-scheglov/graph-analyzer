@@ -19,7 +19,9 @@ import {
     AttributeFinderModal,
     GenerateSchemaModal,
     GeneratedManifestModal,
-    CheatsheetModal
+    CheatsheetModal,
+    HealthDashboardModal,
+    DeletionSimulationModal
 } from '../modals';
 import type { Command } from '../../lib/commands';
 import { EntityMatrixModal } from '../modals/EntityMatrixModal';
@@ -161,6 +163,8 @@ export function AppModals(props: AppModalsProps) {
             <WorkflowGraphModal />
             <CheatsheetModal />
             <PublishPreviewModal />
+            <HealthDashboardModal />
+            <DeletionSimulationModal />
         </>
     );
 }

@@ -129,6 +129,12 @@ export function useHotkeys() {
             useGraphStore.getState().setPiiOpen(true);
             return;
           }
+
+          if (code === "KeyH") {
+            e.preventDefault();
+            useGraphStore.getState().setHealthDashboardOpen(true);
+            return;
+          }
         }
         if (ctrl || alt) return;
 

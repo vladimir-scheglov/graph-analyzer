@@ -484,6 +484,20 @@ export interface GraphState {
   setPublishPreviewData: (v: any | null) => void;
   publishPreviewConfirmAction: (() => void) | null;
   setPublishPreviewConfirmAction: (fn: (() => void) | null) => void;
+  healthDashboardOpen: boolean;
+  setHealthDashboardOpen: (v: boolean) => void;
+  /** Предустановка: только этот домен (lowercase). null = все. */
+  piiInitialDomain: string | null;
+  setPiiInitialDomain: (v: string | null) => void;
+  /** Предустановка: только эта severity. null = все. */
+  piiInitialSeverity: "critical" | "high" | "medium" | "low" | null;
+  setPiiInitialSeverity: (
+    v: "critical" | "high" | "medium" | "low" | null,
+  ) => void;
+  deletionSimulationOpen: boolean;
+  setDeletionSimulationOpen: (v: boolean) => void;
+  deletionSimulationFqid: string | null;
+  setDeletionSimulationFqid: (fqid: string | null) => void;
 }
 
 // ============ Хелперы для чтения localStorage ============
@@ -1091,6 +1105,16 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   publishPreviewConfirmAction: null,
   setPublishPreviewConfirmAction: (fn) =>
     set({ publishPreviewConfirmAction: fn }),
+  healthDashboardOpen: false,
+  setHealthDashboardOpen: (v) => set({ healthDashboardOpen: v }),
+  piiInitialDomain: null,
+  setPiiInitialDomain: (v) => set({ piiInitialDomain: v }),
+  piiInitialSeverity: null,
+  setPiiInitialSeverity: (v) => set({ piiInitialSeverity: v }),
+  deletionSimulationOpen: false,
+  setDeletionSimulationOpen: (v) => set({ deletionSimulationOpen: v }),
+  deletionSimulationFqid: null,
+  setDeletionSimulationFqid: (fqid) => set({ deletionSimulationFqid: fqid }),
 
   // Сброс всего
   resetAll: () =>

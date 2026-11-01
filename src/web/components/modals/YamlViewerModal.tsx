@@ -56,6 +56,7 @@ import { openFileInEditor } from '../../lib/open-file';
 import { getLineDiff } from '../../lib/diff-lines';
 import { hashPayload } from '../../../core/analyzer/schema-generator/util-hash';
 import { computePublishDiff } from '../../lib/model/publish-diff';
+import { suggestVersionBump } from '../../lib/version-impact';
 
 type RightTab = 'issues' | 'refs' | 'backlinks' | 'server';
 type NavTab = "navigation" | "search" | "bookmarks";
@@ -3585,10 +3586,120 @@ export function YamlViewerModal() {
                 signal: controller.signal,
             });
 
-            // ... обработка успеха (та же логика, что была в handlePublish)
-            // Включая удаление sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
-            // И setSavedContent(valueToSave);
+            // !res.ok бывает только если запись на диск упала ДО публикации
+            // (см. handleFileSave в routes/file.ts — после fs.writeFileSync
+            // все ответы идут с кодом 200, даже при publish.ok === false).
+            // Значит локальный файл НЕ изменён — savedContent не трогаем.
+            if (!res.ok) {
+                const errText = await res.text();
+                let errMsg = errText;
+                try {
+                    const j = JSON.parse(errText);
+                    if (j.error) errMsg = j.error;
+                } catch { /* ignore */ }
+                throw new Error(errMsg);
+            }
 
+            // Дальше — файл на диске гарантированно равен valueToSave
+            // (сервер пишет его ДО публикации, независимо от результата).
+            invalidateYamlCache(filePath || undefined);
+            useGraphStore.getState().bumpModelVersion();
+            setTimeout(() => {
+                useGraphStore.getState().bumpModelVersion();
+            }, 800);
+
+            setSavedContent(valueToSave);
+            setContent(valueToSave);
+            setLiveVersion((v) => v + 1);
+            sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
+
+            if (pendingManifest) {
+                useGraphStore.getState().setYamlViewerPendingManifest(null);
+            }
+
+            try {
+                editorRef.current?.pushUndoStop();
+            } catch { /* ignore */ }
+
+            // Read-back: сервер мог нормализовать YAML (крайне редко, но
+            // handleSave делал то же самое — сохраняем консистентность).
+            let diskContent: string | null = null;
+            try {
+                const back = await fetch(
+                    "/file?path=" + encodeURIComponent(filePath || ""),
+                );
+                if (back.ok) diskContent = await back.text();
+            } catch { /* ignore */ }
+
+            let hadError = false;
+
+            if (
+                diskContent !== null &&
+                diskContent !== valueToSave &&
+                editorRef.current
+            ) {
+                isProgrammaticChange.current = true;
+                try {
+                    editorRef.current.setValue(diskContent);
+                } finally {
+                    isProgrammaticChange.current = false;
+                }
+                setSavedContent(diskContent);
+                setContent(diskContent);
+                setLiveVersion((v) => v + 1);
+                hadError = true;
+                setSaveError(
+                    "На диске оказалось другое содержимое. Monaco синхронизирован.",
+                );
+            }
+
+            // Разбираем результат публикации из тела ответа.
+            // publish === null бывает в local-режиме (publish не делается,
+            // только запись файла) — тогда ведём себя как при обычном save.
+            let publishInfo: any = null;
+            try {
+                const data = await res.json();
+                if (data && data.publish) publishInfo = data.publish;
+            } catch { /* ignore */ }
+
+            if (publishInfo && publishInfo.ok === true) {
+                const publishedVersion =
+                    extractTopLevelVersion(valueToSave) || "";
+                setMetaOverride((prev) => ({
+                    ...(prev || {}),
+                    updatedAt: new Date().toISOString(),
+                    updatedBy: "вы",
+                    ...(publishedVersion
+                        ? { publishedVersion }
+                        : {}),
+                }));
+                // После публикации черновика на сервере больше нет —
+                // следующий /file/fresh вернёт published.
+                useGraphStore
+                    .getState()
+                    .setYamlViewerContentSource("published");
+                useGraphStore.getState().showSnackbar(
+                    `✅ Опубликовано: ${publishInfo.domain?.name || filePath}`,
+                );
+            } else if (publishInfo && publishInfo.ok === false) {
+                hadError = true;
+                const hint = publishInfo.hint
+                    ? `\n${publishInfo.hint}`
+                    : "";
+                setSaveError(
+                    `Локально сохранено. Публикация не прошла: ${publishInfo.error}${hint}`,
+                );
+                useGraphStore.getState().showSnackbar(
+                    `⚠️ Локально сохранено, публикация не удалась: ${publishInfo.error}`,
+                );
+            }
+            // publishInfo === null → local-режим: файл записан, публикации нет.
+            // Ничего дополнительного не делаем; setSaveFeedback ниже покажет ✓.
+
+            if (!hadError) {
+                setSaveFeedback(true);
+                setTimeout(() => setSaveFeedback(false), 2000);
+            }
         } catch (err: any) {
             setSaveError(err.message || "Ошибка публикации");
         } finally {
@@ -3596,6 +3707,11 @@ export function YamlViewerModal() {
             saveAbortRef.current = null;
             setIsSaving(false);
             setSaveStage("idle");
+            // Чистим preview-состояние: пользователь уже подтвердил намерение
+            // в модалке. При ошибке он увидит её в шапке, а PublishPreviewModal
+            // при следующем открытии пересоберёт data с нуля.
+            useGraphStore.getState().setPublishPreviewData(null);
+            useGraphStore.getState().setPublishPreviewConfirmAction(null);
         }
     }, [filePath, mode, isSaving]);
 
@@ -3605,25 +3721,99 @@ export function YamlViewerModal() {
 
         let valueToSave = editorRef.current.getValue();
 
-        // 1. Проверяем версию (Автобамп)
+        // 1. Проверяем версию (умный авто-bump по impact)
         if (mode === "remote" || mode === "local") {
             const oldVersion = extractTopLevelVersion(savedContent);
             const newVersion = extractTopLevelVersion(valueToSave);
             if (oldVersion && newVersion && oldVersion === newVersion) {
-                const bumped = bumpPatchVersion(oldVersion);
-                if (bumped) {
+                // Сначала пробуем классифицировать изменения через computeSemanticDiff.
+                // Если по какой-то причине не получилось (parse error, нет изменений) —
+                // fallback на консервативный patch-bump, как было раньше.
+                const suggestion = suggestVersionBump(
+                    oldVersion,
+                    savedContent,
+                    valueToSave,
+                    domainId,
+                );
+
+                const targetVersion = suggestion
+                    ? suggestion.suggested
+                    : bumpPatchVersion(oldVersion);
+
+                if (targetVersion) {
+                    const levelLabel = suggestion
+                        ? ({
+                            major: "MAJOR — несовместимые изменения",
+                            minor: "MINOR — добавление функционала",
+                            patch: "PATCH — исправление",
+                        }[suggestion.level])
+                        : "PATCH — исправление";
+
+                    const reasonText = suggestion
+                        ? suggestion.reason
+                        : "изменения не обнаружены";
+
                     const ok = confirm(
                         `Версия схемы не изменилась: ${oldVersion}.\n\n` +
-                        `Для публикации version должна быть больше.\n` +
-                        `Поднять до ${bumped} и продолжить?`,
+                        `Тип изменений: ${levelLabel}\n` +
+                        `  ${reasonText}\n\n` +
+                        `Предлагаю поднять до ${targetVersion} — согласны?`,
                     );
                     if (!ok) return;
 
-                    valueToSave = replaceTopLevelVersion(valueToSave, bumped);
+                    // Применяем bump точечно через executeEdits. setValue() сбрасывает
+                    // undo-стек, и после отмены preview пользователь не смог бы откатить
+                    // свои правки (удаление сущности и т.п.).
                     isProgrammaticChange.current = true;
-                    try { editorRef.current.setValue(valueToSave); }
-                    finally { isProgrammaticChange.current = false; }
+                    try {
+                        const currentText = editorRef.current.getValue();
+                        const lines = currentText.split("\n");
+                        let versionLineIdx = -1;
+                        let newVersionLine = "";
+
+                        for (let i = 0; i < lines.length; i++) {
+                            if (/^\s/.test(lines[i])) continue; // только top-level
+                            const m = lines[i].match(
+                                /^(version\s*:\s*)(["']?)([^"'\s#]+)(["']?)(\s*(?:#.*)?)$/,
+                            );
+                            if (m) {
+                                versionLineIdx = i;
+                                newVersionLine = `${m[1]}${m[2]}${targetVersion}${m[4]}${m[5]}`;
+                                break;
+                            }
+                        }
+
+                        if (versionLineIdx < 0) {
+                            // Fallback для нестандартного YAML: bump не найден в top-level.
+                            editorRef.current.setValue(
+                                replaceTopLevelVersion(currentText, targetVersion),
+                            );
+                        } else {
+                            // pushUndoStop до — «запечатать» предыдущую правку пользователя
+                            // (удаление сущности), чтобы она осталась отдельным шагом undo.
+                            editorRef.current.pushUndoStop();
+                            editorRef.current.executeEdits("version-bump", [
+                                {
+                                    range: {
+                                        startLineNumber: versionLineIdx + 1,
+                                        startColumn: 1,
+                                        endLineNumber: versionLineIdx + 1,
+                                        endColumn: lines[versionLineIdx].length + 1,
+                                    },
+                                    text: newVersionLine,
+                                    forceMoveMarkers: true,
+                                },
+                            ]);
+                            // pushUndoStop после — отделить bump от будущих правок.
+                            editorRef.current.pushUndoStop();
+                        }
+
+                        valueToSave = editorRef.current.getValue();
+                    } finally {
+                        isProgrammaticChange.current = false;
+                    }
                     setContent(valueToSave);
+                    setLiveVersion((v) => v + 1);
                 }
             }
         }
@@ -3662,7 +3852,7 @@ export function YamlViewerModal() {
         });
         st.setPublishPreviewOpen(true);
 
-    }, [isLocked, savedContent, filePath, mode, isSaving, publishedContent, executePublish]);
+    }, [isLocked, savedContent, filePath, mode, isSaving, publishedContent, executePublish, domainId]);
     
     const canSave = !isLocked && isDirty;
 

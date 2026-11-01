@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { useGraphStore } from '../../state/useGraphStore';
 import { useModelIndex } from '../../hooks/useModelIndex';
 import { MIcon } from '../common/MIcon';
@@ -9,6 +9,8 @@ import type {
 } from '../../../shared/lint-types';
 import { ModalHelp, HelpSection, HelpText, HelpList, HelpButton } from '../common/ModalHelp';
 import { openFileInEditor } from '../../lib/open-file';
+import { useLintBaselines } from '../../hooks/useLintBaselines';
+import { baselineKey, compareWithBaseline } from '../../../core/analyzer/lint-baseline';
 
 const CATEGORY_LABELS: Record<LintRuleCategory, string> = {
     reference: 'Ссылочная целостность',
@@ -44,6 +46,13 @@ export function LintModal() {
     const [filterDomain, setFilterDomain] = useState('');
     const [expandedRules, setExpandedRules] = useState<Set<string>>(new Set());
     const [showHelp, setShowHelp] = useState(false);
+    const [onlyNew, setOnlyNew] = useState(false);
+    const {
+        baselines,
+        takeBaseline,
+        takeBaselinesBatch,
+        clearBaseline,
+    } = useLintBaselines();
 
     const open = useGraphStore(s => s.lintOpen);
     const nodes = useGraphStore(s => s.nodes);
@@ -57,14 +66,122 @@ export function LintModal() {
         return Array.from(set).sort();
     }, [report]);
 
+    // Для каждого домена с baseline — set ключей issue, которые новые.
+    // Домены без baseline в map отсутствуют.
+    const newIssueKeysByDomain = useMemo(() => {
+        const result = new Map<string, Set<string>>();
+        if (!report) return result;
+        for (const [domainId, baseline] of Object.entries(baselines)) {
+            const domainIssues = report.issues.filter((i) => i.domainId === domainId);
+            const cmp = compareWithBaseline(domainIssues, baseline);
+            result.set(domainId, new Set(cmp.newIssues.map(baselineKey)));
+        }
+        return result;
+    }, [baselines, report]);
+
+    const handleTakeBaseline = async (domainId: string) => {
+        const domainIssues = report?.issues.filter((i) => i.domainId === domainId) || [];
+        const existing = baselines[domainId];
+        const message = existing
+            ? `Обновить baseline для ${domainId}?\n\n` +
+            `Было: ${existing.issues.length} проблем (принято ${new Date(existing.takenAt).toLocaleString("ru-RU")})\n` +
+            `Сейчас: ${domainIssues.length} проблем\n\n` +
+            `Все текущие проблемы будут считаться «принятыми».`
+            : `Принять ${domainIssues.length} проблем для ${domainId} как baseline?\n\n` +
+            `После этого «новыми» будут считаться только те, что появятся в будущем.`;
+        if (!confirm(message)) return;
+        try {
+            await takeBaseline(domainId);
+        } catch (e: any) {
+            alert("Ошибка: " + e.message);
+        }
+    };
+
+    const handleTakeBaselineAll = async () => {
+        if (!report) return;
+        const domainsWithIssues = Array.from(
+            new Set(report.issues.map((i) => i.domainId)),
+        );
+        if (domainsWithIssues.length === 0) return;
+
+        if (
+            !confirm(
+                `Принять текущее состояние ${domainsWithIssues.length} доменов как baseline?\n\n` +
+                `Всего проблем: ${report.issues.length}\n` +
+                `Будет создан/обновлён baseline для каждого домена из списка.\n\n` +
+                `После этого «новыми» будут считаться только те, что появятся в будущем.`,
+            )
+        )
+            return;
+
+        try {
+            await takeBaselinesBatch(domainsWithIssues);
+        } catch (e: any) {
+            alert("Ошибка: " + e.message);
+        }
+    };
+
+    const handleClearBaseline = async (domainId: string) => {
+        if (
+            !confirm(
+                `Удалить baseline для ${domainId}?\n\n` +
+                `После этого все проблемы этого домена будут считаться «новыми».`,
+            )
+        )
+            return;
+        try {
+            await clearBaseline(domainId);
+        } catch (e: any) {
+            alert("Ошибка: " + e.message);
+        }
+    };
+
+    /**
+     * Возвращает true/false для доменов с baseline; null — для доменов
+     * без baseline (статус «новизны» неизвестен).
+     */
+    const isIssueNew = useCallback(
+        (issue: LintIssue): boolean | null => {
+            const keys = newIssueKeysByDomain.get(issue.domainId);
+            if (!keys) return null;
+            return keys.has(baselineKey(issue));
+        },
+        [newIssueKeysByDomain],
+    );
+
     const filteredIssues = useMemo(() => {
         if (!report) return [] as LintIssue[];
         return report.issues.filter((i) => {
             if (filterCategory && i.category !== filterCategory) return false;
             if (filterDomain && i.domainId !== filterDomain) return false;
+            if (onlyNew) {
+                const isNew = isIssueNew(i);
+                if (isNew !== true) return false;
+            }
             return true;
         });
-    }, [report, filterCategory, filterDomain]);
+    }, [report, filterCategory, filterDomain, onlyNew, isIssueNew]);
+
+    // Счётчик «новых» с учётом текущих фильтров, но без учёта onlyNew —
+    // чтобы показывать «при включении onlyNew будет показано N».
+    const newIssueCount = useMemo(() => {
+        if (!report) return 0;
+        let count = 0;
+        for (const issue of report.issues) {
+            if (filterCategory && issue.category !== filterCategory) continue;
+            if (filterDomain && issue.domainId !== filterDomain) continue;
+            if (isIssueNew(issue) === true) count++;
+        }
+        return count;
+    }, [report, filterCategory, filterDomain, isIssueNew]);
+
+    const unbaselinedDomainCount = useMemo(() => {
+        if (!report) return 0;
+        const domains = new Set(report.issues.map((i) => i.domainId));
+        let count = 0;
+        for (const d of domains) if (!baselines[d]) count++;
+        return count;
+    }, [report, baselines]);
 
     // Группировка по правилу
     const grouped = useMemo(() => {
@@ -264,7 +381,7 @@ export function LintModal() {
                         </div>
 
                         {/* ============ Фильтры ============ */}
-                        <div className="lint-filters">
+                        <div className="lint-filters" style={{ flexWrap: "wrap", rowGap: 8 }}>
                             <label className="entity-matrix-filter">
                                 <span>Категория:</span>
                                 <select
@@ -274,7 +391,7 @@ export function LintModal() {
                                     <option value="">— все —</option>
                                     {(Object.keys(CATEGORY_LABELS) as LintRuleCategory[]).map((k) => (
                                         <option key={k} value={k}>
-                                            {CATEGORY_LABELS[k]} ({report.stats.byCategory[k]})
+                                            {CATEGORY_LABELS[k]} ({report?.stats.byCategory[k] ?? 0})
                                         </option>
                                     ))}
                                 </select>
@@ -288,20 +405,125 @@ export function LintModal() {
                                 >
                                     <option value="">— все —</option>
                                     {allDomains.map((d) => (
-                                        <option key={d} value={d}>{d}</option>
+                                        <option key={d} value={d}>
+                                            {d}{baselines[d] ? " 📌" : ""}
+                                        </option>
                                     ))}
                                 </select>
                             </label>
+
+                            <div className="lint-baseline-controls">
+                                <label
+                                    className={
+                                        "entity-graph-toggle lint-baseline-toggle" +
+                                        (onlyNew ? " active" : "")
+                                    }
+                                    title={
+                                        Object.keys(baselines).length === 0
+                                            ? "Сначала примите baseline хотя бы для одного домена"
+                                            : "Показать только проблемы, появившиеся после baseline"
+                                    }
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={onlyNew}
+                                        onChange={() => setOnlyNew(!onlyNew)}
+                                        disabled={Object.keys(baselines).length === 0}
+                                    />
+                                    <MIcon name="new_releases" size="sm" />
+                                    Только новые
+                                    {newIssueCount > 0 && (
+                                        <span className="lint-baseline-toggle__count">{newIssueCount}</span>
+                                    )}
+                                </label>
+
+                                {filterDomain ? (
+                                    <>
+                                        <button
+                                            className="btn"
+                                            onClick={() => handleTakeBaseline(filterDomain)}
+                                            title={
+                                                baselines[filterDomain]
+                                                    ? `Обновить baseline для ${filterDomain}`
+                                                    : `Принять текущее состояние ${filterDomain} как baseline`
+                                            }
+                                        >
+                                            <MIcon name="push_pin" size="sm" />
+                                            {baselines[filterDomain] ? "Обновить baseline" : "Принять baseline"}
+                                        </button>
+                                        {baselines[filterDomain] && (
+                                            <button
+                                                className="btn btn--danger"
+                                                onClick={() => handleClearBaseline(filterDomain)}
+                                                title={`Удалить baseline для ${filterDomain}`}
+                                            >
+                                                <MIcon name="close" size="sm" />
+                                            </button>
+                                        )}
+                                    </>
+                                ) : (
+                                    unbaselinedDomainCount > 0 && (
+                                        <button
+                                            className="btn"
+                                            onClick={handleTakeBaselineAll}
+                                            title="Принять текущее состояние всех доменов с проблемами как baseline"
+                                        >
+                                            <MIcon name="push_pin" size="sm" />
+                                            Принять для всех ({unbaselinedDomainCount})
+                                        </button>
+                                    )
+                                )}
+                            </div>
                         </div>
+
+                        {filterDomain && baselines[filterDomain] && report && (() => {
+                            const domainIssues = report.issues.filter((i) => i.domainId === filterDomain);
+                            const cmp = compareWithBaseline(domainIssues, baselines[filterDomain]);
+                            return (
+                                <div className="lint-baseline-info">
+                                    <MIcon name="push_pin" size="sm" />
+                                    <span>
+                                        Baseline для <code>{filterDomain}</code> принят{" "}
+                                        {new Date(baselines[filterDomain].takenAt).toLocaleString("ru-RU")}
+                                    </span>
+                                    <span className="lint-baseline-info__stats">
+                                        было {cmp.totalBaseline} · сейчас {cmp.totalCurrent}
+                                        {cmp.newIssues.length > 0 && (
+                                            <span className="lint-baseline-info__new">
+                                                {" "}· 🔥 {cmp.newIssues.length} новых
+                                            </span>
+                                        )}
+                                        {cmp.fixedIssues.length > 0 && (
+                                            <span className="lint-baseline-info__fixed">
+                                                {" "}· ✓ {cmp.fixedIssues.length} исправлено
+                                            </span>
+                                        )}
+                                    </span>
+                                </div>
+                            );
+                        })()}
 
                         {/* ============ Список правил ============ */}
                         <div className="lint-rules">
                             {grouped.length === 0 ? (
                                 <div className="lint-empty">
-                                    <div className="lint-empty__icon">✅</div>
-                                    <div className="lint-empty__title">
-                                        Ничего не найдено по фильтрам
+                                    <div className="lint-empty__icon">
+                                        {onlyNew && Object.keys(baselines).length > 0 ? "✅" : "✅"}
                                     </div>
+                                    <div className="lint-empty__title">
+                                        {onlyNew
+                                            ? Object.keys(baselines).length === 0
+                                                ? "Сначала примите baseline хотя бы для одного домена"
+                                                : "Новых проблем нет — только baseline"
+                                            : "Ничего не найдено по фильтрам"}
+                                    </div>
+                                    {onlyNew && unbaselinedDomainCount > 0 && (
+                                        <div className="lint-empty__hint">
+                                            {unbaselinedDomainCount}{" "}
+                                            {unbaselinedDomainCount === 1 ? "домен" : "доменов"} без baseline — их
+                                            проблемы скрыты. Нажмите «Принять для всех» или выберите домен и нажмите «Принять baseline».
+                                        </div>
+                                    )}
                                 </div>
                             ) : (
                                 grouped.map((g) => {
@@ -359,7 +581,10 @@ export function LintModal() {
                                                     {g.issues.slice(0, 100).map((issue, i) => (
                                                         <div
                                                             key={i}
-                                                            className="lint-issue lint-issue--clickable"
+                                                            className={
+                                                                "lint-issue lint-issue--clickable" +
+                                                                (isIssueNew(issue) === true ? " lint-issue--new" : "")
+                                                            }
                                                             onClick={() => openIssueInEditor(issue)}
                                                             role="button"
                                                             tabIndex={0}
@@ -371,6 +596,16 @@ export function LintModal() {
                                                             }}
                                                             title="Открыть в редакторе на этой строке"
                                                         >
+                                                            {(() => {
+                                                                const isNew = isIssueNew(issue);
+                                                                if (isNew !== true) return null;
+                                                                return (
+                                                                    <span className="lint-issue__new-badge" title="Проблема появилась после baseline">
+                                                                        🔥 new
+                                                                    </span>
+                                                                );
+                                                            })()}
+
                                                             <div className="lint-issue__message">{issue.message}</div>
                                                             {issue.hint && (
                                                                 <div className="lint-issue__hint">

@@ -21,6 +21,7 @@ export interface GraphNode {
   updatedAtSource?: "graphql" | "fs" | null;
   createdAt?: string | null;
   createdAtSource?: "graphql" | "fs" | null;
+  fileSize?: number | null;
 }
 
 export interface GraphEdge {

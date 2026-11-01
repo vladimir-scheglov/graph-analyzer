@@ -34,7 +34,6 @@ import {
   handleModelDiff,
 } from "./routes/model";
 import {
-  createSnapshotFromModelIndex,
   updateModelSnapshot,
 } from "../core/analyzer/model-snapshot";
 import { computeSemanticDiff } from "../core/analyzer/semantic-diff";
@@ -45,6 +44,11 @@ import {
   handleGeneratedManifest,
   handleClearGeneratedManifest,
 } from "./routes/generate";
+import { createSnapshotFromModelIndex } from "../core/analyzer/model-snapshot-pure";
+import { handleClearLintBaseline, handleGetLintBaseline, handleListLintBaselines, handleTakeLintBaseline } from "./routes/lint-baseline";
+import { loadAllLintBaselines } from "../core/analyzer/lint-baseline-storage";
+import { summarizeBaselines } from "../core/analyzer/lint-baseline";
+import { handleCheckOutdated, invalidateOutdatedCache } from "../core/remote/outdated";
 
 export interface StartServerOptions {
   port: number;
@@ -127,6 +131,7 @@ async function handleRefreshCache(
     // ============ КЛЮЧЕВОЕ: обновить state.remoteInfo ============
     // Иначе renderHTML на следующем GET / инжектит старый fetchedAt.
     state.remoteInfo = { ...newRemoteInfo, mode: "remote" };
+    invalidateOutdatedCache();
 
     const elapsedMs = Date.now() - startedAt;
     console.log(
@@ -202,6 +207,47 @@ export function startServer(opts: StartServerOptions): http.Server {
     `🔬 Lint: ${modelIndex.lint.lintReport.stats.total} проблем, ` +
       `Sonar: ${modelIndex.lint.sonar.overall.score}/100 (${modelIndex.lint.sonar.overall.grade})`,
   );
+
+  // Baseline: «N новых с прошлого принятия».
+  try {
+    const baselines = loadAllLintBaselines(rootDir);
+    const summary = summarizeBaselines(
+      modelIndex.lint.lintReport.issues,
+      baselines,
+    );
+
+    if (summary.domainsWithBaseline > 0) {
+      if (summary.totalNew > 0 || summary.totalFixed > 0) {
+        console.log(
+          `📌 Baseline: ${summary.totalNew} новых / ` +
+            `${summary.totalFixed} исправлено ` +
+            `(${summary.domainsWithBaseline} ` +
+            `${summary.domainsWithBaseline === 1 ? "домен" : "доменов"} с baseline)`,
+        );
+        for (const d of summary.byDomain.slice(0, 5)) {
+          const parts: string[] = [];
+          if (d.newCount > 0) parts.push(`+${d.newCount}`);
+          if (d.fixedCount > 0) parts.push(`−${d.fixedCount}`);
+          console.log(
+            `   📌 ${d.domainId}: ${parts.join(" / ")} ` +
+              `(было ${d.totalBaseline}, сейчас ${d.totalCurrent})`,
+          );
+        }
+      } else {
+        console.log(
+          `📌 Baseline: новых проблем нет ` +
+            `(${summary.domainsWithBaseline} с baseline)`,
+        );
+      }
+    } else if (summary.totalIssues > 0) {
+      console.log(
+        `💡 Baseline не задан — невозможно отделить «новые» проблемы от накопленных. ` +
+          `Откройте линтер → 📌 Принять как baseline.`,
+      );
+    }
+  } catch {
+    /* baseline — nice-to-have, не ломаем старт */
+  }
 
   const currentSnapshot = createSnapshotFromModelIndex(modelIndex);
   const snapshotResult = updateModelSnapshot(rootDir, currentSnapshot);
@@ -405,6 +451,41 @@ export function startServer(opts: StartServerOptions): http.Server {
       handleModelSummary(res);
     } else if (url === "/api/model/diff" && req.method === "GET") {
       handleModelDiff(res);
+    } else if (url.startsWith("/api/check-outdated") && req.method === "GET") {
+      try {
+        await handleCheckOutdated(req, res, state);
+      } catch (err: any) {
+        try {
+          if (!res.headersSent) {
+            res.writeHead(500, { "Content-Type": "application/json" });
+          }
+          res.end(JSON.stringify({ error: err.message }));
+        } catch {}
+      }
+    } else if (url.startsWith("/api/lint-baseline")) {
+      try {
+        const domainId = new URL(url, "http://localhost").searchParams.get(
+          "domainId",
+        );
+        if (req.method === "GET") {
+          if (domainId) handleGetLintBaseline(req, res, analyzer);
+          else handleListLintBaselines(req, res, analyzer);
+        } else if (req.method === "POST") {
+          handleTakeLintBaseline(req, res, analyzer);
+        } else if (req.method === "DELETE") {
+          handleClearLintBaseline(req, res, analyzer);
+        } else {
+          res.writeHead(405);
+          res.end("Method not allowed");
+        }
+      } catch (err: any) {
+        try {
+          if (!res.headersSent) {
+            res.writeHead(500, { "Content-Type": "application/json" });
+          }
+          res.end(JSON.stringify({ error: err.message }));
+        } catch {}
+      }
     } else if (url === "/api/refresh-cache" && req.method === "POST") {
       try {
         await handleRefreshCache(req, res, { analyzer });

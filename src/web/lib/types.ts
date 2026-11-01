@@ -23,6 +23,7 @@ export interface RFNodeData {
   updatedAtSource?: "graphql" | "fs" | null;
   createdAt?: string | null;
   createdAtSource?: "graphql" | "fs" | null;
+  fileSize?: number | null;
 
   // Динамические поля, добавляемые на этапе рендера
   health?: number | null;

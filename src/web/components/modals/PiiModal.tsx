@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useGraphStore } from '../../state/useGraphStore';
 import { useModelIndex } from '../../hooks/useModelIndex';
 import { MIcon } from '../common/MIcon';
@@ -59,6 +59,33 @@ export function PiiModal() {
     const [filterCategory, setFilterCategory] = useState<PiiCategory | ''>('');
     const [showHelp, setShowHelp] = useState(false);
 
+    const [filterDomain, setFilterDomain] = useState<string>('');
+
+    // Инициализация из store — чтобы Health Dashboard мог открыть модалку
+    // с уже выставленным фильтром «этот домен» или «critical».
+    const piiInitialDomain = useGraphStore((s) => s.piiInitialDomain);
+    const piiInitialSeverity = useGraphStore((s) => s.piiInitialSeverity);
+    const setPiiInitialDomain = useGraphStore((s) => s.setPiiInitialDomain);
+    const setPiiInitialSeverity = useGraphStore((s) => s.setPiiInitialSeverity);
+
+    useEffect(() => {
+        if (!open) return;
+        if (piiInitialDomain !== null) {
+            setFilterDomain(piiInitialDomain.toLowerCase());
+            setPiiInitialDomain(null);
+        }
+        if (piiInitialSeverity !== null) {
+            setFilterSeverity(piiInitialSeverity);
+            setPiiInitialSeverity(null);
+        }
+    }, [
+        open,
+        piiInitialDomain,
+        piiInitialSeverity,
+        setPiiInitialDomain,
+        setPiiInitialSeverity,
+    ]);
+
     const report = index?.pii ?? null;
 
     const visibleHits = useMemo(() => {
@@ -67,9 +94,13 @@ export function PiiModal() {
             if (ignored.has(h.key)) return false;
             if (filterSeverity && h.severity !== filterSeverity) return false;
             if (filterCategory && h.category !== filterCategory) return false;
+            if (filterDomain) {
+                const hitDomain = h.entityFqid.split("/")[0].toLowerCase();
+                if (hitDomain !== filterDomain) return false;
+            }
             return true;
         });
-    }, [report, ignored, filterSeverity, filterCategory]);
+    }, [report, ignored, filterSeverity, filterCategory, filterDomain]);
 
     const grouped = useMemo(() => {
         const map = new Map<PiiSeverity, PiiHit[]>();
@@ -104,6 +135,7 @@ export function PiiModal() {
     return (
         <div
             className="help-overlay help-overlay--fullscreen"
+            style={{ zIndex: 510 }}
             onMouseDown={() => store.setPiiOpen(false)}
         >
             <div
@@ -231,6 +263,22 @@ export function PiiModal() {
                         {/* Фильтр по категории */}
                         <div className="pii-filters">
                             <label className="entity-matrix-filter">
+                                <span>Домен:</span>
+                                <select
+                                    value={filterDomain}
+                                    onChange={(e) => setFilterDomain(e.target.value)}
+                                >
+                                    <option value="">— все —</option>
+                                    {report.byDomain.map((d) => (
+                                        <option key={d.domainId} value={d.domainId.toLowerCase()}>
+                                            {d.domainId} ({d.hitCount}
+                                            {d.criticalCount > 0 ? `, ${d.criticalCount} critical` : ""})
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+
+                            <label className="entity-matrix-filter">
                                 <span>Категория:</span>
                                 <select
                                     value={filterCategory}
@@ -249,12 +297,13 @@ export function PiiModal() {
                                 </select>
                             </label>
 
-                            {(filterSeverity || filterCategory || ignoredCount > 0) && (
+                            {(filterSeverity || filterCategory || filterDomain || ignoredCount > 0) && (
                                 <button
                                     className="btn"
                                     onClick={() => {
                                         setFilterSeverity('');
                                         setFilterCategory('');
+                                        setFilterDomain('');
                                     }}
                                 >
                                     Сбросить фильтры
@@ -270,8 +319,19 @@ export function PiiModal() {
                                 <div className="lint-empty__title">
                                     {report.stats.total === 0
                                         ? 'PII-атрибутов не обнаружено'
-                                        : 'Ничего не найдено по фильтрам'}
+                                        : filterDomain
+                                            ? `В домене «${filterDomain}» нет PII по текущим фильтрам`
+                                            : 'Ничего не найдено по фильтрам'}
                                 </div>
+                                {filterDomain && report.stats.total > 0 && (
+                                    <button
+                                        className="btn"
+                                        style={{ marginTop: 12 }}
+                                        onClick={() => setFilterDomain('')}
+                                    >
+                                        Показать все домены
+                                    </button>
+                                )}
                             </div>
                         ) : (
                             <div className="pii-list">

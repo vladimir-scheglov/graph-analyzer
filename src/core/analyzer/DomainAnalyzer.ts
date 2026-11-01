@@ -239,6 +239,7 @@ export class DomainAnalyzer {
 
       let fallbackUpdatedAt: string | null = null;
       let fallbackCreatedAt: string | null = null;
+      let fileSize: number | null = null;
       try {
         const stat = fs.statSync(domainData.filePath);
         fallbackUpdatedAt = stat.mtime.toISOString();
@@ -246,6 +247,7 @@ export class DomainAnalyzer {
           stat.birthtime && stat.birthtime.getTime() > 0
             ? stat.birthtime.toISOString()
             : null;
+        fileSize = stat.size;
       } catch {
         /* ignore */
       }
@@ -286,6 +288,7 @@ export class DomainAnalyzer {
         updatedAtSource,
         createdAt,
         createdAtSource,
+        fileSize,
       });
     }
 
