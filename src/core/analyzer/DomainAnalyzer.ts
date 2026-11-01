@@ -128,9 +128,9 @@ export class DomainAnalyzer {
 
       if (!this.domains.has(domainId)) {
         this.domains.set(domainId, {
-          id: domainId,
-          name: data.name || domainId,
-          version: data.version || "",
+          id: String(domainId),
+          name: String(data.name || domainId),
+          version: String(data.version ?? ""),
           filePath,
           entities: new Map(),
           rawData: data,
@@ -267,23 +267,23 @@ export class DomainAnalyzer {
 
       nodesMap.set(nodeId, {
         id: nodeId,
-        label: domainData.name,
+        label: String(domainData.name),
         domainId,
         title: this.buildTooltip(domainData),
         group: "domain",
         filePath: domainData.filePath,
         folderPath,
         fqidRefs: domainData.fqidRefs,
-        version: meta.version || domainData.version || "",
+        version: String(meta.version || domainData.version || ""),
         entitiesCount: domainData.entities.size,
-        name: domainData.name || "",
-        description: raw.description || meta.description || "",
-        author: raw.author || meta.author || "",
+        name: String(domainData.name || ""),
+        description: String(raw.description || meta.description || ""),
+        author: String(raw.author || meta.author || ""),
         tags: Array.isArray(raw.tags)
-          ? raw.tags
+          ? raw.tags.map(String)
           : raw.tags
             ? [String(raw.tags)]
-            : meta.tags || [],
+            : (meta.tags || []).map(String),
         updatedAt,
         updatedAtSource,
         createdAt,

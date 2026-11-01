@@ -133,6 +133,7 @@ interface ExpertiseRaw {
   meta: ExpertiseMeta;
 }
 
+
 async function fetchExpertiseRaw(
   apiUrl: string,
   token: string,
@@ -176,7 +177,13 @@ export async function apiFetchExpertiseSource(
   id: string,
   rejectUnauthorized: boolean,
 ): Promise<ExpertiseSourceResult> {
-  const raw = await fetchExpertiseRaw(apiUrl, token, tenantId, id, rejectUnauthorized);
+  const raw = await fetchExpertiseRaw(
+    apiUrl,
+    token,
+    tenantId,
+    id,
+    rejectUnauthorized,
+  );
   return {
     source: raw.draft ?? raw.sourceCode,
     fromDraft: raw.draft !== null,
@@ -197,7 +204,13 @@ export async function apiFetchExpertisePublished(
   id: string,
   rejectUnauthorized: boolean,
 ): Promise<ExpertisePublishedResult> {
-  const raw = await fetchExpertiseRaw(apiUrl, token, tenantId, id, rejectUnauthorized);
+  const raw = await fetchExpertiseRaw(
+    apiUrl,
+    token,
+    tenantId,
+    id,
+    rejectUnauthorized,
+  );
   return { source: raw.sourceCode, meta: raw.meta };
 }
 
@@ -267,6 +280,89 @@ export interface PublishExpertiseInput {
   type: "DOMAIN";
 }
 
+const SAVE_DOMAIN_SCHEMA_MUTATION = `mutation saveDomainSchemaObject($input: SaveDomainSchemaObjectInput!) {
+  saveDomainSchemaObject(input: $input) {
+    id
+    name
+    __typename
+  }
+}`;
+
+export interface SaveDomainSchemaObjectInput {
+  draftSchema: {
+    data: Record<string, any>;
+    metadata: {
+      id: string;
+      name: string;
+      version?: string;
+      author?: string;
+      description?: string;
+      tags?: string[];
+    };
+  };
+  folderId: string;
+}
+
+export async function apiSaveDomainSchemaObject(
+  cmsBffUrl: string,
+  token: string,
+  tenantId: string,
+  input: SaveDomainSchemaObjectInput,
+  rejectUnauthorized: boolean,
+): Promise<{ id: string; name: string }> {
+  console.dir(input);
+  const res = await httpPost(
+    cmsBffUrl,
+    {
+      operationName: "saveDomainSchemaObject",
+      variables: { input },
+      query: SAVE_DOMAIN_SCHEMA_MUTATION,
+    },
+    { Authorization: "Bearer " + token, "x-tenant-id": tenantId },
+    rejectUnauthorized,
+  );
+  if (res.status !== 200) throw new HttpError(res.status);
+  if (Array.isArray(res.json?.errors) && res.json.errors.length > 0) {
+    throwGraphQLError(res.json);
+  }
+  const data = res.json?.data?.saveDomainSchemaObject;
+  if (!data) throw new Error("Некорректный ответ saveDomainSchemaObject");
+  return { id: data.id, name: data.name };
+}
+
+const DELETE_EXPERTISE_MUTATION = `mutation deleteExpertise($input: RequiredIdInput!) {
+  deleteExpertise(input: $input) {
+    id
+    __typename
+  }
+}`;
+
+export async function apiDeleteExpertise(
+  apiUrl: string,
+  token: string,
+  tenantId: string,
+  id: string,
+  rejectUnauthorized: boolean,
+): Promise<{ id: string }> {
+  const res = await httpPost(
+    apiUrl,
+    {
+      operationName: "deleteExpertise",
+      variables: { input: { id } },
+      query: DELETE_EXPERTISE_MUTATION,
+    },
+    { Authorization: "Bearer " + token, "x-tenant-id": tenantId },
+    rejectUnauthorized,
+  );
+  if (res.status !== 200) throw new HttpError(res.status);
+  if (Array.isArray(res.json?.errors) && res.json.errors.length > 0) {
+    throwGraphQLError(res.json);
+  }
+  const data = res.json?.data?.deleteExpertise;
+  if (!data) throw new Error("Некорректный ответ deleteExpertise");
+  return { id: data.id };
+}
+
 /**
  * Публикует экспертизу. Бросает Error с полями `code` (extensions.code)
  * и `message` (с развёрнутыми Zod-деталями, если есть).
@@ -309,7 +405,7 @@ const SAVE_DRAFT_MUTATION = `mutation saveExpertiseDraft($input: SaveExpertiseDr
 export interface SaveExpertiseDraftInput {
   id: string;
   folderId: string;
-  organizationId: string;
+  organizationId?: string;
   sourceCode: string;
   type: "DOMAIN";
 }

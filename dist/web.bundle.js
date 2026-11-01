@@ -584,6 +584,10 @@ var init_useGraphStore = __esm({
       setDeletionSimulationOpen: (v) => set2({ deletionSimulationOpen: v }),
       deletionSimulationFqid: null,
       setDeletionSimulationFqid: (fqid) => set2({ deletionSimulationFqid: fqid }),
+      createDomainOpen: false,
+      deleteDomainTarget: null,
+      setCreateDomainOpen: (v) => set2({ createDomainOpen: v }),
+      setDeleteDomainTarget: (v) => set2({ deleteDomainTarget: v }),
       // Сброс всего
       resetAll: () => set2({
         filters: {
@@ -1053,8 +1057,7 @@ function buildInitialNodes(data) {
         updatedAt: n.updatedAt || null,
         updatedAtSource: n.updatedAtSource || null,
         createdAt: n.createdAt || null,
-        createdAtSource: n.createdAtSource || null,
-        fileSize: typeof n.fileSize === "number" ? n.fileSize : null
+        createdAtSource: n.createdAtSource || null
       },
       position: { x: 0, y: 0 }
     };
@@ -7402,7 +7405,22 @@ function Toolbar(props) {
       )
     ] }),
     /* @__PURE__ */ jsxs9("div", { className: "toolbar-row2", children: [
-      /* @__PURE__ */ jsx10("div", { className: "toolbar-row2__modes", children: viewMode === "graph" && /* @__PURE__ */ jsx10(ActiveModesBar, { ruleViolationsCount: props.ruleViolationsCount }) }),
+      /* @__PURE__ */ jsxs9("div", { className: "toolbar-row2__modes", children: [
+        /* @__PURE__ */ jsxs9(
+          "button",
+          {
+            className: "btn btn--primary",
+            onClick: () => useGraphStore.getState().setCreateDomainOpen(true),
+            title: "\u0421\u043E\u0437\u0434\u0430\u0442\u044C \u043D\u043E\u0432\u044B\u0439 \u0434\u043E\u043C\u0435\u043D",
+            style: { marginRight: 8 },
+            children: [
+              /* @__PURE__ */ jsx10(MIcon, { name: "add" }),
+              /* @__PURE__ */ jsx10("span", { children: "\u041D\u043E\u0432\u044B\u0439 \u0434\u043E\u043C\u0435\u043D" })
+            ]
+          }
+        ),
+        viewMode === "graph" && /* @__PURE__ */ jsx10(ActiveModesBar, { ruleViolationsCount: props.ruleViolationsCount })
+      ] }),
       /* @__PURE__ */ jsxs9("div", { className: "toolbar-row2__right", children: [
         /* @__PURE__ */ jsxs9("span", { className: "toolbar-row2__stats", children: [
           props.visibleNodesCount,
@@ -10342,6 +10360,18 @@ function DomainListRow({
                   fill: isFavorite
                 }
               )
+            }
+          ),
+          /* @__PURE__ */ jsx38(
+            "button",
+            {
+              onClick: (e) => {
+                e.stopPropagation();
+                useGraphStore.getState().setDeleteDomainTarget({ domainId: d.domainId });
+              },
+              title: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0434\u043E\u043C\u0435\u043D",
+              className: "domain-list-row__delete-btn",
+              children: /* @__PURE__ */ jsx38(MIcon, { name: "delete", size: "sm" })
             }
           )
         ] }) })
@@ -16083,7 +16113,14 @@ var init_EntityCombobox = __esm({
 });
 
 // src/web/components/common/Combobox.tsx
-import { useEffect as useEffect29, useMemo as useMemo29, useRef as useRef13, useState as useState19 } from "react";
+import {
+  useEffect as useEffect29,
+  useLayoutEffect,
+  useMemo as useMemo29,
+  useRef as useRef13,
+  useState as useState19
+} from "react";
+import { createPortal } from "react-dom";
 import { jsx as jsx61, jsxs as jsxs58 } from "react/jsx-runtime";
 function Combobox({
   value,
@@ -16100,8 +16137,11 @@ function Combobox({
   const [query, setQuery] = useState19("");
   const [activeIdx, setActiveIdx] = useState19(0);
   const wrapRef = useRef13(null);
+  const triggerRef = useRef13(null);
   const inputRef = useRef13(null);
   const listRef = useRef13(null);
+  const dropdownRef = useRef13(null);
+  const [pos, setPos] = useState19(null);
   const filtered = useMemo29(() => {
     const q = query.trim().toLowerCase();
     if (!q)
@@ -16114,23 +16154,74 @@ function Combobox({
   const exactExists = options.some((o) => o.value === trimmedQuery);
   const canCreate = allowCreate && trimmedQuery.length > 0 && !exactExists;
   const createIdx = filtered.length;
-  useEffect29(() => {
-    if (open2) {
-      setQuery(value || "");
-      setActiveIdx(0);
-      setTimeout(() => {
-        inputRef.current?.focus();
-        inputRef.current?.select();
-      }, 30);
+  const computePosition = () => {
+    const trigger = triggerRef.current;
+    if (!trigger)
+      return;
+    const rect = trigger.getBoundingClientRect();
+    const vh = window.innerHeight;
+    const vw = window.innerWidth;
+    const width = Math.max(rect.width, DROPDOWN_WIDTH_MIN);
+    let left = rect.left;
+    if (left + width > vw - VIEWPORT_MARGIN) {
+      left = Math.max(VIEWPORT_MARGIN, vw - width - VIEWPORT_MARGIN);
     }
-  }, [open2, value]);
+    const spaceBelow = vh - rect.bottom - VIEWPORT_MARGIN;
+    const spaceAbove = rect.top - VIEWPORT_MARGIN;
+    let top;
+    let maxHeight;
+    if (spaceBelow >= DROPDOWN_MIN_HEIGHT || spaceBelow >= spaceAbove) {
+      top = rect.bottom + 4;
+      maxHeight = Math.min(
+        DROPDOWN_MAX_HEIGHT,
+        Math.max(DROPDOWN_MIN_HEIGHT, spaceBelow)
+      );
+    } else {
+      maxHeight = Math.min(
+        DROPDOWN_MAX_HEIGHT,
+        Math.max(DROPDOWN_MIN_HEIGHT, spaceAbove)
+      );
+      top = rect.top - maxHeight - 4;
+    }
+    setPos({ left, top, width, maxHeight });
+  };
+  useLayoutEffect(() => {
+    if (!open2) {
+      setPos(null);
+      return;
+    }
+    computePosition();
+    const onScroll = () => computePosition();
+    const onResize = () => computePosition();
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [open2]);
+  useEffect29(() => {
+    if (!open2)
+      return;
+    setQuery("");
+    const idx = options.findIndex((o) => o.value === value);
+    setActiveIdx(idx >= 0 ? idx : 0);
+    const t = setTimeout(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }, 30);
+    return () => clearTimeout(t);
+  }, [open2]);
   useEffect29(() => {
     if (!open2)
       return;
     const onDoc = (e) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) {
-        setOpen(false);
-      }
+      const target = e.target;
+      if (wrapRef.current?.contains(target))
+        return;
+      if (dropdownRef.current?.contains(target))
+        return;
+      setOpen(false);
     };
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
@@ -16141,8 +16232,16 @@ function Combobox({
     const el = listRef.current.querySelector(
       ".entity-combobox__option--active"
     );
-    if (el)
-      el.scrollIntoView({ block: "nearest" });
+    if (!el)
+      return;
+    const list = listRef.current;
+    const elTop = el.offsetTop;
+    const elBottom = elTop + el.offsetHeight;
+    if (elTop < list.scrollTop)
+      list.scrollTop = elTop;
+    else if (elBottom > list.scrollTop + list.clientHeight) {
+      list.scrollTop = elBottom - list.clientHeight;
+    }
   }, [activeIdx, open2]);
   const commit = (v) => {
     onChange(v);
@@ -16158,9 +16257,9 @@ function Combobox({
       setActiveIdx((i) => Math.max(i - 1, 0));
     } else if (e.key === "Enter") {
       e.preventDefault();
-      if (activeIdx === createIdx && canCreate) {
+      if (activeIdx === createIdx && canCreate)
         commit(trimmedQuery);
-      } else {
+      else {
         const item = filtered[activeIdx];
         if (item)
           commit(item.value);
@@ -16171,24 +16270,24 @@ function Combobox({
     }
   };
   const current = options.find((o) => o.value === value);
-  const display = value || "";
   const isCustom = !!value && !current;
   return /* @__PURE__ */ jsxs58("div", { className: "entity-combobox", ref: wrapRef, children: [
     /* @__PURE__ */ jsxs58(
       "button",
       {
+        ref: triggerRef,
         type: "button",
         className: "entity-combobox__trigger" + (open2 ? " open" : ""),
         onClick: () => !disabled && setOpen(!open2),
         disabled,
-        title: display || placeholder,
+        title: value || placeholder,
         children: [
           /* @__PURE__ */ jsx61(MIcon, { name: icon, size: "sm" }),
           /* @__PURE__ */ jsx61(
             "span",
             {
               className: "entity-combobox__trigger-text",
-              style: value && !current ? { fontStyle: "italic", color: "var(--text-300)" } : void 0,
+              style: isCustom ? { fontStyle: "italic", color: "var(--text-300)" } : void 0,
               children: value || placeholder
             }
           ),
@@ -16204,77 +16303,100 @@ function Combobox({
         ]
       }
     ),
-    open2 && /* @__PURE__ */ jsxs58("div", { className: "entity-combobox__dropdown", children: [
-      /* @__PURE__ */ jsxs58("div", { className: "entity-combobox__search", children: [
-        /* @__PURE__ */ jsx61(MIcon, { name: "search", size: "sm" }),
-        /* @__PURE__ */ jsx61(
-          "input",
-          {
-            ref: inputRef,
-            type: "text",
-            value: query,
-            onChange: (e) => {
-              setQuery(e.target.value);
-              setActiveIdx(0);
-            },
-            onKeyDown: onKey,
-            placeholder: allowCreate ? "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0438\u043B\u0438 \u0432\u0432\u0435\u0434\u0438\u0442\u0435 \u043D\u043E\u0432\u043E\u0435..." : "\u0424\u0438\u043B\u044C\u0442\u0440...",
-            spellCheck: false,
-            autoComplete: "off"
-          }
-        ),
-        query && /* @__PURE__ */ jsx61(
-          "button",
-          {
-            type: "button",
-            className: "entity-combobox__clear",
-            onClick: () => {
-              setQuery("");
-              setActiveIdx(0);
-              inputRef.current?.focus();
-            },
-            children: "\u2715"
-          }
-        )
-      ] }),
-      /* @__PURE__ */ jsxs58("div", { className: "entity-combobox__list", ref: listRef, children: [
-        filtered.length === 0 && !canCreate && /* @__PURE__ */ jsx61("div", { className: "entity-combobox__empty", children: emptyHint || "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" }),
-        filtered.map((o, idx) => /* @__PURE__ */ jsxs58(
-          "button",
-          {
-            type: "button",
-            className: "entity-combobox__option" + (o.value === value ? " entity-combobox__option--selected" : "") + (idx === activeIdx ? " entity-combobox__option--active" : ""),
-            onMouseEnter: () => setActiveIdx(idx),
-            onClick: () => commit(o.value),
-            children: [
-              /* @__PURE__ */ jsx61("span", { className: "entity-combobox__option-id", children: o.value }),
-              o.label && o.label !== o.value && /* @__PURE__ */ jsx61("span", { className: "entity-combobox__option-name", children: o.label }),
-              o.hint && /* @__PURE__ */ jsx61("span", { className: "entity-combobox__option-hint", children: o.hint })
-            ]
+    open2 && pos && createPortal(
+      /* @__PURE__ */ jsxs58(
+        "div",
+        {
+          ref: dropdownRef,
+          className: "entity-combobox__dropdown entity-combobox__dropdown--portal",
+          style: {
+            position: "fixed",
+            left: pos.left,
+            top: pos.top,
+            width: pos.width,
+            maxHeight: pos.maxHeight,
+            zIndex: 1e4
           },
-          o.value
-        )),
-        canCreate && /* @__PURE__ */ jsxs58(
-          "button",
-          {
-            type: "button",
-            className: "entity-combobox__option entity-combobox__option--create" + (createIdx === activeIdx ? " entity-combobox__option--active" : ""),
-            onMouseEnter: () => setActiveIdx(createIdx),
-            onClick: () => commit(trimmedQuery),
-            children: [
-              /* @__PURE__ */ jsx61(MIcon, { name: "add", size: "sm" }),
-              /* @__PURE__ */ jsx61("span", { className: "entity-combobox__option-id", children: createLabel ? createLabel(trimmedQuery) : `\u0421\u043E\u0437\u0434\u0430\u0442\u044C: ${trimmedQuery}` })
-            ]
-          }
-        )
-      ] })
-    ] })
+          children: [
+            /* @__PURE__ */ jsxs58("div", { className: "entity-combobox__search", children: [
+              /* @__PURE__ */ jsx61(MIcon, { name: "search", size: "sm" }),
+              /* @__PURE__ */ jsx61(
+                "input",
+                {
+                  ref: inputRef,
+                  type: "text",
+                  value: query,
+                  onChange: (e) => {
+                    setQuery(e.target.value);
+                    setActiveIdx(0);
+                  },
+                  onKeyDown: onKey,
+                  placeholder: allowCreate ? "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0438\u043B\u0438 \u0432\u0432\u0435\u0434\u0438\u0442\u0435 \u043D\u043E\u0432\u043E\u0435..." : "\u0424\u0438\u043B\u044C\u0442\u0440...",
+                  spellCheck: false,
+                  autoComplete: "off"
+                }
+              ),
+              query && /* @__PURE__ */ jsx61(
+                "button",
+                {
+                  type: "button",
+                  className: "entity-combobox__clear",
+                  onClick: () => {
+                    setQuery("");
+                    setActiveIdx(0);
+                    inputRef.current?.focus();
+                  },
+                  children: "\u2715"
+                }
+              )
+            ] }),
+            /* @__PURE__ */ jsxs58("div", { className: "entity-combobox__list", ref: listRef, children: [
+              filtered.length === 0 && !canCreate && /* @__PURE__ */ jsx61("div", { className: "entity-combobox__empty", children: emptyHint || "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" }),
+              filtered.map((o, idx) => /* @__PURE__ */ jsxs58(
+                "button",
+                {
+                  type: "button",
+                  className: "entity-combobox__option" + (o.value === value ? " entity-combobox__option--selected" : "") + (idx === activeIdx ? " entity-combobox__option--active" : ""),
+                  onMouseEnter: () => setActiveIdx(idx),
+                  onClick: () => commit(o.value),
+                  children: [
+                    /* @__PURE__ */ jsx61("span", { className: "entity-combobox__option-id", children: o.value }),
+                    o.label && o.label !== o.value && /* @__PURE__ */ jsx61("span", { className: "entity-combobox__option-name", children: o.label }),
+                    o.hint && /* @__PURE__ */ jsx61("span", { className: "entity-combobox__option-hint", children: o.hint })
+                  ]
+                },
+                o.value
+              )),
+              canCreate && /* @__PURE__ */ jsxs58(
+                "button",
+                {
+                  type: "button",
+                  className: "entity-combobox__option entity-combobox__option--create" + (createIdx === activeIdx ? " entity-combobox__option--active" : ""),
+                  onMouseEnter: () => setActiveIdx(createIdx),
+                  onClick: () => commit(trimmedQuery),
+                  children: [
+                    /* @__PURE__ */ jsx61(MIcon, { name: "add", size: "sm" }),
+                    /* @__PURE__ */ jsx61("span", { className: "entity-combobox__option-id", children: createLabel ? createLabel(trimmedQuery) : `\u0421\u043E\u0437\u0434\u0430\u0442\u044C: ${trimmedQuery}` })
+                  ]
+                }
+              )
+            ] })
+          ]
+        }
+      ),
+      document.body
+    )
   ] });
 }
+var DROPDOWN_MAX_HEIGHT, DROPDOWN_MIN_HEIGHT, VIEWPORT_MARGIN, DROPDOWN_WIDTH_MIN;
 var init_Combobox = __esm({
   "src/web/components/common/Combobox.tsx"() {
     "use strict";
     init_MIcon();
+    DROPDOWN_MAX_HEIGHT = 320;
+    DROPDOWN_MIN_HEIGHT = 120;
+    VIEWPORT_MARGIN = 8;
+    DROPDOWN_WIDTH_MIN = 280;
   }
 });
 
@@ -20820,6 +20942,21 @@ function DomainSchemaModal() {
                       children: [
                         /* @__PURE__ */ jsx69(MIcon, { name: "menu_book", size: "sm" }),
                         "\u0428\u043F\u0430\u0440\u0433\u0430\u043B\u043A\u0430"
+                      ]
+                    }
+                  ),
+                  /* @__PURE__ */ jsxs66(
+                    "button",
+                    {
+                      className: "btn btn--danger",
+                      onClick: () => {
+                        store.setDeleteDomainTarget({ domainId: schema2.domainId });
+                        store.setDomainSchemaOpen(false);
+                      },
+                      title: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0434\u043E\u043C\u0435\u043D",
+                      children: [
+                        /* @__PURE__ */ jsx69(MIcon, { name: "delete", size: "sm" }),
+                        "\u0423\u0434\u0430\u043B\u0438\u0442\u044C"
                       ]
                     }
                   )
@@ -56768,8 +56905,8 @@ var init_unused_analysis = __esm({
 });
 
 // src/web/components/common/Hint.tsx
-import { useId, useCallback as useCallback20, useEffect as useEffect41, useLayoutEffect, useRef as useRef17, useState as useState38 } from "react";
-import { createPortal } from "react-dom";
+import { useId, useCallback as useCallback20, useEffect as useEffect41, useLayoutEffect as useLayoutEffect2, useRef as useRef17, useState as useState38 } from "react";
+import { createPortal as createPortal2 } from "react-dom";
 import { Fragment as Fragment21, jsx as jsx78, jsxs as jsxs75 } from "react/jsx-runtime";
 function setActiveHint(id) {
   if (activeHintId !== id) {
@@ -56869,7 +57006,7 @@ function HintTooltip({ info, anchor }) {
       return { left, top, maxHeight };
     });
   }, [anchor]);
-  useLayoutEffect(() => {
+  useLayoutEffect2(() => {
     calculate();
   }, [calculate]);
   useEffect41(() => {
@@ -56908,7 +57045,7 @@ function HintTooltip({ info, anchor }) {
   }, [anchor, calculate]);
   if (!anchor)
     return null;
-  return createPortal(
+  return createPortal2(
     /* @__PURE__ */ jsxs75(
       "div",
       {
@@ -57086,7 +57223,7 @@ var init_Hint = __esm({
 
 // src/web/components/modals/YamlQuickJump.tsx
 import { useEffect as useEffect42, useMemo as useMemo45, useRef as useRef18, useState as useState39 } from "react";
-import { createPortal as createPortal2 } from "react-dom";
+import { createPortal as createPortal3 } from "react-dom";
 import { Fragment as Fragment22, jsx as jsx79, jsxs as jsxs76 } from "react/jsx-runtime";
 function loadFavorites() {
   try {
@@ -57425,7 +57562,7 @@ function MiniMapPreview({
   if (top + mapHeight + 56 > window.innerHeight - margin) {
     top = Math.max(margin, window.innerHeight - mapHeight - 56 - margin);
   }
-  return createPortal2(
+  return createPortal3(
     /* @__PURE__ */ jsxs76(
       "div",
       {
@@ -57508,7 +57645,7 @@ function JumpPreview({
   if (top + estimatedHeight > window.innerHeight - margin) {
     top = Math.max(margin, window.innerHeight - estimatedHeight - margin);
   }
-  return createPortal2(
+  return createPortal3(
     /* @__PURE__ */ jsxs76(
       "div",
       {
@@ -63954,12 +64091,12 @@ function buildModelIndex(rawDomains) {
     const customIds = customDataTypeIdsByDomain.get(d.id) || /* @__PURE__ */ new Set();
     entityLinkages.push(...parseEntityLinkages(d.id, d.rawData, customIds));
     return {
-      id: d.id,
-      name: d.name || d.id,
-      version: d.version || "",
-      author: d.author || "",
-      tags: d.tags || [],
-      description: d.rawData?.description || ""
+      id: String(d.id),
+      name: String(d.name || d.id),
+      version: String(d.version ?? ""),
+      author: String(d.author ?? ""),
+      tags: Array.isArray(d.tags) ? d.tags.map(String) : [],
+      description: String(d.rawData?.description ?? "")
     };
   });
   const orphans = detectOrphans(
@@ -64691,7 +64828,7 @@ var init_version_impact = __esm({
 });
 
 // src/web/components/modals/YamlViewerModal.tsx
-import React45, { useCallback as useCallback21, useDeferredValue, useEffect as useEffect43, useLayoutEffect as useLayoutEffect2, useMemo as useMemo46, useRef as useRef19, useState as useState40 } from "react";
+import React45, { useCallback as useCallback21, useDeferredValue, useEffect as useEffect43, useLayoutEffect as useLayoutEffect3, useMemo as useMemo46, useRef as useRef19, useState as useState40 } from "react";
 import { Fragment as Fragment23, jsx as jsx80, jsxs as jsxs77 } from "react/jsx-runtime";
 function extractTopLevelVersion(text) {
   if (!text)
@@ -64817,7 +64954,7 @@ function YamlViewerModal() {
   const [quickJumpOpen, setQuickJumpOpen] = useState40(false);
   const [quickJumpInitialQuery, setQuickJumpInitialQuery] = useState40(null);
   const quickJumpOpenRef = useRef19(false);
-  useLayoutEffect2(() => {
+  useLayoutEffect3(() => {
     quickJumpOpenRef.current = quickJumpOpen;
   }, [quickJumpOpen]);
   useEffect43(() => {
@@ -71915,7 +72052,7 @@ var init_block_resolver = __esm({
 });
 
 // src/web/components/modals/GenerateSchemaModal.tsx
-import { useCallback as useCallback23, useEffect as useEffect45, useLayoutEffect as useLayoutEffect3, useMemo as useMemo48, useRef as useRef20, useState as useState42 } from "react";
+import { useCallback as useCallback23, useEffect as useEffect45, useLayoutEffect as useLayoutEffect4, useMemo as useMemo48, useRef as useRef20, useState as useState42 } from "react";
 import { jsx as jsx82, jsxs as jsxs79 } from "react/jsx-runtime";
 function getSkipQuickFix(reason, handlers) {
   switch (reason) {
@@ -72164,7 +72301,7 @@ function GenerateSchemaModal() {
       return null;
     }
   }, [yamlText]);
-  useLayoutEffect3(() => {
+  useLayoutEffect4(() => {
     if (!open2)
       return;
     setOptions((o) => ({
@@ -83914,6 +84051,1018 @@ var init_DeletionSimulationModal = __esm({
   }
 });
 
+// src/web/lib/domains/templates.ts
+var DOMAIN_TEMPLATES;
+var init_templates = __esm({
+  "src/web/lib/domains/templates.ts"() {
+    "use strict";
+    DOMAIN_TEMPLATES = [
+      {
+        id: "empty",
+        label: "\u041F\u0443\u0441\u0442\u043E\u0439",
+        description: "\u0422\u043E\u043B\u044C\u043A\u043E \u0437\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A \u2014 \u0434\u043E\u043C\u0435\u043D \u0431\u0435\u0437 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0438 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0439",
+        icon: "article",
+        body: ""
+      },
+      {
+        id: "dictionary",
+        label: "\u0421\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A",
+        description: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C-\u0441\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A \u0441 \u043A\u043E\u0434\u043E\u043C \u0438 \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u0435\u043C + list-view",
+        icon: "book",
+        body: `entities:
+  - id: DictionaryItem
+    name: \u042D\u043B\u0435\u043C\u0435\u043D\u0442 \u0441\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A\u0430
+    attributes:
+      - id: code
+        name: \u041A\u043E\u0434
+        dataType: String
+        constraints:
+          - kind: required
+          - kind: unique
+      - id: displayName
+        name: \u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435
+        dataType: String
+      - id: description
+        name: \u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435
+        dataType: Text
+
+views:
+  - id: lists_dictionaryItem
+    type: list
+    label: \u042D\u043B\u0435\u043C\u0435\u043D\u0442\u044B \u0441\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A\u0430
+    source:
+      type: operational
+      entity: DictionaryItem
+    table:
+      columns:
+        - { id: code, attribute: code, label: \u041A\u043E\u0434 }
+        - { id: displayName, attribute: displayName, label: \u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 }
+      filter:
+        attributes:
+          type: all
+      paging:
+        sizes: [10, 50, 100]
+        defaultSize: 20
+`
+      },
+      {
+        id: "asset-registry",
+        label: "\u0420\u0435\u0435\u0441\u0442\u0440 \u0430\u043A\u0442\u0438\u0432\u043E\u0432",
+        description: "Asset + AssetCategory \u0441 \u0438\u0435\u0440\u0430\u0440\u0445\u0438\u0435\u0439 \u0438 \u0434\u0435\u0440\u0435\u0432\u043E\u043C",
+        icon: "inventory_2",
+        body: `entities:
+  - id: AssetCategory
+    name: \u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F \u0430\u043A\u0442\u0438\u0432\u043E\u0432
+    attributes:
+      - { id: name, name: \u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435, dataType: String, constraints: [{ kind: required }] }
+      - { id: description, name: \u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435, dataType: Text }
+
+  - id: Asset
+    name: \u0410\u043A\u0442\u0438\u0432
+    attributes:
+      - { id: name, name: \u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435, dataType: String, constraints: [{ kind: required }] }
+      - { id: inventoryNumber, name: \u0418\u043D\u0432\u0435\u043D\u0442\u0430\u0440\u043D\u044B\u0439 \u043D\u043E\u043C\u0435\u0440, dataType: String }
+      - { id: status, name: \u0421\u0442\u0430\u0442\u0443\u0441, dataType: String }
+      - { id: category, name: \u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F, dataType: Reference, entity: AssetCategory }
+
+linkages:
+  - id: AssetCategory_Asset
+    name: \u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u0442 \u0430\u043A\u0442\u0438\u0432\u044B
+    type: 1_n
+    side1: AssetCategory
+    side2: Asset
+    nameFrom:
+      side1: \u0421\u043E\u0434\u0435\u0440\u0436\u0438\u0442 \u0430\u043A\u0442\u0438\u0432\u044B
+      side2: \u0412\u0445\u043E\u0434\u0438\u0442 \u0432 \u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044E
+
+trees:
+  - id: AssetTree
+    type: ordinary
+    hierarchy:
+      entity: AssetCategory
+      children:
+        - { linkage: AssetCategory_Asset, entity: Asset }
+
+views:
+  - id: lists_assets
+    type: list
+    label: \u0410\u043A\u0442\u0438\u0432\u044B
+    source: { type: operational, entity: Asset }
+    table:
+      columns:
+        - { id: name, attribute: name, label: \u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 }
+        - { id: inventoryNumber, attribute: inventoryNumber, label: \u0418\u043D\u0432. \u043D\u043E\u043C\u0435\u0440 }
+        - { id: status, attribute: status, label: \u0421\u0442\u0430\u0442\u0443\u0441 }
+`
+      },
+      {
+        id: "enum-library",
+        label: "\u0411\u0438\u0431\u043B\u0438\u043E\u0442\u0435\u043A\u0430 \u0442\u0438\u043F\u043E\u0432",
+        description: "\u041D\u0430\u0431\u043E\u0440 Enum'\u043E\u0432 \u0434\u043B\u044F \u043F\u0435\u0440\u0435\u0438\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u043D\u0438\u044F \u0432 \u0434\u0440\u0443\u0433\u0438\u0445 \u0434\u043E\u043C\u0435\u043D\u0430\u0445",
+        icon: "category",
+        body: `dataTypes:
+  - id: enumSeverity
+    name: \u0423\u0440\u043E\u0432\u0435\u043D\u044C \u043A\u0440\u0438\u0442\u0438\u0447\u043D\u043E\u0441\u0442\u0438
+    dataType: Enum
+    values:
+      - { id: low,      name: \u041D\u0438\u0437\u043A\u0438\u0439 }
+      - { id: medium,   name: \u0421\u0440\u0435\u0434\u043D\u0438\u0439 }
+      - { id: high,     name: \u0412\u044B\u0441\u043E\u043A\u0438\u0439 }
+      - { id: critical, name: \u041A\u0440\u0438\u0442\u0438\u0447\u0435\u0441\u043A\u0438\u0439 }
+    view:
+      - { value: low,      color: '#10b981' }
+      - { value: medium,   color: '#f59e0b' }
+      - { value: high,     color: '#f97316' }
+      - { value: critical, color: '#ef4444' }
+
+  - id: enumStatus
+    name: \u0421\u0442\u0430\u0442\u0443\u0441
+    dataType: Enum
+    values:
+      - { id: active,   name: \u0410\u043A\u0442\u0438\u0432\u0435\u043D }
+      - { id: inactive, name: \u041D\u0435\u0430\u043A\u0442\u0438\u0432\u0435\u043D }
+`
+      },
+      {
+        id: "incident-tracker",
+        label: "\u0418\u043D\u0446\u0438\u0434\u0435\u043D\u0442\u044B",
+        description: "Incident + Comment \u0441 \u0442\u0438\u043F\u043E\u0432\u043E\u0439 \u0441\u0432\u044F\u0437\u043A\u043E\u0439",
+        icon: "report",
+        body: `entities:
+  - id: Incident
+    name: \u0418\u043D\u0446\u0438\u0434\u0435\u043D\u0442
+    attributes:
+      - { id: subject,     name: \u0422\u0435\u043C\u0430,       dataType: String, constraints: [{ kind: required }] }
+      - { id: description, name: \u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435,   dataType: Text }
+      - { id: severity,    name: \u041A\u0440\u0438\u0442\u0438\u0447\u043D\u043E\u0441\u0442\u044C, dataType: String }
+
+  - id: Comment
+    name: \u041A\u043E\u043C\u043C\u0435\u043D\u0442\u0430\u0440\u0438\u0439
+    attributes:
+      - { id: text, name: \u0422\u0435\u043A\u0441\u0442, dataType: Text, constraints: [{ kind: required }] }
+
+linkages:
+  - id: Incident_Comment
+    name: \u041A\u043E\u043C\u043C\u0435\u043D\u0442\u0430\u0440\u0438\u0438 \u0438\u043D\u0446\u0438\u0434\u0435\u043D\u0442\u0430
+    type: 1_n
+    side1: Incident
+    side2: Comment
+    nameFrom:
+      side1: \u0421\u043E\u0434\u0435\u0440\u0436\u0438\u0442 \u043A\u043E\u043C\u043C\u0435\u043D\u0442\u0430\u0440\u0438\u0438
+      side2: \u041E\u0442\u043D\u043E\u0441\u0438\u0442\u0441\u044F \u043A \u0438\u043D\u0446\u0438\u0434\u0435\u043D\u0442\u0443
+`
+      },
+      {
+        id: "mixin-container",
+        label: "\u041A\u043E\u043D\u0442\u0435\u0439\u043D\u0435\u0440 \u0434\u043B\u044F \u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432",
+        description: "\u041F\u0443\u0441\u0442\u043E\u0439 \u0434\u043E\u043C\u0435\u043D-\u043F\u0440\u0438\u0451\u043C\u043D\u0438\u043A \u2014 \u0434\u043B\u044F \u0431\u0443\u0434\u0443\u0449\u0438\u0445 UI-\u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432",
+        icon: "merge",
+        body: `# \u042D\u0442\u043E\u0442 \u0434\u043E\u043C\u0435\u043D \u043F\u0440\u0435\u0434\u043D\u0430\u0437\u043D\u0430\u0447\u0435\u043D \u0434\u043B\u044F UI-\u043F\u0440\u0438\u043C\u0435\u0441\u0435\u0439.
+# \u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0438 views \u043C\u043E\u0436\u043D\u043E \u0434\u043E\u0431\u0430\u0432\u043B\u044F\u0442\u044C \u043F\u043E\u0437\u0436\u0435 \u0447\u0435\u0440\u0435\u0437 Extract mixin.
+`
+      }
+    ];
+  }
+});
+
+// src/web/components/common/FolderTreeSelect.tsx
+import {
+  useEffect as useEffect49,
+  useLayoutEffect as useLayoutEffect5,
+  useMemo as useMemo53,
+  useRef as useRef23,
+  useState as useState48
+} from "react";
+import { createPortal as createPortal4 } from "react-dom";
+import { jsx as jsx87, jsxs as jsxs84 } from "react/jsx-runtime";
+function buildTree(folders) {
+  const byId = /* @__PURE__ */ new Map();
+  for (const f of folders)
+    byId.set(f.id, { ...f, children: [], depth: 0 });
+  const roots = [];
+  for (const f of folders) {
+    const node = byId.get(f.id);
+    if (f.parentFolderId && byId.has(f.parentFolderId)) {
+      byId.get(f.parentFolderId).children.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+  const sort = (nodes, depth) => {
+    nodes.sort((a, b) => a.name.localeCompare(b.name));
+    for (const n of nodes) {
+      n.depth = depth;
+      sort(n.children, depth + 1);
+    }
+  };
+  sort(roots, 0);
+  return roots;
+}
+function flattenVisible(nodes, expanded, filter) {
+  const out = [];
+  const q = filter.trim().toLowerCase();
+  const matches = (n) => {
+    if (!q)
+      return true;
+    if (n.name.toLowerCase().includes(q))
+      return true;
+    return n.children.some(matches);
+  };
+  const walk = (list) => {
+    for (const n of list) {
+      if (!matches(n))
+        continue;
+      out.push(n);
+      const isExpanded = q ? true : expanded.has(n.id);
+      if (isExpanded && n.children.length > 0)
+        walk(n.children);
+    }
+  };
+  walk(nodes);
+  return out;
+}
+function FolderTreeSelect({
+  value,
+  onChange,
+  folders,
+  placeholder = "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u043F\u0430\u043F\u043A\u0443",
+  disabled = false
+}) {
+  const [open2, setOpen] = useState48(false);
+  const [filter, setFilter] = useState48("");
+  const [expanded, setExpanded] = useState48(/* @__PURE__ */ new Set());
+  const triggerRef = useRef23(null);
+  const wrapRef = useRef23(null);
+  const dropdownRef = useRef23(null);
+  const inputRef = useRef23(null);
+  const [pos, setPos] = useState48(null);
+  const tree = useMemo53(() => buildTree(folders), [folders]);
+  const flat = useMemo53(
+    () => flattenVisible(tree, expanded, filter),
+    [tree, expanded, filter]
+  );
+  const current = useMemo53(
+    () => folders.find((f) => f.id === value) || null,
+    [folders, value]
+  );
+  const currentPath = useMemo53(() => {
+    if (!current)
+      return "";
+    const byId = new Map(folders.map((f) => [f.id, f]));
+    const parts = [];
+    let cur = current;
+    const seen = /* @__PURE__ */ new Set();
+    while (cur && !seen.has(cur.id)) {
+      seen.add(cur.id);
+      parts.unshift(cur.name);
+      cur = cur.parentFolderId ? byId.get(cur.parentFolderId) : void 0;
+    }
+    return parts.join(" / ");
+  }, [current, folders]);
+  const computePosition = () => {
+    const trigger = triggerRef.current;
+    if (!trigger)
+      return;
+    const rect = trigger.getBoundingClientRect();
+    const vh = window.innerHeight;
+    const vw = window.innerWidth;
+    const width = Math.max(rect.width, DROPDOWN_WIDTH_MIN2);
+    let left = rect.left;
+    if (left + width > vw - VIEWPORT_MARGIN2) {
+      left = Math.max(VIEWPORT_MARGIN2, vw - width - VIEWPORT_MARGIN2);
+    }
+    const spaceBelow = vh - rect.bottom - VIEWPORT_MARGIN2;
+    const spaceAbove = rect.top - VIEWPORT_MARGIN2;
+    let top;
+    let maxHeight;
+    if (spaceBelow >= DROPDOWN_MIN_HEIGHT2 || spaceBelow >= spaceAbove) {
+      top = rect.bottom + 4;
+      maxHeight = Math.min(
+        DROPDOWN_MAX_HEIGHT2,
+        Math.max(DROPDOWN_MIN_HEIGHT2, spaceBelow)
+      );
+    } else {
+      maxHeight = Math.min(
+        DROPDOWN_MAX_HEIGHT2,
+        Math.max(DROPDOWN_MIN_HEIGHT2, spaceAbove)
+      );
+      top = rect.top - maxHeight - 4;
+    }
+    setPos({ left, top, width, maxHeight });
+  };
+  useLayoutEffect5(() => {
+    if (!open2) {
+      setPos(null);
+      return;
+    }
+    computePosition();
+    const onScroll = () => computePosition();
+    const onResize = () => computePosition();
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [open2]);
+  useEffect49(() => {
+    if (!open2)
+      return;
+    setFilter("");
+    setTimeout(() => inputRef.current?.focus(), 30);
+    if (!value) {
+      setExpanded(/* @__PURE__ */ new Set());
+      return;
+    }
+    const byId = new Map(folders.map((f) => [f.id, f]));
+    const next = /* @__PURE__ */ new Set();
+    let cur = byId.get(value);
+    const seen = /* @__PURE__ */ new Set();
+    while (cur && cur.parentFolderId && !seen.has(cur.parentFolderId)) {
+      seen.add(cur.id);
+      next.add(cur.parentFolderId);
+      cur = byId.get(cur.parentFolderId);
+    }
+    setExpanded(next);
+  }, [open2, value, folders]);
+  useEffect49(() => {
+    if (!open2)
+      return;
+    const onDoc = (e) => {
+      const target = e.target;
+      if (wrapRef.current?.contains(target))
+        return;
+      if (dropdownRef.current?.contains(target))
+        return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open2]);
+  const toggleExpand = (id) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id))
+        next.delete(id);
+      else
+        next.add(id);
+      return next;
+    });
+  };
+  const commit = (folder) => {
+    onChange(folder.id, folder.name);
+    setOpen(false);
+  };
+  return /* @__PURE__ */ jsxs84("div", { className: "folder-tree-select", ref: wrapRef, children: [
+    /* @__PURE__ */ jsxs84(
+      "button",
+      {
+        ref: triggerRef,
+        type: "button",
+        className: "folder-tree-select__trigger" + (open2 ? " open" : ""),
+        onClick: () => !disabled && setOpen(!open2),
+        disabled,
+        title: currentPath || placeholder,
+        children: [
+          /* @__PURE__ */ jsx87(MIcon, { name: "folder", size: "sm" }),
+          /* @__PURE__ */ jsx87("span", { className: "folder-tree-select__trigger-text", children: currentPath || placeholder }),
+          /* @__PURE__ */ jsx87(
+            MIcon,
+            {
+              name: open2 ? "expand_less" : "expand_more",
+              size: "sm"
+            }
+          )
+        ]
+      }
+    ),
+    open2 && pos && createPortal4(
+      /* @__PURE__ */ jsxs84(
+        "div",
+        {
+          ref: dropdownRef,
+          className: "folder-tree-select__dropdown",
+          style: {
+            position: "fixed",
+            left: pos.left,
+            top: pos.top,
+            width: pos.width,
+            maxHeight: pos.maxHeight,
+            zIndex: 1e4
+          },
+          children: [
+            /* @__PURE__ */ jsxs84("div", { className: "folder-tree-select__search", children: [
+              /* @__PURE__ */ jsx87(MIcon, { name: "search", size: "sm" }),
+              /* @__PURE__ */ jsx87(
+                "input",
+                {
+                  ref: inputRef,
+                  type: "text",
+                  value: filter,
+                  onChange: (e) => setFilter(e.target.value),
+                  placeholder: "\u041F\u043E\u0438\u0441\u043A \u043F\u0430\u043F\u043A\u0438...",
+                  spellCheck: false,
+                  autoComplete: "off"
+                }
+              ),
+              filter && /* @__PURE__ */ jsx87(
+                "button",
+                {
+                  type: "button",
+                  className: "folder-tree-select__clear",
+                  onClick: () => {
+                    setFilter("");
+                    inputRef.current?.focus();
+                  },
+                  children: "\u2715"
+                }
+              )
+            ] }),
+            /* @__PURE__ */ jsx87("div", { className: "folder-tree-select__list", children: flat.length === 0 ? /* @__PURE__ */ jsx87("div", { className: "folder-tree-select__empty", children: filter ? "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" : "\u041D\u0435\u0442 \u043F\u0430\u043F\u043E\u043A" }) : flat.map((node) => {
+              const hasChildren = node.children.length > 0;
+              const isExpanded = filter ? true : expanded.has(node.id);
+              const isSelected = node.id === value;
+              const isMatch = !!filter && node.name.toLowerCase().includes(filter.toLowerCase());
+              return /* @__PURE__ */ jsxs84(
+                "div",
+                {
+                  className: "folder-tree-select__item" + (isSelected ? " folder-tree-select__item--selected" : "") + (isMatch ? " folder-tree-select__item--match" : ""),
+                  style: {
+                    paddingLeft: 6 + node.depth * 16
+                  },
+                  children: [
+                    /* @__PURE__ */ jsx87(
+                      "button",
+                      {
+                        type: "button",
+                        className: "folder-tree-select__chevron",
+                        onClick: (e) => {
+                          e.stopPropagation();
+                          if (hasChildren)
+                            toggleExpand(node.id);
+                        },
+                        disabled: !hasChildren,
+                        children: hasChildren ? /* @__PURE__ */ jsx87(
+                          MIcon,
+                          {
+                            name: isExpanded ? "expand_more" : "chevron_right",
+                            size: "sm"
+                          }
+                        ) : /* @__PURE__ */ jsx87("span", { className: "folder-tree-select__chevron-spacer" })
+                      }
+                    ),
+                    /* @__PURE__ */ jsxs84(
+                      "button",
+                      {
+                        type: "button",
+                        className: "folder-tree-select__label",
+                        onClick: () => commit(node),
+                        children: [
+                          /* @__PURE__ */ jsx87(
+                            MIcon,
+                            {
+                              name: hasChildren ? isExpanded ? "folder_open" : "folder" : "insert_drive_file",
+                              size: "sm"
+                            }
+                          ),
+                          /* @__PURE__ */ jsx87("span", { children: node.name })
+                        ]
+                      }
+                    )
+                  ]
+                },
+                node.id
+              );
+            }) })
+          ]
+        }
+      ),
+      document.body
+    )
+  ] });
+}
+var DROPDOWN_MAX_HEIGHT2, DROPDOWN_MIN_HEIGHT2, VIEWPORT_MARGIN2, DROPDOWN_WIDTH_MIN2;
+var init_FolderTreeSelect = __esm({
+  "src/web/components/common/FolderTreeSelect.tsx"() {
+    "use strict";
+    init_MIcon();
+    DROPDOWN_MAX_HEIGHT2 = 360;
+    DROPDOWN_MIN_HEIGHT2 = 160;
+    VIEWPORT_MARGIN2 = 8;
+    DROPDOWN_WIDTH_MIN2 = 320;
+  }
+});
+
+// src/web/components/modals/CreateDomainModal.tsx
+import { useEffect as useEffect50, useMemo as useMemo54, useState as useState49 } from "react";
+import { Fragment as Fragment27, jsx as jsx88, jsxs as jsxs85 } from "react/jsx-runtime";
+function CreateDomainModal() {
+  const open2 = useGraphStore((s) => s.createDomainOpen);
+  const setOpen = useGraphStore((s) => s.setCreateDomainOpen);
+  const { index } = useModelIndex();
+  const remoteInfo = useMemo54(() => readRemoteInfo(), []);
+  const isRemote = !!remoteInfo?.server && remoteInfo.mode !== "hybrid";
+  const [id, setId] = useState49("");
+  const [name, setName] = useState49("");
+  const [author, setAuthor] = useState49("");
+  const [tagsRaw, setTagsRaw] = useState49("");
+  const [description, setDescription] = useState49("");
+  const [folderId, setFolderId] = useState49("");
+  const [folderPath, setFolderPath] = useState49("");
+  const [templateId, setTemplateId] = useState49("empty");
+  const [folders, setFolders] = useState49([]);
+  const [submitting, setSubmitting] = useState49(false);
+  const [error, setError] = useState49(null);
+  const [success, setSuccess] = useState49(null);
+  useEffect50(() => {
+    const raw = sessionStorage.getItem(OPEN_AFTER_RELOAD_KEY);
+    if (!raw)
+      return;
+    sessionStorage.removeItem(OPEN_AFTER_RELOAD_KEY);
+    try {
+      const { filePath, domainId } = JSON.parse(raw);
+      if (filePath && domainId) {
+        setTimeout(() => openFileInEditor(filePath, null, domainId), 400);
+      }
+    } catch {
+    }
+  }, []);
+  useEffect50(() => {
+    if (!open2)
+      return;
+    setId("");
+    setName("");
+    setAuthor("");
+    setTagsRaw("");
+    setDescription("");
+    setFolderPath("");
+    setTemplateId("empty");
+    setError(null);
+    setSuccess(null);
+    setSubmitting(false);
+    if (isRemote) {
+      fetch("/api/folders").then((r) => r.json()).then((d) => {
+        setFolders(d.folders || []);
+        if ((d.folders || []).length > 0) {
+          const root = d.folders.find(
+            (f) => !f.parentFolderId
+          );
+          setFolderId(root?.id || d.folders[0].id);
+        }
+      }).catch(() => setFolders([]));
+    }
+  }, [open2, isRemote]);
+  const idValid = !id || /^[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)+$/i.test(id);
+  const idExists = !!index && !!id && index.domains.some((d) => d.id.toLowerCase() === id.toLowerCase());
+  const canSubmit = !!id && idValid && !idExists && !!name && !submitting && (!isRemote || !!folderId);
+  const selectedTemplate = useMemo54(
+    () => DOMAIN_TEMPLATES.find((t) => t.id === templateId) || DOMAIN_TEMPLATES[0],
+    [templateId]
+  );
+  const submit = async () => {
+    if (!canSubmit)
+      return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const tags = tagsRaw.split(/[,;\n]+/).map((t) => t.trim()).filter(Boolean);
+      const tpl = DOMAIN_TEMPLATES.find((t) => t.id === templateId);
+      const res = await fetch("/api/create-domain", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: id.trim(),
+          name: name.trim(),
+          author: author.trim() || void 0,
+          description: description.trim() || void 0,
+          tags: tags.length > 0 ? tags : void 0,
+          version: "0.0.1",
+          folderId: isRemote ? folderId : void 0,
+          folderPath: !isRemote ? folderPath.trim() || void 0 : void 0,
+          templateYaml: tpl?.body || ""
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || `HTTP ${res.status}`);
+        return;
+      }
+      setSuccess({
+        filePath: data.filePath,
+        expertiseId: data.expertiseId || null
+      });
+      useGraphStore.getState().bumpModelVersion();
+      if (data.filePath) {
+        sessionStorage.setItem(
+          OPEN_AFTER_RELOAD_KEY,
+          JSON.stringify({ filePath: data.filePath, domainId: id.trim() })
+        );
+      }
+      setTimeout(() => {
+        window.location.reload();
+      }, 800);
+    } catch (e) {
+      setError(e.message || String(e));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  if (!open2)
+    return null;
+  return /* @__PURE__ */ jsx88(
+    "div",
+    {
+      className: "help-overlay help-overlay--fullscreen",
+      onMouseDown: () => setOpen(false),
+      children: /* @__PURE__ */ jsxs85(
+        "div",
+        {
+          className: "help-modal create-domain-modal",
+          onMouseDown: (e) => e.stopPropagation(),
+          children: [
+            /* @__PURE__ */ jsxs85("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs85("div", { className: "help-modal__title", children: [
+                /* @__PURE__ */ jsx88(MIcon, { name: "add_circle", size: "sm" }),
+                /* @__PURE__ */ jsx88("span", { className: "icon-label", children: "\u041D\u043E\u0432\u044B\u0439 \u0434\u043E\u043C\u0435\u043D" }),
+                /* @__PURE__ */ jsx88("span", { className: "help-modal__badge", children: isRemote ? "remote" : remoteInfo?.mode || "local" })
+              ] }),
+              /* @__PURE__ */ jsx88(
+                "button",
+                {
+                  className: "help-modal__close",
+                  onClick: () => setOpen(false),
+                  children: "\u2715"
+                }
+              )
+            ] }),
+            success ? /* @__PURE__ */ jsxs85("div", { className: "create-domain-success", children: [
+              /* @__PURE__ */ jsx88(
+                MIcon,
+                {
+                  name: "check_circle",
+                  size: "xl",
+                  style: { color: "var(--success)", marginBottom: 12 }
+                }
+              ),
+              /* @__PURE__ */ jsx88("div", { className: "create-domain-success__title", children: "\u0414\u043E\u043C\u0435\u043D \u0441\u043E\u0437\u0434\u0430\u043D" }),
+              /* @__PURE__ */ jsx88("div", { className: "create-domain-success__path", children: success.filePath }),
+              success.expertiseId && /* @__PURE__ */ jsxs85("div", { className: "create-domain-success__meta", children: [
+                "Expertise ID: ",
+                /* @__PURE__ */ jsx88("code", { children: success.expertiseId })
+              ] }),
+              /* @__PURE__ */ jsxs85("div", { className: "create-domain-success__hint", children: [
+                /* @__PURE__ */ jsx88(MIcon, { name: "hourglass_top", size: "sm" }),
+                /* @__PURE__ */ jsx88("span", { children: "\u041E\u0442\u043A\u0440\u044B\u0432\u0430\u0435\u043C \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440 \u0438 \u043E\u0431\u043D\u043E\u0432\u043B\u044F\u0435\u043C \u0438\u043D\u0434\u0435\u043A\u0441\u2026" })
+              ] })
+            ] }) : /* @__PURE__ */ jsxs85(Fragment27, { children: [
+              /* @__PURE__ */ jsx88("div", { className: "help-modal__body help-modal__body--flush", children: /* @__PURE__ */ jsxs85("div", { className: "create-domain-form", children: [
+                /* @__PURE__ */ jsxs85("label", { className: "create-domain-field", children: [
+                  /* @__PURE__ */ jsx88("span", { className: "create-domain-label", children: "ID (FQDN) *" }),
+                  /* @__PURE__ */ jsx88(
+                    "input",
+                    {
+                      className: "create-domain-input",
+                      value: id,
+                      onChange: (e) => setId(e.target.value),
+                      placeholder: "my.new.domain.tld",
+                      spellCheck: false
+                    }
+                  ),
+                  !idValid && /* @__PURE__ */ jsx88("span", { className: "create-domain-error", children: "\u041D\u0435\u0432\u0435\u0440\u043D\u044B\u0439 \u0444\u043E\u0440\u043C\u0430\u0442 (my.domain.tld)" }),
+                  idExists && /* @__PURE__ */ jsx88("span", { className: "create-domain-error", children: "\u0414\u043E\u043C\u0435\u043D \u0443\u0436\u0435 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u0435\u0442" })
+                ] }),
+                /* @__PURE__ */ jsxs85("label", { className: "create-domain-field", children: [
+                  /* @__PURE__ */ jsx88("span", { className: "create-domain-label", children: "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 *" }),
+                  /* @__PURE__ */ jsx88(
+                    "input",
+                    {
+                      className: "create-domain-input",
+                      value: name,
+                      onChange: (e) => setName(e.target.value)
+                    }
+                  )
+                ] }),
+                /* @__PURE__ */ jsxs85("label", { className: "create-domain-field", children: [
+                  /* @__PURE__ */ jsx88("span", { className: "create-domain-label", children: "\u0410\u0432\u0442\u043E\u0440" }),
+                  /* @__PURE__ */ jsx88(
+                    "input",
+                    {
+                      className: "create-domain-input",
+                      value: author,
+                      onChange: (e) => setAuthor(e.target.value)
+                    }
+                  )
+                ] }),
+                /* @__PURE__ */ jsxs85("label", { className: "create-domain-field", children: [
+                  /* @__PURE__ */ jsx88("span", { className: "create-domain-label", children: "\u0422\u0435\u0433\u0438 (\u0447\u0435\u0440\u0435\u0437 \u0437\u0430\u043F\u044F\u0442\u0443\u044E)" }),
+                  /* @__PURE__ */ jsx88(
+                    "input",
+                    {
+                      className: "create-domain-input",
+                      value: tagsRaw,
+                      onChange: (e) => setTagsRaw(e.target.value),
+                      placeholder: "risk, assets"
+                    }
+                  )
+                ] }),
+                /* @__PURE__ */ jsxs85("label", { className: "create-domain-field create-domain-field--wide", children: [
+                  /* @__PURE__ */ jsx88("span", { className: "create-domain-label", children: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435" }),
+                  /* @__PURE__ */ jsx88(
+                    "textarea",
+                    {
+                      className: "create-domain-input",
+                      rows: 2,
+                      value: description,
+                      onChange: (e) => setDescription(e.target.value)
+                    }
+                  )
+                ] }),
+                /* @__PURE__ */ jsxs85("label", { className: "create-domain-field create-domain-field--wide", children: [
+                  /* @__PURE__ */ jsxs85("span", { className: "create-domain-label", children: [
+                    "\u041A\u0430\u0442\u0430\u043B\u043E\u0433 ",
+                    isRemote ? "*" : "(\u043E\u0442\u043D\u043E\u0441\u0438\u0442\u0435\u043B\u044C\u043D\u043E \u043A\u043E\u0440\u043D\u044F)"
+                  ] }),
+                  isRemote ? /* @__PURE__ */ jsx88(
+                    FolderTreeSelect,
+                    {
+                      value: folderId,
+                      onChange: (id2) => setFolderId(id2),
+                      folders,
+                      placeholder: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u043F\u0430\u043F\u043A\u0443",
+                      disabled: folders.length === 0
+                    }
+                  ) : /* @__PURE__ */ jsx88(
+                    "input",
+                    {
+                      className: "create-domain-input",
+                      value: folderPath,
+                      onChange: (e) => setFolderPath(e.target.value),
+                      placeholder: "\u043F\u043E\u0434\u043A\u0430\u0442\u0430\u043B\u043E\u0433"
+                    }
+                  )
+                ] }),
+                /* @__PURE__ */ jsxs85("div", { className: "create-domain-field create-domain-field--wide", children: [
+                  /* @__PURE__ */ jsx88("span", { className: "create-domain-label", children: "\u0428\u0430\u0431\u043B\u043E\u043D \u043F\u0440\u0435\u0434\u0437\u0430\u043F\u043E\u043B\u043D\u0435\u043D\u0438\u044F" }),
+                  /* @__PURE__ */ jsx88(
+                    Combobox,
+                    {
+                      value: templateId,
+                      onChange: (v) => setTemplateId(v),
+                      options: DOMAIN_TEMPLATES.map((t) => ({
+                        value: t.id,
+                        label: t.label,
+                        hint: t.description
+                      })),
+                      icon: "article",
+                      placeholder: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0448\u0430\u0431\u043B\u043E\u043D"
+                    }
+                  ),
+                  selectedTemplate && /* @__PURE__ */ jsxs85("div", { className: "create-domain-template-preview", children: [
+                    /* @__PURE__ */ jsxs85("div", { className: "create-domain-template-preview__head", children: [
+                      /* @__PURE__ */ jsx88(MIcon, { name: selectedTemplate.icon, size: "sm" }),
+                      /* @__PURE__ */ jsx88("span", { className: "create-domain-template-preview__title", children: selectedTemplate.label })
+                    ] }),
+                    /* @__PURE__ */ jsx88("div", { className: "create-domain-template-preview__desc", children: selectedTemplate.description })
+                  ] })
+                ] }),
+                error && /* @__PURE__ */ jsxs85("div", { className: "create-domain-error-banner create-domain-error-banner--wide", children: [
+                  /* @__PURE__ */ jsx88(MIcon, { name: "error", size: "sm" }),
+                  /* @__PURE__ */ jsx88("span", { children: error })
+                ] })
+              ] }) }),
+              /* @__PURE__ */ jsxs85("div", { className: "create-domain-footer", children: [
+                /* @__PURE__ */ jsx88("div", { className: "create-domain-footer__hint", children: isRemote ? "\u0421\u0445\u0435\u043C\u0430 \u0431\u0443\u0434\u0435\u0442 \u0441\u043E\u0437\u0434\u0430\u043D\u0430 \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435 (\u0447\u0435\u0440\u043D\u043E\u0432\u0438\u043A)." : "\u0424\u0430\u0439\u043B \u0431\u0443\u0434\u0435\u0442 \u0437\u0430\u043F\u0438\u0441\u0430\u043D \u0432 \u043B\u043E\u043A\u0430\u043B\u044C\u043D\u044B\u0439 \u043A\u0430\u0442\u0430\u043B\u043E\u0433." }),
+                /* @__PURE__ */ jsxs85("div", { className: "create-domain-footer__actions", children: [
+                  /* @__PURE__ */ jsx88("button", { className: "btn", onClick: () => setOpen(false), children: "\u041E\u0442\u043C\u0435\u043D\u0430" }),
+                  /* @__PURE__ */ jsx88(
+                    "button",
+                    {
+                      className: "btn btn--primary",
+                      onClick: submit,
+                      disabled: !canSubmit,
+                      children: submitting ? "\u0421\u043E\u0437\u0434\u0430\u043D\u0438\u0435\u2026" : "\u0421\u043E\u0437\u0434\u0430\u0442\u044C"
+                    }
+                  )
+                ] })
+              ] })
+            ] })
+          ]
+        }
+      )
+    }
+  );
+}
+var OPEN_AFTER_RELOAD_KEY;
+var init_CreateDomainModal = __esm({
+  "src/web/components/modals/CreateDomainModal.tsx"() {
+    "use strict";
+    init_useGraphStore();
+    init_useModelIndex();
+    init_initial();
+    init_MIcon();
+    init_Combobox();
+    init_templates();
+    init_open_file();
+    init_FolderTreeSelect();
+    OPEN_AFTER_RELOAD_KEY = "dg:openYamlAfterReload";
+  }
+});
+
+// src/web/components/modals/DeleteDomainModal.tsx
+import { useEffect as useEffect51, useMemo as useMemo55, useState as useState50 } from "react";
+import { jsx as jsx89, jsxs as jsxs86 } from "react/jsx-runtime";
+function DeleteDomainModal() {
+  const target = useGraphStore((s) => s.deleteDomainTarget);
+  const setTarget = useGraphStore((s) => s.setDeleteDomainTarget);
+  const { index } = useModelIndex();
+  const remoteInfo = useMemo55(() => readRemoteInfo(), []);
+  const isRemote = !!remoteInfo?.server && remoteInfo.mode !== "hybrid";
+  const [expertiseId, setExpertiseId] = useState50(null);
+  const [expertiseReady, setExpertiseReady] = useState50(false);
+  const [confirmed, setConfirmed] = useState50(false);
+  const [deleting, setDeleting] = useState50(false);
+  const [error, setError] = useState50(null);
+  const open2 = !!target;
+  useEffect51(() => {
+    if (!open2 || !target)
+      return;
+    setExpertiseId(null);
+    setExpertiseReady(false);
+    setConfirmed(false);
+    setError(null);
+    if (!isRemote) {
+      setExpertiseReady(true);
+      return;
+    }
+    fetch("/api/domain-index").then((r) => r.json()).then((d) => {
+      const entry = (d.domains || []).find((x) => x.sourceId === target.domainId);
+      setExpertiseId(entry?.id || null);
+      setExpertiseReady(true);
+    }).catch(() => setExpertiseReady(true));
+  }, [open2, target, isRemote]);
+  const refs = useMemo55(() => {
+    if (!index || !target)
+      return [];
+    const t = target.domainId.toLowerCase();
+    const matches = (fqid) => !!fqid && fqid.toLowerCase().startsWith(t + "/");
+    const out = [];
+    for (const e of index.entities) {
+      if (e.domainId.toLowerCase() === t)
+        continue;
+      if (matches(e.inherits)) {
+        out.push({
+          kind: "inherits",
+          fromDomainId: e.domainId,
+          description: `${e.entityId} \u043D\u0430\u0441\u043B\u0435\u0434\u0443\u0435\u0442 ${e.inherits}`
+        });
+      }
+      for (const a of e.attributes) {
+        const ref = a.referenceEntity || a.itemReferenceEntity;
+        if (matches(ref)) {
+          out.push({
+            kind: "reference",
+            fromDomainId: e.domainId,
+            description: `${e.entityId}.${a.id} \u2192 ${ref}`
+          });
+        }
+      }
+    }
+    for (const l of index.entityLinkages) {
+      if (l.domainId.toLowerCase() === t)
+        continue;
+      if (matches(l.side1Fqid) || matches(l.side2Fqid)) {
+        out.push({
+          kind: "linkage",
+          fromDomainId: l.domainId,
+          description: `${l.id} (${l.side1Fqid} \u2194 ${l.side2Fqid})`
+        });
+      }
+    }
+    for (const m of index.mixins) {
+      if (m.domainId.toLowerCase() === t)
+        continue;
+      if (matches(m.targetEntityFqid)) {
+        out.push({
+          kind: "mixin",
+          fromDomainId: m.domainId,
+          description: `${m.id} (target: ${m.targetEntityFqid})`
+        });
+      }
+      if (matches(m.sourceEntityFqid)) {
+        out.push({
+          kind: "mixin",
+          fromDomainId: m.domainId,
+          description: `${m.id} (from: ${m.sourceEntityFqid})`
+        });
+      }
+    }
+    return out;
+  }, [index, target]);
+  if (!open2 || !target)
+    return null;
+  const canDelete = confirmed && !deleting && (!isRemote || expertiseReady && !!expertiseId);
+  const doDelete = async () => {
+    if (!canDelete)
+      return;
+    setDeleting(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/delete-domain", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          domainId: target.domainId,
+          expertiseId: isRemote ? expertiseId : void 0
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || `HTTP ${res.status}`);
+        return;
+      }
+      useGraphStore.getState().bumpModelVersion();
+      setTarget(null);
+    } catch (e) {
+      setError(e.message || String(e));
+    } finally {
+      setDeleting(false);
+    }
+  };
+  return /* @__PURE__ */ jsx89("div", { className: "help-overlay help-overlay--fullscreen", onMouseDown: () => setTarget(null), children: /* @__PURE__ */ jsxs86("div", { className: "help-modal delete-domain-modal", onMouseDown: (e) => e.stopPropagation(), children: [
+    /* @__PURE__ */ jsxs86("div", { className: "help-modal__header", children: [
+      /* @__PURE__ */ jsxs86("div", { className: "help-modal__title", children: [
+        /* @__PURE__ */ jsx89(MIcon, { name: "delete_forever", size: "sm", style: { color: "var(--danger)" } }),
+        /* @__PURE__ */ jsx89("span", { className: "icon-label", children: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0434\u043E\u043C\u0435\u043D" }),
+        /* @__PURE__ */ jsx89("span", { className: "help-modal__badge", children: target.domainId })
+      ] }),
+      /* @__PURE__ */ jsx89("button", { className: "help-modal__close", onClick: () => setTarget(null), children: "\u2715" })
+    ] }),
+    /* @__PURE__ */ jsxs86("div", { className: "help-modal__body", children: [
+      /* @__PURE__ */ jsxs86("div", { className: "delete-domain-warning", children: [
+        /* @__PURE__ */ jsx89(MIcon, { name: "warning", size: "sm" }),
+        /* @__PURE__ */ jsxs86("span", { children: [
+          "\u0414\u043E\u043C\u0435\u043D \u0431\u0443\u0434\u0435\u0442 ",
+          /* @__PURE__ */ jsxs86("strong", { children: [
+            "\u0443\u0434\u0430\u043B\u0451\u043D ",
+            isRemote ? "\u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435 \u0438 \u0432 \u043A\u044D\u0448\u0435" : "\u0441 \u0434\u0438\u0441\u043A\u0430"
+          ] }),
+          ".",
+          refs.length > 0 ? ` \u0421\u0441\u044B\u043B\u043A\u0438 \u0438\u0437 \u0434\u0440\u0443\u0433\u0438\u0445 \u0434\u043E\u043C\u0435\u043D\u043E\u0432 (${refs.length}) \u0441\u043B\u043E\u043C\u0430\u044E\u0442\u0441\u044F.` : " \u041F\u0440\u044F\u043C\u044B\u0445 \u0441\u0441\u044B\u043B\u043E\u043A \u0438\u0437 \u0434\u0440\u0443\u0433\u0438\u0445 \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E."
+        ] })
+      ] }),
+      refs.length > 0 && /* @__PURE__ */ jsxs86("div", { className: "delete-domain-refs", children: [
+        /* @__PURE__ */ jsxs86("div", { className: "delete-domain-refs__title", children: [
+          "\u0421\u0441\u044B\u043B\u043A\u0438 \u0438\u0437 \u0434\u0440\u0443\u0433\u0438\u0445 \u0434\u043E\u043C\u0435\u043D\u043E\u0432 (",
+          refs.length,
+          ")"
+        ] }),
+        refs.map((r, i) => /* @__PURE__ */ jsxs86("div", { className: "delete-domain-ref", children: [
+          /* @__PURE__ */ jsx89("span", { className: "delete-domain-ref__kind", children: r.kind }),
+          /* @__PURE__ */ jsx89("code", { className: "delete-domain-ref__from", children: r.fromDomainId }),
+          /* @__PURE__ */ jsx89("span", { className: "delete-domain-ref__desc", children: r.description })
+        ] }, i))
+      ] }),
+      isRemote && expertiseReady && !expertiseId && /* @__PURE__ */ jsxs86("div", { className: "create-domain-error-banner", style: { marginTop: 12 }, children: [
+        /* @__PURE__ */ jsx89(MIcon, { name: "error", size: "sm" }),
+        " ",
+        "expertise-id \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D \u0432 _index.json \u2014 \u0443\u0434\u0430\u043B\u0438\u0442\u044C \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435 \u043D\u0435\u043B\u044C\u0437\u044F. \u041F\u043E\u043F\u0440\u043E\u0431\u0443\u0439\u0442\u0435 --refresh, \u0437\u0430\u0442\u0435\u043C \u043F\u043E\u0432\u0442\u043E\u0440\u0438\u0442\u0435."
+      ] }),
+      error && /* @__PURE__ */ jsxs86("div", { className: "create-domain-error-banner", style: { marginTop: 12 }, children: [
+        /* @__PURE__ */ jsx89(MIcon, { name: "error", size: "sm" }),
+        " ",
+        error
+      ] }),
+      /* @__PURE__ */ jsxs86("label", { className: "delete-domain-confirm", children: [
+        /* @__PURE__ */ jsx89(
+          "input",
+          {
+            type: "checkbox",
+            checked: confirmed,
+            onChange: (e) => setConfirmed(e.target.checked)
+          }
+        ),
+        /* @__PURE__ */ jsxs86("span", { children: [
+          "\u042F \u043F\u043E\u043D\u0438\u043C\u0430\u044E, \u0447\u0442\u043E \u044D\u0442\u043E \u043D\u0435\u043E\u0431\u0440\u0430\u0442\u0438\u043C\u043E, \u0438 \u0445\u043E\u0447\u0443 \u0443\u0434\u0430\u043B\u0438\u0442\u044C \u0434\u043E\u043C\u0435\u043D ",
+          /* @__PURE__ */ jsx89("code", { children: target.domainId })
+        ] })
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxs86("div", { className: "help-modal__footer", children: [
+      /* @__PURE__ */ jsx89("button", { className: "btn", onClick: () => setTarget(null), children: "\u041E\u0442\u043C\u0435\u043D\u0430" }),
+      /* @__PURE__ */ jsx89("button", { className: "btn btn--danger", onClick: doDelete, disabled: !canDelete, children: deleting ? "\u0423\u0434\u0430\u043B\u0435\u043D\u0438\u0435\u2026" : "\u0423\u0434\u0430\u043B\u0438\u0442\u044C" })
+    ] })
+  ] }) });
+}
+var init_DeleteDomainModal = __esm({
+  "src/web/components/modals/DeleteDomainModal.tsx"() {
+    "use strict";
+    init_useGraphStore();
+    init_useModelIndex();
+    init_initial();
+    init_MIcon();
+  }
+});
+
 // src/web/components/modals/index.ts
 var init_modals = __esm({
   "src/web/components/modals/index.ts"() {
@@ -83947,11 +85096,13 @@ var init_modals = __esm({
     init_CheatsheetModal();
     init_HealthDashboardModal();
     init_DeletionSimulationModal();
+    init_CreateDomainModal();
+    init_DeleteDomainModal();
   }
 });
 
 // src/web/hooks/useGenerateSchemaBatch.ts
-import { useCallback as useCallback26, useEffect as useEffect49, useRef as useRef23, useState as useState48 } from "react";
+import { useCallback as useCallback26, useEffect as useEffect52, useRef as useRef24, useState as useState51 } from "react";
 function useGenerateSchemaBatch({
   domainId,
   profile,
@@ -83960,14 +85111,14 @@ function useGenerateSchemaBatch({
   enabled
 }) {
   const modelVersion = useGraphStore((s) => s.modelVersion);
-  const [state, setState] = useState48({
+  const [state, setState] = useState51({
     result: null,
     loading: false,
     error: null,
     progress: null
   });
-  const [tick, setTick] = useState48(0);
-  const abortRef = useRef23(null);
+  const [tick, setTick] = useState51(0);
+  const abortRef = useRef24(null);
   const optionsKey = JSON.stringify(options);
   const entityIdsKey = JSON.stringify(entityIds ?? []);
   const cancel = useCallback26(() => {
@@ -83980,7 +85131,7 @@ function useGenerateSchemaBatch({
     }
     setState((s) => ({ ...s, loading: false, progress: null }));
   }, []);
-  useEffect49(() => {
+  useEffect52(() => {
     if (!enabled || !domainId)
       return;
     let cancelled = false;
@@ -84098,16 +85249,16 @@ var init_useGenerateSchemaBatch = __esm({
 });
 
 // src/web/components/modals/GenerateBatchModal.tsx
-import { useCallback as useCallback27, useEffect as useEffect50, useMemo as useMemo53, useState as useState49 } from "react";
-import { Fragment as Fragment27, jsx as jsx87, jsxs as jsxs84 } from "react/jsx-runtime";
+import { useCallback as useCallback27, useEffect as useEffect53, useMemo as useMemo56, useState as useState52 } from "react";
+import { Fragment as Fragment28, jsx as jsx90, jsxs as jsxs87 } from "react/jsx-runtime";
 function GenerateBatchModal() {
   const store = useGraphStore();
   const { index } = useModelIndex();
   const open2 = store.generateBatchOpen;
   const domainId = store.generateBatchDomainId;
-  const [profile, setProfile] = useState49("crud");
-  const [selectedEntities, setSelectedEntities] = useState49(/* @__PURE__ */ new Set());
-  const [options, setOptions] = useState49({
+  const [profile, setProfile] = useState52("crud");
+  const [selectedEntities, setSelectedEntities] = useState52(/* @__PURE__ */ new Set());
+  const [options, setOptions] = useState52({
     includeBulk: true,
     includePage: false,
     includeLinkageWidgets: true,
@@ -84121,13 +85272,13 @@ function GenerateBatchModal() {
     scaffoldCreateMenuRoot: false,
     scaffoldCreateMedias: false
   });
-  const [initialised, setInitialised] = useState49(false);
-  const allEntities = useMemo53(() => {
+  const [initialised, setInitialised] = useState52(false);
+  const allEntities = useMemo56(() => {
     if (!index || !domainId)
       return [];
     return index.entities.filter((e) => e.domainId === domainId).map((e) => ({ id: e.entityId, name: e.name || e.entityId }));
   }, [index, domainId]);
-  useEffect50(() => {
+  useEffect53(() => {
     if (!open2 || !domainId)
       return;
     if (!index || allEntities.length === 0)
@@ -84138,7 +85289,7 @@ function GenerateBatchModal() {
     setSelectedEntities(new Set(allEntities.map((e) => e.id)));
     setInitialised(true);
   }, [open2, domainId, index, allEntities.length, initialised]);
-  useEffect50(() => {
+  useEffect53(() => {
     if (open2)
       return;
     setInitialised(false);
@@ -84249,25 +85400,25 @@ function GenerateBatchModal() {
   if (!open2 || !domainId)
     return null;
   const stats = gen.result?.stats;
-  return /* @__PURE__ */ jsx87(
+  return /* @__PURE__ */ jsx90(
     "div",
     {
       className: "help-overlay help-overlay--fullscreen",
       style: { zIndex: 450 },
       onMouseDown: () => store.setGenerateBatchOpen(false),
-      children: /* @__PURE__ */ jsxs84(
+      children: /* @__PURE__ */ jsxs87(
         "div",
         {
           className: "help-modal generate-batch-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
-            /* @__PURE__ */ jsxs84("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsxs84("div", { className: "help-modal__title", children: [
-                /* @__PURE__ */ jsx87(MIcon, { name: "auto_awesome", size: "sm" }),
-                /* @__PURE__ */ jsx87("span", { className: "icon-label", children: "\u041F\u0430\u043A\u0435\u0442\u043D\u0430\u044F \u0433\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u044F" }),
-                /* @__PURE__ */ jsx87("span", { className: "help-modal__badge", children: domainId })
+            /* @__PURE__ */ jsxs87("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs87("div", { className: "help-modal__title", children: [
+                /* @__PURE__ */ jsx90(MIcon, { name: "auto_awesome", size: "sm" }),
+                /* @__PURE__ */ jsx90("span", { className: "icon-label", children: "\u041F\u0430\u043A\u0435\u0442\u043D\u0430\u044F \u0433\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u044F" }),
+                /* @__PURE__ */ jsx90("span", { className: "help-modal__badge", children: domainId })
               ] }),
-              /* @__PURE__ */ jsx87(
+              /* @__PURE__ */ jsx90(
                 "button",
                 {
                   className: "help-modal__close",
@@ -84276,32 +85427,32 @@ function GenerateBatchModal() {
                 }
               )
             ] }),
-            /* @__PURE__ */ jsxs84("div", { className: "generate-batch-body", children: [
-              /* @__PURE__ */ jsxs84("div", { className: "generate-batch-toolbar", children: [
-                /* @__PURE__ */ jsxs84("label", { className: "generate-schema-field", children: [
-                  /* @__PURE__ */ jsx87("span", { children: "\u041F\u0440\u043E\u0444\u0438\u043B\u044C:" }),
-                  /* @__PURE__ */ jsx87("select", { value: profile, onChange: (e) => setProfile(e.target.value), children: ENTITY_PROFILES2.map((p) => /* @__PURE__ */ jsx87("option", { value: p.id, children: p.label }, p.id)) })
+            /* @__PURE__ */ jsxs87("div", { className: "generate-batch-body", children: [
+              /* @__PURE__ */ jsxs87("div", { className: "generate-batch-toolbar", children: [
+                /* @__PURE__ */ jsxs87("label", { className: "generate-schema-field", children: [
+                  /* @__PURE__ */ jsx90("span", { children: "\u041F\u0440\u043E\u0444\u0438\u043B\u044C:" }),
+                  /* @__PURE__ */ jsx90("select", { value: profile, onChange: (e) => setProfile(e.target.value), children: ENTITY_PROFILES2.map((p) => /* @__PURE__ */ jsx90("option", { value: p.id, children: p.label }, p.id)) })
                 ] }),
-                /* @__PURE__ */ jsx87("button", { className: "btn", onClick: toggleAll, children: selectedEntities.size === allEntities.length ? "\u0421\u043D\u044F\u0442\u044C \u0432\u0441\u0435" : "\u0412\u044B\u0431\u0440\u0430\u0442\u044C \u0432\u0441\u0435" }),
-                /* @__PURE__ */ jsxs84("span", { className: "generate-batch-counter", children: [
+                /* @__PURE__ */ jsx90("button", { className: "btn", onClick: toggleAll, children: selectedEntities.size === allEntities.length ? "\u0421\u043D\u044F\u0442\u044C \u0432\u0441\u0435" : "\u0412\u044B\u0431\u0440\u0430\u0442\u044C \u0432\u0441\u0435" }),
+                /* @__PURE__ */ jsxs87("span", { className: "generate-batch-counter", children: [
                   selectedEntities.size,
                   " / ",
                   allEntities.length,
                   " \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439"
                 ] })
               ] }),
-              profile === "auto" && /* @__PURE__ */ jsxs84("div", { className: "generate-batch-extras", children: [
-                /* @__PURE__ */ jsxs84("div", { className: "generate-batch-extras__title", children: [
-                  /* @__PURE__ */ jsx87(MIcon, { name: "construction", size: "sm" }),
+              profile === "auto" && /* @__PURE__ */ jsxs87("div", { className: "generate-batch-extras", children: [
+                /* @__PURE__ */ jsxs87("div", { className: "generate-batch-extras__title", children: [
+                  /* @__PURE__ */ jsx90(MIcon, { name: "construction", size: "sm" }),
                   "\u041E\u0431\u0432\u044F\u0437\u043A\u0430 \u0434\u043E\u043C\u0435\u043D\u0430"
                 ] }),
-                /* @__PURE__ */ jsxs84(
+                /* @__PURE__ */ jsxs87(
                   "label",
                   {
                     className: "generate-schema-option",
                     title: "\u0421\u043E\u0437\u0434\u0430\u0441\u0442 root_group \u0432 menus[], \u0435\u0441\u043B\u0438 \u0432 \u0434\u043E\u043C\u0435\u043D\u0435 \u0435\u0433\u043E \u043D\u0435\u0442. \u041D\u0443\u0436\u0435\u043D \u0434\u043B\u044F \u0433\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u0438 \u043C\u0435\u043D\u044E \u0434\u043B\u044F CRUD-\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439",
                     children: [
-                      /* @__PURE__ */ jsx87(
+                      /* @__PURE__ */ jsx90(
                         "input",
                         {
                           type: "checkbox",
@@ -84312,17 +85463,17 @@ function GenerateBatchModal() {
                           })
                         }
                       ),
-                      /* @__PURE__ */ jsx87("span", { children: "\u0421\u043E\u0437\u0434\u0430\u0442\u044C \u043A\u043E\u0440\u043D\u0435\u0432\u043E\u0435 \u043C\u0435\u043D\u044E (root_group)" })
+                      /* @__PURE__ */ jsx90("span", { children: "\u0421\u043E\u0437\u0434\u0430\u0442\u044C \u043A\u043E\u0440\u043D\u0435\u0432\u043E\u0435 \u043C\u0435\u043D\u044E (root_group)" })
                     ]
                   }
                 ),
-                /* @__PURE__ */ jsxs84(
+                /* @__PURE__ */ jsxs87(
                   "label",
                   {
                     className: "generate-schema-option",
                     title: "\u0421\u043E\u0437\u0434\u0430\u0441\u0442 \u043D\u0430\u0431\u043E\u0440 \u0431\u0430\u0437\u043E\u0432\u044B\u0445 \u0438\u043A\u043E\u043D\u043E\u043A (add/edit/delete/view/save/...), \u0435\u0441\u043B\u0438 \u0432 \u0434\u043E\u043C\u0435\u043D\u0435 \u043C\u0435\u043D\u044C\u0448\u0435 3 \u043C\u0435\u0434\u0438\u0430",
                     children: [
-                      /* @__PURE__ */ jsx87(
+                      /* @__PURE__ */ jsx90(
                         "input",
                         {
                           type: "checkbox",
@@ -84333,22 +85484,22 @@ function GenerateBatchModal() {
                           })
                         }
                       ),
-                      /* @__PURE__ */ jsx87("span", { children: "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u0431\u0430\u0437\u043E\u0432\u044B\u0435 \u0438\u043A\u043E\u043D\u043A\u0438 (10 \u0448\u0442.)" })
+                      /* @__PURE__ */ jsx90("span", { children: "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u0431\u0430\u0437\u043E\u0432\u044B\u0435 \u0438\u043A\u043E\u043D\u043A\u0438 (10 \u0448\u0442.)" })
                     ]
                   }
                 ),
-                /* @__PURE__ */ jsxs84("div", { className: "generate-batch-hint", children: [
-                  /* @__PURE__ */ jsx87(MIcon, { name: "info", size: "sm" }),
-                  /* @__PURE__ */ jsx87("span", { children: "\u041F\u0440\u043E\u0444\u0438\u043B\u044C \xAB\u0410\u0432\u0442\u043E\xBB: \u0441\u043B\u043E\u0432\u0430\u0440\u043D\u044B\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u2192 \u0441\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A, readonly \u0441 list \u2192 \u0431\u0435\u0437 \u043C\u043E\u0434\u0430\u043B\u043E\u043A, \u043E\u0441\u0442\u0430\u043B\u044C\u043D\u044B\u0435 \u2192 \u043F\u043E\u043B\u043D\u044B\u0439 CRUD. \u041C\u0435\u043D\u044E \u0438 \u0438\u043A\u043E\u043D\u043A\u0438 \u0441\u043E\u0437\u0434\u0430\u044E\u0442\u0441\u044F \u043E\u0434\u0438\u043D \u0440\u0430\u0437, \u0435\u0441\u043B\u0438 \u0438\u0445 \u0435\u0449\u0451 \u043D\u0435\u0442." })
+                /* @__PURE__ */ jsxs87("div", { className: "generate-batch-hint", children: [
+                  /* @__PURE__ */ jsx90(MIcon, { name: "info", size: "sm" }),
+                  /* @__PURE__ */ jsx90("span", { children: "\u041F\u0440\u043E\u0444\u0438\u043B\u044C \xAB\u0410\u0432\u0442\u043E\xBB: \u0441\u043B\u043E\u0432\u0430\u0440\u043D\u044B\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u2192 \u0441\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A, readonly \u0441 list \u2192 \u0431\u0435\u0437 \u043C\u043E\u0434\u0430\u043B\u043E\u043A, \u043E\u0441\u0442\u0430\u043B\u044C\u043D\u044B\u0435 \u2192 \u043F\u043E\u043B\u043D\u044B\u0439 CRUD. \u041C\u0435\u043D\u044E \u0438 \u0438\u043A\u043E\u043D\u043A\u0438 \u0441\u043E\u0437\u0434\u0430\u044E\u0442\u0441\u044F \u043E\u0434\u0438\u043D \u0440\u0430\u0437, \u0435\u0441\u043B\u0438 \u0438\u0445 \u0435\u0449\u0451 \u043D\u0435\u0442." })
                 ] })
               ] }),
-              profile === "tree-view" && /* @__PURE__ */ jsxs84("div", { className: "generate-batch-hint", children: [
-                /* @__PURE__ */ jsx87(MIcon, { name: "info", size: "sm" }),
-                /* @__PURE__ */ jsx87("span", { children: "\u0414\u043B\u044F \u043A\u0430\u0436\u0434\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u044E\u0442\u0441\u044F \u0432\u0441\u0435 side-1 \u0441\u0432\u044F\u0437\u0438 \u0442\u0438\u043F\u0430 1_n / n_n. \u0422\u043E\u0447\u0435\u0447\u043D\u044B\u0439 \u0432\u044B\u0431\u043E\u0440 \u0441\u0432\u044F\u0437\u0435\u0439 \u2014 \u0432 \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u043B\u044C\u043D\u043E\u0439 \u0433\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u0438 (\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u2192 \u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C)." })
+              profile === "tree-view" && /* @__PURE__ */ jsxs87("div", { className: "generate-batch-hint", children: [
+                /* @__PURE__ */ jsx90(MIcon, { name: "info", size: "sm" }),
+                /* @__PURE__ */ jsx90("span", { children: "\u0414\u043B\u044F \u043A\u0430\u0436\u0434\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u044E\u0442\u0441\u044F \u0432\u0441\u0435 side-1 \u0441\u0432\u044F\u0437\u0438 \u0442\u0438\u043F\u0430 1_n / n_n. \u0422\u043E\u0447\u0435\u0447\u043D\u044B\u0439 \u0432\u044B\u0431\u043E\u0440 \u0441\u0432\u044F\u0437\u0435\u0439 \u2014 \u0432 \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u043B\u044C\u043D\u043E\u0439 \u0433\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u0438 (\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u2192 \u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C)." })
               ] }),
-              /* @__PURE__ */ jsxs84("div", { className: "generate-batch-layout", children: [
-                /* @__PURE__ */ jsx87("div", { className: "generate-batch-entities", children: allEntities.map((e) => /* @__PURE__ */ jsxs84("label", { className: "generate-batch-entity", children: [
-                  /* @__PURE__ */ jsx87(
+              /* @__PURE__ */ jsxs87("div", { className: "generate-batch-layout", children: [
+                /* @__PURE__ */ jsx90("div", { className: "generate-batch-entities", children: allEntities.map((e) => /* @__PURE__ */ jsxs87("label", { className: "generate-batch-entity", children: [
+                  /* @__PURE__ */ jsx90(
                     "input",
                     {
                       type: "checkbox",
@@ -84356,19 +85507,19 @@ function GenerateBatchModal() {
                       onChange: () => toggleEntity(e.id)
                     }
                   ),
-                  /* @__PURE__ */ jsx87("span", { className: "generate-batch-entity__id", children: e.id }),
-                  e.name !== e.id && /* @__PURE__ */ jsx87("span", { className: "generate-batch-entity__name", children: e.name })
+                  /* @__PURE__ */ jsx90("span", { className: "generate-batch-entity__id", children: e.id }),
+                  e.name !== e.id && /* @__PURE__ */ jsx90("span", { className: "generate-batch-entity__name", children: e.name })
                 ] }, e.id)) }),
-                /* @__PURE__ */ jsxs84("div", { className: "generate-batch-result", children: [
-                  gen.loading && /* @__PURE__ */ jsxs84("div", { className: "generate-batch-progress", children: [
-                    /* @__PURE__ */ jsxs84("div", { className: "generate-batch-progress__head", children: [
-                      /* @__PURE__ */ jsx87("span", { className: "generate-batch-progress__label", children: "\u0413\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u044F\u2026" }),
-                      /* @__PURE__ */ jsxs84("span", { className: "generate-batch-progress__counter", children: [
+                /* @__PURE__ */ jsxs87("div", { className: "generate-batch-result", children: [
+                  gen.loading && /* @__PURE__ */ jsxs87("div", { className: "generate-batch-progress", children: [
+                    /* @__PURE__ */ jsxs87("div", { className: "generate-batch-progress__head", children: [
+                      /* @__PURE__ */ jsx90("span", { className: "generate-batch-progress__label", children: "\u0413\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u044F\u2026" }),
+                      /* @__PURE__ */ jsxs87("span", { className: "generate-batch-progress__counter", children: [
                         gen.progress?.current ?? 0,
                         " / ",
                         gen.progress?.total ?? 0
                       ] }),
-                      /* @__PURE__ */ jsx87(
+                      /* @__PURE__ */ jsx90(
                         "button",
                         {
                           className: "btn generate-batch-progress__cancel",
@@ -84377,7 +85528,7 @@ function GenerateBatchModal() {
                         }
                       )
                     ] }),
-                    /* @__PURE__ */ jsx87("div", { className: "generate-batch-progress__bar", children: /* @__PURE__ */ jsx87(
+                    /* @__PURE__ */ jsx90("div", { className: "generate-batch-progress__bar", children: /* @__PURE__ */ jsx90(
                       "div",
                       {
                         className: "generate-batch-progress__fill",
@@ -84388,80 +85539,80 @@ function GenerateBatchModal() {
                         }
                       }
                     ) }),
-                    gen.progress?.entityId && /* @__PURE__ */ jsxs84("div", { className: "generate-batch-progress__entity", children: [
-                      gen.progress.phase === "entity-start" && /* @__PURE__ */ jsxs84(Fragment27, { children: [
-                        /* @__PURE__ */ jsx87(MIcon, { name: "hourglass_top", size: "sm" }),
-                        /* @__PURE__ */ jsx87("span", { children: gen.progress.entityId })
+                    gen.progress?.entityId && /* @__PURE__ */ jsxs87("div", { className: "generate-batch-progress__entity", children: [
+                      gen.progress.phase === "entity-start" && /* @__PURE__ */ jsxs87(Fragment28, { children: [
+                        /* @__PURE__ */ jsx90(MIcon, { name: "hourglass_top", size: "sm" }),
+                        /* @__PURE__ */ jsx90("span", { children: gen.progress.entityId })
                       ] }),
-                      gen.progress.phase === "entity-done" && /* @__PURE__ */ jsxs84(Fragment27, { children: [
-                        /* @__PURE__ */ jsx87(MIcon, { name: "check_circle", size: "sm" }),
-                        /* @__PURE__ */ jsx87("span", { children: gen.progress.entityId }),
-                        /* @__PURE__ */ jsxs84("span", { className: "generate-batch-progress__meta", children: [
+                      gen.progress.phase === "entity-done" && /* @__PURE__ */ jsxs87(Fragment28, { children: [
+                        /* @__PURE__ */ jsx90(MIcon, { name: "check_circle", size: "sm" }),
+                        /* @__PURE__ */ jsx90("span", { children: gen.progress.entityId }),
+                        /* @__PURE__ */ jsxs87("span", { className: "generate-batch-progress__meta", children: [
                           "+",
                           gen.progress.blocksCount ?? 0,
                           " \u0431\u043B\u043E\u043A\u043E\u0432"
                         ] })
                       ] }),
-                      gen.progress.phase === "entity-error" && /* @__PURE__ */ jsxs84(Fragment27, { children: [
-                        /* @__PURE__ */ jsx87(MIcon, { name: "error", size: "sm" }),
-                        /* @__PURE__ */ jsx87("span", { children: gen.progress.entityId }),
-                        /* @__PURE__ */ jsx87("span", { className: "generate-batch-progress__meta generate-batch-progress__meta--err", children: gen.progress.error })
+                      gen.progress.phase === "entity-error" && /* @__PURE__ */ jsxs87(Fragment28, { children: [
+                        /* @__PURE__ */ jsx90(MIcon, { name: "error", size: "sm" }),
+                        /* @__PURE__ */ jsx90("span", { children: gen.progress.entityId }),
+                        /* @__PURE__ */ jsx90("span", { className: "generate-batch-progress__meta generate-batch-progress__meta--err", children: gen.progress.error })
                       ] }),
-                      gen.progress.phase === "preflight" && /* @__PURE__ */ jsxs84(Fragment27, { children: [
-                        /* @__PURE__ */ jsx87(MIcon, { name: "science", size: "sm" }),
-                        /* @__PURE__ */ jsx87("span", { children: "Preflight\u2026" })
+                      gen.progress.phase === "preflight" && /* @__PURE__ */ jsxs87(Fragment28, { children: [
+                        /* @__PURE__ */ jsx90(MIcon, { name: "science", size: "sm" }),
+                        /* @__PURE__ */ jsx90("span", { children: "Preflight\u2026" })
                       ] })
                     ] })
                   ] }),
-                  gen.error && /* @__PURE__ */ jsxs84("div", { className: "generate-schema-error", children: [
+                  gen.error && /* @__PURE__ */ jsxs87("div", { className: "generate-schema-error", children: [
                     "\u041E\u0448\u0438\u0431\u043A\u0430: ",
                     gen.error
                   ] }),
-                  gen.result && /* @__PURE__ */ jsxs84("div", { className: "generate-batch-summary", children: [
-                    /* @__PURE__ */ jsxs84("div", { className: "generate-batch-summary__stats", children: [
-                      /* @__PURE__ */ jsxs84("span", { className: "generate-batch-stat", children: [
+                  gen.result && /* @__PURE__ */ jsxs87("div", { className: "generate-batch-summary", children: [
+                    /* @__PURE__ */ jsxs87("div", { className: "generate-batch-summary__stats", children: [
+                      /* @__PURE__ */ jsxs87("span", { className: "generate-batch-stat", children: [
                         "\u0412\u0441\u0435\u0433\u043E: ",
-                        /* @__PURE__ */ jsx87("strong", { children: stats.total })
+                        /* @__PURE__ */ jsx90("strong", { children: stats.total })
                       ] }),
-                      /* @__PURE__ */ jsxs84("span", { className: "generate-batch-stat generate-batch-stat--ok", children: [
+                      /* @__PURE__ */ jsxs87("span", { className: "generate-batch-stat generate-batch-stat--ok", children: [
                         "\u0421 \u0431\u043B\u043E\u043A\u043E\u0432: ",
-                        /* @__PURE__ */ jsx87("strong", { children: stats.generated })
+                        /* @__PURE__ */ jsx90("strong", { children: stats.generated })
                       ] }),
-                      /* @__PURE__ */ jsxs84("span", { className: "generate-batch-stat generate-batch-stat--warn", children: [
+                      /* @__PURE__ */ jsxs87("span", { className: "generate-batch-stat generate-batch-stat--warn", children: [
                         "\u041F\u0443\u0441\u0442\u043E: ",
-                        /* @__PURE__ */ jsx87("strong", { children: stats.skipped })
+                        /* @__PURE__ */ jsx90("strong", { children: stats.skipped })
                       ] }),
-                      stats.failed > 0 && /* @__PURE__ */ jsxs84("span", { className: "generate-batch-stat generate-batch-stat--err", children: [
+                      stats.failed > 0 && /* @__PURE__ */ jsxs87("span", { className: "generate-batch-stat generate-batch-stat--err", children: [
                         "\u041E\u0448\u0438\u0431\u043E\u043A: ",
-                        /* @__PURE__ */ jsx87("strong", { children: stats.failed })
+                        /* @__PURE__ */ jsx90("strong", { children: stats.failed })
                       ] })
                     ] }),
-                    /* @__PURE__ */ jsxs84("div", { className: "generate-batch-summary__preflight", children: [
-                      gen.result.combined.preflight.newIssues.length > 0 && /* @__PURE__ */ jsxs84("span", { className: "generate-schema-badge generate-schema-badge--error", children: [
+                    /* @__PURE__ */ jsxs87("div", { className: "generate-batch-summary__preflight", children: [
+                      gen.result.combined.preflight.newIssues.length > 0 && /* @__PURE__ */ jsxs87("span", { className: "generate-schema-badge generate-schema-badge--error", children: [
                         "\u26A0 ",
                         gen.result.combined.preflight.newIssues.length,
                         " \u043D\u043E\u0432\u044B\u0445 error"
                       ] }),
-                      gen.result.combined.preflight.newIssues.length === 0 && /* @__PURE__ */ jsx87("span", { className: "generate-schema-badge generate-schema-badge--ok", children: "\u2713 0 \u043D\u043E\u0432\u044B\u0445 lint-\u043F\u0440\u043E\u0431\u043B\u0435\u043C" })
+                      gen.result.combined.preflight.newIssues.length === 0 && /* @__PURE__ */ jsx90("span", { className: "generate-schema-badge generate-schema-badge--ok", children: "\u2713 0 \u043D\u043E\u0432\u044B\u0445 lint-\u043F\u0440\u043E\u0431\u043B\u0435\u043C" })
                     ] })
                   ] }),
-                  gen.result && /* @__PURE__ */ jsx87("div", { className: "generate-batch-rows", children: gen.result.results.map((r) => {
+                  gen.result && /* @__PURE__ */ jsx90("div", { className: "generate-batch-rows", children: gen.result.results.map((r) => {
                     if (r.error) {
-                      return /* @__PURE__ */ jsxs84("div", { className: "generate-batch-row generate-batch-row--err", children: [
-                        /* @__PURE__ */ jsx87("span", { className: "generate-batch-row__id", children: r.entityId }),
-                        /* @__PURE__ */ jsx87("span", { className: "generate-batch-row__msg", children: r.error })
+                      return /* @__PURE__ */ jsxs87("div", { className: "generate-batch-row generate-batch-row--err", children: [
+                        /* @__PURE__ */ jsx90("span", { className: "generate-batch-row__id", children: r.entityId }),
+                        /* @__PURE__ */ jsx90("span", { className: "generate-batch-row__msg", children: r.error })
                       ] }, r.entityId);
                     }
                     if (!r.result)
                       return null;
                     const n = r.result.blocks.length;
-                    return /* @__PURE__ */ jsxs84(
+                    return /* @__PURE__ */ jsxs87(
                       "div",
                       {
                         className: "generate-batch-row" + (n === 0 ? " generate-batch-row--skip" : ""),
                         children: [
-                          /* @__PURE__ */ jsx87("span", { className: "generate-batch-row__id", children: r.entityId }),
-                          /* @__PURE__ */ jsx87("span", { className: "generate-batch-row__msg", children: n === 0 ? r.result.skipped.length > 0 ? r.result.skipped[0].reason : "\u043D\u0435\u0447\u0435\u0433\u043E \u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C" : `+${n} \u0431\u043B\u043E\u043A\u043E\u0432` })
+                          /* @__PURE__ */ jsx90("span", { className: "generate-batch-row__id", children: r.entityId }),
+                          /* @__PURE__ */ jsx90("span", { className: "generate-batch-row__msg", children: n === 0 ? r.result.skipped.length > 0 ? r.result.skipped[0].reason : "\u043D\u0435\u0447\u0435\u0433\u043E \u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C" : `+${n} \u0431\u043B\u043E\u043A\u043E\u0432` })
                         ]
                       },
                       r.entityId
@@ -84470,10 +85621,10 @@ function GenerateBatchModal() {
                 ] })
               ] })
             ] }),
-            /* @__PURE__ */ jsxs84("div", { className: "generate-schema-footer", children: [
-              /* @__PURE__ */ jsx87("div", { className: "generate-schema-preflight", children: options.replaceModified && /* @__PURE__ */ jsx87("span", { className: "generate-schema-badge generate-schema-badge--warn", children: "\u27F3 preflight \u0441 replace-modified" }) }),
-              /* @__PURE__ */ jsxs84("div", { className: "generate-schema-actions", children: [
-                /* @__PURE__ */ jsx87(
+            /* @__PURE__ */ jsxs87("div", { className: "generate-schema-footer", children: [
+              /* @__PURE__ */ jsx90("div", { className: "generate-schema-preflight", children: options.replaceModified && /* @__PURE__ */ jsx90("span", { className: "generate-schema-badge generate-schema-badge--warn", children: "\u27F3 preflight \u0441 replace-modified" }) }),
+              /* @__PURE__ */ jsxs87("div", { className: "generate-schema-actions", children: [
+                /* @__PURE__ */ jsx90(
                   "button",
                   {
                     className: "btn",
@@ -84481,7 +85632,7 @@ function GenerateBatchModal() {
                     children: "\u041E\u0442\u043C\u0435\u043D\u0430"
                   }
                 ),
-                /* @__PURE__ */ jsxs84(
+                /* @__PURE__ */ jsxs87(
                   "button",
                   {
                     className: "btn btn--primary",
@@ -84520,7 +85671,7 @@ var init_GenerateBatchModal = __esm({
 });
 
 // src/web/components/modals/WorkflowGraphModal.tsx
-import { useCallback as useCallback28, useEffect as useEffect51, useMemo as useMemo54, useState as useState50 } from "react";
+import { useCallback as useCallback28, useEffect as useEffect54, useMemo as useMemo57, useState as useState53 } from "react";
 import ReactFlow4, {
   Background as Background4,
   BackgroundVariant as BackgroundVariant4,
@@ -84532,7 +85683,7 @@ import ReactFlow4, {
   useReactFlow as useReactFlow4
 } from "reactflow";
 import dagre4 from "dagre";
-import { Fragment as Fragment28, jsx as jsx88, jsxs as jsxs85 } from "react/jsx-runtime";
+import { Fragment as Fragment29, jsx as jsx91, jsxs as jsxs88 } from "react/jsx-runtime";
 function WorkflowStatusNode({ data }) {
   const cls = ["workflow-node"];
   if (data.isInitial)
@@ -84546,17 +85697,17 @@ function WorkflowStatusNode({ data }) {
   const style = {};
   if (data.color)
     style.borderLeftColor = data.color;
-  return /* @__PURE__ */ jsxs85(Fragment28, { children: [
-    /* @__PURE__ */ jsx88(Handle4, { type: "target", position: Position4.Left, className: "workflow-handle" }),
-    /* @__PURE__ */ jsxs85("div", { className: cls.join(" "), style, children: [
-      /* @__PURE__ */ jsxs85("div", { className: "workflow-node__id", children: [
-        data.isInitial && /* @__PURE__ */ jsx88(MIcon, { name: "play_circle", size: "sm", title: "\u041D\u0430\u0447\u0430\u043B\u044C\u043D\u044B\u0439 \u0441\u0442\u0430\u0442\u0443\u0441" }),
-        data.isFinal && /* @__PURE__ */ jsx88(MIcon, { name: "check_circle", size: "sm", title: "\u041A\u043E\u043D\u0435\u0447\u043D\u044B\u0439 \u0441\u0442\u0430\u0442\u0443\u0441" }),
-        data.isWildcard ? /* @__PURE__ */ jsx88("span", { className: "workflow-node__wildcard", children: "*" }) : /* @__PURE__ */ jsx88("span", { children: data.statusId })
+  return /* @__PURE__ */ jsxs88(Fragment29, { children: [
+    /* @__PURE__ */ jsx91(Handle4, { type: "target", position: Position4.Left, className: "workflow-handle" }),
+    /* @__PURE__ */ jsxs88("div", { className: cls.join(" "), style, children: [
+      /* @__PURE__ */ jsxs88("div", { className: "workflow-node__id", children: [
+        data.isInitial && /* @__PURE__ */ jsx91(MIcon, { name: "play_circle", size: "sm", title: "\u041D\u0430\u0447\u0430\u043B\u044C\u043D\u044B\u0439 \u0441\u0442\u0430\u0442\u0443\u0441" }),
+        data.isFinal && /* @__PURE__ */ jsx91(MIcon, { name: "check_circle", size: "sm", title: "\u041A\u043E\u043D\u0435\u0447\u043D\u044B\u0439 \u0441\u0442\u0430\u0442\u0443\u0441" }),
+        data.isWildcard ? /* @__PURE__ */ jsx91("span", { className: "workflow-node__wildcard", children: "*" }) : /* @__PURE__ */ jsx91("span", { children: data.statusId })
       ] }),
-      data.name && data.name !== data.statusId && /* @__PURE__ */ jsx88("div", { className: "workflow-node__name", children: data.name })
+      data.name && data.name !== data.statusId && /* @__PURE__ */ jsx91("div", { className: "workflow-node__name", children: data.name })
     ] }),
-    /* @__PURE__ */ jsx88(Handle4, { type: "source", position: Position4.Right, className: "workflow-handle" })
+    /* @__PURE__ */ jsx91(Handle4, { type: "source", position: Position4.Right, className: "workflow-handle" })
   ] });
 }
 function layoutGraph2(nodes, edges, rankdir) {
@@ -84679,7 +85830,7 @@ function buildWorkflowGraph(dt, rankdir) {
 }
 function WorkflowGraphInner({ nodes, edges }) {
   const rf = useReactFlow4();
-  useEffect51(() => {
+  useEffect54(() => {
     if (nodes.length === 0)
       return;
     const t = setTimeout(() => {
@@ -84690,7 +85841,7 @@ function WorkflowGraphInner({ nodes, edges }) {
     }, 120);
     return () => clearTimeout(t);
   }, [nodes.length, edges.length, rf]);
-  return /* @__PURE__ */ jsxs85(
+  return /* @__PURE__ */ jsxs88(
     ReactFlow4,
     {
       nodes,
@@ -84704,9 +85855,9 @@ function WorkflowGraphInner({ nodes, edges }) {
       nodesConnectable: false,
       elementsSelectable: true,
       children: [
-        /* @__PURE__ */ jsx88(Background4, { variant: BackgroundVariant4.Dots, gap: 20, size: 1, color: "var(--graph-dots)" }),
-        /* @__PURE__ */ jsx88(Controls4, { position: "bottom-left" }),
-        /* @__PURE__ */ jsx88(
+        /* @__PURE__ */ jsx91(Background4, { variant: BackgroundVariant4.Dots, gap: 20, size: 1, color: "var(--graph-dots)" }),
+        /* @__PURE__ */ jsx91(Controls4, { position: "bottom-left" }),
+        /* @__PURE__ */ jsx91(
           MiniMap4,
           {
             position: "bottom-right",
@@ -84722,22 +85873,22 @@ function WorkflowGraphInner({ nodes, edges }) {
 function WorkflowGraphModal() {
   const store = useGraphStore();
   const { index, loading, error } = useModelIndex();
-  const [rankdir, setRankdir] = useState50("LR");
+  const [rankdir, setRankdir] = useState53("LR");
   const target = store.workflowGraphTarget;
   const open2 = !!target;
-  const dt = useMemo54(() => {
+  const dt = useMemo57(() => {
     if (!index || !target)
       return null;
     return index.dataTypes.find(
       (d) => d.id === target.dataTypeId && d.domainId === target.domainId
     ) || null;
   }, [index, target]);
-  const graph = useMemo54(() => {
+  const graph = useMemo57(() => {
     if (!dt || dt.kind !== "Workflow")
       return null;
     return buildWorkflowGraph(dt, rankdir);
   }, [dt, rankdir]);
-  useEffect51(() => {
+  useEffect54(() => {
     if (open2)
       setRankdir("LR");
   }, [target?.domainId, target?.dataTypeId]);
@@ -84745,7 +85896,7 @@ function WorkflowGraphModal() {
     () => useGraphStore.getState().setWorkflowGraphTarget(null),
     []
   );
-  useEffect51(() => {
+  useEffect54(() => {
     if (!open2)
       return;
     const onEsc = (e) => {
@@ -84759,24 +85910,24 @@ function WorkflowGraphModal() {
   }, [open2, close]);
   if (!open2)
     return null;
-  return /* @__PURE__ */ jsx88(
+  return /* @__PURE__ */ jsx91(
     "div",
     {
       className: "help-overlay help-overlay--fullscreen",
       style: { zIndex: 520 },
       onMouseDown: close,
-      children: /* @__PURE__ */ jsxs85(
+      children: /* @__PURE__ */ jsxs88(
         "div",
         {
           className: "help-modal workflow-graph-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
-            /* @__PURE__ */ jsxs85("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsxs85("div", { className: "help-modal__title", children: [
-                /* @__PURE__ */ jsx88(MIcon, { name: "conversion_path", size: "sm" }),
-                /* @__PURE__ */ jsx88("span", { className: "icon-label", children: "\u0413\u0440\u0430\u0444 \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u043E\u0432" }),
-                dt && /* @__PURE__ */ jsx88("span", { className: "help-modal__badge", children: dt.id }),
-                dt && dt.name !== dt.id && /* @__PURE__ */ jsx88(
+            /* @__PURE__ */ jsxs88("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs88("div", { className: "help-modal__title", children: [
+                /* @__PURE__ */ jsx91(MIcon, { name: "conversion_path", size: "sm" }),
+                /* @__PURE__ */ jsx91("span", { className: "icon-label", children: "\u0413\u0440\u0430\u0444 \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u043E\u0432" }),
+                dt && /* @__PURE__ */ jsx91("span", { className: "help-modal__badge", children: dt.id }),
+                dt && dt.name !== dt.id && /* @__PURE__ */ jsx91(
                   "span",
                   {
                     style: {
@@ -84789,91 +85940,91 @@ function WorkflowGraphModal() {
                   }
                 )
               ] }),
-              /* @__PURE__ */ jsx88("button", { className: "help-modal__close", onClick: close, children: "\u2715" })
+              /* @__PURE__ */ jsx91("button", { className: "help-modal__close", onClick: close, children: "\u2715" })
             ] }),
-            loading && /* @__PURE__ */ jsx88("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx88("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430\u2026" }) }),
-            error && /* @__PURE__ */ jsx88("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs85("div", { style: { color: "var(--danger)" }, children: [
+            loading && /* @__PURE__ */ jsx91("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx91("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430\u2026" }) }),
+            error && /* @__PURE__ */ jsx91("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs88("div", { style: { color: "var(--danger)" }, children: [
               "\u041E\u0448\u0438\u0431\u043A\u0430: ",
               error
             ] }) }),
-            !loading && !error && !dt && /* @__PURE__ */ jsx88("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs85("div", { className: "workflow-graph-empty", children: [
+            !loading && !error && !dt && /* @__PURE__ */ jsx91("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs88("div", { className: "workflow-graph-empty", children: [
               "Workflow \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D \u0432 \u0438\u043D\u0434\u0435\u043A\u0441\u0435 (\u0434\u043E\u043C\u0435\u043D ",
               target?.domainId,
               " / \u0442\u0438\u043F ",
               target?.dataTypeId,
               ")"
             ] }) }),
-            dt && dt.kind !== "Workflow" && /* @__PURE__ */ jsx88("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs85("div", { className: "workflow-graph-empty", children: [
+            dt && dt.kind !== "Workflow" && /* @__PURE__ */ jsx91("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs88("div", { className: "workflow-graph-empty", children: [
               "\u0422\u0438\u043F \xAB",
               dt.id,
               "\xBB \u043D\u0435 \u044F\u0432\u043B\u044F\u0435\u0442\u0441\u044F Workflow (kind: ",
               dt.kind,
               ")"
             ] }) }),
-            dt && dt.kind === "Workflow" && graph && /* @__PURE__ */ jsxs85(Fragment28, { children: [
-              /* @__PURE__ */ jsxs85("div", { className: "workflow-graph-toolbar", children: [
-                /* @__PURE__ */ jsxs85("div", { className: "workflow-graph-toolbar__left", children: [
-                  /* @__PURE__ */ jsxs85("span", { className: "workflow-graph-stat", children: [
-                    /* @__PURE__ */ jsx88("strong", { children: graph.statusCount }),
+            dt && dt.kind === "Workflow" && graph && /* @__PURE__ */ jsxs88(Fragment29, { children: [
+              /* @__PURE__ */ jsxs88("div", { className: "workflow-graph-toolbar", children: [
+                /* @__PURE__ */ jsxs88("div", { className: "workflow-graph-toolbar__left", children: [
+                  /* @__PURE__ */ jsxs88("span", { className: "workflow-graph-stat", children: [
+                    /* @__PURE__ */ jsx91("strong", { children: graph.statusCount }),
                     " \u0441\u0442\u0430\u0442\u0443\u0441\u043E\u0432"
                   ] }),
-                  /* @__PURE__ */ jsxs85("span", { className: "workflow-graph-stat", children: [
-                    /* @__PURE__ */ jsx88("strong", { children: graph.transitionCount }),
+                  /* @__PURE__ */ jsxs88("span", { className: "workflow-graph-stat", children: [
+                    /* @__PURE__ */ jsx91("strong", { children: graph.transitionCount }),
                     " \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u043E\u0432"
                   ] }),
-                  dt.initial && /* @__PURE__ */ jsxs85("span", { className: "workflow-graph-stat workflow-graph-stat--initial", children: [
-                    /* @__PURE__ */ jsx88(MIcon, { name: "play_circle", size: "sm" }),
+                  dt.initial && /* @__PURE__ */ jsxs88("span", { className: "workflow-graph-stat workflow-graph-stat--initial", children: [
+                    /* @__PURE__ */ jsx91(MIcon, { name: "play_circle", size: "sm" }),
                     "\u043D\u0430\u0447\u0430\u043B\u044C\u043D\u044B\u0439: ",
-                    /* @__PURE__ */ jsx88("code", { children: dt.initial })
+                    /* @__PURE__ */ jsx91("code", { children: dt.initial })
                   ] }),
-                  dt.finals && dt.finals.length > 0 && /* @__PURE__ */ jsxs85("span", { className: "workflow-graph-stat workflow-graph-stat--final", children: [
-                    /* @__PURE__ */ jsx88(MIcon, { name: "check_circle", size: "sm" }),
+                  dt.finals && dt.finals.length > 0 && /* @__PURE__ */ jsxs88("span", { className: "workflow-graph-stat workflow-graph-stat--final", children: [
+                    /* @__PURE__ */ jsx91(MIcon, { name: "check_circle", size: "sm" }),
                     "\u0444\u0438\u043D\u0430\u043B\u044C\u043D\u044B\u0445: ",
-                    /* @__PURE__ */ jsx88("strong", { children: dt.finals.length })
+                    /* @__PURE__ */ jsx91("strong", { children: dt.finals.length })
                   ] })
                 ] }),
-                /* @__PURE__ */ jsx88("div", { className: "workflow-graph-toolbar__right", children: /* @__PURE__ */ jsxs85("label", { className: "entity-matrix-filter", children: [
-                  /* @__PURE__ */ jsx88("span", { children: "\u041E\u0440\u0438\u0435\u043D\u0442\u0430\u0446\u0438\u044F:" }),
-                  /* @__PURE__ */ jsxs85(
+                /* @__PURE__ */ jsx91("div", { className: "workflow-graph-toolbar__right", children: /* @__PURE__ */ jsxs88("label", { className: "entity-matrix-filter", children: [
+                  /* @__PURE__ */ jsx91("span", { children: "\u041E\u0440\u0438\u0435\u043D\u0442\u0430\u0446\u0438\u044F:" }),
+                  /* @__PURE__ */ jsxs88(
                     "select",
                     {
                       value: rankdir,
                       onChange: (e) => setRankdir(e.target.value),
                       children: [
-                        /* @__PURE__ */ jsx88("option", { value: "LR", children: "\u0413\u043E\u0440\u0438\u0437\u043E\u043D\u0442\u0430\u043B\u044C\u043D\u0430\u044F" }),
-                        /* @__PURE__ */ jsx88("option", { value: "TB", children: "\u0412\u0435\u0440\u0442\u0438\u043A\u0430\u043B\u044C\u043D\u0430\u044F" })
+                        /* @__PURE__ */ jsx91("option", { value: "LR", children: "\u0413\u043E\u0440\u0438\u0437\u043E\u043D\u0442\u0430\u043B\u044C\u043D\u0430\u044F" }),
+                        /* @__PURE__ */ jsx91("option", { value: "TB", children: "\u0412\u0435\u0440\u0442\u0438\u043A\u0430\u043B\u044C\u043D\u0430\u044F" })
                       ]
                     }
                   )
                 ] }) })
               ] }),
-              /* @__PURE__ */ jsx88("div", { className: "workflow-graph-canvas", children: graph.nodes.length === 0 ? /* @__PURE__ */ jsx88("div", { className: "workflow-graph-empty", children: "\u0423 workflow \u043D\u0435 \u0437\u0430\u0434\u0430\u043D\u044B \u0441\u0442\u0430\u0442\u0443\u0441\u044B" }) : graph.edges.length === 0 ? /* @__PURE__ */ jsx88("div", { className: "workflow-graph-empty", children: "\u0423 workflow \u043D\u0435 \u0437\u0430\u0434\u0430\u043D\u044B \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u044B" }) : /* @__PURE__ */ jsx88(ReactFlowProvider4, { children: /* @__PURE__ */ jsx88(
+              /* @__PURE__ */ jsx91("div", { className: "workflow-graph-canvas", children: graph.nodes.length === 0 ? /* @__PURE__ */ jsx91("div", { className: "workflow-graph-empty", children: "\u0423 workflow \u043D\u0435 \u0437\u0430\u0434\u0430\u043D\u044B \u0441\u0442\u0430\u0442\u0443\u0441\u044B" }) : graph.edges.length === 0 ? /* @__PURE__ */ jsx91("div", { className: "workflow-graph-empty", children: "\u0423 workflow \u043D\u0435 \u0437\u0430\u0434\u0430\u043D\u044B \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u044B" }) : /* @__PURE__ */ jsx91(ReactFlowProvider4, { children: /* @__PURE__ */ jsx91(
                 WorkflowGraphInner,
                 {
                   nodes: graph.nodes,
                   edges: graph.edges
                 }
               ) }) }),
-              dt.description && /* @__PURE__ */ jsx88("div", { className: "workflow-graph-description", children: dt.description }),
-              /* @__PURE__ */ jsxs85("div", { className: "workflow-graph-legend", children: [
-                /* @__PURE__ */ jsxs85("span", { className: "workflow-graph-legend__item", children: [
-                  /* @__PURE__ */ jsx88("span", { className: "workflow-graph-legend__dot workflow-graph-legend__dot--initial" }),
+              dt.description && /* @__PURE__ */ jsx91("div", { className: "workflow-graph-description", children: dt.description }),
+              /* @__PURE__ */ jsxs88("div", { className: "workflow-graph-legend", children: [
+                /* @__PURE__ */ jsxs88("span", { className: "workflow-graph-legend__item", children: [
+                  /* @__PURE__ */ jsx91("span", { className: "workflow-graph-legend__dot workflow-graph-legend__dot--initial" }),
                   "\u043D\u0430\u0447\u0430\u043B\u044C\u043D\u044B\u0439"
                 ] }),
-                /* @__PURE__ */ jsxs85("span", { className: "workflow-graph-legend__item", children: [
-                  /* @__PURE__ */ jsx88("span", { className: "workflow-graph-legend__dot workflow-graph-legend__dot--final" }),
+                /* @__PURE__ */ jsxs88("span", { className: "workflow-graph-legend__item", children: [
+                  /* @__PURE__ */ jsx91("span", { className: "workflow-graph-legend__dot workflow-graph-legend__dot--final" }),
                   "\u043A\u043E\u043D\u0435\u0447\u043D\u044B\u0439"
                 ] }),
-                /* @__PURE__ */ jsxs85("span", { className: "workflow-graph-legend__item", children: [
-                  /* @__PURE__ */ jsx88("span", { className: "workflow-graph-legend__dot" }),
+                /* @__PURE__ */ jsxs88("span", { className: "workflow-graph-legend__item", children: [
+                  /* @__PURE__ */ jsx91("span", { className: "workflow-graph-legend__dot" }),
                   "\u043E\u0431\u044B\u0447\u043D\u044B\u0439"
                 ] }),
-                graph.wildcardUsed && /* @__PURE__ */ jsxs85("span", { className: "workflow-graph-legend__item", children: [
-                  /* @__PURE__ */ jsx88("span", { className: "workflow-graph-legend__dot workflow-graph-legend__dot--wildcard", children: "*" }),
+                graph.wildcardUsed && /* @__PURE__ */ jsxs88("span", { className: "workflow-graph-legend__item", children: [
+                  /* @__PURE__ */ jsx91("span", { className: "workflow-graph-legend__dot workflow-graph-legend__dot--wildcard", children: "*" }),
                   "\u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u0438\u0437/\u0432 \u043B\u044E\u0431\u043E\u0439 \u0441\u0442\u0430\u0442\u0443\u0441"
                 ] }),
-                dt.workflowView && dt.workflowView.some((v) => v.color) && /* @__PURE__ */ jsxs85("span", { className: "workflow-graph-legend__item", children: [
-                  /* @__PURE__ */ jsx88(MIcon, { name: "palette", size: "sm" }),
+                dt.workflowView && dt.workflowView.some((v) => v.color) && /* @__PURE__ */ jsxs88("span", { className: "workflow-graph-legend__item", children: [
+                  /* @__PURE__ */ jsx91(MIcon, { name: "palette", size: "sm" }),
                   "\u0446\u0432\u0435\u0442 \u0441\u0442\u0430\u0442\u0443\u0441\u0430 \u2014 \u0438\u0437 workflowView"
                 ] })
               ] })
@@ -84898,7 +86049,7 @@ var init_WorkflowGraphModal = __esm({
 });
 
 // src/web/components/modals/PublishPreviewModal.tsx
-import { jsx as jsx89, jsxs as jsxs86 } from "react/jsx-runtime";
+import { jsx as jsx92, jsxs as jsxs89 } from "react/jsx-runtime";
 function PublishPreviewModal() {
   const open2 = useGraphStore((s) => s.publishPreviewOpen);
   const data = useGraphStore((s) => s.publishPreviewData);
@@ -84908,77 +86059,77 @@ function PublishPreviewModal() {
     return null;
   const { serverVersion, localVersion, diff } = data;
   const hasBreaking = diff?.hasBreakingChanges;
-  return /* @__PURE__ */ jsx89("div", { className: "help-overlay help-overlay--fullscreen", style: { zIndex: 600 }, onMouseDown: close, children: /* @__PURE__ */ jsxs86("div", { className: "help-modal", style: { width: 800, maxHeight: "85vh", display: "flex", flexDirection: "column" }, onMouseDown: (e) => e.stopPropagation(), children: [
-    /* @__PURE__ */ jsxs86("div", { className: "help-modal__header", children: [
-      /* @__PURE__ */ jsxs86("div", { className: "help-modal__title", children: [
-        /* @__PURE__ */ jsx89(MIcon, { name: "cloud_upload", size: "sm" }),
-        /* @__PURE__ */ jsx89("span", { className: "icon-label", children: "\u041F\u0440\u0435\u0434\u043F\u0440\u043E\u0441\u043C\u043E\u0442\u0440 \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u0438" })
+  return /* @__PURE__ */ jsx92("div", { className: "help-overlay help-overlay--fullscreen", style: { zIndex: 600 }, onMouseDown: close, children: /* @__PURE__ */ jsxs89("div", { className: "help-modal", style: { width: 800, maxHeight: "85vh", display: "flex", flexDirection: "column" }, onMouseDown: (e) => e.stopPropagation(), children: [
+    /* @__PURE__ */ jsxs89("div", { className: "help-modal__header", children: [
+      /* @__PURE__ */ jsxs89("div", { className: "help-modal__title", children: [
+        /* @__PURE__ */ jsx92(MIcon, { name: "cloud_upload", size: "sm" }),
+        /* @__PURE__ */ jsx92("span", { className: "icon-label", children: "\u041F\u0440\u0435\u0434\u043F\u0440\u043E\u0441\u043C\u043E\u0442\u0440 \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u0438" })
       ] }),
-      /* @__PURE__ */ jsx89("button", { className: "help-modal__close", onClick: close, children: "\u2715" })
+      /* @__PURE__ */ jsx92("button", { className: "help-modal__close", onClick: close, children: "\u2715" })
     ] }),
-    /* @__PURE__ */ jsxs86("div", { className: "help-modal__body", style: { flex: 1, overflowY: "auto", padding: 24 }, children: [
-      /* @__PURE__ */ jsxs86("div", { style: { display: "flex", alignItems: "center", gap: 16, marginBottom: 24, padding: 16, background: "var(--bg-800)", borderRadius: 8 }, children: [
-        /* @__PURE__ */ jsxs86("div", { style: { flex: 1 }, children: [
-          /* @__PURE__ */ jsx89("div", { style: { fontSize: 10, color: "var(--text-500)", textTransform: "uppercase" }, children: "\u0412\u0435\u0440\u0441\u0438\u044F \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435" }),
-          /* @__PURE__ */ jsx89("div", { style: { fontSize: 18, fontFamily: "monospace", color: "var(--text-300)" }, children: serverVersion || "\u2014" })
+    /* @__PURE__ */ jsxs89("div", { className: "help-modal__body", style: { flex: 1, overflowY: "auto", padding: 24 }, children: [
+      /* @__PURE__ */ jsxs89("div", { style: { display: "flex", alignItems: "center", gap: 16, marginBottom: 24, padding: 16, background: "var(--bg-800)", borderRadius: 8 }, children: [
+        /* @__PURE__ */ jsxs89("div", { style: { flex: 1 }, children: [
+          /* @__PURE__ */ jsx92("div", { style: { fontSize: 10, color: "var(--text-500)", textTransform: "uppercase" }, children: "\u0412\u0435\u0440\u0441\u0438\u044F \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435" }),
+          /* @__PURE__ */ jsx92("div", { style: { fontSize: 18, fontFamily: "monospace", color: "var(--text-300)" }, children: serverVersion || "\u2014" })
         ] }),
-        /* @__PURE__ */ jsx89(MIcon, { name: "trending_flat", style: { color: "var(--text-500)" } }),
-        /* @__PURE__ */ jsxs86("div", { style: { flex: 1 }, children: [
-          /* @__PURE__ */ jsx89("div", { style: { fontSize: 10, color: "var(--text-500)", textTransform: "uppercase" }, children: "\u041D\u043E\u0432\u0430\u044F \u0432\u0435\u0440\u0441\u0438\u044F" }),
-          /* @__PURE__ */ jsx89("div", { style: { fontSize: 18, fontFamily: "monospace", color: "var(--accent-hover)", fontWeight: 700 }, children: localVersion || "\u2014" })
+        /* @__PURE__ */ jsx92(MIcon, { name: "trending_flat", style: { color: "var(--text-500)" } }),
+        /* @__PURE__ */ jsxs89("div", { style: { flex: 1 }, children: [
+          /* @__PURE__ */ jsx92("div", { style: { fontSize: 10, color: "var(--text-500)", textTransform: "uppercase" }, children: "\u041D\u043E\u0432\u0430\u044F \u0432\u0435\u0440\u0441\u0438\u044F" }),
+          /* @__PURE__ */ jsx92("div", { style: { fontSize: 18, fontFamily: "monospace", color: "var(--accent-hover)", fontWeight: 700 }, children: localVersion || "\u2014" })
         ] })
       ] }),
-      hasBreaking && /* @__PURE__ */ jsxs86("div", { style: { padding: 16, background: "rgba(239,68,68,0.1)", border: "1px solid var(--danger)", borderRadius: 8, marginBottom: 24 }, children: [
-        /* @__PURE__ */ jsxs86("div", { style: { fontWeight: 700, color: "var(--danger)", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }, children: [
-          /* @__PURE__ */ jsx89(MIcon, { name: "warning", size: "sm" }),
+      hasBreaking && /* @__PURE__ */ jsxs89("div", { style: { padding: 16, background: "rgba(239,68,68,0.1)", border: "1px solid var(--danger)", borderRadius: 8, marginBottom: 24 }, children: [
+        /* @__PURE__ */ jsxs89("div", { style: { fontWeight: 700, color: "var(--danger)", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }, children: [
+          /* @__PURE__ */ jsx92(MIcon, { name: "warning", size: "sm" }),
           " \u0412\u043D\u0438\u043C\u0430\u043D\u0438\u0435! \u041E\u0431\u043D\u0430\u0440\u0443\u0436\u0435\u043D\u044B \u043D\u0435\u0441\u043E\u0432\u043C\u0435\u0441\u0442\u0438\u043C\u044B\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F"
         ] }),
-        /* @__PURE__ */ jsxs86("div", { style: { fontSize: 12, color: "var(--text-300)", lineHeight: 1.5 }, children: [
+        /* @__PURE__ */ jsxs89("div", { style: { fontSize: 12, color: "var(--text-300)", lineHeight: 1.5 }, children: [
           "\u0421\u0435\u0440\u0432\u0435\u0440 \u043C\u043E\u0436\u0435\u0442 \u043E\u0442\u043A\u043B\u043E\u043D\u0438\u0442\u044C \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u044E \u0441 \u043E\u0448\u0438\u0431\u043A\u043E\u0439 ",
-          /* @__PURE__ */ jsx89("code", { children: "NotCompatible" }),
+          /* @__PURE__ */ jsx92("code", { children: "NotCompatible" }),
           ", \u0430 \u043F\u043E\u0442\u0440\u0435\u0431\u0438\u0442\u0435\u043B\u0438 \u044D\u0442\u043E\u0439 \u0441\u0445\u0435\u043C\u044B (\u0434\u0440\u0443\u0433\u0438\u0435 \u0434\u043E\u043C\u0435\u043D\u044B) \u043C\u043E\u0433\u0443\u0442 \u0441\u043B\u043E\u043C\u0430\u0442\u044C\u0441\u044F."
         ] })
       ] }),
-      diff?.removedEntities?.length > 0 && /* @__PURE__ */ jsxs86("div", { style: { marginBottom: 16 }, children: [
-        /* @__PURE__ */ jsxs86("div", { style: { fontSize: 12, fontWeight: 700, color: "var(--danger)", marginBottom: 8 }, children: [
+      diff?.removedEntities?.length > 0 && /* @__PURE__ */ jsxs89("div", { style: { marginBottom: 16 }, children: [
+        /* @__PURE__ */ jsxs89("div", { style: { fontSize: 12, fontWeight: 700, color: "var(--danger)", marginBottom: 8 }, children: [
           "\u{1F534} \u0423\u0434\u0430\u043B\u0435\u043D\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 (",
           diff.removedEntities.length,
           ")"
         ] }),
-        /* @__PURE__ */ jsx89("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 }, children: diff.removedEntities.map((e) => /* @__PURE__ */ jsx89("span", { className: "entity-catalog-chip", style: { background: "rgba(239,68,68,0.15)", color: "var(--danger)", borderColor: "var(--danger)" }, children: e.id }, e.id)) })
+        /* @__PURE__ */ jsx92("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 }, children: diff.removedEntities.map((e) => /* @__PURE__ */ jsx92("span", { className: "entity-catalog-chip", style: { background: "rgba(239,68,68,0.15)", color: "var(--danger)", borderColor: "var(--danger)" }, children: e.id }, e.id)) })
       ] }),
-      diff?.addedEntities?.length > 0 && /* @__PURE__ */ jsxs86("div", { style: { marginBottom: 16 }, children: [
-        /* @__PURE__ */ jsxs86("div", { style: { fontSize: 12, fontWeight: 700, color: "var(--success)", marginBottom: 8 }, children: [
+      diff?.addedEntities?.length > 0 && /* @__PURE__ */ jsxs89("div", { style: { marginBottom: 16 }, children: [
+        /* @__PURE__ */ jsxs89("div", { style: { fontSize: 12, fontWeight: 700, color: "var(--success)", marginBottom: 8 }, children: [
           "\u{1F7E2} \u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 (",
           diff.addedEntities.length,
           ")"
         ] }),
-        /* @__PURE__ */ jsx89("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 }, children: diff.addedEntities.map((e) => /* @__PURE__ */ jsx89("span", { className: "entity-catalog-chip", style: { background: "rgba(16,185,129,0.15)", color: "var(--success)", borderColor: "var(--success)" }, children: e.id }, e.id)) })
+        /* @__PURE__ */ jsx92("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 }, children: diff.addedEntities.map((e) => /* @__PURE__ */ jsx92("span", { className: "entity-catalog-chip", style: { background: "rgba(16,185,129,0.15)", color: "var(--success)", borderColor: "var(--success)" }, children: e.id }, e.id)) })
       ] }),
-      diff?.changedEntities?.length > 0 && /* @__PURE__ */ jsxs86("div", { style: { marginBottom: 16 }, children: [
-        /* @__PURE__ */ jsxs86("div", { style: { fontSize: 12, fontWeight: 700, color: "var(--warning)", marginBottom: 8 }, children: [
+      diff?.changedEntities?.length > 0 && /* @__PURE__ */ jsxs89("div", { style: { marginBottom: 16 }, children: [
+        /* @__PURE__ */ jsxs89("div", { style: { fontSize: 12, fontWeight: 700, color: "var(--warning)", marginBottom: 8 }, children: [
           "\u{1F7E1} \u0418\u0437\u043C\u0435\u043D\u0435\u043D\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 (",
           diff.changedEntities.length,
           ")"
         ] }),
-        /* @__PURE__ */ jsx89("div", { style: { display: "flex", flexDirection: "column", gap: 8 }, children: diff.changedEntities.map((e) => /* @__PURE__ */ jsxs86("div", { style: { background: "var(--bg-750)", padding: 12, borderRadius: 6, borderLeft: `3px solid ${e.isBreaking ? "var(--danger)" : "var(--warning)"}` }, children: [
-          /* @__PURE__ */ jsx89("div", { style: { fontWeight: 600, fontSize: 13, marginBottom: 4 }, children: e.id }),
-          e.attributes.map((a) => /* @__PURE__ */ jsxs86("div", { style: { display: "flex", gap: 8, fontSize: 11, fontFamily: "monospace", color: "var(--text-400)", marginTop: 2 }, children: [
-            a.kind === "removed" && /* @__PURE__ */ jsxs86("span", { style: { color: "var(--danger)" }, children: [
+        /* @__PURE__ */ jsx92("div", { style: { display: "flex", flexDirection: "column", gap: 8 }, children: diff.changedEntities.map((e) => /* @__PURE__ */ jsxs89("div", { style: { background: "var(--bg-750)", padding: 12, borderRadius: 6, borderLeft: `3px solid ${e.isBreaking ? "var(--danger)" : "var(--warning)"}` }, children: [
+          /* @__PURE__ */ jsx92("div", { style: { fontWeight: 600, fontSize: 13, marginBottom: 4 }, children: e.id }),
+          e.attributes.map((a) => /* @__PURE__ */ jsxs89("div", { style: { display: "flex", gap: 8, fontSize: 11, fontFamily: "monospace", color: "var(--text-400)", marginTop: 2 }, children: [
+            a.kind === "removed" && /* @__PURE__ */ jsxs89("span", { style: { color: "var(--danger)" }, children: [
               "- ",
               a.id,
               " (",
               a.typeA,
               ")"
             ] }),
-            a.kind === "added" && /* @__PURE__ */ jsxs86("span", { style: { color: "var(--success)" }, children: [
+            a.kind === "added" && /* @__PURE__ */ jsxs89("span", { style: { color: "var(--success)" }, children: [
               "+ ",
               a.id,
               " (",
               a.typeB,
               ")"
             ] }),
-            a.kind === "changed" && /* @__PURE__ */ jsxs86("span", { style: { color: "var(--warning)" }, children: [
+            a.kind === "changed" && /* @__PURE__ */ jsxs89("span", { style: { color: "var(--warning)" }, children: [
               "~ ",
               a.id,
               ": ",
@@ -84989,14 +86140,14 @@ function PublishPreviewModal() {
           ] }, a.id))
         ] }, e.id)) })
       ] }),
-      (!diff || diff.addedEntities.length === 0 && diff.removedEntities.length === 0 && diff.changedEntities.length === 0) && /* @__PURE__ */ jsxs86("div", { style: { textAlign: "center", color: "var(--text-500)", padding: 40 }, children: [
-        /* @__PURE__ */ jsx89(MIcon, { name: "check_circle", size: "xl", style: { color: "var(--success)", marginBottom: 8 } }),
-        /* @__PURE__ */ jsx89("div", { children: "\u0421\u0445\u0435\u043C\u0430 \u043D\u0435 \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u0430\u0441\u044C \u0441 \u043C\u043E\u043C\u0435\u043D\u0442\u0430 \u043F\u043E\u0441\u043B\u0435\u0434\u043D\u0435\u0439 \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u0438" })
+      (!diff || diff.addedEntities.length === 0 && diff.removedEntities.length === 0 && diff.changedEntities.length === 0) && /* @__PURE__ */ jsxs89("div", { style: { textAlign: "center", color: "var(--text-500)", padding: 40 }, children: [
+        /* @__PURE__ */ jsx92(MIcon, { name: "check_circle", size: "xl", style: { color: "var(--success)", marginBottom: 8 } }),
+        /* @__PURE__ */ jsx92("div", { children: "\u0421\u0445\u0435\u043C\u0430 \u043D\u0435 \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u0430\u0441\u044C \u0441 \u043C\u043E\u043C\u0435\u043D\u0442\u0430 \u043F\u043E\u0441\u043B\u0435\u0434\u043D\u0435\u0439 \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u0438" })
       ] })
     ] }),
-    /* @__PURE__ */ jsxs86("div", { className: "help-modal__footer", style: { padding: 16, borderTop: "1px solid var(--border)", display: "flex", justifyContent: "flex-end", gap: 12, background: "var(--bg-850)" }, children: [
-      /* @__PURE__ */ jsx89("button", { className: "btn", onClick: close, children: "\u041E\u0442\u043C\u0435\u043D\u0430" }),
-      /* @__PURE__ */ jsx89(
+    /* @__PURE__ */ jsxs89("div", { className: "help-modal__footer", style: { padding: 16, borderTop: "1px solid var(--border)", display: "flex", justifyContent: "flex-end", gap: 12, background: "var(--bg-850)" }, children: [
+      /* @__PURE__ */ jsx92("button", { className: "btn", onClick: close, children: "\u041E\u0442\u043C\u0435\u043D\u0430" }),
+      /* @__PURE__ */ jsx92(
         "button",
         {
           className: "btn " + (hasBreaking ? "btn--danger" : "btn--primary"),
@@ -85020,36 +86171,36 @@ var init_PublishPreviewModal = __esm({
 });
 
 // src/web/components/layout/AppModals.tsx
-import { Fragment as Fragment29, jsx as jsx90, jsxs as jsxs87 } from "react/jsx-runtime";
+import { Fragment as Fragment30, jsx as jsx93, jsxs as jsxs90 } from "react/jsx-runtime";
 function AppModals(props) {
   const helpOpen = useGraphStore((s) => s.helpOpen);
   const hotkeysOpen = useGraphStore((s) => s.hotkeysOpen);
   const contextMenu = useGraphStore((s) => s.contextMenu);
   const snackbar = useGraphStore((s) => s.snackbar);
-  return /* @__PURE__ */ jsxs87(Fragment29, { children: [
-    /* @__PURE__ */ jsx90(HoverTooltip, {}),
-    /* @__PURE__ */ jsx90(
+  return /* @__PURE__ */ jsxs90(Fragment30, { children: [
+    /* @__PURE__ */ jsx93(HoverTooltip, {}),
+    /* @__PURE__ */ jsx93(
       CommandPalette,
       {
         commands: props.commands,
         onOpenFile: (filePath, fqid) => openFileInEditor(filePath, fqid)
       }
     ),
-    /* @__PURE__ */ jsx90(
+    /* @__PURE__ */ jsx93(
       HelpModal,
       {
         open: helpOpen,
         onClose: () => useGraphStore.getState().setHelpOpen(false)
       }
     ),
-    /* @__PURE__ */ jsx90(
+    /* @__PURE__ */ jsx93(
       HotkeysModal,
       {
         open: hotkeysOpen,
         onClose: () => useGraphStore.getState().setHotkeysOpen(false)
       }
     ),
-    /* @__PURE__ */ jsx90(
+    /* @__PURE__ */ jsx93(
       ValidationModal,
       {
         allDomains: props.allDomains,
@@ -85057,7 +86208,7 @@ function AppModals(props) {
         bookmarkedDomains: props.bookmarkedDomains
       }
     ),
-    /* @__PURE__ */ jsx90(
+    /* @__PURE__ */ jsx93(
       TopoSortModal,
       {
         allDomains: props.allDomains,
@@ -85065,7 +86216,7 @@ function AppModals(props) {
         bookmarkedDomains: props.bookmarkedDomains
       }
     ),
-    /* @__PURE__ */ jsx90(
+    /* @__PURE__ */ jsx93(
       LearningPathModal,
       {
         visibleDomains: props.visibleDomains,
@@ -85073,10 +86224,10 @@ function AppModals(props) {
         onStartTour: props.onStartTour
       }
     ),
-    /* @__PURE__ */ jsx90(TourOverlay, {}),
-    /* @__PURE__ */ jsx90(EntityHierarchyModal, { entities: props.entities }),
-    /* @__PURE__ */ jsx90(RulesModal, { violations: props.ruleViolations }),
-    /* @__PURE__ */ jsx90(
+    /* @__PURE__ */ jsx93(TourOverlay, {}),
+    /* @__PURE__ */ jsx93(EntityHierarchyModal, { entities: props.entities }),
+    /* @__PURE__ */ jsx93(RulesModal, { violations: props.ruleViolations }),
+    /* @__PURE__ */ jsx93(
       ContextMenu,
       {
         menu: contextMenu,
@@ -85084,7 +86235,7 @@ function AppModals(props) {
         onAction: props.onContextAction
       }
     ),
-    props.toastVisible && props.remoteInfo?.fromCache && /* @__PURE__ */ jsx90(
+    props.toastVisible && props.remoteInfo?.fromCache && /* @__PURE__ */ jsx93(
       Toast,
       {
         message: "\u{1F4E6} \u0413\u0440\u0430\u0444 \u043F\u043E\u0441\u0442\u0440\u043E\u0435\u043D \u0438\u0437 <b>\u043A\u044D\u0448\u0430</b>" + (props.remoteInfo.fetchedAt ? " (\u043E\u0442 " + new Date(props.remoteInfo.fetchedAt).toLocaleString("ru-RU") + ")" : "") + ". \u0414\u0430\u043D\u043D\u044B\u0435 \u043C\u043E\u0433\u0443\u0442 \u0431\u044B\u0442\u044C \u0443\u0441\u0442\u0430\u0440\u0435\u0432\u0448\u0438\u043C\u0438.",
@@ -85099,29 +86250,31 @@ function AppModals(props) {
         } : void 0
       }
     ),
-    /* @__PURE__ */ jsx90(Snackbar, { snackbar }),
-    /* @__PURE__ */ jsx90(EntityGraphModal, {}),
-    /* @__PURE__ */ jsx90(ModelValidationModal, {}),
-    /* @__PURE__ */ jsx90(GlossaryModal, {}),
-    /* @__PURE__ */ jsx90(ModelDiffModal, {}),
-    /* @__PURE__ */ jsx90(EntitiesCatalogModal, {}),
-    /* @__PURE__ */ jsx90(AttributeFinderModal, {}),
-    /* @__PURE__ */ jsx90(EntityMatrixModal, {}),
-    /* @__PURE__ */ jsx90(AttributeMatrixModal, {}),
-    /* @__PURE__ */ jsx90(DomainSchemaModal, {}),
-    /* @__PURE__ */ jsx90(LintModal, {}),
-    /* @__PURE__ */ jsx90(MartinMetricsModal, {}),
-    /* @__PURE__ */ jsx90(DomainCompareModal, {}),
-    /* @__PURE__ */ jsx90(PiiModal, {}),
-    /* @__PURE__ */ jsx90(YamlViewerModal, {}),
-    /* @__PURE__ */ jsx90(GenerateSchemaModal, {}),
-    /* @__PURE__ */ jsx90(GenerateBatchModal, {}),
-    /* @__PURE__ */ jsx90(GeneratedManifestModal, {}),
-    /* @__PURE__ */ jsx90(WorkflowGraphModal, {}),
-    /* @__PURE__ */ jsx90(CheatsheetModal, {}),
-    /* @__PURE__ */ jsx90(PublishPreviewModal, {}),
-    /* @__PURE__ */ jsx90(HealthDashboardModal, {}),
-    /* @__PURE__ */ jsx90(DeletionSimulationModal, {})
+    /* @__PURE__ */ jsx93(Snackbar, { snackbar }),
+    /* @__PURE__ */ jsx93(EntityGraphModal, {}),
+    /* @__PURE__ */ jsx93(ModelValidationModal, {}),
+    /* @__PURE__ */ jsx93(GlossaryModal, {}),
+    /* @__PURE__ */ jsx93(ModelDiffModal, {}),
+    /* @__PURE__ */ jsx93(EntitiesCatalogModal, {}),
+    /* @__PURE__ */ jsx93(AttributeFinderModal, {}),
+    /* @__PURE__ */ jsx93(EntityMatrixModal, {}),
+    /* @__PURE__ */ jsx93(AttributeMatrixModal, {}),
+    /* @__PURE__ */ jsx93(DomainSchemaModal, {}),
+    /* @__PURE__ */ jsx93(LintModal, {}),
+    /* @__PURE__ */ jsx93(MartinMetricsModal, {}),
+    /* @__PURE__ */ jsx93(DomainCompareModal, {}),
+    /* @__PURE__ */ jsx93(PiiModal, {}),
+    /* @__PURE__ */ jsx93(YamlViewerModal, {}),
+    /* @__PURE__ */ jsx93(GenerateSchemaModal, {}),
+    /* @__PURE__ */ jsx93(GenerateBatchModal, {}),
+    /* @__PURE__ */ jsx93(GeneratedManifestModal, {}),
+    /* @__PURE__ */ jsx93(WorkflowGraphModal, {}),
+    /* @__PURE__ */ jsx93(CheatsheetModal, {}),
+    /* @__PURE__ */ jsx93(PublishPreviewModal, {}),
+    /* @__PURE__ */ jsx93(HealthDashboardModal, {}),
+    /* @__PURE__ */ jsx93(DeletionSimulationModal, {}),
+    /* @__PURE__ */ jsx93(CreateDomainModal, {}),
+    /* @__PURE__ */ jsx93(DeleteDomainModal, {})
   ] });
 }
 var init_AppModals = __esm({
@@ -85153,15 +86306,15 @@ var init_AppModals = __esm({
 });
 
 // src/web/App.tsx
-import React54, { useCallback as useCallback29, useEffect as useEffect52, useMemo as useMemo55, useRef as useRef24 } from "react";
-import { jsx as jsx91, jsxs as jsxs88 } from "react/jsx-runtime";
+import React57, { useCallback as useCallback29, useEffect as useEffect55, useMemo as useMemo58, useRef as useRef25 } from "react";
+import { jsx as jsx94, jsxs as jsxs91 } from "react/jsx-runtime";
 function App() {
   const nodes = useGraphStore((s) => s.nodes);
   const edges = useGraphStore((s) => s.edges);
   const rules = useGraphStore((s) => s.rules);
   const viewMode = useGraphStore((s) => s.viewMode);
-  const didInit = useRef24(false);
-  useEffect52(() => {
+  const didInit = useRef25(false);
+  useEffect55(() => {
     if (didInit.current)
       return;
     didInit.current = true;
@@ -85171,7 +86324,7 @@ function App() {
     document.documentElement.setAttribute("data-theme", st.theme);
   }, []);
   const CACHE_TOAST_KEY = REMOTE_INFO?.server ? `dg-cache-toast-hidden:${REMOTE_INFO.server.replace(/\/+$/, "")}` : null;
-  const [toastVisible, setToastVisible] = React54.useState(() => {
+  const [toastVisible, setToastVisible] = React57.useState(() => {
     if (!REMOTE_INFO?.fromCache)
       return false;
     if (!CACHE_TOAST_KEY)
@@ -85182,8 +86335,8 @@ function App() {
       return true;
     }
   });
-  const [dontShowCacheToast, setDontShowCacheToast] = React54.useState(false);
-  const handleDontShowCacheToast = React54.useCallback(
+  const [dontShowCacheToast, setDontShowCacheToast] = React57.useState(false);
+  const handleDontShowCacheToast = React57.useCallback(
     (checked) => {
       setDontShowCacheToast(checked);
       if (!CACHE_TOAST_KEY)
@@ -85207,16 +86360,16 @@ function App() {
     isolatedCount,
     filteredIdsHash
   } = useGraphFilters();
-  const edgesForFocus = useMemo55(() => {
+  const edgesForFocus = useMemo58(() => {
     const ids = new Set(filteredNodes.map((n) => n.id));
     return displayEdges.filter((e) => ids.has(e.source) && ids.has(e.target));
   }, [displayEdges, filteredNodes]);
   const highlight = useGraphHighlight(filteredEdges, edgesForFocus);
-  const cyclesInfo = useMemo55(
+  const cyclesInfo = useMemo58(
     () => findCycles(displayNodes, displayEdges),
     [displayNodes, displayEdges]
   );
-  const healthMap = useMemo55(() => {
+  const healthMap = useMemo58(() => {
     const map2 = /* @__PURE__ */ new Map();
     displayNodes.forEach((n) => {
       const h = computeHealth(n, displayEdges, displayNodes, cyclesInfo.cycleNodes, null);
@@ -85224,11 +86377,11 @@ function App() {
     });
     return map2;
   }, [displayNodes, displayEdges, cyclesInfo]);
-  const ruleViolations = useMemo55(
+  const ruleViolations = useMemo58(
     () => evaluateRules(displayEdges, displayNodes, rules),
     [displayEdges, displayNodes, rules]
   );
-  const violationsByEdge = useMemo55(() => {
+  const violationsByEdge = useMemo58(() => {
     const m = /* @__PURE__ */ new Map();
     ruleViolations.forEach((v) => {
       if (!m.has(v.edgeId))
@@ -85237,7 +86390,7 @@ function App() {
     });
     return m;
   }, [ruleViolations]);
-  const edgesForRender = useMemo55(() => {
+  const edgesForRender = useMemo58(() => {
     if (highlight && (highlight.type === "focus" || highlight.type === "cycle" || highlight.type === "path")) {
       return edgesForFocus;
     }
@@ -85246,12 +86399,12 @@ function App() {
   const heatmapValues = useHeatmapValues(displayNodes, displayEdges, healthMap);
   const visibleNodes = useVisibleNodes(filteredNodes, highlight, healthMap, heatmapValues);
   const visibleEdges = useVisibleEdges(edgesForRender, highlight, violationsByEdge);
-  const perfMode = useMemo55(
+  const perfMode = useMemo58(
     () => filteredEdges.length > PERF_THRESHOLD,
     [filteredEdges.length]
   );
   const showEdgeLabels = useGraphStore((s) => s.showEdgeLabels);
-  const displayEdgesForRender = useMemo55(() => {
+  const displayEdgesForRender = useMemo58(() => {
     const hideLabels = perfMode && !showEdgeLabels;
     if (!hideLabels)
       return visibleEdges;
@@ -85314,20 +86467,20 @@ function App() {
     st.setPathResult(null);
     st.setPathSel([]);
   }, []);
-  const allDomainsList = useMemo55(
+  const allDomainsList = useMemo58(
     () => nodes.filter((n) => n.data.nodeType === "domain").map((n) => ({ id: n.id, domainId: n.data.domainId })),
     [nodes]
   );
-  const visibleDomainsList = useMemo55(
+  const visibleDomainsList = useMemo58(
     () => visibleNodes.filter((n) => n.data.nodeType === "domain").map((n) => ({ id: n.id, domainId: n.data.domainId })),
     [visibleNodes]
   );
   const bookmarks = useGraphStore((s) => s.bookmarks);
-  const bookmarkedDomainsList = useMemo55(
+  const bookmarkedDomainsList = useMemo58(
     () => nodes.filter((n) => bookmarks.has(n.id) && n.data.nodeType === "domain").map((n) => ({ id: n.id, domainId: n.data.domainId })),
     [nodes, bookmarks]
   );
-  const entityIndex = useMemo55(() => buildEntityIndex(GRAPH_DATA.entities || []), []);
+  const entityIndex = useMemo58(() => buildEntityIndex(GRAPH_DATA.entities || []), []);
   const filters = useGraphStore((s) => s.filters);
   const namespaceFilter = useGraphStore((s) => s.namespaceFilter);
   const tagFilters = useGraphStore((s) => s.tagFilters);
@@ -85335,7 +86488,7 @@ function App() {
   const bookmarksOnly = useGraphStore((s) => s.bookmarksOnly);
   const onlyInvalid = useGraphStore((s) => s.onlyInvalid);
   const hiddenNodeIds = useGraphStore((s) => s.hiddenNodeIds);
-  const activeFiltersCount = useMemo55(() => {
+  const activeFiltersCount = useMemo58(() => {
     let c = 0;
     if (!filters.domain)
       c++;
@@ -85369,8 +86522,8 @@ function App() {
     onlyInvalid,
     hiddenNodeIds
   ]);
-  return /* @__PURE__ */ jsxs88("div", { className: "app", children: [
-    /* @__PURE__ */ jsx91(
+  return /* @__PURE__ */ jsxs91("div", { className: "app", children: [
+    /* @__PURE__ */ jsx94(
       Sidebar,
       {
         healthMap,
@@ -85388,8 +86541,8 @@ function App() {
         onExportStats: exportsApi.exportStats
       }
     ),
-    /* @__PURE__ */ jsxs88("main", { className: "main", children: [
-      /* @__PURE__ */ jsx91(
+    /* @__PURE__ */ jsxs91("main", { className: "main", children: [
+      /* @__PURE__ */ jsx94(
         Toolbar,
         {
           counts,
@@ -85431,7 +86584,7 @@ function App() {
           onShowToast: () => setToastVisible(true)
         }
       ),
-      /* @__PURE__ */ jsx91(
+      /* @__PURE__ */ jsx94(
         GraphArea,
         {
           visibleNodes,
@@ -85452,7 +86605,7 @@ function App() {
         }
       )
     ] }),
-    /* @__PURE__ */ jsx91(
+    /* @__PURE__ */ jsx94(
       AppModals,
       {
         commands,
@@ -85499,7 +86652,7 @@ var init_App = __esm({
 
 // src/web/entry.tsx
 import { createRoot } from "react-dom/client";
-import { jsx as jsx92 } from "react/jsx-runtime";
+import { jsx as jsx95 } from "react/jsx-runtime";
 var require_entry = __commonJS({
   "src/web/entry.tsx"() {
     init_App();
@@ -85528,7 +86681,7 @@ var require_entry = __commonJS({
     var container = document.getElementById("root");
     if (!container)
       throw new Error("#root not found");
-    createRoot(container).render(/* @__PURE__ */ jsx92(App, {}));
+    createRoot(container).render(/* @__PURE__ */ jsx95(App, {}));
   }
 });
 export default require_entry();

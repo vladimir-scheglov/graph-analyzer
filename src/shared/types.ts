@@ -103,6 +103,7 @@ export interface RemoteCredentials {
   server: string;
   loginUrl: string;
   apiUrl: string;
+  cmsBffUrl: string;
   tenantId: string;
   token: string | null;
   username: string;

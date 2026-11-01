@@ -49,6 +49,7 @@ import { handleClearLintBaseline, handleGetLintBaseline, handleListLintBaselines
 import { loadAllLintBaselines } from "../core/analyzer/lint-baseline-storage";
 import { summarizeBaselines } from "../core/analyzer/lint-baseline";
 import { handleCheckOutdated, invalidateOutdatedCache } from "../core/remote/outdated";
+import { handleCreateDomain, handleDeleteDomain } from "./routes/domain";
 
 export interface StartServerOptions {
   port: number;
@@ -442,6 +443,18 @@ export function startServer(opts: StartServerOptions): http.Server {
       }
     } else if (url.startsWith("/file")) {
       handleFileRequest(req, res, rootDir);
+    } else if (url === "/api/graph" && req.method === "GET") {
+      try {
+        const graphData = (analyzer as any).__graphData || analyzer.analyze();
+        res.writeHead(200, {
+          "Content-Type": "application/json; charset=utf-8",
+          "Cache-Control": "no-store",
+        });
+        res.end(JSON.stringify(graphData));
+      } catch (err: any) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: err.message }));
+      }
     }
 
     // ============ API: model ============
@@ -570,6 +583,81 @@ export function startServer(opts: StartServerOptions): http.Server {
           }
           res.end(JSON.stringify({ error: err.message }));
         } catch {}
+      }
+    } else if (url === "/api/folders" && req.method === "GET") {
+      if (!state.remoteInfo?.cacheDir) {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ folders: [], mode: state.mode }));
+        return;
+      }
+      try {
+        const idxPath = path.join(state.remoteInfo.cacheDir, "_index.json");
+        if (!fs.existsSync(idxPath)) {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ folders: [], mode: state.mode }));
+          return;
+        }
+        const idx = JSON.parse(fs.readFileSync(idxPath, "utf8"));
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            folders: Array.isArray(idx.folders) ? idx.folders : [],
+            mode: state.mode,
+          }),
+        );
+      } catch (e: any) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    } else if (url === "/api/domain-index" && req.method === "GET") {
+      const domains = state.domainIndex
+        ? Array.from(state.domainIndex.values()).map((d) => ({
+            id: d.id,
+            sourceId: d.sourceId,
+            folderId: d.folderId,
+            name: d.name,
+          }))
+        : [];
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ domains, mode: state.mode }));
+    } else if (url === "/api/create-domain" && req.method === "POST") {
+      try {
+        await handleCreateDomain(req, res, state);
+        if (res.statusCode === 200) {
+          try {
+            analyzer.reset();
+            (analyzer as any).__graphData = analyzer.analyze();
+            const rawDomains = analyzer.getRawDomainsForModelIndex();
+            setModelIndex(buildModelIndex(rawDomains));
+            console.log("[rebuild] model + graph rebuilt after create-domain");
+          } catch (e) {
+            console.warn("[rebuild-after-create] failed:", e);
+          }
+        }
+      } catch (err: any) {
+        if (!res.headersSent)
+          res.writeHead(500, { "Content-Type": "application/json" });
+        try {
+          res.end(JSON.stringify({ error: err.message }));
+        } catch {}
+      }
+    } else if (url === "/api/delete-domain" && req.method === "POST") {
+      try {
+        await handleDeleteDomain(req, res, state);
+        if (res.writableEnded) {
+          try {
+            analyzer.reset();
+            (analyzer as any).__graphData = analyzer.analyze();
+            const rawDomains = analyzer.getRawDomainsForModelIndex();
+            setModelIndex(buildModelIndex(rawDomains));
+          } catch (e) {
+            console.warn("[rebuild-after-delete] failed:", e);
+          }
+        }
+      } catch (err: any) {
+        if (!res.headersSent)
+          res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: err.message }));
       }
     }
 

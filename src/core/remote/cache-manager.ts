@@ -174,10 +174,10 @@ export async function prepareRemoteCache(
   token = refreshCreds.token as string;
 
   const enabledDomains = domains.filter(
-    (d) => d.status === "ENABLED" && d.type === "DOMAIN",
+    (d) => d.type === "DOMAIN",
   );
   console.log(
-    `📄 Домены: ✅ всего ${domains.length}, ENABLED ${enabledDomains.length}`,
+    `📄 Домены: ✅ всего ${domains.length}`,
   );
 
   if (fs.existsSync(cacheDir))

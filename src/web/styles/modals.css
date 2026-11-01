@@ -3332,7 +3332,6 @@ pre:hover .cheatsheet-open-btn {
 .entity-combobox {
     position: relative;
     min-width: 240px;
-    max-width: 380px;
     flex: 0 1 auto;
 }
 .entity-combobox__trigger {
@@ -3837,4 +3836,567 @@ pre:hover .cheatsheet-open-btn {
     border-color: rgba(251, 191, 36, 0.4);
     /* лёгкий pulse — привлекает внимание к тому, что файл редактируется */
     box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.1);
+}
+.create-domain-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 16px;
+  padding: 20px;
+}
+.create-domain-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.create-domain-field--wide { grid-column: 1 / -1; }
+.create-domain-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-400);
+}
+.create-domain-label .required { color: var(--danger); }
+.create-domain-error {
+  font-size: 11px;
+  color: var(--danger);
+}
+.create-domain-templates {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+.create-domain-template {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text-200);
+}
+.create-domain-template:hover { border-color: var(--accent); }
+.create-domain-template.active {
+  border-color: var(--accent);
+  background: rgba(99, 102, 241, 0.08);
+}
+.create-domain-template__title { font-weight: 600; font-size: 12px; }
+.create-domain-template__desc { font-size: 11px; color: var(--text-500); margin-top: 2px; }
+.create-domain-error-banner {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 10px 14px;
+  margin: 0 20px 16px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  color: var(--danger);
+  font-size: 12px;
+}
+.delete-domain-warning {
+  display: flex;
+  gap: 10px;
+  padding: 12px 16px;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid var(--warning);
+  border-radius: 8px;
+  color: var(--text-200);
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+.delete-domain-refs {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.delete-domain-refs__title {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--text-500);
+  margin-bottom: 8px;
+}
+.delete-domain-ref {
+  display: flex;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+  align-items: baseline;
+}
+.delete-domain-ref__kind {
+  font-size: 10px;
+  color: var(--text-500);
+  min-width: 60px;
+}
+.delete-domain-ref__from { font-family: monospace; color: var(--accent-hover); }
+.delete-domain-ref__desc { color: var(--text-300); }
+.delete-domain-confirm {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.delete-domain-confirm input { margin-top: 2px; }
+.domain-list-row__delete-btn {
+  color: var(--text-500);
+  background: transparent;
+  border: none;
+  padding: 2px 6px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.domain-list-row__delete-btn:hover {
+  color: var(--danger);
+  background: rgba(239, 68, 68, 0.12);
+}
+/* ============ Create Domain Modal ============ */
+
+.create-domain-modal {
+  width: 720px;
+  max-width: 96vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.create-domain-form {
+  padding: 20px 24px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  overflow-y: auto;
+}
+
+.create-domain-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.create-domain-field--wide {
+  grid-column: 1 / -1;
+}
+
+.create-domain-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-300);
+  letter-spacing: 0.01em;
+}
+
+.create-domain-input {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text-100);
+  background: var(--bg-800);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  box-sizing: border-box;
+}
+
+.create-domain-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+.create-domain-input::placeholder {
+  color: var(--text-600);
+}
+
+textarea.create-domain-input {
+  resize: vertical;
+  min-height: 56px;
+  line-height: 1.5;
+}
+
+select.create-domain-input {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+  cursor: pointer;
+}
+
+.create-domain-error {
+  font-size: 11px;
+  color: var(--danger);
+  margin-top: -2px;
+}
+
+.create-domain-template-preview {
+  margin-top: 8px;
+  padding: 12px 14px;
+  background: var(--bg-800);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.create-domain-template-preview__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.create-domain-template-preview__title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-100);
+}
+
+.create-domain-template-preview__desc {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-400);
+}
+
+.create-domain-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--danger);
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
+}
+
+.create-domain-error-banner--wide {
+  grid-column: 1 / -1;
+}
+
+.create-domain-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 24px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-850);
+  border-bottom-left-radius: inherit;
+  border-bottom-right-radius: inherit;
+  flex-wrap: wrap;
+}
+
+.create-domain-footer__hint {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-500);
+  line-height: 1.4;
+}
+
+.create-domain-footer__actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.create-domain-success {
+  padding: 40px 24px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.create-domain-success__title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-100);
+  margin-bottom: 8px;
+}
+
+.create-domain-success__path {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: var(--text-400);
+  margin-bottom: 12px;
+  word-break: break-all;
+}
+
+.create-domain-success__meta {
+  font-size: 11px;
+  color: var(--text-500);
+  margin-bottom: 20px;
+}
+
+.create-domain-success__meta code {
+  color: var(--text-300);
+}
+
+.create-domain-success__hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  font-size: 12px;
+  color: var(--text-300);
+  background: var(--bg-800);
+  border-radius: 8px;
+}
+/* ============ Combobox: portal-режим ============ */
+
+.entity-combobox__dropdown--portal {
+  /*
+   * position / left / top / width / maxHeight / zIndex — задаются inline
+   * из Combobox.tsx. Здесь только сбрасываем то, что могло прийти
+   * из базового .entity-combobox__dropdown и сломать portal-позиционирование.
+   *
+   * НИКАКИХ !important на top/left/right/bottom — они перебивают inline
+   * и возвращают элемент в static position (за экран).
+   */
+  position: fixed !important; /* страховка от базового absolute с !important */
+  right: auto;
+  bottom: auto;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-800);
+  border: 1px solid var(--border-hover);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+.entity-combobox__dropdown--portal .entity-combobox__search {
+  flex-shrink: 0;
+}
+
+.entity-combobox__dropdown--portal .entity-combobox__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* ============ FolderTreeSelect ============ */
+
+.folder-tree-select {
+  position: relative;
+  width: 100%;
+}
+
+.folder-tree-select__trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-100);
+  background: var(--bg-800);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  text-align: left;
+  box-sizing: border-box;
+}
+
+.folder-tree-select__trigger:hover:not(:disabled) {
+  border-color: var(--border-hover);
+}
+
+.folder-tree-select__trigger.open,
+.folder-tree-select__trigger:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+.folder-tree-select__trigger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.folder-tree-select__trigger-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-tree-select__dropdown {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-800);
+  border: 1px solid var(--border-hover);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+.folder-tree-select__search {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-750);
+}
+
+.folder-tree-select__search input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-100);
+  font-size: 12px;
+  font-family: inherit;
+}
+
+.folder-tree-select__search input::placeholder {
+  color: var(--text-600);
+}
+
+.folder-tree-select__clear {
+  background: transparent;
+  border: none;
+  color: var(--text-500);
+  cursor: pointer;
+  padding: 0 4px;
+  font-size: 12px;
+}
+
+.folder-tree-select__clear:hover {
+  color: var(--text-200);
+}
+
+.folder-tree-select__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px 0;
+}
+
+.folder-tree-select__empty {
+  padding: 20px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-500);
+}
+
+.folder-tree-select__item {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.folder-tree-select__item:hover {
+  background: var(--bg-750);
+}
+
+.folder-tree-select__item--selected {
+  background: rgba(99, 102, 241, 0.15);
+}
+
+.folder-tree-select__item--selected:hover {
+  background: rgba(99, 102, 241, 0.22);
+}
+
+.folder-tree-select__item--match .folder-tree-select__label span {
+  color: var(--accent-hover);
+  font-weight: 600;
+}
+
+.folder-tree-select__chevron {
+  flex-shrink: 0;
+  width: 20px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--text-500);
+  cursor: pointer;
+  padding: 0;
+  border-radius: 4px;
+}
+
+.folder-tree-select__chevron:hover:not(:disabled) {
+  background: var(--bg-700);
+  color: var(--text-200);
+}
+
+.folder-tree-select__chevron:disabled {
+  cursor: default;
+}
+
+.folder-tree-select__chevron-spacer {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+}
+
+.folder-tree-select__label {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  background: transparent;
+  border: none;
+  color: var(--text-100);
+  font-size: 12.5px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.folder-tree-select__label span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-tree-select__item--selected .folder-tree-select__label span {
+  font-weight: 600;
+}
+/* ============ Combobox внутри формы создания домена ============ */
+
+.create-domain-field .entity-combobox {
+  width: 100%;
+  min-width: 0; /* не даёт flex-элементу «раздуться» из-за длинного текста */
+}
+
+.create-domain-field .entity-combobox__trigger {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.create-domain-field .entity-combobox__trigger-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

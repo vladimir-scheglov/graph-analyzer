@@ -1,11 +1,16 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+    useEffect,
+    useLayoutEffect,
+    useMemo,
+    useRef,
+    useState,
+} from "react";
+import { createPortal } from "react-dom";
 import { MIcon } from "./MIcon";
 
 export interface ComboboxOption {
     value: string;
-    /** Подпись — если не задана, показывается value. */
     label?: string;
-    /** Доп. пояснение справа (например, домен, тип). */
     hint?: string;
 }
 
@@ -14,16 +19,17 @@ export interface ComboboxProps {
     onChange: (v: string) => void;
     options: ComboboxOption[];
     placeholder?: string;
-    /** Разрешить ввод значения, которого нет в options. */
     allowCreate?: boolean;
-    /** Текст в dropdown для нового значения. */
     createLabel?: (input: string) => string;
-    /** Иконка слева в триггере (по умолчанию `edit`). */
     icon?: string;
     disabled?: boolean;
-    /** Подсказка под пустым dropdown'ом. */
     emptyHint?: string;
 }
+
+const DROPDOWN_MAX_HEIGHT = 320;
+const DROPDOWN_MIN_HEIGHT = 120;
+const VIEWPORT_MARGIN = 8;
+const DROPDOWN_WIDTH_MIN = 280;
 
 export function Combobox({
     value,
@@ -40,8 +46,17 @@ export function Combobox({
     const [query, setQuery] = useState("");
     const [activeIdx, setActiveIdx] = useState(0);
     const wrapRef = useRef<HTMLDivElement>(null);
+    const triggerRef = useRef<HTMLButtonElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
+    const dropdownRef = useRef<HTMLDivElement>(null);
+
+    const [pos, setPos] = useState<{
+        left: number;
+        top: number;
+        width: number;
+        maxHeight: number;
+    } | null>(null);
 
     const filtered = useMemo(() => {
         const q = query.trim().toLowerCase();
@@ -57,37 +72,102 @@ export function Combobox({
     const exactExists = options.some((o) => o.value === trimmedQuery);
     const canCreate =
         allowCreate && trimmedQuery.length > 0 && !exactExists;
-    // Индекс «создать» — после списка, чтобы Enter на пустом query выбирал первый
     const createIdx = filtered.length;
 
-    useEffect(() => {
-        if (open) {
-            setQuery(value || "");
-            setActiveIdx(0);
-            setTimeout(() => {
-                inputRef.current?.focus();
-                inputRef.current?.select();
-            }, 30);
+    // ── Пересчёт позиции dropdown ──
+    const computePosition = () => {
+        const trigger = triggerRef.current;
+        if (!trigger) return;
+        const rect = trigger.getBoundingClientRect();
+        const vh = window.innerHeight;
+        const vw = window.innerWidth;
+
+        const width = Math.max(rect.width, DROPDOWN_WIDTH_MIN);
+        let left = rect.left;
+        if (left + width > vw - VIEWPORT_MARGIN) {
+            left = Math.max(VIEWPORT_MARGIN, vw - width - VIEWPORT_MARGIN);
         }
-    }, [open, value]);
+
+        const spaceBelow = vh - rect.bottom - VIEWPORT_MARGIN;
+        const spaceAbove = rect.top - VIEWPORT_MARGIN;
+
+        let top: number;
+        let maxHeight: number;
+        if (spaceBelow >= DROPDOWN_MIN_HEIGHT || spaceBelow >= spaceAbove) {
+            top = rect.bottom + 4;
+            maxHeight = Math.min(
+                DROPDOWN_MAX_HEIGHT,
+                Math.max(DROPDOWN_MIN_HEIGHT, spaceBelow),
+            );
+        } else {
+            maxHeight = Math.min(
+                DROPDOWN_MAX_HEIGHT,
+                Math.max(DROPDOWN_MIN_HEIGHT, spaceAbove),
+            );
+            top = rect.top - maxHeight - 4;
+        }
+        setPos({ left, top, width, maxHeight });
+    };
+
+    useLayoutEffect(() => {
+        if (!open) {
+            setPos(null);
+            return;
+        }
+        computePosition();
+        const onScroll = () => computePosition();
+        const onResize = () => computePosition();
+        // capture: true — ловим скролл любой родительской панели (модалки)
+        window.addEventListener("scroll", onScroll, true);
+        window.addEventListener("resize", onResize);
+        return () => {
+            window.removeEventListener("scroll", onScroll, true);
+            window.removeEventListener("resize", onResize);
+        };
+    }, [open]);
 
     useEffect(() => {
         if (!open) return;
+        // Открываемся с пустым фильтром: пользователь видит полный список,
+        // выбранный элемент подсвечивается как active, но не сужает поиск.
+        setQuery("");
+        const idx = options.findIndex((o) => o.value === value);
+        setActiveIdx(idx >= 0 ? idx : 0);
+        const t = setTimeout(() => {
+            inputRef.current?.focus();
+            inputRef.current?.select();
+        }, 30);
+        return () => clearTimeout(t);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open]);
+
+    // Закрытие по клику вне
+    useEffect(() => {
+        if (!open) return;
         const onDoc = (e: MouseEvent) => {
-            if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
-                setOpen(false);
-            }
+            const target = e.target as Node;
+            if (wrapRef.current?.contains(target)) return;
+            if (dropdownRef.current?.contains(target)) return;
+            setOpen(false);
         };
         document.addEventListener("mousedown", onDoc);
         return () => document.removeEventListener("mousedown", onDoc);
     }, [open]);
 
+    // Скролл активного элемента — только в пределах списка
     useEffect(() => {
         if (!open || !listRef.current) return;
         const el = listRef.current.querySelector(
             ".entity-combobox__option--active",
         ) as HTMLElement | null;
-        if (el) el.scrollIntoView({ block: "nearest" });
+        if (!el) return;
+        const list = listRef.current;
+        const elTop = el.offsetTop;
+        const elBottom = elTop + el.offsetHeight;
+        if (elTop < list.scrollTop) list.scrollTop = elTop;
+        else if (elBottom > list.scrollTop + list.clientHeight) {
+            list.scrollTop = elBottom - list.clientHeight;
+        }
     }, [activeIdx, open]);
 
     const commit = (v: string) => {
@@ -105,9 +185,8 @@ export function Combobox({
             setActiveIdx((i) => Math.max(i - 1, 0));
         } else if (e.key === "Enter") {
             e.preventDefault();
-            if (activeIdx === createIdx && canCreate) {
-                commit(trimmedQuery);
-            } else {
+            if (activeIdx === createIdx && canCreate) commit(trimmedQuery);
+            else {
                 const item = filtered[activeIdx];
                 if (item) commit(item.value);
             }
@@ -118,23 +197,23 @@ export function Combobox({
     };
 
     const current = options.find((o) => o.value === value);
-    const display = value || "";
     const isCustom = !!value && !current;
 
     return (
         <div className="entity-combobox" ref={wrapRef}>
             <button
+                ref={triggerRef}
                 type="button"
                 className={"entity-combobox__trigger" + (open ? " open" : "")}
                 onClick={() => !disabled && setOpen(!open)}
                 disabled={disabled}
-                title={display || placeholder}
+                title={value || placeholder}
             >
                 <MIcon name={icon} size="sm" />
                 <span
                     className="entity-combobox__trigger-text"
                     style={
-                        value && !current
+                        isCustom
                             ? { fontStyle: "italic", color: "var(--text-300)" }
                             : undefined
                     }
@@ -152,8 +231,19 @@ export function Combobox({
                 <MIcon name={open ? "expand_less" : "expand_more"} size="sm" />
             </button>
 
-            {open && (
-                <div className="entity-combobox__dropdown">
+            {open && pos && createPortal(
+                <div
+                    ref={dropdownRef}
+                    className="entity-combobox__dropdown entity-combobox__dropdown--portal"
+                    style={{
+                        position: "fixed",
+                        left: pos.left,
+                        top: pos.top,
+                        width: pos.width,
+                        maxHeight: pos.maxHeight,
+                        zIndex: 10000,
+                    }}
+                >
                     <div className="entity-combobox__search">
                         <MIcon name="search" size="sm" />
                         <input
@@ -246,7 +336,8 @@ export function Combobox({
                             </button>
                         )}
                     </div>
-                </div>
+                </div>,
+                document.body,
             )}
         </div>
     );

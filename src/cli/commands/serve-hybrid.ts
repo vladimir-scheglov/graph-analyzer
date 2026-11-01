@@ -35,6 +35,7 @@ export async function serveHybrid(params: ServeHybridParams): Promise<void> {
     server: base,
     loginUrl: base + "/api/evo/core/bff/graphql",
     apiUrl: base + "/api/graphql",
+    cmsBffUrl: base + "/api/evo/cms/bff/api/graphql",
     tenantId: "00000000-0000-0000-0000-000000000000",
     token: null,
     username,

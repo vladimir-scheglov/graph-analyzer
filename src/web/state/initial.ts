@@ -24,7 +24,6 @@ interface GraphData {
     updatedAtSource?: string | null;
     createdAt?: string | null;
     createdAtSource?: string | null;
-    fileSize?: number | null;
   }>;
   edges: Array<{
     id: string;
@@ -121,7 +120,6 @@ export function buildInitialNodes(data: GraphData): RFNode[] {
           updatedAtSource: (n.updatedAtSource as any) || null,
           createdAt: n.createdAt || null,
           createdAtSource: (n.createdAtSource as any) || null,
-          fileSize: typeof n.fileSize === "number" ? n.fileSize : null,
         },
         position: { x: 0, y: 0 },
       };

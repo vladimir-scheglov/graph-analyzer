@@ -491,6 +491,18 @@ export function DomainSchemaModal() {
                                     <MIcon name="menu_book" size="sm" />
                                     Шпаргалка
                                 </button>
+
+                                <button
+                                    className="btn btn--danger"
+                                    onClick={() => {
+                                        store.setDeleteDomainTarget({ domainId: schema.domainId });
+                                        store.setDomainSchemaOpen(false);
+                                    }}
+                                    title="Удалить домен"
+                                >
+                                    <MIcon name="delete" size="sm" />
+                                    Удалить
+                                </button>
                             </div>
 
                             <div className="domain-schema-search">

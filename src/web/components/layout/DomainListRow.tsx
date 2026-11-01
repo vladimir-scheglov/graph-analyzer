@@ -219,6 +219,17 @@ export function DomainListRow({
                                 fill={isFavorite}
                             />
                         </button>
+
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                useGraphStore.getState().setDeleteDomainTarget({ domainId: d.domainId });
+                            }}
+                            title="Удалить домен"
+                            className="domain-list-row__delete-btn"
+                        >
+                            <MIcon name="delete" size="sm" />
+                        </button>
                     </>
                 )}
             </div>

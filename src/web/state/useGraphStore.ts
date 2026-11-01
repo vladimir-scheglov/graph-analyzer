@@ -498,6 +498,10 @@ export interface GraphState {
   setDeletionSimulationOpen: (v: boolean) => void;
   deletionSimulationFqid: string | null;
   setDeletionSimulationFqid: (fqid: string | null) => void;
+  createDomainOpen: boolean;
+  deleteDomainTarget: { domainId: string } | null;
+  setCreateDomainOpen: (v: boolean) => void;
+  setDeleteDomainTarget: (v: { domainId: string } | null) => void;
 }
 
 // ============ Хелперы для чтения localStorage ============
@@ -1115,6 +1119,10 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   setDeletionSimulationOpen: (v) => set({ deletionSimulationOpen: v }),
   deletionSimulationFqid: null,
   setDeletionSimulationFqid: (fqid) => set({ deletionSimulationFqid: fqid }),
+  createDomainOpen: false,
+  deleteDomainTarget: null as { domainId: string } | null,
+  setCreateDomainOpen: (v) => set({ createDomainOpen: v }),
+  setDeleteDomainTarget: (v) => set({ deleteDomainTarget: v }),
 
   // Сброс всего
   resetAll: () =>

@@ -21,7 +21,9 @@ import {
     GeneratedManifestModal,
     CheatsheetModal,
     HealthDashboardModal,
-    DeletionSimulationModal
+    DeletionSimulationModal,
+    CreateDomainModal,
+    DeleteDomainModal
 } from '../modals';
 import type { Command } from '../../lib/commands';
 import { EntityMatrixModal } from '../modals/EntityMatrixModal';
@@ -165,6 +167,8 @@ export function AppModals(props: AppModalsProps) {
             <PublishPreviewModal />
             <HealthDashboardModal />
             <DeletionSimulationModal />
+            <CreateDomainModal />
+            <DeleteDomainModal />
         </>
     );
 }

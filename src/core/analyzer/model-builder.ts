@@ -3696,7 +3696,7 @@ function collectViewMeta(raw: any, domainId: string): ViewMetaResult {
           }
           if (acts.length > 0) rec.actionIds = acts;
         }
-        
+
         widgets.push(rec);
       }
     }
@@ -4406,12 +4406,12 @@ export function buildModelIndex(rawDomains: RawDomainEntry[]): ModelIndex {
     entityLinkages.push(...parseEntityLinkages(d.id, d.rawData, customIds));
 
     return {
-      id: d.id,
-      name: d.name || d.id,
-      version: d.version || "",
-      author: d.author || "",
-      tags: d.tags || [],
-      description: d.rawData?.description || "",
+      id: String(d.id),
+      name: String(d.name || d.id),
+      version: String(d.version ?? ""),
+      author: String(d.author ?? ""),
+      tags: Array.isArray(d.tags) ? d.tags.map(String) : [],
+      description: String(d.rawData?.description ?? ""),
     };
   });
 

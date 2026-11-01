@@ -27,3 +27,5 @@ export { GeneratedManifestModal } from "./GeneratedManifestModal";
 export { CheatsheetModal } from "./CheatsheetModal";
 export { HealthDashboardModal } from "./HealthDashboardModal";
 export { DeletionSimulationModal } from "./DeletionSimulationModal";
+export { CreateDomainModal } from "./CreateDomainModal";
+export { DeleteDomainModal } from "./DeleteDomainModal";

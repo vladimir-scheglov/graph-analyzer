@@ -93,7 +93,7 @@ export async function checkOutdatedDomains(
 
   const outdated: OutdatedDomain[] = [];
   for (const d of remote) {
-    if (d.status !== "ENABLED" || d.type !== "DOMAIN") continue;
+    if (d.type !== "DOMAIN") continue;
     const c = cached.get(String(d.sourceId).toLowerCase());
     if (!c) continue;
 
