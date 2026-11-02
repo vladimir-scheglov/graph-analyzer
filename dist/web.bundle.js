@@ -6,6 +6,501 @@ var __commonJS = (cb, mod) => function __require() {
   return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
 };
 
+// src/web/lib/layout.ts
+import dagre from "dagre";
+function dagreLayout(nodes, edges, rankdir = "LR") {
+  const W = NODE_WIDTH;
+  const H = NODE_HEIGHT;
+  const CW = NODE_COMPACT;
+  const g = new dagre.graphlib.Graph();
+  g.setDefaultEdgeLabel(() => ({}));
+  g.setGraph({
+    rankdir,
+    nodesep: 18,
+    ranksep: 60,
+    edgesep: 10,
+    marginx: 40,
+    marginy: 40
+  });
+  const validNodes = nodes.filter(
+    (n) => n && typeof n.id === "string" && n.id.length > 0
+  );
+  validNodes.forEach((n) => {
+    const isCompact = n.data && n.data.__compact;
+    g.setNode(n.id, {
+      width: isCompact ? CW : W,
+      height: isCompact ? CW : H
+    });
+  });
+  const validIds = new Set(validNodes.map((n) => n.id));
+  edges.forEach((e) => {
+    if (!e || !e.source || !e.target)
+      return;
+    if (!validIds.has(e.source) || !validIds.has(e.target))
+      return;
+    g.setEdge(e.source, e.target);
+  });
+  dagre.layout(g);
+  return validNodes.map((n) => {
+    const pos = g.node(n.id);
+    const isCompact = n.data && n.data.__compact;
+    const w = isCompact ? CW : W;
+    const h = isCompact ? CW : H;
+    const x = pos && typeof pos.x === "number" && isFinite(pos.x) ? pos.x - w / 2 : 0;
+    const y = pos && typeof pos.y === "number" && isFinite(pos.y) ? pos.y - h / 2 : 0;
+    return Object.assign({}, n, {
+      position: { x, y },
+      width: w,
+      height: h,
+      targetPosition: rankdir === "LR" ? "left" : "top",
+      sourcePosition: rankdir === "LR" ? "right" : "bottom"
+    });
+  });
+}
+function circularLayout(nodes) {
+  const n = nodes.length;
+  const R = Math.max(350, n * 40);
+  const W = NODE_WIDTH;
+  const H = NODE_HEIGHT;
+  const CW = NODE_COMPACT;
+  return nodes.map((node, i) => {
+    const angle = i / n * 2 * Math.PI - Math.PI / 2;
+    const px = Math.cos(angle) * R;
+    const py = Math.sin(angle) * R;
+    const isCompact = node.data && node.data.__compact;
+    const w = isCompact ? CW : W;
+    const h = isCompact ? CW : H;
+    return Object.assign({}, node, {
+      position: {
+        x: isFinite(px) ? px : i * 250,
+        y: isFinite(py) ? py : 0
+      },
+      width: w,
+      height: h,
+      targetPosition: "left",
+      sourcePosition: "right"
+    });
+  });
+}
+function forceLayout(nodes, edges) {
+  const n = nodes.length;
+  const pos = nodes.map((_, i) => {
+    const a = i / n * 2 * Math.PI;
+    return { x: Math.cos(a) * 400, y: Math.sin(a) * 400 };
+  });
+  const idx = /* @__PURE__ */ new Map();
+  nodes.forEach((node, i) => idx.set(node.id, i));
+  const links = edges.map(
+    (e) => [idx.get(e.source), idx.get(e.target)]
+  ).filter((l) => l[0] != null && l[1] != null);
+  for (let iter = 0; iter < 250; iter++) {
+    const fx = new Array(n).fill(0);
+    const fy = new Array(n).fill(0);
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const dx = pos[j].x - pos[i].x;
+        const dy = pos[j].y - pos[i].y;
+        const d2 = dx * dx + dy * dy + 0.01;
+        const d = Math.sqrt(d2);
+        const f = 8e3 / d2;
+        fx[i] -= dx / d * f;
+        fy[i] -= dy / d * f;
+        fx[j] += dx / d * f;
+        fy[j] += dy / d * f;
+      }
+    }
+    for (const [a, b] of links) {
+      const ddx = pos[b].x - pos[a].x;
+      const ddy = pos[b].y - pos[a].y;
+      const dd = Math.sqrt(ddx * ddx + ddy * ddy) + 0.01;
+      const ff = (dd - 200) * 0.02;
+      fx[a] += ddx / dd * ff;
+      fy[a] += ddy / dd * ff;
+      fx[b] -= ddx / dd * ff;
+      fy[b] -= ddy / dd * ff;
+    }
+    const alpha = 1 - iter / 250;
+    for (let m = 0; m < n; m++) {
+      pos[m].x += fx[m] * alpha * 0.5;
+      pos[m].y += fy[m] * alpha * 0.5;
+    }
+  }
+  const W = NODE_WIDTH;
+  const H = NODE_HEIGHT;
+  const CW = NODE_COMPACT;
+  return nodes.map((node, i) => {
+    const isCompact = node.data && node.data.__compact;
+    const w = isCompact ? CW : W;
+    const h = isCompact ? CW : H;
+    return Object.assign({}, node, {
+      position: {
+        x: isFinite(pos[i].x) ? pos[i].x : i * 250,
+        y: isFinite(pos[i].y) ? pos[i].y : 0
+      },
+      targetPosition: "left",
+      sourcePosition: "right",
+      width: w,
+      height: h
+    });
+  });
+}
+function clusterLayout(nodes, edges, getKeyForDepth) {
+  const NODE_W = NODE_WIDTH;
+  const NODE_H = NODE_HEIGHT;
+  const CLUSTER_PAD = 36;
+  const HEADER_H = 30;
+  const MAX_GROUPS = 50;
+  let effectiveDepth = 2;
+  for (let d = 1; d <= 5; d++) {
+    const cnt = /* @__PURE__ */ new Set();
+    nodes.forEach((n) => {
+      if (n.data && n.data.nodeType === "domain") {
+        const key = getKeyForDepth(n, d);
+        if (key)
+          cnt.add(key);
+      }
+    });
+    effectiveDepth = d;
+    if (cnt.size <= MAX_GROUPS)
+      break;
+  }
+  const groups = /* @__PURE__ */ new Map();
+  const nodeToNs = /* @__PURE__ */ new Map();
+  nodes.forEach((n) => {
+    if (!n.data || n.data.nodeType !== "domain") {
+      const key = "__other__";
+      if (!groups.has(key))
+        groups.set(key, []);
+      groups.get(key).push(n);
+      nodeToNs.set(n.id, key);
+      return;
+    }
+    const ns = getKeyForDepth(n, effectiveDepth);
+    if (!groups.has(ns))
+      groups.set(ns, []);
+    groups.get(ns).push(n);
+    nodeToNs.set(n.id, ns);
+  });
+  const groupLayouts = /* @__PURE__ */ new Map();
+  groups.forEach((groupNodes, ns) => {
+    if (ns === "__other__") {
+      const laidOther = groupNodes.map(
+        (n, i) => Object.assign({}, n, { __x: i * (NODE_W + 20), __y: 0 })
+      );
+      groupLayouts.set(ns, {
+        nodes: laidOther,
+        width: laidOther.length * (NODE_W + 20) - 20,
+        height: NODE_H,
+        label: null
+      });
+      return;
+    }
+    if (groupNodes.length === 1) {
+      groupLayouts.set(ns, {
+        nodes: groupNodes.map(
+          (n) => Object.assign({}, n, { __x: 0, __y: 0 })
+        ),
+        width: NODE_W,
+        height: NODE_H,
+        label: ns
+      });
+      return;
+    }
+    const g = new dagre.graphlib.Graph();
+    g.setDefaultEdgeLabel(() => ({}));
+    g.setGraph({
+      rankdir: "LR",
+      nodesep: 18,
+      ranksep: 60,
+      marginx: 10,
+      marginy: 10
+    });
+    const ids = new Set(groupNodes.map((n) => n.id));
+    groupNodes.forEach(
+      (n) => g.setNode(n.id, { width: NODE_W, height: NODE_H })
+    );
+    edges.forEach((e) => {
+      if (ids.has(e.source) && ids.has(e.target))
+        g.setEdge(e.source, e.target);
+    });
+    dagre.layout(g);
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    const raw = groupNodes.map((n) => {
+      const pos = g.node(n.id);
+      const x = pos.x - NODE_W / 2;
+      const y = pos.y - NODE_H / 2;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x + NODE_W);
+      maxY = Math.max(maxY, y + NODE_H);
+      return { node: n, x, y };
+    });
+    const laid = raw.map(
+      (item) => Object.assign({}, item.node, {
+        __x: item.x - minX,
+        __y: item.y - minY
+      })
+    );
+    groupLayouts.set(ns, {
+      nodes: laid,
+      width: maxX - minX,
+      height: maxY - minY,
+      label: ns
+    });
+  });
+  const metaEdgesMap = /* @__PURE__ */ new Map();
+  edges.forEach((e) => {
+    const sNs = nodeToNs.get(e.source);
+    const tNs = nodeToNs.get(e.target);
+    if (!sNs || !tNs || sNs === tNs)
+      return;
+    metaEdgesMap.set(sNs + "\u2192" + tNs, 1);
+  });
+  const meta = new dagre.graphlib.Graph();
+  meta.setDefaultEdgeLabel(() => ({}));
+  meta.setGraph({
+    rankdir: "LR",
+    nodesep: 60,
+    ranksep: 100,
+    marginx: 40,
+    marginy: 40
+  });
+  groupLayouts.forEach((layout, ns) => {
+    const w = layout.width + (layout.label ? CLUSTER_PAD * 2 : 0);
+    const h = layout.height + (layout.label ? CLUSTER_PAD * 2 + HEADER_H : 0);
+    meta.setNode(ns, { width: w, height: h });
+  });
+  metaEdgesMap.forEach((_, key) => {
+    const p = key.split("\u2192");
+    meta.setEdge(p[0], p[1]);
+  });
+  dagre.layout(meta);
+  const finalNodes = [];
+  const boxes = [];
+  groupLayouts.forEach((layout, ns) => {
+    const metaPos = meta.node(ns);
+    const hasLabel = !!layout.label;
+    const padX = hasLabel ? CLUSTER_PAD : 0;
+    const padY = hasLabel ? CLUSTER_PAD + HEADER_H : 0;
+    const groupW = layout.width + padX * 2;
+    const groupH = layout.height + padY + (hasLabel ? CLUSTER_PAD : 0);
+    const groupX = metaPos ? metaPos.x - groupW / 2 : 0;
+    const groupY = metaPos ? metaPos.y - groupH / 2 : 0;
+    if (hasLabel) {
+      boxes.push({
+        id: ns,
+        label: ns,
+        x: groupX,
+        y: groupY,
+        w: groupW,
+        h: groupH,
+        count: layout.nodes.length
+      });
+    }
+    layout.nodes.forEach((n) => {
+      const copy = Object.assign({}, n);
+      delete copy.__x;
+      delete copy.__y;
+      finalNodes.push(
+        Object.assign(copy, {
+          position: {
+            x: groupX + padX + n.__x,
+            y: groupY + padY + n.__y
+          },
+          width: NODE_W,
+          height: NODE_H,
+          targetPosition: "left",
+          sourcePosition: "right"
+        })
+      );
+    });
+  });
+  return { nodes: finalNodes, boxes, effectiveDepth };
+}
+function getNsByDomainId(node, depth) {
+  const parts = (node.data.domainId || "").split(".");
+  return parts.slice(0, depth).join(".") || "__empty__";
+}
+function getFolderKey(node, depth) {
+  const fp = node.data && node.data.folderPath || [];
+  if (fp.length === 0)
+    return "__root__";
+  return fp.slice(0, depth).join("/") || "__root__";
+}
+function runLayout(nodes, edges, type2, opts) {
+  if (type2 === "TB") {
+    return {
+      nodes: dagreLayout(nodes, edges, "TB"),
+      boxes: [],
+      effectiveDepth: null
+    };
+  }
+  if (type2 === "force") {
+    return {
+      nodes: forceLayout(nodes, edges),
+      boxes: [],
+      effectiveDepth: null
+    };
+  }
+  if (type2 === "circular") {
+    return { nodes: circularLayout(nodes), boxes: [], effectiveDepth: null };
+  }
+  if (type2 === "cluster") {
+    const result = clusterLayout(nodes, edges, getNsByDomainId);
+    return {
+      nodes: result.nodes,
+      boxes: result.boxes,
+      effectiveDepth: result.effectiveDepth
+    };
+  }
+  if (type2 === "folder") {
+    const result = clusterLayout(nodes, edges, getFolderKey);
+    return {
+      nodes: result.nodes,
+      boxes: result.boxes,
+      effectiveDepth: result.effectiveDepth
+    };
+  }
+  return {
+    nodes: dagreLayout(nodes, edges, "LR"),
+    boxes: [],
+    effectiveDepth: null
+  };
+}
+var NODE_WIDTH, NODE_HEIGHT, NODE_COMPACT;
+var init_layout = __esm({
+  "src/web/lib/layout.ts"() {
+    "use strict";
+    NODE_WIDTH = 300;
+    NODE_HEIGHT = 88;
+    NODE_COMPACT = 42;
+  }
+});
+
+// src/web/state/initial.ts
+function readGraphData() {
+  const el = document.getElementById("graph-data");
+  if (!el) {
+    console.warn(
+      "[domains-analyzer] #graph-data \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D \u2014 \u0440\u0435\u043D\u0434\u0435\u0440 \u043F\u0443\u0441\u0442\u043E\u0433\u043E \u0433\u0440\u0430\u0444\u0430"
+    );
+    return { nodes: [], edges: [] };
+  }
+  try {
+    const parsed = JSON.parse(el.textContent || "{}");
+    if (!parsed || typeof parsed !== "object") {
+      return { nodes: [], edges: [] };
+    }
+    if (!Array.isArray(parsed.nodes))
+      parsed.nodes = [];
+    if (!Array.isArray(parsed.edges))
+      parsed.edges = [];
+    return parsed;
+  } catch (err) {
+    console.warn("[domains-analyzer] \u043D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0440\u0430\u0441\u043F\u0430\u0440\u0441\u0438\u0442\u044C #graph-data", err);
+    return { nodes: [], edges: [] };
+  }
+}
+function readRemoteInfo() {
+  const el = document.getElementById("remote-info");
+  if (!el)
+    return null;
+  try {
+    return JSON.parse(el.textContent || "null");
+  } catch {
+    return null;
+  }
+}
+function readRefreshCommand() {
+  const el = document.getElementById("refresh-command");
+  if (!el)
+    return null;
+  try {
+    return JSON.parse(el.textContent || "null");
+  } catch {
+    return null;
+  }
+}
+function buildInitialNodes(data) {
+  const nodes = getInitialNodes(data);
+  const edges = getInitialEdges(data);
+  return dagreLayout(nodes, edges, "LR");
+}
+function buildInitialEdges(data) {
+  return getInitialEdges(data);
+}
+function getInitialNodes(data) {
+  return data.nodes.filter((n) => n && n.id && typeof n.id === "string").map((n) => {
+    const domainId = n.domainId || n.id.replace(/^(domain_|missing_|broken_)/, "");
+    return {
+      id: n.id,
+      type: "domainNode",
+      data: {
+        domainId,
+        label: n.label,
+        nodeType: n.group,
+        filePath: n.filePath || null,
+        folderPath: n.folderPath || [],
+        fqidRefs: n.fqidRefs || [],
+        version: n.version,
+        entitiesCount: n.entitiesCount,
+        name: n.name || n.label || "",
+        description: n.description || "",
+        author: n.author || "",
+        tags: Array.isArray(n.tags) ? n.tags : [],
+        updatedAt: n.updatedAt || null,
+        updatedAtSource: n.updatedAtSource || null,
+        createdAt: n.createdAt || null,
+        createdAtSource: n.createdAtSource || null,
+        status: n.status ?? null,
+        hasDraft: n.hasDraft === true
+      },
+      position: { x: 0, y: 0 }
+    };
+  });
+}
+function getInitialEdges(data) {
+  return data.edges.filter((e) => e && e.id && e.from && e.to).map((e) => {
+    const isLinkage = e.kind === "linkage";
+    return {
+      id: e.id,
+      source: e.from,
+      target: e.to,
+      type: "smoothstep",
+      label: e.label,
+      data: {
+        fqidRefs: e.fqidRefs || [],
+        linkData: e.linkData || null,
+        fullLabel: e.fullLabel || e.label || e.id,
+        kind: e.kind,
+        refCount: e.refCount,
+        side1Domain: e.side1Domain || null,
+        side2Domain: e.side2Domain || null
+      },
+      markerEnd: {
+        type: "arrowclosed",
+        color: isLinkage ? LINKAGE_COLOR : FQID_COLOR,
+        width: 14,
+        height: 14
+      },
+      style: {
+        stroke: isLinkage ? LINKAGE_COLOR : FQID_COLOR,
+        strokeWidth: 1,
+        opacity: 0.5
+      }
+    };
+  });
+}
+var LINKAGE_COLOR, FQID_COLOR;
+var init_initial = __esm({
+  "src/web/state/initial.ts"() {
+    "use strict";
+    init_layout();
+    LINKAGE_COLOR = "#6366a1";
+    FQID_COLOR = "#4b7c6c";
+  }
+});
+
 // src/web/state/useGraphStore.ts
 import { create } from "zustand";
 function readBool(key, fallback) {
@@ -69,6 +564,7 @@ var useGraphStore;
 var init_useGraphStore = __esm({
   "src/web/state/useGraphStore.ts"() {
     "use strict";
+    init_initial();
     useGraphStore = create((set2, get) => ({
       // Данные
       nodes: [],
@@ -588,6 +1084,61 @@ var init_useGraphStore = __esm({
       deleteDomainTarget: null,
       setCreateDomainOpen: (v) => set2({ createDomainOpen: v }),
       setDeleteDomainTarget: (v) => set2({ deleteDomainTarget: v }),
+      refreshGraphFromServer: async (preservePositions) => {
+        const res = await fetch("/api/graph", {
+          method: "GET",
+          cache: "no-store"
+        });
+        if (!res.ok) {
+          throw new Error(`/api/graph: HTTP ${res.status}`);
+        }
+        const graphData = await res.json();
+        const nextNodes = getInitialNodes(graphData);
+        const nextEdges = getInitialEdges(graphData);
+        const preserve = preservePositions === true;
+        const prevNodes = get().nodes;
+        const prevById = new Map(prevNodes.map((n) => [n.id, n]));
+        const finalNodes = preserve ? nextNodes.map((n) => {
+          const prev = prevById.get(n.id);
+          if (!prev)
+            return n;
+          return {
+            ...n,
+            position: { ...prev.position }
+            // старый узел — на месте
+          };
+        }) : nextNodes;
+        const newIds = new Set(finalNodes.map((n) => n.id));
+        const keepId = (id) => id && newIds.has(id) ? id : null;
+        set2({
+          nodes: finalNodes,
+          edges: nextEdges,
+          clusterBoxes: preserve ? get().clusterBoxes : [],
+          clusterGroupCount: preserve ? get().clusterGroupCount : 0,
+          selectedNodeId: keepId(get().selectedNodeId),
+          selectedEdgeId: keepId(get().selectedEdgeId),
+          panelNodeId: keepId(get().panelNodeId),
+          focusNode: keepId(get().focusNode),
+          panelOpen: false,
+          pathSel: [],
+          pathResult: null,
+          cycleHighlight: null,
+          diffMode: null,
+          didInitialFit: preserve ? get().didInitialFit : false,
+          hiddenNodeIds: /* @__PURE__ */ new Set()
+        });
+        setTimeout(() => {
+          const rf = get().rfInstance;
+          if (!rf)
+            return;
+          try {
+            rf.fitView({ duration: 400, padding: 0.15 });
+          } catch {
+          }
+        }, 150);
+      },
+      yamlViewerPendingGoto: null,
+      setYamlViewerPendingGoto: (v) => set2({ yamlViewerPendingGoto: v }),
       // Сброс всего
       resetAll: () => set2({
         filters: {
@@ -617,493 +1168,6 @@ var init_useGraphStore = __esm({
         topoLevelMap: null
       })
     }));
-  }
-});
-
-// src/web/lib/layout.ts
-import dagre from "dagre";
-function dagreLayout(nodes, edges, rankdir = "LR") {
-  const W = NODE_WIDTH;
-  const H = NODE_HEIGHT;
-  const CW = NODE_COMPACT;
-  const g = new dagre.graphlib.Graph();
-  g.setDefaultEdgeLabel(() => ({}));
-  g.setGraph({
-    rankdir,
-    nodesep: 18,
-    ranksep: 60,
-    edgesep: 10,
-    marginx: 40,
-    marginy: 40
-  });
-  const validNodes = nodes.filter(
-    (n) => n && typeof n.id === "string" && n.id.length > 0
-  );
-  validNodes.forEach((n) => {
-    const isCompact = n.data && n.data.__compact;
-    g.setNode(n.id, {
-      width: isCompact ? CW : W,
-      height: isCompact ? CW : H
-    });
-  });
-  const validIds = new Set(validNodes.map((n) => n.id));
-  edges.forEach((e) => {
-    if (!e || !e.source || !e.target)
-      return;
-    if (!validIds.has(e.source) || !validIds.has(e.target))
-      return;
-    g.setEdge(e.source, e.target);
-  });
-  dagre.layout(g);
-  return validNodes.map((n) => {
-    const pos = g.node(n.id);
-    const isCompact = n.data && n.data.__compact;
-    const w = isCompact ? CW : W;
-    const h = isCompact ? CW : H;
-    const x = pos && typeof pos.x === "number" && isFinite(pos.x) ? pos.x - w / 2 : 0;
-    const y = pos && typeof pos.y === "number" && isFinite(pos.y) ? pos.y - h / 2 : 0;
-    return Object.assign({}, n, {
-      position: { x, y },
-      width: w,
-      height: h,
-      targetPosition: rankdir === "LR" ? "left" : "top",
-      sourcePosition: rankdir === "LR" ? "right" : "bottom"
-    });
-  });
-}
-function circularLayout(nodes) {
-  const n = nodes.length;
-  const R = Math.max(350, n * 40);
-  const W = NODE_WIDTH;
-  const H = NODE_HEIGHT;
-  const CW = NODE_COMPACT;
-  return nodes.map((node, i) => {
-    const angle = i / n * 2 * Math.PI - Math.PI / 2;
-    const px = Math.cos(angle) * R;
-    const py = Math.sin(angle) * R;
-    const isCompact = node.data && node.data.__compact;
-    const w = isCompact ? CW : W;
-    const h = isCompact ? CW : H;
-    return Object.assign({}, node, {
-      position: {
-        x: isFinite(px) ? px : i * 250,
-        y: isFinite(py) ? py : 0
-      },
-      width: w,
-      height: h,
-      targetPosition: "left",
-      sourcePosition: "right"
-    });
-  });
-}
-function forceLayout(nodes, edges) {
-  const n = nodes.length;
-  const pos = nodes.map((_, i) => {
-    const a = i / n * 2 * Math.PI;
-    return { x: Math.cos(a) * 400, y: Math.sin(a) * 400 };
-  });
-  const idx = /* @__PURE__ */ new Map();
-  nodes.forEach((node, i) => idx.set(node.id, i));
-  const links = edges.map(
-    (e) => [idx.get(e.source), idx.get(e.target)]
-  ).filter((l) => l[0] != null && l[1] != null);
-  for (let iter = 0; iter < 250; iter++) {
-    const fx = new Array(n).fill(0);
-    const fy = new Array(n).fill(0);
-    for (let i = 0; i < n; i++) {
-      for (let j = i + 1; j < n; j++) {
-        const dx = pos[j].x - pos[i].x;
-        const dy = pos[j].y - pos[i].y;
-        const d2 = dx * dx + dy * dy + 0.01;
-        const d = Math.sqrt(d2);
-        const f = 8e3 / d2;
-        fx[i] -= dx / d * f;
-        fy[i] -= dy / d * f;
-        fx[j] += dx / d * f;
-        fy[j] += dy / d * f;
-      }
-    }
-    for (const [a, b] of links) {
-      const ddx = pos[b].x - pos[a].x;
-      const ddy = pos[b].y - pos[a].y;
-      const dd = Math.sqrt(ddx * ddx + ddy * ddy) + 0.01;
-      const ff = (dd - 200) * 0.02;
-      fx[a] += ddx / dd * ff;
-      fy[a] += ddy / dd * ff;
-      fx[b] -= ddx / dd * ff;
-      fy[b] -= ddy / dd * ff;
-    }
-    const alpha = 1 - iter / 250;
-    for (let m = 0; m < n; m++) {
-      pos[m].x += fx[m] * alpha * 0.5;
-      pos[m].y += fy[m] * alpha * 0.5;
-    }
-  }
-  const W = NODE_WIDTH;
-  const H = NODE_HEIGHT;
-  const CW = NODE_COMPACT;
-  return nodes.map((node, i) => {
-    const isCompact = node.data && node.data.__compact;
-    const w = isCompact ? CW : W;
-    const h = isCompact ? CW : H;
-    return Object.assign({}, node, {
-      position: {
-        x: isFinite(pos[i].x) ? pos[i].x : i * 250,
-        y: isFinite(pos[i].y) ? pos[i].y : 0
-      },
-      targetPosition: "left",
-      sourcePosition: "right",
-      width: w,
-      height: h
-    });
-  });
-}
-function clusterLayout(nodes, edges, getKeyForDepth) {
-  const NODE_W = NODE_WIDTH;
-  const NODE_H = NODE_HEIGHT;
-  const CLUSTER_PAD = 36;
-  const HEADER_H = 30;
-  const MAX_GROUPS = 50;
-  let effectiveDepth = 2;
-  for (let d = 1; d <= 5; d++) {
-    const cnt = /* @__PURE__ */ new Set();
-    nodes.forEach((n) => {
-      if (n.data && n.data.nodeType === "domain") {
-        const key = getKeyForDepth(n, d);
-        if (key)
-          cnt.add(key);
-      }
-    });
-    effectiveDepth = d;
-    if (cnt.size <= MAX_GROUPS)
-      break;
-  }
-  const groups = /* @__PURE__ */ new Map();
-  const nodeToNs = /* @__PURE__ */ new Map();
-  nodes.forEach((n) => {
-    if (!n.data || n.data.nodeType !== "domain") {
-      const key = "__other__";
-      if (!groups.has(key))
-        groups.set(key, []);
-      groups.get(key).push(n);
-      nodeToNs.set(n.id, key);
-      return;
-    }
-    const ns = getKeyForDepth(n, effectiveDepth);
-    if (!groups.has(ns))
-      groups.set(ns, []);
-    groups.get(ns).push(n);
-    nodeToNs.set(n.id, ns);
-  });
-  const groupLayouts = /* @__PURE__ */ new Map();
-  groups.forEach((groupNodes, ns) => {
-    if (ns === "__other__") {
-      const laidOther = groupNodes.map(
-        (n, i) => Object.assign({}, n, { __x: i * (NODE_W + 20), __y: 0 })
-      );
-      groupLayouts.set(ns, {
-        nodes: laidOther,
-        width: laidOther.length * (NODE_W + 20) - 20,
-        height: NODE_H,
-        label: null
-      });
-      return;
-    }
-    if (groupNodes.length === 1) {
-      groupLayouts.set(ns, {
-        nodes: groupNodes.map(
-          (n) => Object.assign({}, n, { __x: 0, __y: 0 })
-        ),
-        width: NODE_W,
-        height: NODE_H,
-        label: ns
-      });
-      return;
-    }
-    const g = new dagre.graphlib.Graph();
-    g.setDefaultEdgeLabel(() => ({}));
-    g.setGraph({
-      rankdir: "LR",
-      nodesep: 18,
-      ranksep: 60,
-      marginx: 10,
-      marginy: 10
-    });
-    const ids = new Set(groupNodes.map((n) => n.id));
-    groupNodes.forEach(
-      (n) => g.setNode(n.id, { width: NODE_W, height: NODE_H })
-    );
-    edges.forEach((e) => {
-      if (ids.has(e.source) && ids.has(e.target))
-        g.setEdge(e.source, e.target);
-    });
-    dagre.layout(g);
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    const raw = groupNodes.map((n) => {
-      const pos = g.node(n.id);
-      const x = pos.x - NODE_W / 2;
-      const y = pos.y - NODE_H / 2;
-      minX = Math.min(minX, x);
-      minY = Math.min(minY, y);
-      maxX = Math.max(maxX, x + NODE_W);
-      maxY = Math.max(maxY, y + NODE_H);
-      return { node: n, x, y };
-    });
-    const laid = raw.map(
-      (item) => Object.assign({}, item.node, {
-        __x: item.x - minX,
-        __y: item.y - minY
-      })
-    );
-    groupLayouts.set(ns, {
-      nodes: laid,
-      width: maxX - minX,
-      height: maxY - minY,
-      label: ns
-    });
-  });
-  const metaEdgesMap = /* @__PURE__ */ new Map();
-  edges.forEach((e) => {
-    const sNs = nodeToNs.get(e.source);
-    const tNs = nodeToNs.get(e.target);
-    if (!sNs || !tNs || sNs === tNs)
-      return;
-    metaEdgesMap.set(sNs + "\u2192" + tNs, 1);
-  });
-  const meta = new dagre.graphlib.Graph();
-  meta.setDefaultEdgeLabel(() => ({}));
-  meta.setGraph({
-    rankdir: "LR",
-    nodesep: 60,
-    ranksep: 100,
-    marginx: 40,
-    marginy: 40
-  });
-  groupLayouts.forEach((layout, ns) => {
-    const w = layout.width + (layout.label ? CLUSTER_PAD * 2 : 0);
-    const h = layout.height + (layout.label ? CLUSTER_PAD * 2 + HEADER_H : 0);
-    meta.setNode(ns, { width: w, height: h });
-  });
-  metaEdgesMap.forEach((_, key) => {
-    const p = key.split("\u2192");
-    meta.setEdge(p[0], p[1]);
-  });
-  dagre.layout(meta);
-  const finalNodes = [];
-  const boxes = [];
-  groupLayouts.forEach((layout, ns) => {
-    const metaPos = meta.node(ns);
-    const hasLabel = !!layout.label;
-    const padX = hasLabel ? CLUSTER_PAD : 0;
-    const padY = hasLabel ? CLUSTER_PAD + HEADER_H : 0;
-    const groupW = layout.width + padX * 2;
-    const groupH = layout.height + padY + (hasLabel ? CLUSTER_PAD : 0);
-    const groupX = metaPos ? metaPos.x - groupW / 2 : 0;
-    const groupY = metaPos ? metaPos.y - groupH / 2 : 0;
-    if (hasLabel) {
-      boxes.push({
-        id: ns,
-        label: ns,
-        x: groupX,
-        y: groupY,
-        w: groupW,
-        h: groupH,
-        count: layout.nodes.length
-      });
-    }
-    layout.nodes.forEach((n) => {
-      const copy = Object.assign({}, n);
-      delete copy.__x;
-      delete copy.__y;
-      finalNodes.push(
-        Object.assign(copy, {
-          position: {
-            x: groupX + padX + n.__x,
-            y: groupY + padY + n.__y
-          },
-          width: NODE_W,
-          height: NODE_H,
-          targetPosition: "left",
-          sourcePosition: "right"
-        })
-      );
-    });
-  });
-  return { nodes: finalNodes, boxes, effectiveDepth };
-}
-function getNsByDomainId(node, depth) {
-  const parts = (node.data.domainId || "").split(".");
-  return parts.slice(0, depth).join(".") || "__empty__";
-}
-function getFolderKey(node, depth) {
-  const fp = node.data && node.data.folderPath || [];
-  if (fp.length === 0)
-    return "__root__";
-  return fp.slice(0, depth).join("/") || "__root__";
-}
-function runLayout(nodes, edges, type2, opts) {
-  if (type2 === "TB") {
-    return {
-      nodes: dagreLayout(nodes, edges, "TB"),
-      boxes: [],
-      effectiveDepth: null
-    };
-  }
-  if (type2 === "force") {
-    return {
-      nodes: forceLayout(nodes, edges),
-      boxes: [],
-      effectiveDepth: null
-    };
-  }
-  if (type2 === "circular") {
-    return { nodes: circularLayout(nodes), boxes: [], effectiveDepth: null };
-  }
-  if (type2 === "cluster") {
-    const result = clusterLayout(nodes, edges, getNsByDomainId);
-    return {
-      nodes: result.nodes,
-      boxes: result.boxes,
-      effectiveDepth: result.effectiveDepth
-    };
-  }
-  if (type2 === "folder") {
-    const result = clusterLayout(nodes, edges, getFolderKey);
-    return {
-      nodes: result.nodes,
-      boxes: result.boxes,
-      effectiveDepth: result.effectiveDepth
-    };
-  }
-  return {
-    nodes: dagreLayout(nodes, edges, "LR"),
-    boxes: [],
-    effectiveDepth: null
-  };
-}
-var NODE_WIDTH, NODE_HEIGHT, NODE_COMPACT;
-var init_layout = __esm({
-  "src/web/lib/layout.ts"() {
-    "use strict";
-    NODE_WIDTH = 300;
-    NODE_HEIGHT = 88;
-    NODE_COMPACT = 42;
-  }
-});
-
-// src/web/state/initial.ts
-function readGraphData() {
-  const el = document.getElementById("graph-data");
-  if (!el) {
-    console.warn(
-      "[domains-analyzer] #graph-data \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D \u2014 \u0440\u0435\u043D\u0434\u0435\u0440 \u043F\u0443\u0441\u0442\u043E\u0433\u043E \u0433\u0440\u0430\u0444\u0430"
-    );
-    return { nodes: [], edges: [] };
-  }
-  try {
-    const parsed = JSON.parse(el.textContent || "{}");
-    if (!parsed || typeof parsed !== "object") {
-      return { nodes: [], edges: [] };
-    }
-    if (!Array.isArray(parsed.nodes))
-      parsed.nodes = [];
-    if (!Array.isArray(parsed.edges))
-      parsed.edges = [];
-    return parsed;
-  } catch (err) {
-    console.warn("[domains-analyzer] \u043D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0440\u0430\u0441\u043F\u0430\u0440\u0441\u0438\u0442\u044C #graph-data", err);
-    return { nodes: [], edges: [] };
-  }
-}
-function readRemoteInfo() {
-  const el = document.getElementById("remote-info");
-  if (!el)
-    return null;
-  try {
-    return JSON.parse(el.textContent || "null");
-  } catch {
-    return null;
-  }
-}
-function readRefreshCommand() {
-  const el = document.getElementById("refresh-command");
-  if (!el)
-    return null;
-  try {
-    return JSON.parse(el.textContent || "null");
-  } catch {
-    return null;
-  }
-}
-function buildInitialNodes(data) {
-  const raw = data.nodes.filter((n) => n && n.id && typeof n.id === "string").map((n) => {
-    const domainId = n.domainId || n.id.replace(/^(domain_|missing_|broken_)/, "");
-    return {
-      id: n.id,
-      type: "domainNode",
-      data: {
-        domainId,
-        label: n.label,
-        nodeType: n.group,
-        filePath: n.filePath || null,
-        folderPath: n.folderPath || [],
-        fqidRefs: n.fqidRefs || [],
-        version: n.version,
-        entitiesCount: n.entitiesCount,
-        name: n.name || n.label || "",
-        description: n.description || "",
-        author: n.author || "",
-        tags: Array.isArray(n.tags) ? n.tags : [],
-        updatedAt: n.updatedAt || null,
-        updatedAtSource: n.updatedAtSource || null,
-        createdAt: n.createdAt || null,
-        createdAtSource: n.createdAtSource || null
-      },
-      position: { x: 0, y: 0 }
-    };
-  });
-  const edges = buildInitialEdges(data);
-  return dagreLayout(raw, edges, "LR");
-}
-function buildInitialEdges(data) {
-  return data.edges.filter((e) => e && e.id && e.from && e.to).map((e) => {
-    const isLinkage = e.kind === "linkage";
-    return {
-      id: e.id,
-      source: e.from,
-      target: e.to,
-      type: "smoothstep",
-      label: e.label,
-      data: {
-        fqidRefs: e.fqidRefs || [],
-        linkData: e.linkData || null,
-        fullLabel: e.fullLabel || e.label || e.id,
-        kind: e.kind,
-        refCount: e.refCount,
-        side1Domain: e.side1Domain || null,
-        side2Domain: e.side2Domain || null
-      },
-      markerEnd: {
-        type: "arrowclosed",
-        color: isLinkage ? LINKAGE_COLOR : FQID_COLOR,
-        width: 14,
-        height: 14
-      },
-      style: {
-        stroke: isLinkage ? LINKAGE_COLOR : FQID_COLOR,
-        strokeWidth: 1,
-        opacity: 0.5
-      }
-    };
-  });
-}
-var LINKAGE_COLOR, FQID_COLOR;
-var init_initial = __esm({
-  "src/web/state/initial.ts"() {
-    "use strict";
-    init_layout();
-    LINKAGE_COLOR = "#6366a1";
-    FQID_COLOR = "#4b7c6c";
   }
 });
 
@@ -1380,6 +1444,65 @@ function useGraphFilters() {
     });
     return s;
   }, [displayEdges]);
+  const connectedAmongVisible = useMemo(() => {
+    const baseIds = /* @__PURE__ */ new Set();
+    for (const n of displayNodes) {
+      if (n.type === "clusterNode") {
+        baseIds.add(n.id);
+        continue;
+      }
+      if (hiddenNodeIds.has(n.id))
+        continue;
+      if (bookmarksOnly && !bookmarks.has(n.id))
+        continue;
+      if (tagFilters.size > 0) {
+        const nodeTags = (n.data.tags || []).map(
+          (t2) => String(t2).toLowerCase()
+        );
+        let matchesAny = false;
+        tagFilters.forEach((tag) => {
+          if (nodeTags.indexOf(tag.toLowerCase()) !== -1)
+            matchesAny = true;
+        });
+        if (!matchesAny)
+          continue;
+      }
+      if (onlyInvalid) {
+        const v = validationResults?.get(n.data.domainId);
+        if (!v || v.status !== "invalid")
+          continue;
+      }
+      const t = n.data.nodeType;
+      if (t === "domain" && !filters.domain)
+        continue;
+      if (t === "broken" && !filters.broken)
+        continue;
+      if (t === "missing" && !filters.missing)
+        continue;
+      if (namespaceFilter && !matchesNamespace(n.data.domainId, namespaceFilter))
+        continue;
+      baseIds.add(n.id);
+    }
+    const conn = /* @__PURE__ */ new Set();
+    displayEdges.forEach((e) => {
+      if (!baseIds.has(e.source) || !baseIds.has(e.target))
+        return;
+      conn.add(e.source);
+      conn.add(e.target);
+    });
+    return conn;
+  }, [
+    displayNodes,
+    displayEdges,
+    hiddenNodeIds,
+    bookmarks,
+    bookmarksOnly,
+    tagFilters,
+    onlyInvalid,
+    validationResults,
+    filters,
+    namespaceFilter
+  ]);
   const bidirectionalEdges = useMemo(() => {
     if (!bidirectional)
       return displayEdges;
@@ -1419,7 +1542,7 @@ function useGraphFilters() {
         return false;
       if (namespaceFilter && !matchesNamespace(n.data.domainId, namespaceFilter))
         return false;
-      if (isolatedOnly && (t !== "domain" || connected.has(n.id)))
+      if (isolatedOnly && (t !== "domain" || connectedAmongVisible.has(n.id)))
         return false;
       return true;
     });
@@ -2210,6 +2333,8 @@ function useHotkeys() {
           setCycleHighlight(null);
           setContextMenu(null);
           setPathMode(null);
+          useGraphStore.getState().setPanelNodeId(null);
+          useGraphStore.getState().setPanelOpen(false);
           return;
         }
         if (k === "+" || k === "=") {
@@ -3296,11 +3421,20 @@ var init_executor = __esm({
 });
 
 // src/web/hooks/useSearch.ts
-import { useMemo as useMemo7 } from "react";
+import { useEffect as useEffect4, useMemo as useMemo7, useState as useState2 } from "react";
 function useSearch() {
   const nodes = useGraphStore((s) => s.nodes);
-  const query = useGraphStore((s) => s.searchQuery);
+  const rawQuery = useGraphStore((s) => s.searchQuery);
   const { index, loading, error } = useModelIndex();
+  const [debouncedQuery, setDebouncedQuery] = useState2(rawQuery);
+  useEffect4(() => {
+    if (rawQuery.trim() === "") {
+      setDebouncedQuery("");
+      return;
+    }
+    const t = setTimeout(() => setDebouncedQuery(rawQuery), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [rawQuery]);
   return useMemo7(() => {
     if (loading) {
       return {
@@ -3312,7 +3446,7 @@ function useSearch() {
         ready: false
       };
     }
-    if (!query.trim() || !index) {
+    if (!debouncedQuery.trim() || !index) {
       return {
         results: [],
         total: 0,
@@ -3323,7 +3457,7 @@ function useSearch() {
       };
     }
     try {
-      return executeSearch(query, index, nodes, 200);
+      return executeSearch(debouncedQuery, index, nodes, 200);
     } catch (e) {
       return {
         results: [],
@@ -3334,37 +3468,39 @@ function useSearch() {
         ready: true
       };
     }
-  }, [query, index, nodes, loading]);
+  }, [debouncedQuery, index, nodes, loading]);
 }
+var SEARCH_DEBOUNCE_MS;
 var init_useSearch = __esm({
   "src/web/hooks/useSearch.ts"() {
     "use strict";
     init_useGraphStore();
     init_useModelIndex();
     init_executor();
+    SEARCH_DEBOUNCE_MS = 120;
   }
 });
 
 // src/web/hooks/useValidation.ts
-import { useCallback as useCallback2, useEffect as useEffect4, useRef as useRef2, useState as useState2 } from "react";
+import { useCallback as useCallback2, useEffect as useEffect5, useRef as useRef2, useState as useState3 } from "react";
 function useValidation() {
   const setValidationResults = useGraphStore((s) => s.setValidationResults);
   const available = useGraphStore((s) => s.validationAvailable);
-  const [open2, setOpen] = useState2(false);
-  const [running, setRunning] = useState2(false);
-  const [started, setStarted] = useState2(false);
-  const [progress, setProgress] = useState2({ current: 0, total: 0 });
-  const [logs, setLogs] = useState2([]);
-  const [stats, setStats] = useState2(null);
-  const [cancelled, setCancelled] = useState2(false);
+  const [open2, setOpen] = useState3(false);
+  const [running, setRunning] = useState3(false);
+  const [started, setStarted] = useState3(false);
+  const [progress, setProgress] = useState3({ current: 0, total: 0 });
+  const [logs, setLogs] = useState3([]);
+  const [stats, setStats] = useState3(null);
+  const [cancelled, setCancelled] = useState3(false);
   const abortRef = useRef2(null);
-  useEffect4(() => {
+  useEffect5(() => {
     fetch("/api/validation-available").then((r) => r.json()).then(
       (d) => useGraphStore.getState().setValidationAvailable(!!d.available)
     ).catch(() => {
     });
   }, []);
-  useEffect4(() => {
+  useEffect5(() => {
     fetch("/api/validation-results").then((r) => r.status === 204 ? null : r.json()).then((data) => {
       if (!data || !data.results)
         return;
@@ -3588,7 +3724,7 @@ var init_useNavigation = __esm({
 });
 
 // src/web/hooks/useMonaco.ts
-import { useEffect as useEffect5, useRef as useRef3, useState as useState3 } from "react";
+import { useEffect as useEffect6, useRef as useRef3, useState as useState4 } from "react";
 var init_useMonaco = __esm({
   "src/web/hooks/useMonaco.ts"() {
     "use strict";
@@ -3596,10 +3732,10 @@ var init_useMonaco = __esm({
 });
 
 // src/web/hooks/useMarked.ts
-import { useEffect as useEffect6, useState as useState4 } from "react";
+import { useEffect as useEffect7, useState as useState5 } from "react";
 function useMarked() {
-  const [parse, setParse] = useState4(null);
-  useEffect6(() => {
+  const [parse, setParse] = useState5(null);
+  useEffect7(() => {
     if (parse)
       return;
     if (!markedPromise) {
@@ -5048,12 +5184,12 @@ var init_useExports = __esm({
 });
 
 // src/web/hooks/useInitialFit.ts
-import { useEffect as useEffect7 } from "react";
+import { useEffect as useEffect8 } from "react";
 function useInitialFit(visibleNodesCount) {
   const rfInstance = useGraphStore((s) => s.rfInstance);
   const didInitialFit = useGraphStore((s) => s.didInitialFit);
   const setDidInitialFit = useGraphStore((s) => s.setDidInitialFit);
-  useEffect7(() => {
+  useEffect8(() => {
     if (didInitialFit)
       return;
     if (visibleNodesCount === 0)
@@ -5157,7 +5293,7 @@ var init_cycles = __esm({
 });
 
 // src/web/hooks/useGraphEvents.ts
-import { useEffect as useEffect8 } from "react";
+import { useEffect as useEffect9 } from "react";
 function useGraphEvents({
   displayNodes,
   displayEdges
@@ -5169,7 +5305,7 @@ function useGraphEvents({
   const setPathResult = useGraphStore((s) => s.setPathResult);
   const setPathSel = useGraphStore((s) => s.setPathSel);
   const rfInstance = useGraphStore((s) => s.rfInstance);
-  useEffect8(() => {
+  useEffect9(() => {
     const onFindCycles = () => {
       if (cycleHighlight) {
         setCycleHighlight(null);
@@ -5368,6 +5504,7 @@ function openFileInEditor(filePath, fqid = null, domainIdHint = null) {
   }
   store.setYamlViewerFilePath(filePath);
   store.setYamlViewerFqid(fqid);
+  store.setYamlViewerPendingGoto(fqid ? { kind: "fqid", fqid } : null);
   let domainId = domainIdHint;
   if (!domainId && fqid) {
     const slash = fqid.indexOf("/");
@@ -5534,6 +5671,8 @@ function useNodeInteractions({
     s.setPathSel([]);
     s.setPathMode(null);
     s.setContextMenu(null);
+    s.setPanelNodeId(null);
+    s.setPanelOpen(false);
   }, [tooltip, store]);
   const handlePaneContextMenu = useCallback6((e) => {
     e.preventDefault();
@@ -5607,7 +5746,7 @@ var init_useNodeInteractions = __esm({
 });
 
 // src/web/hooks/useGraphLayout.ts
-import { useCallback as useCallback7, useEffect as useEffect9, useRef as useRef4 } from "react";
+import { useCallback as useCallback7, useEffect as useEffect10, useRef as useRef4 } from "react";
 function useGraphLayout({
   filteredNodes,
   filteredEdges,
@@ -5664,7 +5803,7 @@ function useGraphLayout({
       setClusterGroupCount
     ]
   );
-  useEffect9(() => {
+  useEffect10(() => {
     if (!filteredIdsHash)
       return;
     const key = `${layoutType}:${clusterDepth}:${compact}:${filteredIdsHash}`;
@@ -5721,9 +5860,9 @@ var init_useGraphLayout = __esm({
 });
 
 // src/web/hooks/useGlobalClickDelegation.ts
-import { useEffect as useEffect10 } from "react";
+import { useEffect as useEffect11 } from "react";
 function useGlobalClickDelegation(goto, hideTooltip) {
-  useEffect10(() => {
+  useEffect11(() => {
     const handler = (e) => {
       const target = e.target;
       if (!target || typeof target.closest !== "function")
@@ -5881,12 +6020,12 @@ var init_entities = __esm({
 });
 
 // src/web/components/common/Popover.tsx
-import { useEffect as useEffect11, useRef as useRef5, useState as useState5 } from "react";
+import { useEffect as useEffect12, useRef as useRef5, useState as useState6 } from "react";
 import { jsx, jsxs } from "react/jsx-runtime";
 function Popover({ trigger, children, align = "left", width = 320 }) {
-  const [open2, setOpen] = useState5(false);
+  const [open2, setOpen] = useState6(false);
   const wrapRef = useRef5(null);
-  useEffect11(() => {
+  useEffect12(() => {
     if (!open2)
       return;
     const t = setTimeout(() => {
@@ -5909,7 +6048,7 @@ function Popover({ trigger, children, align = "left", width = 320 }) {
     }, 50);
     return () => clearTimeout(t);
   }, [open2]);
-  useEffect11(() => {
+  useEffect12(() => {
     if (!open2)
       return;
     const onDoc = (e) => {
@@ -5930,7 +6069,7 @@ function Popover({ trigger, children, align = "left", width = 320 }) {
       document.removeEventListener("keydown", onEsc, true);
     };
   }, [open2]);
-  useEffect11(() => {
+  useEffect12(() => {
     const handler = () => setOpen(false);
     document.addEventListener("close-all-popovers", handler);
     return () => document.removeEventListener("close-all-popovers", handler);
@@ -6922,12 +7061,12 @@ var init_ModelMenu = __esm({
 });
 
 // src/web/components/popovers/CacheMenu.tsx
-import { useState as useState6 } from "react";
+import { useState as useState7 } from "react";
 import { jsx as jsx8, jsxs as jsxs7 } from "react/jsx-runtime";
 function CacheMenu({ remoteInfo, close }) {
-  const [refreshing, setRefreshing] = useState6(false);
-  const [error, setError] = useState6(null);
-  const [success, setSuccess] = useState6(null);
+  const [refreshing, setRefreshing] = useState7(false);
+  const [error, setError] = useState7(null);
+  const [success, setSuccess] = useState7(null);
   const isRemote = remoteInfo?.mode !== "hybrid" && !!remoteInfo?.server;
   const onRefresh = async () => {
     setRefreshing(true);
@@ -7406,10 +7545,10 @@ function Toolbar(props) {
     ] }),
     /* @__PURE__ */ jsxs9("div", { className: "toolbar-row2", children: [
       /* @__PURE__ */ jsxs9("div", { className: "toolbar-row2__modes", children: [
-        /* @__PURE__ */ jsxs9(
+        viewMode === "list" && /* @__PURE__ */ jsxs9(
           "button",
           {
-            className: "btn btn--primary",
+            className: "btn btn--primary btn--primary--small",
             onClick: () => useGraphStore.getState().setCreateDomainOpen(true),
             title: "\u0421\u043E\u0437\u0434\u0430\u0442\u044C \u043D\u043E\u0432\u044B\u0439 \u0434\u043E\u043C\u0435\u043D",
             style: { marginRight: 8 },
@@ -9005,13 +9144,13 @@ var init_DomainNode = __esm({
 });
 
 // src/web/components/graph/GroupsOverlay.tsx
-import { useEffect as useEffect12, useRef as useRef7 } from "react";
+import { useEffect as useEffect13, useRef as useRef7 } from "react";
 import { useViewport } from "reactflow";
 import { jsx as jsx29, jsxs as jsxs28 } from "react/jsx-runtime";
 function GroupsOverlay({ boxes }) {
   const svgRef = useRef7(null);
   const viewport = useViewport();
-  useEffect12(() => {
+  useEffect13(() => {
     const svg = svgRef.current;
     if (!svg)
       return;
@@ -9075,7 +9214,7 @@ var init_GroupsOverlay = __esm({
 });
 
 // src/web/components/graph/GraphView.tsx
-import React9, { useEffect as useEffect13, useMemo as useMemo15 } from "react";
+import React9, { useEffect as useEffect14, useMemo as useMemo15 } from "react";
 import ReactFlow, {
   Background,
   BackgroundVariant,
@@ -9100,17 +9239,17 @@ var init_GraphView = __esm({
     GraphViewInner = React9.memo(function GraphViewInner2(props) {
       const rf = useReactFlow();
       const setRfInstance = useGraphStore((s) => s.setRfInstance);
-      useEffect13(() => {
+      useEffect14(() => {
         setRfInstance(rf);
       }, [rf, setRfInstance]);
       const zoomClass = useStore((s) => s.transform[2] < 0.5 ? "hide" : "show");
-      useEffect13(() => {
+      useEffect14(() => {
         const el = document.querySelector(".graph-container");
         if (!el)
           return;
         el.classList.toggle("hide-labels", zoomClass === "hide");
       }, [zoomClass]);
-      useEffect13(() => {
+      useEffect14(() => {
         const el = document.querySelector(".graph-container");
         if (!el)
           return;
@@ -9322,13 +9461,13 @@ var init_useDomainMixins = __esm({
 });
 
 // src/web/components/panels/DomainMixinsPanel.tsx
-import { useState as useState7 } from "react";
+import { useState as useState8 } from "react";
 import { jsx as jsx32, jsxs as jsxs31 } from "react/jsx-runtime";
 function DomainMixinsPanel({ domainId }) {
   const { data, loading, error } = useDomainMixins(domainId);
   const { goto } = useNavigation();
   const store = useGraphStore();
-  const [expandedGroups, setExpandedGroups] = useState7(/* @__PURE__ */ new Set());
+  const [expandedGroups, setExpandedGroups] = useState8(/* @__PURE__ */ new Set());
   const toggleGroup = (source) => {
     setExpandedGroups((prev) => {
       const next = new Set(prev);
@@ -10180,6 +10319,7 @@ var init_SidePanel = __esm({
 });
 
 // src/web/components/layout/DomainListRow.tsx
+import React12 from "react";
 import { Fragment as Fragment6, jsx as jsx38, jsxs as jsxs37 } from "react/jsx-runtime";
 function DomainListRow({
   node,
@@ -10235,12 +10375,53 @@ function DomainListRow({
     e.stopPropagation();
     useGraphStore.getState().toggleBookmark(node.id);
   };
+  const hasDraft = d.hasDraft === true;
+  const status = d.status ?? null;
+  const isDisabled = status === "DISABLED";
+  const handleDraftClick = (e) => {
+    e.stopPropagation();
+    if (!d.filePath) {
+      useGraphStore.getState().showSnackbar("\u0424\u0430\u0439\u043B \u0441\u0445\u0435\u043C\u044B \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D");
+      return;
+    }
+    openFileInEditor(d.filePath, null, d.domainId);
+  };
+  const [toggling, setToggling] = React12.useState(false);
+  const handleToggleStatus = async (e) => {
+    e.stopPropagation();
+    if (toggling)
+      return;
+    setToggling(true);
+    try {
+      const res = await fetch("/api/toggle-domain-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domainId: d.domainId })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        useGraphStore.getState().showSnackbar("\u041E\u0448\u0438\u0431\u043A\u0430 \u0441\u043C\u0435\u043D\u044B \u0441\u0442\u0430\u0442\u0443\u0441\u0430: " + (data.error || `HTTP ${res.status}`));
+        return;
+      }
+      const st = useGraphStore.getState();
+      st.bumpModelVersion();
+      await st.refreshGraphFromServer(true);
+      st.showSnackbar(
+        `\u0421\u0442\u0430\u0442\u0443\u0441 \u0434\u043E\u043C\u0435\u043D\u0430 ${d.domainId}: ${data.status || "?"}`
+      );
+    } catch (err) {
+      useGraphStore.getState().showSnackbar("\u041E\u0448\u0438\u0431\u043A\u0430 \u0441\u043C\u0435\u043D\u044B \u0441\u0442\u0430\u0442\u0443\u0441\u0430: " + (err.message || String(err)));
+    } finally {
+      setToggling(false);
+    }
+  };
   const className = [
     "domain-list-row",
     isSelected ? "domain-list-row--selected" : "",
     isFocused ? "domain-list-row--focused" : "",
     isProblematic ? "domain-list-row--problematic" : "",
-    isFavorite ? "domain-list-row--fav" : ""
+    isFavorite ? "domain-list-row--fav" : "",
+    isDisabled ? "domain-list-row--disabled" : ""
   ].filter(Boolean).join(" ");
   const openEntityInCatalog = (e, fqid) => {
     e.stopPropagation();
@@ -10265,6 +10446,41 @@ function DomainListRow({
               {
                 className: "domain-list-row__badge domain-list-row__badge--" + d.nodeType,
                 children: d.nodeType === "missing" ? "missing" : "broken"
+              }
+            )
+          ] }),
+          (hasDraft || status) && /* @__PURE__ */ jsxs37("div", { className: "domain-list-row__badges", children: [
+            hasDraft && /* @__PURE__ */ jsxs37(
+              "button",
+              {
+                type: "button",
+                className: "domain-list-row__badge domain-list-row__badge--draft",
+                onClick: handleDraftClick,
+                title: "\u0415\u0441\u0442\u044C \u043D\u0435\u043E\u043F\u0443\u0431\u043B\u0438\u043A\u043E\u0432\u0430\u043D\u043D\u044B\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F. \u041A\u043B\u0438\u043A \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440",
+                children: [
+                  /* @__PURE__ */ jsx38(MIcon, { name: "edit_note", size: "sm" }),
+                  /* @__PURE__ */ jsx38("span", { children: "\u0427\u0435\u0440\u043D\u043E\u0432\u0438\u043A" })
+                ]
+              }
+            ),
+            status && /* @__PURE__ */ jsxs37(
+              "button",
+              {
+                type: "button",
+                className: "domain-list-row__badge " + (isDisabled ? "domain-list-row__badge--disabled" : "domain-list-row__badge--enabled"),
+                onClick: handleToggleStatus,
+                disabled: toggling,
+                title: isDisabled ? "\u0414\u043E\u043C\u0435\u043D \u0432\u044B\u043A\u043B\u044E\u0447\u0435\u043D. \u041A\u043B\u0438\u043A \u2014 \u0432\u043A\u043B\u044E\u0447\u0438\u0442\u044C (enableExpertise)" : "\u0414\u043E\u043C\u0435\u043D \u0432\u043A\u043B\u044E\u0447\u0451\u043D. \u041A\u043B\u0438\u043A \u2014 \u0432\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C (disableExpertise)",
+                children: [
+                  /* @__PURE__ */ jsx38(
+                    MIcon,
+                    {
+                      name: isDisabled ? "pause_circle" : "play_circle",
+                      size: "sm"
+                    }
+                  ),
+                  /* @__PURE__ */ jsx38("span", { children: status })
+                ]
               }
             )
           ] }),
@@ -10390,7 +10606,7 @@ var init_DomainListRow = __esm({
 });
 
 // src/web/components/layout/DomainList.tsx
-import React12, { useCallback as useCallback8, useEffect as useEffect14, useMemo as useMemo18, useRef as useRef8 } from "react";
+import React13, { useCallback as useCallback8, useEffect as useEffect15, useMemo as useMemo18, useRef as useRef8 } from "react";
 import { Fragment as Fragment7, jsx as jsx39, jsxs as jsxs38 } from "react/jsx-runtime";
 function sortNodes(nodes, sort) {
   if (sort === "default")
@@ -10468,6 +10684,10 @@ function DomainList() {
   const setOnlyInvalid = useGraphStore((s) => s.setOnlyInvalid);
   const validationResults = useGraphStore((s) => s.validationResults);
   const { index } = useModelIndex();
+  const favCollapsed = useGraphStore(
+    (s) => s.collapsedSections.has("domain-list-favorites")
+  );
+  const toggleFavCollapsed = useGraphStore((s) => s.toggleCollapsedSection);
   const domainNodes = useMemo18(
     () => nodes.filter((n) => n.data.nodeType === "domain"),
     [nodes]
@@ -10572,13 +10792,15 @@ function DomainList() {
   }, [others, grouping]);
   const flatRows = useMemo18(() => {
     const rows = [];
-    favorites.forEach((n) => rows.push({ node: n, isFav: true }));
+    if (!favCollapsed) {
+      favorites.forEach((n) => rows.push({ node: n, isFav: true }));
+    }
     groups.forEach((g) => {
       g.nodes.forEach((n) => rows.push({ node: n, isFav: false }));
     });
     return rows;
-  }, [favorites, groups]);
-  const [focusedIdx, setFocusedIdx] = React12.useState(-1);
+  }, [favorites, groups, favCollapsed]);
+  const [focusedIdx, setFocusedIdx] = React13.useState(-1);
   const bodyRef = useRef8(null);
   const onSelect = useCallback8((nodeId, domainId) => {
     const st = useGraphStore.getState();
@@ -10589,7 +10811,7 @@ function DomainList() {
     st.setPanelOpen(true);
     st.pushNav(domainId);
   }, []);
-  useEffect14(() => {
+  useEffect15(() => {
     if (!panelNodeId)
       return;
     const t = setTimeout(() => {
@@ -10601,7 +10823,7 @@ function DomainList() {
     }, 60);
     return () => clearTimeout(t);
   }, [panelNodeId]);
-  useEffect14(() => {
+  useEffect15(() => {
     setFocusedIdx(-1);
   }, [query, grouping, sort, bookmarksOnly, onlyInvalid]);
   const onKeyDown = (e) => {
@@ -10625,7 +10847,7 @@ function DomainList() {
       }
     }
   };
-  useEffect14(() => {
+  useEffect15(() => {
     if (focusedIdx < 0)
       return;
     const row = flatRows[focusedIdx];
@@ -10772,28 +10994,52 @@ function DomainList() {
       ] })
     ] }),
     /* @__PURE__ */ jsxs38("div", { className: "domain-list__body", ref: bodyRef, children: [
-      favorites.length > 0 && /* @__PURE__ */ jsxs38("div", { className: "domain-list__section domain-list__section--fav", children: [
-        /* @__PURE__ */ jsxs38("div", { className: "domain-list__section-title", children: [
-          /* @__PURE__ */ jsx39(MIcon, { name: "star", size: "sm", fill: true }),
-          "\u0418\u0437\u0431\u0440\u0430\u043D\u043D\u043E\u0435 (",
-          favorites.length,
-          ")"
-        ] }),
-        favorites.map((n) => /* @__PURE__ */ jsx39(
-          DomainListRow,
-          {
-            node: n,
-            isSelected: panelNodeId === n.id,
-            isFavorite: true,
-            isFocused: focusedIdx >= 0 && flatRows[focusedIdx]?.node.id === n.id,
-            entityMatches: entityMatchesByDomain.get(
-              n.data.domainId.toLowerCase()
+      favorites.length > 0 && /* @__PURE__ */ jsxs38(
+        "div",
+        {
+          className: "domain-list__section domain-list__section--fav" + (favCollapsed ? " domain-list__section--collapsed" : ""),
+          children: [
+            /* @__PURE__ */ jsxs38(
+              "button",
+              {
+                type: "button",
+                className: "domain-list__section-title domain-list__section-title--clickable",
+                onClick: () => toggleFavCollapsed("domain-list-favorites", favCollapsed),
+                title: favCollapsed ? "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C" : "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C",
+                children: [
+                  /* @__PURE__ */ jsx39(
+                    MIcon,
+                    {
+                      name: favCollapsed ? "chevron_right" : "expand_more",
+                      size: "sm"
+                    }
+                  ),
+                  /* @__PURE__ */ jsx39(MIcon, { name: "star", size: "sm", fill: true }),
+                  /* @__PURE__ */ jsxs38("span", { children: [
+                    "\u0418\u0437\u0431\u0440\u0430\u043D\u043D\u043E\u0435 (",
+                    favorites.length,
+                    ")"
+                  ] })
+                ]
+              }
             ),
-            onSelect
-          },
-          n.id
-        ))
-      ] }),
+            !favCollapsed && favorites.map((n) => /* @__PURE__ */ jsx39(
+              DomainListRow,
+              {
+                node: n,
+                isSelected: panelNodeId === n.id,
+                isFavorite: true,
+                isFocused: focusedIdx >= 0 && flatRows[focusedIdx]?.node.id === n.id,
+                entityMatches: entityMatchesByDomain.get(
+                  n.data.domainId.toLowerCase()
+                ),
+                onSelect
+              },
+              n.id
+            ))
+          ]
+        }
+      ),
       !bookmarksOnly && groups.map((g) => /* @__PURE__ */ jsxs38("div", { className: "domain-list__section", children: [
         grouping !== "flat" && /* @__PURE__ */ jsxs38("div", { className: "domain-list__section-title", children: [
           /* @__PURE__ */ jsx39("code", { className: "domain-list__section-key", children: g.label }),
@@ -11001,12 +11247,12 @@ var init_GraphArea = __esm({
 });
 
 // src/web/components/common/HoverTooltip.tsx
-import { useEffect as useEffect15 } from "react";
+import { useEffect as useEffect16 } from "react";
 import { jsx as jsx41 } from "react/jsx-runtime";
 function HoverTooltip() {
   const tooltip = useGraphStore((s) => s.tooltip);
   const setTooltip = useGraphStore((s) => s.setTooltip);
-  useEffect15(() => {
+  useEffect16(() => {
     if (!tooltip)
       return;
     const el = document.querySelector(".tooltip");
@@ -11058,11 +11304,11 @@ var init_HoverTooltip = __esm({
 });
 
 // src/web/components/common/ContextMenu.tsx
-import { useEffect as useEffect16, useRef as useRef9 } from "react";
+import { useEffect as useEffect17, useRef as useRef9 } from "react";
 import { jsx as jsx42, jsxs as jsxs40 } from "react/jsx-runtime";
 function ContextMenu({ menu, onClose, onAction }) {
   const ref = useRef9(null);
-  useEffect16(() => {
+  useEffect17(() => {
     if (!menu)
       return;
     const onDoc = (e) => {
@@ -11122,16 +11368,16 @@ var init_ContextMenu = __esm({
 });
 
 // src/web/components/common/Toast.tsx
-import { useEffect as useEffect17, useRef as useRef10, useState as useState8 } from "react";
+import { useEffect as useEffect18, useRef as useRef10, useState as useState9 } from "react";
 import { jsx as jsx43, jsxs as jsxs41 } from "react/jsx-runtime";
 function Toast({ message, actions: actions2 = [], onClose, duration = 2e4, dontShowAgain }) {
-  const [visible, setVisible] = useState8(true);
-  const [copied, setCopied] = useState8(false);
+  const [visible, setVisible] = useState9(true);
+  const [copied, setCopied] = useState9(false);
   const onCloseRef = useRef10(onClose);
-  useEffect17(() => {
+  useEffect18(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
-  useEffect17(() => {
+  useEffect18(() => {
     if (!duration)
       return;
     const t = setTimeout(() => {
@@ -11208,29 +11454,44 @@ var init_Snackbar = __esm({
 });
 
 // src/web/components/modals/HelpModal.tsx
-import { useEffect as useEffect18, useState as useState9 } from "react";
+import {
+  useCallback as useCallback9,
+  useEffect as useEffect19,
+  useLayoutEffect,
+  useMemo as useMemo19,
+  useRef as useRef11,
+  useState as useState10
+} from "react";
 import { jsx as jsx45, jsxs as jsxs43 } from "react/jsx-runtime";
+function slugify(text) {
+  return text.toLowerCase().replace(/[^\w\u0400-\u04FF\s-]/g, "").trim().replace(/\s+/g, "-").replace(/-+/g, "-");
+}
+function stripInline(text) {
+  return text.replace(/\*\*/g, "").replace(/\*/g, "").replace(/`/g, "").trim();
+}
 function HelpModal({ open: open2, onClose }) {
-  const [content, setContent] = useState9("");
-  const [loading, setLoading] = useState9(false);
+  const [content, setContent] = useState10("");
+  const [loading, setLoading] = useState10(false);
+  const [error, setError] = useState10(null);
+  const [toc, setToc] = useState10([]);
+  const [activeId, setActiveId] = useState10(null);
+  const [query, setQuery] = useState10("");
+  const [tocCollapsed, setTocCollapsed] = useState10(false);
   const { parse, ready } = useMarked();
-  useEffect18(() => {
+  const contentRef = useRef11(null);
+  const scrollRef = useRef11(null);
+  useEffect19(() => {
     if (!open2 || content)
       return;
     setLoading(true);
+    setError(null);
     fetch("/user-guide").then((r) => {
       if (!r.ok)
         throw new Error("HTTP " + r.status);
       return r.text();
-    }).then((md) => setContent(md)).catch((err) => setContent("# \u041E\u0448\u0438\u0431\u043A\u0430\n\n" + err.message)).finally(() => setLoading(false));
+    }).then((md) => setContent(md)).catch((err) => setError(err.message)).finally(() => setLoading(false));
   }, [open2, content]);
-  useEffect18(() => {
-    if (!open2 || !content || !ready || !parse)
-      return;
-    if (loading)
-      setLoading(false);
-  }, [open2, content, ready, parse, loading]);
-  useEffect18(() => {
+  useEffect19(() => {
     if (!open2)
       return;
     const onEsc = (e) => {
@@ -11240,29 +11501,227 @@ function HelpModal({ open: open2, onClose }) {
     document.addEventListener("keydown", onEsc, true);
     return () => document.removeEventListener("keydown", onEsc, true);
   }, [open2, onClose]);
+  const html = useMemo19(() => {
+    if (!ready || !parse || !content)
+      return "";
+    return parse(content);
+  }, [ready, parse, content]);
+  useLayoutEffect(() => {
+    if (!html || !contentRef.current)
+      return;
+    const root = contentRef.current;
+    const headings = root.querySelectorAll("h1, h2, h3, h4");
+    const items = [];
+    const seen = /* @__PURE__ */ new Map();
+    headings.forEach((h) => {
+      const levelNum = parseInt(h.tagName.slice(1), 10);
+      if (levelNum < 1 || levelNum > 3)
+        return;
+      const text = stripInline(h.textContent || "");
+      if (!text)
+        return;
+      let id = h.id;
+      if (!id) {
+        const base = slugify(text) || "section";
+        const count = seen.get(base) || 0;
+        seen.set(base, count + 1);
+        id = count > 0 ? `${base}-${count}` : base;
+        h.id = id;
+      }
+      items.push({ level: levelNum, text, id });
+    });
+    setToc(items);
+  }, [html]);
+  const jumpTo = useCallback9((id) => {
+    const scrollEl = scrollRef.current;
+    const container = contentRef.current;
+    if (!scrollEl || !container)
+      return;
+    const el = container.querySelector(
+      `#${CSS.escape(id)}`
+    );
+    if (!el)
+      return;
+    const scrollRect = scrollEl.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    const offsetInContainer = elRect.top - scrollRect.top + scrollEl.scrollTop;
+    const target = Math.max(0, offsetInContainer - HEADING_OFFSET);
+    scrollEl.scrollTo({ top: target, behavior: "smooth" });
+    setActiveId(id);
+  }, []);
+  useEffect19(() => {
+    if (!open2 || toc.length === 0)
+      return;
+    const scrollEl = scrollRef.current;
+    const container = contentRef.current;
+    if (!scrollEl || !container)
+      return;
+    let raf = null;
+    const compute = () => {
+      raf = null;
+      const scrollRect = scrollEl.getBoundingClientRect();
+      const thresholdY = scrollRect.top + Math.min(120, scrollRect.height * 0.2);
+      let active = null;
+      for (const item of toc) {
+        const el = container.querySelector(
+          `#${CSS.escape(item.id)}`
+        );
+        if (!el)
+          continue;
+        if (el.getBoundingClientRect().top <= thresholdY) {
+          active = item.id;
+        } else {
+          break;
+        }
+      }
+      setActiveId((prev) => prev === active ? prev : active);
+    };
+    const onScroll = () => {
+      if (raf != null)
+        return;
+      raf = requestAnimationFrame(compute);
+    };
+    scrollEl.addEventListener("scroll", onScroll, { passive: true });
+    compute();
+    return () => {
+      scrollEl.removeEventListener("scroll", onScroll);
+      if (raf != null)
+        cancelAnimationFrame(raf);
+    };
+  }, [open2, toc]);
+  useEffect19(() => {
+    if (!open2)
+      return;
+    const root = contentRef.current;
+    if (!root)
+      return;
+    const onClick = (e) => {
+      const target = e.target;
+      if (!target)
+        return;
+      const a = target.closest("a");
+      if (!a)
+        return;
+      const href = a.getAttribute("href");
+      if (!href || !href.startsWith("#"))
+        return;
+      const id = decodeURIComponent(href.slice(1));
+      if (!id)
+        return;
+      const el = root.querySelector(
+        `#${CSS.escape(id)}`
+      );
+      if (!el)
+        return;
+      e.preventDefault();
+      jumpTo(id);
+    };
+    root.addEventListener("click", onClick);
+    return () => root.removeEventListener("click", onClick);
+  }, [open2, jumpTo, html]);
+  const filteredToc = useMemo19(() => {
+    const q = query.trim().toLowerCase();
+    if (!q)
+      return toc;
+    return toc.filter((t) => t.text.toLowerCase().includes(q));
+  }, [toc, query]);
   if (!open2)
     return null;
-  const html = ready && parse && content ? parse(content) : "";
-  return /* @__PURE__ */ jsx45("div", { className: "help-overlay", onMouseDown: onClose, children: /* @__PURE__ */ jsxs43("div", { className: "help-modal", onMouseDown: (e) => e.stopPropagation(), children: [
-    /* @__PURE__ */ jsxs43("div", { className: "help-modal__header", children: [
-      /* @__PURE__ */ jsx45("div", { className: "help-modal__title", children: "\u{1F4D6} \u0420\u0443\u043A\u043E\u0432\u043E\u0434\u0441\u0442\u0432\u043E \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044F" }),
-      /* @__PURE__ */ jsx45("button", { className: "help-modal__close", onClick: onClose, title: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C (Esc)", children: "\u2715" })
-    ] }),
-    /* @__PURE__ */ jsx45("div", { className: "help-modal__body", children: loading || !html ? /* @__PURE__ */ jsx45("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430..." }) : /* @__PURE__ */ jsx45("div", { className: "help-content", dangerouslySetInnerHTML: { __html: html } }) })
-  ] }) });
+  return /* @__PURE__ */ jsx45("div", { className: "help-overlay", onMouseDown: onClose, children: /* @__PURE__ */ jsxs43(
+    "div",
+    {
+      className: "help-modal help-modal--toc",
+      onMouseDown: (e) => e.stopPropagation(),
+      children: [
+        /* @__PURE__ */ jsxs43("div", { className: "help-modal__header", children: [
+          /* @__PURE__ */ jsxs43("div", { className: "help-modal__title", children: [
+            /* @__PURE__ */ jsx45(MIcon, { name: "menu_book", size: "sm" }),
+            /* @__PURE__ */ jsx45("span", { children: "\u0420\u0443\u043A\u043E\u0432\u043E\u0434\u0441\u0442\u0432\u043E \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044F" }),
+            toc.length > 0 && /* @__PURE__ */ jsx45("span", { className: "help-modal__badge", children: toc.length })
+          ] }),
+          /* @__PURE__ */ jsxs43("div", { className: "help-modal__actions", children: [
+            /* @__PURE__ */ jsx45(
+              "button",
+              {
+                className: "help-modal__icon-btn",
+                onClick: () => setTocCollapsed((v) => !v),
+                title: tocCollapsed ? "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u043E\u0433\u043B\u0430\u0432\u043B\u0435\u043D\u0438\u0435" : "\u0421\u043A\u0440\u044B\u0442\u044C \u043E\u0433\u043B\u0430\u0432\u043B\u0435\u043D\u0438\u0435",
+                children: /* @__PURE__ */ jsx45(MIcon, { name: "toc", size: "sm" })
+              }
+            ),
+            /* @__PURE__ */ jsx45("button", { className: "help-modal__close", onClick: onClose, children: "\u2715" })
+          ] })
+        ] }),
+        loading && !html ? /* @__PURE__ */ jsx45("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx45("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430..." }) }) : error ? /* @__PURE__ */ jsx45("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs43("div", { style: { color: "var(--danger)" }, children: [
+          "\u041E\u0448\u0438\u0431\u043A\u0430: ",
+          error
+        ] }) }) : /* @__PURE__ */ jsxs43("div", { className: "help-modal__split", children: [
+          !tocCollapsed && toc.length > 0 && /* @__PURE__ */ jsxs43("aside", { className: "help-modal__toc", children: [
+            /* @__PURE__ */ jsxs43("div", { className: "help-modal__toc-search", children: [
+              /* @__PURE__ */ jsx45(MIcon, { name: "search", size: "sm" }),
+              /* @__PURE__ */ jsx45(
+                "input",
+                {
+                  type: "text",
+                  placeholder: "\u041F\u043E\u0438\u0441\u043A \u043F\u043E \u0440\u0430\u0437\u0434\u0435\u043B\u0430\u043C...",
+                  value: query,
+                  onChange: (e) => setQuery(e.target.value),
+                  spellCheck: false
+                }
+              ),
+              query && /* @__PURE__ */ jsx45(
+                "button",
+                {
+                  type: "button",
+                  className: "help-modal__toc-clear",
+                  onClick: () => setQuery(""),
+                  children: "\u2715"
+                }
+              )
+            ] }),
+            /* @__PURE__ */ jsxs43("div", { className: "help-modal__toc-list", children: [
+              filteredToc.map((item) => /* @__PURE__ */ jsx45(
+                "button",
+                {
+                  type: "button",
+                  className: `help-modal__toc-item help-modal__toc-item--h${item.level}` + (activeId === item.id ? " help-modal__toc-item--active" : ""),
+                  onClick: () => jumpTo(item.id),
+                  title: item.text,
+                  children: item.text
+                },
+                item.id
+              )),
+              filteredToc.length === 0 && query && /* @__PURE__ */ jsx45("div", { className: "help-modal__toc-empty", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" })
+            ] })
+          ] }),
+          /* @__PURE__ */ jsx45("div", { className: "help-modal__body", ref: scrollRef, children: /* @__PURE__ */ jsx45(
+            "div",
+            {
+              className: "help-content",
+              ref: contentRef,
+              dangerouslySetInnerHTML: { __html: html }
+            }
+          ) })
+        ] })
+      ]
+    }
+  ) });
 }
+var HEADING_OFFSET;
 var init_HelpModal = __esm({
   "src/web/components/modals/HelpModal.tsx"() {
     "use strict";
     init_useMarked();
+    init_MIcon();
+    HEADING_OFFSET = 16;
   }
 });
 
 // src/web/components/modals/HotkeysModal.tsx
-import React17, { useEffect as useEffect19 } from "react";
+import React18, { useEffect as useEffect20 } from "react";
 import { jsx as jsx46, jsxs as jsxs44 } from "react/jsx-runtime";
 function HotkeysModal({ open: open2, onClose }) {
-  useEffect19(() => {
+  useEffect20(() => {
     if (!open2)
       return;
     const onEsc = (e) => {
@@ -11282,7 +11741,7 @@ function HotkeysModal({ open: open2, onClose }) {
     /* @__PURE__ */ jsx46("div", { className: "hotkeys-body", children: GROUPS.map((g) => /* @__PURE__ */ jsxs44("div", { className: "hotkeys-group", children: [
       /* @__PURE__ */ jsx46("div", { className: "hotkeys-group__title", children: g.title }),
       /* @__PURE__ */ jsx46("div", { className: "hotkeys-group__items", children: g.items.map((item, i) => /* @__PURE__ */ jsxs44("div", { className: "hotkey-row", children: [
-        /* @__PURE__ */ jsx46("div", { className: "hotkey-row__keys", children: item.keys.map((k, ki) => /* @__PURE__ */ jsxs44(React17.Fragment, { children: [
+        /* @__PURE__ */ jsx46("div", { className: "hotkey-row__keys", children: item.keys.map((k, ki) => /* @__PURE__ */ jsxs44(React18.Fragment, { children: [
           ki > 0 && /* @__PURE__ */ jsx46("span", { className: "hotkey-plus", children: "+" }),
           /* @__PURE__ */ jsx46("kbd", { className: "hotkey-key", children: k })
         ] }, ki)) }),
@@ -11400,7 +11859,7 @@ var init_HighlightedText = __esm({
 });
 
 // src/web/components/modals/CommandPalette.tsx
-import React18, { useCallback as useCallback9, useEffect as useEffect20, useMemo as useMemo19, useRef as useRef11, useState as useState10 } from "react";
+import React19, { useCallback as useCallback10, useEffect as useEffect21, useMemo as useMemo20, useRef as useRef12, useState as useState11 } from "react";
 import { Fragment as Fragment9, jsx as jsx48, jsxs as jsxs45 } from "react/jsx-runtime";
 function SearchSyntaxPanel({ onPick }) {
   return /* @__PURE__ */ jsxs45("div", { className: "search-modal__syntax", children: [
@@ -11435,11 +11894,11 @@ function CommandPalette({ commands, onOpenFile }) {
   const setSearchQuery = useGraphStore((s) => s.setSearchQuery);
   const setSearchIndex = useGraphStore((s) => s.setSearchIndex);
   const { goto } = useNavigation();
-  const inputRef = useRef11(null);
-  const [syntaxOpen, setSyntaxOpen] = useState10(false);
+  const inputRef = useRef12(null);
+  const [syntaxOpen, setSyntaxOpen] = useState11(false);
   const searchOutcome = useSearch();
   const results = searchOutcome.results;
-  const dispatchResult = useCallback9((r) => {
+  const dispatchResult = useCallback10((r) => {
     const st = useGraphStore.getState();
     switch (r.kind) {
       case "domain":
@@ -11477,7 +11936,7 @@ function CommandPalette({ commands, onOpenFile }) {
         break;
     }
   }, [goto]);
-  useEffect20(() => {
+  useEffect21(() => {
     if (open2) {
       setTimeout(() => {
         const input = inputRef.current;
@@ -11488,7 +11947,7 @@ function CommandPalette({ commands, onOpenFile }) {
       }, 50);
     }
   }, [open2]);
-  const filteredCommands = useMemo19(() => {
+  const filteredCommands = useMemo20(() => {
     const q = query.trim().toLowerCase();
     if (!q)
       return commands;
@@ -11497,7 +11956,7 @@ function CommandPalette({ commands, onOpenFile }) {
       return hay.indexOf(q) !== -1;
     });
   }, [query, commands]);
-  const commandsBySection = useMemo19(() => {
+  const commandsBySection = useMemo20(() => {
     const map2 = /* @__PURE__ */ new Map();
     filteredCommands.forEach((c) => {
       const s = c.section || "\u041F\u0440\u043E\u0447\u0435\u0435";
@@ -11509,8 +11968,12 @@ function CommandPalette({ commands, onOpenFile }) {
   }, [filteredCommands]);
   const totalItems = filteredCommands.length + results.length;
   const safeIndex = Math.min(index, Math.max(totalItems - 1, 0));
-  const close = useCallback9(() => setSearchOpen(false), [setSearchOpen]);
-  const handleHover = useCallback9(
+  const close = useCallback10(() => {
+    setSearchOpen(false);
+    setSearchQuery("");
+    setSearchIndex(0);
+  }, [setSearchOpen, setSearchQuery, setSearchIndex]);
+  const handleHover = useCallback10(
     (idx) => setSearchIndex(idx),
     [setSearchIndex]
   );
@@ -11541,7 +12004,7 @@ function CommandPalette({ commands, onOpenFile }) {
       }
     }
   };
-  useEffect20(() => {
+  useEffect21(() => {
     if (open2) {
       setSyntaxOpen(false);
       setTimeout(() => {
@@ -11702,7 +12165,7 @@ var init_CommandPalette = __esm({
       { code: "fqid:it.assets.rvision.ru/Server", text: "\u0442\u043E\u0447\u043D\u044B\u0439 \u043F\u0440\u044B\u0436\u043E\u043A" },
       { code: "Server domain:it.*", text: "\u0442\u0435\u043A\u0441\u0442 + \u0441\u0443\u0436\u0435\u043D\u0438\u0435" }
     ];
-    CommandItem = React18.memo(function CommandItem2({
+    CommandItem = React19.memo(function CommandItem2({
       cmd,
       itemIdx,
       isActive,
@@ -11737,7 +12200,7 @@ var init_CommandPalette = __esm({
       pii: "shield_lock",
       lint: "warning"
     };
-    ModelResultItem = React18.memo(function ModelResultItem2({
+    ModelResultItem = React19.memo(function ModelResultItem2({
       result,
       itemIdx,
       isActive,
@@ -11777,7 +12240,7 @@ var init_CommandPalette = __esm({
 });
 
 // src/web/components/modals/ValidationModal.tsx
-import { useMemo as useMemo20, useState as useState11 } from "react";
+import { useMemo as useMemo21, useState as useState12 } from "react";
 import { jsx as jsx49, jsxs as jsxs46 } from "react/jsx-runtime";
 function downloadFile2(content, filename, mime) {
   const blob = new Blob([content], { type: mime });
@@ -11792,9 +12255,9 @@ function ValidationModal(props) {
   const store = useGraphStore();
   const { goto } = useNavigation();
   const v = useValidation();
-  const [scope, setScope] = useState11("all");
-  const [filter, setFilter] = useState11("problems");
-  const [expanded, setExpanded] = useState11(/* @__PURE__ */ new Set());
+  const [scope, setScope] = useState12("all");
+  const [filter, setFilter] = useState12("problems");
+  const [expanded, setExpanded] = useState12(/* @__PURE__ */ new Set());
   const open2 = store.validationOpen;
   const toggleExpanded = (id) => {
     setExpanded((prev) => {
@@ -11806,7 +12269,7 @@ function ValidationModal(props) {
       return s;
     });
   };
-  const filteredLogs = useMemo20(() => {
+  const filteredLogs = useMemo21(() => {
     if (filter === "all")
       return v.logs;
     if (filter === "valid")
@@ -12193,7 +12656,7 @@ var init_topological = __esm({
 });
 
 // src/web/components/modals/TopoSortModal.tsx
-import { useCallback as useCallback10, useEffect as useEffect21, useState as useState12 } from "react";
+import { useCallback as useCallback11, useEffect as useEffect22, useState as useState13 } from "react";
 import { Fragment as Fragment10, jsx as jsx50, jsxs as jsxs47 } from "react/jsx-runtime";
 function downloadFile3(content, filename, mime) {
   const blob = new Blob([content], { type: mime });
@@ -12207,24 +12670,24 @@ function downloadFile3(content, filename, mime) {
 function TopoSortModal(props) {
   const store = useGraphStore();
   const { goto } = useNavigation();
-  const [scope, setScope] = useState12("all");
-  const [includeFqid, setIncludeFqid] = useState12(true);
-  const [includeLinkage, setIncludeLinkage] = useState12(true);
-  const [missingAsSatisfied, setMissingAsSatisfied] = useState12(true);
-  const [excludePattern, setExcludePattern] = useState12("");
-  const [autoBreak, setAutoBreak] = useState12(false);
-  const [result, setResult] = useState12(null);
-  const [expandedLevels, setExpandedLevels] = useState12(/* @__PURE__ */ new Set());
-  const [expandedDeps, setExpandedDeps] = useState12(/* @__PURE__ */ new Set());
+  const [scope, setScope] = useState13("all");
+  const [includeFqid, setIncludeFqid] = useState13(true);
+  const [includeLinkage, setIncludeLinkage] = useState13(true);
+  const [missingAsSatisfied, setMissingAsSatisfied] = useState13(true);
+  const [excludePattern, setExcludePattern] = useState13("");
+  const [autoBreak, setAutoBreak] = useState13(false);
+  const [result, setResult] = useState13(null);
+  const [expandedLevels, setExpandedLevels] = useState13(/* @__PURE__ */ new Set());
+  const [expandedDeps, setExpandedDeps] = useState13(/* @__PURE__ */ new Set());
   const open2 = store.topoOpen;
-  useEffect21(() => {
+  useEffect22(() => {
     if (!open2) {
       setResult(null);
       setExpandedLevels(/* @__PURE__ */ new Set());
       setExpandedDeps(/* @__PURE__ */ new Set());
     }
   }, [open2]);
-  const build = useCallback10(() => {
+  const build = useCallback11(() => {
     const nodeSet = scope === "visible" ? props.visibleDomains : scope === "bookmarked" ? props.bookmarkedDomains : props.allDomains;
     const restrictTo = new Set(nodeSet.map((d) => d.domainId));
     const excludedIds = /* @__PURE__ */ new Set();
@@ -12770,7 +13233,7 @@ var init_learning_path = __esm({
 });
 
 // src/web/components/modals/LearningPathModal.tsx
-import { useCallback as useCallback11, useEffect as useEffect22, useState as useState13 } from "react";
+import { useCallback as useCallback12, useEffect as useEffect23, useState as useState14 } from "react";
 import { jsx as jsx51, jsxs as jsxs48 } from "react/jsx-runtime";
 function downloadFile4(content, filename, mime) {
   const blob = new Blob([content], { type: mime });
@@ -12784,17 +13247,17 @@ function downloadFile4(content, filename, mime) {
 function LearningPathModal(props) {
   const store = useGraphStore();
   const { goto } = useNavigation();
-  const [scope, setScope] = useState13("all");
-  const [path, setPath] = useState13(null);
-  const [expandedStages, setExpandedStages] = useState13(/* @__PURE__ */ new Set([0]));
+  const [scope, setScope] = useState14("all");
+  const [path, setPath] = useState14(null);
+  const [expandedStages, setExpandedStages] = useState14(/* @__PURE__ */ new Set([0]));
   const open2 = store.learningPathOpen;
-  useEffect22(() => {
+  useEffect23(() => {
     if (!open2) {
       setPath(null);
       setExpandedStages(/* @__PURE__ */ new Set([0]));
     }
   }, [open2]);
-  const build = useCallback11(() => {
+  const build = useCallback12(() => {
     let restrictTo = null;
     if (scope === "visible") {
       restrictTo = new Set(props.visibleDomains.map((d) => d.id));
@@ -13081,12 +13544,12 @@ var init_LearningPathModal = __esm({
 });
 
 // src/web/components/modals/TourOverlay.tsx
-import { useEffect as useEffect23, useMemo as useMemo22 } from "react";
+import { useEffect as useEffect24, useMemo as useMemo23 } from "react";
 import { jsx as jsx52, jsxs as jsxs49 } from "react/jsx-runtime";
 function TourOverlay() {
   const store = useGraphStore();
   const tour = store.tour;
-  const allItems = useMemo22(() => {
+  const allItems = useMemo23(() => {
     if (!tour)
       return [];
     const items = [];
@@ -13102,7 +13565,7 @@ function TourOverlay() {
     });
     return items;
   }, [tour]);
-  useEffect23(() => {
+  useEffect24(() => {
     if (!tour)
       return;
     const current2 = allItems[tour.index];
@@ -13121,7 +13584,7 @@ function TourOverlay() {
     store.rfInstance.setCenter(cx, cy, { zoom: 1.5, duration: 700 });
     store.setSelectedNodeId(current2.nodeId);
   }, [tour, tour?.index, allItems, store]);
-  useEffect23(() => {
+  useEffect24(() => {
     if (!tour || !tour.playing)
       return;
     if (tour.index >= allItems.length - 1) {
@@ -13494,7 +13957,7 @@ var init_tree = __esm({
 });
 
 // src/web/components/modals/EntityHierarchyFlow.tsx
-import { useCallback as useCallback12, useEffect as useEffect24, useMemo as useMemo23 } from "react";
+import { useCallback as useCallback13, useEffect as useEffect25, useMemo as useMemo24 } from "react";
 import ReactFlow2, {
   Background as Background2,
   BackgroundVariant as BackgroundVariant2,
@@ -13606,7 +14069,7 @@ function layoutWithDagre(nodes, edges) {
 function EntityHierarchyFlowInner({ tree, onSelect }) {
   const rf = useReactFlow2();
   const rootDomainId = (tree.rootKey.split("/")[0] || "").toLowerCase();
-  const { flowNodes, flowEdges } = useMemo23(() => {
+  const { flowNodes, flowEdges } = useMemo24(() => {
     const initialNodes = tree.nodes.map((n) => {
       const isRoot = n.key === tree.rootKey;
       return {
@@ -13667,7 +14130,7 @@ function EntityHierarchyFlowInner({ tree, onSelect }) {
     });
     return { flowNodes: flowNodes2, flowEdges: flowEdges2 };
   }, [tree, rootDomainId]);
-  useEffect24(() => {
+  useEffect25(() => {
     if (flowNodes.length === 0)
       return;
     const t = setTimeout(() => {
@@ -13678,7 +14141,7 @@ function EntityHierarchyFlowInner({ tree, onSelect }) {
     }, 120);
     return () => clearTimeout(t);
   }, [flowNodes.length, flowEdges.length, rf]);
-  const handleNodeClick = useCallback12(
+  const handleNodeClick = useCallback13(
     (_, node) => {
       if (!node?.data)
         return;
@@ -13743,7 +14206,7 @@ var init_EntityHierarchyFlow = __esm({
 });
 
 // src/web/components/modals/EntityHierarchyModal.tsx
-import { useCallback as useCallback13, useEffect as useEffect25, useMemo as useMemo24, useState as useState14 } from "react";
+import { useCallback as useCallback14, useEffect as useEffect26, useMemo as useMemo25, useState as useState15 } from "react";
 import { Fragment as Fragment12, jsx as jsx54, jsxs as jsxs51 } from "react/jsx-runtime";
 function EntityHierarchyModal({ entities: entities2 }) {
   const setEntityHierarchyOpen = useGraphStore(
@@ -13754,33 +14217,33 @@ function EntityHierarchyModal({ entities: entities2 }) {
     (s) => s.entityHierarchyInitialKey
   );
   const { index: modelIndex } = useModelIndex();
-  const [mode, setMode] = useState14("inherits");
-  const [depth, setDepth] = useState14(2);
-  const [showInheritance, setShowInheritance] = useState14(true);
-  const [showReferences, setShowReferences] = useState14(true);
-  const [showLinkages, setShowLinkages] = useState14(true);
-  const [hideIsolated, setHideIsolated] = useState14(true);
-  const [query, setQuery] = useState14("");
-  const [selectedKey, setSelectedKey] = useState14(null);
-  const [history, setHistory] = useState14([]);
+  const [mode, setMode] = useState15("inherits");
+  const [depth, setDepth] = useState15(2);
+  const [showInheritance, setShowInheritance] = useState15(true);
+  const [showReferences, setShowReferences] = useState15(true);
+  const [showLinkages, setShowLinkages] = useState15(true);
+  const [hideIsolated, setHideIsolated] = useState15(true);
+  const [query, setQuery] = useState15("");
+  const [selectedKey, setSelectedKey] = useState15(null);
+  const [history, setHistory] = useState15([]);
   const open2 = entityHierarchyOpen;
   const initialKey = entityHierarchyInitialKey;
-  const index = useMemo24(() => buildEntityIndex(entities2), [entities2]);
-  useEffect25(() => {
+  const index = useMemo25(() => buildEntityIndex(entities2), [entities2]);
+  useEffect26(() => {
     if (open2 && initialKey) {
       setSelectedKey(initialKey);
       setHistory([]);
       setQuery("");
     }
   }, [open2, initialKey]);
-  useEffect25(() => {
+  useEffect26(() => {
     if (!open2) {
       setQuery("");
       setSelectedKey(null);
       setHistory([]);
     }
   }, [open2]);
-  const handleBack = useCallback13(() => {
+  const handleBack = useCallback14(() => {
     setHistory((prev) => {
       if (prev.length === 0)
         return prev;
@@ -13789,7 +14252,7 @@ function EntityHierarchyModal({ entities: entities2 }) {
       return prev.slice(0, -1);
     });
   }, []);
-  useEffect25(() => {
+  useEffect26(() => {
     if (!open2)
       return;
     const onKey = (e) => {
@@ -13804,7 +14267,7 @@ function EntityHierarchyModal({ entities: entities2 }) {
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
   }, [open2, history, handleBack, setEntityHierarchyOpen]);
-  const searchResults = useMemo24(() => {
+  const searchResults = useMemo25(() => {
     const q = query.trim().toLowerCase();
     if (!q)
       return [];
@@ -13828,7 +14291,7 @@ function EntityHierarchyModal({ entities: entities2 }) {
     });
     return results.sort((a, b) => a.rank - b.rank).slice(0, 200);
   }, [query, entities2, index]);
-  const tree = useMemo24(() => {
+  const tree = useMemo25(() => {
     if (!selectedKey)
       return null;
     if (!modelIndex)
@@ -13842,7 +14305,7 @@ function EntityHierarchyModal({ entities: entities2 }) {
       hideIsolated
     });
   }, [selectedKey, index, modelIndex, mode, depth, showInheritance, showReferences, showLinkages, hideIsolated]);
-  const handleSelect = useCallback13(
+  const handleSelect = useCallback14(
     (node) => {
       if (!node || node.missing)
         return;
@@ -14081,23 +14544,23 @@ var init_EntityHierarchyModal = __esm({
 });
 
 // src/web/components/modals/RulesModal.tsx
-import { useEffect as useEffect26, useState as useState15 } from "react";
+import { useEffect as useEffect27, useState as useState16 } from "react";
 import { jsx as jsx55, jsxs as jsxs52 } from "react/jsx-runtime";
 function RulesModal({ violations }) {
   const store = useGraphStore();
   const { goto } = useNavigation();
-  const [draft, setDraft] = useState15({
+  const [draft, setDraft] = useState16({
     from: "",
     to: "",
     action: "warn",
     message: ""
   });
   const open2 = store.rulesOpen;
-  useEffect26(() => {
+  useEffect27(() => {
     if (!open2)
       setDraft({ from: "", to: "", action: "warn", message: "" });
   }, [open2]);
-  useEffect26(() => {
+  useEffect27(() => {
     if (!open2)
       return;
     const onKey = (e) => {
@@ -14547,13 +15010,13 @@ var init_impact_analysis = __esm({
 });
 
 // src/web/components/modals/ImpactAnalysisPanel.tsx
-import { useMemo as useMemo25 } from "react";
+import { useMemo as useMemo26 } from "react";
 import { jsx as jsx56, jsxs as jsxs53 } from "react/jsx-runtime";
 function ImpactAnalysisPanel(props) {
   const entityFavorites = useGraphStore((s) => s.entityFavorites);
   const isFav = entityFavorites.has(props.fqid);
   const toggleFav = useGraphStore((s) => s.toggleEntityFavorite);
-  const impact = useMemo25(() => computeImpact(props.fqid, props.index), [props.fqid, props.index]);
+  const impact = useMemo26(() => computeImpact(props.fqid, props.index), [props.fqid, props.index]);
   if (!impact) {
     return /* @__PURE__ */ jsxs53("div", { className: "impact-panel", children: [
       /* @__PURE__ */ jsx56("button", { className: "entity-graph-back", onClick: props.onBack, children: "\u2190 \u041D\u0430\u0437\u0430\u0434 \u043A \u0441\u043F\u0438\u0441\u043A\u0443" }),
@@ -14854,19 +15317,19 @@ var init_ImpactAnalysisPanel = __esm({
 });
 
 // src/web/components/modals/EntitiesCatalogModal.tsx
-import React26, { useCallback as useCallback14, useEffect as useEffect27, useMemo as useMemo26, useState as useState16 } from "react";
+import React27, { useCallback as useCallback15, useEffect as useEffect28, useMemo as useMemo27, useState as useState17 } from "react";
 import { jsx as jsx57, jsxs as jsxs54 } from "react/jsx-runtime";
 function EntitiesCatalogModal() {
   const store = useGraphStore();
   const { goto } = useNavigation();
   const { index, loading, error } = useModelIndex();
-  const [filters, setFilters] = useState16(EMPTY_FILTERS);
-  const [selectedFqid, setSelectedFqid] = useState16(null);
-  const [limit, setLimit] = useState16(PAGE_SIZE);
+  const [filters, setFilters] = useState17(EMPTY_FILTERS);
+  const [selectedFqid, setSelectedFqid] = useState17(null);
+  const [limit, setLimit] = useState17(PAGE_SIZE);
   const open2 = store.entityCatalogOpen;
   const entityFavorites = useGraphStore((s) => s.entityFavorites);
   const initialFqid = store.entityCatalogInitialFqid;
-  useEffect27(() => {
+  useEffect28(() => {
     if (!open2)
       return;
     if (!initialFqid)
@@ -14878,28 +15341,28 @@ function EntitiesCatalogModal() {
     setSelectedFqid(initialFqid);
     store.setEntityCatalogInitialFqid(null);
   }, [open2, initialFqid, index, store]);
-  useEffect27(() => {
+  useEffect28(() => {
     if (!selectedFqid)
       return;
     useGraphStore.getState().pushRecentEntity(selectedFqid);
   }, [selectedFqid]);
-  useEffect27(() => {
+  useEffect28(() => {
     setLimit(PAGE_SIZE);
   }, [filters]);
-  const orphanSet = useMemo26(() => {
+  const orphanSet = useMemo27(() => {
     if (!index)
       return /* @__PURE__ */ new Set();
     return new Set(index.stats.orphanEntities);
   }, [index]);
-  const filtered = useMemo26(
+  const filtered = useMemo27(
     () => index ? filterEntities(index, filters) : [],
     [index, filters]
   );
-  const visibleRows = useMemo26(
+  const visibleRows = useMemo27(
     () => filtered.slice(0, limit),
     [filtered, limit]
   );
-  const allDomains = useMemo26(() => {
+  const allDomains = useMemo27(() => {
     if (!index)
       return [];
     const map2 = /* @__PURE__ */ new Map();
@@ -14908,7 +15371,7 @@ function EntitiesCatalogModal() {
     });
     return Array.from(map2.entries()).sort((a, b) => b[1] - a[1]);
   }, [index]);
-  const allTags = useMemo26(() => {
+  const allTags = useMemo27(() => {
     if (!index)
       return [];
     const map2 = /* @__PURE__ */ new Map();
@@ -14920,16 +15383,16 @@ function EntitiesCatalogModal() {
     });
     return Array.from(map2.entries()).sort((a, b) => b[1] - a[1]);
   }, [index]);
-  const handleSelectRow = useCallback14((fqid) => {
+  const handleSelectRow = useCallback15((fqid) => {
     setSelectedFqid(fqid);
   }, []);
-  const handleToggleFav = useCallback14((fqid) => {
+  const handleToggleFav = useCallback15((fqid) => {
     useGraphStore.getState().toggleEntityFavorite(fqid);
   }, []);
-  const handleBack = useCallback14(() => {
+  const handleBack = useCallback15(() => {
     setSelectedFqid(null);
   }, []);
-  const handleGotoDomain = useCallback14(
+  const handleGotoDomain = useCallback15(
     (domainId) => {
       store.setEntityCatalogOpen(false);
       store.setDomainSchemaDomainId(domainId);
@@ -14937,10 +15400,10 @@ function EntitiesCatalogModal() {
     },
     [store]
   );
-  const handleSelectFromImpact = useCallback14((fqid) => {
+  const handleSelectFromImpact = useCallback15((fqid) => {
     setSelectedFqid(fqid);
   }, []);
-  const toggleDomainFilter = useCallback14((domainId) => {
+  const toggleDomainFilter = useCallback15((domainId) => {
     setFilters((prev) => {
       const next = new Set(prev.domains);
       const key = domainId.toLowerCase();
@@ -14951,7 +15414,7 @@ function EntitiesCatalogModal() {
       return { ...prev, domains: next };
     });
   }, []);
-  const toggleTagFilter = useCallback14((tag) => {
+  const toggleTagFilter = useCallback15((tag) => {
     setFilters((prev) => {
       const next = new Set(prev.tags);
       if (next.has(tag))
@@ -15199,7 +15662,7 @@ var init_EntitiesCatalogModal = __esm({
     init_entity_filters();
     init_ImpactAnalysisPanel();
     PAGE_SIZE = 300;
-    EntityRow = React26.memo(function EntityRow2({
+    EntityRow = React27.memo(function EntityRow2({
       entity,
       index,
       isOrphan,
@@ -15298,8 +15761,24 @@ function searchAttributes(index, query, options = {}) {
     count,
     domains: Array.from(domains).sort()
   })).sort((a, b) => b.count - a.count);
+  const MATCH_RANK = {
+    id: 3,
+    name: 2,
+    description: 1
+  };
+  const sorted = hits.slice().sort((a, b) => {
+    const ra = MATCH_RANK[a.matchedBy];
+    const rb = MATCH_RANK[b.matchedBy];
+    if (ra !== rb)
+      return rb - ra;
+    const la = (a.attribute.id || "").length;
+    const lb = (b.attribute.id || "").length;
+    if (la !== lb)
+      return la - lb;
+    return a.key.localeCompare(b.key);
+  });
   return {
-    hits: hits.slice(0, limit),
+    hits: sorted.slice(0, limit),
     byName: byName.slice(0, 100),
     totalHits: hits.length
   };
@@ -15337,23 +15816,23 @@ var init_attribute_search = __esm({
 });
 
 // src/web/components/modals/AttributeFinderModal.tsx
-import React27, { useCallback as useCallback15, useMemo as useMemo27, useState as useState17 } from "react";
+import React28, { useCallback as useCallback16, useMemo as useMemo28, useState as useState18 } from "react";
 import { Fragment as Fragment13, jsx as jsx58, jsxs as jsxs55 } from "react/jsx-runtime";
 function AttributeFinderModal() {
   const store = useGraphStore();
   const { goto } = useNavigation();
   const { index, loading, error } = useModelIndex();
-  const [onlyPii, setOnlyPii] = useState17(false);
-  const [query, setQuery] = useState17("");
-  const [domainFilter, setDomainFilter] = useState17(/* @__PURE__ */ new Set());
-  const [typeFilter, setTypeFilter] = useState17(/* @__PURE__ */ new Set());
-  const [constraintFilter, setConstraintFilter] = useState17("");
-  const [showSummary, setShowSummary] = useState17(true);
-  const [expandedKey, setExpandedKey] = useState17(null);
+  const [onlyPii, setOnlyPii] = useState18(false);
+  const [query, setQuery] = useState18("");
+  const [domainFilter, setDomainFilter] = useState18(/* @__PURE__ */ new Set());
+  const [typeFilter, setTypeFilter] = useState18(/* @__PURE__ */ new Set());
+  const [constraintFilter, setConstraintFilter] = useState18("");
+  const [showSummary, setShowSummary] = useState18(true);
+  const [expandedKey, setExpandedKey] = useState18(null);
   const open2 = store.attributeFinderOpen;
-  const allTypes = useMemo27(() => index ? collectDataTypes(index) : [], [index]);
-  const allConstraints = useMemo27(() => index ? collectConstraints(index) : [], [index]);
-  const allDomains = useMemo27(() => {
+  const allTypes = useMemo28(() => index ? collectDataTypes(index) : [], [index]);
+  const allConstraints = useMemo28(() => index ? collectConstraints(index) : [], [index]);
+  const allDomains = useMemo28(() => {
     if (!index)
       return [];
     const map2 = /* @__PURE__ */ new Map();
@@ -15362,13 +15841,13 @@ function AttributeFinderModal() {
     });
     return Array.from(map2.entries()).sort((a, b) => b[1] - a[1]);
   }, [index]);
-  const toggleHit = useCallback15(
+  const toggleHit = useCallback16(
     (key) => {
       setExpandedKey((prev) => prev === key ? null : key);
     },
     []
   );
-  const openEntity = useCallback15(
+  const openEntity = useCallback16(
     (entity) => {
       goto(entity.domainId);
       store.setEntityCatalogInitialFqid(entity.fqid);
@@ -15377,8 +15856,8 @@ function AttributeFinderModal() {
     },
     [goto, store]
   );
-  const [limit, setLimit] = useState17(300);
-  const result = useMemo27(() => {
+  const [limit, setLimit] = useState18(300);
+  const result = useMemo28(() => {
     if (!index)
       return { hits: [], byName: [], totalHits: 0 };
     return searchAttributes(index, query, {
@@ -15388,12 +15867,12 @@ function AttributeFinderModal() {
       limit
     });
   }, [index, query, domainFilter, typeFilter, constraintFilter, limit]);
-  const piiKeys = useMemo27(() => {
+  const piiKeys = useMemo28(() => {
     if (!index)
       return /* @__PURE__ */ new Set();
     return new Set(index.pii.hits.map((h) => h.key));
   }, [index]);
-  const filteredHits = useMemo27(() => {
+  const filteredHits = useMemo28(() => {
     let hits = result.hits;
     if (onlyPii) {
       hits = hits.filter((h) => piiKeys.has(h.key));
@@ -15651,7 +16130,7 @@ var init_AttributeFinderModal = __esm({
     init_useModelIndex();
     init_MIcon();
     init_attribute_search();
-    AttributeHitRow = React27.memo(function AttributeHitRow2({ hit, query, expanded, isPii, onToggle, onOpenEntity }) {
+    AttributeHitRow = React28.memo(function AttributeHitRow2({ hit, query, expanded, isPii, onToggle, onOpenEntity }) {
       const { attribute, entity, matchedBy } = hit;
       const highlight = (text) => {
         if (!query)
@@ -15966,7 +16445,7 @@ var init_ModalHelp = __esm({
 });
 
 // src/web/components/common/EntityCombobox.tsx
-import { useEffect as useEffect28, useMemo as useMemo28, useRef as useRef12, useState as useState18 } from "react";
+import { useEffect as useEffect29, useMemo as useMemo29, useRef as useRef13, useState as useState19 } from "react";
 import { jsx as jsx60, jsxs as jsxs57 } from "react/jsx-runtime";
 function EntityCombobox({
   value,
@@ -15975,13 +16454,13 @@ function EntityCombobox({
   placeholder = "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C...",
   disabled = false
 }) {
-  const [open2, setOpen] = useState18(false);
-  const [query, setQuery] = useState18("");
-  const [activeIdx, setActiveIdx] = useState18(0);
-  const wrapRef = useRef12(null);
-  const inputRef = useRef12(null);
-  const listRef = useRef12(null);
-  const filtered = useMemo28(() => {
+  const [open2, setOpen] = useState19(false);
+  const [query, setQuery] = useState19("");
+  const [activeIdx, setActiveIdx] = useState19(0);
+  const wrapRef = useRef13(null);
+  const inputRef = useRef13(null);
+  const listRef = useRef13(null);
+  const filtered = useMemo29(() => {
     const q = query.trim().toLowerCase();
     if (!q)
       return entities2;
@@ -15989,14 +16468,14 @@ function EntityCombobox({
       (e) => e.id.toLowerCase().indexOf(q) !== -1 || e.name.toLowerCase().indexOf(q) !== -1
     );
   }, [entities2, query]);
-  useEffect28(() => {
+  useEffect29(() => {
     if (open2) {
       setQuery("");
       setActiveIdx(0);
       setTimeout(() => inputRef.current?.focus(), 30);
     }
   }, [open2]);
-  useEffect28(() => {
+  useEffect29(() => {
     if (!open2)
       return;
     const onDoc = (e) => {
@@ -16007,7 +16486,7 @@ function EntityCombobox({
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open2]);
-  useEffect28(() => {
+  useEffect29(() => {
     if (!open2 || !listRef.current)
       return;
     const el = listRef.current.querySelector(
@@ -16114,11 +16593,11 @@ var init_EntityCombobox = __esm({
 
 // src/web/components/common/Combobox.tsx
 import {
-  useEffect as useEffect29,
-  useLayoutEffect,
-  useMemo as useMemo29,
-  useRef as useRef13,
-  useState as useState19
+  useEffect as useEffect30,
+  useLayoutEffect as useLayoutEffect2,
+  useMemo as useMemo30,
+  useRef as useRef14,
+  useState as useState20
 } from "react";
 import { createPortal } from "react-dom";
 import { jsx as jsx61, jsxs as jsxs58 } from "react/jsx-runtime";
@@ -16133,16 +16612,16 @@ function Combobox({
   disabled = false,
   emptyHint
 }) {
-  const [open2, setOpen] = useState19(false);
-  const [query, setQuery] = useState19("");
-  const [activeIdx, setActiveIdx] = useState19(0);
-  const wrapRef = useRef13(null);
-  const triggerRef = useRef13(null);
-  const inputRef = useRef13(null);
-  const listRef = useRef13(null);
-  const dropdownRef = useRef13(null);
-  const [pos, setPos] = useState19(null);
-  const filtered = useMemo29(() => {
+  const [open2, setOpen] = useState20(false);
+  const [query, setQuery] = useState20("");
+  const [activeIdx, setActiveIdx] = useState20(0);
+  const wrapRef = useRef14(null);
+  const triggerRef = useRef14(null);
+  const inputRef = useRef14(null);
+  const listRef = useRef14(null);
+  const dropdownRef = useRef14(null);
+  const [pos, setPos] = useState20(null);
+  const filtered = useMemo30(() => {
     const q = query.trim().toLowerCase();
     if (!q)
       return options;
@@ -16185,7 +16664,7 @@ function Combobox({
     }
     setPos({ left, top, width, maxHeight });
   };
-  useLayoutEffect(() => {
+  useLayoutEffect2(() => {
     if (!open2) {
       setPos(null);
       return;
@@ -16200,7 +16679,7 @@ function Combobox({
       window.removeEventListener("resize", onResize);
     };
   }, [open2]);
-  useEffect29(() => {
+  useEffect30(() => {
     if (!open2)
       return;
     setQuery("");
@@ -16212,7 +16691,7 @@ function Combobox({
     }, 30);
     return () => clearTimeout(t);
   }, [open2]);
-  useEffect29(() => {
+  useEffect30(() => {
     if (!open2)
       return;
     const onDoc = (e) => {
@@ -16226,7 +16705,7 @@ function Combobox({
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open2]);
-  useEffect29(() => {
+  useEffect30(() => {
     if (!open2 || !listRef.current)
       return;
     const el = listRef.current.querySelector(
@@ -16418,17 +16897,17 @@ var init_common = __esm({
 });
 
 // src/web/components/modals/EntityMatrixModal.tsx
-import { useMemo as useMemo30, useState as useState20 } from "react";
+import { useMemo as useMemo31, useState as useState21 } from "react";
 import { jsx as jsx62, jsxs as jsxs59 } from "react/jsx-runtime";
 function EntityMatrixModal() {
   const store = useGraphStore();
   const { index, loading, error } = useModelIndex();
-  const [showHelp, setShowHelp] = useState20(false);
-  const [domainFilter, setDomainFilter] = useState20("");
-  const [hoveredRow, setHoveredRow] = useState20(null);
-  const [hoveredCol, setHoveredCol] = useState20(null);
+  const [showHelp, setShowHelp] = useState21(false);
+  const [domainFilter, setDomainFilter] = useState21("");
+  const [hoveredRow, setHoveredRow] = useState21(null);
+  const [hoveredCol, setHoveredCol] = useState21(null);
   const open2 = store.entityMatrixOpen;
-  const allDomains = useMemo30(() => {
+  const allDomains = useMemo31(() => {
     if (!index)
       return [];
     const map2 = /* @__PURE__ */ new Map();
@@ -16437,7 +16916,7 @@ function EntityMatrixModal() {
     });
     return Array.from(map2.entries()).sort((a, b) => b[1] - a[1]);
   }, [index]);
-  const matrix = useMemo30(() => {
+  const matrix = useMemo31(() => {
     if (!index)
       return null;
     const domains = domainFilter ? /* @__PURE__ */ new Set([domainFilter.toLowerCase()]) : void 0;
@@ -16655,16 +17134,16 @@ var init_EntityMatrixModal = __esm({
 });
 
 // src/web/hooks/useModelDiff.ts
-import { useEffect as useEffect30, useState as useState21 } from "react";
+import { useEffect as useEffect31, useState as useState22 } from "react";
 function useModelDiff() {
   const modelVersion = useGraphStore((s) => s.modelVersion);
-  const [state, setState] = useState21({
+  const [state, setState] = useState22({
     diff: null,
     hasSnapshot: false,
     loading: true,
     error: null
   });
-  useEffect30(() => {
+  useEffect31(() => {
     let cancelled = false;
     if (!cache2 || cache2.version !== modelVersion) {
       const promise = fetch("/api/model/diff").then((r) => {
@@ -16714,7 +17193,7 @@ var init_useModelDiff = __esm({
 });
 
 // src/web/components/modals/ModelDiffModal.tsx
-import { useMemo as useMemo31, useState as useState22 } from "react";
+import { useMemo as useMemo32, useState as useState23 } from "react";
 import { Fragment as Fragment14, jsx as jsx63, jsxs as jsxs60 } from "react/jsx-runtime";
 function genericSectionLabel(key) {
   return GENERIC_SECTION_LABELS[key] || key;
@@ -16722,12 +17201,12 @@ function genericSectionLabel(key) {
 function ModelDiffModal() {
   const store = useGraphStore();
   const { diff, hasSnapshot, loading, error } = useModelDiff();
-  const [openSections, setOpenSections] = useState22(
+  const [openSections, setOpenSections] = useState23(
     /* @__PURE__ */ new Set(["domains", "added", "removed", "changed"])
   );
-  const [domainFilter, setDomainFilter] = useState22("");
-  const [viewMode, setViewMode] = useState22("domain");
-  const byDomainFiltered = useMemo31(() => {
+  const [domainFilter, setDomainFilter] = useState23("");
+  const [viewMode, setViewMode] = useState23("domain");
+  const byDomainFiltered = useMemo32(() => {
     if (!diff)
       return [];
     if (!domainFilter)
@@ -16746,7 +17225,7 @@ function ModelDiffModal() {
       return s;
     });
   };
-  const filtered = useMemo31(() => {
+  const filtered = useMemo32(() => {
     if (!diff)
       return null;
     if (!domainFilter)
@@ -16774,7 +17253,7 @@ function ModelDiffModal() {
       }
     };
   }, [diff, domainFilter]);
-  const allDomains = useMemo31(() => {
+  const allDomains = useMemo32(() => {
     if (!diff)
       return [];
     const set2 = /* @__PURE__ */ new Set();
@@ -16785,7 +17264,7 @@ function ModelDiffModal() {
     diff.mixins.removed.forEach((m) => set2.add(m.domainId));
     return Array.from(set2).sort();
   }, [diff]);
-  const totalChanges = useMemo31(() => {
+  const totalChanges = useMemo32(() => {
     if (!diff)
       return 0;
     const s = diff.stats;
@@ -17170,7 +17649,7 @@ function DiffChangedEntity({ change }) {
   ] });
 }
 function DomainChangeCard({ summary }) {
-  const [open2, setOpen] = useState22(true);
+  const [open2, setOpen] = useState23(true);
   const store = useGraphStore((s) => s);
   const setModelDiffOpen = useGraphStore((s) => s.setModelDiffOpen);
   const setEntityCatalogInitialFqid = useGraphStore((s) => s.setEntityCatalogInitialFqid);
@@ -17523,15 +18002,15 @@ var init_validation = __esm({
 });
 
 // src/web/components/modals/ModelValidationModal.tsx
-import { useMemo as useMemo32, useState as useState23 } from "react";
+import { useMemo as useMemo33, useState as useState24 } from "react";
 import { Fragment as Fragment15, jsx as jsx64, jsxs as jsxs61 } from "react/jsx-runtime";
 function ModelValidationModal() {
   const store = useGraphStore();
   const { index, loading, error } = useModelIndex();
-  const [showHelp, setShowHelp] = useState23(false);
-  const [expanded, setExpanded] = useState23(/* @__PURE__ */ new Set());
+  const [showHelp, setShowHelp] = useState24(false);
+  const [expanded, setExpanded] = useState24(/* @__PURE__ */ new Set());
   const open2 = store.modelValidationOpen;
-  const summary = useMemo32(
+  const summary = useMemo33(
     () => index ? summarizeValidation(index.stats, index.orphans) : null,
     [index]
   );
@@ -17905,15 +18384,15 @@ var init_glossary = __esm({
 });
 
 // src/web/components/modals/GlossaryModal.tsx
-import { useMemo as useMemo33, useState as useState24 } from "react";
+import { useMemo as useMemo34, useState as useState25 } from "react";
 import { Fragment as Fragment16, jsx as jsx65, jsxs as jsxs62 } from "react/jsx-runtime";
 function GlossaryModal() {
   const store = useGraphStore();
   const { index, loading, error } = useModelIndex();
-  const [tab, setTab] = useState24("entity");
-  const [query, setQuery] = useState24("");
+  const [tab, setTab] = useState25("entity");
+  const [query, setQuery] = useState25("");
   const open2 = store.glossaryOpen;
-  const sections = useMemo33(() => {
+  const sections = useMemo34(() => {
     if (!index)
       return [];
     if (tab === "entity")
@@ -17922,15 +18401,15 @@ function GlossaryModal() {
       return buildAttributeGlossary(index);
     return buildDataTypeGlossary(index);
   }, [index, tab]);
-  const filtered = useMemo33(
+  const filtered = useMemo34(
     () => filterGlossarySections(sections, query),
     [sections, query]
   );
-  const totalCount = useMemo33(
+  const totalCount = useMemo34(
     () => sections.reduce((s, sec) => s + sec.entries.length, 0),
     [sections]
   );
-  const filteredCount = useMemo33(
+  const filteredCount = useMemo34(
     () => filtered.reduce((s, sec) => s + sec.entries.length, 0),
     [filtered]
   );
@@ -18380,7 +18859,7 @@ var init_entity_graph = __esm({
 });
 
 // src/web/components/common/DomainCombobox.tsx
-import { useEffect as useEffect31, useMemo as useMemo34, useRef as useRef14, useState as useState25 } from "react";
+import { useEffect as useEffect32, useMemo as useMemo35, useRef as useRef15, useState as useState26 } from "react";
 import { jsx as jsx66, jsxs as jsxs63 } from "react/jsx-runtime";
 function DomainCombobox({
   value,
@@ -18388,19 +18867,19 @@ function DomainCombobox({
   domains,
   placeholder = "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u043E\u043C\u0435\u043D..."
 }) {
-  const [open2, setOpen] = useState25(false);
-  const [query, setQuery] = useState25("");
-  const [activeIdx, setActiveIdx] = useState25(0);
-  const wrapRef = useRef14(null);
-  const inputRef = useRef14(null);
-  const listRef = useRef14(null);
-  const filtered = useMemo34(() => {
+  const [open2, setOpen] = useState26(false);
+  const [query, setQuery] = useState26("");
+  const [activeIdx, setActiveIdx] = useState26(0);
+  const wrapRef = useRef15(null);
+  const inputRef = useRef15(null);
+  const listRef = useRef15(null);
+  const filtered = useMemo35(() => {
     const q = query.trim().toLowerCase();
     if (!q)
       return domains;
     return domains.filter(([d]) => d.toLowerCase().indexOf(q) !== -1);
   }, [domains, query]);
-  useEffect31(() => {
+  useEffect32(() => {
     if (open2) {
       setQuery(value || "");
       setActiveIdx(0);
@@ -18409,7 +18888,7 @@ function DomainCombobox({
       setQuery("");
     }
   }, [open2, value]);
-  useEffect31(() => {
+  useEffect32(() => {
     if (!open2)
       return;
     const onDoc = (e) => {
@@ -18419,7 +18898,7 @@ function DomainCombobox({
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open2]);
-  useEffect31(() => {
+  useEffect32(() => {
     if (!open2 || !listRef.current)
       return;
     const el = listRef.current.querySelector(".domain-combobox__option--active");
@@ -18522,7 +19001,7 @@ var init_DomainCombobox = __esm({
 });
 
 // src/web/components/modals/EntityGraphModal.tsx
-import { useCallback as useCallback16, useEffect as useEffect32, useMemo as useMemo35, useState as useState26 } from "react";
+import { useCallback as useCallback17, useEffect as useEffect33, useMemo as useMemo36, useState as useState27 } from "react";
 import ReactFlow3, {
   Background as Background3,
   BackgroundVariant as BackgroundVariant3,
@@ -18620,11 +19099,11 @@ function EntityGraphInner({
   onNodeClick
 }) {
   const rf = useReactFlow3();
-  const positionedNodes = useMemo35(
+  const positionedNodes = useMemo36(
     () => nodes.map((n) => ({ ...n, sourcePosition, targetPosition })),
     [nodes, sourcePosition, targetPosition]
   );
-  useEffect32(() => {
+  useEffect33(() => {
     if (nodes.length === 0)
       return;
     const t = setTimeout(() => {
@@ -18670,9 +19149,9 @@ function EntityGraphInner({
 function EntityGraphModal() {
   const store = useGraphStore();
   const { index, loading, error } = useModelIndex();
-  const [showHelp, setShowHelp] = useState26(false);
+  const [showHelp, setShowHelp] = useState27(false);
   const open2 = store.entityGraphOpen;
-  const allDomains = useMemo35(() => {
+  const allDomains = useMemo36(() => {
     if (!index)
       return [];
     const map2 = /* @__PURE__ */ new Map();
@@ -18681,7 +19160,7 @@ function EntityGraphModal() {
     });
     return Array.from(map2.entries()).sort((a, b) => b[1] - a[1]);
   }, [index]);
-  useEffect32(() => {
+  useEffect33(() => {
     if (!open2)
       return;
     if (!index)
@@ -18697,7 +19176,7 @@ function EntityGraphModal() {
   const showInheritance = store.entityGraphShowInheritance;
   const showReferences = store.entityGraphShowReferences;
   const showLinkages = store.entityGraphShowLinkages;
-  const graph = useMemo35(() => {
+  const graph = useMemo36(() => {
     if (!index || !domainFilter)
       return null;
     const domains = /* @__PURE__ */ new Set([domainFilter.toLowerCase()]);
@@ -18709,7 +19188,7 @@ function EntityGraphModal() {
       limit: GRAPH_LIMIT
     });
   }, [index, domainFilter, showInheritance, showReferences, showLinkages]);
-  const rfNodes = useMemo35(() => {
+  const rfNodes = useMemo36(() => {
     if (!graph)
       return [];
     return graph.nodes.map((n) => ({
@@ -18726,7 +19205,7 @@ function EntityGraphModal() {
       height: NODE_HEIGHT4
     }));
   }, [graph]);
-  const rfEdges = useMemo35(() => {
+  const rfEdges = useMemo36(() => {
     if (!graph)
       return [];
     return graph.edges.map((e) => {
@@ -18758,18 +19237,18 @@ function EntityGraphModal() {
       };
     });
   }, [graph]);
-  const laidNodes = useMemo35(
+  const laidNodes = useMemo36(
     () => layoutGraph(rfNodes, rfEdges, rankdir),
     [rfNodes, rfEdges, rankdir]
   );
-  const handleNodeClick = useCallback16(
+  const handleNodeClick = useCallback17(
     (fqid) => {
       store.setEntityCatalogInitialFqid(fqid);
       store.setEntityCatalogOpen(true);
     },
     [store]
   );
-  const handleExportClassDiagram = useCallback16(() => {
+  const handleExportClassDiagram = useCallback17(() => {
     if (!graph)
       return;
     downloadEntityClassDiagram(
@@ -19401,7 +19880,7 @@ var init_DomainSchemaHelpers = __esm({
 });
 
 // src/web/components/modals/DomainSchemaSectionItems.tsx
-import React35, { useMemo as useMemo36 } from "react";
+import React36, { useMemo as useMemo37 } from "react";
 import { jsx as jsx68, jsxs as jsxs65 } from "react/jsx-runtime";
 function IssueBadge({ issues }) {
   if (issues.length === 0)
@@ -19472,8 +19951,8 @@ function InheritanceChain({
   index,
   onOpenEntity
 }) {
-  const ancestors = useMemo36(() => findAncestorChain(fqid, index), [fqid, index]);
-  const children = useMemo36(() => {
+  const ancestors = useMemo37(() => findAncestorChain(fqid, index), [fqid, index]);
+  const children = useMemo37(() => {
     const fqids = index.entityChildrenByFqid[fqid] || [];
     return fqids.map((f) => index.entitiesByFqid[f]).filter((x) => !!x);
   }, [fqid, index]);
@@ -19482,7 +19961,7 @@ function InheritanceChain({
   return /* @__PURE__ */ jsxs65("div", { className: "domain-schema-inheritance", children: [
     ancestors.length > 0 && /* @__PURE__ */ jsxs65("div", { className: "domain-schema-inheritance__row", children: [
       /* @__PURE__ */ jsx68("span", { className: "domain-schema-inheritance__label", children: "\u0420\u043E\u0434\u0438\u0442\u0435\u043B\u0438:" }),
-      ancestors.map((a) => /* @__PURE__ */ jsxs65(React35.Fragment, { children: [
+      ancestors.map((a) => /* @__PURE__ */ jsxs65(React36.Fragment, { children: [
         /* @__PURE__ */ jsxs65(
           "button",
           {
@@ -19699,7 +20178,7 @@ function SectionItems({
         return null;
       const entityKey2 = `entity:${e.id}`;
       const isExpanded = expandedItems.has(entityKey2);
-      return /* @__PURE__ */ jsxs65(React35.Fragment, { children: [
+      return /* @__PURE__ */ jsxs65(React36.Fragment, { children: [
         /* @__PURE__ */ jsxs65(
           "div",
           {
@@ -19754,7 +20233,7 @@ function SectionItems({
     return /* @__PURE__ */ jsx68("div", { className: "domain-schema-list", children: items.map((d) => {
       const dtKey = `dataType:${d.id}`;
       const isExpanded = expandedItems.has(dtKey);
-      return /* @__PURE__ */ jsxs65(React35.Fragment, { children: [
+      return /* @__PURE__ */ jsxs65(React36.Fragment, { children: [
         /* @__PURE__ */ jsxs65(
           "div",
           {
@@ -19794,7 +20273,7 @@ function SectionItems({
     return /* @__PURE__ */ jsx68("div", { className: "domain-schema-list", children: items.map((s) => {
       const scenarioKey = `scenario:${s.id}`;
       const isExpanded = expandedItems.has(scenarioKey);
-      return /* @__PURE__ */ jsxs65(React35.Fragment, { children: [
+      return /* @__PURE__ */ jsxs65(React36.Fragment, { children: [
         /* @__PURE__ */ jsxs65(
           "div",
           {
@@ -19877,7 +20356,7 @@ function SectionItems({
     return /* @__PURE__ */ jsx68("div", { className: "domain-schema-list", children: items.map((r) => {
       const ruleKey = `uiRule:${r.id}`;
       const isExpanded = expandedItems.has(ruleKey);
-      return /* @__PURE__ */ jsxs65(React35.Fragment, { children: [
+      return /* @__PURE__ */ jsxs65(React36.Fragment, { children: [
         /* @__PURE__ */ jsxs65(
           "div",
           {
@@ -20480,7 +20959,7 @@ var init_GenerateSchemaProfiles = __esm({
 });
 
 // src/web/components/modals/DomainSchemaModal.tsx
-import { useEffect as useEffect33, useMemo as useMemo37, useState as useState27 } from "react";
+import React37, { useEffect as useEffect34, useMemo as useMemo38, useState as useState28 } from "react";
 import { Fragment as Fragment18, jsx as jsx69, jsxs as jsxs66 } from "react/jsx-runtime";
 function DomainSchemaModal() {
   const store = useGraphStore();
@@ -20488,12 +20967,12 @@ function DomainSchemaModal() {
   const { index, loading, error } = useModelIndex();
   const open2 = store.domainSchemaOpen;
   const domainId = store.domainSchemaDomainId;
-  const [expanded, setExpanded] = useState27(
+  const [expanded, setExpanded] = useState28(
     /* @__PURE__ */ new Set(["entities", "linkages"])
   );
-  const [expandedItems, setExpandedItems] = useState27(/* @__PURE__ */ new Set());
-  const [query, setQuery] = useState27("");
-  const [onlyProblematic, setOnlyProblematic] = useState27(false);
+  const [expandedItems, setExpandedItems] = useState28(/* @__PURE__ */ new Set());
+  const [query, setQuery] = useState28("");
+  const [onlyProblematic, setOnlyProblematic] = useState28(false);
   const prefillQuery = useGraphStore((s) => s.domainSchemaPrefillQuery);
   const prefillOnlyProblematic = useGraphStore(
     (s) => s.domainSchemaPrefillOnlyProblematic
@@ -20502,8 +20981,8 @@ function DomainSchemaModal() {
   const setPrefillOnlyProblematic = useGraphStore(
     (s) => s.setDomainSchemaPrefillOnlyProblematic
   );
-  const [enrichMenuOpen, setEnrichMenuOpen] = useState27(false);
-  useEffect33(() => {
+  const [enrichMenuOpen, setEnrichMenuOpen] = useState28(false);
+  useEffect34(() => {
     if (!open2)
       return;
     if (prefillQuery !== null) {
@@ -20521,12 +21000,61 @@ function DomainSchemaModal() {
     setPrefillQuery,
     setPrefillOnlyProblematic
   ]);
-  const schema2 = useMemo37(() => {
+  const schema2 = useMemo38(() => {
     if (!index || !domainId)
       return null;
     return index.schemasByDomain[domainId] || null;
   }, [index, domainId]);
-  const issuesByEntity = useMemo37(() => {
+  const currentNode = useMemo38(() => {
+    if (!schema2)
+      return null;
+    return store.nodes.find(
+      (n) => n.data.domainId === schema2.domainId
+    ) || null;
+  }, [schema2, store.nodes]);
+  const [statusToggling, setStatusToggling] = React37.useState(false);
+  const handleDraftClick = () => {
+    if (!currentNode?.data.filePath) {
+      useGraphStore.getState().showSnackbar("\u0424\u0430\u0439\u043B \u0441\u0445\u0435\u043C\u044B \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D");
+      return;
+    }
+    openFileInEditor(
+      currentNode.data.filePath,
+      null,
+      currentNode.data.domainId
+    );
+    store.setDomainSchemaOpen(false);
+  };
+  const handleToggleStatus = async () => {
+    if (!schema2 || statusToggling)
+      return;
+    setStatusToggling(true);
+    try {
+      const res = await fetch("/api/toggle-domain-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domainId: schema2.domainId })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        useGraphStore.getState().showSnackbar(
+          "\u041E\u0448\u0438\u0431\u043A\u0430 \u0441\u043C\u0435\u043D\u044B \u0441\u0442\u0430\u0442\u0443\u0441\u0430: " + (data.error || `HTTP ${res.status}`)
+        );
+        return;
+      }
+      const st = useGraphStore.getState();
+      st.bumpModelVersion();
+      await st.refreshGraphFromServer(true);
+      st.showSnackbar(
+        `\u0421\u0442\u0430\u0442\u0443\u0441 \u0434\u043E\u043C\u0435\u043D\u0430 ${schema2.domainId}: ${data.status || "?"}`
+      );
+    } catch (err) {
+      useGraphStore.getState().showSnackbar("\u041E\u0448\u0438\u0431\u043A\u0430 \u0441\u043C\u0435\u043D\u044B \u0441\u0442\u0430\u0442\u0443\u0441\u0430: " + (err.message || String(err)));
+    } finally {
+      setStatusToggling(false);
+    }
+  };
+  const issuesByEntity = useMemo38(() => {
     const m = /* @__PURE__ */ new Map();
     if (!index || !domainId)
       return m;
@@ -20541,7 +21069,7 @@ function DomainSchemaModal() {
     });
     return m;
   }, [index, domainId]);
-  const issuesByAttribute = useMemo37(() => {
+  const issuesByAttribute = useMemo38(() => {
     const m = /* @__PURE__ */ new Map();
     if (!index || !domainId)
       return m;
@@ -20557,12 +21085,12 @@ function DomainSchemaModal() {
     });
     return m;
   }, [index, domainId]);
-  const domainIssues = useMemo37(() => {
+  const domainIssues = useMemo38(() => {
     if (!index || !domainId)
       return [];
     return index.lint.lintReport.issues.filter((i) => i.domainId === domainId);
   }, [index, domainId]);
-  const counters = useMemo37(() => {
+  const counters = useMemo38(() => {
     if (!schema2)
       return null;
     const totalAttrs = schema2.sections.entities.items.reduce(
@@ -20607,7 +21135,7 @@ function DomainSchemaModal() {
     store.setEntityCatalogInitialFqid(fqid);
     store.setEntityCatalogOpen(true);
   };
-  const filteredSections = useMemo37(() => {
+  const filteredSections = useMemo38(() => {
     if (!schema2)
       return null;
     if (!query.trim() && !onlyProblematic)
@@ -20644,7 +21172,7 @@ function DomainSchemaModal() {
     });
     return result;
   }, [schema2, query, onlyProblematic, index, domainId, issuesByEntity]);
-  useEffect33(() => {
+  useEffect34(() => {
     if (!onlyProblematic)
       return;
     setExpanded((prev) => {
@@ -20726,6 +21254,41 @@ function DomainSchemaModal() {
                     "v",
                     schema2.metadata.version
                   ] })
+                ] }),
+                /* @__PURE__ */ jsxs66("div", { className: "domain-schema-header__badges", children: [
+                  currentNode?.data.hasDraft && /* @__PURE__ */ jsxs66(
+                    "button",
+                    {
+                      type: "button",
+                      className: "domain-schema-badge domain-schema-badge--draft",
+                      onClick: handleDraftClick,
+                      title: "\u0415\u0441\u0442\u044C \u043D\u0435\u043E\u043F\u0443\u0431\u043B\u0438\u043A\u043E\u0432\u0430\u043D\u043D\u044B\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F. \u041A\u043B\u0438\u043A \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440",
+                      children: [
+                        /* @__PURE__ */ jsx69(MIcon, { name: "edit_note", size: "sm" }),
+                        /* @__PURE__ */ jsx69("span", { children: "\u0427\u0435\u0440\u043D\u043E\u0432\u0438\u043A" })
+                      ]
+                    }
+                  ),
+                  currentNode?.data.status && /* @__PURE__ */ jsxs66(
+                    "button",
+                    {
+                      type: "button",
+                      className: "domain-schema-badge " + (currentNode.data.status === "DISABLED" ? "domain-schema-badge--disabled" : "domain-schema-badge--enabled"),
+                      onClick: handleToggleStatus,
+                      disabled: statusToggling,
+                      title: currentNode.data.status === "DISABLED" ? "\u041A\u043B\u0438\u043A \u2014 \u0432\u043A\u043B\u044E\u0447\u0438\u0442\u044C (enableExpertise)" : "\u041A\u043B\u0438\u043A \u2014 \u0432\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C (disableExpertise)",
+                      children: [
+                        /* @__PURE__ */ jsx69(
+                          MIcon,
+                          {
+                            name: currentNode.data.status === "DISABLED" ? "pause_circle" : "play_circle",
+                            size: "sm"
+                          }
+                        ),
+                        /* @__PURE__ */ jsx69("span", { children: currentNode.data.status })
+                      ]
+                    }
+                  )
                 ] }),
                 schema2.metadata.description && /* @__PURE__ */ jsx69("div", { className: "domain-schema-header__desc", children: schema2.metadata.description }),
                 /* @__PURE__ */ jsxs66("div", { className: "domain-schema-header__meta", children: [
@@ -21104,18 +21667,18 @@ var init_DomainSchemaModal = __esm({
 });
 
 // src/web/hooks/useLintBaselines.ts
-import { useCallback as useCallback17, useEffect as useEffect34, useState as useState28 } from "react";
+import { useCallback as useCallback18, useEffect as useEffect35, useState as useState29 } from "react";
 function invalidateLintBaselinesCache() {
   cache3 = null;
 }
 function useLintBaselines() {
   const modelVersion = useGraphStore((s) => s.modelVersion);
-  const [state, setState] = useState28({
+  const [state, setState] = useState29({
     baselines: {},
     loading: true,
     error: null
   });
-  useEffect34(() => {
+  useEffect35(() => {
     let cancelled = false;
     if (!cache3 || cache3.modelVersion !== modelVersion) {
       const promise = fetch("/api/lint-baseline").then((r) => {
@@ -21141,7 +21704,7 @@ function useLintBaselines() {
       cancelled = true;
     };
   }, [modelVersion]);
-  const takeBaseline = useCallback17(async (domainId) => {
+  const takeBaseline = useCallback18(async (domainId) => {
     const res = await fetch(
       `/api/lint-baseline?domainId=${encodeURIComponent(domainId)}`,
       { method: "POST" }
@@ -21158,7 +21721,7 @@ function useLintBaselines() {
     invalidateLintBaselinesCache();
     return data.baseline;
   }, []);
-  const takeBaselinesBatch = useCallback17(async (domainIds) => {
+  const takeBaselinesBatch = useCallback18(async (domainIds) => {
     const updates = {};
     for (const domainId of domainIds) {
       try {
@@ -21182,7 +21745,7 @@ function useLintBaselines() {
     invalidateLintBaselinesCache();
     return updates;
   }, []);
-  const clearBaseline = useCallback17(async (domainId) => {
+  const clearBaseline = useCallback18(async (domainId) => {
     const res = await fetch(
       `/api/lint-baseline?domainId=${encodeURIComponent(domainId)}`,
       { method: "DELETE" }
@@ -21273,15 +21836,15 @@ var init_lint_baseline = __esm({
 });
 
 // src/web/components/modals/LintModal.tsx
-import { useCallback as useCallback18, useMemo as useMemo38, useState as useState29 } from "react";
+import { useCallback as useCallback19, useMemo as useMemo39, useState as useState30 } from "react";
 import { Fragment as Fragment19, jsx as jsx70, jsxs as jsxs67 } from "react/jsx-runtime";
 function LintModal() {
   const { index, loading, error } = useModelIndex();
-  const [filterCategory, setFilterCategory] = useState29("");
-  const [filterDomain, setFilterDomain] = useState29("");
-  const [expandedRules, setExpandedRules] = useState29(/* @__PURE__ */ new Set());
-  const [showHelp, setShowHelp] = useState29(false);
-  const [onlyNew, setOnlyNew] = useState29(false);
+  const [filterCategory, setFilterCategory] = useState30("");
+  const [filterDomain, setFilterDomain] = useState30("");
+  const [expandedRules, setExpandedRules] = useState30(/* @__PURE__ */ new Set());
+  const [showHelp, setShowHelp] = useState30(false);
+  const [onlyNew, setOnlyNew] = useState30(false);
   const {
     baselines,
     takeBaseline,
@@ -21291,14 +21854,14 @@ function LintModal() {
   const open2 = useGraphStore((s) => s.lintOpen);
   const nodes = useGraphStore((s) => s.nodes);
   const report = index?.lint.lintReport ?? null;
-  const allDomains = useMemo38(() => {
+  const allDomains = useMemo39(() => {
     if (!report)
       return [];
     const set2 = /* @__PURE__ */ new Set();
     report.issues.forEach((i) => set2.add(i.domainId));
     return Array.from(set2).sort();
   }, [report]);
-  const newIssueKeysByDomain = useMemo38(() => {
+  const newIssueKeysByDomain = useMemo39(() => {
     const result = /* @__PURE__ */ new Map();
     if (!report)
       return result;
@@ -21364,7 +21927,7 @@ function LintModal() {
       alert("\u041E\u0448\u0438\u0431\u043A\u0430: " + e.message);
     }
   };
-  const isIssueNew = useCallback18(
+  const isIssueNew = useCallback19(
     (issue) => {
       const keys = newIssueKeysByDomain.get(issue.domainId);
       if (!keys)
@@ -21373,7 +21936,7 @@ function LintModal() {
     },
     [newIssueKeysByDomain]
   );
-  const filteredIssues = useMemo38(() => {
+  const filteredIssues = useMemo39(() => {
     if (!report)
       return [];
     return report.issues.filter((i) => {
@@ -21389,7 +21952,7 @@ function LintModal() {
       return true;
     });
   }, [report, filterCategory, filterDomain, onlyNew, isIssueNew]);
-  const newIssueCount = useMemo38(() => {
+  const newIssueCount = useMemo39(() => {
     if (!report)
       return 0;
     let count = 0;
@@ -21403,7 +21966,7 @@ function LintModal() {
     }
     return count;
   }, [report, filterCategory, filterDomain, isIssueNew]);
-  const unbaselinedDomainCount = useMemo38(() => {
+  const unbaselinedDomainCount = useMemo39(() => {
     if (!report)
       return 0;
     const domains = new Set(report.issues.map((i) => i.domainId));
@@ -21413,7 +21976,7 @@ function LintModal() {
         count++;
     return count;
   }, [report, baselines]);
-  const grouped = useMemo38(() => {
+  const grouped = useMemo39(() => {
     const map2 = /* @__PURE__ */ new Map();
     filteredIssues.forEach((i) => {
       if (!map2.has(i.ruleId)) {
@@ -21990,16 +22553,16 @@ var init_attribute_matrix = __esm({
 });
 
 // src/web/components/modals/AttributeMatrixModal.tsx
-import { useMemo as useMemo39, useState as useState30 } from "react";
+import { useMemo as useMemo40, useState as useState31 } from "react";
 import { jsx as jsx71, jsxs as jsxs68 } from "react/jsx-runtime";
 function AttributeMatrixModal() {
   const store = useGraphStore();
   const { index, loading, error } = useModelIndex();
   const open2 = store.attributeMatrixOpen;
-  const [domainFilter, setDomainFilter] = useState30("");
-  const [minOccurrences, setMinOccurrences] = useState30(2);
-  const [onlyInconsistent, setOnlyInconsistent] = useState30(false);
-  const allDomains = useMemo39(() => {
+  const [domainFilter, setDomainFilter] = useState31("");
+  const [minOccurrences, setMinOccurrences] = useState31(2);
+  const [onlyInconsistent, setOnlyInconsistent] = useState31(false);
+  const allDomains = useMemo40(() => {
     if (!index)
       return [];
     const map2 = /* @__PURE__ */ new Map();
@@ -22008,7 +22571,7 @@ function AttributeMatrixModal() {
     });
     return Array.from(map2.entries()).sort((a, b) => b[1] - a[1]);
   }, [index]);
-  const matrix = useMemo39(() => {
+  const matrix = useMemo40(() => {
     if (!index)
       return null;
     return buildAttributeMatrix(index, {
@@ -22018,7 +22581,7 @@ function AttributeMatrixModal() {
       maxRows: 100
     });
   }, [index, domainFilter, minOccurrences]);
-  const visibleColumns = useMemo39(() => {
+  const visibleColumns = useMemo40(() => {
     if (!matrix)
       return [];
     if (!onlyInconsistent)
@@ -22171,17 +22734,17 @@ var init_AttributeMatrixModal = __esm({
 });
 
 // src/web/components/modals/MartinMetricsModal.tsx
-import { useMemo as useMemo40, useState as useState31 } from "react";
+import { useMemo as useMemo41, useState as useState32 } from "react";
 import { jsx as jsx72, jsxs as jsxs69 } from "react/jsx-runtime";
 function MartinMetricsModal() {
   const store = useGraphStore();
   const { index, loading, error } = useModelIndex();
-  const [showHelp, setShowHelp] = useState31(false);
+  const [showHelp, setShowHelp] = useState32(false);
   const open2 = store.martinOpen;
-  const [sortBy, setSortBy] = useState31("distance");
-  const [filterZone, setFilterZone] = useState31("");
+  const [sortBy, setSortBy] = useState32("distance");
+  const [filterZone, setFilterZone] = useState32("");
   const report = index?.martin ?? null;
-  const sorted = useMemo40(() => {
+  const sorted = useMemo41(() => {
     if (!report)
       return [];
     let arr = [...report.metrics];
@@ -22642,18 +23205,18 @@ var init_domain_compare = __esm({
 });
 
 // src/web/components/modals/DomainCompareModal.tsx
-import { useEffect as useEffect35, useMemo as useMemo41, useState as useState32 } from "react";
+import { useEffect as useEffect36, useMemo as useMemo42, useState as useState33 } from "react";
 import { Fragment as Fragment20, jsx as jsx73, jsxs as jsxs70 } from "react/jsx-runtime";
 function DomainCompareModal() {
   const store = useGraphStore();
   const { index, loading, error } = useModelIndex();
   const { goto } = useNavigation();
   const open2 = store.domainCompareOpen;
-  const [domainA, setDomainA] = useState32("");
-  const [domainB, setDomainB] = useState32("");
+  const [domainA, setDomainA] = useState33("");
+  const [domainB, setDomainB] = useState33("");
   const prefillA = useGraphStore((s) => s.domainComparePrefillA);
   const setPrefillA = useGraphStore((s) => s.setDomainComparePrefillA);
-  useEffect35(() => {
+  useEffect36(() => {
     if (!open2)
       return;
     if (prefillA) {
@@ -22661,7 +23224,7 @@ function DomainCompareModal() {
       setPrefillA(null);
     }
   }, [open2, prefillA, setPrefillA]);
-  const allDomains = useMemo41(() => {
+  const allDomains = useMemo42(() => {
     if (!index)
       return [];
     const map2 = /* @__PURE__ */ new Map();
@@ -22670,7 +23233,7 @@ function DomainCompareModal() {
     });
     return Array.from(map2.entries()).sort((a, b) => b[1] - a[1]);
   }, [index]);
-  const result = useMemo41(() => {
+  const result = useMemo42(() => {
     if (!index || !domainA || !domainB || domainA === domainB)
       return null;
     return compareDomains(index, domainA, domainB);
@@ -23133,7 +23696,7 @@ var init_pii_markdown = __esm({
 });
 
 // src/web/components/modals/PiiModal.tsx
-import { useEffect as useEffect36, useMemo as useMemo42, useState as useState33 } from "react";
+import { useEffect as useEffect37, useMemo as useMemo43, useState as useState34 } from "react";
 import { jsx as jsx74, jsxs as jsxs71 } from "react/jsx-runtime";
 function loadIgnored() {
   try {
@@ -23153,16 +23716,16 @@ function PiiModal() {
   const store = useGraphStore();
   const { index, loading, error } = useModelIndex();
   const open2 = store.piiOpen;
-  const [ignored, setIgnored] = useState33(loadIgnored);
-  const [filterSeverity, setFilterSeverity] = useState33("");
-  const [filterCategory, setFilterCategory] = useState33("");
-  const [showHelp, setShowHelp] = useState33(false);
-  const [filterDomain, setFilterDomain] = useState33("");
+  const [ignored, setIgnored] = useState34(loadIgnored);
+  const [filterSeverity, setFilterSeverity] = useState34("");
+  const [filterCategory, setFilterCategory] = useState34("");
+  const [showHelp, setShowHelp] = useState34(false);
+  const [filterDomain, setFilterDomain] = useState34("");
   const piiInitialDomain = useGraphStore((s) => s.piiInitialDomain);
   const piiInitialSeverity = useGraphStore((s) => s.piiInitialSeverity);
   const setPiiInitialDomain = useGraphStore((s) => s.setPiiInitialDomain);
   const setPiiInitialSeverity = useGraphStore((s) => s.setPiiInitialSeverity);
-  useEffect36(() => {
+  useEffect37(() => {
     if (!open2)
       return;
     if (piiInitialDomain !== null) {
@@ -23181,7 +23744,7 @@ function PiiModal() {
     setPiiInitialSeverity
   ]);
   const report = index?.pii ?? null;
-  const visibleHits = useMemo42(() => {
+  const visibleHits = useMemo43(() => {
     if (!report)
       return [];
     return report.hits.filter((h) => {
@@ -23199,7 +23762,7 @@ function PiiModal() {
       return true;
     });
   }, [report, ignored, filterSeverity, filterCategory, filterDomain]);
-  const grouped = useMemo42(() => {
+  const grouped = useMemo43(() => {
     const map2 = /* @__PURE__ */ new Map();
     SEVERITY_ORDER2.forEach((s) => map2.set(s, []));
     visibleHits.forEach((h) => {
@@ -23533,9 +24096,9 @@ var init_PiiModal = __esm({
 });
 
 // src/web/hooks/useYamlContent.ts
-import { useEffect as useEffect37, useState as useState34 } from "react";
+import { useEffect as useEffect38, useState as useState35 } from "react";
 function useYamlContent(filePath, reloadKey = 0, fresh = false) {
-  const [state, setState] = useState34({
+  const [state, setState] = useState35({
     content: "",
     loading: !!filePath,
     error: null,
@@ -23543,7 +24106,7 @@ function useYamlContent(filePath, reloadKey = 0, fresh = false) {
     contentSource: null,
     meta: null
   });
-  useEffect37(() => {
+  useEffect38(() => {
     if (!filePath) {
       setState({
         content: "",
@@ -23635,7 +24198,7 @@ var init_useYamlContent = __esm({
 });
 
 // src/web/hooks/useMonacoLoader.ts
-import { useEffect as useEffect38, useState as useState35 } from "react";
+import { useEffect as useEffect39, useState as useState36 } from "react";
 function preloadMonaco() {
   if (isLoaded)
     return Promise.resolve();
@@ -23681,9 +24244,9 @@ function preloadMonaco() {
   return loadPromise;
 }
 function useMonacoLoader() {
-  const [ready, setReady] = useState35(isLoaded);
-  const [error, setError] = useState35(null);
-  useEffect38(() => {
+  const [ready, setReady] = useState36(isLoaded);
+  const [error, setError] = useState36(null);
+  useEffect39(() => {
     if (ready)
       return;
     let cancelled = false;
@@ -47631,12 +48194,12 @@ var init_yaml_search = __esm({
 // src/web/components/modals/YamlSearchPanel.tsx
 import {
   forwardRef,
-  useCallback as useCallback19,
-  useEffect as useEffect39,
+  useCallback as useCallback20,
+  useEffect as useEffect40,
   useImperativeHandle,
-  useMemo as useMemo43,
-  useRef as useRef15,
-  useState as useState36
+  useMemo as useMemo44,
+  useRef as useRef16,
+  useState as useState37
 } from "react";
 import { jsx as jsx76, jsxs as jsxs73 } from "react/jsx-runtime";
 function SearchGroup({ group, activeMatch, expanded, onToggle, onSelect }) {
@@ -47696,17 +48259,17 @@ var init_YamlSearchPanel = __esm({
           onEscape,
           onJump
         } = props;
-        const inputRef = useRef15(null);
-        const [result, setResult] = useState36(null);
-        const [activeMatch, setActiveMatch] = useState36(null);
-        const [expanded, setExpanded] = useState36(/* @__PURE__ */ new Set());
+        const inputRef = useRef16(null);
+        const [result, setResult] = useState37(null);
+        const [activeMatch, setActiveMatch] = useState37(null);
+        const [expanded, setExpanded] = useState37(/* @__PURE__ */ new Set());
         useImperativeHandle(ref, () => ({
           focusInput: () => {
             inputRef.current?.focus();
             inputRef.current?.select();
           }
         }), []);
-        useEffect39(() => {
+        useEffect40(() => {
           if (!query) {
             setResult(null);
             onResultChange(null);
@@ -47729,7 +48292,7 @@ var init_YamlSearchPanel = __esm({
           options.wholeWord,
           options.includeComments
         ]);
-        useEffect39(() => {
+        useEffect40(() => {
           if (!activeMatch || !result)
             return;
           const still = result.groups.some(
@@ -47742,14 +48305,14 @@ var init_YamlSearchPanel = __esm({
             onActiveMatchChange(null);
           }
         }, [result]);
-        useEffect39(() => {
+        useEffect40(() => {
           if (!result) {
             setExpanded(/* @__PURE__ */ new Set());
             return;
           }
           setExpanded(new Set(result.groups.map((g) => g.sectionKey)));
         }, [result]);
-        const flatMatches = useMemo43(() => {
+        const flatMatches = useMemo44(() => {
           if (!result)
             return [];
           const out = [];
@@ -47758,7 +48321,7 @@ var init_YamlSearchPanel = __esm({
               out.push(m);
           return out;
         }, [result]);
-        const selectMatch = useCallback19(
+        const selectMatch = useCallback20(
           (m) => {
             setActiveMatch(m);
             onActiveMatchChange(m);
@@ -47767,7 +48330,7 @@ var init_YamlSearchPanel = __esm({
           },
           [onActiveMatchChange, onJump]
         );
-        const stepMatch = useCallback19(
+        const stepMatch = useCallback20(
           (delta) => {
             if (flatMatches.length === 0)
               return;
@@ -47823,7 +48386,7 @@ var init_YamlSearchPanel = __esm({
             return next;
           });
         };
-        useEffect39(() => {
+        useEffect40(() => {
           const el = inputRef.current;
           if (!el)
             return;
@@ -52149,7 +52712,7 @@ var init_local_recheck = __esm({
 });
 
 // src/web/components/modals/SectionQuickNav.tsx
-import { useEffect as useEffect40, useMemo as useMemo44, useRef as useRef16, useState as useState37 } from "react";
+import { useEffect as useEffect41, useMemo as useMemo45, useRef as useRef17, useState as useState38 } from "react";
 import { jsx as jsx77, jsxs as jsxs74 } from "react/jsx-runtime";
 function SectionQuickNav({
   lineMap,
@@ -52158,9 +52721,9 @@ function SectionQuickNav({
   onJump,
   enabled = true
 }) {
-  const [expanded, setExpanded] = useState37(false);
-  const closeTimer = useRef16(null);
-  const activeKey = useMemo44(() => {
+  const [expanded, setExpanded] = useState38(false);
+  const closeTimer = useRef17(null);
+  const activeKey = useMemo45(() => {
     let active = null;
     for (const s of lineMap.sections) {
       if (s.line <= topLine)
@@ -52180,7 +52743,7 @@ function SectionQuickNav({
     cancelClose();
     closeTimer.current = setTimeout(() => setExpanded(false), ms);
   };
-  useEffect40(() => {
+  useEffect41(() => {
     if (!autoOpenSignal)
       return;
     if (!enabled)
@@ -52189,7 +52752,7 @@ function SectionQuickNav({
     scheduleClose();
     return cancelClose;
   }, [autoOpenSignal, enabled]);
-  useEffect40(() => cancelClose, []);
+  useEffect41(() => cancelClose, []);
   if (lineMap.sections.length === 0)
     return null;
   return /* @__PURE__ */ jsxs74(
@@ -56905,7 +57468,7 @@ var init_unused_analysis = __esm({
 });
 
 // src/web/components/common/Hint.tsx
-import { useId, useCallback as useCallback20, useEffect as useEffect41, useLayoutEffect as useLayoutEffect2, useRef as useRef17, useState as useState38 } from "react";
+import { useId, useCallback as useCallback21, useEffect as useEffect42, useLayoutEffect as useLayoutEffect3, useRef as useRef18, useState as useState39 } from "react";
 import { createPortal as createPortal2 } from "react-dom";
 import { Fragment as Fragment21, jsx as jsx78, jsxs as jsxs75 } from "react/jsx-runtime";
 function setActiveHint(id) {
@@ -56915,8 +57478,8 @@ function setActiveHint(id) {
   }
 }
 function useActiveHint() {
-  const [active, setActive] = useState38(activeHintId);
-  useEffect41(() => {
+  const [active, setActive] = useState39(activeHintId);
+  useEffect42(() => {
     hintListeners.add(setActive);
     return () => {
       hintListeners.delete(setActive);
@@ -56927,10 +57490,10 @@ function useActiveHint() {
 function Hint({ char, info, children, className }) {
   const hintId = useId();
   const activeId = useActiveHint();
-  const [isHovered, setIsHovered] = useState38(false);
-  const ref = useRef17(null);
+  const [isHovered, setIsHovered] = useState39(false);
+  const ref = useRef18(null);
   const data = info ?? (char ? HINTS[char] : null);
-  const timeoutRef = useRef17();
+  const timeoutRef = useRef18();
   if (!data) {
     return /* @__PURE__ */ jsx78(Fragment21, { children: children ?? (char ? /* @__PURE__ */ jsx78("kbd", { children: char }) : null) });
   }
@@ -56964,9 +57527,9 @@ function Hint({ char, info, children, className }) {
   );
 }
 function HintTooltip({ info, anchor }) {
-  const [coords, setCoords] = useState38(null);
-  const ref = useRef17(null);
-  const calculate = useCallback20(() => {
+  const [coords, setCoords] = useState39(null);
+  const ref = useRef18(null);
+  const calculate = useCallback21(() => {
     if (!anchor || !ref.current)
       return;
     const el = ref.current;
@@ -57006,10 +57569,10 @@ function HintTooltip({ info, anchor }) {
       return { left, top, maxHeight };
     });
   }, [anchor]);
-  useLayoutEffect2(() => {
+  useLayoutEffect3(() => {
     calculate();
   }, [calculate]);
-  useEffect41(() => {
+  useEffect42(() => {
     if (!anchor)
       return;
     let rafId;
@@ -57222,7 +57785,7 @@ var init_Hint = __esm({
 });
 
 // src/web/components/modals/YamlQuickJump.tsx
-import { useEffect as useEffect42, useMemo as useMemo45, useRef as useRef18, useState as useState39 } from "react";
+import { useEffect as useEffect43, useMemo as useMemo46, useRef as useRef19, useState as useState40 } from "react";
 import { createPortal as createPortal3 } from "react-dom";
 import { Fragment as Fragment22, jsx as jsx79, jsxs as jsxs76 } from "react/jsx-runtime";
 function loadFavorites() {
@@ -57693,18 +58256,18 @@ function YamlQuickJump({
   onSelect,
   onClose
 }) {
-  const [query, setQuery] = useState39(initialQuery || "");
-  const [activeIdx, setActiveIdx] = useState39(0);
-  const inputRef = useRef18(null);
-  const listRef = useRef18(null);
-  const hoverTimerRef = useRef18(null);
-  const [hoverPreview, setHoverPreview] = useState39(
+  const [query, setQuery] = useState40(initialQuery || "");
+  const [activeIdx, setActiveIdx] = useState40(0);
+  const inputRef = useRef19(null);
+  const listRef = useRef19(null);
+  const hoverTimerRef = useRef19(null);
+  const [hoverPreview, setHoverPreview] = useState40(
     null
   );
-  const [favorites, setFavorites] = useState39(() => loadFavorites());
-  const [shareCopied, setShareCopied] = useState39(false);
-  const [helpOpen, setHelpOpen] = useState39(false);
-  useEffect42(() => {
+  const [favorites, setFavorites] = useState40(() => loadFavorites());
+  const [shareCopied, setShareCopied] = useState40(false);
+  const [helpOpen, setHelpOpen] = useState40(false);
+  useEffect43(() => {
     if (!open)
       setHelpOpen(false);
   }, [open]);
@@ -57756,16 +58319,16 @@ function YamlQuickJump({
       return next;
     });
   };
-  const [history, setHistory] = useState39([]);
-  const [historyIdx, setHistoryIdx] = useState39(-1);
-  const lines = useMemo45(() => content.split("\n"), [content]);
+  const [history, setHistory] = useState40([]);
+  const [historyIdx, setHistoryIdx] = useState40(-1);
+  const lines = useMemo46(() => content.split("\n"), [content]);
   const totalLines = lines.length;
-  const lineStarts = useMemo45(() => buildLineStarts2(content), [content]);
-  const indexItems = useMemo45(
+  const lineStarts = useMemo46(() => buildLineStarts2(content), [content]);
+  const indexItems = useMemo46(
     () => buildIndex(lineMap, index, domainId),
     [lineMap, index, domainId]
   );
-  useEffect42(() => {
+  useEffect43(() => {
     if (initialQuery !== null && initialQuery !== void 0) {
       setQuery(initialQuery);
     }
@@ -57780,7 +58343,7 @@ function YamlQuickJump({
   const isLineMode = !!lineMatch;
   const lineNumberValue = isLineMode ? Math.min(parseInt(lineMatch[1], 10) || 1, totalLines) : null;
   const lineColumnValue = isLineMode && lineMatch[2] ? Math.max(1, parseInt(lineMatch[2], 10)) : 1;
-  const fqidEntity = useMemo45(() => {
+  const fqidEntity = useMemo46(() => {
     if (!index || sectionQuery !== null || isSearchMode)
       return null;
     if (isHelpMode || isIssuesMode || isAttrMode)
@@ -57790,7 +58353,7 @@ function YamlQuickJump({
       return null;
     return index.entitiesByFqid[q.toLowerCase()] || null;
   }, [trimmed, index, sectionQuery, isSearchMode, isHelpMode, isIssuesMode, isAttrMode]);
-  const groupedSuggestions = useMemo45(() => {
+  const groupedSuggestions = useMemo46(() => {
     if (query.startsWith("~")) {
       const term = query.slice(1).trim().toLowerCase();
       const cur = cursorLine || 1;
@@ -58419,35 +58982,35 @@ function YamlQuickJump({
     trimmed,
     favorites
   ]);
-  const flatSuggestions = useMemo45(
+  const flatSuggestions = useMemo46(
     () => groupedSuggestions.flatMap((g) => g.items),
     [groupedSuggestions]
   );
-  useEffect42(() => {
+  useEffect43(() => {
     setActiveIdx(0);
     setHoverPreview(null);
   }, [query]);
-  useEffect42(() => {
+  useEffect43(() => {
     const t = setTimeout(() => {
       inputRef.current?.focus();
       inputRef.current?.select();
     }, 20);
     return () => clearTimeout(t);
   }, []);
-  useEffect42(() => {
+  useEffect43(() => {
     const el = listRef.current?.querySelector(
       ".yaml-quickjump-item--active"
     );
     el?.scrollIntoView({ block: "nearest" });
   }, [activeIdx]);
-  useEffect42(() => {
+  useEffect43(() => {
     return () => {
       if (hoverTimerRef.current != null) {
         window.clearTimeout(hoverTimerRef.current);
       }
     };
   }, []);
-  useEffect42(() => {
+  useEffect43(() => {
     const handler = (e) => {
       if (e.key === "Escape") {
         e.preventDefault();
@@ -64828,7 +65391,7 @@ var init_version_impact = __esm({
 });
 
 // src/web/components/modals/YamlViewerModal.tsx
-import React45, { useCallback as useCallback21, useDeferredValue, useEffect as useEffect43, useLayoutEffect as useLayoutEffect3, useMemo as useMemo46, useRef as useRef19, useState as useState40 } from "react";
+import React46, { useCallback as useCallback22, useDeferredValue, useEffect as useEffect44, useLayoutEffect as useLayoutEffect4, useMemo as useMemo47, useRef as useRef20, useState as useState41 } from "react";
 import { Fragment as Fragment23, jsx as jsx80, jsxs as jsxs77 } from "react/jsx-runtime";
 function extractTopLevelVersion(text) {
   if (!text)
@@ -64882,13 +65445,13 @@ function YamlViewerModal() {
   const setPendingBlock = useGraphStore((s) => s.setYamlViewerPendingBlock);
   const yamlQuickNavEnabled = useGraphStore((s) => s.yamlQuickNavEnabled);
   const setYamlQuickNavEnabled = useGraphStore((s) => s.setYamlQuickNavEnabled);
-  const [lastKnownMtime, setLastKnownMtime] = useState40(0);
-  const [lastEditAt, setLastEditAt] = useState40(null);
-  const remoteInfo = useMemo46(() => readRemoteInfo(), []);
+  const [lastKnownMtime, setLastKnownMtime] = useState41(0);
+  const [lastEditAt, setLastEditAt] = useState41(null);
+  const remoteInfo = useMemo47(() => readRemoteInfo(), []);
   const mode = !remoteInfo?.server ? "local" : remoteInfo.mode === "hybrid" ? "hybrid" : "remote";
-  const [reloadKey, setReloadKey] = useState40(0);
+  const [reloadKey, setReloadKey] = useState41(0);
   const CHECKS_ENABLED_KEY = "dg-yaml-checks-enabled";
-  const [checksEnabled, setChecksEnabled] = useState40(() => {
+  const [checksEnabled, setChecksEnabled] = useState41(() => {
     try {
       const v = localStorage.getItem(CHECKS_ENABLED_KEY);
       return v === null ? true : v === "true";
@@ -64896,7 +65459,7 @@ function YamlViewerModal() {
       return true;
     }
   });
-  const toggleChecks = useCallback21(() => {
+  const toggleChecks = useCallback22(() => {
     setChecksEnabled((prev) => {
       const next = !prev;
       try {
@@ -64906,7 +65469,7 @@ function YamlViewerModal() {
       return next;
     });
   }, []);
-  useEffect43(() => {
+  useEffect44(() => {
     if (open2)
       setReloadKey((k) => k + 1);
   }, [open2]);
@@ -64921,47 +65484,47 @@ function YamlViewerModal() {
     reloadKey,
     mode === "remote"
   );
-  const [metaOverride, setMetaOverride] = useState40(null);
+  const [metaOverride, setMetaOverride] = useState41(null);
   const yamlMeta = contentMeta ? { ...contentMeta, ...metaOverride || {} } : null;
-  useEffect43(() => {
+  useEffect44(() => {
     useGraphStore.getState().setYamlViewerContentSource(open2 ? contentSource : null);
   }, [open2, contentSource]);
-  const [content, setContent] = useState40("");
-  const [yamlSyntaxIssue, setYamlSyntaxIssue] = useState40(null);
+  const [content, setContent] = useState41("");
+  const [yamlSyntaxIssue, setYamlSyntaxIssue] = useState41(null);
   const deferredContent = useDeferredValue(content);
-  const [savedContent, setSavedContent] = useState40("");
-  const [liveVersion, setLiveVersion] = useState40(0);
-  const liveDebounce = useRef19(null);
-  const skipNextEffect = useRef19(false);
-  const [editorCreated, setEditorCreated] = useState40(false);
-  const [ignoredVersion, setIgnoredVersion] = useState40(0);
-  const [diffAgainst, setDiffAgainst] = useState40(null);
-  const [previousContent, setPreviousContent] = useState40(null);
-  const [publishedContent, setPublishedContent] = useState40(null);
-  const diffContainerRef = useRef19(null);
-  const diffEditorRef = useRef19(null);
-  const [cursorLine, setCursorLine] = useState40(1);
-  const [leftWidth, setLeftWidth] = useState40(380);
-  const isDraggingLeft = useRef19(false);
-  const decorationsCollection = useRef19(null);
+  const [savedContent, setSavedContent] = useState41("");
+  const [liveVersion, setLiveVersion] = useState41(0);
+  const liveDebounce = useRef20(null);
+  const skipNextEffect = useRef20(false);
+  const [editorCreated, setEditorCreated] = useState41(false);
+  const [ignoredVersion, setIgnoredVersion] = useState41(0);
+  const [diffAgainst, setDiffAgainst] = useState41(null);
+  const [previousContent, setPreviousContent] = useState41(null);
+  const [publishedContent, setPublishedContent] = useState41(null);
+  const diffContainerRef = useRef20(null);
+  const diffEditorRef = useRef20(null);
+  const [cursorLine, setCursorLine] = useState41(1);
+  const [leftWidth, setLeftWidth] = useState41(380);
+  const isDraggingLeft = useRef20(false);
+  const decorationsCollection = useRef20(null);
   const appTheme = useGraphStore((s) => s.theme);
   const monacoTheme = appTheme === "light" ? "dg-light" : "dg-dark";
-  const [editorTopLine, setEditorTopLine] = useState40(1);
-  const [scrollSignal, setScrollSignal] = useState40(0);
+  const [editorTopLine, setEditorTopLine] = useState41(1);
+  const [scrollSignal, setScrollSignal] = useState41(0);
   const pendingGeneration = useGraphStore((s) => s.yamlViewerPendingGeneration);
   const setPendingGeneration = useGraphStore((s) => s.setYamlViewerPendingGeneration);
   const yamlHighlightUnused = useGraphStore((s) => s.yamlHighlightUnused);
-  const [quickJumpOpen, setQuickJumpOpen] = useState40(false);
-  const [quickJumpInitialQuery, setQuickJumpInitialQuery] = useState40(null);
-  const quickJumpOpenRef = useRef19(false);
-  useLayoutEffect3(() => {
+  const [quickJumpOpen, setQuickJumpOpen] = useState41(false);
+  const [quickJumpInitialQuery, setQuickJumpInitialQuery] = useState41(null);
+  const quickJumpOpenRef = useRef20(false);
+  useLayoutEffect4(() => {
     quickJumpOpenRef.current = quickJumpOpen;
   }, [quickJumpOpen]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (!open2)
       setQuickJumpOpen(false);
   }, [open2]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (!open2)
       return;
     try {
@@ -64985,7 +65548,7 @@ function YamlViewerModal() {
     isDraggingLeft.current = true;
     document.body.style.cursor = "col-resize";
   };
-  useEffect43(() => {
+  useEffect44(() => {
     const onMouseMove = (e) => {
       if (!isDraggingLeft.current)
         return;
@@ -65011,7 +65574,7 @@ function YamlViewerModal() {
       document.removeEventListener("mouseup", onMouseUp);
     };
   }, []);
-  useEffect43(() => {
+  useEffect44(() => {
     if (!checksEnabled) {
       setYamlSyntaxIssue(null);
       return;
@@ -65046,7 +65609,7 @@ function YamlViewerModal() {
     }, 400);
     return () => clearTimeout(t);
   }, [deferredContent, domainId, checksEnabled]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (loading)
       return;
     if (fetchedContent == null)
@@ -65072,12 +65635,12 @@ function YamlViewerModal() {
     fetch(`/file?path=${encodeURIComponent(filePath || "")}&stat=1`).then((r) => r.json()).then((d) => setLastKnownMtime(d.mtime)).catch(() => {
     });
   }, [loading, fetchedContent, filePath]);
-  const backupRestoredRef = useRef19(false);
-  const savedContentRef = useRef19(savedContent);
-  useEffect43(() => {
+  const backupRestoredRef = useRef20(false);
+  const savedContentRef = useRef20(savedContent);
+  useEffect44(() => {
     savedContentRef.current = savedContent;
   }, [savedContent]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (!editorCreated || !editorRef.current)
       return;
     const handler = () => {
@@ -65129,99 +65692,100 @@ function YamlViewerModal() {
       }
     };
   }, [editorCreated, filePath]);
-  const [rightTab, setRightTab] = useState40("issues");
-  const [showHelp, setShowHelp] = useState40(false);
-  const [isLocked, setIsLocked] = useState40(true);
-  const [onlyProblematic, setOnlyProblematic] = useState40(false);
+  const [rightTab, setRightTab] = useState41("issues");
+  const [showHelp, setShowHelp] = useState41(false);
+  const [isLocked, setIsLocked] = useState41(true);
+  const [onlyProblematic, setOnlyProblematic] = useState41(false);
   const isDirty = normalizeEol(content) !== normalizeEol(savedContent);
-  const [isSaving, setIsSaving] = useState40(false);
-  const [saveError, setSaveError] = useState40(null);
-  const [saveStage, setSaveStage] = useState40("idle");
-  const [copyFeedback, setCopyFeedback] = useState40(false);
-  const [saveFeedback, setSaveFeedback] = useState40(false);
-  const [expandedNodes, setExpandedNodes] = useState40(/* @__PURE__ */ new Set());
-  const [navQuery, setNavQuery] = useState40("");
-  const navListRef = useRef19(null);
-  const [activeNavIdx, setActiveNavIdx] = useState40(-1);
-  const [leftCollapsed, setLeftCollapsed] = useState40(false);
-  const [rightCollapsed, setRightCollapsed] = useState40(false);
-  const [severityFilter, setSeverityFilter] = useState40(
+  const [isSaving, setIsSaving] = useState41(false);
+  const [saveError, setSaveError] = useState41(null);
+  const [saveStage, setSaveStage] = useState41("idle");
+  const [copyFeedback, setCopyFeedback] = useState41(false);
+  const [saveFeedback, setSaveFeedback] = useState41(false);
+  const [expandedNodes, setExpandedNodes] = useState41(/* @__PURE__ */ new Set());
+  const [navQuery, setNavQuery] = useState41("");
+  const navListRef = useRef20(null);
+  const [activeNavIdx, setActiveNavIdx] = useState41(-1);
+  const [leftCollapsed, setLeftCollapsed] = useState41(false);
+  const [rightCollapsed, setRightCollapsed] = useState41(false);
+  const [severityFilter, setSeverityFilter] = useState41(
     /* @__PURE__ */ new Set(["error", "warning", "info"])
   );
-  const [serverValidation, setServerValidation] = useState40(null);
-  const [serverValidating, setServerValidating] = useState40(false);
-  const [serverAvailable, setServerAvailable] = useState40(false);
-  const [navTab, setNavTab] = useState40("navigation");
-  const [searchQuery, setSearchQuery] = useState40("");
-  const [searchOptions, setSearchOptions] = useState40(DEFAULT_SEARCH_OPTIONS);
-  const [searchResult, setSearchResult] = useState40(null);
-  const [activeSearchMatch, setActiveSearchMatch] = useState40(null);
-  const searchPanelRef = useRef19(null);
-  const searchDecorationsRef = useRef19(null);
-  const [focusIncludeDeps, setFocusIncludeDeps] = useState40(false);
-  const [navContextMenu, setNavContextMenu] = useState40(null);
+  const [serverValidation, setServerValidation] = useState41(null);
+  const [serverValidating, setServerValidating] = useState41(false);
+  const [serverAvailable, setServerAvailable] = useState41(false);
+  const [navTab, setNavTab] = useState41("navigation");
+  const [searchQuery, setSearchQuery] = useState41("");
+  const [searchOptions, setSearchOptions] = useState41(DEFAULT_SEARCH_OPTIONS);
+  const [searchResult, setSearchResult] = useState41(null);
+  const [activeSearchMatch, setActiveSearchMatch] = useState41(null);
+  const searchPanelRef = useRef20(null);
+  const searchDecorationsRef = useRef20(null);
+  const [focusIncludeDeps, setFocusIncludeDeps] = useState41(false);
+  const [navContextMenu, setNavContextMenu] = useState41(null);
   const { goto: gotoDomain } = useNavigation();
-  const editorRef = useRef19(null);
-  const containerRef = useRef19(null);
-  const saveRef = useRef19(() => {
+  const editorRef = useRef20(null);
+  const previousFetchId = useRef20(0);
+  const containerRef = useRef20(null);
+  const saveRef = useRef20(() => {
   });
-  const publishRef = useRef19(() => {
+  const publishRef = useRef20(() => {
   });
-  const toggleLockRef = useRef19(() => {
+  const toggleLockRef = useRef20(() => {
   });
-  const isLockedRef = useRef19(isLocked);
-  const isProgrammaticChange = useRef19(false);
-  const [focusTarget, setFocusTarget] = useState40(null);
-  const focusDecorationsRef = useRef19(null);
-  const saveAbortRef = useRef19(null);
-  const editorTopLineRef = useRef19(1);
+  const isLockedRef = useRef20(isLocked);
+  const isProgrammaticChange = useRef20(false);
+  const [focusTarget, setFocusTarget] = useState41(null);
+  const focusDecorationsRef = useRef20(null);
+  const saveAbortRef = useRef20(null);
+  const editorTopLineRef = useRef20(1);
   const tabs = useGraphStore((s) => s.editorTabs);
   const addTab = useGraphStore((s) => s.addEditorTab);
   const removeTab = useGraphStore((s) => s.removeEditorTab);
-  useEffect43(() => {
+  useEffect44(() => {
     if (open2 && filePath)
       addTab(filePath);
   }, [open2, filePath, addTab]);
   const setYamlViewerLocked = useGraphStore((s) => s.setYamlViewerLocked);
-  useEffect43(() => {
+  useEffect44(() => {
     setYamlViewerLocked(isLocked);
   }, [isLocked, setYamlViewerLocked]);
-  useEffect43(() => {
+  useEffect44(() => {
     useGraphStore.getState().setYamlViewerDirty(!!open2 && isDirty);
   }, [open2, isDirty]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (open2)
       return;
     useGraphStore.getState().setYamlViewerDirty(false);
     useGraphStore.getState().setYamlViewerPendingManifest(null);
   }, [open2]);
-  useEffect43(() => {
+  useEffect44(() => {
     isLockedRef.current = isLocked;
   }, [isLocked]);
-  const lastAutoScrolledQueryRef = useRef19(null);
-  useEffect43(() => {
+  const lastAutoScrolledQueryRef = useRef20(null);
+  useEffect44(() => {
     if (!searchQuery)
       lastAutoScrolledQueryRef.current = null;
   }, [searchQuery]);
-  const schema2 = useMemo46(() => {
+  const schema2 = useMemo47(() => {
     if (!index || !domainId)
       return null;
     return index.schemasByDomain[domainId] || null;
   }, [index, domainId]);
-  const lineMap = useMemo46(() => {
+  const lineMap = useMemo47(() => {
     if (!deferredContent || !schema2)
       return null;
     return buildLineMap(deferredContent, schema2);
   }, [deferredContent, schema2]);
-  const currentContext = useMemo46(() => {
+  const currentContext = useMemo47(() => {
     if (!lineMap)
       return null;
     return lineMap.lineContexts.get(cursorLine) || null;
   }, [lineMap, cursorLine]);
-  const entityIdUnderCursor = useMemo46(() => {
+  const entityIdUnderCursor = useMemo47(() => {
     return currentContext?.breadcrumbs.find((b) => b.type === "entity")?.id || null;
   }, [currentContext]);
-  const focusResult = useMemo46(() => {
+  const focusResult = useMemo47(() => {
     if (!focusTarget || !lineMap || !index || !domainId)
       return null;
     try {
@@ -65232,14 +65796,14 @@ function YamlViewerModal() {
       return null;
     }
   }, [focusTarget, focusIncludeDeps, lineMap, index, domainId, deferredContent]);
-  const domainIssues = useMemo46(() => {
+  const domainIssues = useMemo47(() => {
     if (!index || !domainId)
       return [];
     return index.lint.lintReport.issues.filter(
       (i) => i.domainId === domainId
     );
   }, [index, domainId]);
-  const counters = useMemo46(() => {
+  const counters = useMemo47(() => {
     if (!schema2)
       return null;
     const totalAttrs = schema2.sections.entities.items.reduce(
@@ -65256,7 +65820,7 @@ function YamlViewerModal() {
       sonar
     };
   }, [schema2, domainIssues, index, domainId]);
-  const issuesByEntity = useMemo46(() => {
+  const issuesByEntity = useMemo47(() => {
     const m = /* @__PURE__ */ new Map();
     domainIssues.forEach((issue) => {
       if (!issue.entityFqid)
@@ -65267,7 +65831,7 @@ function YamlViewerModal() {
     });
     return m;
   }, [domainIssues]);
-  const issuesByAttribute = useMemo46(() => {
+  const issuesByAttribute = useMemo47(() => {
     const m = /* @__PURE__ */ new Map();
     domainIssues.forEach((issue) => {
       if (!issue.entityFqid || !issue.attributeId)
@@ -65279,7 +65843,7 @@ function YamlViewerModal() {
     });
     return m;
   }, [domainIssues]);
-  const entityIssuesMap = useMemo46(() => {
+  const entityIssuesMap = useMemo47(() => {
     const m = /* @__PURE__ */ new Map();
     domainIssues.forEach((issue) => {
       if (!issue.entityFqid)
@@ -65294,7 +65858,7 @@ function YamlViewerModal() {
     });
     return m;
   }, [domainIssues]);
-  const attrIssuesMap = useMemo46(() => {
+  const attrIssuesMap = useMemo47(() => {
     const m = /* @__PURE__ */ new Map();
     domainIssues.forEach((issue) => {
       if (!issue.attributeId)
@@ -65306,7 +65870,7 @@ function YamlViewerModal() {
     });
     return m;
   }, [domainIssues]);
-  const allIssues = useMemo46(() => {
+  const allIssues = useMemo47(() => {
     if (!checksEnabled)
       return domainIssues;
     if (!lineMap || !deferredContent || !domainId)
@@ -65330,11 +65894,11 @@ function YamlViewerModal() {
     }
     return combined;
   }, [domainIssues, lineMap, deferredContent, index, domainId, yamlSyntaxIssue, checksEnabled]);
-  const recheckModel = useMemo46(
+  const recheckModel = useMemo47(
     () => buildRecheckModel(deferredContent || ""),
     [deferredContent]
   );
-  const effectiveIssues = useMemo46(() => {
+  const effectiveIssues = useMemo47(() => {
     if (!checksEnabled)
       return allIssues;
     if (!isDirty || !lineMap)
@@ -65359,11 +65923,11 @@ function YamlViewerModal() {
     }
     return out;
   }, [allIssues, isDirty, deferredContent, lineMap, savedContent, recheckModel, index]);
-  const filteredIssues = useMemo46(
+  const filteredIssues = useMemo47(
     () => effectiveIssues.filter((i) => severityFilter.has(i.severity)),
     [effectiveIssues, severityFilter]
   );
-  const backlinks = useMemo46(() => {
+  const backlinks = useMemo47(() => {
     if (rightTab !== "backlinks" || !deferredContent) {
       return { entity: [], attribute: [], target: null };
     }
@@ -65423,13 +65987,13 @@ function YamlViewerModal() {
     }
     return { entity, attribute, target };
   }, [deferredContent, cursorLine, rightTab]);
-  const externalRefs = useMemo46(() => {
+  const externalRefs = useMemo47(() => {
     if (!deferredContent || !domainId)
       return { refs: [], groups: [] };
     const refs = extractExternalRefs(deferredContent, domainId);
     return { refs, groups: groupExternalRefs(refs) };
   }, [deferredContent, domainId, liveVersion]);
-  const scenarioRefs = useMemo46(() => {
+  const scenarioRefs = useMemo47(() => {
     if (!deferredContent)
       return [];
     const lines = deferredContent.split("\n");
@@ -65484,7 +66048,7 @@ function YamlViewerModal() {
     }
     return Array.from(grouped.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([scenarioId, actions2]) => ({ scenarioId, actions: actions2 }));
   }, [deferredContent]);
-  const unusedAnalysis = useMemo46(() => {
+  const unusedAnalysis = useMemo47(() => {
     if (!yamlHighlightUnused)
       return null;
     if (!lineMap || !deferredContent)
@@ -65495,7 +66059,7 @@ function YamlViewerModal() {
       return null;
     }
   }, [deferredContent, lineMap, yamlHighlightUnused]);
-  const flatNavNodes = useMemo46(() => {
+  const flatNavNodes = useMemo47(() => {
     if (!lineMap)
       return [];
     const result = [];
@@ -65533,7 +66097,7 @@ function YamlViewerModal() {
     (s) => (s.editorBookmarks || {})[filePath] || []
   );
   const setEditorBookmarks = useGraphStore((s) => s.setEditorBookmarks);
-  const bookmarkDetails = useMemo46(() => {
+  const bookmarkDetails = useMemo47(() => {
     if (!fileBookmarks || fileBookmarks.length === 0)
       return [];
     const model = editorRef.current?.getModel();
@@ -65550,7 +66114,7 @@ function YamlViewerModal() {
       };
     });
   }, [fileBookmarks, content, editorCreated]);
-  const filteredNavNodes = useMemo46(() => {
+  const filteredNavNodes = useMemo47(() => {
     let result = flatNavNodes;
     if (onlyProblematic) {
       result = result.filter((n) => n.hasIssues);
@@ -65561,7 +66125,7 @@ function YamlViewerModal() {
     }
     return result;
   }, [flatNavNodes, navQuery, onlyProblematic]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (!open2)
       return;
     if (!monacoReady)
@@ -65944,7 +66508,7 @@ function YamlViewerModal() {
       }
     };
   }, [open2, monacoReady, filePath, loading, fetchedContent]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (!editorRef.current)
       return;
     const t = setTimeout(() => {
@@ -65955,12 +66519,12 @@ function YamlViewerModal() {
     }, 250);
     return () => clearTimeout(t);
   }, [leftCollapsed, rightCollapsed]);
-  useEffect43(() => {
+  useEffect44(() => {
     saveRef.current = handleSave;
     publishRef.current = handlePublish;
     toggleLockRef.current = handleToggleLock;
   });
-  useEffect43(() => {
+  useEffect44(() => {
     if (!open2)
       return;
     const handler = (e) => {
@@ -65979,7 +66543,7 @@ function YamlViewerModal() {
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
   }, [open2]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (!open2 || !editorCreated || !editorRef.current)
       return;
     const m = window.monaco;
@@ -66006,7 +66570,7 @@ function YamlViewerModal() {
     } catch {
     }
   }, [open2, editorCreated]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (!open2)
       return;
     let lastShiftRelease = 0;
@@ -66046,7 +66610,7 @@ function YamlViewerModal() {
       document.removeEventListener("keyup", onKeyUp, true);
     };
   }, [open2]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (!editorCreated || !editorRef.current)
       return;
     const m = window.monaco;
@@ -66063,7 +66627,7 @@ function YamlViewerModal() {
     return () => {
     };
   }, [editorCreated]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (!monacoReady)
       return;
     updateProviderContext({
@@ -66073,13 +66637,13 @@ function YamlViewerModal() {
       modelIndex: index || null
     });
   }, [monacoReady, lineMap, filePath, domainId, index]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (open2)
       return;
     resetProviderContext();
   }, [open2]);
-  const searchDecorIdsRef = useRef19([]);
-  useEffect43(() => {
+  const searchDecorIdsRef = useRef20([]);
+  useEffect44(() => {
     if (!monacoReady || !editorCreated)
       return;
     const m = window.monaco;
@@ -66185,7 +66749,7 @@ function YamlViewerModal() {
       }
     };
   }, [monacoReady, editorCreated, searchResult, activeSearchMatch, searchQuery]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (!editorCreated || !editorRef.current)
       return;
     if (!searchQuery)
@@ -66244,7 +66808,7 @@ function YamlViewerModal() {
     const t = setTimeout(doScroll, 50);
     return () => clearTimeout(t);
   }, [searchResult, activeSearchMatch, editorCreated, searchQuery]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (!monacoReady || !editorCreated || !editorRef.current)
       return;
     if (!index || !domainId)
@@ -66374,7 +66938,7 @@ function YamlViewerModal() {
       }
     };
   }, [checksEnabled, monacoReady, editorCreated, index, domainId, severityFilter]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (!monacoReady || !editorCreated || !editorRef.current)
       return;
     const m = window.monaco;
@@ -66418,7 +66982,7 @@ ${label.message}` : ""),
     }
     m.editor.setModelMarkers(model, "server-validate", markers);
   }, [monacoReady, editorCreated, serverValidation]);
-  const ignored = useMemo46(() => {
+  const ignored = useMemo47(() => {
     try {
       const key = `dg-yaml-ignored:${domainId}`;
       const raw = localStorage.getItem(key);
@@ -66427,7 +66991,7 @@ ${label.message}` : ""),
       return /* @__PURE__ */ new Set();
     }
   }, [domainId, ignoredVersion]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (!monacoReady || !editorCreated || !editorRef.current)
       return;
     const m = window.monaco;
@@ -66511,7 +67075,7 @@ ${label.message}` : ""),
       }
     };
   }, [yamlSyntaxIssue, index, recheckModel, checksEnabled, monacoReady, editorCreated, lineMap, domainIssues, isLocked, severityFilter, savedContent]);
-  const jumpTo = useCallback21(
+  const jumpTo = useCallback22(
     (line, opts) => {
       const editor = editorRef.current;
       if (!editor)
@@ -66545,7 +67109,7 @@ ${label.message}` : ""),
     },
     []
   );
-  const handleQuickJumpSelect = useCallback21(
+  const handleQuickJumpSelect = useCallback22(
     (line, column) => {
       setPendingIssue(null);
       setPendingBlock(null);
@@ -66553,23 +67117,23 @@ ${label.message}` : ""),
     },
     [jumpTo, setPendingIssue, setPendingBlock]
   );
-  const [activeFoldLevel, setActiveFoldLevel] = useState40(null);
-  useEffect43(() => {
+  const [activeFoldLevel, setActiveFoldLevel] = useState41(null);
+  useEffect44(() => {
     setActiveFoldLevel(null);
   }, [filePath, open2]);
-  const getFoldingController = useCallback21((ed) => {
+  const getFoldingController = useCallback22((ed) => {
     const contributions = ed?._contributions;
     const instances = contributions?._instances?._store;
     return instances?.get("editor.contrib.folding") ?? null;
   }, []);
-  const gotoStart = useCallback21(() => {
+  const gotoStart = useCallback22(() => {
     if (!editorRef.current)
       return;
     editorRef.current.setPosition({ lineNumber: 1, column: 1 });
     editorRef.current.revealLine(1);
     editorRef.current.focus();
   }, []);
-  const gotoEnd = useCallback21(() => {
+  const gotoEnd = useCallback22(() => {
     const ed = editorRef.current;
     if (!ed)
       return;
@@ -66578,7 +67142,7 @@ ${label.message}` : ""),
     ed.revealLine(lineCount);
     ed.focus();
   }, []);
-  const foldLines = useCallback21((lines) => {
+  const foldLines = useCallback22((lines) => {
     const ed = editorRef.current;
     const model = ed?.getModel();
     if (!ed || !model || lines.length === 0)
@@ -66595,7 +67159,7 @@ ${label.message}` : ""),
       ed.trigger("dg-fold", "editor.fold", null);
     }
   }, []);
-  const toggleFold = useCallback21((level) => {
+  const toggleFold = useCallback22((level) => {
     const ed = editorRef.current;
     if (!ed)
       return;
@@ -66612,15 +67176,15 @@ ${label.message}` : ""),
       visibleRanges: ed.getVisibleRanges().length
     });
   }, [activeFoldLevel]);
-  const foldAll = useCallback21(() => {
+  const foldAll = useCallback22(() => {
     editorRef.current?.trigger("dg-fold", "editor.foldAll", null);
     setActiveFoldLevel(null);
   }, []);
-  const unfoldAll = useCallback21(() => {
+  const unfoldAll = useCallback22(() => {
     editorRef.current?.trigger("dg-fold", "editor.unfoldAll", null);
     setActiveFoldLevel(null);
   }, []);
-  const hasFoldableRange = useCallback21((model, lineNumber) => {
+  const hasFoldableRange = useCallback22((model, lineNumber) => {
     const line = model.getLineContent(lineNumber);
     const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
     const total = model.getLineCount();
@@ -66633,7 +67197,7 @@ ${label.message}` : ""),
     }
     return false;
   }, []);
-  const foldByLines = useCallback21((lines) => {
+  const foldByLines = useCallback22((lines) => {
     const ed = editorRef.current;
     if (!ed || lines.length === 0)
       return;
@@ -66705,7 +67269,7 @@ ${label.message}` : ""),
       });
     }, 0);
   }, []);
-  const foldSiblings = useCallback21(() => {
+  const foldSiblings = useCallback22(() => {
     const ed = editorRef.current;
     const model = ed?.getModel();
     const pos = ed?.getPosition();
@@ -66759,7 +67323,7 @@ ${label.message}` : ""),
     foldByLines(targets);
     setActiveFoldLevel(null);
   }, [hasFoldableRange, foldByLines]);
-  const foldBlocksByKey = useCallback21((key) => {
+  const foldBlocksByKey = useCallback22((key) => {
     const ed = editorRef.current;
     const model = ed?.getModel();
     if (!ed || !model)
@@ -66833,7 +67397,7 @@ ${label.message}` : ""),
       setActiveFoldLevel(null);
     }, 0);
   }, [hasFoldableRange]);
-  const foldToLevel = useCallback21((targetLevel) => {
+  const foldToLevel = useCallback22((targetLevel) => {
     const ed = editorRef.current;
     if (!ed)
       return;
@@ -66865,7 +67429,7 @@ ${label.message}` : ""),
     }
     setActiveFoldLevel(targetLevel);
   }, [activeFoldLevel]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (!open2)
       return;
     if (!pendingIssue)
@@ -66897,7 +67461,55 @@ ${label.message}` : ""),
     jumpTo,
     setPendingIssue
   ]);
-  const toggleNode = useCallback21((key) => {
+  useEffect44(() => {
+    if (!open2)
+      return;
+    const goto = useGraphStore.getState().yamlViewerPendingGoto;
+    if (!goto)
+      return;
+    if (!editorCreated || !editorRef.current)
+      return;
+    if (loading)
+      return;
+    if (!lineMap || !deferredContent)
+      return;
+    const lines = deferredContent.split("\n");
+    let targetLine = null;
+    if (goto.kind === "fqid") {
+      const entityId = goto.fqid.split("/").pop() || "";
+      const entitiesSection = lineMap.sections.find((s) => s.key === "entities");
+      const node = entitiesSection?.nodes.find(
+        (n) => n.id.toLowerCase() === entityId.toLowerCase()
+      );
+      if (node) {
+        targetLine = node.line;
+      } else {
+        const re = new RegExp(
+          `^\\s*-\\s+id\\s*:\\s*["']?${entityId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']?\\s*$`,
+          "m"
+        );
+        const m = re.exec(deferredContent);
+        if (m && typeof m.index === "number") {
+          targetLine = deferredContent.slice(0, m.index).split("\n").length;
+        }
+      }
+    } else if (goto.kind === "line") {
+      targetLine = Math.max(1, Math.min(goto.line, lines.length));
+    }
+    useGraphStore.getState().setYamlViewerPendingGoto(null);
+    if (targetLine == null)
+      return;
+    const t = setTimeout(() => {
+      if (!editorRef.current)
+        return;
+      try {
+        jumpTo(targetLine, { column: goto.kind === "line" ? goto.column : void 0 });
+      } catch {
+      }
+    }, 50);
+    return () => clearTimeout(t);
+  }, [open2, editorCreated, loading, lineMap, deferredContent, jumpTo]);
+  const toggleNode = useCallback22((key) => {
     setExpandedNodes((prev) => {
       const s = new Set(prev);
       if (s.has(key))
@@ -66907,7 +67519,7 @@ ${label.message}` : ""),
       return s;
     });
   }, []);
-  const expandAll = useCallback21(() => {
+  const expandAll = useCallback22(() => {
     if (!lineMap)
       return;
     const all = /* @__PURE__ */ new Set();
@@ -66924,13 +67536,13 @@ ${label.message}` : ""),
       el.open = true;
     });
   }, [lineMap]);
-  const collapseAll = useCallback21(() => {
+  const collapseAll = useCallback22(() => {
     setExpandedNodes(/* @__PURE__ */ new Set());
     document.querySelectorAll(".yaml-nav-section").forEach((el) => {
       el.open = false;
     });
   }, []);
-  const handleCopy = useCallback21(async () => {
+  const handleCopy = useCallback22(async () => {
     const text = editorRef.current ? editorRef.current.getValue() : content;
     try {
       await navigator.clipboard.writeText(text);
@@ -66940,7 +67552,7 @@ ${label.message}` : ""),
       alert("\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0441\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C: " + err.message);
     }
   }, [content]);
-  const handleToggleLock = useCallback21(() => {
+  const handleToggleLock = useCallback22(() => {
     if (isLocked) {
       setIsLocked(false);
       setSaveError(null);
@@ -66961,7 +67573,7 @@ ${label.message}` : ""),
       setIsLocked(true);
     }
   }, [isLocked, isDirty, savedContent, filePath]);
-  const handleSave = useCallback21(async () => {
+  const handleSave = useCallback22(async () => {
     if (isLocked || isSaving || !editorRef.current)
       return;
     try {
@@ -67015,14 +67627,19 @@ ${label.message}` : ""),
         throw new Error(errMsg);
       }
       invalidateYamlCache(filePath || void 0);
-      useGraphStore.getState().bumpModelVersion();
-      setTimeout(() => {
-        useGraphStore.getState().bumpModelVersion();
-      }, 800);
+      const st = useGraphStore.getState();
+      st.bumpModelVersion();
+      st.refreshGraphFromServer(true).catch((e) => {
+        console.warn("[yaml-save] refreshGraphFromServer failed:", e);
+        st.showSnackbar(
+          "\u0424\u0430\u0439\u043B \u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D, \u043D\u043E \u0433\u0440\u0430\u0444 \u043D\u0435 \u043E\u0431\u043D\u043E\u0432\u0438\u043B\u0441\u044F. \u041D\u0430\u0436\u043C\u0438\u0442\u0435 F5."
+        );
+      });
       setSavedContent(valueToSave);
       setContent(valueToSave);
       setLiveVersion((v) => v + 1);
       sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
+      refreshPreviousContent();
       if (pendingManifest) {
         useGraphStore.getState().setYamlViewerPendingManifest(null);
       }
@@ -67097,7 +67714,7 @@ ${draftInfo.hint}` : "";
       sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
     }
   }, [isLocked, savedContent, filePath, mode, isSaving]);
-  const handleDiffPublished = useCallback21(async () => {
+  const handleDiffPublished = useCallback22(async () => {
     if (!filePath)
       return;
     if (diffAgainst === "published") {
@@ -67132,10 +67749,10 @@ ${draftInfo.hint}` : "";
       setDiffAgainst("published");
     }
   }, [filePath, diffAgainst, publishedContent]);
-  const handleDiffPrevious = useCallback21(() => {
+  const handleDiffPrevious = useCallback22(() => {
     setDiffAgainst(diffAgainst === "previous" ? null : "previous");
   }, [diffAgainst]);
-  const handleServerValidate = useCallback21(async () => {
+  const handleServerValidate = useCallback22(async () => {
     if (!editorRef.current)
       return;
     const sourceCode = editorRef.current.getValue();
@@ -67168,7 +67785,7 @@ ${draftInfo.hint}` : "";
       setServerValidating(false);
     }
   }, []);
-  const handleClose = useCallback21(() => {
+  const handleClose = useCallback22(() => {
     if (quickJumpOpenRef.current) {
       return;
     }
@@ -67188,7 +67805,7 @@ ${draftInfo.hint}` : "";
     }
     useGraphStore.getState().setYamlViewerOpen(false);
   }, [isDirty, isLocked, isSaving, filePath]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (!open2)
       return;
     const onKeyDown = (e) => {
@@ -67204,7 +67821,7 @@ ${draftInfo.hint}` : "";
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [open2]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (!open2)
       return;
     const handler = (e) => {
@@ -67243,18 +67860,18 @@ ${draftInfo.hint}` : "";
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, [open2, filteredNavNodes, activeNavIdx, jumpTo, toggleNode]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (activeNavIdx < 0 || !navListRef.current)
       return;
     const el = navListRef.current.querySelector(".yaml-nav-item--active");
     if (el)
       el.scrollIntoView({ block: "nearest" });
   }, [activeNavIdx]);
-  const STORAGE_KEY = useMemo46(
+  const STORAGE_KEY = useMemo47(
     () => domainId ? `dg-yaml-nav-collapsed:${domainId}` : null,
     [domainId]
   );
-  useEffect43(() => {
+  useEffect44(() => {
     if (!open2 || !STORAGE_KEY)
       return;
     try {
@@ -67277,7 +67894,7 @@ ${draftInfo.hint}` : "";
     } catch {
     }
   }, [open2, STORAGE_KEY]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (open2 || !STORAGE_KEY)
       return;
     try {
@@ -67292,7 +67909,7 @@ ${draftInfo.hint}` : "";
     } catch {
     }
   }, [open2, STORAGE_KEY, expandedNodes]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (!editorCreated || !editorRef.current)
       return;
     const w = window;
@@ -67343,7 +67960,7 @@ ${draftInfo.hint}` : "";
       console.error("[yaml-viewer] addAction failed", err);
     }
   }, [editorCreated]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (!open2) {
       setIsLocked(true);
     }
@@ -67355,7 +67972,7 @@ ${draftInfo.hint}` : "";
     setPublishedContent(null);
     setMetaOverride(null);
   }, [filePath, open2]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (!navContextMenu)
       return;
     const onDoc = (e) => {
@@ -67375,7 +67992,7 @@ ${draftInfo.hint}` : "";
       document.removeEventListener("keydown", onEsc, true);
     };
   }, [navContextMenu]);
-  useEffect43(() => {
+  useEffect44(() => {
     const handler = (e) => {
       const detail = e.detail;
       if (!detail || !detail.action)
@@ -67408,24 +68025,28 @@ ${draftInfo.hint}` : "";
     document.addEventListener("dg:issue-action", handler);
     return () => document.removeEventListener("dg:issue-action", handler);
   }, [domainId]);
-  useEffect43(() => {
-    if (!open2 || !filePath) {
+  const refreshPreviousContent = useCallback22(() => {
+    if (!filePath) {
       setPreviousContent(null);
       return;
     }
-    let cancelled = false;
+    const myId = ++previousFetchId.current;
     fetch("/file/previous?path=" + encodeURIComponent(filePath)).then((r) => r.status === 204 ? null : r.text()).then((text) => {
-      if (!cancelled)
+      if (previousFetchId.current === myId)
         setPreviousContent(text);
     }).catch(() => {
-      if (!cancelled)
+      if (previousFetchId.current === myId)
         setPreviousContent(null);
     });
-    return () => {
-      cancelled = true;
-    };
-  }, [open2, filePath, saveFeedback]);
-  useEffect43(() => {
+  }, [filePath]);
+  useEffect44(() => {
+    if (!open2) {
+      setPreviousContent(null);
+      return;
+    }
+    refreshPreviousContent();
+  }, [open2, refreshPreviousContent]);
+  useEffect44(() => {
     if (diffAgainst === null || !monacoReady || !editorCreated || !diffContainerRef.current)
       return;
     const original = diffAgainst === "published" ? publishedContent : previousContent;
@@ -67464,7 +68085,7 @@ ${draftInfo.hint}` : "";
       diffEditorRef.current = null;
     };
   }, [diffAgainst, monacoReady, editorCreated, previousContent, publishedContent]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (!editorRef.current)
       return;
     try {
@@ -67472,7 +68093,7 @@ ${draftInfo.hint}` : "";
     } catch {
     }
   }, [isLocked, editorCreated]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (!open2) {
       if (editorRef.current) {
         try {
@@ -67484,7 +68105,7 @@ ${draftInfo.hint}` : "";
       }
     }
   }, [open2]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (!monacoReady || !editorCreated || !editorRef.current)
       return;
     if (!yamlHighlightUnused || !isLocked) {
@@ -67625,7 +68246,7 @@ ${draftInfo.hint}` : "";
     isLocked,
     unusedAnalysis
   ]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (!monacoReady || !editorCreated || !editorRef.current)
       return;
     const m = window.monaco;
@@ -67714,7 +68335,7 @@ ${draftInfo.hint}` : "";
     yamlSyntaxIssue,
     focusIncludeDeps
   ]);
-  const crossDomainStats = useMemo46(() => {
+  const crossDomainStats = useMemo47(() => {
     if (!index || !domainId)
       return null;
     const currentDomainLower = domainId.toLowerCase();
@@ -67770,19 +68391,19 @@ ${draftInfo.hint}` : "";
       outgoingDomainList: Array.from(outgoingDomains).sort()
     };
   }, [index, domainId]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (!open2)
       return;
     fetch("/api/validation-available").then((r) => r.json()).then((d) => setServerAvailable(!!d.available)).catch(() => setServerAvailable(false));
   }, [open2]);
-  useEffect43(() => {
+  useEffect44(() => {
     setServerValidation(null);
   }, [filePath, open2]);
-  const staleIssueCount = useMemo46(
+  const staleIssueCount = useMemo47(
     () => effectiveIssues.filter((i) => i.__isUnknown).length,
     [effectiveIssues]
   );
-  const handleFocus = useCallback21((node, sectionKey) => {
+  const handleFocus = useCallback22((node, sectionKey) => {
     const kind = sectionKey === "entities" ? "entity" : "linkage";
     setFocusTarget((prev) => {
       if (prev && prev.kind === kind && prev.id === node.id)
@@ -67790,13 +68411,13 @@ ${draftInfo.hint}` : "";
       return { kind, id: node.id };
     });
   }, []);
-  const handleFocusWithDeps = useCallback21((node, sectionKey) => {
+  const handleFocusWithDeps = useCallback22((node, sectionKey) => {
     const kind = sectionKey === "entities" ? "entity" : "linkage";
     setFocusTarget({ kind, id: node.id });
     setFocusIncludeDeps(kind === "entity");
     setNavContextMenu(null);
   }, []);
-  useEffect43(() => {
+  useEffect44(() => {
     if (!monacoReady)
       return;
     const m = window.monaco;
@@ -67807,7 +68428,7 @@ ${draftInfo.hint}` : "";
     } catch {
     }
   }, [monacoTheme, monacoReady]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (!pendingGeneration)
       return;
     if (!editorCreated || !editorRef.current)
@@ -67853,7 +68474,7 @@ ${draftInfo.hint}` : "";
     setLiveVersion((v) => v + 1);
     useGraphStore.getState().showSnackbar(`\u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u043E \u0431\u043B\u043E\u043A\u043E\u0432: ${pendingGeneration.blocks.length}`);
   }, [pendingGeneration, editorCreated, schema2, setPendingGeneration]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (!open2)
       return;
     if (!pendingBlock)
@@ -67881,12 +68502,12 @@ ${draftInfo.hint}` : "";
     }, 50);
     return () => clearTimeout(t);
   }, [open2, pendingBlock, editorCreated, loading, jumpTo, setPendingBlock]);
-  const diffCount = useMemo46(() => {
+  const diffCount = useMemo47(() => {
     if (!isDirty || !savedContent)
       return null;
     return getLineDiff(savedContent, content);
   }, [isDirty, savedContent, content]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (!editorCreated || !editorRef.current || !filePath)
       return;
     const ed = editorRef.current;
@@ -67919,7 +68540,7 @@ ${draftInfo.hint}` : "";
     });
     return () => action.dispose();
   }, [editorCreated, filePath]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (!editorCreated || !editorRef.current)
       return;
     const ed = editorRef.current;
@@ -67965,7 +68586,7 @@ ${draftInfo.hint}` : "";
     ];
     return () => actions2.forEach((a) => a.dispose());
   }, [editorCreated, domainId, lineMap]);
-  useEffect43(() => {
+  useEffect44(() => {
     if (loading)
       return;
     if (fetchedContent === null || fetchedContent === void 0)
@@ -67977,7 +68598,7 @@ ${draftInfo.hint}` : "";
     setContent(fetchedContent);
     setSavedContent(fetchedContent);
   }, [loading, fetchedContent, filePath]);
-  const executePublish = useCallback21(async (valueToSave) => {
+  const executePublish = useCallback22(async (valueToSave) => {
     setIsSaving(true);
     setSaveStage(mode === "remote" ? "publishing" : "writing");
     setSaveError(null);
@@ -68011,14 +68632,16 @@ ${draftInfo.hint}` : "";
         throw new Error(errMsg);
       }
       invalidateYamlCache(filePath || void 0);
-      useGraphStore.getState().bumpModelVersion();
-      setTimeout(() => {
-        useGraphStore.getState().bumpModelVersion();
-      }, 800);
+      const st = useGraphStore.getState();
+      st.bumpModelVersion();
+      st.refreshGraphFromServer(true).catch((e) => {
+        console.warn("[yaml-publish] refreshGraphFromServer failed:", e);
+      });
       setSavedContent(valueToSave);
       setContent(valueToSave);
       setLiveVersion((v) => v + 1);
       sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
+      refreshPreviousContent();
       if (pendingManifest) {
         useGraphStore.getState().setYamlViewerPendingManifest(null);
       }
@@ -68067,6 +68690,7 @@ ${draftInfo.hint}` : "";
           ...publishedVersion ? { publishedVersion } : {}
         }));
         useGraphStore.getState().setYamlViewerContentSource("published");
+        setPublishedContent(valueToSave);
         useGraphStore.getState().showSnackbar(
           `\u2705 \u041E\u043F\u0443\u0431\u043B\u0438\u043A\u043E\u0432\u0430\u043D\u043E: ${publishInfo.domain?.name || filePath}`
         );
@@ -68096,7 +68720,7 @@ ${publishInfo.hint}` : "";
       useGraphStore.getState().setPublishPreviewConfirmAction(null);
     }
   }, [filePath, mode, isSaving]);
-  const handlePublish = useCallback21(async () => {
+  const handlePublish = useCallback22(async () => {
     if (isLocked || isSaving || !editorRef.current)
       return;
     let valueToSave = editorRef.current.getValue();
@@ -69099,7 +69723,7 @@ ${publishInfo.hint}` : "";
                       /* @__PURE__ */ jsx80("button", { onClick: gotoEnd, title: "\u0412 \u043A\u043E\u043D\u0435\u0446 \u0444\u0430\u0439\u043B\u0430 (Ctrl+End)", children: /* @__PURE__ */ jsx80(MIcon, { name: "vertical_align_bottom", size: "sm" }) })
                     ] }),
                     /* @__PURE__ */ jsx80("div", { className: "yaml-viewer-breadcrumbs", children: currentContext && currentContext.breadcrumbs.length > 0 ? /* @__PURE__ */ jsxs77(Fragment23, { children: [
-                      currentContext.breadcrumbs.map((item, idx) => /* @__PURE__ */ jsxs77(React45.Fragment, { children: [
+                      currentContext.breadcrumbs.map((item, idx) => /* @__PURE__ */ jsxs77(React46.Fragment, { children: [
                         idx > 0 && /* @__PURE__ */ jsx80("span", { className: "yaml-viewer-breadcrumbs__sep", children: "\u203A" }),
                         /* @__PURE__ */ jsx80(
                           "button",
@@ -69990,8 +70614,8 @@ function SectionNav({
   onContextMenu,
   unusedAnalysis
 }) {
-  const detailsRef = React45.useRef(null);
-  React45.useEffect(() => {
+  const detailsRef = React46.useRef(null);
+  React46.useEffect(() => {
     if (detailsRef.current && detailsRef.current.dataset.initialized !== "1") {
       detailsRef.current.open = true;
       detailsRef.current.dataset.initialized = "1";
@@ -70097,7 +70721,7 @@ function NavItem({
     depth,
     parentKey
   );
-  const globalIdx = useMemo46(
+  const globalIdx = useMemo47(
     () => filteredNavNodes.findIndex((n) => n.key === key),
     [filteredNavNodes, key]
   );
@@ -70241,8 +70865,8 @@ function IssuesPanel({
   severityFilter,
   setSeverityFilter
 }) {
-  const [issueGroupMode, setIssueGroupMode] = useState40("rule");
-  const grouped = useMemo46(() => {
+  const [issueGroupMode, setIssueGroupMode] = useState41("rule");
+  const grouped = useMemo47(() => {
     const map2 = /* @__PURE__ */ new Map();
     issues.forEach((i) => {
       const key = issueGroupMode === "rule" ? i.ruleId : i.entityFqid ? i.entityFqid.split("/")[1] : "\u0411\u0435\u0437 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438";
@@ -70322,8 +70946,8 @@ function IssuesGroup({
   lineMap,
   onJump
 }) {
-  const detailsRef = React45.useRef(null);
-  React45.useEffect(() => {
+  const detailsRef = React46.useRef(null);
+  React46.useEffect(() => {
     if (detailsRef.current && detailsRef.current.dataset.initialized !== "1") {
       detailsRef.current.open = true;
       detailsRef.current.dataset.initialized = "1";
@@ -70393,8 +71017,8 @@ function CrossDomainBadge({
   label,
   onDomainClick
 }) {
-  const [open2, setOpen] = useState40(false);
-  const closeTimer = useRef19(null);
+  const [open2, setOpen] = useState41(false);
+  const closeTimer = useRef20(null);
   const onEnter = () => {
     if (closeTimer.current)
       clearTimeout(closeTimer.current);
@@ -71483,7 +72107,7 @@ var init_scope = __esm({
 });
 
 // src/web/hooks/useGenerateSchema.ts
-import { useCallback as useCallback22, useEffect as useEffect44, useState as useState41 } from "react";
+import { useCallback as useCallback23, useEffect as useEffect45, useState as useState42 } from "react";
 function useGenerateSchema({
   domainId,
   entityId,
@@ -71492,14 +72116,14 @@ function useGenerateSchema({
   enabled
 }) {
   const modelVersion = useGraphStore((s) => s.modelVersion);
-  const [state, setState] = useState41({
+  const [state, setState] = useState42({
     result: null,
     loading: false,
     error: null
   });
-  const [tick, setTick] = useState41(0);
+  const [tick, setTick] = useState42(0);
   const optionsKey = JSON.stringify(options);
-  useEffect44(() => {
+  useEffect45(() => {
     const isDomain = isDomainScopeProfile(profile);
     const body = { domainId, profile, options };
     if (!isDomain)
@@ -71533,7 +72157,7 @@ function useGenerateSchema({
       cancelled = true;
     };
   }, [enabled, domainId, entityId, profile, optionsKey, modelVersion, tick]);
-  const reload = useCallback22(() => setTick((v) => v + 1), []);
+  const reload = useCallback23(() => setTick((v) => v + 1), []);
   return { ...state, reload };
 }
 var init_useGenerateSchema = __esm({
@@ -71678,7 +72302,7 @@ var init_GenerateSchemaSkipReasons = __esm({
 });
 
 // src/web/components/modals/TreeChainBuilder.tsx
-import { useMemo as useMemo47 } from "react";
+import { useMemo as useMemo48 } from "react";
 import { Fragment as Fragment24, jsx as jsx81, jsxs as jsxs78 } from "react/jsx-runtime";
 function caseFqid(raw, index, currentDomainId) {
   if (!raw)
@@ -71745,7 +72369,7 @@ function TreeChainBuilder(props) {
   } = props;
   const useExisting = !props.hideExistingOption && !!useExistingId;
   const chain = value ?? [];
-  const steps = useMemo47(() => {
+  const steps = useMemo48(() => {
     if (!index || !domainId)
       return [];
     const parents = [`${domainId}/${rootEntityId}`];
@@ -71780,7 +72404,7 @@ function TreeChainBuilder(props) {
   const handleToggleUseExisting = (on) => {
     onChangeChain(on ? void 0 : []);
   };
-  const preview = useMemo47(() => {
+  const preview = useMemo48(() => {
     if (chain.length === 0)
       return null;
     const lines = [{ depth: 0, linkageId: "", entityId: rootEntityId }];
@@ -72052,7 +72676,7 @@ var init_block_resolver = __esm({
 });
 
 // src/web/components/modals/GenerateSchemaModal.tsx
-import { useCallback as useCallback23, useEffect as useEffect45, useLayoutEffect as useLayoutEffect4, useMemo as useMemo48, useRef as useRef20, useState as useState42 } from "react";
+import { useCallback as useCallback24, useEffect as useEffect46, useLayoutEffect as useLayoutEffect5, useMemo as useMemo49, useRef as useRef21, useState as useState43 } from "react";
 import { jsx as jsx82, jsxs as jsxs79 } from "react/jsx-runtime";
 function getSkipQuickFix(reason, handlers) {
   switch (reason) {
@@ -72214,20 +72838,20 @@ function GenerateSchemaModal() {
   const open2 = useGraphStore((s) => s.generateSchemaOpen);
   const domainId = useGraphStore((s) => s.generateSchemaDomainId);
   const entityId = useGraphStore((s) => s.generateSchemaEntityId);
-  const [profile, setProfile] = useState42("crud");
-  const [tab, setTab] = useState42("options");
-  const [selected, setSelected] = useState42(/* @__PURE__ */ new Set());
-  const [showHelp, setShowHelp] = useState42(false);
-  const [collapsed, setCollapsed] = useState42(
+  const [profile, setProfile] = useState43("crud");
+  const [tab, setTab] = useState43("options");
+  const [selected, setSelected] = useState43(/* @__PURE__ */ new Set());
+  const [showHelp, setShowHelp] = useState43(false);
+  const [collapsed, setCollapsed] = useState43(
     /* @__PURE__ */ new Set(["issues-rule"])
   );
-  const [forceReplaceIds, setForceReplaceIds] = useState42(/* @__PURE__ */ new Set());
-  const allEntities = useMemo48(() => {
+  const [forceReplaceIds, setForceReplaceIds] = useState43(/* @__PURE__ */ new Set());
+  const allEntities = useMemo49(() => {
     if (!index || !domainId)
       return [];
     return index.entities.filter((e) => e.domainId === domainId).map((e) => ({ id: e.entityId, name: e.name || e.entityId })).sort((a, b) => a.id.localeCompare(b.id));
   }, [index, domainId]);
-  const [options, setOptions] = useState42({
+  const [options, setOptions] = useState43({
     includeBulk: true,
     includePage: void 0,
     includeLinkageWidgets: true,
@@ -72277,12 +72901,12 @@ function GenerateSchemaModal() {
   const yamlViewerOpen = useGraphStore((s) => s.yamlViewerOpen);
   const yamlViewerLocked = useGraphStore((s) => s.yamlViewerLocked);
   const yamlViewerFilePath = useGraphStore((s) => s.yamlViewerFilePath);
-  const targetFile = useMemo48(() => {
+  const targetFile = useMemo49(() => {
     const nodes = useGraphStore.getState().nodes;
     return nodes.find((n) => n.data.domainId === domainId)?.data.filePath ?? null;
   }, [domainId]);
-  const prefilledFor = useRef20(null);
-  const filePath = useMemo48(() => {
+  const prefilledFor = useRef21(null);
+  const filePath = useMemo49(() => {
     const nodes = useGraphStore.getState().nodes;
     return nodes.find((n) => n.data.domainId === domainId)?.data.filePath ?? null;
   }, [domainId, open2]);
@@ -72292,7 +72916,7 @@ function GenerateSchemaModal() {
     0,
     false
   );
-  const currentRawData = useMemo48(() => {
+  const currentRawData = useMemo49(() => {
     if (!yamlText)
       return null;
     try {
@@ -72301,7 +72925,7 @@ function GenerateSchemaModal() {
       return null;
     }
   }, [yamlText]);
-  useLayoutEffect4(() => {
+  useLayoutEffect5(() => {
     if (!open2)
       return;
     setOptions((o) => ({
@@ -72321,7 +72945,7 @@ function GenerateSchemaModal() {
     }));
   }, [entityId]);
   const editorLocked = !!(yamlViewerOpen && yamlViewerLocked && yamlViewerFilePath && targetFile && yamlViewerFilePath === targetFile);
-  useEffect45(() => {
+  useEffect46(() => {
     if (!open2) {
       prefilledFor.current = null;
       return;
@@ -72386,7 +73010,7 @@ function GenerateSchemaModal() {
       scaffoldCreateMedias: false
     });
   }, [open2, domainId, entityId]);
-  const toggleForceReplace = useCallback23((blockId) => {
+  const toggleForceReplace = useCallback24((blockId) => {
     setForceReplaceIds((prev) => {
       const next = new Set(prev);
       if (next.has(blockId)) {
@@ -72414,7 +73038,7 @@ function GenerateSchemaModal() {
     options,
     enabled: open2
   });
-  useEffect45(() => {
+  useEffect46(() => {
     if (!gen.result)
       return;
     const next = /* @__PURE__ */ new Set();
@@ -72432,9 +73056,9 @@ function GenerateSchemaModal() {
     }
     setSelected(next);
   }, [gen.result, options.skipManuallyModified]);
-  const profileInfo = useMemo48(() => getProfileInfo(profile), [profile]);
+  const profileInfo = useMemo49(() => getProfileInfo(profile), [profile]);
   const isDomainScope = isDomainScopeProfile(profile);
-  useEffect45(() => {
+  useEffect46(() => {
     if (!open2 || isDomainScope)
       return;
     if (!index || !domainId || !entityId)
@@ -72451,12 +73075,12 @@ function GenerateSchemaModal() {
   const profileAllowsIncludeOptions = profile === "crud" || profile === "crud-with-page";
   const profileForcesPage = profile === "crud-with-page";
   const profileAllowsBehaviorOptions = profile !== "technical";
-  const menuRoots = useMemo48(() => {
+  const menuRoots = useMemo49(() => {
     if (!index || !domainId)
       return [];
     return index.schemasByDomain[domainId]?.sections.menus.items?.filter((m) => m.type === "root_group" || m.type === "root_menu").map((m) => ({ id: m.id, route: m.route, type: m.type })) ?? [];
   }, [index, domainId]);
-  const listViews = useMemo48(() => {
+  const listViews = useMemo49(() => {
     if (!index || !domainId)
       return [];
     return (index.schemasByDomain[domainId]?.sections?.views?.items || []).filter((v) => v.type === "list").map((v) => ({
@@ -72464,7 +73088,7 @@ function GenerateSchemaModal() {
       label: String(v.label || v.id)
     })).sort((a, b) => a.id.localeCompare(b.id));
   }, [index, domainId]);
-  const existingTransitiveTrees = useMemo48(() => {
+  const existingTransitiveTrees = useMemo49(() => {
     if (!index || !domainId)
       return [];
     return index.transitiveLinkages.filter((t) => t.domainId === domainId).map((t) => ({
@@ -72473,7 +73097,7 @@ function GenerateSchemaModal() {
       hint: t.entity.split("/").pop() || ""
     })).sort((a, b) => a.value.localeCompare(b.value));
   }, [index, domainId]);
-  const entityViewCandidates = useMemo48(() => {
+  const entityViewCandidates = useMemo49(() => {
     if (!index || !domainId || !entityId)
       return [];
     const fqid = `${domainId}/${entityId}`.toLowerCase();
@@ -72491,7 +73115,7 @@ function GenerateSchemaModal() {
       hint: v.id === `view${entityId}` ? "\u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E" : void 0
     })).sort((a, b) => a.value.localeCompare(b.value));
   }, [index, domainId, entityId]);
-  const columnViewCandidates = useMemo48(() => {
+  const columnViewCandidates = useMemo49(() => {
     if (!index || !domainId || !entityId)
       return [];
     const fqid = `${domainId}/${entityId}`.toLowerCase();
@@ -72509,7 +73133,7 @@ function GenerateSchemaModal() {
       hint: v.type
     })).sort((a, b) => a.value.localeCompare(b.value));
   }, [index, domainId, entityId]);
-  const transitiveLabelOptions = useMemo48(() => {
+  const transitiveLabelOptions = useMemo49(() => {
     const chain = options.transitiveChain;
     if (!index || !chain || chain.length === 0)
       return [];
@@ -72534,7 +73158,7 @@ function GenerateSchemaModal() {
     }
     return out;
   }, [index, options.transitiveChain]);
-  useEffect45(() => {
+  useEffect46(() => {
     if (!open2)
       return;
     if (menuRoots.length === 0) {
@@ -72548,7 +73172,7 @@ function GenerateSchemaModal() {
       setOptions((o) => ({ ...o, menuRootId: menuRoots[0].id }));
     }
   }, [open2, menuRoots, options.menuRootId]);
-  const hasTreeCandidates = useMemo48(() => {
+  const hasTreeCandidates = useMemo49(() => {
     if (isDomainScope)
       return false;
     if (!index || !domainId || !entityId)
@@ -72566,14 +73190,14 @@ function GenerateSchemaModal() {
       (l) => ancestors.has(l.side1Fqid.toLowerCase()) || ancestors.has(l.side2Fqid.toLowerCase())
     );
   }, [index, domainId, entityId, isDomainScope]);
-  useEffect45(() => {
+  useEffect46(() => {
     if (isDomainScope)
       return;
     if (profile === "tree-view" && !hasTreeCandidates) {
       setProfile("crud");
     }
   }, [profile, hasTreeCandidates, isDomainScope]);
-  const toggleBlock = useCallback23(
+  const toggleBlock = useCallback24(
     (blockId) => {
       if (!gen.result)
         return;
@@ -72608,7 +73232,7 @@ function GenerateSchemaModal() {
     },
     [gen.result]
   );
-  const dependentsMissing = useMemo48(() => {
+  const dependentsMissing = useMemo49(() => {
     if (!gen.result)
       return /* @__PURE__ */ new Set();
     const missing = /* @__PURE__ */ new Set();
@@ -72624,7 +73248,7 @@ function GenerateSchemaModal() {
     }
     return missing;
   }, [selected, gen.result]);
-  const pullDependencies = useCallback23(() => {
+  const pullDependencies = useCallback24(() => {
     if (!gen.result)
       return;
     setSelected((prev) => {
@@ -72657,7 +73281,7 @@ function GenerateSchemaModal() {
       return next;
     });
   };
-  const groupedBlocks = useMemo48(() => {
+  const groupedBlocks = useMemo49(() => {
     if (!gen.result)
       return [];
     const map2 = /* @__PURE__ */ new Map();
@@ -72680,7 +73304,7 @@ function GenerateSchemaModal() {
     entities: { label: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438", icon: "category" },
     sequences: { label: "\u041F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u0438", icon: "linear_scale" }
   };
-  const yamlSections = useMemo48(() => {
+  const yamlSections = useMemo49(() => {
     if (!gen.result)
       return [];
     return groupYamlBySection(
@@ -72693,7 +73317,7 @@ function GenerateSchemaModal() {
   const errorCount = allIssues.filter((i) => i.severity === "error").length;
   const warningCount = allIssues.filter((i) => i.severity === "warning").length;
   const infoCount = allIssues.filter((i) => i.severity === "info").length;
-  const issuesByRule = useMemo48(() => {
+  const issuesByRule = useMemo49(() => {
     const map2 = /* @__PURE__ */ new Map();
     for (const issue of allIssues) {
       if (!map2.has(issue.ruleId))
@@ -72716,7 +73340,7 @@ function GenerateSchemaModal() {
     (s) => s.reason === "widget-view-ambiguous" || s.reason === "column-view-ambiguous"
   );
   const finalCanApply = canApply && !hasAmbiguousView;
-  const apply = useCallback23(() => {
+  const apply = useCallback24(() => {
     if (!gen.result || !domainId)
       return;
     if (!isDomainScope && !entityId)
@@ -74832,12 +75456,12 @@ var init_GenerateSchemaModal = __esm({
 });
 
 // src/web/hooks/useGeneratedManifest.ts
-import { useEffect as useEffect46, useState as useState43 } from "react";
+import { useEffect as useEffect47, useState as useState44 } from "react";
 function useGeneratedManifest(domainId, open2) {
   const modelVersion = useGraphStore((s) => s.modelVersion);
-  const [state, setState] = useState43({ data: null, loading: false, error: null });
-  const [tick, setTick] = useState43(0);
-  useEffect46(() => {
+  const [state, setState] = useState44({ data: null, loading: false, error: null });
+  const [tick, setTick] = useState44(0);
+  useEffect47(() => {
     if (!open2 || !domainId)
       return;
     let cancelled = false;
@@ -74871,16 +75495,16 @@ var init_useGeneratedManifest = __esm({
 });
 
 // src/web/components/modals/GeneratedManifestModal.tsx
-import { useMemo as useMemo49, useState as useState44 } from "react";
+import { useMemo as useMemo50, useState as useState45 } from "react";
 import { Fragment as Fragment25, jsx as jsx83, jsxs as jsxs80 } from "react/jsx-runtime";
 function GeneratedManifestModal() {
   const store = useGraphStore();
   const open2 = store.sidecarOpen;
   const domainId = store.sidecarDomainId;
   const { data, loading, error, reload } = useGeneratedManifest(domainId, open2);
-  const [expanded, setExpanded] = useState44(/* @__PURE__ */ new Set());
-  const [filter, setFilter] = useState44("all");
-  const [clearing, setClearing] = useState44(false);
+  const [expanded, setExpanded] = useState45(/* @__PURE__ */ new Set());
+  const [filter, setFilter] = useState45("all");
+  const [clearing, setClearing] = useState45(false);
   const toggleEntity = (entityId) => {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -74891,7 +75515,7 @@ function GeneratedManifestModal() {
       return next;
     });
   };
-  const filteredEntities = useMemo49(() => {
+  const filteredEntities = useMemo50(() => {
     if (!data)
       return [];
     if (filter === "all")
@@ -81830,9 +82454,9 @@ var init_cheatsheet = __esm({
 });
 
 // src/web/components/modals/CheatsheetModal.tsx
-import { useCallback as useCallback24, useEffect as useEffect47, useMemo as useMemo50, useRef as useRef21, useState as useState45 } from "react";
+import { useCallback as useCallback25, useEffect as useEffect48, useMemo as useMemo51, useRef as useRef22, useState as useState46 } from "react";
 import { Fragment as Fragment26, jsx as jsx84, jsxs as jsxs81 } from "react/jsx-runtime";
-function slugify(text) {
+function slugify2(text) {
   return text.toLowerCase().replace(/[^\w\u0400-\u04FF\s-]/g, "").trim().replace(/\s+/g, "-").replace(/-+/g, "-");
 }
 function extractHeadings(md) {
@@ -81842,7 +82466,7 @@ function extractHeadings(md) {
   while ((m = re.exec(md)) !== null) {
     const level = m[1].length;
     const text = m[2].trim();
-    const id = "h-" + slugify(text);
+    const id = "h-" + slugify2(text);
     if (id.length > 2)
       out.push({ level, text, id });
   }
@@ -81913,12 +82537,12 @@ function CheatsheetModal() {
   const setOpen = useGraphStore((s) => s.setCheatsheetOpen);
   const initialSection = useGraphStore((s) => s.cheatsheetInitialSection);
   const setInitialSection = useGraphStore((s) => s.setCheatsheetInitialSection);
-  const [selected, setSelected] = useState45(null);
-  const [query, setQuery] = useState45("");
-  const [highlightQuery, setHighlightQuery] = useState45(null);
+  const [selected, setSelected] = useState46(null);
+  const [query, setQuery] = useState46("");
+  const [highlightQuery, setHighlightQuery] = useState46(null);
   const { parse, ready } = useMarked();
-  const contentRef = useRef21(null);
-  useEffect47(() => {
+  const contentRef = useRef22(null);
+  useEffect48(() => {
     if (!open2)
       return;
     if (initialSection) {
@@ -81928,7 +82552,7 @@ function CheatsheetModal() {
       setSelected({ kind: "section", id: CHEATSHEET.sections[0].id });
     }
   }, [open2, initialSection, setInitialSection, selected]);
-  useEffect47(() => {
+  useEffect48(() => {
     if (!open2) {
       setQuery("");
       setHighlightQuery(null);
@@ -81937,20 +82561,20 @@ function CheatsheetModal() {
   const currentSection = selected?.kind === "section" ? CHEATSHEET.sections.find((s) => s.id === selected.id) || null : null;
   const currentRecipe = selected?.kind === "recipe" ? CHEATSHEET.recipes.find((r) => r.id === selected.id) || null : null;
   const markdown = currentSection?.md || currentRecipe?.md || "";
-  const html = useMemo50(() => {
+  const html = useMemo51(() => {
     if (!ready || !parse || !markdown)
       return "";
     return parse(markdown);
   }, [ready, parse, markdown]);
-  const headings = useMemo50(() => extractHeadings(markdown), [markdown]);
-  useEffect47(() => {
+  const headings = useMemo51(() => extractHeadings(markdown), [markdown]);
+  useEffect48(() => {
     const el = contentRef.current;
     if (!el || !html)
       return;
     const h2h3 = el.querySelectorAll("h2, h3");
     h2h3.forEach((h) => {
       const text = (h.textContent || "").trim();
-      const id = "h-" + slugify(text);
+      const id = "h-" + slugify2(text);
       if (id && id !== "h-")
         h.id = id;
     });
@@ -82006,21 +82630,21 @@ function CheatsheetModal() {
       applyHighlight(el, highlightQuery);
     }
   }, [html, highlightQuery]);
-  const jumpToAnchor = useCallback24((id) => {
+  const jumpToAnchor = useCallback25((id) => {
     const el = contentRef.current?.querySelector(
       "#" + CSS.escape(id)
     );
     if (el)
       el.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
-  useEffect47(() => {
+  useEffect48(() => {
     const scrollable = contentRef.current?.closest(
       ".cheatsheet-content"
     );
     if (scrollable)
       scrollable.scrollTop = 0;
   }, [selected?.kind, selected?.id]);
-  useEffect47(() => {
+  useEffect48(() => {
     if (!open2)
       return;
     const onEsc = (e) => {
@@ -82032,7 +82656,7 @@ function CheatsheetModal() {
     document.addEventListener("keydown", onEsc, true);
     return () => document.removeEventListener("keydown", onEsc, true);
   }, [open2, setOpen]);
-  const filtered = useMemo50(() => {
+  const filtered = useMemo51(() => {
     const q = query.trim().toLowerCase();
     if (!q) {
       return {
@@ -82284,17 +82908,17 @@ var init_CheatsheetModal = __esm({
 });
 
 // src/web/hooks/useOutdatedDomains.ts
-import { useCallback as useCallback25, useEffect as useEffect48, useRef as useRef22, useState as useState46 } from "react";
+import { useCallback as useCallback26, useEffect as useEffect49, useRef as useRef23, useState as useState47 } from "react";
 function useOutdatedDomains(remoteInfo) {
-  const [state, setState] = useState46({
+  const [state, setState] = useState47({
     outdated: /* @__PURE__ */ new Map(),
     checking: false,
     error: null,
     lastCheckedAt: null,
     available: !!remoteInfo?.server
   });
-  const inflightRef = useRef22(null);
-  const check = useCallback25(
+  const inflightRef = useRef23(null);
+  const check = useCallback26(
     async (force = false) => {
       if (!remoteInfo?.server)
         return;
@@ -82353,7 +82977,7 @@ function useOutdatedDomains(remoteInfo) {
     },
     [remoteInfo?.server, state.lastCheckedAt]
   );
-  useEffect48(() => {
+  useEffect49(() => {
     if (!state.available)
       return;
     if (state.lastCheckedAt)
@@ -82371,7 +82995,7 @@ var init_useOutdatedDomains = __esm({
 });
 
 // src/web/components/modals/HealthDashboardModal.tsx
-import React50, { useMemo as useMemo51, useState as useState47 } from "react";
+import React51, { useMemo as useMemo52, useState as useState48 } from "react";
 import { jsx as jsx85, jsxs as jsxs82 } from "react/jsx-runtime";
 function getSortValue(r, key) {
   switch (key) {
@@ -82591,7 +83215,7 @@ function HealthDashboardModal() {
   const open2 = store.healthDashboardOpen;
   const nodes = useGraphStore((s) => s.nodes);
   const { index, loading, error } = useModelIndex();
-  const remoteInfo = useMemo51(() => readRemoteInfo(), []);
+  const remoteInfo = useMemo52(() => readRemoteInfo(), []);
   const {
     outdated,
     checking,
@@ -82600,10 +83224,10 @@ function HealthDashboardModal() {
     available,
     check
   } = useOutdatedDomains(remoteInfo);
-  const [sortBy, setSortBy] = useState47("name");
-  const [sortDir, setSortDir] = useState47("asc");
-  const [onlyOutdated, setOnlyOutdated] = useState47(false);
-  const [query, setQuery] = useState47("");
+  const [sortBy, setSortBy] = useState48("name");
+  const [sortDir, setSortDir] = useState48("asc");
+  const [onlyOutdated, setOnlyOutdated] = useState48(false);
+  const [query, setQuery] = useState48("");
   const handleSort = (key) => {
     if (sortBy === key) {
       setSortDir((d) => d === "asc" ? "desc" : "asc");
@@ -82612,14 +83236,14 @@ function HealthDashboardModal() {
       setSortDir("asc");
     }
   };
-  const cacheAgeDays = useMemo51(() => {
+  const cacheAgeDays = useMemo52(() => {
     const fetchedAt = remoteInfo?.fetchedAt;
     if (!fetchedAt)
       return null;
     const age = Date.now() - new Date(fetchedAt).getTime();
     return Math.floor(age / (24 * 60 * 60 * 1e3));
   }, [remoteInfo?.fetchedAt]);
-  const rows = useMemo51(() => {
+  const rows = useMemo52(() => {
     if (!index)
       return [];
     const base = buildDomainHealthRows(index, nodes);
@@ -82628,7 +83252,7 @@ function HealthDashboardModal() {
       return { ...r, isOutdated: !!info, outdatedInfo: info };
     });
   }, [index, nodes, outdated]);
-  const sortedRows = useMemo51(() => {
+  const sortedRows = useMemo52(() => {
     let filtered = rows;
     if (onlyOutdated)
       filtered = filtered.filter((r) => r.isOutdated);
@@ -82654,7 +83278,7 @@ function HealthDashboardModal() {
       return 0;
     });
   }, [rows, sortBy, sortDir, onlyOutdated, query]);
-  const stats = useMemo51(() => {
+  const stats = useMemo52(() => {
     const total = rows.length;
     const withEntities = rows.filter((r) => r.entityCount > 0).length;
     const totalEntities = rows.reduce((s, r) => s + r.entityCount, 0);
@@ -83043,7 +83667,7 @@ var init_HealthDashboardModal = __esm({
     init_MIcon();
     init_initial();
     init_format();
-    HealthRow = React50.memo(function HealthRow2({
+    HealthRow = React51.memo(function HealthRow2({
       row,
       onOpenSchema,
       onOpenLint
@@ -83593,14 +84217,14 @@ var init_deletion_simulation = __esm({
 });
 
 // src/web/components/modals/DeletionSimulationModal.tsx
-import { useMemo as useMemo52 } from "react";
+import { useMemo as useMemo53 } from "react";
 import { jsx as jsx86, jsxs as jsxs83 } from "react/jsx-runtime";
 function DeletionSimulationModal() {
   const store = useGraphStore();
   const open2 = store.deletionSimulationOpen;
   const fqid = store.deletionSimulationFqid;
   const { index, loading, error } = useModelIndex();
-  const sim = useMemo52(() => {
+  const sim = useMemo53(() => {
     if (!index || !fqid)
       return null;
     try {
@@ -84227,11 +84851,11 @@ linkages:
 
 // src/web/components/common/FolderTreeSelect.tsx
 import {
-  useEffect as useEffect49,
-  useLayoutEffect as useLayoutEffect5,
-  useMemo as useMemo53,
-  useRef as useRef23,
-  useState as useState48
+  useEffect as useEffect50,
+  useLayoutEffect as useLayoutEffect6,
+  useMemo as useMemo54,
+  useRef as useRef24,
+  useState as useState49
 } from "react";
 import { createPortal as createPortal4 } from "react-dom";
 import { jsx as jsx87, jsxs as jsxs84 } from "react/jsx-runtime";
@@ -84288,24 +84912,24 @@ function FolderTreeSelect({
   placeholder = "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u043F\u0430\u043F\u043A\u0443",
   disabled = false
 }) {
-  const [open2, setOpen] = useState48(false);
-  const [filter, setFilter] = useState48("");
-  const [expanded, setExpanded] = useState48(/* @__PURE__ */ new Set());
-  const triggerRef = useRef23(null);
-  const wrapRef = useRef23(null);
-  const dropdownRef = useRef23(null);
-  const inputRef = useRef23(null);
-  const [pos, setPos] = useState48(null);
-  const tree = useMemo53(() => buildTree(folders), [folders]);
-  const flat = useMemo53(
+  const [open2, setOpen] = useState49(false);
+  const [filter, setFilter] = useState49("");
+  const [expanded, setExpanded] = useState49(/* @__PURE__ */ new Set());
+  const triggerRef = useRef24(null);
+  const wrapRef = useRef24(null);
+  const dropdownRef = useRef24(null);
+  const inputRef = useRef24(null);
+  const [pos, setPos] = useState49(null);
+  const tree = useMemo54(() => buildTree(folders), [folders]);
+  const flat = useMemo54(
     () => flattenVisible(tree, expanded, filter),
     [tree, expanded, filter]
   );
-  const current = useMemo53(
+  const current = useMemo54(
     () => folders.find((f) => f.id === value) || null,
     [folders, value]
   );
-  const currentPath = useMemo53(() => {
+  const currentPath = useMemo54(() => {
     if (!current)
       return "";
     const byId = new Map(folders.map((f) => [f.id, f]));
@@ -84350,7 +84974,7 @@ function FolderTreeSelect({
     }
     setPos({ left, top, width, maxHeight });
   };
-  useLayoutEffect5(() => {
+  useLayoutEffect6(() => {
     if (!open2) {
       setPos(null);
       return;
@@ -84365,7 +84989,7 @@ function FolderTreeSelect({
       window.removeEventListener("resize", onResize);
     };
   }, [open2]);
-  useEffect49(() => {
+  useEffect50(() => {
     if (!open2)
       return;
     setFilter("");
@@ -84385,7 +85009,7 @@ function FolderTreeSelect({
     }
     setExpanded(next);
   }, [open2, value, folders]);
-  useEffect49(() => {
+  useEffect50(() => {
     if (!open2)
       return;
     const onDoc = (e) => {
@@ -84554,40 +85178,27 @@ var init_FolderTreeSelect = __esm({
 });
 
 // src/web/components/modals/CreateDomainModal.tsx
-import { useEffect as useEffect50, useMemo as useMemo54, useState as useState49 } from "react";
+import { useEffect as useEffect51, useMemo as useMemo55, useState as useState50 } from "react";
 import { Fragment as Fragment27, jsx as jsx88, jsxs as jsxs85 } from "react/jsx-runtime";
 function CreateDomainModal() {
   const open2 = useGraphStore((s) => s.createDomainOpen);
   const setOpen = useGraphStore((s) => s.setCreateDomainOpen);
   const { index } = useModelIndex();
-  const remoteInfo = useMemo54(() => readRemoteInfo(), []);
+  const remoteInfo = useMemo55(() => readRemoteInfo(), []);
   const isRemote = !!remoteInfo?.server && remoteInfo.mode !== "hybrid";
-  const [id, setId] = useState49("");
-  const [name, setName] = useState49("");
-  const [author, setAuthor] = useState49("");
-  const [tagsRaw, setTagsRaw] = useState49("");
-  const [description, setDescription] = useState49("");
-  const [folderId, setFolderId] = useState49("");
-  const [folderPath, setFolderPath] = useState49("");
-  const [templateId, setTemplateId] = useState49("empty");
-  const [folders, setFolders] = useState49([]);
-  const [submitting, setSubmitting] = useState49(false);
-  const [error, setError] = useState49(null);
-  const [success, setSuccess] = useState49(null);
-  useEffect50(() => {
-    const raw = sessionStorage.getItem(OPEN_AFTER_RELOAD_KEY);
-    if (!raw)
-      return;
-    sessionStorage.removeItem(OPEN_AFTER_RELOAD_KEY);
-    try {
-      const { filePath, domainId } = JSON.parse(raw);
-      if (filePath && domainId) {
-        setTimeout(() => openFileInEditor(filePath, null, domainId), 400);
-      }
-    } catch {
-    }
-  }, []);
-  useEffect50(() => {
+  const [id, setId] = useState50("");
+  const [name, setName] = useState50("");
+  const [author, setAuthor] = useState50("");
+  const [tagsRaw, setTagsRaw] = useState50("");
+  const [description, setDescription] = useState50("");
+  const [folderId, setFolderId] = useState50("");
+  const [folderPath, setFolderPath] = useState50("");
+  const [templateId, setTemplateId] = useState50("empty");
+  const [folders, setFolders] = useState50([]);
+  const [submitting, setSubmitting] = useState50(false);
+  const [error, setError] = useState50(null);
+  const [success, setSuccess] = useState50(null);
+  useEffect51(() => {
     if (!open2)
       return;
     setId("");
@@ -84615,7 +85226,7 @@ function CreateDomainModal() {
   const idValid = !id || /^[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)+$/i.test(id);
   const idExists = !!index && !!id && index.domains.some((d) => d.id.toLowerCase() === id.toLowerCase());
   const canSubmit = !!id && idValid && !idExists && !!name && !submitting && (!isRemote || !!folderId);
-  const selectedTemplate = useMemo54(
+  const selectedTemplate = useMemo55(
     () => DOMAIN_TEMPLATES.find((t) => t.id === templateId) || DOMAIN_TEMPLATES[0],
     [templateId]
   );
@@ -84651,16 +85262,20 @@ function CreateDomainModal() {
         filePath: data.filePath,
         expertiseId: data.expertiseId || null
       });
-      useGraphStore.getState().bumpModelVersion();
-      if (data.filePath) {
-        sessionStorage.setItem(
-          OPEN_AFTER_RELOAD_KEY,
-          JSON.stringify({ filePath: data.filePath, domainId: id.trim() })
+      const st = useGraphStore.getState();
+      st.bumpModelVersion();
+      try {
+        await st.refreshGraphFromServer();
+      } catch (e) {
+        st.showSnackbar(
+          "\u0414\u043E\u043C\u0435\u043D \u0441\u043E\u0437\u0434\u0430\u043D, \u043D\u043E \u0433\u0440\u0430\u0444 \u043D\u0435 \u043E\u0431\u043D\u043E\u0432\u0438\u043B\u0441\u044F. \u041E\u0431\u043D\u043E\u0432\u0438\u0442\u0435 \u0441\u0442\u0440\u0430\u043D\u0438\u0446\u0443 (F5)."
         );
+        console.error("[create-domain] refreshGraphFromServer:", e);
       }
-      setTimeout(() => {
-        window.location.reload();
-      }, 800);
+      if (data.filePath) {
+        openFileInEditor(data.filePath, null, id.trim());
+      }
+      setOpen(false);
     } catch (e) {
       setError(e.message || String(e));
     } finally {
@@ -84852,7 +85467,6 @@ function CreateDomainModal() {
     }
   );
 }
-var OPEN_AFTER_RELOAD_KEY;
 var init_CreateDomainModal = __esm({
   "src/web/components/modals/CreateDomainModal.tsx"() {
     "use strict";
@@ -84864,26 +85478,25 @@ var init_CreateDomainModal = __esm({
     init_templates();
     init_open_file();
     init_FolderTreeSelect();
-    OPEN_AFTER_RELOAD_KEY = "dg:openYamlAfterReload";
   }
 });
 
 // src/web/components/modals/DeleteDomainModal.tsx
-import { useEffect as useEffect51, useMemo as useMemo55, useState as useState50 } from "react";
+import { useEffect as useEffect52, useMemo as useMemo56, useState as useState51 } from "react";
 import { jsx as jsx89, jsxs as jsxs86 } from "react/jsx-runtime";
 function DeleteDomainModal() {
   const target = useGraphStore((s) => s.deleteDomainTarget);
   const setTarget = useGraphStore((s) => s.setDeleteDomainTarget);
   const { index } = useModelIndex();
-  const remoteInfo = useMemo55(() => readRemoteInfo(), []);
+  const remoteInfo = useMemo56(() => readRemoteInfo(), []);
   const isRemote = !!remoteInfo?.server && remoteInfo.mode !== "hybrid";
-  const [expertiseId, setExpertiseId] = useState50(null);
-  const [expertiseReady, setExpertiseReady] = useState50(false);
-  const [confirmed, setConfirmed] = useState50(false);
-  const [deleting, setDeleting] = useState50(false);
-  const [error, setError] = useState50(null);
+  const [expertiseId, setExpertiseId] = useState51(null);
+  const [expertiseReady, setExpertiseReady] = useState51(false);
+  const [confirmed, setConfirmed] = useState51(false);
+  const [deleting, setDeleting] = useState51(false);
+  const [error, setError] = useState51(null);
   const open2 = !!target;
-  useEffect51(() => {
+  useEffect52(() => {
     if (!open2 || !target)
       return;
     setExpertiseId(null);
@@ -84900,7 +85513,7 @@ function DeleteDomainModal() {
       setExpertiseReady(true);
     }).catch(() => setExpertiseReady(true));
   }, [open2, target, isRemote]);
-  const refs = useMemo55(() => {
+  const refs = useMemo56(() => {
     if (!index || !target)
       return [];
     const t = target.domainId.toLowerCase();
@@ -84980,8 +85593,10 @@ function DeleteDomainModal() {
         setError(data.error || `HTTP ${res.status}`);
         return;
       }
-      useGraphStore.getState().bumpModelVersion();
-      setTarget(null);
+      const st = useGraphStore.getState();
+      st.bumpModelVersion();
+      await st.refreshGraphFromServer();
+      st.setDeleteDomainTarget(null);
     } catch (e) {
       setError(e.message || String(e));
     } finally {
@@ -85047,9 +85662,25 @@ function DeleteDomainModal() {
         ] })
       ] })
     ] }),
-    /* @__PURE__ */ jsxs86("div", { className: "help-modal__footer", children: [
-      /* @__PURE__ */ jsx89("button", { className: "btn", onClick: () => setTarget(null), children: "\u041E\u0442\u043C\u0435\u043D\u0430" }),
-      /* @__PURE__ */ jsx89("button", { className: "btn btn--danger", onClick: doDelete, disabled: !canDelete, children: deleting ? "\u0423\u0434\u0430\u043B\u0435\u043D\u0438\u0435\u2026" : "\u0423\u0434\u0430\u043B\u0438\u0442\u044C" })
+    /* @__PURE__ */ jsxs86("div", { className: "delete-domain-footer", children: [
+      /* @__PURE__ */ jsx89(
+        "button",
+        {
+          className: "btn",
+          onClick: () => setTarget(null),
+          disabled: deleting,
+          children: "\u041E\u0442\u043C\u0435\u043D\u0430"
+        }
+      ),
+      /* @__PURE__ */ jsx89(
+        "button",
+        {
+          className: "btn btn--danger",
+          onClick: doDelete,
+          disabled: !canDelete,
+          children: deleting ? "\u0423\u0434\u0430\u043B\u0435\u043D\u0438\u0435\u2026" : "\u0423\u0434\u0430\u043B\u0438\u0442\u044C"
+        }
+      )
     ] })
   ] }) });
 }
@@ -85102,7 +85733,7 @@ var init_modals = __esm({
 });
 
 // src/web/hooks/useGenerateSchemaBatch.ts
-import { useCallback as useCallback26, useEffect as useEffect52, useRef as useRef24, useState as useState51 } from "react";
+import { useCallback as useCallback27, useEffect as useEffect53, useRef as useRef25, useState as useState52 } from "react";
 function useGenerateSchemaBatch({
   domainId,
   profile,
@@ -85111,17 +85742,17 @@ function useGenerateSchemaBatch({
   enabled
 }) {
   const modelVersion = useGraphStore((s) => s.modelVersion);
-  const [state, setState] = useState51({
+  const [state, setState] = useState52({
     result: null,
     loading: false,
     error: null,
     progress: null
   });
-  const [tick, setTick] = useState51(0);
-  const abortRef = useRef24(null);
+  const [tick, setTick] = useState52(0);
+  const abortRef = useRef25(null);
   const optionsKey = JSON.stringify(options);
   const entityIdsKey = JSON.stringify(entityIds ?? []);
-  const cancel = useCallback26(() => {
+  const cancel = useCallback27(() => {
     if (abortRef.current) {
       try {
         abortRef.current.abort();
@@ -85131,7 +85762,7 @@ function useGenerateSchemaBatch({
     }
     setState((s) => ({ ...s, loading: false, progress: null }));
   }, []);
-  useEffect52(() => {
+  useEffect53(() => {
     if (!enabled || !domainId)
       return;
     let cancelled = false;
@@ -85249,16 +85880,16 @@ var init_useGenerateSchemaBatch = __esm({
 });
 
 // src/web/components/modals/GenerateBatchModal.tsx
-import { useCallback as useCallback27, useEffect as useEffect53, useMemo as useMemo56, useState as useState52 } from "react";
+import { useCallback as useCallback28, useEffect as useEffect54, useMemo as useMemo57, useState as useState53 } from "react";
 import { Fragment as Fragment28, jsx as jsx90, jsxs as jsxs87 } from "react/jsx-runtime";
 function GenerateBatchModal() {
   const store = useGraphStore();
   const { index } = useModelIndex();
   const open2 = store.generateBatchOpen;
   const domainId = store.generateBatchDomainId;
-  const [profile, setProfile] = useState52("crud");
-  const [selectedEntities, setSelectedEntities] = useState52(/* @__PURE__ */ new Set());
-  const [options, setOptions] = useState52({
+  const [profile, setProfile] = useState53("crud");
+  const [selectedEntities, setSelectedEntities] = useState53(/* @__PURE__ */ new Set());
+  const [options, setOptions] = useState53({
     includeBulk: true,
     includePage: false,
     includeLinkageWidgets: true,
@@ -85272,13 +85903,13 @@ function GenerateBatchModal() {
     scaffoldCreateMenuRoot: false,
     scaffoldCreateMedias: false
   });
-  const [initialised, setInitialised] = useState52(false);
-  const allEntities = useMemo56(() => {
+  const [initialised, setInitialised] = useState53(false);
+  const allEntities = useMemo57(() => {
     if (!index || !domainId)
       return [];
     return index.entities.filter((e) => e.domainId === domainId).map((e) => ({ id: e.entityId, name: e.name || e.entityId }));
   }, [index, domainId]);
-  useEffect53(() => {
+  useEffect54(() => {
     if (!open2 || !domainId)
       return;
     if (!index || allEntities.length === 0)
@@ -85289,7 +85920,7 @@ function GenerateBatchModal() {
     setSelectedEntities(new Set(allEntities.map((e) => e.id)));
     setInitialised(true);
   }, [open2, domainId, index, allEntities.length, initialised]);
-  useEffect53(() => {
+  useEffect54(() => {
     if (open2)
       return;
     setInitialised(false);
@@ -85303,7 +85934,7 @@ function GenerateBatchModal() {
     // enabled только после initialised — fetch не идёт до init
     enabled: open2 && initialised && selectedEntities.size > 0
   });
-  const toggleEntity = useCallback27((id) => {
+  const toggleEntity = useCallback28((id) => {
     setSelectedEntities((prev) => {
       const next = new Set(prev);
       if (next.has(id))
@@ -85313,12 +85944,12 @@ function GenerateBatchModal() {
       return next;
     });
   }, []);
-  const toggleAll = useCallback27(() => {
+  const toggleAll = useCallback28(() => {
     setSelectedEntities(
       (prev) => prev.size === allEntities.length ? /* @__PURE__ */ new Set() : new Set(allEntities.map((e) => e.id))
     );
   }, [allEntities]);
-  const apply = useCallback27(() => {
+  const apply = useCallback28(() => {
     if (!gen.result || !domainId)
       return;
     const combined = gen.result.combined;
@@ -85671,7 +86302,7 @@ var init_GenerateBatchModal = __esm({
 });
 
 // src/web/components/modals/WorkflowGraphModal.tsx
-import { useCallback as useCallback28, useEffect as useEffect54, useMemo as useMemo57, useState as useState53 } from "react";
+import { useCallback as useCallback29, useEffect as useEffect55, useMemo as useMemo58, useState as useState54 } from "react";
 import ReactFlow4, {
   Background as Background4,
   BackgroundVariant as BackgroundVariant4,
@@ -85830,7 +86461,7 @@ function buildWorkflowGraph(dt, rankdir) {
 }
 function WorkflowGraphInner({ nodes, edges }) {
   const rf = useReactFlow4();
-  useEffect54(() => {
+  useEffect55(() => {
     if (nodes.length === 0)
       return;
     const t = setTimeout(() => {
@@ -85873,30 +86504,30 @@ function WorkflowGraphInner({ nodes, edges }) {
 function WorkflowGraphModal() {
   const store = useGraphStore();
   const { index, loading, error } = useModelIndex();
-  const [rankdir, setRankdir] = useState53("LR");
+  const [rankdir, setRankdir] = useState54("LR");
   const target = store.workflowGraphTarget;
   const open2 = !!target;
-  const dt = useMemo57(() => {
+  const dt = useMemo58(() => {
     if (!index || !target)
       return null;
     return index.dataTypes.find(
       (d) => d.id === target.dataTypeId && d.domainId === target.domainId
     ) || null;
   }, [index, target]);
-  const graph = useMemo57(() => {
+  const graph = useMemo58(() => {
     if (!dt || dt.kind !== "Workflow")
       return null;
     return buildWorkflowGraph(dt, rankdir);
   }, [dt, rankdir]);
-  useEffect54(() => {
+  useEffect55(() => {
     if (open2)
       setRankdir("LR");
   }, [target?.domainId, target?.dataTypeId]);
-  const close = useCallback28(
+  const close = useCallback29(
     () => useGraphStore.getState().setWorkflowGraphTarget(null),
     []
   );
-  useEffect54(() => {
+  useEffect55(() => {
     if (!open2)
       return;
     const onEsc = (e) => {
@@ -86306,15 +86937,15 @@ var init_AppModals = __esm({
 });
 
 // src/web/App.tsx
-import React57, { useCallback as useCallback29, useEffect as useEffect55, useMemo as useMemo58, useRef as useRef25 } from "react";
+import React58, { useCallback as useCallback30, useEffect as useEffect56, useMemo as useMemo59, useRef as useRef26 } from "react";
 import { jsx as jsx94, jsxs as jsxs91 } from "react/jsx-runtime";
 function App() {
   const nodes = useGraphStore((s) => s.nodes);
   const edges = useGraphStore((s) => s.edges);
   const rules = useGraphStore((s) => s.rules);
   const viewMode = useGraphStore((s) => s.viewMode);
-  const didInit = useRef25(false);
-  useEffect55(() => {
+  const didInit = useRef26(false);
+  useEffect56(() => {
     if (didInit.current)
       return;
     didInit.current = true;
@@ -86324,7 +86955,7 @@ function App() {
     document.documentElement.setAttribute("data-theme", st.theme);
   }, []);
   const CACHE_TOAST_KEY = REMOTE_INFO?.server ? `dg-cache-toast-hidden:${REMOTE_INFO.server.replace(/\/+$/, "")}` : null;
-  const [toastVisible, setToastVisible] = React57.useState(() => {
+  const [toastVisible, setToastVisible] = React58.useState(() => {
     if (!REMOTE_INFO?.fromCache)
       return false;
     if (!CACHE_TOAST_KEY)
@@ -86335,8 +86966,8 @@ function App() {
       return true;
     }
   });
-  const [dontShowCacheToast, setDontShowCacheToast] = React57.useState(false);
-  const handleDontShowCacheToast = React57.useCallback(
+  const [dontShowCacheToast, setDontShowCacheToast] = React58.useState(false);
+  const handleDontShowCacheToast = React58.useCallback(
     (checked) => {
       setDontShowCacheToast(checked);
       if (!CACHE_TOAST_KEY)
@@ -86360,16 +86991,16 @@ function App() {
     isolatedCount,
     filteredIdsHash
   } = useGraphFilters();
-  const edgesForFocus = useMemo58(() => {
+  const edgesForFocus = useMemo59(() => {
     const ids = new Set(filteredNodes.map((n) => n.id));
     return displayEdges.filter((e) => ids.has(e.source) && ids.has(e.target));
   }, [displayEdges, filteredNodes]);
   const highlight = useGraphHighlight(filteredEdges, edgesForFocus);
-  const cyclesInfo = useMemo58(
+  const cyclesInfo = useMemo59(
     () => findCycles(displayNodes, displayEdges),
     [displayNodes, displayEdges]
   );
-  const healthMap = useMemo58(() => {
+  const healthMap = useMemo59(() => {
     const map2 = /* @__PURE__ */ new Map();
     displayNodes.forEach((n) => {
       const h = computeHealth(n, displayEdges, displayNodes, cyclesInfo.cycleNodes, null);
@@ -86377,11 +87008,11 @@ function App() {
     });
     return map2;
   }, [displayNodes, displayEdges, cyclesInfo]);
-  const ruleViolations = useMemo58(
+  const ruleViolations = useMemo59(
     () => evaluateRules(displayEdges, displayNodes, rules),
     [displayEdges, displayNodes, rules]
   );
-  const violationsByEdge = useMemo58(() => {
+  const violationsByEdge = useMemo59(() => {
     const m = /* @__PURE__ */ new Map();
     ruleViolations.forEach((v) => {
       if (!m.has(v.edgeId))
@@ -86390,7 +87021,7 @@ function App() {
     });
     return m;
   }, [ruleViolations]);
-  const edgesForRender = useMemo58(() => {
+  const edgesForRender = useMemo59(() => {
     if (highlight && (highlight.type === "focus" || highlight.type === "cycle" || highlight.type === "path")) {
       return edgesForFocus;
     }
@@ -86399,12 +87030,12 @@ function App() {
   const heatmapValues = useHeatmapValues(displayNodes, displayEdges, healthMap);
   const visibleNodes = useVisibleNodes(filteredNodes, highlight, healthMap, heatmapValues);
   const visibleEdges = useVisibleEdges(edgesForRender, highlight, violationsByEdge);
-  const perfMode = useMemo58(
+  const perfMode = useMemo59(
     () => filteredEdges.length > PERF_THRESHOLD,
     [filteredEdges.length]
   );
   const showEdgeLabels = useGraphStore((s) => s.showEdgeLabels);
-  const displayEdgesForRender = useMemo58(() => {
+  const displayEdgesForRender = useMemo59(() => {
     const hideLabels = perfMode && !showEdgeLabels;
     if (!hideLabels)
       return visibleEdges;
@@ -86440,7 +87071,7 @@ function App() {
   const interactions = useNodeInteractions({ filteredEdges });
   useGraphEvents({ displayNodes, displayEdges });
   useGlobalClickDelegation(goto, tooltip.hide);
-  const handleResetAll = useCallback29(() => {
+  const handleResetAll = useCallback30(() => {
     useGraphStore.getState().resetAll();
     invalidateLayout();
     setTimeout(() => {
@@ -86453,7 +87084,7 @@ function App() {
       }
     }, 200);
   }, [invalidateLayout]);
-  const startTour = useCallback29((path) => {
+  const startTour = useCallback30((path) => {
     const st = useGraphStore.getState();
     st.setTour({
       stages: path.stages,
@@ -86467,20 +87098,20 @@ function App() {
     st.setPathResult(null);
     st.setPathSel([]);
   }, []);
-  const allDomainsList = useMemo58(
+  const allDomainsList = useMemo59(
     () => nodes.filter((n) => n.data.nodeType === "domain").map((n) => ({ id: n.id, domainId: n.data.domainId })),
     [nodes]
   );
-  const visibleDomainsList = useMemo58(
+  const visibleDomainsList = useMemo59(
     () => visibleNodes.filter((n) => n.data.nodeType === "domain").map((n) => ({ id: n.id, domainId: n.data.domainId })),
     [visibleNodes]
   );
   const bookmarks = useGraphStore((s) => s.bookmarks);
-  const bookmarkedDomainsList = useMemo58(
+  const bookmarkedDomainsList = useMemo59(
     () => nodes.filter((n) => bookmarks.has(n.id) && n.data.nodeType === "domain").map((n) => ({ id: n.id, domainId: n.data.domainId })),
     [nodes, bookmarks]
   );
-  const entityIndex = useMemo58(() => buildEntityIndex(GRAPH_DATA.entities || []), []);
+  const entityIndex = useMemo59(() => buildEntityIndex(GRAPH_DATA.entities || []), []);
   const filters = useGraphStore((s) => s.filters);
   const namespaceFilter = useGraphStore((s) => s.namespaceFilter);
   const tagFilters = useGraphStore((s) => s.tagFilters);
@@ -86488,7 +87119,7 @@ function App() {
   const bookmarksOnly = useGraphStore((s) => s.bookmarksOnly);
   const onlyInvalid = useGraphStore((s) => s.onlyInvalid);
   const hiddenNodeIds = useGraphStore((s) => s.hiddenNodeIds);
-  const activeFiltersCount = useMemo58(() => {
+  const activeFiltersCount = useMemo59(() => {
     let c = 0;
     if (!filters.domain)
       c++;
@@ -86619,7 +87250,7 @@ function App() {
         remoteInfo: REMOTE_INFO,
         refreshCommand: REFRESH_COMMAND,
         toastVisible,
-        onToastClose: useCallback29(() => setToastVisible(false), []),
+        onToastClose: useCallback30(() => setToastVisible(false), []),
         showDontShowAgain: !!CACHE_TOAST_KEY,
         dontShowCacheToast,
         onDontShowCacheToastChange: handleDontShowCacheToast

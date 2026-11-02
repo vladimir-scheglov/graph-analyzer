@@ -9,6 +9,7 @@
   justify-content: center;
   padding: 40px 20px;
   animation: searchFadeIn 0.2s ease;
+  overflow: hidden;
 }
 .help-overlay--fullscreen { padding: 0; }
 
@@ -4014,7 +4015,7 @@ pre:hover .cheatsheet-open-btn {
 }
 
 .create-domain-input::placeholder {
-  color: var(--text-600);
+  color: var(--text-500);
 }
 
 textarea.create-domain-input {
@@ -4399,4 +4400,406 @@ select.create-domain-input {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* ============ Delete Domain Modal ============ */
+
+/*
+ * Модалка — flex-column, чтобы .help-modal__body корректно скроллился,
+ * а футер всегда прижимался к низу видимой области. overflow: hidden
+ * нужен, чтобы футер с фоном обрезался по скруглённым углам родителя
+ * (иначе прямоугольный footer «торчит» из-под border-radius).
+ */
+.delete-domain-modal {
+    display: flex;
+    flex-direction: column;
+    max-height: 90vh;
+    overflow: hidden;
+}
+
+.delete-domain-modal .help-modal__body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.delete-domain-footer {
+    flex-shrink: 0;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 24px;
+    border-top: 1px solid var(--border);
+    background: var(--bg-850);
+    border-bottom-left-radius: inherit;
+    border-bottom-right-radius: inherit;
+}
+/* Бейджи в шапке схемы домена */
+.domain-schema-header__badges {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.domain-schema-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  cursor: pointer;
+  background: transparent;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+  white-space: nowrap;
+}
+
+.domain-schema-badge:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+
+.domain-schema-badge--draft {
+  color: var(--warning);
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+.domain-schema-badge--draft:hover:not(:disabled) {
+  background: rgba(245, 158, 11, 0.22);
+}
+
+.domain-schema-badge--enabled {
+  color: var(--success);
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.35);
+}
+.domain-schema-badge--enabled:hover:not(:disabled) {
+  background: rgba(16, 185, 129, 0.22);
+}
+
+.domain-schema-badge--disabled {
+  color: var(--text-500);
+  background: rgba(148, 163, 184, 0.12);
+  border-color: rgba(148, 163, 184, 0.35);
+}
+.domain-schema-badge--disabled:hover:not(:disabled) {
+  background: rgba(148, 163, 184, 0.22);
+  color: var(--text-300);
+}
+/* ============ HelpModal с TOC ============ */
+
+.help-modal--toc {
+  width: 92vw;
+  max-width: 1400px;
+  height: 88vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.help-modal--toc .help-modal__body {
+  padding: 0; /* padding задаём внутри .help-content */
+}
+
+/* Split: TOC слева + контент справа */
+.help-modal__split {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.help-modal__split > .help-modal__body {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0;
+  scroll-behavior: auto; /* чтобы наш smooth работал через JS, а не дважды */
+}
+
+/* ── TOC (sidebar) ── */
+.help-modal__toc {
+  width: 280px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-750);
+}
+
+.help-modal__toc-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-500);
+}
+
+.help-modal__toc-search input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: var(--text-100);
+  font-size: 12px;
+}
+
+.help-modal__toc-search input::placeholder {
+  color: var(--text-500);
+}
+
+.help-modal__toc-clear {
+  background: transparent;
+  border: 0;
+  color: var(--text-500);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.help-modal__toc-clear:hover {
+  background: var(--bg-800);
+  color: var(--text-100);
+}
+
+.help-modal__toc-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 6px 16px;
+}
+
+.help-modal__toc-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 5px 10px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-400);
+  font-size: 12px;
+  line-height: 1.35;
+  border: none;
+  cursor: pointer;
+  white-space: normal;
+  word-break: break-word;
+  transition: background 0.12s, color 0.12s;
+}
+
+.help-modal__toc-item:hover {
+  background: var(--bg-800);
+  color: var(--text-100);
+}
+
+.help-modal__toc-item--active {
+  background: var(--bg-800);
+  color: var(--accent-hover);
+  font-weight: 600;
+}
+
+.help-modal__toc-item--h1 {
+  font-weight: 700;
+  color: var(--text-200);
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+.help-modal__toc-item--h2 {
+  font-weight: 600;
+  color: var(--text-300);
+  margin-top: 4px;
+}
+
+.help-modal__toc-item--h3 {
+  padding-left: 22px;
+  font-size: 11px;
+  color: var(--text-500);
+}
+
+.help-modal__toc-empty {
+  padding: 16px 12px;
+  color: var(--text-500);
+  font-size: 12px;
+  text-align: center;
+}
+
+/* ── Content ── */
+.help-modal--toc .help-content {
+  padding: 24px 32px 48px;
+  max-width: 100%;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+}
+
+/* Якоря — чтобы заголовок не прилипал к верху при скролле */
+.help-content h1,
+.help-content h2,
+.help-content h3,
+.help-content h4 {
+  scroll-margin-top: 16px;
+}
+
+/* Стили для элементов markdown (можно вынести отдельно) */
+.help-content h1 {
+  font-size: 28px;
+  margin: 0 0 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-100);
+}
+
+.help-content h2 {
+  font-size: 20px;
+  margin: 36px 0 14px;
+  color: var(--text-100);
+  scroll-margin-top: 16px;
+}
+
+.help-content h3 {
+  font-size: 16px;
+  margin: 24px 0 10px;
+  color: var(--text-200);
+}
+
+.help-content h4 {
+  font-size: 14px;
+  margin: 18px 0 8px;
+  color: var(--text-300);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.help-content p {
+  margin: 0 0 12px;
+  color: var(--text-300);
+  line-height: 1.6;
+}
+
+.help-content ul,
+.help-content ol {
+  margin: 0 0 14px;
+  padding-left: 24px;
+  color: var(--text-300);
+}
+
+.help-content li {
+  margin: 4px 0;
+  line-height: 1.55;
+}
+
+.help-content li > p {
+  margin: 0;
+}
+
+.help-content code {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-750);
+  color: var(--accent-hover);
+  font-family: "JetBrains Mono", "SF Mono", Monaco, monospace;
+  font-size: 0.9em;
+}
+
+.help-content pre {
+  position: relative;
+  margin: 12px 0;
+  padding: 14px 16px;
+  background: var(--bg-800);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-x: auto;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.help-content pre code {
+  padding: 0;
+  background: transparent;
+  color: var(--text-200);
+  font-size: inherit;
+}
+
+.help-content blockquote {
+  margin: 12px 0;
+  padding: 10px 16px;
+  border-left: 3px solid var(--accent);
+  background: var(--bg-750);
+  color: var(--text-400);
+  border-radius: 0 6px 6px 0;
+}
+
+.help-content blockquote p {
+  margin: 0;
+}
+
+.help-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0 18px;
+  font-size: 12px;
+}
+
+.help-content table th,
+.help-content table td {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
+.help-content table th {
+  background: var(--bg-750);
+  font-weight: 600;
+  color: var(--text-200);
+}
+
+.help-content table td {
+  color: var(--text-300);
+}
+
+.help-content table tr:nth-child(even) td {
+  background: var(--bg-800);
+}
+
+.help-content hr {
+  margin: 28px 0;
+  border: none;
+  border-top: 1px solid var(--border);
+}
+
+.help-content a {
+  color: var(--accent-hover);
+  text-decoration: none;
+}
+
+.help-content a:hover {
+  text-decoration: underline;
+}
+
+.help-content kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--bg-800);
+  color: var(--text-200);
+  font-family: "JetBrains Mono", "SF Mono", Monaco, monospace;
+  font-size: 0.85em;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+/* Responsive: на узких экранах TOC скрывается */
+@media (max-width: 900px) {
+  .help-modal__toc {
+    display: none;
+  }
 }

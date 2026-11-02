@@ -49,7 +49,7 @@ import { handleClearLintBaseline, handleGetLintBaseline, handleListLintBaselines
 import { loadAllLintBaselines } from "../core/analyzer/lint-baseline-storage";
 import { summarizeBaselines } from "../core/analyzer/lint-baseline";
 import { handleCheckOutdated, invalidateOutdatedCache } from "../core/remote/outdated";
-import { handleCreateDomain, handleDeleteDomain } from "./routes/domain";
+import { handleCreateDomain, handleDeleteDomain, handleToggleDomainStatus } from "./routes/domain";
 
 export interface StartServerOptions {
   port: number;
@@ -404,38 +404,35 @@ export function startServer(opts: StartServerOptions): http.Server {
           mode,
           credentials,
           state.domainIndex,
+          () => {
+            analyzer.reset();
+            (analyzer as any).__graphData = analyzer.analyze();
+            const rawDomains = analyzer.getRawDomainsForModelIndex();
+            const newIndex = buildModelIndex(rawDomains);
+            setModelIndex(newIndex);
+
+            try {
+              const currentSnapshot = createSnapshotFromModelIndex(newIndex);
+              const snapshotResult = updateModelSnapshot(
+                rootDir,
+                currentSnapshot,
+              );
+              setModelDiff(
+                snapshotResult.effectiveDiff,
+                !snapshotResult.isFirstRun,
+              );
+            } catch (e) {
+              console.warn("[rebuild] snapshot/diff failed:", e);
+            }
+
+            console.log("[rebuild] model rebuilt before /file response");
+          },
         );
-
-        // СИНХРОННЫЙ ребилд ДО того, как закроется response.
-        // Иначе следующий /api/generate увидит устаревший ModelIndex.
-        try {
-          analyzer.reset();
-          (analyzer as any).__graphData = analyzer.analyze();
-          const rawDomains = analyzer.getRawDomainsForModelIndex();
-          const newIndex = buildModelIndex(rawDomains);
-          setModelIndex(newIndex);
-
-          try {
-            const currentSnapshot = createSnapshotFromModelIndex(newIndex);
-            const snapshotResult = updateModelSnapshot(
-              rootDir,
-              currentSnapshot,
-            );
-            setModelDiff(
-              snapshotResult.effectiveDiff,
-              !snapshotResult.isFirstRun,
-            );
-          } catch (e) {
-            console.warn("[rebuild] snapshot/diff failed:", e);
-          }
-
-          console.log("[rebuild] model rebuilt after file save");
-        } catch (e) {
-          console.error("[rebuild] failed:", e);
-        }
       } catch (err: any) {
         try {
-          res.writeHead(500, { "Content-Type": "application/json" });
+          if (!res.headersSent) {
+            res.writeHead(500, { "Content-Type": "application/json" });
+          }
           res.end(JSON.stringify({ error: err.message }));
         } catch {
           /* ignore */
@@ -620,6 +617,29 @@ export function startServer(opts: StartServerOptions): http.Server {
         : [];
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ domains, mode: state.mode }));
+    } else if (url === "/api/toggle-domain-status" && req.method === "POST") {
+      try {
+        await handleToggleDomainStatus(req, res, state);
+        if (res.statusCode === 200) {
+          try {
+            analyzer.reset();
+            (analyzer as any).__graphData = analyzer.analyze();
+            const rawDomains = analyzer.getRawDomainsForModelIndex();
+            setModelIndex(buildModelIndex(rawDomains));
+            console.log(
+              "[rebuild] model + graph rebuilt after toggle-domain-status",
+            );
+          } catch (e) {
+            console.warn("[rebuild-after-toggle] failed:", e);
+          }
+        }
+      } catch (err: any) {
+        if (!res.headersSent)
+          res.writeHead(500, { "Content-Type": "application/json" });
+        try {
+          res.end(JSON.stringify({ error: err.message }));
+        } catch {}
+      }
     } else if (url === "/api/create-domain" && req.method === "POST") {
       try {
         await handleCreateDomain(req, res, state);
@@ -628,8 +648,24 @@ export function startServer(opts: StartServerOptions): http.Server {
             analyzer.reset();
             (analyzer as any).__graphData = analyzer.analyze();
             const rawDomains = analyzer.getRawDomainsForModelIndex();
-            setModelIndex(buildModelIndex(rawDomains));
-            console.log("[rebuild] model + graph rebuilt after create-domain");
+            const newIndex = buildModelIndex(rawDomains);
+            setModelIndex(newIndex);
+
+            try {
+              const currentSnapshot = createSnapshotFromModelIndex(newIndex);
+              const snapshotResult = updateModelSnapshot(
+                rootDir,
+                currentSnapshot,
+              );
+              setModelDiff(
+                snapshotResult.effectiveDiff,
+                !snapshotResult.isFirstRun,
+              );
+            } catch (e) {
+              console.warn("[rebuild] snapshot/diff failed:", e);
+            }
+
+            console.log("[rebuild] after create-domain");
           } catch (e) {
             console.warn("[rebuild-after-create] failed:", e);
           }
@@ -644,12 +680,29 @@ export function startServer(opts: StartServerOptions): http.Server {
     } else if (url === "/api/delete-domain" && req.method === "POST") {
       try {
         await handleDeleteDomain(req, res, state);
-        if (res.writableEnded) {
+        if (res.statusCode === 200) {
           try {
             analyzer.reset();
             (analyzer as any).__graphData = analyzer.analyze();
             const rawDomains = analyzer.getRawDomainsForModelIndex();
-            setModelIndex(buildModelIndex(rawDomains));
+            const newIndex = buildModelIndex(rawDomains);
+            setModelIndex(newIndex);
+
+            try {
+              const currentSnapshot = createSnapshotFromModelIndex(newIndex);
+              const snapshotResult = updateModelSnapshot(
+                rootDir,
+                currentSnapshot,
+              );
+              setModelDiff(
+                snapshotResult.effectiveDiff,
+                !snapshotResult.isFirstRun,
+              );
+            } catch (e) {
+              console.warn("[rebuild] snapshot/diff failed:", e);
+            }
+
+            console.log("[rebuild] after delete-domain");
           } catch (e) {
             console.warn("[rebuild-after-delete] failed:", e);
           }

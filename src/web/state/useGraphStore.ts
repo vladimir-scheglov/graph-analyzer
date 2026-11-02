@@ -10,6 +10,8 @@ import type {
   GeneratedBlock,
   ManifestBlockStatus,
 } from "../../core/analyzer/schema-generator/types";
+import type { GraphData } from "../../shared/types";
+import { getInitialEdges, getInitialNodes } from "./initial";
 
 // ============ Типы состояния ============
 
@@ -502,6 +504,12 @@ export interface GraphState {
   deleteDomainTarget: { domainId: string } | null;
   setCreateDomainOpen: (v: boolean) => void;
   setDeleteDomainTarget: (v: { domainId: string } | null) => void;
+  refreshGraphFromServer: (preservePositions?: boolean) => Promise<void>;
+  yamlViewerPendingGoto:
+    | { kind: "fqid"; fqid: string }
+    | { kind: "line"; line: number; column?: number }
+    | null;
+  setYamlViewerPendingGoto: (v: GraphState["yamlViewerPendingGoto"]) => void;
 }
 
 // ============ Хелперы для чтения localStorage ============
@@ -1123,6 +1131,70 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   deleteDomainTarget: null as { domainId: string } | null,
   setCreateDomainOpen: (v) => set({ createDomainOpen: v }),
   setDeleteDomainTarget: (v) => set({ deleteDomainTarget: v }),
+
+  refreshGraphFromServer: async (preservePositions) => {
+    const res = await fetch("/api/graph", {
+      method: "GET",
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      throw new Error(`/api/graph: HTTP ${res.status}`);
+    }
+    const graphData = (await res.json()) as GraphData;
+    const nextNodes = getInitialNodes(graphData);
+    const nextEdges = getInitialEdges(graphData);
+
+    const preserve = preservePositions === true;
+    const prevNodes = get().nodes;
+    const prevById = new Map(prevNodes.map((n) => [n.id, n]));
+
+    const finalNodes = preserve
+      ? nextNodes.map((n) => {
+          const prev = prevById.get(n.id);
+          if (!prev) return n; // новый узел — на 0,0
+          return {
+            ...n,
+            position: { ...prev.position }, // старый узел — на месте
+          };
+        })
+      : nextNodes;
+
+    // Сохраняем выделение, если узел ещё существует.
+    const newIds = new Set(finalNodes.map((n) => n.id));
+    const keepId = (id: string | null) => (id && newIds.has(id) ? id : null);
+
+    set({
+      nodes: finalNodes,
+      edges: nextEdges,
+      clusterBoxes: preserve ? get().clusterBoxes : [],
+      clusterGroupCount: preserve ? get().clusterGroupCount : 0,
+      selectedNodeId: keepId(get().selectedNodeId),
+      selectedEdgeId: keepId(get().selectedEdgeId),
+      panelNodeId: keepId(get().panelNodeId),
+      focusNode: keepId(get().focusNode),
+      panelOpen: false,
+      pathSel: [],
+      pathResult: null,
+      cycleHighlight: null,
+      diffMode: null,
+      didInitialFit: preserve ? get().didInitialFit : false,
+      hiddenNodeIds: new Set(),
+    });
+
+    // fitView — после того, как reactflow отрендерит новые nodes
+    setTimeout(() => {
+      const rf = get().rfInstance;
+      if (!rf) return;
+      try {
+        rf.fitView({ duration: 400, padding: 0.15 });
+      } catch {
+        /* ignore */
+      }
+    }, 150);
+  },
+
+  yamlViewerPendingGoto: null,
+  setYamlViewerPendingGoto: (v) => set({ yamlViewerPendingGoto: v }),
 
   // Сброс всего
   resetAll: () =>

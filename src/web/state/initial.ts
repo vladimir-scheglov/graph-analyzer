@@ -1,47 +1,9 @@
 import type { RFNode, RFEdge } from "../lib/types";
 import { dagreLayout } from "../lib/layout";
+import { GraphData } from "../../shared/types";
 
 const LINKAGE_COLOR = "#6366a1";
 const FQID_COLOR = "#4b7c6c";
-
-interface GraphData {
-  nodes: Array<{
-    id: string;
-    domainId?: string;
-    label?: string;
-    group: "domain" | "missing" | "broken";
-    filePath?: string | null;
-    folderPath?: string[];
-    title?: string;
-    fqidRefs?: any[];
-    version?: string;
-    entitiesCount?: number;
-    name?: string;
-    description?: string;
-    author?: string;
-    tags?: string[];
-    updatedAt?: string | null;
-    updatedAtSource?: string | null;
-    createdAt?: string | null;
-    createdAtSource?: string | null;
-  }>;
-  edges: Array<{
-    id: string;
-    from: string;
-    to: string;
-    label?: string;
-    fullLabel?: string;
-    kind: "linkage" | "fqid" | "aggregated";
-    title?: string;
-    fqidRefs?: any[];
-    linkData?: any;
-    refCount?: number;
-    side1Domain?: string | null;
-    side2Domain?: string | null;
-  }>;
-  entities?: any[];
-  cacheDiff?: any;
-}
 
 declare global {
   interface Window {
@@ -57,12 +19,12 @@ export function readGraphData(): GraphData {
     console.warn(
       "[domains-analyzer] #graph-data не найден — рендер пустого графа",
     );
-    return { nodes: [], edges: [] };
+    return { nodes: [], edges: [] } as unknown as GraphData;
   }
   try {
     const parsed = JSON.parse(el.textContent || "{}");
     if (!parsed || typeof parsed !== "object") {
-      return { nodes: [], edges: [] };
+      return { nodes: [], edges: [] } as unknown as GraphData;
     }
     // Защита от битых массивов
     if (!Array.isArray(parsed.nodes)) parsed.nodes = [];
@@ -70,7 +32,7 @@ export function readGraphData(): GraphData {
     return parsed;
   } catch (err) {
     console.warn("[domains-analyzer] не удалось распарсить #graph-data", err);
-    return { nodes: [], edges: [] };
+    return { nodes: [], edges: [] } as unknown as GraphData;
   }
 }
 
@@ -95,7 +57,17 @@ export function readRefreshCommand(): string | null {
 }
 
 export function buildInitialNodes(data: GraphData): RFNode[] {
-  const raw = data.nodes
+  const nodes = getInitialNodes(data);
+  const edges = getInitialEdges(data);
+  return dagreLayout(nodes, edges, "LR");
+}
+
+export function buildInitialEdges(data: GraphData): RFEdge[] {
+  return getInitialEdges(data);
+}
+
+export function getInitialNodes(data: GraphData): RFNode[] {
+  return data.nodes
     .filter((n) => n && n.id && typeof n.id === "string")
     .map((n): RFNode => {
       const domainId =
@@ -120,16 +92,15 @@ export function buildInitialNodes(data: GraphData): RFNode[] {
           updatedAtSource: (n.updatedAtSource as any) || null,
           createdAt: n.createdAt || null,
           createdAtSource: (n.createdAtSource as any) || null,
+          status: n.status ?? null,
+          hasDraft: n.hasDraft === true,
         },
         position: { x: 0, y: 0 },
       };
     });
-
-  const edges = buildInitialEdges(data);
-  return dagreLayout(raw, edges, "LR");
 }
 
-export function buildInitialEdges(data: GraphData): RFEdge[] {
+export function getInitialEdges(data: GraphData): RFEdge[] {
   return data.edges
     .filter((e) => e && e.id && e.from && e.to)
     .map((e): RFEdge => {

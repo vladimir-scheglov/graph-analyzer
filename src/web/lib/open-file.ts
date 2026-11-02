@@ -36,6 +36,7 @@ export function openFileInEditor(
 
   store.setYamlViewerFilePath(filePath);
   store.setYamlViewerFqid(fqid);
+  store.setYamlViewerPendingGoto(fqid ? { kind: "fqid", fqid } : null);
 
   // 1. Явный hint
   let domainId: string | null = domainIdHint;

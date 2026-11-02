@@ -244,15 +244,17 @@ export function Toolbar(props: ToolbarProps) {
             {/* ============ ROW 2: modes + toggle + stats ============ */}
             <div className="toolbar-row2">
                 <div className="toolbar-row2__modes">
-                    <button
-                        className="btn btn--primary"
-                        onClick={() => useGraphStore.getState().setCreateDomainOpen(true)}
-                        title="Создать новый домен"
-                        style={{ marginRight: 8 }}
-                    >
-                        <MIcon name="add" />
-                        <span>Новый домен</span>
-                    </button>
+                    {viewMode === "list" && (
+                        <button
+                            className="btn btn--primary btn--primary--small"
+                            onClick={() => useGraphStore.getState().setCreateDomainOpen(true)}
+                            title="Создать новый домен"
+                            style={{ marginRight: 8 }}
+                        >
+                            <MIcon name="add" />
+                            <span>Новый домен</span>
+                        </button>
+                    )}
                     {viewMode === "graph" && (
                         <ActiveModesBar ruleViolationsCount={props.ruleViolationsCount} />
                     )}

@@ -1,13 +1,26 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useGraphStore } from "../state/useGraphStore";
 import { useModelIndex } from "./useModelIndex";
 import { executeSearch } from "../lib/search/executor";
 import type { SearchOutcome } from "../lib/search/types";
 
+const SEARCH_DEBOUNCE_MS = 120;
+
 export function useSearch(): SearchOutcome {
   const nodes = useGraphStore((s) => s.nodes);
-  const query = useGraphStore((s) => s.searchQuery);
+  const rawQuery = useGraphStore((s) => s.searchQuery);
   const { index, loading, error } = useModelIndex();
+
+  // Debounce: быстрые нажатия не запускают executeSearch на каждый keystroke.
+  const [debouncedQuery, setDebouncedQuery] = useState(rawQuery);
+  useEffect(() => {
+    if (rawQuery.trim() === "") {
+      setDebouncedQuery("");
+      return;
+    }
+    const t = setTimeout(() => setDebouncedQuery(rawQuery), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [rawQuery]);
 
   return useMemo(() => {
     if (loading) {
@@ -21,7 +34,7 @@ export function useSearch(): SearchOutcome {
       };
     }
 
-    if (!query.trim() || !index) {
+    if (!debouncedQuery.trim() || !index) {
       return {
         results: [],
         total: 0,
@@ -32,7 +45,7 @@ export function useSearch(): SearchOutcome {
       };
     }
     try {
-      return executeSearch(query, index, nodes, 200);
+      return executeSearch(debouncedQuery, index, nodes, 200);
     } catch (e: any) {
       return {
         results: [],
@@ -43,5 +56,5 @@ export function useSearch(): SearchOutcome {
         ready: true,
       };
     }
-  }, [query, index, nodes, loading]);
+  }, [debouncedQuery, index, nodes, loading]);
 }

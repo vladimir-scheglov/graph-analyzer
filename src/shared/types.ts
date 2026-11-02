@@ -22,6 +22,8 @@ export interface GraphNode {
   createdAt?: string | null;
   createdAtSource?: "graphql" | "fs" | null;
   fileSize?: number | null;
+  status?: string | null;
+  hasDraft?: boolean;
 }
 
 export interface GraphEdge {
@@ -188,6 +190,8 @@ export interface RemoteDomain {
   objectType: string | null;
   updater: { id: string; displayName: string } | null;
   organization?: { id: string; name: string } | null;
+  draft?: string | null;
+  hasDraft?: boolean;
 }
 
 

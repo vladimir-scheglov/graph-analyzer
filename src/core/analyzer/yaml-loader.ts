@@ -74,9 +74,19 @@ export function parseLenientYaml(content: string): any {
 }
 
 export function cleanYamlContent(content: string): string {
-  return content
-    .split("\n")
-    .map((line) => line.replace(/![\w-]+/g, "").replace(/[*&]/g, ""))
-    .filter((line) => !line.includes("!!binary") && !line.includes("!!python"))
-    .join("\n");
+  return (
+    content
+      .split("\n")
+      // Убираем только `!`-теги (например, !rql). `*` и `&` — легальные
+      // YAML-якоря и одновременно легальные символы в значениях
+      // ("R&D", "user@x.com & co", "1*2"). Их удаление тихо портит данные.
+      .map((line) => line.replace(/![\w-]+/g, ""))
+      .filter(
+        (line) =>
+          !line.includes("!!binary") &&
+          !line.includes("!!python") &&
+          !line.includes("!!omap"),
+      )
+      .join("\n")
+  );
 }

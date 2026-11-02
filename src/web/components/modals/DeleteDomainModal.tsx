@@ -110,8 +110,10 @@ export function DeleteDomainModal() {
             });
             const data = await res.json();
             if (!res.ok) { setError(data.error || `HTTP ${res.status}`); return; }
-            useGraphStore.getState().bumpModelVersion();
-            setTarget(null);
+            const st = useGraphStore.getState();
+            st.bumpModelVersion();
+            await st.refreshGraphFromServer();
+            st.setDeleteDomainTarget(null);
         } catch (e: any) {
             setError(e.message || String(e));
         } finally {
@@ -178,9 +180,19 @@ export function DeleteDomainModal() {
                     </label>
                 </div>
 
-                <div className="help-modal__footer">
-                    <button className="btn" onClick={() => setTarget(null)}>Отмена</button>
-                    <button className="btn btn--danger" onClick={doDelete} disabled={!canDelete}>
+                <div className="delete-domain-footer">
+                    <button
+                        className="btn"
+                        onClick={() => setTarget(null)}
+                        disabled={deleting}
+                    >
+                        Отмена
+                    </button>
+                    <button
+                        className="btn btn--danger"
+                        onClick={doDelete}
+                        disabled={!canDelete}
+                    >
                         {deleting ? "Удаление…" : "Удалить"}
                     </button>
                 </div>

@@ -61,38 +61,66 @@ export async function apiFetchFolders(
   return folders;
 }
 
+const EXPERTISES_PAGE_LIMIT = 500;
+
 export async function apiFetchExpertises(
   apiUrl: string,
   token: string,
   tenantId: string,
   rootFolderId: string,
   rejectUnauthorized: boolean,
+  onProgress?: (fetched: number, total: number) => void,
 ): Promise<RemoteDomain[]> {
-  const res = await httpPost(
-    apiUrl,
-    {
-      operationName: "expertises",
-      variables: {
-        filter: {
-          folder: { folderId: rootFolderId, withChildFolders: true },
-          query: "",
-          types: ["DOMAIN"],
+  const all: any[] = [];
+  let offset = 0;
+  let total: number | null = null;
+
+  for (;;) {
+    const res = await httpPost(
+      apiUrl,
+      {
+        operationName: "expertises",
+        variables: {
+          filter: {
+            folder: { folderId: rootFolderId, withChildFolders: true },
+            query: "",
+            types: ["DOMAIN"],
+          },
+          organizationIds: [],
+          pagination: { limit: EXPERTISES_PAGE_LIMIT, offset },
+          sorting: { order: "DESC", orderBy: "UPDATED_AT" },
         },
-        organizationIds: [],
-        pagination: { limit: 500, offset: 0 },
-        sorting: { order: "DESC", orderBy: "UPDATED_AT" },
+        query: EXPERTISES_QUERY,
       },
-      query: EXPERTISES_QUERY,
-    },
-    { Authorization: "Bearer " + token, "x-tenant-id": tenantId },
-    rejectUnauthorized,
-  );
+      { Authorization: "Bearer " + token, "x-tenant-id": tenantId },
+      rejectUnauthorized,
+    );
 
-  if (res.status !== 200) throw new HttpError(res.status);
-  const data = res.json?.data?.expertises;
-  if (!data) throw new Error("Некорректный ответ");
+    if (res.status !== 200) throw new HttpError(res.status);
+    const data = res.json?.data?.expertises;
+    if (!data) throw new Error("Некорректный ответ");
 
-  return (data.expertises || []).map(
+    const page = Array.isArray(data.expertises) ? data.expertises : [];
+    all.push(...page);
+
+    if (total == null) {
+      total =
+        typeof data.pageInfo?.totalCount === "number"
+          ? data.pageInfo.totalCount
+          : null;
+    }
+    onProgress?.(all.length, total ?? all.length);
+
+    // Пагинация: если totalCount известен — стоп по нему.
+    // Если неизвестен — стоп по короткой странице.
+    if (page.length === 0) break;
+    if (total != null && all.length >= total) break;
+    if (page.length < EXPERTISES_PAGE_LIMIT) break;
+
+    offset += EXPERTISES_PAGE_LIMIT;
+  }
+
+  return all.map(
     (d: any): RemoteDomain => ({
       id: d.id,
       sourceId: d.sourceId,
@@ -132,7 +160,6 @@ interface ExpertiseRaw {
   draft: string | null;
   meta: ExpertiseMeta;
 }
-
 
 async function fetchExpertiseRaw(
   apiUrl: string,
@@ -310,7 +337,6 @@ export async function apiSaveDomainSchemaObject(
   input: SaveDomainSchemaObjectInput,
   rejectUnauthorized: boolean,
 ): Promise<{ id: string; name: string }> {
-  console.dir(input);
   const res = await httpPost(
     cmsBffUrl,
     {
@@ -439,4 +465,69 @@ export async function apiSaveExpertiseDraft(
   const data = res.json?.data?.saveExpertiseDraft;
   if (!data) throw new Error("Некорректный ответ saveExpertiseDraft");
   return { id: data.id, name: data.name };
+}
+const ENABLE_EXPERTISE_MUTATION = `mutation enableExpertise($input: RequiredIdInput!) {
+  enableExpertise(input: $input) {
+    id
+    __typename
+  }
+}`;
+
+const DISABLE_EXPERTISE_MUTATION = `mutation disableExpertise($input: RequiredIdInput!) {
+  disableExpertise(input: $input) {
+    id
+    __typename
+  }
+}`;
+
+export async function apiEnableExpertise(
+  apiUrl: string,
+  token: string,
+  tenantId: string,
+  id: string,
+  rejectUnauthorized: boolean,
+): Promise<{ id: string }> {
+  const res = await httpPost(
+    apiUrl,
+    {
+      operationName: "enableExpertise",
+      variables: { input: { id } },
+      query: ENABLE_EXPERTISE_MUTATION,
+    },
+    { Authorization: "Bearer " + token, "x-tenant-id": tenantId },
+    rejectUnauthorized,
+  );
+  if (res.status !== 200) throw new HttpError(res.status);
+  if (Array.isArray(res.json?.errors) && res.json.errors.length > 0) {
+    throwGraphQLError(res.json);
+  }
+  const data = res.json?.data?.enableExpertise;
+  if (!data) throw new Error("Некорректный ответ enableExpertise");
+  return { id: data.id };
+}
+
+export async function apiDisableExpertise(
+  apiUrl: string,
+  token: string,
+  tenantId: string,
+  id: string,
+  rejectUnauthorized: boolean,
+): Promise<{ id: string }> {
+  const res = await httpPost(
+    apiUrl,
+    {
+      operationName: "disableExpertise",
+      variables: { input: { id } },
+      query: DISABLE_EXPERTISE_MUTATION,
+    },
+    { Authorization: "Bearer " + token, "x-tenant-id": tenantId },
+    rejectUnauthorized,
+  );
+  if (res.status !== 200) throw new HttpError(res.status);
+  if (Array.isArray(res.json?.errors) && res.json.errors.length > 0) {
+    throwGraphQLError(res.json);
+  }
+  const data = res.json?.data?.disableExpertise;
+  if (!data) throw new Error("Некорректный ответ disableExpertise");
+  return { id: data.id };
 }

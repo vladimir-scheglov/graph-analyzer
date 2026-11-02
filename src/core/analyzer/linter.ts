@@ -6534,7 +6534,7 @@ function checkCounterColorSingular(ctx: LintContext): void {
         category: "semantic",
         rule: "counterColorPatterns (plural) предпочтительнее",
         message: `Домен «${domainId}»: используется legacy-поле counterColorPattern (sing.)`,
-        hint: "Zod-схема R-Vision ожидает counterColorPatterns",
+        hint: "Zod-схема R-EVO ожидает counterColorPatterns",
         domainId,
         propertyPath: `counterColorPattern`,
       });
@@ -7092,7 +7092,7 @@ function checkTreeHierarchy(
             propertyPath: path + ".linkage",
           });
         } else if (child.side !== undefined) {
-          // R-Vision docs: side — сторона, с которой находится РОДИТЕЛЬ.
+          // docs: side — сторона, с которой находится РОДИТЕЛЬ.
           // side=1 → parent на side1, child на side2 (connectsForward).
           // side=2 → parent на side2, child на side1 (connectsBackward).
           const expectedSide: 1 | 2 = connectsForward ? 1 : 2;

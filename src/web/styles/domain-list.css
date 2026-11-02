@@ -629,3 +629,97 @@
 .domain-list__stats-entities {
     color: var(--accent-hover);
 }
+/* Кнопка-заголовок секции (сворачиваемая) */
+.domain-list__section-title--clickable {
+    width: 100%;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0;
+    margin: 0;
+    background: transparent;
+    border: none;
+    font-family: inherit;
+    font-size: inherit;
+    font-weight: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: color 0.12s;
+}
+
+.domain-list__section-title--clickable:hover {
+    color: var(--accent-hover);
+}
+
+.domain-list__section-title--clickable:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+/* Бейджи (draft / status) в строке */
+.domain-list-row__badges {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.domain-list-row__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  background: transparent;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+  white-space: nowrap;
+}
+
+.domain-list-row__badge:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+
+.domain-list-row__badge--draft {
+  color: var(--warning);
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+.domain-list-row__badge--draft:hover:not(:disabled) {
+  background: rgba(245, 158, 11, 0.22);
+}
+
+.domain-list-row__badge--enabled {
+  color: var(--success);
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.35);
+}
+.domain-list-row__badge--enabled:hover:not(:disabled) {
+  background: rgba(16, 185, 129, 0.22);
+}
+
+.domain-list-row__badge--disabled {
+  color: var(--text-500);
+  background: rgba(148, 163, 184, 0.12);
+  border-color: rgba(148, 163, 184, 0.35);
+}
+.domain-list-row__badge--disabled:hover:not(:disabled) {
+  background: rgba(148, 163, 184, 0.22);
+  color: var(--text-300);
+}
+
+/* Затемнение выключенных доменов */
+.domain-list-row--disabled {
+  opacity: 0.72;
+}
+.domain-list-row--disabled:hover {
+  opacity: 1;
+}

@@ -138,7 +138,7 @@ export function YamlViewerHelp({ onClose }: YamlViewerHelpProps) {
                                     Все пункты кликабельные — переход к строке.
                                 </li>
                                 <li>
-                                    <strong>☁ Сервер</strong> — валидация через R-Vision (только в режиме <code>--server</code>).
+                                    <strong>☁ Сервер</strong> — валидация через сервер (только в режиме <code>--server</code>).
                                 </li>
                             </List>
                         </Section>
@@ -323,7 +323,7 @@ export function YamlViewerHelp({ onClose }: YamlViewerHelpProps) {
                         <Section title="Серверная валидация">
                             <P>
                                 Кнопка <code>☁</code> в шапке отправляет <strong>текущую</strong> схему (включая
-                                несохранённые изменения) на проверку в R-Vision.
+                                несохранённые изменения) на проверку на сервер.
                             </P>
                             <List>
                                 <li>Работает только в режиме <code>--server</code> (нужны креды).</li>

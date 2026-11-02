@@ -109,8 +109,30 @@ export function searchAttributes(
     }))
     .sort((a, b) => b.count - a.count);
 
+  // Релевантность: id > name > description, потом по длине name,
+  // потом по алфавиту — детерминированно между рендерами.
+  const MATCH_RANK: Record<AttributeHit["matchedBy"], number> = {
+    id: 3,
+    name: 2,
+    description: 1,
+  };
+
+  const sorted = hits.slice().sort((a, b) => {
+    const ra = MATCH_RANK[a.matchedBy];
+    const rb = MATCH_RANK[b.matchedBy];
+    if (ra !== rb) return rb - ra;
+
+    // Одинаковая релевантность: короткий id/name раньше — «email» лучше, чем
+    // «contactEmailAddressForNotifications»
+    const la = (a.attribute.id || "").length;
+    const lb = (b.attribute.id || "").length;
+    if (la !== lb) return la - lb;
+
+    return a.key.localeCompare(b.key);
+  });
+
   return {
-    hits: hits.slice(0, limit),
+    hits: sorted.slice(0, limit),
     byName: byName.slice(0, 100),
     totalHits: hits.length,
   };

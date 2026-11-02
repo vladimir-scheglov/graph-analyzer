@@ -222,6 +222,7 @@ export async function handleFileSave(
   mode: "local" | "hybrid" | "remote",
   credentials: RemoteCredentials | null,
   domainIndex: Map<string, DomainPublishInfo> | null,
+  onBeforeResponse?: () => void,
 ): Promise<void> {
   let body: any;
   try {
@@ -385,6 +386,14 @@ export async function handleFileSave(
       }
     } catch (e: any) {
       console.warn("[manifest] write failed:", e.message);
+    }
+  }
+
+  if (onBeforeResponse) {
+    try {
+      onBeforeResponse();
+    } catch (e: any) {
+      console.warn("[handleFileSave] onBeforeResponse failed:", e);
     }
   }
 

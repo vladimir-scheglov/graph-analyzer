@@ -34,6 +34,8 @@ interface DomainMetadata {
   description: string | null;
   tags: string[];
   version: string | null;
+  status: string | null;
+  hasDraft: boolean;
 }
 
 export class DomainAnalyzer {
@@ -98,6 +100,10 @@ export class DomainAnalyzer {
           description: d.description || null,
           tags: Array.isArray(d.tags) ? d.tags : [],
           version: d.version || null,
+          status: typeof d.status === "string" ? d.status : null,
+          hasDraft:
+            d.hasDraft === true ||
+            (typeof d.draft === "string" && d.draft.trim().length > 0),
         });
       }
     } catch {
@@ -274,6 +280,8 @@ export class DomainAnalyzer {
         filePath: domainData.filePath,
         folderPath,
         fqidRefs: domainData.fqidRefs,
+        status: meta.status ?? null,
+        hasDraft: meta.hasDraft === true,
         version: String(meta.version || domainData.version || ""),
         entitiesCount: domainData.entities.size,
         name: String(domainData.name || ""),

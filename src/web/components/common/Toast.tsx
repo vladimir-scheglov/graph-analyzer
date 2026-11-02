@@ -5,17 +5,6 @@ export interface ToastAction {
     command?: string;
 }
 
-export interface ToastProps {
-    message: string;
-    actions?: ToastAction[];
-    onClose?: () => void;
-    duration?: number;
-}
-
-export interface ToastAction {
-    command?: string;
-}
-
 export interface ToastDontShowAgain {
     label?: string;
     checked: boolean;

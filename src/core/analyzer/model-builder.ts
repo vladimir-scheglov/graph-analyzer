@@ -566,7 +566,7 @@ function parseEntity(
     typeof raw.searching === "object" &&
     Array.isArray(raw.searching.attributes)
   ) {
-    // Legacy / R-Vision docs: {attributes: [a, b, ...]}. Нормализуем в [{attribute}],
+    // Нормализуем в [{attribute}],
     // но помечаем форму — линтер выкатит warning.
     entity.searching = raw.searching.attributes
       .map((a: any) => (typeof a === "string" && a ? { attribute: a } : null))

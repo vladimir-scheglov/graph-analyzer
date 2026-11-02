@@ -175,7 +175,11 @@ export function CommandPalette({ commands, onOpenFile }: CommandPaletteProps) {
     const totalItems = filteredCommands.length + results.length;
     const safeIndex = Math.min(index, Math.max(totalItems - 1, 0));
 
-    const close = useCallback(() => setSearchOpen(false), [setSearchOpen]);
+    const close = useCallback(() => {
+        setSearchOpen(false);
+        setSearchQuery("");
+        setSearchIndex(0);
+    }, [setSearchOpen, setSearchQuery, setSearchIndex]);
 
     // Стабильные колбэки для memo-строк
     const handleHover = useCallback(

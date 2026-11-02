@@ -212,6 +212,8 @@ export function useHotkeys() {
           setCycleHighlight(null);
           setContextMenu(null);
           setPathMode(null);
+          useGraphStore.getState().setPanelNodeId(null);
+          useGraphStore.getState().setPanelOpen(false);
           return;
         }
 

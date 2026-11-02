@@ -1,5 +1,9 @@
 import type { IncomingMessage, ServerResponse } from "http";
 import type { ModelIndex, SemanticDiff } from "../../shared/model-types";
+import {
+  buildModelIndex,
+  RawDomainEntry,
+} from "../../core/analyzer/model-builder";
 
 /**
  * Кэш ModelIndex — строится один раз при старте.
@@ -7,6 +11,17 @@ import type { ModelIndex, SemanticDiff } from "../../shared/model-types";
 let cachedIndex: ModelIndex | null = null;
 let cachedDiff: SemanticDiff | null | undefined = undefined;
 let cachedHasSnapshot = false;
+let cachedRawDomains: RawDomainEntry[] | null = null;
+let lintComputed = false;
+
+export function setModelIndexBase(
+  index: ModelIndex,
+  rawDomains: RawDomainEntry[],
+): void {
+  cachedIndex = index;
+  cachedRawDomains = rawDomains;
+  lintComputed = false;
+}
 
 export function setModelDiff(
   diff: SemanticDiff | null,
@@ -22,6 +37,9 @@ export function handleModelDiff(res: ServerResponse): void {
     res.end('{"error":"Model index not built"}');
     return;
   }
+
+  ensureFullIndex();
+
   res.writeHead(200, {
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-cache",
@@ -36,6 +54,26 @@ export function handleModelDiff(res: ServerResponse): void {
 
 export function setModelIndex(index: ModelIndex): void {
   cachedIndex = index;
+  lintComputed = true;
+}
+
+/**
+ * Гарантирует, что в cachedIndex есть lint/sonar/martin/pii.
+ * Первый вызов после старта — строит их синхронно (2-5 с),
+ * блокирует только этого клиента, не event loop сервера.
+ */
+function ensureFullIndex(): void {
+  if (!cachedIndex || lintComputed || !cachedRawDomains) return;
+  try {
+    cachedIndex = buildModelIndex(cachedRawDomains);
+    lintComputed = true;
+    console.log(
+      `🔬 Lint (lazy): ${cachedIndex.lint.lintReport.stats.total} проблем, ` +
+        `Sonar: ${cachedIndex.lint.sonar.overall.score}/100`,
+    );
+  } catch (e) {
+    console.warn("[model] lazy lint failed:", e);
+  }
 }
 
 export function handleModelRequest(
@@ -47,6 +85,8 @@ export function handleModelRequest(
     res.end('{"error":"Model index not built"}');
     return;
   }
+
+  ensureFullIndex();
 
   res.writeHead(200, {
     "Content-Type": "application/json; charset=utf-8",
@@ -64,6 +104,8 @@ export function handleModelSummary(res: ServerResponse): void {
     res.end('{"error":"Model index not built"}');
     return;
   }
+
+  ensureFullIndex();
 
   res.writeHead(200, {
     "Content-Type": "application/json; charset=utf-8",

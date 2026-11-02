@@ -89,6 +89,10 @@ html.fonts-ready .material-symbols-outlined {
   font-weight: 500;
   white-space: nowrap;
 }
+.btn--primary--small {
+  padding: 4px 10px;
+  font-size: 11px;
+}
 .btn:hover { background: var(--bg-700); color: var(--text-100); }
 .btn--active { background: var(--accent); color: white; }
 .btn--active:hover { background: var(--accent-hover); }

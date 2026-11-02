@@ -10,7 +10,7 @@ let cached: string | null = null;
  * Примеры возвращаемого значения:
  *   "npm start --"          — при запуске через npm_lifecycle_event
  *   "node dist/index.js"    — при прямом запуске node xxx.js
- *   "graph-analyzer"        — установленный bin
+ *   "domains-analyzer"        — установленный bin
  *
  * Можно переопределить через GRAPH_ANALYZER_CMD — на случай кастомной
  * упаковки (electron-wrapper, docker-entrypoint, alias в shell и т.п.).
@@ -41,12 +41,12 @@ export function getCliInvocation(): string {
     return cached;
   }
 
-  // Установленный bin: /usr/local/bin/graph-analyzer → graph-analyzer
+  // Установленный bin: /usr/local/bin/domains-analyzer → domains-analyzer
   if (argv1) {
     cached = path.basename(argv1);
     return cached;
   }
 
-  cached = "graph-analyzer";
+  cached = "domains-analyzer";
   return cached;
 }

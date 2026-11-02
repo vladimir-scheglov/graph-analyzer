@@ -72,6 +72,63 @@ export function DomainSchemaModal() {
         return index.schemasByDomain[domainId] || null;
     }, [index, domainId]);
 
+    const currentNode = useMemo(() => {
+        if (!schema) return null;
+        return (
+            store.nodes.find(
+                (n) => n.data.domainId === schema.domainId,
+            ) || null
+        );
+    }, [schema, store.nodes]);
+
+    const [statusToggling, setStatusToggling] = React.useState(false);
+
+    const handleDraftClick = () => {
+        if (!currentNode?.data.filePath) {
+            useGraphStore.getState().showSnackbar("Файл схемы не найден");
+            return;
+        }
+        openFileInEditor(
+            currentNode.data.filePath,
+            null,
+            currentNode.data.domainId,
+        );
+        store.setDomainSchemaOpen(false);
+    };
+
+    const handleToggleStatus = async () => {
+        if (!schema || statusToggling) return;
+        setStatusToggling(true);
+        try {
+            const res = await fetch("/api/toggle-domain-status", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ domainId: schema.domainId }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                useGraphStore
+                    .getState()
+                    .showSnackbar(
+                        "Ошибка смены статуса: " + (data.error || `HTTP ${res.status}`),
+                    );
+                return;
+            }
+            const st = useGraphStore.getState();
+            st.bumpModelVersion();
+            await st.refreshGraphFromServer(true);
+            st.showSnackbar(
+                `Статус домена ${schema.domainId}: ${data.status || "?"}`,
+            );
+        } catch (err: any) {
+            useGraphStore
+                .getState()
+                .showSnackbar("Ошибка смены статуса: " + (err.message || String(err)));
+        } finally {
+            setStatusToggling(false);
+        }
+    };
+
     const issuesByEntity = useMemo(() => {
         const m = new Map<string, LintIssue[]>();
         if (!index || !domainId) return m;
@@ -291,6 +348,47 @@ export function DomainSchemaModal() {
                                     <span className="domain-schema-header__version">
                                         v{schema.metadata.version}
                                     </span>
+                                )}
+                            </div>
+                            <div className="domain-schema-header__badges">
+                                {currentNode?.data.hasDraft && (
+                                    <button
+                                        type="button"
+                                        className="domain-schema-badge domain-schema-badge--draft"
+                                        onClick={handleDraftClick}
+                                        title="Есть неопубликованные изменения. Клик — открыть редактор"
+                                    >
+                                        <MIcon name="edit_note" size="sm" />
+                                        <span>Черновик</span>
+                                    </button>
+                                )}
+                                {currentNode?.data.status && (
+                                    <button
+                                        type="button"
+                                        className={
+                                            "domain-schema-badge " +
+                                            (currentNode.data.status === "DISABLED"
+                                                ? "domain-schema-badge--disabled"
+                                                : "domain-schema-badge--enabled")
+                                        }
+                                        onClick={handleToggleStatus}
+                                        disabled={statusToggling}
+                                        title={
+                                            currentNode.data.status === "DISABLED"
+                                                ? "Клик — включить (enableExpertise)"
+                                                : "Клик — выключить (disableExpertise)"
+                                        }
+                                    >
+                                        <MIcon
+                                            name={
+                                                currentNode.data.status === "DISABLED"
+                                                    ? "pause_circle"
+                                                    : "play_circle"
+                                            }
+                                            size="sm"
+                                        />
+                                        <span>{currentNode.data.status}</span>
+                                    </button>
                                 )}
                             </div>
                             {schema.metadata.description && (

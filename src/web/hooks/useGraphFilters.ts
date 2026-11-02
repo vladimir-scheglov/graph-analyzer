@@ -65,6 +65,61 @@ export function useGraphFilters(): UseGraphFiltersResult {
     return s;
   }, [displayEdges]);
 
+  const connectedAmongVisible = useMemo(() => {
+    const baseIds = new Set<string>();
+    for (const n of displayNodes) {
+      if (n.type === "clusterNode") {
+        baseIds.add(n.id);
+        continue;
+      }
+      if (hiddenNodeIds.has(n.id)) continue;
+      if (bookmarksOnly && !bookmarks.has(n.id)) continue;
+      if (tagFilters.size > 0) {
+        const nodeTags = (n.data.tags || []).map((t) =>
+          String(t).toLowerCase(),
+        );
+        let matchesAny = false;
+        tagFilters.forEach((tag) => {
+          if (nodeTags.indexOf(tag.toLowerCase()) !== -1) matchesAny = true;
+        });
+        if (!matchesAny) continue;
+      }
+      if (onlyInvalid) {
+        const v = validationResults?.get(n.data.domainId);
+        if (!v || v.status !== "invalid") continue;
+      }
+      const t = n.data.nodeType;
+      if (t === "domain" && !filters.domain) continue;
+      if (t === "broken" && !filters.broken) continue;
+      if (t === "missing" && !filters.missing) continue;
+      if (
+        namespaceFilter &&
+        !matchesNamespace(n.data.domainId, namespaceFilter)
+      )
+        continue;
+      baseIds.add(n.id);
+    }
+
+    const conn = new Set<string>();
+    displayEdges.forEach((e) => {
+      if (!baseIds.has(e.source) || !baseIds.has(e.target)) return;
+      conn.add(e.source);
+      conn.add(e.target);
+    });
+    return conn;
+  }, [
+    displayNodes,
+    displayEdges,
+    hiddenNodeIds,
+    bookmarks,
+    bookmarksOnly,
+    tagFilters,
+    onlyInvalid,
+    validationResults,
+    filters,
+    namespaceFilter,
+  ]);
+
   // Объединение A↔B
   const bidirectionalEdges = useMemo(() => {
     if (!bidirectional) return displayEdges;
@@ -105,7 +160,8 @@ export function useGraphFilters(): UseGraphFiltersResult {
         !matchesNamespace(n.data.domainId, namespaceFilter)
       )
         return false;
-      if (isolatedOnly && (t !== "domain" || connected.has(n.id))) return false;
+      if (isolatedOnly && (t !== "domain" || connectedAmongVisible.has(n.id)))
+        return false;
 
       return true;
     });

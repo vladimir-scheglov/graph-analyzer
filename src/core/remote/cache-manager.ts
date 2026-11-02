@@ -162,6 +162,7 @@ export async function prepareRemoteCache(
         tenantId,
         rootFolder.id,
         rejectUnauthorized,
+        (fetched, total) => writeProgress(`📄 Домены: ${fetched}/${total}`),
       ),
     );
   } catch (err: any) {
@@ -173,11 +174,12 @@ export async function prepareRemoteCache(
   // Синхронизируем локальный token — он мог обновиться при перелогине
   token = refreshCreds.token as string;
 
-  const enabledDomains = domains.filter(
-    (d) => d.type === "DOMAIN",
-  );
+  const targetDomains = domains.filter((d) => d.type === "DOMAIN");
+  const enabledCount = targetDomains.filter((d) => d.status === "ENABLED").length;
+
   console.log(
-    `📄 Домены: ✅ всего ${domains.length}`,
+    `📄 Домены: ✅ всего ${domains.length}, DOMAIN ${targetDomains.length} ` +
+      `(ENABLED ${enabledCount}, DISABLED ${targetDomains.length - enabledCount})`,
   );
 
   if (fs.existsSync(cacheDir))
@@ -206,7 +208,10 @@ export async function prepareRemoteCache(
           createdAt: d.createdAt || null,
           updatedAt: d.updatedAt || null,
           objectType: d.objectType || null,
-          hasDraft: null as boolean | null,
+          hasDraft:
+            typeof d.draft === "string" && d.draft.trim().length > 0
+              ? true
+              : false,
           updater: d.updater
             ? { displayName: d.updater.displayName, id: d.updater.id }
             : null,
@@ -221,10 +226,10 @@ export async function prepareRemoteCache(
   const folderPaths = buildFolderPaths(folders);
   const errors: Array<{ id: string; sourceId: string; error: string }> = [];
   let saved = 0;
-  const total = enabledDomains.length;
+  const total = targetDomains.length;
 
   for (let i = 0; i < total; i++) {
-    const d = enabledDomains[i];
+    const d = targetDomains[i];
     const shortName = (d.sourceId || d.id).slice(0, 40);
     writeProgress(
       `💾 Скачивание схем ${makeProgressBar(i + 1, total)} — ${shortName}`,

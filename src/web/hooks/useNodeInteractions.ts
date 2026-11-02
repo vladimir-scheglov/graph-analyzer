@@ -175,6 +175,8 @@ export function useNodeInteractions({
     s.setPathSel([]);
     s.setPathMode(null);
     s.setContextMenu(null);
+    s.setPanelNodeId(null);
+    s.setPanelOpen(false);
   }, [tooltip, store]);
 
   const handlePaneContextMenu = useCallback((e: React.MouseEvent) => {

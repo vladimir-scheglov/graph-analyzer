@@ -14,8 +14,6 @@ interface RemoteFolder {
     parentFolderId: string | null;
 }
 
-const OPEN_AFTER_RELOAD_KEY = "dg:openYamlAfterReload";
-
 export function CreateDomainModal() {
     const open = useGraphStore((s) => s.createDomainOpen);
     const setOpen = useGraphStore((s) => s.setCreateDomainOpen);
@@ -38,21 +36,6 @@ export function CreateDomainModal() {
         filePath: string;
         expertiseId: string | null;
     } | null>(null);
-
-    // ── Открыть YAML-редактор после reload ──
-    useEffect(() => {
-        const raw = sessionStorage.getItem(OPEN_AFTER_RELOAD_KEY);
-        if (!raw) return;
-        sessionStorage.removeItem(OPEN_AFTER_RELOAD_KEY);
-        try {
-            const { filePath, domainId } = JSON.parse(raw);
-            if (filePath && domainId) {
-                setTimeout(() => openFileInEditor(filePath, null, domainId), 400);
-            }
-        } catch {
-            /* ignore */
-        }
-    }, []);
 
     useEffect(() => {
         if (!open) return;
@@ -137,21 +120,27 @@ export function CreateDomainModal() {
                 expertiseId: data.expertiseId || null,
             });
 
+            const st = useGraphStore.getState();
+
             // Свежий ModelIndex в модалках, которые уже открыты
-            useGraphStore.getState().bumpModelVersion();
+            st.bumpModelVersion();
+
+            try {
+                await st.refreshGraphFromServer();
+            } catch (e: any) {
+                st.showSnackbar(
+                    "Домен создан, но граф не обновился. Обновите страницу (F5).",
+                );
+                console.error("[create-domain] refreshGraphFromServer:", e);
+            }
 
             // Запоминаем, что после reload нужно открыть редактор
             if (data.filePath) {
-                sessionStorage.setItem(
-                    OPEN_AFTER_RELOAD_KEY,
-                    JSON.stringify({ filePath: data.filePath, domainId: id.trim() }),
-                );
+                openFileInEditor(data.filePath, null, id.trim());
             }
 
             // Reload — гарантирует, что граф, кэш и HTML-снапшот актуальны
-            setTimeout(() => {
-                window.location.reload();
-            }, 800);
+            setOpen(false);
         } catch (e: any) {
             setError(e.message || String(e));
         } finally {

@@ -67,12 +67,60 @@ export function DomainListRow({
         useGraphStore.getState().toggleBookmark(node.id);
     };
 
+    const hasDraft = d.hasDraft === true;
+    const status: string | null = d.status ?? null;
+    const isDisabled = status === "DISABLED";
+
+    const handleDraftClick = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (!d.filePath) {
+            useGraphStore.getState().showSnackbar("Файл схемы не найден");
+            return;
+        }
+        openFileInEditor(d.filePath, null, d.domainId);
+    };
+
+    const [toggling, setToggling] = React.useState(false);
+
+    const handleToggleStatus = async (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (toggling) return;
+        setToggling(true);
+        try {
+            const res = await fetch("/api/toggle-domain-status", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ domainId: d.domainId }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                useGraphStore
+                    .getState()
+                    .showSnackbar("Ошибка смены статуса: " + (data.error || `HTTP ${res.status}`));
+                return;
+            }
+            const st = useGraphStore.getState();
+            st.bumpModelVersion();
+            await st.refreshGraphFromServer(true);
+            st.showSnackbar(
+                `Статус домена ${d.domainId}: ${data.status || "?"}`,
+            );
+        } catch (err: any) {
+            useGraphStore
+                .getState()
+                .showSnackbar("Ошибка смены статуса: " + (err.message || String(err)));
+        } finally {
+            setToggling(false);
+        }
+    };
+
     const className = [
         "domain-list-row",
         isSelected ? "domain-list-row--selected" : "",
         isFocused ? "domain-list-row--focused" : "",
         isProblematic ? "domain-list-row--problematic" : "",
         isFavorite ? "domain-list-row--fav" : "",
+        isDisabled ? "domain-list-row--disabled" : "",
     ]
         .filter(Boolean)
         .join(" ");
@@ -107,6 +155,45 @@ export function DomainListRow({
                         </span>
                     )}
                 </div>
+                {(hasDraft || status) && (
+                    <div className="domain-list-row__badges">
+                        {hasDraft && (
+                            <button
+                                type="button"
+                                className="domain-list-row__badge domain-list-row__badge--draft"
+                                onClick={handleDraftClick}
+                                title="Есть неопубликованные изменения. Клик — открыть редактор"
+                            >
+                                <MIcon name="edit_note" size="sm" />
+                                <span>Черновик</span>
+                            </button>
+                        )}
+                        {status && (
+                            <button
+                                type="button"
+                                className={
+                                    "domain-list-row__badge " +
+                                    (isDisabled
+                                        ? "domain-list-row__badge--disabled"
+                                        : "domain-list-row__badge--enabled")
+                                }
+                                onClick={handleToggleStatus}
+                                disabled={toggling}
+                                title={
+                                    isDisabled
+                                        ? "Домен выключен. Клик — включить (enableExpertise)"
+                                        : "Домен включён. Клик — выключить (disableExpertise)"
+                                }
+                            >
+                                <MIcon
+                                    name={isDisabled ? "pause_circle" : "play_circle"}
+                                    size="sm"
+                                />
+                                <span>{status}</span>
+                            </button>
+                        )}
+                    </div>
+                )}
                 <div className="domain-list-row__id-row">
                     <span className="domain-list-row__id">{d.domainId}</span>
                     {d.updatedAt && (

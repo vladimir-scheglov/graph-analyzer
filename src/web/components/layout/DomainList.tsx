@@ -113,6 +113,10 @@ export function DomainList() {
     const setOnlyInvalid = useGraphStore((s) => s.setOnlyInvalid);
     const validationResults = useGraphStore((s) => s.validationResults);
     const { index } = useModelIndex();
+    const favCollapsed = useGraphStore((s) =>
+        s.collapsedSections.has("domain-list-favorites"),
+    );
+    const toggleFavCollapsed = useGraphStore((s) => s.toggleCollapsedSection);
 
     const domainNodes = useMemo(
         () => nodes.filter((n) => n.data.nodeType === "domain"),
@@ -246,12 +250,14 @@ export function DomainList() {
     // Плоский список для keyboard navigation
     const flatRows = useMemo(() => {
         const rows: Array<{ node: any; isFav: boolean }> = [];
-        favorites.forEach((n) => rows.push({ node: n, isFav: true }));
+        if (!favCollapsed) {
+            favorites.forEach((n) => rows.push({ node: n, isFav: true }));
+        }
         groups.forEach((g) => {
             g.nodes.forEach((n) => rows.push({ node: n, isFav: false }));
         });
         return rows;
-    }, [favorites, groups]);
+    }, [favorites, groups, favCollapsed]);
 
     const [focusedIdx, setFocusedIdx] = React.useState<number>(-1);
     const bodyRef = useRef<HTMLDivElement>(null);
@@ -470,27 +476,44 @@ export function DomainList() {
             <div className="domain-list__body" ref={bodyRef}>
                 {/* ============ Избранное (всегда, если есть) ============ */}
                 {favorites.length > 0 && (
-                    <div className="domain-list__section domain-list__section--fav">
-                        <div className="domain-list__section-title">
-                            <MIcon name="star" size="sm" fill />
-                            Избранное ({favorites.length})
-                        </div>
-                        {favorites.map((n) => (
-                            <DomainListRow
-                                key={n.id}
-                                node={n}
-                                isSelected={panelNodeId === n.id}
-                                isFavorite={true}
-                                isFocused={
-                                    focusedIdx >= 0 &&
-                                    flatRows[focusedIdx]?.node.id === n.id
-                                }
-                                entityMatches={entityMatchesByDomain.get(
-                                    n.data.domainId.toLowerCase(),
-                                )}
-                                onSelect={onSelect}
+                    <div
+                        className={
+                            "domain-list__section domain-list__section--fav" +
+                            (favCollapsed ? " domain-list__section--collapsed" : "")
+                        }
+                    >
+                        <button
+                            type="button"
+                            className="domain-list__section-title domain-list__section-title--clickable"
+                            onClick={() =>
+                                toggleFavCollapsed("domain-list-favorites", favCollapsed)
+                            }
+                            title={favCollapsed ? "Развернуть" : "Свернуть"}
+                        >
+                            <MIcon
+                                name={favCollapsed ? "chevron_right" : "expand_more"}
+                                size="sm"
                             />
-                        ))}
+                            <MIcon name="star" size="sm" fill />
+                            <span>Избранное ({favorites.length})</span>
+                        </button>
+                        {!favCollapsed &&
+                            favorites.map((n) => (
+                                <DomainListRow
+                                    key={n.id}
+                                    node={n}
+                                    isSelected={panelNodeId === n.id}
+                                    isFavorite={true}
+                                    isFocused={
+                                        focusedIdx >= 0 &&
+                                        flatRows[focusedIdx]?.node.id === n.id
+                                    }
+                                    entityMatches={entityMatchesByDomain.get(
+                                        n.data.domainId.toLowerCase(),
+                                    )}
+                                    onSelect={onSelect}
+                                />
+                            ))}
                     </div>
                 )}
 

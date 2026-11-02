@@ -7,6 +7,8 @@ import {
   apiSaveDomainSchemaObject,
   apiSaveExpertiseDraft,
   apiDeleteExpertise,
+  apiEnableExpertise,
+  apiDisableExpertise,
 } from "../../core/remote/schemas-loader";
 import { sanitizeFileName } from "../../core/utils/file-utils";
 import type { ServerState } from "../state";
@@ -29,6 +31,120 @@ interface DeleteDomainBody {
 }
 
 const FQDN_RE = /^[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)+$/i;
+
+interface ToggleStatusBody {
+  domainId: string; // sourceId
+}
+
+export async function handleToggleDomainStatus(
+  req: IncomingMessage,
+  res: ServerResponse,
+  state: ServerState,
+): Promise<void> {
+  let body: ToggleStatusBody;
+  try {
+    body = await readJsonBody(req);
+  } catch (e: any) {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Некорректный JSON: " + e.message }));
+    return;
+  }
+  if (!body.domainId) {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "domainId обязателен" }));
+    return;
+  }
+  if (
+    state.mode !== "remote" ||
+    !state.credentials ||
+    !state.remoteInfo?.cacheDir
+  ) {
+    res.writeHead(403, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        error:
+          "Смена статуса доступна только в режиме --server " +
+          "(нужны креды и _index.json)",
+      }),
+    );
+    return;
+  }
+
+  const cacheDir = state.remoteInfo.cacheDir;
+  const idxPath = path.join(cacheDir, "_index.json");
+
+  let idx: any;
+  try {
+    if (!fs.existsSync(idxPath)) throw new Error("_index.json не найден");
+    idx = JSON.parse(fs.readFileSync(idxPath, "utf8"));
+  } catch (e: any) {
+    res.writeHead(500, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Чтение _index.json: " + e.message }));
+    return;
+  }
+
+  const entry = (idx.domains || []).find(
+    (d: any) =>
+      String(d.sourceId).toLowerCase() === body.domainId.toLowerCase(),
+  );
+  if (!entry || !entry.id) {
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        error: `Домен «${body.domainId}» не найден в _index.json`,
+      }),
+    );
+    return;
+  }
+
+  const currentStatus = String(entry.status || "ENABLED");
+  const newStatus = currentStatus === "ENABLED" ? "DISABLED" : "ENABLED";
+  const expertiseId = String(entry.id);
+
+  try {
+    await withTokenRefresh(state.credentials, (t) =>
+      newStatus === "ENABLED"
+        ? apiEnableExpertise(
+            state.credentials!.apiUrl,
+            t,
+            state.credentials!.tenantId,
+            expertiseId,
+            state.credentials!.secure,
+          )
+        : apiDisableExpertise(
+            state.credentials!.apiUrl,
+            t,
+            state.credentials!.tenantId,
+            expertiseId,
+            state.credentials!.secure,
+          ),
+    );
+  } catch (e: any) {
+    res.writeHead(502, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        error: `${newStatus === "ENABLED" ? "enable" : "disable"}Expertise: ${
+          e.message || String(e)
+        }`,
+        code: e.code || null,
+      }),
+    );
+    return;
+  }
+
+  // Обновляем _index.json — analyzer прочитает свежий status после reset()
+  entry.status = newStatus;
+  try {
+    const tmp = idxPath + ".tmp";
+    fs.writeFileSync(tmp, JSON.stringify(idx, null, 2), "utf8");
+    fs.renameSync(tmp, idxPath);
+  } catch (e: any) {
+    console.warn("[toggle-status] _index.json:", e.message);
+  }
+
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ ok: true, status: newStatus }));
+}
 
 function yamlStr(s: string): string {
   return JSON.stringify(String(s));

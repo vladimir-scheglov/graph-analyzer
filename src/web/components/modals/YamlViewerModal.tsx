@@ -404,7 +404,7 @@ export function YamlViewerModal() {
                         }
                     }
                 }
-            }, 500); 
+            }, 500);
         };
 
         const sub = editorRef.current.onDidChangeModelContent(handler);
@@ -466,6 +466,7 @@ export function YamlViewerModal() {
 
     // ============ Monaco refs ============
     const editorRef = useRef<any>(null);
+    const previousFetchId = useRef(0);
     const containerRef = useRef<HTMLDivElement>(null);
     const saveRef = useRef<() => void>(() => { });
     const publishRef = useRef<() => void>(() => { });
@@ -1109,7 +1110,7 @@ export function YamlViewerModal() {
                 } as any, // Приводим к any, чтобы не реализовывать все методы интерфейса
             });
             editorRef.current = editor;
-            isProgrammaticChange.current = false; 
+            isProgrammaticChange.current = false;
             setTimeout(() => {
                 const suggestController = editor.getContribution('editor.contrib.suggestController');
                 if (suggestController && suggestController.widget) {
@@ -2410,6 +2411,51 @@ export function YamlViewerModal() {
         setPendingIssue,
     ]);
 
+    useEffect(() => {
+        if (!open) return;
+        const goto = useGraphStore.getState().yamlViewerPendingGoto;
+        if (!goto) return;
+        if (!editorCreated || !editorRef.current) return;
+        if (loading) return;
+        if (!lineMap || !deferredContent) return;
+
+        const lines = deferredContent.split("\n");
+        let targetLine: number | null = null;
+
+        if (goto.kind === "fqid") {
+            const entityId = goto.fqid.split("/").pop() || "";
+            const entitiesSection = lineMap.sections.find((s) => s.key === "entities");
+            const node = entitiesSection?.nodes.find(
+                (n) => n.id.toLowerCase() === entityId.toLowerCase(),
+            );
+            if (node) {
+                targetLine = node.line;
+            } else {
+                const re = new RegExp(
+                    `^\\s*-\\s+id\\s*:\\s*["']?${entityId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']?\\s*$`,
+                    "m",
+                );
+                const m = re.exec(deferredContent);
+                if (m && typeof m.index === "number") {
+                    targetLine = deferredContent.slice(0, m.index).split("\n").length;
+                }
+            }
+        } else if (goto.kind === "line") {
+            targetLine = Math.max(1, Math.min(goto.line, lines.length));
+        }
+
+        useGraphStore.getState().setYamlViewerPendingGoto(null);
+        if (targetLine == null) return;
+
+        const t = setTimeout(() => {
+            if (!editorRef.current) return;
+            try {
+                jumpTo(targetLine!, { column: goto.kind === "line" ? goto.column : undefined });
+            } catch { }
+        }, 50);
+        return () => clearTimeout(t);
+    }, [open, editorCreated, loading, lineMap, deferredContent, jumpTo]);
+
     // ============ Toggle helpers ============
     const toggleNode = useCallback((key: string) => {
         setExpandedNodes((prev) => {
@@ -2537,15 +2583,23 @@ export function YamlViewerModal() {
             }
 
             invalidateYamlCache(filePath || undefined);
-            useGraphStore.getState().bumpModelVersion();
-            setTimeout(() => {
-                useGraphStore.getState().bumpModelVersion();
-            }, 800);
+
+            // Сервер уже сделал rebuild ДО ответа (см. onBeforeResponse),
+            // поэтому один fetch /api/model и один /api/graph дают свежие данные.
+            const st = useGraphStore.getState();
+            st.bumpModelVersion();
+            st.refreshGraphFromServer(true).catch((e: any) => {
+                console.warn("[yaml-save] refreshGraphFromServer failed:", e);
+                st.showSnackbar(
+                    "Файл сохранён, но граф не обновился. Нажмите F5.",
+                );
+            });
 
             setSavedContent(valueToSave);
             setContent(valueToSave);
             setLiveVersion((v) => v + 1);
             sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
+            refreshPreviousContent();
 
             if (pendingManifest) {
                 useGraphStore.getState().setYamlViewerPendingManifest(null);
@@ -2964,15 +3018,33 @@ export function YamlViewerModal() {
         return () => document.removeEventListener('dg:issue-action', handler);
     }, [domainId]);
 
-    useEffect(() => {
-        if (!open || !filePath) { setPreviousContent(null); return; }
-        let cancelled = false;
+    // Загрузчик: вызывается и при смене файла, и явно после save/publish.
+    // Race-protection через монотонный счётчик: применяется только последний ответ.
+    const refreshPreviousContent = useCallback(() => {
+        if (!filePath) {
+            setPreviousContent(null);
+            return;
+        }
+        const myId = ++previousFetchId.current;
         fetch('/file/previous?path=' + encodeURIComponent(filePath))
             .then((r) => (r.status === 204 ? null : r.text()))
-            .then((text) => { if (!cancelled) setPreviousContent(text); })
-            .catch(() => { if (!cancelled) setPreviousContent(null); });
-        return () => { cancelled = true; };
-    }, [open, filePath, saveFeedback]);
+            .then((text) => {
+                if (previousFetchId.current === myId) setPreviousContent(text);
+            })
+            .catch(() => {
+                if (previousFetchId.current === myId) setPreviousContent(null);
+            });
+    }, [filePath]);
+
+    // Первичная загрузка / смена файла / открытие модалки.
+    // saveFeedback больше НЕ в deps — иначе двойной fetch после каждого save.
+    useEffect(() => {
+        if (!open) {
+            setPreviousContent(null);
+            return;
+        }
+        refreshPreviousContent();
+    }, [open, refreshPreviousContent]);
 
     useEffect(() => {
         if (diffAgainst === null || !monacoReady || !editorCreated || !diffContainerRef.current) return;
@@ -3600,18 +3672,19 @@ export function YamlViewerModal() {
                 throw new Error(errMsg);
             }
 
-            // Дальше — файл на диске гарантированно равен valueToSave
-            // (сервер пишет его ДО публикации, независимо от результата).
             invalidateYamlCache(filePath || undefined);
-            useGraphStore.getState().bumpModelVersion();
-            setTimeout(() => {
-                useGraphStore.getState().bumpModelVersion();
-            }, 800);
+
+            const st = useGraphStore.getState();
+            st.bumpModelVersion();
+            st.refreshGraphFromServer(true).catch((e: any) => {
+                console.warn("[yaml-publish] refreshGraphFromServer failed:", e);
+            });
 
             setSavedContent(valueToSave);
             setContent(valueToSave);
             setLiveVersion((v) => v + 1);
             sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
+            refreshPreviousContent();
 
             if (pendingManifest) {
                 useGraphStore.getState().setYamlViewerPendingManifest(null);
@@ -3678,6 +3751,7 @@ export function YamlViewerModal() {
                 useGraphStore
                     .getState()
                     .setYamlViewerContentSource("published");
+                setPublishedContent(valueToSave);
                 useGraphStore.getState().showSnackbar(
                     `✅ Опубликовано: ${publishInfo.domain?.name || filePath}`,
                 );
@@ -3853,7 +3927,7 @@ export function YamlViewerModal() {
         st.setPublishPreviewOpen(true);
 
     }, [isLocked, savedContent, filePath, mode, isSaving, publishedContent, executePublish, domainId]);
-    
+
     const canSave = !isLocked && isDirty;
 
     // contentSource читаем из store, чтобы учитывать ручное обновление

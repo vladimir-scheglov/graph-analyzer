@@ -76,6 +76,6 @@ table:
 
 ## Где взять iconName
 
-Имена берутся из дизайн-системы R-Vision. Частые: \`plus\`, \`pencil\`, \`trash\`, \`eye\`, \`folder\`, \`account_tree\`, \`link\`, \`download\`, \`upload\`.
+Имена берутся из дизайн-системы. Частые: \`plus\`, \`pencil\`, \`trash\`, \`eye\`, \`folder\`, \`account_tree\`, \`link\`, \`download\`, \`upload\`.
 `,
 };
