@@ -164,23 +164,24 @@ domna --server https://your.server.com --login admin --password "qwerty"
 ### `domna: command not found` после `npm install -g`
 
 1. Проверьте, что установилась актуальная версия:
-   `npm ls -g --depth=0 | grep domains-analyzer`
-   Должно быть `domains-analyzer@2.0.1` (или новее).
+   - `npm ls -g --depth=0 | grep domains-analyzer`
+   Должно быть `domains-analyzer@2.0.2` (или новее).
 
 2. Проверьте, что бинарник создан:
-   macOS/Linux: `ls "$(npm prefix -g)/bin" | grep domna`
-   Windows:     `ls "$(npm prefix -g)" | Select-String domna`
+   - macOS/Linux: `ls "$(npm prefix -g)/bin" | grep domna`
+   - Windows:     `ls "$(npm prefix -g)" | Select-String domna`
 
 3. Запустите бинарник по абсолютному пути:
-   macOS/Linux: `"$(npm prefix -g)/bin/domna" --help`
-   Windows:     `& "$(npm prefix -g)\domna.cmd" --help`
-   • Работает → проблема в PATH (см. ниже)
-   • Не работает → напишите в issue с выводом команды
+   - macOS/Linux: `"$(npm prefix -g)/bin/domna" --help`
+   - Windows:     `& "$(npm prefix -g)\domna.cmd" --help`
+
+   - Работает → проблема в PATH (см. ниже)
+   - Не работает → напишите в issue с выводом команды
 
 4. Добавьте глобальный bin в PATH:
-   macOS (zsh):  echo 'export PATH="$(npm prefix -g)/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
-   Linux (bash): echo 'export PATH="$(npm prefix -g)/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
-   Windows:      добавьте `npm prefix -g` в Path через «Переменные среды» и перезапустите терминал.
+   - macOS (zsh):  echo 'export PATH="$(npm prefix -g)/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
+   - Linux (bash): echo 'export PATH="$(npm prefix -g)/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
+   - Windows:      добавьте `npm prefix -g` в Path через «Переменные среды» и перезапустите терминал.
 
 5. Перезапустите терминал (и IDE), выполните `which domna` (Windows: `where domna`).
 
