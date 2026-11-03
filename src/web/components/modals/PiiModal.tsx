@@ -127,6 +127,12 @@ export function PiiModal() {
         store.setEntityCatalogOpen(true);
     };
 
+    useEffect(() => {
+        if (!open) return;
+        useGraphStore.getState().setTooltip(null);
+        (window as any).__tooltipHovered = false;
+    }, [open]);
+
     if (!open) return null;
 
     const visibleCount = visibleHits.length;

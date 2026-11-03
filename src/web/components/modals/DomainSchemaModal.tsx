@@ -253,6 +253,12 @@ export function DomainSchemaModal() {
         });
     }, [onlyProblematic]);
 
+    useEffect(() => {
+        if (!open) return;
+        useGraphStore.getState().setTooltip(null);
+        (window as any).__tooltipHovered = false;
+    }, [open]);
+
     if (!open) return null;
 
     const showFiltered = filteredSections !== null;

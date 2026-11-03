@@ -4803,3 +4803,18 @@ select.create-domain-input {
     display: none;
   }
 }
+.yaml-viewer-nav__empty {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 16px 14px;
+  color: var(--text-500);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.yaml-viewer-nav__empty code {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: var(--accent-hover);
+}

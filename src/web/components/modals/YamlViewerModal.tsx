@@ -322,6 +322,7 @@ export function YamlViewerModal() {
     useEffect(() => {
         if (loading) return;
         if (fetchedContent == null) return;
+        if (!filePath) return;
 
         // 1. Автосохранение (пункт 1)
         const backupKey = `dg-yaml-backup:${filePath}`;
@@ -520,15 +521,30 @@ export function YamlViewerModal() {
     }, [searchQuery]);
 
     // ============ Line map / schema ============
-    const schema = useMemo(() => {
-        if (!index || !domainId) return null;
-        return index.schemasByDomain[domainId] || null;
-    }, [index, domainId]);
+    const effectiveDomainId = useMemo(() => {
+        // 1. Явный domainId из store — приоритет
+        if (domainId && index?.schemasByDomain[domainId]) return domainId;
 
+        // 2. Фоллбэк: имя файла без .ro — обычно совпадает с id домена
+        if (filePath) {
+            const base = filePath.split(/[\\/]/).pop()?.replace(/\.ro$/i, "");
+            if (base && index?.schemasByDomain[base]) return base;
+        }
+
+        // 3. Отдать как есть — buildLineMap теперь умеет жить без schema
+        return domainId;
+    }, [domainId, filePath, index]);
+
+    const schema = useMemo(() => {
+        if (!index || !effectiveDomainId) return null;
+        return index.schemasByDomain[effectiveDomainId] || null;
+    }, [index, effectiveDomainId]);
+
+    // src/web/components/modals/YamlViewerModal.tsx
     const lineMap = useMemo(() => {
-        if (!deferredContent || !schema) return null;
-        return buildLineMap(deferredContent, schema);
-    }, [deferredContent, schema]);
+        if (!content) return null;
+        return buildLineMap(content, schema);  // schema может быть null
+    }, [content, schema]);
 
     const currentContext = useMemo(() => {
         if (!lineMap) return null;
@@ -563,21 +579,20 @@ export function YamlViewerModal() {
     // при установке маркеров dg-linter (см. эффект ниже), чтобы не
     // дублировать маркеры в gutter/overview-ruler.
     const domainIssues = useMemo(() => {
-        if (!index || !domainId) return [];
+        if (!index || !effectiveDomainId) return [];
         return index.lint.lintReport.issues.filter(
-            (i) => i.domainId === domainId,
+            (i) => i.domainId === effectiveDomainId,
         );
-    }, [index, domainId]);
+    }, [index, effectiveDomainId]);
 
     // ============ Счётчики для шапки ============
     const counters = useMemo(() => {
         if (!schema) return null;
         const totalAttrs = schema.sections.entities.items.reduce(
-            (s, x) => s + (x.attributesCount || 0),
-            0,
+            (s, x) => s + (x.attributesCount || 0), 0,
         );
-        const sonar = domainId
-            ? index?.lint?.sonar?.byDomain?.[domainId] || null
+        const sonar = effectiveDomainId
+            ? index?.lint?.sonar?.byDomain?.[effectiveDomainId] || null
             : null;
         return {
             entities: schema.sections.entities.count,
@@ -587,7 +602,7 @@ export function YamlViewerModal() {
             issues: domainIssues.length,
             sonar,
         };
-    }, [schema, domainIssues, index, domainId]);
+    }, [schema, domainIssues, index, effectiveDomainId]);
 
     // ============ Issues для навигации ============
     const issuesByEntity = useMemo(() => {
@@ -1491,10 +1506,10 @@ export function YamlViewerModal() {
         updateProviderContext({
             lineMap: lineMap || null,
             currentFilePath: filePath,
-            currentDomainId: domainId,
-            modelIndex: index || null
+            currentDomainId: effectiveDomainId,
+            modelIndex: index || null,
         });
-    }, [monacoReady, lineMap, filePath, domainId, index]);
+    }, [monacoReady, lineMap, filePath, effectiveDomainId, index]);
 
     useEffect(() => {
         if (open) return;
@@ -3339,8 +3354,8 @@ export function YamlViewerModal() {
     ]);
 
     const crossDomainStats = useMemo(() => {
-        if (!index || !domainId) return null;
-        const currentDomainLower = domainId.toLowerCase();
+        if (!index || !effectiveDomainId) return null;
+        const currentDomainLower = effectiveDomainId.toLowerCase();
 
         let incoming = 0;
         let outgoing = 0;
@@ -3395,7 +3410,7 @@ export function YamlViewerModal() {
             incoming, outgoing, incomingDomainList: Array.from(incomingDomains).sort(),
             outgoingDomainList: Array.from(outgoingDomains).sort(),
         };
-    }, [index, domainId]);
+    }, [index, effectiveDomainId]);
 
     useEffect(() => {
         if (!open) return;
@@ -3807,7 +3822,7 @@ export function YamlViewerModal() {
                     oldVersion,
                     savedContent,
                     valueToSave,
-                    domainId,
+                    effectiveDomainId,
                 );
 
                 const targetVersion = suggestion
@@ -3926,7 +3941,7 @@ export function YamlViewerModal() {
         });
         st.setPublishPreviewOpen(true);
 
-    }, [isLocked, savedContent, filePath, mode, isSaving, publishedContent, executePublish, domainId]);
+    }, [isLocked, savedContent, filePath, mode, isSaving, publishedContent, executePublish, effectiveDomainId]);
 
     const canSave = !isLocked && isDirty;
 
@@ -3977,6 +3992,23 @@ export function YamlViewerModal() {
 
     const issueCount = effectiveIssues.length;
     const refsCount = externalRefs.refs.length;
+
+    useEffect(() => {
+        if (!open) return;
+        useGraphStore.getState().setTooltip(null);
+        (window as any).__tooltipHovered = false;
+    }, [open]);
+
+    useEffect(() => {
+        if (!open) return;
+        console.log("[nav]", {
+            loading,
+            hasContent: content.length,
+            hasDeferredContent: deferredContent.length,
+            hasLineMap: !!lineMap,
+            sectionsCount: lineMap?.sections.length ?? 0,
+        });
+    }, [open, loading, content.length, deferredContent.length, lineMap]);
 
     if (!open) return null;
 
@@ -4877,6 +4909,7 @@ export function YamlViewerModal() {
                                     </div>
 
                                     <div className="yaml-viewer-nav__list" ref={navListRef}>
+
                                         {navQuery.trim() !== '' || onlyProblematic ? (
                                             <FilteredNavList
                                                 nodes={filteredNavNodes}
@@ -4888,28 +4921,42 @@ export function YamlViewerModal() {
                                                 unusedAnalysis={unusedAnalysis}
                                             />
                                         ) : (
-                                            lineMap.sections.map((section) => (
-                                                <SectionNav
-                                                    key={section.key}
-                                                    section={section}
-                                                    expandedNodes={expandedNodes}
-                                                    onToggleNode={toggleNode}
-                                                    onJump={jumpTo}
-                                                    issues={allIssues}
-                                                    activeIdx={activeNavIdx}
-                                                    onSetActive={setActiveNavIdx}
-                                                    filteredNavNodes={filteredNavNodes}
-                                                    sectionKey={section.key}
-                                                    entityIssuesMap={entityIssuesMap}
-                                                    attrIssuesMap={attrIssuesMap}
-                                                    focusTarget={focusTarget}
-                                                    onFocus={handleFocus}
-                                                    onContextMenu={(node, sectionKey, x, y) =>
-                                                        setNavContextMenu({ node, sectionKey, x, y })
-                                                    }
-                                                    unusedAnalysis={unusedAnalysis}
-                                                />
-                                            ))
+                                            <>
+                                                {lineMap && lineMap.sections.length === 0 && (
+                                                    <div className="yaml-viewer-nav__empty">
+                                                        <MIcon name="warning" size="sm" />
+                                                        <span>
+                                                            Не удалось распознать секции YAML. Проверьте, что файл —
+                                                            корректный YAML-документ с верхнеуровневыми секциями
+                                                            (<code>entities:</code>, <code>views:</code>, …).
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                {lineMap && lineMap.sections.length > 0 && (
+                                                    lineMap.sections.map((section) => (
+                                                        <SectionNav
+                                                            key={section.key}
+                                                            section={section}
+                                                            expandedNodes={expandedNodes}
+                                                            onToggleNode={toggleNode}
+                                                            onJump={jumpTo}
+                                                            issues={allIssues}
+                                                            activeIdx={activeNavIdx}
+                                                            onSetActive={setActiveNavIdx}
+                                                            filteredNavNodes={filteredNavNodes}
+                                                            sectionKey={section.key}
+                                                            entityIssuesMap={entityIssuesMap}
+                                                            attrIssuesMap={attrIssuesMap}
+                                                            focusTarget={focusTarget}
+                                                            onFocus={handleFocus}
+                                                            onContextMenu={(node, sectionKey, x, y) =>
+                                                                setNavContextMenu({ node, sectionKey, x, y })
+                                                            }
+                                                            unusedAnalysis={unusedAnalysis}
+                                                        />
+                                                    ))
+                                                )}
+                                            </>
                                         )}
                                     </div>
                                 </div>
@@ -6325,6 +6372,7 @@ function SectionNav({
     onContextMenu: (node: NavNode, sectionKey: string, x: number, y: number) => void;
     unusedAnalysis: UnusedAnalysis | null;
 }) {
+    const [open, setOpen] = useState(true);
     const detailsRef = React.useRef<HTMLDetailsElement>(null);
 
     React.useEffect(() => {
@@ -6340,9 +6388,13 @@ function SectionNav({
 
     return (
         <details
-            ref={detailsRef}
             className="yaml-nav-section"
             data-section-key={section.key}
+            open={open}
+            onToggle={(e) => {
+                const next = (e.currentTarget as HTMLDetailsElement).open;
+                if (next !== open) setOpen(next);
+            }}
         >
             <summary className="yaml-nav-section__head">
                 <span className="yaml-nav-section__chevron" aria-hidden="true" />

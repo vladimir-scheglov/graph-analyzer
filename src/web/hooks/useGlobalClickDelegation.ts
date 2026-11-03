@@ -25,6 +25,7 @@ export function useGlobalClickDelegation(
         e.preventDefault();
         const file = openBtn.getAttribute("data-file");
         const fqid = openBtn.getAttribute("data-fqid");
+        hideTooltip();  
         if (file) openFileInEditor(file, fqid);
         return;
       }

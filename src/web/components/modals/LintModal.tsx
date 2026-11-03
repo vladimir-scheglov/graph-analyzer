@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useGraphStore } from '../../state/useGraphStore';
 import { useModelIndex } from '../../hooks/useModelIndex';
 import { MIcon } from '../common/MIcon';
@@ -149,6 +149,12 @@ export function LintModal() {
         [newIssueKeysByDomain],
     );
 
+    useEffect(() => {
+        if (!open) return;
+        useGraphStore.getState().setTooltip(null);
+        (window as any).__tooltipHovered = false;
+    }, [open]);
+
     const filteredIssues = useMemo(() => {
         if (!report) return [] as LintIssue[];
         return report.issues.filter((i) => {
@@ -285,7 +291,7 @@ export function LintModal() {
             >
                 <div className="help-modal__header">
                     <div className="help-modal__title">
-                        <MIcon name="science" size="sm" /> 
+                        <MIcon name="science" size="sm" />
                         <span className="icon-label">Линтер схем</span>
                         {report && (<span className="help-modal__badge">{filteredIssues.length}</span>)}
                     </div>

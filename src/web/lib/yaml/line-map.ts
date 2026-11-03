@@ -322,7 +322,7 @@ function collectChildrenFromEntityStart(
  */
 export function buildLineMap(
   text: string,
-  schema: DomainSchemaSummary,
+  schema: DomainSchemaSummary | null,
 ): LineMap {
   const lines = text.split("\n");
   const sections: SectionBlock[] = [];
@@ -355,6 +355,16 @@ export function buildLineMap(
   }
 
   sectionRanges.forEach(({ key, start, end }) => {
+    const normalizedKey = SECTION_KEY_ALIASES[key] ?? key;
+    const sectionSchema = schema
+      ? (schema.sections as any)?.[normalizedKey]
+      : null;
+
+    // Без schema пропускаем только секции, для которых нет метки
+    // (SECTION_LABELS). С schema — как раньше.
+    if (schema && !sectionSchema) return;
+    if (!sectionSchema && !SECTION_LABELS[key]) return;
+
     // ============ Специальная обработка: trees ============
     if (key === "trees") {
       const nodes = parseTreesSection(lines, start, end);
@@ -399,11 +409,6 @@ export function buildLineMap(
       }
       return;
     }
-
-    // ============ Обычная обработка ============
-    const normalizedKey = SECTION_KEY_ALIASES[key] ?? key;
-    const sectionSchema = (schema.sections as any)?.[normalizedKey];
-    if (!sectionSchema) return;
 
     // Минимальный dash-indent в секции — "шаг" элементов.
     // Это работает для обоих вариантов элемента:
@@ -494,17 +499,17 @@ export function buildLineMap(
       ];
 
       let meta: string | undefined;
-      const schemaItem = sectionSchema.items?.find?.((x: any) => x.id === id);
+      const schemaItem = sectionSchema?.items?.find?.((x: any) => x.id === id);
       if (schemaItem) {
-        if (key === "entities" && schemaItem.attributesCount != null) {
+        if (key === "entities" && schemaItem?.attributesCount != null) {
           meta = `${schemaItem.attributesCount} атр.`;
-        } else if (schemaItem.type) {
+        } else if (schemaItem?.type) {
           meta = schemaItem.type;
-        } else if (schemaItem.kind) {
+        } else if (schemaItem?.kind) {
           meta = schemaItem.kind;
-        } else if (schemaItem.target) {
+        } else if (schemaItem?.target) {
           meta = schemaItem.target;
-        } else if (schemaItem.effect) {
+        } else if (schemaItem?.effect) {
           meta = schemaItem.effect;
         }
       }
