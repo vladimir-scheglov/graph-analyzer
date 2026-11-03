@@ -7,6 +7,15 @@ import {
     findDeps
 } from '../../lib/algorithms/topological';
 import { simplePatternMatch } from '../../lib/namespace-filter';
+import { MIcon } from '../common';
+import {
+    ModalHelp,
+    HelpSection,
+    HelpText,
+    HelpList,
+    HelpButton,
+} from '../common/ModalHelp';
+import { useHelpEscape } from '../../hooks/useHelpEscape';
 
 export interface TopoSortModalProps {
     allDomains: Array<{ id: string; domainId: string }>;
@@ -41,7 +50,6 @@ interface TopoResult {
 }
 
 export function TopoSortModal(props: TopoSortModalProps) {
-    const store = useGraphStore();
     const { goto } = useNavigation();
 
     const [scope, setScope] = useState<'all' | 'visible' | 'bookmarked'>('all');
@@ -53,8 +61,11 @@ export function TopoSortModal(props: TopoSortModalProps) {
     const [result, setResult] = useState<TopoResult | null>(null);
     const [expandedLevels, setExpandedLevels] = useState<Set<number>>(new Set());
     const [expandedDeps, setExpandedDeps] = useState<Set<string>>(new Set());
+    const [showHelp, setShowHelp] = useState(false);
 
-    const open = store.topoOpen;
+    const open = useGraphStore((s) => s.topoOpen);
+    const nodes = useGraphStore((s) => s.nodes);
+    const edges = useGraphStore((s) => s.edges);
 
     useEffect(() => {
         if (!open) {
@@ -63,6 +74,8 @@ export function TopoSortModal(props: TopoSortModalProps) {
             setExpandedDeps(new Set());
         }
     }, [open]);
+
+    useHelpEscape(open, showHelp, setShowHelp);
 
     const build = useCallback(() => {
         const nodeSet =
@@ -78,7 +91,7 @@ export function TopoSortModal(props: TopoSortModalProps) {
             .split(' ')
             .filter((t) => t.length > 0);
         if (tokens.length > 0) {
-            store.nodes.forEach((n) => {
+            nodes.forEach((n) => {
                 if (n.data.nodeType !== 'domain') return;
                 for (const t of tokens) {
                     if (simplePatternMatch(n.data.domainId.toLowerCase(), t.toLowerCase())) {
@@ -89,7 +102,7 @@ export function TopoSortModal(props: TopoSortModalProps) {
             });
         }
 
-        const depGraph = buildDependencyGraph(store.nodes, store.edges, {
+        const depGraph = buildDependencyGraph(nodes, edges, {
             includeFqid,
             includeLinkage,
             missingAsSatisfied,
@@ -121,7 +134,7 @@ export function TopoSortModal(props: TopoSortModalProps) {
         });
     }, [
         autoBreak, scope, includeFqid, includeLinkage, missingAsSatisfied,
-        excludePattern, store.nodes, store.edges, props
+        excludePattern, nodes, edges, props
     ]);
 
     const exportJSON = () => {
@@ -239,16 +252,250 @@ export function TopoSortModal(props: TopoSortModalProps) {
     if (!open) return null;
 
     return (
-        <div className="help-overlay" onMouseDown={() => store.setTopoOpen(false)}>
+        <div className="help-overlay" onMouseDown={() => useGraphStore.getState().setTopoOpen(false)}>
             <div className="help-modal topo-modal" onMouseDown={(e) => e.stopPropagation()}>
                 <div className="help-modal__header">
-                    <div className="help-modal__title">📦 Порядок установки доменов</div>
-                    <button className="help-modal__close" onClick={() => store.setTopoOpen(false)}>
-                        ✕
-                    </button>
+                    <div className="help-modal__title">
+                        <MIcon name="inventory_2" size="sm" />
+                        <span className="icon-label">Порядок установки доменов</span>
+                    </div>
+                    <div className="help-modal__actions">
+                        <HelpButton
+                            open={showHelp}
+                            onToggle={() => setShowHelp(!showHelp)}
+                            label="Что это?"
+                        />
+                        <button
+                            className="help-modal__close"
+                            onClick={() => useGraphStore.getState().setTopoOpen(false)}
+                        >
+                            ✕
+                        </button>
+                    </div>
                 </div>
 
                 <div className="validation-modal__body">
+                    <ModalHelp visible={showHelp}>
+                        <HelpSection title="Что это">
+                            <HelpText>
+                                Модалка строит <strong>порядок установки доменов</strong> —
+                                последовательность, в которой их можно безопасно
+                                разворачивать. Домен нельзя ставить, пока не установлены
+                                все, от кого он зависит. Топологическая сортировка
+                                разбивает граф на <strong>уровни</strong>: всё, что на
+                                одном уровне, ставится параллельно.
+                            </HelpText>
+                            <HelpList>
+                                <li>
+                                    <strong>Уровень 1</strong> — фундамент. Доменов,
+                                    от которых они зависят, нет (или они не входят в
+                                    выбранную область).
+                                </li>
+                                <li>
+                                    <strong>Уровень 2</strong> — зависит только от уровня 1.
+                                </li>
+                                <li>
+                                    <strong>Уровень N</strong> — зависит от уровней 1…N−1.
+                                    Всё, что на уровне, можно ставить одновременно.
+                                </li>
+                            </HelpList>
+                        </HelpSection>
+
+                        <HelpSection title="Область">
+                            <HelpList>
+                                <li>
+                                    <strong>Все домены</strong> — полный граф кэша. Для
+                                    реального деплоя — самый честный вариант: увидите
+                                    также зависимости от чужих доменов.
+                                </li>
+                                <li>
+                                    <strong>Только видимые</strong> — домены после
+                                    текущих фильтров (namespace / теги / поиск).
+                                    Зависимости на «скрытые» домены игнорируются.
+                                </li>
+                                <li>
+                                    <strong>Только избранные</strong> — быстрый
+                                    прогон по своей подборке.
+                                </li>
+                            </HelpList>
+                        </HelpSection>
+
+                        <HelpSection title="Учитывать зависимости">
+                            <HelpList>
+                                <li>
+                                    <strong>FQID-ссылки</strong> — атрибуты{" "}
+                                    <code>Reference</code>, <code>inherits</code>,
+                                    cross-domain <code>extends</code>. Классический
+                                    источник «этот домен использует чужую сущность».
+                                </li>
+                                <li>
+                                    <strong>Linkage-связи</strong> — меж-доменные
+                                    linkages (обе стороны в разных доменах). Обычно
+                                    тоже требуют установки, но иногда это «мягкая»
+                                    зависимость: UI не сломается, но связи не будут
+                                    открываться. Отключайте, если строите минимальный
+                                    план установки.
+                                </li>
+                                <li>
+                                    <strong>Missing-домены как установленные</strong> —
+                                    если зависимость указывает на домен, которого нет в
+                                    кэше, по умолчанию это ошибка валидации схемы, и
+                                    домен не будет установлен на сервере. Галочка «считать
+                                    установленными» позволяет построить план для сценария
+                                    «missing — это опечатка, поправим позже». Снимите —
+                                    увидите проблемные домены в блоке «Разорванные» /
+                                    «Требуют ручного вмешательства».
+                                </li>
+                            </HelpList>
+                        </HelpSection>
+
+                        <HelpSection title="Автоматически разрывать циклы">
+                            <HelpText>
+                                Цикл — это когда <code>A</code> зависит от{" "}
+                                <code>B</code>, а <code>B</code> — от <code>A</code>.
+                                Ни один из них нельзя установить первым, поэтому
+                                план без вмешательства построить нельзя.
+                            </HelpText>
+                            <HelpList>
+                                <li>
+                                    <strong>Галочка включена</strong> — циклы разрешаются
+                                    автоматически: выбирается домен с наименьшим числом
+                                    зависимостей, «разрывается» одна связь, домен
+                                    ставится на текущий уровень. Такие домены помечаются
+                                    бейджем <em>«⚠️ цикл разорван»</em> и
+                                    «<em>↯N</em>» (отрезанных связей).
+                                </li>
+                                <li>
+                                    <strong>Галочка снята</strong> — домены с циклом
+                                    попадают в блок «Требуют ручного вмешательства».
+                                    Их надо чинить в схеме — убрать одну из зависимостей
+                                    или разнести на два домена.
+                                </li>
+                            </HelpList>
+                        </HelpSection>
+
+                        <HelpSection title="Исключить домены по маске">
+                            <HelpText>
+                                Glob-паттерны через запятую, точку с запятой или пробел.
+                                Исключённые домены исчезают из плана и из зависимостей
+                                других (но зависимости на них остаются как «внешние»
+                                и в этом плане не учитываются).
+                            </HelpText>
+                            <HelpList>
+                                <li>
+                                    <code>*.settings.*</code> — все домены, где в FQDN
+                                    встречается <code>.settings.</code>.
+                                </li>
+                                <li>
+                                    <code>test.*</code> — все тестовые домены.
+                                </li>
+                                <li>
+                                    <code>!prod.*</code> — синтаксис <code>!</code>{" "}
+                                    пока поддерживается только в namespace-фильтре, в
+                                    маске исключения — только включение.
+                                </li>
+                            </HelpList>
+                            <HelpText>
+                                Полезно, когда в кэше лежат чужие домены (сторонние
+                                организации, dev-окружения), которые в вашем деплое
+                                не участвуют.
+                            </HelpText>
+                        </HelpSection>
+
+                        <HelpSection title="Как читать результат">
+                            <HelpList>
+                                <li>
+                                    <strong>Уровень 1 / 2 / 3 …</strong> — кликабельные
+                                    заголовки. Раскройте, чтобы увидеть список доменов
+                                    этого уровня.
+                                </li>
+                                <li>
+                                    <strong>▸ у домена</strong> — раскрывает список{" "}
+                                    <em>прямых</em> зависимостей (тех, что на нижних
+                                    уровнях). Так удобно проверять «а правда ли он
+                                    зависит только от фундамента?».
+                                </li>
+                                <li>
+                                    <strong>📊 N уровней</strong> — общая длина плана.
+                                    Большое число (20+) означает «очень много
+                                    последовательных шагов», обычно из-за редких
+                                    cross-domain-ссылок в самом низу.
+                                </li>
+                                <li>
+                                    <strong>⏱ N шагов</strong> — критический путь:
+                                    самый длинный маршрут через уровни. Это минимум
+                                    времени, если ставить по одному домену за шаг.
+                                </li>
+                                <li>
+                                    <strong>⚠️ N цикл.</strong> — домены, для которых не
+                                    удалось разорвать цикл (только при выключенном
+                                    авторазрыве). Их нужно чинить в схеме вручную.
+                                </li>
+                                <li>
+                                    <strong>🔗 N разорвано</strong> — сколько циклов
+                                    разрешено автоматически. Это <em>не ошибки</em>,
+                                    просто предупреждение: возможно, схему стоит
+                                    почистить.
+                                </li>
+                            </HelpList>
+                        </HelpSection>
+
+                        <HelpSection title="Кнопки внизу">
+                            <HelpList>
+                                <li>
+                                    <strong>🎨 На графе</strong> — закрывает модалку и
+                                    подсвечивает каждый узел бейджем <code>L1</code>,{" "}
+                                    <code>L2</code>, … Наведите на бейдж — увидите
+                                    уровень установки. Удобно для визуального ревью плана.
+                                </li>
+                                <li>
+                                    <strong>📋 Копировать</strong> — план в буфер
+                                    обмена (текстом, по уровням). Подходит для вставки
+                                    в задачу в трекере.
+                                </li>
+                                <li>
+                                    <strong>💾 JSON</strong> — машинно-читаемый план:
+                                    <code>levels[]</code>, <code>broken[]</code>,{" "}
+                                    <code>cyclic[]</code>, <code>stats</code>. Для
+                                    интеграции с CI-скриптами деплоя.
+                                </li>
+                                <li>
+                                    <strong>📝 MD</strong> — Markdown-отчёт: сводка
+                                    + список уровней + разорванные циклы. Открывается
+                                    в любом вики/MR.
+                                </li>
+                                <li>
+                                    <strong>← Настройки</strong> — возвращает к форме
+                                    (область, галочки, маска), чтобы поправить параметры
+                                    без закрытия модалки.
+                                </li>
+                            </HelpList>
+                        </HelpSection>
+
+                        <HelpSection title="Ограничения">
+                            <HelpList>
+                                <li>
+                                    Только домены, которые есть в кэше и успешно
+                                    распарсились. Missing/broken-домены не участвуют в
+                                    уровнях.
+                                </li>
+                                <li>
+                                    Cross-domain ссылки на незагруженные домены (когда
+                                    зависимости указывают на чужую организацию или
+                                    отсутствующий домен) — трактуются по галочке{" "}
+                                    <em>«Missing-домены как установленные»</em>.
+                                </li>
+                                <li>
+                                    Учитываются только <strong>прямые</strong> ссылки
+                                    (FQID, inherits, cross-domain extends). Транзитивные
+                                    связи <code>transitiveLinkages</code> и{" "}
+                                    <code>calculation.schemaId</code>{" "}
+                                    <strong>не влияют</strong> на порядок: они
+                                    рантайм-зависимости, а не build-time.
+                                </li>
+                            </HelpList>
+                        </HelpSection>
+                    </ModalHelp>
                     {!result && (
                         <div className="validation-scope">
                             <div className="validation-scope__label">Область</div>
@@ -262,6 +509,7 @@ export function TopoSortModal(props: TopoSortModalProps) {
                             <label className="menu__checkbox">
                                 <input
                                     type="checkbox"
+                                    style={{ marginLeft: 8 }}
                                     checked={includeFqid}
                                     onChange={() => setIncludeFqid(!includeFqid)}
                                 />
@@ -271,6 +519,7 @@ export function TopoSortModal(props: TopoSortModalProps) {
                             <label className="menu__checkbox">
                                 <input
                                     type="checkbox"
+                                    style={{ marginLeft: 8 }}
                                     checked={includeLinkage}
                                     onChange={() => setIncludeLinkage(!includeLinkage)}
                                 />
@@ -280,6 +529,7 @@ export function TopoSortModal(props: TopoSortModalProps) {
                             <label className="menu__checkbox">
                                 <input
                                     type="checkbox"
+                                    style={{ marginLeft: 8 }}
                                     checked={missingAsSatisfied}
                                     onChange={() => setMissingAsSatisfied(!missingAsSatisfied)}
                                 />
@@ -289,6 +539,7 @@ export function TopoSortModal(props: TopoSortModalProps) {
                             <label className="menu__checkbox">
                                 <input
                                     type="checkbox"
+                                    style={{ marginLeft: 8 }}
                                     checked={autoBreak}
                                     onChange={() => setAutoBreak(!autoBreak)}
                                 />
@@ -306,6 +557,7 @@ export function TopoSortModal(props: TopoSortModalProps) {
                             </div>
                             <input
                                 className="menu__input"
+                                style={{ margin: 0, width: '100%' }}
                                 type="text"
                                 placeholder="например: *.settings.*"
                                 value={excludePattern}
@@ -339,7 +591,7 @@ export function TopoSortModal(props: TopoSortModalProps) {
                                                         className="validation-log__domain"
                                                         onClick={() => {
                                                             goto(id);
-                                                            store.setTopoOpen(false);
+                                                            useGraphStore.getState().setTopoOpen(false);
                                                         }}
                                                     >
                                                         {id}
@@ -361,7 +613,7 @@ export function TopoSortModal(props: TopoSortModalProps) {
                                                             className="validation-log__domain"
                                                             onClick={() => {
                                                                 goto(b.id);
-                                                                store.setTopoOpen(false);
+                                                                useGraphStore.getState().setTopoOpen(false);
                                                             }}
                                                         >
                                                             {b.id}
@@ -404,7 +656,7 @@ export function TopoSortModal(props: TopoSortModalProps) {
                                             <div className="topo-level__body">
                                                 {level.map((id) => {
                                                     const isDepsOpen = expandedDeps.has(id);
-                                                    const deps = findDeps(id, result.levelMap, store.edges, store.nodes);
+                                                    const deps = findDeps(id, result.levelMap, edges, nodes);
                                                     const brokenInfo = result.broken.find((b) => b.id === id);
                                                     return (
                                                         <div
@@ -427,7 +679,7 @@ export function TopoSortModal(props: TopoSortModalProps) {
                                                                     className="validation-log__domain"
                                                                     onClick={() => {
                                                                         goto(id);
-                                                                        store.setTopoOpen(false);
+                                                                        useGraphStore.getState().setTopoOpen(false);
                                                                     }}
                                                                 >
                                                                     {id}
@@ -455,7 +707,7 @@ export function TopoSortModal(props: TopoSortModalProps) {
                                                                                 className="validation-log__domain"
                                                                                 onClick={() => {
                                                                                     goto(dep);
-                                                                                    store.setTopoOpen(false);
+                                                                                    useGraphStore.getState().setTopoOpen(false);
                                                                                 }}
                                                                             >
                                                                                 {dep}
@@ -501,8 +753,9 @@ export function TopoSortModal(props: TopoSortModalProps) {
                             <button
                                 className="btn"
                                 onClick={() => {
-                                    store.setTopoLevelMap(result.levelMap);
-                                    store.setTopoOpen(false);
+                                    const st = useGraphStore.getState();
+                                    st.setTopoLevelMap(result.levelMap);
+                                    st.setTopoOpen(false);
                                 }}
                             >
                                 🎨 На графе

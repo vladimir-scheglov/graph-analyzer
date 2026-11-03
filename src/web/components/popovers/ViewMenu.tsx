@@ -25,7 +25,12 @@ const HEATMAPS: Array<{ key: HeatmapKey; label: string }> = [
 ];
 
 export function ViewMenu({ close }: ViewMenuProps) {
-    const store = useGraphStore();
+    const layoutType = useGraphStore((s) => s.layoutType);
+    const heatmap = useGraphStore((s) => s.heatmap);
+    const compact = useGraphStore((s) => s.compact);
+    const showGroups = useGraphStore((s) => s.showGroups);
+    const bidirectional = useGraphStore((s) => s.bidirectional);
+    const showEdgeLabels = useGraphStore((s) => s.showEdgeLabels);
 
     return (
         <div className="menu">
@@ -33,10 +38,10 @@ export function ViewMenu({ close }: ViewMenuProps) {
             {LAYOUTS.map((l) => (
                 <button
                     key={l.key}
-                    className={'menu__item' + (store.layoutType === l.key ? ' menu__item--active' : '')}
-                    onClick={() => store.setLayoutType(l.key)}
+                    className={'menu__item' + (layoutType === l.key ? ' menu__item--active' : '')}
+                    onClick={() => useGraphStore.getState().setLayoutType(l.key)}
                 >
-                    <span className="menu__icon">{store.layoutType === l.key ? '●' : '○'}</span>
+                    <span className="menu__icon">{layoutType === l.key ? '●' : '○'}</span>
                     <span className="menu__text">{l.label}</span>
                 </button>
             ))}
@@ -46,13 +51,13 @@ export function ViewMenu({ close }: ViewMenuProps) {
             {HEATMAPS.map((h) => (
                 <button
                     key={h.key}
-                    className={'menu__item' + (store.heatmap === h.key ? ' menu__item--active' : '')}
+                    className={'menu__item' + (heatmap === h.key ? ' menu__item--active' : '')}
                     onClick={() => {
-                        store.setHeatmap(h.key);
+                        useGraphStore.getState().setHeatmap(h.key);
                         close();
                     }}
                 >
-                    <span className="menu__icon">{store.heatmap === h.key ? '●' : '○'}</span>
+                    <span className="menu__icon">{heatmap === h.key ? '●' : '○'}</span>
                     <span className="menu__text">{h.label}</span>
                 </button>
             ))}
@@ -63,8 +68,8 @@ export function ViewMenu({ close }: ViewMenuProps) {
             <label className="menu__checkbox">
                 <input
                     type="checkbox"
-                    checked={store.compact}
-                    onChange={() => store.setCompact((v) => !v)}
+                    checked={compact}
+                    onChange={() => useGraphStore.getState().setCompact((v) => !v)}
                 />
                 <span className="menu__check" />
                 <span className="menu__text">Компактный режим</span>
@@ -73,8 +78,8 @@ export function ViewMenu({ close }: ViewMenuProps) {
             <label className="menu__checkbox">
                 <input
                     type="checkbox"
-                    checked={store.showGroups}
-                    onChange={() => store.setShowGroups(!store.showGroups)}
+                    checked={showGroups}
+                    onChange={() => useGraphStore.getState().setShowGroups(!showGroups)}
                 />
                 <span className="menu__check" />
                 <span className="menu__text">Группировка в рамки</span>
@@ -83,8 +88,8 @@ export function ViewMenu({ close }: ViewMenuProps) {
             <label className="menu__checkbox">
                 <input
                     type="checkbox"
-                    checked={store.bidirectional}
-                    onChange={() => store.setBidirectional(!store.bidirectional)}
+                    checked={bidirectional}
+                    onChange={() => useGraphStore.getState().setBidirectional(!bidirectional)}
                 />
                 <span className="menu__check" />
                 <span className="menu__text">Объединять A↔B</span>
@@ -93,27 +98,12 @@ export function ViewMenu({ close }: ViewMenuProps) {
             <label className="menu__checkbox">
                 <input
                     type="checkbox"
-                    checked={store.showEdgeLabels}
-                    onChange={() => store.setShowEdgeLabels(!store.showEdgeLabels)}
+                    checked={showEdgeLabels}
+                    onChange={() => useGraphStore.getState().setShowEdgeLabels(!showEdgeLabels)}
                 />
                 <span className="menu__check" />
                 <span className="menu__text">Подписи связей</span>
             </label>
-
-            <div className="menu__divider" />
-
-            <button
-                className="menu__item"
-                onClick={() => {
-                    store.setTheme(store.theme === 'dark' ? 'light' : 'dark');
-                    close();
-                }}
-            >
-                <span className="menu__icon">{store.theme === 'dark' ? '☀️' : '🌙'}</span>
-                <span className="menu__text">
-                    {store.theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
-                </span>
-            </button>
         </div>
     );
 }

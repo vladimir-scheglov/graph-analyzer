@@ -1,4 +1,4 @@
-import React, { ReactNode } from 'react';
+import React, { ReactNode, useLayoutEffect, useRef } from 'react';
 import { MIcon } from './MIcon';
 
 export interface HelpButtonProps {
@@ -23,14 +23,75 @@ export function HelpButton({ open, onToggle, label = 'Что это?' }: HelpBut
 
 export interface ModalHelpProps {
     visible: boolean;
-    children: ReactNode;
+    children: React.ReactNode;
 }
 
 export function ModalHelp({ visible, children }: ModalHelpProps) {
-    if (!visible) return null;
-    return <div className="modal-help">{children}</div>;
-}
+    const ref = useRef<HTMLDivElement>(null);
 
+    // useLayoutEffect — до paint'а. Иначе на один кадр help успевает
+    // отрисоваться «в потоке», пока родитель ещё не relative.
+    useLayoutEffect(() => {
+        if (!visible) return;
+        const parent = ref.current?.parentElement as HTMLElement | null;
+        if (!parent) return;
+
+        const prev = {
+            position: parent.style.position,
+            overflow: parent.style.overflow,
+            scrollTop: parent.scrollTop,
+        };
+
+        // Гарантируем overlay-контекст.
+        parent.style.position = "relative";
+        parent.style.overflow = "hidden";   // отключаем скролл родителя
+        parent.scrollTop = 0;               // help всегда в начале
+
+        return () => {
+            parent.style.position = prev.position;
+            parent.style.overflow = prev.overflow;
+            parent.scrollTop = prev.scrollTop;
+        };
+    }, [visible]);
+
+    if (!visible) return null;
+
+    return (
+        <div
+            ref={ref}
+            className="modal-help"
+            style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                zIndex: 100,
+
+                // Непрозрачный фон — fallback на случай, если var(--bg-800)
+                // не определён в этой точке DOM
+                background: "var(--bg-800, #0d1424)",
+
+                // Скролл — у самой справки, не у родителя
+                overflowY: "auto",
+                overflowX: "hidden",
+
+                // Отступы — как у тела модалки (mode `--flush` больше не влияет
+                // на справку, это ок: у неё свой контент-дизайн)
+                padding: "20px 24px",
+
+                // Убираем возможные артефакты наследования
+                borderRadius: 0,
+                margin: 0,
+                border: "none",
+                boxShadow: "none",
+                boxSizing: "border-box",
+            }}
+        >
+            {children}
+        </div>
+    );
+}
 export function HelpSection({ title, children }: { title: string; children: ReactNode }) {
     return (
         <div className="modal-help__section">

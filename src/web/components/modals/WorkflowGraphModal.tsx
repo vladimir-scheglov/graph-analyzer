@@ -268,11 +268,10 @@ function WorkflowGraphInner({ nodes, edges }: { nodes: any[]; edges: any[] }) {
 // ============ Modal ============
 
 export function WorkflowGraphModal() {
-    const store = useGraphStore();
     const { index, loading, error } = useModelIndex();
     const [rankdir, setRankdir] = useState<"LR" | "TB">("LR");
 
-    const target = store.workflowGraphTarget;
+    const target = useGraphStore((s) => s.workflowGraphTarget);
     const open = !!target;
 
     const dt = useMemo(() => {

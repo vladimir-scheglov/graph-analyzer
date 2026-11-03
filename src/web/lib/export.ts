@@ -90,7 +90,10 @@ export function exportPNG(): Promise<void> {
     ".graph-container",
   ) as HTMLElement | null;
   if (!flowEl) {
-    alert("Граф не найден");
+    void alertDialog("Граф не найден", {
+      detail: "Элемент графа не найден",
+      variant: "danger",
+    });
     return Promise.resolve();
   }
 
@@ -136,7 +139,10 @@ export function exportPNG(): Promise<void> {
       a.click();
     })
     .catch((err) => {
-      alert("Ошибка экспорта: " + err.message);
+      void alertDialog("Ошибка экспорта", {
+        variant: "danger",
+        detail: err.message,
+      });
     });
 }
 
@@ -439,6 +445,7 @@ export function exportEntityClassDiagram(
 // ============ Entity Class Diagram (из EntityGraphResult) ============
 
 import type { EntityGraphResult, EntityGraphEdge } from "./model/entity-graph";
+import { alertDialog } from "./dialogs";
 
 function safeMermaidId(raw: string): string {
   const s = (raw || "").replace(/[^a-zA-Z0-9_]/g, "_");

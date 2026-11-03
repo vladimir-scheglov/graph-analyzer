@@ -41,6 +41,7 @@ import { YamlViewerModal } from '../modals/YamlViewerModal';
 import { GenerateBatchModal } from '../modals/GenerateBatchModal';
 import { WorkflowGraphModal } from '../modals/WorkflowGraphModal';
 import { PublishPreviewModal } from '../modals/PublishPreviewModal';
+import { Dialog } from '../common';
 
 
 export interface AppModalsProps {
@@ -169,6 +170,7 @@ export function AppModals(props: AppModalsProps) {
             <DeletionSimulationModal />
             <CreateDomainModal />
             <DeleteDomainModal />
+            <Dialog />
         </>
     );
 }

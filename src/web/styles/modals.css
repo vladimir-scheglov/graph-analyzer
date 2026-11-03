@@ -14,9 +14,9 @@
 .help-overlay--fullscreen { padding: 0; }
 
 .help-modal {
+  max-height: calc(100vh - 32px);
+  max-width: calc(100vw - 32px);
   width: 900px;
-  max-width: 90vw;
-  max-height: 85vh;
   background: var(--bg-850);
   border: 1px solid var(--border-hover);
   border-radius: 14px;
@@ -4817,4 +4817,39 @@ select.create-domain-input {
   font-family: "JetBrains Mono", monospace;
   font-size: 11px;
   color: var(--accent-hover);
+}
+.help-modal__header,
+.help-modal__footer,
+.validation-footer,
+.generate-schema-footer,
+.generate-batch-footer,
+.deletion-sim-footer,
+.model-diff-footer,
+.model-validation-footer,
+.workflow-graph-footer,
+.attribute-matrix-toolbar {
+  flex-shrink: 0;
+}
+.help-modal__body,
+.validation-modal__body,
+.entity-hierarchy-body,
+.attribute-matrix-body,
+.attribute-matrix-scroll,
+.entity-matrix-body,
+.entity-matrix-scroll,
+.entity-graph-modal-body,
+.workflow-graph-modal-body,
+.generate-batch-body,
+.generate-schema-content,
+.martin-body,
+.glossary-body,
+.model-diff-body,
+.cheatsheet-body,
+.cheatsheet-content,
+.health-dashboard-modal .help-modal__body,
+.deletion-sim-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  position: relative; 
 }

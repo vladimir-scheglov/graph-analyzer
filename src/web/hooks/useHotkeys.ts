@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useGraphStore } from "../state/useGraphStore";
 import { useGraphFilters } from "./useGraphFilters";
+import { fitActiveOrAll } from "../lib/fit";
 
 /**
  * Глобальные горячие клавиши приложения.
@@ -31,6 +32,9 @@ export function useHotkeys() {
   const setPathSel = useGraphStore((s) => s.setPathSel);
   const setPathMode = useGraphStore((s) => s.setPathMode);
   const setContextMenu = useGraphStore((s) => s.setContextMenu);
+  const cycleHighlight = useGraphStore((s) => s.cycleHighlight);
+  const setActiveCycleIndex = useGraphStore((s) => s.setActiveCycleIndex);
+
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -47,6 +51,19 @@ export function useHotkeys() {
         const shift = e.shiftKey;
         const code = e.code;
         const k = e.key;
+
+        if (cycleHighlight && cycleHighlight.cycles.length > 1) {
+          if (k === "[") {
+            e.preventDefault();
+            setActiveCycleIndex(cycleHighlight.activeIndex - 1);
+            return;
+          }
+          if (k === "]") {
+            e.preventDefault();
+            setActiveCycleIndex(cycleHighlight.activeIndex + 1);
+            return;
+          }
+        }
 
         // Command palette
         if (ctrl && !shift && !alt && code === "KeyK") {
@@ -141,11 +158,7 @@ export function useHotkeys() {
         // Fit view
         if (code === "KeyF") {
           e.preventDefault();
-          if (rfInstance) {
-            try {
-              rfInstance.fitView({ duration: 500 });
-            } catch {}
-          }
+          fitActiveOrAll();
           return;
         }
 
@@ -238,11 +251,7 @@ export function useHotkeys() {
         }
         if (code === "Digit0" && !ctrl && !alt) {
           e.preventDefault();
-          if (rfInstance) {
-            try {
-              rfInstance.fitView({ duration: 300, padding: 0.15 });
-            } catch {}
-          }
+          fitActiveOrAll();
           return;
         }
 
@@ -266,6 +275,7 @@ export function useHotkeys() {
     document.addEventListener("keydown", handler, true);
     return () => document.removeEventListener("keydown", handler, true);
   }, [
+    cycleHighlight,
     searchOpen,
     setSearchOpen,
     navBack,
@@ -285,6 +295,7 @@ export function useHotkeys() {
     setSelectedNodeId,
     setSelectedEdgeId,
     setCycleHighlight,
+    setActiveCycleIndex,
     setPathResult,
     setPathSel,
     setPathMode,

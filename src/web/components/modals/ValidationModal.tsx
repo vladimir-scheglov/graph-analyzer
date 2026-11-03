@@ -22,7 +22,6 @@ function downloadFile(content: string, filename: string, mime: string) {
 }
 
 export function ValidationModal(props: ValidationModalProps) {
-    const store = useGraphStore();
     const { goto } = useNavigation();
     const v = useValidation();
 
@@ -30,7 +29,7 @@ export function ValidationModal(props: ValidationModalProps) {
     const [filter, setFilter] = useState<'problems' | 'all' | 'invalid' | 'errors' | 'valid'>('problems');
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-    const open = store.validationOpen;
+    const open = useGraphStore((s) => s.validationOpen);
 
     const toggleExpanded = (id: string) => {
         setExpanded((prev) => {
@@ -111,7 +110,7 @@ export function ValidationModal(props: ValidationModalProps) {
             className="help-overlay"
             onMouseDown={() => {
                 if (!v.running) {
-                    store.setValidationOpen(false);
+                    useGraphStore.getState().setValidationOpen(false);
                     v.reset();
                 }
             }}
@@ -124,7 +123,7 @@ export function ValidationModal(props: ValidationModalProps) {
                         onClick={() => {
                             if (v.running) v.stop();
                             else {
-                                store.setValidationOpen(false);
+                                useGraphStore.getState().setValidationOpen(false);
                                 v.reset();
                             }
                         }}
@@ -224,7 +223,7 @@ export function ValidationModal(props: ValidationModalProps) {
                                                     onClick={(e) => {
                                                         e.stopPropagation();
                                                         goto(log.domainId);
-                                                        store.setValidationOpen(false);
+                                                        useGraphStore.getState().setValidationOpen(false);
                                                     }}
                                                 >
                                                     {log.domainId}
@@ -288,7 +287,7 @@ export function ValidationModal(props: ValidationModalProps) {
                             <button
                                 className="btn"
                                 onClick={() => {
-                                    store.setValidationOpen(false);
+                                    useGraphStore.getState().setValidationOpen(false);
                                     v.reset();
                                 }}
                             >

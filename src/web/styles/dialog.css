@@ -1,0 +1,118 @@
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 14, 26, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  animation: dg-dialog-fade 0.15s ease-out;
+}
+
+@keyframes dg-dialog-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.dialog {
+  background: var(--bg-800);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  width: 480px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
+  animation: dg-dialog-slide 0.15s ease-out;
+}
+
+@keyframes dg-dialog-slide {
+  from { transform: translateY(-8px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+.dialog__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dialog__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.dialog__icon--info {
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--accent-hover);
+}
+.dialog__icon--warning {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--warning);
+}
+.dialog__icon--danger {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--danger);
+}
+
+.dialog__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-100);
+}
+
+.dialog__body {
+  padding: 16px 20px;
+  overflow-y: auto;
+  color: var(--text-300);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.dialog__message {
+  white-space: pre-line;
+  word-break: break-word;
+}
+
+.dialog__detail {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  background: var(--bg-750);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: "JetBrains Mono", "SF Mono", Monaco, monospace;
+  font-size: 11px;
+  color: var(--text-400);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.dialog__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-850);
+  border-radius: 0 0 12px 12px;
+}
+
+/* danger-кнопка, если .btn--danger ещё не задан глобально */
+.dialog__footer .btn--danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+.dialog__footer .btn--danger:hover {
+  filter: brightness(1.1);
+}

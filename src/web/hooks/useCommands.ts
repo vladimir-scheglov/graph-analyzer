@@ -4,6 +4,7 @@ import { buildCommands, Command } from "../lib/commands";
 import { EVT_FIND_CYCLES } from "../lib/events";
 import { findPath } from "../lib/algorithms/path";
 import type { RFEdge } from "../lib/types";
+import { alertDialog } from "../lib/dialogs";
 
 export interface UseCommandsParams {
   filteredEdges: RFEdge[];
@@ -126,7 +127,11 @@ export function useCommands({
           if (pathSel.length === 2) {
             const res = findPath(pathSel[0], pathSel[1], filteredEdges);
             if (res) setPathResult(res);
-            else alert("Путь не найден");
+            else
+              void alertDialog("Путь не найден", {
+                variant: "warning",
+                detail: "Не удалось найти путь между указанными узлами.",
+              });
           } else {
             setPathMode({ anchorId: null });
             setPathSel([]);

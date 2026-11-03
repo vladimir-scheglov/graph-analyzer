@@ -3,12 +3,20 @@ import { useGraphStore } from '../../state/useGraphStore';
 import { useModelIndex } from '../../hooks/useModelIndex';
 import { buildAttributeMatrix, AttributeMatrixColumn } from '../../lib/model/attribute-matrix';
 import { DomainCombobox } from '../common/DomainCombobox';
+import { MIcon } from '../common';
+import {
+    ModalHelp,
+    HelpSection,
+    HelpText,
+    HelpList,
+    HelpButton,
+} from '../common/ModalHelp';
 
 export function AttributeMatrixModal() {
-    const store = useGraphStore();
     const { index, loading, error } = useModelIndex();
 
-    const open = store.attributeMatrixOpen;
+    const open = useGraphStore((s) => s.attributeMatrixOpen);
+    const [showHelp, setShowHelp] = useState(false);
 
     const [domainFilter, setDomainFilter] = useState('');
     const [minOccurrences, setMinOccurrences] = useState(2);
@@ -40,9 +48,10 @@ export function AttributeMatrixModal() {
     }, [matrix, onlyInconsistent]);
 
     const openEntity = (fqid: string) => {
-        store.setAttributeMatrixOpen(false);
-        store.setEntityCatalogInitialFqid(fqid);
-        store.setEntityCatalogOpen(true);
+        const st = useGraphStore.getState();
+        st.setAttributeMatrixOpen(false);
+        st.setEntityCatalogInitialFqid(fqid);
+        st.setEntityCatalogOpen(true);
     };
 
     if (!open) return null;
@@ -50,7 +59,7 @@ export function AttributeMatrixModal() {
     return (
         <div
             className="help-overlay help-overlay--fullscreen"
-            onMouseDown={() => store.setAttributeMatrixOpen(false)}
+            onMouseDown={() => useGraphStore.getState().setAttributeMatrixOpen(false)}
         >
             <div
                 className="help-modal entity-matrix-modal"
@@ -58,19 +67,27 @@ export function AttributeMatrixModal() {
             >
                 <div className="help-modal__header">
                     <div className="help-modal__title">
-                        📊 Матрица атрибутов
+                        <MIcon name="grid_view" size="sm" />
+                        <span className="icon-label">Матрица атрибутов</span>
                         {matrix && (
                             <span className="help-modal__badge">
                                 {matrix.rows.length} × {visibleColumns.length}
                             </span>
                         )}
                     </div>
-                    <button
-                        className="help-modal__close"
-                        onClick={() => store.setAttributeMatrixOpen(false)}
-                    >
-                        ✕
-                    </button>
+                    <div className="help-modal__actions">
+                        <HelpButton
+                            open={showHelp}
+                            onToggle={() => setShowHelp(!showHelp)}
+                            label="Как читать?"
+                        />
+                        <button
+                            className="help-modal__close"
+                            onClick={() => useGraphStore.getState().setAttributeMatrixOpen(false)}
+                        >
+                            ✕
+                        </button>
+                    </div>
                 </div>
 
                 {loading && (
@@ -86,6 +103,133 @@ export function AttributeMatrixModal() {
 
                 {index && matrix && (
                     <div className="attribute-matrix-body">
+                        <ModalHelp visible={showHelp}>
+                            <HelpSection title="Как читать матрицу">
+                                <HelpText>
+                                    Строки — сущности, столбцы — имена атрибутов (по{" "}
+                                    <code>name</code>, если оно задано, иначе по <code>id</code>;
+                                    сравнение регистронезависимое). Точка в ячейке означает, что у
+                                    сущности есть атрибут с таким именем.
+                                </HelpText>
+                                <HelpList>
+                                    <li>
+                                        <strong>⚠ на заголовке столбца</strong> — атрибут с таким
+                                        именем встречается у разных сущностей с <em>разными</em>{" "}
+                                        типами данных. Это и есть главный сигнал матрицы.
+                                    </li>
+                                    <li>
+                                        Строки отсортированы по количеству атрибутов (сверху —
+                                        «богатые» сущности), чтобы первыми были те, у кого вероятнее
+                                        всего есть общие атрибуты.
+                                    </li>
+                                </HelpList>
+                            </HelpSection>
+
+                            <HelpSection title="Фильтр «Минимум упоминаний»">
+                                <HelpText>
+                                    Числовое поле над таблицей. Скрывает столбцы, которые встречаются
+                                    меньше чем у указанного числа сущностей. Работает как нижний
+                                    порог «популярности» атрибута.
+                                </HelpText>
+                                <HelpList>
+                                    <li>
+                                        <strong>По умолчанию — 2.</strong> Атрибуты с единственным
+                                        упоминанием (синглтоны) в матрицу не попадают: иначе таблица
+                                        забивается сотнями уникальных колонок, и общие паттерны
+                                        утонут в шуме.
+                                    </li>
+                                    <li>
+                                        <strong>Значение 1</strong> — показать вообще всё, включая
+                                        синглтоны. Полезно для поиска опечаток: <code>emial</code>{" "}
+                                        vs <code>email</code> — обе колонки будут видны.
+                                    </li>
+                                    <li>
+                                        <strong>Значение 5–10</strong> — оставить только «паттерны
+                                        модели»: общие имена вроде <code>name</code>,{" "}
+                                        <code>description</code>, <code>createdAt</code>. Убирает шум,
+                                        оставляет суть.
+                                    </li>
+                                    <li>
+                                        Поле принимает <strong>целые от 1 до 20</strong>. Выход за
+                                        пределы молча обрезается (например, 100 → 20, 0 → 1).
+                                    </li>
+                                    <li>
+                                        Сколько синглтонов скрыто — видно в подсказке справа от поля:{" "}
+                                        <em>«Одиночных атрибутов: N»</em>. Это подсказка «может,
+                                        стоит снизить порог до 1».
+                                    </li>
+                                </HelpList>
+                            </HelpSection>
+
+                            <HelpSection title="Галочка «Только с разными типами»">
+                                <HelpText>
+                                    Оставляет в таблице только те столбцы, где атрибут с одним и тем
+                                    же именем встречается у разных сущностей с <strong>разными</strong>{" "}
+                                    <code>dataType</code>. Всё, что консистентно, скрывается.
+                                </HelpText>
+                                <HelpList>
+                                    <li>
+                                        <strong>Цифра в бейдже</strong> рядом с галочкой — общее
+                                        количество таких «неконсистентных» колонок (совпадает с{" "}
+                                        <code>matrix.stats.inconsistentTypes.length</code>). Бейдж
+                                        виден, даже когда галочка не нажата, — чтобы вы знали,
+                                        «есть ли что искать».
+                                    </li>
+                                    <li>
+                                        <strong>Как определяется тип:</strong> по <code>dataType</code>{" "}
+                                        атрибута (<code>String</code>, <code>Reference</code>,{" "}
+                                        <code>enumSeverity</code>, <code>Table</code> …). Базовые и
+                                        кастомные типы сравниваются в одном пространстве имён:{" "}
+                                        <code>String</code> vs <code>enumStatus</code> — это разные
+                                        типы, колонка попадёт в фильтр.
+                                    </li>
+                                    <li>
+                                        <strong>Зачем:</strong> это самый быстрый способ найти баги
+                                        консистентности. Пример: атрибут <code>status</code> у 15
+                                        сущностей — <code>enumStatus</code>, а у 3 — <code>String</code>.
+                                        Галочка покажет только эту колонку — остальные 199 столбцов
+                                        уйдут. Дальше чините 3 «выпадающих» сущности.
+                                    </li>
+                                    <li>
+                                        <strong>Работает вместе с «Минимум упоминаний»:</strong>{" "}
+                                        сначала отсекаются редкие колонки (по порогу), потом — консистентные.
+                                        Оба фильтра комбинируются по AND.
+                                    </li>
+                                    <li>
+                                        <strong>Пустой результат</strong> — модель консистентна по
+                                        всем атрибутам с таким порогом. Хороший знак: снизьте порог
+                                        до 1, чтобы проверить синглтоны (там тип может отличаться,
+                                        потому что всего 2 упоминания с разными типами).
+                                    </li>
+                                </HelpList>
+                            </HelpSection>
+
+                            <HelpSection title="Ограничения">
+                                <HelpList>
+                                    <li>
+                                        Колонки ограничены 40, строки — 100 (топ по количеству
+                                        упоминаний). Защита от тормозов на больших доменах.
+                                    </li>
+                                    <li>
+                                        Вложенные атрибуты <code>Table</code> не участвуют в матрице —
+                                        сравниваются только верхнеуровневые атрибуты сущностей. Для
+                                        колонок таблиц используйте «Поиск атрибутов».
+                                    </li>
+                                    <li>
+                                        Фильтр по домену сужает выборку. Чтобы сравнить домен с
+                                        другими — переключите <code>DomainCombobox</code> в «Все
+                                        домены».
+                                    </li>
+                                    <li>
+                                        Синглтоны (атрибуты с одним упоминанием) в матрицу не попадают
+                                        ни при каких настройках: в одном столбце всегда будет одна
+                                        точка, что бесполезно. Их количество видно в подсказке под
+                                        фильтром.
+                                    </li>
+                                </HelpList>
+                            </HelpSection>
+                        </ModalHelp>
+
                         <div className="attribute-matrix-toolbar">
                             <div className="attribute-matrix-toolbar__filters">
                                 <DomainCombobox

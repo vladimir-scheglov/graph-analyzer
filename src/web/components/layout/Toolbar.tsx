@@ -11,6 +11,8 @@ import { relativeTime } from '../../lib/format';
 import { ModelMenu } from '../popovers';
 import { ActiveModesBar } from "./ActiveModesBar";
 import { CacheMenu } from "../popovers/CacheMenu";
+import { fitActiveOrAll } from '../../lib/fit';
+import { confirmDialog } from '../../lib/dialogs';
 
 export interface ToolbarProps {
     counts: { domain: number; missing: number; broken: number; linkage: number; fqid: number };
@@ -66,7 +68,7 @@ export function Toolbar(props: ToolbarProps) {
                 <div className="toolbar__group">
                     {viewMode === "graph" && (
                         <>
-                            <button className="btn btn--icon" onClick={() => rfInstance?.fitView({ duration: 500 })} title="Вписать (F)">
+                            <button className="btn btn--icon" onClick={() => fitActiveOrAll()} title="Вписать (F)">
                                 <MIcon name="fit_screen" />
                             </button>
                             <button className="btn btn--icon" onClick={props.onRelayout} title="Переуложить">
@@ -74,8 +76,12 @@ export function Toolbar(props: ToolbarProps) {
                             </button>
                             <button
                                 className="btn btn--icon"
-                                onClick={() => {
-                                    if (!confirm("Сбросить все фильтры, режимы и выделения?")) return;
+                                onClick={async () => {
+                                    const ok = await confirmDialog(
+                                        "Сбросить все фильтры, режимы и выделения?",
+                                        { variant: "warning", confirmLabel: "Сбросить" },
+                                    );
+                                    if (!ok) return;
                                     props.onResetAll();
                                 }}
                                 title="Сбросить всё"

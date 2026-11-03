@@ -11,11 +11,9 @@ import { PROFILE_INFO } from "./GenerateSchemaProfiles";
 const ENTITY_PROFILES = PROFILE_INFO.filter((p) => p.scope === "entity");
 
 export function GenerateBatchModal() {
-    const store = useGraphStore();
     const { index } = useModelIndex();
-    const open = store.generateBatchOpen;
-    const domainId = store.generateBatchDomainId;
-
+    const open = useGraphStore((store) => store.generateBatchOpen);
+    const domainId = useGraphStore((store) => store.generateBatchDomainId);
     const [profile, setProfile] = useState("crud");
     const [selectedEntities, setSelectedEntities] = useState<Set<string>>(new Set());
     const [options, setOptions] = useState({
@@ -88,7 +86,7 @@ export function GenerateBatchModal() {
         );
     }, [allEntities]);
 
-    const apply = useCallback(() => {
+    const apply = useCallback(async () => {
         if (!gen.result || !domainId) return;
         const combined = gen.result.combined;
         if (!combined || combined.blocks.length === 0) return;
@@ -149,7 +147,7 @@ export function GenerateBatchModal() {
             return;
         }
 
-        const ok = openFileInEditor(node.data.filePath, null, domainId);
+        const ok = await openFileInEditor(node.data.filePath, null, domainId);
         if (!ok) return;
 
         st.setYamlViewerPendingGeneration({
@@ -178,7 +176,7 @@ export function GenerateBatchModal() {
         <div
             className="help-overlay help-overlay--fullscreen"
             style={{ zIndex: 450 }}
-            onMouseDown={() => store.setGenerateBatchOpen(false)}
+            onMouseDown={() => useGraphStore.getState().setGenerateBatchOpen(false)}
         >
             <div
                 className="help-modal generate-batch-modal"
@@ -192,7 +190,7 @@ export function GenerateBatchModal() {
                     </div>
                     <button
                         className="help-modal__close"
-                        onClick={() => store.setGenerateBatchOpen(false)}
+                        onClick={() => useGraphStore.getState().setGenerateBatchOpen(false)}
                     >
                         ✕
                     </button>
@@ -446,7 +444,7 @@ export function GenerateBatchModal() {
                     <div className="generate-schema-actions">
                         <button
                             className="btn"
-                            onClick={() => store.setGenerateBatchOpen(false)}
+                            onClick={() => useGraphStore.getState().setGenerateBatchOpen(false)}
                         >
                             Отмена
                         </button>

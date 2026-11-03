@@ -3,6 +3,8 @@ import { useGraphStore } from "../state/useGraphStore";
 import { findCycles } from "../lib/algorithms/cycles";
 import { EVT_FIND_CYCLES, EVT_OPEN_FILE } from "../lib/events";
 import type { RFNode, RFEdge } from "../lib/types";
+import { fitActiveOrAll } from "../lib/fit";
+import { alertDialog } from "../lib/dialogs";
 
 export interface UseGraphEventsParams {
   displayNodes: RFNode[];
@@ -35,25 +37,17 @@ export function useGraphEvents({
       }
       const info = findCycles(displayNodes, displayEdges);
       if (info.cycleNodes.size === 0) {
-        alert("Циклы не найдены");
+        void alertDialog("Циклы не найдены", {
+          variant: "info",
+          detail: "В графе нет циклических зависимостей.",
+        });
         return;
       }
-      setCycleHighlight({
-        nodeIds: info.cycleNodes,
-        edgeIds: info.cycleEdges,
-        sccCount: info.sccs.length,
-      });
+      setCycleHighlight({ cycles: info.cycles, activeIndex: 0 });
       setSelectedNodeId(null);
       setFocusNode(null);
       setPathResult(null);
       setPathSel([]);
-      setTimeout(() => {
-        if (rfInstance) {
-          try {
-            rfInstance.fitView({ duration: 500, padding: 0.25 });
-          } catch {}
-        }
-      }, 50);
     };
 
     document.addEventListener(EVT_FIND_CYCLES, onFindCycles);
@@ -71,4 +65,12 @@ export function useGraphEvents({
     setPathSel,
     rfInstance,
   ]);
+
+  useEffect(() => {
+    if (!cycleHighlight) return;
+    const t = setTimeout(() => {
+      fitActiveOrAll();
+    }, 30);
+    return () => clearTimeout(t);
+  }, [cycleHighlight?.activeIndex, cycleHighlight?.cycles]);
 }

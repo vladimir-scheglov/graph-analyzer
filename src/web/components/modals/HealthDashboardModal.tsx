@@ -287,8 +287,7 @@ function exportCSV(rows: DomainHealthRow[]): void {
 // ============ Component ============
 
 export function HealthDashboardModal() {
-    const store = useGraphStore();
-    const open = store.healthDashboardOpen;
+    const open = useGraphStore((s) => s.healthDashboardOpen);
     const nodes = useGraphStore((s) => s.nodes);
     const { index, loading, error } = useModelIndex();
     const remoteInfo = useMemo(() => readRemoteInfo(), []);
@@ -379,12 +378,13 @@ export function HealthDashboardModal() {
     }, [rows]);
 
     const openSchema = (domainId: string) => {
-        store.setDomainSchemaDomainId(domainId);
-        store.setDomainSchemaOpen(true);
+        const st = useGraphStore.getState();
+        st.setDomainSchemaDomainId(domainId);
+        st.setDomainSchemaOpen(true);
     };
 
     const openInLint = (domainId: string) => {
-        store.setLintOpen(true);
+        useGraphStore.getState().setLintOpen(true);
     };
 
     if (!open) return null;
@@ -392,7 +392,7 @@ export function HealthDashboardModal() {
     return (
         <div
             className="help-overlay help-overlay--fullscreen"
-            onMouseDown={() => store.setHealthDashboardOpen(false)}
+            onMouseDown={() => useGraphStore.getState().setHealthDashboardOpen(false)}
         >
             <div
                 className="help-modal health-dashboard-modal"
@@ -440,7 +440,7 @@ export function HealthDashboardModal() {
                         </button>
                         <button
                             className="help-modal__close"
-                            onClick={() => store.setHealthDashboardOpen(false)}
+                            onClick={() => useGraphStore.getState().setHealthDashboardOpen(false)}
                         >
                             ✕
                         </button>
@@ -579,9 +579,10 @@ export function HealthDashboardModal() {
                                         type="button"
                                         className="health-toolbar__stat health-toolbar__stat--err health-toolbar__stat--clickable"
                                         onClick={() => {
-                                            store.setPiiInitialSeverity("critical");
-                                            store.setPiiInitialDomain(null);
-                                            store.setPiiOpen(true);
+                                            const st = useGraphStore.getState();
+                                            st.setPiiInitialSeverity("critical");
+                                            st.setPiiInitialDomain(null);
+                                            st.setPiiOpen(true);
                                         }}
                                         title={`Показать все ${stats.criticalPii} критичных PII-атрибутов во всех доменах — с переходом к сущностям`}
                                     >

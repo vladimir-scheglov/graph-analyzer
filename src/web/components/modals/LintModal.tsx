@@ -11,6 +11,7 @@ import { ModalHelp, HelpSection, HelpText, HelpList, HelpButton } from '../commo
 import { openFileInEditor } from '../../lib/open-file';
 import { useLintBaselines } from '../../hooks/useLintBaselines';
 import { baselineKey, compareWithBaseline } from '../../../core/analyzer/lint-baseline';
+import { alertDialog, confirmDialog } from '../../lib/dialogs';
 
 const CATEGORY_LABELS: Record<LintRuleCategory, string> = {
     reference: 'Ссылочная целостность',
@@ -82,18 +83,28 @@ export function LintModal() {
     const handleTakeBaseline = async (domainId: string) => {
         const domainIssues = report?.issues.filter((i) => i.domainId === domainId) || [];
         const existing = baselines[domainId];
-        const message = existing
-            ? `Обновить baseline для ${domainId}?\n\n` +
-            `Было: ${existing.issues.length} проблем (принято ${new Date(existing.takenAt).toLocaleString("ru-RU")})\n` +
+        const detail = existing
+            ? `Было: ${existing.issues.length} проблем (принято ${new Date(existing.takenAt).toLocaleString("ru-RU")})\n` +
             `Сейчас: ${domainIssues.length} проблем\n\n` +
             `Все текущие проблемы будут считаться «принятыми».`
-            : `Принять ${domainIssues.length} проблем для ${domainId} как baseline?\n\n` +
+            : `Сейчас: ${domainIssues.length} проблем.\n\n` +
             `После этого «новыми» будут считаться только те, что появятся в будущем.`;
-        if (!confirm(message)) return;
+
+        const ok = await confirmDialog(
+            existing
+                ? `Обновить baseline для ${domainId}?`
+                : `Принять baseline для ${domainId}?`,
+            { detail, confirmLabel: existing ? "Обновить" : "Принять" },
+        );
+        if (!ok) return;
+
         try {
             await takeBaseline(domainId);
         } catch (e: any) {
-            alert("Ошибка: " + e.message);
+            await alertDialog("Не удалось принять baseline", {
+                detail: e.message,
+                variant: "danger",
+            });
         }
     };
 
@@ -105,34 +116,40 @@ export function LintModal() {
         if (domainsWithIssues.length === 0) return;
 
         if (
-            !confirm(
+            !(await confirmDialog(
                 `Принять текущее состояние ${domainsWithIssues.length} доменов как baseline?\n\n` +
                 `Всего проблем: ${report.issues.length}\n` +
                 `Будет создан/обновлён baseline для каждого домена из списка.\n\n` +
                 `После этого «новыми» будут считаться только те, что появятся в будущем.`,
-            )
+            ))
         )
             return;
 
         try {
             await takeBaselinesBatch(domainsWithIssues);
         } catch (e: any) {
-            alert("Ошибка: " + e.message);
+            await alertDialog("Ошибка: " + e.message);
         }
     };
 
     const handleClearBaseline = async (domainId: string) => {
-        if (
-            !confirm(
-                `Удалить baseline для ${domainId}?\n\n` +
-                `После этого все проблемы этого домена будут считаться «новыми».`,
-            )
-        )
-            return;
+        const ok = await confirmDialog(
+            `Удалить baseline для ${domainId}?`,
+            {
+                detail: "После этого все проблемы этого домена будут считаться «новыми».",
+                danger: true,
+                confirmLabel: "Удалить",
+            },
+        );
+        if (!ok) return;
+
         try {
             await clearBaseline(domainId);
         } catch (e: any) {
-            alert("Ошибка: " + e.message);
+            await alertDialog("Ошибка", {
+                detail: e.message,
+                variant: "danger",
+            });
         }
     };
 

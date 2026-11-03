@@ -24,29 +24,37 @@ export interface GraphAreaProps {
 }
 
 export function GraphArea(props: GraphAreaProps) {
-    const store = useGraphStore();
+    const viewMode = useGraphStore((s) => s.viewMode);
+    const showEdgeLabels = useGraphStore((s) => s.showEdgeLabels);
+    const showGroups = useGraphStore((s) => s.showGroups);
+    const clusterBoxes = useGraphStore((s) => s.clusterBoxes);
+    const namespaceFilter = useGraphStore((s) => s.namespaceFilter);
+    const tagFilters = useGraphStore((s) => s.tagFilters);
+    const heatmap = useGraphStore((s) => s.heatmap);
+    const nodes = useGraphStore((s) => s.nodes);
+    const edges = useGraphStore((s) => s.edges);
 
     return (
         <div
             className={
                 'graph-container' +
-                (store.viewMode === 'list' ? ' graph-container--list' : '') +
-                (store.showEdgeLabels ? ' show-labels' : '')
+                (viewMode === 'list' ? ' graph-container--list' : '') +
+                (showEdgeLabels ? ' show-labels' : '')
             }
         >
-            {store.viewMode === 'list' ? (
+            {viewMode === 'list' ? (
                 <DomainList />
             ) : (
                 <GraphView
                     nodes={props.visibleNodes}
                     edges={props.displayEdgesForRender}
                     onNodesChange={(changes) =>
-                        store.setNodes(
+                        useGraphStore.getState().setNodes(
                             (prev) => applyNodeChanges(changes, prev) as unknown as RFNode[]
                         )
                     }
                     onEdgesChange={(changes) =>
-                        store.setEdges(
+                        useGraphStore.getState().setEdges(
                             (prev) => applyEdgeChanges(changes, prev) as unknown as RFEdge[]
                         )
                     }
@@ -60,13 +68,13 @@ export function GraphArea(props: GraphAreaProps) {
                     onEdgeMouseLeave={props.interactions.handleEdgeMouseLeave}
                     onPaneClick={props.interactions.handlePaneClick}
                     onPaneContextMenu={props.interactions.handlePaneContextMenu}
-                    showGroups={store.showGroups}
-                    clusterBoxes={store.clusterBoxes}
+                    showGroups={showGroups}
+                    clusterBoxes={clusterBoxes}
                     perfMode={props.perfMode}
                 />
             )}
 
-            {store.viewMode === "graph" && props.visibleNodes.length === 0 && (
+            {viewMode === "graph" && props.visibleNodes.length === 0 && (
                 <div className="empty-state">
                     <div className="empty-state__icon">
                         <span className="material-symbols-outlined mi-xl">search_off</span>
@@ -76,18 +84,18 @@ export function GraphArea(props: GraphAreaProps) {
                         Под текущие фильтры не подходит ни один домен.
                     </div>
                     <div className="empty-state__actions">
-                        {store.namespaceFilter && (
+                        {namespaceFilter && (
                             <button
                                 className="btn"
-                                onClick={() => store.setNamespaceFilter('')}
+                                onClick={() => useGraphStore.getState().setNamespaceFilter('')}
                             >
                                 Сбросить namespace
                             </button>
                         )}
-                        {store.tagFilters.size > 0 && (
+                        {tagFilters.size > 0 && (
                             <button
                                 className="btn"
-                                onClick={() => store.setTagFilters(new Set())}
+                                onClick={() => useGraphStore.getState().setTagFilters(new Set())}
                             >
                                 Сбросить теги
                             </button>
@@ -99,7 +107,7 @@ export function GraphArea(props: GraphAreaProps) {
                 </div>
             )}
 
-            {store.heatmap !== 'none' && props.heatmapValues && (
+            {heatmap !== 'none' && props.heatmapValues && (
                 <div className="heat-legend">
                     <div className="heat-legend__title">
                         Heatmap: {props.heatmapValues.scheme.label}
@@ -111,7 +119,7 @@ export function GraphArea(props: GraphAreaProps) {
                     </div>
                     <button
                         className="heat-legend__close"
-                        onClick={() => store.setHeatmap('none')}
+                        onClick={() => useGraphStore.getState().setHeatmap('none')}
                     >
                         ✕
                     </button>
@@ -119,8 +127,8 @@ export function GraphArea(props: GraphAreaProps) {
             )}
 
             <SidePanel
-                allNodes={store.nodes}
-                allEdges={store.edges}
+                allNodes={nodes}
+                allEdges={edges}
                 visibleNodes={props.visibleNodes}
                 visibleEdges={props.visibleEdges}
                 entities={props.entities}

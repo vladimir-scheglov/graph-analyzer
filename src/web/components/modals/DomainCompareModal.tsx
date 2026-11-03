@@ -7,11 +7,10 @@ import { DomainCombobox } from '../common/DomainCombobox';
 import { compareDomains } from '../../lib/model/domain-compare';
 
 export function DomainCompareModal() {
-    const store = useGraphStore();
     const { index, loading, error } = useModelIndex();
     const { goto } = useNavigation();
 
-    const open = store.domainCompareOpen;
+    const open = useGraphStore((s) => s.domainCompareOpen);
 
     const [domainA, setDomainA] = useState('');
     const [domainB, setDomainB] = useState('');
@@ -42,9 +41,10 @@ export function DomainCompareModal() {
     }, [index, domainA, domainB]);
 
     const openEntity = (fqid: string) => {
-        store.setDomainCompareOpen(false);
-        store.setEntityCatalogInitialFqid(fqid);
-        store.setEntityCatalogOpen(true);
+        const st = useGraphStore.getState();
+        st.setDomainCompareOpen(false);
+        st.setEntityCatalogInitialFqid(fqid);
+        st.setEntityCatalogOpen(true);
     };
 
     if (!open) return null;
@@ -52,7 +52,7 @@ export function DomainCompareModal() {
     return (
         <div
             className="help-overlay help-overlay--fullscreen"
-            onMouseDown={() => store.setDomainCompareOpen(false)}
+            onMouseDown={() => useGraphStore.getState().setDomainCompareOpen(false)}
         >
             <div
                 className="help-modal entity-hierarchy-modal"
@@ -62,7 +62,7 @@ export function DomainCompareModal() {
                     <div className="help-modal__title">🔀 Сравнение доменов</div>
                     <button
                         className="help-modal__close"
-                        onClick={() => store.setDomainCompareOpen(false)}
+                        onClick={() => useGraphStore.getState().setDomainCompareOpen(false)}
                     >
                         ✕
                     </button>

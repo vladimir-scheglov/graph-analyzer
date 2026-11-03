@@ -11,13 +11,12 @@ import { ModalHelp, HelpSection, HelpText, HelpList, HelpButton } from '../commo
 import type { LintReport } from '../../../shared/lint-types';
 
 export function ModelValidationModal() {
-    const store = useGraphStore();
     const { index, loading, error } = useModelIndex();
     const [showHelp, setShowHelp] = useState(false);
 
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-    const open = store.modelValidationOpen;
+    const open = useGraphStore((s) => s.modelValidationOpen);
 
     const summary = useMemo(
         () => (index ? summarizeValidation(index.stats, index.orphans) : null),
@@ -34,9 +33,10 @@ export function ModelValidationModal() {
     };
 
     const openEntity = (fqid: string) => {
-        store.setModelValidationOpen(false);
-        store.setEntityCatalogInitialFqid(fqid);
-        store.setEntityCatalogOpen(true);
+        const st = useGraphStore.getState();
+        st.setModelValidationOpen(false);
+        st.setEntityCatalogInitialFqid(fqid);
+        st.setEntityCatalogOpen(true);
     };
 
     if (!open) return null;
@@ -48,7 +48,7 @@ export function ModelValidationModal() {
     return (
         <div
             className="help-overlay"
-            onMouseDown={() => store.setModelValidationOpen(false)}
+            onMouseDown={() => useGraphStore.getState().setModelValidationOpen(false)}
         >
             <div
                 className="help-modal model-validation-modal"
@@ -70,7 +70,7 @@ export function ModelValidationModal() {
                         />
                         <button
                             className="help-modal__close"
-                            onClick={() => store.setModelValidationOpen(false)}
+                            onClick={() => useGraphStore.getState().setModelValidationOpen(false)}
                         >
                             ✕
                         </button>
@@ -206,14 +206,14 @@ export function ModelValidationModal() {
 // ============ Новый блок: сводка линтера ============
 
 function LintSummaryBlock({ lintReport }: { lintReport: LintReport }) {
-    const store = useGraphStore();
     const stats = lintReport.stats;
     const topRules = stats.byRule.slice(0, 5);
 
     const openLint = () => {
         // Сначала закрываем текущую — иначе обе модалки наложатся.
-        store.setModelValidationOpen(false);
-        store.setLintOpen(true);
+        const st = useGraphStore.getState();
+        st.setModelValidationOpen(false);
+        st.setLintOpen(true);
     };
 
     return (

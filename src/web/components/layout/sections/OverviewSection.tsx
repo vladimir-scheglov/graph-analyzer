@@ -14,10 +14,12 @@ export interface OverviewSectionProps {
 }
 
 export function OverviewSection(props: OverviewSectionProps) {
-    const store = useGraphStore();
-    const viewMode = store.viewMode;
-    const bookmarks = store.bookmarks;
-    const validationResults = store.validationResults;
+    const viewMode = useGraphStore((s) => s.viewMode);
+    const bookmarks = useGraphStore((s) => s.bookmarks);
+    const validationResults = useGraphStore((s) => s.validationResults);
+    const nodes = useGraphStore((s) => s.nodes);
+    const edges = useGraphStore((s) => s.edges);
+    const onlyInvalid = useGraphStore((s) => s.onlyInvalid);
 
     // ============ GRAPH MODE ============
     if (viewMode === "graph") {
@@ -25,11 +27,11 @@ export function OverviewSection(props: OverviewSectionProps) {
             <Section id="overview" title="Обзор" icon="insights">
                 <div className="stats-grid">
                     <div className="stat-card stat-card--accent stat-card--clickable" onClick={props.onFitView}>
-                        <div className="stat-card__value">{store.nodes.length}</div>
+                        <div className="stat-card__value">{nodes.length}</div>
                         <div className="stat-card__label">Всего узлов</div>
                     </div>
                     <div className="stat-card stat-card--success stat-card--clickable" onClick={props.onFitView}>
-                        <div className="stat-card__value">{store.edges.length}</div>
+                        <div className="stat-card__value">{edges.length}</div>
                         <div className="stat-card__label">Связей</div>
                     </div>
                     <div
@@ -57,7 +59,7 @@ export function OverviewSection(props: OverviewSectionProps) {
                 <div className="quick-actions">
                     <button
                         className="quick-action"
-                        onClick={() => store.setIsolatedOnly(true)}
+                        onClick={() => useGraphStore.getState().setIsolatedOnly(true)}
                         disabled={props.isolatedCount === 0}
                     >
                         <MIcon name="radio_button_unchecked" size="sm" />
@@ -67,7 +69,7 @@ export function OverviewSection(props: OverviewSectionProps) {
 
                     <button
                         className="quick-action"
-                        onClick={() => store.setOnlyInvalid(true)}
+                        onClick={() => useGraphStore.getState().setOnlyInvalid(true)}
                         disabled={props.problemDomainsCount === 0}
                     >
                         <MIcon name="cancel" size="sm" />
@@ -90,7 +92,7 @@ export function OverviewSection(props: OverviewSectionProps) {
                     </button>
 
                     {bookmarks.size > 0 && (
-                        <button className="quick-action" onClick={() => store.setBookmarksOnly(true)}>
+                        <button className="quick-action" onClick={() => useGraphStore.getState().setBookmarksOnly(true)}>
                             <MIcon name="star" size="sm" fill />
                             <span>Избранные</span>
                             <span className="quick-action__count">{bookmarks.size}</span>
@@ -102,8 +104,8 @@ export function OverviewSection(props: OverviewSectionProps) {
     }
 
     // ============ LIST MODE ============
-    const domainNodes = store.nodes.filter((n) => n.data.nodeType === "domain");
-    const problematic = store.nodes.filter((n) => n.data.nodeType !== "domain");
+    const domainNodes = nodes.filter((n) => n.data.nodeType === "domain");
+    const problematic = nodes.filter((n) => n.data.nodeType !== "domain");
     const invalidCount = validationResults
         ? domainNodes.filter((n) => {
             const v = validationResults.get(n.data.domainId);
@@ -141,14 +143,14 @@ export function OverviewSection(props: OverviewSectionProps) {
                 </div>
             </div>
 
-            {(invalidCount > 0 || store.onlyInvalid) && (
+            {(invalidCount > 0 || onlyInvalid) && (
                 <div className="quick-actions">
                     <button
                         className="quick-action"
-                        onClick={() => store.setOnlyInvalid(!store.onlyInvalid)}
+                        onClick={() => useGraphStore.getState().setOnlyInvalid(!onlyInvalid)}
                     >
-                        <MIcon name={store.onlyInvalid ? "undo" : "cancel"} size="sm" />
-                        <span>{store.onlyInvalid ? "Сбросить фильтр" : "Только невалидные"}</span>
+                        <MIcon name={onlyInvalid ? "undo" : "cancel"} size="sm" />
+                        <span>{onlyInvalid ? "Сбросить фильтр" : "Только невалидные"}</span>
                         <span className="quick-action__count">{invalidCount}</span>
                     </button>
                 </div>

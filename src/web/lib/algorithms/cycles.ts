@@ -56,12 +56,23 @@ export function findCycles(nodes: RFNode[], edges: RFEdge[]): CycleInfo {
   const cycleNodes = new Set<string>();
   sccs.forEach((scc) => scc.forEach((n) => cycleNodes.add(n)));
 
-  const cycleEdges = new Set<string>();
+  // NEW: по одному Set'у на SCC
+  const sccEdgeSets: Set<string>[] = sccs.map(() => new Set());
   edges.forEach((e) => {
     const s = nodeToScc.get(e.source);
     const t = nodeToScc.get(e.target);
-    if (s !== undefined && s === t) cycleEdges.add(e.id);
+    if (s !== undefined && s === t) {
+      sccEdgeSets[s].add(e.id);
+    }
   });
 
-  return { sccs, cycleNodes, cycleEdges };
+  const cycleEdges = new Set<string>();
+  sccEdgeSets.forEach((set) => set.forEach((id) => cycleEdges.add(id)));
+
+  const cycles = sccs.map((scc, idx) => ({
+    nodeIds: new Set(scc),
+    edgeIds: sccEdgeSets[idx],
+  }));
+
+  return { sccs, cycleNodes, cycleEdges, cycles };
 }

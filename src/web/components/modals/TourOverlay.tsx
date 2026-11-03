@@ -2,8 +2,10 @@ import React, { useEffect, useMemo } from 'react';
 import { useGraphStore } from '../../state/useGraphStore';
 
 export function TourOverlay() {
-    const store = useGraphStore();
-    const tour = store.tour;
+    const tour = useGraphStore((s) => s.tour);
+    const rfInstance = useGraphStore((s) => s.rfInstance);
+    const nodes = useGraphStore((s) => s.nodes);
+    const compact = useGraphStore((s) => s.compact);
 
     const allItems = useMemo(() => {
         if (!tour) return [];
@@ -25,36 +27,36 @@ export function TourOverlay() {
     useEffect(() => {
         if (!tour) return;
         const current = allItems[tour.index];
-        if (!current || !store.rfInstance) return;
+        if (!current || !rfInstance) return;
 
-        const node = store.nodes.find((n) => n.id === current.nodeId);
+        const node = nodes.find((n) => n.id === current.nodeId);
         if (!node) return;
 
         const NODE_WIDTH = 300;
         const NODE_HEIGHT = 88;
         const NODE_COMPACT = 42;
-        const w = store.compact ? NODE_COMPACT : NODE_WIDTH;
-        const h = store.compact ? NODE_COMPACT : NODE_HEIGHT;
+        const w = compact ? NODE_COMPACT : NODE_WIDTH;
+        const h = compact ? NODE_COMPACT : NODE_HEIGHT;
         const cx = node.position.x + w / 2;
         const cy = node.position.y + h / 2;
-        store.rfInstance.setCenter(cx, cy, { zoom: 1.5, duration: 700 });
-        store.setSelectedNodeId(current.nodeId);
-    }, [tour, tour?.index, allItems, store]);
+        rfInstance.setCenter(cx, cy, { zoom: 1.5, duration: 700 });
+        useGraphStore.getState().setSelectedNodeId(current.nodeId);
+    }, [tour, tour?.index, allItems, rfInstance, nodes, compact]);
 
     // Autoplay
     useEffect(() => {
         if (!tour || !tour.playing) return;
         if (tour.index >= allItems.length - 1) {
-            store.setTour((prev) => (prev ? { ...prev, playing: false } : null));
+            useGraphStore.getState().setTour((prev) => (prev ? { ...prev, playing: false } : null));
             return;
         }
         const t = setTimeout(() => {
-            store.setTour((prev) =>
+            useGraphStore.getState().setTour((prev) =>
                 prev ? { ...prev, index: prev.index + 1, playing: false } : null
             );
         }, 2500);
         return () => clearTimeout(t);
-    }, [tour, tour?.playing, tour?.index, allItems.length, store]);
+    }, [tour, tour?.playing, tour?.index, allItems.length]);
 
     if (!tour) return null;
     const current = allItems[tour.index];
@@ -64,16 +66,16 @@ export function TourOverlay() {
     const pct = Math.round(((tour.index + 1) / allItems.length) * 100);
 
     const next = () =>
-        store.setTour((prev) =>
+        useGraphStore.getState().setTour((prev) =>
             prev && prev.index < allItems.length - 1
                 ? { ...prev, index: prev.index + 1, playing: false }
                 : prev
         );
     const prev = () =>
-        store.setTour((p) => (p && p.index > 0 ? { ...p, index: p.index - 1, playing: false } : p));
+        useGraphStore.getState().setTour((p) => (p && p.index > 0 ? { ...p, index: p.index - 1, playing: false } : p));
     const togglePlay = () =>
-        store.setTour((p) => (p ? { ...p, playing: !p.playing } : null));
-    const stop = () => store.setTour(null);
+        useGraphStore.getState().setTour((p) => (p ? { ...p, playing: !p.playing } : null));
+    const stop = () => useGraphStore.getState().setTour(null);
 
     return (
         <div className="tour-overlay">

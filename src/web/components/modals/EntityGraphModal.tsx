@@ -175,11 +175,11 @@ function EntityGraphInner({
 // ============ Main modal ============
 
 export function EntityGraphModal() {
-    const store = useGraphStore();
     const { index, loading, error } = useModelIndex();
     const [showHelp, setShowHelp] = useState(false);
 
-    const open = store.entityGraphOpen;
+    const open = useGraphStore((s) => s.entityGraphOpen);
+    const entityGraphDomainFilter = useGraphStore((s) => s.entityGraphDomainFilter);
 
     const allDomains = useMemo(() => {
         if (!index) return [] as Array<[string, number]>;
@@ -195,16 +195,16 @@ export function EntityGraphModal() {
     useEffect(() => {
         if (!open) return;
         if (!index) return;
-        if (store.entityGraphDomainFilter) return;
+        if (entityGraphDomainFilter) return;
         if (allDomains.length === 0) return;
-        store.setEntityGraphDomainFilter(allDomains[0][0]);
-    }, [open, index, allDomains, store]);
+        useGraphStore.getState().setEntityGraphDomainFilter(allDomains[0][0]);
+    }, [open, index, allDomains, entityGraphDomainFilter]);
 
-    const domainFilter = store.entityGraphDomainFilter;
-    const rankdir = store.entityGraphRankdir;
-    const showInheritance = store.entityGraphShowInheritance;
-    const showReferences = store.entityGraphShowReferences;
-    const showLinkages = store.entityGraphShowLinkages;
+    const domainFilter = useGraphStore((s) => s.entityGraphDomainFilter);
+    const rankdir = useGraphStore((s) => s.entityGraphRankdir);
+    const showInheritance = useGraphStore((s) => s.entityGraphShowInheritance);
+    const showReferences = useGraphStore((s) => s.entityGraphShowReferences);
+    const showLinkages = useGraphStore((s) => s.entityGraphShowLinkages);
 
     const graph = useMemo(() => {
         if (!index || !domainFilter) return null;
@@ -277,11 +277,12 @@ export function EntityGraphModal() {
 
     const handleNodeClick = useCallback(
         (fqid: string) => {
+            const st = useGraphStore.getState();
             // НЕ закрываем граф — каталог откроется поверх, при закрытии вернёмся в граф.
-            store.setEntityCatalogInitialFqid(fqid);
-            store.setEntityCatalogOpen(true);
+            st.setEntityCatalogInitialFqid(fqid);
+            st.setEntityCatalogOpen(true);
         },
-        [store]
+        []
     );
 
     const handleExportClassDiagram = useCallback(() => {
@@ -296,10 +297,10 @@ export function EntityGraphModal() {
             domainFilter || 'all'
         );
 
-        store.showSnackbar(
+        useGraphStore.getState().showSnackbar(
             `ClassDiagram: ${graph.nodes.length} классов`
         );
-    }, [graph, domainFilter, store]);
+    }, [graph, domainFilter]);
 
     if (!open) return null;
 
@@ -314,7 +315,7 @@ export function EntityGraphModal() {
         <div
             className="help-overlay help-overlay--fullscreen"
             style={{ zIndex: 400 }}
-            onMouseDown={() => store.setEntityGraphOpen(false)}
+            onMouseDown={() => useGraphStore.getState().setEntityGraphOpen(false)}
         >
             <div
                 className="help-modal entity-matrix-modal"
@@ -329,7 +330,7 @@ export function EntityGraphModal() {
                         <HelpButton open={showHelp} onToggle={() => setShowHelp(!showHelp)} label="Как читать?" />
                         <button
                             className="help-modal__close"
-                            onClick={() => store.setEntityGraphOpen(false)}
+                            onClick={() => useGraphStore.getState().setEntityGraphOpen(false)}
                         >
                             ✕
                         </button>
@@ -386,7 +387,7 @@ export function EntityGraphModal() {
                             <div className="entity-graph-toolbar__filters">
                                 <DomainCombobox
                                     value={domainFilter}
-                                    onChange={store.setEntityGraphDomainFilter}
+                                    onChange={useGraphStore.getState().setEntityGraphDomainFilter}
                                     domains={allDomains}
                                     placeholder="Выберите домен..."
                                 />
@@ -411,8 +412,8 @@ export function EntityGraphModal() {
                                     <button
                                         className="btn"
                                         onClick={() => {
-                                            store.setDomainSchemaDomainId(domainFilter);
-                                            store.setDomainSchemaOpen(true);
+                                            useGraphStore.getState().setDomainSchemaDomainId(domainFilter);
+                                            useGraphStore.getState().setDomainSchemaOpen(true);
                                         }}
                                         title="Открыть структуру схемы выбранного домена"
                                     >
@@ -426,7 +427,7 @@ export function EntityGraphModal() {
                                     <select
                                         value={rankdir}
                                         onChange={(e) =>
-                                            store.setEntityGraphRankdir(e.target.value as 'LR' | 'TB')
+                                            useGraphStore.getState().setEntityGraphRankdir(e.target.value as 'LR' | 'TB')
                                         }
                                     >
                                         <option value="LR">Горизонтальная</option>
@@ -441,7 +442,7 @@ export function EntityGraphModal() {
                                         type="checkbox"
                                         checked={showInheritance}
                                         onChange={() =>
-                                            store.setEntityGraphShowInheritance(!showInheritance)
+                                            useGraphStore.getState().setEntityGraphShowInheritance(!showInheritance)
                                         }
                                     />
                                     <span className="entity-graph-legend-dot" style={{ background: '#a78bfa' }} />
@@ -452,7 +453,7 @@ export function EntityGraphModal() {
                                         type="checkbox"
                                         checked={showReferences}
                                         onChange={() =>
-                                            store.setEntityGraphShowReferences(!showReferences)
+                                            useGraphStore.getState().setEntityGraphShowReferences(!showReferences)
                                         }
                                     />
                                     <span className="entity-graph-legend-dot" style={{ background: '#6366f1' }} />
@@ -463,7 +464,7 @@ export function EntityGraphModal() {
                                         type="checkbox"
                                         checked={showLinkages}
                                         onChange={() =>
-                                            store.setEntityGraphShowLinkages(!showLinkages)
+                                            useGraphStore.getState().setEntityGraphShowLinkages(!showLinkages)
                                         }
                                     />
                                     <span className="entity-graph-legend-dot" style={{ background: '#10b981' }} />

@@ -57,6 +57,7 @@ import { getLineDiff } from '../../lib/diff-lines';
 import { hashPayload } from '../../../core/analyzer/schema-generator/util-hash';
 import { computePublishDiff } from '../../lib/model/publish-diff';
 import { suggestVersionBump } from '../../lib/version-impact';
+import { alertDialog, confirmDialog } from '../../lib/dialogs';
 
 type RightTab = 'issues' | 'refs' | 'backlinks' | 'server';
 type NavTab = "navigation" | "search" | "bookmarks";
@@ -186,6 +187,9 @@ export function YamlViewerModal() {
         useGraphStore.getState().setYamlViewerContentSource(open ? contentSource : null);
     }, [open, contentSource]);
 
+    const [backupResolved, setBackupResolved] = useState(false);
+    const [backupContent, setBackupContent] = useState<string | null>(null);
+    const resolvedKeyRef = useRef<string | null>(null);
     const [content, setContent] = useState('');
     const [yamlSyntaxIssue, setYamlSyntaxIssue] = useState<any>(null);
     // Deferred-версия content для тяжёлых вычислений: не блокирует keystroke'и
@@ -318,43 +322,99 @@ export function YamlViewerModal() {
         return () => clearTimeout(t);
     }, [deferredContent, domainId, checksEnabled]);
 
-    // При загрузке файла — сбросить оба
+    // ============ Эффект A: резолв бэкапа ============
     useEffect(() => {
-        if (loading) return;
-        if (fetchedContent == null) return;
-        if (!filePath) return;
-
-        // 1. Автосохранение (пункт 1)
-        const backupKey = `dg-yaml-backup:${filePath}`;
-        const backupStr = sessionStorage.getItem(backupKey);
-        let contentToSet = fetchedContent;
-
-        if (backupStr) {
-            try {
-                const backup = JSON.parse(backupStr);
-                // Проверяем, что файл на диске не менялся с момента бэкапа
-                if (backup.savedContentHash === fetchedContent.length /* условно хэш */) {
-                    if (confirm(`Найдены несохранённые правки от ${new Date(backup.savedAt).toLocaleTimeString()}. Восстановить?`)) {
-                        contentToSet = backup.content;
-                    } else {
-                        sessionStorage.removeItem(backupKey);
-                    }
-                }
-            } catch { }
+        // Закрытие модалки — сбрасываем, чтобы при следующем открытии резолв
+        // прошёл заново.
+        if (!open) {
+            resolvedKeyRef.current = null;
+            setBackupResolved(false);
+            setBackupContent(null);
+            return;
         }
 
-        setContent(contentToSet);
-        setSavedContent(fetchedContent);
+        if (loading) return;
+        if (!filePath) {
+            resolvedKeyRef.current = "";
+            setBackupResolved(true);
+            return;
+        }
 
-        // 2. Запоминаем mtime для проверки конфликтов (пункт 2)
-        fetch(`/file?path=${encodeURIComponent(filePath || "")}&stat=1`)
-            .then(r => r.json())
-            .then(d => setLastKnownMtime(d.mtime))
-            .catch(() => { });
+        // Контент ещё не загрузился, а бэкап уже есть — ждём реальный fetchedContent.
+        // Без этой защиты пустой fetchedContent убивает бэкап по несовпадению hash
+        // (баг, из-за которого диалог не появлялся).
+        const hasBackupNow = !!sessionStorage.getItem(
+            `dg-yaml-backup:${filePath}`,
+        );
+        if (!fetchedContent && hasBackupNow) return;
 
-    }, [loading, fetchedContent, filePath]);
+        // Ключ «filePath + хеш контента». Позволяет:
+        //  • не резолвить повторно на том же контенте (защита от двойного confirm);
+        //  • резолвить заново при смене filePath X → Y без закрытия модалки.
+        const key = `${filePath}#${hashPayload(normalizeEol(fetchedContent || ""))}`;
+        if (resolvedKeyRef.current === key) return;
+        resolvedKeyRef.current = key;
 
-    const backupRestoredRef = useRef(false);
+        setBackupResolved(false);
+        setBackupContent(null);
+
+        let cancelled = false;
+
+        (async () => {
+            const backupKey = `dg-yaml-backup:${filePath}`;
+            const backupStr = sessionStorage.getItem(backupKey);
+
+            if (!backupStr) {
+                if (!cancelled) setBackupResolved(true);
+                return;
+            }
+
+            try {
+                const backup = JSON.parse(backupStr);
+                const currentHash = hashPayload(normalizeEol(fetchedContent || ""));
+
+                if (backup.savedContentHash !== currentHash) {
+                    // Файл на диске изменился (git pull / другая сессия) —
+                    // старые правки устарели.
+                    sessionStorage.removeItem(backupKey);
+                    if (!cancelled) setBackupResolved(true);
+                    return;
+                }
+
+                const ok = await confirmDialog(
+                    "Найдены несохранённые правки",
+                    {
+                        detail:
+                            `Файл «${filePath.split(/[\\/]/).pop()}» ` +
+                            `содержит несохранённые изменения от ` +
+                            `${new Date(backup.savedAt).toLocaleTimeString()}.` +
+                            `\n\nВосстановить их при открытии?`,
+                        confirmLabel: "Восстановить",
+                        cancelLabel: "Отменить правки",
+                        variant: "warning",
+                    },
+                );
+                if (cancelled) return;
+
+                if (ok) {
+                    setBackupContent(backup.content);
+                    setIsLocked(false);
+                    isLockedRef.current = false;
+                } else {
+                    sessionStorage.removeItem(backupKey);
+                }
+            } catch {
+                sessionStorage.removeItem(backupKey);
+            } finally {
+                if (!cancelled) setBackupResolved(true);
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [open, loading, fetchedContent, filePath]);
+
     const savedContentRef = useRef(savedContent);
     useEffect(() => {
         savedContentRef.current = savedContent;
@@ -970,6 +1030,7 @@ export function YamlViewerModal() {
         if (!open) return;
         if (!monacoReady) return;
         if (loading) return;
+        if (!backupResolved) return;
         if (!filePath) return;
         if (!fetchedContent) return;
         if (!containerRef.current) return;
@@ -978,33 +1039,9 @@ export function YamlViewerModal() {
         const m = (window as any).monaco;
         if (!m || !m.editor) return;
 
-        // ─── ВОССТАНОВЛЕНИЕ ИЗ БЭКАПА ───
-        let initialContent = fetchedContent;
-        let restoredFromBackup = false;
-        const backupKey = `dg-yaml-backup:${filePath}`;
-        const backupStr = sessionStorage.getItem(backupKey);
-
-        if (backupStr) {
-            try {
-                const backup = JSON.parse(backupStr);
-                const currentHash = hashPayload(normalizeEol(fetchedContent));
-
-                if (backup.savedContentHash === currentHash) {
-                    if (window.confirm(`Найдены несохранённые правки от ${new Date(backup.savedAt).toLocaleTimeString()}. Восстановить?`)) {
-                        initialContent = backup.content;
-                        restoredFromBackup = true;
-                        backupRestoredRef.current = true;
-                    } else {
-                        sessionStorage.removeItem(backupKey);
-                    }
-                } else {
-                    // Файл на диске изменился с момента бэкапа (например, git pull)
-                    sessionStorage.removeItem(backupKey);
-                }
-            } catch {
-                sessionStorage.removeItem(backupKey);
-            }
-        }
+        // Контент уже разрешён — либо бэкап, либо файл с диска
+        const initialContent = backupContent ?? fetchedContent;
+        const restoredFromBackup = backupContent !== null;
 
         // Если восстанавливаем бэкап, принудительно переводим в режим редактирования!
         if (restoredFromBackup) {
@@ -1135,15 +1172,8 @@ export function YamlViewerModal() {
                     }
                 }
             }, 50);
-            setContent(initialContent);
-            setSavedContent(fetchedContent);
-            setEditorCreated(true);
 
-            if (restoredFromBackup) {
-                useGraphStore.getState().setYamlViewerDirty(true);
-                // Обновляем стейт, чтобы UI показал "● изменён"
-                setLiveVersion((v) => v + 1);
-            }
+            setEditorCreated(true);
 
             // Хелпер: открыт ли suggest widget. DOM-проверка надёжнее Monaco-API —
             // работает во всех версиях.
@@ -1359,7 +1389,7 @@ export function YamlViewerModal() {
             }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [open, monacoReady, filePath, loading, fetchedContent]);
+    }, [open, monacoReady, filePath, loading, fetchedContent, backupResolved, backupContent]);
 
     useEffect(() => {
         if (!editorRef.current) return;
@@ -2512,26 +2542,35 @@ export function YamlViewerModal() {
             setCopyFeedback(true);
             setTimeout(() => setCopyFeedback(false), 1500);
         } catch (err: any) {
-            alert('Не удалось скопировать: ' + err.message);
+            await alertDialog("Не удалось скопировать", {
+                detail: err.message,
+                variant: "warning",
+            });
         }
     }, [content]);
 
     // ============ Toggle lock ============
-    const handleToggleLock = useCallback(() => {
+    const handleToggleLock = useCallback(async () => {
         if (isLocked) {
             setIsLocked(false);
             setSaveError(null);
         } else {
             if (isDirty) {
-                if (!confirm('Есть несохранённые изменения. Сбросить их и заблокировать файл?')) return;
+                const ok = await confirmDialog(
+                    "Сбросить несохранённые изменения и заблокировать файл?",
+                    {
+                        detail: "Все правки в редакторе будут потеряны.",
+                        danger: true,
+                        confirmLabel: "Сбросить и заблокировать",
+                    },
+                );
+                if (!ok) return;
                 if (editorRef.current) {
                     isProgrammaticChange.current = true;
                     editorRef.current.setValue(savedContent);
                     isProgrammaticChange.current = false;
                 }
                 setContent(savedContent);
-
-                // ─── УДАЛЯЕМ БЭКАП ───
                 if (filePath) {
                     sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
                 }
@@ -2550,7 +2589,14 @@ export function YamlViewerModal() {
             if (statRes.ok) {
                 const { mtime } = await statRes.json();
                 if (lastKnownMtime > 0 && mtime > lastKnownMtime) {
-                    const ok = confirm("Файл был изменён вне этого редактора. Продолжить сохранение и перезаписать?");
+                    const ok = await confirmDialog(
+                        "Файл был изменён вне этого редактора",
+                        {
+                            detail: "Продолжить сохранение и перезаписать текущее содержимое на диске?",
+                            variant: "warning",
+                            confirmLabel: "Перезаписать",
+                        },
+                    );
                     if (!ok) return;
                 }
             }
@@ -2777,18 +2823,30 @@ export function YamlViewerModal() {
     }, []);
 
     // ============ Close ============
-    const handleClose = useCallback(() => {
-        if (quickJumpOpenRef.current) {
-            return;
-        }
+    const handleClose = useCallback(async () => {
+        if (quickJumpOpenRef.current) return;
 
         if (isSaving) {
-            if (!confirm("Идёт сохранение. Прервать и закрыть без сохранения?")) return;
-            try { saveAbortRef.current?.abort(); } catch { }
+            const ok = await confirmDialog(
+                "Идёт сохранение",
+                {
+                    detail: "Прервать и закрыть без сохранения?",
+                    variant: "warning",
+                    confirmLabel: "Прервать и закрыть",
+                },
+            );
+            if (!ok) return;
+            try { saveAbortRef.current?.abort(); } catch { /* ignore */ }
         } else if (isDirty && !isLocked) {
-            if (!confirm("Есть несохранённые изменения. Закрыть без сохранения?")) return;
-
-            // ─── УДАЛЯЕМ БЭКАП ───
+            const ok = await confirmDialog(
+                "Есть несохранённые изменения",
+                {
+                    detail: "Закрыть файл без сохранения?",
+                    danger: true,
+                    confirmLabel: "Закрыть без сохранения",
+                },
+            );
+            if (!ok) return;
             if (filePath) {
                 sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
             }
@@ -3003,7 +3061,7 @@ export function YamlViewerModal() {
             if (!detail || !detail.action) return;
 
             if (detail.action === 'help') {
-                alert(detail.message);
+                void alertDialog(detail.message, { title: "Справка по правилу" });
             } else if (detail.action === 'ignore') {
                 // Игнорируем правило: сохраняем в localStorage по (domainId, line, message)
                 try {
@@ -3634,19 +3692,30 @@ export function YamlViewerModal() {
         return () => actions.forEach(a => a.dispose());
     }, [editorCreated, domainId, lineMap]);
 
+    // ============ Эффект B: установить контент (после резолва бэкапа) ============
     useEffect(() => {
+        if (!backupResolved) return;
         if (loading) return;
-        if (fetchedContent === null || fetchedContent === undefined) return;
+        if (fetchedContent == null) return;
 
-        // Если мы только что восстановили бэкап, НЕ затираем состояние диском
-        if (backupRestoredRef.current) {
-            backupRestoredRef.current = false;
-            return;
+        const contentToSet = backupContent ?? fetchedContent;
+        setContent(contentToSet);
+        setSavedContent(fetchedContent);
+
+        if (backupContent) {
+            // Дать UI знать, что есть что сохранять
+            useGraphStore.getState().setYamlViewerDirty(true);
+            setLiveVersion((v) => v + 1);
         }
 
-        setContent(fetchedContent);
-        setSavedContent(fetchedContent);
-    }, [loading, fetchedContent, filePath]);
+        // mtime — защита от перезаписи внешних правок
+        if (filePath) {
+            fetch(`/file?path=${encodeURIComponent(filePath)}&stat=1`)
+                .then((r) => r.json())
+                .then((d) => setLastKnownMtime(d.mtime))
+                .catch(() => { /* ignore */ });
+        }
+    }, [backupResolved, backupContent, loading, fetchedContent, filePath]);
 
     const executePublish = useCallback(async (valueToSave: string) => {
         setIsSaving(true);
@@ -3842,11 +3911,15 @@ export function YamlViewerModal() {
                         ? suggestion.reason
                         : "изменения не обнаружены";
 
-                    const ok = confirm(
-                        `Версия схемы не изменилась: ${oldVersion}.\n\n` +
-                        `Тип изменений: ${levelLabel}\n` +
-                        `  ${reasonText}\n\n` +
-                        `Предлагаю поднять до ${targetVersion} — согласны?`,
+                    const ok = await confirmDialog(
+                        `Версия схемы не изменилась: ${oldVersion}`,
+                        {
+                            detail:
+                                `Тип изменений: ${levelLabel}\n  ${reasonText}\n\n` +
+                                `Предлагаю поднять до ${targetVersion} — согласны?`,
+                            confirmLabel: `Поднять до ${targetVersion}`,
+                            cancelLabel: "Оставить как есть",
+                        },
                     );
                     if (!ok) return;
 
@@ -4670,10 +4743,9 @@ export function YamlViewerModal() {
                             <div
                                 key={tab}
                                 className={`yaml-viewer-tab-item ${tab === filePath ? 'active' : ''}`}
-                                onClick={() => {
+                                onClick={async () => {
                                     if (tab !== filePath) {
-                                        if (isDirty && !confirm("Сбросить несохранённые изменения?")) return;
-                                        openFileInEditor(tab);
+                                        await openFileInEditor(tab); 
                                     }
                                 }}
                             >
@@ -4992,10 +5064,16 @@ export function YamlViewerModal() {
                                             <div className="yaml-viewer-nav__actions">
                                                 <button
                                                     className="yaml-viewer-nav__action"
-                                                    onClick={() => {
-                                                        if (confirm("Удалить все закладки в этом файле?")) {
-                                                            setEditorBookmarks(filePath!, []);
-                                                        }
+                                                    onClick={async () => {
+                                                        const ok = await confirmDialog(
+                                                            "Удалить все закладки?",
+                                                            {
+                                                                detail: "Все закладки в этом файле будут удалены.",
+                                                                danger: true,
+                                                                confirmLabel: "Удалить",
+                                                            },
+                                                        );
+                                                        if (ok) setEditorBookmarks(filePath!, []);
                                                     }}
                                                     title="Удалить все закладки"
                                                 >

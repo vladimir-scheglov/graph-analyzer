@@ -17,11 +17,10 @@ import {
 type SortBy = 'distance' | 'instability' | 'abstractness' | 'ca' | 'ce';
 
 export function MartinMetricsModal() {
-    const store = useGraphStore();
     const { index, loading, error } = useModelIndex();
     const [showHelp, setShowHelp] = useState(false);
 
-    const open = store.martinOpen;
+    const open = useGraphStore((s) => s.martinOpen);
     const [sortBy, setSortBy] = useState<SortBy>('distance');
     const [filterZone, setFilterZone] = useState<'' | 'pain' | 'uselessness' | 'main-sequence'>('');
 
@@ -47,7 +46,7 @@ export function MartinMetricsModal() {
     return (
         <div
             className="help-overlay help-overlay--fullscreen"
-            onMouseDown={() => store.setMartinOpen(false)}
+            onMouseDown={() => useGraphStore.getState().setMartinOpen(false)}
         >
             <div
                 className="help-modal entity-hierarchy-modal"
@@ -70,7 +69,7 @@ export function MartinMetricsModal() {
                         />
                         <button
                             className="help-modal__close"
-                            onClick={() => store.setMartinOpen(false)}
+                            onClick={() => useGraphStore.getState().setMartinOpen(false)}
                         >
                             ✕
                         </button>

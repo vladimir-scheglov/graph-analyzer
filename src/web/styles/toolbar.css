@@ -323,3 +323,16 @@
   border-radius: 4px;
   color: var(--accent-hover);
 }
+.active-mode__nav {
+  background: transparent;
+  border: none;
+  color: var(--text-300);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 4px;
+  opacity: 0.7;
+}
+.active-mode__nav:hover {
+  opacity: 1;
+  color: var(--text-100);
+}

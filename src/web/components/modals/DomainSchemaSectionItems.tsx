@@ -457,6 +457,7 @@ export function SectionItems({
                     return (
                         <React.Fragment key={d.id}>
                             <div
+                                id={`ds-item-dataType:${d.id}`}  
                                 className={
                                     "domain-schema-item domain-schema-item--expandable" +
                                     (isExpanded ? " expanded" : "")

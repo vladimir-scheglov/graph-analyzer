@@ -12,7 +12,6 @@ import {
 import { EntityRecord } from '../../../shared/model-types';
 
 export function AttributeFinderModal() {
-    const store = useGraphStore();
     const { goto } = useNavigation();
     const { index, loading, error } = useModelIndex();
     const [onlyPii, setOnlyPii] = useState(false);
@@ -24,7 +23,7 @@ export function AttributeFinderModal() {
     const [showSummary, setShowSummary] = useState(true);
     const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
-    const open = store.attributeFinderOpen;
+    const open = useGraphStore((s) => s.attributeFinderOpen);
 
     const allTypes = useMemo(() => (index ? collectDataTypes(index) : []), [index]);
     const allConstraints = useMemo(() => (index ? collectConstraints(index) : []), [index]);
@@ -48,11 +47,12 @@ export function AttributeFinderModal() {
     const openEntity = useCallback(
         (entity: EntityRecord) => {
             goto(entity.domainId);
-            store.setEntityCatalogInitialFqid(entity.fqid);
-            store.setEntityCatalogOpen(true);
-            store.setAttributeFinderOpen(false);
+            const st = useGraphStore.getState();
+            st.setEntityCatalogInitialFqid(entity.fqid);
+            st.setEntityCatalogOpen(true);
+            st.setAttributeFinderOpen(false);
         },
-        [goto, store]
+        [goto]
     );
 
     const [limit, setLimit] = useState(300);
@@ -85,7 +85,7 @@ export function AttributeFinderModal() {
     return (
         <div
             className="help-overlay help-overlay--fullscreen"
-            onMouseDown={() => store.setAttributeFinderOpen(false)}
+            onMouseDown={() => useGraphStore.getState().setAttributeFinderOpen(false)}
         >
             <div
                 className="help-modal entity-hierarchy-modal"
@@ -102,7 +102,7 @@ export function AttributeFinderModal() {
                     </div>
                     <button
                         className="help-modal__close"
-                        onClick={() => store.setAttributeFinderOpen(false)}
+                        onClick={() => useGraphStore.getState().setAttributeFinderOpen(false)}
                     >
                         ✕
                     </button>

@@ -5,6 +5,10 @@ import type { RFNode, RFEdge } from "../lib/types";
 
 const NODE_WIDTH = 300;
 const NODE_HEIGHT = 88;
+const NODE_W_NORMAL = 300;
+const NODE_H_NORMAL = 88;
+const NODE_W_COMPACT = 42;
+const NODE_H_COMPACT = 42;
 
 export interface UseGraphLayoutParams {
   filteredNodes: RFNode[];
@@ -71,13 +75,15 @@ export function useGraphLayout({
         prev.map((n) => {
           const visible = visibleIds.has(n.id);
           const newPos = posMap.get(n.id);
+          const w = compact ? NODE_W_COMPACT : NODE_W_NORMAL;
+          const h = compact ? NODE_H_COMPACT : NODE_H_NORMAL;
           if (visible && newPos) {
             return {
               ...n,
               position: newPos,
               hidden: false,
-              width: NODE_WIDTH,
-              height: NODE_HEIGHT,
+              width: w,
+              height: h,
             };
           }
           return { ...n, hidden: !visible };
@@ -123,6 +129,17 @@ export function useGraphLayout({
     applyLayout,
     rfInstance,
   ]);
+
+  useEffect(() => {
+    const w = compact ? NODE_W_COMPACT : NODE_W_NORMAL;
+    const h = compact ? NODE_H_COMPACT : NODE_H_NORMAL;
+
+    setNodes((prev) =>
+      prev.map((n) =>
+        n.width === w && n.height === h ? n : { ...n, width: w, height: h },
+      ),
+    );
+  }, [compact, setNodes]);
 
   const relayout = useCallback(() => {
     appliedRef.current = null;

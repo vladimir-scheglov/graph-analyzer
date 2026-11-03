@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { useGraphStore } from '../../state/useGraphStore';
 import { MIcon } from '../common/MIcon';
+import { pluralFew } from '../../lib';
 
 interface ActiveMode {
     iconName?: string;
@@ -8,6 +9,12 @@ interface ActiveMode {
     label: string;
     color: string;
     onClear: () => void;
+    nav?: {
+        onPrev: () => void;
+        onNext: () => void;
+        hotkeyHint?: string;
+    };
+    title?: string;
 }
 
 export interface ActiveModesBarProps {
@@ -15,213 +22,264 @@ export interface ActiveModesBarProps {
 }
 
 export function ActiveModesBar({ ruleViolationsCount }: ActiveModesBarProps) {
-    const store = useGraphStore();
+    const nodes = useGraphStore((s) => s.nodes);
+    const cycleHighlight = useGraphStore((s) => s.cycleHighlight);
+    const focusNode = useGraphStore((s) => s.focusNode);
+    const focusDepth = useGraphStore((s) => s.focusDepth);
+
+    const selectedNodeId = useGraphStore((s) => s.selectedNodeId);
+    const pathResult = useGraphStore((s) => s.pathResult);
+    const pathSel = useGraphStore((s) => s.pathSel);
+    const pathMode = useGraphStore((s) => s.pathMode);
+    const hiddenNodeIds = useGraphStore((s) => s.hiddenNodeIds);
+    const onlyInvalid = useGraphStore((s) => s.onlyInvalid);
+    const bookmarksOnly = useGraphStore((s) => s.bookmarksOnly);
+    const isolatedOnly = useGraphStore((s) => s.isolatedOnly);
+    const nsMode = useGraphStore((s) => s.nsMode);
+    const diffMode = useGraphStore((s) => s.diffMode);
+    const rulesHighlighted = useGraphStore((s) => s.rulesHighlighted);
+    const tooltipsEnabled = useGraphStore((s) => s.tooltipsEnabled);
+    const sidePanelEnabled = useGraphStore((s) => s.sidePanelEnabled);
+    const namespaceFilter = useGraphStore((s) => s.namespaceFilter);
+    const filters = useGraphStore((s) => s.filters);
+    const topoLevelMap = useGraphStore((s) => s.topoLevelMap);
+    const tagFilters = useGraphStore((s) => s.tagFilters);
 
     const modes = useMemo<ActiveMode[]>(() => {
         const result: ActiveMode[] = [];
-        const nodes = store.nodes;
 
-        if (store.cycleHighlight) {
+        if (cycleHighlight) {
+            const total = cycleHighlight.cycles.length;
+            const idx = cycleHighlight.activeIndex;
+            const active = cycleHighlight.cycles[idx];
+            const size = active?.nodeIds.size ?? 0;
+
+            const preview = active
+                ? nodes
+                    .filter((n) => active.nodeIds.has(n.id))
+                    .slice(0, 5)
+                    .map((n) => n.data.domainId)
+                    .join(" → ") +
+                (active.nodeIds.size > 5 ? ` → … (+${active.nodeIds.size - 5})` : "")
+                : "";
+
             result.push({
-                iconName: 'cycle',
-                label: 'Циклы (' + store.cycleHighlight.sccCount + ')',
-                color: 'orange',
+                iconName: "cycle",
+                label:
+                    total === 1
+                        ? `Цикл (${size} ${pluralFew(size, "узел", "узла", "узлов")})`
+                        : `Цикл ${idx + 1} / ${total} (${size} узл.)`,
+                color: "orange",
+                title: preview || undefined,
+                nav:
+                    total > 1
+                        ? {
+                            onPrev: () => useGraphStore.getState().setActiveCycleIndex(idx - 1),
+                            onNext: () => useGraphStore.getState().setActiveCycleIndex(idx + 1),
+                            hotkeyHint: "[ / ]",
+                        }
+                        : undefined,
                 onClear: () => {
-                    store.setCycleHighlight(null);
-                    store.setSelectedNodeId(null);
-                    store.setSelectedEdgeId(null);
-                }
+                    const st = useGraphStore.getState();
+                    st.setCycleHighlight(null);
+                    st.setSelectedNodeId(null);
+                    st.setSelectedEdgeId(null);
+                },
             });
         }
 
-        if (store.focusNode) {
-            const fn = nodes.find((n) => n.id === store.focusNode);
+        if (focusNode) {
+            const fn = nodes.find((n) => n.id === focusNode);
             result.push({
                 iconName: 'my_location',
-                label: 'Фокус N=' + store.focusDepth + (fn ? ': ' + fn.data.domainId : ''),
+                label: 'Фокус N=' + focusDepth + (fn ? ': ' + fn.data.domainId : ''),
                 color: 'cyan',
                 onClear: () => {
-                    store.setFocusNode(null);
-                    store.setSelectedNodeId(null);
-                    store.setSelectedEdgeId(null);
+                    const st = useGraphStore.getState();
+                    st.setFocusNode(null);
+                    st.setSelectedNodeId(null);
+                    st.setSelectedEdgeId(null);
                 }
             });
-        } else if (store.selectedNodeId) {
-            const sn = nodes.find((n) => n.id === store.selectedNodeId);
+        } else if (selectedNodeId) {
+            const sn = nodes.find((n) => n.id === selectedNodeId);
             result.push({
                 iconName: 'visibility',
                 label: sn ? sn.data.domainId : 'узел',
                 color: 'accent',
                 onClear: () => {
-                    store.setSelectedNodeId(null);
-                    store.setSelectedEdgeId(null);
+                    const st = useGraphStore.getState();
+                    st.setSelectedNodeId(null);
+                    st.setSelectedEdgeId(null);
                 }
             });
         }
 
-        if (store.pathResult || store.pathSel.length > 0) {
+        if (pathResult || pathSel.length > 0) {
             result.push({
                 iconName: 'route',
-                label: store.pathResult
+                label: pathResult
                     ? 'Путь найден'
-                    : 'Выбор пути (' + store.pathSel.length + '/2)',
+                    : 'Выбор пути (' + pathSel.length + '/2)',
                 color: 'yellow',
                 onClear: () => {
-                    store.setPathResult(null);
-                    store.setPathSel([]);
-                    store.setPathMode(null);
-                    store.setSelectedNodeId(null);
-                    store.setSelectedEdgeId(null);
+                    const st = useGraphStore.getState();
+                    st.setPathResult(null);
+                    st.setPathSel([]);
+                    st.setPathMode(null);
+                    st.setSelectedNodeId(null);
+                    st.setSelectedEdgeId(null);
                 }
             });
         }
 
-        if (store.hiddenNodeIds.size > 0) {
+        if (hiddenNodeIds.size > 0) {
             result.push({
                 iconName: 'visibility_off',
-                label: 'Скрыто: ' + store.hiddenNodeIds.size,
+                label: 'Скрыто: ' + hiddenNodeIds.size,
                 color: 'gray',
-                onClear: () => store.resetHiddenNodes()
+                onClear: () => useGraphStore.getState().resetHiddenNodes()
             });
         }
 
-        if (store.onlyInvalid) {
+        if (onlyInvalid) {
             result.push({
                 iconName: 'cancel',
                 label: 'Только невалидные',
                 color: 'red',
-                onClear: () => store.setOnlyInvalid(false)
+                onClear: () => useGraphStore.getState().setOnlyInvalid(false)
             });
         }
 
-        if (store.bookmarksOnly) {
+        if (bookmarksOnly) {
             result.push({
                 iconName: 'star',
                 label: 'Только избранные',
                 color: 'yellow',
-                onClear: () => store.setBookmarksOnly(false)
+                onClear: () => useGraphStore.getState().setBookmarksOnly(false)
             });
         }
 
-        if (store.nsMode) {
+        if (nsMode) {
             result.push({
                 iconName: 'category',
                 label: 'Агрегация по семействам',
                 color: 'purple',
-                onClear: () => store.setNsMode(false)
+                onClear: () => useGraphStore.getState().setNsMode(false)
             });
         }
 
-        if (store.diffMode) {
-            const added = store.diffMode.addedEdges.size + store.diffMode.addedNodes.size;
-            const removed = store.diffMode.removedEdges.size + store.diffMode.removedNodes.size;
+        if (diffMode) {
+            const added = diffMode.addedEdges.size + diffMode.addedNodes.size;
+            const removed = diffMode.removedEdges.size + diffMode.removedNodes.size;
             result.push({
                 iconName: 'swap_horiz',
                 label: 'Diff +' + added + '/−' + removed,
                 color: 'blue',
-                onClear: () => store.setDiffMode(null)
+                onClear: () => useGraphStore.getState().setDiffMode(null)
             });
         }
 
-        if (ruleViolationsCount > 0 && store.rulesHighlighted) {
+        if (ruleViolationsCount > 0 && rulesHighlighted) {
             result.push({
                 iconName: 'block',
                 label: 'Нарушения: ' + ruleViolationsCount,
                 color: 'red',
-                onClear: () => store.setRulesHighlighted(false)
+                onClear: () => useGraphStore.getState().setRulesHighlighted(false)
             });
         }
 
-        if (!store.tooltipsEnabled) {
+        if (!tooltipsEnabled) {
             result.push({
                 iconName: 'block',
                 label: 'Тултипы выключены',
                 color: 'gray',
-                onClear: () => store.setTooltipsEnabled(true)
+                onClear: () => useGraphStore.getState().setTooltipsEnabled(true)
             });
         }
 
-        if (store.topoLevelMap) {
+        if (topoLevelMap) {
             result.push({
                 iconName: 'inventory_2',
                 label: 'Уровни установки',
                 color: 'green',
-                onClear: () => store.setTopoLevelMap(null)
+                onClear: () => useGraphStore.getState().setTopoLevelMap(null)
             });
         }
 
-        if (!store.sidePanelEnabled) {
+        if (!sidePanelEnabled) {
             result.push({
                 iconName: 'block',
                 label: 'Панель выключена',
                 color: 'gray',
-                onClear: () => store.setSidePanelEnabled(true)
+                onClear: () => useGraphStore.getState().setSidePanelEnabled(true)
             });
         }
 
-        if (!store.filters.linkage && !store.filters.fqid) {
+        if (!filters.linkage && !filters.fqid) {
             result.push({
                 iconName: 'power_off',
                 label: 'Связи скрыты',
                 color: 'gray',
                 onClear: () =>
-                    store.setFilters((f) => ({ ...f, linkage: true, fqid: true }))
+                    useGraphStore.getState().setFilters((f) => ({ ...f, linkage: true, fqid: true }))
             });
         }
 
-        if (store.namespaceFilter && store.namespaceFilter.trim()) {
+        if (namespaceFilter && namespaceFilter.trim()) {
             result.push({
                 iconName: 'filter_alt',
                 label:
                     'Фильтр: ' +
-                    (store.namespaceFilter.length > 30
-                        ? store.namespaceFilter.slice(0, 30) + '…'
-                        : store.namespaceFilter),
+                    (namespaceFilter.length > 30
+                        ? namespaceFilter.slice(0, 30) + '…'
+                        : namespaceFilter),
                 color: 'cyan',
-                onClear: () => store.setNamespaceFilter('')
+                onClear: () => useGraphStore.getState().setNamespaceFilter('')
             });
         }
 
-        if (store.isolatedOnly) {
+        if (isolatedOnly) {
             result.push({
                 iconName: 'radio_button_unchecked',
                 label: 'Только изолированные',
                 color: 'orange',
-                onClear: () => store.setIsolatedOnly(false)
+                onClear: () => useGraphStore.getState().setIsolatedOnly(false)
             });
         }
 
-        if (store.pathMode) {
+        if (pathMode) {
             result.push({
                 iconName: 'route',
-                label: store.pathMode.anchorId ? 'Выберите второй узел' : 'Выберите первый узел',
+                label: pathMode.anchorId ? 'Выберите второй узел' : 'Выберите первый узел',
                 color: 'yellow',
                 onClear: () => {
-                    store.setPathMode(null);
-                    store.setPathSel([]);
+                    const st = useGraphStore.getState();
+                    st.setPathMode(null);
+                    st.setPathSel([]);
                 }
             });
         }
 
-        if (store.tagFilters.size > 0) {
+        if (tagFilters.size > 0) {
             result.push({
                 iconName: 'label',
-                label: 'Теги: ' + Array.from(store.tagFilters).join(', '),
+                label: 'Теги: ' + Array.from(tagFilters).join(', '),
                 color: 'purple',
-                onClear: () => store.setTagFilters(new Set())
+                onClear: () => useGraphStore.getState().setTagFilters(new Set())
             });
         }
 
         return result;
     }, [
-        store.cycleHighlight, store.focusNode, store.focusDepth,
-        store.selectedNodeId, store.pathResult, store.pathSel, store.pathMode,
-        store.hiddenNodeIds, store.onlyInvalid, store.bookmarksOnly,
-        store.isolatedOnly, store.nsMode, store.diffMode,
-        store.rulesHighlighted, store.tooltipsEnabled, store.sidePanelEnabled,
-        store.namespaceFilter, store.filters.linkage, store.filters.fqid,
-        store.topoLevelMap, store.tagFilters, ruleViolationsCount,
-        store.nodes
+        cycleHighlight, focusNode, focusDepth,
+        selectedNodeId, pathResult, pathSel, pathMode,
+        hiddenNodeIds, onlyInvalid, bookmarksOnly,
+        isolatedOnly, nsMode, diffMode,
+        rulesHighlighted, tooltipsEnabled, sidePanelEnabled,
+        namespaceFilter, filters.linkage, filters.fqid,
+        topoLevelMap, tagFilters, ruleViolationsCount,
+        nodes
     ]);
 
     if (modes.length === 0) return null;
@@ -229,11 +287,29 @@ export function ActiveModesBar({ ruleViolationsCount }: ActiveModesBarProps) {
     return (
         <div className="active-modes">
             {modes.map((m, i) => (
-                <div key={i} className={'active-mode active-mode--' + (m.color || 'accent')}>
+                <div key={i} className={'active-mode active-mode--' + (m.color || 'accent')} title={m.title}>
                     <span className="active-mode__icon">
                         {m.iconName ? <MIcon name={m.iconName} size="sm" /> : m.icon}
                     </span>
+                    {m.nav && (
+                        <button
+                            className="active-mode__nav"
+                            onClick={m.nav.onPrev}
+                            title={`Предыдущий цикл (${m.nav.hotkeyHint})`}
+                        >
+                            ◀
+                        </button>
+                    )}
                     <span className="active-mode__label">{m.label}</span>
+                    {m.nav && (
+                        <button
+                            className="active-mode__nav"
+                            onClick={m.nav.onNext}
+                            title={`Следующий цикл (${m.nav.hotkeyHint})`}
+                        >
+                            ▶
+                        </button>
+                    )}
                     <button className="active-mode__close" onClick={m.onClear} title="Отключить">
                         ✕
                     </button>

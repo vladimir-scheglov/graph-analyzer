@@ -3,16 +3,19 @@ import { useGraphStore } from '../../../state/useGraphStore';
 import { Section } from '../Section';
 
 export function TagsSection({ items }: { items: Array<[string, number]> }) {
-    const store = useGraphStore();
+    const viewMode = useGraphStore((s) => s.viewMode);
+    const listSearchQuery = useGraphStore((s) => s.listSearchQuery);
+    const tagFilters = useGraphStore((s) => s.tagFilters);
+
     if (items.length === 0) return null;
 
     const badge =
-        store.viewMode === "list"
-            ? store.listSearchQuery && items.some(([t]) => t === store.listSearchQuery)
+        viewMode === "list"
+            ? listSearchQuery && items.some(([t]) => t === listSearchQuery)
                 ? 1
                 : null
-            : store.tagFilters.size > 0
-                ? store.tagFilters.size
+            : tagFilters.size > 0
+                ? tagFilters.size
                 : null;
 
     return (
@@ -21,18 +24,19 @@ export function TagsSection({ items }: { items: Array<[string, number]> }) {
                 {items.map((entry) => {
                     const [tag, count] = entry;
                     const active =
-                        store.viewMode === "list"
-                            ? store.listSearchQuery === tag
-                            : store.tagFilters.has(tag);
+                        viewMode === "list"
+                            ? listSearchQuery === tag
+                            : tagFilters.has(tag);
                     return (
                         <button
                             key={tag}
                             className={'tag' + (active ? ' tag--active' : '')}
                             onClick={() => {
-                                if (store.viewMode === "list") {
-                                    store.setListSearchQuery(active ? "" : tag);
+                                const st = useGraphStore.getState();
+                                if (viewMode === "list") {
+                                    st.setListSearchQuery(active ? "" : tag);
                                 } else {
-                                    store.toggleTagFilter(tag);
+                                    st.toggleTagFilter(tag);
                                 }
                             }}
                         >

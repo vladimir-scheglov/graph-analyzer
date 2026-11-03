@@ -22,14 +22,15 @@ function downloadFile(content: string, filename: string, mime: string) {
 }
 
 export function LearningPathModal(props: LearningPathModalProps) {
-    const store = useGraphStore();
     const { goto } = useNavigation();
 
     const [scope, setScope] = useState<'all' | 'visible' | 'bookmarked'>('all');
     const [path, setPath] = useState<any>(null);
     const [expandedStages, setExpandedStages] = useState<Set<number>>(new Set([0]));
 
-    const open = store.learningPathOpen;
+    const open = useGraphStore((s) => s.learningPathOpen);
+    const nodes = useGraphStore((s) => s.nodes);
+    const edges = useGraphStore((s) => s.edges);
 
     useEffect(() => {
         if (!open) {
@@ -46,19 +47,19 @@ export function LearningPathModal(props: LearningPathModalProps) {
             restrictTo = new Set(props.bookmarkedDomains.map((d) => d.id));
         }
 
-        let nodes = store.nodes;
-        let edges = store.edges;
+        let pathNodes = nodes;
+        let pathEdges = edges;
         if (restrictTo) {
-            nodes = store.nodes.filter(
+            pathNodes = nodes.filter(
                 (n) => restrictTo!.has(n.id) || n.data.nodeType !== 'domain'
             );
-            edges = store.edges.filter(
+            pathEdges = edges.filter(
                 (e) => restrictTo!.has(e.source) && restrictTo!.has(e.target)
             );
         }
 
-        setPath(computeLearningPath(nodes, edges));
-    }, [scope, store.nodes, store.edges, props]);
+        setPath(computeLearningPath(pathNodes, pathEdges));
+    }, [scope, nodes, edges, props]);
 
     const exportMD = () => {
         if (!path) return;
@@ -118,7 +119,7 @@ export function LearningPathModal(props: LearningPathModalProps) {
     if (!open) return null;
 
     return (
-        <div className="help-overlay" onMouseDown={() => store.setLearningPathOpen(false)}>
+        <div className="help-overlay" onMouseDown={() => useGraphStore.getState().setLearningPathOpen(false)}>
             <div
                 className="help-modal learning-path-modal"
                 onMouseDown={(e) => e.stopPropagation()}
@@ -127,7 +128,7 @@ export function LearningPathModal(props: LearningPathModalProps) {
                     <div className="help-modal__title">📖 Путь изучения архитектуры</div>
                     <button
                         className="help-modal__close"
-                        onClick={() => store.setLearningPathOpen(false)}
+                        onClick={() => useGraphStore.getState().setLearningPathOpen(false)}
                     >
                         ✕
                     </button>
@@ -140,7 +141,7 @@ export function LearningPathModal(props: LearningPathModalProps) {
                             {scopeOption(
                                 'all',
                                 'Все домены',
-                                store.nodes.filter((n) => n.data.nodeType === 'domain').length
+                                nodes.filter((n) => n.data.nodeType === 'domain').length
                             )}
                             {scopeOption('visible', 'Только видимые', props.visibleDomains.length)}
                             {scopeOption('bookmarked', 'Только избранные', props.bookmarkedDomains.length)}
@@ -190,7 +191,7 @@ export function LearningPathModal(props: LearningPathModalProps) {
                                                 className="validation-log__domain"
                                                 onClick={() => {
                                                     goto(d.domainId);
-                                                    store.setLearningPathOpen(false);
+                                                    useGraphStore.getState().setLearningPathOpen(false);
                                                 }}
                                             >
                                                 {d.domainId}
@@ -238,7 +239,7 @@ export function LearningPathModal(props: LearningPathModalProps) {
                                                                 className="validation-log__domain"
                                                                 onClick={() => {
                                                                     goto(d.domainId);
-                                                                    store.setLearningPathOpen(false);
+                                                                    useGraphStore.getState().setLearningPathOpen(false);
                                                                 }}
                                                             >
                                                                 {d.domainId}
@@ -299,7 +300,7 @@ export function LearningPathModal(props: LearningPathModalProps) {
                                                 className="validation-log__domain"
                                                 onClick={() => {
                                                     goto(d.domainId);
-                                                    store.setLearningPathOpen(false);
+                                                    useGraphStore.getState().setLearningPathOpen(false);
                                                 }}
                                             >
                                                 {d.domainId}
@@ -329,7 +330,7 @@ export function LearningPathModal(props: LearningPathModalProps) {
                             <button
                                 className="btn btn--primary"
                                 onClick={() => {
-                                    store.setLearningPathOpen(false);
+                                    useGraphStore.getState().setLearningPathOpen(false);
                                     setTimeout(() => props.onStartTour(path), 50);
                                 }}
                             >

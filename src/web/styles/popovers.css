@@ -17,6 +17,19 @@
 .popover--left { left: 0; }
 .popover--right { right: 0; }
 
+.menu__input {
+  width: calc(100% - 20px);
+  margin: 4px 10px;
+  padding: 8px 10px;
+  background: var(--bg-750);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-100);
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+}
+
 /* Menu (содержимое поповеров) */
 .menu { 
   padding: 6px; 

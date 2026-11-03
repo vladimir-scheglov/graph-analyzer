@@ -13,9 +13,8 @@ export interface ProblemsSectionProps {
 }
 
 export function ProblemsSection(props: ProblemsSectionProps) {
-    const store = useGraphStore();
     const { goto } = useNavigation();
-    const viewMode = store.viewMode;
+    const viewMode = useGraphStore((s) => s.viewMode);
 
     return (
         <Section id="problems" title="Проблемы" icon="warning" badge={props.totalProblems}>
@@ -30,9 +29,10 @@ export function ProblemsSection(props: ProblemsSectionProps) {
                             className="rank-item"
                             onClick={() => {
                                 if (viewMode === "list") {
-                                    store.setDomainSchemaDomainId(item.node.data.domainId);
-                                    store.setDomainSchemaPrefillOnlyProblematic(true);
-                                    store.setDomainSchemaOpen(true);
+                                    const st = useGraphStore.getState();
+                                    st.setDomainSchemaDomainId(item.node.data.domainId);
+                                    st.setDomainSchemaPrefillOnlyProblematic(true);
+                                    st.setDomainSchemaOpen(true);
                                 } else {
                                     goto(item.node.data.domainId);
                                 }
@@ -74,7 +74,7 @@ export function ProblemsSection(props: ProblemsSectionProps) {
                     </div>
                     <button
                         className="problems-group__action"
-                        onClick={() => store.setIsolatedOnly(true)}
+                        onClick={() => useGraphStore.getState().setIsolatedOnly(true)}
                     >
                         Показать
                     </button>

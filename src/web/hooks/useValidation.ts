@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useGraphStore } from "../state/useGraphStore";
 import type { ValidationRecord, ValidationStats } from "../lib/types";
+import { alertDialog } from "../lib/dialogs";
 
 export interface UseValidationResult {
   open: boolean;
@@ -88,7 +89,10 @@ export function useValidation(): UseValidationResult {
   const start = useCallback(
     (scope: "all" | "visible" | "bookmarked", domainIds: string[]) => {
       if (domainIds.length === 0) {
-        alert("Нет доменов в выбранной области");
+        void alertDialog("Нет доменов в выбранной области", {
+          variant: "warning",
+          detail: "Проверьте фильтры или измените область валидации.",
+        });
         return;
       }
 
@@ -131,7 +135,10 @@ export function useValidation(): UseValidationResult {
               setValidationResults(map);
             } else if (evt.type === "error") {
               setRunning(false);
-              alert("Ошибка: " + evt.message);
+              void alertDialog("Ошибка валидации", {
+                detail: evt.message,
+                variant: "danger",
+              });
             }
           };
 
@@ -157,7 +164,10 @@ export function useValidation(): UseValidationResult {
         .catch((err) => {
           if (err.name === "AbortError") return;
           setRunning(false);
-          alert("Ошибка: " + err.message);
+          void alertDialog("Ошибка валидации", {
+            detail: err.message,
+            variant: "danger",
+          });
         });
     },
     [setValidationResults],

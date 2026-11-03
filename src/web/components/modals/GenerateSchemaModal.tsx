@@ -195,7 +195,6 @@ function statusBadge(status: string | undefined) {
 }
 
 export function GenerateSchemaModal() {
-    const store = useGraphStore();
     const { index } = useModelIndex();
     const open = useGraphStore((s) => s.generateSchemaOpen);
     const domainId = useGraphStore((s) => s.generateSchemaDomainId);
@@ -785,7 +784,7 @@ export function GenerateSchemaModal() {
 
     const finalCanApply = canApply && !hasAmbiguousView;
 
-    const apply = useCallback(() => {
+    const apply = useCallback(async () => {
         if (!gen.result || !domainId) return;
         if (!isDomainScope && !entityId) return;
         if (profile === "technical") {
@@ -831,7 +830,7 @@ export function GenerateSchemaModal() {
         }
 
         // ── dirty-check через openFileInEditor ──
-        const ok = openFileInEditor(node.data.filePath, null, domainId);
+        const ok = await openFileInEditor(node.data.filePath, null, domainId);
         if (!ok) return;   // пользователь отменил — state не тронут
 
         // ── pending generation + manifest (после open, чтобы YamlViewer увидел) ──

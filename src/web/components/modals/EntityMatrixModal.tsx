@@ -8,7 +8,6 @@ import { MIcon } from '../common';
 const MATRIX_LIMIT = 60;
 
 export function EntityMatrixModal() {
-    const store = useGraphStore();
     const { index, loading, error } = useModelIndex();
     const [showHelp, setShowHelp] = useState(false);
 
@@ -16,7 +15,7 @@ export function EntityMatrixModal() {
     const [hoveredRow, setHoveredRow] = useState<number | null>(null);
     const [hoveredCol, setHoveredCol] = useState<number | null>(null);
 
-    const open = store.entityMatrixOpen;
+    const open = useGraphStore((s) => s.entityMatrixOpen);
 
     // Список доменов для селекта
     const allDomains = useMemo(() => {
@@ -40,7 +39,7 @@ export function EntityMatrixModal() {
     return (
         <div
             className="help-overlay help-overlay--fullscreen"
-            onMouseDown={() => store.setEntityMatrixOpen(false)}
+            onMouseDown={() => useGraphStore.getState().setEntityMatrixOpen(false)}
         >
             <div
                 className="help-modal entity-matrix-modal"
@@ -56,7 +55,7 @@ export function EntityMatrixModal() {
                         <HelpButton open={showHelp} onToggle={() => setShowHelp(!showHelp)} label="Как читать?" />
                         <button
                             className="help-modal__close"
-                            onClick={() => store.setEntityMatrixOpen(false)}
+                            onClick={() => useGraphStore.getState().setEntityMatrixOpen(false)}
                         >
                             ✕
                         </button>

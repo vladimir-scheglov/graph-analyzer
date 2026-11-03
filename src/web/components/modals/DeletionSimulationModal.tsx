@@ -14,9 +14,9 @@ const SEVERITY_LABEL: Record<string, { label: string; icon: string }> = {
 };
 
 export function DeletionSimulationModal() {
-    const store = useGraphStore();
-    const open = store.deletionSimulationOpen;
-    const fqid = store.deletionSimulationFqid;
+    const open = useGraphStore((s) => s.deletionSimulationOpen);
+    const fqid = useGraphStore((s) => s.deletionSimulationFqid);
+    const nodes = useGraphStore((s) => s.nodes);
     const { index, loading, error } = useModelIndex();
 
     const sim = useMemo(() => {
@@ -29,32 +29,34 @@ export function DeletionSimulationModal() {
     }, [index, fqid]);
 
     const close = () => {
-        store.setDeletionSimulationOpen(false);
-        store.setDeletionSimulationFqid(null);
+        const st = useGraphStore.getState();
+        st.setDeletionSimulationOpen(false);
+        st.setDeletionSimulationFqid(null);
     };
 
     const openEntityInCatalog = (targetFqid: string) => {
-        store.setDeletionSimulationOpen(false);
-        store.setEntityCatalogInitialFqid(targetFqid);
-        store.setEntityCatalogOpen(true);
+        const st = useGraphStore.getState();
+        st.setDeletionSimulationOpen(false);
+        st.setEntityCatalogInitialFqid(targetFqid);
+        st.setEntityCatalogOpen(true);
     };
 
     const openInYaml = (domainId: string) => {
         // Открыть файл домена в YAML-редакторе
-        const nodes = store.nodes;
         const node = nodes.find(
             (n) =>
                 (n.data.domainId || "").toLowerCase() === domainId.toLowerCase(),
         );
+        const st = useGraphStore.getState();
         if (!node?.data.filePath) {
-            store.showSnackbar("Файл схемы не найден");
+            st.showSnackbar("Файл схемы не найден");
             return;
         }
-        store.setDeletionSimulationOpen(false);
-        store.setYamlViewerFilePath(node.data.filePath);
-        store.setYamlViewerFqid(null);
-        store.setYamlViewerDomainId(domainId);
-        store.setYamlViewerOpen(true);
+        st.setDeletionSimulationOpen(false);
+        st.setYamlViewerFilePath(node.data.filePath);
+        st.setYamlViewerFqid(null);
+        st.setYamlViewerDomainId(domainId);
+        st.setYamlViewerOpen(true);
     };
 
     const copyPlan = async () => {
@@ -62,7 +64,7 @@ export function DeletionSimulationModal() {
         const text = sim.steps.map((s, i) => `${i + 1}. ${s}`).join("\n");
         try {
             await navigator.clipboard.writeText(text);
-            store.showSnackbar("План скопирован");
+            useGraphStore.getState().showSnackbar("План скопирован");
         } catch {
             /* ignore */
         }

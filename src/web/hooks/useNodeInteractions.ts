@@ -7,6 +7,7 @@ import { buildNodeTooltip, buildEdgeTooltip } from "../lib/tooltip-builders";
 import type { RFEdge, FQIDRef } from "../lib/types";
 import type { ContextAction } from "../components/common/ContextMenu";
 import { openFileInEditor } from "../lib/open-file";
+import { alertDialog } from "../lib/dialogs";
 
 export interface UseNodeInteractionsParams {
   filteredEdges: RFEdge[];
@@ -74,7 +75,10 @@ export function useNodeInteractions({
           s.setPathMode(null);
           s.setPathSel([]);
         } else {
-          alert("Путь не найден");
+          void alertDialog("Путь не найден", {
+            variant: "warning",
+            detail: "Не удалось найти путь между указанными узлами.",
+          });
           s.setPathMode(null);
           s.setPathSel([]);
         }

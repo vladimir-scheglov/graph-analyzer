@@ -69,17 +69,17 @@ export function useVisibleEdges(
       if (highlight) {
         if (highlight.soft) {
           if (hl) {
+            stroke = highlight.color; 
             opacity = 0.9;
-            strokeWidth = e.data && e.data.kind === "linkage" ? 2.2 : 1.8;
+            strokeWidth = e.data?.kind === "linkage" ? 2.2 : 1.8;
           }
         } else {
           opacity = hl ? 1 : 0.06;
-          strokeWidth = hl
-            ? e.data && e.data.kind === "linkage"
-              ? 3
-              : 2
-            : strokeWidth;
-          animated = !!hl && highlight.type === "path";
+          strokeWidth = hl ? (e.data?.kind === "linkage" ? 3 : 2) : strokeWidth;
+      
+          animated =
+            !!hl && (highlight.type === "path" || highlight.type === "cycle");
+          if (hl) stroke = highlight.color; 
         }
       }
 

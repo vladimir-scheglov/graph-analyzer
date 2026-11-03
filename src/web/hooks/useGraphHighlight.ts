@@ -41,12 +41,15 @@ export function useGraphHighlight(
     }
 
     if (cycleHighlight) {
-      return {
-        nodes: cycleHighlight.nodeIds,
-        edges: cycleHighlight.edgeIds,
-        color: CYCLE_COLOR,
-        type: "cycle" as const,
-      };
+      const active = cycleHighlight.cycles[cycleHighlight.activeIndex];
+      if (active && active.nodeIds.size > 0) {
+        return {
+          nodes: active.nodeIds,
+          edges: active.edgeIds,
+          color: CYCLE_COLOR,
+          type: "cycle" as const,
+        };
+      }
     }
 
     if (focusNode) {

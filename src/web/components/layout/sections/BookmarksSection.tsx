@@ -5,17 +5,19 @@ import { MIcon } from '../../common/MIcon';
 import { Section } from '../Section';
 
 export function BookmarksSection() {
-    const store = useGraphStore();
+    const bookmarks = useGraphStore((s) => s.bookmarks);
+    const sidebarCompact = useGraphStore((s) => s.sidebarCompact);
+    const nodes = useGraphStore((s) => s.nodes);
     const { goto } = useNavigation();
-    if (store.bookmarks.size === 0) return null;
+    if (bookmarks.size === 0) return null;
 
     return (
-        <Section id="bookmarks" title="Избранные домены" icon="star" badge={store.bookmarks.size}>
+        <Section id="bookmarks" title="Избранные домены" icon="star" badge={bookmarks.size}>
             <div className="rank-list">
-                {Array.from(store.bookmarks)
-                    .slice(0, store.sidebarCompact ? 5 : 15)
+                {Array.from(bookmarks)
+                    .slice(0, sidebarCompact ? 5 : 15)
                     .map((id) => {
-                        const n = store.nodes.find((x) => x.id === id);
+                        const n = nodes.find((x) => x.id === id);
                         if (!n) return null;
                         return (
                             <div
@@ -32,7 +34,7 @@ export function BookmarksSection() {
                                     className="rank-item__remove"
                                     onClick={(ev) => {
                                         ev.stopPropagation();
-                                        store.toggleBookmark(id);
+                                        useGraphStore.getState().toggleBookmark(id);
                                     }}
                                     title="Убрать из избранного"
                                 >

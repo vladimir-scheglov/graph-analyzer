@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { useGraphStore } from "../state/useGraphStore";
 import { createSnapshot, computeDiff, Snapshot } from "../lib/diff";
+import { alertDialog, confirmDialog } from "../lib/dialogs";
 
 export interface UseSnapshotsResult {
   save: (slot: "A" | "B") => void;
@@ -26,10 +27,13 @@ export function useSnapshots(serverName: string | null): UseSnapshotsResult {
   const showSnackbar = useGraphStore((s) => s.showSnackbar);
 
   const applyDiff = useCallback(
-    (snap: Snapshot) => {
+    async (snap: Snapshot) => {
       const diff = computeDiff(nodes, edges, snap);
       if (!diff) {
-        alert("Снимок некорректен");
+        await alertDialog("Снимок некорректен", {
+          detail: "Не удалось построить diff — возможно, файл повреждён.",
+          variant: "warning",
+        });
         return;
       }
       setDiffMode({ ...diff, snapshot: snap });
@@ -50,10 +54,10 @@ export function useSnapshots(serverName: string | null): UseSnapshotsResult {
   );
 
   const load = useCallback(
-    (slot: "A" | "B") => {
+    async (slot: "A" | "B") => {
       const snap = slot === "A" ? snapshotA : snapshotB;
       if (!snap) return;
-      applyDiff(snap);
+      await applyDiff(snap);
       showSnackbar(
         `Сравнение со снимком ${slot} от ` +
           new Date(snap.savedAt).toLocaleString("ru-RU", {
@@ -68,8 +72,13 @@ export function useSnapshots(serverName: string | null): UseSnapshotsResult {
   );
 
   const clear = useCallback(
-    (slot: "A" | "B") => {
-      if (!confirm("Удалить снимок " + slot + "?")) return;
+    async (slot: "A" | "B") => {
+      const ok = await confirmDialog(`Удалить снимок ${slot}?`, {
+        detail: "Снимок будет удалён из локального хранилища.",
+        danger: true,
+        confirmLabel: "Удалить",
+      });
+      if (!ok) return;
       if (slot === "A") setSnapshotA(null);
       else setSnapshotB(null);
     },
@@ -81,13 +90,16 @@ export function useSnapshots(serverName: string | null): UseSnapshotsResult {
       const file = e.target.files?.[0];
       if (!file) return;
       const reader = new FileReader();
-      reader.onload = (ev) => {
+      reader.onload = async (ev) => {
         try {
           const snap = JSON.parse(ev.target?.result as string);
-          applyDiff(snap);
+          await applyDiff(snap);
           showSnackbar("Сравнение с загруженным файлом");
         } catch (err: any) {
-          alert("Ошибка чтения снимка: " + err.message);
+          await alertDialog("Ошибка чтения снимка", {
+            detail: err.message,
+            variant: "danger",
+          });
         }
       };
       reader.readAsText(file);

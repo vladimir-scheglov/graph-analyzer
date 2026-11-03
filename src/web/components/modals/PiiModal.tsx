@@ -49,10 +49,9 @@ function saveIgnored(s: Set<string>): void {
 }
 
 export function PiiModal() {
-    const store = useGraphStore();
     const { index, loading, error } = useModelIndex();
 
-    const open = store.piiOpen;
+    const open = useGraphStore((s) => s.piiOpen);
 
     const [ignored, setIgnored] = useState<Set<string>>(loadIgnored);
     const [filterSeverity, setFilterSeverity] = useState<PiiSeverity | ''>('');
@@ -122,9 +121,10 @@ export function PiiModal() {
     };
 
     const openEntity = (fqid: string) => {
-        store.setPiiOpen(false);
-        store.setEntityCatalogInitialFqid(fqid);
-        store.setEntityCatalogOpen(true);
+        const st = useGraphStore.getState();
+        st.setPiiOpen(false);
+        st.setEntityCatalogInitialFqid(fqid);
+        st.setEntityCatalogOpen(true);
     };
 
     useEffect(() => {
@@ -142,7 +142,7 @@ export function PiiModal() {
         <div
             className="help-overlay help-overlay--fullscreen"
             style={{ zIndex: 510 }}
-            onMouseDown={() => store.setPiiOpen(false)}
+            onMouseDown={() => useGraphStore.getState().setPiiOpen(false)}
         >
             <div
                 className="help-modal entity-hierarchy-modal"
@@ -180,7 +180,7 @@ export function PiiModal() {
                         </button>
                         <button
                             className="help-modal__close"
-                            onClick={() => store.setPiiOpen(false)}
+                            onClick={() => useGraphStore.getState().setPiiOpen(false)}
                         >
                             ✕
                         </button>

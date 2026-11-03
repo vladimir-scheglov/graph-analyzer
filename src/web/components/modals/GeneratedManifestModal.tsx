@@ -8,6 +8,7 @@ import type {
     ManifestEntityView,
 } from "../../../shared/manifest-types";
 import { hashPayload } from "../../../core/analyzer/schema-generator/util-hash";
+import { alertDialog, confirmDialog } from "../../lib/dialogs";
 
 const STATUS_LABELS: Record<
     ManifestBlockView["status"],
@@ -19,9 +20,8 @@ const STATUS_LABELS: Record<
 };
 
 export function GeneratedManifestModal() {
-    const store = useGraphStore();
-    const open = store.sidecarOpen;
-    const domainId = store.sidecarDomainId;
+    const open = useGraphStore((s) => s.sidecarOpen);
+    const domainId = useGraphStore((s) => s.sidecarDomainId);
     const { data, loading, error, reload } = useGeneratedManifest(domainId, open);
 
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -47,14 +47,15 @@ export function GeneratedManifestModal() {
 
     const handleClear = async () => {
         if (!domainId) return;
-        if (
-            !confirm(
-                "Удалить все записи манифеста для этого домена?\n\n" +
-                "YAML НЕ трогается — удаляется только история «что было сгенерировано».\n" +
-                "Следующая генерация начнётся с чистого листа.",
-            )
-        )
-            return;
+        const ok = await confirmDialog(
+            "Удалить все записи манифеста?",
+            {
+                detail: "YAML не трогается — удаляется только история «что было сгенерировано». Следующая генерация начнётся с чистого листа.",
+                danger: true,
+                confirmLabel: "Удалить",
+            },
+        );
+        if (!ok) return;
 
         setClearing(true);
         try {
@@ -65,7 +66,10 @@ export function GeneratedManifestModal() {
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             reload();
         } catch (e: any) {
-            alert("Ошибка: " + e.message);
+            await alertDialog("Ошибка очистки манифеста", {
+                detail: e.message,
+                variant: "danger",
+            });
         } finally {
             setClearing(false);
         }
@@ -168,7 +172,7 @@ export function GeneratedManifestModal() {
     return (
         <div
             className="help-overlay help-overlay--fullscreen"
-            onMouseDown={() => store.setSidecarOpen(false)}
+            onMouseDown={() => useGraphStore.getState().setSidecarOpen(false)}
         >
             <div
                 className="help-modal entity-hierarchy-modal"
@@ -182,7 +186,7 @@ export function GeneratedManifestModal() {
                     </div>
                     <button
                         className="help-modal__close"
-                        onClick={() => store.setSidecarOpen(false)}
+                        onClick={() => useGraphStore.getState().setSidecarOpen(false)}
                     >
                         ✕
                     </button>
@@ -335,7 +339,7 @@ export function GeneratedManifestModal() {
                         )}
                         <button
                             className="btn"
-                            onClick={() => store.setSidecarOpen(false)}
+                            onClick={() => useGraphStore.getState().setSidecarOpen(false)}
                         >
                             Закрыть
                         </button>

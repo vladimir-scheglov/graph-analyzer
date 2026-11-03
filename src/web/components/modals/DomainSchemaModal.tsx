@@ -25,12 +25,13 @@ import { PROFILE_INFO } from "./GenerateSchemaProfiles";
 const DOMAIN_PROFILES = PROFILE_INFO.filter((p) => p.scope === "domain");
 
 export function DomainSchemaModal() {
-    const store = useGraphStore();
     const { goto } = useNavigation();
     const { index, loading, error } = useModelIndex();
 
-    const open = store.domainSchemaOpen;
-    const domainId = store.domainSchemaDomainId;
+    const open = useGraphStore((s) => s.domainSchemaOpen);
+    const domainId = useGraphStore((s) => s.domainSchemaDomainId);
+    const nodes = useGraphStore((s) => s.nodes);
+    const bookmarks = useGraphStore((s) => s.bookmarks);
 
     const [expanded, setExpanded] = useState<Set<SectionKey>>(
         new Set(["entities", "linkages"]),
@@ -48,6 +49,8 @@ export function DomainSchemaModal() {
         (s) => s.setDomainSchemaPrefillOnlyProblematic,
     );
     const [enrichMenuOpen, setEnrichMenuOpen] = useState(false);
+    const prefillExpandItem = useGraphStore((s) => s.domainSchemaPrefillExpandItem);
+    const setPrefillExpandItem = useGraphStore((s) => s.setDomainSchemaPrefillExpandItem);
 
     useEffect(() => {
         if (!open) return;
@@ -67,6 +70,26 @@ export function DomainSchemaModal() {
         setPrefillOnlyProblematic,
     ]);
 
+    useEffect(() => {
+        if (!open) return;
+        if (!prefillExpandItem) return;
+
+        setExpandedItems((prev) => {
+            const next = new Set(prev);
+            next.add(prefillExpandItem);
+            return next;
+        });
+        setPrefillExpandItem(null);
+
+        // Скроллим к элементу после того, как React отрендерит раскрытую секцию.
+        // 200мс — с запасом на ре-рендер после setExpandedItems.
+        const t = setTimeout(() => {
+            const el = document.getElementById(`ds-item-${prefillExpandItem}`);
+            el?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }, 200);
+        return () => clearTimeout(t);
+    }, [open, prefillExpandItem, setPrefillExpandItem]);
+
     const schema = useMemo(() => {
         if (!index || !domainId) return null;
         return index.schemasByDomain[domainId] || null;
@@ -75,11 +98,11 @@ export function DomainSchemaModal() {
     const currentNode = useMemo(() => {
         if (!schema) return null;
         return (
-            store.nodes.find(
+            nodes.find(
                 (n) => n.data.domainId === schema.domainId,
             ) || null
         );
-    }, [schema, store.nodes]);
+    }, [schema, nodes]);
 
     const [statusToggling, setStatusToggling] = React.useState(false);
 
@@ -93,7 +116,7 @@ export function DomainSchemaModal() {
             null,
             currentNode.data.domainId,
         );
-        store.setDomainSchemaOpen(false);
+        useGraphStore.getState().setDomainSchemaOpen(false);
     };
 
     const handleToggleStatus = async () => {
@@ -197,9 +220,10 @@ export function DomainSchemaModal() {
     const openEntity = (entityId: string) => {
         if (!domainId) return;
         const fqid = `${domainId}/${entityId}`.toLowerCase();
-        store.setDomainSchemaOpen(false);
-        store.setEntityCatalogInitialFqid(fqid);
-        store.setEntityCatalogOpen(true);
+        const st = useGraphStore.getState();
+        st.setDomainSchemaOpen(false);
+        st.setEntityCatalogInitialFqid(fqid);
+        st.setEntityCatalogOpen(true);
     };
 
     const filteredSections = useMemo(() => {
@@ -272,7 +296,7 @@ export function DomainSchemaModal() {
     return (
         <div
             className="help-overlay help-overlay--fullscreen help-overlay--above-yaml"
-            onMouseDown={() => store.setDomainSchemaOpen(false)}
+            onMouseDown={() => useGraphStore.getState().setDomainSchemaOpen(false)}
         >
             <div
                 className="help-modal entity-hierarchy-modal"
@@ -290,13 +314,13 @@ export function DomainSchemaModal() {
                         <button
                             className={
                                 "help-modal__icon-btn" +
-                                (store.bookmarks.has(`domain_${domainId}`) ? " active" : "")
+                                (bookmarks.has(`domain_${domainId}`) ? " active" : "")
                             }
                             onClick={() => {
-                                store.toggleBookmark(`domain_${domainId}`);
+                                useGraphStore.getState().toggleBookmark(`domain_${domainId}`);
                             }}
                             title={
-                                store.bookmarks.has(`domain_${domainId}`)
+                                bookmarks.has(`domain_${domainId}`)
                                     ? "Убрать из избранного"
                                     : "В избранное"
                             }
@@ -304,17 +328,17 @@ export function DomainSchemaModal() {
                         >
                             <MIcon
                                 name={
-                                    store.bookmarks.has(`domain_${domainId}`)
+                                    bookmarks.has(`domain_${domainId}`)
                                         ? "star"
                                         : "star_border"
                                 }
-                                fill={store.bookmarks.has(`domain_${domainId}`)}
+                                fill={bookmarks.has(`domain_${domainId}`)}
                             />
                         </button>
                     )}
                     <button
                         className="help-modal__close"
-                        onClick={() => store.setDomainSchemaOpen(false)}
+                        onClick={() => useGraphStore.getState().setDomainSchemaOpen(false)}
                     >
                         ✕
                     </button>
@@ -454,7 +478,7 @@ export function DomainSchemaModal() {
                                 {counters.issues > 0 && (
                                     <button
                                         className="domain-schema-counter domain-schema-counter--issues"
-                                        onClick={() => store.setLintOpen(true)}
+                                        onClick={() => useGraphStore.getState().setLintOpen(true)}
                                         title="Открыть линтер схем"
                                     >
                                         <MIcon name="warning" size="sm" />
@@ -549,12 +573,12 @@ export function DomainSchemaModal() {
                                 <button
                                     className="btn"
                                     onClick={() => {
-                                        const node = store.nodes.find(
+                                        const node = nodes.find(
                                             (n) => n.data.domainId === schema.domainId,
                                         );
                                         if (node?.data.filePath) {
                                             openFileInEditor(node.data.filePath, null, node.data.domainId);
-                                            store.setDomainSchemaOpen(false);
+                                            useGraphStore.getState().setDomainSchemaOpen(false);
                                         }
                                     }}
                                 >
@@ -599,8 +623,9 @@ export function DomainSchemaModal() {
                                 <button
                                     className="btn btn--danger"
                                     onClick={() => {
-                                        store.setDeleteDomainTarget({ domainId: schema.domainId });
-                                        store.setDomainSchemaOpen(false);
+                                        const st = useGraphStore.getState();
+                                        st.setDeleteDomainTarget({ domainId: schema.domainId });
+                                        st.setDomainSchemaOpen(false);
                                     }}
                                     title="Удалить домен"
                                 >

@@ -57,19 +57,6 @@ export function AnalysisMenu(props: AnalysisMenuProps) {
 
             {viewMode === "graph" && (
                 <button
-                    className={'menu__item' + (isolatedOnly ? ' menu__item--active' : '')}
-                    onClick={() => {
-                        useGraphStore.getState().setIsolatedOnly((v) => !v);
-                        props.close();
-                    }}
-                >
-                    <span className="menu__icon">◯</span>
-                    <span className="menu__text">Только изолированные</span>
-                </button>
-            )}
-
-            {viewMode === "graph" && (
-                <button
                     className={'menu__item' + (nsMode ? ' menu__item--active' : '')}
                     onClick={() => {
                         useGraphStore.getState().setNsMode((v) => !v);

@@ -21,3 +21,4 @@ export { EntityCombobox } from "./EntityCombobox";
 export type { EntityComboboxProps } from "./EntityCombobox";
 export { Combobox } from './Combobox';
 export type { ComboboxProps, ComboboxOption } from './Combobox';
+export { Dialog } from "./Dialog";

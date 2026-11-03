@@ -14,13 +14,12 @@ import {
 type GlossaryTab = 'entity' | 'attribute' | 'dataType';
 
 export function GlossaryModal() {
-    const store = useGraphStore();
     const { index, loading, error } = useModelIndex();
 
     const [tab, setTab] = useState<GlossaryTab>('entity');
     const [query, setQuery] = useState('');
 
-    const open = store.glossaryOpen;
+    const open = useGraphStore((s) => s.glossaryOpen);
 
     const sections = useMemo<GlossarySection[]>(() => {
         if (!index) return [];
@@ -45,9 +44,26 @@ export function GlossaryModal() {
     );
 
     const openEntity = (fqid: string) => {
+        const store = useGraphStore.getState();
         store.setGlossaryOpen(false);
         store.setEntityCatalogInitialFqid(fqid);
         store.setEntityCatalogOpen(true);
+    };
+
+    const openDomainSchema = (domainId: string) => {
+        const store = useGraphStore.getState();
+        store.setGlossaryOpen(false);
+        store.setDomainSchemaDomainId(domainId);
+        store.setDomainSchemaOpen(true);
+    };
+
+    const openDataTypeInSchema = (domainId: string, dataTypeId: string) => {
+        const store = useGraphStore.getState();
+        store.setGlossaryOpen(false);
+        store.setDomainSchemaDomainId(domainId);
+        store.setDomainSchemaPrefillQuery(dataTypeId);
+        store.setDomainSchemaPrefillExpandItem(`dataType:${dataTypeId}`);
+        store.setDomainSchemaOpen(true);
     };
 
     const scrollToLetter = (letter: string) => {
@@ -55,14 +71,24 @@ export function GlossaryModal() {
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     };
 
-    if (!open) return null;
-
     const availableLetters = filtered.map((s) => s.letter);
+
+    const indexLetters = useMemo(() => {
+        const latin = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        const cyrillic = "АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ";
+        const set = new Set(availableLetters);
+        return [
+            ...latin.split("").filter((l) => set.has(l)),
+            ...cyrillic.split("").filter((l) => set.has(l)),
+        ];
+    }, [availableLetters]);
+
+    if (!open) return null;
 
     return (
         <div
             className="help-overlay help-overlay--fullscreen"
-            onMouseDown={() => store.setGlossaryOpen(false)}
+            onMouseDown={() => useGraphStore.getState().setGlossaryOpen(false)}
         >
             <div
                 className="help-modal glossary-modal"
@@ -79,7 +105,7 @@ export function GlossaryModal() {
                     </div>
                     <button
                         className="help-modal__close"
-                        onClick={() => store.setGlossaryOpen(false)}
+                        onClick={() => useGraphStore.getState().setGlossaryOpen(false)}
                     >
                         ✕
                     </button>
@@ -124,29 +150,23 @@ export function GlossaryModal() {
                             <div className="glossary-index">
                                 <div className="glossary-index__title">Указатель</div>
                                 <div className="glossary-index__letters">
-                                    {'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map((L) => {
-                                        const has = availableLetters.includes(L);
-                                        return (
-                                            <button
-                                                key={L}
-                                                className={'glossary-letter' + (has ? '' : ' disabled')}
-                                                onClick={() => has && scrollToLetter(L)}
-                                                disabled={!has}
-                                            >
-                                                {L}
-                                            </button>
-                                        );
-                                    })}
-                                    <button
-                                        className={
-                                            'glossary-letter' +
-                                            (availableLetters.includes('#') ? '' : ' disabled')
-                                        }
-                                        onClick={() => availableLetters.includes('#') && scrollToLetter('#')}
-                                        disabled={!availableLetters.includes('#')}
-                                    >
-                                        #
-                                    </button>
+                                    {indexLetters.map((L) => (
+                                        <button
+                                            key={L}
+                                            className="glossary-letter"
+                                            onClick={() => scrollToLetter(L)}
+                                        >
+                                            {L}
+                                        </button>
+                                    ))}
+                                    {availableLetters.includes("#") && (
+                                        <button
+                                            className="glossary-letter"
+                                            onClick={() => scrollToLetter("#")}
+                                        >
+                                            #
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -200,6 +220,8 @@ export function GlossaryModal() {
                                                     entry={entry}
                                                     query={query}
                                                     onOpenEntity={openEntity}
+                                                    onOpenDomainSchema={openDomainSchema} 
+                                                    onOpenDataTypeInSchema={openDataTypeInSchema}
                                                 />
                                             ))}
                                         </div>
@@ -219,11 +241,15 @@ export function GlossaryModal() {
 function GlossaryEntryCard({
     entry,
     query,
-    onOpenEntity
+    onOpenEntity,
+    onOpenDomainSchema,
+    onOpenDataTypeInSchema,
 }: {
     entry: GlossaryEntry;
     query: string;
     onOpenEntity: (fqid: string) => void;
+    onOpenDomainSchema: (domainId: string) => void;
+    onOpenDataTypeInSchema: (domainId: string, dataTypeId: string) => void;
 }) {
     const highlight = (text: string): React.ReactNode => {
         if (!query) return text;
@@ -320,14 +346,21 @@ function GlossaryEntryCard({
     return (
         <div className="glossary-entry">
             <div className="glossary-entry__head">
-                <span className="glossary-entry__name">{highlight(d.name || d.id)}</span>
+                <button
+                    className="glossary-entry__name"
+                    onClick={() => onOpenDataTypeInSchema(d.domainId, d.id)}
+                    title={`Открыть ${d.domainId} → ${d.id} в схеме домена`}
+                >
+                    {highlight(d.name || d.id)}
+                </button>
                 <code className="glossary-entry__attr-id">{d.id}</code>
                 <span className="glossary-entry__type">{d.kind}</span>
             </div>
             <div className="glossary-entry__meta">
                 <button
                     className="glossary-entry__domain"
-                    onClick={() => onOpenEntity(`${d.domainId}/${d.id}`)}
+                    onClick={() => onOpenDomainSchema(d.domainId)}
+                    title={`Открыть схему домена ${d.domainId}`}
                 >
                     {d.domainId}
                 </button>

@@ -11,8 +11,6 @@ export interface DomainMixinsPanelProps {
 export function DomainMixinsPanel({ domainId }: DomainMixinsPanelProps) {
     const { data, loading, error } = useDomainMixins(domainId);
     const { goto } = useNavigation();
-    const store = useGraphStore();
-
     const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
     const toggleGroup = (source: string) => {
@@ -86,8 +84,9 @@ export function DomainMixinsPanel({ domainId }: DomainMixinsPanelProps) {
                             key={entity.fqid}
                             className="rank-item"
                             onClick={() => {
-                                store.setEntityCatalogInitialFqid(entity.fqid);
-                                store.setEntityCatalogOpen(true);
+                                const st = useGraphStore.getState();
+                                st.setEntityCatalogInitialFqid(entity.fqid);
+                                st.setEntityCatalogOpen(true);
                             }}
                         >
                             <span className="rank-item__num">{mixinCount}</span>
@@ -138,8 +137,9 @@ export function DomainMixinsPanel({ domainId }: DomainMixinsPanelProps) {
                                                 <button
                                                     className="domain-mixins__entity-link"
                                                     onClick={() => {
-                                                        store.setEntityCatalogInitialFqid(m.targetEntityFqid);
-                                                        store.setEntityCatalogOpen(true);
+                                                        const st = useGraphStore.getState();
+                                                        st.setEntityCatalogInitialFqid(m.targetEntityFqid);
+                                                        st.setEntityCatalogOpen(true);
                                                     }}
                                                 >
                                                     {m.targetEntityFqid.split('/')[1]}
@@ -204,8 +204,9 @@ export function DomainMixinsPanel({ domainId }: DomainMixinsPanelProps) {
                                                     key={e.fqid}
                                                     className="domain-mixins__chip domain-mixins__chip--entity"
                                                     onClick={() => {
-                                                        store.setEntityCatalogInitialFqid(e.fqid);
-                                                        store.setEntityCatalogOpen(true);
+                                                        const st = useGraphStore.getState();
+                                                        st.setEntityCatalogInitialFqid(e.fqid);
+                                                        st.setEntityCatalogOpen(true);
                                                     }}
                                                 >
                                                     {e.entityId}

@@ -177,8 +177,19 @@ export interface GraphState {
   setFocusNode: (id: string | null) => void;
   focusDepth: number;
   setFocusDepth: (n: number) => void;
-  cycleHighlight: CycleHighlight | null;
-  setCycleHighlight: (v: CycleHighlight | null) => void;
+  cycleHighlight: {
+    cycles: Array<{ nodeIds: Set<string>; edgeIds: Set<string> }>;
+    activeIndex: number;
+  } | null;
+
+  setCycleHighlight: (
+    h: {
+      cycles: Array<{ nodeIds: Set<string>; edgeIds: Set<string> }>;
+      activeIndex: number;
+    } | null,
+  ) => void;
+
+  setActiveCycleIndex: (idx: number) => void;
   pathResult: PathResult | null;
   setPathResult: (v: PathResult | null) => void;
   pathSel: string[];
@@ -510,6 +521,8 @@ export interface GraphState {
     | { kind: "line"; line: number; column?: number }
     | null;
   setYamlViewerPendingGoto: (v: GraphState["yamlViewerPendingGoto"]) => void;
+  domainSchemaPrefillExpandItem: string | null;
+  setDomainSchemaPrefillExpandItem: (v: string | null) => void;
 }
 
 // ============ Хелперы для чтения localStorage ============
@@ -646,6 +659,9 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   domainSchemaPrefillOnlyProblematic: false,
   setDomainSchemaPrefillOnlyProblematic: (v) =>
     set({ domainSchemaPrefillOnlyProblematic: v }),
+  domainSchemaPrefillExpandItem: null,
+  setDomainSchemaPrefillExpandItem: (v) =>
+    set({ domainSchemaPrefillExpandItem: v }),
   lintOpen: false,
   setLintOpen: (v) => set({ lintOpen: v }),
   attributeMatrixOpen: false,
@@ -821,6 +837,16 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   setFocusDepth: (n) => set({ focusDepth: n }),
   cycleHighlight: null,
   setCycleHighlight: (v) => set({ cycleHighlight: v }),
+  setActiveCycleIndex: (idx) =>
+    set((s) => {
+      if (!s.cycleHighlight) return s;
+      const total = s.cycleHighlight.cycles.length;
+      if (total === 0) return s;
+      const next = ((idx % total) + total) % total;
+      return {
+        cycleHighlight: { ...s.cycleHighlight, activeIndex: next },
+      };
+    }),
   pathResult: null,
   setPathResult: (v) => set({ pathResult: v }),
   pathSel: [],

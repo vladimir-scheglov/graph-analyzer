@@ -3,13 +3,13 @@ import { useGraphStore } from '../../state/useGraphStore';
 import { useNavigation } from '../../hooks/useNavigation';
 import { MIcon } from '../common/MIcon';
 import type { RuleDefinition, RuleViolation } from '../../lib/types';
+import { confirmDialog } from '../../lib/dialogs';
 
 export interface RulesModalProps {
     violations: RuleViolation[];
 }
 
 export function RulesModal({ violations }: RulesModalProps) {
-    const store = useGraphStore();
     const { goto } = useNavigation();
     const [draft, setDraft] = useState({
         from: '',
@@ -18,7 +18,10 @@ export function RulesModal({ violations }: RulesModalProps) {
         message: ''
     });
 
-    const open = store.rulesOpen;
+    const open = useGraphStore((s) => s.rulesOpen);
+    const rules = useGraphStore((s) => s.rules);
+    const rulesHighlighted = useGraphStore((s) => s.rulesHighlighted);
+    const showViolationsOnly = useGraphStore((s) => s.showViolationsOnly);
 
     useEffect(() => {
         if (!open) setDraft({ from: '', to: '', action: 'warn', message: '' });
@@ -27,11 +30,11 @@ export function RulesModal({ violations }: RulesModalProps) {
     useEffect(() => {
         if (!open) return;
         const onKey = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') store.setRulesOpen(false);
+            if (e.key === 'Escape') useGraphStore.getState().setRulesOpen(false);
         };
         document.addEventListener('keydown', onKey, true);
         return () => document.removeEventListener('keydown', onKey, true);
-    }, [open, store]);
+    }, [open]);
 
     if (!open) return null;
 
@@ -44,16 +47,16 @@ export function RulesModal({ violations }: RulesModalProps) {
             action: draft.action,
             message: draft.message.trim()
         };
-        store.setRules((prev) => prev.concat([newRule]));
+        useGraphStore.getState().setRules((prev) => prev.concat([newRule]));
         setDraft({ from: '', to: '', action: 'warn', message: '' });
     };
 
     const removeRule = (id: string) => {
-        store.setRules((prev) => prev.filter((r) => r.id !== id));
+        useGraphStore.getState().setRules((prev) => prev.filter((r) => r.id !== id));
     };
 
     const toggleAction = (id: string) => {
-        store.setRules((prev) =>
+        useGraphStore.getState().setRules((prev) =>
             prev.map((r) =>
                 r.id === id
                     ? { ...r, action: r.action === 'forbid' ? 'warn' : 'forbid' }
@@ -62,9 +65,17 @@ export function RulesModal({ violations }: RulesModalProps) {
         );
     };
 
-    const clearAllRules = () => {
-        if (!confirm('Удалить все правила?')) return;
-        store.setRules([]);
+    const clearAllRules = async () => {
+        const ok = await confirmDialog(
+            "Удалить все правила?",
+            {
+                detail: "Правила зависимостей будут удалены без возможности отмены.",
+                danger: true,
+                confirmLabel: "Удалить",
+            },
+        );
+        if (!ok) return;
+        useGraphStore.getState().setRules([]);
     };
 
     const onFormKeyDown = (e: React.KeyboardEvent) => {
@@ -75,7 +86,7 @@ export function RulesModal({ violations }: RulesModalProps) {
     };
 
     return (
-        <div className="help-overlay" onMouseDown={() => store.setRulesOpen(false)}>
+        <div className="help-overlay" onMouseDown={() => useGraphStore.getState().setRulesOpen(false)}>
             <div className="help-modal rules-modal" onMouseDown={(e) => e.stopPropagation()}>
                 <div className="help-modal__header">
                     <div className="help-modal__title">
@@ -87,7 +98,7 @@ export function RulesModal({ violations }: RulesModalProps) {
                     </div>
                     <button
                         className="help-modal__close"
-                        onClick={() => store.setRulesOpen(false)}
+                        onClick={() => useGraphStore.getState().setRulesOpen(false)}
                         title="Закрыть (Esc)"
                     >
                         <MIcon name="close" />
@@ -154,19 +165,19 @@ export function RulesModal({ violations }: RulesModalProps) {
                     <div className="rules-list">
                         <div className="rules-list__header">
                             <span className="rules-form__label">
-                                Активные правила ({store.rules.length})
+                                Активные правила ({rules.length})
                             </span>
-                            {store.rules.length > 0 && (
+                            {rules.length > 0 && (
                                 <button className="rules-list__clear" onClick={clearAllRules}>
                                     Очистить все
                                 </button>
                             )}
                         </div>
 
-                        {store.rules.length === 0 ? (
+                        {rules.length === 0 ? (
                             <div className="rules-list__empty">Правила не заданы</div>
                         ) : (
-                            store.rules.map((rule) => (
+                            rules.map((rule) => (
                                 <div
                                     key={rule.id}
                                     className={'rules-item rules-item--' + (rule.action || 'warn')}
@@ -213,8 +224,8 @@ export function RulesModal({ violations }: RulesModalProps) {
                         <label className="rules-toggle">
                             <input
                                 type="checkbox"
-                                checked={store.rulesHighlighted}
-                                onChange={() => store.setRulesHighlighted(!store.rulesHighlighted)}
+                                checked={rulesHighlighted}
+                                onChange={() => useGraphStore.getState().setRulesHighlighted(!rulesHighlighted)}
                             />
                             <span className="rules-toggle__check" />
                             <span>Подсвечивать нарушения на графе</span>
@@ -222,8 +233,8 @@ export function RulesModal({ violations }: RulesModalProps) {
                         <label className="rules-toggle">
                             <input
                                 type="checkbox"
-                                checked={store.showViolationsOnly}
-                                onChange={() => store.setShowViolationsOnly(!store.showViolationsOnly)}
+                                checked={showViolationsOnly}
+                                onChange={() => useGraphStore.getState().setShowViolationsOnly(!showViolationsOnly)}
                             />
                             <span className="rules-toggle__check" />
                             <span>Показать только нарушения</span>
@@ -249,7 +260,7 @@ export function RulesModal({ violations }: RulesModalProps) {
                                             className="rules-violation__from"
                                             onClick={() => {
                                                 goto(v.fromId);
-                                                store.setRulesOpen(false);
+                                                useGraphStore.getState().setRulesOpen(false);
                                             }}
                                         >
                                             {v.fromId}
@@ -259,7 +270,7 @@ export function RulesModal({ violations }: RulesModalProps) {
                                             className="rules-violation__to"
                                             onClick={() => {
                                                 goto(v.toId);
-                                                store.setRulesOpen(false);
+                                                useGraphStore.getState().setRulesOpen(false);
                                             }}
                                         >
                                             {v.toId}
@@ -281,14 +292,14 @@ export function RulesModal({ violations }: RulesModalProps) {
 
                 <div className="rules-modal__footer">
                     <div className="rules-modal__stats">
-                        Правил: {store.rules.length}
+                        Правил: {rules.length}
                         {violations.length > 0 && (
                             <span className="rules-modal__stats--err">
                                 {' · Нарушений: ' + violations.length}
                             </span>
                         )}
                     </div>
-                    <button className="btn" onClick={() => store.setRulesOpen(false)}>
+                    <button className="btn" onClick={() => useGraphStore.getState().setRulesOpen(false)}>
                         Закрыть
                     </button>
                 </div>

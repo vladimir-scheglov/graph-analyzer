@@ -27,7 +27,6 @@ function genericSectionLabel(key: string): string {
 }
 
 export function ModelDiffModal() {
-    const store = useGraphStore();
     const { diff, hasSnapshot, loading, error } = useModelDiff();
 
     const [openSections, setOpenSections] = useState<Set<string>>(
@@ -42,7 +41,7 @@ export function ModelDiffModal() {
         return diff.byDomain.filter((s) => s.domainId.toLowerCase() === d);
     }, [diff, domainFilter]);
 
-    const open = store.modelDiffOpen;
+    const open = useGraphStore((s) => s.modelDiffOpen);
 
     const toggle = (id: string) => {
         setOpenSections((prev) => {
@@ -111,7 +110,7 @@ export function ModelDiffModal() {
     return (
         <div
             className="help-overlay"
-            onMouseDown={() => store.setModelDiffOpen(false)}
+            onMouseDown={() => useGraphStore.getState().setModelDiffOpen(false)}
         >
             <div
                 className="help-modal model-diff-modal"
@@ -126,7 +125,7 @@ export function ModelDiffModal() {
                     </div>
                     <button
                         className="help-modal__close"
-                        onClick={() => store.setModelDiffOpen(false)}
+                        onClick={() => useGraphStore.getState().setModelDiffOpen(false)}
                     >
                         ✕
                     </button>

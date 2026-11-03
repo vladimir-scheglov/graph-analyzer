@@ -88,7 +88,6 @@ const EntityRow = React.memo(function EntityRow({
 // ============ Главная модалка ============
 
 export function EntitiesCatalogModal() {
-    const store = useGraphStore();
     const { goto } = useNavigation();
     const { index, loading, error } = useModelIndex();
 
@@ -96,9 +95,9 @@ export function EntitiesCatalogModal() {
     const [selectedFqid, setSelectedFqid] = useState<string | null>(null);
     const [limit, setLimit] = useState(PAGE_SIZE);
 
-    const open = store.entityCatalogOpen;
+    const open = useGraphStore((s) => s.entityCatalogOpen);
     const entityFavorites = useGraphStore((s) => s.entityFavorites);
-    const initialFqid = store.entityCatalogInitialFqid;
+    const initialFqid = useGraphStore((s) => s.entityCatalogInitialFqid);
 
     // ============ Автовыбор сущности при открытии через «Открыть в каталоге» ============
     useEffect(() => {
@@ -109,8 +108,8 @@ export function EntitiesCatalogModal() {
         setFilters(EMPTY_FILTERS);
         setLimit(PAGE_SIZE);
         setSelectedFqid(initialFqid);
-        store.setEntityCatalogInitialFqid(null);
-    }, [open, initialFqid, index, store]);
+        useGraphStore.getState().setEntityCatalogInitialFqid(null);
+    }, [open, initialFqid, index]);
 
     // Трекинг «недавно открытых» — сюда стекаются все переходы
     // через setEntityCatalogInitialFqid из других модалок.
@@ -178,11 +177,11 @@ export function EntitiesCatalogModal() {
 
     const handleGotoDomain = useCallback(
         (domainId: string) => {
-            store.setEntityCatalogOpen(false);
-            store.setDomainSchemaDomainId(domainId);
-            store.setDomainSchemaOpen(true);
+            useGraphStore.getState().setEntityCatalogOpen(false);
+            useGraphStore.getState().setDomainSchemaDomainId(domainId);
+            useGraphStore.getState().setDomainSchemaOpen(true);
         },
-        [store]
+        []
     );
 
     const handleSelectFromImpact = useCallback((fqid: string) => {
@@ -213,7 +212,7 @@ export function EntitiesCatalogModal() {
     return (
         <div
             className="help-overlay help-overlay--fullscreen"
-            onMouseDown={() => store.setEntityCatalogOpen(false)}
+            onMouseDown={() => useGraphStore.getState().setEntityCatalogOpen(false)}
         >
             <div
                 className="help-modal entity-hierarchy-modal"
@@ -231,7 +230,7 @@ export function EntitiesCatalogModal() {
                     </div>
                     <button
                         className="help-modal__close"
-                        onClick={() => store.setEntityCatalogOpen(false)}
+                        onClick={() => useGraphStore.getState().setEntityCatalogOpen(false)}
                     >
                         ✕
                     </button>

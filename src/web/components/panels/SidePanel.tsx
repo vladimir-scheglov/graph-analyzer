@@ -17,25 +17,29 @@ export interface SidePanelProps {
 }
 
 export function SidePanel(props: SidePanelProps) {
-    const store = useGraphStore();
+    const panelNodeId = useGraphStore((s) => s.panelNodeId);
+    const selectedEdgeId = useGraphStore((s) => s.selectedEdgeId);
+    const panelOpen = useGraphStore((s) => s.panelOpen);
+    const panelTab = useGraphStore((s) => s.panelTab);
+    const viewMode = useGraphStore((s) => s.viewMode);
 
     const panelNode = useMemo(() => {
-        if (!store.panelNodeId) return null;
+        if (!panelNodeId) return null;
         return (
-            props.visibleNodes.find((n) => n.id === store.panelNodeId) ||
-            props.allNodes.find((n) => n.id === store.panelNodeId) ||
+            props.visibleNodes.find((n) => n.id === panelNodeId) ||
+            props.allNodes.find((n) => n.id === panelNodeId) ||
             null
         );
-    }, [store.panelNodeId, props.visibleNodes, props.allNodes]);
+    }, [panelNodeId, props.visibleNodes, props.allNodes]);
 
     const panelEdge = useMemo(() => {
-        if (!store.selectedEdgeId) return null;
+        if (!selectedEdgeId) return null;
         return (
-            props.visibleEdges.find((e) => e.id === store.selectedEdgeId) ||
-            props.allEdges.find((e) => e.id === store.selectedEdgeId) ||
+            props.visibleEdges.find((e) => e.id === selectedEdgeId) ||
+            props.allEdges.find((e) => e.id === selectedEdgeId) ||
             null
         );
-    }, [store.selectedEdgeId, props.visibleEdges, props.allEdges]);
+    }, [selectedEdgeId, props.visibleEdges, props.allEdges]);
 
     const ruleViolationsFiltered = useMemo(() => {
         if (!panelNode) return [];
@@ -45,36 +49,36 @@ export function SidePanel(props: SidePanelProps) {
         );
     }, [props.ruleViolations, panelNode]);
 
-    if (!store.panelOpen) return null;
+    if (!panelOpen) return null;
 
     return (
         <div className="side-panel open">
             <div className="side-panel__header">
                 <div className="side-panel__tabs">
                     <button
-                        className={'side-panel__tab' + (store.panelTab === 'details' ? ' active' : '')}
-                        onClick={() => store.setPanelTab('details')}
+                        className={'side-panel__tab' + (panelTab === 'details' ? ' active' : '')}
+                        onClick={() => useGraphStore.getState().setPanelTab('details')}
                     >
                         📋 Детали
                     </button>
-                    {store.viewMode === "graph" && (
+                    {viewMode === "graph" && (
                         <button
-                            className={'side-panel__tab' + (store.panelTab === 'edge' ? ' active' : '')}
-                            onClick={() => store.setPanelTab('edge')}
+                            className={'side-panel__tab' + (panelTab === 'edge' ? ' active' : '')}
+                            onClick={() => useGraphStore.getState().setPanelTab('edge')}
                         >
                             🔗 Связь
                         </button>
                     )}
                     <button
-                        className={'side-panel__tab' + (store.panelTab === 'entities' ? ' active' : '')}
-                        onClick={() => store.setPanelTab('entities')}
+                        className={'side-panel__tab' + (panelTab === 'entities' ? ' active' : '')}
+                        onClick={() => useGraphStore.getState().setPanelTab('entities')}
                     >
                         🧬 Сущности
                     </button>
                 </div>
                 <button
                     className="btn btn--icon"
-                    onClick={() => store.setPanelOpen(false)}
+                    onClick={() => useGraphStore.getState().setPanelOpen(false)}
                     title="Закрыть"
                 >
                     ✕
@@ -85,7 +89,7 @@ export function SidePanel(props: SidePanelProps) {
                 <div
                     className={
                         'side-panel__pane' +
-                        (store.panelTab !== 'details' ? ' side-panel__pane--hidden' : '')
+                        (panelTab !== 'details' ? ' side-panel__pane--hidden' : '')
                     }
                 >
                     <DetailsTab
@@ -99,7 +103,7 @@ export function SidePanel(props: SidePanelProps) {
                 <div
                     className={
                         'side-panel__pane' +
-                        (store.panelTab !== 'edge' ? ' side-panel__pane--hidden' : '')
+                        (panelTab !== 'edge' ? ' side-panel__pane--hidden' : '')
                     }
                 >
                     <EdgeTab edge={panelEdge} allNodes={props.allNodes} />
@@ -108,7 +112,7 @@ export function SidePanel(props: SidePanelProps) {
                 <div
                     className={
                         'side-panel__pane' +
-                        (store.panelTab !== 'entities' ? ' side-panel__pane--hidden' : '')
+                        (panelTab !== 'entities' ? ' side-panel__pane--hidden' : '')
                     }
                 >
                     <EntitiesTab

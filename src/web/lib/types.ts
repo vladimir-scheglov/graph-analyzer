@@ -137,6 +137,10 @@ export interface CycleInfo {
   sccs: string[][];
   cycleNodes: Set<string>;
   cycleEdges: Set<string>;
+  cycles: Array<{
+    nodeIds: Set<string>;
+    edgeIds: Set<string>;
+  }>;
 }
 
 export interface RuleDefinition {
