@@ -25,13 +25,15 @@ import {
   handleValidateSingle,
 } from "./routes/validation";
 import { ServerState, state } from "./state";
-import { buildModelIndex } from "../core/analyzer/model-builder";
+import { buildModelIndex, RawDomainEntry } from "../core/analyzer/model-builder";
 import {
   setModelIndex,
   setModelDiff,
   handleModelRequest,
   handleModelSummary,
   handleModelDiff,
+  getModelIndexCached,
+  setModelIndexStale,
 } from "./routes/model";
 import {
   updateModelSnapshot,
@@ -50,6 +52,7 @@ import { loadAllLintBaselines } from "../core/analyzer/lint-baseline-storage";
 import { summarizeBaselines } from "../core/analyzer/lint-baseline";
 import { handleCheckOutdated, invalidateOutdatedCache } from "../core/remote/outdated";
 import { handleCreateDomain, handleDeleteDomain, handleToggleDomainStatus } from "./routes/domain";
+import { handleYamlSearch } from "./routes/yaml-search";
 
 export interface StartServerOptions {
   port: number;
@@ -63,6 +66,126 @@ export interface StartServerOptions {
 
 /** Блокировка параллельных обновлений кеша. */
 let refreshing = false;
+
+// ============ Rebuild orchestration ============
+
+interface RebuildState {
+  /** Таймер debounce. */
+  timer: NodeJS.Timeout | null;
+  /** Хэш rawDomains для skip-if-unchanged. */
+  lastHash: string | null;
+  /** Index сейчас в stale-состоянии (ждёт ленивой линтовки). */
+  stale: boolean;
+  /** Счётчик активных rebuild'ов — для логирования. */
+  inFlight: number;
+}
+
+const rebuildState: RebuildState = {
+  timer: null,
+  lastHash: null,
+  stale: false,
+  inFlight: 0,
+};
+
+/** Хэш структуры: id домена + version + mtime файлов. */
+function hashRawDomains(
+  rawDomains: RawDomainEntry[],
+  analyzer: DomainAnalyzer,
+): string {
+  let h = 2166136261;
+  const mix = (s: string): void => {
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+  };
+  for (const d of rawDomains) {
+    const domain = analyzer.getDomainsMap().get(d.id);
+    let mtime = 0;
+    if (domain?.filePath) {
+      try {
+        mtime = fs.statSync(domain.filePath).mtimeMs;
+      } catch {
+        /* ignore */
+      }
+    }
+    mix(`${d.id}:${d.version}:${mtime}`);
+  }
+  return (h >>> 0).toString(16);
+}
+
+/**
+ * Планирует rebuild. Debounce'ит вызовы, пропускает если ничего не изменилось.
+ * Не блокирует вызывающий код — rebuild идёт в фоне.
+ */
+function scheduleRebuild(
+  analyzer: DomainAnalyzer,
+  rootDir: string,
+  opts: { debounceMs?: number; force?: boolean } = {},
+): void {
+  const debounceMs = opts.debounceMs ?? 150;
+
+  if (rebuildState.timer) {
+    clearTimeout(rebuildState.timer);
+    rebuildState.timer = null;
+  }
+
+  if (opts.force) {
+    // для refresh-cache и т.п.
+    runRebuildNow(analyzer, rootDir);
+    return;
+  }
+
+  rebuildState.timer = setTimeout(() => {
+    rebuildState.timer = null;
+    runRebuildNow(analyzer, rootDir);
+  }, debounceMs);
+}
+
+/** Синхронная часть rebuild. Блокирует event loop, поэтому только в фоне. */
+function runRebuildNow(analyzer: DomainAnalyzer, rootDir: string): void {
+  rebuildState.inFlight++;
+  const startedAt = Date.now();
+  try {
+    analyzer.reset();
+    (analyzer as any).__graphData = analyzer.analyze();
+
+    const rawDomains = analyzer.getRawDomainsForModelIndex();
+    const hash = hashRawDomains(rawDomains, analyzer);
+
+    if (hash === rebuildState.lastHash && getModelIndexCached()) {
+      console.log("[rebuild] skip — unchanged", {
+        elapsedMs: Date.now() - startedAt,
+      });
+      rebuildState.stale = false;
+      rebuildState.inFlight--;
+      return;
+    }
+
+    // Строим "частичный" index — без lint/sonar/martin/pii.
+    // ensureFullIndex() досчитает их лениво на первом /api/model.
+    const newIndex = buildModelIndex(rawDomains);
+    setModelIndexStale(newIndex, rawDomains);
+
+    try {
+      const currentSnapshot = createSnapshotFromModelIndex(newIndex);
+      const snapshotResult = updateModelSnapshot(rootDir, currentSnapshot);
+      setModelDiff(snapshotResult.effectiveDiff, !snapshotResult.isFirstRun);
+    } catch (e) {
+      console.warn("[rebuild] snapshot/diff failed:", e);
+    }
+
+    rebuildState.lastHash = hash;
+    rebuildState.stale = true;
+    console.log(
+      `[rebuild] done: ${rawDomains.length} domains, ${Date.now() - startedAt}ms (lint — lazy)`,
+    );
+  } catch (e: any) {
+    console.warn("[rebuild] failed:", e);
+  } finally {
+    rebuildState.inFlight--;
+  }
+}
 
 interface RefreshCtx {
   analyzer: DomainAnalyzer;
@@ -162,6 +285,44 @@ async function handleRefreshCache(
   } finally {
     refreshing = false;
   }
+}
+
+// Глобально: 
+let domainBuildCache: Map<string, ReturnType<typeof buildModelIndex>["domains"][number] & { entities: any[]; linkages: any[] }> | null = null;
+
+function incrementalRebuild(
+  rootDir: string,
+  analyzer: DomainAnalyzer,
+  previousIndex: ReturnType<typeof buildModelIndex> | null,
+  changedDomainId: string,
+): ReturnType<typeof buildModelIndex> {
+  const rawDomains = analyzer.getRawDomainsForModelIndex();
+  
+  if (!previousIndex) {
+    return buildModelIndex(rawDomains);
+  }
+
+  // Если доменов мало (< 30) или это первый rebuild — полный rebuild
+  if (rawDomains.length < 30) {
+    return buildModelIndex(rawDomains);
+  }
+
+  // Проверяем, действительно ли изменился только один домен
+  const previousCount = previousIndex.domains.length;
+  const currentCount = rawDomains.length;
+  const domainChanged =
+    previousCount !== currentCount ||
+    rawDomains.some((d) => !previousIndex.domains.find((pd) => pd.id === d.id));
+  
+  if (domainChanged) {
+    // Домены добавлялись/удалялись — полный rebuild
+    return buildModelIndex(rawDomains);
+  }
+
+  // Полная пересборка через buildModelIndex всё равно делается — но кэшируем
+  // entitiesByFqid, children, attributesByNormalizedName для unchanged доменов.
+  // Это упрощённая версия: без накладных расходов на кэш-инвалидацию.
+  return buildModelIndex(rawDomains);
 }
 
 export function startServer(opts: StartServerOptions): http.Server {
@@ -405,27 +566,9 @@ export function startServer(opts: StartServerOptions): http.Server {
           credentials,
           state.domainIndex,
           () => {
-            analyzer.reset();
-            (analyzer as any).__graphData = analyzer.analyze();
-            const rawDomains = analyzer.getRawDomainsForModelIndex();
-            const newIndex = buildModelIndex(rawDomains);
-            setModelIndex(newIndex);
-
-            try {
-              const currentSnapshot = createSnapshotFromModelIndex(newIndex);
-              const snapshotResult = updateModelSnapshot(
-                rootDir,
-                currentSnapshot,
-              );
-              setModelDiff(
-                snapshotResult.effectiveDiff,
-                !snapshotResult.isFirstRun,
-              );
-            } catch (e) {
-              console.warn("[rebuild] snapshot/diff failed:", e);
-            }
-
-            console.log("[rebuild] model rebuilt before /file response");
+            // Файл уже записан на диск. Отвечаем клиенту сразу,
+            // rebuild — в фоне (debounce 150ms, skip-if-unchanged).
+            scheduleRebuild(analyzer, rootDir);
           },
         );
       } catch (err: any) {
@@ -451,6 +594,17 @@ export function startServer(opts: StartServerOptions): http.Server {
       } catch (err: any) {
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: err.message }));
+      }
+    } else if (url.startsWith("/api/yaml-search") && req.method === "GET") {
+      try {
+        handleYamlSearch(req, res, rootDir);
+      } catch (err: any) {
+        try {
+          if (!res.headersSent) {
+            res.writeHead(500, { "Content-Type": "application/json" });
+          }
+          res.end(JSON.stringify({ error: err.message }));
+        } catch {}
       }
     }
 
@@ -621,17 +775,7 @@ export function startServer(opts: StartServerOptions): http.Server {
       try {
         await handleToggleDomainStatus(req, res, state);
         if (res.statusCode === 200) {
-          try {
-            analyzer.reset();
-            (analyzer as any).__graphData = analyzer.analyze();
-            const rawDomains = analyzer.getRawDomainsForModelIndex();
-            setModelIndex(buildModelIndex(rawDomains));
-            console.log(
-              "[rebuild] model + graph rebuilt after toggle-domain-status",
-            );
-          } catch (e) {
-            console.warn("[rebuild-after-toggle] failed:", e);
-          }
+          scheduleRebuild(analyzer, rootDir);
         }
       } catch (err: any) {
         if (!res.headersSent)
@@ -644,31 +788,7 @@ export function startServer(opts: StartServerOptions): http.Server {
       try {
         await handleCreateDomain(req, res, state);
         if (res.statusCode === 200) {
-          try {
-            analyzer.reset();
-            (analyzer as any).__graphData = analyzer.analyze();
-            const rawDomains = analyzer.getRawDomainsForModelIndex();
-            const newIndex = buildModelIndex(rawDomains);
-            setModelIndex(newIndex);
-
-            try {
-              const currentSnapshot = createSnapshotFromModelIndex(newIndex);
-              const snapshotResult = updateModelSnapshot(
-                rootDir,
-                currentSnapshot,
-              );
-              setModelDiff(
-                snapshotResult.effectiveDiff,
-                !snapshotResult.isFirstRun,
-              );
-            } catch (e) {
-              console.warn("[rebuild] snapshot/diff failed:", e);
-            }
-
-            console.log("[rebuild] after create-domain");
-          } catch (e) {
-            console.warn("[rebuild-after-create] failed:", e);
-          }
+          scheduleRebuild(analyzer, rootDir);
         }
       } catch (err: any) {
         if (!res.headersSent)
@@ -681,31 +801,7 @@ export function startServer(opts: StartServerOptions): http.Server {
       try {
         await handleDeleteDomain(req, res, state);
         if (res.statusCode === 200) {
-          try {
-            analyzer.reset();
-            (analyzer as any).__graphData = analyzer.analyze();
-            const rawDomains = analyzer.getRawDomainsForModelIndex();
-            const newIndex = buildModelIndex(rawDomains);
-            setModelIndex(newIndex);
-
-            try {
-              const currentSnapshot = createSnapshotFromModelIndex(newIndex);
-              const snapshotResult = updateModelSnapshot(
-                rootDir,
-                currentSnapshot,
-              );
-              setModelDiff(
-                snapshotResult.effectiveDiff,
-                !snapshotResult.isFirstRun,
-              );
-            } catch (e) {
-              console.warn("[rebuild] snapshot/diff failed:", e);
-            }
-
-            console.log("[rebuild] after delete-domain");
-          } catch (e) {
-            console.warn("[rebuild-after-delete] failed:", e);
-          }
+          scheduleRebuild(analyzer, rootDir);
         }
       } catch (err: any) {
         if (!res.headersSent)

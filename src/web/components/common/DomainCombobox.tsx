@@ -6,13 +6,19 @@ export interface DomainComboboxProps {
     onChange: (domainId: string) => void;
     domains: Array<[string, number]>;
     placeholder?: string;
+    /** Если true — добавляет опцию «все» (пустое value) в начало списка. */
+    allowEmpty?: boolean;
+    /** Текст опции «все». Default: "Все домены". */
+    emptyLabel?: string;
 }
 
 export function DomainCombobox({
     value,
     onChange,
     domains,
-    placeholder = 'Выберите домен...'
+    placeholder = 'Выберите домен...',
+    allowEmpty = false,
+    emptyLabel = 'Все домены',
 }: DomainComboboxProps) {
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState('');
@@ -21,16 +27,26 @@ export function DomainCombobox({
     const inputRef = useRef<HTMLInputElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
 
+    const totalCount = useMemo(
+        () => domains.reduce((s, [, c]) => s + c, 0),
+        [domains],
+    );
+
+    const items = useMemo<Array<[string, number]>>(() => {
+        if (allowEmpty) return [['', totalCount], ...domains];
+        return domains;
+    }, [domains, allowEmpty, totalCount]);
+
     const filtered = useMemo(() => {
         const q = query.trim().toLowerCase();
-        if (!q) return domains;
-        return domains.filter(([d]) => d.toLowerCase().indexOf(q) !== -1);
-    }, [domains, query]);
+        if (!q) return items;
+        return items.filter(([d]) => d === '' || d.toLowerCase().indexOf(q) !== -1);
+    }, [items, query]);
 
     // Синхронизация query с value — при открытии показываем выбранный домен
     useEffect(() => {
         if (open) {
-            setQuery(value || '');
+            setQuery('');
             setActiveIdx(0);
             setTimeout(() => inputRef.current?.focus(), 30);
         } else {
@@ -75,7 +91,12 @@ export function DomainCombobox({
         }
     };
 
-    const current = domains.find(([d]) => d === value);
+    const current = items.find(([d]) => d === value);
+    const currentLabel = current
+        ? current[0] === ''
+            ? emptyLabel
+            : current[0]
+        : null;
 
     return (
         <div className="domain-combobox" ref={wrapRef}>
@@ -86,9 +107,9 @@ export function DomainCombobox({
             >
                 <MIcon name="folder" size="sm" />
                 <span className="domain-combobox__trigger-text">
-                    {current ? current[0] : placeholder}
+                    {currentLabel || placeholder}
                 </span>
-                {current && (
+                {current && current[0] !== '' && (
                     <span className="domain-combobox__trigger-count">{current[1]}</span>
                 )}
                 <MIcon name={open ? 'expand_less' : 'expand_more'} size="sm" />
@@ -132,12 +153,13 @@ export function DomainCombobox({
                         ) : (
                             filtered.map(([d, count], idx) => (
                                 <button
-                                    key={d}
+                                    key={d || '__all__'}
                                     type="button"
                                     className={
                                         'domain-combobox__option' +
                                         (d === value ? ' domain-combobox__option--selected' : '') +
-                                        (idx === activeIdx ? ' domain-combobox__option--active' : '')
+                                        (idx === activeIdx ? ' domain-combobox__option--active' : '') +
+                                        (d === '' ? ' domain-combobox__option--all' : '')
                                     }
                                     onMouseEnter={() => setActiveIdx(idx)}
                                     onClick={() => {
@@ -145,8 +167,12 @@ export function DomainCombobox({
                                         setOpen(false);
                                     }}
                                 >
-                                    <span className="domain-combobox__option-name">{d}</span>
-                                    <span className="domain-combobox__option-count">{count}</span>
+                                    <span className="domain-combobox__option-name">
+                                        {d === '' ? emptyLabel : d}
+                                    </span>
+                                    {d !== '' && (
+                                        <span className="domain-combobox__option-count">{count}</span>
+                                    )}
                                 </button>
                             ))
                         )}

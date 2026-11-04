@@ -74,6 +74,384 @@ const SYSTEM_ATTRIBUTES_FOR_COMPLETION: Array<{
   { id: "entityName", dataType: "String", description: "Название сущности" },
 ];
 
+/**
+ * Полный набор IconNames дизайн-системы rvision.
+ * Порядок: [iconName, русское описание].
+ * Источник — @rvision/icon-names (см. документацию дизайн-системы).
+ */
+const COMMON_ICON_NAMES: Array<[string, string]> = [
+  // ── Действия ──
+  ["Add", "Добавить"],
+  ["AddBranch", "Добавить ветку"],
+  ["Close", "Закрыть"],
+  ["CloseCircle", "Закрыть (кружок)"],
+  ["Check", "Галочка"],
+  ["CheckCircle", "Галочка в круге"],
+  ["Copy", "Копировать"],
+  ["Edit", "Редактировать"],
+  ["Eraser", "Ластик"],
+  ["Export", "Экспорт"],
+  ["Import", "Импорт"],
+  ["Minus", "Убрать"],
+  ["MinusCircle", "Убрать (кружок)"],
+  ["MinusSquare", "Убрать (квадрат)"],
+  ["Plus", "Плюс"],
+  ["PlusSquare", "Плюс (квадрат)"],
+  ["Redo", "Повторить"],
+  ["Refresh", "Обновить"],
+  ["Reload", "Перезагрузить"],
+  ["Restore", "Восстановить"],
+  ["Save", "Сохранить"],
+  ["Send", "Отправить"],
+  ["Trash", "Удалить (корзина)"],
+  ["Undo", "Отменить"],
+  ["Upload", "Загрузить"],
+  ["Download", "Скачать"],
+
+  // ── Навигация ──
+  ["ArrowLeft", "Стрелка влево"],
+  ["ArrowRight", "Стрелка вправо"],
+  ["ArrowUp", "Стрелка вверх"],
+  ["ArrowDown", "Стрелка вниз"],
+  ["ArrowUpDown", "Стрелка вверх-вниз"],
+  ["ArrowGoBack", "Стрелка назад"],
+  ["ChevronLeft", "Шеврон влево"],
+  ["ChevronRight", "Шеврон вправо"],
+  ["ChevronUp", "Шеврон вверх"],
+  ["ChevronDown", "Шеврон вниз"],
+  ["DoubleChevronLeft", "Двойной шеврон влево"],
+  ["DoubleChevronRight", "Двойной шеврон вправо"],
+  ["DoubleChevronUp", "Двойной шеврон вверх"],
+  ["DoubleChevronDown", "Двойной шеврон вниз"],
+  ["DoubleArrowLeft", "Двойная стрелка влево"],
+  ["DoubleArrowRight", "Двойная стрелка вправо"],
+  ["DoubleArrowUp", "Двойная стрелка вверх"],
+  ["DoubleArrowDown", "Двойная стрелка вниз"],
+  ["MoveLeft", "Движение влево"],
+  ["MoveRight", "Движение вправо"],
+  ["MoveTo", "Перейти к"],
+  ["MoveHorizontal", "Движение горизонтально"],
+  ["Move", "Двигать"],
+  ["Moveable", "Перемещаемый"],
+  ["Exit", "Выход"],
+  ["LogIn", "Вход"],
+  ["LogOut", "Выход (logout)"],
+
+  // ── Состояния / статусы ──
+  ["Alert", "Оповещение"],
+  ["Attention", "Внимание"],
+  ["CheckCircle", "Успех"],
+  ["CloseCircle", "Ошибка"],
+  ["Info", "Информация"],
+  ["Question", "Вопрос"],
+  ["StarFilled", "Звезда (заполненная)"],
+  ["StarUnfilled", "Звезда (контур)"],
+  ["Pause", "Пауза"],
+  ["PauseCircle", "Пауза (кружок)"],
+  ["Play", "Воспроизвести"],
+  ["PlayCircle", "Воспроизвести (кружок)"],
+  ["ResumeCircle", "Продолжить"],
+  ["StopCircle", "Стоп"],
+  ["Loader", "Загрузка"],
+  ["Spinner", "Спиннер"],
+  ["Connected", "Подключено"],
+  ["NotConnected", "Не подключено"],
+  ["Off", "Выключено"],
+  ["Lock", "Заблокировано"],
+  ["Unlock", "Разблокировано"],
+
+  // ── Файлы и данные ──
+  ["File", "Файл"],
+  ["FileText", "Текстовый файл"],
+  ["FileText2", "Документ"],
+  ["FilePlus", "Файл с плюсом"],
+  ["FileBadge", "Файл-бейдж"],
+  ["Pdf", "PDF"],
+  ["Archive", "Архив"],
+  ["Download", "Скачать"],
+  ["HardDrive", "Жёсткий диск"],
+  ["HardDriveUpload", "Выгрузка на диск"],
+  ["HardDriveDownload", "Загрузка с диска"],
+  ["Folder", "Папка"],
+  ["FolderTree", "Дерево папок"],
+  ["FolderSearch", "Поиск в папке"],
+  ["FolderSync", "Синхронизация папки"],
+  ["FolderCog", "Настройки папки"],
+  ["FolderHeart", "Избранная папка"],
+  ["FolderCheckStreamlineLucide", "Папка с галочкой"],
+  ["FolderClockStreamlineLucide", "Папка с часами"],
+  ["InboxArchive", "Входящие в архив"],
+  ["InboxUnarchive", "Входящие из архива"],
+  ["Box", "Коробка"],
+  ["Layers", "Слои"],
+  ["Grid", "Сетка"],
+  ["Table", "Таблица"],
+
+  // ── Сущности / объекты ──
+  ["User", "Пользователь"],
+  ["Users", "Пользователи"],
+  ["Group", "Группа"],
+  ["SupportGroups", "Группы поддержки"],
+  ["Organization", "Организация"],
+  ["Departments", "Отделы"],
+  ["AgentFromGroup", "Агент из группы"],
+  ["AgentToGroup", "Агент в группу"],
+  ["UserExport", "Экспорт пользователя"],
+  ["Assets", "Активы"],
+  ["Ioc", "Индикатор (IoC)"],
+  ["Ip", "IP-адрес"],
+  ["Detections", "Детекции"],
+  ["Threats", "Угрозы"],
+  ["Audit", "Аудит"],
+  ["Baseline", "Базовая линия"],
+  ["Variable", "Переменная"],
+  ["Value", "Значение"],
+  ["Field", "Поле"],
+  ["Field1", "Поле 1"],
+  ["Number", "Число"],
+  ["Id", "Идентификатор"],
+  ["Hash", "Решётка (#)"],
+  ["Binary", "Бинарные данные"],
+
+  // ── Инфраструктура ──
+  ["Server", "Сервер"],
+  ["Cluster", "Кластер"],
+  ["Network", "Сеть"],
+  ["Cloud", "Облако"],
+  ["Connection", "Соединение"],
+  ["Port", "Порт"],
+  ["Service", "Сервис"],
+  ["Processes", "Процессы"],
+  ["Component", "Компонент"],
+  ["Constructor", "Конструктор"],
+  ["Blocks", "Блоки"],
+  ["Layout", "Макет"],
+  ["Dashboard", "Дашборд"],
+
+  // ── Устройства ──
+  ["Desktop", "Рабочий стол"],
+  ["Laptop", "Ноутбук"],
+  ["Smartphone", "Смартфон"],
+  ["MonitorX", "Монитор (ошибка)"],
+  ["MonitorExport", "Монитор (экспорт)"],
+  ["Printer", "Принтер"],
+  ["Camera", "Камера"],
+  ["Keyboard", "Клавиатура"],
+  ["Battery", "Батарея"],
+  ["BatteryFull", "Батарея полная"],
+  ["HardDrive", "Диск"],
+  ["Disc", "Диск (CD)"],
+  ["Terminal", "Терминал"],
+  ["Shell", "Shell"],
+  ["Windows", "Windows"],
+  ["Macos", "macOS"],
+  ["Linux", "Linux"],
+  ["Vmware", "VMware"],
+  ["Satellite", "Спутник"],
+  ["SatelliteDish", "Спутниковая антенна"],
+
+  // ── Безопасность ──
+  ["Shield", "Щит"],
+  ["ShieldOff", "Щит выключен"],
+  ["Lock", "Замок"],
+  ["Unlock", "Открытый замок"],
+  ["Key", "Ключ"],
+  ["KeyRound", "Ключ (круглый)"],
+  ["Siren", "Сирена"],
+  ["Skull", "Череп"],
+  ["Radiation", "Радиация"],
+  ["Fire", "Огонь"],
+  ["FireExtinguisherStreamlineLucide", "Огнетушитель"],
+  ["Cross", "Крест"],
+  ["Swords", "Мечи"],
+  ["Brain", "Мозг"],
+  ["Eye", "Глаз"],
+  ["EyeOff", "Скрыть глаз"],
+  ["FingerprintStreamlineLucide", "Отпечаток пальца"],
+  ["Bug", "Баг"],
+
+  // ── Наука / инструменты ──
+  ["Microscope", "Микроскоп"],
+  ["FlaskConicalStreamlineLucide", "Колба"],
+  ["Syringe", "Шприц"],
+  ["Pill", "Таблетка"],
+  ["Thermometer", "Термометр"],
+  ["Ruler", "Линейка"],
+  ["Hammer", "Молоток"],
+  ["Tool", "Инструмент"],
+  ["Shovel", "Лопата"],
+  ["PocketKnife", "Карманный нож"],
+  ["Wand", "Палочка"],
+  ["Magnet", "Магнит"],
+  ["SatelliteDish", "Антенна"],
+
+  // ── Транспорт ──
+  ["Rocket", "Ракета"],
+  ["Fuel", "Топливо"],
+  ["Route", "Маршрут"],
+  ["MapPin", "Метка на карте"],
+  ["Map", "Карта"],
+  ["Compass", "Компас"],
+  ["Footprints", "Следы"],
+
+  // ── Время / планирование ──
+  ["Calendar", "Календарь"],
+  ["Clock", "Часы"],
+  ["AlarmClock", "Будильник"],
+  ["AlarmClockCheck", "Будильник с галочкой"],
+  ["History", "История"],
+  ["Change", "Изменение"],
+  ["Diff", "Дифф"],
+  ["Repeat", "Повтор"],
+  ["ListRestart", "Список с перезапуском"],
+
+  // ── Документы / текст ──
+  ["Clipboard", "Буфер обмена"],
+  ["Notebook", "Блокнот"],
+  ["Bookmark", "Закладка"],
+  ["Pin", "Булавка"],
+  ["PinFill", "Булавка (заполненная)"],
+  ["PinOff", "Булавка откреплена"],
+  ["Paperclip", "Скрепка"],
+  ["Link", "Ссылка"],
+  ["Link2", "Ссылка (вариант)"],
+  ["Links", "Ссылки"],
+  ["Unlink", "Разорвать ссылку"],
+  ["Unplug", "Отключить"],
+  ["Text", "Текст"],
+  ["Heading", "Заголовок"],
+  ["Heading1", "Заголовок 1"],
+  ["Heading2", "Заголовок 2"],
+  ["Heading3", "Заголовок 3"],
+  ["Heading4", "Заголовок 4"],
+  ["Heading5", "Заголовок 5"],
+  ["Heading6", "Заголовок 6"],
+  ["Bold", "Жирный"],
+  ["Italic", "Курсив"],
+  ["Underline", "Подчёркнутый"],
+  ["Strikethrough", "Зачёркнутый"],
+  ["Pilcrow", "Параграф"],
+  ["Brace", "Скобка"],
+  ["Unbrace", "Убрать скобку"],
+  ["Bracket", "Квадратная скобка"],
+  ["Quote", "Цитата"],
+  ["TextAlignStart", "По левому краю"],
+  ["TextAlignCenter", "По центру"],
+  ["TextAlignEnd", "По правому краю"],
+  ["TextAlignJustify", "По ширине"],
+
+  // ── Списки / организация ──
+  ["List", "Список"],
+  ["ListChecks", "Список с галочками"],
+  ["ListOrdered", "Упорядоченный список"],
+  ["Columns", "Колонки"],
+  ["Columns2", "Две колонки"],
+  ["Columns4", "Четыре колонки"],
+  ["Rows2", "Два ряда"],
+  ["Rows3", "Три ряда"],
+  ["SortByUp", "Сортировка вверх"],
+  ["SortByDown", "Сортировка вниз"],
+  ["SortByLeft", "Сортировка влево"],
+  ["SortByRight", "Сортировка вправо"],
+  ["SortDefault", "Сортировка по умолчанию"],
+  ["SortUp", "По возрастанию"],
+  ["SortDown", "По убыванию"],
+  ["Filter", "Фильтр"],
+  ["Filter2", "Фильтр (вариант)"],
+  ["Search", "Поиск"],
+  ["LocateFixed", "Найти"],
+
+  // ── Графы / диаграммы ──
+  ["ChartSquare", "Диаграмма"],
+  ["LineChart", "Линейный график"],
+  ["DiagramCircle", "Круговая диаграмма"],
+  ["OrientedGraph", "Ориентированный граф"],
+  ["VerticalGraph", "Вертикальный граф"],
+  ["GitBranch", "Ветка git"],
+  ["GitMerge", "Слияние git"],
+  ["Constructor", "Конструктор"],
+  ["Apps", "Приложения"],
+  ["Puzzle", "Пазл"],
+  ["Sitemap", "Карта сайта"],
+  ["FitToScreen", "Вписать в экран"],
+  ["Focus", "Фокус"],
+  ["ZoomIn", "Приблизить"],
+  ["ZoomOut", "Отдалить"],
+  ["Maximize", "Развернуть"],
+  ["Minimize", "Свернуть"],
+
+  // ── Настройки / конфигурация ──
+  ["Settings", "Настройки"],
+  ["Sliders", "Ползунки"],
+  ["ToggleLeft", "Переключатель влево"],
+  ["ToggleRight", "Переключатель вправо"],
+  ["Layers", "Слои"],
+  ["Invert", "Инвертировать"],
+  ["Combine", "Объединить"],
+  ["Compare", "Сравнить"],
+  ["Diff", "Сравнить (diff)"],
+
+  // ── Коммуникации ──
+  ["Mail", "Письмо"],
+  ["MailOpen", "Открытое письмо"],
+  ["MessageCircle", "Сообщение"],
+  ["Send", "Отправить"],
+  ["ShareForwardBox", "Поделиться"],
+  ["Notifications", "Уведомления"],
+  ["NotificationsOff", "Уведомления выключены"],
+  ["Podcast", "Подкаст"],
+  ["AudioLines", "Аудиодорожки"],
+  ["Answer", "Ответ"],
+
+  // ── Разное ──
+  ["Activity", "Активность"],
+  ["Aperture", "Диафрагма"],
+  ["Award", "Награда"],
+  ["Trophy", "Трофей"],
+  ["Crown", "Корона"],
+  ["PartyPopper", "Хлопушка"],
+  ["Sparkles", "Искры"],
+  ["Lightbulb", "Лампочка"],
+  ["Flash", "Вспышка"],
+  ["ZapOff", "Молния выключена"],
+  ["Goal", "Цель"],
+  ["Guide", "Руководство"],
+  ["LifeBuoy", "Спасательный круг"],
+  ["Coffee", "Кофе"],
+  ["Fish", "Рыба"],
+  ["Ghost", "Призрак"],
+  ["Dot", "Точка"],
+  ["Square", "Квадрат"],
+  ["Rectangle", "Прямоугольник"],
+  ["BrickWall", "Кирпичная стена"],
+  ["Warehouse", "Склад"],
+  ["BriefcaseBusiness", "Портфель"],
+  ["ShoppingBasket", "Корзина покупок"],
+  ["Wallet", "Кошелёк"],
+  ["CreditCard", "Кредитная карта"],
+  ["Receipt", "Чек"],
+  ["Printer", "Принтер"],
+  ["Image", "Изображение"],
+  ["Color", "Цвет"],
+  ["PaintRoller", "Валик"],
+  ["QrCode", "QR-код"],
+  ["DoorOpenStreamlineLucide", "Открытая дверь"],
+  ["DoorClosedStreamlineLucide", "Закрытая дверь"],
+  ["AndOr", "И / Или"],
+  ["EqualsExists", "Равно существует"],
+  ["Equal", "Равно"],
+  ["Sigma", "Сигма (сумма)"],
+  ["Lambda", "Лямбда"],
+  ["Bracket", "Скобка"],
+  ["Code", "Код"],
+  ["Terminal", "Терминал"],
+  ["LampDesk", "Настольная лампа"],
+  ["Moon", "Луна"],
+  ["Snowflake", "Снежинка"],
+  ["Waves", "Волны"],
+  ["LineHorizontal", "Горизонтальная линия"],
+];
+
 interface AttributeCompletionContext {
   kind: "entity" | "linkage" | "unknown" | "precomputed";
   entityFqid?: string;
@@ -9414,6 +9792,67 @@ export function registerMonacoProviders(monaco: any): void {
       }
 
       switch (fieldName) {
+        case "iconName": {
+          // Только внутри medias[] — иначе iconName может быть чем-то другим
+          const path = findContainerPath(model, position);
+          if (path[0] !== "medias" && vctx.section !== "medias") {
+            return { suggestions: [] };
+          }
+          // Частые иконки — сверху через префикс sortText
+          const POPULAR = new Set([
+            "Add",
+            "Edit",
+            "Trash",
+            "Eye",
+            "Save",
+            "Close",
+            "Refresh",
+            "Search",
+            "Filter",
+            "Settings",
+            "Folder",
+            "File",
+            "FileText",
+            "Download",
+            "Upload",
+            "Menu",
+            "MoreVertical",
+            "Check",
+            "Alert",
+            "Info",
+            "User",
+            "Users",
+            "Group",
+            "Link",
+            "List",
+            "Dashboard",
+            "Server",
+            "Cloud",
+            "Lock",
+            "Shield",
+            "Bug",
+            "Rocket",
+            "StarFilled",
+            "StarUnfilled",
+            "Play",
+            "Pause",
+          ]);
+          return (
+            r(
+              model,
+              position,
+              ["iconName"],
+              COMMON_ICON_NAMES.map(([name, desc]) => ({
+                label: name,
+                insertText: " " + name,
+                kind: Kind.Value,
+                sortText: (POPULAR.has(name) ? "0_" : "1_") + name,
+                documentation: desc,
+              })),
+              Kind,
+            ) || { suggestions: [] }
+          );
+        }
         case "initial": {
           if (vctx.section !== "dataTypes") return { suggestions: [] };
           const statuses = getDataTypeStatuses(model, position);
@@ -12542,6 +12981,40 @@ export function applyViewRefMarkers(
       const gm = line.match(GROUP_REF_PATTERN);
       if (gm) {
         checkRef(i, line, gm[2], localGroupIds, "group");
+      }
+    }
+
+    // Проверка iconName на известность
+    {
+      const known = new Set(COMMON_ICON_NAMES.map(([n]) => n.toLowerCase()));
+      let inMedias = false;
+      let mediasIndent = -1;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line.trim()) continue;
+        const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind === 0) {
+          const sm = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+          inMedias = sm?.[1] === "medias";
+          mediasIndent = -1;
+          continue;
+        }
+        if (!inMedias) continue;
+        const m = line.match(/^\s*iconName\s*:\s*["']?([^\s"'#]+)["']?/);
+        if (!m) continue;
+        const v = m[1];
+        if (!known.has(v.toLowerCase())) {
+          const startCol = line.indexOf(v) + 1;
+          markers.push({
+            severity: monaco.MarkerSeverity.Info,
+            message: `iconName «${v}» не из стандартного набора Material Symbols (возможно, опечатка)`,
+            startLineNumber: i + 1,
+            startColumn: startCol,
+            endLineNumber: i + 1,
+            endColumn: startCol + v.length,
+            source: "view-ref-validator",
+          });
+        }
       }
     }
 

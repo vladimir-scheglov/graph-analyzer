@@ -4,6 +4,24 @@ import type {
   ModelIndex,
 } from "../../../shared/model-types";
 
+export interface DomainMixinsReverseSource {
+  /** Домен, куда мы отдаём. */
+  targetDomain: string;
+  /** Все сущности этого домена, которые мы расширяем. */
+  targetEntities: EntityRecord[];
+  /** Наши миксины, применённые к ним. */
+  mixins: MixinRecord[];
+}
+
+export interface DomainMixinsReverseResult {
+  /** Мы расширяем эти домены. */
+  givesTo: DomainMixinsReverseSource[];
+  /** Уникальные домены, которым мы отдаём. */
+  targetDomains: string[];
+  /** Всего миксинов отдано. */
+  totalGivenMixins: number;
+}
+
 export interface DomainMixinGroup {
   /** Домен, где объявлен миксин. */
   sourceDomain: string;
@@ -159,5 +177,40 @@ export function computeDomainMixins(
       heavyTargets,
       conflicts,
     },
+  };
+}
+
+export function computeDomainMixinsReverse(
+  domainId: string,
+  index: ModelIndex,
+): DomainMixinsReverseResult {
+  const domainLower = domainId.toLowerCase();
+  const givesToMap = new Map<string, MixinRecord[]>();
+  const targetEntityByFqid = new Map<string, EntityRecord>();
+
+  for (const m of index.mixins || []) {
+    if ((m.domainId || "").toLowerCase() !== domainLower) continue;
+    const targetDomain = m.targetEntityFqid.split("/")[0].toLowerCase();
+    if (targetDomain === domainLower) continue;
+    if (!givesToMap.has(targetDomain)) givesToMap.set(targetDomain, []);
+    givesToMap.get(targetDomain)!.push(m);
+    const target = index.entitiesByFqid[m.targetEntityFqid];
+    if (target) targetEntityByFqid.set(m.targetEntityFqid, target);
+  }
+
+  const givesTo: DomainMixinsReverseSource[] = [];
+  givesToMap.forEach((mixins, targetDomain) => {
+    const targetFqids = new Set(mixins.map((m) => m.targetEntityFqid));
+    const targetEntities = Array.from(targetFqids)
+      .map((fqid) => targetEntityByFqid.get(fqid))
+      .filter((x): x is EntityRecord => !!x);
+    givesTo.push({ targetDomain, targetEntities, mixins });
+  });
+
+  givesTo.sort((a, b) => b.mixins.length - a.mixins.length);
+  return {
+    givesTo,
+    targetDomains: givesTo.map((g) => g.targetDomain),
+    totalGivenMixins: givesTo.reduce((s, g) => s + g.mixins.length, 0),
   };
 }

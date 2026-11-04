@@ -141,6 +141,21 @@ export function useHotkeys() {
             useGraphStore.getState().setMartinOpen(true);
             return;
           }
+          if (code === "KeyU") {
+            e.preventDefault();
+            useGraphStore.getState().setYamlFulltextSearchOpen(true);
+            return;
+          }
+          if (code === "KeyR") {
+            e.preventDefault();
+            useGraphStore.getState().setViewGraphOpen(true);
+            return;
+          }
+          if (code === "KeyO") {
+            e.preventDefault();
+            useGraphStore.getState().setChangelogOpen(true);
+            return;
+          }
           if (code === "KeyP") {
             e.preventDefault();
             useGraphStore.getState().setPiiOpen(true);
@@ -154,6 +169,12 @@ export function useHotkeys() {
           }
         }
         if (ctrl || alt) return;
+
+        if (code === "KeyQ" && !ctrl && !alt) {
+          e.preventDefault();
+          useGraphStore.getState().setYamlFulltextSearchOpen(true);
+          return;
+        }
 
         // Fit view
         if (code === "KeyF") {

@@ -2979,6 +2979,31 @@ export function GenerateSchemaModal() {
                             Включить зависимости
                         </button>
                         <button
+                            className="btn"
+                            onClick={() => {
+                                if (!gen.result) return;
+                                const blocksToPreview = (gen.result.blocks as GeneratedBlock[]).filter((b) =>
+                                    selected.has(b.blockId),
+                                );
+                                if (blocksToPreview.length === 0) {
+                                    useGraphStore.getState().showSnackbar("Выберите блоки для превью");
+                                    return;
+                                }
+                                const st = useGraphStore.getState();
+                                st.setGeneratedPreviewData({
+                                    blocks: blocksToPreview,
+                                    entityId: entityId || null,
+                                    domainId: domainId || null,
+                                });
+                                st.setGeneratedPreviewOpen(true);
+                            }}
+                            disabled={!gen.result || selected.size === 0}
+                            title="Схематичный предпросмотр: как будут выглядеть views"
+                        >
+                            <MIcon name="visibility" size="sm" />
+                            Превью
+                        </button>
+                        <button
                             className="btn btn--primary"
                             onClick={apply}
                             disabled={!finalCanApply}

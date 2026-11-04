@@ -29,3 +29,8 @@ export { HealthDashboardModal } from "./HealthDashboardModal";
 export { DeletionSimulationModal } from "./DeletionSimulationModal";
 export { CreateDomainModal } from "./CreateDomainModal";
 export { DeleteDomainModal } from "./DeleteDomainModal";
+export { ViewGraphModal } from "./ViewGraphModal";
+export { YamlFulltextSearchModal } from "./YamlFulltextSearchModal";
+export { GeneratedPreviewModal } from "./GeneratedPreviewModal";
+export { ChangelogModal } from "./ChangelogModal";
+export { DomainOnboardingWizard } from "./DomainOnboardingWizard";

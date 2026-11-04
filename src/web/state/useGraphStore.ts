@@ -523,6 +523,32 @@ export interface GraphState {
   setYamlViewerPendingGoto: (v: GraphState["yamlViewerPendingGoto"]) => void;
   domainSchemaPrefillExpandItem: string | null;
   setDomainSchemaPrefillExpandItem: (v: string | null) => void;
+
+  // В интерфейс состояния:
+  viewGraphOpen: boolean;
+  setViewGraphOpen: (v: boolean) => void;
+
+  yamlFulltextSearchOpen: boolean;
+  setYamlFulltextSearchOpen: (v: boolean) => void;
+
+  generatedPreviewOpen: boolean;
+  setGeneratedPreviewOpen: (v: boolean) => void;
+  generatedPreviewData: {
+    blocks: any[];
+    entityId: string | null;
+    domainId: string | null;
+  } | null;
+  setGeneratedPreviewData: (d: any) => void;
+
+  changelogOpen: boolean;
+  setChangelogOpen: (v: boolean) => void;
+
+  onboardingWizardOpen: boolean;
+  setOnboardingWizardOpen: (v: boolean) => void;
+  onboardingWizardDomainId: string | null;
+  setOnboardingWizardDomainId: (id: string | null) => void;
+  viewGraphPrefillDomain: string | null;
+  setViewGraphPrefillDomain: (v: string | null) => void;
 }
 
 // ============ Хелперы для чтения localStorage ============
@@ -1221,6 +1247,28 @@ export const useGraphStore = create<GraphState>((set, get) => ({
 
   yamlViewerPendingGoto: null,
   setYamlViewerPendingGoto: (v) => set({ yamlViewerPendingGoto: v }),
+
+  viewGraphOpen: false,
+  setViewGraphOpen: (v) => set({ viewGraphOpen: v }),
+
+  yamlFulltextSearchOpen: false,
+  setYamlFulltextSearchOpen: (v) => set({ yamlFulltextSearchOpen: v }),
+
+  generatedPreviewOpen: false,
+  setGeneratedPreviewOpen: (v) => set({ generatedPreviewOpen: v }),
+  generatedPreviewData: null,
+  setGeneratedPreviewData: (d) => set({ generatedPreviewData: d }),
+
+  changelogOpen: false,
+  setChangelogOpen: (v) => set({ changelogOpen: v }),
+
+  onboardingWizardOpen: false,
+  setOnboardingWizardOpen: (v) => set({ onboardingWizardOpen: v }),
+  onboardingWizardDomainId: null,
+  setOnboardingWizardDomainId: (id) => set({ onboardingWizardDomainId: id }),
+
+  viewGraphPrefillDomain: null,
+  setViewGraphPrefillDomain: (v) => set({ viewGraphPrefillDomain: v }),
 
   // Сброс всего
   resetAll: () =>

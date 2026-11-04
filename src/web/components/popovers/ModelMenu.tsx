@@ -223,6 +223,48 @@ export function ModelMenu({ close }: ModelMenuProps) {
 
             <div className="menu__divider" />
 
+            <div className="menu__label" style={{ paddingLeft: 12, paddingTop: 6 }}>
+                Графы
+            </div>
+
+            <button
+                className="menu__item"
+                onClick={() => {
+                    useGraphStore.getState().setViewGraphOpen(true);
+                    close();
+                }}
+            >
+                <span className="menu__icon"><MIcon name="schema" size="sm" /></span>
+                <span className="menu__text">Граф зависимостей views</span>
+                <kbd className="menu__hotkey">⇧⌘R</kbd>
+            </button>
+
+            <button
+                className="menu__item"
+                onClick={() => {
+                    useGraphStore.getState().setYamlFulltextSearchOpen(true);
+                    close();
+                }}
+            >
+                <span className="menu__icon"><MIcon name="search" size="sm" /></span>
+                <span className="menu__text">Полнотекстовый поиск</span>
+                <kbd className="menu__hotkey">⇧⌘U</kbd>
+            </button>
+
+            <button
+                className="menu__item"
+                onClick={() => {
+                    useGraphStore.getState().setChangelogOpen(true);
+                    close();
+                }}
+            >
+                <span className="menu__icon"><MIcon name="history_edu" size="sm" /></span>
+                <span className="menu__text">CHANGELOG и версии</span>
+                <kbd className="menu__hotkey">⇧⌘O</kbd>
+            </button>
+
+            <div className="menu__divider" />
+
             <button
                 className="menu__item"
                 onClick={() => {

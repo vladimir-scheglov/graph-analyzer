@@ -58,6 +58,26 @@ export function setModelIndex(index: ModelIndex): void {
 }
 
 /**
+ * Устанавливает index, но помечает lint как невалидный.
+ * Первый /api/model вызовет ensureFullIndex() → buildModelIndex() → lint.
+ * Нужно для defer-rebuild: buildModelIndex() уже построил partial,
+ * а lint/sonar/martin/pii досчитаются по требованию.
+ */
+export function setModelIndexStale(
+  index: ModelIndex,
+  rawDomains?: RawDomainEntry[],
+): void {
+  cachedIndex = index;
+  if (rawDomains) cachedRawDomains = rawDomains;
+  lintComputed = false;
+}
+
+/** Геттер для skip-if-unchanged в http-server. */
+export function getModelIndexCached(): ModelIndex | null {
+  return cachedIndex;
+}
+
+/**
  * Гарантирует, что в cachedIndex есть lint/sonar/martin/pii.
  * Первый вызов после старта — строит их синхронно (2-5 с),
  * блокирует только этого клиента, не event loop сервера.

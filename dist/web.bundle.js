@@ -1177,6 +1177,22 @@ var init_useGraphStore = __esm({
       },
       yamlViewerPendingGoto: null,
       setYamlViewerPendingGoto: (v) => set2({ yamlViewerPendingGoto: v }),
+      viewGraphOpen: false,
+      setViewGraphOpen: (v) => set2({ viewGraphOpen: v }),
+      yamlFulltextSearchOpen: false,
+      setYamlFulltextSearchOpen: (v) => set2({ yamlFulltextSearchOpen: v }),
+      generatedPreviewOpen: false,
+      setGeneratedPreviewOpen: (v) => set2({ generatedPreviewOpen: v }),
+      generatedPreviewData: null,
+      setGeneratedPreviewData: (d) => set2({ generatedPreviewData: d }),
+      changelogOpen: false,
+      setChangelogOpen: (v) => set2({ changelogOpen: v }),
+      onboardingWizardOpen: false,
+      setOnboardingWizardOpen: (v) => set2({ onboardingWizardOpen: v }),
+      onboardingWizardDomainId: null,
+      setOnboardingWizardDomainId: (id) => set2({ onboardingWizardDomainId: id }),
+      viewGraphPrefillDomain: null,
+      setViewGraphPrefillDomain: (v) => set2({ viewGraphPrefillDomain: v }),
       // Сброс всего
       resetAll: () => set2({
         filters: {
@@ -2393,6 +2409,21 @@ function useHotkeys() {
             useGraphStore.getState().setMartinOpen(true);
             return;
           }
+          if (code === "KeyU") {
+            e.preventDefault();
+            useGraphStore.getState().setYamlFulltextSearchOpen(true);
+            return;
+          }
+          if (code === "KeyR") {
+            e.preventDefault();
+            useGraphStore.getState().setViewGraphOpen(true);
+            return;
+          }
+          if (code === "KeyO") {
+            e.preventDefault();
+            useGraphStore.getState().setChangelogOpen(true);
+            return;
+          }
           if (code === "KeyP") {
             e.preventDefault();
             useGraphStore.getState().setPiiOpen(true);
@@ -2406,6 +2437,11 @@ function useHotkeys() {
         }
         if (ctrl || alt)
           return;
+        if (code === "KeyQ" && !ctrl && !alt) {
+          e.preventDefault();
+          useGraphStore.getState().setYamlFulltextSearchOpen(true);
+          return;
+        }
         if (code === "KeyF") {
           e.preventDefault();
           fitActiveOrAll();
@@ -7233,6 +7269,69 @@ function ModelMenu({ close }) {
       }
     ),
     /* @__PURE__ */ jsx7("div", { className: "menu__divider" }),
+    /* @__PURE__ */ jsx7("div", { className: "menu__label", style: { paddingLeft: 12, paddingTop: 6 }, children: "\u0413\u0440\u0430\u0444\u044B" }),
+    /* @__PURE__ */ jsxs6(
+      "button",
+      {
+        className: "menu__item",
+        onClick: () => {
+          useGraphStore.getState().setViewGraphOpen(true);
+          close();
+        },
+        children: [
+          /* @__PURE__ */ jsx7("span", { className: "menu__icon", children: /* @__PURE__ */ jsx7(MIcon, { name: "schema", size: "sm" }) }),
+          /* @__PURE__ */ jsx7("span", { className: "menu__text", children: "\u0413\u0440\u0430\u0444 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0435\u0439 views" }),
+          /* @__PURE__ */ jsx7("kbd", { className: "menu__hotkey", children: "\u21E7\u2318R" })
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsxs6(
+      "button",
+      {
+        className: "menu__item",
+        onClick: () => {
+          useGraphStore.getState().setYamlFulltextSearchOpen(true);
+          close();
+        },
+        children: [
+          /* @__PURE__ */ jsx7("span", { className: "menu__icon", children: /* @__PURE__ */ jsx7(MIcon, { name: "search", size: "sm" }) }),
+          /* @__PURE__ */ jsx7("span", { className: "menu__text", children: "\u041F\u043E\u043B\u043D\u043E\u0442\u0435\u043A\u0441\u0442\u043E\u0432\u044B\u0439 \u043F\u043E\u0438\u0441\u043A" }),
+          /* @__PURE__ */ jsx7("kbd", { className: "menu__hotkey", children: "\u21E7\u2318U" })
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsxs6(
+      "button",
+      {
+        className: "menu__item",
+        onClick: () => {
+          useGraphStore.getState().setChangelogOpen(true);
+          close();
+        },
+        children: [
+          /* @__PURE__ */ jsx7("span", { className: "menu__icon", children: /* @__PURE__ */ jsx7(MIcon, { name: "history_edu", size: "sm" }) }),
+          /* @__PURE__ */ jsx7("span", { className: "menu__text", children: "CHANGELOG \u0438 \u0432\u0435\u0440\u0441\u0438\u0438" }),
+          /* @__PURE__ */ jsx7("kbd", { className: "menu__hotkey", children: "\u21E7\u2318O" })
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsxs6(
+      "button",
+      {
+        className: "menu__item",
+        onClick: () => {
+          const st = useGraphStore.getState();
+          st.setOnboardingWizardDomainId(null);
+          st.setOnboardingWizardOpen(true);
+          close();
+        },
+        children: [
+          /* @__PURE__ */ jsx7("span", { className: "menu__icon", children: /* @__PURE__ */ jsx7(MIcon, { name: "rocket_launch", size: "sm" }) }),
+          /* @__PURE__ */ jsx7("span", { className: "menu__text", children: "\u041E\u043D\u0431\u043E\u0440\u0434\u0438\u043D\u0433 \u0434\u043E\u043C\u0435\u043D\u0430" })
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsx7("div", { className: "menu__divider" }),
     /* @__PURE__ */ jsxs6(
       "button",
       {
@@ -10262,6 +10361,36 @@ function computeDomainMixins(domainId, index) {
     }
   };
 }
+function computeDomainMixinsReverse(domainId, index) {
+  const domainLower = domainId.toLowerCase();
+  const givesToMap = /* @__PURE__ */ new Map();
+  const targetEntityByFqid = /* @__PURE__ */ new Map();
+  for (const m of index.mixins || []) {
+    if ((m.domainId || "").toLowerCase() !== domainLower)
+      continue;
+    const targetDomain = m.targetEntityFqid.split("/")[0].toLowerCase();
+    if (targetDomain === domainLower)
+      continue;
+    if (!givesToMap.has(targetDomain))
+      givesToMap.set(targetDomain, []);
+    givesToMap.get(targetDomain).push(m);
+    const target = index.entitiesByFqid[m.targetEntityFqid];
+    if (target)
+      targetEntityByFqid.set(m.targetEntityFqid, target);
+  }
+  const givesTo = [];
+  givesToMap.forEach((mixins2, targetDomain) => {
+    const targetFqids = new Set(mixins2.map((m) => m.targetEntityFqid));
+    const targetEntities = Array.from(targetFqids).map((fqid) => targetEntityByFqid.get(fqid)).filter((x) => !!x);
+    givesTo.push({ targetDomain, targetEntities, mixins: mixins2 });
+  });
+  givesTo.sort((a, b) => b.mixins.length - a.mixins.length);
+  return {
+    givesTo,
+    targetDomains: givesTo.map((g) => g.targetDomain),
+    totalGivenMixins: givesTo.reduce((s, g) => s + g.mixins.length, 0)
+  };
+}
 var init_domain_mixins = __esm({
   "src/web/lib/model/domain-mixins.ts"() {
     "use strict";
@@ -10288,9 +10417,10 @@ var init_useDomainMixins = __esm({
 });
 
 // src/web/components/panels/DomainMixinsPanel.tsx
-import { useState as useState8 } from "react";
+import { useMemo as useMemo17, useState as useState8 } from "react";
 import { jsx as jsx32, jsxs as jsxs31 } from "react/jsx-runtime";
 function DomainMixinsPanel({ domainId }) {
+  const { index } = useModelIndex();
   const { data, loading, error } = useDomainMixins(domainId);
   const { goto } = useNavigation();
   const [expandedGroups, setExpandedGroups] = useState8(/* @__PURE__ */ new Set());
@@ -10304,6 +10434,8 @@ function DomainMixinsPanel({ domainId }) {
       return next;
     });
   };
+  const [tab, setTab] = useState8("receives");
+  const reverse = useMemo17(() => index ? computeDomainMixinsReverse(domainId, index) : { givesTo: [], targetDomains: [], totalGivenMixins: 0 }, [index, domainId]);
   if (loading) {
     return /* @__PURE__ */ jsx32("div", { className: "details__field-value", style: { color: "var(--text-500)" }, children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." });
   }
@@ -10326,6 +10458,52 @@ function DomainMixinsPanel({ domainId }) {
         /* @__PURE__ */ jsx32("span", { className: "domain-mixins__summary-value", children: data.stats.totalSourceDomains }),
         /* @__PURE__ */ jsx32("span", { className: "domain-mixins__summary-label", children: "\u0438\u0441\u0442\u043E\u0447\u043D\u0438\u043A\u043E\u0432" })
       ] })
+    ] }),
+    /* @__PURE__ */ jsxs31("div", { className: "domain-mixins__tabs", children: [
+      /* @__PURE__ */ jsxs31(
+        "button",
+        {
+          className: "domain-mixins__tab" + (tab === "receives" ? " active" : ""),
+          onClick: () => setTab("receives"),
+          children: [
+            "\u2190 \u041F\u043E\u043B\u0443\u0447\u0430\u0435\u0442 (",
+            data.stats.totalMixins,
+            ")"
+          ]
+        }
+      ),
+      /* @__PURE__ */ jsxs31(
+        "button",
+        {
+          className: "domain-mixins__tab" + (tab === "gives" ? " active" : ""),
+          onClick: () => setTab("gives"),
+          children: [
+            "\u2192 \u041E\u0442\u0434\u0430\u0451\u0442 (",
+            reverse.totalGivenMixins,
+            ")"
+          ]
+        }
+      )
+    ] }),
+    tab === "gives" && /* @__PURE__ */ jsxs31("div", { className: "domain-mixins__gives", children: [
+      reverse.givesTo.length === 0 && /* @__PURE__ */ jsx32("div", { className: "details__field-value", children: "\u042D\u0442\u043E\u0442 \u0434\u043E\u043C\u0435\u043D \u043D\u0435 \u0440\u0430\u0441\u0448\u0438\u0440\u044F\u0435\u0442 \u0434\u0440\u0443\u0433\u0438\u0435" }),
+      reverse.givesTo.map((g) => /* @__PURE__ */ jsxs31("div", { className: "domain-mixins__group open", children: [
+        /* @__PURE__ */ jsxs31("div", { className: "domain-mixins__group-header", children: [
+          /* @__PURE__ */ jsx32(MIcon, { name: "arrow_forward", size: "sm" }),
+          /* @__PURE__ */ jsx32("span", { className: "domain-mixins__source", children: g.targetDomain }),
+          /* @__PURE__ */ jsxs31("span", { className: "domain-mixins__counts", children: [
+            g.mixins.length,
+            " \u043C\u0438\u043A\u0441."
+          ] })
+        ] }),
+        /* @__PURE__ */ jsx32("div", { className: "domain-mixins__group-body", children: g.mixins.map((m) => /* @__PURE__ */ jsxs31("div", { className: "domain-mixins__mixin", children: [
+          /* @__PURE__ */ jsx32("code", { children: m.id }),
+          /* @__PURE__ */ jsxs31("span", { children: [
+            " \u2192 ",
+            m.targetEntityFqid.split("/").pop()
+          ] })
+        ] }, m.id)) })
+      ] }, g.targetDomain))
     ] }),
     data.stats.conflicts.length > 0 && /* @__PURE__ */ jsxs31("div", { className: "domain-mixins__alert domain-mixins__alert--warn", children: [
       /* @__PURE__ */ jsx32(MIcon, { name: "warning", size: "sm" }),
@@ -10464,6 +10642,8 @@ var init_DomainMixinsPanel = __esm({
     init_useDomainMixins();
     init_useNavigation();
     init_useGraphStore();
+    init_domain_mixins();
+    init_useModelIndex();
   }
 });
 
@@ -11035,7 +11215,7 @@ var init_EntitiesTab = __esm({
 });
 
 // src/web/components/panels/SidePanel.tsx
-import { useMemo as useMemo17 } from "react";
+import { useMemo as useMemo18 } from "react";
 import { jsx as jsx37, jsxs as jsxs36 } from "react/jsx-runtime";
 function SidePanel(props) {
   const panelNodeId = useGraphStore((s) => s.panelNodeId);
@@ -11043,17 +11223,17 @@ function SidePanel(props) {
   const panelOpen = useGraphStore((s) => s.panelOpen);
   const panelTab = useGraphStore((s) => s.panelTab);
   const viewMode = useGraphStore((s) => s.viewMode);
-  const panelNode = useMemo17(() => {
+  const panelNode = useMemo18(() => {
     if (!panelNodeId)
       return null;
     return props.visibleNodes.find((n) => n.id === panelNodeId) || props.allNodes.find((n) => n.id === panelNodeId) || null;
   }, [panelNodeId, props.visibleNodes, props.allNodes]);
-  const panelEdge = useMemo17(() => {
+  const panelEdge = useMemo18(() => {
     if (!selectedEdgeId)
       return null;
     return props.visibleEdges.find((e) => e.id === selectedEdgeId) || props.allEdges.find((e) => e.id === selectedEdgeId) || null;
   }, [selectedEdgeId, props.visibleEdges, props.allEdges]);
-  const ruleViolationsFiltered = useMemo17(() => {
+  const ruleViolationsFiltered = useMemo18(() => {
     if (!panelNode)
       return [];
     return props.ruleViolations.filter(
@@ -11439,7 +11619,7 @@ var init_DomainListRow = __esm({
 });
 
 // src/web/components/layout/DomainList.tsx
-import React13, { useCallback as useCallback8, useEffect as useEffect15, useMemo as useMemo18, useRef as useRef8 } from "react";
+import React13, { useCallback as useCallback8, useEffect as useEffect15, useMemo as useMemo19, useRef as useRef8 } from "react";
 import { Fragment as Fragment7, jsx as jsx39, jsxs as jsxs38 } from "react/jsx-runtime";
 function sortNodes(nodes, sort) {
   if (sort === "default")
@@ -11521,15 +11701,15 @@ function DomainList() {
     (s) => s.collapsedSections.has("domain-list-favorites")
   );
   const toggleFavCollapsed = useGraphStore((s) => s.toggleCollapsedSection);
-  const domainNodes = useMemo18(
+  const domainNodes = useMemo19(
     () => nodes.filter((n) => n.data.nodeType === "domain"),
     [nodes]
   );
-  const problematicNodes = useMemo18(
+  const problematicNodes = useMemo19(
     () => nodes.filter((n) => n.data.nodeType !== "domain"),
     [nodes]
   );
-  const entityMatchesByDomain = useMemo18(() => {
+  const entityMatchesByDomain = useMemo19(() => {
     const m = /* @__PURE__ */ new Map();
     const q = query.trim().toLowerCase();
     if (!q || !index)
@@ -11555,7 +11735,7 @@ function DomainList() {
     );
     return m;
   }, [query, index]);
-  const filtered = useMemo18(() => {
+  const filtered = useMemo19(() => {
     let result = domainNodes;
     const entityMatchedDomainIds = new Set(
       Array.from(entityMatchesByDomain.keys())
@@ -11602,15 +11782,15 @@ function DomainList() {
     bookmarks,
     entityMatchesByDomain
   ]);
-  const favorites = useMemo18(
+  const favorites = useMemo19(
     () => filtered.filter((n) => bookmarks.has(n.id)),
     [filtered, bookmarks]
   );
-  const others = useMemo18(
+  const others = useMemo19(
     () => filtered.filter((n) => !bookmarks.has(n.id)),
     [filtered, bookmarks]
   );
-  const groups = useMemo18(() => {
+  const groups = useMemo19(() => {
     if (grouping === "flat") {
       return [{ key: "all", label: "\u0412\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B", nodes: others }];
     }
@@ -11623,7 +11803,7 @@ function DomainList() {
     }
     return Array.from(map2.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([key, ns]) => ({ key, label: key, nodes: ns }));
   }, [others, grouping]);
-  const flatRows = useMemo18(() => {
+  const flatRows = useMemo19(() => {
     const rows = [];
     if (!favCollapsed) {
       favorites.forEach((n) => rows.push({ node: n, isFav: true }));
@@ -12299,7 +12479,7 @@ import {
   useCallback as useCallback9,
   useEffect as useEffect19,
   useLayoutEffect,
-  useMemo as useMemo19,
+  useMemo as useMemo20,
   useRef as useRef11,
   useState as useState10
 } from "react";
@@ -12342,7 +12522,7 @@ function HelpModal({ open: open2, onClose }) {
     document.addEventListener("keydown", onEsc, true);
     return () => document.removeEventListener("keydown", onEsc, true);
   }, [open2, onClose]);
-  const html = useMemo19(() => {
+  const html = useMemo20(() => {
     if (!ready || !parse || !content)
       return "";
     return parse(content);
@@ -12460,7 +12640,7 @@ function HelpModal({ open: open2, onClose }) {
     root.addEventListener("click", onClick);
     return () => root.removeEventListener("click", onClick);
   }, [open2, jumpTo, html]);
-  const filteredToc = useMemo19(() => {
+  const filteredToc = useMemo20(() => {
     const q = query.trim().toLowerCase();
     if (!q)
       return toc;
@@ -12701,7 +12881,7 @@ var init_HighlightedText = __esm({
 });
 
 // src/web/components/modals/CommandPalette.tsx
-import React19, { useCallback as useCallback10, useEffect as useEffect21, useMemo as useMemo20, useRef as useRef12, useState as useState11 } from "react";
+import React19, { useCallback as useCallback10, useEffect as useEffect21, useMemo as useMemo21, useRef as useRef12, useState as useState11 } from "react";
 import { Fragment as Fragment9, jsx as jsx48, jsxs as jsxs45 } from "react/jsx-runtime";
 function SearchSyntaxPanel({ onPick }) {
   return /* @__PURE__ */ jsxs45("div", { className: "search-modal__syntax", children: [
@@ -12789,7 +12969,7 @@ function CommandPalette({ commands, onOpenFile }) {
       }, 50);
     }
   }, [open2]);
-  const filteredCommands = useMemo20(() => {
+  const filteredCommands = useMemo21(() => {
     const q = query.trim().toLowerCase();
     if (!q)
       return commands;
@@ -12798,7 +12978,7 @@ function CommandPalette({ commands, onOpenFile }) {
       return hay.indexOf(q) !== -1;
     });
   }, [query, commands]);
-  const commandsBySection = useMemo20(() => {
+  const commandsBySection = useMemo21(() => {
     const map2 = /* @__PURE__ */ new Map();
     filteredCommands.forEach((c) => {
       const s = c.section || "\u041F\u0440\u043E\u0447\u0435\u0435";
@@ -13082,7 +13262,7 @@ var init_CommandPalette = __esm({
 });
 
 // src/web/components/modals/ValidationModal.tsx
-import { useMemo as useMemo21, useState as useState12 } from "react";
+import { useMemo as useMemo22, useState as useState12 } from "react";
 import { jsx as jsx49, jsxs as jsxs46 } from "react/jsx-runtime";
 function downloadFile2(content, filename, mime) {
   const blob = new Blob([content], { type: mime });
@@ -13110,7 +13290,7 @@ function ValidationModal(props) {
       return s;
     });
   };
-  const filteredLogs = useMemo21(() => {
+  const filteredLogs = useMemo22(() => {
     if (filter === "all")
       return v.logs;
     if (filter === "valid")
@@ -13479,7 +13659,7 @@ var init_ModalHelp = __esm({
 });
 
 // src/web/components/common/EntityCombobox.tsx
-import { useEffect as useEffect22, useMemo as useMemo22, useRef as useRef14, useState as useState13 } from "react";
+import { useEffect as useEffect22, useMemo as useMemo23, useRef as useRef14, useState as useState13 } from "react";
 import { jsx as jsx51, jsxs as jsxs48 } from "react/jsx-runtime";
 function EntityCombobox({
   value,
@@ -13494,7 +13674,7 @@ function EntityCombobox({
   const wrapRef = useRef14(null);
   const inputRef = useRef14(null);
   const listRef = useRef14(null);
-  const filtered = useMemo22(() => {
+  const filtered = useMemo23(() => {
     const q = query.trim().toLowerCase();
     if (!q)
       return entities2;
@@ -13629,7 +13809,7 @@ var init_EntityCombobox = __esm({
 import {
   useEffect as useEffect23,
   useLayoutEffect as useLayoutEffect3,
-  useMemo as useMemo23,
+  useMemo as useMemo24,
   useRef as useRef15,
   useState as useState14
 } from "react";
@@ -13655,7 +13835,7 @@ function Combobox({
   const listRef = useRef15(null);
   const dropdownRef = useRef15(null);
   const [pos, setPos] = useState14(null);
-  const filtered = useMemo23(() => {
+  const filtered = useMemo24(() => {
     const q = query.trim().toLowerCase();
     if (!q)
       return options;
@@ -14491,6 +14671,7 @@ function TopoSortModal(props) {
             "input",
             {
               type: "checkbox",
+              style: { marginLeft: 8 },
               checked: includeFqid,
               onChange: () => setIncludeFqid(!includeFqid)
             }
@@ -14503,6 +14684,7 @@ function TopoSortModal(props) {
             "input",
             {
               type: "checkbox",
+              style: { marginLeft: 8 },
               checked: includeLinkage,
               onChange: () => setIncludeLinkage(!includeLinkage)
             }
@@ -14515,6 +14697,7 @@ function TopoSortModal(props) {
             "input",
             {
               type: "checkbox",
+              style: { marginLeft: 8 },
               checked: missingAsSatisfied,
               onChange: () => setMissingAsSatisfied(!missingAsSatisfied)
             }
@@ -14527,6 +14710,7 @@ function TopoSortModal(props) {
             "input",
             {
               type: "checkbox",
+              style: { marginLeft: 8 },
               checked: autoBreak,
               onChange: () => setAutoBreak(!autoBreak)
             }
@@ -14540,6 +14724,7 @@ function TopoSortModal(props) {
           "input",
           {
             className: "menu__input",
+            style: { margin: 0, width: "100%" },
             type: "text",
             placeholder: "\u043D\u0430\u043F\u0440\u0438\u043C\u0435\u0440: *.settings.*",
             value: excludePattern,
@@ -15081,14 +15266,14 @@ var init_LearningPathModal = __esm({
 });
 
 // src/web/components/modals/TourOverlay.tsx
-import { useEffect as useEffect28, useMemo as useMemo25 } from "react";
+import { useEffect as useEffect28, useMemo as useMemo26 } from "react";
 import { jsx as jsx56, jsxs as jsxs53 } from "react/jsx-runtime";
 function TourOverlay() {
   const tour = useGraphStore((s) => s.tour);
   const rfInstance = useGraphStore((s) => s.rfInstance);
   const nodes = useGraphStore((s) => s.nodes);
   const compact = useGraphStore((s) => s.compact);
-  const allItems = useMemo25(() => {
+  const allItems = useMemo26(() => {
     if (!tour)
       return [];
     const items = [];
@@ -15113,11 +15298,11 @@ function TourOverlay() {
     const node = nodes.find((n) => n.id === current2.nodeId);
     if (!node)
       return;
-    const NODE_WIDTH5 = 300;
-    const NODE_HEIGHT5 = 88;
+    const NODE_WIDTH6 = 300;
+    const NODE_HEIGHT6 = 88;
     const NODE_COMPACT2 = 42;
-    const w = compact ? NODE_COMPACT2 : NODE_WIDTH5;
-    const h = compact ? NODE_COMPACT2 : NODE_HEIGHT5;
+    const w = compact ? NODE_COMPACT2 : NODE_WIDTH6;
+    const h = compact ? NODE_COMPACT2 : NODE_HEIGHT6;
     const cx = node.position.x + w / 2;
     const cy = node.position.y + h / 2;
     rfInstance.setCenter(cx, cy, { zoom: 1.5, duration: 700 });
@@ -15225,7 +15410,7 @@ var init_TourOverlay = __esm({
 });
 
 // src/web/components/modals/EntityHierarchyFlow.tsx
-import { useCallback as useCallback13, useEffect as useEffect29, useMemo as useMemo26 } from "react";
+import { useCallback as useCallback13, useEffect as useEffect29, useMemo as useMemo27 } from "react";
 import ReactFlow2, {
   Background as Background2,
   BackgroundVariant as BackgroundVariant2,
@@ -15337,7 +15522,7 @@ function layoutWithDagre(nodes, edges) {
 function EntityHierarchyFlowInner({ tree, onSelect }) {
   const rf = useReactFlow2();
   const rootDomainId = (tree.rootKey.split("/")[0] || "").toLowerCase();
-  const { flowNodes, flowEdges } = useMemo26(() => {
+  const { flowNodes, flowEdges } = useMemo27(() => {
     const initialNodes = tree.nodes.map((n) => {
       const isRoot = n.key === tree.rootKey;
       return {
@@ -15474,7 +15659,7 @@ var init_EntityHierarchyFlow = __esm({
 });
 
 // src/web/components/modals/EntityHierarchyModal.tsx
-import { useCallback as useCallback14, useEffect as useEffect30, useMemo as useMemo27, useState as useState17 } from "react";
+import { useCallback as useCallback14, useEffect as useEffect30, useMemo as useMemo28, useState as useState17 } from "react";
 import { Fragment as Fragment12, jsx as jsx58, jsxs as jsxs55 } from "react/jsx-runtime";
 function EntityHierarchyModal({ entities: entities2 }) {
   const setEntityHierarchyOpen = useGraphStore(
@@ -15496,7 +15681,7 @@ function EntityHierarchyModal({ entities: entities2 }) {
   const [history, setHistory] = useState17([]);
   const open2 = entityHierarchyOpen;
   const initialKey = entityHierarchyInitialKey;
-  const index = useMemo27(() => buildEntityIndex(entities2), [entities2]);
+  const index = useMemo28(() => buildEntityIndex(entities2), [entities2]);
   useEffect30(() => {
     if (open2 && initialKey) {
       setSelectedKey(initialKey);
@@ -15535,7 +15720,7 @@ function EntityHierarchyModal({ entities: entities2 }) {
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
   }, [open2, history, handleBack, setEntityHierarchyOpen]);
-  const searchResults = useMemo27(() => {
+  const searchResults = useMemo28(() => {
     const q = query.trim().toLowerCase();
     if (!q)
       return [];
@@ -15559,7 +15744,7 @@ function EntityHierarchyModal({ entities: entities2 }) {
     });
     return results.sort((a, b) => a.rank - b.rank).slice(0, 200);
   }, [query, entities2, index]);
-  const tree = useMemo27(() => {
+  const tree = useMemo28(() => {
     if (!selectedKey)
       return null;
     if (!modelIndex)
@@ -16289,13 +16474,13 @@ var init_impact_analysis = __esm({
 });
 
 // src/web/components/modals/ImpactAnalysisPanel.tsx
-import { useMemo as useMemo28 } from "react";
+import { useMemo as useMemo29 } from "react";
 import { jsx as jsx60, jsxs as jsxs57 } from "react/jsx-runtime";
 function ImpactAnalysisPanel(props) {
   const entityFavorites = useGraphStore((s) => s.entityFavorites);
   const isFav = entityFavorites.has(props.fqid);
   const toggleFav = useGraphStore((s) => s.toggleEntityFavorite);
-  const impact = useMemo28(() => computeImpact(props.fqid, props.index), [props.fqid, props.index]);
+  const impact = useMemo29(() => computeImpact(props.fqid, props.index), [props.fqid, props.index]);
   if (!impact) {
     return /* @__PURE__ */ jsxs57("div", { className: "impact-panel", children: [
       /* @__PURE__ */ jsx60("button", { className: "entity-graph-back", onClick: props.onBack, children: "\u2190 \u041D\u0430\u0437\u0430\u0434 \u043A \u0441\u043F\u0438\u0441\u043A\u0443" }),
@@ -16596,7 +16781,7 @@ var init_ImpactAnalysisPanel = __esm({
 });
 
 // src/web/components/modals/EntitiesCatalogModal.tsx
-import React31, { useCallback as useCallback15, useEffect as useEffect32, useMemo as useMemo29, useState as useState19 } from "react";
+import React31, { useCallback as useCallback15, useEffect as useEffect32, useMemo as useMemo30, useState as useState19 } from "react";
 import { jsx as jsx61, jsxs as jsxs58 } from "react/jsx-runtime";
 function EntitiesCatalogModal() {
   const { goto } = useNavigation();
@@ -16627,20 +16812,20 @@ function EntitiesCatalogModal() {
   useEffect32(() => {
     setLimit(PAGE_SIZE);
   }, [filters]);
-  const orphanSet = useMemo29(() => {
+  const orphanSet = useMemo30(() => {
     if (!index)
       return /* @__PURE__ */ new Set();
     return new Set(index.stats.orphanEntities);
   }, [index]);
-  const filtered = useMemo29(
+  const filtered = useMemo30(
     () => index ? filterEntities(index, filters) : [],
     [index, filters]
   );
-  const visibleRows = useMemo29(
+  const visibleRows = useMemo30(
     () => filtered.slice(0, limit),
     [filtered, limit]
   );
-  const allDomains = useMemo29(() => {
+  const allDomains = useMemo30(() => {
     if (!index)
       return [];
     const map2 = /* @__PURE__ */ new Map();
@@ -16649,7 +16834,7 @@ function EntitiesCatalogModal() {
     });
     return Array.from(map2.entries()).sort((a, b) => b[1] - a[1]);
   }, [index]);
-  const allTags = useMemo29(() => {
+  const allTags = useMemo30(() => {
     if (!index)
       return [];
     const map2 = /* @__PURE__ */ new Map();
@@ -17094,7 +17279,7 @@ var init_attribute_search = __esm({
 });
 
 // src/web/components/modals/AttributeFinderModal.tsx
-import React32, { useCallback as useCallback16, useMemo as useMemo30, useState as useState20 } from "react";
+import React32, { useCallback as useCallback16, useMemo as useMemo31, useState as useState20 } from "react";
 import { Fragment as Fragment13, jsx as jsx62, jsxs as jsxs59 } from "react/jsx-runtime";
 function AttributeFinderModal() {
   const { goto } = useNavigation();
@@ -17107,9 +17292,9 @@ function AttributeFinderModal() {
   const [showSummary, setShowSummary] = useState20(true);
   const [expandedKey, setExpandedKey] = useState20(null);
   const open2 = useGraphStore((s) => s.attributeFinderOpen);
-  const allTypes = useMemo30(() => index ? collectDataTypes(index) : [], [index]);
-  const allConstraints = useMemo30(() => index ? collectConstraints(index) : [], [index]);
-  const allDomains = useMemo30(() => {
+  const allTypes = useMemo31(() => index ? collectDataTypes(index) : [], [index]);
+  const allConstraints = useMemo31(() => index ? collectConstraints(index) : [], [index]);
+  const allDomains = useMemo31(() => {
     if (!index)
       return [];
     const map2 = /* @__PURE__ */ new Map();
@@ -17135,7 +17320,7 @@ function AttributeFinderModal() {
     [goto]
   );
   const [limit, setLimit] = useState20(300);
-  const result = useMemo30(() => {
+  const result = useMemo31(() => {
     if (!index)
       return { hits: [], byName: [], totalHits: 0 };
     return searchAttributes(index, query, {
@@ -17145,12 +17330,12 @@ function AttributeFinderModal() {
       limit
     });
   }, [index, query, domainFilter, typeFilter, constraintFilter, limit]);
-  const piiKeys = useMemo30(() => {
+  const piiKeys = useMemo31(() => {
     if (!index)
       return /* @__PURE__ */ new Set();
     return new Set(index.pii.hits.map((h) => h.key));
   }, [index]);
-  const filteredHits = useMemo30(() => {
+  const filteredHits = useMemo31(() => {
     let hits = result.hits;
     if (onlyPii) {
       hits = hits.filter((h) => piiKeys.has(h.key));
@@ -17653,7 +17838,7 @@ var init_entity_matrix = __esm({
 });
 
 // src/web/components/modals/EntityMatrixModal.tsx
-import { useMemo as useMemo31, useState as useState21 } from "react";
+import { useMemo as useMemo32, useState as useState21 } from "react";
 import { jsx as jsx63, jsxs as jsxs60 } from "react/jsx-runtime";
 function EntityMatrixModal() {
   const { index, loading, error } = useModelIndex();
@@ -17662,7 +17847,7 @@ function EntityMatrixModal() {
   const [hoveredRow, setHoveredRow] = useState21(null);
   const [hoveredCol, setHoveredCol] = useState21(null);
   const open2 = useGraphStore((s) => s.entityMatrixOpen);
-  const allDomains = useMemo31(() => {
+  const allDomains = useMemo32(() => {
     if (!index)
       return [];
     const map2 = /* @__PURE__ */ new Map();
@@ -17671,7 +17856,7 @@ function EntityMatrixModal() {
     });
     return Array.from(map2.entries()).sort((a, b) => b[1] - a[1]);
   }, [index]);
-  const matrix = useMemo31(() => {
+  const matrix = useMemo32(() => {
     if (!index)
       return null;
     const domains = domainFilter ? /* @__PURE__ */ new Set([domainFilter.toLowerCase()]) : void 0;
@@ -17948,7 +18133,7 @@ var init_useModelDiff = __esm({
 });
 
 // src/web/components/modals/ModelDiffModal.tsx
-import { useMemo as useMemo32, useState as useState23 } from "react";
+import { useMemo as useMemo33, useState as useState23 } from "react";
 import { Fragment as Fragment14, jsx as jsx64, jsxs as jsxs61 } from "react/jsx-runtime";
 function genericSectionLabel(key) {
   return GENERIC_SECTION_LABELS[key] || key;
@@ -17960,7 +18145,7 @@ function ModelDiffModal() {
   );
   const [domainFilter, setDomainFilter] = useState23("");
   const [viewMode, setViewMode] = useState23("domain");
-  const byDomainFiltered = useMemo32(() => {
+  const byDomainFiltered = useMemo33(() => {
     if (!diff)
       return [];
     if (!domainFilter)
@@ -17979,7 +18164,7 @@ function ModelDiffModal() {
       return s;
     });
   };
-  const filtered = useMemo32(() => {
+  const filtered = useMemo33(() => {
     if (!diff)
       return null;
     if (!domainFilter)
@@ -18007,7 +18192,7 @@ function ModelDiffModal() {
       }
     };
   }, [diff, domainFilter]);
-  const allDomains = useMemo32(() => {
+  const allDomains = useMemo33(() => {
     if (!diff)
       return [];
     const set2 = /* @__PURE__ */ new Set();
@@ -18018,7 +18203,7 @@ function ModelDiffModal() {
     diff.mixins.removed.forEach((m) => set2.add(m.domainId));
     return Array.from(set2).sort();
   }, [diff]);
-  const totalChanges = useMemo32(() => {
+  const totalChanges = useMemo33(() => {
     if (!diff)
       return 0;
     const s = diff.stats;
@@ -18756,14 +18941,14 @@ var init_validation = __esm({
 });
 
 // src/web/components/modals/ModelValidationModal.tsx
-import { useMemo as useMemo33, useState as useState24 } from "react";
+import { useMemo as useMemo34, useState as useState24 } from "react";
 import { Fragment as Fragment15, jsx as jsx65, jsxs as jsxs62 } from "react/jsx-runtime";
 function ModelValidationModal() {
   const { index, loading, error } = useModelIndex();
   const [showHelp, setShowHelp] = useState24(false);
   const [expanded, setExpanded] = useState24(/* @__PURE__ */ new Set());
   const open2 = useGraphStore((s) => s.modelValidationOpen);
-  const summary = useMemo33(
+  const summary = useMemo34(
     () => index ? summarizeValidation(index.stats, index.orphans) : null,
     [index]
   );
@@ -19138,14 +19323,14 @@ var init_glossary = __esm({
 });
 
 // src/web/components/modals/GlossaryModal.tsx
-import { useMemo as useMemo34, useState as useState25 } from "react";
+import { useMemo as useMemo35, useState as useState25 } from "react";
 import { Fragment as Fragment16, jsx as jsx66, jsxs as jsxs63 } from "react/jsx-runtime";
 function GlossaryModal() {
   const { index, loading, error } = useModelIndex();
   const [tab, setTab] = useState25("entity");
   const [query, setQuery] = useState25("");
   const open2 = useGraphStore((s) => s.glossaryOpen);
-  const sections = useMemo34(() => {
+  const sections = useMemo35(() => {
     if (!index)
       return [];
     if (tab === "entity")
@@ -19154,15 +19339,15 @@ function GlossaryModal() {
       return buildAttributeGlossary(index);
     return buildDataTypeGlossary(index);
   }, [index, tab]);
-  const filtered = useMemo34(
+  const filtered = useMemo35(
     () => filterGlossarySections(sections, query),
     [sections, query]
   );
-  const totalCount = useMemo34(
+  const totalCount = useMemo35(
     () => sections.reduce((s, sec) => s + sec.entries.length, 0),
     [sections]
   );
-  const filteredCount = useMemo34(
+  const filteredCount = useMemo35(
     () => filtered.reduce((s, sec) => s + sec.entries.length, 0),
     [filtered]
   );
@@ -19192,7 +19377,7 @@ function GlossaryModal() {
       el.scrollIntoView({ behavior: "smooth", block: "start" });
   };
   const availableLetters = filtered.map((s) => s.letter);
-  const indexLetters = useMemo34(() => {
+  const indexLetters = useMemo35(() => {
     const latin = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     const cyrillic = "\u0410\u0411\u0412\u0413\u0414\u0415\u0401\u0416\u0417\u0418\u0419\u041A\u041B\u041C\u041D\u041E\u041F\u0420\u0421\u0422\u0423\u0424\u0425\u0426\u0427\u0428\u0429\u042A\u042B\u042C\u042D\u042E\u042F";
     const set2 = new Set(availableLetters);
@@ -19644,13 +19829,15 @@ var init_entity_graph = __esm({
 });
 
 // src/web/components/common/DomainCombobox.tsx
-import { useEffect as useEffect34, useMemo as useMemo35, useRef as useRef17, useState as useState26 } from "react";
+import { useEffect as useEffect34, useMemo as useMemo36, useRef as useRef17, useState as useState26 } from "react";
 import { jsx as jsx67, jsxs as jsxs64 } from "react/jsx-runtime";
 function DomainCombobox({
   value,
   onChange,
   domains,
-  placeholder = "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u043E\u043C\u0435\u043D..."
+  placeholder = "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u043E\u043C\u0435\u043D...",
+  allowEmpty = false,
+  emptyLabel = "\u0412\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B"
 }) {
   const [open2, setOpen] = useState26(false);
   const [query, setQuery] = useState26("");
@@ -19658,15 +19845,24 @@ function DomainCombobox({
   const wrapRef = useRef17(null);
   const inputRef = useRef17(null);
   const listRef = useRef17(null);
-  const filtered = useMemo35(() => {
+  const totalCount = useMemo36(
+    () => domains.reduce((s, [, c]) => s + c, 0),
+    [domains]
+  );
+  const items = useMemo36(() => {
+    if (allowEmpty)
+      return [["", totalCount], ...domains];
+    return domains;
+  }, [domains, allowEmpty, totalCount]);
+  const filtered = useMemo36(() => {
     const q = query.trim().toLowerCase();
     if (!q)
-      return domains;
-    return domains.filter(([d]) => d.toLowerCase().indexOf(q) !== -1);
-  }, [domains, query]);
+      return items;
+    return items.filter(([d]) => d === "" || d.toLowerCase().indexOf(q) !== -1);
+  }, [items, query]);
   useEffect34(() => {
     if (open2) {
-      setQuery(value || "");
+      setQuery("");
       setActiveIdx(0);
       setTimeout(() => inputRef.current?.focus(), 30);
     } else {
@@ -19709,7 +19905,8 @@ function DomainCombobox({
       setOpen(false);
     }
   };
-  const current = domains.find(([d]) => d === value);
+  const current = items.find(([d]) => d === value);
+  const currentLabel = current ? current[0] === "" ? emptyLabel : current[0] : null;
   return /* @__PURE__ */ jsxs64("div", { className: "domain-combobox", ref: wrapRef, children: [
     /* @__PURE__ */ jsxs64(
       "button",
@@ -19719,8 +19916,8 @@ function DomainCombobox({
         onClick: () => setOpen(!open2),
         children: [
           /* @__PURE__ */ jsx67(MIcon, { name: "folder", size: "sm" }),
-          /* @__PURE__ */ jsx67("span", { className: "domain-combobox__trigger-text", children: current ? current[0] : placeholder }),
-          current && /* @__PURE__ */ jsx67("span", { className: "domain-combobox__trigger-count", children: current[1] }),
+          /* @__PURE__ */ jsx67("span", { className: "domain-combobox__trigger-text", children: currentLabel || placeholder }),
+          current && current[0] !== "" && /* @__PURE__ */ jsx67("span", { className: "domain-combobox__trigger-count", children: current[1] }),
           /* @__PURE__ */ jsx67(MIcon, { name: open2 ? "expand_less" : "expand_more", size: "sm" })
         ]
       }
@@ -19762,18 +19959,18 @@ function DomainCombobox({
         "button",
         {
           type: "button",
-          className: "domain-combobox__option" + (d === value ? " domain-combobox__option--selected" : "") + (idx === activeIdx ? " domain-combobox__option--active" : ""),
+          className: "domain-combobox__option" + (d === value ? " domain-combobox__option--selected" : "") + (idx === activeIdx ? " domain-combobox__option--active" : "") + (d === "" ? " domain-combobox__option--all" : ""),
           onMouseEnter: () => setActiveIdx(idx),
           onClick: () => {
             onChange(d);
             setOpen(false);
           },
           children: [
-            /* @__PURE__ */ jsx67("span", { className: "domain-combobox__option-name", children: d }),
-            /* @__PURE__ */ jsx67("span", { className: "domain-combobox__option-count", children: count })
+            /* @__PURE__ */ jsx67("span", { className: "domain-combobox__option-name", children: d === "" ? emptyLabel : d }),
+            d !== "" && /* @__PURE__ */ jsx67("span", { className: "domain-combobox__option-count", children: count })
           ]
         },
-        d
+        d || "__all__"
       )) })
     ] })
   ] });
@@ -19786,7 +19983,7 @@ var init_DomainCombobox = __esm({
 });
 
 // src/web/components/modals/EntityGraphModal.tsx
-import { useCallback as useCallback17, useEffect as useEffect35, useMemo as useMemo36, useState as useState27 } from "react";
+import { useCallback as useCallback17, useEffect as useEffect35, useMemo as useMemo37, useState as useState27 } from "react";
 import ReactFlow3, {
   Background as Background3,
   BackgroundVariant as BackgroundVariant3,
@@ -19884,7 +20081,7 @@ function EntityGraphInner({
   onNodeClick
 }) {
   const rf = useReactFlow3();
-  const positionedNodes = useMemo36(
+  const positionedNodes = useMemo37(
     () => nodes.map((n) => ({ ...n, sourcePosition, targetPosition })),
     [nodes, sourcePosition, targetPosition]
   );
@@ -19936,7 +20133,7 @@ function EntityGraphModal() {
   const [showHelp, setShowHelp] = useState27(false);
   const open2 = useGraphStore((s) => s.entityGraphOpen);
   const entityGraphDomainFilter = useGraphStore((s) => s.entityGraphDomainFilter);
-  const allDomains = useMemo36(() => {
+  const allDomains = useMemo37(() => {
     if (!index)
       return [];
     const map2 = /* @__PURE__ */ new Map();
@@ -19961,7 +20158,7 @@ function EntityGraphModal() {
   const showInheritance = useGraphStore((s) => s.entityGraphShowInheritance);
   const showReferences = useGraphStore((s) => s.entityGraphShowReferences);
   const showLinkages = useGraphStore((s) => s.entityGraphShowLinkages);
-  const graph = useMemo36(() => {
+  const graph = useMemo37(() => {
     if (!index || !domainFilter)
       return null;
     const domains = /* @__PURE__ */ new Set([domainFilter.toLowerCase()]);
@@ -19973,7 +20170,7 @@ function EntityGraphModal() {
       limit: GRAPH_LIMIT
     });
   }, [index, domainFilter, showInheritance, showReferences, showLinkages]);
-  const rfNodes = useMemo36(() => {
+  const rfNodes = useMemo37(() => {
     if (!graph)
       return [];
     return graph.nodes.map((n) => ({
@@ -19990,7 +20187,7 @@ function EntityGraphModal() {
       height: NODE_HEIGHT3
     }));
   }, [graph]);
-  const rfEdges = useMemo36(() => {
+  const rfEdges = useMemo37(() => {
     if (!graph)
       return [];
     return graph.edges.map((e) => {
@@ -20022,7 +20219,7 @@ function EntityGraphModal() {
       };
     });
   }, [graph]);
-  const laidNodes = useMemo36(
+  const laidNodes = useMemo37(
     () => layoutGraph(rfNodes, rfEdges, rankdir),
     [rfNodes, rfEdges, rankdir]
   );
@@ -20666,8 +20863,8 @@ var init_DomainSchemaHelpers = __esm({
 });
 
 // src/web/components/modals/DomainSchemaSectionItems.tsx
-import React38, { useMemo as useMemo37 } from "react";
-import { jsx as jsx69, jsxs as jsxs66 } from "react/jsx-runtime";
+import React38, { useMemo as useMemo38 } from "react";
+import { Fragment as Fragment18, jsx as jsx69, jsxs as jsxs66 } from "react/jsx-runtime";
 function IssueBadge({ issues }) {
   if (issues.length === 0)
     return null;
@@ -20737,8 +20934,8 @@ function InheritanceChain({
   index,
   onOpenEntity
 }) {
-  const ancestors = useMemo37(() => findAncestorChain(fqid, index), [fqid, index]);
-  const children = useMemo37(() => {
+  const ancestors = useMemo38(() => findAncestorChain(fqid, index), [fqid, index]);
+  const children = useMemo38(() => {
     const fqids = index.entityChildrenByFqid[fqid] || [];
     return fqids.map((f) => index.entitiesByFqid[f]).filter((x) => !!x);
   }, [fqid, index]);
@@ -21325,7 +21522,18 @@ function SectionItems({
       /* @__PURE__ */ jsx69("code", { className: "domain-schema-item__id", children: m.id }),
       /* @__PURE__ */ jsxs66("span", { className: "domain-schema-item__meta", children: [
         m.type,
-        m.iconName && ` \xB7 ${m.iconName}`
+        m.iconName && /* @__PURE__ */ jsxs66(Fragment18, { children: [
+          " \xB7 ",
+          /* @__PURE__ */ jsx69(
+            "span",
+            {
+              className: "domain-schema-icon-preview",
+              title: `IconName: ${m.iconName}`,
+              children: /* @__PURE__ */ jsx69(MIcon, { name: "image", size: "sm" })
+            }
+          ),
+          /* @__PURE__ */ jsx69("code", { style: { fontSize: 11, color: "var(--text-400)" }, children: m.iconName })
+        ] })
       ] })
     ] }, m.id)) });
   }
@@ -21746,8 +21954,8 @@ var init_GenerateSchemaProfiles = __esm({
 });
 
 // src/web/components/modals/DomainSchemaModal.tsx
-import React39, { useEffect as useEffect36, useMemo as useMemo38, useState as useState28 } from "react";
-import { Fragment as Fragment18, jsx as jsx70, jsxs as jsxs67 } from "react/jsx-runtime";
+import React39, { useEffect as useEffect36, useMemo as useMemo39, useState as useState28 } from "react";
+import { Fragment as Fragment19, jsx as jsx70, jsxs as jsxs67 } from "react/jsx-runtime";
 function DomainSchemaModal() {
   const { goto } = useNavigation();
   const { index, loading, error } = useModelIndex();
@@ -21807,12 +22015,12 @@ function DomainSchemaModal() {
     }, 200);
     return () => clearTimeout(t);
   }, [open2, prefillExpandItem, setPrefillExpandItem]);
-  const schema2 = useMemo38(() => {
+  const schema2 = useMemo39(() => {
     if (!index || !domainId)
       return null;
     return index.schemasByDomain[domainId] || null;
   }, [index, domainId]);
-  const currentNode = useMemo38(() => {
+  const currentNode = useMemo39(() => {
     if (!schema2)
       return null;
     return nodes.find(
@@ -21861,7 +22069,7 @@ function DomainSchemaModal() {
       setStatusToggling(false);
     }
   };
-  const issuesByEntity = useMemo38(() => {
+  const issuesByEntity = useMemo39(() => {
     const m = /* @__PURE__ */ new Map();
     if (!index || !domainId)
       return m;
@@ -21876,7 +22084,7 @@ function DomainSchemaModal() {
     });
     return m;
   }, [index, domainId]);
-  const issuesByAttribute = useMemo38(() => {
+  const issuesByAttribute = useMemo39(() => {
     const m = /* @__PURE__ */ new Map();
     if (!index || !domainId)
       return m;
@@ -21892,12 +22100,12 @@ function DomainSchemaModal() {
     });
     return m;
   }, [index, domainId]);
-  const domainIssues = useMemo38(() => {
+  const domainIssues = useMemo39(() => {
     if (!index || !domainId)
       return [];
     return index.lint.lintReport.issues.filter((i) => i.domainId === domainId);
   }, [index, domainId]);
-  const counters = useMemo38(() => {
+  const counters = useMemo39(() => {
     if (!schema2)
       return null;
     const totalAttrs = schema2.sections.entities.items.reduce(
@@ -21943,7 +22151,7 @@ function DomainSchemaModal() {
     st.setEntityCatalogInitialFqid(fqid);
     st.setEntityCatalogOpen(true);
   };
-  const filteredSections = useMemo38(() => {
+  const filteredSections = useMemo39(() => {
     if (!schema2)
       return null;
     if (!query.trim() && !onlyProblematic)
@@ -22166,6 +22374,23 @@ function DomainSchemaModal() {
                       className: "btn",
                       onClick: () => {
                         const st = useGraphStore.getState();
+                        st.setOnboardingWizardDomainId(schema2.domainId);
+                        st.setOnboardingWizardOpen(true);
+                        st.setDomainSchemaOpen(false);
+                      },
+                      title: "\u041F\u043E\u0448\u0430\u0433\u043E\u0432\u044B\u0439 \u043E\u043D\u0431\u043E\u0440\u0434\u0438\u043D\u0433: \u0447\u0442\u043E \u0435\u0449\u0451 \u043D\u0443\u0436\u043D\u043E \u0441\u0434\u0435\u043B\u0430\u0442\u044C",
+                      children: [
+                        /* @__PURE__ */ jsx70(MIcon, { name: "rocket_launch", size: "sm" }),
+                        "\u041E\u043D\u0431\u043E\u0440\u0434\u0438\u043D\u0433"
+                      ]
+                    }
+                  ),
+                  /* @__PURE__ */ jsxs67(
+                    "button",
+                    {
+                      className: "btn",
+                      onClick: () => {
+                        const st = useGraphStore.getState();
                         st.setGenerateBatchDomainId(schema2.domainId);
                         st.setGenerateBatchOpen(true);
                         st.setDomainSchemaOpen(false);
@@ -22191,7 +22416,24 @@ function DomainSchemaModal() {
                         ]
                       }
                     ),
-                    enrichMenuOpen && /* @__PURE__ */ jsxs67(Fragment18, { children: [
+                    /* @__PURE__ */ jsxs67(
+                      "button",
+                      {
+                        className: "btn",
+                        onClick: () => {
+                          const st = useGraphStore.getState();
+                          st.setViewGraphPrefillDomain(schema2.domainId);
+                          st.setViewGraphOpen(true);
+                          st.setDomainSchemaOpen(false);
+                        },
+                        title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0433\u0440\u0430\u0444 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0435\u0439 views \u044D\u0442\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430",
+                        children: [
+                          /* @__PURE__ */ jsx70(MIcon, { name: "schema", size: "sm" }),
+                          "\u0413\u0440\u0430\u0444 views"
+                        ]
+                      }
+                    ),
+                    enrichMenuOpen && /* @__PURE__ */ jsxs67(Fragment19, { children: [
                       /* @__PURE__ */ jsx70(
                         "div",
                         {
@@ -22651,8 +22893,8 @@ var init_lint_baseline = __esm({
 });
 
 // src/web/components/modals/LintModal.tsx
-import { useCallback as useCallback19, useEffect as useEffect38, useMemo as useMemo39, useState as useState30 } from "react";
-import { Fragment as Fragment19, jsx as jsx71, jsxs as jsxs68 } from "react/jsx-runtime";
+import { useCallback as useCallback19, useEffect as useEffect38, useMemo as useMemo40, useState as useState30 } from "react";
+import { Fragment as Fragment20, jsx as jsx71, jsxs as jsxs68 } from "react/jsx-runtime";
 function LintModal() {
   const { index, loading, error } = useModelIndex();
   const [filterCategory, setFilterCategory] = useState30("");
@@ -22669,14 +22911,14 @@ function LintModal() {
   const open2 = useGraphStore((s) => s.lintOpen);
   const nodes = useGraphStore((s) => s.nodes);
   const report = index?.lint.lintReport ?? null;
-  const allDomains = useMemo39(() => {
+  const allDomains = useMemo40(() => {
     if (!report)
       return [];
     const set2 = /* @__PURE__ */ new Set();
     report.issues.forEach((i) => set2.add(i.domainId));
     return Array.from(set2).sort();
   }, [report]);
-  const newIssueKeysByDomain = useMemo39(() => {
+  const newIssueKeysByDomain = useMemo40(() => {
     const result = /* @__PURE__ */ new Map();
     if (!report)
       return result;
@@ -22769,7 +23011,7 @@ function LintModal() {
     useGraphStore.getState().setTooltip(null);
     window.__tooltipHovered = false;
   }, [open2]);
-  const filteredIssues = useMemo39(() => {
+  const filteredIssues = useMemo40(() => {
     if (!report)
       return [];
     return report.issues.filter((i) => {
@@ -22785,7 +23027,7 @@ function LintModal() {
       return true;
     });
   }, [report, filterCategory, filterDomain, onlyNew, isIssueNew]);
-  const newIssueCount = useMemo39(() => {
+  const newIssueCount = useMemo40(() => {
     if (!report)
       return 0;
     let count = 0;
@@ -22799,7 +23041,7 @@ function LintModal() {
     }
     return count;
   }, [report, filterCategory, filterDomain, isIssueNew]);
-  const unbaselinedDomainCount = useMemo39(() => {
+  const unbaselinedDomainCount = useMemo40(() => {
     if (!report)
       return 0;
     const domains = new Set(report.issues.map((i) => i.domainId));
@@ -22809,7 +23051,7 @@ function LintModal() {
         count++;
     return count;
   }, [report, baselines]);
-  const grouped = useMemo39(() => {
+  const grouped = useMemo40(() => {
     const map2 = /* @__PURE__ */ new Map();
     filteredIssues.forEach((i) => {
       if (!map2.has(i.ruleId)) {
@@ -23050,7 +23292,7 @@ function LintModal() {
                       ]
                     }
                   ),
-                  filterDomain ? /* @__PURE__ */ jsxs68(Fragment19, { children: [
+                  filterDomain ? /* @__PURE__ */ jsxs68(Fragment20, { children: [
                     /* @__PURE__ */ jsxs68(
                       "button",
                       {
@@ -23387,7 +23629,7 @@ var init_attribute_matrix = __esm({
 });
 
 // src/web/components/modals/AttributeMatrixModal.tsx
-import { useMemo as useMemo40, useState as useState31 } from "react";
+import { useMemo as useMemo41, useState as useState31 } from "react";
 import { jsx as jsx72, jsxs as jsxs69 } from "react/jsx-runtime";
 function AttributeMatrixModal() {
   const { index, loading, error } = useModelIndex();
@@ -23396,7 +23638,7 @@ function AttributeMatrixModal() {
   const [domainFilter, setDomainFilter] = useState31("");
   const [minOccurrences, setMinOccurrences] = useState31(2);
   const [onlyInconsistent, setOnlyInconsistent] = useState31(false);
-  const allDomains = useMemo40(() => {
+  const allDomains = useMemo41(() => {
     if (!index)
       return [];
     const map2 = /* @__PURE__ */ new Map();
@@ -23405,7 +23647,7 @@ function AttributeMatrixModal() {
     });
     return Array.from(map2.entries()).sort((a, b) => b[1] - a[1]);
   }, [index]);
-  const matrix = useMemo40(() => {
+  const matrix = useMemo41(() => {
     if (!index)
       return null;
     return buildAttributeMatrix(index, {
@@ -23415,7 +23657,7 @@ function AttributeMatrixModal() {
       maxRows: 100
     });
   }, [index, domainFilter, minOccurrences]);
-  const visibleColumns = useMemo40(() => {
+  const visibleColumns = useMemo41(() => {
     if (!matrix)
       return [];
     if (!onlyInconsistent)
@@ -23716,7 +23958,7 @@ var init_AttributeMatrixModal = __esm({
 });
 
 // src/web/components/modals/MartinMetricsModal.tsx
-import { useMemo as useMemo41, useState as useState32 } from "react";
+import { useMemo as useMemo42, useState as useState32 } from "react";
 import { jsx as jsx73, jsxs as jsxs70 } from "react/jsx-runtime";
 function MartinMetricsModal() {
   const { index, loading, error } = useModelIndex();
@@ -23725,7 +23967,7 @@ function MartinMetricsModal() {
   const [sortBy, setSortBy] = useState32("distance");
   const [filterZone, setFilterZone] = useState32("");
   const report = index?.martin ?? null;
-  const sorted = useMemo41(() => {
+  const sorted = useMemo42(() => {
     if (!report)
       return [];
     let arr = [...report.metrics];
@@ -24186,8 +24428,8 @@ var init_domain_compare = __esm({
 });
 
 // src/web/components/modals/DomainCompareModal.tsx
-import { useEffect as useEffect39, useMemo as useMemo42, useState as useState33 } from "react";
-import { Fragment as Fragment20, jsx as jsx74, jsxs as jsxs71 } from "react/jsx-runtime";
+import { useEffect as useEffect39, useMemo as useMemo43, useState as useState33 } from "react";
+import { Fragment as Fragment21, jsx as jsx74, jsxs as jsxs71 } from "react/jsx-runtime";
 function DomainCompareModal() {
   const { index, loading, error } = useModelIndex();
   const { goto } = useNavigation();
@@ -24204,7 +24446,7 @@ function DomainCompareModal() {
       setPrefillA(null);
     }
   }, [open2, prefillA, setPrefillA]);
-  const allDomains = useMemo42(() => {
+  const allDomains = useMemo43(() => {
     if (!index)
       return [];
     const map2 = /* @__PURE__ */ new Map();
@@ -24213,7 +24455,7 @@ function DomainCompareModal() {
     });
     return Array.from(map2.entries()).sort((a, b) => b[1] - a[1]);
   }, [index]);
-  const result = useMemo42(() => {
+  const result = useMemo43(() => {
     if (!index || !domainA || !domainB || domainA === domainB)
       return null;
     return compareDomains(index, domainA, domainB);
@@ -24277,7 +24519,7 @@ function DomainCompareModal() {
                   )
                 ] })
               ] }),
-              !domainA || !domainB ? /* @__PURE__ */ jsx74("div", { className: "compare-empty", children: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u0432\u0430 \u0434\u043E\u043C\u0435\u043D\u0430" }) : domainA === domainB ? /* @__PURE__ */ jsx74("div", { className: "compare-empty", children: "\u0414\u043E\u043C\u0435\u043D\u044B \u0434\u043E\u043B\u0436\u043D\u044B \u0431\u044B\u0442\u044C \u0440\u0430\u0437\u043D\u044B\u043C\u0438" }) : result ? /* @__PURE__ */ jsxs71(Fragment20, { children: [
+              !domainA || !domainB ? /* @__PURE__ */ jsx74("div", { className: "compare-empty", children: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u0432\u0430 \u0434\u043E\u043C\u0435\u043D\u0430" }) : domainA === domainB ? /* @__PURE__ */ jsx74("div", { className: "compare-empty", children: "\u0414\u043E\u043C\u0435\u043D\u044B \u0434\u043E\u043B\u0436\u043D\u044B \u0431\u044B\u0442\u044C \u0440\u0430\u0437\u043D\u044B\u043C\u0438" }) : result ? /* @__PURE__ */ jsxs71(Fragment21, { children: [
                 /* @__PURE__ */ jsxs71("div", { className: "compare-summary", children: [
                   /* @__PURE__ */ jsxs71("div", { className: "compare-side compare-side--a", children: [
                     /* @__PURE__ */ jsx74("div", { className: "compare-side__id", children: result.domainA.domainId }),
@@ -24677,7 +24919,7 @@ var init_pii_markdown = __esm({
 });
 
 // src/web/components/modals/PiiModal.tsx
-import { useEffect as useEffect40, useMemo as useMemo43, useState as useState34 } from "react";
+import { useEffect as useEffect40, useMemo as useMemo44, useState as useState34 } from "react";
 import { jsx as jsx75, jsxs as jsxs72 } from "react/jsx-runtime";
 function loadIgnored() {
   try {
@@ -24724,7 +24966,7 @@ function PiiModal() {
     setPiiInitialSeverity
   ]);
   const report = index?.pii ?? null;
-  const visibleHits = useMemo43(() => {
+  const visibleHits = useMemo44(() => {
     if (!report)
       return [];
     return report.hits.filter((h) => {
@@ -24742,7 +24984,7 @@ function PiiModal() {
       return true;
     });
   }, [report, ignored, filterSeverity, filterCategory, filterDomain]);
-  const grouped = useMemo43(() => {
+  const grouped = useMemo44(() => {
     const map2 = /* @__PURE__ */ new Map();
     SEVERITY_ORDER2.forEach((s) => map2.set(s, []));
     visibleHits.forEach((h) => {
@@ -39059,6 +39301,63 @@ ${indent}description: ""`
         ) || { suggestions: [] };
       }
       switch (fieldName) {
+        case "iconName": {
+          const path = findContainerPath(model, position);
+          if (path[0] !== "medias" && vctx.section !== "medias") {
+            return { suggestions: [] };
+          }
+          const POPULAR = /* @__PURE__ */ new Set([
+            "Add",
+            "Edit",
+            "Trash",
+            "Eye",
+            "Save",
+            "Close",
+            "Refresh",
+            "Search",
+            "Filter",
+            "Settings",
+            "Folder",
+            "File",
+            "FileText",
+            "Download",
+            "Upload",
+            "Menu",
+            "MoreVertical",
+            "Check",
+            "Alert",
+            "Info",
+            "User",
+            "Users",
+            "Group",
+            "Link",
+            "List",
+            "Dashboard",
+            "Server",
+            "Cloud",
+            "Lock",
+            "Shield",
+            "Bug",
+            "Rocket",
+            "StarFilled",
+            "StarUnfilled",
+            "Play",
+            "Pause"
+          ]);
+          return r(
+            model,
+            position,
+            ["iconName"],
+            COMMON_ICON_NAMES.map(([name, desc]) => ({
+              label: name,
+              insertText: " " + name,
+              kind: Kind.Value,
+              sortText: (POPULAR.has(name) ? "0_" : "1_") + name,
+              documentation: desc
+            })),
+            Kind
+          ) || { suggestions: [] };
+        }
         case "initial": {
           if (vctx.section !== "dataTypes")
             return { suggestions: [] };
@@ -41229,6 +41528,41 @@ function applyViewRefMarkers(monaco, model, index, currentDomainId) {
         checkRef(i, line, gm[2], localGroupIds, "group");
       }
     }
+    {
+      const known = new Set(COMMON_ICON_NAMES.map(([n]) => n.toLowerCase()));
+      let inMedias = false;
+      let mediasIndent = -1;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line.trim())
+          continue;
+        const ind = (line.match(/^(\s*)/) || ["", ""])[1].length;
+        if (ind === 0) {
+          const sm = line.match(/^([a-zA-Z_][\w]*)\s*:/);
+          inMedias = sm?.[1] === "medias";
+          mediasIndent = -1;
+          continue;
+        }
+        if (!inMedias)
+          continue;
+        const m = line.match(/^\s*iconName\s*:\s*["']?([^\s"'#]+)["']?/);
+        if (!m)
+          continue;
+        const v = m[1];
+        if (!known.has(v.toLowerCase())) {
+          const startCol = line.indexOf(v) + 1;
+          markers.push({
+            severity: monaco.MarkerSeverity.Info,
+            message: `iconName \xAB${v}\xBB \u043D\u0435 \u0438\u0437 \u0441\u0442\u0430\u043D\u0434\u0430\u0440\u0442\u043D\u043E\u0433\u043E \u043D\u0430\u0431\u043E\u0440\u0430 Material Symbols (\u0432\u043E\u0437\u043C\u043E\u0436\u043D\u043E, \u043E\u043F\u0435\u0447\u0430\u0442\u043A\u0430)`,
+            startLineNumber: i + 1,
+            startColumn: startCol,
+            endLineNumber: i + 1,
+            endColumn: startCol + v.length,
+            source: "view-ref-validator"
+          });
+        }
+      }
+    }
     monaco.editor.setModelMarkers(model, "view-ref-validator", markers);
   } catch (err) {
     console.warn("[view-ref-validator]", err);
@@ -41816,7 +42150,7 @@ function resolvePathToContext(path) {
   }
   return null;
 }
-var SORT, INLINE_COVERED_RULE_IDS, SYSTEM_ATTRIBUTES_FOR_COMPLETION, providersRegistered, ctx, REF_FIELDS, ATTRIBUTE_LIKE_FIELDS, BASE_DATA_TYPE_DESCRIPTIONS, GRAPH_VIEW_COLORS, GRAPH_VIEW_COLOR_LABELS, RECONCILIATION_MERGE_STRATEGIES, RECONCILIATION_MERGE_LABELS, WIDGET_TYPE_DESCRIPTIONS, EFFECT_DESCRIPTIONS, TARGET_DESCRIPTIONS, CONTROL_TYPE_DESCRIPTIONS, BASE_DATA_TYPES_COMPLETION, BOOLEAN_FIELD_NAMES, mkSimple, FIELD_DEFINITIONS, SNIPPETS, PATH_TO_CONTEXT, _colCache, RQL_FIELDS2, BASE_DATA_TYPES_SET, TYPE_ENUM_BY_CTX, EFFECT_ENUM_BY_CTX, TARGET_ENUM_BY_CTX, OPERATION_ENUM_BY_ACTION_TYPE;
+var SORT, INLINE_COVERED_RULE_IDS, SYSTEM_ATTRIBUTES_FOR_COMPLETION, COMMON_ICON_NAMES, providersRegistered, ctx, REF_FIELDS, ATTRIBUTE_LIKE_FIELDS, BASE_DATA_TYPE_DESCRIPTIONS, GRAPH_VIEW_COLORS, GRAPH_VIEW_COLOR_LABELS, RECONCILIATION_MERGE_STRATEGIES, RECONCILIATION_MERGE_LABELS, WIDGET_TYPE_DESCRIPTIONS, EFFECT_DESCRIPTIONS, TARGET_DESCRIPTIONS, CONTROL_TYPE_DESCRIPTIONS, BASE_DATA_TYPES_COMPLETION, BOOLEAN_FIELD_NAMES, mkSimple, FIELD_DEFINITIONS, SNIPPETS, PATH_TO_CONTEXT, _colCache, RQL_FIELDS2, BASE_DATA_TYPES_SET, TYPE_ENUM_BY_CTX, EFFECT_ENUM_BY_CTX, TARGET_ENUM_BY_CTX, OPERATION_ENUM_BY_ACTION_TYPE;
 var init_monaco_providers = __esm({
   "src/web/lib/monaco/monaco-providers.ts"() {
     "use strict";
@@ -41858,6 +42192,362 @@ var init_monaco_providers = __esm({
       { id: "domainId", dataType: "String", description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0434\u043E\u043C\u0435\u043D\u0430" },
       { id: "entityId", dataType: "String", description: "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438" },
       { id: "entityName", dataType: "String", description: "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438" }
+    ];
+    COMMON_ICON_NAMES = [
+      // ── Действия ──
+      ["Add", "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C"],
+      ["AddBranch", "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u0432\u0435\u0442\u043A\u0443"],
+      ["Close", "\u0417\u0430\u043A\u0440\u044B\u0442\u044C"],
+      ["CloseCircle", "\u0417\u0430\u043A\u0440\u044B\u0442\u044C (\u043A\u0440\u0443\u0436\u043E\u043A)"],
+      ["Check", "\u0413\u0430\u043B\u043E\u0447\u043A\u0430"],
+      ["CheckCircle", "\u0413\u0430\u043B\u043E\u0447\u043A\u0430 \u0432 \u043A\u0440\u0443\u0433\u0435"],
+      ["Copy", "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C"],
+      ["Edit", "\u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C"],
+      ["Eraser", "\u041B\u0430\u0441\u0442\u0438\u043A"],
+      ["Export", "\u042D\u043A\u0441\u043F\u043E\u0440\u0442"],
+      ["Import", "\u0418\u043C\u043F\u043E\u0440\u0442"],
+      ["Minus", "\u0423\u0431\u0440\u0430\u0442\u044C"],
+      ["MinusCircle", "\u0423\u0431\u0440\u0430\u0442\u044C (\u043A\u0440\u0443\u0436\u043E\u043A)"],
+      ["MinusSquare", "\u0423\u0431\u0440\u0430\u0442\u044C (\u043A\u0432\u0430\u0434\u0440\u0430\u0442)"],
+      ["Plus", "\u041F\u043B\u044E\u0441"],
+      ["PlusSquare", "\u041F\u043B\u044E\u0441 (\u043A\u0432\u0430\u0434\u0440\u0430\u0442)"],
+      ["Redo", "\u041F\u043E\u0432\u0442\u043E\u0440\u0438\u0442\u044C"],
+      ["Refresh", "\u041E\u0431\u043D\u043E\u0432\u0438\u0442\u044C"],
+      ["Reload", "\u041F\u0435\u0440\u0435\u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C"],
+      ["Restore", "\u0412\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C"],
+      ["Save", "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C"],
+      ["Send", "\u041E\u0442\u043F\u0440\u0430\u0432\u0438\u0442\u044C"],
+      ["Trash", "\u0423\u0434\u0430\u043B\u0438\u0442\u044C (\u043A\u043E\u0440\u0437\u0438\u043D\u0430)"],
+      ["Undo", "\u041E\u0442\u043C\u0435\u043D\u0438\u0442\u044C"],
+      ["Upload", "\u0417\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C"],
+      ["Download", "\u0421\u043A\u0430\u0447\u0430\u0442\u044C"],
+      // ── Навигация ──
+      ["ArrowLeft", "\u0421\u0442\u0440\u0435\u043B\u043A\u0430 \u0432\u043B\u0435\u0432\u043E"],
+      ["ArrowRight", "\u0421\u0442\u0440\u0435\u043B\u043A\u0430 \u0432\u043F\u0440\u0430\u0432\u043E"],
+      ["ArrowUp", "\u0421\u0442\u0440\u0435\u043B\u043A\u0430 \u0432\u0432\u0435\u0440\u0445"],
+      ["ArrowDown", "\u0421\u0442\u0440\u0435\u043B\u043A\u0430 \u0432\u043D\u0438\u0437"],
+      ["ArrowUpDown", "\u0421\u0442\u0440\u0435\u043B\u043A\u0430 \u0432\u0432\u0435\u0440\u0445-\u0432\u043D\u0438\u0437"],
+      ["ArrowGoBack", "\u0421\u0442\u0440\u0435\u043B\u043A\u0430 \u043D\u0430\u0437\u0430\u0434"],
+      ["ChevronLeft", "\u0428\u0435\u0432\u0440\u043E\u043D \u0432\u043B\u0435\u0432\u043E"],
+      ["ChevronRight", "\u0428\u0435\u0432\u0440\u043E\u043D \u0432\u043F\u0440\u0430\u0432\u043E"],
+      ["ChevronUp", "\u0428\u0435\u0432\u0440\u043E\u043D \u0432\u0432\u0435\u0440\u0445"],
+      ["ChevronDown", "\u0428\u0435\u0432\u0440\u043E\u043D \u0432\u043D\u0438\u0437"],
+      ["DoubleChevronLeft", "\u0414\u0432\u043E\u0439\u043D\u043E\u0439 \u0448\u0435\u0432\u0440\u043E\u043D \u0432\u043B\u0435\u0432\u043E"],
+      ["DoubleChevronRight", "\u0414\u0432\u043E\u0439\u043D\u043E\u0439 \u0448\u0435\u0432\u0440\u043E\u043D \u0432\u043F\u0440\u0430\u0432\u043E"],
+      ["DoubleChevronUp", "\u0414\u0432\u043E\u0439\u043D\u043E\u0439 \u0448\u0435\u0432\u0440\u043E\u043D \u0432\u0432\u0435\u0440\u0445"],
+      ["DoubleChevronDown", "\u0414\u0432\u043E\u0439\u043D\u043E\u0439 \u0448\u0435\u0432\u0440\u043E\u043D \u0432\u043D\u0438\u0437"],
+      ["DoubleArrowLeft", "\u0414\u0432\u043E\u0439\u043D\u0430\u044F \u0441\u0442\u0440\u0435\u043B\u043A\u0430 \u0432\u043B\u0435\u0432\u043E"],
+      ["DoubleArrowRight", "\u0414\u0432\u043E\u0439\u043D\u0430\u044F \u0441\u0442\u0440\u0435\u043B\u043A\u0430 \u0432\u043F\u0440\u0430\u0432\u043E"],
+      ["DoubleArrowUp", "\u0414\u0432\u043E\u0439\u043D\u0430\u044F \u0441\u0442\u0440\u0435\u043B\u043A\u0430 \u0432\u0432\u0435\u0440\u0445"],
+      ["DoubleArrowDown", "\u0414\u0432\u043E\u0439\u043D\u0430\u044F \u0441\u0442\u0440\u0435\u043B\u043A\u0430 \u0432\u043D\u0438\u0437"],
+      ["MoveLeft", "\u0414\u0432\u0438\u0436\u0435\u043D\u0438\u0435 \u0432\u043B\u0435\u0432\u043E"],
+      ["MoveRight", "\u0414\u0432\u0438\u0436\u0435\u043D\u0438\u0435 \u0432\u043F\u0440\u0430\u0432\u043E"],
+      ["MoveTo", "\u041F\u0435\u0440\u0435\u0439\u0442\u0438 \u043A"],
+      ["MoveHorizontal", "\u0414\u0432\u0438\u0436\u0435\u043D\u0438\u0435 \u0433\u043E\u0440\u0438\u0437\u043E\u043D\u0442\u0430\u043B\u044C\u043D\u043E"],
+      ["Move", "\u0414\u0432\u0438\u0433\u0430\u0442\u044C"],
+      ["Moveable", "\u041F\u0435\u0440\u0435\u043C\u0435\u0449\u0430\u0435\u043C\u044B\u0439"],
+      ["Exit", "\u0412\u044B\u0445\u043E\u0434"],
+      ["LogIn", "\u0412\u0445\u043E\u0434"],
+      ["LogOut", "\u0412\u044B\u0445\u043E\u0434 (logout)"],
+      // ── Состояния / статусы ──
+      ["Alert", "\u041E\u043F\u043E\u0432\u0435\u0449\u0435\u043D\u0438\u0435"],
+      ["Attention", "\u0412\u043D\u0438\u043C\u0430\u043D\u0438\u0435"],
+      ["CheckCircle", "\u0423\u0441\u043F\u0435\u0445"],
+      ["CloseCircle", "\u041E\u0448\u0438\u0431\u043A\u0430"],
+      ["Info", "\u0418\u043D\u0444\u043E\u0440\u043C\u0430\u0446\u0438\u044F"],
+      ["Question", "\u0412\u043E\u043F\u0440\u043E\u0441"],
+      ["StarFilled", "\u0417\u0432\u0435\u0437\u0434\u0430 (\u0437\u0430\u043F\u043E\u043B\u043D\u0435\u043D\u043D\u0430\u044F)"],
+      ["StarUnfilled", "\u0417\u0432\u0435\u0437\u0434\u0430 (\u043A\u043E\u043D\u0442\u0443\u0440)"],
+      ["Pause", "\u041F\u0430\u0443\u0437\u0430"],
+      ["PauseCircle", "\u041F\u0430\u0443\u0437\u0430 (\u043A\u0440\u0443\u0436\u043E\u043A)"],
+      ["Play", "\u0412\u043E\u0441\u043F\u0440\u043E\u0438\u0437\u0432\u0435\u0441\u0442\u0438"],
+      ["PlayCircle", "\u0412\u043E\u0441\u043F\u0440\u043E\u0438\u0437\u0432\u0435\u0441\u0442\u0438 (\u043A\u0440\u0443\u0436\u043E\u043A)"],
+      ["ResumeCircle", "\u041F\u0440\u043E\u0434\u043E\u043B\u0436\u0438\u0442\u044C"],
+      ["StopCircle", "\u0421\u0442\u043E\u043F"],
+      ["Loader", "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430"],
+      ["Spinner", "\u0421\u043F\u0438\u043D\u043D\u0435\u0440"],
+      ["Connected", "\u041F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u043E"],
+      ["NotConnected", "\u041D\u0435 \u043F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u043E"],
+      ["Off", "\u0412\u044B\u043A\u043B\u044E\u0447\u0435\u043D\u043E"],
+      ["Lock", "\u0417\u0430\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043D\u043E"],
+      ["Unlock", "\u0420\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043D\u043E"],
+      // ── Файлы и данные ──
+      ["File", "\u0424\u0430\u0439\u043B"],
+      ["FileText", "\u0422\u0435\u043A\u0441\u0442\u043E\u0432\u044B\u0439 \u0444\u0430\u0439\u043B"],
+      ["FileText2", "\u0414\u043E\u043A\u0443\u043C\u0435\u043D\u0442"],
+      ["FilePlus", "\u0424\u0430\u0439\u043B \u0441 \u043F\u043B\u044E\u0441\u043E\u043C"],
+      ["FileBadge", "\u0424\u0430\u0439\u043B-\u0431\u0435\u0439\u0434\u0436"],
+      ["Pdf", "PDF"],
+      ["Archive", "\u0410\u0440\u0445\u0438\u0432"],
+      ["Download", "\u0421\u043A\u0430\u0447\u0430\u0442\u044C"],
+      ["HardDrive", "\u0416\u0451\u0441\u0442\u043A\u0438\u0439 \u0434\u0438\u0441\u043A"],
+      ["HardDriveUpload", "\u0412\u044B\u0433\u0440\u0443\u0437\u043A\u0430 \u043D\u0430 \u0434\u0438\u0441\u043A"],
+      ["HardDriveDownload", "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0441 \u0434\u0438\u0441\u043A\u0430"],
+      ["Folder", "\u041F\u0430\u043F\u043A\u0430"],
+      ["FolderTree", "\u0414\u0435\u0440\u0435\u0432\u043E \u043F\u0430\u043F\u043E\u043A"],
+      ["FolderSearch", "\u041F\u043E\u0438\u0441\u043A \u0432 \u043F\u0430\u043F\u043A\u0435"],
+      ["FolderSync", "\u0421\u0438\u043D\u0445\u0440\u043E\u043D\u0438\u0437\u0430\u0446\u0438\u044F \u043F\u0430\u043F\u043A\u0438"],
+      ["FolderCog", "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u043F\u0430\u043F\u043A\u0438"],
+      ["FolderHeart", "\u0418\u0437\u0431\u0440\u0430\u043D\u043D\u0430\u044F \u043F\u0430\u043F\u043A\u0430"],
+      ["FolderCheckStreamlineLucide", "\u041F\u0430\u043F\u043A\u0430 \u0441 \u0433\u0430\u043B\u043E\u0447\u043A\u043E\u0439"],
+      ["FolderClockStreamlineLucide", "\u041F\u0430\u043F\u043A\u0430 \u0441 \u0447\u0430\u0441\u0430\u043C\u0438"],
+      ["InboxArchive", "\u0412\u0445\u043E\u0434\u044F\u0449\u0438\u0435 \u0432 \u0430\u0440\u0445\u0438\u0432"],
+      ["InboxUnarchive", "\u0412\u0445\u043E\u0434\u044F\u0449\u0438\u0435 \u0438\u0437 \u0430\u0440\u0445\u0438\u0432\u0430"],
+      ["Box", "\u041A\u043E\u0440\u043E\u0431\u043A\u0430"],
+      ["Layers", "\u0421\u043B\u043E\u0438"],
+      ["Grid", "\u0421\u0435\u0442\u043A\u0430"],
+      ["Table", "\u0422\u0430\u0431\u043B\u0438\u0446\u0430"],
+      // ── Сущности / объекты ──
+      ["User", "\u041F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044C"],
+      ["Users", "\u041F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u0438"],
+      ["Group", "\u0413\u0440\u0443\u043F\u043F\u0430"],
+      ["SupportGroups", "\u0413\u0440\u0443\u043F\u043F\u044B \u043F\u043E\u0434\u0434\u0435\u0440\u0436\u043A\u0438"],
+      ["Organization", "\u041E\u0440\u0433\u0430\u043D\u0438\u0437\u0430\u0446\u0438\u044F"],
+      ["Departments", "\u041E\u0442\u0434\u0435\u043B\u044B"],
+      ["AgentFromGroup", "\u0410\u0433\u0435\u043D\u0442 \u0438\u0437 \u0433\u0440\u0443\u043F\u043F\u044B"],
+      ["AgentToGroup", "\u0410\u0433\u0435\u043D\u0442 \u0432 \u0433\u0440\u0443\u043F\u043F\u0443"],
+      ["UserExport", "\u042D\u043A\u0441\u043F\u043E\u0440\u0442 \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044F"],
+      ["Assets", "\u0410\u043A\u0442\u0438\u0432\u044B"],
+      ["Ioc", "\u0418\u043D\u0434\u0438\u043A\u0430\u0442\u043E\u0440 (IoC)"],
+      ["Ip", "IP-\u0430\u0434\u0440\u0435\u0441"],
+      ["Detections", "\u0414\u0435\u0442\u0435\u043A\u0446\u0438\u0438"],
+      ["Threats", "\u0423\u0433\u0440\u043E\u0437\u044B"],
+      ["Audit", "\u0410\u0443\u0434\u0438\u0442"],
+      ["Baseline", "\u0411\u0430\u0437\u043E\u0432\u0430\u044F \u043B\u0438\u043D\u0438\u044F"],
+      ["Variable", "\u041F\u0435\u0440\u0435\u043C\u0435\u043D\u043D\u0430\u044F"],
+      ["Value", "\u0417\u043D\u0430\u0447\u0435\u043D\u0438\u0435"],
+      ["Field", "\u041F\u043E\u043B\u0435"],
+      ["Field1", "\u041F\u043E\u043B\u0435 1"],
+      ["Number", "\u0427\u0438\u0441\u043B\u043E"],
+      ["Id", "\u0418\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440"],
+      ["Hash", "\u0420\u0435\u0448\u0451\u0442\u043A\u0430 (#)"],
+      ["Binary", "\u0411\u0438\u043D\u0430\u0440\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435"],
+      // ── Инфраструктура ──
+      ["Server", "\u0421\u0435\u0440\u0432\u0435\u0440"],
+      ["Cluster", "\u041A\u043B\u0430\u0441\u0442\u0435\u0440"],
+      ["Network", "\u0421\u0435\u0442\u044C"],
+      ["Cloud", "\u041E\u0431\u043B\u0430\u043A\u043E"],
+      ["Connection", "\u0421\u043E\u0435\u0434\u0438\u043D\u0435\u043D\u0438\u0435"],
+      ["Port", "\u041F\u043E\u0440\u0442"],
+      ["Service", "\u0421\u0435\u0440\u0432\u0438\u0441"],
+      ["Processes", "\u041F\u0440\u043E\u0446\u0435\u0441\u0441\u044B"],
+      ["Component", "\u041A\u043E\u043C\u043F\u043E\u043D\u0435\u043D\u0442"],
+      ["Constructor", "\u041A\u043E\u043D\u0441\u0442\u0440\u0443\u043A\u0442\u043E\u0440"],
+      ["Blocks", "\u0411\u043B\u043E\u043A\u0438"],
+      ["Layout", "\u041C\u0430\u043A\u0435\u0442"],
+      ["Dashboard", "\u0414\u0430\u0448\u0431\u043E\u0440\u0434"],
+      // ── Устройства ──
+      ["Desktop", "\u0420\u0430\u0431\u043E\u0447\u0438\u0439 \u0441\u0442\u043E\u043B"],
+      ["Laptop", "\u041D\u043E\u0443\u0442\u0431\u0443\u043A"],
+      ["Smartphone", "\u0421\u043C\u0430\u0440\u0442\u0444\u043E\u043D"],
+      ["MonitorX", "\u041C\u043E\u043D\u0438\u0442\u043E\u0440 (\u043E\u0448\u0438\u0431\u043A\u0430)"],
+      ["MonitorExport", "\u041C\u043E\u043D\u0438\u0442\u043E\u0440 (\u044D\u043A\u0441\u043F\u043E\u0440\u0442)"],
+      ["Printer", "\u041F\u0440\u0438\u043D\u0442\u0435\u0440"],
+      ["Camera", "\u041A\u0430\u043C\u0435\u0440\u0430"],
+      ["Keyboard", "\u041A\u043B\u0430\u0432\u0438\u0430\u0442\u0443\u0440\u0430"],
+      ["Battery", "\u0411\u0430\u0442\u0430\u0440\u0435\u044F"],
+      ["BatteryFull", "\u0411\u0430\u0442\u0430\u0440\u0435\u044F \u043F\u043E\u043B\u043D\u0430\u044F"],
+      ["HardDrive", "\u0414\u0438\u0441\u043A"],
+      ["Disc", "\u0414\u0438\u0441\u043A (CD)"],
+      ["Terminal", "\u0422\u0435\u0440\u043C\u0438\u043D\u0430\u043B"],
+      ["Shell", "Shell"],
+      ["Windows", "Windows"],
+      ["Macos", "macOS"],
+      ["Linux", "Linux"],
+      ["Vmware", "VMware"],
+      ["Satellite", "\u0421\u043F\u0443\u0442\u043D\u0438\u043A"],
+      ["SatelliteDish", "\u0421\u043F\u0443\u0442\u043D\u0438\u043A\u043E\u0432\u0430\u044F \u0430\u043D\u0442\u0435\u043D\u043D\u0430"],
+      // ── Безопасность ──
+      ["Shield", "\u0429\u0438\u0442"],
+      ["ShieldOff", "\u0429\u0438\u0442 \u0432\u044B\u043A\u043B\u044E\u0447\u0435\u043D"],
+      ["Lock", "\u0417\u0430\u043C\u043E\u043A"],
+      ["Unlock", "\u041E\u0442\u043A\u0440\u044B\u0442\u044B\u0439 \u0437\u0430\u043C\u043E\u043A"],
+      ["Key", "\u041A\u043B\u044E\u0447"],
+      ["KeyRound", "\u041A\u043B\u044E\u0447 (\u043A\u0440\u0443\u0433\u043B\u044B\u0439)"],
+      ["Siren", "\u0421\u0438\u0440\u0435\u043D\u0430"],
+      ["Skull", "\u0427\u0435\u0440\u0435\u043F"],
+      ["Radiation", "\u0420\u0430\u0434\u0438\u0430\u0446\u0438\u044F"],
+      ["Fire", "\u041E\u0433\u043E\u043D\u044C"],
+      ["FireExtinguisherStreamlineLucide", "\u041E\u0433\u043D\u0435\u0442\u0443\u0448\u0438\u0442\u0435\u043B\u044C"],
+      ["Cross", "\u041A\u0440\u0435\u0441\u0442"],
+      ["Swords", "\u041C\u0435\u0447\u0438"],
+      ["Brain", "\u041C\u043E\u0437\u0433"],
+      ["Eye", "\u0413\u043B\u0430\u0437"],
+      ["EyeOff", "\u0421\u043A\u0440\u044B\u0442\u044C \u0433\u043B\u0430\u0437"],
+      ["FingerprintStreamlineLucide", "\u041E\u0442\u043F\u0435\u0447\u0430\u0442\u043E\u043A \u043F\u0430\u043B\u044C\u0446\u0430"],
+      ["Bug", "\u0411\u0430\u0433"],
+      // ── Наука / инструменты ──
+      ["Microscope", "\u041C\u0438\u043A\u0440\u043E\u0441\u043A\u043E\u043F"],
+      ["FlaskConicalStreamlineLucide", "\u041A\u043E\u043B\u0431\u0430"],
+      ["Syringe", "\u0428\u043F\u0440\u0438\u0446"],
+      ["Pill", "\u0422\u0430\u0431\u043B\u0435\u0442\u043A\u0430"],
+      ["Thermometer", "\u0422\u0435\u0440\u043C\u043E\u043C\u0435\u0442\u0440"],
+      ["Ruler", "\u041B\u0438\u043D\u0435\u0439\u043A\u0430"],
+      ["Hammer", "\u041C\u043E\u043B\u043E\u0442\u043E\u043A"],
+      ["Tool", "\u0418\u043D\u0441\u0442\u0440\u0443\u043C\u0435\u043D\u0442"],
+      ["Shovel", "\u041B\u043E\u043F\u0430\u0442\u0430"],
+      ["PocketKnife", "\u041A\u0430\u0440\u043C\u0430\u043D\u043D\u044B\u0439 \u043D\u043E\u0436"],
+      ["Wand", "\u041F\u0430\u043B\u043E\u0447\u043A\u0430"],
+      ["Magnet", "\u041C\u0430\u0433\u043D\u0438\u0442"],
+      ["SatelliteDish", "\u0410\u043D\u0442\u0435\u043D\u043D\u0430"],
+      // ── Транспорт ──
+      ["Rocket", "\u0420\u0430\u043A\u0435\u0442\u0430"],
+      ["Fuel", "\u0422\u043E\u043F\u043B\u0438\u0432\u043E"],
+      ["Route", "\u041C\u0430\u0440\u0448\u0440\u0443\u0442"],
+      ["MapPin", "\u041C\u0435\u0442\u043A\u0430 \u043D\u0430 \u043A\u0430\u0440\u0442\u0435"],
+      ["Map", "\u041A\u0430\u0440\u0442\u0430"],
+      ["Compass", "\u041A\u043E\u043C\u043F\u0430\u0441"],
+      ["Footprints", "\u0421\u043B\u0435\u0434\u044B"],
+      // ── Время / планирование ──
+      ["Calendar", "\u041A\u0430\u043B\u0435\u043D\u0434\u0430\u0440\u044C"],
+      ["Clock", "\u0427\u0430\u0441\u044B"],
+      ["AlarmClock", "\u0411\u0443\u0434\u0438\u043B\u044C\u043D\u0438\u043A"],
+      ["AlarmClockCheck", "\u0411\u0443\u0434\u0438\u043B\u044C\u043D\u0438\u043A \u0441 \u0433\u0430\u043B\u043E\u0447\u043A\u043E\u0439"],
+      ["History", "\u0418\u0441\u0442\u043E\u0440\u0438\u044F"],
+      ["Change", "\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0435"],
+      ["Diff", "\u0414\u0438\u0444\u0444"],
+      ["Repeat", "\u041F\u043E\u0432\u0442\u043E\u0440"],
+      ["ListRestart", "\u0421\u043F\u0438\u0441\u043E\u043A \u0441 \u043F\u0435\u0440\u0435\u0437\u0430\u043F\u0443\u0441\u043A\u043E\u043C"],
+      // ── Документы / текст ──
+      ["Clipboard", "\u0411\u0443\u0444\u0435\u0440 \u043E\u0431\u043C\u0435\u043D\u0430"],
+      ["Notebook", "\u0411\u043B\u043E\u043A\u043D\u043E\u0442"],
+      ["Bookmark", "\u0417\u0430\u043A\u043B\u0430\u0434\u043A\u0430"],
+      ["Pin", "\u0411\u0443\u043B\u0430\u0432\u043A\u0430"],
+      ["PinFill", "\u0411\u0443\u043B\u0430\u0432\u043A\u0430 (\u0437\u0430\u043F\u043E\u043B\u043D\u0435\u043D\u043D\u0430\u044F)"],
+      ["PinOff", "\u0411\u0443\u043B\u0430\u0432\u043A\u0430 \u043E\u0442\u043A\u0440\u0435\u043F\u043B\u0435\u043D\u0430"],
+      ["Paperclip", "\u0421\u043A\u0440\u0435\u043F\u043A\u0430"],
+      ["Link", "\u0421\u0441\u044B\u043B\u043A\u0430"],
+      ["Link2", "\u0421\u0441\u044B\u043B\u043A\u0430 (\u0432\u0430\u0440\u0438\u0430\u043D\u0442)"],
+      ["Links", "\u0421\u0441\u044B\u043B\u043A\u0438"],
+      ["Unlink", "\u0420\u0430\u0437\u043E\u0440\u0432\u0430\u0442\u044C \u0441\u0441\u044B\u043B\u043A\u0443"],
+      ["Unplug", "\u041E\u0442\u043A\u043B\u044E\u0447\u0438\u0442\u044C"],
+      ["Text", "\u0422\u0435\u043A\u0441\u0442"],
+      ["Heading", "\u0417\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A"],
+      ["Heading1", "\u0417\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A 1"],
+      ["Heading2", "\u0417\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A 2"],
+      ["Heading3", "\u0417\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A 3"],
+      ["Heading4", "\u0417\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A 4"],
+      ["Heading5", "\u0417\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A 5"],
+      ["Heading6", "\u0417\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A 6"],
+      ["Bold", "\u0416\u0438\u0440\u043D\u044B\u0439"],
+      ["Italic", "\u041A\u0443\u0440\u0441\u0438\u0432"],
+      ["Underline", "\u041F\u043E\u0434\u0447\u0451\u0440\u043A\u043D\u0443\u0442\u044B\u0439"],
+      ["Strikethrough", "\u0417\u0430\u0447\u0451\u0440\u043A\u043D\u0443\u0442\u044B\u0439"],
+      ["Pilcrow", "\u041F\u0430\u0440\u0430\u0433\u0440\u0430\u0444"],
+      ["Brace", "\u0421\u043A\u043E\u0431\u043A\u0430"],
+      ["Unbrace", "\u0423\u0431\u0440\u0430\u0442\u044C \u0441\u043A\u043E\u0431\u043A\u0443"],
+      ["Bracket", "\u041A\u0432\u0430\u0434\u0440\u0430\u0442\u043D\u0430\u044F \u0441\u043A\u043E\u0431\u043A\u0430"],
+      ["Quote", "\u0426\u0438\u0442\u0430\u0442\u0430"],
+      ["TextAlignStart", "\u041F\u043E \u043B\u0435\u0432\u043E\u043C\u0443 \u043A\u0440\u0430\u044E"],
+      ["TextAlignCenter", "\u041F\u043E \u0446\u0435\u043D\u0442\u0440\u0443"],
+      ["TextAlignEnd", "\u041F\u043E \u043F\u0440\u0430\u0432\u043E\u043C\u0443 \u043A\u0440\u0430\u044E"],
+      ["TextAlignJustify", "\u041F\u043E \u0448\u0438\u0440\u0438\u043D\u0435"],
+      // ── Списки / организация ──
+      ["List", "\u0421\u043F\u0438\u0441\u043E\u043A"],
+      ["ListChecks", "\u0421\u043F\u0438\u0441\u043E\u043A \u0441 \u0433\u0430\u043B\u043E\u0447\u043A\u0430\u043C\u0438"],
+      ["ListOrdered", "\u0423\u043F\u043E\u0440\u044F\u0434\u043E\u0447\u0435\u043D\u043D\u044B\u0439 \u0441\u043F\u0438\u0441\u043E\u043A"],
+      ["Columns", "\u041A\u043E\u043B\u043E\u043D\u043A\u0438"],
+      ["Columns2", "\u0414\u0432\u0435 \u043A\u043E\u043B\u043E\u043D\u043A\u0438"],
+      ["Columns4", "\u0427\u0435\u0442\u044B\u0440\u0435 \u043A\u043E\u043B\u043E\u043D\u043A\u0438"],
+      ["Rows2", "\u0414\u0432\u0430 \u0440\u044F\u0434\u0430"],
+      ["Rows3", "\u0422\u0440\u0438 \u0440\u044F\u0434\u0430"],
+      ["SortByUp", "\u0421\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430 \u0432\u0432\u0435\u0440\u0445"],
+      ["SortByDown", "\u0421\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430 \u0432\u043D\u0438\u0437"],
+      ["SortByLeft", "\u0421\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430 \u0432\u043B\u0435\u0432\u043E"],
+      ["SortByRight", "\u0421\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430 \u0432\u043F\u0440\u0430\u0432\u043E"],
+      ["SortDefault", "\u0421\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430 \u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E"],
+      ["SortUp", "\u041F\u043E \u0432\u043E\u0437\u0440\u0430\u0441\u0442\u0430\u043D\u0438\u044E"],
+      ["SortDown", "\u041F\u043E \u0443\u0431\u044B\u0432\u0430\u043D\u0438\u044E"],
+      ["Filter", "\u0424\u0438\u043B\u044C\u0442\u0440"],
+      ["Filter2", "\u0424\u0438\u043B\u044C\u0442\u0440 (\u0432\u0430\u0440\u0438\u0430\u043D\u0442)"],
+      ["Search", "\u041F\u043E\u0438\u0441\u043A"],
+      ["LocateFixed", "\u041D\u0430\u0439\u0442\u0438"],
+      // ── Графы / диаграммы ──
+      ["ChartSquare", "\u0414\u0438\u0430\u0433\u0440\u0430\u043C\u043C\u0430"],
+      ["LineChart", "\u041B\u0438\u043D\u0435\u0439\u043D\u044B\u0439 \u0433\u0440\u0430\u0444\u0438\u043A"],
+      ["DiagramCircle", "\u041A\u0440\u0443\u0433\u043E\u0432\u0430\u044F \u0434\u0438\u0430\u0433\u0440\u0430\u043C\u043C\u0430"],
+      ["OrientedGraph", "\u041E\u0440\u0438\u0435\u043D\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0439 \u0433\u0440\u0430\u0444"],
+      ["VerticalGraph", "\u0412\u0435\u0440\u0442\u0438\u043A\u0430\u043B\u044C\u043D\u044B\u0439 \u0433\u0440\u0430\u0444"],
+      ["GitBranch", "\u0412\u0435\u0442\u043A\u0430 git"],
+      ["GitMerge", "\u0421\u043B\u0438\u044F\u043D\u0438\u0435 git"],
+      ["Constructor", "\u041A\u043E\u043D\u0441\u0442\u0440\u0443\u043A\u0442\u043E\u0440"],
+      ["Apps", "\u041F\u0440\u0438\u043B\u043E\u0436\u0435\u043D\u0438\u044F"],
+      ["Puzzle", "\u041F\u0430\u0437\u043B"],
+      ["Sitemap", "\u041A\u0430\u0440\u0442\u0430 \u0441\u0430\u0439\u0442\u0430"],
+      ["FitToScreen", "\u0412\u043F\u0438\u0441\u0430\u0442\u044C \u0432 \u044D\u043A\u0440\u0430\u043D"],
+      ["Focus", "\u0424\u043E\u043A\u0443\u0441"],
+      ["ZoomIn", "\u041F\u0440\u0438\u0431\u043B\u0438\u0437\u0438\u0442\u044C"],
+      ["ZoomOut", "\u041E\u0442\u0434\u0430\u043B\u0438\u0442\u044C"],
+      ["Maximize", "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C"],
+      ["Minimize", "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C"],
+      // ── Настройки / конфигурация ──
+      ["Settings", "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438"],
+      ["Sliders", "\u041F\u043E\u043B\u0437\u0443\u043D\u043A\u0438"],
+      ["ToggleLeft", "\u041F\u0435\u0440\u0435\u043A\u043B\u044E\u0447\u0430\u0442\u0435\u043B\u044C \u0432\u043B\u0435\u0432\u043E"],
+      ["ToggleRight", "\u041F\u0435\u0440\u0435\u043A\u043B\u044E\u0447\u0430\u0442\u0435\u043B\u044C \u0432\u043F\u0440\u0430\u0432\u043E"],
+      ["Layers", "\u0421\u043B\u043E\u0438"],
+      ["Invert", "\u0418\u043D\u0432\u0435\u0440\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C"],
+      ["Combine", "\u041E\u0431\u044A\u0435\u0434\u0438\u043D\u0438\u0442\u044C"],
+      ["Compare", "\u0421\u0440\u0430\u0432\u043D\u0438\u0442\u044C"],
+      ["Diff", "\u0421\u0440\u0430\u0432\u043D\u0438\u0442\u044C (diff)"],
+      // ── Коммуникации ──
+      ["Mail", "\u041F\u0438\u0441\u044C\u043C\u043E"],
+      ["MailOpen", "\u041E\u0442\u043A\u0440\u044B\u0442\u043E\u0435 \u043F\u0438\u0441\u044C\u043C\u043E"],
+      ["MessageCircle", "\u0421\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435"],
+      ["Send", "\u041E\u0442\u043F\u0440\u0430\u0432\u0438\u0442\u044C"],
+      ["ShareForwardBox", "\u041F\u043E\u0434\u0435\u043B\u0438\u0442\u044C\u0441\u044F"],
+      ["Notifications", "\u0423\u0432\u0435\u0434\u043E\u043C\u043B\u0435\u043D\u0438\u044F"],
+      ["NotificationsOff", "\u0423\u0432\u0435\u0434\u043E\u043C\u043B\u0435\u043D\u0438\u044F \u0432\u044B\u043A\u043B\u044E\u0447\u0435\u043D\u044B"],
+      ["Podcast", "\u041F\u043E\u0434\u043A\u0430\u0441\u0442"],
+      ["AudioLines", "\u0410\u0443\u0434\u0438\u043E\u0434\u043E\u0440\u043E\u0436\u043A\u0438"],
+      ["Answer", "\u041E\u0442\u0432\u0435\u0442"],
+      // ── Разное ──
+      ["Activity", "\u0410\u043A\u0442\u0438\u0432\u043D\u043E\u0441\u0442\u044C"],
+      ["Aperture", "\u0414\u0438\u0430\u0444\u0440\u0430\u0433\u043C\u0430"],
+      ["Award", "\u041D\u0430\u0433\u0440\u0430\u0434\u0430"],
+      ["Trophy", "\u0422\u0440\u043E\u0444\u0435\u0439"],
+      ["Crown", "\u041A\u043E\u0440\u043E\u043D\u0430"],
+      ["PartyPopper", "\u0425\u043B\u043E\u043F\u0443\u0448\u043A\u0430"],
+      ["Sparkles", "\u0418\u0441\u043A\u0440\u044B"],
+      ["Lightbulb", "\u041B\u0430\u043C\u043F\u043E\u0447\u043A\u0430"],
+      ["Flash", "\u0412\u0441\u043F\u044B\u0448\u043A\u0430"],
+      ["ZapOff", "\u041C\u043E\u043B\u043D\u0438\u044F \u0432\u044B\u043A\u043B\u044E\u0447\u0435\u043D\u0430"],
+      ["Goal", "\u0426\u0435\u043B\u044C"],
+      ["Guide", "\u0420\u0443\u043A\u043E\u0432\u043E\u0434\u0441\u0442\u0432\u043E"],
+      ["LifeBuoy", "\u0421\u043F\u0430\u0441\u0430\u0442\u0435\u043B\u044C\u043D\u044B\u0439 \u043A\u0440\u0443\u0433"],
+      ["Coffee", "\u041A\u043E\u0444\u0435"],
+      ["Fish", "\u0420\u044B\u0431\u0430"],
+      ["Ghost", "\u041F\u0440\u0438\u0437\u0440\u0430\u043A"],
+      ["Dot", "\u0422\u043E\u0447\u043A\u0430"],
+      ["Square", "\u041A\u0432\u0430\u0434\u0440\u0430\u0442"],
+      ["Rectangle", "\u041F\u0440\u044F\u043C\u043E\u0443\u0433\u043E\u043B\u044C\u043D\u0438\u043A"],
+      ["BrickWall", "\u041A\u0438\u0440\u043F\u0438\u0447\u043D\u0430\u044F \u0441\u0442\u0435\u043D\u0430"],
+      ["Warehouse", "\u0421\u043A\u043B\u0430\u0434"],
+      ["BriefcaseBusiness", "\u041F\u043E\u0440\u0442\u0444\u0435\u043B\u044C"],
+      ["ShoppingBasket", "\u041A\u043E\u0440\u0437\u0438\u043D\u0430 \u043F\u043E\u043A\u0443\u043F\u043E\u043A"],
+      ["Wallet", "\u041A\u043E\u0448\u0435\u043B\u0451\u043A"],
+      ["CreditCard", "\u041A\u0440\u0435\u0434\u0438\u0442\u043D\u0430\u044F \u043A\u0430\u0440\u0442\u0430"],
+      ["Receipt", "\u0427\u0435\u043A"],
+      ["Printer", "\u041F\u0440\u0438\u043D\u0442\u0435\u0440"],
+      ["Image", "\u0418\u0437\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u0435"],
+      ["Color", "\u0426\u0432\u0435\u0442"],
+      ["PaintRoller", "\u0412\u0430\u043B\u0438\u043A"],
+      ["QrCode", "QR-\u043A\u043E\u0434"],
+      ["DoorOpenStreamlineLucide", "\u041E\u0442\u043A\u0440\u044B\u0442\u0430\u044F \u0434\u0432\u0435\u0440\u044C"],
+      ["DoorClosedStreamlineLucide", "\u0417\u0430\u043A\u0440\u044B\u0442\u0430\u044F \u0434\u0432\u0435\u0440\u044C"],
+      ["AndOr", "\u0418 / \u0418\u043B\u0438"],
+      ["EqualsExists", "\u0420\u0430\u0432\u043D\u043E \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u0435\u0442"],
+      ["Equal", "\u0420\u0430\u0432\u043D\u043E"],
+      ["Sigma", "\u0421\u0438\u0433\u043C\u0430 (\u0441\u0443\u043C\u043C\u0430)"],
+      ["Lambda", "\u041B\u044F\u043C\u0431\u0434\u0430"],
+      ["Bracket", "\u0421\u043A\u043E\u0431\u043A\u0430"],
+      ["Code", "\u041A\u043E\u0434"],
+      ["Terminal", "\u0422\u0435\u0440\u043C\u0438\u043D\u0430\u043B"],
+      ["LampDesk", "\u041D\u0430\u0441\u0442\u043E\u043B\u044C\u043D\u0430\u044F \u043B\u0430\u043C\u043F\u0430"],
+      ["Moon", "\u041B\u0443\u043D\u0430"],
+      ["Snowflake", "\u0421\u043D\u0435\u0436\u0438\u043D\u043A\u0430"],
+      ["Waves", "\u0412\u043E\u043B\u043D\u044B"],
+      ["LineHorizontal", "\u0413\u043E\u0440\u0438\u0437\u043E\u043D\u0442\u0430\u043B\u044C\u043D\u0430\u044F \u043B\u0438\u043D\u0438\u044F"]
     ];
     providersRegistered = false;
     ctx = {
@@ -49186,7 +49876,7 @@ import {
   useCallback as useCallback20,
   useEffect as useEffect43,
   useImperativeHandle,
-  useMemo as useMemo44,
+  useMemo as useMemo45,
   useRef as useRef18,
   useState as useState37
 } from "react";
@@ -49301,7 +49991,7 @@ var init_YamlSearchPanel = __esm({
           }
           setExpanded(new Set(result.groups.map((g) => g.sectionKey)));
         }, [result]);
-        const flatMatches = useMemo44(() => {
+        const flatMatches = useMemo45(() => {
           if (!result)
             return [];
           const out = [];
@@ -53701,7 +54391,7 @@ var init_local_recheck = __esm({
 });
 
 // src/web/components/modals/SectionQuickNav.tsx
-import { useEffect as useEffect44, useMemo as useMemo45, useRef as useRef19, useState as useState38 } from "react";
+import { useEffect as useEffect44, useMemo as useMemo46, useRef as useRef19, useState as useState38 } from "react";
 import { jsx as jsx78, jsxs as jsxs75 } from "react/jsx-runtime";
 function SectionQuickNav({
   lineMap,
@@ -53712,7 +54402,7 @@ function SectionQuickNav({
 }) {
   const [expanded, setExpanded] = useState38(false);
   const closeTimer = useRef19(null);
-  const activeKey = useMemo45(() => {
+  const activeKey = useMemo46(() => {
     let active = null;
     for (const s of lineMap.sections) {
       if (s.line <= topLine)
@@ -58459,7 +59149,7 @@ var init_unused_analysis = __esm({
 // src/web/components/common/Hint.tsx
 import { useId, useCallback as useCallback21, useEffect as useEffect45, useLayoutEffect as useLayoutEffect4, useRef as useRef20, useState as useState39 } from "react";
 import { createPortal as createPortal3 } from "react-dom";
-import { Fragment as Fragment21, jsx as jsx79, jsxs as jsxs76 } from "react/jsx-runtime";
+import { Fragment as Fragment22, jsx as jsx79, jsxs as jsxs76 } from "react/jsx-runtime";
 function setActiveHint(id) {
   if (activeHintId !== id) {
     activeHintId = id;
@@ -58484,7 +59174,7 @@ function Hint({ char, info, children, className }) {
   const data = info ?? (char ? HINTS[char] : null);
   const timeoutRef = useRef20();
   if (!data) {
-    return /* @__PURE__ */ jsx79(Fragment21, { children: children ?? (char ? /* @__PURE__ */ jsx79("kbd", { children: char }) : null) });
+    return /* @__PURE__ */ jsx79(Fragment22, { children: children ?? (char ? /* @__PURE__ */ jsx79("kbd", { children: char }) : null) });
   }
   const handleEnter = () => {
     if (timeoutRef.current)
@@ -58774,9 +59464,9 @@ var init_Hint = __esm({
 });
 
 // src/web/components/modals/YamlQuickJump.tsx
-import { useEffect as useEffect46, useMemo as useMemo46, useRef as useRef21, useState as useState40 } from "react";
+import { useEffect as useEffect46, useMemo as useMemo47, useRef as useRef21, useState as useState40 } from "react";
 import { createPortal as createPortal4 } from "react-dom";
-import { Fragment as Fragment22, jsx as jsx80, jsxs as jsxs77 } from "react/jsx-runtime";
+import { Fragment as Fragment23, jsx as jsx80, jsxs as jsxs77 } from "react/jsx-runtime";
 function loadFavorites() {
   try {
     const raw = localStorage.getItem(FAVORITES_KEY);
@@ -59091,7 +59781,7 @@ function highlightInText(text, term) {
   }
   if (pos < text.length)
     parts.push(text.slice(pos));
-  return /* @__PURE__ */ jsx80(Fragment22, { children: parts });
+  return /* @__PURE__ */ jsx80(Fragment23, { children: parts });
 }
 function MiniMapPreview({
   state,
@@ -59310,10 +60000,10 @@ function YamlQuickJump({
   };
   const [history, setHistory] = useState40([]);
   const [historyIdx, setHistoryIdx] = useState40(-1);
-  const lines = useMemo46(() => content.split("\n"), [content]);
+  const lines = useMemo47(() => content.split("\n"), [content]);
   const totalLines = lines.length;
-  const lineStarts = useMemo46(() => buildLineStarts2(content), [content]);
-  const indexItems = useMemo46(
+  const lineStarts = useMemo47(() => buildLineStarts2(content), [content]);
+  const indexItems = useMemo47(
     () => buildIndex(lineMap, index, domainId),
     [lineMap, index, domainId]
   );
@@ -59332,7 +60022,7 @@ function YamlQuickJump({
   const isLineMode = !!lineMatch;
   const lineNumberValue = isLineMode ? Math.min(parseInt(lineMatch[1], 10) || 1, totalLines) : null;
   const lineColumnValue = isLineMode && lineMatch[2] ? Math.max(1, parseInt(lineMatch[2], 10)) : 1;
-  const fqidEntity = useMemo46(() => {
+  const fqidEntity = useMemo47(() => {
     if (!index || sectionQuery !== null || isSearchMode)
       return null;
     if (isHelpMode || isIssuesMode || isAttrMode)
@@ -59342,7 +60032,7 @@ function YamlQuickJump({
       return null;
     return index.entitiesByFqid[q.toLowerCase()] || null;
   }, [trimmed, index, sectionQuery, isSearchMode, isHelpMode, isIssuesMode, isAttrMode]);
-  const groupedSuggestions = useMemo46(() => {
+  const groupedSuggestions = useMemo47(() => {
     if (query.startsWith("~")) {
       const term = query.slice(1).trim().toLowerCase();
       const cur = cursorLine || 1;
@@ -59971,7 +60661,7 @@ function YamlQuickJump({
     trimmed,
     favorites
   ]);
-  const flatSuggestions = useMemo46(
+  const flatSuggestions = useMemo47(
     () => groupedSuggestions.flatMap((g) => g.items),
     [groupedSuggestions]
   );
@@ -60168,7 +60858,7 @@ function YamlQuickJump({
   const isSectionPick = (item) => item.key.startsWith("section-pick:");
   const previewSearchTerm = previewTerm(query);
   let itemOffset = 0;
-  return /* @__PURE__ */ jsxs77(Fragment22, { children: [
+  return /* @__PURE__ */ jsxs77(Fragment23, { children: [
     /* @__PURE__ */ jsx80("div", { className: "yaml-quickjump-backdrop", onMouseDown: onClose }),
     /* @__PURE__ */ jsxs77(
       "div",
@@ -60277,7 +60967,7 @@ function YamlQuickJump({
                   group.items.map((item, i) => {
                     const idx = startOffset + i;
                     const severityClass = item.severity ? ` yaml-quickjump-item--severity-${item.severity}` : "";
-                    return /* @__PURE__ */ jsx80(Fragment22, { children: /* @__PURE__ */ jsxs77(
+                    return /* @__PURE__ */ jsx80(Fragment23, { children: /* @__PURE__ */ jsxs77(
                       "button",
                       {
                         type: "button",
@@ -66380,8 +67070,8 @@ var init_version_impact = __esm({
 });
 
 // src/web/components/modals/YamlViewerModal.tsx
-import React48, { useCallback as useCallback22, useDeferredValue, useEffect as useEffect47, useLayoutEffect as useLayoutEffect5, useMemo as useMemo47, useRef as useRef22, useState as useState41 } from "react";
-import { Fragment as Fragment23, jsx as jsx81, jsxs as jsxs78 } from "react/jsx-runtime";
+import React48, { useCallback as useCallback22, useDeferredValue, useEffect as useEffect47, useLayoutEffect as useLayoutEffect5, useMemo as useMemo48, useRef as useRef22, useState as useState41 } from "react";
+import { Fragment as Fragment24, jsx as jsx81, jsxs as jsxs78 } from "react/jsx-runtime";
 function extractTopLevelVersion(text) {
   if (!text)
     return null;
@@ -66436,7 +67126,7 @@ function YamlViewerModal() {
   const setYamlQuickNavEnabled = useGraphStore((s) => s.setYamlQuickNavEnabled);
   const [lastKnownMtime, setLastKnownMtime] = useState41(0);
   const [lastEditAt, setLastEditAt] = useState41(null);
-  const remoteInfo = useMemo47(() => readRemoteInfo(), []);
+  const remoteInfo = useMemo48(() => readRemoteInfo(), []);
   const mode = !remoteInfo?.server ? "local" : remoteInfo.mode === "hybrid" ? "hybrid" : "remote";
   const [reloadKey, setReloadKey] = useState41(0);
   const CHECKS_ENABLED_KEY = "dg-yaml-checks-enabled";
@@ -66806,7 +67496,7 @@ function YamlViewerModal() {
     if (!searchQuery)
       lastAutoScrolledQueryRef.current = null;
   }, [searchQuery]);
-  const effectiveDomainId = useMemo47(() => {
+  const effectiveDomainId = useMemo48(() => {
     if (domainId && index?.schemasByDomain[domainId])
       return domainId;
     if (filePath) {
@@ -66816,25 +67506,25 @@ function YamlViewerModal() {
     }
     return domainId;
   }, [domainId, filePath, index]);
-  const schema2 = useMemo47(() => {
+  const schema2 = useMemo48(() => {
     if (!index || !effectiveDomainId)
       return null;
     return index.schemasByDomain[effectiveDomainId] || null;
   }, [index, effectiveDomainId]);
-  const lineMap = useMemo47(() => {
+  const lineMap = useMemo48(() => {
     if (!content)
       return null;
     return buildLineMap(content, schema2);
   }, [content, schema2]);
-  const currentContext = useMemo47(() => {
+  const currentContext = useMemo48(() => {
     if (!lineMap)
       return null;
     return lineMap.lineContexts.get(cursorLine) || null;
   }, [lineMap, cursorLine]);
-  const entityIdUnderCursor = useMemo47(() => {
+  const entityIdUnderCursor = useMemo48(() => {
     return currentContext?.breadcrumbs.find((b) => b.type === "entity")?.id || null;
   }, [currentContext]);
-  const focusResult = useMemo47(() => {
+  const focusResult = useMemo48(() => {
     if (!focusTarget || !lineMap || !index || !domainId)
       return null;
     try {
@@ -66845,14 +67535,14 @@ function YamlViewerModal() {
       return null;
     }
   }, [focusTarget, focusIncludeDeps, lineMap, index, domainId, deferredContent]);
-  const domainIssues = useMemo47(() => {
+  const domainIssues = useMemo48(() => {
     if (!index || !effectiveDomainId)
       return [];
     return index.lint.lintReport.issues.filter(
       (i) => i.domainId === effectiveDomainId
     );
   }, [index, effectiveDomainId]);
-  const counters = useMemo47(() => {
+  const counters = useMemo48(() => {
     if (!schema2)
       return null;
     const totalAttrs = schema2.sections.entities.items.reduce(
@@ -66869,7 +67559,7 @@ function YamlViewerModal() {
       sonar
     };
   }, [schema2, domainIssues, index, effectiveDomainId]);
-  const issuesByEntity = useMemo47(() => {
+  const issuesByEntity = useMemo48(() => {
     const m = /* @__PURE__ */ new Map();
     domainIssues.forEach((issue) => {
       if (!issue.entityFqid)
@@ -66880,7 +67570,7 @@ function YamlViewerModal() {
     });
     return m;
   }, [domainIssues]);
-  const issuesByAttribute = useMemo47(() => {
+  const issuesByAttribute = useMemo48(() => {
     const m = /* @__PURE__ */ new Map();
     domainIssues.forEach((issue) => {
       if (!issue.entityFqid || !issue.attributeId)
@@ -66892,7 +67582,7 @@ function YamlViewerModal() {
     });
     return m;
   }, [domainIssues]);
-  const entityIssuesMap = useMemo47(() => {
+  const entityIssuesMap = useMemo48(() => {
     const m = /* @__PURE__ */ new Map();
     domainIssues.forEach((issue) => {
       if (!issue.entityFqid)
@@ -66907,7 +67597,7 @@ function YamlViewerModal() {
     });
     return m;
   }, [domainIssues]);
-  const attrIssuesMap = useMemo47(() => {
+  const attrIssuesMap = useMemo48(() => {
     const m = /* @__PURE__ */ new Map();
     domainIssues.forEach((issue) => {
       if (!issue.attributeId)
@@ -66919,7 +67609,7 @@ function YamlViewerModal() {
     });
     return m;
   }, [domainIssues]);
-  const allIssues = useMemo47(() => {
+  const allIssues = useMemo48(() => {
     if (!checksEnabled)
       return domainIssues;
     if (!lineMap || !deferredContent || !domainId)
@@ -66943,11 +67633,11 @@ function YamlViewerModal() {
     }
     return combined;
   }, [domainIssues, lineMap, deferredContent, index, domainId, yamlSyntaxIssue, checksEnabled]);
-  const recheckModel = useMemo47(
+  const recheckModel = useMemo48(
     () => buildRecheckModel(deferredContent || ""),
     [deferredContent]
   );
-  const effectiveIssues = useMemo47(() => {
+  const effectiveIssues = useMemo48(() => {
     if (!checksEnabled)
       return allIssues;
     if (!isDirty || !lineMap)
@@ -66972,11 +67662,11 @@ function YamlViewerModal() {
     }
     return out;
   }, [allIssues, isDirty, deferredContent, lineMap, savedContent, recheckModel, index]);
-  const filteredIssues = useMemo47(
+  const filteredIssues = useMemo48(
     () => effectiveIssues.filter((i) => severityFilter.has(i.severity)),
     [effectiveIssues, severityFilter]
   );
-  const backlinks = useMemo47(() => {
+  const backlinks = useMemo48(() => {
     if (rightTab !== "backlinks" || !deferredContent) {
       return { entity: [], attribute: [], target: null };
     }
@@ -67036,13 +67726,13 @@ function YamlViewerModal() {
     }
     return { entity, attribute, target };
   }, [deferredContent, cursorLine, rightTab]);
-  const externalRefs = useMemo47(() => {
+  const externalRefs = useMemo48(() => {
     if (!deferredContent || !domainId)
       return { refs: [], groups: [] };
     const refs = extractExternalRefs(deferredContent, domainId);
     return { refs, groups: groupExternalRefs(refs) };
   }, [deferredContent, domainId, liveVersion]);
-  const scenarioRefs = useMemo47(() => {
+  const scenarioRefs = useMemo48(() => {
     if (!deferredContent)
       return [];
     const lines = deferredContent.split("\n");
@@ -67097,7 +67787,7 @@ function YamlViewerModal() {
     }
     return Array.from(grouped.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([scenarioId, actions2]) => ({ scenarioId, actions: actions2 }));
   }, [deferredContent]);
-  const unusedAnalysis = useMemo47(() => {
+  const unusedAnalysis = useMemo48(() => {
     if (!yamlHighlightUnused)
       return null;
     if (!lineMap || !deferredContent)
@@ -67108,7 +67798,7 @@ function YamlViewerModal() {
       return null;
     }
   }, [deferredContent, lineMap, yamlHighlightUnused]);
-  const flatNavNodes = useMemo47(() => {
+  const flatNavNodes = useMemo48(() => {
     if (!lineMap)
       return [];
     const result = [];
@@ -67146,7 +67836,7 @@ function YamlViewerModal() {
     (s) => (s.editorBookmarks || {})[filePath] || []
   );
   const setEditorBookmarks = useGraphStore((s) => s.setEditorBookmarks);
-  const bookmarkDetails = useMemo47(() => {
+  const bookmarkDetails = useMemo48(() => {
     if (!fileBookmarks || fileBookmarks.length === 0)
       return [];
     const model = editorRef.current?.getModel();
@@ -67163,7 +67853,7 @@ function YamlViewerModal() {
       };
     });
   }, [fileBookmarks, content, editorCreated]);
-  const filteredNavNodes = useMemo47(() => {
+  const filteredNavNodes = useMemo48(() => {
     let result = flatNavNodes;
     if (onlyProblematic) {
       result = result.filter((n) => n.hasIssues);
@@ -68006,7 +68696,7 @@ ${label.message}` : ""),
     }
     m.editor.setModelMarkers(model, "server-validate", markers);
   }, [monacoReady, editorCreated, serverValidation]);
-  const ignored = useMemo47(() => {
+  const ignored = useMemo48(() => {
     try {
       const key = `dg-yaml-ignored:${domainId}`;
       const raw = localStorage.getItem(key);
@@ -68195,10 +68885,6 @@ ${label.message}` : ""),
     ed.trigger("dg-fold", "editor.unfoldAll", null);
     ed.trigger("dg-fold", `editor.foldLevel${level}`, null);
     setActiveFoldLevel(level);
-    console.log("[toggleFold]", {
-      level,
-      visibleRanges: ed.getVisibleRanges().length
-    });
   }, [activeFoldLevel]);
   const foldAll = useCallback22(() => {
     editorRef.current?.trigger("dg-fold", "editor.foldAll", null);
@@ -68265,11 +68951,6 @@ ${label.message}` : ""),
         }
       }
       if (regions.length === 0) {
-        console.log("[foldByLines] nothing to fold:", {
-          total: lines.length,
-          noRegion,
-          already
-        });
         return;
       }
       try {
@@ -68284,13 +68965,6 @@ ${label.message}` : ""),
           }
         }
       }
-      console.log("[foldByLines]", {
-        total: lines.length,
-        folded: regions.length,
-        already,
-        noRegion,
-        visibleRanges: ed.getVisibleRanges().length
-      });
     }, 0);
   }, []);
   const foldSiblings = useCallback22(() => {
@@ -68320,7 +68994,6 @@ ${label.message}` : ""),
       }
     }
     if (anchorLine < 0) {
-      console.log("[foldSiblings] \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D - id: \u043F\u0440\u0435\u0434\u043E\u043A");
       setActiveFoldLevel(null);
       return;
     }
@@ -68338,12 +69011,6 @@ ${label.message}` : ""),
         continue;
       targets.push(i);
     }
-    console.log("[foldSiblings]", {
-      cursorLine: cursorLine2,
-      anchorLine,
-      anchorIndent,
-      targets
-    });
     foldByLines(targets);
     setActiveFoldLevel(null);
   }, [hasFoldableRange, foldByLines]);
@@ -68398,9 +69065,6 @@ ${label.message}` : ""),
         }
       }
       if (regions.length === 0) {
-        console.log(`[foldBlocksByKey] "${key}": nothing to fold`, {
-          notFoldStart
-        });
         setActiveFoldLevel(null);
         return;
       }
@@ -68414,10 +69078,6 @@ ${label.message}` : ""),
           }
         }
       }
-      console.log(`[foldBlocksByKey] "${key}":`, {
-        folded: regions.length,
-        notFoldStart
-      });
       setActiveFoldLevel(null);
     }, 0);
   }, [hasFoldableRange]);
@@ -68924,7 +69584,7 @@ ${draftInfo.hint}` : "";
     if (el)
       el.scrollIntoView({ block: "nearest" });
   }, [activeNavIdx]);
-  const STORAGE_KEY = useMemo47(
+  const STORAGE_KEY = useMemo48(
     () => domainId ? `dg-yaml-nav-collapsed:${domainId}` : null,
     [domainId]
   );
@@ -69392,7 +70052,7 @@ ${draftInfo.hint}` : "";
     yamlSyntaxIssue,
     focusIncludeDeps
   ]);
-  const crossDomainStats = useMemo47(() => {
+  const crossDomainStats = useMemo48(() => {
     if (!index || !effectiveDomainId)
       return null;
     const currentDomainLower = effectiveDomainId.toLowerCase();
@@ -69456,7 +70116,7 @@ ${draftInfo.hint}` : "";
   useEffect47(() => {
     setServerValidation(null);
   }, [filePath, open2]);
-  const staleIssueCount = useMemo47(
+  const staleIssueCount = useMemo48(
     () => effectiveIssues.filter((i) => i.__isUnknown).length,
     [effectiveIssues]
   );
@@ -69559,7 +70219,7 @@ ${draftInfo.hint}` : "";
     }, 50);
     return () => clearTimeout(t);
   }, [open2, pendingBlock, editorCreated, loading, jumpTo, setPendingBlock]);
-  const diffCount = useMemo47(() => {
+  const diffCount = useMemo48(() => {
     if (!isDirty || !savedContent)
       return null;
     return getLineDiff(savedContent, content);
@@ -69916,17 +70576,6 @@ ${publishInfo.hint}` : "";
     useGraphStore.getState().setTooltip(null);
     window.__tooltipHovered = false;
   }, [open2]);
-  useEffect47(() => {
-    if (!open2)
-      return;
-    console.log("[nav]", {
-      loading,
-      hasContent: content.length,
-      hasDeferredContent: deferredContent.length,
-      hasLineMap: !!lineMap,
-      sectionsCount: lineMap?.sections.length ?? 0
-    });
-  }, [open2, loading, content.length, deferredContent.length, lineMap]);
   if (!open2)
     return null;
   return /* @__PURE__ */ jsxs78(
@@ -69996,7 +70645,7 @@ ${publishInfo.hint}` : "";
                       children: mode === "remote" ? "\u25CF \u0437\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0441 \u0441\u0435\u0440\u0432\u0435\u0440\u0430\u2026" : "\u25CF \u0437\u0430\u0433\u0440\u0443\u0437\u043A\u0430\u2026"
                     }
                   ) : saveFeedback ? /* @__PURE__ */ jsx81("span", { className: "help-modal__badge help-modal__badge--ok", children: "\u2713 \u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D" }) : null,
-                  isDirty ? /* @__PURE__ */ jsxs78(Fragment23, { children: [
+                  isDirty ? /* @__PURE__ */ jsxs78(Fragment24, { children: [
                     /* @__PURE__ */ jsx81("span", { className: "help-modal__badge help-modal__badge--dirty", children: "\u25CF \u0438\u0437\u043C\u0435\u043D\u0451\u043D" }),
                     diffCount && /* @__PURE__ */ jsxs78("span", { className: "help-modal__badge", style: { fontFamily: "monospace", background: "var(--bg-750)" }, children: [
                       /* @__PURE__ */ jsxs78("span", { style: { color: "var(--success)" }, children: [
@@ -70558,7 +71207,7 @@ ${publishInfo.hint}` : "";
                     style: { width: leftCollapsed ? 0 : leftWidth },
                     children: [
                       loading && /* @__PURE__ */ jsx81("div", { className: "yaml-viewer-nav__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430..." }),
-                      lineMap && /* @__PURE__ */ jsxs78(Fragment23, { children: [
+                      lineMap && /* @__PURE__ */ jsxs78(Fragment24, { children: [
                         /* @__PURE__ */ jsxs78("div", { className: "yaml-viewer-nav__tabs", children: [
                           /* @__PURE__ */ jsxs78(
                             "button",
@@ -70682,7 +71331,7 @@ ${publishInfo.hint}` : "";
                                   onFocus: handleFocus,
                                   unusedAnalysis
                                 }
-                              ) : /* @__PURE__ */ jsxs78(Fragment23, { children: [
+                              ) : /* @__PURE__ */ jsxs78(Fragment24, { children: [
                                 lineMap && lineMap.sections.length === 0 && /* @__PURE__ */ jsxs78("div", { className: "yaml-viewer-nav__empty", children: [
                                   /* @__PURE__ */ jsx81(MIcon, { name: "warning", size: "sm" }),
                                   /* @__PURE__ */ jsxs78("span", { children: [
@@ -70823,7 +71472,7 @@ ${publishInfo.hint}` : "";
                       /* @__PURE__ */ jsx81("button", { onClick: gotoStart, title: "\u0412 \u043D\u0430\u0447\u0430\u043B\u043E \u0444\u0430\u0439\u043B\u0430 (Ctrl+Home)", children: /* @__PURE__ */ jsx81(MIcon, { name: "vertical_align_top", size: "sm" }) }),
                       /* @__PURE__ */ jsx81("button", { onClick: gotoEnd, title: "\u0412 \u043A\u043E\u043D\u0435\u0446 \u0444\u0430\u0439\u043B\u0430 (Ctrl+End)", children: /* @__PURE__ */ jsx81(MIcon, { name: "vertical_align_bottom", size: "sm" }) })
                     ] }),
-                    /* @__PURE__ */ jsx81("div", { className: "yaml-viewer-breadcrumbs", children: currentContext && currentContext.breadcrumbs.length > 0 ? /* @__PURE__ */ jsxs78(Fragment23, { children: [
+                    /* @__PURE__ */ jsx81("div", { className: "yaml-viewer-breadcrumbs", children: currentContext && currentContext.breadcrumbs.length > 0 ? /* @__PURE__ */ jsxs78(Fragment24, { children: [
                       currentContext.breadcrumbs.map((item, idx) => /* @__PURE__ */ jsxs78(React48.Fragment, { children: [
                         idx > 0 && /* @__PURE__ */ jsx81("span", { className: "yaml-viewer-breadcrumbs__sep", children: "\u203A" }),
                         /* @__PURE__ */ jsx81(
@@ -71169,7 +71818,7 @@ ${publishInfo.hint}` : "";
                       targetLabel(backlinks.target),
                       " \u043D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u0441\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F"
                     ] }),
-                    backlinks.entity.length > 0 && /* @__PURE__ */ jsxs78(Fragment23, { children: [
+                    backlinks.entity.length > 0 && /* @__PURE__ */ jsxs78(Fragment24, { children: [
                       /* @__PURE__ */ jsx81("div", { className: "yaml-issues__header", style: { fontSize: 10 }, children: backlinks.target?.type === "attribute" ? `\u041D\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C ${backlinks.target.parentId} (${backlinks.entity.length})` : `\u041D\u0430 ${targetLabel(backlinks.target)} ${backlinks.target?.id} (${backlinks.entity.length})` }),
                       /* @__PURE__ */ jsx81("div", { className: "yaml-issues__list", children: backlinks.entity.map((bl, idx) => /* @__PURE__ */ jsxs78("button", { className: "yaml-backlink", onClick: () => jumpTo(bl.line), children: [
                         /* @__PURE__ */ jsx81(MIcon, { name: bl.icon, size: "sm" }),
@@ -71182,7 +71831,7 @@ ${publishInfo.hint}` : "";
                         ] })
                       ] }, `e-${idx}`)) })
                     ] }),
-                    backlinks.attribute.length > 0 && /* @__PURE__ */ jsxs78(Fragment23, { children: [
+                    backlinks.attribute.length > 0 && /* @__PURE__ */ jsxs78(Fragment24, { children: [
                       /* @__PURE__ */ jsxs78("div", { className: "yaml-issues__header", style: { fontSize: 10 }, children: [
                         "\u041D\u0430 \u0430\u0442\u0440\u0438\u0431\u0443\u0442 ",
                         backlinks.target?.id,
@@ -71239,7 +71888,7 @@ ${publishInfo.hint}` : "";
                         }
                       )
                     ] }),
-                    !serverValidating && serverValidation && !serverValidation.isValid && !serverValidation.error && (serverValidation.diagnostics?.length || 0) > 0 && /* @__PURE__ */ jsxs78(Fragment23, { children: [
+                    !serverValidating && serverValidation && !serverValidation.isValid && !serverValidation.error && (serverValidation.diagnostics?.length || 0) > 0 && /* @__PURE__ */ jsxs78(Fragment24, { children: [
                       /* @__PURE__ */ jsxs78("div", { className: "yaml-issues__header", children: [
                         "\u041E\u0448\u0438\u0431\u043A\u0438 \u0441\u0435\u0440\u0432\u0435\u0440\u0430 (",
                         serverValidation.diagnostics.length,
@@ -71354,7 +72003,7 @@ function ExternalRefsPanel({
   const totalRefs = groups.reduce((s, g) => s + g.refs.length, 0);
   const totalScenarios = scenarioRefs.length;
   return /* @__PURE__ */ jsxs78("div", { className: "yaml-issues", children: [
-    totalRefs > 0 && /* @__PURE__ */ jsxs78(Fragment23, { children: [
+    totalRefs > 0 && /* @__PURE__ */ jsxs78(Fragment24, { children: [
       /* @__PURE__ */ jsxs78("div", { className: "yaml-issues__header", children: [
         "\u0412\u043D\u0435\u0448\u043D\u0438\u0435 FQID-\u0441\u0441\u044B\u043B\u043A\u0438 (",
         totalRefs,
@@ -71389,7 +72038,7 @@ ${r.field}: ${r.raw}`,
         ))
       ] }, g.domain)) })
     ] }),
-    totalScenarios > 0 && /* @__PURE__ */ jsxs78(Fragment23, { children: [
+    totalScenarios > 0 && /* @__PURE__ */ jsxs78(Fragment24, { children: [
       /* @__PURE__ */ jsxs78(
         "div",
         {
@@ -71828,7 +72477,7 @@ function NavItem({
     depth,
     parentKey
   );
-  const globalIdx = useMemo47(
+  const globalIdx = useMemo48(
     () => filteredNavNodes.findIndex((n) => n.key === key),
     [filteredNavNodes, key]
   );
@@ -71973,7 +72622,7 @@ function IssuesPanel({
   setSeverityFilter
 }) {
   const [issueGroupMode, setIssueGroupMode] = useState41("rule");
-  const grouped = useMemo47(() => {
+  const grouped = useMemo48(() => {
     const map2 = /* @__PURE__ */ new Map();
     issues.forEach((i) => {
       const key = issueGroupMode === "rule" ? i.ruleId : i.entityFqid ? i.entityFqid.split("/")[1] : "\u0411\u0435\u0437 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438";
@@ -72982,7 +73631,7 @@ function NavContextMenu({
             ]
           }
         ),
-        focusTarget && !isThisFocused && /* @__PURE__ */ jsxs78(Fragment23, { children: [
+        focusTarget && !isThisFocused && /* @__PURE__ */ jsxs78(Fragment24, { children: [
           /* @__PURE__ */ jsx81("div", { className: "yaml-nav-ctx-menu__divider" }),
           /* @__PURE__ */ jsxs78(
             "button",
@@ -73410,8 +74059,8 @@ var init_GenerateSchemaSkipReasons = __esm({
 });
 
 // src/web/components/modals/TreeChainBuilder.tsx
-import { useMemo as useMemo48 } from "react";
-import { Fragment as Fragment24, jsx as jsx82, jsxs as jsxs79 } from "react/jsx-runtime";
+import { useMemo as useMemo49 } from "react";
+import { Fragment as Fragment25, jsx as jsx82, jsxs as jsxs79 } from "react/jsx-runtime";
 function caseFqid(raw, index, currentDomainId) {
   if (!raw)
     return raw;
@@ -73477,7 +74126,7 @@ function TreeChainBuilder(props) {
   } = props;
   const useExisting = !props.hideExistingOption && !!useExistingId;
   const chain = value ?? [];
-  const steps = useMemo48(() => {
+  const steps = useMemo49(() => {
     if (!index || !domainId)
       return [];
     const parents = [`${domainId}/${rootEntityId}`];
@@ -73512,7 +74161,7 @@ function TreeChainBuilder(props) {
   const handleToggleUseExisting = (on) => {
     onChangeChain(on ? void 0 : []);
   };
-  const preview = useMemo48(() => {
+  const preview = useMemo49(() => {
     if (chain.length === 0)
       return null;
     const lines = [{ depth: 0, linkageId: "", entityId: rootEntityId }];
@@ -73554,7 +74203,7 @@ function TreeChainBuilder(props) {
         }
       )
     ] }),
-    !useExisting && /* @__PURE__ */ jsxs79(Fragment24, { children: [
+    !useExisting && /* @__PURE__ */ jsxs79(Fragment25, { children: [
       steps.length > 0 && /* @__PURE__ */ jsx82("div", { className: "tree-chain__steps", children: steps.map((s) => {
         const selected = s.selected;
         return /* @__PURE__ */ jsxs79(
@@ -73784,7 +74433,7 @@ var init_block_resolver = __esm({
 });
 
 // src/web/components/modals/GenerateSchemaModal.tsx
-import { useCallback as useCallback24, useEffect as useEffect49, useLayoutEffect as useLayoutEffect6, useMemo as useMemo49, useRef as useRef23, useState as useState43 } from "react";
+import { useCallback as useCallback24, useEffect as useEffect49, useLayoutEffect as useLayoutEffect6, useMemo as useMemo50, useRef as useRef23, useState as useState43 } from "react";
 import { jsx as jsx83, jsxs as jsxs80 } from "react/jsx-runtime";
 function getSkipQuickFix(reason, handlers) {
   switch (reason) {
@@ -73953,7 +74602,7 @@ function GenerateSchemaModal() {
     /* @__PURE__ */ new Set(["issues-rule"])
   );
   const [forceReplaceIds, setForceReplaceIds] = useState43(/* @__PURE__ */ new Set());
-  const allEntities = useMemo49(() => {
+  const allEntities = useMemo50(() => {
     if (!index || !domainId)
       return [];
     return index.entities.filter((e) => e.domainId === domainId).map((e) => ({ id: e.entityId, name: e.name || e.entityId })).sort((a, b) => a.id.localeCompare(b.id));
@@ -74008,12 +74657,12 @@ function GenerateSchemaModal() {
   const yamlViewerOpen = useGraphStore((s) => s.yamlViewerOpen);
   const yamlViewerLocked = useGraphStore((s) => s.yamlViewerLocked);
   const yamlViewerFilePath = useGraphStore((s) => s.yamlViewerFilePath);
-  const targetFile = useMemo49(() => {
+  const targetFile = useMemo50(() => {
     const nodes = useGraphStore.getState().nodes;
     return nodes.find((n) => n.data.domainId === domainId)?.data.filePath ?? null;
   }, [domainId]);
   const prefilledFor = useRef23(null);
-  const filePath = useMemo49(() => {
+  const filePath = useMemo50(() => {
     const nodes = useGraphStore.getState().nodes;
     return nodes.find((n) => n.data.domainId === domainId)?.data.filePath ?? null;
   }, [domainId, open2]);
@@ -74023,7 +74672,7 @@ function GenerateSchemaModal() {
     0,
     false
   );
-  const currentRawData = useMemo49(() => {
+  const currentRawData = useMemo50(() => {
     if (!yamlText)
       return null;
     try {
@@ -74163,7 +74812,7 @@ function GenerateSchemaModal() {
     }
     setSelected(next);
   }, [gen.result, options.skipManuallyModified]);
-  const profileInfo = useMemo49(() => getProfileInfo(profile), [profile]);
+  const profileInfo = useMemo50(() => getProfileInfo(profile), [profile]);
   const isDomainScope = isDomainScopeProfile(profile);
   useEffect49(() => {
     if (!open2 || isDomainScope)
@@ -74182,12 +74831,12 @@ function GenerateSchemaModal() {
   const profileAllowsIncludeOptions = profile === "crud" || profile === "crud-with-page";
   const profileForcesPage = profile === "crud-with-page";
   const profileAllowsBehaviorOptions = profile !== "technical";
-  const menuRoots = useMemo49(() => {
+  const menuRoots = useMemo50(() => {
     if (!index || !domainId)
       return [];
     return index.schemasByDomain[domainId]?.sections.menus.items?.filter((m) => m.type === "root_group" || m.type === "root_menu").map((m) => ({ id: m.id, route: m.route, type: m.type })) ?? [];
   }, [index, domainId]);
-  const listViews = useMemo49(() => {
+  const listViews = useMemo50(() => {
     if (!index || !domainId)
       return [];
     return (index.schemasByDomain[domainId]?.sections?.views?.items || []).filter((v) => v.type === "list").map((v) => ({
@@ -74195,7 +74844,7 @@ function GenerateSchemaModal() {
       label: String(v.label || v.id)
     })).sort((a, b) => a.id.localeCompare(b.id));
   }, [index, domainId]);
-  const existingTransitiveTrees = useMemo49(() => {
+  const existingTransitiveTrees = useMemo50(() => {
     if (!index || !domainId)
       return [];
     return index.transitiveLinkages.filter((t) => t.domainId === domainId).map((t) => ({
@@ -74204,7 +74853,7 @@ function GenerateSchemaModal() {
       hint: t.entity.split("/").pop() || ""
     })).sort((a, b) => a.value.localeCompare(b.value));
   }, [index, domainId]);
-  const entityViewCandidates = useMemo49(() => {
+  const entityViewCandidates = useMemo50(() => {
     if (!index || !domainId || !entityId)
       return [];
     const fqid = `${domainId}/${entityId}`.toLowerCase();
@@ -74222,7 +74871,7 @@ function GenerateSchemaModal() {
       hint: v.id === `view${entityId}` ? "\u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E" : void 0
     })).sort((a, b) => a.value.localeCompare(b.value));
   }, [index, domainId, entityId]);
-  const columnViewCandidates = useMemo49(() => {
+  const columnViewCandidates = useMemo50(() => {
     if (!index || !domainId || !entityId)
       return [];
     const fqid = `${domainId}/${entityId}`.toLowerCase();
@@ -74240,7 +74889,7 @@ function GenerateSchemaModal() {
       hint: v.type
     })).sort((a, b) => a.value.localeCompare(b.value));
   }, [index, domainId, entityId]);
-  const transitiveLabelOptions = useMemo49(() => {
+  const transitiveLabelOptions = useMemo50(() => {
     const chain = options.transitiveChain;
     if (!index || !chain || chain.length === 0)
       return [];
@@ -74279,7 +74928,7 @@ function GenerateSchemaModal() {
       setOptions((o) => ({ ...o, menuRootId: menuRoots[0].id }));
     }
   }, [open2, menuRoots, options.menuRootId]);
-  const hasTreeCandidates = useMemo49(() => {
+  const hasTreeCandidates = useMemo50(() => {
     if (isDomainScope)
       return false;
     if (!index || !domainId || !entityId)
@@ -74339,7 +74988,7 @@ function GenerateSchemaModal() {
     },
     [gen.result]
   );
-  const dependentsMissing = useMemo49(() => {
+  const dependentsMissing = useMemo50(() => {
     if (!gen.result)
       return /* @__PURE__ */ new Set();
     const missing = /* @__PURE__ */ new Set();
@@ -74388,7 +75037,7 @@ function GenerateSchemaModal() {
       return next;
     });
   };
-  const groupedBlocks = useMemo49(() => {
+  const groupedBlocks = useMemo50(() => {
     if (!gen.result)
       return [];
     const map2 = /* @__PURE__ */ new Map();
@@ -74411,7 +75060,7 @@ function GenerateSchemaModal() {
     entities: { label: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438", icon: "category" },
     sequences: { label: "\u041F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u0438", icon: "linear_scale" }
   };
-  const yamlSections = useMemo49(() => {
+  const yamlSections = useMemo50(() => {
     if (!gen.result)
       return [];
     return groupYamlBySection(
@@ -74424,7 +75073,7 @@ function GenerateSchemaModal() {
   const errorCount = allIssues.filter((i) => i.severity === "error").length;
   const warningCount = allIssues.filter((i) => i.severity === "warning").length;
   const infoCount = allIssues.filter((i) => i.severity === "info").length;
-  const issuesByRule = useMemo49(() => {
+  const issuesByRule = useMemo50(() => {
     const map2 = /* @__PURE__ */ new Map();
     for (const issue of allIssues) {
       if (!map2.has(issue.ruleId))
@@ -76468,6 +77117,36 @@ function GenerateSchemaModal() {
                 /* @__PURE__ */ jsxs80(
                   "button",
                   {
+                    className: "btn",
+                    onClick: () => {
+                      if (!gen.result)
+                        return;
+                      const blocksToPreview = gen.result.blocks.filter(
+                        (b) => selected.has(b.blockId)
+                      );
+                      if (blocksToPreview.length === 0) {
+                        useGraphStore.getState().showSnackbar("\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0431\u043B\u043E\u043A\u0438 \u0434\u043B\u044F \u043F\u0440\u0435\u0432\u044C\u044E");
+                        return;
+                      }
+                      const st = useGraphStore.getState();
+                      st.setGeneratedPreviewData({
+                        blocks: blocksToPreview,
+                        entityId: entityId || null,
+                        domainId: domainId || null
+                      });
+                      st.setGeneratedPreviewOpen(true);
+                    },
+                    disabled: !gen.result || selected.size === 0,
+                    title: "\u0421\u0445\u0435\u043C\u0430\u0442\u0438\u0447\u043D\u044B\u0439 \u043F\u0440\u0435\u0434\u043F\u0440\u043E\u0441\u043C\u043E\u0442\u0440: \u043A\u0430\u043A \u0431\u0443\u0434\u0443\u0442 \u0432\u044B\u0433\u043B\u044F\u0434\u0435\u0442\u044C views",
+                    children: [
+                      /* @__PURE__ */ jsx83(MIcon, { name: "visibility", size: "sm" }),
+                      "\u041F\u0440\u0435\u0432\u044C\u044E"
+                    ]
+                  }
+                ),
+                /* @__PURE__ */ jsxs80(
+                  "button",
+                  {
                     className: "btn btn--primary",
                     onClick: apply,
                     disabled: !finalCanApply,
@@ -76602,8 +77281,8 @@ var init_useGeneratedManifest = __esm({
 });
 
 // src/web/components/modals/GeneratedManifestModal.tsx
-import { useMemo as useMemo50, useState as useState45 } from "react";
-import { Fragment as Fragment25, jsx as jsx84, jsxs as jsxs81 } from "react/jsx-runtime";
+import { useMemo as useMemo51, useState as useState45 } from "react";
+import { Fragment as Fragment26, jsx as jsx84, jsxs as jsxs81 } from "react/jsx-runtime";
 function GeneratedManifestModal() {
   const open2 = useGraphStore((s) => s.sidecarOpen);
   const domainId = useGraphStore((s) => s.sidecarDomainId);
@@ -76621,7 +77300,7 @@ function GeneratedManifestModal() {
       return next;
     });
   };
-  const filteredEntities = useMemo50(() => {
+  const filteredEntities = useMemo51(() => {
     if (!data)
       return [];
     if (filter === "all")
@@ -76848,7 +77527,7 @@ function GeneratedManifestModal() {
               ] })
             ] }),
             /* @__PURE__ */ jsxs81("div", { className: "validation-footer", children: [
-              /* @__PURE__ */ jsx84("div", { className: "validation-stats", children: data && data.stats.blocks > 0 && /* @__PURE__ */ jsxs81(Fragment25, { children: [
+              /* @__PURE__ */ jsx84("div", { className: "validation-stats", children: data && data.stats.blocks > 0 && /* @__PURE__ */ jsxs81(Fragment26, { children: [
                 /* @__PURE__ */ jsxs81("span", { className: "validation-stat", children: [
                   "\u{1F4E6} ",
                   data.stats.blocks,
@@ -83570,8 +84249,8 @@ var init_cheatsheet = __esm({
 });
 
 // src/web/components/modals/CheatsheetModal.tsx
-import { useCallback as useCallback25, useEffect as useEffect51, useMemo as useMemo51, useRef as useRef24, useState as useState46 } from "react";
-import { Fragment as Fragment26, jsx as jsx85, jsxs as jsxs82 } from "react/jsx-runtime";
+import { useCallback as useCallback25, useEffect as useEffect51, useMemo as useMemo52, useRef as useRef24, useState as useState46 } from "react";
+import { Fragment as Fragment27, jsx as jsx85, jsxs as jsxs82 } from "react/jsx-runtime";
 function slugify2(text) {
   return text.toLowerCase().replace(/[^\w\u0400-\u04FF\s-]/g, "").trim().replace(/\s+/g, "-").replace(/-+/g, "-");
 }
@@ -83677,12 +84356,12 @@ function CheatsheetModal() {
   const currentSection = selected?.kind === "section" ? CHEATSHEET.sections.find((s) => s.id === selected.id) || null : null;
   const currentRecipe = selected?.kind === "recipe" ? CHEATSHEET.recipes.find((r) => r.id === selected.id) || null : null;
   const markdown = currentSection?.md || currentRecipe?.md || "";
-  const html = useMemo51(() => {
+  const html = useMemo52(() => {
     if (!ready || !parse || !markdown)
       return "";
     return parse(markdown);
   }, [ready, parse, markdown]);
-  const headings = useMemo51(() => extractHeadings(markdown), [markdown]);
+  const headings = useMemo52(() => extractHeadings(markdown), [markdown]);
   useEffect51(() => {
     const el = contentRef.current;
     if (!el || !html)
@@ -83772,7 +84451,7 @@ function CheatsheetModal() {
     document.addEventListener("keydown", onEsc, true);
     return () => document.removeEventListener("keydown", onEsc, true);
   }, [open2, setOpen]);
-  const filtered = useMemo51(() => {
+  const filtered = useMemo52(() => {
     const q = query.trim().toLowerCase();
     if (!q) {
       return {
@@ -83934,7 +84613,7 @@ function CheatsheetModal() {
                 ] }),
                 filtered.groups.length === 0 && filtered.recipes.length === 0 && /* @__PURE__ */ jsx85("div", { className: "cheatsheet-empty", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" })
               ] }),
-              /* @__PURE__ */ jsx85("div", { className: "cheatsheet-content", children: markdown && html ? /* @__PURE__ */ jsxs82(Fragment26, { children: [
+              /* @__PURE__ */ jsx85("div", { className: "cheatsheet-content", children: markdown && html ? /* @__PURE__ */ jsxs82(Fragment27, { children: [
                 headings.length >= 3 && /* @__PURE__ */ jsxs82("details", { className: "cheatsheet-toc", open: false, children: [
                   /* @__PURE__ */ jsxs82("summary", { className: "cheatsheet-toc__summary", children: [
                     /* @__PURE__ */ jsx85("span", { children: "\u0421\u043E\u0434\u0435\u0440\u0436\u0430\u043D\u0438\u0435" }),
@@ -84111,7 +84790,7 @@ var init_useOutdatedDomains = __esm({
 });
 
 // src/web/components/modals/HealthDashboardModal.tsx
-import React53, { useMemo as useMemo52, useState as useState48 } from "react";
+import React53, { useMemo as useMemo53, useState as useState48 } from "react";
 import { jsx as jsx86, jsxs as jsxs83 } from "react/jsx-runtime";
 function getSortValue(r, key) {
   switch (key) {
@@ -84330,7 +85009,7 @@ function HealthDashboardModal() {
   const open2 = useGraphStore((s) => s.healthDashboardOpen);
   const nodes = useGraphStore((s) => s.nodes);
   const { index, loading, error } = useModelIndex();
-  const remoteInfo = useMemo52(() => readRemoteInfo(), []);
+  const remoteInfo = useMemo53(() => readRemoteInfo(), []);
   const {
     outdated,
     checking,
@@ -84351,14 +85030,14 @@ function HealthDashboardModal() {
       setSortDir("asc");
     }
   };
-  const cacheAgeDays = useMemo52(() => {
+  const cacheAgeDays = useMemo53(() => {
     const fetchedAt = remoteInfo?.fetchedAt;
     if (!fetchedAt)
       return null;
     const age = Date.now() - new Date(fetchedAt).getTime();
     return Math.floor(age / (24 * 60 * 60 * 1e3));
   }, [remoteInfo?.fetchedAt]);
-  const rows = useMemo52(() => {
+  const rows = useMemo53(() => {
     if (!index)
       return [];
     const base = buildDomainHealthRows(index, nodes);
@@ -84367,7 +85046,7 @@ function HealthDashboardModal() {
       return { ...r, isOutdated: !!info, outdatedInfo: info };
     });
   }, [index, nodes, outdated]);
-  const sortedRows = useMemo52(() => {
+  const sortedRows = useMemo53(() => {
     let filtered = rows;
     if (onlyOutdated)
       filtered = filtered.filter((r) => r.isOutdated);
@@ -84393,7 +85072,7 @@ function HealthDashboardModal() {
       return 0;
     });
   }, [rows, sortBy, sortDir, onlyOutdated, query]);
-  const stats = useMemo52(() => {
+  const stats = useMemo53(() => {
     const total = rows.length;
     const withEntities = rows.filter((r) => r.entityCount > 0).length;
     const totalEntities = rows.reduce((s, r) => s + r.entityCount, 0);
@@ -85334,14 +86013,14 @@ var init_deletion_simulation = __esm({
 });
 
 // src/web/components/modals/DeletionSimulationModal.tsx
-import { useMemo as useMemo53 } from "react";
+import { useMemo as useMemo54 } from "react";
 import { jsx as jsx87, jsxs as jsxs84 } from "react/jsx-runtime";
 function DeletionSimulationModal() {
   const open2 = useGraphStore((s) => s.deletionSimulationOpen);
   const fqid = useGraphStore((s) => s.deletionSimulationFqid);
   const nodes = useGraphStore((s) => s.nodes);
   const { index, loading, error } = useModelIndex();
-  const sim = useMemo53(() => {
+  const sim = useMemo54(() => {
     if (!index || !fqid)
       return null;
     try {
@@ -85972,7 +86651,7 @@ linkages:
 import {
   useEffect as useEffect53,
   useLayoutEffect as useLayoutEffect7,
-  useMemo as useMemo54,
+  useMemo as useMemo55,
   useRef as useRef26,
   useState as useState49
 } from "react";
@@ -86039,16 +86718,16 @@ function FolderTreeSelect({
   const dropdownRef = useRef26(null);
   const inputRef = useRef26(null);
   const [pos, setPos] = useState49(null);
-  const tree = useMemo54(() => buildTree(folders), [folders]);
-  const flat = useMemo54(
+  const tree = useMemo55(() => buildTree(folders), [folders]);
+  const flat = useMemo55(
     () => flattenVisible(tree, expanded, filter),
     [tree, expanded, filter]
   );
-  const current = useMemo54(
+  const current = useMemo55(
     () => folders.find((f) => f.id === value) || null,
     [folders, value]
   );
-  const currentPath = useMemo54(() => {
+  const currentPath = useMemo55(() => {
     if (!current)
       return "";
     const byId = new Map(folders.map((f) => [f.id, f]));
@@ -86297,13 +86976,13 @@ var init_FolderTreeSelect = __esm({
 });
 
 // src/web/components/modals/CreateDomainModal.tsx
-import { useEffect as useEffect54, useMemo as useMemo55, useState as useState50 } from "react";
-import { Fragment as Fragment27, jsx as jsx89, jsxs as jsxs86 } from "react/jsx-runtime";
+import { useEffect as useEffect54, useMemo as useMemo56, useState as useState50 } from "react";
+import { Fragment as Fragment28, jsx as jsx89, jsxs as jsxs86 } from "react/jsx-runtime";
 function CreateDomainModal() {
   const open2 = useGraphStore((s) => s.createDomainOpen);
   const setOpen = useGraphStore((s) => s.setCreateDomainOpen);
   const { index } = useModelIndex();
-  const remoteInfo = useMemo55(() => readRemoteInfo(), []);
+  const remoteInfo = useMemo56(() => readRemoteInfo(), []);
   const isRemote = !!remoteInfo?.server && remoteInfo.mode !== "hybrid";
   const [id, setId] = useState50("");
   const [name, setName] = useState50("");
@@ -86345,7 +87024,7 @@ function CreateDomainModal() {
   const idValid = !id || /^[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)+$/i.test(id);
   const idExists = !!index && !!id && index.domains.some((d) => d.id.toLowerCase() === id.toLowerCase());
   const canSubmit = !!id && idValid && !idExists && !!name && !submitting && (!isRemote || !!folderId);
-  const selectedTemplate = useMemo55(
+  const selectedTemplate = useMemo56(
     () => DOMAIN_TEMPLATES.find((t) => t.id === templateId) || DOMAIN_TEMPLATES[0],
     [templateId]
   );
@@ -86448,7 +87127,7 @@ function CreateDomainModal() {
                 /* @__PURE__ */ jsx89(MIcon, { name: "hourglass_top", size: "sm" }),
                 /* @__PURE__ */ jsx89("span", { children: "\u041E\u0442\u043A\u0440\u044B\u0432\u0430\u0435\u043C \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440 \u0438 \u043E\u0431\u043D\u043E\u0432\u043B\u044F\u0435\u043C \u0438\u043D\u0434\u0435\u043A\u0441\u2026" })
               ] })
-            ] }) : /* @__PURE__ */ jsxs86(Fragment27, { children: [
+            ] }) : /* @__PURE__ */ jsxs86(Fragment28, { children: [
               /* @__PURE__ */ jsx89("div", { className: "help-modal__body help-modal__body--flush", children: /* @__PURE__ */ jsxs86("div", { className: "create-domain-form", children: [
                 /* @__PURE__ */ jsxs86("label", { className: "create-domain-field", children: [
                   /* @__PURE__ */ jsx89("span", { className: "create-domain-label", children: "ID (FQDN) *" }),
@@ -86601,13 +87280,13 @@ var init_CreateDomainModal = __esm({
 });
 
 // src/web/components/modals/DeleteDomainModal.tsx
-import { useEffect as useEffect55, useMemo as useMemo56, useState as useState51 } from "react";
+import { useEffect as useEffect55, useMemo as useMemo57, useState as useState51 } from "react";
 import { jsx as jsx90, jsxs as jsxs87 } from "react/jsx-runtime";
 function DeleteDomainModal() {
   const target = useGraphStore((s) => s.deleteDomainTarget);
   const setTarget = useGraphStore((s) => s.setDeleteDomainTarget);
   const { index } = useModelIndex();
-  const remoteInfo = useMemo56(() => readRemoteInfo(), []);
+  const remoteInfo = useMemo57(() => readRemoteInfo(), []);
   const isRemote = !!remoteInfo?.server && remoteInfo.mode !== "hybrid";
   const [expertiseId, setExpertiseId] = useState51(null);
   const [expertiseReady, setExpertiseReady] = useState51(false);
@@ -86632,7 +87311,7 @@ function DeleteDomainModal() {
       setExpertiseReady(true);
     }).catch(() => setExpertiseReady(true));
   }, [open2, target, isRemote]);
-  const refs = useMemo56(() => {
+  const refs = useMemo57(() => {
     if (!index || !target)
       return [];
     const t = target.domainId.toLowerCase();
@@ -86813,6 +87492,2060 @@ var init_DeleteDomainModal = __esm({
   }
 });
 
+// src/web/lib/model/view-graph.ts
+function normalizeEntity(raw, domainId) {
+  if (!raw)
+    return null;
+  const s = String(raw).trim();
+  if (!s)
+    return null;
+  return s.includes("/") ? s.toLowerCase() : `${domainId.toLowerCase()}/${s.toLowerCase()}`;
+}
+function qid(domainId, viewId) {
+  return `${domainId.toLowerCase()}/${viewId}`;
+}
+function buildViewGraph(index, options = {}) {
+  const includeNested = options.includeNested !== false;
+  const includeMixins = options.includeMixins !== false;
+  const includeDashboards = options.includeDashboards !== false;
+  const limit = options.limit ?? 500;
+  const domainFilter = options.domainFilter;
+  const nodes = /* @__PURE__ */ new Map();
+  const edges = [];
+  const edgeIds = /* @__PURE__ */ new Set();
+  const addEdge = (e) => {
+    if (e.source === e.target)
+      return;
+    if (edgeIds.has(e.id))
+      return;
+    edgeIds.add(e.id);
+    edges.push(e);
+  };
+  const allViews = [];
+  for (const [domainId, schema2] of Object.entries(
+    index.schemasByDomain || {}
+  )) {
+    if (domainFilter && domainFilter.size > 0 && !domainFilter.has(domainId.toLowerCase())) {
+      continue;
+    }
+    const seen = /* @__PURE__ */ new Set();
+    for (const v of schema2.sections.views.items) {
+      if (!v.id || seen.has(v.id))
+        continue;
+      seen.add(v.id);
+      allViews.push({ domainId, view: v });
+    }
+    for (const v of schema2.allViews || []) {
+      if (!v.id || seen.has(v.id))
+        continue;
+      seen.add(v.id);
+      allViews.push({ domainId, view: v });
+    }
+  }
+  for (const { domainId, view } of allViews) {
+    const id = qid(domainId, view.id);
+    const isUnresolved = view.entity != null && !index.entitiesByFqid[normalizeEntity(view.entity, domainId) || ""];
+    nodes.set(id, {
+      id,
+      viewId: view.id,
+      domainId,
+      type: view.type || "unknown",
+      entity: view.entity ?? null,
+      label: view.label ?? null,
+      isMixin: view.isMixin === true,
+      isOrphan: false,
+      unresolved: isUnresolved
+    });
+  }
+  for (const a of index.actions || []) {
+    if (domainFilter && domainFilter.size > 0 && !domainFilter.has(a.domainId.toLowerCase()))
+      continue;
+    const refs = [
+      { field: "modal", value: a.modal },
+      { field: "panel", value: a.panel },
+      { field: "view", value: a.view },
+      { field: "pageView", value: a.pageView }
+    ];
+    for (const r of refs) {
+      if (!r.value)
+        continue;
+      const targetDomain = r.value.includes("/") ? r.value.split("/")[0] : a.domainId;
+      const targetId = r.value.includes("/") ? r.value.split("/")[1] : r.value;
+      const target = qid(targetDomain, targetId);
+      if (!nodes.has(target))
+        continue;
+      const ownerViews = findActionOwnerViews(a.id, a.domainId, index);
+      for (const owner of ownerViews) {
+        if (!nodes.has(owner))
+          continue;
+        addEdge({
+          id: `action:${owner}:${target}:${a.id}`,
+          source: owner,
+          target,
+          kind: "action",
+          label: a.id,
+          detail: `type: ${a.type}`
+        });
+      }
+    }
+  }
+  for (const { domainId, view } of allViews) {
+    if (view.type !== "tabs_list" || !view.tabs)
+      continue;
+    const src = qid(domainId, view.id);
+    for (const t of view.tabs) {
+      const tDomain = t.includes("/") ? t.split("/")[0] : domainId;
+      const tId = t.includes("/") ? t.split("/")[1] : t;
+      const target = qid(tDomain, tId);
+      if (!nodes.has(target))
+        continue;
+      addEdge({
+        id: `tabs:${src}:${target}`,
+        source: src,
+        target,
+        kind: "tabs"
+      });
+    }
+  }
+  if (includeNested) {
+    for (const { domainId, view } of allViews) {
+      if (!view.parentViewId)
+        continue;
+      const parent = qid(domainId, view.parentViewId);
+      const child = qid(domainId, view.id);
+      if (!nodes.has(parent) || !nodes.has(child))
+        continue;
+      addEdge({
+        id: `nested:${parent}:${child}`,
+        source: parent,
+        target: child,
+        kind: "nested",
+        detail: view.type
+      });
+    }
+  }
+  for (const menu of index.menus || []) {
+    if (domainFilter && domainFilter.size > 0 && !domainFilter.has(menu.domainId.toLowerCase()))
+      continue;
+    const src = qid(menu.domainId, `menu:${menu.id}`);
+    const check = (viewRef) => {
+      if (!viewRef)
+        return;
+      const tDom = viewRef.includes("/") ? viewRef.split("/")[0] : menu.domainId;
+      const tId = viewRef.includes("/") ? viewRef.split("/")[1] : viewRef;
+      const target = qid(tDom, tId);
+    };
+    check(menu.view);
+    for (const it of menu.items || [])
+      check(it.view);
+  }
+  if (includeDashboards) {
+    for (const [domainId, schema2] of Object.entries(
+      index.schemasByDomain || {}
+    )) {
+      if (domainFilter && domainFilter.size > 0 && !domainFilter.has(domainId.toLowerCase())) {
+        continue;
+      }
+      const items = schema2.sections.views.items || [];
+      for (const v of items) {
+        if (v.type !== "dashboard_tree")
+          continue;
+        const treeViews = v.dashboardTreeViews;
+        if (!Array.isArray(treeViews) || treeViews.length === 0)
+          continue;
+        const src = qid(domainId, v.id);
+        if (!nodes.has(src))
+          continue;
+        for (const vId of treeViews) {
+          const target = qid(domainId, vId);
+          if (!nodes.has(target))
+            continue;
+          addEdge({
+            id: `dash:${src}:${target}`,
+            source: src,
+            target,
+            kind: "dashboard"
+          });
+        }
+      }
+    }
+  }
+  if (includeMixins) {
+    for (const m of index.mixins || []) {
+      if (domainFilter && domainFilter.size > 0 && !domainFilter.has(m.domainId.toLowerCase()))
+        continue;
+      const targetFqid = m.targetEntityFqid.toLowerCase();
+      for (const { domainId, view } of allViews) {
+        if (view.type !== "entity")
+          continue;
+        const ev = normalizeEntity(view.entity, domainId);
+        if (ev !== targetFqid)
+          continue;
+        const target = qid(domainId, view.id);
+        if (!nodes.has(target))
+          continue;
+        for (const { domainId: d2, view: v2 } of allViews) {
+          if (d2.toLowerCase() !== m.domainId.toLowerCase())
+            continue;
+          if (v2.type !== "entity")
+            continue;
+          const src = qid(d2, v2.id);
+          if (!nodes.has(src))
+            continue;
+          addEdge({
+            id: `mixin:${src}:${target}:${m.id}`,
+            source: src,
+            target,
+            kind: "mixin",
+            label: m.id
+          });
+        }
+      }
+    }
+  }
+  let workingNodes = Array.from(nodes.values());
+  let workingEdges = edges;
+  if (options.crossDomainOnly) {
+    workingEdges = edges.filter((e) => {
+      const srcDom = e.source.split("/")[0];
+      const tgtDom = e.target.split("/")[0];
+      return srcDom !== tgtDom;
+    });
+    const involved = /* @__PURE__ */ new Set();
+    for (const e of workingEdges) {
+      involved.add(e.source);
+      involved.add(e.target);
+    }
+    workingNodes = workingNodes.filter((n) => involved.has(n.id));
+  }
+  const incomingCount = /* @__PURE__ */ new Map();
+  for (const e of workingEdges) {
+    incomingCount.set(e.target, (incomingCount.get(e.target) || 0) + 1);
+  }
+  workingNodes.sort((a, b) => {
+    const ia = incomingCount.get(a.id) || 0;
+    const ib = incomingCount.get(b.id) || 0;
+    if (ia !== ib)
+      return ib - ia;
+    return a.id.localeCompare(b.id);
+  });
+  const limited = workingNodes.slice(0, limit);
+  const limitedIds = new Set(limited.map((n) => n.id));
+  for (const n of limited) {
+    const hasIn = (incomingCount.get(n.id) || 0) > 0;
+    const hasOut = workingEdges.some((e) => e.source === n.id);
+    if (!hasIn && !hasOut)
+      n.isOrphan = true;
+  }
+  const filteredEdges = workingEdges.filter(
+    (e) => limitedIds.has(e.source) && limitedIds.has(e.target)
+  );
+  const byKind = {
+    action: 0,
+    tabs: 0,
+    nested: 0,
+    menu: 0,
+    dashboard: 0,
+    mixin: 0
+  };
+  for (const e of filteredEdges)
+    byKind[e.kind]++;
+  return {
+    nodes: limited,
+    edges: filteredEdges,
+    stats: {
+      totalNodes: limited.length,
+      totalEdges: filteredEdges.length,
+      byKind,
+      orphans: limited.filter((n) => n.isOrphan).length,
+      unresolved: limited.filter((n) => n.unresolved).length
+    }
+  };
+}
+function findActionOwnerViews(actionId, domainId, index) {
+  const out = [];
+  const lower = domainId.toLowerCase();
+  for (const w of index.viewWidgets || []) {
+    if (w.domainId.toLowerCase() !== lower)
+      continue;
+    if (w.type !== "action")
+      continue;
+    const ids = w.actionIds || [];
+    if (ids.includes(actionId)) {
+      out.push(qid(w.domainId, w.parentViewId));
+    }
+  }
+  return out;
+}
+var init_view_graph = __esm({
+  "src/web/lib/model/view-graph.ts"() {
+    "use strict";
+  }
+});
+
+// src/web/components/modals/ViewGraphModal.tsx
+import { useCallback as useCallback27, useEffect as useEffect56, useMemo as useMemo58, useState as useState52 } from "react";
+import ReactFlow4, {
+  Background as Background4,
+  BackgroundVariant as BackgroundVariant4,
+  Controls as Controls4,
+  Handle as Handle4,
+  MiniMap as MiniMap4,
+  Position as Position4,
+  ReactFlowProvider as ReactFlowProvider4,
+  useReactFlow as useReactFlow4
+} from "reactflow";
+import dagre4 from "dagre";
+import { Fragment as Fragment29, jsx as jsx91, jsxs as jsxs88 } from "react/jsx-runtime";
+function ViewFlowNode({ data }) {
+  const { node } = data;
+  const cls = ["view-graph-node", `view-graph-node--${node.type}`];
+  if (node.isMixin)
+    cls.push("view-graph-node--mixin");
+  if (node.isOrphan)
+    cls.push("view-graph-node--orphan");
+  if (node.unresolved)
+    cls.push("view-graph-node--unresolved");
+  return /* @__PURE__ */ jsxs88(Fragment29, { children: [
+    /* @__PURE__ */ jsx91(Handle4, { type: "target", position: Position4.Left, className: "view-graph-handle" }),
+    /* @__PURE__ */ jsxs88("div", { className: cls.join(" "), children: [
+      /* @__PURE__ */ jsx91("div", { className: "view-graph-node__id", children: node.viewId }),
+      /* @__PURE__ */ jsxs88("div", { className: "view-graph-node__meta", children: [
+        node.type,
+        node.entity && /* @__PURE__ */ jsxs88("span", { children: [
+          " \xB7 ",
+          String(node.entity).split("/").pop()
+        ] })
+      ] })
+    ] }),
+    /* @__PURE__ */ jsx91(Handle4, { type: "source", position: Position4.Right, className: "view-graph-handle" })
+  ] });
+}
+function layoutGraph2(nodes, edges) {
+  if (nodes.length === 0)
+    return nodes;
+  const g = new dagre4.graphlib.Graph();
+  g.setDefaultEdgeLabel(() => ({}));
+  g.setGraph({ rankdir: "LR", nodesep: 30, ranksep: 90, marginx: 40, marginy: 40 });
+  const ids = new Set(nodes.map((n) => n.id));
+  nodes.forEach((n) => g.setNode(n.id, { width: NODE_WIDTH4, height: NODE_HEIGHT4 }));
+  edges.forEach((e) => {
+    if (ids.has(e.source) && ids.has(e.target))
+      g.setEdge(e.source, e.target);
+  });
+  dagre4.layout(g);
+  return nodes.map((n) => {
+    const pos = g.node(n.id);
+    return {
+      ...n,
+      position: pos ? { x: pos.x - NODE_WIDTH4 / 2, y: pos.y - NODE_HEIGHT4 / 2 } : { x: 0, y: 0 }
+    };
+  });
+}
+function GraphInner({ nodes, edges, onNodeClick }) {
+  const rf = useReactFlow4();
+  useEffect56(() => {
+    if (nodes.length === 0)
+      return;
+    const t = setTimeout(() => {
+      try {
+        rf.fitView({ duration: 400, padding: 0.15 });
+      } catch {
+      }
+    }, 120);
+    return () => clearTimeout(t);
+  }, [nodes.length, edges.length, rf]);
+  return /* @__PURE__ */ jsxs88(
+    ReactFlow4,
+    {
+      nodes,
+      edges,
+      nodeTypes: nodeTypes4,
+      onNodeClick: (_, n) => onNodeClick(n),
+      fitView: true,
+      minZoom: 0.05,
+      maxZoom: 3,
+      proOptions: { hideAttribution: true },
+      nodesDraggable: true,
+      nodesConnectable: false,
+      elementsSelectable: true,
+      children: [
+        /* @__PURE__ */ jsx91(Background4, { variant: BackgroundVariant4.Dots, gap: 20, size: 1, color: "var(--graph-dots)" }),
+        /* @__PURE__ */ jsx91(Controls4, { position: "bottom-left" }),
+        /* @__PURE__ */ jsx91(
+          MiniMap4,
+          {
+            position: "bottom-right",
+            nodeColor: (n) => {
+              const t = n.data?.node?.type;
+              if (t === "entity")
+                return "#6366f1";
+              if (t === "list")
+                return "#10b981";
+              if (t === "panel")
+                return "#a78bfa";
+              if (t === "modal")
+                return "#f59e0b";
+              if (t === "page")
+                return "#ec4899";
+              return "#64748b";
+            },
+            maskColor: "rgba(10,14,26,0.7)",
+            style: { width: 160, height: 120 }
+          }
+        )
+      ]
+    }
+  );
+}
+function ViewGraphModal() {
+  const open2 = useGraphStore((s) => s.viewGraphOpen);
+  const setOpen = useGraphStore((s) => s.setViewGraphOpen);
+  const { index, loading, error } = useModelIndex();
+  const prefill = useGraphStore((s) => s.viewGraphPrefillDomain);
+  const setPrefill = useGraphStore((s) => s.setViewGraphPrefillDomain);
+  const [domainFilter, setDomainFilter] = useState52("");
+  useEffect56(() => {
+    if (!open2)
+      return;
+    if (prefill) {
+      setDomainFilter(prefill);
+      setPrefill(null);
+    }
+  }, [open2, prefill, setPrefill]);
+  const [includeNested, setIncludeNested] = useState52(true);
+  const [includeMixins, setIncludeMixins] = useState52(true);
+  const [includeDash, setIncludeDash] = useState52(true);
+  const [selectedNode, setSelectedNode] = useState52(null);
+  const allDomains = useMemo58(() => {
+    if (!index)
+      return [];
+    const map2 = /* @__PURE__ */ new Map();
+    index.entities.forEach((e) => {
+      map2.set(e.domainId, (map2.get(e.domainId) || 0) + 1);
+    });
+    index.domains.forEach((d) => {
+      if (!map2.has(d.id))
+        map2.set(d.id, 0);
+    });
+    return Array.from(map2.entries()).sort((a, b) => b[1] - a[1]);
+  }, [index]);
+  useEffect56(() => {
+    if (!open2) {
+      setDomainFilter("");
+      setSelectedNode(null);
+    }
+  }, [open2]);
+  const graph = useMemo58(() => {
+    if (!index)
+      return null;
+    return buildViewGraph(index, {
+      domainFilter: domainFilter ? /* @__PURE__ */ new Set([domainFilter.toLowerCase()]) : void 0,
+      // «Все домены» — показываем только междоменные связи
+      crossDomainOnly: !domainFilter,
+      includeNested,
+      includeMixins,
+      includeDashboards: includeDash
+    });
+  }, [index, domainFilter, includeNested, includeMixins, includeDash]);
+  const flowNodes = useMemo58(() => {
+    if (!graph)
+      return [];
+    return graph.nodes.map((n) => ({
+      id: n.id,
+      type: "viewNode",
+      position: { x: 0, y: 0 },
+      data: { node: n },
+      width: NODE_WIDTH4,
+      height: NODE_HEIGHT4
+    }));
+  }, [graph]);
+  const flowEdges = useMemo58(() => {
+    if (!graph)
+      return [];
+    return graph.edges.map((e) => {
+      const stroke = EDGE_COLORS[e.kind];
+      return {
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        type: "smoothstep",
+        label: e.label,
+        animated: e.kind === "action",
+        data: { kind: e.kind, detail: e.detail },
+        style: {
+          stroke,
+          strokeWidth: e.kind === "action" ? 2 : 1.5,
+          strokeDasharray: e.kind === "mixin" || e.kind === "dashboard" ? "5 3" : void 0,
+          opacity: 0.8
+        },
+        markerEnd: { type: "arrowclosed", color: stroke, width: 14, height: 14 }
+      };
+    });
+  }, [graph]);
+  const laidNodes = useMemo58(() => layoutGraph2(flowNodes, flowEdges), [flowNodes, flowEdges]);
+  const onNodeClick = useCallback27((n) => {
+    setSelectedNode(n?.data?.node || null);
+  }, []);
+  if (!open2)
+    return null;
+  const jumpToView = (domainId, viewId) => {
+    const nodes = useGraphStore.getState().nodes;
+    const node = nodes.find((x) => (x.data.domainId || "").toLowerCase() === domainId.toLowerCase());
+    if (!node?.data.filePath) {
+      useGraphStore.getState().showSnackbar("\u0424\u0430\u0439\u043B \u0441\u0445\u0435\u043C\u044B \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D");
+      return;
+    }
+    const st = useGraphStore.getState();
+    st.setYamlViewerPendingGoto({ kind: "fqid", fqid: `${domainId}/${viewId}` });
+    st.setYamlViewerFilePath(node.data.filePath);
+    st.setYamlViewerFqid(null);
+    st.setYamlViewerDomainId(domainId);
+    st.setYamlViewerOpen(true);
+    setOpen(false);
+  };
+  return /* @__PURE__ */ jsx91("div", { className: "help-overlay help-overlay--fullscreen", style: { zIndex: 450 }, onMouseDown: () => setOpen(false), children: /* @__PURE__ */ jsxs88("div", { className: "help-modal view-graph-modal", onMouseDown: (e) => e.stopPropagation(), children: [
+    /* @__PURE__ */ jsxs88("div", { className: "help-modal__header", children: [
+      /* @__PURE__ */ jsxs88("div", { className: "help-modal__title", children: [
+        /* @__PURE__ */ jsx91(MIcon, { name: "schema", size: "sm" }),
+        /* @__PURE__ */ jsx91("span", { className: "icon-label", children: "\u0413\u0440\u0430\u0444 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0435\u0439 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u0439" }),
+        graph && /* @__PURE__ */ jsxs88("span", { className: "help-modal__badge", children: [
+          graph.stats.totalNodes,
+          " \u0443\u0437\u043B\u043E\u0432 \xB7 ",
+          graph.stats.totalEdges,
+          " \u0441\u0432\u044F\u0437\u0435\u0439"
+        ] })
+      ] }),
+      /* @__PURE__ */ jsx91("button", { className: "help-modal__close", onClick: () => setOpen(false), children: "\u2715" })
+    ] }),
+    loading && /* @__PURE__ */ jsx91("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx91("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430\u2026" }) }),
+    error && /* @__PURE__ */ jsx91("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs88("div", { style: { color: "var(--danger)" }, children: [
+      "\u041E\u0448\u0438\u0431\u043A\u0430: ",
+      error
+    ] }) }),
+    index && graph && /* @__PURE__ */ jsxs88("div", { className: "view-graph-body", children: [
+      /* @__PURE__ */ jsxs88("div", { className: "view-graph-toolbar", children: [
+        /* @__PURE__ */ jsxs88("div", { className: "view-graph-toolbar__domain", children: [
+          /* @__PURE__ */ jsx91("span", { className: "view-graph-toolbar__label", children: "\u0414\u043E\u043C\u0435\u043D:" }),
+          /* @__PURE__ */ jsx91(
+            DomainCombobox,
+            {
+              value: domainFilter,
+              onChange: (v) => setDomainFilter(v),
+              domains: allDomains,
+              placeholder: "\u0412\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B",
+              allowEmpty: true,
+              emptyLabel: "\u0412\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B (\u0442\u043E\u043B\u044C\u043A\u043E \u043C\u0435\u0436\u0434\u043E\u043C\u0435\u043D\u043D\u044B\u0435)"
+            }
+          )
+        ] }),
+        /* @__PURE__ */ jsxs88("label", { className: "entity-graph-toggle", children: [
+          /* @__PURE__ */ jsx91("input", { type: "checkbox", checked: includeNested, onChange: () => setIncludeNested(!includeNested) }),
+          /* @__PURE__ */ jsx91("span", { className: "entity-graph-legend-dot", style: { background: EDGE_COLORS.nested } }),
+          "Nested"
+        ] }),
+        /* @__PURE__ */ jsxs88("label", { className: "entity-graph-toggle", children: [
+          /* @__PURE__ */ jsx91("input", { type: "checkbox", checked: includeMixins, onChange: () => setIncludeMixins(!includeMixins) }),
+          /* @__PURE__ */ jsx91("span", { className: "entity-graph-legend-dot", style: { background: EDGE_COLORS.mixin } }),
+          "Mixins"
+        ] }),
+        /* @__PURE__ */ jsxs88("label", { className: "entity-graph-toggle", children: [
+          /* @__PURE__ */ jsx91("input", { type: "checkbox", checked: includeDash, onChange: () => setIncludeDash(!includeDash) }),
+          /* @__PURE__ */ jsx91("span", { className: "entity-graph-legend-dot", style: { background: EDGE_COLORS.dashboard } }),
+          "Dashboard"
+        ] }),
+        /* @__PURE__ */ jsxs88("div", { className: "view-graph-toolbar__stats", children: [
+          graph.stats.orphans > 0 && /* @__PURE__ */ jsxs88("span", { title: "\u041D\u0435\u0442 \u043D\u0438 \u0432\u0445\u043E\u0434\u044F\u0449\u0438\u0445, \u043D\u0438 \u0438\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u0445", children: [
+            "\u{1F47B} ",
+            graph.stats.orphans,
+            " orphaned"
+          ] }),
+          graph.stats.unresolved > 0 && /* @__PURE__ */ jsxs88("span", { title: "\u0421\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F \u043D\u0430 \u043D\u0435\u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0443\u044E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C", children: [
+            "\u26A0 ",
+            graph.stats.unresolved,
+            " unresolved"
+          ] })
+        ] })
+      ] }),
+      /* @__PURE__ */ jsx91("div", { className: "view-graph-canvas", children: graph.nodes.length === 0 ? /* @__PURE__ */ jsxs88("div", { className: "view-graph-empty", children: [
+        /* @__PURE__ */ jsx91(MIcon, { name: !domainFilter ? "link_off" : "info", size: "xl" }),
+        !domainFilter ? /* @__PURE__ */ jsxs88(Fragment29, { children: [
+          /* @__PURE__ */ jsx91("div", { className: "view-graph-empty__title", children: "\u041D\u0435\u0442 \u043C\u0435\u0436\u0434\u043E\u043C\u0435\u043D\u043D\u044B\u0445 \u0441\u0432\u044F\u0437\u0435\u0439" }),
+          /* @__PURE__ */ jsx91("div", { className: "view-graph-empty__hint", children: "\u0412 \u0440\u0435\u0436\u0438\u043C\u0435 \xAB\u0432\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B\xBB \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u044E\u0442\u0441\u044F \u0442\u043E\u043B\u044C\u043A\u043E \u0441\u0432\u044F\u0437\u0438 \u043C\u0435\u0436\u0434\u0443 views \u0438\u0437 \u0440\u0430\u0437\u043D\u044B\u0445 \u0434\u043E\u043C\u0435\u043D\u043E\u0432. \u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0439 \u0434\u043E\u043C\u0435\u043D, \u0447\u0442\u043E\u0431\u044B \u0443\u0432\u0438\u0434\u0435\u0442\u044C \u0435\u0433\u043E \u0432\u043D\u0443\u0442\u0440\u0435\u043D\u043D\u0438\u0435 views." })
+        ] }) : /* @__PURE__ */ jsxs88(Fragment29, { children: [
+          /* @__PURE__ */ jsx91("div", { className: "view-graph-empty__title", children: "\u0412 \u0434\u043E\u043C\u0435\u043D\u0435 \u043D\u0435\u0442 views" }),
+          /* @__PURE__ */ jsx91("div", { className: "view-graph-empty__hint", children: "\u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u0443\u0439\u0442\u0435 views (CRUD / \u0421\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A) \u0438\u043B\u0438 \u0441\u043E\u0437\u0434\u0430\u0439\u0442\u0435 \u0432\u0440\u0443\u0447\u043D\u0443\u044E." })
+        ] })
+      ] }) : /* @__PURE__ */ jsx91(ReactFlowProvider4, { children: /* @__PURE__ */ jsx91(GraphInner, { nodes: laidNodes, edges: flowEdges, onNodeClick }) }) }),
+      selectedNode && /* @__PURE__ */ jsxs88("div", { className: "view-graph-inspector", children: [
+        /* @__PURE__ */ jsxs88("div", { className: "view-graph-inspector__head", children: [
+          /* @__PURE__ */ jsxs88("code", { children: [
+            selectedNode.domainId,
+            "/",
+            selectedNode.viewId
+          ] }),
+          /* @__PURE__ */ jsx91("span", { className: "view-graph-inspector__type", children: selectedNode.type }),
+          /* @__PURE__ */ jsx91("button", { className: "view-graph-inspector__close", onClick: () => setSelectedNode(null), children: "\u2715" })
+        ] }),
+        selectedNode.label && /* @__PURE__ */ jsx91("div", { className: "view-graph-inspector__label", children: selectedNode.label }),
+        selectedNode.entity && /* @__PURE__ */ jsxs88("div", { className: "view-graph-inspector__meta", children: [
+          "entity: ",
+          /* @__PURE__ */ jsx91("code", { children: selectedNode.entity })
+        ] }),
+        /* @__PURE__ */ jsxs88("div", { className: "view-graph-inspector__actions", children: [
+          /* @__PURE__ */ jsxs88("button", { className: "btn btn--primary", onClick: () => jumpToView(selectedNode.domainId, selectedNode.viewId), children: [
+            /* @__PURE__ */ jsx91(MIcon, { name: "open_in_new", size: "sm" }),
+            " \u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0432 YAML"
+          ] }),
+          /* @__PURE__ */ jsxs88(
+            "button",
+            {
+              className: "btn",
+              onClick: () => {
+                const st = useGraphStore.getState();
+                st.setDomainSchemaDomainId(selectedNode.domainId);
+                st.setDomainSchemaPrefillQuery(selectedNode.viewId);
+                st.setDomainSchemaPrefillExpandItem(`view:${selectedNode.viewId}`);
+                st.setDomainSchemaOpen(true);
+                setOpen(false);
+              },
+              children: [
+                /* @__PURE__ */ jsx91(MIcon, { name: "menu_book", size: "sm" }),
+                " \u0412 \u0441\u0445\u0435\u043C\u0435 \u0434\u043E\u043C\u0435\u043D\u0430"
+              ]
+            }
+          )
+        ] })
+      ] })
+    ] })
+  ] }) });
+}
+var NODE_WIDTH4, NODE_HEIGHT4, EDGE_COLORS, nodeTypes4;
+var init_ViewGraphModal = __esm({
+  "src/web/components/modals/ViewGraphModal.tsx"() {
+    "use strict";
+    init_useGraphStore();
+    init_useModelIndex();
+    init_MIcon();
+    init_view_graph();
+    init_DomainCombobox();
+    NODE_WIDTH4 = 220;
+    NODE_HEIGHT4 = 54;
+    EDGE_COLORS = {
+      action: "#f59e0b",
+      tabs: "#10b981",
+      nested: "#a78bfa",
+      menu: "#6366f1",
+      dashboard: "#06b6d4",
+      mixin: "#ec4899"
+    };
+    nodeTypes4 = { viewNode: ViewFlowNode };
+  }
+});
+
+// src/web/hooks/useYamlFulltextSearch.ts
+import { useCallback as useCallback28, useEffect as useEffect57, useRef as useRef27, useState as useState53 } from "react";
+function useYamlFulltextSearch() {
+  const [state, setState] = useState53(EMPTY);
+  const abortRef = useRef27(null);
+  const search = useCallback28(
+    async (query, opts) => {
+      if (abortRef.current)
+        abortRef.current.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+      if (!query.trim()) {
+        setState(EMPTY);
+        return;
+      }
+      setState((s) => ({ ...s, loading: true, error: null }));
+      const params = new URLSearchParams({ q: query });
+      if (opts.regex)
+        params.set("regex", "1");
+      if (opts.caseSensitive)
+        params.set("case", "1");
+      if (opts.includeComments)
+        params.set("comments", "1");
+      if (opts.domain)
+        params.set("domain", opts.domain);
+      try {
+        const r = await fetch(`/api/yaml-search?${params.toString()}`, {
+          signal: controller.signal
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j.error || `HTTP ${r.status}`);
+        }
+        const data = await r.json();
+        setState({
+          hits: data.hits || [],
+          loading: false,
+          error: data.error || null,
+          total: data.totalHits || 0,
+          truncated: !!data.truncated,
+          elapsedMs: data.elapsedMs || 0
+        });
+      } catch (e) {
+        if (e?.name === "AbortError")
+          return;
+        setState({
+          hits: [],
+          loading: false,
+          error: e?.message || String(e),
+          total: 0,
+          truncated: false,
+          elapsedMs: 0
+        });
+      } finally {
+        if (abortRef.current === controller)
+          abortRef.current = null;
+      }
+    },
+    []
+  );
+  useEffect57(
+    () => () => {
+      abortRef.current?.abort();
+    },
+    []
+  );
+  return { ...state, search };
+}
+var EMPTY;
+var init_useYamlFulltextSearch = __esm({
+  "src/web/hooks/useYamlFulltextSearch.ts"() {
+    "use strict";
+    EMPTY = {
+      hits: [],
+      loading: false,
+      error: null,
+      total: 0,
+      truncated: false,
+      elapsedMs: 0
+    };
+  }
+});
+
+// src/web/components/modals/YamlFulltextSearchModal.tsx
+import { useCallback as useCallback29, useEffect as useEffect58, useMemo as useMemo59, useRef as useRef28, useState as useState54 } from "react";
+import { jsx as jsx92, jsxs as jsxs89 } from "react/jsx-runtime";
+function YamlFulltextSearchModal() {
+  const open2 = useGraphStore((s) => s.yamlFulltextSearchOpen);
+  const setOpen = useGraphStore((s) => s.setYamlFulltextSearchOpen);
+  const nodes = useGraphStore((s) => s.nodes);
+  const [query, setQuery] = useState54("");
+  const [regex, setRegex] = useState54(false);
+  const [caseSensitive, setCaseSensitive] = useState54(false);
+  const [includeComments, setIncludeComments] = useState54(true);
+  const [domainFilter, setDomainFilter] = useState54("");
+  const [expandedGroups, setExpandedGroups] = useState54(/* @__PURE__ */ new Set());
+  const inputRef = useRef28(null);
+  const { hits, loading, error, total, truncated, elapsedMs, search } = useYamlFulltextSearch();
+  const { index } = useModelIndex();
+  const allDomains = useMemo59(() => {
+    if (!index)
+      return [];
+    const map2 = /* @__PURE__ */ new Map();
+    index.entities.forEach((e) => {
+      map2.set(e.domainId, (map2.get(e.domainId) || 0) + 1);
+    });
+    index.domains.forEach((d) => {
+      if (!map2.has(d.id))
+        map2.set(d.id, 0);
+    });
+    return Array.from(map2.entries()).sort((a, b) => b[1] - a[1]);
+  }, [index]);
+  useEffect58(() => {
+    if (!open2) {
+      setQuery("");
+      setExpandedGroups(/* @__PURE__ */ new Set());
+      return;
+    }
+    const t = setTimeout(() => inputRef.current?.focus(), 30);
+    return () => clearTimeout(t);
+  }, [open2]);
+  useEffect58(() => {
+    if (!open2)
+      return;
+    const handler = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
+  }, [open2, setOpen]);
+  useEffect58(() => {
+    if (!open2)
+      return;
+    if (!query.trim() || query.trim().length < 2)
+      return;
+    const t = setTimeout(() => {
+      void search(query, { regex, caseSensitive, includeComments, domain: domainFilter });
+    }, DEBOUNCE_MS2);
+    return () => clearTimeout(t);
+  }, [query, regex, caseSensitive, includeComments, domainFilter, open2, search]);
+  const grouped = useMemo59(() => {
+    const map2 = /* @__PURE__ */ new Map();
+    for (const h of hits) {
+      const key = h.filePath;
+      if (!map2.has(key))
+        map2.set(key, { domainId: h.domainId, filePath: h.filePath, hits: [] });
+      map2.get(key).hits.push(h);
+    }
+    return Array.from(map2.values()).sort((a, b) => {
+      if (b.hits.length !== a.hits.length)
+        return b.hits.length - a.hits.length;
+      return (a.domainId || "").localeCompare(b.domainId || "");
+    });
+  }, [hits]);
+  useEffect58(() => {
+    if (grouped.length === 0)
+      return;
+    setExpandedGroups(new Set(grouped.map((g) => g.filePath)));
+  }, [hits]);
+  const openHit = useCallback29((h) => {
+    const st = useGraphStore.getState();
+    st.setYamlViewerPendingGoto({ kind: "line", line: h.line, column: h.column });
+    st.setYamlViewerFilePath(h.filePath);
+    st.setYamlViewerFqid(null);
+    st.setYamlViewerDomainId(h.domainId);
+    st.setYamlViewerOpen(true);
+    setOpen(false);
+  }, [setOpen]);
+  const toggleGroup = (fp) => {
+    setExpandedGroups((prev) => {
+      const s = new Set(prev);
+      if (s.has(fp))
+        s.delete(fp);
+      else
+        s.add(fp);
+      return s;
+    });
+  };
+  const copyAll = async () => {
+    const text = grouped.map((g) => {
+      const head = `## ${g.domainId || "(no domain)"} \u2014 ${g.filePath}`;
+      const body = g.hits.map((h) => `  ${h.line}:${h.column}  ${h.lineText.trim()}`).join("\n");
+      return `${head}
+${body}`;
+    }).join("\n\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      useGraphStore.getState().showSnackbar(`\u0421\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D\u043E: ${hits.length} \u0441\u0442\u0440\u043E\u043A`);
+    } catch {
+    }
+  };
+  if (!open2)
+    return null;
+  return /* @__PURE__ */ jsx92("div", { className: "help-overlay help-overlay--fullscreen", style: { zIndex: 500 }, onMouseDown: () => setOpen(false), children: /* @__PURE__ */ jsxs89("div", { className: "help-modal yaml-fulltext-modal", onMouseDown: (e) => e.stopPropagation(), children: [
+    /* @__PURE__ */ jsxs89("div", { className: "help-modal__header", children: [
+      /* @__PURE__ */ jsxs89("div", { className: "help-modal__title", children: [
+        /* @__PURE__ */ jsx92(MIcon, { name: "search", size: "sm" }),
+        /* @__PURE__ */ jsx92("span", { className: "icon-label", children: "\u041F\u043E\u043B\u043D\u043E\u0442\u0435\u043A\u0441\u0442\u043E\u0432\u044B\u0439 \u043F\u043E\u0438\u0441\u043A \u043F\u043E YAML" }),
+        hits.length > 0 && /* @__PURE__ */ jsx92("span", { className: "help-modal__badge", children: total })
+      ] }),
+      /* @__PURE__ */ jsx92("button", { className: "help-modal__close", onClick: () => setOpen(false), children: "\u2715" })
+    ] }),
+    /* @__PURE__ */ jsxs89("div", { className: "yaml-fulltext-search", children: [
+      /* @__PURE__ */ jsxs89("div", { className: "yaml-fulltext-search__input", children: [
+        /* @__PURE__ */ jsx92(MIcon, { name: "search", size: "sm" }),
+        /* @__PURE__ */ jsx92(
+          "input",
+          {
+            ref: inputRef,
+            type: "text",
+            placeholder: "\u041F\u043E\u0438\u0441\u043A \u043F\u043E \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u043C\u0443 \u0432\u0441\u0435\u0445 \u0441\u0445\u0435\u043C (description, RQL, \u043A\u043E\u043C\u043C\u0435\u043D\u0442\u0430\u0440\u0438\u0438\u2026)",
+            value: query,
+            onChange: (e) => setQuery(e.target.value),
+            spellCheck: false,
+            autoComplete: "off"
+          }
+        ),
+        query && /* @__PURE__ */ jsx92("button", { className: "yaml-fulltext-search__clear", onClick: () => setQuery(""), children: "\u2715" })
+      ] }),
+      /* @__PURE__ */ jsxs89("div", { className: "yaml-fulltext-search__toggles", children: [
+        /* @__PURE__ */ jsx92(
+          "button",
+          {
+            type: "button",
+            className: "yaml-search-toggle" + (regex ? " active" : ""),
+            onClick: () => setRegex(!regex),
+            title: "\u0420\u0435\u0433\u0443\u043B\u044F\u0440\u043D\u043E\u0435 \u0432\u044B\u0440\u0430\u0436\u0435\u043D\u0438\u0435",
+            children: ".*"
+          }
+        ),
+        /* @__PURE__ */ jsx92(
+          "button",
+          {
+            type: "button",
+            className: "yaml-search-toggle" + (caseSensitive ? " active" : ""),
+            onClick: () => setCaseSensitive(!caseSensitive),
+            title: "\u0423\u0447\u0438\u0442\u044B\u0432\u0430\u0442\u044C \u0440\u0435\u0433\u0438\u0441\u0442\u0440",
+            children: "Aa"
+          }
+        ),
+        /* @__PURE__ */ jsx92(
+          "button",
+          {
+            type: "button",
+            className: "yaml-search-toggle" + (includeComments ? " active" : ""),
+            onClick: () => setIncludeComments(!includeComments),
+            title: "\u0418\u0441\u043A\u0430\u0442\u044C \u0432 \u043A\u043E\u043C\u043C\u0435\u043D\u0442\u0430\u0440\u0438\u044F\u0445",
+            children: "#"
+          }
+        ),
+        /* @__PURE__ */ jsx92("div", { className: "yaml-fulltext-search__domain", children: /* @__PURE__ */ jsx92(
+          DomainCombobox,
+          {
+            value: domainFilter,
+            onChange: (v) => setDomainFilter(v),
+            domains: allDomains,
+            placeholder: "\u0412\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B",
+            allowEmpty: true,
+            emptyLabel: "\u0412\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B"
+          }
+        ) }),
+        hits.length > 0 && /* @__PURE__ */ jsxs89("button", { className: "btn", onClick: copyAll, title: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0432\u0441\u0435 \u0440\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442\u044B", children: [
+          /* @__PURE__ */ jsx92(MIcon, { name: "content_copy", size: "sm" }),
+          " \u0412\u0441\u0435 (",
+          hits.length,
+          ")"
+        ] })
+      ] }),
+      loading && /* @__PURE__ */ jsx92("div", { className: "yaml-fulltext-search__status", children: "\u041F\u043E\u0438\u0441\u043A\u2026" }),
+      error && /* @__PURE__ */ jsx92("div", { className: "yaml-fulltext-search__status yaml-fulltext-search__status--err", children: error }),
+      !loading && !error && query.trim().length >= 2 && hits.length === 0 && /* @__PURE__ */ jsx92("div", { className: "yaml-fulltext-search__status", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" }),
+      truncated && /* @__PURE__ */ jsxs89("div", { className: "yaml-fulltext-search__status yaml-fulltext-search__status--warn", children: [
+        "\u041F\u043E\u043A\u0430\u0437\u0430\u043D\u044B \u043F\u0435\u0440\u0432\u044B\u0435 ",
+        hits.length,
+        " \u0438\u0437 ",
+        total,
+        ". \u0423\u0442\u043E\u0447\u043D\u0438\u0442\u0435 \u0437\u0430\u043F\u0440\u043E\u0441."
+      ] }),
+      !loading && hits.length > 0 && /* @__PURE__ */ jsxs89("div", { className: "yaml-fulltext-search__stats", children: [
+        total,
+        " \u0441\u043E\u0432\u043F\u0430\u0434\u0435\u043D\u0438\u0439 \u0437\u0430 ",
+        elapsedMs,
+        " \u043C\u0441 \u0432 ",
+        grouped.length,
+        " \u0444\u0430\u0439\u043B\u0430\u0445"
+      ] }),
+      /* @__PURE__ */ jsx92("div", { className: "yaml-fulltext-search__results", children: grouped.map((g) => {
+        const isOpen = expandedGroups.has(g.filePath);
+        return /* @__PURE__ */ jsxs89("div", { className: "yaml-fulltext-group" + (isOpen ? " open" : ""), children: [
+          /* @__PURE__ */ jsxs89("button", { className: "yaml-fulltext-group__head", onClick: () => toggleGroup(g.filePath), children: [
+            /* @__PURE__ */ jsx92("span", { className: "yaml-fulltext-group__chevron", children: isOpen ? "\u25BE" : "\u25B8" }),
+            /* @__PURE__ */ jsx92(MIcon, { name: "description", size: "sm" }),
+            /* @__PURE__ */ jsx92("code", { className: "yaml-fulltext-group__domain", children: g.domainId || "(?)" }),
+            /* @__PURE__ */ jsx92("span", { className: "yaml-fulltext-group__count", children: g.hits.length })
+          ] }),
+          isOpen && /* @__PURE__ */ jsx92("div", { className: "yaml-fulltext-group__body", children: g.hits.map((h, i) => /* @__PURE__ */ jsxs89(
+            "button",
+            {
+              type: "button",
+              className: "yaml-fulltext-hit",
+              onClick: () => openHit(h),
+              title: `${h.filePath}:${h.line}:${h.column}`,
+              children: [
+                /* @__PURE__ */ jsxs89("span", { className: "yaml-fulltext-hit__line", children: [
+                  ":",
+                  h.line
+                ] }),
+                /* @__PURE__ */ jsxs89("span", { className: "yaml-fulltext-hit__context", children: [
+                  /* @__PURE__ */ jsx92("span", { className: "yaml-fulltext-hit__plain", children: h.contextBefore }),
+                  /* @__PURE__ */ jsx92("span", { className: "yaml-fulltext-hit__match" + (h.inComment ? " in-comment" : ""), children: h.lineText.slice(h.column - 1, h.column - 1 + h.length) }),
+                  /* @__PURE__ */ jsx92("span", { className: "yaml-fulltext-hit__plain", children: h.contextAfter })
+                ] }),
+                h.inComment && /* @__PURE__ */ jsx92("span", { className: "yaml-fulltext-hit__comment-badge", children: "#" })
+              ]
+            },
+            `${h.line}:${h.column}:${i}`
+          )) })
+        ] }, g.filePath);
+      }) })
+    ] })
+  ] }) });
+}
+var DEBOUNCE_MS2;
+var init_YamlFulltextSearchModal = __esm({
+  "src/web/components/modals/YamlFulltextSearchModal.tsx"() {
+    "use strict";
+    init_useGraphStore();
+    init_useYamlFulltextSearch();
+    init_MIcon();
+    init_useModelIndex();
+    init_DomainCombobox();
+    DEBOUNCE_MS2 = 350;
+  }
+});
+
+// src/web/lib/model/schema-preview.ts
+function buildSchemaPreview(blocks, meta) {
+  const widgets2 = /* @__PURE__ */ new Map();
+  const groups = /* @__PURE__ */ new Map();
+  const viewBlocks = /* @__PURE__ */ new Map();
+  const actions2 = /* @__PURE__ */ new Map();
+  let skipped = 0;
+  for (const b of blocks) {
+    const kind = b.blockId.split(":")[0];
+    switch (kind) {
+      case "widget":
+        widgets2.set(b.payload?.id, b);
+        break;
+      case "group":
+        groups.set(b.payload?.id, b);
+        break;
+      case "view":
+        viewBlocks.set(b.payload?.id, b);
+        break;
+      case "action":
+        actions2.set(b.payload?.id, b);
+        break;
+      default:
+        skipped++;
+        break;
+    }
+  }
+  const resolveWidget = (id) => {
+    const b = widgets2.get(id);
+    if (!b)
+      return null;
+    const p = b.payload;
+    return {
+      id: p.id,
+      type: p.type || "",
+      label: p.label ?? p.attribute ?? p.linkage ?? p.action,
+      controlType: p.control?.type,
+      linkageId: p.linkage,
+      actions: p.actions || (p.action ? [p.action] : void 0)
+    };
+  };
+  const resolveGroup = (id, depth = 0) => {
+    if (depth > 5)
+      return null;
+    const b = groups.get(id);
+    if (!b)
+      return null;
+    const p = b.payload;
+    const components = Array.isArray(p.components) ? p.components : [];
+    const childWidgets = [];
+    const childGroups = [];
+    for (const c of components) {
+      if (c?.widget) {
+        const w = resolveWidget(c.widget);
+        if (w)
+          childWidgets.push(w);
+      }
+      if (c?.block) {
+        const g = resolveGroup(c.block, depth + 1);
+        if (g)
+          childGroups.push(g);
+      }
+    }
+    return {
+      id: p.id,
+      type: p.type || "block",
+      label: p.label,
+      widgets: childWidgets,
+      nestedGroups: childGroups
+    };
+  };
+  const views2 = [];
+  for (const [viewId, b] of viewBlocks) {
+    const p = b.payload || {};
+    const viewType = String(p.type || "");
+    if (viewType === "list") {
+      const columns = Array.isArray(p.table?.columns) ? p.table.columns : [];
+      views2.push({
+        id: viewId,
+        kind: "list",
+        label: p.label,
+        widgets: [],
+        groups: [],
+        tabs: [],
+        menu: [],
+        tableColumns: columns.map((c) => ({
+          id: c.id,
+          label: c.label || c.id,
+          attribute: c.attribute || ""
+        })),
+        actionPanel: Array.isArray(p.actionPanel) ? p.actionPanel.map((ap) => ap.widget).filter(Boolean) : []
+      });
+      continue;
+    }
+    if (viewType === "entity") {
+      const childWidgets = [];
+      const childGroups = [];
+      const childViews = [];
+      for (const [, wb] of widgets2) {
+        if (wb.parentViewId === viewId) {
+          const w = resolveWidget(wb.payload?.id);
+          if (w)
+            childWidgets.push(w);
+        }
+      }
+      for (const [gid, gb] of groups) {
+        if (gb.parentViewId === viewId && gb.payload?.type !== "form") {
+          const g = resolveGroup(gid);
+          if (g)
+            childGroups.push(g);
+        }
+      }
+      for (const [vid, vb] of viewBlocks) {
+        if (vb.parentViewId === viewId) {
+          const sub = buildSingleNestedView(
+            vid,
+            vb,
+            resolveWidget,
+            resolveGroup
+          );
+          if (sub)
+            childViews.push(sub);
+        }
+      }
+      views2.push({
+        id: viewId,
+        kind: "entity",
+        label: p.label,
+        widgets: childWidgets,
+        groups: childGroups,
+        tabs: [],
+        menu: []
+      });
+      views2.push(...childViews);
+      continue;
+    }
+    const nested = buildSingleNestedView(
+      viewId,
+      b,
+      resolveWidget,
+      resolveGroup
+    );
+    if (nested)
+      views2.push(nested);
+  }
+  const order = {
+    entity: 0,
+    list: 1,
+    panel: 2,
+    modal: 3,
+    page: 4
+  };
+  views2.sort((a, b) => (order[a.kind] ?? 9) - (order[b.kind] ?? 9));
+  return {
+    entityId: meta.entityId,
+    domainId: meta.domainId,
+    views: views2,
+    skippedBlocks: skipped
+  };
+}
+function buildSingleNestedView(viewId, b, resolveWidget, resolveGroup) {
+  const p = b.payload || {};
+  const t = String(p.type || "");
+  if (t !== "panel" && t !== "modal" && t !== "page")
+    return null;
+  const widgets2 = [];
+  const groups = [];
+  const tabs = [];
+  const menu = [];
+  if (Array.isArray(p.menu)) {
+    for (const m of p.menu) {
+      if (m?.action)
+        menu.push(m.action);
+    }
+  }
+  if (Array.isArray(p.tabs)) {
+    for (const t2 of p.tabs) {
+      if (!t2?.tab)
+        continue;
+      const g = groups.find((x) => x.id === t2.tab) || resolveGroup(t2.tab);
+      if (g) {
+        if (!groups.find((x) => x.id === g.id))
+          groups.push(g);
+        tabs.push({ id: t2.tab, label: g.label || t2.tab, groupId: g.id });
+      }
+    }
+  }
+  if (t === "modal" && p.form) {
+    const g = resolveGroup(p.form);
+    if (g)
+      groups.push(g);
+  }
+  if (t === "page" && p.block) {
+    const g = resolveGroup(p.block);
+    if (g)
+      groups.push(g);
+  }
+  return {
+    id: viewId,
+    kind: t,
+    label: p.label,
+    widgets: widgets2,
+    groups,
+    tabs,
+    menu
+  };
+}
+function collectPreviewActions(blocks) {
+  const m = /* @__PURE__ */ new Map();
+  for (const b of blocks) {
+    if (b.section !== "actions")
+      continue;
+    const id = b.payload?.id;
+    if (!id)
+      continue;
+    m.set(id, {
+      id,
+      name: b.payload.name || id,
+      type: b.payload.type || ""
+    });
+  }
+  return m;
+}
+var init_schema_preview = __esm({
+  "src/web/lib/model/schema-preview.ts"() {
+    "use strict";
+  }
+});
+
+// src/web/components/modals/GeneratedPreviewModal.tsx
+import React60, { useMemo as useMemo60 } from "react";
+import { Fragment as Fragment30, jsx as jsx93, jsxs as jsxs90 } from "react/jsx-runtime";
+function viewIcon(kind) {
+  switch (kind) {
+    case "entity":
+      return "view_quilt";
+    case "list":
+      return "table_rows";
+    case "panel":
+      return "view_sidebar";
+    case "modal":
+      return "open_in_new";
+    case "page":
+      return "fullscreen";
+    default:
+      return "view";
+  }
+}
+function GeneratedPreviewModal() {
+  const open2 = useGraphStore((s) => s.generatedPreviewOpen);
+  const setOpen = useGraphStore((s) => s.setGeneratedPreviewOpen);
+  const data = useGraphStore((s) => s.generatedPreviewData);
+  const preview = useMemo60(() => {
+    if (!data)
+      return null;
+    return buildSchemaPreview(data.blocks, {
+      entityId: data.entityId,
+      domainId: data.domainId
+    });
+  }, [data]);
+  const actions2 = useMemo60(
+    () => data ? collectPreviewActions(data.blocks) : /* @__PURE__ */ new Map(),
+    [data]
+  );
+  const [activeViewId, setActiveViewId] = React60.useState(null);
+  React60.useEffect(() => {
+    if (!preview)
+      return;
+    if (preview.views.length === 0) {
+      setActiveViewId(null);
+      return;
+    }
+    if (!activeViewId || !preview.views.find((v) => v.id === activeViewId)) {
+      const firstCard = preview.views.find((v) => v.kind !== "list");
+      setActiveViewId(firstCard?.id || preview.views[0].id);
+    }
+  }, [preview, activeViewId]);
+  if (!open2 || !data || !preview)
+    return null;
+  const active = preview.views.find((v) => v.id === activeViewId) || null;
+  return /* @__PURE__ */ jsx93(
+    "div",
+    {
+      className: "help-overlay help-overlay--fullscreen",
+      style: { zIndex: 500 },
+      onMouseDown: () => setOpen(false),
+      children: /* @__PURE__ */ jsxs90(
+        "div",
+        {
+          className: "help-modal generated-preview-modal",
+          onMouseDown: (e) => e.stopPropagation(),
+          children: [
+            /* @__PURE__ */ jsxs90("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs90("div", { className: "help-modal__title", children: [
+                /* @__PURE__ */ jsx93(MIcon, { name: "visibility", size: "sm" }),
+                /* @__PURE__ */ jsx93("span", { className: "icon-label", children: "\u041F\u0440\u0435\u0432\u044C\u044E \u0433\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u0438" }),
+                data.entityId && /* @__PURE__ */ jsx93("span", { className: "help-modal__badge", children: data.entityId }),
+                /* @__PURE__ */ jsx93(
+                  "span",
+                  {
+                    style: {
+                      marginLeft: 10,
+                      paddingLeft: 10,
+                      borderLeft: "1px solid var(--border)",
+                      fontSize: 11,
+                      color: "var(--text-500)",
+                      fontWeight: 400
+                    },
+                    children: "\u0421\u0445\u0435\u043C\u0430\u0442\u0438\u0447\u043D\u044B\u0439 wireframe \xB7 \u043D\u0435 \u0444\u0438\u043D\u0430\u043B\u044C\u043D\u044B\u0439 UI"
+                  }
+                )
+              ] }),
+              /* @__PURE__ */ jsx93("button", { className: "help-modal__close", onClick: () => setOpen(false), children: "\u2715" })
+            ] }),
+            /* @__PURE__ */ jsxs90("div", { className: "generated-preview-body", children: [
+              /* @__PURE__ */ jsxs90("div", { className: "generated-preview-sidebar", children: [
+                /* @__PURE__ */ jsxs90("div", { className: "generated-preview-sidebar__title", children: [
+                  "Views (",
+                  preview.views.length,
+                  ")"
+                ] }),
+                preview.views.length === 0 && /* @__PURE__ */ jsx93("div", { className: "generated-preview-sidebar__empty", children: "\u0412 \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u044B\u0445 \u0431\u043B\u043E\u043A\u0430\u0445 \u043D\u0435\u0442 views" }),
+                preview.views.map((v) => /* @__PURE__ */ jsxs90(
+                  "button",
+                  {
+                    className: "generated-preview-nav" + (v.id === activeViewId ? " active" : ""),
+                    onClick: () => setActiveViewId(v.id),
+                    children: [
+                      /* @__PURE__ */ jsx93(MIcon, { name: viewIcon(v.kind), size: "sm" }),
+                      /* @__PURE__ */ jsx93("span", { className: "generated-preview-nav__id", children: v.id }),
+                      /* @__PURE__ */ jsx93("span", { className: "generated-preview-nav__type", children: v.kind })
+                    ]
+                  },
+                  v.id
+                ))
+              ] }),
+              /* @__PURE__ */ jsx93("div", { className: "generated-preview-canvas", children: active ? /* @__PURE__ */ jsx93(ViewPreview, { view: active, actions: actions2 }) : /* @__PURE__ */ jsx93("div", { className: "generated-preview-empty", children: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 view" }) })
+            ] }),
+            /* @__PURE__ */ jsxs90("div", { className: "generated-preview-footer", children: [
+              /* @__PURE__ */ jsxs90("span", { className: "generated-preview-footer__hint", children: [
+                /* @__PURE__ */ jsx93(MIcon, { name: "info", size: "sm" }),
+                "\u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u0441\u043E\u0441\u0442\u0430\u0432 \u043F\u043E\u043B\u0435\u0439, \u0433\u0440\u0443\u043F\u043F \u0438 \u043A\u043D\u043E\u043F\u043E\u043A. \u0415\u0441\u043B\u0438 \u0447\u0442\u043E-\u0442\u043E \u043D\u0435 \u0442\u0430\u043A \u2014 \u0432\u0435\u0440\u043D\u0438\u0442\u0435\u0441\u044C \u043A \u043F\u0430\u0440\u0430\u043C\u0435\u0442\u0440\u0430\u043C \u043F\u0440\u043E\u0444\u0438\u043B\u044F \u0438 \u043F\u043E\u043F\u0440\u0430\u0432\u044C\u0442\u0435.",
+                preview.skippedBlocks > 0 && /* @__PURE__ */ jsxs90(Fragment30, { children: [
+                  " ",
+                  "\xB7 \u041F\u0440\u043E\u043F\u0443\u0449\u0435\u043D\u043E \u0431\u043B\u043E\u043A\u043E\u0432: ",
+                  preview.skippedBlocks,
+                  " (\u043D\u0435 view)"
+                ] })
+              ] }),
+              /* @__PURE__ */ jsx93("button", { className: "btn", onClick: () => setOpen(false), children: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C" })
+            ] })
+          ]
+        }
+      )
+    }
+  );
+}
+function ViewPreview({
+  view,
+  actions: actions2
+}) {
+  if (view.kind === "list")
+    return /* @__PURE__ */ jsx93(ListViewPreview, { view, actions: actions2 });
+  return /* @__PURE__ */ jsx93(CardViewPreview, { view, actions: actions2 });
+}
+function ListViewPreview({
+  view,
+  actions: actions2
+}) {
+  return /* @__PURE__ */ jsxs90("div", { className: "preview-list", children: [
+    /* @__PURE__ */ jsxs90("div", { className: "preview-list__header", children: [
+      /* @__PURE__ */ jsx93("span", { children: view.label || view.id }),
+      view.actionPanel && view.actionPanel.length > 0 && /* @__PURE__ */ jsx93("div", { className: "preview-list__actions", children: view.actionPanel.map((w) => {
+        const actionId = w.replace(/^buttons_/, "actions_");
+        const a = actions2.get(actionId);
+        return /* @__PURE__ */ jsx93("span", { className: "preview-btn preview-btn--primary", children: a?.name || actionId }, w);
+      }) })
+    ] }),
+    /* @__PURE__ */ jsxs90("table", { className: "preview-table", children: [
+      /* @__PURE__ */ jsx93("thead", { children: /* @__PURE__ */ jsxs90("tr", { children: [
+        (view.tableColumns || []).map((c) => /* @__PURE__ */ jsx93("th", { children: c.label }, c.id)),
+        (!view.tableColumns || view.tableColumns.length === 0) && /* @__PURE__ */ jsx93("th", { children: "\u2014" })
+      ] }) }),
+      /* @__PURE__ */ jsx93("tbody", { children: /* @__PURE__ */ jsx93("tr", { className: "preview-table__empty", children: /* @__PURE__ */ jsx93("td", { colSpan: Math.max(1, view.tableColumns?.length || 0), children: "\u0414\u0430\u043D\u043D\u044B\u0435 \u043E\u0442\u0441\u0443\u0442\u0441\u0442\u0432\u0443\u044E\u0442" }) }) })
+    ] })
+  ] });
+}
+function CardViewPreview({
+  view,
+  actions: actions2
+}) {
+  return /* @__PURE__ */ jsxs90("div", { className: "preview-card", children: [
+    /* @__PURE__ */ jsxs90("div", { className: "preview-card__header", children: [
+      /* @__PURE__ */ jsx93("span", { children: view.label || view.id }),
+      view.menu.length > 0 && /* @__PURE__ */ jsx93("div", { className: "preview-card__menu", children: view.menu.map((m) => {
+        const a = actions2.get(m);
+        return /* @__PURE__ */ jsx93("span", { className: "preview-btn", children: a?.name || m }, m);
+      }) })
+    ] }),
+    view.tabs.length > 0 && /* @__PURE__ */ jsx93("div", { className: "preview-tabs", children: view.tabs.map((t, i) => /* @__PURE__ */ jsx93(
+      "div",
+      {
+        className: "preview-tab" + (i === 0 ? " active" : ""),
+        children: t.label
+      },
+      t.id
+    )) }),
+    /* @__PURE__ */ jsxs90("div", { className: "preview-card__body", children: [
+      view.groups.map((g) => /* @__PURE__ */ jsx93(
+        PreviewGroupBlock,
+        {
+          group: g,
+          actions: actions2,
+          depth: 0
+        },
+        g.id
+      )),
+      view.widgets.length > 0 && /* @__PURE__ */ jsx93(PreviewFieldGrid, { children: view.widgets.map((w) => /* @__PURE__ */ jsx93(PreviewWidgetRow, { widget: w, actions: actions2 }, w.id)) }),
+      view.groups.length === 0 && view.widgets.length === 0 && /* @__PURE__ */ jsx93(
+        "div",
+        {
+          style: {
+            padding: 20,
+            textAlign: "center",
+            color: "var(--text-500)",
+            fontStyle: "italic",
+            fontSize: 12
+          },
+          children: "\u041F\u0443\u0441\u0442\u0430\u044F \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0430 \u2014 \u043D\u0435\u0442 \u043D\u0438 \u0433\u0440\u0443\u043F\u043F, \u043D\u0438 \u0432\u0438\u0434\u0436\u0435\u0442\u043E\u0432"
+        }
+      )
+    ] })
+  ] });
+}
+function PreviewFieldGrid({ children }) {
+  return /* @__PURE__ */ jsx93(
+    "div",
+    {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+        gap: 10
+      },
+      children
+    }
+  );
+}
+function PreviewGroupBlock({
+  group,
+  actions: actions2,
+  depth
+}) {
+  if (depth > 3)
+    return null;
+  return /* @__PURE__ */ jsxs90("div", { className: "preview-group preview-group--" + group.type, children: [
+    group.label && /* @__PURE__ */ jsx93("div", { className: "preview-group__label", children: group.label }),
+    /* @__PURE__ */ jsxs90("div", { className: "preview-group__body", children: [
+      group.widgets.length > 0 && /* @__PURE__ */ jsx93(PreviewFieldGrid, { children: group.widgets.map((w) => /* @__PURE__ */ jsx93(PreviewWidgetRow, { widget: w, actions: actions2 }, w.id)) }),
+      group.nestedGroups.map((g) => /* @__PURE__ */ jsx93(
+        PreviewGroupBlock,
+        {
+          group: g,
+          actions: actions2,
+          depth: depth + 1
+        },
+        g.id
+      )),
+      group.widgets.length === 0 && group.nestedGroups.length === 0 && /* @__PURE__ */ jsx93("div", { className: "preview-group__empty", children: "\u041F\u0443\u0441\u0442\u043E" })
+    ] })
+  ] });
+}
+function PreviewWidgetRow({
+  widget,
+  actions: actions2
+}) {
+  if (widget.type === "action") {
+    const actionId = widget.actions?.[0];
+    const a = actionId ? actions2.get(actionId) : null;
+    return /* @__PURE__ */ jsx93("span", { className: "preview-btn", children: a?.name || actionId || widget.id });
+  }
+  if (widget.type === "attribute") {
+    return /* @__PURE__ */ jsxs90("div", { className: "preview-field", children: [
+      /* @__PURE__ */ jsx93("label", { className: "preview-field__label", children: widget.label || widget.id }),
+      /* @__PURE__ */ jsx93(
+        "input",
+        {
+          className: "preview-field__input",
+          disabled: true,
+          value: "",
+          placeholder: widget.controlType || "text"
+        }
+      )
+    ] });
+  }
+  if (widget.type === "linkage") {
+    return /* @__PURE__ */ jsxs90("div", { className: "preview-linkage", children: [
+      /* @__PURE__ */ jsx93("span", { className: "preview-linkage__label", children: widget.label || widget.linkageId || widget.id }),
+      /* @__PURE__ */ jsx93("span", { className: "preview-linkage__count", children: "0" })
+    ] });
+  }
+  return /* @__PURE__ */ jsxs90("div", { className: "preview-widget-fallback", children: [
+    "[",
+    widget.type,
+    "] ",
+    widget.id
+  ] });
+}
+var init_GeneratedPreviewModal = __esm({
+  "src/web/components/modals/GeneratedPreviewModal.tsx"() {
+    "use strict";
+    init_useGraphStore();
+    init_schema_preview();
+    init_MIcon();
+  }
+});
+
+// src/web/lib/model/changelog.ts
+function parseSemVer(v) {
+  const m = v.match(/^(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z-.]+)?/);
+  if (!m)
+    return null;
+  return {
+    major: parseInt(m[1], 10),
+    minor: parseInt(m[2], 10),
+    patch: parseInt(m[3], 10),
+    prerelease: m[4] ? m[4].slice(1) : null
+  };
+}
+function suggestBump(diff) {
+  if (diff.stats.entitiesRemoved > 0 || diff.stats.domainsRemoved > 0 || diff.stats.dataTypesRemoved > 0) {
+    return "major";
+  }
+  for (const c of diff.entities.changed) {
+    if (c.attributesRemoved.length > 0)
+      return "major";
+    for (const a of c.attributesChanged) {
+      if ("dataType" in a.changes)
+        return "major";
+      if ("referenceEntity" in a.changes)
+        return "major";
+    }
+  }
+  if (diff.stats.entitiesAdded > 0 || diff.stats.attributesAdded > 0 || diff.stats.dataTypesAdded > 0 || diff.stats.domainsAdded > 0) {
+    return "minor";
+  }
+  return "patch";
+}
+function applyBump(version, bump) {
+  const p = parseSemVer(version);
+  if (!p)
+    return null;
+  if (bump === "major")
+    return `${p.major + 1}.0.0`;
+  if (bump === "minor")
+    return `${p.major}.${p.minor + 1}.0`;
+  return `${p.major}.${p.minor}.${p.patch + 1}`;
+}
+function buildChangelogBlocks(diff) {
+  const breaking = [];
+  const features = [];
+  const fixes = [];
+  for (const d of diff.domains.added) {
+    features.push({
+      kind: "feature",
+      text: `\u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D \u0434\u043E\u043C\u0435\u043D ${d.domainId}`,
+      domainId: d.domainId
+    });
+  }
+  for (const d of diff.domains.removed) {
+    breaking.push({
+      kind: "breaking",
+      text: `\u0423\u0434\u0430\u043B\u0451\u043D \u0434\u043E\u043C\u0435\u043D ${d.domainId}`,
+      domainId: d.domainId
+    });
+  }
+  for (const d of diff.domains.changed) {
+    for (const ch of d.changes) {
+      if (ch.field === "version")
+        continue;
+      fixes.push({
+        kind: "fix",
+        text: `${d.domainId}: ${ch.field} \u2192 ${String(ch.to)}`,
+        domainId: d.domainId
+      });
+    }
+  }
+  for (const e of diff.entities.added) {
+    features.push({
+      kind: "feature",
+      text: `\u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C ${e.entityId}`,
+      domainId: e.domainId,
+      entityId: e.entityId
+    });
+  }
+  for (const e of diff.entities.removed) {
+    breaking.push({
+      kind: "breaking",
+      text: `\u0423\u0434\u0430\u043B\u0435\u043D\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C ${e.entityId}`,
+      domainId: e.domainId,
+      entityId: e.entityId
+    });
+  }
+  for (const c of diff.entities.changed) {
+    if (c.inheritsChange) {
+      breaking.push({
+        kind: "breaking",
+        text: `${c.entityId}: inherits ${c.inheritsChange.from ?? "\u2014"} \u2192 ${c.inheritsChange.to ?? "\u2014"}`,
+        domainId: c.domainId,
+        entityId: c.entityId
+      });
+    }
+    if (c.nameChange) {
+      fixes.push({
+        kind: "fix",
+        text: `${c.entityId}: \u043F\u0435\u0440\u0435\u0438\u043C\u0435\u043D\u043E\u0432\u0430\u043D\u043E \xAB${c.nameChange.from}\xBB \u2192 \xAB${c.nameChange.to}\xBB`,
+        domainId: c.domainId,
+        entityId: c.entityId
+      });
+    }
+    for (const a of c.attributesAdded) {
+      features.push({
+        kind: "feature",
+        text: `${c.entityId}.${a.id}: \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D \u0430\u0442\u0440\u0438\u0431\u0443\u0442 (${a.dataType})`,
+        domainId: c.domainId,
+        entityId: c.entityId
+      });
+    }
+    for (const a of c.attributesRemoved) {
+      breaking.push({
+        kind: "breaking",
+        text: `${c.entityId}.${a.id}: \u0443\u0434\u0430\u043B\u0451\u043D \u0430\u0442\u0440\u0438\u0431\u0443\u0442 (${a.dataType})`,
+        domainId: c.domainId,
+        entityId: c.entityId
+      });
+    }
+    for (const ac of c.attributesChanged) {
+      const fields = Object.keys(ac.changes);
+      const isBreaking = fields.some(
+        (f) => f === "dataType" || f === "referenceEntity" || f === "itemReferenceEntity"
+      );
+      const text = `${c.entityId}.${ac.id}: ${fields.join(", ")}`;
+      if (isBreaking)
+        breaking.push({
+          kind: "breaking",
+          text,
+          domainId: c.domainId,
+          entityId: c.entityId
+        });
+      else
+        fixes.push({
+          kind: "fix",
+          text,
+          domainId: c.domainId,
+          entityId: c.entityId
+        });
+    }
+  }
+  for (const d of diff.dataTypes.added) {
+    features.push({
+      kind: "feature",
+      text: `\u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D \u0442\u0438\u043F ${d.id} (${d.kind})`,
+      domainId: d.domainId
+    });
+  }
+  for (const d of diff.dataTypes.removed) {
+    breaking.push({
+      kind: "breaking",
+      text: `\u0423\u0434\u0430\u043B\u0451\u043D \u0442\u0438\u043F ${d.id} (${d.kind})`,
+      domainId: d.domainId
+    });
+  }
+  for (const m of diff.mixins.added) {
+    features.push({
+      kind: "feature",
+      text: `\u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D \u043C\u0438\u043A\u0441\u0438\u043D ${m.id} \u2192 ${m.targetEntityFqid}`,
+      domainId: m.domainId
+    });
+  }
+  for (const m of diff.mixins.removed) {
+    fixes.push({
+      kind: "fix",
+      text: `\u0423\u0434\u0430\u043B\u0451\u043D \u043C\u0438\u043A\u0441\u0438\u043D ${m.id}`,
+      domainId: m.domainId
+    });
+  }
+  if (diff.genericSections) {
+    for (const [section, d] of Object.entries(diff.genericSections)) {
+      for (const e of d.added) {
+        features.push({
+          kind: "feature",
+          text: `${section}: \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u043E ${e.id}`,
+          domainId: e.domainId
+        });
+      }
+      for (const e of d.removed) {
+        fixes.push({
+          kind: "fix",
+          text: `${section}: \u0443\u0434\u0430\u043B\u0435\u043D\u043E ${e.id}`,
+          domainId: e.domainId
+        });
+      }
+    }
+  }
+  const blocks = [];
+  if (breaking.length > 0)
+    blocks.push({ title: "\u26A0\uFE0F Breaking changes", entries: breaking });
+  if (features.length > 0)
+    blocks.push({ title: "\u2728 \u041D\u043E\u0432\u044B\u0435 \u0432\u043E\u0437\u043C\u043E\u0436\u043D\u043E\u0441\u0442\u0438", entries: features });
+  if (fixes.length > 0)
+    blocks.push({ title: "\u{1F527} \u041F\u0440\u043E\u0447\u0438\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F", entries: fixes });
+  return blocks;
+}
+function buildChangelogMarkdown(blocks, opts) {
+  const lines = [];
+  lines.push(`# CHANGELOG`);
+  lines.push("");
+  lines.push(
+    `## [${opts.version}] \u2014 ${opts.takenAt}${opts.server ? ` @ ${opts.server}` : ""}`
+  );
+  lines.push("");
+  if (opts.previousVersion && opts.previousVersion !== opts.version) {
+    lines.push(`_\u041F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0430\u044F \u0432\u0435\u0440\u0441\u0438\u044F: ${opts.previousVersion}_`);
+    lines.push("");
+  }
+  if (blocks.length === 0) {
+    lines.push("_\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439 \u043D\u0435\u0442._");
+    return lines.join("\n");
+  }
+  for (const b of blocks) {
+    lines.push(`### ${b.title}`);
+    lines.push("");
+    for (const e of b.entries) {
+      const prefix = e.domainId ? `**\`${e.domainId}\`** \u2014 ` : "";
+      lines.push(`- ${prefix}${e.text}`);
+    }
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+var init_changelog = __esm({
+  "src/web/lib/model/changelog.ts"() {
+    "use strict";
+  }
+});
+
+// src/web/components/modals/ChangelogModal.tsx
+import { useMemo as useMemo61 } from "react";
+import { jsx as jsx94, jsxs as jsxs91 } from "react/jsx-runtime";
+function ChangelogModal() {
+  const open2 = useGraphStore((s) => s.changelogOpen);
+  const setOpen = useGraphStore((s) => s.setChangelogOpen);
+  const { diff, loading, error } = useModelDiff();
+  const remoteInfo = useMemo61(() => readRemoteInfo(), []);
+  const blocks = useMemo61(() => diff ? buildChangelogBlocks(diff) : [], [diff]);
+  const bump = useMemo61(() => diff ? suggestBump(diff) : "patch", [diff]);
+  const downloadMarkdown = async () => {
+    if (!diff)
+      return;
+    const nextVersion = applyBump("1.0.0", bump) || "1.0.1";
+    const md = buildChangelogMarkdown(blocks, {
+      version: nextVersion,
+      previousVersion: "",
+      takenAt: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
+      server: remoteInfo?.server
+    });
+    const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `CHANGELOG-${Date.now()}.md`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    useGraphStore.getState().showSnackbar("CHANGELOG.md \u0441\u043A\u0430\u0447\u0430\u043D");
+  };
+  const copyMarkdown = async () => {
+    if (!diff)
+      return;
+    const md = buildChangelogMarkdown(blocks, {
+      version: applyBump("1.0.0", bump) || "1.0.1",
+      previousVersion: "",
+      takenAt: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
+      server: remoteInfo?.server
+    });
+    try {
+      await navigator.clipboard.writeText(md);
+      useGraphStore.getState().showSnackbar("CHANGELOG \u0432 \u0431\u0443\u0444\u0435\u0440\u0435 \u043E\u0431\u043C\u0435\u043D\u0430");
+    } catch {
+    }
+  };
+  if (!open2)
+    return null;
+  return /* @__PURE__ */ jsx94("div", { className: "help-overlay help-overlay--fullscreen", onMouseDown: () => setOpen(false), children: /* @__PURE__ */ jsxs91("div", { className: "help-modal changelog-modal", onMouseDown: (e) => e.stopPropagation(), children: [
+    /* @__PURE__ */ jsxs91("div", { className: "help-modal__header", children: [
+      /* @__PURE__ */ jsxs91("div", { className: "help-modal__title", children: [
+        /* @__PURE__ */ jsx94(MIcon, { name: "history_edu", size: "sm" }),
+        /* @__PURE__ */ jsx94("span", { className: "icon-label", children: "CHANGELOG \u0438 \u0432\u0435\u0440\u0441\u0438\u043E\u043D\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435" }),
+        diff && /* @__PURE__ */ jsxs91("span", { className: "help-modal__badge", children: [
+          "\u0440\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u043E\u0432\u0430\u043D\u043E: ",
+          bump.toUpperCase()
+        ] })
+      ] }),
+      /* @__PURE__ */ jsx94("button", { className: "help-modal__close", onClick: () => setOpen(false), children: "\u2715" })
+    ] }),
+    loading && /* @__PURE__ */ jsx94("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx94("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 diff\u2026" }) }),
+    error && /* @__PURE__ */ jsx94("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx94("div", { style: { color: "var(--danger)" }, children: error }) }),
+    !loading && !error && !diff && /* @__PURE__ */ jsx94("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx94("div", { className: "changelog-empty", children: "\u041D\u0435\u0442 \u0434\u0430\u043D\u043D\u044B\u0445 diff. \u0421\u043D\u0430\u043F\u0448\u043E\u0442 \u043C\u043E\u0434\u0435\u043B\u0438 \u0435\u0449\u0451 \u043D\u0435 \u0441\u043E\u0437\u0434\u0430\u043D \u0438\u043B\u0438 \u043D\u0435 \u0431\u044B\u043B\u043E \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439." }) }),
+    diff && /* @__PURE__ */ jsxs91("div", { className: "help-modal__body help-modal__body--flush", children: [
+      /* @__PURE__ */ jsxs91("div", { className: "changelog-version-badge", children: [
+        /* @__PURE__ */ jsx94(MIcon, { name: "upgrade", size: "sm" }),
+        /* @__PURE__ */ jsx94("span", { children: "\u0420\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u043E\u0432\u0430\u043D\u043D\u044B\u0439 bump: " }),
+        /* @__PURE__ */ jsx94("strong", { className: "changelog-bump changelog-bump--" + bump, children: bump.toUpperCase() }),
+        /* @__PURE__ */ jsx94("span", { className: "changelog-version-badge__hint", children: bump === "major" ? "\u0423\u0434\u0430\u043B\u0435\u043D\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438/\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B/\u0442\u0438\u043F\u044B \u2014 \u043D\u0435\u0441\u043E\u0432\u043C\u0435\u0441\u0442\u0438\u043C\u043E" : bump === "minor" ? "\u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438/\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u2014 \u043E\u0431\u0440\u0430\u0442\u043D\u0430\u044F \u0441\u043E\u0432\u043C\u0435\u0441\u0442\u0438\u043C\u043E\u0441\u0442\u044C" : "\u0422\u043E\u043B\u044C\u043A\u043E \u0432\u043D\u0443\u0442\u0440\u0435\u043D\u043D\u0438\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F" })
+      ] }),
+      blocks.length === 0 ? /* @__PURE__ */ jsx94("div", { className: "changelog-empty", children: "\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439 \u043D\u0435\u0442" }) : /* @__PURE__ */ jsx94("div", { className: "changelog-blocks", children: blocks.map((b) => /* @__PURE__ */ jsxs91("div", { className: "changelog-block", children: [
+        /* @__PURE__ */ jsx94("div", { className: "changelog-block__title", children: b.title }),
+        /* @__PURE__ */ jsx94("ul", { className: "changelog-block__list", children: b.entries.map((e, i) => /* @__PURE__ */ jsxs91("li", { className: "changelog-entry changelog-entry--" + e.kind, children: [
+          e.domainId && /* @__PURE__ */ jsx94("code", { className: "changelog-entry__domain", children: e.domainId }),
+          /* @__PURE__ */ jsx94("span", { children: e.text })
+        ] }, i)) })
+      ] }, b.title)) })
+    ] }),
+    /* @__PURE__ */ jsxs91("div", { className: "validation-footer", children: [
+      /* @__PURE__ */ jsx94("div", { className: "validation-stats", children: diff && /* @__PURE__ */ jsxs91("span", { className: "validation-stat", children: [
+        diff.stats.entitiesAdded + diff.stats.entitiesRemoved + diff.stats.entitiesChanged,
+        " \u0438\u0437\u043C\u0435\u043D\u0451\u043D\u043D\u044B\u0445 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439"
+      ] }) }),
+      /* @__PURE__ */ jsxs91("div", { className: "validation-footer__actions", children: [
+        /* @__PURE__ */ jsx94("button", { className: "btn", onClick: copyMarkdown, disabled: !diff, children: "\u{1F4CB} \u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C" }),
+        /* @__PURE__ */ jsx94("button", { className: "btn btn--primary", onClick: downloadMarkdown, disabled: !diff, children: "\u{1F4BE} \u0421\u043A\u0430\u0447\u0430\u0442\u044C .md" }),
+        /* @__PURE__ */ jsx94("button", { className: "btn", onClick: () => setOpen(false), children: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C" })
+      ] })
+    ] })
+  ] }) });
+}
+var init_ChangelogModal = __esm({
+  "src/web/components/modals/ChangelogModal.tsx"() {
+    "use strict";
+    init_useGraphStore();
+    init_useModelDiff();
+    init_MIcon();
+    init_changelog();
+    init_initial();
+  }
+});
+
+// src/web/components/modals/DomainOnboardingWizard.tsx
+import { useMemo as useMemo62 } from "react";
+import { Fragment as Fragment31, jsx as jsx95, jsxs as jsxs92 } from "react/jsx-runtime";
+function DomainOnboardingWizard() {
+  const open2 = useGraphStore((s) => s.onboardingWizardOpen);
+  const domainId = useGraphStore((s) => s.onboardingWizardDomainId);
+  const setOpen = useGraphStore((s) => s.setOnboardingWizardOpen);
+  const { index } = useModelIndex();
+  const allDomains = useMemo62(() => {
+    if (!index)
+      return [];
+    const map2 = /* @__PURE__ */ new Map();
+    index.entities.forEach((e) => {
+      map2.set(e.domainId, (map2.get(e.domainId) || 0) + 1);
+    });
+    index.domains.forEach((d) => {
+      if (!map2.has(d.id))
+        map2.set(d.id, 0);
+    });
+    return Array.from(map2.entries()).sort((a, b) => b[1] - a[1]);
+  }, [index]);
+  const schema2 = useMemo62(() => {
+    if (!index || !domainId)
+      return null;
+    return index.schemasByDomain[domainId] || null;
+  }, [index, domainId]);
+  const steps = useMemo62(() => {
+    if (!index || !domainId || !schema2)
+      return [];
+    const s = schema2.sections;
+    const domainEntities = index.entities.filter((e) => e.domainId === domainId);
+    const hasMenuRoot = s.menus.items?.some((m) => m.type === "root_group" || m.type === "root_menu");
+    const hasMedias = (s.medias.items?.length || 0) > 0;
+    const hasActions = s.actions.items?.length > 0;
+    const hasViews = s.views.items?.length > 0;
+    const hasExchange = !!index.exchangeSettingsByDomain?.[domainId];
+    const hasUiRules = s.uiRules.items?.length > 0;
+    const hasLint = (index.lint?.lintReport?.issues || []).some(
+      (i) => i.domainId === domainId && i.severity === "error"
+    );
+    return [
+      {
+        id: "entities",
+        title: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0438 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B",
+        description: "\u041E\u043F\u0438\u0448\u0438\u0442\u0435 \u0445\u043E\u0442\u044F \u0431\u044B \u043E\u0434\u043D\u0443 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0441 1\u20132 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430\u043C\u0438",
+        done: domainEntities.length > 0,
+        icon: "category",
+        hint: `${domainEntities.length} \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439`
+      },
+      {
+        id: "linkages",
+        title: "\u0421\u0432\u044F\u0437\u0438",
+        description: "\u041E\u043F\u0438\u0448\u0438\u0442\u0435 \u0441\u0432\u044F\u0437\u0438 \u043C\u0435\u0436\u0434\u0443 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u043C\u0438 (\u0438\u043B\u0438 \u043F\u0440\u043E\u043F\u0443\u0441\u0442\u0438\u0442\u0435, \u0435\u0441\u043B\u0438 \u0441\u0432\u044F\u0437\u0435\u0439 \u043D\u0435\u0442)",
+        done: (s.linkages.items?.length || 0) > 0,
+        icon: "link",
+        hint: `${s.linkages.items?.length || 0} \u0441\u0432\u044F\u0437\u0435\u0439`
+      },
+      {
+        id: "medias",
+        title: "\u0418\u043A\u043E\u043D\u043A\u0438",
+        description: "\u0414\u043E\u0431\u0430\u0432\u044C\u0442\u0435 \u043D\u0430\u0431\u043E\u0440 \u0438\u043A\u043E\u043D\u043E\u043A \u0434\u043B\u044F \u043A\u043D\u043E\u043F\u043E\u043A (add/edit/delete)",
+        done: hasMedias,
+        icon: "image",
+        actionLabel: "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u043F\u0430\u043B\u0438\u0442\u0440\u0443",
+        action: () => {
+          const st = useGraphStore.getState();
+          st.setGenerateSchemaDomainId(domainId);
+          st.setGenerateSchemaEntityId(null);
+          st.setGenerateSchemaPrefillProfile("domain-extras");
+          st.setGenerateSchemaOpen(true);
+          setOpen(false);
+        }
+      },
+      {
+        id: "actions",
+        title: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F",
+        description: "\u041A\u043D\u043E\u043F\u043A\u0438: \u0441\u043E\u0437\u0434\u0430\u0442\u044C / \u043E\u0442\u043A\u0440\u044B\u0442\u044C / \u0443\u0434\u0430\u043B\u0438\u0442\u044C",
+        done: hasActions,
+        icon: "bolt",
+        actionLabel: "\u041F\u0440\u043E\u0444\u0438\u043B\u044C CRUD",
+        action: () => {
+          const st = useGraphStore.getState();
+          st.setGenerateBatchDomainId(domainId);
+          st.setGenerateBatchOpen(true);
+          setOpen(false);
+        }
+      },
+      {
+        id: "views",
+        title: "Views",
+        description: "Entity-view, list-view, \u043F\u0430\u043D\u0435\u043B\u044C, \u043C\u043E\u0434\u0430\u043B\u043A\u0430",
+        done: hasViews,
+        icon: "view_quilt"
+      },
+      {
+        id: "menu",
+        title: "\u041C\u0435\u043D\u044E",
+        description: "\u041F\u0443\u043D\u043A\u0442 \u043C\u0435\u043D\u044E, \u0447\u0442\u043E\u0431\u044B \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044C \u043F\u043E\u043F\u0430\u043B \u0432 \u0440\u0430\u0437\u0434\u0435\u043B",
+        done: hasMenuRoot,
+        icon: "menu",
+        actionLabel: "\u0421\u043E\u0437\u0434\u0430\u0442\u044C root_group",
+        action: () => {
+          const st = useGraphStore.getState();
+          st.setGenerateSchemaDomainId(domainId);
+          st.setGenerateSchemaEntityId(null);
+          st.setGenerateSchemaPrefillProfile("domain-extras");
+          st.setGenerateSchemaOpen(true);
+          setOpen(false);
+        }
+      },
+      {
+        id: "exchange",
+        title: "\u041E\u0431\u043C\u0435\u043D \u0434\u0430\u043D\u043D\u044B\u043C\u0438",
+        description: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u0438\u043C\u043F\u043E\u0440\u0442\u0430/\u044D\u043A\u0441\u043F\u043E\u0440\u0442\u0430 (\u043E\u043F\u0446\u0438\u043E\u043D\u0430\u043B\u044C\u043D\u043E)",
+        done: hasExchange,
+        icon: "swap_horiz",
+        actionLabel: "\u0421\u043A\u0435\u043B\u0435\u0442 exchangeSettings",
+        action: () => {
+          const st = useGraphStore.getState();
+          st.setGenerateSchemaDomainId(domainId);
+          st.setGenerateSchemaEntityId(null);
+          st.setGenerateSchemaPrefillProfile("exchange-settings");
+          st.setGenerateSchemaOpen(true);
+          setOpen(false);
+        }
+      },
+      {
+        id: "uiRules",
+        title: "UI Rules",
+        description: "\u0423\u0441\u043B\u043E\u0432\u043D\u043E\u0435 \u0441\u043A\u0440\u044B\u0442\u0438\u0435 / readonly (\u043E\u043F\u0446\u0438\u043E\u043D\u0430\u043B\u044C\u043D\u043E)",
+        done: hasUiRules,
+        icon: "rule_folder"
+      },
+      {
+        id: "lint",
+        title: "\u041B\u0438\u043D\u0442\u0435\u0440 \u0447\u0438\u0441\u0442",
+        description: "\u041D\u0435\u0442 \u043E\u0448\u0438\u0431\u043E\u043A \u0432 \u043B\u0438\u043D\u0442\u0435\u0440\u0435 \u0441\u0445\u0435\u043C\u044B",
+        done: !hasLint,
+        icon: "science",
+        actionLabel: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043B\u0438\u043D\u0442\u0435\u0440",
+        action: () => {
+          useGraphStore.getState().setLintOpen(true);
+          setOpen(false);
+        }
+      }
+    ];
+  }, [index, domainId, schema2, setOpen]);
+  const doneCount = steps.filter((s) => s.done).length;
+  const pct = steps.length === 0 ? 0 : Math.round(doneCount / steps.length * 100);
+  if (!open2)
+    return null;
+  return /* @__PURE__ */ jsx95("div", { className: "help-overlay help-overlay--fullscreen", onMouseDown: () => setOpen(false), children: /* @__PURE__ */ jsxs92("div", { className: "help-modal onboarding-modal", onMouseDown: (e) => e.stopPropagation(), children: [
+    /* @__PURE__ */ jsxs92("div", { className: "help-modal__header", children: [
+      /* @__PURE__ */ jsxs92("div", { className: "help-modal__title", children: [
+        /* @__PURE__ */ jsx95(MIcon, { name: "rocket_launch", size: "sm" }),
+        /* @__PURE__ */ jsx95("span", { className: "icon-label", children: "\u041E\u043D\u0431\u043E\u0440\u0434\u0438\u043D\u0433 \u0434\u043E\u043C\u0435\u043D\u0430" })
+      ] }),
+      /* @__PURE__ */ jsx95("div", { style: { marginLeft: "auto", marginRight: 12, minWidth: 280 }, children: /* @__PURE__ */ jsx95(
+        DomainCombobox,
+        {
+          value: domainId || "",
+          onChange: (v) => useGraphStore.getState().setOnboardingWizardDomainId(v || null),
+          domains: allDomains,
+          placeholder: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u043E\u043C\u0435\u043D..."
+        }
+      ) }),
+      /* @__PURE__ */ jsx95("button", { className: "help-modal__close", onClick: () => setOpen(false), children: "\u2715" })
+    ] }),
+    /* @__PURE__ */ jsx95("div", { className: "help-modal__body", children: !domainId ? /* @__PURE__ */ jsxs92("div", { className: "onboarding-domain-picker", children: [
+      /* @__PURE__ */ jsx95("div", { className: "onboarding-domain-picker__icon", children: /* @__PURE__ */ jsx95(MIcon, { name: "rocket_launch", size: "xl" }) }),
+      /* @__PURE__ */ jsx95("div", { className: "onboarding-domain-picker__title", children: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u043E\u043C\u0435\u043D" }),
+      /* @__PURE__ */ jsx95("div", { className: "onboarding-domain-picker__hint", children: "\u0414\u043E\u043C\u0435\u043D \u043C\u043E\u0436\u043D\u043E \u0432\u044B\u0431\u0440\u0430\u0442\u044C \u0432 \u0441\u0435\u043B\u0435\u043A\u0442\u043E\u0440\u0435 \u0432 \u0448\u0430\u043F\u043A\u0435 \u043C\u043E\u0434\u0430\u043B\u043A\u0438. \u041F\u043E\u043A\u0430\u0436\u0435\u043C \u043F\u043E\u0448\u0430\u0433\u043E\u0432\u044B\u0439 \u0447\u0435\u043A-\u043B\u0438\u0441\u0442: \u0447\u0442\u043E \u0443\u0436\u0435 \u0441\u0434\u0435\u043B\u0430\u043D\u043E, \u0447\u0442\u043E \u043E\u0441\u0442\u0430\u043B\u043E\u0441\u044C." })
+    ] }) : !schema2 ? /* @__PURE__ */ jsx95("div", { className: "onboarding-empty", children: "\u0421\u0445\u0435\u043C\u0430 \u0434\u043E\u043C\u0435\u043D\u0430 \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430" }) : /* @__PURE__ */ jsxs92(Fragment31, { children: [
+      /* @__PURE__ */ jsxs92("div", { className: "onboarding-progress", children: [
+        "...",
+        /* @__PURE__ */ jsx95("div", { className: "onboarding-progress__bar", children: /* @__PURE__ */ jsx95("div", { className: "onboarding-progress__fill", style: { width: `${pct}%` } }) }),
+        /* @__PURE__ */ jsxs92("div", { className: "onboarding-progress__label", children: [
+          doneCount,
+          " / ",
+          steps.length,
+          " \u0448\u0430\u0433\u043E\u0432 (",
+          pct,
+          "%)"
+        ] })
+      ] }),
+      /* @__PURE__ */ jsx95("div", { className: "onboarding-steps", children: steps.map((s, i) => /* @__PURE__ */ jsxs92("div", { className: "onboarding-step" + (s.done ? " onboarding-step--done" : ""), children: [
+        /* @__PURE__ */ jsx95("div", { className: "onboarding-step__icon", children: /* @__PURE__ */ jsx95(MIcon, { name: s.done ? "check_circle" : s.icon, size: "sm" }) }),
+        /* @__PURE__ */ jsxs92("div", { className: "onboarding-step__body", children: [
+          /* @__PURE__ */ jsxs92("div", { className: "onboarding-step__title", children: [
+            /* @__PURE__ */ jsxs92("span", { className: "onboarding-step__num", children: [
+              i + 1,
+              "."
+            ] }),
+            s.title,
+            s.hint && /* @__PURE__ */ jsxs92("span", { className: "onboarding-step__hint", children: [
+              "(",
+              s.hint,
+              ")"
+            ] })
+          ] }),
+          /* @__PURE__ */ jsx95("div", { className: "onboarding-step__desc", children: s.description })
+        ] }),
+        s.action && !s.done && /* @__PURE__ */ jsx95("button", { className: "btn btn--primary btn--small", onClick: s.action, children: s.actionLabel })
+      ] }, s.id)) })
+    ] }) }),
+    /* @__PURE__ */ jsxs92("div", { className: "validation-footer", children: [
+      /* @__PURE__ */ jsx95("div", { className: "validation-stats", children: pct === 100 && /* @__PURE__ */ jsx95("span", { className: "validation-stat validation-stat--ok", children: "\u2705 \u0414\u043E\u043C\u0435\u043D \u043F\u043E\u043B\u043D\u043E\u0441\u0442\u044C\u044E \u0433\u043E\u0442\u043E\u0432" }) }),
+      /* @__PURE__ */ jsx95("div", { className: "validation-footer__actions", children: /* @__PURE__ */ jsx95("button", { className: "btn", onClick: () => setOpen(false), children: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C" }) })
+    ] })
+  ] }) });
+}
+var init_DomainOnboardingWizard = __esm({
+  "src/web/components/modals/DomainOnboardingWizard.tsx"() {
+    "use strict";
+    init_useGraphStore();
+    init_useModelIndex();
+    init_MIcon();
+    init_DomainCombobox();
+  }
+});
+
 // src/web/components/modals/index.ts
 var init_modals = __esm({
   "src/web/components/modals/index.ts"() {
@@ -86848,11 +89581,16 @@ var init_modals = __esm({
     init_DeletionSimulationModal();
     init_CreateDomainModal();
     init_DeleteDomainModal();
+    init_ViewGraphModal();
+    init_YamlFulltextSearchModal();
+    init_GeneratedPreviewModal();
+    init_ChangelogModal();
+    init_DomainOnboardingWizard();
   }
 });
 
 // src/web/hooks/useGenerateSchemaBatch.ts
-import { useCallback as useCallback27, useEffect as useEffect56, useRef as useRef27, useState as useState52 } from "react";
+import { useCallback as useCallback30, useEffect as useEffect59, useRef as useRef29, useState as useState55 } from "react";
 function useGenerateSchemaBatch({
   domainId,
   profile,
@@ -86861,17 +89599,17 @@ function useGenerateSchemaBatch({
   enabled
 }) {
   const modelVersion = useGraphStore((s) => s.modelVersion);
-  const [state, setState] = useState52({
+  const [state, setState] = useState55({
     result: null,
     loading: false,
     error: null,
     progress: null
   });
-  const [tick, setTick] = useState52(0);
-  const abortRef = useRef27(null);
+  const [tick, setTick] = useState55(0);
+  const abortRef = useRef29(null);
   const optionsKey = JSON.stringify(options);
   const entityIdsKey = JSON.stringify(entityIds ?? []);
-  const cancel = useCallback27(() => {
+  const cancel = useCallback30(() => {
     if (abortRef.current) {
       try {
         abortRef.current.abort();
@@ -86881,7 +89619,7 @@ function useGenerateSchemaBatch({
     }
     setState((s) => ({ ...s, loading: false, progress: null }));
   }, []);
-  useEffect56(() => {
+  useEffect59(() => {
     if (!enabled || !domainId)
       return;
     let cancelled = false;
@@ -86999,15 +89737,15 @@ var init_useGenerateSchemaBatch = __esm({
 });
 
 // src/web/components/modals/GenerateBatchModal.tsx
-import { useCallback as useCallback28, useEffect as useEffect57, useMemo as useMemo57, useState as useState53 } from "react";
-import { Fragment as Fragment28, jsx as jsx91, jsxs as jsxs88 } from "react/jsx-runtime";
+import { useCallback as useCallback31, useEffect as useEffect60, useMemo as useMemo63, useState as useState56 } from "react";
+import { Fragment as Fragment32, jsx as jsx96, jsxs as jsxs93 } from "react/jsx-runtime";
 function GenerateBatchModal() {
   const { index } = useModelIndex();
   const open2 = useGraphStore((store) => store.generateBatchOpen);
   const domainId = useGraphStore((store) => store.generateBatchDomainId);
-  const [profile, setProfile] = useState53("crud");
-  const [selectedEntities, setSelectedEntities] = useState53(/* @__PURE__ */ new Set());
-  const [options, setOptions] = useState53({
+  const [profile, setProfile] = useState56("crud");
+  const [selectedEntities, setSelectedEntities] = useState56(/* @__PURE__ */ new Set());
+  const [options, setOptions] = useState56({
     includeBulk: true,
     includePage: false,
     includeLinkageWidgets: true,
@@ -87021,13 +89759,13 @@ function GenerateBatchModal() {
     scaffoldCreateMenuRoot: false,
     scaffoldCreateMedias: false
   });
-  const [initialised, setInitialised] = useState53(false);
-  const allEntities = useMemo57(() => {
+  const [initialised, setInitialised] = useState56(false);
+  const allEntities = useMemo63(() => {
     if (!index || !domainId)
       return [];
     return index.entities.filter((e) => e.domainId === domainId).map((e) => ({ id: e.entityId, name: e.name || e.entityId }));
   }, [index, domainId]);
-  useEffect57(() => {
+  useEffect60(() => {
     if (!open2 || !domainId)
       return;
     if (!index || allEntities.length === 0)
@@ -87038,7 +89776,7 @@ function GenerateBatchModal() {
     setSelectedEntities(new Set(allEntities.map((e) => e.id)));
     setInitialised(true);
   }, [open2, domainId, index, allEntities.length, initialised]);
-  useEffect57(() => {
+  useEffect60(() => {
     if (open2)
       return;
     setInitialised(false);
@@ -87052,7 +89790,7 @@ function GenerateBatchModal() {
     // enabled только после initialised — fetch не идёт до init
     enabled: open2 && initialised && selectedEntities.size > 0
   });
-  const toggleEntity = useCallback28((id) => {
+  const toggleEntity = useCallback31((id) => {
     setSelectedEntities((prev) => {
       const next = new Set(prev);
       if (next.has(id))
@@ -87062,12 +89800,12 @@ function GenerateBatchModal() {
       return next;
     });
   }, []);
-  const toggleAll = useCallback28(() => {
+  const toggleAll = useCallback31(() => {
     setSelectedEntities(
       (prev) => prev.size === allEntities.length ? /* @__PURE__ */ new Set() : new Set(allEntities.map((e) => e.id))
     );
   }, [allEntities]);
-  const apply = useCallback28(async () => {
+  const apply = useCallback31(async () => {
     if (!gen.result || !domainId)
       return;
     const combined = gen.result.combined;
@@ -87149,25 +89887,25 @@ function GenerateBatchModal() {
   if (!open2 || !domainId)
     return null;
   const stats = gen.result?.stats;
-  return /* @__PURE__ */ jsx91(
+  return /* @__PURE__ */ jsx96(
     "div",
     {
       className: "help-overlay help-overlay--fullscreen",
       style: { zIndex: 450 },
       onMouseDown: () => useGraphStore.getState().setGenerateBatchOpen(false),
-      children: /* @__PURE__ */ jsxs88(
+      children: /* @__PURE__ */ jsxs93(
         "div",
         {
           className: "help-modal generate-batch-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
-            /* @__PURE__ */ jsxs88("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsxs88("div", { className: "help-modal__title", children: [
-                /* @__PURE__ */ jsx91(MIcon, { name: "auto_awesome", size: "sm" }),
-                /* @__PURE__ */ jsx91("span", { className: "icon-label", children: "\u041F\u0430\u043A\u0435\u0442\u043D\u0430\u044F \u0433\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u044F" }),
-                /* @__PURE__ */ jsx91("span", { className: "help-modal__badge", children: domainId })
+            /* @__PURE__ */ jsxs93("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs93("div", { className: "help-modal__title", children: [
+                /* @__PURE__ */ jsx96(MIcon, { name: "auto_awesome", size: "sm" }),
+                /* @__PURE__ */ jsx96("span", { className: "icon-label", children: "\u041F\u0430\u043A\u0435\u0442\u043D\u0430\u044F \u0433\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u044F" }),
+                /* @__PURE__ */ jsx96("span", { className: "help-modal__badge", children: domainId })
               ] }),
-              /* @__PURE__ */ jsx91(
+              /* @__PURE__ */ jsx96(
                 "button",
                 {
                   className: "help-modal__close",
@@ -87176,32 +89914,32 @@ function GenerateBatchModal() {
                 }
               )
             ] }),
-            /* @__PURE__ */ jsxs88("div", { className: "generate-batch-body", children: [
-              /* @__PURE__ */ jsxs88("div", { className: "generate-batch-toolbar", children: [
-                /* @__PURE__ */ jsxs88("label", { className: "generate-schema-field", children: [
-                  /* @__PURE__ */ jsx91("span", { children: "\u041F\u0440\u043E\u0444\u0438\u043B\u044C:" }),
-                  /* @__PURE__ */ jsx91("select", { value: profile, onChange: (e) => setProfile(e.target.value), children: ENTITY_PROFILES2.map((p) => /* @__PURE__ */ jsx91("option", { value: p.id, children: p.label }, p.id)) })
+            /* @__PURE__ */ jsxs93("div", { className: "generate-batch-body", children: [
+              /* @__PURE__ */ jsxs93("div", { className: "generate-batch-toolbar", children: [
+                /* @__PURE__ */ jsxs93("label", { className: "generate-schema-field", children: [
+                  /* @__PURE__ */ jsx96("span", { children: "\u041F\u0440\u043E\u0444\u0438\u043B\u044C:" }),
+                  /* @__PURE__ */ jsx96("select", { value: profile, onChange: (e) => setProfile(e.target.value), children: ENTITY_PROFILES2.map((p) => /* @__PURE__ */ jsx96("option", { value: p.id, children: p.label }, p.id)) })
                 ] }),
-                /* @__PURE__ */ jsx91("button", { className: "btn", onClick: toggleAll, children: selectedEntities.size === allEntities.length ? "\u0421\u043D\u044F\u0442\u044C \u0432\u0441\u0435" : "\u0412\u044B\u0431\u0440\u0430\u0442\u044C \u0432\u0441\u0435" }),
-                /* @__PURE__ */ jsxs88("span", { className: "generate-batch-counter", children: [
+                /* @__PURE__ */ jsx96("button", { className: "btn", onClick: toggleAll, children: selectedEntities.size === allEntities.length ? "\u0421\u043D\u044F\u0442\u044C \u0432\u0441\u0435" : "\u0412\u044B\u0431\u0440\u0430\u0442\u044C \u0432\u0441\u0435" }),
+                /* @__PURE__ */ jsxs93("span", { className: "generate-batch-counter", children: [
                   selectedEntities.size,
                   " / ",
                   allEntities.length,
                   " \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439"
                 ] })
               ] }),
-              profile === "auto" && /* @__PURE__ */ jsxs88("div", { className: "generate-batch-extras", children: [
-                /* @__PURE__ */ jsxs88("div", { className: "generate-batch-extras__title", children: [
-                  /* @__PURE__ */ jsx91(MIcon, { name: "construction", size: "sm" }),
+              profile === "auto" && /* @__PURE__ */ jsxs93("div", { className: "generate-batch-extras", children: [
+                /* @__PURE__ */ jsxs93("div", { className: "generate-batch-extras__title", children: [
+                  /* @__PURE__ */ jsx96(MIcon, { name: "construction", size: "sm" }),
                   "\u041E\u0431\u0432\u044F\u0437\u043A\u0430 \u0434\u043E\u043C\u0435\u043D\u0430"
                 ] }),
-                /* @__PURE__ */ jsxs88(
+                /* @__PURE__ */ jsxs93(
                   "label",
                   {
                     className: "generate-schema-option",
                     title: "\u0421\u043E\u0437\u0434\u0430\u0441\u0442 root_group \u0432 menus[], \u0435\u0441\u043B\u0438 \u0432 \u0434\u043E\u043C\u0435\u043D\u0435 \u0435\u0433\u043E \u043D\u0435\u0442. \u041D\u0443\u0436\u0435\u043D \u0434\u043B\u044F \u0433\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u0438 \u043C\u0435\u043D\u044E \u0434\u043B\u044F CRUD-\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439",
                     children: [
-                      /* @__PURE__ */ jsx91(
+                      /* @__PURE__ */ jsx96(
                         "input",
                         {
                           type: "checkbox",
@@ -87212,17 +89950,17 @@ function GenerateBatchModal() {
                           })
                         }
                       ),
-                      /* @__PURE__ */ jsx91("span", { children: "\u0421\u043E\u0437\u0434\u0430\u0442\u044C \u043A\u043E\u0440\u043D\u0435\u0432\u043E\u0435 \u043C\u0435\u043D\u044E (root_group)" })
+                      /* @__PURE__ */ jsx96("span", { children: "\u0421\u043E\u0437\u0434\u0430\u0442\u044C \u043A\u043E\u0440\u043D\u0435\u0432\u043E\u0435 \u043C\u0435\u043D\u044E (root_group)" })
                     ]
                   }
                 ),
-                /* @__PURE__ */ jsxs88(
+                /* @__PURE__ */ jsxs93(
                   "label",
                   {
                     className: "generate-schema-option",
                     title: "\u0421\u043E\u0437\u0434\u0430\u0441\u0442 \u043D\u0430\u0431\u043E\u0440 \u0431\u0430\u0437\u043E\u0432\u044B\u0445 \u0438\u043A\u043E\u043D\u043E\u043A (add/edit/delete/view/save/...), \u0435\u0441\u043B\u0438 \u0432 \u0434\u043E\u043C\u0435\u043D\u0435 \u043C\u0435\u043D\u044C\u0448\u0435 3 \u043C\u0435\u0434\u0438\u0430",
                     children: [
-                      /* @__PURE__ */ jsx91(
+                      /* @__PURE__ */ jsx96(
                         "input",
                         {
                           type: "checkbox",
@@ -87233,22 +89971,22 @@ function GenerateBatchModal() {
                           })
                         }
                       ),
-                      /* @__PURE__ */ jsx91("span", { children: "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u0431\u0430\u0437\u043E\u0432\u044B\u0435 \u0438\u043A\u043E\u043D\u043A\u0438 (10 \u0448\u0442.)" })
+                      /* @__PURE__ */ jsx96("span", { children: "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u0431\u0430\u0437\u043E\u0432\u044B\u0435 \u0438\u043A\u043E\u043D\u043A\u0438 (10 \u0448\u0442.)" })
                     ]
                   }
                 ),
-                /* @__PURE__ */ jsxs88("div", { className: "generate-batch-hint", children: [
-                  /* @__PURE__ */ jsx91(MIcon, { name: "info", size: "sm" }),
-                  /* @__PURE__ */ jsx91("span", { children: "\u041F\u0440\u043E\u0444\u0438\u043B\u044C \xAB\u0410\u0432\u0442\u043E\xBB: \u0441\u043B\u043E\u0432\u0430\u0440\u043D\u044B\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u2192 \u0441\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A, readonly \u0441 list \u2192 \u0431\u0435\u0437 \u043C\u043E\u0434\u0430\u043B\u043E\u043A, \u043E\u0441\u0442\u0430\u043B\u044C\u043D\u044B\u0435 \u2192 \u043F\u043E\u043B\u043D\u044B\u0439 CRUD. \u041C\u0435\u043D\u044E \u0438 \u0438\u043A\u043E\u043D\u043A\u0438 \u0441\u043E\u0437\u0434\u0430\u044E\u0442\u0441\u044F \u043E\u0434\u0438\u043D \u0440\u0430\u0437, \u0435\u0441\u043B\u0438 \u0438\u0445 \u0435\u0449\u0451 \u043D\u0435\u0442." })
+                /* @__PURE__ */ jsxs93("div", { className: "generate-batch-hint", children: [
+                  /* @__PURE__ */ jsx96(MIcon, { name: "info", size: "sm" }),
+                  /* @__PURE__ */ jsx96("span", { children: "\u041F\u0440\u043E\u0444\u0438\u043B\u044C \xAB\u0410\u0432\u0442\u043E\xBB: \u0441\u043B\u043E\u0432\u0430\u0440\u043D\u044B\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u2192 \u0441\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A, readonly \u0441 list \u2192 \u0431\u0435\u0437 \u043C\u043E\u0434\u0430\u043B\u043E\u043A, \u043E\u0441\u0442\u0430\u043B\u044C\u043D\u044B\u0435 \u2192 \u043F\u043E\u043B\u043D\u044B\u0439 CRUD. \u041C\u0435\u043D\u044E \u0438 \u0438\u043A\u043E\u043D\u043A\u0438 \u0441\u043E\u0437\u0434\u0430\u044E\u0442\u0441\u044F \u043E\u0434\u0438\u043D \u0440\u0430\u0437, \u0435\u0441\u043B\u0438 \u0438\u0445 \u0435\u0449\u0451 \u043D\u0435\u0442." })
                 ] })
               ] }),
-              profile === "tree-view" && /* @__PURE__ */ jsxs88("div", { className: "generate-batch-hint", children: [
-                /* @__PURE__ */ jsx91(MIcon, { name: "info", size: "sm" }),
-                /* @__PURE__ */ jsx91("span", { children: "\u0414\u043B\u044F \u043A\u0430\u0436\u0434\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u044E\u0442\u0441\u044F \u0432\u0441\u0435 side-1 \u0441\u0432\u044F\u0437\u0438 \u0442\u0438\u043F\u0430 1_n / n_n. \u0422\u043E\u0447\u0435\u0447\u043D\u044B\u0439 \u0432\u044B\u0431\u043E\u0440 \u0441\u0432\u044F\u0437\u0435\u0439 \u2014 \u0432 \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u043B\u044C\u043D\u043E\u0439 \u0433\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u0438 (\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u2192 \u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C)." })
+              profile === "tree-view" && /* @__PURE__ */ jsxs93("div", { className: "generate-batch-hint", children: [
+                /* @__PURE__ */ jsx96(MIcon, { name: "info", size: "sm" }),
+                /* @__PURE__ */ jsx96("span", { children: "\u0414\u043B\u044F \u043A\u0430\u0436\u0434\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u044E\u0442\u0441\u044F \u0432\u0441\u0435 side-1 \u0441\u0432\u044F\u0437\u0438 \u0442\u0438\u043F\u0430 1_n / n_n. \u0422\u043E\u0447\u0435\u0447\u043D\u044B\u0439 \u0432\u044B\u0431\u043E\u0440 \u0441\u0432\u044F\u0437\u0435\u0439 \u2014 \u0432 \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u043B\u044C\u043D\u043E\u0439 \u0433\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u0438 (\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u2192 \u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C)." })
               ] }),
-              /* @__PURE__ */ jsxs88("div", { className: "generate-batch-layout", children: [
-                /* @__PURE__ */ jsx91("div", { className: "generate-batch-entities", children: allEntities.map((e) => /* @__PURE__ */ jsxs88("label", { className: "generate-batch-entity", children: [
-                  /* @__PURE__ */ jsx91(
+              /* @__PURE__ */ jsxs93("div", { className: "generate-batch-layout", children: [
+                /* @__PURE__ */ jsx96("div", { className: "generate-batch-entities", children: allEntities.map((e) => /* @__PURE__ */ jsxs93("label", { className: "generate-batch-entity", children: [
+                  /* @__PURE__ */ jsx96(
                     "input",
                     {
                       type: "checkbox",
@@ -87256,19 +89994,19 @@ function GenerateBatchModal() {
                       onChange: () => toggleEntity(e.id)
                     }
                   ),
-                  /* @__PURE__ */ jsx91("span", { className: "generate-batch-entity__id", children: e.id }),
-                  e.name !== e.id && /* @__PURE__ */ jsx91("span", { className: "generate-batch-entity__name", children: e.name })
+                  /* @__PURE__ */ jsx96("span", { className: "generate-batch-entity__id", children: e.id }),
+                  e.name !== e.id && /* @__PURE__ */ jsx96("span", { className: "generate-batch-entity__name", children: e.name })
                 ] }, e.id)) }),
-                /* @__PURE__ */ jsxs88("div", { className: "generate-batch-result", children: [
-                  gen.loading && /* @__PURE__ */ jsxs88("div", { className: "generate-batch-progress", children: [
-                    /* @__PURE__ */ jsxs88("div", { className: "generate-batch-progress__head", children: [
-                      /* @__PURE__ */ jsx91("span", { className: "generate-batch-progress__label", children: "\u0413\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u044F\u2026" }),
-                      /* @__PURE__ */ jsxs88("span", { className: "generate-batch-progress__counter", children: [
+                /* @__PURE__ */ jsxs93("div", { className: "generate-batch-result", children: [
+                  gen.loading && /* @__PURE__ */ jsxs93("div", { className: "generate-batch-progress", children: [
+                    /* @__PURE__ */ jsxs93("div", { className: "generate-batch-progress__head", children: [
+                      /* @__PURE__ */ jsx96("span", { className: "generate-batch-progress__label", children: "\u0413\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u044F\u2026" }),
+                      /* @__PURE__ */ jsxs93("span", { className: "generate-batch-progress__counter", children: [
                         gen.progress?.current ?? 0,
                         " / ",
                         gen.progress?.total ?? 0
                       ] }),
-                      /* @__PURE__ */ jsx91(
+                      /* @__PURE__ */ jsx96(
                         "button",
                         {
                           className: "btn generate-batch-progress__cancel",
@@ -87277,7 +90015,7 @@ function GenerateBatchModal() {
                         }
                       )
                     ] }),
-                    /* @__PURE__ */ jsx91("div", { className: "generate-batch-progress__bar", children: /* @__PURE__ */ jsx91(
+                    /* @__PURE__ */ jsx96("div", { className: "generate-batch-progress__bar", children: /* @__PURE__ */ jsx96(
                       "div",
                       {
                         className: "generate-batch-progress__fill",
@@ -87288,80 +90026,80 @@ function GenerateBatchModal() {
                         }
                       }
                     ) }),
-                    gen.progress?.entityId && /* @__PURE__ */ jsxs88("div", { className: "generate-batch-progress__entity", children: [
-                      gen.progress.phase === "entity-start" && /* @__PURE__ */ jsxs88(Fragment28, { children: [
-                        /* @__PURE__ */ jsx91(MIcon, { name: "hourglass_top", size: "sm" }),
-                        /* @__PURE__ */ jsx91("span", { children: gen.progress.entityId })
+                    gen.progress?.entityId && /* @__PURE__ */ jsxs93("div", { className: "generate-batch-progress__entity", children: [
+                      gen.progress.phase === "entity-start" && /* @__PURE__ */ jsxs93(Fragment32, { children: [
+                        /* @__PURE__ */ jsx96(MIcon, { name: "hourglass_top", size: "sm" }),
+                        /* @__PURE__ */ jsx96("span", { children: gen.progress.entityId })
                       ] }),
-                      gen.progress.phase === "entity-done" && /* @__PURE__ */ jsxs88(Fragment28, { children: [
-                        /* @__PURE__ */ jsx91(MIcon, { name: "check_circle", size: "sm" }),
-                        /* @__PURE__ */ jsx91("span", { children: gen.progress.entityId }),
-                        /* @__PURE__ */ jsxs88("span", { className: "generate-batch-progress__meta", children: [
+                      gen.progress.phase === "entity-done" && /* @__PURE__ */ jsxs93(Fragment32, { children: [
+                        /* @__PURE__ */ jsx96(MIcon, { name: "check_circle", size: "sm" }),
+                        /* @__PURE__ */ jsx96("span", { children: gen.progress.entityId }),
+                        /* @__PURE__ */ jsxs93("span", { className: "generate-batch-progress__meta", children: [
                           "+",
                           gen.progress.blocksCount ?? 0,
                           " \u0431\u043B\u043E\u043A\u043E\u0432"
                         ] })
                       ] }),
-                      gen.progress.phase === "entity-error" && /* @__PURE__ */ jsxs88(Fragment28, { children: [
-                        /* @__PURE__ */ jsx91(MIcon, { name: "error", size: "sm" }),
-                        /* @__PURE__ */ jsx91("span", { children: gen.progress.entityId }),
-                        /* @__PURE__ */ jsx91("span", { className: "generate-batch-progress__meta generate-batch-progress__meta--err", children: gen.progress.error })
+                      gen.progress.phase === "entity-error" && /* @__PURE__ */ jsxs93(Fragment32, { children: [
+                        /* @__PURE__ */ jsx96(MIcon, { name: "error", size: "sm" }),
+                        /* @__PURE__ */ jsx96("span", { children: gen.progress.entityId }),
+                        /* @__PURE__ */ jsx96("span", { className: "generate-batch-progress__meta generate-batch-progress__meta--err", children: gen.progress.error })
                       ] }),
-                      gen.progress.phase === "preflight" && /* @__PURE__ */ jsxs88(Fragment28, { children: [
-                        /* @__PURE__ */ jsx91(MIcon, { name: "science", size: "sm" }),
-                        /* @__PURE__ */ jsx91("span", { children: "Preflight\u2026" })
+                      gen.progress.phase === "preflight" && /* @__PURE__ */ jsxs93(Fragment32, { children: [
+                        /* @__PURE__ */ jsx96(MIcon, { name: "science", size: "sm" }),
+                        /* @__PURE__ */ jsx96("span", { children: "Preflight\u2026" })
                       ] })
                     ] })
                   ] }),
-                  gen.error && /* @__PURE__ */ jsxs88("div", { className: "generate-schema-error", children: [
+                  gen.error && /* @__PURE__ */ jsxs93("div", { className: "generate-schema-error", children: [
                     "\u041E\u0448\u0438\u0431\u043A\u0430: ",
                     gen.error
                   ] }),
-                  gen.result && /* @__PURE__ */ jsxs88("div", { className: "generate-batch-summary", children: [
-                    /* @__PURE__ */ jsxs88("div", { className: "generate-batch-summary__stats", children: [
-                      /* @__PURE__ */ jsxs88("span", { className: "generate-batch-stat", children: [
+                  gen.result && /* @__PURE__ */ jsxs93("div", { className: "generate-batch-summary", children: [
+                    /* @__PURE__ */ jsxs93("div", { className: "generate-batch-summary__stats", children: [
+                      /* @__PURE__ */ jsxs93("span", { className: "generate-batch-stat", children: [
                         "\u0412\u0441\u0435\u0433\u043E: ",
-                        /* @__PURE__ */ jsx91("strong", { children: stats.total })
+                        /* @__PURE__ */ jsx96("strong", { children: stats.total })
                       ] }),
-                      /* @__PURE__ */ jsxs88("span", { className: "generate-batch-stat generate-batch-stat--ok", children: [
+                      /* @__PURE__ */ jsxs93("span", { className: "generate-batch-stat generate-batch-stat--ok", children: [
                         "\u0421 \u0431\u043B\u043E\u043A\u043E\u0432: ",
-                        /* @__PURE__ */ jsx91("strong", { children: stats.generated })
+                        /* @__PURE__ */ jsx96("strong", { children: stats.generated })
                       ] }),
-                      /* @__PURE__ */ jsxs88("span", { className: "generate-batch-stat generate-batch-stat--warn", children: [
+                      /* @__PURE__ */ jsxs93("span", { className: "generate-batch-stat generate-batch-stat--warn", children: [
                         "\u041F\u0443\u0441\u0442\u043E: ",
-                        /* @__PURE__ */ jsx91("strong", { children: stats.skipped })
+                        /* @__PURE__ */ jsx96("strong", { children: stats.skipped })
                       ] }),
-                      stats.failed > 0 && /* @__PURE__ */ jsxs88("span", { className: "generate-batch-stat generate-batch-stat--err", children: [
+                      stats.failed > 0 && /* @__PURE__ */ jsxs93("span", { className: "generate-batch-stat generate-batch-stat--err", children: [
                         "\u041E\u0448\u0438\u0431\u043E\u043A: ",
-                        /* @__PURE__ */ jsx91("strong", { children: stats.failed })
+                        /* @__PURE__ */ jsx96("strong", { children: stats.failed })
                       ] })
                     ] }),
-                    /* @__PURE__ */ jsxs88("div", { className: "generate-batch-summary__preflight", children: [
-                      gen.result.combined.preflight.newIssues.length > 0 && /* @__PURE__ */ jsxs88("span", { className: "generate-schema-badge generate-schema-badge--error", children: [
+                    /* @__PURE__ */ jsxs93("div", { className: "generate-batch-summary__preflight", children: [
+                      gen.result.combined.preflight.newIssues.length > 0 && /* @__PURE__ */ jsxs93("span", { className: "generate-schema-badge generate-schema-badge--error", children: [
                         "\u26A0 ",
                         gen.result.combined.preflight.newIssues.length,
                         " \u043D\u043E\u0432\u044B\u0445 error"
                       ] }),
-                      gen.result.combined.preflight.newIssues.length === 0 && /* @__PURE__ */ jsx91("span", { className: "generate-schema-badge generate-schema-badge--ok", children: "\u2713 0 \u043D\u043E\u0432\u044B\u0445 lint-\u043F\u0440\u043E\u0431\u043B\u0435\u043C" })
+                      gen.result.combined.preflight.newIssues.length === 0 && /* @__PURE__ */ jsx96("span", { className: "generate-schema-badge generate-schema-badge--ok", children: "\u2713 0 \u043D\u043E\u0432\u044B\u0445 lint-\u043F\u0440\u043E\u0431\u043B\u0435\u043C" })
                     ] })
                   ] }),
-                  gen.result && /* @__PURE__ */ jsx91("div", { className: "generate-batch-rows", children: gen.result.results.map((r) => {
+                  gen.result && /* @__PURE__ */ jsx96("div", { className: "generate-batch-rows", children: gen.result.results.map((r) => {
                     if (r.error) {
-                      return /* @__PURE__ */ jsxs88("div", { className: "generate-batch-row generate-batch-row--err", children: [
-                        /* @__PURE__ */ jsx91("span", { className: "generate-batch-row__id", children: r.entityId }),
-                        /* @__PURE__ */ jsx91("span", { className: "generate-batch-row__msg", children: r.error })
+                      return /* @__PURE__ */ jsxs93("div", { className: "generate-batch-row generate-batch-row--err", children: [
+                        /* @__PURE__ */ jsx96("span", { className: "generate-batch-row__id", children: r.entityId }),
+                        /* @__PURE__ */ jsx96("span", { className: "generate-batch-row__msg", children: r.error })
                       ] }, r.entityId);
                     }
                     if (!r.result)
                       return null;
                     const n = r.result.blocks.length;
-                    return /* @__PURE__ */ jsxs88(
+                    return /* @__PURE__ */ jsxs93(
                       "div",
                       {
                         className: "generate-batch-row" + (n === 0 ? " generate-batch-row--skip" : ""),
                         children: [
-                          /* @__PURE__ */ jsx91("span", { className: "generate-batch-row__id", children: r.entityId }),
-                          /* @__PURE__ */ jsx91("span", { className: "generate-batch-row__msg", children: n === 0 ? r.result.skipped.length > 0 ? r.result.skipped[0].reason : "\u043D\u0435\u0447\u0435\u0433\u043E \u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C" : `+${n} \u0431\u043B\u043E\u043A\u043E\u0432` })
+                          /* @__PURE__ */ jsx96("span", { className: "generate-batch-row__id", children: r.entityId }),
+                          /* @__PURE__ */ jsx96("span", { className: "generate-batch-row__msg", children: n === 0 ? r.result.skipped.length > 0 ? r.result.skipped[0].reason : "\u043D\u0435\u0447\u0435\u0433\u043E \u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C" : `+${n} \u0431\u043B\u043E\u043A\u043E\u0432` })
                         ]
                       },
                       r.entityId
@@ -87370,10 +90108,10 @@ function GenerateBatchModal() {
                 ] })
               ] })
             ] }),
-            /* @__PURE__ */ jsxs88("div", { className: "generate-schema-footer", children: [
-              /* @__PURE__ */ jsx91("div", { className: "generate-schema-preflight", children: options.replaceModified && /* @__PURE__ */ jsx91("span", { className: "generate-schema-badge generate-schema-badge--warn", children: "\u27F3 preflight \u0441 replace-modified" }) }),
-              /* @__PURE__ */ jsxs88("div", { className: "generate-schema-actions", children: [
-                /* @__PURE__ */ jsx91(
+            /* @__PURE__ */ jsxs93("div", { className: "generate-schema-footer", children: [
+              /* @__PURE__ */ jsx96("div", { className: "generate-schema-preflight", children: options.replaceModified && /* @__PURE__ */ jsx96("span", { className: "generate-schema-badge generate-schema-badge--warn", children: "\u27F3 preflight \u0441 replace-modified" }) }),
+              /* @__PURE__ */ jsxs93("div", { className: "generate-schema-actions", children: [
+                /* @__PURE__ */ jsx96(
                   "button",
                   {
                     className: "btn",
@@ -87381,7 +90119,7 @@ function GenerateBatchModal() {
                     children: "\u041E\u0442\u043C\u0435\u043D\u0430"
                   }
                 ),
-                /* @__PURE__ */ jsxs88(
+                /* @__PURE__ */ jsxs93(
                   "button",
                   {
                     className: "btn btn--primary",
@@ -87420,19 +90158,19 @@ var init_GenerateBatchModal = __esm({
 });
 
 // src/web/components/modals/WorkflowGraphModal.tsx
-import { useCallback as useCallback29, useEffect as useEffect58, useMemo as useMemo58, useState as useState54 } from "react";
-import ReactFlow4, {
-  Background as Background4,
-  BackgroundVariant as BackgroundVariant4,
-  Controls as Controls4,
-  Handle as Handle4,
-  MiniMap as MiniMap4,
-  Position as Position4,
-  ReactFlowProvider as ReactFlowProvider4,
-  useReactFlow as useReactFlow4
+import { useCallback as useCallback32, useEffect as useEffect61, useMemo as useMemo64, useState as useState57 } from "react";
+import ReactFlow5, {
+  Background as Background5,
+  BackgroundVariant as BackgroundVariant5,
+  Controls as Controls5,
+  Handle as Handle5,
+  MiniMap as MiniMap5,
+  Position as Position5,
+  ReactFlowProvider as ReactFlowProvider5,
+  useReactFlow as useReactFlow5
 } from "reactflow";
-import dagre4 from "dagre";
-import { Fragment as Fragment29, jsx as jsx92, jsxs as jsxs89 } from "react/jsx-runtime";
+import dagre5 from "dagre";
+import { Fragment as Fragment33, jsx as jsx97, jsxs as jsxs94 } from "react/jsx-runtime";
 function WorkflowStatusNode({ data }) {
   const cls = ["workflow-node"];
   if (data.isInitial)
@@ -87446,23 +90184,23 @@ function WorkflowStatusNode({ data }) {
   const style = {};
   if (data.color)
     style.borderLeftColor = data.color;
-  return /* @__PURE__ */ jsxs89(Fragment29, { children: [
-    /* @__PURE__ */ jsx92(Handle4, { type: "target", position: Position4.Left, className: "workflow-handle" }),
-    /* @__PURE__ */ jsxs89("div", { className: cls.join(" "), style, children: [
-      /* @__PURE__ */ jsxs89("div", { className: "workflow-node__id", children: [
-        data.isInitial && /* @__PURE__ */ jsx92(MIcon, { name: "play_circle", size: "sm", title: "\u041D\u0430\u0447\u0430\u043B\u044C\u043D\u044B\u0439 \u0441\u0442\u0430\u0442\u0443\u0441" }),
-        data.isFinal && /* @__PURE__ */ jsx92(MIcon, { name: "check_circle", size: "sm", title: "\u041A\u043E\u043D\u0435\u0447\u043D\u044B\u0439 \u0441\u0442\u0430\u0442\u0443\u0441" }),
-        data.isWildcard ? /* @__PURE__ */ jsx92("span", { className: "workflow-node__wildcard", children: "*" }) : /* @__PURE__ */ jsx92("span", { children: data.statusId })
+  return /* @__PURE__ */ jsxs94(Fragment33, { children: [
+    /* @__PURE__ */ jsx97(Handle5, { type: "target", position: Position5.Left, className: "workflow-handle" }),
+    /* @__PURE__ */ jsxs94("div", { className: cls.join(" "), style, children: [
+      /* @__PURE__ */ jsxs94("div", { className: "workflow-node__id", children: [
+        data.isInitial && /* @__PURE__ */ jsx97(MIcon, { name: "play_circle", size: "sm", title: "\u041D\u0430\u0447\u0430\u043B\u044C\u043D\u044B\u0439 \u0441\u0442\u0430\u0442\u0443\u0441" }),
+        data.isFinal && /* @__PURE__ */ jsx97(MIcon, { name: "check_circle", size: "sm", title: "\u041A\u043E\u043D\u0435\u0447\u043D\u044B\u0439 \u0441\u0442\u0430\u0442\u0443\u0441" }),
+        data.isWildcard ? /* @__PURE__ */ jsx97("span", { className: "workflow-node__wildcard", children: "*" }) : /* @__PURE__ */ jsx97("span", { children: data.statusId })
       ] }),
-      data.name && data.name !== data.statusId && /* @__PURE__ */ jsx92("div", { className: "workflow-node__name", children: data.name })
+      data.name && data.name !== data.statusId && /* @__PURE__ */ jsx97("div", { className: "workflow-node__name", children: data.name })
     ] }),
-    /* @__PURE__ */ jsx92(Handle4, { type: "source", position: Position4.Right, className: "workflow-handle" })
+    /* @__PURE__ */ jsx97(Handle5, { type: "source", position: Position5.Right, className: "workflow-handle" })
   ] });
 }
-function layoutGraph2(nodes, edges, rankdir) {
+function layoutGraph3(nodes, edges, rankdir) {
   if (nodes.length === 0)
     return nodes;
-  const g = new dagre4.graphlib.Graph();
+  const g = new dagre5.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
   g.setGraph({
     rankdir,
@@ -87473,19 +90211,19 @@ function layoutGraph2(nodes, edges, rankdir) {
   });
   const ids = new Set(nodes.map((n) => n.id));
   nodes.forEach(
-    (n) => g.setNode(n.id, { width: NODE_WIDTH4, height: NODE_HEIGHT4 })
+    (n) => g.setNode(n.id, { width: NODE_WIDTH5, height: NODE_HEIGHT5 })
   );
   edges.forEach((e) => {
     if (ids.has(e.source) && ids.has(e.target)) {
       g.setEdge(e.source, e.target);
     }
   });
-  dagre4.layout(g);
+  dagre5.layout(g);
   return nodes.map((n) => {
     const pos = g.node(n.id);
     return {
       ...n,
-      position: pos ? { x: pos.x - NODE_WIDTH4 / 2, y: pos.y - NODE_HEIGHT4 / 2 } : { x: 0, y: 0 }
+      position: pos ? { x: pos.x - NODE_WIDTH5 / 2, y: pos.y - NODE_HEIGHT5 / 2 } : { x: 0, y: 0 }
     };
   });
 }
@@ -87512,8 +90250,8 @@ function buildWorkflowGraph(dt, rankdir) {
       isHidden: false,
       isWildcard: false
     },
-    width: NODE_WIDTH4,
-    height: NODE_HEIGHT4
+    width: NODE_WIDTH5,
+    height: NODE_HEIGHT5
   }));
   if (wildcardUsed) {
     nodes.push({
@@ -87528,8 +90266,8 @@ function buildWorkflowGraph(dt, rankdir) {
         isHidden: false,
         isWildcard: true
       },
-      width: NODE_WIDTH4,
-      height: NODE_HEIGHT4
+      width: NODE_WIDTH5,
+      height: NODE_HEIGHT5
     });
   }
   const seen = /* @__PURE__ */ new Set();
@@ -87570,7 +90308,7 @@ function buildWorkflowGraph(dt, rankdir) {
     });
   });
   return {
-    nodes: layoutGraph2(nodes, edges, rankdir),
+    nodes: layoutGraph3(nodes, edges, rankdir),
     edges,
     wildcardUsed,
     statusCount: statuses.length,
@@ -87578,8 +90316,8 @@ function buildWorkflowGraph(dt, rankdir) {
   };
 }
 function WorkflowGraphInner({ nodes, edges }) {
-  const rf = useReactFlow4();
-  useEffect58(() => {
+  const rf = useReactFlow5();
+  useEffect61(() => {
     if (nodes.length === 0)
       return;
     const t = setTimeout(() => {
@@ -87590,12 +90328,12 @@ function WorkflowGraphInner({ nodes, edges }) {
     }, 120);
     return () => clearTimeout(t);
   }, [nodes.length, edges.length, rf]);
-  return /* @__PURE__ */ jsxs89(
-    ReactFlow4,
+  return /* @__PURE__ */ jsxs94(
+    ReactFlow5,
     {
       nodes,
       edges,
-      nodeTypes: nodeTypes4,
+      nodeTypes: nodeTypes5,
       fitView: true,
       minZoom: 0.1,
       maxZoom: 3,
@@ -87604,10 +90342,10 @@ function WorkflowGraphInner({ nodes, edges }) {
       nodesConnectable: false,
       elementsSelectable: true,
       children: [
-        /* @__PURE__ */ jsx92(Background4, { variant: BackgroundVariant4.Dots, gap: 20, size: 1, color: "var(--graph-dots)" }),
-        /* @__PURE__ */ jsx92(Controls4, { position: "bottom-left" }),
-        /* @__PURE__ */ jsx92(
-          MiniMap4,
+        /* @__PURE__ */ jsx97(Background5, { variant: BackgroundVariant5.Dots, gap: 20, size: 1, color: "var(--graph-dots)" }),
+        /* @__PURE__ */ jsx97(Controls5, { position: "bottom-left" }),
+        /* @__PURE__ */ jsx97(
+          MiniMap5,
           {
             position: "bottom-right",
             nodeColor: (n) => n.data?.color || (n.data?.isWildcard ? "#f59e0b" : "#6366f1"),
@@ -87621,30 +90359,30 @@ function WorkflowGraphInner({ nodes, edges }) {
 }
 function WorkflowGraphModal() {
   const { index, loading, error } = useModelIndex();
-  const [rankdir, setRankdir] = useState54("LR");
+  const [rankdir, setRankdir] = useState57("LR");
   const target = useGraphStore((s) => s.workflowGraphTarget);
   const open2 = !!target;
-  const dt = useMemo58(() => {
+  const dt = useMemo64(() => {
     if (!index || !target)
       return null;
     return index.dataTypes.find(
       (d) => d.id === target.dataTypeId && d.domainId === target.domainId
     ) || null;
   }, [index, target]);
-  const graph = useMemo58(() => {
+  const graph = useMemo64(() => {
     if (!dt || dt.kind !== "Workflow")
       return null;
     return buildWorkflowGraph(dt, rankdir);
   }, [dt, rankdir]);
-  useEffect58(() => {
+  useEffect61(() => {
     if (open2)
       setRankdir("LR");
   }, [target?.domainId, target?.dataTypeId]);
-  const close = useCallback29(
+  const close = useCallback32(
     () => useGraphStore.getState().setWorkflowGraphTarget(null),
     []
   );
-  useEffect58(() => {
+  useEffect61(() => {
     if (!open2)
       return;
     const onEsc = (e) => {
@@ -87658,24 +90396,24 @@ function WorkflowGraphModal() {
   }, [open2, close]);
   if (!open2)
     return null;
-  return /* @__PURE__ */ jsx92(
+  return /* @__PURE__ */ jsx97(
     "div",
     {
       className: "help-overlay help-overlay--fullscreen",
       style: { zIndex: 520 },
       onMouseDown: close,
-      children: /* @__PURE__ */ jsxs89(
+      children: /* @__PURE__ */ jsxs94(
         "div",
         {
           className: "help-modal workflow-graph-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
-            /* @__PURE__ */ jsxs89("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsxs89("div", { className: "help-modal__title", children: [
-                /* @__PURE__ */ jsx92(MIcon, { name: "conversion_path", size: "sm" }),
-                /* @__PURE__ */ jsx92("span", { className: "icon-label", children: "\u0413\u0440\u0430\u0444 \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u043E\u0432" }),
-                dt && /* @__PURE__ */ jsx92("span", { className: "help-modal__badge", children: dt.id }),
-                dt && dt.name !== dt.id && /* @__PURE__ */ jsx92(
+            /* @__PURE__ */ jsxs94("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs94("div", { className: "help-modal__title", children: [
+                /* @__PURE__ */ jsx97(MIcon, { name: "conversion_path", size: "sm" }),
+                /* @__PURE__ */ jsx97("span", { className: "icon-label", children: "\u0413\u0440\u0430\u0444 \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u043E\u0432" }),
+                dt && /* @__PURE__ */ jsx97("span", { className: "help-modal__badge", children: dt.id }),
+                dt && dt.name !== dt.id && /* @__PURE__ */ jsx97(
                   "span",
                   {
                     style: {
@@ -87688,91 +90426,91 @@ function WorkflowGraphModal() {
                   }
                 )
               ] }),
-              /* @__PURE__ */ jsx92("button", { className: "help-modal__close", onClick: close, children: "\u2715" })
+              /* @__PURE__ */ jsx97("button", { className: "help-modal__close", onClick: close, children: "\u2715" })
             ] }),
-            loading && /* @__PURE__ */ jsx92("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx92("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430\u2026" }) }),
-            error && /* @__PURE__ */ jsx92("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs89("div", { style: { color: "var(--danger)" }, children: [
+            loading && /* @__PURE__ */ jsx97("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx97("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430\u2026" }) }),
+            error && /* @__PURE__ */ jsx97("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs94("div", { style: { color: "var(--danger)" }, children: [
               "\u041E\u0448\u0438\u0431\u043A\u0430: ",
               error
             ] }) }),
-            !loading && !error && !dt && /* @__PURE__ */ jsx92("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs89("div", { className: "workflow-graph-empty", children: [
+            !loading && !error && !dt && /* @__PURE__ */ jsx97("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs94("div", { className: "workflow-graph-empty", children: [
               "Workflow \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D \u0432 \u0438\u043D\u0434\u0435\u043A\u0441\u0435 (\u0434\u043E\u043C\u0435\u043D ",
               target?.domainId,
               " / \u0442\u0438\u043F ",
               target?.dataTypeId,
               ")"
             ] }) }),
-            dt && dt.kind !== "Workflow" && /* @__PURE__ */ jsx92("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs89("div", { className: "workflow-graph-empty", children: [
+            dt && dt.kind !== "Workflow" && /* @__PURE__ */ jsx97("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs94("div", { className: "workflow-graph-empty", children: [
               "\u0422\u0438\u043F \xAB",
               dt.id,
               "\xBB \u043D\u0435 \u044F\u0432\u043B\u044F\u0435\u0442\u0441\u044F Workflow (kind: ",
               dt.kind,
               ")"
             ] }) }),
-            dt && dt.kind === "Workflow" && graph && /* @__PURE__ */ jsxs89(Fragment29, { children: [
-              /* @__PURE__ */ jsxs89("div", { className: "workflow-graph-toolbar", children: [
-                /* @__PURE__ */ jsxs89("div", { className: "workflow-graph-toolbar__left", children: [
-                  /* @__PURE__ */ jsxs89("span", { className: "workflow-graph-stat", children: [
-                    /* @__PURE__ */ jsx92("strong", { children: graph.statusCount }),
+            dt && dt.kind === "Workflow" && graph && /* @__PURE__ */ jsxs94(Fragment33, { children: [
+              /* @__PURE__ */ jsxs94("div", { className: "workflow-graph-toolbar", children: [
+                /* @__PURE__ */ jsxs94("div", { className: "workflow-graph-toolbar__left", children: [
+                  /* @__PURE__ */ jsxs94("span", { className: "workflow-graph-stat", children: [
+                    /* @__PURE__ */ jsx97("strong", { children: graph.statusCount }),
                     " \u0441\u0442\u0430\u0442\u0443\u0441\u043E\u0432"
                   ] }),
-                  /* @__PURE__ */ jsxs89("span", { className: "workflow-graph-stat", children: [
-                    /* @__PURE__ */ jsx92("strong", { children: graph.transitionCount }),
+                  /* @__PURE__ */ jsxs94("span", { className: "workflow-graph-stat", children: [
+                    /* @__PURE__ */ jsx97("strong", { children: graph.transitionCount }),
                     " \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u043E\u0432"
                   ] }),
-                  dt.initial && /* @__PURE__ */ jsxs89("span", { className: "workflow-graph-stat workflow-graph-stat--initial", children: [
-                    /* @__PURE__ */ jsx92(MIcon, { name: "play_circle", size: "sm" }),
+                  dt.initial && /* @__PURE__ */ jsxs94("span", { className: "workflow-graph-stat workflow-graph-stat--initial", children: [
+                    /* @__PURE__ */ jsx97(MIcon, { name: "play_circle", size: "sm" }),
                     "\u043D\u0430\u0447\u0430\u043B\u044C\u043D\u044B\u0439: ",
-                    /* @__PURE__ */ jsx92("code", { children: dt.initial })
+                    /* @__PURE__ */ jsx97("code", { children: dt.initial })
                   ] }),
-                  dt.finals && dt.finals.length > 0 && /* @__PURE__ */ jsxs89("span", { className: "workflow-graph-stat workflow-graph-stat--final", children: [
-                    /* @__PURE__ */ jsx92(MIcon, { name: "check_circle", size: "sm" }),
+                  dt.finals && dt.finals.length > 0 && /* @__PURE__ */ jsxs94("span", { className: "workflow-graph-stat workflow-graph-stat--final", children: [
+                    /* @__PURE__ */ jsx97(MIcon, { name: "check_circle", size: "sm" }),
                     "\u0444\u0438\u043D\u0430\u043B\u044C\u043D\u044B\u0445: ",
-                    /* @__PURE__ */ jsx92("strong", { children: dt.finals.length })
+                    /* @__PURE__ */ jsx97("strong", { children: dt.finals.length })
                   ] })
                 ] }),
-                /* @__PURE__ */ jsx92("div", { className: "workflow-graph-toolbar__right", children: /* @__PURE__ */ jsxs89("label", { className: "entity-matrix-filter", children: [
-                  /* @__PURE__ */ jsx92("span", { children: "\u041E\u0440\u0438\u0435\u043D\u0442\u0430\u0446\u0438\u044F:" }),
-                  /* @__PURE__ */ jsxs89(
+                /* @__PURE__ */ jsx97("div", { className: "workflow-graph-toolbar__right", children: /* @__PURE__ */ jsxs94("label", { className: "entity-matrix-filter", children: [
+                  /* @__PURE__ */ jsx97("span", { children: "\u041E\u0440\u0438\u0435\u043D\u0442\u0430\u0446\u0438\u044F:" }),
+                  /* @__PURE__ */ jsxs94(
                     "select",
                     {
                       value: rankdir,
                       onChange: (e) => setRankdir(e.target.value),
                       children: [
-                        /* @__PURE__ */ jsx92("option", { value: "LR", children: "\u0413\u043E\u0440\u0438\u0437\u043E\u043D\u0442\u0430\u043B\u044C\u043D\u0430\u044F" }),
-                        /* @__PURE__ */ jsx92("option", { value: "TB", children: "\u0412\u0435\u0440\u0442\u0438\u043A\u0430\u043B\u044C\u043D\u0430\u044F" })
+                        /* @__PURE__ */ jsx97("option", { value: "LR", children: "\u0413\u043E\u0440\u0438\u0437\u043E\u043D\u0442\u0430\u043B\u044C\u043D\u0430\u044F" }),
+                        /* @__PURE__ */ jsx97("option", { value: "TB", children: "\u0412\u0435\u0440\u0442\u0438\u043A\u0430\u043B\u044C\u043D\u0430\u044F" })
                       ]
                     }
                   )
                 ] }) })
               ] }),
-              /* @__PURE__ */ jsx92("div", { className: "workflow-graph-canvas", children: graph.nodes.length === 0 ? /* @__PURE__ */ jsx92("div", { className: "workflow-graph-empty", children: "\u0423 workflow \u043D\u0435 \u0437\u0430\u0434\u0430\u043D\u044B \u0441\u0442\u0430\u0442\u0443\u0441\u044B" }) : graph.edges.length === 0 ? /* @__PURE__ */ jsx92("div", { className: "workflow-graph-empty", children: "\u0423 workflow \u043D\u0435 \u0437\u0430\u0434\u0430\u043D\u044B \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u044B" }) : /* @__PURE__ */ jsx92(ReactFlowProvider4, { children: /* @__PURE__ */ jsx92(
+              /* @__PURE__ */ jsx97("div", { className: "workflow-graph-canvas", children: graph.nodes.length === 0 ? /* @__PURE__ */ jsx97("div", { className: "workflow-graph-empty", children: "\u0423 workflow \u043D\u0435 \u0437\u0430\u0434\u0430\u043D\u044B \u0441\u0442\u0430\u0442\u0443\u0441\u044B" }) : graph.edges.length === 0 ? /* @__PURE__ */ jsx97("div", { className: "workflow-graph-empty", children: "\u0423 workflow \u043D\u0435 \u0437\u0430\u0434\u0430\u043D\u044B \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u044B" }) : /* @__PURE__ */ jsx97(ReactFlowProvider5, { children: /* @__PURE__ */ jsx97(
                 WorkflowGraphInner,
                 {
                   nodes: graph.nodes,
                   edges: graph.edges
                 }
               ) }) }),
-              dt.description && /* @__PURE__ */ jsx92("div", { className: "workflow-graph-description", children: dt.description }),
-              /* @__PURE__ */ jsxs89("div", { className: "workflow-graph-legend", children: [
-                /* @__PURE__ */ jsxs89("span", { className: "workflow-graph-legend__item", children: [
-                  /* @__PURE__ */ jsx92("span", { className: "workflow-graph-legend__dot workflow-graph-legend__dot--initial" }),
+              dt.description && /* @__PURE__ */ jsx97("div", { className: "workflow-graph-description", children: dt.description }),
+              /* @__PURE__ */ jsxs94("div", { className: "workflow-graph-legend", children: [
+                /* @__PURE__ */ jsxs94("span", { className: "workflow-graph-legend__item", children: [
+                  /* @__PURE__ */ jsx97("span", { className: "workflow-graph-legend__dot workflow-graph-legend__dot--initial" }),
                   "\u043D\u0430\u0447\u0430\u043B\u044C\u043D\u044B\u0439"
                 ] }),
-                /* @__PURE__ */ jsxs89("span", { className: "workflow-graph-legend__item", children: [
-                  /* @__PURE__ */ jsx92("span", { className: "workflow-graph-legend__dot workflow-graph-legend__dot--final" }),
+                /* @__PURE__ */ jsxs94("span", { className: "workflow-graph-legend__item", children: [
+                  /* @__PURE__ */ jsx97("span", { className: "workflow-graph-legend__dot workflow-graph-legend__dot--final" }),
                   "\u043A\u043E\u043D\u0435\u0447\u043D\u044B\u0439"
                 ] }),
-                /* @__PURE__ */ jsxs89("span", { className: "workflow-graph-legend__item", children: [
-                  /* @__PURE__ */ jsx92("span", { className: "workflow-graph-legend__dot" }),
+                /* @__PURE__ */ jsxs94("span", { className: "workflow-graph-legend__item", children: [
+                  /* @__PURE__ */ jsx97("span", { className: "workflow-graph-legend__dot" }),
                   "\u043E\u0431\u044B\u0447\u043D\u044B\u0439"
                 ] }),
-                graph.wildcardUsed && /* @__PURE__ */ jsxs89("span", { className: "workflow-graph-legend__item", children: [
-                  /* @__PURE__ */ jsx92("span", { className: "workflow-graph-legend__dot workflow-graph-legend__dot--wildcard", children: "*" }),
+                graph.wildcardUsed && /* @__PURE__ */ jsxs94("span", { className: "workflow-graph-legend__item", children: [
+                  /* @__PURE__ */ jsx97("span", { className: "workflow-graph-legend__dot workflow-graph-legend__dot--wildcard", children: "*" }),
                   "\u043F\u0435\u0440\u0435\u0445\u043E\u0434 \u0438\u0437/\u0432 \u043B\u044E\u0431\u043E\u0439 \u0441\u0442\u0430\u0442\u0443\u0441"
                 ] }),
-                dt.workflowView && dt.workflowView.some((v) => v.color) && /* @__PURE__ */ jsxs89("span", { className: "workflow-graph-legend__item", children: [
-                  /* @__PURE__ */ jsx92(MIcon, { name: "palette", size: "sm" }),
+                dt.workflowView && dt.workflowView.some((v) => v.color) && /* @__PURE__ */ jsxs94("span", { className: "workflow-graph-legend__item", children: [
+                  /* @__PURE__ */ jsx97(MIcon, { name: "palette", size: "sm" }),
                   "\u0446\u0432\u0435\u0442 \u0441\u0442\u0430\u0442\u0443\u0441\u0430 \u2014 \u0438\u0437 workflowView"
                 ] })
               ] })
@@ -87783,21 +90521,21 @@ function WorkflowGraphModal() {
     }
   );
 }
-var nodeTypes4, NODE_WIDTH4, NODE_HEIGHT4;
+var nodeTypes5, NODE_WIDTH5, NODE_HEIGHT5;
 var init_WorkflowGraphModal = __esm({
   "src/web/components/modals/WorkflowGraphModal.tsx"() {
     "use strict";
     init_useGraphStore();
     init_useModelIndex();
     init_MIcon();
-    nodeTypes4 = { workflowNode: WorkflowStatusNode };
-    NODE_WIDTH4 = 160;
-    NODE_HEIGHT4 = 48;
+    nodeTypes5 = { workflowNode: WorkflowStatusNode };
+    NODE_WIDTH5 = 160;
+    NODE_HEIGHT5 = 48;
   }
 });
 
 // src/web/components/modals/PublishPreviewModal.tsx
-import { jsx as jsx93, jsxs as jsxs90 } from "react/jsx-runtime";
+import { jsx as jsx98, jsxs as jsxs95 } from "react/jsx-runtime";
 function PublishPreviewModal() {
   const open2 = useGraphStore((s) => s.publishPreviewOpen);
   const data = useGraphStore((s) => s.publishPreviewData);
@@ -87807,77 +90545,77 @@ function PublishPreviewModal() {
     return null;
   const { serverVersion, localVersion, diff } = data;
   const hasBreaking = diff?.hasBreakingChanges;
-  return /* @__PURE__ */ jsx93("div", { className: "help-overlay help-overlay--fullscreen", style: { zIndex: 600 }, onMouseDown: close, children: /* @__PURE__ */ jsxs90("div", { className: "help-modal", style: { width: 800, maxHeight: "85vh", display: "flex", flexDirection: "column" }, onMouseDown: (e) => e.stopPropagation(), children: [
-    /* @__PURE__ */ jsxs90("div", { className: "help-modal__header", children: [
-      /* @__PURE__ */ jsxs90("div", { className: "help-modal__title", children: [
-        /* @__PURE__ */ jsx93(MIcon, { name: "cloud_upload", size: "sm" }),
-        /* @__PURE__ */ jsx93("span", { className: "icon-label", children: "\u041F\u0440\u0435\u0434\u043F\u0440\u043E\u0441\u043C\u043E\u0442\u0440 \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u0438" })
+  return /* @__PURE__ */ jsx98("div", { className: "help-overlay help-overlay--fullscreen", style: { zIndex: 600 }, onMouseDown: close, children: /* @__PURE__ */ jsxs95("div", { className: "help-modal", style: { width: 800, maxHeight: "85vh", display: "flex", flexDirection: "column" }, onMouseDown: (e) => e.stopPropagation(), children: [
+    /* @__PURE__ */ jsxs95("div", { className: "help-modal__header", children: [
+      /* @__PURE__ */ jsxs95("div", { className: "help-modal__title", children: [
+        /* @__PURE__ */ jsx98(MIcon, { name: "cloud_upload", size: "sm" }),
+        /* @__PURE__ */ jsx98("span", { className: "icon-label", children: "\u041F\u0440\u0435\u0434\u043F\u0440\u043E\u0441\u043C\u043E\u0442\u0440 \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u0438" })
       ] }),
-      /* @__PURE__ */ jsx93("button", { className: "help-modal__close", onClick: close, children: "\u2715" })
+      /* @__PURE__ */ jsx98("button", { className: "help-modal__close", onClick: close, children: "\u2715" })
     ] }),
-    /* @__PURE__ */ jsxs90("div", { className: "help-modal__body", style: { flex: 1, overflowY: "auto", padding: 24 }, children: [
-      /* @__PURE__ */ jsxs90("div", { style: { display: "flex", alignItems: "center", gap: 16, marginBottom: 24, padding: 16, background: "var(--bg-800)", borderRadius: 8 }, children: [
-        /* @__PURE__ */ jsxs90("div", { style: { flex: 1 }, children: [
-          /* @__PURE__ */ jsx93("div", { style: { fontSize: 10, color: "var(--text-500)", textTransform: "uppercase" }, children: "\u0412\u0435\u0440\u0441\u0438\u044F \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435" }),
-          /* @__PURE__ */ jsx93("div", { style: { fontSize: 18, fontFamily: "monospace", color: "var(--text-300)" }, children: serverVersion || "\u2014" })
+    /* @__PURE__ */ jsxs95("div", { className: "help-modal__body", style: { flex: 1, overflowY: "auto", padding: 24 }, children: [
+      /* @__PURE__ */ jsxs95("div", { style: { display: "flex", alignItems: "center", gap: 16, marginBottom: 24, padding: 16, background: "var(--bg-800)", borderRadius: 8 }, children: [
+        /* @__PURE__ */ jsxs95("div", { style: { flex: 1 }, children: [
+          /* @__PURE__ */ jsx98("div", { style: { fontSize: 10, color: "var(--text-500)", textTransform: "uppercase" }, children: "\u0412\u0435\u0440\u0441\u0438\u044F \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435" }),
+          /* @__PURE__ */ jsx98("div", { style: { fontSize: 18, fontFamily: "monospace", color: "var(--text-300)" }, children: serverVersion || "\u2014" })
         ] }),
-        /* @__PURE__ */ jsx93(MIcon, { name: "trending_flat", style: { color: "var(--text-500)" } }),
-        /* @__PURE__ */ jsxs90("div", { style: { flex: 1 }, children: [
-          /* @__PURE__ */ jsx93("div", { style: { fontSize: 10, color: "var(--text-500)", textTransform: "uppercase" }, children: "\u041D\u043E\u0432\u0430\u044F \u0432\u0435\u0440\u0441\u0438\u044F" }),
-          /* @__PURE__ */ jsx93("div", { style: { fontSize: 18, fontFamily: "monospace", color: "var(--accent-hover)", fontWeight: 700 }, children: localVersion || "\u2014" })
+        /* @__PURE__ */ jsx98(MIcon, { name: "trending_flat", style: { color: "var(--text-500)" } }),
+        /* @__PURE__ */ jsxs95("div", { style: { flex: 1 }, children: [
+          /* @__PURE__ */ jsx98("div", { style: { fontSize: 10, color: "var(--text-500)", textTransform: "uppercase" }, children: "\u041D\u043E\u0432\u0430\u044F \u0432\u0435\u0440\u0441\u0438\u044F" }),
+          /* @__PURE__ */ jsx98("div", { style: { fontSize: 18, fontFamily: "monospace", color: "var(--accent-hover)", fontWeight: 700 }, children: localVersion || "\u2014" })
         ] })
       ] }),
-      hasBreaking && /* @__PURE__ */ jsxs90("div", { style: { padding: 16, background: "rgba(239,68,68,0.1)", border: "1px solid var(--danger)", borderRadius: 8, marginBottom: 24 }, children: [
-        /* @__PURE__ */ jsxs90("div", { style: { fontWeight: 700, color: "var(--danger)", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }, children: [
-          /* @__PURE__ */ jsx93(MIcon, { name: "warning", size: "sm" }),
+      hasBreaking && /* @__PURE__ */ jsxs95("div", { style: { padding: 16, background: "rgba(239,68,68,0.1)", border: "1px solid var(--danger)", borderRadius: 8, marginBottom: 24 }, children: [
+        /* @__PURE__ */ jsxs95("div", { style: { fontWeight: 700, color: "var(--danger)", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }, children: [
+          /* @__PURE__ */ jsx98(MIcon, { name: "warning", size: "sm" }),
           " \u0412\u043D\u0438\u043C\u0430\u043D\u0438\u0435! \u041E\u0431\u043D\u0430\u0440\u0443\u0436\u0435\u043D\u044B \u043D\u0435\u0441\u043E\u0432\u043C\u0435\u0441\u0442\u0438\u043C\u044B\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F"
         ] }),
-        /* @__PURE__ */ jsxs90("div", { style: { fontSize: 12, color: "var(--text-300)", lineHeight: 1.5 }, children: [
+        /* @__PURE__ */ jsxs95("div", { style: { fontSize: 12, color: "var(--text-300)", lineHeight: 1.5 }, children: [
           "\u0421\u0435\u0440\u0432\u0435\u0440 \u043C\u043E\u0436\u0435\u0442 \u043E\u0442\u043A\u043B\u043E\u043D\u0438\u0442\u044C \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u044E \u0441 \u043E\u0448\u0438\u0431\u043A\u043E\u0439 ",
-          /* @__PURE__ */ jsx93("code", { children: "NotCompatible" }),
+          /* @__PURE__ */ jsx98("code", { children: "NotCompatible" }),
           ", \u0430 \u043F\u043E\u0442\u0440\u0435\u0431\u0438\u0442\u0435\u043B\u0438 \u044D\u0442\u043E\u0439 \u0441\u0445\u0435\u043C\u044B (\u0434\u0440\u0443\u0433\u0438\u0435 \u0434\u043E\u043C\u0435\u043D\u044B) \u043C\u043E\u0433\u0443\u0442 \u0441\u043B\u043E\u043C\u0430\u0442\u044C\u0441\u044F."
         ] })
       ] }),
-      diff?.removedEntities?.length > 0 && /* @__PURE__ */ jsxs90("div", { style: { marginBottom: 16 }, children: [
-        /* @__PURE__ */ jsxs90("div", { style: { fontSize: 12, fontWeight: 700, color: "var(--danger)", marginBottom: 8 }, children: [
+      diff?.removedEntities?.length > 0 && /* @__PURE__ */ jsxs95("div", { style: { marginBottom: 16 }, children: [
+        /* @__PURE__ */ jsxs95("div", { style: { fontSize: 12, fontWeight: 700, color: "var(--danger)", marginBottom: 8 }, children: [
           "\u{1F534} \u0423\u0434\u0430\u043B\u0435\u043D\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 (",
           diff.removedEntities.length,
           ")"
         ] }),
-        /* @__PURE__ */ jsx93("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 }, children: diff.removedEntities.map((e) => /* @__PURE__ */ jsx93("span", { className: "entity-catalog-chip", style: { background: "rgba(239,68,68,0.15)", color: "var(--danger)", borderColor: "var(--danger)" }, children: e.id }, e.id)) })
+        /* @__PURE__ */ jsx98("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 }, children: diff.removedEntities.map((e) => /* @__PURE__ */ jsx98("span", { className: "entity-catalog-chip", style: { background: "rgba(239,68,68,0.15)", color: "var(--danger)", borderColor: "var(--danger)" }, children: e.id }, e.id)) })
       ] }),
-      diff?.addedEntities?.length > 0 && /* @__PURE__ */ jsxs90("div", { style: { marginBottom: 16 }, children: [
-        /* @__PURE__ */ jsxs90("div", { style: { fontSize: 12, fontWeight: 700, color: "var(--success)", marginBottom: 8 }, children: [
+      diff?.addedEntities?.length > 0 && /* @__PURE__ */ jsxs95("div", { style: { marginBottom: 16 }, children: [
+        /* @__PURE__ */ jsxs95("div", { style: { fontSize: 12, fontWeight: 700, color: "var(--success)", marginBottom: 8 }, children: [
           "\u{1F7E2} \u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 (",
           diff.addedEntities.length,
           ")"
         ] }),
-        /* @__PURE__ */ jsx93("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 }, children: diff.addedEntities.map((e) => /* @__PURE__ */ jsx93("span", { className: "entity-catalog-chip", style: { background: "rgba(16,185,129,0.15)", color: "var(--success)", borderColor: "var(--success)" }, children: e.id }, e.id)) })
+        /* @__PURE__ */ jsx98("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 }, children: diff.addedEntities.map((e) => /* @__PURE__ */ jsx98("span", { className: "entity-catalog-chip", style: { background: "rgba(16,185,129,0.15)", color: "var(--success)", borderColor: "var(--success)" }, children: e.id }, e.id)) })
       ] }),
-      diff?.changedEntities?.length > 0 && /* @__PURE__ */ jsxs90("div", { style: { marginBottom: 16 }, children: [
-        /* @__PURE__ */ jsxs90("div", { style: { fontSize: 12, fontWeight: 700, color: "var(--warning)", marginBottom: 8 }, children: [
+      diff?.changedEntities?.length > 0 && /* @__PURE__ */ jsxs95("div", { style: { marginBottom: 16 }, children: [
+        /* @__PURE__ */ jsxs95("div", { style: { fontSize: 12, fontWeight: 700, color: "var(--warning)", marginBottom: 8 }, children: [
           "\u{1F7E1} \u0418\u0437\u043C\u0435\u043D\u0435\u043D\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 (",
           diff.changedEntities.length,
           ")"
         ] }),
-        /* @__PURE__ */ jsx93("div", { style: { display: "flex", flexDirection: "column", gap: 8 }, children: diff.changedEntities.map((e) => /* @__PURE__ */ jsxs90("div", { style: { background: "var(--bg-750)", padding: 12, borderRadius: 6, borderLeft: `3px solid ${e.isBreaking ? "var(--danger)" : "var(--warning)"}` }, children: [
-          /* @__PURE__ */ jsx93("div", { style: { fontWeight: 600, fontSize: 13, marginBottom: 4 }, children: e.id }),
-          e.attributes.map((a) => /* @__PURE__ */ jsxs90("div", { style: { display: "flex", gap: 8, fontSize: 11, fontFamily: "monospace", color: "var(--text-400)", marginTop: 2 }, children: [
-            a.kind === "removed" && /* @__PURE__ */ jsxs90("span", { style: { color: "var(--danger)" }, children: [
+        /* @__PURE__ */ jsx98("div", { style: { display: "flex", flexDirection: "column", gap: 8 }, children: diff.changedEntities.map((e) => /* @__PURE__ */ jsxs95("div", { style: { background: "var(--bg-750)", padding: 12, borderRadius: 6, borderLeft: `3px solid ${e.isBreaking ? "var(--danger)" : "var(--warning)"}` }, children: [
+          /* @__PURE__ */ jsx98("div", { style: { fontWeight: 600, fontSize: 13, marginBottom: 4 }, children: e.id }),
+          e.attributes.map((a) => /* @__PURE__ */ jsxs95("div", { style: { display: "flex", gap: 8, fontSize: 11, fontFamily: "monospace", color: "var(--text-400)", marginTop: 2 }, children: [
+            a.kind === "removed" && /* @__PURE__ */ jsxs95("span", { style: { color: "var(--danger)" }, children: [
               "- ",
               a.id,
               " (",
               a.typeA,
               ")"
             ] }),
-            a.kind === "added" && /* @__PURE__ */ jsxs90("span", { style: { color: "var(--success)" }, children: [
+            a.kind === "added" && /* @__PURE__ */ jsxs95("span", { style: { color: "var(--success)" }, children: [
               "+ ",
               a.id,
               " (",
               a.typeB,
               ")"
             ] }),
-            a.kind === "changed" && /* @__PURE__ */ jsxs90("span", { style: { color: "var(--warning)" }, children: [
+            a.kind === "changed" && /* @__PURE__ */ jsxs95("span", { style: { color: "var(--warning)" }, children: [
               "~ ",
               a.id,
               ": ",
@@ -87888,14 +90626,14 @@ function PublishPreviewModal() {
           ] }, a.id))
         ] }, e.id)) })
       ] }),
-      (!diff || diff.addedEntities.length === 0 && diff.removedEntities.length === 0 && diff.changedEntities.length === 0) && /* @__PURE__ */ jsxs90("div", { style: { textAlign: "center", color: "var(--text-500)", padding: 40 }, children: [
-        /* @__PURE__ */ jsx93(MIcon, { name: "check_circle", size: "xl", style: { color: "var(--success)", marginBottom: 8 } }),
-        /* @__PURE__ */ jsx93("div", { children: "\u0421\u0445\u0435\u043C\u0430 \u043D\u0435 \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u0430\u0441\u044C \u0441 \u043C\u043E\u043C\u0435\u043D\u0442\u0430 \u043F\u043E\u0441\u043B\u0435\u0434\u043D\u0435\u0439 \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u0438" })
+      (!diff || diff.addedEntities.length === 0 && diff.removedEntities.length === 0 && diff.changedEntities.length === 0) && /* @__PURE__ */ jsxs95("div", { style: { textAlign: "center", color: "var(--text-500)", padding: 40 }, children: [
+        /* @__PURE__ */ jsx98(MIcon, { name: "check_circle", size: "xl", style: { color: "var(--success)", marginBottom: 8 } }),
+        /* @__PURE__ */ jsx98("div", { children: "\u0421\u0445\u0435\u043C\u0430 \u043D\u0435 \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u0430\u0441\u044C \u0441 \u043C\u043E\u043C\u0435\u043D\u0442\u0430 \u043F\u043E\u0441\u043B\u0435\u0434\u043D\u0435\u0439 \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u0438" })
       ] })
     ] }),
-    /* @__PURE__ */ jsxs90("div", { className: "help-modal__footer", style: { padding: 16, borderTop: "1px solid var(--border)", display: "flex", justifyContent: "flex-end", gap: 12, background: "var(--bg-850)" }, children: [
-      /* @__PURE__ */ jsx93("button", { className: "btn", onClick: close, children: "\u041E\u0442\u043C\u0435\u043D\u0430" }),
-      /* @__PURE__ */ jsx93(
+    /* @__PURE__ */ jsxs95("div", { className: "help-modal__footer", style: { padding: 16, borderTop: "1px solid var(--border)", display: "flex", justifyContent: "flex-end", gap: 12, background: "var(--bg-850)" }, children: [
+      /* @__PURE__ */ jsx98("button", { className: "btn", onClick: close, children: "\u041E\u0442\u043C\u0435\u043D\u0430" }),
+      /* @__PURE__ */ jsx98(
         "button",
         {
           className: "btn " + (hasBreaking ? "btn--danger" : "btn--primary"),
@@ -87919,36 +90657,36 @@ var init_PublishPreviewModal = __esm({
 });
 
 // src/web/components/layout/AppModals.tsx
-import { Fragment as Fragment30, jsx as jsx94, jsxs as jsxs91 } from "react/jsx-runtime";
+import { Fragment as Fragment34, jsx as jsx99, jsxs as jsxs96 } from "react/jsx-runtime";
 function AppModals(props) {
   const helpOpen = useGraphStore((s) => s.helpOpen);
   const hotkeysOpen = useGraphStore((s) => s.hotkeysOpen);
   const contextMenu = useGraphStore((s) => s.contextMenu);
   const snackbar = useGraphStore((s) => s.snackbar);
-  return /* @__PURE__ */ jsxs91(Fragment30, { children: [
-    /* @__PURE__ */ jsx94(HoverTooltip, {}),
-    /* @__PURE__ */ jsx94(
+  return /* @__PURE__ */ jsxs96(Fragment34, { children: [
+    /* @__PURE__ */ jsx99(HoverTooltip, {}),
+    /* @__PURE__ */ jsx99(
       CommandPalette,
       {
         commands: props.commands,
         onOpenFile: (filePath, fqid) => openFileInEditor(filePath, fqid)
       }
     ),
-    /* @__PURE__ */ jsx94(
+    /* @__PURE__ */ jsx99(
       HelpModal,
       {
         open: helpOpen,
         onClose: () => useGraphStore.getState().setHelpOpen(false)
       }
     ),
-    /* @__PURE__ */ jsx94(
+    /* @__PURE__ */ jsx99(
       HotkeysModal,
       {
         open: hotkeysOpen,
         onClose: () => useGraphStore.getState().setHotkeysOpen(false)
       }
     ),
-    /* @__PURE__ */ jsx94(
+    /* @__PURE__ */ jsx99(
       ValidationModal,
       {
         allDomains: props.allDomains,
@@ -87956,7 +90694,7 @@ function AppModals(props) {
         bookmarkedDomains: props.bookmarkedDomains
       }
     ),
-    /* @__PURE__ */ jsx94(
+    /* @__PURE__ */ jsx99(
       TopoSortModal,
       {
         allDomains: props.allDomains,
@@ -87964,7 +90702,7 @@ function AppModals(props) {
         bookmarkedDomains: props.bookmarkedDomains
       }
     ),
-    /* @__PURE__ */ jsx94(
+    /* @__PURE__ */ jsx99(
       LearningPathModal,
       {
         visibleDomains: props.visibleDomains,
@@ -87972,10 +90710,10 @@ function AppModals(props) {
         onStartTour: props.onStartTour
       }
     ),
-    /* @__PURE__ */ jsx94(TourOverlay, {}),
-    /* @__PURE__ */ jsx94(EntityHierarchyModal, { entities: props.entities }),
-    /* @__PURE__ */ jsx94(RulesModal, { violations: props.ruleViolations }),
-    /* @__PURE__ */ jsx94(
+    /* @__PURE__ */ jsx99(TourOverlay, {}),
+    /* @__PURE__ */ jsx99(EntityHierarchyModal, { entities: props.entities }),
+    /* @__PURE__ */ jsx99(RulesModal, { violations: props.ruleViolations }),
+    /* @__PURE__ */ jsx99(
       ContextMenu,
       {
         menu: contextMenu,
@@ -87983,7 +90721,7 @@ function AppModals(props) {
         onAction: props.onContextAction
       }
     ),
-    props.toastVisible && props.remoteInfo?.fromCache && /* @__PURE__ */ jsx94(
+    props.toastVisible && props.remoteInfo?.fromCache && /* @__PURE__ */ jsx99(
       Toast,
       {
         message: "\u{1F4E6} \u0413\u0440\u0430\u0444 \u043F\u043E\u0441\u0442\u0440\u043E\u0435\u043D \u0438\u0437 <b>\u043A\u044D\u0448\u0430</b>" + (props.remoteInfo.fetchedAt ? " (\u043E\u0442 " + new Date(props.remoteInfo.fetchedAt).toLocaleString("ru-RU") + ")" : "") + ". \u0414\u0430\u043D\u043D\u044B\u0435 \u043C\u043E\u0433\u0443\u0442 \u0431\u044B\u0442\u044C \u0443\u0441\u0442\u0430\u0440\u0435\u0432\u0448\u0438\u043C\u0438.",
@@ -87998,32 +90736,37 @@ function AppModals(props) {
         } : void 0
       }
     ),
-    /* @__PURE__ */ jsx94(Snackbar, { snackbar }),
-    /* @__PURE__ */ jsx94(EntityGraphModal, {}),
-    /* @__PURE__ */ jsx94(ModelValidationModal, {}),
-    /* @__PURE__ */ jsx94(GlossaryModal, {}),
-    /* @__PURE__ */ jsx94(ModelDiffModal, {}),
-    /* @__PURE__ */ jsx94(EntitiesCatalogModal, {}),
-    /* @__PURE__ */ jsx94(AttributeFinderModal, {}),
-    /* @__PURE__ */ jsx94(EntityMatrixModal, {}),
-    /* @__PURE__ */ jsx94(AttributeMatrixModal, {}),
-    /* @__PURE__ */ jsx94(DomainSchemaModal, {}),
-    /* @__PURE__ */ jsx94(LintModal, {}),
-    /* @__PURE__ */ jsx94(MartinMetricsModal, {}),
-    /* @__PURE__ */ jsx94(DomainCompareModal, {}),
-    /* @__PURE__ */ jsx94(PiiModal, {}),
-    /* @__PURE__ */ jsx94(YamlViewerModal, {}),
-    /* @__PURE__ */ jsx94(GenerateSchemaModal, {}),
-    /* @__PURE__ */ jsx94(GenerateBatchModal, {}),
-    /* @__PURE__ */ jsx94(GeneratedManifestModal, {}),
-    /* @__PURE__ */ jsx94(WorkflowGraphModal, {}),
-    /* @__PURE__ */ jsx94(CheatsheetModal, {}),
-    /* @__PURE__ */ jsx94(PublishPreviewModal, {}),
-    /* @__PURE__ */ jsx94(HealthDashboardModal, {}),
-    /* @__PURE__ */ jsx94(DeletionSimulationModal, {}),
-    /* @__PURE__ */ jsx94(CreateDomainModal, {}),
-    /* @__PURE__ */ jsx94(DeleteDomainModal, {}),
-    /* @__PURE__ */ jsx94(Dialog, {})
+    /* @__PURE__ */ jsx99(Snackbar, { snackbar }),
+    /* @__PURE__ */ jsx99(EntityGraphModal, {}),
+    /* @__PURE__ */ jsx99(ModelValidationModal, {}),
+    /* @__PURE__ */ jsx99(GlossaryModal, {}),
+    /* @__PURE__ */ jsx99(ModelDiffModal, {}),
+    /* @__PURE__ */ jsx99(EntitiesCatalogModal, {}),
+    /* @__PURE__ */ jsx99(AttributeFinderModal, {}),
+    /* @__PURE__ */ jsx99(EntityMatrixModal, {}),
+    /* @__PURE__ */ jsx99(AttributeMatrixModal, {}),
+    /* @__PURE__ */ jsx99(DomainSchemaModal, {}),
+    /* @__PURE__ */ jsx99(LintModal, {}),
+    /* @__PURE__ */ jsx99(MartinMetricsModal, {}),
+    /* @__PURE__ */ jsx99(DomainCompareModal, {}),
+    /* @__PURE__ */ jsx99(PiiModal, {}),
+    /* @__PURE__ */ jsx99(YamlViewerModal, {}),
+    /* @__PURE__ */ jsx99(GenerateSchemaModal, {}),
+    /* @__PURE__ */ jsx99(GenerateBatchModal, {}),
+    /* @__PURE__ */ jsx99(GeneratedManifestModal, {}),
+    /* @__PURE__ */ jsx99(WorkflowGraphModal, {}),
+    /* @__PURE__ */ jsx99(CheatsheetModal, {}),
+    /* @__PURE__ */ jsx99(PublishPreviewModal, {}),
+    /* @__PURE__ */ jsx99(HealthDashboardModal, {}),
+    /* @__PURE__ */ jsx99(DeletionSimulationModal, {}),
+    /* @__PURE__ */ jsx99(CreateDomainModal, {}),
+    /* @__PURE__ */ jsx99(DeleteDomainModal, {}),
+    /* @__PURE__ */ jsx99(ViewGraphModal, {}),
+    /* @__PURE__ */ jsx99(YamlFulltextSearchModal, {}),
+    /* @__PURE__ */ jsx99(GeneratedPreviewModal, {}),
+    /* @__PURE__ */ jsx99(ChangelogModal, {}),
+    /* @__PURE__ */ jsx99(DomainOnboardingWizard, {}),
+    /* @__PURE__ */ jsx99(Dialog, {})
   ] });
 }
 var init_AppModals = __esm({
@@ -88052,19 +90795,24 @@ var init_AppModals = __esm({
     init_WorkflowGraphModal();
     init_PublishPreviewModal();
     init_common();
+    init_ViewGraphModal();
+    init_YamlFulltextSearchModal();
+    init_GeneratedPreviewModal();
+    init_ChangelogModal();
+    init_DomainOnboardingWizard();
   }
 });
 
 // src/web/App.tsx
-import React60, { useCallback as useCallback30, useEffect as useEffect59, useMemo as useMemo59, useRef as useRef28 } from "react";
-import { jsx as jsx95, jsxs as jsxs92 } from "react/jsx-runtime";
+import React65, { useCallback as useCallback33, useEffect as useEffect62, useMemo as useMemo65, useRef as useRef30 } from "react";
+import { jsx as jsx100, jsxs as jsxs97 } from "react/jsx-runtime";
 function App() {
   const nodes = useGraphStore((s) => s.nodes);
   const edges = useGraphStore((s) => s.edges);
   const rules = useGraphStore((s) => s.rules);
   const viewMode = useGraphStore((s) => s.viewMode);
-  const didInit = useRef28(false);
-  useEffect59(() => {
+  const didInit = useRef30(false);
+  useEffect62(() => {
     if (didInit.current)
       return;
     didInit.current = true;
@@ -88074,7 +90822,7 @@ function App() {
     document.documentElement.setAttribute("data-theme", st.theme);
   }, []);
   const CACHE_TOAST_KEY = REMOTE_INFO?.server ? `dg-cache-toast-hidden:${REMOTE_INFO.server.replace(/\/+$/, "")}` : null;
-  const [toastVisible, setToastVisible] = React60.useState(() => {
+  const [toastVisible, setToastVisible] = React65.useState(() => {
     if (!REMOTE_INFO?.fromCache)
       return false;
     if (!CACHE_TOAST_KEY)
@@ -88085,8 +90833,8 @@ function App() {
       return true;
     }
   });
-  const [dontShowCacheToast, setDontShowCacheToast] = React60.useState(false);
-  const handleDontShowCacheToast = React60.useCallback(
+  const [dontShowCacheToast, setDontShowCacheToast] = React65.useState(false);
+  const handleDontShowCacheToast = React65.useCallback(
     (checked) => {
       setDontShowCacheToast(checked);
       if (!CACHE_TOAST_KEY)
@@ -88110,16 +90858,16 @@ function App() {
     isolatedCount,
     filteredIdsHash
   } = useGraphFilters();
-  const edgesForFocus = useMemo59(() => {
+  const edgesForFocus = useMemo65(() => {
     const ids = new Set(filteredNodes.map((n) => n.id));
     return displayEdges.filter((e) => ids.has(e.source) && ids.has(e.target));
   }, [displayEdges, filteredNodes]);
   const highlight = useGraphHighlight(filteredEdges, edgesForFocus);
-  const cyclesInfo = useMemo59(
+  const cyclesInfo = useMemo65(
     () => findCycles(displayNodes, displayEdges),
     [displayNodes, displayEdges]
   );
-  const healthMap = useMemo59(() => {
+  const healthMap = useMemo65(() => {
     const map2 = /* @__PURE__ */ new Map();
     displayNodes.forEach((n) => {
       const h = computeHealth(n, displayEdges, displayNodes, cyclesInfo.cycleNodes, null);
@@ -88127,11 +90875,11 @@ function App() {
     });
     return map2;
   }, [displayNodes, displayEdges, cyclesInfo]);
-  const ruleViolations = useMemo59(
+  const ruleViolations = useMemo65(
     () => evaluateRules(displayEdges, displayNodes, rules),
     [displayEdges, displayNodes, rules]
   );
-  const violationsByEdge = useMemo59(() => {
+  const violationsByEdge = useMemo65(() => {
     const m = /* @__PURE__ */ new Map();
     ruleViolations.forEach((v) => {
       if (!m.has(v.edgeId))
@@ -88140,7 +90888,7 @@ function App() {
     });
     return m;
   }, [ruleViolations]);
-  const edgesForRender = useMemo59(() => {
+  const edgesForRender = useMemo65(() => {
     if (highlight && (highlight.type === "focus" || highlight.type === "cycle" || highlight.type === "path")) {
       return edgesForFocus;
     }
@@ -88149,12 +90897,12 @@ function App() {
   const heatmapValues = useHeatmapValues(displayNodes, displayEdges, healthMap);
   const visibleNodes = useVisibleNodes(filteredNodes, highlight, healthMap, heatmapValues);
   const visibleEdges = useVisibleEdges(edgesForRender, highlight, violationsByEdge);
-  const perfMode = useMemo59(
+  const perfMode = useMemo65(
     () => filteredEdges.length > PERF_THRESHOLD,
     [filteredEdges.length]
   );
   const showEdgeLabels = useGraphStore((s) => s.showEdgeLabels);
-  const displayEdgesForRender = useMemo59(() => {
+  const displayEdgesForRender = useMemo65(() => {
     const hideLabels = perfMode && !showEdgeLabels;
     if (!hideLabels)
       return visibleEdges;
@@ -88190,7 +90938,7 @@ function App() {
   const interactions = useNodeInteractions({ filteredEdges });
   useGraphEvents({ displayNodes, displayEdges });
   useGlobalClickDelegation(goto, tooltip.hide);
-  const handleResetAll = useCallback30(() => {
+  const handleResetAll = useCallback33(() => {
     useGraphStore.getState().resetAll();
     invalidateLayout();
     setTimeout(() => {
@@ -88203,7 +90951,7 @@ function App() {
       }
     }, 200);
   }, [invalidateLayout]);
-  const startTour = useCallback30((path) => {
+  const startTour = useCallback33((path) => {
     const st = useGraphStore.getState();
     st.setTour({
       stages: path.stages,
@@ -88217,20 +90965,20 @@ function App() {
     st.setPathResult(null);
     st.setPathSel([]);
   }, []);
-  const allDomainsList = useMemo59(
+  const allDomainsList = useMemo65(
     () => nodes.filter((n) => n.data.nodeType === "domain").map((n) => ({ id: n.id, domainId: n.data.domainId })),
     [nodes]
   );
-  const visibleDomainsList = useMemo59(
+  const visibleDomainsList = useMemo65(
     () => visibleNodes.filter((n) => n.data.nodeType === "domain").map((n) => ({ id: n.id, domainId: n.data.domainId })),
     [visibleNodes]
   );
   const bookmarks = useGraphStore((s) => s.bookmarks);
-  const bookmarkedDomainsList = useMemo59(
+  const bookmarkedDomainsList = useMemo65(
     () => nodes.filter((n) => bookmarks.has(n.id) && n.data.nodeType === "domain").map((n) => ({ id: n.id, domainId: n.data.domainId })),
     [nodes, bookmarks]
   );
-  const entityIndex = useMemo59(() => buildEntityIndex(GRAPH_DATA.entities || []), []);
+  const entityIndex = useMemo65(() => buildEntityIndex(GRAPH_DATA.entities || []), []);
   const filters = useGraphStore((s) => s.filters);
   const namespaceFilter = useGraphStore((s) => s.namespaceFilter);
   const tagFilters = useGraphStore((s) => s.tagFilters);
@@ -88238,7 +90986,7 @@ function App() {
   const bookmarksOnly = useGraphStore((s) => s.bookmarksOnly);
   const onlyInvalid = useGraphStore((s) => s.onlyInvalid);
   const hiddenNodeIds = useGraphStore((s) => s.hiddenNodeIds);
-  const activeFiltersCount = useMemo59(() => {
+  const activeFiltersCount = useMemo65(() => {
     let c = 0;
     if (!filters.domain)
       c++;
@@ -88272,8 +91020,8 @@ function App() {
     onlyInvalid,
     hiddenNodeIds
   ]);
-  return /* @__PURE__ */ jsxs92("div", { className: "app", children: [
-    /* @__PURE__ */ jsx95(
+  return /* @__PURE__ */ jsxs97("div", { className: "app", children: [
+    /* @__PURE__ */ jsx100(
       Sidebar,
       {
         healthMap,
@@ -88291,8 +91039,8 @@ function App() {
         onExportStats: exportsApi.exportStats
       }
     ),
-    /* @__PURE__ */ jsxs92("main", { className: "main", children: [
-      /* @__PURE__ */ jsx95(
+    /* @__PURE__ */ jsxs97("main", { className: "main", children: [
+      /* @__PURE__ */ jsx100(
         Toolbar,
         {
           counts,
@@ -88334,7 +91082,7 @@ function App() {
           onShowToast: () => setToastVisible(true)
         }
       ),
-      /* @__PURE__ */ jsx95(
+      /* @__PURE__ */ jsx100(
         GraphArea,
         {
           visibleNodes,
@@ -88355,7 +91103,7 @@ function App() {
         }
       )
     ] }),
-    /* @__PURE__ */ jsx95(
+    /* @__PURE__ */ jsx100(
       AppModals,
       {
         commands,
@@ -88369,7 +91117,7 @@ function App() {
         remoteInfo: REMOTE_INFO,
         refreshCommand: REFRESH_COMMAND,
         toastVisible,
-        onToastClose: useCallback30(() => setToastVisible(false), []),
+        onToastClose: useCallback33(() => setToastVisible(false), []),
         showDontShowAgain: !!CACHE_TOAST_KEY,
         dontShowCacheToast,
         onDontShowCacheToastChange: handleDontShowCacheToast
@@ -88402,7 +91150,7 @@ var init_App = __esm({
 
 // src/web/entry.tsx
 import { createRoot } from "react-dom/client";
-import { jsx as jsx96 } from "react/jsx-runtime";
+import { jsx as jsx101 } from "react/jsx-runtime";
 var require_entry = __commonJS({
   "src/web/entry.tsx"() {
     init_App();
@@ -88431,7 +91179,7 @@ var require_entry = __commonJS({
     var container = document.getElementById("root");
     if (!container)
       throw new Error("#root not found");
-    createRoot(container).render(/* @__PURE__ */ jsx96(App, {}));
+    createRoot(container).render(/* @__PURE__ */ jsx101(App, {}));
   }
 });
 export default require_entry();

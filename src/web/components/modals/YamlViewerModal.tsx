@@ -2116,11 +2116,6 @@ export function YamlViewerModal() {
         ed.trigger("dg-fold", "editor.unfoldAll", null);
         ed.trigger("dg-fold", `editor.foldLevel${level}`, null);
         setActiveFoldLevel(level);
-
-        console.log("[toggleFold]", {
-            level,
-            visibleRanges: ed.getVisibleRanges().length,
-        });
     }, [activeFoldLevel]);
 
     const foldAll = useCallback(() => {
@@ -2200,11 +2195,6 @@ export function YamlViewerModal() {
             }
 
             if (regions.length === 0) {
-                console.log("[foldByLines] nothing to fold:", {
-                    total: lines.length,
-                    noRegion,
-                    already,
-                });
                 return;
             }
 
@@ -2223,15 +2213,6 @@ export function YamlViewerModal() {
                     }
                 }
             }
-
-            // Vue-чек: что видно после fold
-            console.log("[foldByLines]", {
-                total: lines.length,
-                folded: regions.length,
-                already,
-                noRegion,
-                visibleRanges: ed.getVisibleRanges().length,
-            });
         }, 0);
     }, []);
 
@@ -2264,7 +2245,6 @@ export function YamlViewerModal() {
         }
 
         if (anchorLine < 0) {
-            console.log("[foldSiblings] не найден - id: предок");
             setActiveFoldLevel(null);
             return;
         }
@@ -2280,13 +2260,6 @@ export function YamlViewerModal() {
             if (!hasFoldableRange(model, i)) continue;
             targets.push(i);
         }
-
-        console.log("[foldSiblings]", {
-            cursorLine,
-            anchorLine,
-            anchorIndent,
-            targets,
-        });
 
         foldByLines(targets);
         setActiveFoldLevel(null);
@@ -2349,9 +2322,6 @@ export function YamlViewerModal() {
             }
 
             if (regions.length === 0) {
-                console.log(`[foldBlocksByKey] "${key}": nothing to fold`, {
-                    notFoldStart,
-                });
                 setActiveFoldLevel(null);
                 return;
             }
@@ -2366,10 +2336,6 @@ export function YamlViewerModal() {
                 }
             }
 
-            console.log(`[foldBlocksByKey] "${key}":`, {
-                folded: regions.length,
-                notFoldStart,
-            });
             setActiveFoldLevel(null);
         }, 0);
     }, [hasFoldableRange]);
@@ -4071,17 +4037,6 @@ export function YamlViewerModal() {
         useGraphStore.getState().setTooltip(null);
         (window as any).__tooltipHovered = false;
     }, [open]);
-
-    useEffect(() => {
-        if (!open) return;
-        console.log("[nav]", {
-            loading,
-            hasContent: content.length,
-            hasDeferredContent: deferredContent.length,
-            hasLineMap: !!lineMap,
-            sectionsCount: lineMap?.sections.length ?? 0,
-        });
-    }, [open, loading, content.length, deferredContent.length, lineMap]);
 
     if (!open) return null;
 

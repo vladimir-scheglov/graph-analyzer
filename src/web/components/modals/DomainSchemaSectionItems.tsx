@@ -855,7 +855,18 @@ export function SectionItems({
                         <code className="domain-schema-item__id">{m.id}</code>
                         <span className="domain-schema-item__meta">
                             {m.type}
-                            {m.iconName && ` · ${m.iconName}`}
+                            {m.iconName && (
+                                <>
+                                    {" · "}
+                                    <span
+                                        className="domain-schema-icon-preview"
+                                        title={`IconName: ${m.iconName}`}
+                                    >
+                                        <MIcon name="image" size="sm" />
+                                    </span>
+                                    <code style={{ fontSize: 11, color: "var(--text-400)" }}>{m.iconName}</code>
+                                </>
+                            )}
                         </span>
                     </div>
                 ))}

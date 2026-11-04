@@ -42,6 +42,10 @@ import { GenerateBatchModal } from '../modals/GenerateBatchModal';
 import { WorkflowGraphModal } from '../modals/WorkflowGraphModal';
 import { PublishPreviewModal } from '../modals/PublishPreviewModal';
 import { Dialog } from '../common';
+import { ViewGraphModal } from '../modals/ViewGraphModal';
+import { YamlFulltextSearchModal } from '../modals/YamlFulltextSearchModal';
+import { GeneratedPreviewModal } from '../modals/GeneratedPreviewModal';
+import { ChangelogModal } from '../modals/ChangelogModal';
 
 
 export interface AppModalsProps {
@@ -155,7 +159,7 @@ export function AppModals(props: AppModalsProps) {
             <EntityMatrixModal />
             <AttributeMatrixModal />
             <DomainSchemaModal />
-            <LintModal /> 
+            <LintModal />
             <MartinMetricsModal />
             <DomainCompareModal />
             <PiiModal />
@@ -170,6 +174,10 @@ export function AppModals(props: AppModalsProps) {
             <DeletionSimulationModal />
             <CreateDomainModal />
             <DeleteDomainModal />
+            <ViewGraphModal />
+            <YamlFulltextSearchModal />
+            <GeneratedPreviewModal />
+            <ChangelogModal />
             <Dialog />
         </>
     );

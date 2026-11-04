@@ -1,14 +1,17 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { MIcon } from '../common/MIcon';
 import { useDomainMixins } from '../../hooks/useDomainMixins';
 import { useNavigation } from '../../hooks/useNavigation';
 import { useGraphStore } from '../../state/useGraphStore';
+import { computeDomainMixinsReverse } from '../../lib/model/domain-mixins';
+import { useModelIndex } from '../../hooks/useModelIndex';
 
 export interface DomainMixinsPanelProps {
     domainId: string;
 }
 
 export function DomainMixinsPanel({ domainId }: DomainMixinsPanelProps) {
+    const { index } = useModelIndex();
     const { data, loading, error } = useDomainMixins(domainId);
     const { goto } = useNavigation();
     const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
@@ -21,6 +24,9 @@ export function DomainMixinsPanel({ domainId }: DomainMixinsPanelProps) {
             return next;
         });
     };
+
+    const [tab, setTab] = useState<'receives' | 'gives'>('receives');
+    const reverse = useMemo(() => index ? computeDomainMixinsReverse(domainId, index) : { givesTo: [], targetDomains: [], totalGivenMixins: 0 }, [index, domainId]);
 
     if (loading) {
         return (
@@ -63,6 +69,42 @@ export function DomainMixinsPanel({ domainId }: DomainMixinsPanelProps) {
                     <span className="domain-mixins__summary-label">источников</span>
                 </div>
             </div>
+
+            <div className="domain-mixins__tabs">
+                <button className={"domain-mixins__tab" + (tab === "receives" ? " active" : "")}
+                    onClick={() => setTab("receives")}>
+                    ← Получает ({data.stats.totalMixins})
+                </button>
+                <button className={"domain-mixins__tab" + (tab === "gives" ? " active" : "")}
+                    onClick={() => setTab("gives")}>
+                    → Отдаёт ({reverse.totalGivenMixins})
+                </button>
+            </div>
+
+            {tab === "gives" && (
+                <div className="domain-mixins__gives">
+                    {reverse.givesTo.length === 0 && (
+                        <div className="details__field-value">Этот домен не расширяет другие</div>
+                    )}
+                    {reverse.givesTo.map((g) => (
+                        <div key={g.targetDomain} className="domain-mixins__group open">
+                            <div className="domain-mixins__group-header">
+                                <MIcon name="arrow_forward" size="sm" />
+                                <span className="domain-mixins__source">{g.targetDomain}</span>
+                                <span className="domain-mixins__counts">{g.mixins.length} микс.</span>
+                            </div>
+                            <div className="domain-mixins__group-body">
+                                {g.mixins.map((m) => (
+                                    <div key={m.id} className="domain-mixins__mixin">
+                                        <code>{m.id}</code>
+                                        <span> → {m.targetEntityFqid.split("/").pop()}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
 
             {/* Конфликты */}
             {data.stats.conflicts.length > 0 && (

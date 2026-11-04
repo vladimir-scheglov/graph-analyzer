@@ -511,6 +511,19 @@ export function DomainSchemaModal() {
                                         Обогатить домен
                                         <MIcon name="expand_more" size="sm" />
                                     </button>
+                                    <button
+                                        className="btn"
+                                        onClick={() => {
+                                            const st = useGraphStore.getState();
+                                            st.setViewGraphPrefillDomain(schema.domainId);
+                                            st.setViewGraphOpen(true);
+                                            st.setDomainSchemaOpen(false);
+                                        }}
+                                        title="Открыть граф зависимостей views этого домена"
+                                    >
+                                        <MIcon name="schema" size="sm" />
+                                        Граф views
+                                    </button>
                                     {enrichMenuOpen && (
                                         <>
                                             <div
