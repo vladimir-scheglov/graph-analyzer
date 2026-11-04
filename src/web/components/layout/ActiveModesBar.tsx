@@ -163,7 +163,7 @@ export function ActiveModesBar({ ruleViolationsCount }: ActiveModesBarProps) {
         if (nsMode) {
             result.push({
                 iconName: 'category',
-                label: 'Агрегация по семействам',
+                label: 'Схлопнуть в семейства',
                 color: 'purple',
                 onClear: () => useGraphStore.getState().setNsMode(false)
             });

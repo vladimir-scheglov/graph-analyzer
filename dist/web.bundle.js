@@ -792,7 +792,13 @@ var init_useGraphStore = __esm({
       resetHiddenNodes: () => set2({ hiddenNodeIds: /* @__PURE__ */ new Set() }),
       // Вид
       layoutType: "LR",
-      setLayoutType: (t) => set2({ layoutType: t }),
+      setLayoutType: (t) => set2((s) => ({
+        layoutType: t,
+        // «По семействам» / «По каталогам» без рамок визуально не отличимы
+        // от «LR» — пользователь ждёт кластеры и не видит их.
+        // Авто-включаем рамки при выборе этих layout'ов.
+        showGroups: t === "cluster" || t === "folder" ? true : s.showGroups
+      })),
       compact: false,
       setCompact: (v) => set2((s) => ({ compact: applyUpdater(s.compact, v) })),
       showGroups: false,
@@ -1487,12 +1493,20 @@ function useGraphFilters() {
   const nsMode = useGraphStore((s) => s.nsMode);
   const bidirectional = useGraphStore((s) => s.bidirectional);
   const showViolationsOnly = useGraphStore((s) => s.showViolationsOnly);
+  const layoutType = useGraphStore((s) => s.layoutType);
+  const compact = useGraphStore((s) => s.compact);
   const display = useMemo(() => {
     if (!nsMode)
       return { nodes, edges };
     const agg = aggregateByNamespace(nodes, edges);
-    return { nodes: dagreLayout(agg.nodes, agg.edges, "LR"), edges: agg.edges };
-  }, [nodes, edges, nsMode]);
+    const aggWithCompact = agg.nodes.map((n) => ({
+      ...n,
+      data: { ...n.data, __compact: compact }
+    }));
+    const effectiveLayout = layoutType === "TB" ? "TB" : layoutType === "force" ? "force" : layoutType === "circular" ? "circular" : "LR";
+    const result = runLayout(aggWithCompact, agg.edges, effectiveLayout);
+    return { nodes: result.nodes, edges: agg.edges };
+  }, [nodes, edges, nsMode, layoutType, compact]);
   const displayNodes = display.nodes;
   const displayEdges = display.edges;
   const connected = useMemo(() => {
@@ -4149,7 +4163,7 @@ function buildCommands(ctx2) {
     {
       section: "\u0410\u043D\u0430\u043B\u0438\u0437",
       icon: "\u{1F5C2}",
-      label: ctx2.nsMode ? "\u0412\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0430\u0433\u0440\u0435\u0433\u0430\u0446\u0438\u044E" : "\u0410\u0433\u0440\u0435\u0433\u0430\u0446\u0438\u044F \u043F\u043E \u0441\u0435\u043C\u0435\u0439\u0441\u0442\u0432\u0430\u043C",
+      label: ctx2.nsMode ? "\u0412\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0430\u0433\u0440\u0435\u0433\u0430\u0446\u0438\u044E" : "\u0421\u0445\u043B\u043E\u043F\u043D\u0443\u0442\u044C \u0432 \u0441\u0435\u043C\u0435\u0439\u0441\u0442\u0432\u0430",
       hotkey: "S",
       keywords: "namespace aggregate",
       run: () => ctx2.setNsMode((v) => !v)
@@ -6036,12 +6050,15 @@ function useGraphLayout({
   const appliedRef = useRef4(null);
   const nodesRef = useRef4([]);
   const edgesRef = useRef4([]);
+  const nsMode = useGraphStore((s) => s.nsMode);
   nodesRef.current = useGraphStore.getState().nodes;
   edgesRef.current = filteredEdges;
   const applyLayout = useCallback7(
     (type2, depth) => {
-      const visibleIds = new Set(filteredNodes.map((n) => n.id));
-      const layoutInput = nodesRef.current.filter((n) => visibleIds.has(n.id)).map((n) => ({ ...n, data: { ...n.data, __compact: compact } }));
+      const layoutInput = filteredNodes.map((n) => ({
+        ...n,
+        data: { ...n.data, __compact: compact }
+      }));
       if (layoutInput.length === 0)
         return;
       const result = runLayout(layoutInput, filteredEdges, type2, { depth });
@@ -6051,6 +6068,7 @@ function useGraphLayout({
         type2 === "cluster" || type2 === "folder" ? result.boxes : []
       );
       setClusterGroupCount(result.boxes.length);
+      const visibleIds = new Set(filteredNodes.map((n) => n.id));
       setNodes(
         (prev) => prev.map((n) => {
           const visible = visibleIds.has(n.id);
@@ -6082,6 +6100,12 @@ function useGraphLayout({
   useEffect10(() => {
     if (!filteredIdsHash)
       return;
+    if (nsMode) {
+      setClusterBoxes([]);
+      setClusterGroupCount(0);
+      appliedRef.current = null;
+      return;
+    }
     const key = `${layoutType}:${clusterDepth}:${compact}:${filteredIdsHash}`;
     if (appliedRef.current === key)
       return;
@@ -6105,7 +6129,10 @@ function useGraphLayout({
     clusterDepth,
     compact,
     applyLayout,
-    rfInstance
+    rfInstance,
+    nsMode,
+    setClusterBoxes,
+    setClusterGroupCount
   ]);
   useEffect10(() => {
     const w = compact ? NODE_W_COMPACT : NODE_W_NORMAL;
@@ -6118,6 +6145,10 @@ function useGraphLayout({
   }, [compact, setNodes]);
   const relayout = useCallback7(() => {
     appliedRef.current = null;
+    if (nsMode) {
+      setNodes((prev) => [...prev]);
+      return;
+    }
     applyLayout(layoutType, clusterDepth);
     setTimeout(() => {
       if (rfInstance) {
@@ -6127,7 +6158,7 @@ function useGraphLayout({
         }
       }
     }, 100);
-  }, [applyLayout, layoutType, clusterDepth, rfInstance]);
+  }, [applyLayout, layoutType, clusterDepth, rfInstance, nsMode, setNodes]);
   const invalidate = useCallback7(() => {
     appliedRef.current = null;
   }, []);
@@ -6416,9 +6447,9 @@ function FilterMenu({ counts }) {
     setIsolatedOnly(false);
   };
   const nodeRows = [
-    { key: "domain", label: "Domain", color: "var(--success)" },
-    { key: "missing", label: "Missing", color: "var(--warning)" },
-    { key: "broken", label: "Broken", color: "var(--danger)" }
+    { key: "domain", label: "\u0414\u043E\u043C\u0435\u043D", color: "var(--success)" },
+    { key: "missing", label: "\u041E\u0442\u0441\u0443\u0442\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0439", color: "var(--warning)" },
+    { key: "broken", label: "\u0411\u0438\u0442\u044B\u0439", color: "var(--danger)" }
   ];
   const edgeRows = [
     { key: "linkage", label: "Linkage", color: LINKAGE_COLOR2 },
@@ -6583,20 +6614,31 @@ function AnalysisMenu(props) {
         ]
       }
     ),
-    viewMode === "graph" && /* @__PURE__ */ jsxs3(
-      "button",
-      {
-        className: "menu__item" + (nsMode ? " menu__item--active" : ""),
-        onClick: () => {
-          useGraphStore.getState().setNsMode((v) => !v);
-          props.close();
-        },
-        children: [
-          /* @__PURE__ */ jsx4("span", { className: "menu__icon", children: "\u{1F5C2}" }),
-          /* @__PURE__ */ jsx4("span", { className: "menu__text", children: "\u0410\u0433\u0440\u0435\u0433\u0430\u0446\u0438\u044F \u043F\u043E \u0441\u0435\u043C\u0435\u0439\u0441\u0442\u0432\u0430\u043C" })
-        ]
-      }
-    ),
+    viewMode === "graph" && /* @__PURE__ */ jsxs3(Fragment, { children: [
+      /* @__PURE__ */ jsxs3(
+        "button",
+        {
+          className: "menu__item" + (nsMode ? " menu__item--active" : ""),
+          onClick: () => {
+            useGraphStore.getState().setNsMode((v) => !v);
+            props.close();
+          },
+          children: [
+            /* @__PURE__ */ jsx4("span", { className: "menu__icon", children: "\u{1F5C2}" }),
+            /* @__PURE__ */ jsx4("span", { className: "menu__text", children: "\u0421\u0445\u043B\u043E\u043F\u043D\u0443\u0442\u044C \u0432 \u0441\u0435\u043C\u0435\u0439\u0441\u0442\u0432\u0430" })
+          ]
+        }
+      ),
+      /* @__PURE__ */ jsxs3("div", { className: "menu__hint", style: { paddingLeft: 12, paddingRight: 12 }, children: [
+        "\u0414\u043E\u043C\u0435\u043D\u044B \u0437\u0430\u043C\u0435\u043D\u044F\u044E\u0442\u0441\u044F \u043D\u0430 \u0443\u0437\u043B\u044B-\u0441\u0435\u043C\u0435\u0439\u0441\u0442\u0432\u0430. \u0415\u0441\u043B\u0438 \u043D\u0443\u0436\u043D\u044B",
+        " ",
+        /* @__PURE__ */ jsx4("b", { children: "\u0440\u0430\u043C\u043A\u0438 \u0432\u043E\u043A\u0440\u0443\u0433 \u0434\u043E\u043C\u0435\u043D\u043E\u0432" }),
+        " \u2014 \u0432\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u0435 \u044D\u0442\u0443 \u043E\u043F\u0446\u0438\u044E \u0438 \u0432\u044B\u0431\u0435\u0440\u0438\u0442\u0435",
+        " ",
+        /* @__PURE__ */ jsx4("b", { children: "\u0412\u0438\u0434 \u2192 \u0420\u0430\u0441\u043A\u043B\u0430\u0434\u043A\u0430 \u2192 \u041F\u043E \u0441\u0435\u043C\u0435\u0439\u0441\u0442\u0432\u0430\u043C" }),
+        "."
+      ] })
+    ] }),
     /* @__PURE__ */ jsx4("div", { className: "menu__divider" }),
     viewMode === "graph" && /* @__PURE__ */ jsxs3(
       "button",
@@ -7604,24 +7646,102 @@ function topologicalSort(depGraph, options = {}) {
     broken
   };
 }
-function findDeps(domainId, levelMap, edges, nodes) {
-  const nodeById = /* @__PURE__ */ new Map();
-  nodes.forEach((n) => nodeById.set(n.id, n));
-  const set2 = /* @__PURE__ */ new Set();
-  edges.forEach((e) => {
-    const s = nodeById.get(e.source);
-    if (!s || s.data.nodeType !== "domain")
-      return;
-    if (s.data.domainId !== domainId)
-      return;
-    const t = nodeById.get(e.target);
-    if (!t || t.data.nodeType !== "domain")
-      return;
-    if (!levelMap.has(t.data.domainId))
-      return;
-    set2.add(t.data.domainId);
+function detectDependencyCycles(deps, onlyFrom) {
+  const nodes = /* @__PURE__ */ new Set();
+  deps.forEach((set2, src) => {
+    if (onlyFrom && !onlyFrom.has(src)) {
+    }
+    nodes.add(src);
+    set2.forEach((d) => nodes.add(d));
   });
-  return Array.from(set2).sort();
+  if (onlyFrom) {
+    for (const n of Array.from(nodes)) {
+      if (!onlyFrom.has(n))
+        nodes.delete(n);
+    }
+  }
+  let index = 0;
+  const stack = [];
+  const onStack = /* @__PURE__ */ new Set();
+  const indices = /* @__PURE__ */ new Map();
+  const lowlinks = /* @__PURE__ */ new Map();
+  const sccs = [];
+  function strongconnect(v) {
+    indices.set(v, index);
+    lowlinks.set(v, index);
+    index++;
+    stack.push(v);
+    onStack.add(v);
+    const neighbors = Array.from(deps.get(v) || []).filter(
+      (n) => nodes.has(n)
+    );
+    for (const w of neighbors) {
+      if (!indices.has(w)) {
+        strongconnect(w);
+        lowlinks.set(v, Math.min(lowlinks.get(v), lowlinks.get(w)));
+      } else if (onStack.has(w)) {
+        lowlinks.set(v, Math.min(lowlinks.get(v), indices.get(w)));
+      }
+    }
+    if (lowlinks.get(v) === indices.get(v)) {
+      const scc = [];
+      let w;
+      do {
+        w = stack.pop();
+        onStack.delete(w);
+        scc.push(w);
+      } while (w !== v);
+      if (scc.length > 1) {
+        sccs.push(scc);
+      } else {
+        const only = scc[0];
+        if (deps.get(only)?.has(only))
+          sccs.push([only]);
+      }
+    }
+  }
+  for (const n of nodes) {
+    if (!indices.has(n))
+      strongconnect(n);
+  }
+  sccs.sort((a, b) => {
+    if (b.length !== a.length)
+      return b.length - a.length;
+    return a[0].localeCompare(b[0]);
+  });
+  return sccs;
+}
+function transitiveDeps(start, deps, maxDepth = 5) {
+  const result = /* @__PURE__ */ new Map();
+  const queue = [{ id: start, d: 0 }];
+  const visited = /* @__PURE__ */ new Set([start]);
+  while (queue.length > 0) {
+    const { id, d } = queue.shift();
+    if (d >= maxDepth)
+      continue;
+    const next = deps.get(id);
+    if (!next)
+      continue;
+    for (const dep of next) {
+      if (visited.has(dep))
+        continue;
+      visited.add(dep);
+      result.set(dep, d + 1);
+      queue.push({ id: dep, d: d + 1 });
+    }
+  }
+  return result;
+}
+function reverseDeps(deps) {
+  const rev = /* @__PURE__ */ new Map();
+  deps.forEach((set2, src) => {
+    set2.forEach((dst) => {
+      if (!rev.has(dst))
+        rev.set(dst, /* @__PURE__ */ new Set());
+      rev.get(dst).add(src);
+    });
+  });
+  return rev;
 }
 var init_topological = __esm({
   "src/web/lib/algorithms/topological.ts"() {
@@ -7727,6 +7847,7 @@ function buildEntityTree(rootKey, index, modelIndex, options = {}) {
   const showInheritance = options.showInheritance !== false;
   const showReferences = options.showReferences !== false && mode === "all";
   const showLinkages = options.showLinkages !== false && mode === "all";
+  const showSiblings = options.showSiblings === true;
   const hideIsolated = options.hideIsolated !== false;
   const byKey = index.byKey;
   const childMap = index.children;
@@ -7762,101 +7883,152 @@ function buildEntityTree(rootKey, index, modelIndex, options = {}) {
     }
   }
   addNode(rootKey, 0);
-  const queue = [
-    { key: rootKey, depth: 0 }
-  ];
-  const processed = /* @__PURE__ */ new Set();
-  while (queue.length > 0) {
-    const { key, depth } = queue.shift();
-    if (processed.has(key))
-      continue;
-    processed.add(key);
-    const nextDepth = depth + 1;
-    if (showInheritance) {
-      const e = byKey.get(key);
-      if (e && e.inherits) {
-        const ref = resolveEntityRef(e.inherits, e.domainId);
-        if (ref) {
-          const parentKey = entityKey(ref.domainId, ref.entityId);
-          if (addNode(parentKey, nextDepth)) {
-            queue.push({ key: parentKey, depth: nextDepth });
-          }
-          addEdge(`${parentKey}->${key}`, parentKey, key, "inheritance");
-        }
-      }
+  const siblingCandidates = /* @__PURE__ */ new Set();
+  let rootParentKey = null;
+  const rootEntity = byKey.get(rootKey);
+  if (rootEntity && rootEntity.inherits) {
+    const ref = resolveEntityRef(rootEntity.inherits, rootEntity.domainId);
+    if (ref) {
+      rootParentKey = entityKey(ref.domainId, ref.entityId);
+      const siblings = childMap.get(rootParentKey) || [];
+      siblings.forEach((s) => {
+        const k = entityKey(s.domainId, s.entityId);
+        if (k !== rootKey)
+          siblingCandidates.add(k);
+      });
+    }
+  }
+  const ancestorsOrdered = [];
+  const parentKeys = /* @__PURE__ */ new Set();
+  const childKeys = /* @__PURE__ */ new Set();
+  if (showInheritance) {
+    let curKey = rootKey;
+    let curDepth = 0;
+    const seen = /* @__PURE__ */ new Set([rootKey]);
+    while (true) {
+      const e = byKey.get(curKey);
+      if (!e || !e.inherits)
+        break;
+      const ref = resolveEntityRef(e.inherits, e.domainId);
+      if (!ref)
+        break;
+      const pk = entityKey(ref.domainId, ref.entityId);
+      if (seen.has(pk))
+        break;
+      seen.add(pk);
+      curDepth++;
+      if (!addNode(pk, curDepth))
+        break;
+      addEdge(`${pk}->${curKey}`, pk, curKey, "inheritance");
+      ancestorsOrdered.push(pk);
+      parentKeys.add(pk);
+      curKey = pk;
+    }
+  }
+  if (showInheritance) {
+    const queue = [
+      { key: rootKey, depth: 0 }
+    ];
+    const seen = /* @__PURE__ */ new Set([rootKey]);
+    while (queue.length > 0) {
+      const { key, depth } = queue.shift();
+      const nextDepth = depth + 1;
+      if (maxDepth > 0 && nextDepth > maxDepth)
+        continue;
       const kids = childMap.get(key) || [];
       for (const child of kids) {
-        const childKey = entityKey(child.domainId, child.entityId);
-        if (addNode(childKey, nextDepth)) {
-          queue.push({ key: childKey, depth: nextDepth });
-        }
-        addEdge(`${key}->${childKey}`, key, childKey, "inheritance");
+        const ck = entityKey(child.domainId, child.entityId);
+        if (seen.has(ck))
+          continue;
+        seen.add(ck);
+        if (!addNode(ck, nextDepth))
+          continue;
+        addEdge(`${key}->${ck}`, key, ck, "inheritance");
+        childKeys.add(ck);
+        queue.push({ key: ck, depth: nextDepth });
       }
     }
-    if (mode === "all" && modelIndex) {
+  }
+  if (showSiblings && rootParentKey && siblingCandidates.size > 0) {
+    const parentDepth = depthMap.get(rootParentKey) ?? 1;
+    const sibDepth = parentDepth + 1;
+    if (maxDepth === 0 || maxDepth >= sibDepth) {
+      for (const sib of siblingCandidates) {
+        if (nodesMap.has(sib))
+          continue;
+        if (!addNode(sib, sibDepth))
+          continue;
+        addEdge(`${rootParentKey}->${sib}`, rootParentKey, sib, "inheritance");
+      }
+    }
+  }
+  if (mode === "all" && modelIndex) {
+    const keysSnapshot = Array.from(nodesMap.keys());
+    for (const key of keysSnapshot) {
       const entity = modelIndex.entitiesByFqid[key];
-      if (entity) {
-        if (showReferences) {
-          for (const a of entity.attributes) {
+      if (!entity)
+        continue;
+      const currentDepth = depthMap.get(key) ?? 0;
+      const nextDepth = currentDepth + 1;
+      if (showReferences) {
+        for (const a of entity.attributes) {
+          const target = a.referenceEntity || a.itemReferenceEntity;
+          if (!target || !modelIndex.entitiesByFqid[target] || nodesMap.has(target))
+            continue;
+          if (!addNode(target, nextDepth))
+            continue;
+          addEdge(
+            `ref:${key}#${a.id}->${target}`,
+            key,
+            target,
+            "reference",
+            a.name || a.id
+          );
+        }
+        for (const other of modelIndex.entities) {
+          if (other.fqid === key)
+            continue;
+          if (nodesMap.has(other.fqid))
+            continue;
+          for (const a of other.attributes) {
             const target = a.referenceEntity || a.itemReferenceEntity;
-            if (!target || !modelIndex.entitiesByFqid[target])
+            if (target !== key)
               continue;
-            if (addNode(target, nextDepth)) {
-              queue.push({ key: target, depth: nextDepth });
-            }
+            if (!addNode(other.fqid, nextDepth))
+              break;
             addEdge(
-              `ref:${key}#${a.id}->${target}`,
+              `ref:${other.fqid}#${a.id}->${key}`,
+              other.fqid,
               key,
-              target,
               "reference",
               a.name || a.id
             );
-          }
-          for (const other of modelIndex.entities) {
-            if (other.fqid === key)
-              continue;
-            for (const a of other.attributes) {
-              const target = a.referenceEntity || a.itemReferenceEntity;
-              if (target !== key)
-                continue;
-              if (addNode(other.fqid, nextDepth)) {
-                queue.push({ key: other.fqid, depth: nextDepth });
-              }
-              addEdge(
-                `ref:${other.fqid}#${a.id}->${key}`,
-                other.fqid,
-                key,
-                "reference",
-                a.name || a.id
-              );
-            }
+            break;
           }
         }
-        if (showLinkages) {
-          for (const l of modelIndex.entityLinkages || []) {
-            if (l.side1Fqid === key) {
-              if (addNode(l.side2Fqid, nextDepth)) {
-                queue.push({ key: l.side2Fqid, depth: nextDepth });
-              }
-              addEdge(
-                `lnk:${l.domainId}#${l.id}`,
-                l.side1Fqid,
-                l.side2Fqid,
-                "linkage",
-                l.name
-              );
-            } else if (l.side2Fqid === key) {
-              if (addNode(l.side1Fqid, nextDepth)) {
-                queue.push({ key: l.side1Fqid, depth: nextDepth });
-              }
-              addEdge(
-                `lnk:${l.domainId}#${l.id}`,
-                l.side1Fqid,
-                l.side2Fqid,
-                "linkage",
-                l.name
-              );
-            }
+      }
+      if (showLinkages) {
+        for (const l of modelIndex.entityLinkages || []) {
+          if (l.side1Fqid === key) {
+            if (!nodesMap.has(l.side2Fqid) && !addNode(l.side2Fqid, nextDepth))
+              continue;
+            addEdge(
+              `lnk:${l.domainId}#${l.id}`,
+              l.side1Fqid,
+              l.side2Fqid,
+              "linkage",
+              l.name
+            );
+          } else if (l.side2Fqid === key) {
+            if (!nodesMap.has(l.side1Fqid) && !addNode(l.side1Fqid, nextDepth))
+              continue;
+            addEdge(
+              `lnk:${l.domainId}#${l.id}`,
+              l.side1Fqid,
+              l.side2Fqid,
+              "linkage",
+              l.name
+            );
           }
         }
       }
@@ -7878,61 +8050,49 @@ function buildEntityTree(rootKey, index, modelIndex, options = {}) {
         edgesMap.delete(id);
     }
   }
+  const activeSiblings = new Set(
+    Array.from(siblingCandidates).filter((k) => nodesMap.has(k))
+  );
+  const nodeRoles = /* @__PURE__ */ new Map();
+  for (const n of nodesMap.values()) {
+    if (n.key === rootKey)
+      nodeRoles.set(n.key, "root");
+    else if (parentKeys.has(n.key))
+      nodeRoles.set(n.key, "ancestor");
+    else if (childKeys.has(n.key))
+      nodeRoles.set(n.key, "descendant");
+    else if (activeSiblings.has(n.key))
+      nodeRoles.set(n.key, "sibling");
+    else if (n.missing)
+      nodeRoles.set(n.key, "external");
+    else
+      nodeRoles.set(n.key, "linked");
+  }
   const nodes = Array.from(nodesMap.values());
   const edges = Array.from(edgesMap.values());
-  const cycleNodes = detectEntityCycles(nodes, edges);
-  const parents = /* @__PURE__ */ new Set();
-  const children = /* @__PURE__ */ new Set();
-  (() => {
-    const stack = [rootKey];
-    const visited = /* @__PURE__ */ new Set([rootKey]);
-    while (stack.length > 0) {
-      const k = stack.pop();
-      const e = byKey.get(k);
-      if (!e || !e.inherits)
-        continue;
-      const ref = resolveEntityRef(e.inherits, e.domainId);
-      if (!ref)
-        continue;
-      const pk = entityKey(ref.domainId, ref.entityId);
-      if (!parents.has(pk))
-        parents.add(pk);
-      if (!visited.has(pk)) {
-        visited.add(pk);
-        stack.push(pk);
-      }
-    }
-  })();
-  (() => {
-    const stack = [rootKey];
-    const visited = /* @__PURE__ */ new Set([rootKey]);
-    while (stack.length > 0) {
-      const k = stack.pop();
-      const kids = childMap.get(k) || [];
-      kids.forEach((child) => {
-        const ck = entityKey(child.domainId, child.entityId);
-        if (!children.has(ck))
-          children.add(ck);
-        if (!visited.has(ck)) {
-          visited.add(ck);
-          stack.push(ck);
-        }
-      });
-    }
-  })();
+  const cycles = detectInheritanceCycles(nodes, edges);
+  const cycleNodes = /* @__PURE__ */ new Set();
+  cycles.forEach((c) => c.forEach((k) => cycleNodes.add(k)));
   return {
     nodes,
     edges,
     rootKey,
-    parentKeys: parents,
-    childKeys: children,
-    cycleNodes
+    parentKeys,
+    childKeys,
+    siblingKeys: activeSiblings,
+    siblingCandidates,
+    ancestorsOrdered,
+    cycles,
+    cycleNodes,
+    nodeRoles
   };
 }
-function detectEntityCycles(nodes, edges) {
+function detectInheritanceCycles(nodes, edges) {
   const adj = /* @__PURE__ */ new Map();
   nodes.forEach((n) => adj.set(n.key, []));
   edges.forEach((e) => {
+    if (e.kind !== "inheritance")
+      return;
     if (adj.has(e.source))
       adj.get(e.source).push(e.target);
   });
@@ -7949,14 +8109,14 @@ function detectEntityCycles(nodes, edges) {
     stack.push(v);
     onStack.add(v);
     const neighbors = adj.get(v) || [];
-    for (const to of neighbors) {
-      if (!adj.has(to))
+    for (const w of neighbors) {
+      if (!adj.has(w))
         continue;
-      if (!indices.has(to)) {
-        strongconnect(to);
-        lowlinks.set(v, Math.min(lowlinks.get(v), lowlinks.get(to)));
-      } else if (onStack.has(to)) {
-        lowlinks.set(v, Math.min(lowlinks.get(v), indices.get(to)));
+      if (!indices.has(w)) {
+        strongconnect(w);
+        lowlinks.set(v, Math.min(lowlinks.get(v), lowlinks.get(w)));
+      } else if (onStack.has(w)) {
+        lowlinks.set(v, Math.min(lowlinks.get(v), indices.get(w)));
       }
     }
     if (lowlinks.get(v) === indices.get(v)) {
@@ -7975,9 +8135,7 @@ function detectEntityCycles(nodes, edges) {
     if (!indices.has(n.key))
       strongconnect(n.key);
   });
-  const result = /* @__PURE__ */ new Set();
-  sccs.forEach((scc) => scc.forEach((k) => result.add(k)));
-  return result;
+  return sccs;
 }
 var ENTITY_W, ENTITY_H, ROOT_W, ROOT_H;
 var init_tree = __esm({
@@ -8133,7 +8291,7 @@ function ActiveModesBar({ ruleViolationsCount }) {
     if (nsMode) {
       result.push({
         iconName: "category",
-        label: "\u0410\u0433\u0440\u0435\u0433\u0430\u0446\u0438\u044F \u043F\u043E \u0441\u0435\u043C\u0435\u0439\u0441\u0442\u0432\u0430\u043C",
+        label: "\u0421\u0445\u043B\u043E\u043F\u043D\u0443\u0442\u044C \u0432 \u0441\u0435\u043C\u0435\u0439\u0441\u0442\u0432\u0430",
         color: "purple",
         onClear: () => useGraphStore.getState().setNsMode(false)
       });
@@ -12803,7 +12961,7 @@ var init_HotkeysModal = __esm({
         items: [
           { keys: ["C"], label: "\u041D\u0430\u0439\u0442\u0438 \u0446\u0438\u043A\u043B\u044B" },
           { keys: ["I"], label: "\u0422\u043E\u043B\u044C\u043A\u043E \u0438\u0437\u043E\u043B\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0435" },
-          { keys: ["S"], label: "\u0410\u0433\u0440\u0435\u0433\u0430\u0446\u0438\u044F \u043F\u043E \u0441\u0435\u043C\u0435\u0439\u0441\u0442\u0432\u0430\u043C" },
+          { keys: ["S"], label: "\u0421\u0445\u043B\u043E\u043F\u043D\u0443\u0442\u044C \u0432 \u0441\u0435\u043C\u0435\u0439\u0441\u0442\u0432\u0430" },
           { keys: ["P"], label: "\u041D\u0430\u0439\u0442\u0438 \u043F\u0443\u0442\u044C \u043C\u0435\u0436\u0434\u0443 \u0434\u0432\u0443\u043C\u044F \u0443\u0437\u043B\u0430\u043C\u0438" },
           { keys: ["B"], label: "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u0432 \u0437\u0430\u043A\u043B\u0430\u0434\u043A\u0438" },
           { keys: ["[", "]"], label: "\u041F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0438\u0439 / \u0441\u043B\u0435\u0434\u0443\u044E\u0449\u0438\u0439 \u0446\u0438\u043A\u043B (\u043A\u043E\u0433\u0434\u0430 \u0432\u043A\u043B\u044E\u0447\u0451\u043D \u043F\u043E\u0438\u0441\u043A \u0446\u0438\u043A\u043B\u043E\u0432)" }
@@ -14221,41 +14379,49 @@ var init_useHelpEscape = __esm({
 });
 
 // src/web/components/modals/TopoSortModal.tsx
-import { useCallback as useCallback11, useEffect as useEffect26, useState as useState15 } from "react";
+import React25, {
+  useCallback as useCallback11,
+  useEffect as useEffect26,
+  useMemo as useMemo25,
+  useRef as useRef17,
+  useState as useState15
+} from "react";
 import { Fragment as Fragment10, jsx as jsx54, jsxs as jsxs51 } from "react/jsx-runtime";
-function downloadFile3(content, filename, mime) {
-  const blob = new Blob([content], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+function formatList(arr, max = 5) {
+  if (arr.length === 0)
+    return "\u2014";
+  if (arr.length <= max)
+    return arr.join(", ");
+  return arr.slice(0, max).join(", ") + ` \u2026\u0438 \u0435\u0449\u0451 ${arr.length - max}`;
 }
 function TopoSortModal(props) {
   const { goto } = useNavigation();
+  const open2 = useGraphStore((s) => s.topoOpen);
+  const nodes = useGraphStore((s) => s.nodes);
+  const edges = useGraphStore((s) => s.edges);
+  const [showHelp, setShowHelp] = useState15(false);
+  useHelpEscape(open2, showHelp, setShowHelp);
   const [scope, setScope] = useState15("all");
   const [includeFqid, setIncludeFqid] = useState15(true);
   const [includeLinkage, setIncludeLinkage] = useState15(true);
   const [missingAsSatisfied, setMissingAsSatisfied] = useState15(true);
   const [excludePattern, setExcludePattern] = useState15("");
   const [autoBreak, setAutoBreak] = useState15(false);
+  const [filtersOpen, setFiltersOpen] = useState15(true);
   const [result, setResult] = useState15(null);
-  const [expandedLevels, setExpandedLevels] = useState15(/* @__PURE__ */ new Set());
-  const [expandedDeps, setExpandedDeps] = useState15(/* @__PURE__ */ new Set());
-  const [showHelp, setShowHelp] = useState15(false);
-  const open2 = useGraphStore((s) => s.topoOpen);
-  const nodes = useGraphStore((s) => s.nodes);
-  const edges = useGraphStore((s) => s.edges);
-  useEffect26(() => {
-    if (!open2) {
-      setResult(null);
-      setExpandedLevels(/* @__PURE__ */ new Set());
-      setExpandedDeps(/* @__PURE__ */ new Set());
-    }
-  }, [open2]);
-  useHelpEscape(open2, showHelp, setShowHelp);
-  const build = useCallback11(() => {
+  const [rebuilding, setRebuilding] = useState15(false);
+  const [expandedLevels, setExpandedLevels] = useState15(
+    /* @__PURE__ */ new Set([0])
+  );
+  const [expandedDomainDeps, setExpandedDomainDeps] = useState15(
+    /* @__PURE__ */ new Set()
+  );
+  const [quickFilter, setQuickFilter] = useState15("all");
+  const [searchQuery, setSearchQuery] = useState15("");
+  const [selectedDomainId, setSelectedDomainId] = useState15(
+    null
+  );
+  const buildNow = useCallback11(() => {
     const nodeSet = scope === "visible" ? props.visibleDomains : scope === "bookmarked" ? props.bookmarkedDomains : props.allDomains;
     const restrictTo = new Set(nodeSet.map((d) => d.domainId));
     const excludedIds = /* @__PURE__ */ new Set();
@@ -14280,9 +14446,29 @@ function TopoSortModal(props) {
       restrictTo
     });
     const sorted = topologicalSort(depGraph, { autoBreakCycles: autoBreak });
-    const levelMap = /* @__PURE__ */ new Map();
+    const levelMapRaw = /* @__PURE__ */ new Map();
     sorted.levels.forEach((level, idx) => {
-      level.forEach((id) => levelMap.set(id, idx + 1));
+      level.forEach((id) => levelMapRaw.set(id, idx + 1));
+    });
+    const levelMap = new Map(levelMapRaw);
+    const cyclicSet = new Set(sorted.cyclic);
+    const cycles = detectDependencyCycles(depGraph.deps, cyclicSet);
+    let roots = 0;
+    let leaves = 0;
+    const rev = reverseDeps(depGraph.deps);
+    depGraph.domainIds.forEach((id) => {
+      const outs = depGraph.deps.get(id) || /* @__PURE__ */ new Set();
+      const ins = rev.get(id) || /* @__PURE__ */ new Set();
+      const outsInScope = Array.from(outs).filter(
+        (d) => depGraph.domainIds.has(d)
+      );
+      const insInScope = Array.from(ins).filter(
+        (d) => depGraph.domainIds.has(d)
+      );
+      if (outsInScope.length === 0)
+        roots++;
+      if (insInScope.length === 0)
+        leaves++;
     });
     setResult({
       levels: sorted.levels,
@@ -14290,47 +14476,187 @@ function TopoSortModal(props) {
       broken: sorted.broken,
       criticalPath: sorted.criticalPath,
       levelMap,
+      levelMapRaw,
       stats: {
         total: depGraph.domainIds.size,
         levels: sorted.levels.length,
         cyclic: sorted.cyclic.length,
         criticalPath: sorted.criticalPath,
         excluded: excludedIds.size,
-        brokenCount: sorted.broken.length
-      }
+        brokenCount: sorted.broken.length,
+        roots,
+        leaves,
+        cycles
+      },
+      deps: depGraph.deps,
+      reverseDeps: rev
     });
   }, [
-    autoBreak,
     scope,
     includeFqid,
     includeLinkage,
     missingAsSatisfied,
     excludePattern,
+    autoBreak,
     nodes,
     edges,
-    props
+    props.visibleDomains,
+    props.bookmarkedDomains,
+    props.allDomains
   ]);
+  const didInitRef = useRef17(false);
+  useEffect26(() => {
+    if (!open2) {
+      didInitRef.current = false;
+      return;
+    }
+    if (didInitRef.current)
+      return;
+    didInitRef.current = true;
+    setRebuilding(true);
+    setTimeout(() => {
+      buildNow();
+      setRebuilding(false);
+      setFiltersOpen(false);
+    }, 0);
+  }, [open2, buildNow]);
+  useEffect26(() => {
+    if (!open2)
+      return;
+    if (!didInitRef.current)
+      return;
+    setRebuilding(true);
+    const t = setTimeout(() => {
+      buildNow();
+      setRebuilding(false);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [
+    scope,
+    includeFqid,
+    includeLinkage,
+    missingAsSatisfied,
+    excludePattern,
+    autoBreak,
+    open2
+  ]);
+  const detail = useMemo25(() => {
+    if (!result || !selectedDomainId)
+      return null;
+    const direct = Array.from(result.deps.get(selectedDomainId) || []).filter(
+      (d) => result.levelMap.has(d) || result.cyclic.includes(d)
+    );
+    const rev = result.reverseDeps.get(selectedDomainId) || /* @__PURE__ */ new Set();
+    const directDependents = Array.from(rev).filter(
+      (d) => result.levelMap.has(d) || result.cyclic.includes(d)
+    );
+    const trans = transitiveDeps(selectedDomainId, result.deps, 5);
+    for (const key of Array.from(trans.keys())) {
+      if (!result.levelMap.has(key) && !result.cyclic.includes(key)) {
+        trans.delete(key);
+      }
+    }
+    const inCycleGroup = result.stats.cycles.find(
+      (c) => c.includes(selectedDomainId)
+    );
+    const brokenInfo = result.broken.find(
+      (b) => b.id === selectedDomainId
+    );
+    return {
+      domainId: selectedDomainId,
+      level: result.levelMap.get(selectedDomainId) ?? null,
+      directDeps: direct,
+      transitiveDeps: trans,
+      directDependents,
+      inCycle: inCycleGroup || null,
+      brokenDeps: brokenInfo?.brokenDeps || null
+    };
+  }, [result, selectedDomainId]);
+  const filteredLevels = useMemo25(() => {
+    if (!result)
+      return [];
+    const search = searchQuery.trim().toLowerCase();
+    const filterDomain = (id) => {
+      if (search) {
+        const match = id.toLowerCase().includes(search);
+        if (!match)
+          return false;
+      }
+      if (quickFilter === "roots") {
+        return result.levelMap.get(id) === 1;
+      }
+      if (quickFilter === "leaves") {
+        const rev = result.reverseDeps.get(id) || /* @__PURE__ */ new Set();
+        const insInScope = Array.from(rev).filter(
+          (d) => result.levelMap.has(d) || result.cyclic.includes(d)
+        );
+        return insInScope.length === 0;
+      }
+      if (quickFilter === "cycles") {
+        return false;
+      }
+      if (quickFilter === "broken") {
+        return false;
+      }
+      return true;
+    };
+    return result.levels.map((level, idx) => ({
+      index: idx,
+      domains: level.filter(filterDomain),
+      totalInLevel: level.length
+    }));
+  }, [result, quickFilter, searchQuery]);
+  const cycleDetails = useMemo25(() => {
+    if (!result)
+      return [];
+    if (quickFilter !== "all" && quickFilter !== "cycles") {
+      return [];
+    }
+    const search = searchQuery.trim().toLowerCase();
+    return result.stats.cycles.map((cycle) => ({
+      domains: cycle,
+      filtered: search ? cycle.filter((d) => d.toLowerCase().includes(search)) : cycle
+    })).filter((c) => c.filtered.length > 0);
+  }, [result, quickFilter, searchQuery]);
+  const brokenDetails = useMemo25(() => {
+    if (!result)
+      return [];
+    if (quickFilter !== "all" && quickFilter !== "broken") {
+      return [];
+    }
+    const search = searchQuery.trim().toLowerCase();
+    return result.broken.filter(
+      (b) => search ? b.id.toLowerCase().includes(search) : true
+    );
+  }, [result, quickFilter, searchQuery]);
   const exportJSON = () => {
     if (!result)
       return;
-    downloadFile3(
-      JSON.stringify(
-        {
-          generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-          scope,
-          options: { includeFqid, includeLinkage, missingAsSatisfied, excludePattern },
-          criticalPath: result.criticalPath,
-          stats: result.stats,
-          levels: result.levels,
-          cyclic: result.cyclic,
-          broken: result.broken
-        },
-        null,
-        2
-      ),
-      "topo-sort-" + (/* @__PURE__ */ new Date()).toISOString().slice(0, 19).replace(/[:.]/g, "-") + ".json",
-      "application/json"
-    );
+    const data = {
+      generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      scope,
+      options: {
+        includeFqid,
+        includeLinkage,
+        missingAsSatisfied,
+        excludePattern,
+        autoBreak
+      },
+      criticalPath: result.criticalPath,
+      stats: result.stats,
+      levels: result.levels,
+      cycles: result.stats.cycles,
+      broken: result.broken
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], {
+      type: "application/json"
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `topo-sort-${(/* @__PURE__ */ new Date()).toISOString().slice(0, 19).replace(/[:.]/g, "-")}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
   const exportMD = () => {
     if (!result)
@@ -14338,592 +14664,1173 @@ function TopoSortModal(props) {
     const lines = [];
     lines.push("# \u041F\u043E\u0440\u044F\u0434\u043E\u043A \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438 \u0434\u043E\u043C\u0435\u043D\u043E\u0432");
     lines.push("");
-    lines.push("_\u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043E: " + (/* @__PURE__ */ new Date()).toLocaleString("ru-RU") + "_");
+    lines.push(`_\u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043E: ${(/* @__PURE__ */ new Date()).toLocaleString("ru-RU")}_`);
     lines.push("");
     lines.push("## \u0421\u0432\u043E\u0434\u043A\u0430");
     lines.push("");
     lines.push("| \u041C\u0435\u0442\u0440\u0438\u043A\u0430 | \u0417\u043D\u0430\u0447\u0435\u043D\u0438\u0435 |");
     lines.push("| --- | ---: |");
-    lines.push("| \u0412\u0441\u0435\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u043E\u0432 | " + result.stats.total + " |");
-    lines.push("| \u0423\u0440\u043E\u0432\u043D\u0435\u0439 | " + result.stats.levels + " |");
-    lines.push("| \u041A\u0440\u0438\u0442\u0438\u0447\u0435\u0441\u043A\u0438\u0439 \u043F\u0443\u0442\u044C | " + result.stats.criticalPath + " |");
-    lines.push("| \u0412 \u0446\u0438\u043A\u043B\u0430\u0445 | " + result.stats.cyclic + " |");
+    lines.push(`| \u0412\u0441\u0435\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u043E\u0432 | ${result.stats.total} |`);
+    lines.push(`| \u0423\u0440\u043E\u0432\u043D\u0435\u0439 | ${result.stats.levels} |`);
+    lines.push(`| \u041A\u0440\u0438\u0442\u0438\u0447\u0435\u0441\u043A\u0438\u0439 \u043F\u0443\u0442\u044C | ${result.stats.criticalPath} |`);
+    lines.push(`| \u0421\u0442\u0430\u0440\u0442\u043E\u0432\u044B\u0445 (L1) | ${result.stats.roots} |`);
+    lines.push(`| \u0424\u0438\u043D\u0430\u043B\u044C\u043D\u044B\u0445 | ${result.stats.leaves} |`);
+    lines.push(`| \u0412 \u0446\u0438\u043A\u043B\u0430\u0445 | ${result.stats.cyclic} |`);
+    lines.push(`| \u0420\u0430\u0437\u043E\u0440\u0432\u0430\u043D\u043D\u044B\u0445 | ${result.stats.brokenCount} |`);
+    if (result.stats.excluded > 0) {
+      lines.push(`| \u0418\u0441\u043A\u043B\u044E\u0447\u0435\u043D\u043E \u043F\u043E \u043C\u0430\u0441\u043A\u0435 | ${result.stats.excluded} |`);
+    }
     lines.push("");
     result.levels.forEach((level, idx) => {
-      lines.push("## \u0423\u0440\u043E\u0432\u0435\u043D\u044C " + (idx + 1) + " (" + level.length + ")");
+      lines.push(
+        `## \u0423\u0440\u043E\u0432\u0435\u043D\u044C ${idx + 1} \u2014 ${level.length} ${level.length === 1 ? "\u0434\u043E\u043C\u0435\u043D" : "\u0434\u043E\u043C\u0435\u043D\u043E\u0432"}`
+      );
       lines.push("");
-      level.forEach((id) => lines.push("- `" + id + "`"));
+      for (const id of level) {
+        const direct = Array.from(result.deps.get(id) || []).filter(
+          (d) => result.levelMap.has(d)
+        );
+        const rev = result.reverseDeps.get(id) || /* @__PURE__ */ new Set();
+        const directDependents = Array.from(rev).filter(
+          (d) => result.levelMap.has(d)
+        );
+        const flags = [];
+        if (result.levelMap.get(id) === 1)
+          flags.push("\u0441\u0442\u0430\u0440\u0442\u043E\u0432\u044B\u0439");
+        if (directDependents.length === 0)
+          flags.push("\u0444\u0438\u043D\u0430\u043B\u044C\u043D\u044B\u0439");
+        const broke = result.broken.find((b) => b.id === id);
+        if (broke)
+          flags.push(`\u0446\u0438\u043A\u043B \u0440\u0430\u0437\u043E\u0440\u0432\u0430\u043D (${broke.brokenDeps.length})`);
+        lines.push(
+          `- \`${id}\`${flags.length > 0 ? ` \u2014 _${flags.join(", ")}_` : ""}`
+        );
+        if (direct.length > 0) {
+          lines.push(`  - \u0437\u0430\u0432\u0438\u0441\u0438\u0442 \u043E\u0442: ${formatList(direct, 8)}`);
+        }
+      }
       lines.push("");
     });
+    if (result.stats.cycles.length > 0) {
+      lines.push("## \u0426\u0438\u043A\u043B\u044B (\u0442\u0440\u0435\u0431\u0443\u044E\u0442 \u0440\u0443\u0447\u043D\u043E\u0433\u043E \u0440\u0430\u0437\u0431\u043E\u0440\u0430)");
+      lines.push("");
+      result.stats.cycles.forEach((cycle, idx) => {
+        lines.push(`### \u0426\u0438\u043A\u043B ${idx + 1} \u2014 ${cycle.length} \u0434\u043E\u043C\u0435\u043D\u043E\u0432`);
+        lines.push("");
+        lines.push(cycle.map((d) => `\`${d}\``).join(" \u2192 ") + " \u2192");
+        lines.push("");
+      });
+    }
     if (result.broken.length > 0) {
       lines.push("## \u0420\u0430\u0437\u043E\u0440\u0432\u0430\u043D\u043D\u044B\u0435 \u0446\u0438\u043A\u043B\u044B");
       lines.push("");
+      lines.push(
+        "_\u0423\u0434\u0430\u043B\u0435\u043D\u044B \u0441\u0432\u044F\u0437\u0438, \u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u0437\u0430\u043C\u044B\u043A\u0430\u043B\u0438 \u0446\u0438\u043A\u043B. \u0414\u043E\u043C\u0435\u043D\u044B \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u044F\u0442\u0441\u044F, \u043D\u043E \u0438\u0445 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u044C \u0431\u044B\u043B\u0430 \u043F\u0440\u043E\u0438\u0433\u043D\u043E\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u0430._"
+      );
+      lines.push("");
       result.broken.forEach((b) => {
-        lines.push("- `" + b.id + "` (\u0443\u0440\u043E\u0432\u0435\u043D\u044C " + b.level + ")");
-        b.brokenDeps.forEach((d) => lines.push("  - `" + d + "`"));
+        lines.push(
+          `- \`${b.id}\` (L${b.level}) \u2014 \u043E\u0442\u0440\u0435\u0437\u0430\u043D\u043E: ${formatList(b.brokenDeps)}`
+        );
       });
       lines.push("");
     }
-    if (result.cyclic.length > 0) {
-      lines.push("## \u0422\u0440\u0435\u0431\u0443\u044E\u0442 \u0440\u0443\u0447\u043D\u043E\u0433\u043E \u0432\u043C\u0435\u0448\u0430\u0442\u0435\u043B\u044C\u0441\u0442\u0432\u0430");
-      lines.push("");
-      result.cyclic.forEach((id) => lines.push("- `" + id + "`"));
-      lines.push("");
-    }
-    downloadFile3(
-      lines.join("\n"),
-      "topo-sort-" + (/* @__PURE__ */ new Date()).toISOString().slice(0, 19).replace(/[:.]/g, "-") + ".md",
-      "text/markdown;charset=utf-8"
-    );
+    const blob = new Blob([lines.join("\n")], {
+      type: "text/markdown;charset=utf-8"
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `topo-sort-${(/* @__PURE__ */ new Date()).toISOString().slice(0, 19).replace(/[:.]/g, "-")}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
-  const copyAsText = () => {
+  const copyAsText = async () => {
     if (!result)
       return;
     const lines = [];
     result.levels.forEach((level, idx) => {
-      lines.push("# \u0423\u0440\u043E\u0432\u0435\u043D\u044C " + (idx + 1));
+      lines.push(`# \u0423\u0440\u043E\u0432\u0435\u043D\u044C ${idx + 1}`);
       level.forEach((id) => lines.push(id));
       lines.push("");
     });
     if (result.cyclic.length > 0) {
-      lines.push("# \u0426\u0438\u043A\u043B\u0438\u0447\u0435\u0441\u043A\u0438\u0435");
+      lines.push("# \u0426\u0438\u043A\u043B\u0438\u0447\u0435\u0441\u043A\u0438\u0435 (\u0442\u0440\u0435\u0431\u0443\u044E\u0442 \u0440\u0443\u0447\u043D\u043E\u0433\u043E \u0440\u0430\u0437\u0431\u043E\u0440\u0430)");
       result.cyclic.forEach((id) => lines.push(id));
     }
-    navigator.clipboard.writeText(lines.join("\n"));
+    try {
+      await navigator.clipboard.writeText(lines.join("\n"));
+      useGraphStore.getState().showSnackbar("\u041F\u043B\u0430\u043D \u0441\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D \u0432 \u0431\u0443\u0444\u0435\u0440");
+    } catch {
+    }
+  };
+  const showOnGraph = () => {
+    if (!result)
+      return;
+    const st = useGraphStore.getState();
+    st.setTopoLevelMap(result.levelMapRaw);
+    st.setTopoOpen(false);
+    st.setViewMode("graph");
+  };
+  const openDomainSchema = (domainId) => {
+    const st = useGraphStore.getState();
+    st.setTopoOpen(false);
+    st.setDomainSchemaDomainId(domainId);
+    st.setDomainSchemaOpen(true);
+  };
+  const openInCatalog = (domainId) => {
+    const st = useGraphStore.getState();
+    st.setTopoOpen(false);
+    st.setViewMode("graph");
+    goto(domainId);
   };
   const toggleLevel = (idx) => {
     setExpandedLevels((prev) => {
-      const s = new Set(prev);
-      if (s.has(idx))
-        s.delete(idx);
+      const next = new Set(prev);
+      if (next.has(idx))
+        next.delete(idx);
       else
-        s.add(idx);
-      return s;
+        next.add(idx);
+      return next;
     });
   };
-  const toggleDeps = (id) => {
-    setExpandedDeps((prev) => {
-      const s = new Set(prev);
-      if (s.has(id))
-        s.delete(id);
+  const toggleDomainDeps = (id) => {
+    setExpandedDomainDeps((prev) => {
+      const next = new Set(prev);
+      if (next.has(id))
+        next.delete(id);
       else
-        s.add(id);
-      return s;
+        next.add(id);
+      return next;
     });
   };
-  const scopeOption = (value, label, count) => /* @__PURE__ */ jsxs51("label", { className: "validation-scope__option" + (scope === value ? " active" : ""), children: [
-    /* @__PURE__ */ jsx54("input", { type: "radio", checked: scope === value, onChange: () => setScope(value) }),
-    /* @__PURE__ */ jsx54("span", { className: "validation-scope__radio" }),
-    /* @__PURE__ */ jsx54("span", { className: "validation-scope__text", children: label }),
-    /* @__PURE__ */ jsx54("span", { className: "validation-scope__count", children: count })
-  ] });
   if (!open2)
     return null;
-  return /* @__PURE__ */ jsx54("div", { className: "help-overlay", onMouseDown: () => useGraphStore.getState().setTopoOpen(false), children: /* @__PURE__ */ jsxs51("div", { className: "help-modal topo-modal", onMouseDown: (e) => e.stopPropagation(), children: [
-    /* @__PURE__ */ jsxs51("div", { className: "help-modal__header", children: [
-      /* @__PURE__ */ jsxs51("div", { className: "help-modal__title", children: [
-        /* @__PURE__ */ jsx54(MIcon, { name: "inventory_2", size: "sm" }),
-        /* @__PURE__ */ jsx54("span", { className: "icon-label", children: "\u041F\u043E\u0440\u044F\u0434\u043E\u043A \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438 \u0434\u043E\u043C\u0435\u043D\u043E\u0432" })
-      ] }),
-      /* @__PURE__ */ jsxs51("div", { className: "help-modal__actions", children: [
-        /* @__PURE__ */ jsx54(
-          HelpButton,
-          {
-            open: showHelp,
-            onToggle: () => setShowHelp(!showHelp),
-            label: "\u0427\u0442\u043E \u044D\u0442\u043E?"
-          }
-        ),
-        /* @__PURE__ */ jsx54(
-          "button",
-          {
-            className: "help-modal__close",
-            onClick: () => useGraphStore.getState().setTopoOpen(false),
-            children: "\u2715"
-          }
-        )
-      ] })
-    ] }),
-    /* @__PURE__ */ jsxs51("div", { className: "validation-modal__body", children: [
-      /* @__PURE__ */ jsxs51(ModalHelp, { visible: showHelp, children: [
-        /* @__PURE__ */ jsxs51(HelpSection, { title: "\u0427\u0442\u043E \u044D\u0442\u043E", children: [
-          /* @__PURE__ */ jsxs51(HelpText, { children: [
-            "\u041C\u043E\u0434\u0430\u043B\u043A\u0430 \u0441\u0442\u0440\u043E\u0438\u0442 ",
-            /* @__PURE__ */ jsx54("strong", { children: "\u043F\u043E\u0440\u044F\u0434\u043E\u043A \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438 \u0434\u043E\u043C\u0435\u043D\u043E\u0432" }),
-            " \u2014 \u043F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u044C, \u0432 \u043A\u043E\u0442\u043E\u0440\u043E\u0439 \u0438\u0445 \u043C\u043E\u0436\u043D\u043E \u0431\u0435\u0437\u043E\u043F\u0430\u0441\u043D\u043E \u0440\u0430\u0437\u0432\u043E\u0440\u0430\u0447\u0438\u0432\u0430\u0442\u044C. \u0414\u043E\u043C\u0435\u043D \u043D\u0435\u043B\u044C\u0437\u044F \u0441\u0442\u0430\u0432\u0438\u0442\u044C, \u043F\u043E\u043A\u0430 \u043D\u0435 \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u044B \u0432\u0441\u0435, \u043E\u0442 \u043A\u043E\u0433\u043E \u043E\u043D \u0437\u0430\u0432\u0438\u0441\u0438\u0442. \u0422\u043E\u043F\u043E\u043B\u043E\u0433\u0438\u0447\u0435\u0441\u043A\u0430\u044F \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430 \u0440\u0430\u0437\u0431\u0438\u0432\u0430\u0435\u0442 \u0433\u0440\u0430\u0444 \u043D\u0430 ",
-            /* @__PURE__ */ jsx54("strong", { children: "\u0443\u0440\u043E\u0432\u043D\u0438" }),
-            ": \u0432\u0441\u0451, \u0447\u0442\u043E \u043D\u0430 \u043E\u0434\u043D\u043E\u043C \u0443\u0440\u043E\u0432\u043D\u0435, \u0441\u0442\u0430\u0432\u0438\u0442\u0441\u044F \u043F\u0430\u0440\u0430\u043B\u043B\u0435\u043B\u044C\u043D\u043E."
-          ] }),
-          /* @__PURE__ */ jsxs51(HelpList, { children: [
-            /* @__PURE__ */ jsxs51("li", { children: [
-              /* @__PURE__ */ jsx54("strong", { children: "\u0423\u0440\u043E\u0432\u0435\u043D\u044C 1" }),
-              " \u2014 \u0444\u0443\u043D\u0434\u0430\u043C\u0435\u043D\u0442. \u0414\u043E\u043C\u0435\u043D\u043E\u0432, \u043E\u0442 \u043A\u043E\u0442\u043E\u0440\u044B\u0445 \u043E\u043D\u0438 \u0437\u0430\u0432\u0438\u0441\u044F\u0442, \u043D\u0435\u0442 (\u0438\u043B\u0438 \u043E\u043D\u0438 \u043D\u0435 \u0432\u0445\u043E\u0434\u044F\u0442 \u0432 \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u0443\u044E \u043E\u0431\u043B\u0430\u0441\u0442\u044C)."
-            ] }),
-            /* @__PURE__ */ jsxs51("li", { children: [
-              /* @__PURE__ */ jsx54("strong", { children: "\u0423\u0440\u043E\u0432\u0435\u043D\u044C 2" }),
-              " \u2014 \u0437\u0430\u0432\u0438\u0441\u0438\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u043E\u0442 \u0443\u0440\u043E\u0432\u043D\u044F 1."
-            ] }),
-            /* @__PURE__ */ jsxs51("li", { children: [
-              /* @__PURE__ */ jsx54("strong", { children: "\u0423\u0440\u043E\u0432\u0435\u043D\u044C N" }),
-              " \u2014 \u0437\u0430\u0432\u0438\u0441\u0438\u0442 \u043E\u0442 \u0443\u0440\u043E\u0432\u043D\u0435\u0439 1\u2026N\u22121. \u0412\u0441\u0451, \u0447\u0442\u043E \u043D\u0430 \u0443\u0440\u043E\u0432\u043D\u0435, \u043C\u043E\u0436\u043D\u043E \u0441\u0442\u0430\u0432\u0438\u0442\u044C \u043E\u0434\u043D\u043E\u0432\u0440\u0435\u043C\u0435\u043D\u043D\u043E."
-            ] })
-          ] })
-        ] }),
-        /* @__PURE__ */ jsx54(HelpSection, { title: "\u041E\u0431\u043B\u0430\u0441\u0442\u044C", children: /* @__PURE__ */ jsxs51(HelpList, { children: [
-          /* @__PURE__ */ jsxs51("li", { children: [
-            /* @__PURE__ */ jsx54("strong", { children: "\u0412\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B" }),
-            " \u2014 \u043F\u043E\u043B\u043D\u044B\u0439 \u0433\u0440\u0430\u0444 \u043A\u044D\u0448\u0430. \u0414\u043B\u044F \u0440\u0435\u0430\u043B\u044C\u043D\u043E\u0433\u043E \u0434\u0435\u043F\u043B\u043E\u044F \u2014 \u0441\u0430\u043C\u044B\u0439 \u0447\u0435\u0441\u0442\u043D\u044B\u0439 \u0432\u0430\u0440\u0438\u0430\u043D\u0442: \u0443\u0432\u0438\u0434\u0438\u0442\u0435 \u0442\u0430\u043A\u0436\u0435 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438 \u043E\u0442 \u0447\u0443\u0436\u0438\u0445 \u0434\u043E\u043C\u0435\u043D\u043E\u0432."
-          ] }),
-          /* @__PURE__ */ jsxs51("li", { children: [
-            /* @__PURE__ */ jsx54("strong", { children: "\u0422\u043E\u043B\u044C\u043A\u043E \u0432\u0438\u0434\u0438\u043C\u044B\u0435" }),
-            " \u2014 \u0434\u043E\u043C\u0435\u043D\u044B \u043F\u043E\u0441\u043B\u0435 \u0442\u0435\u043A\u0443\u0449\u0438\u0445 \u0444\u0438\u043B\u044C\u0442\u0440\u043E\u0432 (namespace / \u0442\u0435\u0433\u0438 / \u043F\u043E\u0438\u0441\u043A). \u0417\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438 \u043D\u0430 \xAB\u0441\u043A\u0440\u044B\u0442\u044B\u0435\xBB \u0434\u043E\u043C\u0435\u043D\u044B \u0438\u0433\u043D\u043E\u0440\u0438\u0440\u0443\u044E\u0442\u0441\u044F."
-          ] }),
-          /* @__PURE__ */ jsxs51("li", { children: [
-            /* @__PURE__ */ jsx54("strong", { children: "\u0422\u043E\u043B\u044C\u043A\u043E \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u044B\u0435" }),
-            " \u2014 \u0431\u044B\u0441\u0442\u0440\u044B\u0439 \u043F\u0440\u043E\u0433\u043E\u043D \u043F\u043E \u0441\u0432\u043E\u0435\u0439 \u043F\u043E\u0434\u0431\u043E\u0440\u043A\u0435."
-          ] })
-        ] }) }),
-        /* @__PURE__ */ jsx54(HelpSection, { title: "\u0423\u0447\u0438\u0442\u044B\u0432\u0430\u0442\u044C \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438", children: /* @__PURE__ */ jsxs51(HelpList, { children: [
-          /* @__PURE__ */ jsxs51("li", { children: [
-            /* @__PURE__ */ jsx54("strong", { children: "FQID-\u0441\u0441\u044B\u043B\u043A\u0438" }),
-            " \u2014 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B",
-            " ",
-            /* @__PURE__ */ jsx54("code", { children: "Reference" }),
-            ", ",
-            /* @__PURE__ */ jsx54("code", { children: "inherits" }),
-            ", cross-domain ",
-            /* @__PURE__ */ jsx54("code", { children: "extends" }),
-            ". \u041A\u043B\u0430\u0441\u0441\u0438\u0447\u0435\u0441\u043A\u0438\u0439 \u0438\u0441\u0442\u043E\u0447\u043D\u0438\u043A \xAB\u044D\u0442\u043E\u0442 \u0434\u043E\u043C\u0435\u043D \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442 \u0447\u0443\u0436\u0443\u044E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C\xBB."
-          ] }),
-          /* @__PURE__ */ jsxs51("li", { children: [
-            /* @__PURE__ */ jsx54("strong", { children: "Linkage-\u0441\u0432\u044F\u0437\u0438" }),
-            " \u2014 \u043C\u0435\u0436-\u0434\u043E\u043C\u0435\u043D\u043D\u044B\u0435 linkages (\u043E\u0431\u0435 \u0441\u0442\u043E\u0440\u043E\u043D\u044B \u0432 \u0440\u0430\u0437\u043D\u044B\u0445 \u0434\u043E\u043C\u0435\u043D\u0430\u0445). \u041E\u0431\u044B\u0447\u043D\u043E \u0442\u043E\u0436\u0435 \u0442\u0440\u0435\u0431\u0443\u044E\u0442 \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438, \u043D\u043E \u0438\u043D\u043E\u0433\u0434\u0430 \u044D\u0442\u043E \xAB\u043C\u044F\u0433\u043A\u0430\u044F\xBB \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u044C: UI \u043D\u0435 \u0441\u043B\u043E\u043C\u0430\u0435\u0442\u0441\u044F, \u043D\u043E \u0441\u0432\u044F\u0437\u0438 \u043D\u0435 \u0431\u0443\u0434\u0443\u0442 \u043E\u0442\u043A\u0440\u044B\u0432\u0430\u0442\u044C\u0441\u044F. \u041E\u0442\u043A\u043B\u044E\u0447\u0430\u0439\u0442\u0435, \u0435\u0441\u043B\u0438 \u0441\u0442\u0440\u043E\u0438\u0442\u0435 \u043C\u0438\u043D\u0438\u043C\u0430\u043B\u044C\u043D\u044B\u0439 \u043F\u043B\u0430\u043D \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438."
-          ] }),
-          /* @__PURE__ */ jsxs51("li", { children: [
-            /* @__PURE__ */ jsx54("strong", { children: "Missing-\u0434\u043E\u043C\u0435\u043D\u044B \u043A\u0430\u043A \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u043D\u044B\u0435" }),
-            " \u2014 \u0435\u0441\u043B\u0438 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u044C \u0443\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 \u043D\u0430 \u0434\u043E\u043C\u0435\u043D, \u043A\u043E\u0442\u043E\u0440\u043E\u0433\u043E \u043D\u0435\u0442 \u0432 \u043A\u044D\u0448\u0435, \u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E \u044D\u0442\u043E \u043E\u0448\u0438\u0431\u043A\u0430 \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u0438 \u0441\u0445\u0435\u043C\u044B, \u0438 \u0434\u043E\u043C\u0435\u043D \u043D\u0435 \u0431\u0443\u0434\u0435\u0442 \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435. \u0413\u0430\u043B\u043E\u0447\u043A\u0430 \xAB\u0441\u0447\u0438\u0442\u0430\u0442\u044C \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u043D\u044B\u043C\u0438\xBB \u043F\u043E\u0437\u0432\u043E\u043B\u044F\u0435\u0442 \u043F\u043E\u0441\u0442\u0440\u043E\u0438\u0442\u044C \u043F\u043B\u0430\u043D \u0434\u043B\u044F \u0441\u0446\u0435\u043D\u0430\u0440\u0438\u044F \xABmissing \u2014 \u044D\u0442\u043E \u043E\u043F\u0435\u0447\u0430\u0442\u043A\u0430, \u043F\u043E\u043F\u0440\u0430\u0432\u0438\u043C \u043F\u043E\u0437\u0436\u0435\xBB. \u0421\u043D\u0438\u043C\u0438\u0442\u0435 \u2014 \u0443\u0432\u0438\u0434\u0438\u0442\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0435 \u0434\u043E\u043C\u0435\u043D\u044B \u0432 \u0431\u043B\u043E\u043A\u0435 \xAB\u0420\u0430\u0437\u043E\u0440\u0432\u0430\u043D\u043D\u044B\u0435\xBB / \xAB\u0422\u0440\u0435\u0431\u0443\u044E\u0442 \u0440\u0443\u0447\u043D\u043E\u0433\u043E \u0432\u043C\u0435\u0448\u0430\u0442\u0435\u043B\u044C\u0441\u0442\u0432\u0430\xBB."
-          ] })
-        ] }) }),
-        /* @__PURE__ */ jsxs51(HelpSection, { title: "\u0410\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u0440\u0430\u0437\u0440\u044B\u0432\u0430\u0442\u044C \u0446\u0438\u043A\u043B\u044B", children: [
-          /* @__PURE__ */ jsxs51(HelpText, { children: [
-            "\u0426\u0438\u043A\u043B \u2014 \u044D\u0442\u043E \u043A\u043E\u0433\u0434\u0430 ",
-            /* @__PURE__ */ jsx54("code", { children: "A" }),
-            " \u0437\u0430\u0432\u0438\u0441\u0438\u0442 \u043E\u0442",
-            " ",
-            /* @__PURE__ */ jsx54("code", { children: "B" }),
-            ", \u0430 ",
-            /* @__PURE__ */ jsx54("code", { children: "B" }),
-            " \u2014 \u043E\u0442 ",
-            /* @__PURE__ */ jsx54("code", { children: "A" }),
-            ". \u041D\u0438 \u043E\u0434\u0438\u043D \u0438\u0437 \u043D\u0438\u0445 \u043D\u0435\u043B\u044C\u0437\u044F \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C \u043F\u0435\u0440\u0432\u044B\u043C, \u043F\u043E\u044D\u0442\u043E\u043C\u0443 \u043F\u043B\u0430\u043D \u0431\u0435\u0437 \u0432\u043C\u0435\u0448\u0430\u0442\u0435\u043B\u044C\u0441\u0442\u0432\u0430 \u043F\u043E\u0441\u0442\u0440\u043E\u0438\u0442\u044C \u043D\u0435\u043B\u044C\u0437\u044F."
-          ] }),
-          /* @__PURE__ */ jsxs51(HelpList, { children: [
-            /* @__PURE__ */ jsxs51("li", { children: [
-              /* @__PURE__ */ jsx54("strong", { children: "\u0413\u0430\u043B\u043E\u0447\u043A\u0430 \u0432\u043A\u043B\u044E\u0447\u0435\u043D\u0430" }),
-              " \u2014 \u0446\u0438\u043A\u043B\u044B \u0440\u0430\u0437\u0440\u0435\u0448\u0430\u044E\u0442\u0441\u044F \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438: \u0432\u044B\u0431\u0438\u0440\u0430\u0435\u0442\u0441\u044F \u0434\u043E\u043C\u0435\u043D \u0441 \u043D\u0430\u0438\u043C\u0435\u043D\u044C\u0448\u0438\u043C \u0447\u0438\u0441\u043B\u043E\u043C \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0435\u0439, \xAB\u0440\u0430\u0437\u0440\u044B\u0432\u0430\u0435\u0442\u0441\u044F\xBB \u043E\u0434\u043D\u0430 \u0441\u0432\u044F\u0437\u044C, \u0434\u043E\u043C\u0435\u043D \u0441\u0442\u0430\u0432\u0438\u0442\u0441\u044F \u043D\u0430 \u0442\u0435\u043A\u0443\u0449\u0438\u0439 \u0443\u0440\u043E\u0432\u0435\u043D\u044C. \u0422\u0430\u043A\u0438\u0435 \u0434\u043E\u043C\u0435\u043D\u044B \u043F\u043E\u043C\u0435\u0447\u0430\u044E\u0442\u0441\u044F \u0431\u0435\u0439\u0434\u0436\u0435\u043C ",
-              /* @__PURE__ */ jsx54("em", { children: "\xAB\u26A0\uFE0F \u0446\u0438\u043A\u043B \u0440\u0430\u0437\u043E\u0440\u0432\u0430\u043D\xBB" }),
-              " \u0438 \xAB",
-              /* @__PURE__ */ jsx54("em", { children: "\u21AFN" }),
-              "\xBB (\u043E\u0442\u0440\u0435\u0437\u0430\u043D\u043D\u044B\u0445 \u0441\u0432\u044F\u0437\u0435\u0439)."
-            ] }),
-            /* @__PURE__ */ jsxs51("li", { children: [
-              /* @__PURE__ */ jsx54("strong", { children: "\u0413\u0430\u043B\u043E\u0447\u043A\u0430 \u0441\u043D\u044F\u0442\u0430" }),
-              " \u2014 \u0434\u043E\u043C\u0435\u043D\u044B \u0441 \u0446\u0438\u043A\u043B\u043E\u043C \u043F\u043E\u043F\u0430\u0434\u0430\u044E\u0442 \u0432 \u0431\u043B\u043E\u043A \xAB\u0422\u0440\u0435\u0431\u0443\u044E\u0442 \u0440\u0443\u0447\u043D\u043E\u0433\u043E \u0432\u043C\u0435\u0448\u0430\u0442\u0435\u043B\u044C\u0441\u0442\u0432\u0430\xBB. \u0418\u0445 \u043D\u0430\u0434\u043E \u0447\u0438\u043D\u0438\u0442\u044C \u0432 \u0441\u0445\u0435\u043C\u0435 \u2014 \u0443\u0431\u0440\u0430\u0442\u044C \u043E\u0434\u043D\u0443 \u0438\u0437 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0435\u0439 \u0438\u043B\u0438 \u0440\u0430\u0437\u043D\u0435\u0441\u0442\u0438 \u043D\u0430 \u0434\u0432\u0430 \u0434\u043E\u043C\u0435\u043D\u0430."
-            ] })
-          ] })
-        ] }),
-        /* @__PURE__ */ jsxs51(HelpSection, { title: "\u0418\u0441\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0434\u043E\u043C\u0435\u043D\u044B \u043F\u043E \u043C\u0430\u0441\u043A\u0435", children: [
-          /* @__PURE__ */ jsx54(HelpText, { children: "Glob-\u043F\u0430\u0442\u0442\u0435\u0440\u043D\u044B \u0447\u0435\u0440\u0435\u0437 \u0437\u0430\u043F\u044F\u0442\u0443\u044E, \u0442\u043E\u0447\u043A\u0443 \u0441 \u0437\u0430\u043F\u044F\u0442\u043E\u0439 \u0438\u043B\u0438 \u043F\u0440\u043E\u0431\u0435\u043B. \u0418\u0441\u043A\u043B\u044E\u0447\u0451\u043D\u043D\u044B\u0435 \u0434\u043E\u043C\u0435\u043D\u044B \u0438\u0441\u0447\u0435\u0437\u0430\u044E\u0442 \u0438\u0437 \u043F\u043B\u0430\u043D\u0430 \u0438 \u0438\u0437 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0435\u0439 \u0434\u0440\u0443\u0433\u0438\u0445 (\u043D\u043E \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438 \u043D\u0430 \u043D\u0438\u0445 \u043E\u0441\u0442\u0430\u044E\u0442\u0441\u044F \u043A\u0430\u043A \xAB\u0432\u043D\u0435\u0448\u043D\u0438\u0435\xBB \u0438 \u0432 \u044D\u0442\u043E\u043C \u043F\u043B\u0430\u043D\u0435 \u043D\u0435 \u0443\u0447\u0438\u0442\u044B\u0432\u0430\u044E\u0442\u0441\u044F)." }),
-          /* @__PURE__ */ jsxs51(HelpList, { children: [
-            /* @__PURE__ */ jsxs51("li", { children: [
-              /* @__PURE__ */ jsx54("code", { children: "*.settings.*" }),
-              " \u2014 \u0432\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B, \u0433\u0434\u0435 \u0432 FQDN \u0432\u0441\u0442\u0440\u0435\u0447\u0430\u0435\u0442\u0441\u044F ",
-              /* @__PURE__ */ jsx54("code", { children: ".settings." }),
-              "."
-            ] }),
-            /* @__PURE__ */ jsxs51("li", { children: [
-              /* @__PURE__ */ jsx54("code", { children: "test.*" }),
-              " \u2014 \u0432\u0441\u0435 \u0442\u0435\u0441\u0442\u043E\u0432\u044B\u0435 \u0434\u043E\u043C\u0435\u043D\u044B."
-            ] }),
-            /* @__PURE__ */ jsxs51("li", { children: [
-              /* @__PURE__ */ jsx54("code", { children: "!prod.*" }),
-              " \u2014 \u0441\u0438\u043D\u0442\u0430\u043A\u0441\u0438\u0441 ",
-              /* @__PURE__ */ jsx54("code", { children: "!" }),
-              " ",
-              "\u043F\u043E\u043A\u0430 \u043F\u043E\u0434\u0434\u0435\u0440\u0436\u0438\u0432\u0430\u0435\u0442\u0441\u044F \u0442\u043E\u043B\u044C\u043A\u043E \u0432 namespace-\u0444\u0438\u043B\u044C\u0442\u0440\u0435, \u0432 \u043C\u0430\u0441\u043A\u0435 \u0438\u0441\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u044F \u2014 \u0442\u043E\u043B\u044C\u043A\u043E \u0432\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435."
-            ] })
-          ] }),
-          /* @__PURE__ */ jsx54(HelpText, { children: "\u041F\u043E\u043B\u0435\u0437\u043D\u043E, \u043A\u043E\u0433\u0434\u0430 \u0432 \u043A\u044D\u0448\u0435 \u043B\u0435\u0436\u0430\u0442 \u0447\u0443\u0436\u0438\u0435 \u0434\u043E\u043C\u0435\u043D\u044B (\u0441\u0442\u043E\u0440\u043E\u043D\u043D\u0438\u0435 \u043E\u0440\u0433\u0430\u043D\u0438\u0437\u0430\u0446\u0438\u0438, dev-\u043E\u043A\u0440\u0443\u0436\u0435\u043D\u0438\u044F), \u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u0432 \u0432\u0430\u0448\u0435\u043C \u0434\u0435\u043F\u043B\u043E\u0435 \u043D\u0435 \u0443\u0447\u0430\u0441\u0442\u0432\u0443\u044E\u0442." })
-        ] }),
-        /* @__PURE__ */ jsx54(HelpSection, { title: "\u041A\u0430\u043A \u0447\u0438\u0442\u0430\u0442\u044C \u0440\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442", children: /* @__PURE__ */ jsxs51(HelpList, { children: [
-          /* @__PURE__ */ jsxs51("li", { children: [
-            /* @__PURE__ */ jsx54("strong", { children: "\u0423\u0440\u043E\u0432\u0435\u043D\u044C 1 / 2 / 3 \u2026" }),
-            " \u2014 \u043A\u043B\u0438\u043A\u0430\u0431\u0435\u043B\u044C\u043D\u044B\u0435 \u0437\u0430\u0433\u043E\u043B\u043E\u0432\u043A\u0438. \u0420\u0430\u0441\u043A\u0440\u043E\u0439\u0442\u0435, \u0447\u0442\u043E\u0431\u044B \u0443\u0432\u0438\u0434\u0435\u0442\u044C \u0441\u043F\u0438\u0441\u043E\u043A \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u044D\u0442\u043E\u0433\u043E \u0443\u0440\u043E\u0432\u043D\u044F."
-          ] }),
-          /* @__PURE__ */ jsxs51("li", { children: [
-            /* @__PURE__ */ jsx54("strong", { children: "\u25B8 \u0443 \u0434\u043E\u043C\u0435\u043D\u0430" }),
-            " \u2014 \u0440\u0430\u0441\u043A\u0440\u044B\u0432\u0430\u0435\u0442 \u0441\u043F\u0438\u0441\u043E\u043A",
-            " ",
-            /* @__PURE__ */ jsx54("em", { children: "\u043F\u0440\u044F\u043C\u044B\u0445" }),
-            " \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0435\u0439 (\u0442\u0435\u0445, \u0447\u0442\u043E \u043D\u0430 \u043D\u0438\u0436\u043D\u0438\u0445 \u0443\u0440\u043E\u0432\u043D\u044F\u0445). \u0422\u0430\u043A \u0443\u0434\u043E\u0431\u043D\u043E \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0442\u044C \xAB\u0430 \u043F\u0440\u0430\u0432\u0434\u0430 \u043B\u0438 \u043E\u043D \u0437\u0430\u0432\u0438\u0441\u0438\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u043E\u0442 \u0444\u0443\u043D\u0434\u0430\u043C\u0435\u043D\u0442\u0430?\xBB."
-          ] }),
-          /* @__PURE__ */ jsxs51("li", { children: [
-            /* @__PURE__ */ jsx54("strong", { children: "\u{1F4CA} N \u0443\u0440\u043E\u0432\u043D\u0435\u0439" }),
-            " \u2014 \u043E\u0431\u0449\u0430\u044F \u0434\u043B\u0438\u043D\u0430 \u043F\u043B\u0430\u043D\u0430. \u0411\u043E\u043B\u044C\u0448\u043E\u0435 \u0447\u0438\u0441\u043B\u043E (20+) \u043E\u0437\u043D\u0430\u0447\u0430\u0435\u0442 \xAB\u043E\u0447\u0435\u043D\u044C \u043C\u043D\u043E\u0433\u043E \u043F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u044B\u0445 \u0448\u0430\u0433\u043E\u0432\xBB, \u043E\u0431\u044B\u0447\u043D\u043E \u0438\u0437-\u0437\u0430 \u0440\u0435\u0434\u043A\u0438\u0445 cross-domain-\u0441\u0441\u044B\u043B\u043E\u043A \u0432 \u0441\u0430\u043C\u043E\u043C \u043D\u0438\u0437\u0443."
-          ] }),
-          /* @__PURE__ */ jsxs51("li", { children: [
-            /* @__PURE__ */ jsx54("strong", { children: "\u23F1 N \u0448\u0430\u0433\u043E\u0432" }),
-            " \u2014 \u043A\u0440\u0438\u0442\u0438\u0447\u0435\u0441\u043A\u0438\u0439 \u043F\u0443\u0442\u044C: \u0441\u0430\u043C\u044B\u0439 \u0434\u043B\u0438\u043D\u043D\u044B\u0439 \u043C\u0430\u0440\u0448\u0440\u0443\u0442 \u0447\u0435\u0440\u0435\u0437 \u0443\u0440\u043E\u0432\u043D\u0438. \u042D\u0442\u043E \u043C\u0438\u043D\u0438\u043C\u0443\u043C \u0432\u0440\u0435\u043C\u0435\u043D\u0438, \u0435\u0441\u043B\u0438 \u0441\u0442\u0430\u0432\u0438\u0442\u044C \u043F\u043E \u043E\u0434\u043D\u043E\u043C\u0443 \u0434\u043E\u043C\u0435\u043D\u0443 \u0437\u0430 \u0448\u0430\u0433."
-          ] }),
-          /* @__PURE__ */ jsxs51("li", { children: [
-            /* @__PURE__ */ jsx54("strong", { children: "\u26A0\uFE0F N \u0446\u0438\u043A\u043B." }),
-            " \u2014 \u0434\u043E\u043C\u0435\u043D\u044B, \u0434\u043B\u044F \u043A\u043E\u0442\u043E\u0440\u044B\u0445 \u043D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0440\u0430\u0437\u043E\u0440\u0432\u0430\u0442\u044C \u0446\u0438\u043A\u043B (\u0442\u043E\u043B\u044C\u043A\u043E \u043F\u0440\u0438 \u0432\u044B\u043A\u043B\u044E\u0447\u0435\u043D\u043D\u043E\u043C \u0430\u0432\u0442\u043E\u0440\u0430\u0437\u0440\u044B\u0432\u0435). \u0418\u0445 \u043D\u0443\u0436\u043D\u043E \u0447\u0438\u043D\u0438\u0442\u044C \u0432 \u0441\u0445\u0435\u043C\u0435 \u0432\u0440\u0443\u0447\u043D\u0443\u044E."
-          ] }),
-          /* @__PURE__ */ jsxs51("li", { children: [
-            /* @__PURE__ */ jsx54("strong", { children: "\u{1F517} N \u0440\u0430\u0437\u043E\u0440\u0432\u0430\u043D\u043E" }),
-            " \u2014 \u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0446\u0438\u043A\u043B\u043E\u0432 \u0440\u0430\u0437\u0440\u0435\u0448\u0435\u043D\u043E \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438. \u042D\u0442\u043E ",
-            /* @__PURE__ */ jsx54("em", { children: "\u043D\u0435 \u043E\u0448\u0438\u0431\u043A\u0438" }),
-            ", \u043F\u0440\u043E\u0441\u0442\u043E \u043F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u0435: \u0432\u043E\u0437\u043C\u043E\u0436\u043D\u043E, \u0441\u0445\u0435\u043C\u0443 \u0441\u0442\u043E\u0438\u0442 \u043F\u043E\u0447\u0438\u0441\u0442\u0438\u0442\u044C."
-          ] })
-        ] }) }),
-        /* @__PURE__ */ jsx54(HelpSection, { title: "\u041A\u043D\u043E\u043F\u043A\u0438 \u0432\u043D\u0438\u0437\u0443", children: /* @__PURE__ */ jsxs51(HelpList, { children: [
-          /* @__PURE__ */ jsxs51("li", { children: [
-            /* @__PURE__ */ jsx54("strong", { children: "\u{1F3A8} \u041D\u0430 \u0433\u0440\u0430\u0444\u0435" }),
-            " \u2014 \u0437\u0430\u043A\u0440\u044B\u0432\u0430\u0435\u0442 \u043C\u043E\u0434\u0430\u043B\u043A\u0443 \u0438 \u043F\u043E\u0434\u0441\u0432\u0435\u0447\u0438\u0432\u0430\u0435\u0442 \u043A\u0430\u0436\u0434\u044B\u0439 \u0443\u0437\u0435\u043B \u0431\u0435\u0439\u0434\u0436\u0435\u043C ",
-            /* @__PURE__ */ jsx54("code", { children: "L1" }),
-            ",",
-            " ",
-            /* @__PURE__ */ jsx54("code", { children: "L2" }),
-            ", \u2026 \u041D\u0430\u0432\u0435\u0434\u0438\u0442\u0435 \u043D\u0430 \u0431\u0435\u0439\u0434\u0436 \u2014 \u0443\u0432\u0438\u0434\u0438\u0442\u0435 \u0443\u0440\u043E\u0432\u0435\u043D\u044C \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438. \u0423\u0434\u043E\u0431\u043D\u043E \u0434\u043B\u044F \u0432\u0438\u0437\u0443\u0430\u043B\u044C\u043D\u043E\u0433\u043E \u0440\u0435\u0432\u044C\u044E \u043F\u043B\u0430\u043D\u0430."
-          ] }),
-          /* @__PURE__ */ jsxs51("li", { children: [
-            /* @__PURE__ */ jsx54("strong", { children: "\u{1F4CB} \u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C" }),
-            " \u2014 \u043F\u043B\u0430\u043D \u0432 \u0431\u0443\u0444\u0435\u0440 \u043E\u0431\u043C\u0435\u043D\u0430 (\u0442\u0435\u043A\u0441\u0442\u043E\u043C, \u043F\u043E \u0443\u0440\u043E\u0432\u043D\u044F\u043C). \u041F\u043E\u0434\u0445\u043E\u0434\u0438\u0442 \u0434\u043B\u044F \u0432\u0441\u0442\u0430\u0432\u043A\u0438 \u0432 \u0437\u0430\u0434\u0430\u0447\u0443 \u0432 \u0442\u0440\u0435\u043A\u0435\u0440\u0435."
-          ] }),
-          /* @__PURE__ */ jsxs51("li", { children: [
-            /* @__PURE__ */ jsx54("strong", { children: "\u{1F4BE} JSON" }),
-            " \u2014 \u043C\u0430\u0448\u0438\u043D\u043D\u043E-\u0447\u0438\u0442\u0430\u0435\u043C\u044B\u0439 \u043F\u043B\u0430\u043D:",
-            /* @__PURE__ */ jsx54("code", { children: "levels[]" }),
-            ", ",
-            /* @__PURE__ */ jsx54("code", { children: "broken[]" }),
-            ",",
-            " ",
-            /* @__PURE__ */ jsx54("code", { children: "cyclic[]" }),
-            ", ",
-            /* @__PURE__ */ jsx54("code", { children: "stats" }),
-            ". \u0414\u043B\u044F \u0438\u043D\u0442\u0435\u0433\u0440\u0430\u0446\u0438\u0438 \u0441 CI-\u0441\u043A\u0440\u0438\u043F\u0442\u0430\u043C\u0438 \u0434\u0435\u043F\u043B\u043E\u044F."
-          ] }),
-          /* @__PURE__ */ jsxs51("li", { children: [
-            /* @__PURE__ */ jsx54("strong", { children: "\u{1F4DD} MD" }),
-            " \u2014 Markdown-\u043E\u0442\u0447\u0451\u0442: \u0441\u0432\u043E\u0434\u043A\u0430 + \u0441\u043F\u0438\u0441\u043E\u043A \u0443\u0440\u043E\u0432\u043D\u0435\u0439 + \u0440\u0430\u0437\u043E\u0440\u0432\u0430\u043D\u043D\u044B\u0435 \u0446\u0438\u043A\u043B\u044B. \u041E\u0442\u043A\u0440\u044B\u0432\u0430\u0435\u0442\u0441\u044F \u0432 \u043B\u044E\u0431\u043E\u043C \u0432\u0438\u043A\u0438/MR."
-          ] }),
-          /* @__PURE__ */ jsxs51("li", { children: [
-            /* @__PURE__ */ jsx54("strong", { children: "\u2190 \u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438" }),
-            " \u2014 \u0432\u043E\u0437\u0432\u0440\u0430\u0449\u0430\u0435\u0442 \u043A \u0444\u043E\u0440\u043C\u0435 (\u043E\u0431\u043B\u0430\u0441\u0442\u044C, \u0433\u0430\u043B\u043E\u0447\u043A\u0438, \u043C\u0430\u0441\u043A\u0430), \u0447\u0442\u043E\u0431\u044B \u043F\u043E\u043F\u0440\u0430\u0432\u0438\u0442\u044C \u043F\u0430\u0440\u0430\u043C\u0435\u0442\u0440\u044B \u0431\u0435\u0437 \u0437\u0430\u043A\u0440\u044B\u0442\u0438\u044F \u043C\u043E\u0434\u0430\u043B\u043A\u0438."
-          ] })
-        ] }) }),
-        /* @__PURE__ */ jsx54(HelpSection, { title: "\u041E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F", children: /* @__PURE__ */ jsxs51(HelpList, { children: [
-          /* @__PURE__ */ jsx54("li", { children: "\u0422\u043E\u043B\u044C\u043A\u043E \u0434\u043E\u043C\u0435\u043D\u044B, \u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u0435\u0441\u0442\u044C \u0432 \u043A\u044D\u0448\u0435 \u0438 \u0443\u0441\u043F\u0435\u0448\u043D\u043E \u0440\u0430\u0441\u043F\u0430\u0440\u0441\u0438\u043B\u0438\u0441\u044C. Missing/broken-\u0434\u043E\u043C\u0435\u043D\u044B \u043D\u0435 \u0443\u0447\u0430\u0441\u0442\u0432\u0443\u044E\u0442 \u0432 \u0443\u0440\u043E\u0432\u043D\u044F\u0445." }),
-          /* @__PURE__ */ jsxs51("li", { children: [
-            "Cross-domain \u0441\u0441\u044B\u043B\u043A\u0438 \u043D\u0430 \u043D\u0435\u0437\u0430\u0433\u0440\u0443\u0436\u0435\u043D\u043D\u044B\u0435 \u0434\u043E\u043C\u0435\u043D\u044B (\u043A\u043E\u0433\u0434\u0430 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438 \u0443\u043A\u0430\u0437\u044B\u0432\u0430\u044E\u0442 \u043D\u0430 \u0447\u0443\u0436\u0443\u044E \u043E\u0440\u0433\u0430\u043D\u0438\u0437\u0430\u0446\u0438\u044E \u0438\u043B\u0438 \u043E\u0442\u0441\u0443\u0442\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0439 \u0434\u043E\u043C\u0435\u043D) \u2014 \u0442\u0440\u0430\u043A\u0442\u0443\u044E\u0442\u0441\u044F \u043F\u043E \u0433\u0430\u043B\u043E\u0447\u043A\u0435",
-            " ",
-            /* @__PURE__ */ jsx54("em", { children: "\xABMissing-\u0434\u043E\u043C\u0435\u043D\u044B \u043A\u0430\u043A \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u043D\u044B\u0435\xBB" }),
-            "."
-          ] }),
-          /* @__PURE__ */ jsxs51("li", { children: [
-            "\u0423\u0447\u0438\u0442\u044B\u0432\u0430\u044E\u0442\u0441\u044F \u0442\u043E\u043B\u044C\u043A\u043E ",
-            /* @__PURE__ */ jsx54("strong", { children: "\u043F\u0440\u044F\u043C\u044B\u0435" }),
-            " \u0441\u0441\u044B\u043B\u043A\u0438 (FQID, inherits, cross-domain extends). \u0422\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0438 ",
-            /* @__PURE__ */ jsx54("code", { children: "transitiveLinkages" }),
-            " \u0438",
-            " ",
-            /* @__PURE__ */ jsx54("code", { children: "calculation.schemaId" }),
-            " ",
-            /* @__PURE__ */ jsx54("strong", { children: "\u043D\u0435 \u0432\u043B\u0438\u044F\u044E\u0442" }),
-            " \u043D\u0430 \u043F\u043E\u0440\u044F\u0434\u043E\u043A: \u043E\u043D\u0438 \u0440\u0430\u043D\u0442\u0430\u0439\u043C-\u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438, \u0430 \u043D\u0435 build-time."
-          ] })
-        ] }) })
-      ] }),
-      !result && /* @__PURE__ */ jsxs51("div", { className: "validation-scope", children: [
-        /* @__PURE__ */ jsx54("div", { className: "validation-scope__label", children: "\u041E\u0431\u043B\u0430\u0441\u0442\u044C" }),
-        scopeOption("all", "\u0412\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B", props.allDomains.length),
-        scopeOption("visible", "\u0422\u043E\u043B\u044C\u043A\u043E \u0432\u0438\u0434\u0438\u043C\u044B\u0435", props.visibleDomains.length),
-        scopeOption("bookmarked", "\u0422\u043E\u043B\u044C\u043A\u043E \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u044B\u0435", props.bookmarkedDomains.length),
-        /* @__PURE__ */ jsx54("div", { className: "validation-scope__label", style: { marginTop: 16 }, children: "\u0423\u0447\u0438\u0442\u044B\u0432\u0430\u0442\u044C \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438" }),
-        /* @__PURE__ */ jsxs51("label", { className: "menu__checkbox", children: [
-          /* @__PURE__ */ jsx54(
-            "input",
-            {
-              type: "checkbox",
-              style: { marginLeft: 8 },
-              checked: includeFqid,
-              onChange: () => setIncludeFqid(!includeFqid)
-            }
-          ),
-          /* @__PURE__ */ jsx54("span", { className: "menu__check" }),
-          /* @__PURE__ */ jsx54("span", { className: "menu__text", children: "FQID-\u0441\u0441\u044B\u043B\u043A\u0438" })
-        ] }),
-        /* @__PURE__ */ jsxs51("label", { className: "menu__checkbox", children: [
-          /* @__PURE__ */ jsx54(
-            "input",
-            {
-              type: "checkbox",
-              style: { marginLeft: 8 },
-              checked: includeLinkage,
-              onChange: () => setIncludeLinkage(!includeLinkage)
-            }
-          ),
-          /* @__PURE__ */ jsx54("span", { className: "menu__check" }),
-          /* @__PURE__ */ jsx54("span", { className: "menu__text", children: "Linkage-\u0441\u0432\u044F\u0437\u0438" })
-        ] }),
-        /* @__PURE__ */ jsxs51("label", { className: "menu__checkbox", children: [
-          /* @__PURE__ */ jsx54(
-            "input",
-            {
-              type: "checkbox",
-              style: { marginLeft: 8 },
-              checked: missingAsSatisfied,
-              onChange: () => setMissingAsSatisfied(!missingAsSatisfied)
-            }
-          ),
-          /* @__PURE__ */ jsx54("span", { className: "menu__check" }),
-          /* @__PURE__ */ jsx54("span", { className: "menu__text", children: "Missing-\u0434\u043E\u043C\u0435\u043D\u044B \u0441\u0447\u0438\u0442\u0430\u0442\u044C \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u043D\u044B\u043C\u0438" })
-        ] }),
-        /* @__PURE__ */ jsxs51("label", { className: "menu__checkbox", children: [
-          /* @__PURE__ */ jsx54(
-            "input",
-            {
-              type: "checkbox",
-              style: { marginLeft: 8 },
-              checked: autoBreak,
-              onChange: () => setAutoBreak(!autoBreak)
-            }
-          ),
-          /* @__PURE__ */ jsx54("span", { className: "menu__check" }),
-          /* @__PURE__ */ jsx54("span", { className: "menu__text", children: "\u0410\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u0440\u0430\u0437\u0440\u044B\u0432\u0430\u0442\u044C \u0446\u0438\u043A\u043B\u044B" })
-        ] }),
-        /* @__PURE__ */ jsx54("div", { className: "menu__hint", children: autoBreak ? "\u0414\u043E\u043C\u0435\u043D\u044B \u0441 \u0446\u0438\u043A\u043B\u043E\u043C \u0431\u0443\u0434\u0443\u0442 \u0440\u0430\u0437\u043C\u0435\u0449\u0435\u043D\u044B \u0432 \u043F\u043E\u0440\u044F\u0434\u043A\u0435, \u0430 \u0440\u0430\u0437\u043E\u0440\u0432\u0430\u043D\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0438 \u2014 \u043F\u043E\u043C\u0435\u0447\u0435\u043D\u044B." : "\u0414\u043E\u043C\u0435\u043D\u044B \u0441 \u0446\u0438\u043A\u043B\u043E\u043C \u043F\u043E\u043F\u0430\u0434\u0443\u0442 \u0432 \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u044B\u0439 \u0431\u043B\u043E\u043A \xAB\u0422\u0440\u0435\u0431\u0443\u044E\u0442 \u0440\u0443\u0447\u043D\u043E\u0433\u043E \u0432\u043C\u0435\u0448\u0430\u0442\u0435\u043B\u044C\u0441\u0442\u0432\u0430\xBB." }),
-        /* @__PURE__ */ jsx54("div", { className: "validation-scope__label", style: { marginTop: 16 }, children: "\u0418\u0441\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0434\u043E\u043C\u0435\u043D\u044B \u043F\u043E \u043C\u0430\u0441\u043A\u0435" }),
+  const scopeOption = (value, label, count) => /* @__PURE__ */ jsxs51(
+    "label",
+    {
+      className: "validation-scope__option" + (scope === value ? " active" : ""),
+      children: [
         /* @__PURE__ */ jsx54(
           "input",
           {
-            className: "menu__input",
-            style: { margin: 0, width: "100%" },
-            type: "text",
-            placeholder: "\u043D\u0430\u043F\u0440\u0438\u043C\u0435\u0440: *.settings.*",
-            value: excludePattern,
-            onChange: (e) => setExcludePattern(e.target.value)
+            type: "radio",
+            checked: scope === value,
+            onChange: () => setScope(value)
           }
         ),
-        /* @__PURE__ */ jsx54(
-          "button",
-          {
-            className: "btn btn--primary",
-            onClick: build,
-            style: { marginTop: 20, width: "100%", justifyContent: "center" },
-            children: "\u25B6 \u041F\u043E\u0441\u0442\u0440\u043E\u0438\u0442\u044C \u043F\u043E\u0440\u044F\u0434\u043E\u043A"
-          }
-        )
-      ] }),
-      result && /* @__PURE__ */ jsxs51("div", { className: "topo-result", children: [
-        (result.cyclic.length > 0 || result.broken.length > 0) && /* @__PURE__ */ jsxs51("div", { className: "topo-cyclic", children: [
-          result.cyclic.length > 0 && /* @__PURE__ */ jsxs51(Fragment10, { children: [
-            /* @__PURE__ */ jsxs51("div", { className: "topo-cyclic__header", children: [
-              /* @__PURE__ */ jsx54("span", { className: "topo-cyclic__icon", children: "\u26A0\uFE0F" }),
-              /* @__PURE__ */ jsxs51("span", { children: [
-                "\u0422\u0440\u0435\u0431\u0443\u044E\u0442 \u0440\u0443\u0447\u043D\u043E\u0433\u043E \u0432\u043C\u0435\u0448\u0430\u0442\u0435\u043B\u044C\u0441\u0442\u0432\u0430 \u2014 \u0446\u0438\u043A\u043B (",
-                result.cyclic.length,
-                ")"
-              ] })
-            ] }),
-            /* @__PURE__ */ jsx54("div", { className: "topo-cyclic__body", children: result.cyclic.map((id) => /* @__PURE__ */ jsx54(
-              "a",
-              {
-                className: "validation-log__domain",
-                onClick: () => {
-                  goto(id);
-                  useGraphStore.getState().setTopoOpen(false);
-                },
-                children: id
-              },
-              id
-            )) })
-          ] }),
-          result.cyclic.length === 0 && result.broken.length > 0 && /* @__PURE__ */ jsxs51(Fragment10, { children: [
-            /* @__PURE__ */ jsxs51("div", { className: "topo-cyclic__header topo-cyclic__header--broken", children: [
-              /* @__PURE__ */ jsx54("span", { className: "topo-cyclic__icon", children: "\u{1F517}" }),
-              /* @__PURE__ */ jsxs51("span", { children: [
-                "\u0426\u0438\u043A\u043B\u044B \u0440\u0430\u0437\u043E\u0440\u0432\u0430\u043D\u044B \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 (",
-                result.broken.length,
-                ")"
-              ] })
-            ] }),
-            /* @__PURE__ */ jsx54("div", { className: "topo-cyclic__body", children: result.broken.map((b) => /* @__PURE__ */ jsxs51("div", { className: "topo-broken-item", children: [
-              /* @__PURE__ */ jsx54(
-                "a",
-                {
-                  className: "validation-log__domain",
-                  onClick: () => {
-                    goto(b.id);
-                    useGraphStore.getState().setTopoOpen(false);
-                  },
-                  children: b.id
-                }
-              ),
-              /* @__PURE__ */ jsxs51("span", { className: "topo-broken-item__meta", children: [
-                "L",
-                b.level
+        /* @__PURE__ */ jsx54("span", { className: "validation-scope__radio" }),
+        /* @__PURE__ */ jsx54("span", { className: "validation-scope__text", children: label }),
+        /* @__PURE__ */ jsx54("span", { className: "validation-scope__count", children: count })
+      ]
+    }
+  );
+  const isEmpty = result && result.levels.every((l) => l.length === 0) && result.stats.cycles.length === 0 && result.broken.length === 0;
+  return /* @__PURE__ */ jsx54(
+    "div",
+    {
+      className: "help-overlay help-overlay--fullscreen",
+      onMouseDown: () => useGraphStore.getState().setTopoOpen(false),
+      children: /* @__PURE__ */ jsxs51(
+        "div",
+        {
+          className: "help-modal topo-modal",
+          onMouseDown: (e) => e.stopPropagation(),
+          children: [
+            /* @__PURE__ */ jsxs51("div", { className: "help-modal__header", children: [
+              /* @__PURE__ */ jsxs51("div", { className: "help-modal__title", children: [
+                /* @__PURE__ */ jsx54(MIcon, { name: "inventory_2", size: "sm" }),
+                /* @__PURE__ */ jsx54("span", { className: "icon-label", children: "\u041F\u043E\u0440\u044F\u0434\u043E\u043A \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438 \u0434\u043E\u043C\u0435\u043D\u043E\u0432" }),
+                result && /* @__PURE__ */ jsxs51("span", { className: "help-modal__badge", children: [
+                  result.stats.total,
+                  " \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \xB7 ",
+                  result.stats.levels,
+                  " \u0443\u0440\u043E\u0432\u043D\u0435\u0439"
+                ] }),
+                rebuilding && /* @__PURE__ */ jsx54("span", { className: "help-modal__badge help-modal__badge--saving", children: "\u25CF \u043F\u0435\u0440\u0435\u0441\u0447\u0451\u0442\u2026" })
               ] }),
-              b.brokenDeps.length > 0 && /* @__PURE__ */ jsxs51(
-                "span",
-                {
-                  className: "topo-broken-item__deps",
-                  title: "\u0420\u0430\u0437\u043E\u0440\u0432\u0430\u043D\u044B \u0441\u0432\u044F\u0437\u0438 \u0441: " + b.brokenDeps.join(", "),
-                  children: [
-                    "\u21AF",
-                    b.brokenDeps.length
-                  ]
-                }
-              )
-            ] }, b.id)) })
-          ] })
-        ] }),
-        result.levels.map((level, idx) => {
-          const isOpen = expandedLevels.has(idx);
-          return /* @__PURE__ */ jsxs51(
-            "div",
-            {
-              className: "topo-level" + (isOpen ? " topo-level--open" : ""),
-              children: [
-                /* @__PURE__ */ jsxs51("div", { className: "topo-level__header", onClick: () => toggleLevel(idx), children: [
-                  /* @__PURE__ */ jsx54("span", { className: "validation-log__chevron", children: isOpen ? "\u25BE" : "\u25B8" }),
-                  /* @__PURE__ */ jsx54("span", { className: "topo-level__badge", children: idx + 1 }),
-                  /* @__PURE__ */ jsxs51("span", { className: "topo-level__title", children: [
-                    "\u0423\u0440\u043E\u0432\u0435\u043D\u044C ",
-                    idx + 1
+              /* @__PURE__ */ jsxs51("div", { className: "help-modal__actions", children: [
+                /* @__PURE__ */ jsx54(
+                  HelpButton,
+                  {
+                    open: showHelp,
+                    onToggle: () => setShowHelp(!showHelp),
+                    label: "\u041A\u0430\u043A \u044D\u0442\u043E \u0447\u0438\u0442\u0430\u0442\u044C?"
+                  }
+                ),
+                /* @__PURE__ */ jsx54(
+                  "button",
+                  {
+                    className: "help-modal__close",
+                    onClick: () => useGraphStore.getState().setTopoOpen(false),
+                    children: "\u2715"
+                  }
+                )
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxs51("div", { className: "topo-body", children: [
+              /* @__PURE__ */ jsxs51(ModalHelp, { visible: showHelp, children: [
+                /* @__PURE__ */ jsxs51(HelpSection, { title: "\u0427\u0442\u043E \u044D\u0442\u043E", children: [
+                  /* @__PURE__ */ jsxs51(HelpText, { children: [
+                    "\u0420\u0430\u0437\u0431\u0438\u0432\u043A\u0430 \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u043D\u0430 ",
+                    /* @__PURE__ */ jsx54("strong", { children: "\u0443\u0440\u043E\u0432\u043D\u0438 \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438" }),
+                    " \u2014 \u0447\u0442\u043E \u0443\u0441\u0442\u0430\u043D\u0430\u0432\u043B\u0438\u0432\u0430\u0442\u044C \u043F\u0435\u0440\u0432\u044B\u043C, \u0447\u0442\u043E \u043F\u043E\u0441\u043B\u0435\u0434\u043D\u0438\u043C. \u0414\u043E\u043C\u0435\u043D \u043D\u0435\u043B\u044C\u0437\u044F \u043F\u043E\u0441\u0442\u0430\u0432\u0438\u0442\u044C, \u043F\u043E\u043A\u0430 \u043D\u0435 \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u044B \u0432\u0441\u0435, \u043E\u0442 \u043A\u043E\u0433\u043E \u043E\u043D \u0437\u0430\u0432\u0438\u0441\u0438\u0442. \u0414\u043E\u043C\u0435\u043D\u044B \u043D\u0430 \u043E\u0434\u043D\u043E\u043C \u0443\u0440\u043E\u0432\u043D\u0435 \u043C\u043E\u0436\u043D\u043E \u0441\u0442\u0430\u0432\u0438\u0442\u044C \u043F\u0430\u0440\u0430\u043B\u043B\u0435\u043B\u044C\u043D\u043E."
                   ] }),
-                  /* @__PURE__ */ jsxs51("span", { className: "topo-level__count", children: [
-                    level.length,
-                    " ",
-                    level.length === 1 ? "\u0434\u043E\u043C\u0435\u043D" : level.length < 5 ? "\u0434\u043E\u043C\u0435\u043D\u0430" : "\u0434\u043E\u043C\u0435\u043D\u043E\u0432"
+                  /* @__PURE__ */ jsxs51(HelpList, { children: [
+                    /* @__PURE__ */ jsxs51("li", { children: [
+                      /* @__PURE__ */ jsx54("strong", { children: "L1" }),
+                      " \u2014 \u0441\u0442\u0430\u0440\u0442\u043E\u0432\u044B\u0435. \u041D\u0438 \u043E\u0442 \u043A\u043E\u0433\u043E \u043D\u0435 \u0437\u0430\u0432\u0438\u0441\u044F\u0442 (\u0432 \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u043E\u0439 \u043E\u0431\u043B\u0430\u0441\u0442\u0438) \u0438\u043B\u0438 \u0437\u0430\u0432\u0438\u0441\u044F\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u043E\u0442 \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u0432\u043D\u0435 \u0435\u0451."
+                    ] }),
+                    /* @__PURE__ */ jsxs51("li", { children: [
+                      /* @__PURE__ */ jsx54("strong", { children: "L2" }),
+                      " \u2014 \u0437\u0430\u0432\u0438\u0441\u044F\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u043E\u0442 L1."
+                    ] }),
+                    /* @__PURE__ */ jsxs51("li", { children: [
+                      /* @__PURE__ */ jsx54("strong", { children: "Ln" }),
+                      " \u2014 \u0437\u0430\u0432\u0438\u0441\u044F\u0442 \u043E\u0442 L1\u2026L(n\u22121). \u0412\u043D\u0443\u0442\u0440\u0438 \u0443\u0440\u043E\u0432\u043D\u044F \u2014 \u043F\u0430\u0440\u0430\u043B\u043B\u0435\u043B\u044C\u043D\u043E."
+                    ] })
                   ] })
                 ] }),
-                isOpen && /* @__PURE__ */ jsx54("div", { className: "topo-level__body", children: level.map((id) => {
-                  const isDepsOpen = expandedDeps.has(id);
-                  const deps = findDeps(id, result.levelMap, edges, nodes);
-                  const brokenInfo = result.broken.find((b) => b.id === id);
-                  return /* @__PURE__ */ jsxs51(
-                    "div",
-                    {
-                      className: "topo-domain" + (brokenInfo ? " topo-domain--broken" : ""),
-                      children: [
-                        /* @__PURE__ */ jsxs51("div", { className: "topo-domain__head", children: [
-                          deps.length > 0 ? /* @__PURE__ */ jsx54(
-                            "span",
-                            {
-                              className: "validation-log__chevron",
-                              style: { cursor: "pointer" },
-                              onClick: () => toggleDeps(id),
-                              children: isDepsOpen ? "\u25BE" : "\u25B8"
-                            }
-                          ) : /* @__PURE__ */ jsx54("span", { className: "validation-log__chevron", children: " " }),
-                          /* @__PURE__ */ jsx54(
-                            "a",
-                            {
-                              className: "validation-log__domain",
-                              onClick: () => {
-                                goto(id);
-                                useGraphStore.getState().setTopoOpen(false);
-                              },
-                              children: id
-                            }
+                /* @__PURE__ */ jsx54(HelpSection, { title: "\u041A\u0440\u0438\u0442\u0438\u0447\u0435\u0441\u043A\u0438\u0439 \u043F\u0443\u0442\u044C", children: /* @__PURE__ */ jsxs51(HelpText, { children: [
+                  "\u0421\u0430\u043C\u0430\u044F \u0434\u043B\u0438\u043D\u043D\u0430\u044F \u0446\u0435\u043F\u043E\u0447\u043A\u0430 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0435\u0439. \u042D\u0442\u043E ",
+                  /* @__PURE__ */ jsx54("strong", { children: "\u043C\u0438\u043D\u0438\u043C\u0443\u043C \u0432\u0440\u0435\u043C\u0435\u043D\u0438" }),
+                  ", \u0435\u0441\u043B\u0438 \u0441\u0442\u0430\u0432\u0438\u0442\u044C \u043F\u043E \u043E\u0434\u043D\u043E\u043C\u0443 \u0434\u043E\u043C\u0435\u043D\u0443 \u0437\u0430 \u0448\u0430\u0433. \u0411\u043E\u043B\u044C\u0448\u043E\u0435 \u0447\u0438\u0441\u043B\u043E (20+) \u043E\u0437\u043D\u0430\u0447\u0430\u0435\u0442 \xAB\u043E\u0447\u0435\u043D\u044C \u043C\u043D\u043E\u0433\u043E \u043F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u044B\u0445 \u0448\u0430\u0433\u043E\u0432\xBB \u2014 \u043E\u0431\u044B\u0447\u043D\u043E \u0438\u0437-\u0437\u0430 \u0440\u0435\u0434\u043A\u0438\u0445 cross-domain-\u0441\u0441\u044B\u043B\u043E\u043A \u0432 \u0441\u0430\u043C\u043E\u043C \u043D\u0438\u0437\u0443."
+                ] }) }),
+                /* @__PURE__ */ jsx54(HelpSection, { title: "\u0421\u0442\u0430\u0440\u0442\u043E\u0432\u044B\u0435 \u0438 \u0444\u0438\u043D\u0430\u043B\u044C\u043D\u044B\u0435", children: /* @__PURE__ */ jsxs51(HelpList, { children: [
+                  /* @__PURE__ */ jsxs51("li", { children: [
+                    /* @__PURE__ */ jsx54("strong", { children: "\u0421\u0442\u0430\u0440\u0442\u043E\u0432\u044B\u0435 (L1)" }),
+                    " \u2014 \u0443\u0441\u0442\u0430\u043D\u0430\u0432\u043B\u0438\u0432\u0430\u0442\u044C \u043F\u0435\u0440\u0432\u044B\u043C\u0438. \u0421\u0438\u043C\u0432\u043E\u043B ",
+                    /* @__PURE__ */ jsx54("kbd", { children: "\u25B6" }),
+                    " \u0432 \u0441\u043F\u0438\u0441\u043A\u0435 \u0434\u043E\u043C\u0435\u043D\u0430."
+                  ] }),
+                  /* @__PURE__ */ jsxs51("li", { children: [
+                    /* @__PURE__ */ jsx54("strong", { children: "\u0424\u0438\u043D\u0430\u043B\u044C\u043D\u044B\u0435" }),
+                    " \u2014 \u043E\u0442 \u043D\u0438\u0445 \u043D\u0438\u043A\u0442\u043E \u043D\u0435 \u0437\u0430\u0432\u0438\u0441\u0438\u0442. \u0423\u0441\u0442\u0430\u043D\u0430\u0432\u043B\u0438\u0432\u0430\u044E\u0442\u0441\u044F \u043F\u043E\u0441\u043B\u0435\u0434\u043D\u0438\u043C\u0438. \u0421\u0438\u043C\u0432\u043E\u043B ",
+                    /* @__PURE__ */ jsx54("kbd", { children: "\u23ED" }),
+                    "."
+                  ] }),
+                  /* @__PURE__ */ jsx54("li", { children: "\u0415\u0441\u043B\u0438 \u0434\u043E\u043C\u0435\u043D \u043E\u0434\u043D\u043E\u0432\u0440\u0435\u043C\u0435\u043D\u043D\u043E \u0441\u0442\u0430\u0440\u0442\u043E\u0432\u044B\u0439 \u0438 \u0444\u0438\u043D\u0430\u043B\u044C\u043D\u044B\u0439 \u2014 \u044D\u0442\u043E \u0438\u0437\u043E\u043B\u044F\u0442, \u0441\u0442\u0430\u0432\u0438\u0442\u0441\u044F \u0432 \u043B\u044E\u0431\u043E\u043C \u043F\u043E\u0440\u044F\u0434\u043A\u0435." })
+                ] }) }),
+                /* @__PURE__ */ jsx54(HelpSection, { title: "\u041E\u0431\u043B\u0430\u0441\u0442\u044C", children: /* @__PURE__ */ jsxs51(HelpList, { children: [
+                  /* @__PURE__ */ jsxs51("li", { children: [
+                    /* @__PURE__ */ jsx54("strong", { children: "\u0412\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B" }),
+                    " \u2014 \u043F\u043E\u043B\u043D\u044B\u0439 \u0433\u0440\u0430\u0444. \u0421\u0430\u043C\u044B\u0439 \u0447\u0435\u0441\u0442\u043D\u044B\u0439 \u0432\u0430\u0440\u0438\u0430\u043D\u0442 \u0434\u043B\u044F \u0440\u0435\u0430\u043B\u044C\u043D\u043E\u0433\u043E \u0434\u0435\u043F\u043B\u043E\u044F."
+                  ] }),
+                  /* @__PURE__ */ jsxs51("li", { children: [
+                    /* @__PURE__ */ jsx54("strong", { children: "\u0422\u043E\u043B\u044C\u043A\u043E \u0432\u0438\u0434\u0438\u043C\u044B\u0435" }),
+                    " \u2014 \u0434\u043E\u043C\u0435\u043D\u044B \u043F\u043E\u0441\u043B\u0435 \u0442\u0435\u043A\u0443\u0449\u0438\u0445 \u0444\u0438\u043B\u044C\u0442\u0440\u043E\u0432 (namespace / \u0442\u0435\u0433\u0438 / \u043F\u043E\u0438\u0441\u043A). \u0417\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438 \u043D\u0430 \xAB\u0441\u043A\u0440\u044B\u0442\u044B\u0435\xBB \u0434\u043E\u043C\u0435\u043D\u044B \u0438\u0433\u043D\u043E\u0440\u0438\u0440\u0443\u044E\u0442\u0441\u044F."
+                  ] }),
+                  /* @__PURE__ */ jsxs51("li", { children: [
+                    /* @__PURE__ */ jsx54("strong", { children: "\u0422\u043E\u043B\u044C\u043A\u043E \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u044B\u0435" }),
+                    " \u2014 \u0431\u044B\u0441\u0442\u0440\u044B\u0439 \u043F\u0440\u043E\u0433\u043E\u043D \u043F\u043E \u043F\u043E\u0434\u0431\u043E\u0440\u043A\u0435."
+                  ] })
+                ] }) }),
+                /* @__PURE__ */ jsx54(HelpSection, { title: "\u041F\u0430\u0440\u0430\u043C\u0435\u0442\u0440\u044B", children: /* @__PURE__ */ jsxs51(HelpList, { children: [
+                  /* @__PURE__ */ jsxs51("li", { children: [
+                    /* @__PURE__ */ jsx54("strong", { children: "FQID-\u0441\u0441\u044B\u043B\u043A\u0438" }),
+                    " \u2014 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B",
+                    " ",
+                    /* @__PURE__ */ jsx54("code", { children: "Reference" }),
+                    ", ",
+                    /* @__PURE__ */ jsx54("code", { children: "inherits" }),
+                    ",",
+                    " ",
+                    "cross-domain ",
+                    /* @__PURE__ */ jsx54("code", { children: "extends" }),
+                    ". \u041A\u043B\u0430\u0441\u0441\u0438\u0447\u0435\u0441\u043A\u0438\u0439 \u0438\u0441\u0442\u043E\u0447\u043D\u0438\u043A \xAB\u044D\u0442\u043E\u0442 \u0434\u043E\u043C\u0435\u043D \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442 \u0447\u0443\u0436\u0443\u044E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C\xBB."
+                  ] }),
+                  /* @__PURE__ */ jsxs51("li", { children: [
+                    /* @__PURE__ */ jsx54("strong", { children: "Linkage-\u0441\u0432\u044F\u0437\u0438" }),
+                    " \u2014 \u043C\u0435\u0436-\u0434\u043E\u043C\u0435\u043D\u043D\u044B\u0435 linkages. \u0418\u043D\u043E\u0433\u0434\u0430 \xAB\u043C\u044F\u0433\u043A\u0430\u044F\xBB \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u044C: UI \u0441\u043B\u043E\u043C\u0430\u0435\u0442\u0441\u044F, \u043D\u043E \u0441\u0445\u0435\u043C\u0430 \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u0441\u044F. \u041E\u0442\u043A\u043B\u044E\u0447\u0430\u0439\u0442\u0435, \u0435\u0441\u043B\u0438 \u0441\u0442\u0440\u043E\u0438\u0442\u0435 \u043C\u0438\u043D\u0438\u043C\u0430\u043B\u044C\u043D\u044B\u0439 \u043F\u043B\u0430\u043D."
+                  ] }),
+                  /* @__PURE__ */ jsxs51("li", { children: [
+                    /* @__PURE__ */ jsx54("strong", { children: "Missing-\u0434\u043E\u043C\u0435\u043D\u044B \u043A\u0430\u043A \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u043D\u044B\u0435" }),
+                    " \u2014 \u0435\u0441\u043B\u0438 dependency \u0443\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 \u043D\u0430 \u0434\u043E\u043C\u0435\u043D, \u043A\u043E\u0442\u043E\u0440\u043E\u0433\u043E \u043D\u0435\u0442 \u0432 \u043A\u044D\u0448\u0435, \u043E\u0431\u044B\u0447\u043D\u043E \u044D\u0442\u043E \u043E\u0448\u0438\u0431\u043A\u0430 \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u0438: \u0434\u043E\u043C\u0435\u043D \u043D\u0435 \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u0441\u044F. \u0413\u0430\u043B\u043E\u0447\u043A\u0430 \u043F\u043E\u0437\u0432\u043E\u043B\u044F\u0435\u0442 \u043F\u043E\u0441\u0442\u0440\u043E\u0438\u0442\u044C \u043F\u043B\u0430\u043D \u0434\u043B\u044F \u0441\u0446\u0435\u043D\u0430\u0440\u0438\u044F \xABmissing \u2014 \u043E\u043F\u0435\u0447\u0430\u0442\u043A\u0430, \u043F\u043E\u043F\u0440\u0430\u0432\u0438\u043C \u043F\u043E\u0437\u0436\u0435\xBB."
+                  ] }),
+                  /* @__PURE__ */ jsxs51("li", { children: [
+                    /* @__PURE__ */ jsx54("strong", { children: "\u0410\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u0440\u0430\u0437\u0440\u044B\u0432\u0430\u0442\u044C \u0446\u0438\u043A\u043B\u044B" }),
+                    " \u2014 \u0435\u0441\u043B\u0438 \u0432\u043A\u043B\u044E\u0447\u0435\u043D\u043E, \u0446\u0438\u043A\u043B\u0438\u0447\u0435\u0441\u043A\u0438\u0435 \u0434\u043E\u043C\u0435\u043D\u044B \u0441\u0442\u0430\u0432\u044F\u0442\u0441\u044F \u0432 \u043F\u043B\u0430\u043D, \u0441 \u043F\u043E\u043C\u0435\u0442\u043A\u043E\u0439 \xAB\u26A0\uFE0F \u0446\u0438\u043A\u043B \u0440\u0430\u0437\u043E\u0440\u0432\u0430\u043D\xBB. \u0415\u0441\u043B\u0438 \u0432\u044B\u043A\u043B\u044E\u0447\u0435\u043D\u043E \u2014 \u043F\u043E\u043F\u0430\u0434\u0430\u044E\u0442 \u0432 \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u044B\u0439 \u0431\u043B\u043E\u043A \xAB\u0422\u0440\u0435\u0431\u0443\u0435\u0442 \u0440\u0443\u0447\u043D\u043E\u0433\u043E \u0432\u043C\u0435\u0448\u0430\u0442\u0435\u043B\u044C\u0441\u0442\u0432\u0430\xBB."
+                  ] }),
+                  /* @__PURE__ */ jsxs51("li", { children: [
+                    /* @__PURE__ */ jsx54("strong", { children: "\u0418\u0441\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u043F\u043E \u043C\u0430\u0441\u043A\u0435" }),
+                    " \u2014 glob-\u043F\u0430\u0442\u0442\u0435\u0440\u043D\u044B.",
+                    /* @__PURE__ */ jsx54("code", { children: "test.*" }),
+                    ", ",
+                    /* @__PURE__ */ jsx54("code", { children: "*.settings.*" }),
+                    ". \u041F\u043E\u043B\u0435\u0437\u043D\u043E, \u043A\u043E\u0433\u0434\u0430 \u0432 \u043A\u044D\u0448\u0435 \u043B\u0435\u0436\u0430\u0442 \u0447\u0443\u0436\u0438\u0435 \u0434\u043E\u043C\u0435\u043D\u044B."
+                  ] })
+                ] }) }),
+                /* @__PURE__ */ jsxs51(HelpSection, { title: "\u0426\u0438\u043A\u043B\u044B \u2014 \u0447\u0442\u043E \u0434\u0435\u043B\u0430\u0442\u044C", children: [
+                  /* @__PURE__ */ jsxs51(HelpText, { children: [
+                    "\u0426\u0438\u043A\u043B \u2014 \u043A\u043E\u0433\u0434\u0430 ",
+                    /* @__PURE__ */ jsx54("code", { children: "A" }),
+                    " \u0437\u0430\u0432\u0438\u0441\u0438\u0442 \u043E\u0442 ",
+                    /* @__PURE__ */ jsx54("code", { children: "B" }),
+                    ", \u0430",
+                    " ",
+                    /* @__PURE__ */ jsx54("code", { children: "B" }),
+                    " \u2014 \u043E\u0442 ",
+                    /* @__PURE__ */ jsx54("code", { children: "A" }),
+                    ". \u041D\u0438 \u043E\u0434\u0438\u043D \u043D\u0435\u043B\u044C\u0437\u044F \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C \u043F\u0435\u0440\u0432\u044B\u043C. \u041D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435 \u044D\u0442\u043E \u0432\u0441\u0451 \u0440\u0430\u0432\u043D\u043E \u043D\u0435 \u0441\u0440\u0430\u0431\u043E\u0442\u0430\u0435\u0442."
+                  ] }),
+                  /* @__PURE__ */ jsxs51(HelpList, { children: [
+                    /* @__PURE__ */ jsxs51("li", { children: [
+                      /* @__PURE__ */ jsx54("strong", { children: "\u0420\u0430\u0437\u043E\u0440\u0432\u0430\u0442\u044C \u0432 \u0441\u0445\u0435\u043C\u0435" }),
+                      " \u2014 \u0443\u0431\u0440\u0430\u0442\u044C \u043E\u0434\u043D\u0443 \u0438\u0437 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0435\u0439. \u041E\u0431\u044B\u0447\u043D\u043E \u043E\u0434\u043D\u0430 \u0438\u0437 \u043D\u0438\u0445 \u2014 \xAB\u043C\u044F\u0433\u043A\u0430\u044F\xBB (\u043B\u0438\u0448\u043D\u0438\u0439 Reference, \u0441\u0442\u0430\u0440\u0430\u044F linkage)."
+                    ] }),
+                    /* @__PURE__ */ jsxs51("li", { children: [
+                      /* @__PURE__ */ jsx54("strong", { children: "\u0420\u0430\u0437\u0434\u0435\u043B\u0438\u0442\u044C \u0434\u043E\u043C\u0435\u043D" }),
+                      " \u2014 \u0435\u0441\u043B\u0438 A \u0438 B \u043F\u043B\u043E\u0442\u043D\u043E \u0441\u0432\u044F\u0437\u0430\u043D\u044B, \u0432\u043E\u0437\u043C\u043E\u0436\u043D\u043E, \u043E\u043D\u0438 \u0434\u043E\u043B\u0436\u043D\u044B \u0431\u044B\u0442\u044C \u043E\u0434\u043D\u0438\u043C \u0434\u043E\u043C\u0435\u043D\u043E\u043C."
+                    ] }),
+                    /* @__PURE__ */ jsxs51("li", { children: [
+                      /* @__PURE__ */ jsx54("strong", { children: "\u0420\u0430\u0437\u0440\u0435\u0448\u0438\u0442\u044C \u0430\u0432\u0442\u043E\u0440\u0430\u0437\u0440\u044B\u0432" }),
+                      " \u2014 \u0434\u043B\u044F \u0442\u0435\u0441\u0442\u043E\u0432\u044B\u0445 \u043E\u043A\u0440\u0443\u0436\u0435\u043D\u0438\u0439. \u041F\u043E\u043C\u043D\u0438\u0442\u0435, \u0447\u0442\u043E \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0430 \u043F\u043E\u0439\u0434\u0451\u0442 \xAB\u0432\u043E\u043F\u0440\u0435\u043A\u0438\xBB \u043E\u0434\u043D\u043E\u0439 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438, \u0438 \u0435\u0451 \u043D\u0430\u0434\u043E \u0431\u0443\u0434\u0435\u0442 \u0440\u0430\u0437\u043E\u0431\u0440\u0430\u0442\u044C \u0432\u0440\u0443\u0447\u043D\u0443\u044E."
+                    ] })
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsx54(HelpSection, { title: "\u0411\u044B\u0441\u0442\u0440\u044B\u0435 \u0444\u0438\u043B\u044C\u0442\u0440\u044B \u0438 \u043F\u043E\u0438\u0441\u043A", children: /* @__PURE__ */ jsxs51(HelpList, { children: [
+                  /* @__PURE__ */ jsxs51("li", { children: [
+                    /* @__PURE__ */ jsx54("strong", { children: "\u0426\u0438\u043A\u043B\u044B" }),
+                    " \u2014 \u0442\u043E\u043B\u044C\u043A\u043E \u0434\u043E\u043C\u0435\u043D\u044B \u0432 \u0446\u0438\u043A\u043B\u0430\u0445."
+                  ] }),
+                  /* @__PURE__ */ jsxs51("li", { children: [
+                    /* @__PURE__ */ jsx54("strong", { children: "\u0421\u0442\u0430\u0440\u0442\u043E\u0432\u044B\u0435 / \u0424\u0438\u043D\u0430\u043B\u044C\u043D\u044B\u0435" }),
+                    " \u2014 \u0444\u043E\u043A\u0443\u0441 \u043D\u0430 \u043A\u043E\u043D\u0446\u0430\u0445 \u0433\u0440\u0430\u0444\u0430."
+                  ] }),
+                  /* @__PURE__ */ jsxs51("li", { children: [
+                    /* @__PURE__ */ jsx54("strong", { children: "\u0420\u0430\u0437\u043E\u0440\u0432\u0430\u043D\u043E" }),
+                    " \u2014 \u0434\u043E\u043C\u0435\u043D\u044B, \u0443 \u043A\u043E\u0442\u043E\u0440\u044B\u0445 \u0430\u0432\u0442\u043E\u0440\u0430\u0437\u0440\u044B\u0432 \u043E\u0442\u0440\u0435\u0437\u0430\u043B \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u044C."
+                  ] }),
+                  /* @__PURE__ */ jsxs51("li", { children: [
+                    /* @__PURE__ */ jsx54("strong", { children: "\u041F\u043E\u0438\u0441\u043A" }),
+                    " \u2014 \u0444\u0438\u043B\u044C\u0442\u0440 \u043F\u043E \u0438\u043C\u0435\u043D\u0438 \u0434\u043E\u043C\u0435\u043D\u0430."
+                  ] })
+                ] }) }),
+                /* @__PURE__ */ jsx54(HelpSection, { title: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442", children: /* @__PURE__ */ jsxs51(HelpList, { children: [
+                  /* @__PURE__ */ jsxs51("li", { children: [
+                    /* @__PURE__ */ jsx54("strong", { children: "MD" }),
+                    " \u2014 Markdown-\u043E\u0442\u0447\u0451\u0442: \u0441\u0432\u043E\u0434\u043A\u0430, \u0432\u0441\u0435 \u0443\u0440\u043E\u0432\u043D\u0438, \u043E\u0431\u043E\u0441\u043D\u043E\u0432\u0430\u043D\u0438\u0435, \u0446\u0438\u043A\u043B\u044B. \u041F\u043E\u0434\u0445\u043E\u0434\u0438\u0442 \u0434\u043B\u044F PR/\u0437\u0430\u0434\u0430\u0447\u0438 \u0432 \u0442\u0440\u0435\u043A\u0435\u0440\u0435."
+                  ] }),
+                  /* @__PURE__ */ jsxs51("li", { children: [
+                    /* @__PURE__ */ jsx54("strong", { children: "JSON" }),
+                    " \u2014 \u043C\u0430\u0448\u0438\u043D\u043D\u043E-\u0447\u0438\u0442\u0430\u0435\u043C\u043E \u0434\u043B\u044F CI/CD."
+                  ] }),
+                  /* @__PURE__ */ jsxs51("li", { children: [
+                    /* @__PURE__ */ jsx54("strong", { children: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C" }),
+                    " \u2014 \u043F\u043B\u043E\u0441\u043A\u0438\u0439 \u0442\u0435\u043A\u0441\u0442 \u043F\u043E \u0443\u0440\u043E\u0432\u043D\u044F\u043C."
+                  ] }),
+                  /* @__PURE__ */ jsxs51("li", { children: [
+                    /* @__PURE__ */ jsx54("strong", { children: "\u041D\u0430 \u0433\u0440\u0430\u0444\u0435" }),
+                    " \u2014 \u043F\u043E\u0434\u0441\u0432\u0435\u0442\u0438\u0442\u044C \u0431\u0435\u0439\u0434\u0436\u0430\u043C\u0438 L1, L2, \u2026 \u043D\u0430 \u0433\u0440\u0430\u0444\u0435."
+                  ] })
+                ] }) }),
+                /* @__PURE__ */ jsx54(HelpSection, { title: "\u041E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F", children: /* @__PURE__ */ jsxs51(HelpList, { children: [
+                  /* @__PURE__ */ jsx54("li", { children: "\u0423\u0447\u0438\u0442\u044B\u0432\u0430\u044E\u0442\u0441\u044F \u0442\u043E\u043B\u044C\u043A\u043E \u0434\u043E\u043C\u0435\u043D\u044B \u0432 \u043A\u044D\u0448\u0435. Missing / broken \u043D\u0435 \u0443\u0447\u0430\u0441\u0442\u0432\u0443\u044E\u0442." }),
+                  /* @__PURE__ */ jsxs51("li", { children: [
+                    "\u0422\u043E\u043B\u044C\u043A\u043E \u043F\u0440\u044F\u043C\u044B\u0435 \u0441\u0441\u044B\u043B\u043A\u0438 (FQID, inherits, extends). \u0422\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0438 ",
+                    /* @__PURE__ */ jsx54("code", { children: "transitiveLinkages" }),
+                    " \u0438",
+                    " ",
+                    /* @__PURE__ */ jsx54("code", { children: "calculation.schemaId" }),
+                    " \u043D\u0435 \u0432\u043B\u0438\u044F\u044E\u0442 \u2014 \u043E\u043D\u0438 \u0440\u0430\u043D\u0442\u0430\u0439\u043C-\u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438, \u043D\u0435 build-time."
+                  ] }),
+                  /* @__PURE__ */ jsxs51("li", { children: [
+                    "\u041F\u0440\u0438 ",
+                    /* @__PURE__ */ jsx54("code", { children: "--refresh" }),
+                    " \u043F\u043B\u0430\u043D \u043C\u043E\u0436\u0435\u0442 \u0438\u0437\u043C\u0435\u043D\u0438\u0442\u044C\u0441\u044F \u2014 \u043D\u043E\u0432\u044B\u0435 cross-domain-\u0441\u0441\u044B\u043B\u043A\u0438 \u043F\u043E\u044F\u0432\u044F\u0442\u0441\u044F/\u0438\u0441\u0447\u0435\u0437\u043D\u0443\u0442."
+                  ] })
+                ] }) })
+              ] }),
+              !showHelp && /* @__PURE__ */ jsxs51(Fragment10, { children: [
+                /* @__PURE__ */ jsxs51(
+                  "div",
+                  {
+                    className: "topo-filters" + (filtersOpen ? "" : " topo-filters--collapsed"),
+                    children: [
+                      /* @__PURE__ */ jsxs51(
+                        "button",
+                        {
+                          className: "topo-filters__toggle",
+                          onClick: () => setFiltersOpen(!filtersOpen),
+                          children: [
+                            /* @__PURE__ */ jsx54(
+                              MIcon,
+                              {
+                                name: filtersOpen ? "expand_more" : "chevron_right",
+                                size: "sm"
+                              }
+                            ),
+                            /* @__PURE__ */ jsx54(MIcon, { name: "tune", size: "sm" }),
+                            /* @__PURE__ */ jsx54("span", { children: "\u041F\u0430\u0440\u0430\u043C\u0435\u0442\u0440\u044B" }),
+                            !filtersOpen && /* @__PURE__ */ jsxs51("span", { className: "topo-filters__summary", children: [
+                              scope === "all" ? "\u0432\u0441\u0435" : scope === "visible" ? "\u0432\u0438\u0434\u0438\u043C\u044B\u0435" : "\u0438\u0437\u0431\u0440\u0430\u043D\u043D\u044B\u0435",
+                              !includeFqid && " \xB7 \u0431\u0435\u0437 FQID",
+                              !includeLinkage && " \xB7 \u0431\u0435\u0437 linkage",
+                              autoBreak && " \xB7 \u0430\u0432\u0442\u043E\u0440\u0430\u0437\u0440\u044B\u0432",
+                              excludePattern && " \xB7 \u043C\u0430\u0441\u043A\u0430"
+                            ] })
+                          ]
+                        }
+                      ),
+                      filtersOpen && /* @__PURE__ */ jsxs51("div", { className: "topo-filters__body", children: [
+                        /* @__PURE__ */ jsxs51("div", { className: "validation-scope", children: [
+                          /* @__PURE__ */ jsx54("div", { className: "validation-scope__label", children: "\u041E\u0431\u043B\u0430\u0441\u0442\u044C" }),
+                          scopeOption("all", "\u0412\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B", props.allDomains.length),
+                          scopeOption(
+                            "visible",
+                            "\u0422\u043E\u043B\u044C\u043A\u043E \u0432\u0438\u0434\u0438\u043C\u044B\u0435",
+                            props.visibleDomains.length
                           ),
-                          brokenInfo && /* @__PURE__ */ jsx54(
-                            "span",
-                            {
-                              className: "topo-broken-badge",
-                              title: "\u0426\u0438\u043A\u043B \u0440\u0430\u0437\u043E\u0440\u0432\u0430\u043D. \u041E\u0442\u0440\u0435\u0437\u0430\u043D\u044B: " + brokenInfo.brokenDeps.join(", "),
-                              children: "\u26A0\uFE0F \u0446\u0438\u043A\u043B \u0440\u0430\u0437\u043E\u0440\u0432\u0430\u043D"
-                            }
+                          scopeOption(
+                            "bookmarked",
+                            "\u0422\u043E\u043B\u044C\u043A\u043E \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u044B\u0435",
+                            props.bookmarkedDomains.length
                           )
                         ] }),
-                        isDepsOpen && deps.length > 0 && /* @__PURE__ */ jsx54("div", { className: "topo-domain__deps", children: deps.map((dep) => /* @__PURE__ */ jsxs51("div", { className: "topo-dep", children: [
-                          /* @__PURE__ */ jsxs51("span", { className: "topo-dep__level", children: [
-                            "L",
-                            result.levelMap.get(dep)
+                        /* @__PURE__ */ jsxs51("div", { className: "topo-filters__checks", children: [
+                          /* @__PURE__ */ jsx54("div", { className: "validation-scope__label", children: "\u0423\u0447\u0438\u0442\u044B\u0432\u0430\u0442\u044C \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438" }),
+                          /* @__PURE__ */ jsxs51("label", { className: "menu__checkbox", children: [
+                            /* @__PURE__ */ jsx54(
+                              "input",
+                              {
+                                type: "checkbox",
+                                checked: includeFqid,
+                                onChange: () => setIncludeFqid(!includeFqid)
+                              }
+                            ),
+                            /* @__PURE__ */ jsx54("span", { className: "menu__check" }),
+                            /* @__PURE__ */ jsx54("span", { className: "menu__text", children: "FQID-\u0441\u0441\u044B\u043B\u043A\u0438" })
                           ] }),
+                          /* @__PURE__ */ jsxs51("label", { className: "menu__checkbox", children: [
+                            /* @__PURE__ */ jsx54(
+                              "input",
+                              {
+                                type: "checkbox",
+                                checked: includeLinkage,
+                                onChange: () => setIncludeLinkage(!includeLinkage)
+                              }
+                            ),
+                            /* @__PURE__ */ jsx54("span", { className: "menu__check" }),
+                            /* @__PURE__ */ jsx54("span", { className: "menu__text", children: "Linkage-\u0441\u0432\u044F\u0437\u0438" })
+                          ] }),
+                          /* @__PURE__ */ jsxs51("label", { className: "menu__checkbox", children: [
+                            /* @__PURE__ */ jsx54(
+                              "input",
+                              {
+                                type: "checkbox",
+                                checked: missingAsSatisfied,
+                                onChange: () => setMissingAsSatisfied(!missingAsSatisfied)
+                              }
+                            ),
+                            /* @__PURE__ */ jsx54("span", { className: "menu__check" }),
+                            /* @__PURE__ */ jsx54("span", { className: "menu__text", children: "Missing-\u0434\u043E\u043C\u0435\u043D\u044B \u0441\u0447\u0438\u0442\u0430\u0442\u044C \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u043D\u044B\u043C\u0438" })
+                          ] }),
+                          /* @__PURE__ */ jsxs51("label", { className: "menu__checkbox", children: [
+                            /* @__PURE__ */ jsx54(
+                              "input",
+                              {
+                                type: "checkbox",
+                                checked: autoBreak,
+                                onChange: () => setAutoBreak(!autoBreak)
+                              }
+                            ),
+                            /* @__PURE__ */ jsx54("span", { className: "menu__check" }),
+                            /* @__PURE__ */ jsx54("span", { className: "menu__text", children: "\u0410\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u0440\u0430\u0437\u0440\u044B\u0432\u0430\u0442\u044C \u0446\u0438\u043A\u043B\u044B" })
+                          ] })
+                        ] }),
+                        /* @__PURE__ */ jsxs51("div", { className: "topo-filters__mask", children: [
+                          /* @__PURE__ */ jsx54("div", { className: "validation-scope__label", children: "\u0418\u0441\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0434\u043E\u043C\u0435\u043D\u044B \u043F\u043E \u043C\u0430\u0441\u043A\u0435" }),
                           /* @__PURE__ */ jsx54(
-                            "a",
+                            "input",
                             {
-                              className: "validation-log__domain",
-                              onClick: () => {
-                                goto(dep);
-                                useGraphStore.getState().setTopoOpen(false);
-                              },
-                              children: dep
+                              className: "menu__input",
+                              type: "text",
+                              placeholder: "\u043D\u0430\u043F\u0440\u0438\u043C\u0435\u0440: *.settings.* test.*",
+                              value: excludePattern,
+                              onChange: (e) => setExcludePattern(e.target.value)
                             }
                           )
-                        ] }, dep)) })
+                        ] })
+                      ] })
+                    ]
+                  }
+                ),
+                result && /* @__PURE__ */ jsxs51("div", { className: "topo-kpi", children: [
+                  /* @__PURE__ */ jsxs51("div", { className: "topo-kpi-card topo-kpi-card--neutral", children: [
+                    /* @__PURE__ */ jsx54("div", { className: "topo-kpi-card__value", children: result.stats.total }),
+                    /* @__PURE__ */ jsx54("div", { className: "topo-kpi-card__label", children: "\u0434\u043E\u043C\u0435\u043D\u043E\u0432" }),
+                    result.stats.excluded > 0 && /* @__PURE__ */ jsxs51("div", { className: "topo-kpi-card__sub", children: [
+                      result.stats.excluded,
+                      " \u0438\u0441\u043A\u043B\u044E\u0447\u0435\u043D\u043E"
+                    ] })
+                  ] }),
+                  /* @__PURE__ */ jsxs51("div", { className: "topo-kpi-card topo-kpi-card--ok", children: [
+                    /* @__PURE__ */ jsx54("div", { className: "topo-kpi-card__value", children: result.stats.levels }),
+                    /* @__PURE__ */ jsx54("div", { className: "topo-kpi-card__label", children: "\u0443\u0440\u043E\u0432\u043D\u0435\u0439" }),
+                    /* @__PURE__ */ jsxs51("div", { className: "topo-kpi-card__sub", children: [
+                      "\u043A\u0440\u0438\u0442\u0438\u0447\u0435\u0441\u043A\u0438\u0439 \u043F\u0443\u0442\u044C: ",
+                      result.stats.criticalPath
+                    ] })
+                  ] }),
+                  /* @__PURE__ */ jsxs51(
+                    "div",
+                    {
+                      className: "topo-kpi-card" + (result.stats.roots > 0 ? " topo-kpi-card--ok" : " topo-kpi-card--neutral"),
+                      children: [
+                        /* @__PURE__ */ jsx54("div", { className: "topo-kpi-card__value", children: result.stats.roots }),
+                        /* @__PURE__ */ jsx54("div", { className: "topo-kpi-card__label", children: "\u0441\u0442\u0430\u0440\u0442\u043E\u0432\u044B\u0445" }),
+                        /* @__PURE__ */ jsx54("div", { className: "topo-kpi-card__sub", children: "\u0441\u0442\u0430\u0432\u0438\u0442\u044C \u043F\u0435\u0440\u0432\u044B\u043C\u0438" })
                       ]
-                    },
-                    id
-                  );
-                }) })
-              ]
-            },
-            idx
-          );
-        })
-      ] })
-    ] }),
-    result && /* @__PURE__ */ jsxs51("div", { className: "validation-footer", children: [
-      /* @__PURE__ */ jsxs51("div", { className: "validation-stats", children: [
-        /* @__PURE__ */ jsxs51("span", { className: "validation-stat", children: [
-          "\u{1F4E6} ",
-          result.stats.total
-        ] }),
-        /* @__PURE__ */ jsxs51("span", { className: "validation-stat validation-stat--ok", children: [
-          "\u{1F4CA} ",
-          result.stats.levels,
-          " \u0443\u0440\u043E\u0432\u043D\u0435\u0439"
-        ] }),
-        /* @__PURE__ */ jsxs51("span", { className: "validation-stat validation-stat--warn", children: [
-          "\u23F1 ",
-          result.stats.criticalPath,
-          " \u0448\u0430\u0433\u043E\u0432"
-        ] }),
-        result.stats.brokenCount > 0 && /* @__PURE__ */ jsxs51("span", { className: "validation-stat validation-stat--warn", children: [
-          "\u{1F517} ",
-          result.stats.brokenCount,
-          " \u0440\u0430\u0437\u043E\u0440\u0432\u0430\u043D\u043E"
-        ] }),
-        result.stats.cyclic > 0 && /* @__PURE__ */ jsxs51("span", { className: "validation-stat validation-stat--err", children: [
-          "\u26A0\uFE0F ",
-          result.stats.cyclic,
-          " \u0446\u0438\u043A\u043B."
-        ] })
-      ] }),
-      /* @__PURE__ */ jsxs51("div", { className: "validation-footer__actions", children: [
-        /* @__PURE__ */ jsx54(
-          "button",
-          {
-            className: "btn",
-            onClick: () => {
-              const st = useGraphStore.getState();
-              st.setTopoLevelMap(result.levelMap);
-              st.setTopoOpen(false);
-            },
-            children: "\u{1F3A8} \u041D\u0430 \u0433\u0440\u0430\u0444\u0435"
-          }
-        ),
-        /* @__PURE__ */ jsx54("button", { className: "btn", onClick: copyAsText, children: "\u{1F4CB} \u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C" }),
-        /* @__PURE__ */ jsx54("button", { className: "btn", onClick: exportJSON, children: "\u{1F4BE} JSON" }),
-        /* @__PURE__ */ jsx54("button", { className: "btn", onClick: exportMD, children: "\u{1F4DD} MD" }),
-        /* @__PURE__ */ jsx54("button", { className: "btn", onClick: () => setResult(null), children: "\u2190 \u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438" })
-      ] })
-    ] })
-  ] }) });
+                    }
+                  ),
+                  /* @__PURE__ */ jsxs51(
+                    "div",
+                    {
+                      className: "topo-kpi-card" + (result.stats.leaves > 0 ? " topo-kpi-card--neutral" : " topo-kpi-card--neutral"),
+                      children: [
+                        /* @__PURE__ */ jsx54("div", { className: "topo-kpi-card__value", children: result.stats.leaves }),
+                        /* @__PURE__ */ jsx54("div", { className: "topo-kpi-card__label", children: "\u0444\u0438\u043D\u0430\u043B\u044C\u043D\u044B\u0445" }),
+                        /* @__PURE__ */ jsx54("div", { className: "topo-kpi-card__sub", children: "\u0441\u0442\u0430\u0432\u0438\u0442\u044C \u043F\u043E\u0441\u043B\u0435\u0434\u043D\u0438\u043C\u0438" })
+                      ]
+                    }
+                  ),
+                  result.stats.cyclic > 0 && /* @__PURE__ */ jsxs51("div", { className: "topo-kpi-card topo-kpi-card--err", children: [
+                    /* @__PURE__ */ jsx54("div", { className: "topo-kpi-card__value", children: result.stats.cyclic }),
+                    /* @__PURE__ */ jsx54("div", { className: "topo-kpi-card__label", children: "\u0432 \u0446\u0438\u043A\u043B\u0430\u0445" }),
+                    /* @__PURE__ */ jsxs51("div", { className: "topo-kpi-card__sub", children: [
+                      result.stats.cycles.length,
+                      " ",
+                      result.stats.cycles.length === 1 ? "\u0446\u0438\u043A\u043B" : "\u0446\u0438\u043A\u043B\u043E\u0432"
+                    ] })
+                  ] }),
+                  result.stats.brokenCount > 0 && /* @__PURE__ */ jsxs51("div", { className: "topo-kpi-card topo-kpi-card--warn", children: [
+                    /* @__PURE__ */ jsx54("div", { className: "topo-kpi-card__value", children: result.stats.brokenCount }),
+                    /* @__PURE__ */ jsx54("div", { className: "topo-kpi-card__label", children: "\u0440\u0430\u0437\u043E\u0440\u0432\u0430\u043D\u043E" }),
+                    /* @__PURE__ */ jsx54("div", { className: "topo-kpi-card__sub", children: "\u0446\u0438\u043A\u043B\u044B \u0430\u0432\u0442\u043E-\u0440\u0430\u0437\u0440\u044B\u0432" })
+                  ] })
+                ] }),
+                result && !isEmpty && /* @__PURE__ */ jsxs51("div", { className: "topo-toolbar", children: [
+                  /* @__PURE__ */ jsx54("div", { className: "topo-quick-filters", children: QUICK_FILTERS.map((f) => {
+                    const active = quickFilter === f.id;
+                    let count = 0;
+                    if (f.id === "all")
+                      count = result.stats.total;
+                    else if (f.id === "cycles")
+                      count = result.stats.cyclic;
+                    else if (f.id === "roots")
+                      count = result.stats.roots;
+                    else if (f.id === "leaves")
+                      count = result.stats.leaves;
+                    else if (f.id === "broken")
+                      count = result.stats.brokenCount;
+                    if (f.id !== "all" && !active && count === 0)
+                      return null;
+                    return /* @__PURE__ */ jsxs51(
+                      "button",
+                      {
+                        type: "button",
+                        className: "health-quick-filter" + (active ? " health-quick-filter--active" : "") + (f.id === "cycles" ? " health-quick-filter--err" : f.id === "broken" ? " health-quick-filter--warn" : ""),
+                        onClick: () => setQuickFilter(f.id),
+                        children: [
+                          /* @__PURE__ */ jsx54(MIcon, { name: f.icon, size: "sm" }),
+                          f.label,
+                          /* @__PURE__ */ jsx54("span", { className: "health-quick-filter__count", children: count })
+                        ]
+                      },
+                      f.id
+                    );
+                  }) }),
+                  /* @__PURE__ */ jsxs51("div", { className: "topo-search", children: [
+                    /* @__PURE__ */ jsx54(MIcon, { name: "search", size: "sm" }),
+                    /* @__PURE__ */ jsx54(
+                      "input",
+                      {
+                        type: "text",
+                        placeholder: "\u041D\u0430\u0439\u0442\u0438 \u0434\u043E\u043C\u0435\u043D\u2026",
+                        value: searchQuery,
+                        onChange: (e) => setSearchQuery(e.target.value),
+                        spellCheck: false
+                      }
+                    ),
+                    searchQuery && /* @__PURE__ */ jsx54(
+                      "button",
+                      {
+                        className: "topo-search__clear",
+                        onClick: () => setSearchQuery(""),
+                        children: "\u2715"
+                      }
+                    )
+                  ] })
+                ] }),
+                result && !isEmpty && quickFilter === "all" && !searchQuery && /* @__PURE__ */ jsxs51("div", { className: "topo-distribution", children: [
+                  /* @__PURE__ */ jsx54("div", { className: "topo-distribution__title", children: "\u0420\u0430\u0441\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u0438\u0435 \u043F\u043E \u0443\u0440\u043E\u0432\u043D\u044F\u043C" }),
+                  /* @__PURE__ */ jsx54("div", { className: "topo-distribution__bars", children: result.levels.map((level, idx) => {
+                    const maxCount = Math.max(
+                      ...result.levels.map((l) => l.length),
+                      1
+                    );
+                    const width = level.length / maxCount * 100;
+                    return /* @__PURE__ */ jsxs51(
+                      "button",
+                      {
+                        type: "button",
+                        className: "topo-distribution__bar-row",
+                        onClick: () => {
+                          setExpandedLevels((prev) => {
+                            const next = new Set(prev);
+                            next.add(idx);
+                            return next;
+                          });
+                          const el = document.querySelector(
+                            `.topo-level[data-level="${idx}"]`
+                          );
+                          if (el) {
+                            el.scrollIntoView({
+                              behavior: "smooth",
+                              block: "center"
+                            });
+                          }
+                        },
+                        children: [
+                          /* @__PURE__ */ jsxs51("span", { className: "topo-distribution__level-badge", children: [
+                            "L",
+                            idx + 1
+                          ] }),
+                          /* @__PURE__ */ jsx54("span", { className: "topo-distribution__track", children: /* @__PURE__ */ jsx54(
+                            "span",
+                            {
+                              className: "topo-distribution__fill",
+                              style: { width: `${width}%` }
+                            }
+                          ) }),
+                          /* @__PURE__ */ jsx54("span", { className: "topo-distribution__count", children: level.length })
+                        ]
+                      },
+                      idx
+                    );
+                  }) })
+                ] }),
+                /* @__PURE__ */ jsxs51("div", { className: "topo-content", children: [
+                  !result && /* @__PURE__ */ jsxs51("div", { className: "topo-empty", children: [
+                    /* @__PURE__ */ jsx54("div", { className: "topo-empty__icon", children: /* @__PURE__ */ jsx54(MIcon, { name: "inventory_2", size: "xl" }) }),
+                    /* @__PURE__ */ jsx54("div", { className: "topo-empty__title", children: "\u041F\u043E\u0441\u0442\u0440\u043E\u0435\u043D\u0438\u0435 \u043F\u043B\u0430\u043D\u0430\u2026" })
+                  ] }),
+                  result && isEmpty && /* @__PURE__ */ jsxs51("div", { className: "topo-empty", children: [
+                    /* @__PURE__ */ jsx54("div", { className: "topo-empty__icon", children: /* @__PURE__ */ jsx54(MIcon, { name: "check_circle", size: "xl" }) }),
+                    /* @__PURE__ */ jsx54("div", { className: "topo-empty__title", children: searchQuery ? `\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \xAB${searchQuery}\xBB` : "\u0414\u043E\u043C\u0435\u043D\u043E\u0432 \u043D\u0435 \u043E\u0441\u0442\u0430\u043B\u043E\u0441\u044C \u043F\u043E\u0441\u043B\u0435 \u0444\u0438\u043B\u044C\u0442\u0440\u043E\u0432" }),
+                    result.stats.excluded > 0 && /* @__PURE__ */ jsxs51("div", { className: "topo-empty__hint", children: [
+                      result.stats.excluded,
+                      " \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u0438\u0441\u043A\u043B\u044E\u0447\u0435\u043D\u043E \u043F\u043E \u043C\u0430\u0441\u043A\u0435"
+                    ] })
+                  ] }),
+                  result && !isEmpty && /* @__PURE__ */ jsxs51("div", { className: "topo-result", children: [
+                    filteredLevels.map((level) => {
+                      if (level.domains.length === 0)
+                        return null;
+                      const isOpen = expandedLevels.has(level.index);
+                      const filtered = level.domains.length < level.totalInLevel;
+                      return /* @__PURE__ */ jsxs51(
+                        "div",
+                        {
+                          className: "topo-level" + (isOpen ? " topo-level--open" : ""),
+                          "data-level": level.index,
+                          children: [
+                            /* @__PURE__ */ jsxs51(
+                              "div",
+                              {
+                                className: "topo-level__header",
+                                onClick: () => toggleLevel(level.index),
+                                children: [
+                                  /* @__PURE__ */ jsx54("span", { className: "validation-log__chevron", children: isOpen ? "\u25BE" : "\u25B8" }),
+                                  /* @__PURE__ */ jsx54("span", { className: "topo-level__badge", children: level.index + 1 }),
+                                  /* @__PURE__ */ jsxs51("span", { className: "topo-level__title", children: [
+                                    "\u0423\u0440\u043E\u0432\u0435\u043D\u044C ",
+                                    level.index + 1
+                                  ] }),
+                                  /* @__PURE__ */ jsxs51("span", { className: "topo-level__count", children: [
+                                    level.domains.length,
+                                    filtered && /* @__PURE__ */ jsxs51(
+                                      "span",
+                                      {
+                                        style: {
+                                          color: "var(--text-500)",
+                                          marginLeft: 4
+                                        },
+                                        children: [
+                                          "/ ",
+                                          level.totalInLevel
+                                        ]
+                                      }
+                                    ),
+                                    level.domains.length === 1 ? " \u0434\u043E\u043C\u0435\u043D" : level.domains.length < 5 ? " \u0434\u043E\u043C\u0435\u043D\u0430" : " \u0434\u043E\u043C\u0435\u043D\u043E\u0432"
+                                  ] })
+                                ]
+                              }
+                            ),
+                            isOpen && /* @__PURE__ */ jsx54("div", { className: "topo-level__body", children: level.domains.map((id) => {
+                              const isDepsOpen = expandedDomainDeps.has(id);
+                              const directDeps = Array.from(
+                                result.deps.get(id) || []
+                              ).filter(
+                                (d) => result.levelMap.has(d) || result.cyclic.includes(d)
+                              );
+                              const rev = result.reverseDeps.get(id) || /* @__PURE__ */ new Set();
+                              const directDependents = Array.from(rev).filter(
+                                (d) => result.levelMap.has(d) || result.cyclic.includes(d)
+                              );
+                              const brokenInfo = result.broken.find(
+                                (b) => b.id === id
+                              );
+                              const isRoot = result.levelMap.get(id) === 1;
+                              const isLeaf = directDependents.length === 0;
+                              const isSelected = selectedDomainId === id;
+                              return /* @__PURE__ */ jsxs51(
+                                "div",
+                                {
+                                  className: "topo-domain" + (brokenInfo ? " topo-domain--broken" : "") + (isSelected ? " topo-domain--selected" : ""),
+                                  children: [
+                                    /* @__PURE__ */ jsxs51("div", { className: "topo-domain__head", children: [
+                                      directDeps.length > 0 ? /* @__PURE__ */ jsx54(
+                                        "span",
+                                        {
+                                          className: "validation-log__chevron",
+                                          style: { cursor: "pointer" },
+                                          onClick: () => toggleDomainDeps(id),
+                                          children: isDepsOpen ? "\u25BE" : "\u25B8"
+                                        }
+                                      ) : /* @__PURE__ */ jsx54("span", { className: "validation-log__chevron", children: " " }),
+                                      /* @__PURE__ */ jsx54(
+                                        "a",
+                                        {
+                                          className: "validation-log__domain",
+                                          onClick: (e) => {
+                                            e.stopPropagation();
+                                            setSelectedDomainId(id);
+                                          },
+                                          title: "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0434\u0435\u0442\u0430\u043B\u0438",
+                                          children: id
+                                        }
+                                      ),
+                                      isRoot && /* @__PURE__ */ jsx54(
+                                        "span",
+                                        {
+                                          className: "topo-domain-badge topo-domain-badge--root",
+                                          title: "\u0421\u0442\u0430\u0440\u0442\u043E\u0432\u044B\u0439 \u0434\u043E\u043C\u0435\u043D \u2014 \u0443\u0441\u0442\u0430\u043D\u0430\u0432\u043B\u0438\u0432\u0430\u0442\u044C \u043F\u0435\u0440\u0432\u044B\u043C",
+                                          children: "\u25B6 \u0441\u0442\u0430\u0440\u0442"
+                                        }
+                                      ),
+                                      isLeaf && /* @__PURE__ */ jsx54(
+                                        "span",
+                                        {
+                                          className: "topo-domain-badge topo-domain-badge--leaf",
+                                          title: "\u0424\u0438\u043D\u0430\u043B\u044C\u043D\u044B\u0439 \u2014 \u043D\u0438\u043A\u0442\u043E \u043E\u0442 \u043D\u0435\u0433\u043E \u043D\u0435 \u0437\u0430\u0432\u0438\u0441\u0438\u0442",
+                                          children: "\u23ED \u0444\u0438\u043D\u0430\u043B"
+                                        }
+                                      ),
+                                      brokenInfo && /* @__PURE__ */ jsx54(
+                                        "span",
+                                        {
+                                          className: "topo-broken-badge",
+                                          title: "\u0426\u0438\u043A\u043B \u0440\u0430\u0437\u043E\u0440\u0432\u0430\u043D. \u041E\u0442\u0440\u0435\u0437\u0430\u043D\u044B: " + brokenInfo.brokenDeps.join(", "),
+                                          children: "\u26A0\uFE0F \u0440\u0430\u0437\u0440\u044B\u0432"
+                                        }
+                                      ),
+                                      directDependents.length > 0 && /* @__PURE__ */ jsxs51(
+                                        "span",
+                                        {
+                                          className: "topo-domain-badge topo-domain-badge--deps",
+                                          title: `${directDependents.length} \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u0437\u0430\u0432\u0438\u0441\u044F\u0442 \u043E\u0442 \u043D\u0435\u0433\u043E`,
+                                          children: [
+                                            "\u2190 ",
+                                            directDependents.length
+                                          ]
+                                        }
+                                      ),
+                                      /* @__PURE__ */ jsx54(
+                                        "button",
+                                        {
+                                          className: "topo-domain__open-btn",
+                                          onClick: (e) => {
+                                            e.stopPropagation();
+                                            openDomainSchema(id);
+                                          },
+                                          title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0445\u0435\u043C\u0443 \u0434\u043E\u043C\u0435\u043D\u0430",
+                                          children: /* @__PURE__ */ jsx54(MIcon, { name: "menu_book", size: "sm" })
+                                        }
+                                      )
+                                    ] }),
+                                    isDepsOpen && directDeps.length > 0 && /* @__PURE__ */ jsx54("div", { className: "topo-domain__deps", children: directDeps.map((dep) => /* @__PURE__ */ jsxs51(
+                                      "div",
+                                      {
+                                        className: "topo-dep",
+                                        children: [
+                                          /* @__PURE__ */ jsxs51("span", { className: "topo-dep__level", children: [
+                                            "L",
+                                            result.levelMap.get(dep) || "?"
+                                          ] }),
+                                          /* @__PURE__ */ jsx54(
+                                            "a",
+                                            {
+                                              className: "validation-log__domain",
+                                              onClick: () => setSelectedDomainId(dep),
+                                              children: dep
+                                            }
+                                          )
+                                        ]
+                                      },
+                                      dep
+                                    )) })
+                                  ]
+                                },
+                                id
+                              );
+                            }) })
+                          ]
+                        },
+                        level.index
+                      );
+                    }),
+                    cycleDetails.length > 0 && /* @__PURE__ */ jsxs51("div", { className: "topo-cyclic topo-cyclic--cycles", children: [
+                      /* @__PURE__ */ jsxs51("div", { className: "topo-cyclic__header", children: [
+                        /* @__PURE__ */ jsx54("span", { className: "topo-cyclic__icon", children: "\u26A0\uFE0F" }),
+                        /* @__PURE__ */ jsxs51("span", { children: [
+                          "\u0426\u0438\u043A\u043B\u044B \u0432 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u044F\u0445 (",
+                          cycleDetails.length,
+                          ")"
+                        ] }),
+                        /* @__PURE__ */ jsx54("span", { className: "topo-cyclic__subtitle", children: "\u0422\u0440\u0435\u0431\u0443\u044E\u0442 \u0440\u0443\u0447\u043D\u043E\u0433\u043E \u0440\u0430\u0437\u0431\u043E\u0440\u0430 \u2014 \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C \u0432 \u043E\u0434\u0438\u043D \u043F\u0440\u043E\u0445\u043E\u0434 \u043D\u0435\u043B\u044C\u0437\u044F" })
+                      ] }),
+                      /* @__PURE__ */ jsx54("div", { className: "topo-cyclic__body", children: cycleDetails.map((cycle, idx) => /* @__PURE__ */ jsxs51("div", { className: "topo-cycle-group", children: [
+                        /* @__PURE__ */ jsxs51("div", { className: "topo-cycle-group__title", children: [
+                          "\u0426\u0438\u043A\u043B ",
+                          idx + 1,
+                          " \xB7 ",
+                          cycle.domains.length,
+                          " ",
+                          cycle.domains.length === 1 ? "\u0434\u043E\u043C\u0435\u043D" : cycle.domains.length < 5 ? "\u0434\u043E\u043C\u0435\u043D\u0430" : "\u0434\u043E\u043C\u0435\u043D\u043E\u0432",
+                          cycle.filtered.length !== cycle.domains.length && /* @__PURE__ */ jsxs51("span", { style: { color: "var(--text-500)", marginLeft: 6 }, children: [
+                            "(\u043F\u043E\u043A\u0430\u0437\u0430\u043D\u043E ",
+                            cycle.filtered.length,
+                            ")"
+                          ] })
+                        ] }),
+                        /* @__PURE__ */ jsxs51("div", { className: "topo-cycle-group__chain", children: [
+                          cycle.filtered.map((d, i) => /* @__PURE__ */ jsxs51(React25.Fragment, { children: [
+                            /* @__PURE__ */ jsx54(
+                              "button",
+                              {
+                                className: "validation-log__domain topo-cycle-link",
+                                onClick: () => setSelectedDomainId(d),
+                                children: d
+                              }
+                            ),
+                            i < cycle.filtered.length - 1 && /* @__PURE__ */ jsx54("span", { className: "topo-cycle-arrow", children: "\u2192" })
+                          ] }, d)),
+                          /* @__PURE__ */ jsx54("span", { className: "topo-cycle-arrow", children: "\u21BA" })
+                        ] })
+                      ] }, idx)) })
+                    ] }),
+                    brokenDetails.length > 0 && /* @__PURE__ */ jsxs51("div", { className: "topo-cyclic topo-cyclic--broken", children: [
+                      /* @__PURE__ */ jsxs51("div", { className: "topo-cyclic__header topo-cyclic__header--broken", children: [
+                        /* @__PURE__ */ jsx54("span", { className: "topo-cyclic__icon", children: "\u{1F517}" }),
+                        /* @__PURE__ */ jsxs51("span", { children: [
+                          "\u0420\u0430\u0437\u043E\u0440\u0432\u0430\u043D\u043E \u0430\u0432\u0442\u043E\u0440\u0430\u0437\u0440\u044B\u0432\u043E\u043C (",
+                          brokenDetails.length,
+                          ")"
+                        ] }),
+                        /* @__PURE__ */ jsx54("span", { className: "topo-cyclic__subtitle", children: "\u0414\u043E\u043C\u0435\u043D\u044B \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u044F\u0442\u0441\u044F, \u043D\u043E \u043E\u0434\u043D\u0430 \u0438\u0437 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0435\u0439 \u043F\u0440\u043E\u0438\u0433\u043D\u043E\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u0430" })
+                      ] }),
+                      /* @__PURE__ */ jsx54("div", { className: "topo-cyclic__body", children: brokenDetails.map((b) => /* @__PURE__ */ jsxs51(
+                        "div",
+                        {
+                          className: "topo-broken-item",
+                          children: [
+                            /* @__PURE__ */ jsx54(
+                              "a",
+                              {
+                                className: "validation-log__domain",
+                                onClick: () => setSelectedDomainId(b.id),
+                                children: b.id
+                              }
+                            ),
+                            /* @__PURE__ */ jsxs51("span", { className: "topo-broken-item__meta", children: [
+                              "L",
+                              b.level
+                            ] }),
+                            b.brokenDeps.length > 0 && /* @__PURE__ */ jsxs51(
+                              "span",
+                              {
+                                className: "topo-broken-item__deps",
+                                title: "\u041E\u0442\u0440\u0435\u0437\u0430\u043D\u044B: " + b.brokenDeps.join(", "),
+                                children: [
+                                  "\u21AF ",
+                                  b.brokenDeps.length
+                                ]
+                              }
+                            )
+                          ]
+                        },
+                        b.id
+                      )) })
+                    ] })
+                  ] })
+                ] }),
+                detail && /* @__PURE__ */ jsxs51("div", { className: "topo-detail", children: [
+                  /* @__PURE__ */ jsxs51("div", { className: "topo-detail__head", children: [
+                    /* @__PURE__ */ jsx54(MIcon, { name: "info", size: "sm" }),
+                    /* @__PURE__ */ jsx54("code", { className: "topo-detail__id", children: detail.domainId }),
+                    detail.level != null && /* @__PURE__ */ jsxs51("span", { className: "topo-detail__badge", children: [
+                      "L",
+                      detail.level,
+                      " / ",
+                      result.stats.levels
+                    ] }),
+                    detail.inCycle && /* @__PURE__ */ jsxs51("span", { className: "topo-detail__badge topo-detail__badge--err", children: [
+                      "\u0432 \u0446\u0438\u043A\u043B\u0435 (",
+                      detail.inCycle.length,
+                      ")"
+                    ] }),
+                    detail.brokenDeps && /* @__PURE__ */ jsxs51("span", { className: "topo-detail__badge topo-detail__badge--warn", children: [
+                      "\u0440\u0430\u0437\u0440\u044B\u0432 (",
+                      detail.brokenDeps.length,
+                      ")"
+                    ] }),
+                    /* @__PURE__ */ jsxs51(
+                      "button",
+                      {
+                        className: "btn",
+                        style: {
+                          marginLeft: "auto",
+                          padding: "3px 10px",
+                          fontSize: 11
+                        },
+                        onClick: () => openDomainSchema(detail.domainId),
+                        children: [
+                          /* @__PURE__ */ jsx54(MIcon, { name: "menu_book", size: "sm" }),
+                          "\u0421\u0445\u0435\u043C\u0430"
+                        ]
+                      }
+                    ),
+                    /* @__PURE__ */ jsxs51(
+                      "button",
+                      {
+                        className: "btn",
+                        style: { padding: "3px 10px", fontSize: 11 },
+                        onClick: () => openInCatalog(detail.domainId),
+                        children: [
+                          /* @__PURE__ */ jsx54(MIcon, { name: "my_location", size: "sm" }),
+                          "\u041D\u0430 \u0433\u0440\u0430\u0444\u0435"
+                        ]
+                      }
+                    ),
+                    /* @__PURE__ */ jsx54(
+                      "button",
+                      {
+                        className: "topo-detail__close",
+                        onClick: () => setSelectedDomainId(null),
+                        title: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C",
+                        children: "\u2715"
+                      }
+                    )
+                  ] }),
+                  /* @__PURE__ */ jsxs51("div", { className: "topo-detail__body", children: [
+                    /* @__PURE__ */ jsxs51("div", { className: "topo-detail__section", children: [
+                      /* @__PURE__ */ jsxs51("div", { className: "topo-detail__section-title", children: [
+                        "\u041F\u0440\u044F\u043C\u044B\u0435 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438 (",
+                        detail.directDeps.length,
+                        ")"
+                      ] }),
+                      detail.directDeps.length === 0 ? /* @__PURE__ */ jsx54("div", { className: "topo-detail__empty", children: "\u041D\u0438 \u043E\u0442 \u043A\u043E\u0433\u043E \u043D\u0435 \u0437\u0430\u0432\u0438\u0441\u0438\u0442 \u2014 \u043C\u043E\u0436\u043D\u043E \u0441\u0442\u0430\u0432\u0438\u0442\u044C \u043F\u0435\u0440\u0432\u044B\u043C" }) : /* @__PURE__ */ jsx54("div", { className: "topo-detail__chips", children: detail.directDeps.map((d) => /* @__PURE__ */ jsxs51(
+                        "button",
+                        {
+                          className: "topo-detail__chip",
+                          onClick: () => setSelectedDomainId(d),
+                          title: `L${result.levelMap.get(d) || "?"}`,
+                          children: [
+                            /* @__PURE__ */ jsxs51("span", { className: "topo-detail__chip-level", children: [
+                              "L",
+                              result.levelMap.get(d) || "?"
+                            ] }),
+                            d
+                          ]
+                        },
+                        d
+                      )) })
+                    ] }),
+                    /* @__PURE__ */ jsxs51("div", { className: "topo-detail__section", children: [
+                      /* @__PURE__ */ jsxs51("div", { className: "topo-detail__section-title", children: [
+                        "\u0422\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u044B\u0435 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438 (",
+                        detail.transitiveDeps.size,
+                        ")"
+                      ] }),
+                      detail.transitiveDeps.size === 0 ? /* @__PURE__ */ jsx54("div", { className: "topo-detail__empty", children: "\u041D\u0435\u0442" }) : /* @__PURE__ */ jsxs51("div", { className: "topo-detail__chips", children: [
+                        Array.from(detail.transitiveDeps.entries()).sort((a, b) => a[1] - b[1]).slice(0, 20).map(([d, dist]) => /* @__PURE__ */ jsxs51(
+                          "button",
+                          {
+                            className: "topo-detail__chip topo-detail__chip--transitive",
+                            onClick: () => setSelectedDomainId(d),
+                            title: `\u0427\u0435\u0440\u0435\u0437 ${dist} ${dist === 1 ? "\u0448\u0430\u0433" : "\u0448\u0430\u0433\u043E\u0432"}`,
+                            children: [
+                              /* @__PURE__ */ jsxs51("span", { className: "topo-detail__chip-level", children: [
+                                "+",
+                                dist
+                              ] }),
+                              d
+                            ]
+                          },
+                          d
+                        )),
+                        detail.transitiveDeps.size > 20 && /* @__PURE__ */ jsxs51("span", { className: "topo-detail__more", children: [
+                          "\u2026\u0438 \u0435\u0449\u0451 ",
+                          detail.transitiveDeps.size - 20
+                        ] })
+                      ] })
+                    ] }),
+                    /* @__PURE__ */ jsxs51("div", { className: "topo-detail__section", children: [
+                      /* @__PURE__ */ jsxs51("div", { className: "topo-detail__section-title", children: [
+                        "\u041A\u0442\u043E \u0437\u0430\u0432\u0438\u0441\u0438\u0442 \u043E\u0442 \u043D\u0435\u0433\u043E (",
+                        detail.directDependents.length,
+                        ")"
+                      ] }),
+                      detail.directDependents.length === 0 ? /* @__PURE__ */ jsx54("div", { className: "topo-detail__empty", children: "\u041D\u0438\u043A\u0442\u043E \u2014 \u043A\u043E\u043D\u0435\u0447\u043D\u0430\u044F \u0442\u043E\u0447\u043A\u0430 \u043F\u043B\u0430\u043D\u0430" }) : /* @__PURE__ */ jsx54("div", { className: "topo-detail__chips", children: detail.directDependents.map((d) => /* @__PURE__ */ jsxs51(
+                        "button",
+                        {
+                          className: "topo-detail__chip topo-detail__chip--dependent",
+                          onClick: () => setSelectedDomainId(d),
+                          title: `L${result.levelMap.get(d) || "?"}`,
+                          children: [
+                            /* @__PURE__ */ jsxs51("span", { className: "topo-detail__chip-level", children: [
+                              "L",
+                              result.levelMap.get(d) || "?"
+                            ] }),
+                            d
+                          ]
+                        },
+                        d
+                      )) })
+                    ] }),
+                    detail.brokenDeps && /* @__PURE__ */ jsxs51("div", { className: "topo-detail__section topo-detail__section--warn", children: [
+                      /* @__PURE__ */ jsx54("div", { className: "topo-detail__section-title", children: "\u26A0\uFE0F \u0420\u0430\u0437\u043E\u0440\u0432\u0430\u043D\u043D\u044B\u0435 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438" }),
+                      /* @__PURE__ */ jsx54("div", { className: "topo-detail__chips", children: detail.brokenDeps.map((d) => /* @__PURE__ */ jsx54(
+                        "span",
+                        {
+                          className: "topo-detail__chip topo-detail__chip--broken",
+                          children: d
+                        },
+                        d
+                      )) }),
+                      /* @__PURE__ */ jsx54("div", { className: "topo-detail__hint", children: "\u0410\u0432\u0442\u043E\u0440\u0430\u0437\u0440\u044B\u0432 \u043E\u0442\u0440\u0435\u0437\u0430\u043B \u044D\u0442\u0438 \u0441\u0432\u044F\u0437\u0438. \u0414\u043E\u043C\u0435\u043D \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u0441\u044F, \u043D\u043E \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u044C \u043F\u0440\u043E\u0438\u0433\u043D\u043E\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u0430 \u2014 \u043F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u0432\u0440\u0443\u0447\u043D\u0443\u044E." })
+                    ] }),
+                    detail.inCycle && /* @__PURE__ */ jsxs51("div", { className: "topo-detail__section topo-detail__section--err", children: [
+                      /* @__PURE__ */ jsx54("div", { className: "topo-detail__section-title", children: "\u26A0\uFE0F \u0412\u0445\u043E\u0434\u0438\u0442 \u0432 \u0446\u0438\u043A\u043B" }),
+                      /* @__PURE__ */ jsx54("div", { className: "topo-detail__chips", children: detail.inCycle.map((d) => /* @__PURE__ */ jsx54(
+                        "button",
+                        {
+                          className: "topo-detail__chip topo-detail__chip--broken",
+                          onClick: () => setSelectedDomainId(d),
+                          children: d
+                        },
+                        d
+                      )) }),
+                      /* @__PURE__ */ jsx54("div", { className: "topo-detail__hint", children: "\u0426\u0438\u043A\u043B \u043D\u0435\u043B\u044C\u0437\u044F \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C \u0432 \u043E\u0434\u0438\u043D \u043F\u0440\u043E\u0445\u043E\u0434. \u0420\u0430\u0437\u043E\u0440\u0432\u0438\u0442\u0435 \u0432 \u0441\u0445\u0435\u043C\u0435 (\u0443\u0431\u0435\u0440\u0438\u0442\u0435 \u043E\u0434\u043D\u0443 \u0438\u0437 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0435\u0439) \u0438\u043B\u0438 \u0432\u043A\u043B\u044E\u0447\u0438\u0442\u0435 \u0430\u0432\u0442\u043E\u0440\u0430\u0437\u0440\u044B\u0432." })
+                    ] })
+                  ] })
+                ] })
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxs51("div", { className: "topo-footer", children: [
+              /* @__PURE__ */ jsx54("div", { className: "topo-footer__stats", children: result && /* @__PURE__ */ jsxs51(Fragment10, { children: [
+                /* @__PURE__ */ jsxs51("span", { children: [
+                  result.stats.total,
+                  " \u0434\u043E\u043C\u0435\u043D\u043E\u0432"
+                ] }),
+                /* @__PURE__ */ jsx54("span", { className: "topo-footer__sep", children: "\xB7" }),
+                /* @__PURE__ */ jsxs51("span", { children: [
+                  result.stats.levels,
+                  " \u0443\u0440\u043E\u0432\u043D\u0435\u0439"
+                ] }),
+                result.stats.cyclic > 0 && /* @__PURE__ */ jsxs51(Fragment10, { children: [
+                  /* @__PURE__ */ jsx54("span", { className: "topo-footer__sep", children: "\xB7" }),
+                  /* @__PURE__ */ jsxs51("span", { style: { color: "var(--danger)" }, children: [
+                    result.stats.cyclic,
+                    " \u0432 \u0446\u0438\u043A\u043B\u0430\u0445"
+                  ] })
+                ] }),
+                result.stats.brokenCount > 0 && /* @__PURE__ */ jsxs51(Fragment10, { children: [
+                  /* @__PURE__ */ jsx54("span", { className: "topo-footer__sep", children: "\xB7" }),
+                  /* @__PURE__ */ jsxs51("span", { style: { color: "var(--warning)" }, children: [
+                    result.stats.brokenCount,
+                    " \u0440\u0430\u0437\u043E\u0440\u0432\u0430\u043D\u043E"
+                  ] })
+                ] })
+              ] }) }),
+              /* @__PURE__ */ jsxs51("div", { className: "topo-footer__actions", children: [
+                /* @__PURE__ */ jsxs51(
+                  "button",
+                  {
+                    className: "btn",
+                    onClick: showOnGraph,
+                    disabled: !result,
+                    title: "\u041F\u043E\u0434\u0441\u0432\u0435\u0442\u0438\u0442\u044C \u0443\u0440\u043E\u0432\u043D\u0438 \u0431\u0435\u0439\u0434\u0436\u0430\u043C\u0438 \u043D\u0430 \u0433\u0440\u0430\u0444\u0435",
+                    children: [
+                      /* @__PURE__ */ jsx54(MIcon, { name: "hub", size: "sm" }),
+                      "\u041D\u0430 \u0433\u0440\u0430\u0444\u0435"
+                    ]
+                  }
+                ),
+                /* @__PURE__ */ jsxs51(
+                  "button",
+                  {
+                    className: "btn",
+                    onClick: copyAsText,
+                    disabled: !result,
+                    children: [
+                      /* @__PURE__ */ jsx54(MIcon, { name: "content_copy", size: "sm" }),
+                      "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C"
+                    ]
+                  }
+                ),
+                /* @__PURE__ */ jsxs51(
+                  "button",
+                  {
+                    className: "btn",
+                    onClick: exportJSON,
+                    disabled: !result,
+                    children: [
+                      /* @__PURE__ */ jsx54(MIcon, { name: "data_object", size: "sm" }),
+                      "JSON"
+                    ]
+                  }
+                ),
+                /* @__PURE__ */ jsxs51(
+                  "button",
+                  {
+                    className: "btn",
+                    onClick: exportMD,
+                    disabled: !result,
+                    children: [
+                      /* @__PURE__ */ jsx54(MIcon, { name: "description", size: "sm" }),
+                      "MD"
+                    ]
+                  }
+                ),
+                /* @__PURE__ */ jsx54(
+                  "button",
+                  {
+                    className: "btn",
+                    onClick: () => useGraphStore.getState().setTopoOpen(false),
+                    children: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C"
+                  }
+                )
+              ] })
+            ] })
+          ]
+        }
+      )
+    }
+  );
 }
+var QUICK_FILTERS;
 var init_TopoSortModal = __esm({
   "src/web/components/modals/TopoSortModal.tsx"() {
     "use strict";
@@ -14934,13 +15841,20 @@ var init_TopoSortModal = __esm({
     init_common();
     init_ModalHelp();
     init_useHelpEscape();
+    QUICK_FILTERS = [
+      { id: "all", label: "\u0412\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B", icon: "list" },
+      { id: "cycles", label: "\u0426\u0438\u043A\u043B\u044B", icon: "cycle" },
+      { id: "roots", label: "\u0421\u0442\u0430\u0440\u0442\u043E\u0432\u044B\u0435 (L1)", icon: "play_arrow" },
+      { id: "leaves", label: "\u0424\u0438\u043D\u0430\u043B\u044C\u043D\u044B\u0435", icon: "last_page" },
+      { id: "broken", label: "\u0420\u0430\u0437\u043E\u0440\u0432\u0430\u043D\u043E", icon: "link_off" }
+    ];
   }
 });
 
 // src/web/components/modals/LearningPathModal.tsx
 import { useCallback as useCallback12, useEffect as useEffect27, useState as useState16 } from "react";
 import { jsx as jsx55, jsxs as jsxs52 } from "react/jsx-runtime";
-function downloadFile4(content, filename, mime) {
+function downloadFile3(content, filename, mime) {
   const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -14988,7 +15902,7 @@ function LearningPathModal(props) {
     const md = generateLearningPathMarkdown(path, {
       scope: scope === "all" ? "\u0432\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B" : scope === "visible" ? "\u0432\u0438\u0434\u0438\u043C\u044B\u0435" : "\u0438\u0437\u0431\u0440\u0430\u043D\u043D\u044B\u0435"
     });
-    downloadFile4(
+    downloadFile3(
       md,
       "learning-path-" + (/* @__PURE__ */ new Date()).toISOString().slice(0, 19).replace(/[:.]/g, "-") + ".md",
       "text/markdown;charset=utf-8"
@@ -14997,7 +15911,7 @@ function LearningPathModal(props) {
   const exportJSON = () => {
     if (!path)
       return;
-    downloadFile4(
+    downloadFile3(
       JSON.stringify(path, null, 2),
       "learning-path-" + (/* @__PURE__ */ new Date()).toISOString().slice(0, 19).replace(/[:.]/g, "-") + ".json",
       "application/json"
@@ -15460,16 +16374,58 @@ function EntityFlowNode({ data }) {
     cls.push("entity-flow-node--missing");
   if (data.isForeign)
     cls.push("entity-flow-node--foreign");
+  if (data.role)
+    cls.push("entity-flow-node--role-" + data.role);
+  const nodeWidth = data.isRoot ? ROOT_WIDTH : NODE_WIDTH2;
+  const nodeHeight = data.isRoot ? ROOT_HEIGHT : NODE_HEIGHT2;
   return /* @__PURE__ */ jsxs54(Fragment11, { children: [
     /* @__PURE__ */ jsx57(Handle2, { type: "target", position: Position2.Top, className: "entity-flow-handle" }),
-    /* @__PURE__ */ jsxs54("div", { className: cls.join(" "), children: [
-      /* @__PURE__ */ jsxs54("div", { className: "entity-flow-node__id", children: [
-        data.missing && "\u26A0\uFE0F ",
-        data.entityId
-      ] }),
-      data.name && data.name !== data.entityId && /* @__PURE__ */ jsx57("div", { className: "entity-flow-node__name", children: data.name }),
-      /* @__PURE__ */ jsx57("div", { className: "entity-flow-node__domain", children: data.domainId })
-    ] }),
+    /* @__PURE__ */ jsxs54(
+      "div",
+      {
+        className: cls.join(" "),
+        style: {
+          width: nodeWidth,
+          height: nodeHeight,
+          boxSizing: "border-box",
+          overflow: "hidden",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "center",
+          minWidth: 0,
+          maxWidth: nodeWidth
+        },
+        children: [
+          /* @__PURE__ */ jsxs54(
+            "div",
+            {
+              className: "entity-flow-node__id",
+              title: (data.missing ? "\u26A0\uFE0F " : "") + data.entityId,
+              children: [
+                data.missing && "\u26A0\uFE0F ",
+                data.entityId
+              ]
+            }
+          ),
+          data.name && data.name !== data.entityId && /* @__PURE__ */ jsx57(
+            "div",
+            {
+              className: "entity-flow-node__name",
+              title: data.name,
+              children: data.name
+            }
+          ),
+          /* @__PURE__ */ jsx57(
+            "div",
+            {
+              className: "entity-flow-node__domain",
+              title: data.domainId,
+              children: data.domainId
+            }
+          )
+        ]
+      }
+    ),
     /* @__PURE__ */ jsx57(Handle2, { type: "source", position: Position2.Bottom, className: "entity-flow-handle" })
   ] });
 }
@@ -15509,6 +16465,7 @@ function EntityHierarchyFlowInner({ tree, onSelect }) {
   const { flowNodes, flowEdges } = useMemo27(() => {
     const initialNodes = tree.nodes.map((n) => {
       const isRoot = n.key === tree.rootKey;
+      const role = tree.nodeRoles.get(n.key) || "linked";
       return {
         id: n.key,
         type: "entityNode",
@@ -15522,7 +16479,8 @@ function EntityHierarchyFlowInner({ tree, onSelect }) {
           isRoot,
           isCycle: tree.cycleNodes.has(n.key),
           isForeign: !isRoot && n.domainId.toLowerCase() !== rootDomainId,
-          rootDomainId
+          rootDomainId,
+          role
         },
         width: isRoot ? ROOT_WIDTH : NODE_WIDTH2,
         height: isRoot ? ROOT_HEIGHT : NODE_HEIGHT2
@@ -15610,13 +16568,20 @@ function EntityHierarchyFlowInner({ tree, onSelect }) {
           {
             position: "bottom-right",
             nodeColor: (n) => {
-              if (n.data?.isRoot)
+              const role = n.data?.role;
+              if (role === "root")
                 return "#6366f1";
               if (n.data?.isCycle)
                 return "#ef4444";
               if (n.data?.missing)
                 return "#f59e0b";
-              return "#10b981";
+              if (role === "ancestor")
+                return "#a78bfa";
+              if (role === "descendant")
+                return "#10b981";
+              if (role === "sibling")
+                return "#94a3b8";
+              return "#64748b";
             },
             maskColor: "rgba(10,14,26,0.7)",
             style: { width: 160, height: 120 }
@@ -15643,7 +16608,7 @@ var init_EntityHierarchyFlow = __esm({
 });
 
 // src/web/components/modals/EntityHierarchyModal.tsx
-import { useCallback as useCallback14, useEffect as useEffect30, useMemo as useMemo28, useState as useState17 } from "react";
+import React29, { useCallback as useCallback14, useEffect as useEffect30, useMemo as useMemo28, useState as useState17 } from "react";
 import { Fragment as Fragment12, jsx as jsx58, jsxs as jsxs55 } from "react/jsx-runtime";
 function EntityHierarchyModal({ entities: entities2 }) {
   const setEntityHierarchyOpen = useGraphStore(
@@ -15653,16 +16618,21 @@ function EntityHierarchyModal({ entities: entities2 }) {
   const entityHierarchyInitialKey = useGraphStore(
     (s) => s.entityHierarchyInitialKey
   );
+  const nodes = useGraphStore((s) => s.nodes);
   const { index: modelIndex } = useModelIndex();
+  const [showHelp, setShowHelp] = useState17(false);
+  useHelpEscape(entityHierarchyOpen, showHelp, setShowHelp);
   const [mode, setMode] = useState17("inherits");
   const [depth, setDepth] = useState17(2);
   const [showInheritance, setShowInheritance] = useState17(true);
   const [showReferences, setShowReferences] = useState17(true);
   const [showLinkages, setShowLinkages] = useState17(true);
+  const [showSiblings, setShowSiblings] = useState17(false);
   const [hideIsolated, setHideIsolated] = useState17(true);
   const [query, setQuery] = useState17("");
   const [selectedKey, setSelectedKey] = useState17(null);
   const [history, setHistory] = useState17([]);
+  const [detailOpen, setDetailOpen] = useState17(true);
   const open2 = entityHierarchyOpen;
   const initialKey = entityHierarchyInitialKey;
   const index = useMemo28(() => buildEntityIndex(entities2), [entities2]);
@@ -15694,6 +16664,8 @@ function EntityHierarchyModal({ entities: entities2 }) {
       return;
     const onKey = (e) => {
       if (e.key === "Escape") {
+        if (showHelp)
+          return;
         e.preventDefault();
         if (history.length > 0)
           handleBack();
@@ -15703,7 +16675,7 @@ function EntityHierarchyModal({ entities: entities2 }) {
     };
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
-  }, [open2, history, handleBack, setEntityHierarchyOpen]);
+  }, [open2, history, handleBack, setEntityHierarchyOpen, showHelp]);
   const searchResults = useMemo28(() => {
     const q = query.trim().toLowerCase();
     if (!q)
@@ -15739,20 +16711,149 @@ function EntityHierarchyModal({ entities: entities2 }) {
       showInheritance,
       showReferences,
       showLinkages,
+      showSiblings,
       hideIsolated
     });
-  }, [selectedKey, index, modelIndex, mode, depth, showInheritance, showReferences, showLinkages, hideIsolated]);
+  }, [
+    selectedKey,
+    index,
+    modelIndex,
+    mode,
+    depth,
+    showInheritance,
+    showReferences,
+    showLinkages,
+    showSiblings,
+    hideIsolated
+  ]);
   const handleSelect = useCallback14(
     (node) => {
       if (!node || node.missing)
         return;
       if (node.key === selectedKey)
         return;
-      setHistory((prev) => selectedKey ? prev.concat([selectedKey]) : prev);
+      setHistory(
+        (prev) => selectedKey ? prev.concat([selectedKey]) : prev
+      );
       setSelectedKey(node.key);
     },
     [selectedKey]
   );
+  const navigateTo = useCallback14(
+    (key) => {
+      if (!key || key === selectedKey)
+        return;
+      setHistory(
+        (prev) => selectedKey ? prev.concat([selectedKey]) : prev
+      );
+      setSelectedKey(key);
+    },
+    [selectedKey]
+  );
+  const currentEntity = useMemo28(() => {
+    if (!selectedKey || !modelIndex)
+      return null;
+    return modelIndex.entitiesByFqid[selectedKey.toLowerCase()] || null;
+  }, [selectedKey, modelIndex]);
+  const entityIssuesCount = useMemo28(() => {
+    if (!currentEntity || !modelIndex)
+      return 0;
+    return modelIndex.lint.lintReport.issues.filter(
+      (i) => i.entityFqid?.toLowerCase() === currentEntity.fqid.toLowerCase()
+    ).length;
+  }, [currentEntity, modelIndex]);
+  const handleExportMermaid = () => {
+    if (!tree)
+      return;
+    const lines = ["classDiagram"];
+    for (const n of tree.nodes) {
+      const cls = `E_${n.key.replace(/[^a-z0-9]/gi, "_")}`;
+      lines.push(`    class ${cls} {`);
+      lines.push(`        <<${n.domainId}>>`);
+      lines.push(`        ${n.entityId}`);
+      lines.push("    }");
+    }
+    for (const e of tree.edges) {
+      if (e.kind !== "inheritance")
+        continue;
+      const src = `E_${e.source.replace(/[^a-z0-9]/gi, "_")}`;
+      const tgt = `E_${e.target.replace(/[^a-z0-9]/gi, "_")}`;
+      lines.push(`    ${src} <|-- ${tgt}`);
+    }
+    for (const e of tree.edges) {
+      if (e.kind !== "reference")
+        continue;
+      const src = `E_${e.source.replace(/[^a-z0-9]/gi, "_")}`;
+      const tgt = `E_${e.target.replace(/[^a-z0-9]/gi, "_")}`;
+      lines.push(`    ${src} --> ${tgt} : ${e.label || "ref"}`);
+    }
+    for (const e of tree.edges) {
+      if (e.kind !== "linkage")
+        continue;
+      const src = `E_${e.source.replace(/[^a-z0-9]/gi, "_")}`;
+      const tgt = `E_${e.target.replace(/[^a-z0-9]/gi, "_")}`;
+      lines.push(`    ${src} -- ${tgt} : ${e.label || "linkage"}`);
+    }
+    const blob = new Blob([lines.join("\n")], {
+      type: "text/plain;charset=utf-8"
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `inheritance-${selectedKey?.split("/").pop() || "tree"}.mmd`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  const handleExportJSON = () => {
+    if (!tree || !selectedKey)
+      return;
+    const data = {
+      generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      rootKey: selectedKey,
+      mode,
+      depth,
+      stats: {
+        total: tree.nodes.length,
+        ancestors: tree.parentKeys.size,
+        descendants: tree.childKeys.size,
+        siblings: tree.siblingKeys.size,
+        cycles: tree.cycles.length
+      },
+      nodes: tree.nodes.map((n) => ({
+        ...n,
+        role: tree.nodeRoles.get(n.key)
+      })),
+      edges: tree.edges,
+      cycles: tree.cycles
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], {
+      type: "application/json"
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `inheritance-${selectedKey?.split("/").pop() || "tree"}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  const openEntityInCatalog = (fqid) => {
+    const st = useGraphStore.getState();
+    st.setEntityHierarchyOpen(false);
+    st.setEntityCatalogInitialFqid(fqid);
+    st.setEntityCatalogOpen(true);
+  };
+  const openYamlForEntity = async (fqid, domainId) => {
+    const node = nodes.find(
+      (n) => (n.data.domainId || "").toLowerCase() === domainId.toLowerCase()
+    );
+    if (node?.data.filePath) {
+      const ok = await openFileInEditor(node.data.filePath, fqid, domainId);
+      if (ok)
+        setEntityHierarchyOpen(false);
+    } else {
+      useGraphStore.getState().showSnackbar("\u0424\u0430\u0439\u043B \u0441\u0445\u0435\u043C\u044B \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D");
+    }
+  };
   if (!open2)
     return null;
   return /* @__PURE__ */ jsx58(
@@ -15767,192 +16868,717 @@ function EntityHierarchyModal({ entities: entities2 }) {
           onMouseDown: (e) => e.stopPropagation(),
           children: [
             /* @__PURE__ */ jsxs55("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsx58("div", { className: "help-modal__title", children: "\u{1F9EC} \u0418\u0435\u0440\u0430\u0440\u0445\u0438\u044F \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" }),
-              /* @__PURE__ */ jsx58(
-                "button",
-                {
-                  className: "help-modal__close",
-                  onClick: () => setEntityHierarchyOpen(false),
-                  children: "\u2715"
-                }
-              )
+              /* @__PURE__ */ jsxs55("div", { className: "help-modal__title", children: [
+                /* @__PURE__ */ jsx58(MIcon, { name: "account_tree", size: "sm" }),
+                /* @__PURE__ */ jsx58("span", { className: "icon-label", children: "\u0418\u0435\u0440\u0430\u0440\u0445\u0438\u044F \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" }),
+                tree && /* @__PURE__ */ jsxs55("span", { className: "help-modal__badge", children: [
+                  tree.nodes.length,
+                  " \u0443\u0437\u043B\u043E\u0432 \xB7",
+                  " ",
+                  tree.edges.length,
+                  " \u0441\u0432\u044F\u0437\u0435\u0439"
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxs55("div", { className: "help-modal__actions", children: [
+                /* @__PURE__ */ jsx58(
+                  HelpButton,
+                  {
+                    open: showHelp,
+                    onToggle: () => setShowHelp(!showHelp),
+                    label: "\u041A\u0430\u043A \u0447\u0438\u0442\u0430\u0442\u044C?"
+                  }
+                ),
+                /* @__PURE__ */ jsx58(
+                  "button",
+                  {
+                    className: "help-modal__close",
+                    onClick: () => setEntityHierarchyOpen(false),
+                    children: "\u2715"
+                  }
+                )
+              ] })
             ] }),
             /* @__PURE__ */ jsxs55("div", { className: "entity-hierarchy-body", children: [
-              /* @__PURE__ */ jsxs55("div", { className: "entity-search-panel", children: [
-                /* @__PURE__ */ jsxs55("div", { className: "entity-search-input-wrap", children: [
-                  /* @__PURE__ */ jsx58("span", { className: "entity-search-icon", children: "\u{1F50D}" }),
-                  /* @__PURE__ */ jsx58(
-                    "input",
-                    {
-                      className: "entity-search-input",
-                      type: "text",
-                      placeholder: "\u041F\u043E\u0438\u0441\u043A \u043F\u043E id \u0438\u043B\u0438 \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u044E...",
-                      value: query,
-                      onChange: (e) => setQuery(e.target.value)
-                    }
-                  )
-                ] }),
-                /* @__PURE__ */ jsx58("div", { className: "entity-search-results", children: query.trim() === "" ? /* @__PURE__ */ jsxs55("div", { className: "entity-search-hint", children: [
-                  "\u0412\u0441\u0435\u0433\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439: ",
-                  entities2.length,
-                  /* @__PURE__ */ jsx58("br", {}),
-                  /* @__PURE__ */ jsx58("span", { style: { fontSize: 11 }, children: "\u041D\u0430\u0447\u043D\u0438\u0442\u0435 \u0432\u0432\u043E\u0434\u0438\u0442\u044C \u0434\u043B\u044F \u043F\u043E\u0438\u0441\u043A\u0430" })
-                ] }) : searchResults.length === 0 ? /* @__PURE__ */ jsx58("div", { className: "entity-search-hint", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" }) : searchResults.map((r) => /* @__PURE__ */ jsxs55(
-                  "div",
-                  {
-                    className: "entity-search-item" + (r.key === selectedKey ? " entity-search-item--active" : "") + (r.isOrphan ? " entity-search-item--orphan" : ""),
-                    onClick: () => {
-                      setHistory(
-                        (prev) => selectedKey ? prev.concat([selectedKey]) : prev
-                      );
-                      setSelectedKey(r.key);
-                    },
-                    children: [
-                      /* @__PURE__ */ jsx58("div", { className: "entity-search-item__id", children: r.entity.entityId }),
-                      r.entity.name && r.entity.name !== r.entity.entityId && /* @__PURE__ */ jsx58("div", { className: "entity-search-item__name", children: r.entity.name }),
-                      /* @__PURE__ */ jsxs55("div", { className: "entity-search-item__meta", children: [
-                        /* @__PURE__ */ jsx58("span", { className: "entity-search-item__domain", children: r.entity.domainId }),
-                        r.isOrphan ? /* @__PURE__ */ jsx58("span", { className: "entity-search-item__badge", children: "\u0431\u0435\u0437 \u0438\u0435\u0440\u0430\u0440\u0445\u0438\u0438" }) : /* @__PURE__ */ jsx58("span", { className: "entity-search-item__badge entity-search-item__badge--ok", children: (r.hasParents ? "\u2191" : "\xB7") + (r.hasChildren ? "\u2193" : "\xB7") })
+              /* @__PURE__ */ jsxs55(
+                ModalHelp,
+                {
+                  visible: showHelp,
+                  children: [
+                    /* @__PURE__ */ jsxs55(HelpSection, { title: "\u0427\u0442\u043E \u044D\u0442\u043E", children: [
+                      /* @__PURE__ */ jsx58(HelpText, { children: "\u041F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 \u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0443 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0432\u043E\u043A\u0440\u0443\u0433 \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u043E\u0439. \u0422\u0440\u0438 \u0440\u043E\u043B\u0438 \u0443\u0437\u043B\u043E\u0432:" }),
+                      /* @__PURE__ */ jsxs55(HelpList, { children: [
+                        /* @__PURE__ */ jsxs55("li", { children: [
+                          /* @__PURE__ */ jsx58("strong", { style: { color: "#a78bfa" }, children: "\u041F\u0440\u0435\u0434\u043A\u0438" }),
+                          " \u2014 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438, \u043E\u0442 \u043A\u043E\u0442\u043E\u0440\u044B\u0445 \u043D\u0430\u0441\u043B\u0435\u0434\u0443\u0435\u0442 \u0442\u0435\u043A\u0443\u0449\u0430\u044F. \u041E\u043D\u0438 \u0432\u044B\u0448\u0435 \u043F\u043E \u0433\u0440\u0430\u0444\u0443."
+                        ] }),
+                        /* @__PURE__ */ jsxs55("li", { children: [
+                          /* @__PURE__ */ jsx58("strong", { style: { color: "#6366f1" }, children: "\u0422\u0435\u043A\u0443\u0449\u0430\u044F" }),
+                          " \u2014 \u0432\u044B\u0434\u0435\u043B\u0435\u043D\u0430 \u0432 \u0446\u0435\u043D\u0442\u0440\u0435. \u041E\u0442 \u043D\u0435\u0451 \u0441\u0442\u0440\u043E\u0438\u0442\u0441\u044F \u0433\u0440\u0430\u0444."
+                        ] }),
+                        /* @__PURE__ */ jsxs55("li", { children: [
+                          /* @__PURE__ */ jsx58("strong", { style: { color: "#10b981" }, children: "\u041F\u043E\u0442\u043E\u043C\u043A\u0438" }),
+                          " \u2014 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438, \u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u043D\u0430\u0441\u043B\u0435\u0434\u0443\u044E\u0442 \u043E\u0442 \u0442\u0435\u043A\u0443\u0449\u0435\u0439."
+                        ] }),
+                        /* @__PURE__ */ jsxs55("li", { children: [
+                          /* @__PURE__ */ jsx58("strong", { style: { color: "#94a3b8" }, children: "Siblings" }),
+                          " \u2014 \u0434\u0440\u0443\u0433\u0438\u0435 \u0434\u0435\u0442\u0438 \u0442\u043E\u0433\u043E \u0436\u0435 \u0440\u043E\u0434\u0438\u0442\u0435\u043B\u044F. \u041F\u043E\u043C\u043E\u0433\u0430\u044E\u0442 \u0441\u0440\u0430\u0432\u043D\u0438\u0442\u044C \u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0443 (\u043A\u0430\u043A \u0443\u0441\u0442\u0440\u043E\u0435\u043D\u044B \xAB\u0441\u043E\u0441\u0435\u0434\u0438\xBB)."
+                        ] })
                       ] })
-                    ]
-                  },
-                  r.key
-                )) })
-              ] }),
-              /* @__PURE__ */ jsx58("div", { className: "entity-graph-panel", children: !selectedKey ? /* @__PURE__ */ jsxs55("div", { className: "entity-graph-empty", children: [
-                /* @__PURE__ */ jsx58("div", { className: "entity-graph-empty__icon", children: "\u{1F9EC}" }),
-                /* @__PURE__ */ jsx58("div", { className: "entity-graph-empty__title", children: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0441\u043B\u0435\u0432\u0430" }),
-                /* @__PURE__ */ jsx58("div", { className: "entity-graph-empty__hint", children: "\u0420\u043E\u0434\u0438\u0442\u0435\u043B\u0438 \u0441\u0432\u0435\u0440\u0445\u0443, \u043D\u0430\u0441\u043B\u0435\u0434\u043D\u0438\u043A\u0438 \u0441\u043D\u0438\u0437\u0443. \u0412\u043E \u0432\u0442\u043E\u0440\u043E\u043C \u0440\u0435\u0436\u0438\u043C\u0435 \u2014 \u0435\u0449\u0451 Reference \u0438 Linkage." })
-              ] }) : tree ? /* @__PURE__ */ jsxs55(Fragment12, { children: [
-                /* @__PURE__ */ jsxs55("div", { className: "entity-hierarchy-toolbar", children: [
-                  history.length > 0 && /* @__PURE__ */ jsx58(
-                    "button",
-                    {
-                      className: "entity-hierarchy-back",
-                      onClick: handleBack,
-                      title: "\u041D\u0430\u0437\u0430\u0434",
-                      children: "\u2190 \u041D\u0430\u0437\u0430\u0434"
-                    }
-                  ),
-                  /* @__PURE__ */ jsxs55("div", { className: "entity-hierarchy-toolbar__modes", children: [
-                    /* @__PURE__ */ jsxs55(
-                      "button",
-                      {
-                        className: "entity-hierarchy-mode" + (mode === "inherits" ? " active" : ""),
-                        onClick: () => setMode("inherits"),
-                        children: [
-                          /* @__PURE__ */ jsx58("span", { className: "entity-hierarchy-mode__dot", style: { background: "#a78bfa" } }),
-                          "\u041D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435"
-                        ]
-                      }
-                    ),
-                    /* @__PURE__ */ jsxs55(
-                      "button",
-                      {
-                        className: "entity-hierarchy-mode" + (mode === "all" ? " active" : ""),
-                        onClick: () => setMode("all"),
-                        children: [
-                          /* @__PURE__ */ jsx58("span", { className: "entity-hierarchy-mode__dot", style: { background: "#6366f1" } }),
-                          "\u0412\u0441\u0435 \u0441\u0432\u044F\u0437\u0438"
-                        ]
-                      }
-                    )
-                  ] }),
-                  /* @__PURE__ */ jsxs55("div", { className: "entity-hierarchy-toolbar__filters", children: [
-                    mode === "all" && /* @__PURE__ */ jsxs55(Fragment12, { children: [
-                      /* @__PURE__ */ jsxs55("label", { className: "entity-hierarchy-filter", children: [
-                        /* @__PURE__ */ jsx58(
-                          "input",
-                          {
-                            type: "checkbox",
-                            checked: showInheritance,
-                            onChange: () => setShowInheritance(!showInheritance)
-                          }
-                        ),
-                        /* @__PURE__ */ jsx58("span", { className: "entity-hierarchy-filter__dot", style: { background: "#a78bfa" } }),
-                        "\u041D\u0430\u0441\u043B\u0435\u0434."
-                      ] }),
-                      /* @__PURE__ */ jsxs55("label", { className: "entity-hierarchy-filter", children: [
-                        /* @__PURE__ */ jsx58(
-                          "input",
-                          {
-                            type: "checkbox",
-                            checked: showReferences,
-                            onChange: () => setShowReferences(!showReferences)
-                          }
-                        ),
-                        /* @__PURE__ */ jsx58("span", { className: "entity-hierarchy-filter__dot", style: { background: "#6366f1" } }),
-                        "Reference"
-                      ] }),
-                      /* @__PURE__ */ jsxs55("label", { className: "entity-hierarchy-filter", children: [
-                        /* @__PURE__ */ jsx58(
-                          "input",
-                          {
-                            type: "checkbox",
-                            checked: showLinkages,
-                            onChange: () => setShowLinkages(!showLinkages)
-                          }
-                        ),
-                        /* @__PURE__ */ jsx58("span", { className: "entity-hierarchy-filter__dot", style: { background: "#10b981" } }),
-                        "Linkage"
-                      ] }),
-                      /* @__PURE__ */ jsx58("span", { className: "entity-hierarchy-toolbar__sep" })
                     ] }),
-                    /* @__PURE__ */ jsxs55("label", { className: "entity-hierarchy-filter", children: [
-                      /* @__PURE__ */ jsx58(
-                        "input",
-                        {
-                          type: "checkbox",
-                          checked: hideIsolated,
-                          onChange: () => setHideIsolated(!hideIsolated)
-                        }
-                      ),
-                      "\u0411\u0435\u0437 \u0441\u0432\u044F\u0437\u0435\u0439"
-                    ] })
-                  ] }),
-                  mode === "all" && /* @__PURE__ */ jsxs55("div", { className: "entity-hierarchy-toolbar__depth", children: [
-                    /* @__PURE__ */ jsx58("span", { children: "\u0413\u043B\u0443\u0431\u0438\u043D\u0430:" }),
+                    /* @__PURE__ */ jsx58(HelpSection, { title: "\u0420\u0435\u0436\u0438\u043C\u044B", children: /* @__PURE__ */ jsxs55(HelpList, { children: [
+                      /* @__PURE__ */ jsxs55("li", { children: [
+                        /* @__PURE__ */ jsx58("strong", { children: "\u041D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435" }),
+                        " \u2014 \u0442\u043E\u043B\u044C\u043A\u043E inherits-\u0441\u0432\u044F\u0437\u0438. \u0421\u0442\u0430\u043D\u0434\u0430\u0440\u0442\u043D\u0430\u044F \u0438\u0435\u0440\u0430\u0440\u0445\u0438\u044F, \xAB\u0434\u0435\u0440\u0435\u0432\u043E \u043A\u043B\u0430\u0441\u0441\u043E\u0432\xBB."
+                      ] }),
+                      /* @__PURE__ */ jsxs55("li", { children: [
+                        /* @__PURE__ */ jsx58("strong", { children: "\u0412\u0441\u0435 \u0441\u0432\u044F\u0437\u0438" }),
+                        " \u2014 \u043F\u043B\u044E\u0441 Reference \u0438 linkages. \u041F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442, \u043A\u0430\u043A \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0432\u0441\u0442\u0440\u043E\u0435\u043D\u0430 \u0432 \u043C\u043E\u0434\u0435\u043B\u044C."
+                      ] })
+                    ] }) }),
+                    /* @__PURE__ */ jsx58(HelpSection, { title: "\u0413\u043B\u0443\u0431\u0438\u043D\u0430", children: /* @__PURE__ */ jsx58(HelpText, { children: "\u0421\u043A\u043E\u043B\u044C\u043A\u043E \xAB\u0448\u0430\u0433\u043E\u0432\xBB \u043E\u0442 \u0442\u0435\u043A\u0443\u0449\u0435\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0442\u044C. 1 \u2014 \u0442\u043E\u043B\u044C\u043A\u043E \u043F\u0440\u044F\u043C\u044B\u0435 \u0441\u043E\u0441\u0435\u0434\u0438. 6 \u2014 \u043C\u0430\u043A\u0441\u0438\u043C\u0430\u043B\u044C\u043D\u0430\u044F \u0440\u0430\u0437\u0443\u043C\u043D\u0430\u044F. \u041F\u0440\u0438 \u0431\u043E\u043B\u044C\u0448\u0438\u0445 \u0433\u043B\u0443\u0431\u0438\u043D\u0430\u0445 \u0433\u0440\u0430\u0444 \u043C\u043E\u0436\u0435\u0442 \u0441\u0442\u0430\u0442\u044C \u043D\u0435\u0447\u0438\u0442\u0430\u0435\u043C\u044B\u043C \u2014 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0439\u0442\u0435 \u0444\u0438\u043B\u044C\u0442\u0440\u044B." }) }),
+                    /* @__PURE__ */ jsx58(HelpSection, { title: "\u0424\u0438\u043B\u044C\u0442\u0440\u044B", children: /* @__PURE__ */ jsxs55(HelpList, { children: [
+                      /* @__PURE__ */ jsxs55("li", { children: [
+                        /* @__PURE__ */ jsx58("strong", { children: "\u041D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435 / Reference / Linkage" }),
+                        " ",
+                        "\u2014 \u043A\u0430\u043A\u0438\u0435 \u0442\u0438\u043F\u044B \u0441\u0432\u044F\u0437\u0435\u0439 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0442\u044C. \u0412 \u0440\u0435\u0436\u0438\u043C\u0435 \xAB\u041D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435\xBB \u044D\u0442\u0438 \u0447\u0435\u043A\u0431\u043E\u043A\u0441\u044B \u043D\u0435 \u0432\u043B\u0438\u044F\u044E\u0442."
+                      ] }),
+                      /* @__PURE__ */ jsxs55("li", { children: [
+                        /* @__PURE__ */ jsx58("strong", { children: "Siblings" }),
+                        " \u2014 \u0434\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u0434\u0440\u0443\u0433\u0438\u0445 \u0434\u0435\u0442\u0435\u0439 \u0440\u043E\u0434\u0438\u0442\u0435\u043B\u044F \u0442\u0435\u043A\u0443\u0449\u0435\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438. \u041F\u043E\u043B\u0435\u0437\u043D\u043E \u0434\u043B\u044F \u0441\u0440\u0430\u0432\u043D\u0435\u043D\u0438\u044F \u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u044B: \u043D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, \u0435\u0441\u0442\u044C \u043B\u0438 \u0443 \u0432\u0441\u0435\u0445 \xAB\u0441\u043E\u0441\u0435\u0434\u0435\u0439\xBB \u043E\u0431\u0449\u0438\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B."
+                      ] }),
+                      /* @__PURE__ */ jsxs55("li", { children: [
+                        /* @__PURE__ */ jsx58("strong", { children: "\u0411\u0435\u0437 \u0441\u0432\u044F\u0437\u0435\u0439" }),
+                        " \u2014 \u0441\u043A\u0440\u044B\u0442\u044C \u0443\u0437\u043B\u044B, \u0443 \u043A\u043E\u0442\u043E\u0440\u044B\u0445 \u043D\u0435\u0442 \u043D\u0438 \u0432\u0445\u043E\u0434\u044F\u0449\u0438\u0445, \u043D\u0438 \u0438\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u0445 \u0440\u0451\u0431\u0435\u0440 \u0432 \u0433\u0440\u0430\u0444\u0435. \u0423\u0431\u0438\u0440\u0430\u0435\u0442 \xAB\u0432\u0438\u0441\u044F\u0447\u0438\u0435\xBB \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438."
+                      ] })
+                    ] }) }),
+                    /* @__PURE__ */ jsx58(HelpSection, { title: "KPI \u0441\u0432\u0435\u0440\u0445\u0443", children: /* @__PURE__ */ jsxs55(HelpList, { children: [
+                      /* @__PURE__ */ jsxs55("li", { children: [
+                        /* @__PURE__ */ jsx58("strong", { children: "\u041F\u0440\u0435\u0434\u043A\u0438" }),
+                        " \u2014 \u0432\u0441\u0435, \u043E\u0442 \u043A\u043E\u0433\u043E \u043D\u0430\u0441\u043B\u0435\u0434\u0443\u0435\u0442 \u0442\u0435\u043A\u0443\u0449\u0430\u044F, \u043F\u043E \u0446\u0435\u043F\u043E\u0447\u043A\u0435 \u0432\u0432\u0435\u0440\u0445."
+                      ] }),
+                      /* @__PURE__ */ jsxs55("li", { children: [
+                        /* @__PURE__ */ jsx58("strong", { children: "\u041F\u043E\u0442\u043E\u043C\u043A\u0438" }),
+                        " \u2014 \u0432\u0441\u0435, \u043A\u0442\u043E \u043D\u0430\u0441\u043B\u0435\u0434\u0443\u0435\u0442 \u043E\u0442 \u0442\u0435\u043A\u0443\u0449\u0435\u0439, \u043F\u043E \u0446\u0435\u043F\u043E\u0447\u043A\u0435 \u0432\u043D\u0438\u0437."
+                      ] }),
+                      /* @__PURE__ */ jsxs55("li", { children: [
+                        /* @__PURE__ */ jsx58("strong", { children: "Siblings" }),
+                        " \u2014 \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E \xAB\u0441\u043E\u0441\u0435\u0434\u0435\u0439\xBB (\u0434\u0440\u0443\u0433\u0438\u0445 \u0434\u0435\u0442\u0435\u0439 \u0442\u043E\u0433\u043E \u0436\u0435 \u0440\u043E\u0434\u0438\u0442\u0435\u043B\u044F)."
+                      ] }),
+                      /* @__PURE__ */ jsxs55("li", { children: [
+                        /* @__PURE__ */ jsx58("strong", { children: "\u0412\u0441\u0435\u0433\u043E" }),
+                        " \u2014 \u0443\u0437\u043B\u043E\u0432 \u0432 \u0433\u0440\u0430\u0444\u0435 \u0441 \u0442\u0435\u043A\u0443\u0449\u0438\u043C\u0438 \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u043C\u0438."
+                      ] }),
+                      /* @__PURE__ */ jsxs55("li", { children: [
+                        /* @__PURE__ */ jsx58("strong", { children: "\u0426\u0438\u043A\u043B\u044B" }),
+                        " \u2014 \u0435\u0441\u043B\u0438 \u0433\u0440\u0430\u0444 \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u0442 \u0446\u0438\u043A\u043B\u0438\u0447\u0435\u0441\u043A\u043E\u0435 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435. \u042D\u0442\u043E \u043E\u0448\u0438\u0431\u043A\u0430 \u043C\u043E\u0434\u0435\u043B\u0438 \u2014 \u0441\u043C\u043E\u0442\u0440\u0438\u0442\u0435 \u0441\u043F\u0438\u0441\u043E\u043A \u043D\u0438\u0436\u0435."
+                      ] })
+                    ] }) }),
+                    /* @__PURE__ */ jsxs55(HelpSection, { title: "\u0414\u0435\u0442\u0430\u043B\u0438 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438", children: [
+                      /* @__PURE__ */ jsx58(HelpText, { children: "\u041A\u043B\u0438\u043A \u043F\u043E \u0443\u0437\u043B\u0443 \u0432 \u0433\u0440\u0430\u0444\u0435 \u043E\u0442\u043A\u0440\u044B\u0432\u0430\u0435\u0442 \u043F\u0440\u0430\u0432\u0443\u044E \u043F\u0430\u043D\u0435\u043B\u044C: \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B, References, \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435, \u043A\u043D\u043E\u043F\u043A\u0438 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0439." }),
+                      /* @__PURE__ */ jsxs55(HelpList, { children: [
+                        /* @__PURE__ */ jsxs55("li", { children: [
+                          /* @__PURE__ */ jsx58("strong", { children: "\u0421\u0445\u0435\u043C\u0430 \u0434\u043E\u043C\u0435\u043D\u0430" }),
+                          " \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u043F\u043E\u043B\u043D\u0443\u044E \u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0443 \u0434\u043E\u043C\u0435\u043D\u0430."
+                        ] }),
+                        /* @__PURE__ */ jsxs55("li", { children: [
+                          /* @__PURE__ */ jsx58("strong", { children: "\u0412 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435" }),
+                          " \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435 \u0441 impact-\u0430\u043D\u0430\u043B\u0438\u0437\u043E\u043C."
+                        ] }),
+                        /* @__PURE__ */ jsxs55("li", { children: [
+                          /* @__PURE__ */ jsx58("strong", { children: "YAML" }),
+                          " \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u0444\u0430\u0439\u043B \u0432 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0435 \u043D\u0430 \u044D\u0442\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438."
+                        ] }),
+                        /* @__PURE__ */ jsxs55("li", { children: [
+                          /* @__PURE__ */ jsx58("strong", { children: "\u041A\u043E\u0440\u0435\u043D\u044C" }),
+                          " \u2014 \u043F\u0435\u0440\u0435\u0439\u0442\u0438 \u043A \u0441\u0430\u043C\u043E\u0439 \xAB\u0432\u0435\u0440\u0445\u043D\u0435\u0439\xBB \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0432 \u0446\u0435\u043F\u043E\u0447\u043A\u0435 \u043F\u0440\u0435\u0434\u043A\u043E\u0432."
+                        ] })
+                      ] })
+                    ] }),
+                    /* @__PURE__ */ jsx58(HelpSection, { title: "\u041D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044F", children: /* @__PURE__ */ jsxs55(HelpList, { children: [
+                      /* @__PURE__ */ jsxs55("li", { children: [
+                        /* @__PURE__ */ jsx58("strong", { children: "\u041A\u043B\u0438\u043A \u043F\u043E \u0443\u0437\u043B\u0443" }),
+                        " \u2014 \u0432\u044B\u0431\u0440\u0430\u0442\u044C \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C, \u043E\u0442 \u043D\u0435\u0451 \u043F\u043E\u0441\u0442\u0440\u043E\u0438\u0442\u0441\u044F \u043D\u043E\u0432\u0430\u044F \u0438\u0435\u0440\u0430\u0440\u0445\u0438\u044F."
+                      ] }),
+                      /* @__PURE__ */ jsxs55("li", { children: [
+                        /* @__PURE__ */ jsx58("strong", { children: "\u041D\u0430\u0437\u0430\u0434" }),
+                        " \u2014 \u0432\u0435\u0440\u043D\u0443\u0442\u044C\u0441\u044F \u043A \u043F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0435\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 (\u0438\u043B\u0438 Esc, \u0435\u0441\u043B\u0438 \u0438\u0441\u0442\u043E\u0440\u0438\u0438 \u043D\u0435\u0442 \u2014 \u0437\u0430\u043A\u0440\u044B\u0442\u044C \u043C\u043E\u0434\u0430\u043B\u043A\u0443)."
+                      ] }),
+                      /* @__PURE__ */ jsxs55("li", { children: [
+                        /* @__PURE__ */ jsx58("strong", { children: "\u041F\u043E\u0438\u0441\u043A" }),
+                        " \u2014 \u0444\u0438\u043B\u044C\u0442\u0440 \u043F\u043E id \u0438 name. \u041A\u043B\u0438\u043A \u043F\u043E \u0440\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442\u0443 \u2014 \u0432\u044B\u0431\u0440\u0430\u0442\u044C."
+                      ] })
+                    ] }) }),
+                    /* @__PURE__ */ jsx58(HelpSection, { title: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442", children: /* @__PURE__ */ jsxs55(HelpList, { children: [
+                      /* @__PURE__ */ jsxs55("li", { children: [
+                        /* @__PURE__ */ jsx58("strong", { children: "Mermaid" }),
+                        " \u2014 classDiagram \u0434\u043B\u044F \u0432\u0441\u0442\u0430\u0432\u043A\u0438 \u0432 MD / PR / Confluence."
+                      ] }),
+                      /* @__PURE__ */ jsxs55("li", { children: [
+                        /* @__PURE__ */ jsx58("strong", { children: "JSON" }),
+                        " \u2014 \u043C\u0430\u0448\u0438\u043D\u043D\u043E-\u0447\u0438\u0442\u0430\u0435\u043C\u043E: \u0443\u0437\u043B\u044B \u0441 \u0440\u043E\u043B\u044F\u043C\u0438, \u0440\u0451\u0431\u0440\u0430, \u0446\u0438\u043A\u043B\u044B, KPI. \u0414\u043B\u044F CI \u0438\u043B\u0438 \u0434\u043E\u043A\u0443\u043C\u0435\u043D\u0442\u0430\u0446\u0438\u0438."
+                      ] })
+                    ] }) }),
+                    /* @__PURE__ */ jsx58(HelpSection, { title: "\u0426\u0438\u043A\u043B\u044B", children: /* @__PURE__ */ jsx58(HelpText, { children: "\u0415\u0441\u043B\u0438 \u0432 \u0433\u0440\u0430\u0444\u0435 \u0435\u0441\u0442\u044C \u0446\u0438\u043A\u043B (A \u2192 B \u2192 C \u2192 A), \u044D\u0442\u043E \u043E\u0448\u0438\u0431\u043A\u0430 \u043C\u043E\u0434\u0435\u043B\u0438: \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435 \u043F\u043E \u043A\u0440\u0443\u0433\u0443 \u043B\u043E\u043C\u0430\u0435\u0442 \u043B\u043E\u0433\u0438\u043A\u0443. \u041C\u043E\u0434\u0430\u043B\u043A\u0430 \u043F\u043E\u0434\u0441\u0432\u0435\u0442\u0438\u0442 \u0442\u0430\u043A\u0438\u0435 \u0443\u0437\u043B\u044B \u043A\u0440\u0430\u0441\u043D\u044B\u043C \u0438 \u043F\u043E\u043A\u0430\u0436\u0435\u0442 \u0446\u0435\u043F\u043E\u0447\u043A\u0443 \u0432 \u0441\u043F\u0438\u0441\u043A\u0435 \u0446\u0438\u043A\u043B\u043E\u0432 \u043F\u043E\u0434 \u0433\u0440\u0430\u0444\u043E\u043C." }) }),
+                    /* @__PURE__ */ jsx58(HelpSection, { title: "\u041E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F", children: /* @__PURE__ */ jsxs55(HelpList, { children: [
+                      /* @__PURE__ */ jsx58("li", { children: "\u041F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u0437\u0430\u0433\u0440\u0443\u0436\u0435\u043D\u043D\u044B\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438. FQID \u043D\u0430 \u0434\u0440\u0443\u0433\u043E\u0439 \u0434\u043E\u043C\u0435\u043D, \u043A\u043E\u0442\u043E\u0440\u043E\u0433\u043E \u043D\u0435\u0442 \u0432 \u043A\u044D\u0448\u0435, \u2014 \u0443\u0437\u0435\u043B \xABmissing\xBB." }),
+                      /* @__PURE__ */ jsx58("li", { children: "\u0412\u043B\u043E\u0436\u0435\u043D\u043D\u044B\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B Table \u043D\u0435 \u0443\u0447\u0430\u0441\u0442\u0432\u0443\u044E\u0442 \u0432 \u0433\u0440\u0430\u0444\u0435 \u2014 \u0442\u043E\u043B\u044C\u043A\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438." }),
+                      /* @__PURE__ */ jsx58("li", { children: "\u041D\u0430 \u0431\u043E\u043B\u044C\u0448\u0438\u0445 \u0438\u0435\u0440\u0430\u0440\u0445\u0438\u044F\u0445 (200+ \u0443\u0437\u043B\u043E\u0432) \u0433\u0440\u0430\u0444 \u043C\u043E\u0436\u0435\u0442 \u0442\u043E\u0440\u043C\u043E\u0437\u0438\u0442\u044C \u2014 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0439\u0442\u0435 \u0433\u043B\u0443\u0431\u0438\u043D\u0443 2\u20133 \u0438 \u0444\u0438\u043B\u044C\u0442\u0440\u044B." })
+                    ] }) })
+                  ]
+                }
+              ),
+              !showHelp && /* @__PURE__ */ jsxs55(Fragment12, { children: [
+                /* @__PURE__ */ jsxs55("div", { className: "entity-search-panel", children: [
+                  /* @__PURE__ */ jsxs55("div", { className: "entity-search-input-wrap", children: [
+                    /* @__PURE__ */ jsx58("span", { className: "entity-search-icon", children: /* @__PURE__ */ jsx58(MIcon, { name: "search", size: "sm" }) }),
                     /* @__PURE__ */ jsx58(
                       "input",
                       {
-                        type: "range",
-                        min: 1,
-                        max: 6,
-                        value: depth,
-                        onChange: (e) => setDepth(parseInt(e.target.value, 10))
+                        className: "entity-search-input",
+                        type: "text",
+                        placeholder: "\u041F\u043E\u0438\u0441\u043A \u043F\u043E id \u0438\u043B\u0438 \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u044E\u2026",
+                        value: query,
+                        onChange: (e) => setQuery(e.target.value)
+                      }
+                    )
+                  ] }),
+                  tree && selectedKey && /* @__PURE__ */ jsxs55("div", { className: "entity-hierarchy-breadcrumb", children: [
+                    /* @__PURE__ */ jsx58(
+                      "button",
+                      {
+                        className: "entity-hierarchy-breadcrumb__root",
+                        onClick: () => {
+                          const root = tree.ancestorsOrdered[tree.ancestorsOrdered.length - 1];
+                          if (root)
+                            navigateTo(root);
+                        },
+                        disabled: tree.ancestorsOrdered.length === 0,
+                        title: tree.ancestorsOrdered.length > 0 ? "\u041F\u0435\u0440\u0435\u0439\u0442\u0438 \u043A \u043A\u043E\u0440\u043D\u044E \u0438\u0435\u0440\u0430\u0440\u0445\u0438\u0438" : "\u042D\u0442\u043E \u0438 \u0435\u0441\u0442\u044C \u043A\u043E\u0440\u0435\u043D\u044C",
+                        children: /* @__PURE__ */ jsx58(
+                          MIcon,
+                          {
+                            name: "vertical_align_top",
+                            size: "sm"
+                          }
+                        )
                       }
                     ),
-                    /* @__PURE__ */ jsx58("span", { className: "entity-hierarchy-depth-value", children: depth })
-                  ] })
+                    /* @__PURE__ */ jsx58("code", { className: "entity-hierarchy-breadcrumb__id", children: selectedKey.split("/").pop() }),
+                    tree.ancestorsOrdered.length > 0 && /* @__PURE__ */ jsxs55("span", { className: "entity-hierarchy-breadcrumb__hint", children: [
+                      "\u2191 ",
+                      tree.ancestorsOrdered.length,
+                      " ",
+                      tree.ancestorsOrdered.length === 1 ? "\u043F\u0440\u0435\u0434\u043E\u043A" : "\u043F\u0440\u0435\u0434\u043A\u043E\u0432"
+                    ] })
+                  ] }),
+                  /* @__PURE__ */ jsx58("div", { className: "entity-search-results", children: query.trim() === "" ? /* @__PURE__ */ jsxs55("div", { className: "entity-search-hint", children: [
+                    "\u0412\u0441\u0435\u0433\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439: ",
+                    entities2.length,
+                    /* @__PURE__ */ jsx58("br", {}),
+                    /* @__PURE__ */ jsx58("span", { style: { fontSize: 11 }, children: "\u041D\u0430\u0447\u043D\u0438\u0442\u0435 \u0432\u0432\u043E\u0434\u0438\u0442\u044C \u0434\u043B\u044F \u043F\u043E\u0438\u0441\u043A\u0430" })
+                  ] }) : searchResults.length === 0 ? /* @__PURE__ */ jsx58("div", { className: "entity-search-hint", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" }) : searchResults.map((r) => /* @__PURE__ */ jsxs55(
+                    "div",
+                    {
+                      className: "entity-search-item" + (r.key === selectedKey ? " entity-search-item--active" : "") + (r.isOrphan ? " entity-search-item--orphan" : ""),
+                      onClick: () => {
+                        setHistory(
+                          (prev) => selectedKey ? prev.concat([
+                            selectedKey
+                          ]) : prev
+                        );
+                        setSelectedKey(r.key);
+                      },
+                      children: [
+                        /* @__PURE__ */ jsx58("div", { className: "entity-search-item__id", children: r.entity.entityId }),
+                        r.entity.name && r.entity.name !== r.entity.entityId && /* @__PURE__ */ jsx58("div", { className: "entity-search-item__name", children: r.entity.name }),
+                        /* @__PURE__ */ jsxs55("div", { className: "entity-search-item__meta", children: [
+                          /* @__PURE__ */ jsx58("span", { className: "entity-search-item__domain", children: r.entity.domainId }),
+                          r.isOrphan ? /* @__PURE__ */ jsx58("span", { className: "entity-search-item__badge", children: "\u0431\u0435\u0437 \u0438\u0435\u0440\u0430\u0440\u0445\u0438\u0438" }) : /* @__PURE__ */ jsx58("span", { className: "entity-search-item__badge entity-search-item__badge--ok", children: (r.hasParents ? "\u2191" : "\xB7") + (r.hasChildren ? "\u2193" : "\xB7") })
+                        ] })
+                      ]
+                    },
+                    r.key
+                  )) })
                 ] }),
-                /* @__PURE__ */ jsx58(
-                  EntityHierarchyFlow,
-                  {
-                    tree,
-                    onSelect: handleSelect
-                  }
-                )
-              ] }) : null })
+                /* @__PURE__ */ jsx58("div", { className: "entity-graph-panel", children: !selectedKey ? /* @__PURE__ */ jsxs55("div", { className: "entity-graph-empty", children: [
+                  /* @__PURE__ */ jsx58("div", { className: "entity-graph-empty__icon", children: /* @__PURE__ */ jsx58(MIcon, { name: "account_tree", size: "xl" }) }),
+                  /* @__PURE__ */ jsx58("div", { className: "entity-graph-empty__title", children: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0441\u043B\u0435\u0432\u0430" }),
+                  /* @__PURE__ */ jsx58("div", { className: "entity-graph-empty__hint", children: "\u0420\u043E\u0434\u0438\u0442\u0435\u043B\u0438 \u0441\u0432\u0435\u0440\u0445\u0443, \u043D\u0430\u0441\u043B\u0435\u0434\u043D\u0438\u043A\u0438 \u0441\u043D\u0438\u0437\u0443. \u0412\u043E \u0432\u0442\u043E\u0440\u043E\u043C \u0440\u0435\u0436\u0438\u043C\u0435 \u2014 \u0435\u0449\u0451 Reference \u0438 Linkage." })
+                ] }) : tree ? /* @__PURE__ */ jsxs55(Fragment12, { children: [
+                  /* @__PURE__ */ jsxs55("div", { className: "entity-hierarchy-toolbar", children: [
+                    history.length > 0 && /* @__PURE__ */ jsx58(
+                      "button",
+                      {
+                        className: "entity-hierarchy-back",
+                        onClick: handleBack,
+                        title: "\u041D\u0430\u0437\u0430\u0434 (Esc)",
+                        children: "\u2190 \u041D\u0430\u0437\u0430\u0434"
+                      }
+                    ),
+                    /* @__PURE__ */ jsxs55("div", { className: "entity-hierarchy-toolbar__modes", children: [
+                      /* @__PURE__ */ jsxs55(
+                        "button",
+                        {
+                          className: "entity-hierarchy-mode" + (mode === "inherits" ? " active" : ""),
+                          onClick: () => setMode("inherits"),
+                          children: [
+                            /* @__PURE__ */ jsx58(
+                              "span",
+                              {
+                                className: "entity-hierarchy-mode__dot",
+                                style: {
+                                  background: "#a78bfa"
+                                }
+                              }
+                            ),
+                            "\u041D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435"
+                          ]
+                        }
+                      ),
+                      /* @__PURE__ */ jsxs55(
+                        "button",
+                        {
+                          className: "entity-hierarchy-mode" + (mode === "all" ? " active" : ""),
+                          onClick: () => setMode("all"),
+                          children: [
+                            /* @__PURE__ */ jsx58(
+                              "span",
+                              {
+                                className: "entity-hierarchy-mode__dot",
+                                style: {
+                                  background: "#6366f1"
+                                }
+                              }
+                            ),
+                            "\u0412\u0441\u0435 \u0441\u0432\u044F\u0437\u0438"
+                          ]
+                        }
+                      )
+                    ] }),
+                    /* @__PURE__ */ jsxs55("div", { className: "entity-hierarchy-toolbar__filters", children: [
+                      mode === "all" && /* @__PURE__ */ jsxs55(Fragment12, { children: [
+                        /* @__PURE__ */ jsxs55("label", { className: "entity-hierarchy-filter", children: [
+                          /* @__PURE__ */ jsx58(
+                            "input",
+                            {
+                              type: "checkbox",
+                              checked: showInheritance,
+                              onChange: () => setShowInheritance(
+                                !showInheritance
+                              )
+                            }
+                          ),
+                          /* @__PURE__ */ jsx58(
+                            "span",
+                            {
+                              className: "entity-hierarchy-filter__dot",
+                              style: {
+                                background: "#a78bfa"
+                              }
+                            }
+                          ),
+                          "\u041D\u0430\u0441\u043B\u0435\u0434."
+                        ] }),
+                        /* @__PURE__ */ jsxs55("label", { className: "entity-hierarchy-filter", children: [
+                          /* @__PURE__ */ jsx58(
+                            "input",
+                            {
+                              type: "checkbox",
+                              checked: showReferences,
+                              onChange: () => setShowReferences(
+                                !showReferences
+                              )
+                            }
+                          ),
+                          /* @__PURE__ */ jsx58(
+                            "span",
+                            {
+                              className: "entity-hierarchy-filter__dot",
+                              style: {
+                                background: "#6366f1"
+                              }
+                            }
+                          ),
+                          "Reference"
+                        ] }),
+                        /* @__PURE__ */ jsxs55("label", { className: "entity-hierarchy-filter", children: [
+                          /* @__PURE__ */ jsx58(
+                            "input",
+                            {
+                              type: "checkbox",
+                              checked: showLinkages,
+                              onChange: () => setShowLinkages(
+                                !showLinkages
+                              )
+                            }
+                          ),
+                          /* @__PURE__ */ jsx58(
+                            "span",
+                            {
+                              className: "entity-hierarchy-filter__dot",
+                              style: {
+                                background: "#10b981"
+                              }
+                            }
+                          ),
+                          "Linkage"
+                        ] }),
+                        /* @__PURE__ */ jsx58("span", { className: "entity-hierarchy-toolbar__sep" })
+                      ] }),
+                      /* @__PURE__ */ jsxs55(
+                        "label",
+                        {
+                          className: "entity-hierarchy-filter",
+                          title: "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0434\u0440\u0443\u0433\u0438\u0445 \u0434\u0435\u0442\u0435\u0439 \u0442\u043E\u0433\u043E \u0436\u0435 \u0440\u043E\u0434\u0438\u0442\u0435\u043B\u044F",
+                          children: [
+                            /* @__PURE__ */ jsx58(
+                              "input",
+                              {
+                                type: "checkbox",
+                                checked: showSiblings,
+                                onChange: () => setShowSiblings(!showSiblings)
+                              }
+                            ),
+                            /* @__PURE__ */ jsx58(
+                              "span",
+                              {
+                                className: "entity-hierarchy-filter__dot",
+                                style: { background: "#94a3b8" }
+                              }
+                            ),
+                            "Siblings",
+                            tree.siblingCandidates.size > 0 && /* @__PURE__ */ jsx58("span", { className: "entity-hierarchy-filter__count", children: showSiblings ? tree.siblingKeys.size : tree.siblingCandidates.size })
+                          ]
+                        }
+                      ),
+                      /* @__PURE__ */ jsxs55("label", { className: "entity-hierarchy-filter", children: [
+                        /* @__PURE__ */ jsx58(
+                          "input",
+                          {
+                            type: "checkbox",
+                            checked: hideIsolated,
+                            onChange: () => setHideIsolated(
+                              !hideIsolated
+                            )
+                          }
+                        ),
+                        "\u0411\u0435\u0437 \u0441\u0432\u044F\u0437\u0435\u0439"
+                      ] })
+                    ] }),
+                    mode === "all" && /* @__PURE__ */ jsxs55("div", { className: "entity-hierarchy-toolbar__depth", children: [
+                      /* @__PURE__ */ jsx58("span", { children: "\u0413\u043B\u0443\u0431\u0438\u043D\u0430:" }),
+                      /* @__PURE__ */ jsx58(
+                        "input",
+                        {
+                          type: "range",
+                          min: 1,
+                          max: 6,
+                          value: depth,
+                          onChange: (e) => setDepth(
+                            parseInt(
+                              e.target.value,
+                              10
+                            )
+                          )
+                        }
+                      ),
+                      /* @__PURE__ */ jsx58("span", { className: "entity-hierarchy-depth-value", children: depth })
+                    ] }),
+                    /* @__PURE__ */ jsxs55("div", { className: "entity-hierarchy-toolbar__actions", children: [
+                      /* @__PURE__ */ jsx58(
+                        "button",
+                        {
+                          className: "btn btn--icon",
+                          onClick: handleExportJSON,
+                          title: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442 JSON",
+                          children: /* @__PURE__ */ jsx58(
+                            MIcon,
+                            {
+                              name: "data_object",
+                              size: "sm"
+                            }
+                          )
+                        }
+                      ),
+                      /* @__PURE__ */ jsx58(
+                        "button",
+                        {
+                          className: "btn btn--icon",
+                          onClick: handleExportMermaid,
+                          title: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442 Mermaid classDiagram",
+                          children: /* @__PURE__ */ jsx58(
+                            MIcon,
+                            {
+                              name: "schema",
+                              size: "sm"
+                            }
+                          )
+                        }
+                      ),
+                      /* @__PURE__ */ jsx58(
+                        "button",
+                        {
+                          className: "btn btn--icon" + (detailOpen ? " active" : ""),
+                          onClick: () => setDetailOpen(!detailOpen),
+                          title: detailOpen ? "\u0421\u043A\u0440\u044B\u0442\u044C \u0434\u0435\u0442\u0430\u043B\u0438" : "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0434\u0435\u0442\u0430\u043B\u0438",
+                          children: /* @__PURE__ */ jsx58(
+                            MIcon,
+                            {
+                              name: "info",
+                              size: "sm"
+                            }
+                          )
+                        }
+                      )
+                    ] })
+                  ] }),
+                  /* @__PURE__ */ jsxs55("div", { className: "entity-hierarchy-kpi", children: [
+                    /* @__PURE__ */ jsxs55("div", { className: "entity-hierarchy-kpi-card entity-hierarchy-kpi-card--ancestor", children: [
+                      /* @__PURE__ */ jsx58("div", { className: "entity-hierarchy-kpi-card__value", children: tree.ancestorsOrdered.length }),
+                      /* @__PURE__ */ jsx58("div", { className: "entity-hierarchy-kpi-card__label", children: "\u041F\u0440\u0435\u0434\u043A\u043E\u0432" })
+                    ] }),
+                    /* @__PURE__ */ jsxs55("div", { className: "entity-hierarchy-kpi-card entity-hierarchy-kpi-card--descendant", children: [
+                      /* @__PURE__ */ jsx58("div", { className: "entity-hierarchy-kpi-card__value", children: tree.childKeys.size }),
+                      /* @__PURE__ */ jsx58("div", { className: "entity-hierarchy-kpi-card__label", children: "\u041F\u043E\u0442\u043E\u043C\u043A\u043E\u0432" })
+                    ] }),
+                    /* @__PURE__ */ jsxs55("div", { className: "entity-hierarchy-kpi-card entity-hierarchy-kpi-card--sibling", children: [
+                      /* @__PURE__ */ jsx58("div", { className: "entity-hierarchy-kpi-card__value", children: tree.siblingCandidates.size }),
+                      /* @__PURE__ */ jsx58("div", { className: "entity-hierarchy-kpi-card__label", children: "Siblings" })
+                    ] }),
+                    /* @__PURE__ */ jsxs55("div", { className: "entity-hierarchy-kpi-card", children: [
+                      /* @__PURE__ */ jsx58("div", { className: "entity-hierarchy-kpi-card__value", children: tree.nodes.length }),
+                      /* @__PURE__ */ jsx58("div", { className: "entity-hierarchy-kpi-card__label", children: "\u0412\u0441\u0435\u0433\u043E \u0443\u0437\u043B\u043E\u0432" })
+                    ] }),
+                    tree.cycles.length > 0 && /* @__PURE__ */ jsxs55("div", { className: "entity-hierarchy-kpi-card entity-hierarchy-kpi-card--err", children: [
+                      /* @__PURE__ */ jsx58("div", { className: "entity-hierarchy-kpi-card__value", children: tree.cycles.length }),
+                      /* @__PURE__ */ jsx58("div", { className: "entity-hierarchy-kpi-card__label", children: "\u0426\u0438\u043A\u043B\u043E\u0432" })
+                    ] })
+                  ] }),
+                  /* @__PURE__ */ jsxs55(
+                    "div",
+                    {
+                      className: "entity-hierarchy-canvas" + (detailOpen ? " entity-hierarchy-canvas--with-detail" : ""),
+                      children: [
+                        /* @__PURE__ */ jsx58("div", { className: "entity-hierarchy-graph", children: /* @__PURE__ */ jsx58(
+                          EntityHierarchyFlow,
+                          {
+                            tree,
+                            onSelect: handleSelect
+                          }
+                        ) }),
+                        detailOpen && currentEntity && /* @__PURE__ */ jsxs55("div", { className: "entity-hierarchy-detail", children: [
+                          /* @__PURE__ */ jsxs55("div", { className: "entity-hierarchy-detail__head", children: [
+                            /* @__PURE__ */ jsx58("code", { className: "entity-hierarchy-detail__id", children: currentEntity.entityId }),
+                            currentEntity.name && currentEntity.name !== currentEntity.entityId && /* @__PURE__ */ jsx58("span", { className: "entity-hierarchy-detail__name", children: currentEntity.name })
+                          ] }),
+                          /* @__PURE__ */ jsxs55("div", { className: "entity-hierarchy-detail__meta", children: [
+                            /* @__PURE__ */ jsx58("span", { className: "entity-hierarchy-detail__badge", children: currentEntity.domainId }),
+                            currentEntity.inherits && /* @__PURE__ */ jsxs55(
+                              "button",
+                              {
+                                className: "entity-hierarchy-detail__badge entity-hierarchy-detail__badge--link",
+                                onClick: () => navigateTo(
+                                  currentEntity.inherits.toLowerCase()
+                                ),
+                                children: [
+                                  "\u21B3",
+                                  " ",
+                                  currentEntity.inherits.split("/").pop()
+                                ]
+                              }
+                            ),
+                            currentEntity.attributes.length > 0 && /* @__PURE__ */ jsxs55("span", { className: "entity-hierarchy-detail__badge", children: [
+                              currentEntity.attributes.length,
+                              " ",
+                              "\u0430\u0442\u0440."
+                            ] }),
+                            entityIssuesCount > 0 && /* @__PURE__ */ jsxs55("span", { className: "entity-hierarchy-detail__badge entity-hierarchy-detail__badge--warn", children: [
+                              "\u26A0 ",
+                              entityIssuesCount
+                            ] })
+                          ] }),
+                          currentEntity.attributes.length > 0 && /* @__PURE__ */ jsxs55("div", { className: "entity-hierarchy-detail__section", children: [
+                            /* @__PURE__ */ jsxs55("div", { className: "entity-hierarchy-detail__section-title", children: [
+                              "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u044B (",
+                              currentEntity.attributes.length,
+                              ")"
+                            ] }),
+                            /* @__PURE__ */ jsxs55("div", { className: "entity-hierarchy-detail__attrs", children: [
+                              currentEntity.attributes.slice(0, 15).map((a) => /* @__PURE__ */ jsxs55(
+                                "div",
+                                {
+                                  className: "entity-hierarchy-detail__attr",
+                                  children: [
+                                    /* @__PURE__ */ jsx58("code", { className: "entity-hierarchy-detail__attr-id", children: a.id }),
+                                    /* @__PURE__ */ jsx58("span", { className: "entity-hierarchy-detail__attr-type", children: a.dataType }),
+                                    a.readonly && /* @__PURE__ */ jsx58(
+                                      "span",
+                                      {
+                                        className: "entity-hierarchy-detail__attr-badge",
+                                        title: "readonly",
+                                        children: "\u{1F512}"
+                                      }
+                                    ),
+                                    a.constraints.includes(
+                                      "required"
+                                    ) && /* @__PURE__ */ jsx58(
+                                      "span",
+                                      {
+                                        className: "entity-hierarchy-detail__attr-badge entity-hierarchy-detail__attr-badge--req",
+                                        title: "required",
+                                        children: "\u2605"
+                                      }
+                                    )
+                                  ]
+                                },
+                                a.id
+                              )),
+                              currentEntity.attributes.length > 15 && /* @__PURE__ */ jsxs55("div", { className: "entity-hierarchy-detail__attr-more", children: [
+                                "\u2026\u0438 \u0435\u0449\u0451",
+                                " ",
+                                currentEntity.attributes.length - 15
+                              ] })
+                            ] })
+                          ] }),
+                          /* @__PURE__ */ jsxs55("div", { className: "entity-hierarchy-detail__actions", children: [
+                            /* @__PURE__ */ jsxs55(
+                              "button",
+                              {
+                                className: "btn btn--primary",
+                                onClick: () => openEntityInCatalog(
+                                  currentEntity.fqid
+                                ),
+                                children: [
+                                  /* @__PURE__ */ jsx58(
+                                    MIcon,
+                                    {
+                                      name: "menu_book",
+                                      size: "sm"
+                                    }
+                                  ),
+                                  "\u0412 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435"
+                                ]
+                              }
+                            ),
+                            /* @__PURE__ */ jsxs55(
+                              "button",
+                              {
+                                className: "btn",
+                                onClick: () => openYamlForEntity(
+                                  currentEntity.fqid,
+                                  currentEntity.domainId
+                                ),
+                                children: [
+                                  /* @__PURE__ */ jsx58(
+                                    MIcon,
+                                    {
+                                      name: "description",
+                                      size: "sm"
+                                    }
+                                  ),
+                                  "YAML"
+                                ]
+                              }
+                            ),
+                            tree.ancestorsOrdered.length > 0 && /* @__PURE__ */ jsxs55(
+                              "button",
+                              {
+                                className: "btn",
+                                onClick: () => navigateTo(
+                                  tree.ancestorsOrdered[tree.ancestorsOrdered.length - 1]
+                                ),
+                                title: "\u041F\u0435\u0440\u0435\u0439\u0442\u0438 \u043A \u043A\u043E\u0440\u043D\u044E \u0438\u0435\u0440\u0430\u0440\u0445\u0438\u0438",
+                                children: [
+                                  /* @__PURE__ */ jsx58(
+                                    MIcon,
+                                    {
+                                      name: "vertical_align_top",
+                                      size: "sm"
+                                    }
+                                  ),
+                                  "\u041A\u043E\u0440\u0435\u043D\u044C"
+                                ]
+                              }
+                            )
+                          ] })
+                        ] })
+                      ]
+                    }
+                  ),
+                  tree.cycles.length > 0 && /* @__PURE__ */ jsxs55("div", { className: "entity-hierarchy-cycles", children: [
+                    /* @__PURE__ */ jsxs55("div", { className: "entity-hierarchy-cycles__title", children: [
+                      /* @__PURE__ */ jsx58(
+                        MIcon,
+                        {
+                          name: "cycle",
+                          size: "sm"
+                        }
+                      ),
+                      "\u0426\u0438\u043A\u043B\u044B \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F (",
+                      tree.cycles.length,
+                      ") \u2014 \u043E\u0448\u0438\u0431\u043A\u0430 \u043C\u043E\u0434\u0435\u043B\u0438"
+                    ] }),
+                    tree.cycles.map((cycle, idx) => /* @__PURE__ */ jsxs55(
+                      "div",
+                      {
+                        className: "entity-hierarchy-cycle",
+                        children: [
+                          cycle.map((k, i) => /* @__PURE__ */ jsxs55(
+                            React29.Fragment,
+                            {
+                              children: [
+                                /* @__PURE__ */ jsx58(
+                                  "button",
+                                  {
+                                    className: "entity-hierarchy-cycle__link",
+                                    onClick: () => navigateTo(k),
+                                    children: k.split(
+                                      "/"
+                                    ).pop()
+                                  }
+                                ),
+                                i < cycle.length - 1 && /* @__PURE__ */ jsx58("span", { className: "entity-hierarchy-cycle__arrow", children: "\u2192" })
+                              ]
+                            },
+                            k
+                          )),
+                          /* @__PURE__ */ jsx58("span", { className: "entity-hierarchy-cycle__arrow", children: "\u21BA" })
+                        ]
+                      },
+                      idx
+                    ))
+                  ] })
+                ] }) : null })
+              ] })
             ] }),
-            tree && /* @__PURE__ */ jsxs55("div", { className: "validation-footer", children: [
-              /* @__PURE__ */ jsxs55("div", { className: "validation-stats", children: [
+            !showHelp && /* @__PURE__ */ jsxs55("div", { className: "validation-footer entity-hierarchy-footer", children: [
+              /* @__PURE__ */ jsx58("div", { className: "validation-stats", children: tree && /* @__PURE__ */ jsxs55(Fragment12, { children: [
                 /* @__PURE__ */ jsxs55("span", { className: "validation-stat", children: [
-                  "\u{1F9EC} ",
+                  "\u{1F333} ",
                   tree.nodes.length,
                   " \u0432 \u0433\u0440\u0430\u0444\u0435"
                 ] }),
                 /* @__PURE__ */ jsxs55("span", { className: "validation-stat validation-stat--ok", children: [
                   "\u2191 ",
                   tree.parentKeys.size,
-                  " \u0440\u043E\u0434\u0438\u0442\u0435\u043B\u0435\u0439"
+                  " \u043F\u0440\u0435\u0434\u043A\u043E\u0432"
                 ] }),
                 /* @__PURE__ */ jsxs55("span", { className: "validation-stat validation-stat--warn", children: [
                   "\u2193 ",
                   tree.childKeys.size,
                   " \u043D\u0430\u0441\u043B\u0435\u0434\u043D\u0438\u043A\u043E\u0432"
                 ] }),
-                tree.cycleNodes.size > 0 && /* @__PURE__ */ jsx58("span", { className: "validation-stat validation-stat--err", children: "\u26A0\uFE0F \u0446\u0438\u043A\u043B" })
-              ] }),
+                tree.siblingKeys.size > 0 && /* @__PURE__ */ jsxs55("span", { className: "validation-stat", children: [
+                  "\u26AD ",
+                  tree.siblingKeys.size,
+                  " siblings"
+                ] }),
+                tree.cycles.length > 0 && /* @__PURE__ */ jsxs55("span", { className: "validation-stat validation-stat--err", children: [
+                  "\u26A0 ",
+                  tree.cycles.length,
+                  " \u0446\u0438\u043A\u043B."
+                ] })
+              ] }) }),
               /* @__PURE__ */ jsx58("div", { className: "validation-footer__actions", children: /* @__PURE__ */ jsx58(
                 "button",
                 {
@@ -15973,10 +17599,13 @@ var init_EntityHierarchyModal = __esm({
     "use strict";
     init_useGraphStore();
     init_entities();
-    init_entities();
     init_tree();
     init_EntityHierarchyFlow();
     init_useModelIndex();
+    init_common();
+    init_ModalHelp();
+    init_useHelpEscape();
+    init_open_file();
   }
 });
 
@@ -16765,7 +18394,7 @@ var init_ImpactAnalysisPanel = __esm({
 });
 
 // src/web/components/modals/EntitiesCatalogModal.tsx
-import React31, { useCallback as useCallback15, useEffect as useEffect32, useMemo as useMemo30, useState as useState19 } from "react";
+import React32, { useCallback as useCallback15, useEffect as useEffect32, useMemo as useMemo30, useState as useState19 } from "react";
 import { jsx as jsx61, jsxs as jsxs58 } from "react/jsx-runtime";
 function EntitiesCatalogModal() {
   const { goto } = useNavigation();
@@ -17109,7 +18738,7 @@ var init_EntitiesCatalogModal = __esm({
     init_entity_filters();
     init_ImpactAnalysisPanel();
     PAGE_SIZE = 300;
-    EntityRow = React31.memo(function EntityRow2({
+    EntityRow = React32.memo(function EntityRow2({
       entity,
       index,
       isOrphan,
@@ -17263,7 +18892,7 @@ var init_attribute_search = __esm({
 });
 
 // src/web/components/modals/AttributeFinderModal.tsx
-import React32, { useCallback as useCallback16, useMemo as useMemo31, useState as useState20 } from "react";
+import React33, { useCallback as useCallback16, useMemo as useMemo31, useState as useState20 } from "react";
 import { Fragment as Fragment13, jsx as jsx62, jsxs as jsxs59 } from "react/jsx-runtime";
 function AttributeFinderModal() {
   const { goto } = useNavigation();
@@ -17577,7 +19206,7 @@ var init_AttributeFinderModal = __esm({
     init_useModelIndex();
     init_MIcon();
     init_attribute_search();
-    AttributeHitRow = React32.memo(function AttributeHitRow2({ hit, query, expanded, isPii, onToggle, onOpenEntity }) {
+    AttributeHitRow = React33.memo(function AttributeHitRow2({ hit, query, expanded, isPii, onToggle, onOpenEntity }) {
       const { attribute, entity, matchedBy } = hit;
       const highlight = (text) => {
         if (!query)
@@ -17691,6 +19320,9 @@ var init_AttributeFinderModal = __esm({
 });
 
 // src/web/lib/model/entity-matrix.ts
+function pickDominantKind(current, incoming) {
+  return PRIORITY[incoming] > PRIORITY[current] ? incoming : current;
+}
 function buildEntityMatrix(index, options = {}) {
   const limit = options.limit ?? 60;
   const domainFilter = options.domains;
@@ -17700,113 +19332,163 @@ function buildEntityMatrix(index, options = {}) {
       (e) => domainFilter.has(e.domainId.toLowerCase())
     );
   }
-  const outgoingCount = /* @__PURE__ */ new Map();
-  candidates.forEach((e) => outgoingCount.set(e.fqid, 0));
-  const addOutgoing = (fromFqid, toFqid) => {
-    if (!outgoingCount.has(fromFqid))
-      return;
-    if (!outgoingCount.has(toFqid))
-      return;
-    outgoingCount.set(fromFqid, (outgoingCount.get(fromFqid) || 0) + 1);
-  };
+  const candidateByFqid = new Map(candidates.map((e) => [e.fqid, e]));
+  const outgoingAll = /* @__PURE__ */ new Map();
+  const incomingAll = /* @__PURE__ */ new Map();
   candidates.forEach((e) => {
+    outgoingAll.set(e.fqid, 0);
+    incomingAll.set(e.fqid, 0);
+  });
+  const bumpOut = (fqid) => {
+    if (outgoingAll.has(fqid))
+      outgoingAll.set(fqid, outgoingAll.get(fqid) + 1);
+  };
+  const bumpIn = (fqid) => {
+    if (incomingAll.has(fqid))
+      incomingAll.set(fqid, incomingAll.get(fqid) + 1);
+  };
+  for (const e of candidates) {
     for (const a of e.attributes) {
       const target = a.referenceEntity || a.itemReferenceEntity;
-      if (target)
-        addOutgoing(e.fqid, target);
+      if (!target)
+        continue;
+      bumpOut(e.fqid);
+      bumpIn(target);
     }
-    if (e.inherits)
-      addOutgoing(e.fqid, e.inherits);
-  });
+    if (e.inherits) {
+      bumpOut(e.fqid);
+      bumpIn(e.inherits);
+    }
+  }
+  for (const l of index.entityLinkages) {
+    const side1 = l.side1Fqid;
+    const side2 = l.side2Fqid;
+    if (side1 === side2)
+      continue;
+    if (l.undirected === true) {
+      bumpOut(side1);
+      bumpIn(side1);
+      bumpOut(side2);
+      bumpIn(side2);
+    } else {
+      bumpOut(side1);
+      bumpIn(side2);
+    }
+  }
   const sorted = candidates.slice().sort((a, b) => {
-    const ca = outgoingCount.get(a.fqid) || 0;
-    const cb = outgoingCount.get(b.fqid) || 0;
-    if (ca !== cb)
-      return cb - ca;
+    const ta = (outgoingAll.get(a.fqid) || 0) + (incomingAll.get(a.fqid) || 0);
+    const tb = (outgoingAll.get(b.fqid) || 0) + (incomingAll.get(b.fqid) || 0);
+    if (ta !== tb)
+      return tb - ta;
     return a.fqid.localeCompare(b.fqid);
   });
   const selected = sorted.slice(0, limit);
   const selectedSet = new Set(selected.map((e) => e.fqid));
-  const rowsMap = /* @__PURE__ */ new Map();
+  const rowByFqid = /* @__PURE__ */ new Map();
   selected.forEach((e) => {
-    rowsMap.set(e.fqid, {
+    rowByFqid.set(e.fqid, {
       entity: e,
-      cells: /* @__PURE__ */ new Map(),
-      totalOutgoing: 0
+      cellsOut: /* @__PURE__ */ new Map(),
+      cellsIn: /* @__PURE__ */ new Map(),
+      totalOutgoingAll: outgoingAll.get(e.fqid) || 0,
+      totalIncomingAll: incomingAll.get(e.fqid) || 0,
+      totalOutgoingInMatrix: 0,
+      totalIncomingInMatrix: 0
     });
   });
-  function addCell(sourceFqid, targetFqid, kind, via) {
-    if (!selectedSet.has(sourceFqid) || !selectedSet.has(targetFqid))
+  function addCell(direction, rowFqid, colFqid, detail) {
+    if (!selectedSet.has(rowFqid) || !selectedSet.has(colFqid))
       return;
-    if (sourceFqid === targetFqid)
+    if (rowFqid === colFqid)
       return;
-    const row = rowsMap.get(sourceFqid);
-    let cell = row.cells.get(targetFqid);
+    const row = rowByFqid.get(rowFqid);
+    const cells = direction === "out" ? row.cellsOut : row.cellsIn;
+    let cell = cells.get(colFqid);
     if (!cell) {
-      cell = { kind, count: 0, details: [] };
-      row.cells.set(targetFqid, cell);
+      cell = { kind: detail.kind, count: 0, details: [] };
+      cells.set(colFqid, cell);
     }
-    if (cell.kind !== kind && priority(kind) > priority(cell.kind)) {
-      cell.kind = kind;
-    }
+    cell.kind = pickDominantKind(cell.kind, detail.kind);
     cell.count++;
-    cell.details.push({ via });
-    row.totalOutgoing++;
+    cell.details.push(detail);
+    if (direction === "out")
+      row.totalOutgoingInMatrix++;
+    else
+      row.totalIncomingInMatrix++;
   }
-  function priority(k) {
-    if (k === "reference")
-      return 3;
-    if (k === "inheritance")
-      return 2;
-    return 1;
-  }
-  selected.forEach((e) => {
+  for (const e of selected) {
     for (const a of e.attributes) {
       const target = a.referenceEntity || a.itemReferenceEntity;
-      if (target) {
-        addCell(e.fqid, target, "reference", `attr:${a.id}`);
-      }
+      if (!target)
+        continue;
+      const detail = {
+        kind: "reference",
+        via: `attr:${a.id}`,
+        label: a.name || a.id
+      };
+      addCell("out", e.fqid, target, detail);
+      addCell("in", target, e.fqid, detail);
     }
-    if (e.inherits) {
-      addCell(e.fqid, e.inherits, "inheritance", "inherits");
-      if (selectedSet.has(e.inherits)) {
-        const parentRow = rowsMap.get(e.inherits);
-        if (parentRow) {
-          let cell = parentRow.cells.get(e.fqid);
-          if (!cell) {
-            cell = { kind: "inheritance", count: 0, details: [] };
-            parentRow.cells.set(e.fqid, cell);
-          }
-          cell.count++;
-          cell.details.push({ via: e.fqid, reverse: true });
-          parentRow.totalOutgoing++;
-        }
-      }
+    if (e.inherits && selectedSet.has(e.inherits)) {
+      const detail = {
+        kind: "inheritance",
+        via: "inherits",
+        label: "inherits"
+      };
+      addCell("out", e.fqid, e.inherits, detail);
+      addCell("in", e.inherits, e.fqid, detail);
     }
-  });
-  const rows = selected.map((e) => rowsMap.get(e.fqid));
+  }
+  for (const l of index.entityLinkages) {
+    const side1 = l.side1Fqid;
+    const side2 = l.side2Fqid;
+    if (side1 === side2)
+      continue;
+    const detail = {
+      kind: "linkage",
+      via: `linkage:${l.id}`,
+      label: l.name || l.id,
+      linkageType: l.type,
+      undirected: l.undirected === true
+    };
+    if (l.undirected === true) {
+      addCell("out", side1, side2, detail);
+      addCell("out", side2, side1, detail);
+      addCell("in", side1, side2, detail);
+      addCell("in", side2, side1, detail);
+    } else {
+      addCell("out", side1, side2, detail);
+      addCell("in", side2, side1, detail);
+    }
+  }
+  const rows = selected.map((e) => rowByFqid.get(e.fqid));
   const entityFqids = selected.map((e) => e.fqid);
   const columnIndex = /* @__PURE__ */ new Map();
   entityFqids.forEach((fqid, idx) => columnIndex.set(fqid, idx));
-  let totalLinks = 0;
   const byKind = {
     reference: 0,
     inheritance: 0,
     linkage: 0
   };
-  rows.forEach((r) => {
-    r.cells.forEach((cell) => {
-      totalLinks += cell.count;
+  let totalLinksInMatrix = 0;
+  let totalLinksOutOfScope = 0;
+  for (const row of rows) {
+    totalLinksInMatrix += row.totalOutgoingInMatrix;
+    totalLinksOutOfScope += row.totalOutgoingAll - row.totalOutgoingInMatrix;
+    row.cellsOut.forEach((cell) => {
       byKind[cell.kind] += cell.count;
     });
-  });
+  }
   return {
     rows,
     entityFqids,
     columnIndex,
     stats: {
       totalEntities: selected.length,
-      totalLinks,
+      totalAvailableEntities: candidates.length,
+      truncated: Math.max(0, candidates.length - selected.length),
+      totalLinksInMatrix,
+      totalLinksOutOfScope,
       byKind
     }
   };
@@ -17815,22 +19497,33 @@ function shortLabel(fqid) {
   const slash = fqid.indexOf("/");
   return slash > 0 ? fqid.slice(slash + 1) : fqid;
 }
+var PRIORITY;
 var init_entity_matrix = __esm({
   "src/web/lib/model/entity-matrix.ts"() {
     "use strict";
+    PRIORITY = {
+      reference: 3,
+      inheritance: 2,
+      linkage: 1
+    };
   }
 });
 
 // src/web/components/modals/EntityMatrixModal.tsx
-import { useMemo as useMemo32, useState as useState21 } from "react";
-import { jsx as jsx63, jsxs as jsxs60 } from "react/jsx-runtime";
+import { useCallback as useCallback17, useMemo as useMemo32, useState as useState21 } from "react";
+import { Fragment as Fragment14, jsx as jsx63, jsxs as jsxs60 } from "react/jsx-runtime";
 function EntityMatrixModal() {
   const { index, loading, error } = useModelIndex();
   const [showHelp, setShowHelp] = useState21(false);
   const [domainFilter, setDomainFilter] = useState21("");
+  const [direction, setDirection] = useState21("out");
+  const [sortBy, setSortBy] = useState21("total");
   const [hoveredRow, setHoveredRow] = useState21(null);
   const [hoveredCol, setHoveredCol] = useState21(null);
+  const [selectedCell, setSelectedCell] = useState21(null);
+  const [searchQuery, setSearchQuery] = useState21("");
   const open2 = useGraphStore((s) => s.entityMatrixOpen);
+  useHelpEscape(open2, showHelp, setShowHelp);
   const allDomains = useMemo32(() => {
     if (!index)
       return [];
@@ -17846,6 +19539,144 @@ function EntityMatrixModal() {
     const domains = domainFilter ? /* @__PURE__ */ new Set([domainFilter.toLowerCase()]) : void 0;
     return buildEntityMatrix(index, { domains, limit: MATRIX_LIMIT });
   }, [index, domainFilter]);
+  const orderedFqids = useMemo32(() => {
+    if (!matrix)
+      return [];
+    const list = matrix.rows.map((r) => r.entity.fqid);
+    if (sortBy === "id") {
+      return list.slice().sort(
+        (a, b) => shortLabel(a).localeCompare(shortLabel(b))
+      );
+    }
+    const map2 = new Map(matrix.rows.map((r) => [r.entity.fqid, r]));
+    return list.slice().sort((a, b) => {
+      const ra = map2.get(a);
+      const rb = map2.get(b);
+      const va = sortBy === "outgoing" ? ra.totalOutgoingAll : sortBy === "incoming" ? ra.totalIncomingAll : ra.totalOutgoingAll + ra.totalIncomingAll;
+      const vb = sortBy === "outgoing" ? rb.totalOutgoingAll : sortBy === "incoming" ? rb.totalIncomingAll : rb.totalOutgoingAll + rb.totalIncomingAll;
+      if (va !== vb)
+        return vb - va;
+      return a.localeCompare(b);
+    });
+  }, [matrix, sortBy]);
+  const rowByFqid = useMemo32(() => {
+    if (!matrix)
+      return /* @__PURE__ */ new Map();
+    return new Map(matrix.rows.map((r) => [r.entity.fqid, r]));
+  }, [matrix]);
+  const searchMatch = useMemo32(() => {
+    if (!searchQuery.trim() || !matrix)
+      return null;
+    const q = searchQuery.trim().toLowerCase();
+    for (const row of matrix.rows) {
+      if (row.entity.fqid.toLowerCase().includes(q)) {
+        return row.entity.fqid;
+      }
+    }
+    return null;
+  }, [searchQuery, matrix]);
+  const searchNotInMatrix = useMemo32(() => {
+    if (!searchQuery.trim() || !matrix)
+      return null;
+    if (searchMatch)
+      return null;
+    const q = searchQuery.trim().toLowerCase();
+    for (const e of index?.entities || []) {
+      if (e.fqid.toLowerCase().includes(q))
+        return e.fqid;
+    }
+    return null;
+  }, [searchQuery, matrix, index, searchMatch]);
+  const scrollToEntity = useCallback17((fqid) => {
+    const el = document.querySelector(
+      `.entity-matrix-row-head[data-fqid="${CSS.escape(fqid)}"]`
+    );
+    if (el)
+      el.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, []);
+  const openEntity = (fqid) => {
+    const st = useGraphStore.getState();
+    st.setEntityMatrixOpen(false);
+    st.setEntityCatalogInitialFqid(fqid);
+    st.setEntityCatalogOpen(true);
+  };
+  const handleExportCSV = () => {
+    if (!matrix)
+      return;
+    const header = [
+      "row_id",
+      ...orderedFqids.map((f) => shortLabel(f)),
+      "total_out",
+      "total_in"
+    ];
+    const lines = [header.join(",")];
+    for (const rowFqid of orderedFqids) {
+      const row = rowByFqid.get(rowFqid);
+      const cells = direction === "out" ? row.cellsOut : row.cellsIn;
+      const cellsArr = orderedFqids.map((colFqid) => {
+        const cell = cells.get(colFqid);
+        return cell ? String(cell.count) : "";
+      });
+      lines.push(
+        [
+          shortLabel(rowFqid),
+          ...cellsArr,
+          row.totalOutgoingAll,
+          row.totalIncomingAll
+        ].join(",")
+      );
+    }
+    const blob = new Blob(["\uFEFF" + lines.join("\n")], {
+      type: "text/csv;charset=utf-8"
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const safeDomain = (domainFilter || "all-domains").replace(
+      /[^a-z0-9.-]/gi,
+      "_"
+    );
+    a.download = `matrix-${safeDomain}-${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  const handleCopyMarkdown = async () => {
+    if (!matrix)
+      return;
+    try {
+      const lines = [];
+      lines.push(`# \u041C\u0430\u0442\u0440\u0438\u0446\u0430 \u0441\u0432\u044F\u0437\u0435\u0439${domainFilter ? ` (${domainFilter})` : ""}`);
+      lines.push("");
+      lines.push(
+        `_\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439: ${matrix.stats.totalEntities}, \u0441\u0432\u044F\u0437\u0435\u0439 \u0432 \u043C\u0430\u0442\u0440\u0438\u0446\u0435: ${matrix.stats.totalLinksInMatrix}_`
+      );
+      lines.push("");
+      const header = ["", ...orderedFqids.map((f) => shortLabel(f))];
+      lines.push("| " + header.join(" | ") + " |");
+      lines.push("|" + header.map(() => "---").join("|") + "|");
+      for (const rowFqid of orderedFqids) {
+        const row = rowByFqid.get(rowFqid);
+        const cells = direction === "out" ? row.cellsOut : row.cellsIn;
+        const cellsArr = orderedFqids.map((colFqid) => {
+          const cell = cells.get(colFqid);
+          return cell ? String(cell.count) : "";
+        });
+        lines.push(
+          "| **" + shortLabel(rowFqid) + "** | " + cellsArr.join(" | ") + " |"
+        );
+      }
+      await navigator.clipboard.writeText(lines.join("\n"));
+      useGraphStore.getState().showSnackbar("\u041C\u0430\u0442\u0440\u0438\u0446\u0430 \u0441\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D\u0430 \u0432 \u0431\u0443\u0444\u0435\u0440");
+    } catch (e) {
+      await alertDialog("\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0441\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C", { detail: e.message });
+    }
+  };
+  const handleCellClick = useCallback17(
+    (rowFqid, colFqid, cell) => {
+      setSelectedCell({ rowFqid, colFqid, cell });
+    },
+    []
+  );
   if (!open2)
     return null;
   return /* @__PURE__ */ jsx63(
@@ -17867,10 +19698,29 @@ function EntityMatrixModal() {
                   matrix.stats.totalEntities,
                   " \xD7 ",
                   matrix.stats.totalEntities
-                ] })
+                ] }),
+                matrix && matrix.stats.truncated > 0 && /* @__PURE__ */ jsxs60(
+                  "span",
+                  {
+                    className: "help-modal__badge",
+                    title: `\u0412 \u0434\u043E\u043C\u0435\u043D\u0435 ${matrix.stats.totalAvailableEntities} \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439, \u043F\u043E\u043A\u0430\u0437\u0430\u043D\u044B \u0442\u043E\u043F-${MATRIX_LIMIT} \u043F\u043E \u0441\u0432\u044F\u0437\u044F\u043C`,
+                    children: [
+                      "+",
+                      matrix.stats.truncated,
+                      " \u0441\u043A\u0440\u044B\u0442\u043E"
+                    ]
+                  }
+                )
               ] }),
               /* @__PURE__ */ jsxs60("div", { className: "help-modal__actions", children: [
-                /* @__PURE__ */ jsx63(HelpButton, { open: showHelp, onToggle: () => setShowHelp(!showHelp), label: "\u041A\u0430\u043A \u0447\u0438\u0442\u0430\u0442\u044C?" }),
+                /* @__PURE__ */ jsx63(
+                  HelpButton,
+                  {
+                    open: showHelp,
+                    onToggle: () => setShowHelp(!showHelp),
+                    label: "\u041A\u0430\u043A \u0447\u0438\u0442\u0430\u0442\u044C?"
+                  }
+                ),
                 /* @__PURE__ */ jsx63(
                   "button",
                   {
@@ -17888,155 +19738,468 @@ function EntityMatrixModal() {
             ] }) }),
             index && matrix && /* @__PURE__ */ jsxs60("div", { className: "entity-matrix-body", children: [
               /* @__PURE__ */ jsxs60(ModalHelp, { visible: showHelp, children: [
-                /* @__PURE__ */ jsx63(HelpSection, { title: "\u041A\u0430\u043A \u0447\u0438\u0442\u0430\u0442\u044C \u043C\u0430\u0442\u0440\u0438\u0446\u0443", children: /* @__PURE__ */ jsx63(HelpText, { children: "\u0421\u0442\u0440\u043E\u043A\u0438 \u0438 \u0441\u0442\u043E\u043B\u0431\u0446\u044B \u2014 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438. \u042F\u0447\u0435\u0439\u043A\u0430 \u043D\u0430 \u043F\u0435\u0440\u0435\u0441\u0435\u0447\u0435\u043D\u0438\u0438 \u2014 \u0435\u0441\u0442\u044C \u043B\u0438 \u0441\u0432\u044F\u0437\u044C \u043E\u0442 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0432 \u0441\u0442\u0440\u043E\u043A\u0435 \u043A \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0432 \u0441\u0442\u043E\u043B\u0431\u0446\u0435. \u041F\u043B\u043E\u0442\u043D\u044B\u0435 \u0431\u043B\u043E\u043A\u0438 \u2014 \u043A\u043B\u0430\u0441\u0442\u0435\u0440\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439, \u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u0430\u043A\u0442\u0438\u0432\u043D\u043E \u043E\u0431\u0449\u0430\u044E\u0442\u0441\u044F \u043C\u0435\u0436\u0434\u0443 \u0441\u043E\u0431\u043E\u0439." }) }),
-                /* @__PURE__ */ jsx63(HelpSection, { title: "\u0426\u0432\u0435\u0442\u0430", children: /* @__PURE__ */ jsxs60(HelpList, { children: [
+                /* @__PURE__ */ jsxs60(HelpSection, { title: "\u0427\u0442\u043E \u044D\u0442\u043E", children: [
+                  /* @__PURE__ */ jsx63(HelpText, { children: "\u041A\u0432\u0430\u0434\u0440\u0430\u0442\u043D\u0430\u044F \u043C\u0430\u0442\u0440\u0438\u0446\u0430 \xAB\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \xD7 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C\xBB. \u042F\u0447\u0435\u0439\u043A\u0430 [row, col] = \u0441\u0432\u044F\u0437\u0438, \u0438\u0434\u0443\u0449\u0438\u0435 \u043E\u0442 row \u043A col. \u041F\u043B\u043E\u0442\u043D\u044B\u0435 \u0431\u043B\u043E\u043A\u0438 \u2014 \u043A\u043B\u0430\u0441\u0442\u0435\u0440\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439, \u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u0430\u043A\u0442\u0438\u0432\u043D\u043E \u043E\u0431\u0449\u0430\u044E\u0442\u0441\u044F \u043C\u0435\u0436\u0434\u0443 \u0441\u043E\u0431\u043E\u0439." }),
+                  /* @__PURE__ */ jsx63(HelpText, { children: "\u0425\u043E\u0440\u043E\u0448\u043E \u0432\u0438\u0434\u043D\u043E \xAB\u0434\u0438\u0430\u0433\u043E\u043D\u0430\u043B\u044C\u043D\u043E\u0435\xBB \u043F\u043E\u0432\u0435\u0434\u0435\u043D\u0438\u0435: A \u0441\u0432\u044F\u0437\u0430\u043D\u0430 \u0441 B, B \u0441 C, \u043D\u043E \u043D\u0435 A \u0441 C \u2014 \u043A\u043B\u0430\u0441\u0442\u0435\u0440\u044B \u0432\u044B\u0434\u0435\u043B\u044F\u044E\u0442\u0441\u044F \u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u043D\u043E. \u041D\u0430 \u0433\u0440\u0430\u0444\u0435 \u044D\u0442\u043E \u0437\u0430\u043C\u0435\u0442\u0438\u0442\u044C \u0441\u043B\u043E\u0436\u043D\u0435\u0435." })
+                ] }),
+                /* @__PURE__ */ jsx63(HelpSection, { title: "\u041D\u0430\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u0438\u0435", children: /* @__PURE__ */ jsxs60(HelpList, { children: [
+                  /* @__PURE__ */ jsxs60("li", { children: [
+                    /* @__PURE__ */ jsx63("strong", { children: "\u0418\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u0435" }),
+                    " \u2014 \u044F\u0447\u0435\u0439\u043A\u0430 [A, B] = \u0441\u0432\u044F\u0437\u044C \u043E\u0442 A \u043A B. Reference-\u0430\u0442\u0440\u0438\u0431\u0443\u0442, inherits, linkage (\u043D\u0430\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u043D\u0430\u044F \u0441 side1 \u043D\u0430 A)."
+                  ] }),
+                  /* @__PURE__ */ jsxs60("li", { children: [
+                    /* @__PURE__ */ jsx63("strong", { children: "\u0412\u0445\u043E\u0434\u044F\u0449\u0438\u0435" }),
+                    " \u2014 \u043C\u0430\u0442\u0440\u0438\u0446\u0430 \u0442\u0440\u0430\u043D\u0441\u043F\u043E\u043D\u0438\u0440\u0443\u0435\u0442\u0441\u044F: \u044F\u0447\u0435\u0439\u043A\u0430 [A, B] = \xAB\u043A\u0442\u043E-\u0442\u043E B \u0441\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F \u043D\u0430 A\xBB. \u041F\u043E\u043B\u0435\u0437\u043D\u043E, \u0447\u0442\u043E\u0431\u044B \u0443\u0432\u0438\u0434\u0435\u0442\u044C, \u043A\u0442\u043E \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C."
+                  ] }),
+                  /* @__PURE__ */ jsx63("li", { children: "\u041F\u0435\u0440\u0435\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435 \u043D\u0430\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u0438\u044F \u043D\u0435 \u043C\u0435\u043D\u044F\u0435\u0442 \u043E\u0442\u0431\u043E\u0440 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u2014 \u044D\u0442\u043E \u043E\u0434\u043D\u0430 \u0438 \u0442\u0430 \u0436\u0435 \u043C\u0430\u0442\u0440\u0438\u0446\u0430, \u0442\u0440\u0430\u043D\u0441\u043F\u043E\u043D\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u0430\u044F." })
+                ] }) }),
+                /* @__PURE__ */ jsx63(HelpSection, { title: "\u0426\u0432\u0435\u0442\u0430 \u0438 \u0442\u0438\u043F\u044B \u0441\u0432\u044F\u0437\u0435\u0439", children: /* @__PURE__ */ jsxs60(HelpList, { children: [
                   /* @__PURE__ */ jsxs60("li", { children: [
                     /* @__PURE__ */ jsx63("strong", { style: { color: "#a78bfa" }, children: "\u0424\u0438\u043E\u043B\u0435\u0442\u043E\u0432\u044B\u0439" }),
-                    " \u2014 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435 (inherits)."
+                    " \u2014 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435 (inherits). \u042F\u0447\u0435\u0439\u043A\u0430 [A, B] = A \u043D\u0430\u0441\u043B\u0435\u0434\u0443\u0435\u0442 B."
                   ] }),
                   /* @__PURE__ */ jsxs60("li", { children: [
                     /* @__PURE__ */ jsx63("strong", { style: { color: "#6366f1" }, children: "\u0421\u0438\u043D\u0438\u0439" }),
-                    " \u2014 Reference-\u0430\u0442\u0440\u0438\u0431\u0443\u0442."
+                    " \u2014 Reference-\u0430\u0442\u0440\u0438\u0431\u0443\u0442. \u042F\u0447\u0435\u0439\u043A\u0430 [A, B] = \u0443 A \u0435\u0441\u0442\u044C \u0430\u0442\u0440\u0438\u0431\u0443\u0442 \u0442\u0438\u043F\u0430 Reference/Array<Reference> \u043D\u0430 B."
                   ] }),
                   /* @__PURE__ */ jsxs60("li", { children: [
                     /* @__PURE__ */ jsx63("strong", { style: { color: "#10b981" }, children: "\u0417\u0435\u043B\u0451\u043D\u044B\u0439" }),
-                    " \u2014 linkage."
+                    " \u2014 linkage. \u041D\u0430\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u043D\u0430\u044F: [A, B] = A \u0441\u0442\u043E\u0438\u0442 \u043D\u0430 side1 \u0441\u0432\u044F\u0437\u0438, B \u043D\u0430 side2."
                   ] }),
-                  /* @__PURE__ */ jsx63("li", { children: "\u0427\u0438\u0441\u043B\u043E \u0432 \u044F\u0447\u0435\u0439\u043A\u0435 \u2014 \u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0441\u0432\u044F\u0437\u0435\u0439 \u044D\u0442\u043E\u0433\u043E \u0442\u0438\u043F\u0430 \u043C\u0435\u0436\u0434\u0443 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u043C\u0438." })
+                  /* @__PURE__ */ jsxs60("li", { children: [
+                    /* @__PURE__ */ jsx63("strong", { children: "\u0421\u043C\u0435\u0448\u0430\u043D\u043D\u0430\u044F" }),
+                    " (\u043D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0446\u0432\u0435\u0442\u043E\u0432) \u2014 \u0435\u0441\u043B\u0438 \u043C\u0435\u0436\u0434\u0443 A \u0438 B \u0435\u0441\u0442\u044C \u0441\u0432\u044F\u0437\u0438 \u0440\u0430\u0437\u043D\u044B\u0445 \u0442\u0438\u043F\u043E\u0432, \u044F\u0447\u0435\u0439\u043A\u0430 \u043E\u043A\u0440\u0430\u0448\u0438\u0432\u0430\u0435\u0442\u0441\u044F \u043F\u043E \u0441\u0442\u0430\u0440\u0448\u0438\u043D\u0441\u0442\u0432\u0443: reference \u2192 inheritance \u2192 linkage."
+                  ] }),
+                  /* @__PURE__ */ jsxs60("li", { children: [
+                    /* @__PURE__ */ jsx63("strong", { children: "\u0427\u0438\u0441\u043B\u043E" }),
+                    " \u0432 \u044F\u0447\u0435\u0439\u043A\u0435 \u2014 \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E \u0441\u0432\u044F\u0437\u0435\u0439 (\u043D\u0435 \u0442\u0438\u043F\u043E\u0432). \u041A\u043B\u0438\u043A \u2014 \u0434\u0435\u0442\u0430\u043B\u0438: \u0441\u043F\u0438\u0441\u043E\u043A \u0432\u0441\u0435\u0445 \u0441\u0432\u044F\u0437\u0435\u0439 \u043C\u0435\u0436\u0434\u0443 A \u0438 B."
+                  ] })
                 ] }) }),
-                /* @__PURE__ */ jsx63(HelpSection, { title: "\u0417\u0430\u0447\u0435\u043C", children: /* @__PURE__ */ jsx63(HelpText, { children: "\u041D\u0435\u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u0441\u0432\u044F\u0437\u0438 \u0437\u0430\u043C\u0435\u0442\u043D\u044B \u0442\u043E\u043B\u044C\u043A\u043E \u0432 \u043C\u0430\u0442\u0440\u0438\u0447\u043D\u043E\u043C \u0432\u0438\u0434\u0435, \u0430 \u043D\u0435 \u043D\u0430 \u0433\u0440\u0430\u0444\u0435. \u0425\u043E\u0440\u043E\u0448\u043E \u0432\u0438\u0434\u043D\u043E \xAB\u0434\u0438\u0430\u0433\u043E\u043D\u0430\u043B\u044C\u043D\u043E\u0435\xBB \u043F\u043E\u0432\u0435\u0434\u0435\u043D\u0438\u0435 \u2014 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C A \u0441\u0432\u044F\u0437\u0430\u043D\u0430 \u0441 B, B \u0441 C, \u043D\u043E \u043D\u0435 A \u0441 C \u2014 \u043A\u043B\u0430\u0441\u0442\u0435\u0440\u044B \u0432\u044B\u0434\u0435\u043B\u044F\u044E\u0442\u0441\u044F \u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u043D\u043E." }) }),
-                /* @__PURE__ */ jsx63(HelpSection, { title: "\u041E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F", children: /* @__PURE__ */ jsx63(HelpText, { children: "\u041C\u0430\u0442\u0440\u0438\u0446\u0430 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 \u0442\u043E\u043F-60 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u043F\u043E \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u0443 \u0441\u0432\u044F\u0437\u0435\u0439. \u0414\u043B\u044F \u0431\u043E\u043B\u044C\u0448\u0438\u0445 \u0433\u0440\u0430\u0444\u043E\u0432 \u0443\u0442\u043E\u0447\u043D\u044F\u0439\u0442\u0435 \u0447\u0435\u0440\u0435\u0437 \u0444\u0438\u043B\u044C\u0442\u0440 \u043F\u043E \u0434\u043E\u043C\u0435\u043D\u0443." }) })
+                /* @__PURE__ */ jsx63(HelpSection, { title: "\u0421\u0442\u043E\u043B\u0431\u0446\u044B \u0438\u0442\u043E\u0433\u043E\u0432", children: /* @__PURE__ */ jsxs60(HelpList, { children: [
+                  /* @__PURE__ */ jsxs60("li", { children: [
+                    /* @__PURE__ */ jsx63("strong", { children: "Out" }),
+                    " \u2014 \u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0438\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u0445 \u0441\u0432\u044F\u0437\u0435\u0439 \u0443 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0432\u0441\u0435\u0433\u043E (\u0432\u043A\u043B\u044E\u0447\u0430\u044F \u0442\u0435, \u0447\u0442\u043E \u0432\u0435\u0434\u0443\u0442 \u043A \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u043C \u0432\u043D\u0435 \u043C\u0430\u0442\u0440\u0438\u0446\u044B)."
+                  ] }),
+                  /* @__PURE__ */ jsxs60("li", { children: [
+                    /* @__PURE__ */ jsx63("strong", { children: "In" }),
+                    " \u2014 \u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0432\u0445\u043E\u0434\u044F\u0449\u0438\u0445 \u0441\u0432\u044F\u0437\u0435\u0439 (\u043A\u0442\u043E \u0441\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F \u043D\u0430 \u044D\u0442\u0443 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C)."
+                  ] }),
+                  /* @__PURE__ */ jsxs60("li", { children: [
+                    /* @__PURE__ */ jsx63("strong", { children: "Tot" }),
+                    " \u2014 \u0441\u0443\u043C\u043C\u0430 Out + In."
+                  ] }),
+                  /* @__PURE__ */ jsxs60("li", { children: [
+                    "\u0415\u0441\u043B\u0438 \u0443 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0431\u043E\u043B\u044C\u0448\u0438\u0435 Out/In, \u043D\u043E \u043C\u0430\u043B\u043E \u044F\u0447\u0435\u0435\u043A \u0432 \u043C\u0430\u0442\u0440\u0438\u0446\u0435 \u2014 \u0435\u0451 \u0441\u0432\u044F\u0437\u0438 \u0432\u0435\u0434\u0443\u0442 \u043A \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u043C, \u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u043D\u0435 \u043F\u043E\u043F\u0430\u043B\u0438 \u0432 \u0442\u043E\u043F-",
+                    MATRIX_LIMIT,
+                    ". \u0420\u0430\u0441\u0448\u0438\u0440\u044C\u0442\u0435 \u0444\u0438\u043B\u044C\u0442\u0440 \u0438\u043B\u0438 \u043E\u0442\u043A\u0440\u043E\u0439\u0442\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435."
+                  ] })
+                ] }) }),
+                /* @__PURE__ */ jsxs60(HelpSection, { title: "\u041E\u0442\u0431\u043E\u0440 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439", children: [
+                  /* @__PURE__ */ jsxs60(HelpText, { children: [
+                    "\u0412 \u043C\u0430\u0442\u0440\u0438\u0446\u0443 \u043F\u043E\u043F\u0430\u0434\u0430\u044E\u0442 \u0442\u043E\u043F-",
+                    MATRIX_LIMIT,
+                    " \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u043F\u043E \u0441\u0443\u043C\u043C\u0435 \u0432\u0445\u043E\u0434\u044F\u0449\u0438\u0445 \u0438 \u0438\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u0445 \u0441\u0432\u044F\u0437\u0435\u0439. \u042D\u0442\u043E \u0437\u0430\u0449\u0438\u0442\u0430 \u043E\u0442 \u0442\u043E\u0440\u043C\u043E\u0437\u043E\u0432 \u043D\u0430 \u0431\u043E\u043B\u044C\u0448\u0438\u0445 \u0434\u043E\u043C\u0435\u043D\u0430\u0445: \u043C\u0430\u0442\u0440\u0438\u0446\u0430 200\xD7200 \u0431\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u0430 \u0438 \u043D\u0435 \u0432\u043B\u0435\u0437\u0430\u0435\u0442 \u0432 \u044D\u043A\u0440\u0430\u043D."
+                  ] }),
+                  /* @__PURE__ */ jsxs60(HelpList, { children: [
+                    /* @__PURE__ */ jsx63("li", { children: "\xAB+N \u0441\u043A\u0440\u044B\u0442\u043E\xBB \u0432 \u0448\u0430\u043F\u043A\u0435 \u2014 \u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u043D\u0435 \u0432\u043B\u0435\u0437\u043B\u043E." }),
+                    /* @__PURE__ */ jsx63("li", { children: "\u0424\u0438\u043B\u044C\u0442\u0440 \u043F\u043E \u0434\u043E\u043C\u0435\u043D\u0443 \u0441\u0443\u0436\u0430\u0435\u0442 \u0432\u044B\u0431\u043E\u0440\u043A\u0443 \u2014 \u0434\u043B\u044F \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430 20 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0432\u0441\u0435 \u043E\u043D\u0438 \u043F\u043E\u043F\u0430\u0434\u0443\u0442 \u0432 \u043C\u0430\u0442\u0440\u0438\u0446\u0443." }),
+                    /* @__PURE__ */ jsx63("li", { children: "\u0421\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430 \u043F\u043E Out/In/Tot \u0432\u043B\u0438\u044F\u0435\u0442 \u043D\u0430 \u043F\u043E\u0440\u044F\u0434\u043E\u043A \u0441\u0442\u0440\u043E\u043A \u0438 \u0441\u0442\u043E\u043B\u0431\u0446\u043E\u0432 \u2014 \xAB\u0441\u0430\u043C\u044B\u0435 \u0441\u0432\u044F\u0437\u0430\u043D\u043D\u044B\u0435\xBB \u043E\u043A\u0430\u0437\u044B\u0432\u0430\u044E\u0442\u0441\u044F \u0432 \u043B\u0435\u0432\u043E\u043C \u0432\u0435\u0440\u0445\u043D\u0435\u043C \u0443\u0433\u043B\u0443." })
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsx63(HelpSection, { title: "\u0411\u044B\u0441\u0442\u0440\u044B\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F", children: /* @__PURE__ */ jsxs60(HelpList, { children: [
+                  /* @__PURE__ */ jsxs60("li", { children: [
+                    /* @__PURE__ */ jsx63("strong", { children: "\u041A\u043B\u0438\u043A \u043F\u043E \u0437\u0430\u0433\u043E\u043B\u043E\u0432\u043A\u0443" }),
+                    " \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435."
+                  ] }),
+                  /* @__PURE__ */ jsxs60("li", { children: [
+                    /* @__PURE__ */ jsx63("strong", { children: "\u041A\u043B\u0438\u043A \u043F\u043E \u044F\u0447\u0435\u0439\u043A\u0435" }),
+                    " \u2014 \u0434\u0435\u0442\u0430\u043B\u044C\u043D\u0430\u044F \u043F\u0430\u043D\u0435\u043B\u044C \u0441\u043E \u0441\u043F\u0438\u0441\u043A\u043E\u043C \u0432\u0441\u0435\u0445 \u0441\u0432\u044F\u0437\u0435\u0439 \u043C\u0435\u0436\u0434\u0443 \u0434\u0432\u0443\u043C\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u043C\u0438 (\u043A\u0430\u043A\u043E\u0439 \u0430\u0442\u0440\u0438\u0431\u0443\u0442, \u043A\u0430\u043A\u0430\u044F linkage, \u0441 \u043A\u0430\u043A\u0438\u043C \u0442\u0438\u043F\u043E\u043C)."
+                  ] }),
+                  /* @__PURE__ */ jsxs60("li", { children: [
+                    /* @__PURE__ */ jsx63("strong", { children: "\u041D\u0430\u0432\u0435\u0434\u0435\u043D\u0438\u0435" }),
+                    " \u2014 \u043F\u043E\u0434\u0441\u0432\u0435\u0442\u043A\u0430 \u0432\u0441\u0435\u0439 \u0441\u0442\u0440\u043E\u043A\u0438 \u0438 \u0441\u0442\u043E\u043B\u0431\u0446\u0430, tooltip \u0441 \u043A\u0440\u0430\u0442\u043A\u0438\u043C \u0441\u043F\u0438\u0441\u043A\u043E\u043C."
+                  ] }),
+                  /* @__PURE__ */ jsxs60("li", { children: [
+                    /* @__PURE__ */ jsx63("strong", { children: "CSV / Markdown" }),
+                    " \u2014 \u044D\u043A\u0441\u043F\u043E\u0440\u0442 \u043C\u0430\u0442\u0440\u0438\u0446\u044B \u0432 \u0442\u0435\u043A\u0443\u0449\u0435\u043C \u043D\u0430\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u0438\u0438 \u0438 \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0435."
+                  ] })
+                ] }) }),
+                /* @__PURE__ */ jsx63(HelpSection, { title: "\u0427\u0442\u043E \u043D\u0435 \u043F\u043E\u043A\u0430\u0437\u0430\u043D\u043E", children: /* @__PURE__ */ jsxs60(HelpList, { children: [
+                  /* @__PURE__ */ jsxs60("li", { children: [
+                    /* @__PURE__ */ jsx63("strong", { children: "Self-\u0441\u0432\u044F\u0437\u0438" }),
+                    " (Task \u2192 Task) \u043D\u0435 \u043E\u0442\u043E\u0431\u0440\u0430\u0436\u0430\u044E\u0442\u0441\u044F \u0432 \u043C\u0430\u0442\u0440\u0438\u0446\u0435 \u2014 \u043E\u043D\u0438 \u0432\u0438\u0434\u043D\u044B \u043D\u0430 \u0433\u0440\u0430\u0444\u0435 \u0438 \u0432 Impact Analysis."
+                  ] }),
+                  /* @__PURE__ */ jsxs60("li", { children: [
+                    /* @__PURE__ */ jsx63("strong", { children: "\u0412\u043B\u043E\u0436\u0435\u043D\u043D\u044B\u0435 Reference \u0432 Table-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430\u0445" }),
+                    " ",
+                    "\u0443\u0447\u0438\u0442\u044B\u0432\u0430\u044E\u0442\u0441\u044F \u0442\u043E\u043B\u044C\u043A\u043E \u043A\u0430\u043A \u0430\u0442\u0440\u0438\u0431\u0443\u0442 \u0432\u0435\u0440\u0445\u043D\u0435\u0433\u043E \u0443\u0440\u043E\u0432\u043D\u044F."
+                  ] }),
+                  /* @__PURE__ */ jsxs60("li", { children: [
+                    /* @__PURE__ */ jsx63("strong", { children: "projection" }),
+                    " \u0438",
+                    " ",
+                    /* @__PURE__ */ jsx63("strong", { children: "externals.entities" }),
+                    " \u043D\u0435 \u0441\u0447\u0438\u0442\u0430\u044E\u0442\u0441\u044F \u0441\u0432\u044F\u0437\u044F\u043C\u0438 \u2014 \u044D\u0442\u043E \u043D\u0435\u044F\u0432\u043D\u044B\u0435 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438 \u0440\u0430\u043D\u0442\u0430\u0439\u043C\u0430."
+                  ] })
+                ] }) })
               ] }),
-              /* @__PURE__ */ jsxs60("div", { className: "entity-matrix-toolbar", children: [
-                /* @__PURE__ */ jsxs60("div", { className: "entity-matrix-toolbar__filters", children: [
-                  /* @__PURE__ */ jsxs60("label", { className: "entity-matrix-filter", children: [
-                    /* @__PURE__ */ jsx63("span", { children: "\u0414\u043E\u043C\u0435\u043D:" }),
+              /* @__PURE__ */ jsx63("div", { className: "entity-matrix-toolbar", children: /* @__PURE__ */ jsxs60("div", { className: "entity-matrix-toolbar__filters", children: [
+                /* @__PURE__ */ jsxs60("label", { className: "entity-matrix-filter", children: [
+                  /* @__PURE__ */ jsx63("span", { children: "\u0414\u043E\u043C\u0435\u043D:" }),
+                  /* @__PURE__ */ jsxs60(
+                    "select",
+                    {
+                      value: domainFilter,
+                      onChange: (e) => {
+                        setDomainFilter(e.target.value);
+                        setSelectedCell(null);
+                      },
+                      children: [
+                        /* @__PURE__ */ jsx63("option", { value: "", children: "\u2014 \u0432\u0441\u0435 \u2014" }),
+                        allDomains.map(([d, count]) => /* @__PURE__ */ jsxs60("option", { value: d, children: [
+                          d,
+                          " (",
+                          count,
+                          ")"
+                        ] }, d))
+                      ]
+                    }
+                  )
+                ] }),
+                /* @__PURE__ */ jsxs60("div", { className: "entity-matrix-direction", children: [
+                  /* @__PURE__ */ jsxs60(
+                    "button",
+                    {
+                      className: "entity-matrix-dir-btn" + (direction === "out" ? " active" : ""),
+                      onClick: () => setDirection("out"),
+                      title: "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0438\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u0435 \u0441\u0432\u044F\u0437\u0438 (A \u2192 B)",
+                      children: [
+                        /* @__PURE__ */ jsx63(MIcon, { name: "arrow_forward", size: "sm" }),
+                        "\u0418\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u0435"
+                      ]
+                    }
+                  ),
+                  /* @__PURE__ */ jsxs60(
+                    "button",
+                    {
+                      className: "entity-matrix-dir-btn" + (direction === "in" ? " active" : ""),
+                      onClick: () => setDirection("in"),
+                      title: "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0432\u0445\u043E\u0434\u044F\u0449\u0438\u0435 \u0441\u0432\u044F\u0437\u0438 (B \u2192 A)",
+                      children: [
+                        /* @__PURE__ */ jsx63(MIcon, { name: "arrow_back", size: "sm" }),
+                        "\u0412\u0445\u043E\u0434\u044F\u0449\u0438\u0435"
+                      ]
+                    }
+                  )
+                ] }),
+                /* @__PURE__ */ jsxs60("label", { className: "entity-matrix-filter", children: [
+                  /* @__PURE__ */ jsx63("span", { children: "\u0421\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430:" }),
+                  /* @__PURE__ */ jsxs60(
+                    "select",
+                    {
+                      value: sortBy,
+                      onChange: (e) => setSortBy(e.target.value),
+                      children: [
+                        /* @__PURE__ */ jsx63("option", { value: "total", children: "\u041F\u043E \u0441\u0443\u043C\u043C\u0435 \u0441\u0432\u044F\u0437\u0435\u0439" }),
+                        /* @__PURE__ */ jsx63("option", { value: "outgoing", children: "\u041F\u043E \u0438\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u043C" }),
+                        /* @__PURE__ */ jsx63("option", { value: "incoming", children: "\u041F\u043E \u0432\u0445\u043E\u0434\u044F\u0449\u0438\u043C" }),
+                        /* @__PURE__ */ jsx63("option", { value: "id", children: "\u041F\u043E \u0438\u043C\u0435\u043D\u0438" })
+                      ]
+                    }
+                  )
+                ] }),
+                /* @__PURE__ */ jsxs60("div", { className: "entity-matrix-search", children: [
+                  /* @__PURE__ */ jsx63(MIcon, { name: "search", size: "sm" }),
+                  /* @__PURE__ */ jsx63(
+                    "input",
+                    {
+                      type: "text",
+                      placeholder: "\u041D\u0430\u0439\u0442\u0438 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C...",
+                      value: searchQuery,
+                      onChange: (e) => setSearchQuery(e.target.value)
+                    }
+                  ),
+                  searchQuery && /* @__PURE__ */ jsx63(
+                    "button",
+                    {
+                      className: "entity-matrix-search__clear",
+                      onClick: () => setSearchQuery(""),
+                      children: "\u2715"
+                    }
+                  ),
+                  searchMatch && /* @__PURE__ */ jsx63(
+                    "button",
+                    {
+                      className: "entity-matrix-search__jump",
+                      onClick: () => scrollToEntity(searchMatch),
+                      title: "\u041F\u0435\u0440\u0435\u0439\u0442\u0438 \u043A \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438",
+                      children: "\u21B4"
+                    }
+                  )
+                ] }),
+                /* @__PURE__ */ jsxs60(
+                  "button",
+                  {
+                    className: "btn",
+                    onClick: handleExportCSV,
+                    title: "\u0421\u043A\u0430\u0447\u0430\u0442\u044C \u043C\u0430\u0442\u0440\u0438\u0446\u0443 \u0432 CSV",
+                    children: [
+                      /* @__PURE__ */ jsx63(MIcon, { name: "download", size: "sm" }),
+                      "CSV"
+                    ]
+                  }
+                ),
+                /* @__PURE__ */ jsxs60(
+                  "button",
+                  {
+                    className: "btn",
+                    onClick: handleCopyMarkdown,
+                    title: "\u0421\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0432 Markdown",
+                    children: [
+                      /* @__PURE__ */ jsx63(MIcon, { name: "content_copy", size: "sm" }),
+                      "MD"
+                    ]
+                  }
+                )
+              ] }) }),
+              searchNotInMatrix && /* @__PURE__ */ jsxs60("div", { className: "entity-matrix-search-hint", children: [
+                /* @__PURE__ */ jsx63(MIcon, { name: "info", size: "sm" }),
+                /* @__PURE__ */ jsxs60("span", { children: [
+                  "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C",
+                  " ",
+                  /* @__PURE__ */ jsx63("code", { children: shortLabel(searchNotInMatrix) }),
+                  " \u043D\u0435 \u043F\u043E\u043F\u0430\u043B\u0430 \u0432 \u043C\u0430\u0442\u0440\u0438\u0446\u0443 (\u0442\u043E\u043F-",
+                  MATRIX_LIMIT,
+                  " \u043F\u043E \u0441\u0432\u044F\u0437\u044F\u043C).",
+                  " ",
+                  /* @__PURE__ */ jsx63(
+                    "button",
+                    {
+                      className: "entity-matrix-search-hint__btn",
+                      onClick: () => openEntity(searchNotInMatrix),
+                      children: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435"
+                    }
+                  )
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxs60("div", { className: "entity-matrix-toolbar__legend", children: [
+                /* @__PURE__ */ jsxs60("span", { className: "entity-matrix-legend-item", children: [
+                  /* @__PURE__ */ jsx63("span", { className: "entity-matrix-legend-cell entity-matrix-legend-cell--reference" }),
+                  "Reference (",
+                  matrix.stats.byKind.reference,
+                  ")"
+                ] }),
+                /* @__PURE__ */ jsxs60("span", { className: "entity-matrix-legend-item", children: [
+                  /* @__PURE__ */ jsx63("span", { className: "entity-matrix-legend-cell entity-matrix-legend-cell--inheritance" }),
+                  "\u041D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435 (",
+                  matrix.stats.byKind.inheritance,
+                  ")"
+                ] }),
+                /* @__PURE__ */ jsxs60("span", { className: "entity-matrix-legend-item", children: [
+                  /* @__PURE__ */ jsx63("span", { className: "entity-matrix-legend-cell entity-matrix-legend-cell--linkage" }),
+                  "Linkage (",
+                  matrix.stats.byKind.linkage,
+                  ")"
+                ] }),
+                /* @__PURE__ */ jsxs60("span", { className: "entity-matrix-toolbar__total", children: [
+                  matrix.stats.totalLinksInMatrix,
+                  " \u0441\u0432\u044F\u0437\u0435\u0439 \u0432 \u043C\u0430\u0442\u0440\u0438\u0446\u0435",
+                  matrix.stats.totalLinksOutOfScope > 0 && /* @__PURE__ */ jsxs60(Fragment14, { children: [
+                    " \xB7 ",
                     /* @__PURE__ */ jsxs60(
-                      "select",
+                      "span",
                       {
-                        value: domainFilter,
-                        onChange: (e) => setDomainFilter(e.target.value),
+                        title: "\u0421\u0432\u044F\u0437\u0438 \u0432\u0435\u0434\u0443\u0442 \u043A \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u043C \u0432\u043D\u0435 \u0442\u043E\u043F-N (\u0441\u043A\u0440\u044B\u0442\u044B)",
+                        style: { color: "var(--text-500)" },
                         children: [
-                          /* @__PURE__ */ jsx63("option", { value: "", children: "\u2014 \u0432\u0441\u0435 \u2014" }),
-                          allDomains.map(([d, count]) => /* @__PURE__ */ jsxs60("option", { value: d, children: [
-                            d,
-                            " (",
-                            count,
-                            ")"
-                          ] }, d))
+                          matrix.stats.totalLinksOutOfScope,
+                          " \u0432\u043D\u0435 \u043C\u0430\u0442\u0440\u0438\u0446\u044B"
                         ]
                       }
                     )
-                  ] }),
-                  /* @__PURE__ */ jsxs60("span", { className: "entity-matrix-hint", children: [
-                    "\u041F\u043E\u043A\u0430\u0437\u0430\u043D\u043E \u0442\u043E\u043F-",
-                    MATRIX_LIMIT,
-                    " \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u043F\u043E \u0438\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u043C \u0441\u0432\u044F\u0437\u044F\u043C"
-                  ] })
-                ] }),
-                /* @__PURE__ */ jsxs60("div", { className: "entity-matrix-toolbar__legend", children: [
-                  /* @__PURE__ */ jsxs60("span", { className: "entity-matrix-legend-item", children: [
-                    /* @__PURE__ */ jsx63("span", { className: "entity-matrix-legend-cell entity-matrix-legend-cell--reference" }),
-                    "Reference (",
-                    matrix.stats.byKind.reference,
-                    ")"
-                  ] }),
-                  /* @__PURE__ */ jsxs60("span", { className: "entity-matrix-legend-item", children: [
-                    /* @__PURE__ */ jsx63("span", { className: "entity-matrix-legend-cell entity-matrix-legend-cell--inheritance" }),
-                    "\u041D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435 (",
-                    matrix.stats.byKind.inheritance,
-                    ")"
-                  ] }),
-                  /* @__PURE__ */ jsxs60("span", { className: "entity-matrix-legend-item", children: [
-                    /* @__PURE__ */ jsx63("span", { className: "entity-matrix-legend-cell entity-matrix-legend-cell--linkage" }),
-                    "Linkage (",
-                    matrix.stats.byKind.linkage,
-                    ")"
-                  ] }),
-                  /* @__PURE__ */ jsxs60("span", { className: "entity-matrix-toolbar__total", children: [
-                    "\u0412\u0441\u0435\u0433\u043E \u0441\u0432\u044F\u0437\u0435\u0439: ",
-                    matrix.stats.totalLinks
                   ] })
                 ] })
               ] }),
-              matrix.rows.length === 0 ? /* @__PURE__ */ jsx63("div", { className: "entity-matrix-empty", children: "\u041D\u0435\u0442 \u0434\u0430\u043D\u043D\u044B\u0445 \u0434\u043B\u044F \u043E\u0442\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u044F" }) : /* @__PURE__ */ jsx63("div", { className: "entity-matrix-scroll", children: /* @__PURE__ */ jsxs60("table", { className: "entity-matrix-table", children: [
+              orderedFqids.length === 0 ? /* @__PURE__ */ jsx63("div", { className: "entity-matrix-empty", children: "\u041D\u0435\u0442 \u0434\u0430\u043D\u043D\u044B\u0445 \u0434\u043B\u044F \u043E\u0442\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u044F" }) : /* @__PURE__ */ jsx63("div", { className: "entity-matrix-scroll", children: /* @__PURE__ */ jsxs60("table", { className: "entity-matrix-table", children: [
                 /* @__PURE__ */ jsx63("thead", { children: /* @__PURE__ */ jsxs60("tr", { children: [
                   /* @__PURE__ */ jsx63("th", { className: "entity-matrix-corner", children: /* @__PURE__ */ jsx63("span", { className: "entity-matrix-corner__arrow", children: "\u2198" }) }),
-                  matrix.entityFqids.map((fqid, idx) => {
-                    const e = matrix.rows[idx].entity;
+                  orderedFqids.map((fqid, idx) => {
+                    const e = rowByFqid.get(fqid).entity;
                     const isHovered = hoveredCol === idx;
+                    const isSearchMatch = searchMatch === fqid;
                     return /* @__PURE__ */ jsx63(
                       "th",
                       {
-                        className: "entity-matrix-col-head" + (isHovered ? " highlighted" : ""),
+                        className: "entity-matrix-col-head" + (isHovered ? " highlighted" : "") + (isSearchMatch ? " search-match" : ""),
                         onMouseEnter: () => setHoveredCol(idx),
                         onMouseLeave: () => setHoveredCol(null),
-                        title: fqid,
+                        onClick: () => openEntity(fqid),
+                        title: `${e.fqid}
+\u041A\u043B\u0438\u043A \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435`,
                         children: /* @__PURE__ */ jsx63("span", { className: "entity-matrix-col-head__text", children: shortLabel(fqid) })
                       },
                       fqid
                     );
-                  })
+                  }),
+                  /* @__PURE__ */ jsx63("th", { className: "entity-matrix-totals-head", title: "\u0418\u0441\u0445\u043E\u0434\u044F\u0449\u0438\u0435 \u0432\u0441\u0435\u0433\u043E", children: "Out" }),
+                  /* @__PURE__ */ jsx63("th", { className: "entity-matrix-totals-head", title: "\u0412\u0445\u043E\u0434\u044F\u0449\u0438\u0435 \u0432\u0441\u0435\u0433\u043E", children: "In" }),
+                  /* @__PURE__ */ jsx63("th", { className: "entity-matrix-totals-head", title: "\u0421\u0443\u043C\u043C\u0430", children: "Tot" })
                 ] }) }),
-                /* @__PURE__ */ jsx63("tbody", { children: matrix.rows.map((row, rowIdx) => {
+                /* @__PURE__ */ jsx63("tbody", { children: orderedFqids.map((rowFqid, rowIdx) => {
+                  const row = rowByFqid.get(rowFqid);
                   const isRowHovered = hoveredRow === rowIdx;
-                  return /* @__PURE__ */ jsxs60("tr", { className: isRowHovered ? "highlighted" : "", children: [
-                    /* @__PURE__ */ jsxs60(
-                      "th",
-                      {
-                        className: "entity-matrix-row-head",
-                        onMouseEnter: () => setHoveredRow(rowIdx),
-                        onMouseLeave: () => setHoveredRow(null),
-                        title: row.entity.fqid,
-                        children: [
-                          /* @__PURE__ */ jsx63("span", { className: "entity-matrix-row-head__text", children: shortLabel(row.entity.fqid) }),
-                          /* @__PURE__ */ jsx63("span", { className: "entity-matrix-row-head__count", children: row.totalOutgoing })
-                        ]
-                      }
-                    ),
-                    matrix.entityFqids.map((colFqid, colIdx) => {
-                      const cell = row.cells.get(colFqid);
-                      const isHoveredRow = hoveredRow === rowIdx;
-                      const isHoveredCol = hoveredCol === colIdx;
-                      if (!cell) {
-                        return /* @__PURE__ */ jsx63(
+                  const isSearchMatch = searchMatch === rowFqid;
+                  const cells = direction === "out" ? row.cellsOut : row.cellsIn;
+                  return /* @__PURE__ */ jsxs60(
+                    "tr",
+                    {
+                      className: (isRowHovered ? "highlighted" : "") + (isSearchMatch ? " search-match" : ""),
+                      children: [
+                        /* @__PURE__ */ jsx63(
+                          "th",
+                          {
+                            className: "entity-matrix-row-head",
+                            "data-fqid": rowFqid,
+                            onMouseEnter: () => setHoveredRow(rowIdx),
+                            onMouseLeave: () => setHoveredRow(null),
+                            onClick: () => openEntity(rowFqid),
+                            title: `${row.entity.fqid}
+\u041A\u043B\u0438\u043A \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435`,
+                            children: /* @__PURE__ */ jsx63("span", { className: "entity-matrix-row-head__text", children: shortLabel(rowFqid) })
+                          }
+                        ),
+                        orderedFqids.map((colFqid, colIdx) => {
+                          const cell = cells.get(colFqid);
+                          const isHoveredRow = hoveredRow === rowIdx;
+                          const isHoveredCol = hoveredCol === colIdx;
+                          const isSelf = rowFqid === colFqid;
+                          if (!cell) {
+                            return /* @__PURE__ */ jsx63(
+                              "td",
+                              {
+                                className: "entity-matrix-cell entity-matrix-cell--empty" + (isSelf ? " entity-matrix-cell--self" : "") + (isHoveredRow || isHoveredCol ? " in-row-col" : ""),
+                                onMouseEnter: () => {
+                                  setHoveredRow(rowIdx);
+                                  setHoveredCol(colIdx);
+                                },
+                                onMouseLeave: () => {
+                                  setHoveredRow(null);
+                                  setHoveredCol(null);
+                                }
+                              },
+                              colFqid
+                            );
+                          }
+                          const kindClass = "entity-matrix-cell--" + cell.kind;
+                          const isMixed = new Set(cell.details.map((d) => d.kind)).size > 1;
+                          const tooltip = shortLabel(rowFqid) + " \u2192 " + shortLabel(colFqid) + "\n" + cell.details.slice(0, 8).map(
+                            (d) => `\xB7 ${d.kind}: ${d.label}${d.linkageType ? ` (${d.linkageType})` : ""}`
+                          ).join("\n") + (cell.details.length > 8 ? `
+\u2026\u0438 \u0435\u0449\u0451 ${cell.details.length - 8}` : "") + "\n\n\u041A\u043B\u0438\u043A \u2014 \u0434\u0435\u0442\u0430\u043B\u0438";
+                          return /* @__PURE__ */ jsx63(
+                            "td",
+                            {
+                              className: "entity-matrix-cell " + kindClass + (isMixed ? " entity-matrix-cell--mixed" : "") + (isHoveredRow || isHoveredCol ? " in-row-col" : ""),
+                              onMouseEnter: () => {
+                                setHoveredRow(rowIdx);
+                                setHoveredCol(colIdx);
+                              },
+                              onMouseLeave: () => {
+                                setHoveredRow(null);
+                                setHoveredCol(null);
+                              },
+                              onClick: () => handleCellClick(rowFqid, colFqid, cell),
+                              title: tooltip,
+                              children: /* @__PURE__ */ jsx63("span", { className: "entity-matrix-cell__count", children: cell.count })
+                            },
+                            colFqid
+                          );
+                        }),
+                        /* @__PURE__ */ jsx63(
                           "td",
                           {
-                            className: "entity-matrix-cell entity-matrix-cell--empty" + (isHoveredRow || isHoveredCol ? " in-row-col" : ""),
-                            onMouseEnter: () => {
-                              setHoveredRow(rowIdx);
-                              setHoveredCol(colIdx);
-                            },
-                            onMouseLeave: () => {
-                              setHoveredRow(null);
-                              setHoveredCol(null);
-                            }
-                          },
-                          colFqid
-                        );
-                      }
-                      const kindClass = "entity-matrix-cell--" + cell.kind;
-                      return /* @__PURE__ */ jsx63(
-                        "td",
-                        {
-                          className: "entity-matrix-cell " + kindClass + (isHoveredRow || isHoveredCol ? " in-row-col" : ""),
-                          onMouseEnter: () => {
-                            setHoveredRow(rowIdx);
-                            setHoveredCol(colIdx);
-                          },
-                          onMouseLeave: () => {
-                            setHoveredRow(null);
-                            setHoveredCol(null);
-                          },
-                          title: shortLabel(row.entity.fqid) + " \u2192 " + shortLabel(colFqid) + "\n" + cell.details.map((d) => d.via + (d.reverse ? " (reverse)" : "")).join("\n"),
-                          children: /* @__PURE__ */ jsx63("span", { className: "entity-matrix-cell__count", children: cell.count })
-                        },
-                        colFqid
-                      );
-                    })
-                  ] }, row.entity.fqid);
+                            className: "entity-matrix-total-cell" + (isRowHovered ? " highlighted" : ""),
+                            title: row.totalOutgoingAll > row.totalOutgoingInMatrix ? `${row.totalOutgoingInMatrix} \u0432 \u043C\u0430\u0442\u0440\u0438\u0446\u0435, ${row.totalOutgoingAll - row.totalOutgoingInMatrix} \u0432\u043D\u0435` : void 0,
+                            children: row.totalOutgoingAll
+                          }
+                        ),
+                        /* @__PURE__ */ jsx63(
+                          "td",
+                          {
+                            className: "entity-matrix-total-cell" + (isRowHovered ? " highlighted" : ""),
+                            title: row.totalIncomingAll > row.totalIncomingInMatrix ? `${row.totalIncomingInMatrix} \u0432 \u043C\u0430\u0442\u0440\u0438\u0446\u0435, ${row.totalIncomingAll - row.totalIncomingInMatrix} \u0432\u043D\u0435` : void 0,
+                            children: row.totalIncomingAll
+                          }
+                        ),
+                        /* @__PURE__ */ jsx63(
+                          "td",
+                          {
+                            className: "entity-matrix-total-cell entity-matrix-total-cell--sum" + (isRowHovered ? " highlighted" : ""),
+                            children: row.totalOutgoingAll + row.totalIncomingAll
+                          }
+                        )
+                      ]
+                    },
+                    rowFqid
+                  );
                 }) })
-              ] }) })
+              ] }) }),
+              selectedCell && /* @__PURE__ */ jsxs60("div", { className: "entity-matrix-detail-panel", children: [
+                /* @__PURE__ */ jsxs60("div", { className: "entity-matrix-detail-panel__head", children: [
+                  /* @__PURE__ */ jsx63(
+                    "button",
+                    {
+                      className: "entity-matrix-detail-panel__entity",
+                      onClick: () => openEntity(selectedCell.rowFqid),
+                      children: shortLabel(selectedCell.rowFqid)
+                    }
+                  ),
+                  /* @__PURE__ */ jsx63(MIcon, { name: "arrow_forward", size: "sm" }),
+                  /* @__PURE__ */ jsx63(
+                    "button",
+                    {
+                      className: "entity-matrix-detail-panel__entity",
+                      onClick: () => openEntity(selectedCell.colFqid),
+                      children: shortLabel(selectedCell.colFqid)
+                    }
+                  ),
+                  /* @__PURE__ */ jsxs60("span", { className: "entity-matrix-detail-panel__count", children: [
+                    selectedCell.cell.count,
+                    " ",
+                    selectedCell.cell.count === 1 ? "\u0441\u0432\u044F\u0437\u044C" : "\u0441\u0432\u044F\u0437\u0435\u0439"
+                  ] }),
+                  /* @__PURE__ */ jsx63(
+                    "button",
+                    {
+                      className: "entity-matrix-detail-panel__close",
+                      onClick: () => setSelectedCell(null),
+                      title: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C",
+                      children: "\u2715"
+                    }
+                  )
+                ] }),
+                /* @__PURE__ */ jsx63("div", { className: "entity-matrix-detail-panel__body", children: selectedCell.cell.details.map((d, i) => /* @__PURE__ */ jsxs60(
+                  "div",
+                  {
+                    className: "entity-matrix-detail-row",
+                    children: [
+                      /* @__PURE__ */ jsx63(
+                        "span",
+                        {
+                          className: "entity-matrix-detail-kind entity-matrix-detail-kind--" + d.kind,
+                          children: d.kind === "reference" ? "reference" : d.kind === "inheritance" ? "inherits" : "linkage"
+                        }
+                      ),
+                      /* @__PURE__ */ jsx63("code", { children: d.label }),
+                      d.linkageType && /* @__PURE__ */ jsxs60("span", { className: "entity-matrix-detail-meta", children: [
+                        d.linkageType,
+                        d.undirected && " \u2194"
+                      ] })
+                    ]
+                  },
+                  `${d.kind}:${d.via}:${i}`
+                )) })
+              ] })
             ] })
           ]
         }
@@ -18051,8 +20214,10 @@ var init_EntityMatrixModal = __esm({
     init_useGraphStore();
     init_useModelIndex();
     init_entity_matrix();
-    init_ModalHelp();
     init_common();
+    init_ModalHelp();
+    init_useHelpEscape();
+    init_dialogs();
     MATRIX_LIMIT = 60;
   }
 });
@@ -18118,7 +20283,7 @@ var init_useModelDiff = __esm({
 
 // src/web/components/modals/ModelDiffModal.tsx
 import { useMemo as useMemo33, useState as useState23 } from "react";
-import { Fragment as Fragment14, jsx as jsx64, jsxs as jsxs61 } from "react/jsx-runtime";
+import { Fragment as Fragment15, jsx as jsx64, jsxs as jsxs61 } from "react/jsx-runtime";
 function genericSectionLabel(key) {
   return GENERIC_SECTION_LABELS[key] || key;
 }
@@ -18240,7 +20405,7 @@ function ModelDiffModal() {
                 /* @__PURE__ */ jsx64("div", { className: "model-diff-empty__title", children: "\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439 \u043D\u0435\u0442" }),
                 /* @__PURE__ */ jsx64("div", { className: "model-diff-empty__hint", children: "\u0421\u043D\u0430\u043F\u0448\u043E\u0442 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u0435\u0442, \u043D\u043E \u0441 \u043C\u043E\u043C\u0435\u043D\u0442\u0430 \u043F\u043E\u0441\u043B\u0435\u0434\u043D\u0435\u0433\u043E \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u043C\u043E\u0434\u0435\u043B\u0438 \u043D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043F\u0440\u043E\u0438\u0441\u0445\u043E\u0434\u0438\u043B\u043E." })
               ] }),
-              !loading && !error && hasSnapshot && diff && /* @__PURE__ */ jsxs61(Fragment14, { children: [
+              !loading && !error && hasSnapshot && diff && /* @__PURE__ */ jsxs61(Fragment15, { children: [
                 /* @__PURE__ */ jsxs61("div", { className: "model-diff-versions", children: [
                   /* @__PURE__ */ jsxs61("div", { className: "model-diff-version", children: [
                     /* @__PURE__ */ jsx64("div", { className: "model-diff-version__label", children: "\u0411\u044B\u043B\u043E" }),
@@ -18335,7 +20500,7 @@ function ModelDiffModal() {
                       ] }, d.domainId))
                     }
                   ),
-                  diff.genericSections && Object.keys(diff.genericSections).length > 0 && /* @__PURE__ */ jsx64(Fragment14, { children: Object.entries(diff.genericSections).map(([key, sectionDiff]) => {
+                  diff.genericSections && Object.keys(diff.genericSections).length > 0 && /* @__PURE__ */ jsx64(Fragment15, { children: Object.entries(diff.genericSections).map(([key, sectionDiff]) => {
                     const count = sectionDiff.added.length + sectionDiff.removed.length + sectionDiff.changed.length;
                     if (count === 0)
                       return null;
@@ -18765,16 +20930,83 @@ var init_ModelDiffModal = __esm({
 });
 
 // src/web/lib/model/validation.ts
-function summarizeValidation(stats, orphans) {
+function parseSample(sample) {
+  const t = sample.trim();
+  const m = t.match(FQID_RE);
+  if (m) {
+    return {
+      isFqid: true,
+      isDomain: false,
+      domain: m[1].toLowerCase(),
+      entityFqid: `${m[1]}/${m[2]}`.toLowerCase()
+    };
+  }
+  if (/^[a-z0-9][\w.-]*\.[a-z0-9][\w.-]*$/i.test(t)) {
+    return {
+      isFqid: false,
+      isDomain: true,
+      domain: t.toLowerCase(),
+      entityFqid: null
+    };
+  }
+  return { isFqid: false, isDomain: false, domain: null, entityFqid: null };
+}
+function extractAffected(samples) {
+  const ds = /* @__PURE__ */ new Set();
+  const es = /* @__PURE__ */ new Set();
+  for (const s of samples) {
+    const info = parseSample(s);
+    if (info.domain)
+      ds.add(info.domain);
+    if (info.entityFqid)
+      es.add(info.entityFqid);
+  }
+  return {
+    affectedDomains: Array.from(ds).sort(),
+    affectedEntities: Array.from(es).sort()
+  };
+}
+function computeHealth2(counts) {
+  let score = 100;
+  score -= Math.min(counts.error * 8, 60);
+  score -= Math.min(counts.warning * 2, 25);
+  score -= Math.min(counts.info * 0.3, 10);
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+function computeGrade2(score) {
+  if (score >= 90)
+    return "A";
+  if (score >= 75)
+    return "B";
+  if (score >= 60)
+    return "C";
+  if (score >= 40)
+    return "D";
+  return "E";
+}
+function summarizeValidation(stats, orphans, _index) {
   const issues = [];
-  if (stats.circularInheritance.length > 0) {
+  const push = (partial) => {
+    const { actionKinds, ...rest } = partial;
+    const affected = extractAffected(rest.samples);
     issues.push({
+      ...rest,
+      affectedDomains: affected.affectedDomains,
+      affectedEntities: affected.affectedEntities,
+      actions: actionKinds.map((k) => ACTIONS[k])
+    });
+  };
+  if (stats.circularInheritance.length > 0) {
+    push({
       severity: "error",
+      category: "structure",
       count: stats.circularInheritance.length,
       title: "\u0426\u0438\u043A\u043B\u044B \u0432 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0438",
-      description: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u043D\u0430\u0441\u043B\u0435\u0434\u0443\u044E\u0442 \u0434\u0440\u0443\u0433 \u0434\u0440\u0443\u0433\u0430 \u043F\u043E \u043A\u0440\u0443\u0433\u0443 \u2014 \u044D\u0442\u043E \u043B\u043E\u043C\u0430\u0435\u0442 \u043B\u043E\u0433\u0438\u043A\u0443 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F.",
+      description: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u043D\u0430\u0441\u043B\u0435\u0434\u0443\u044E\u0442 \u0434\u0440\u0443\u0433 \u0434\u0440\u0443\u0433\u0430 \u043F\u043E \u043A\u0440\u0443\u0433\u0443 \u2014 \u044D\u0442\u043E \u043B\u043E\u043C\u0430\u0435\u0442 \u043B\u043E\u0433\u0438\u043A\u0443 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F \u0438 \u0431\u043B\u043E\u043A\u0438\u0440\u0443\u0435\u0442 \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u044E.",
       hint: "\u0420\u0430\u0437\u043E\u0440\u0432\u0438\u0442\u0435 \u0446\u0435\u043F\u043E\u0447\u043A\u0443 \u2014 \u0443\u0431\u0435\u0440\u0438\u0442\u0435 \u043E\u0434\u0438\u043D \u0438\u0437 inherits.",
-      samples: stats.circularInheritance.slice(0, 20)
+      samples: stats.circularInheritance.slice(0, 30),
+      impact: 10,
+      actionKinds: ["lint", "catalog"]
     });
   }
   if (stats.unknownReferences.length > 0) {
@@ -18782,128 +21014,164 @@ function summarizeValidation(stats, orphans) {
     stats.unknownReferences.forEach((r) => {
       byKind[r.kind] = (byKind[r.kind] || 0) + 1;
     });
-    issues.push({
+    push({
       severity: "error",
+      category: "references",
       count: stats.unknownReferences.length,
-      title: "\u0411\u0438\u0442\u044B\u0435 \u0441\u0441\u044B\u043B\u043A\u0438",
-      description: "\u0415\u0441\u0442\u044C \u0441\u0441\u044B\u043B\u043A\u0438 \u043D\u0430 \u043D\u0435\u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438: " + Object.entries(byKind).map(([k, n]) => `${k} (${n})`).join(", "),
-      hint: "\u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 FQID \u0438 \u043E\u043F\u0435\u0447\u0430\u0442\u043A\u0438 \u0432 id.",
-      samples: stats.unknownReferences.map((r) => `${r.from} \u2192 ${r.ref}`).slice(0, 20)
+      title: "\u0411\u0438\u0442\u044B\u0435 FQID-\u0441\u0441\u044B\u043B\u043A\u0438",
+      description: "\u0421\u0441\u044B\u043B\u043A\u0438 \u043D\u0430 \u043D\u0435\u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438: " + Object.entries(byKind).map(([k, n]) => `${k} (${n})`).join(", "),
+      hint: "\u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 FQID \u0438 \u043E\u043F\u0435\u0447\u0430\u0442\u043A\u0438 \u0432 id \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439.",
+      samples: stats.unknownReferences.map((r) => `${r.from} \u2192 ${r.ref}`).slice(0, 30),
+      impact: 9,
+      actionKinds: ["lint"]
     });
   }
   if (stats.duplicateEntityIds.length > 0) {
-    issues.push({
+    push({
       severity: "error",
+      category: "structure",
       count: stats.duplicateEntityIds.length,
       title: "\u0414\u0443\u0431\u043B\u0438\u043A\u0430\u0442\u044B entityId \u043C\u0435\u0436\u0434\u0443 \u0434\u043E\u043C\u0435\u043D\u0430\u043C\u0438",
-      description: "\u041E\u0434\u0438\u043D\u0430\u043A\u043E\u0432\u044B\u0439 id \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u0432 \u043D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u0438\u0445 \u0434\u043E\u043C\u0435\u043D\u0430\u0445 \u2014 \u044D\u0442\u043E \u043F\u0443\u0442\u0430\u0435\u0442 FQID-\u0441\u0441\u044B\u043B\u043A\u0438.",
+      description: "\u041E\u0434\u0438\u043D\u0430\u043A\u043E\u0432\u044B\u0439 id \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u0432 \u043D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u0438\u0445 \u0434\u043E\u043C\u0435\u043D\u0430\u0445 \u2014 \u043F\u0443\u0442\u0430\u0435\u0442 FQID-\u0441\u0441\u044B\u043B\u043A\u0438.",
       hint: "\u041F\u0435\u0440\u0435\u0438\u043C\u0435\u043D\u0443\u0439\u0442\u0435 \u043E\u0434\u043D\u0443 \u0438\u0437 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0438\u043B\u0438 \u0432\u044B\u043D\u0435\u0441\u0438\u0442\u0435 \u0432 \u043E\u0431\u0449\u0438\u0439 \u0434\u043E\u043C\u0435\u043D.",
       samples: stats.duplicateEntityIds.map(
         (d) => `${d.entityId}: ${d.domains.join(", ")}`
-      )
+      ),
+      impact: 8,
+      actionKinds: ["catalog"]
     });
   }
   if (stats.mixinConflicts.length > 0) {
-    issues.push({
+    push({
       severity: "warning",
+      category: "content",
       count: stats.mixinConflicts.length,
       title: "\u041A\u043E\u043D\u0444\u043B\u0438\u043A\u0442\u044B \u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432",
-      description: "\u0420\u0430\u0437\u043D\u044B\u0435 \u043C\u0438\u043A\u0441\u0438\u043D\u044B \u0434\u043E\u0431\u0430\u0432\u043B\u044F\u044E\u0442 \u043E\u0434\u0438\u043D\u0430\u043A\u043E\u0432\u044B\u0435 \u0432\u043A\u043B\u0430\u0434\u043A\u0438 \u043A \u043E\u0434\u043D\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438.",
-      hint: "\u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u043F\u043E\u0440\u044F\u0434\u043E\u043A \u043F\u0440\u0438\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432 \u2014 \u043A\u0430\u043A\u043E\u0439 \u043F\u043E\u0431\u0435\u0434\u0438\u0442.",
+      description: "\u0420\u0430\u0437\u043D\u044B\u0435 \u043C\u0438\u043A\u0441\u0438\u043D\u044B \u0434\u043E\u0431\u0430\u0432\u043B\u044F\u044E\u0442 \u043E\u0434\u0438\u043D\u0430\u043A\u043E\u0432\u044B\u0435 \u0432\u043A\u043B\u0430\u0434\u043A\u0438 \u043A \u043E\u0434\u043D\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438. \u041F\u043E\u0440\u044F\u0434\u043E\u043A \u043F\u0440\u0438\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u043D\u0435\u043F\u0440\u0435\u0434\u0441\u043A\u0430\u0437\u0443\u0435\u043C.",
+      hint: "\u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u043F\u043E\u0440\u044F\u0434\u043E\u043A \u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432 \u2014 \u043A\u0430\u043A\u043E\u0439 \u043F\u043E\u0431\u0435\u0434\u0438\u0442. \u0412\u043E\u0437\u043C\u043E\u0436\u043D\u043E, \u0441\u0442\u043E\u0438\u0442 \u0443\u0434\u0430\u043B\u0438\u0442\u044C \u0434\u0443\u0431\u043B\u0438\u0440\u0443\u044E\u0449\u0443\u044E \u0432\u043A\u043B\u0430\u0434\u043A\u0443 \u0438\u0437 \u043E\u0434\u043D\u043E\u0433\u043E.",
       samples: stats.mixinConflicts.map(
         (c) => `${c.targetFqid}: ${c.addedTabs.join(", ")} (${c.source} \u2194 ${c.conflictsWith.join(", ")})`
-      )
+      ),
+      impact: 6,
+      actionKinds: ["catalog"]
     });
   }
   if (stats.orphanEntities.length > 0) {
-    issues.push({
+    push({
       severity: "warning",
+      category: "orphans",
       count: stats.orphanEntities.length,
       title: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438-\u0441\u0438\u0440\u043E\u0442\u044B",
-      description: "\u041D\u0438 \u043D\u0430 \u043A\u043E\u0433\u043E \u043D\u0435 \u0441\u0441\u044B\u043B\u0430\u044E\u0442\u0441\u044F \u0438 \u043D\u0438\u043A\u0442\u043E \u043D\u0435 \u0441\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F \u2014 \u0432\u043E\u0437\u043C\u043E\u0436\u043D\u043E, \u043C\u0451\u0440\u0442\u0432\u044B\u0439 \u043A\u043E\u0434.",
-      hint: "\u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435: \u043C\u043E\u0436\u0435\u0442, \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0440\u0435\u0430\u043B\u044C\u043D\u043E \u043D\u0435 \u043D\u0443\u0436\u043D\u0430 \u0438\u043B\u0438 \u043D\u0435 \u043F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0430.",
-      samples: stats.orphanEntities.slice(0, 30)
+      description: "\u041D\u0438 \u043D\u0430 \u043A\u043E\u0433\u043E \u043D\u0435 \u0441\u0441\u044B\u043B\u0430\u044E\u0442\u0441\u044F \u0438 \u043D\u0438\u043A\u0442\u043E \u043D\u0435 \u0441\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F \u2014 \u0432\u0435\u0440\u043E\u044F\u0442\u043D\u043E, \u043C\u0451\u0440\u0442\u0432\u044B\u0439 \u043A\u043E\u0434 \u0438\u043B\u0438 \u043D\u0435\u0437\u0430\u043A\u043E\u043D\u0447\u0435\u043D\u043D\u0430\u044F \u0444\u0438\u0447\u0430.",
+      hint: "\u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435: \u043C\u043E\u0436\u0435\u0442, \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0440\u0435\u0430\u043B\u044C\u043D\u043E \u043D\u0435 \u043D\u0443\u0436\u043D\u0430 \u0438\u043B\u0438 \u043F\u0440\u043E\u0441\u0442\u043E \u043D\u0435 \u043F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0430 \u043A views.",
+      samples: stats.orphanEntities.slice(0, 30),
+      impact: 5,
+      actionKinds: ["catalog", "schema"]
     });
   }
   if (stats.attributesWithoutViews.length > 0) {
-    issues.push({
+    push({
       severity: "warning",
+      category: "content",
       count: stats.attributesWithoutViews.length,
       title: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0431\u0435\u0437 \u043F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F",
       description: "\u041E\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u044B, \u043D\u043E \u043D\u0435 \u0443\u043F\u043E\u043C\u044F\u043D\u0443\u0442\u044B \u043D\u0438 \u0432 views, \u043D\u0438 \u0432 dataRules \u2014 \u043F\u043E\u0442\u0435\u043D\u0446\u0438\u0430\u043B\u044C\u043D\u043E \u043C\u0451\u0440\u0442\u0432\u044B\u0439 \u043A\u043E\u0434.",
       hint: "\u0415\u0441\u043B\u0438 \u0430\u0442\u0440\u0438\u0431\u0443\u0442 \u0440\u0435\u0430\u043B\u044C\u043D\u043E \u043D\u0443\u0436\u0435\u043D \u2014 \u0434\u043E\u0431\u0430\u0432\u044C\u0442\u0435 \u0432\u0438\u0434\u0436\u0435\u0442 \u0438\u043B\u0438 \u043F\u0440\u0430\u0432\u0438\u043B\u043E \u0434\u0430\u043D\u043D\u044B\u0445; \u0438\u043D\u0430\u0447\u0435 \u0443\u0434\u0430\u043B\u0438\u0442\u0435 \u0435\u0433\u043E.",
-      samples: stats.attributesWithoutViews.slice(0, 30).map((a) => a.key)
+      samples: stats.attributesWithoutViews.slice(0, 30).map((a) => a.key),
+      impact: 4,
+      actionKinds: ["catalog", "lint"]
     });
   }
   if (stats.emptyDomains.length > 0) {
-    issues.push({
+    push({
       severity: "info",
+      category: "domains",
       count: stats.emptyDomains.length,
       title: "\u0414\u043E\u043C\u0435\u043D\u044B \u0431\u0435\u0437 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439",
-      description: "\u0421\u043E\u0434\u0435\u0440\u0436\u0430\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u043C\u0438\u043A\u0441\u0438\u043D\u044B / \u0442\u0438\u043F\u044B \u0434\u0430\u043D\u043D\u044B\u0445 / \u043F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u0438 \u2014 \u044D\u0442\u043E \u043D\u043E\u0440\u043C\u0430\u043B\u044C\u043D\u043E \u0434\u043B\u044F mixin-\u0434\u043E\u043C\u0435\u043D\u043E\u0432.",
+      description: "\u0421\u043E\u0434\u0435\u0440\u0436\u0430\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u043C\u0438\u043A\u0441\u0438\u043D\u044B / \u0442\u0438\u043F\u044B \u0434\u0430\u043D\u043D\u044B\u0445 / \u043F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u0438 \u2014 \u043D\u043E\u0440\u043C\u0430\u043B\u044C\u043D\u043E \u0434\u043B\u044F mixin-\u0434\u043E\u043C\u0435\u043D\u043E\u0432.",
       hint: "\u041D\u0435 \u0442\u0440\u0435\u0431\u0443\u0435\u0442 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0439, \u0435\u0441\u043B\u0438 \u0434\u043E\u043C\u0435\u043D \u0437\u0430\u0434\u0443\u043C\u0430\u043D \u043A\u0430\u043A \u043C\u0438\u043A\u0441\u0438\u043D-\u0431\u0438\u0431\u043B\u0438\u043E\u0442\u0435\u043A\u0430.",
-      samples: stats.emptyDomains
+      samples: stats.emptyDomains,
+      impact: 2,
+      actionKinds: ["schema"]
     });
   }
   if (stats.entitiesWithoutAttributes.length > 0) {
-    issues.push({
+    push({
       severity: "info",
+      category: "content",
       count: stats.entitiesWithoutAttributes.length,
       title: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0431\u0435\u0437 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432",
       description: "\u0412\u0441\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0443\u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u044B \u043E\u0442 \u0440\u043E\u0434\u0438\u0442\u0435\u043B\u044F \u2014 \u0441\u043E\u0431\u0441\u0442\u0432\u0435\u043D\u043D\u044B\u0445 \u043D\u0435\u0442.",
       hint: "\u041D\u043E\u0440\u043C\u0430\u043B\u044C\u043D\u043E, \u0435\u0441\u043B\u0438 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0447\u0438\u0441\u0442\u043E \u043C\u0430\u0440\u043A\u0435\u0440\u043D\u0430\u044F.",
-      samples: stats.entitiesWithoutAttributes.slice(0, 20)
+      samples: stats.entitiesWithoutAttributes.slice(0, 20),
+      impact: 2,
+      actionKinds: ["catalog"]
     });
   }
   if (orphans) {
     if (orphans.views.length > 0) {
-      issues.push({
+      push({
         severity: "info",
+        category: "orphans",
         count: orphans.views.length,
         title: "\u041E\u0441\u0438\u0440\u043E\u0442\u0435\u0432\u0448\u0438\u0435 views",
         description: "\u041E\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u044B, \u043D\u043E \u043D\u0438\u0433\u0434\u0435 \u043D\u0435 \u0432\u044B\u0437\u044B\u0432\u0430\u044E\u0442\u0441\u044F \u2014 \u043D\u0438 \u0432 \u043C\u0435\u043D\u044E, \u043D\u0438 \u0432 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F\u0445.",
         hint: "\u041A\u0430\u043D\u0434\u0438\u0434\u0430\u0442\u044B \u043D\u0430 \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435 \u0438\u043B\u0438 \u043D\u0430 \u043F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435 \u043A \u0438\u043D\u0442\u0435\u0440\u0444\u0435\u0439\u0441\u0443.",
-        samples: orphans.views.map((v) => `${v.domainId}/${v.id} (${v.type})`).slice(0, 30)
+        samples: orphans.views.map((v) => `${v.domainId}/${v.id} (${v.type})`).slice(0, 30),
+        impact: 3,
+        actionKinds: ["schema"]
       });
     }
     if (orphans.actions.length > 0) {
-      issues.push({
+      push({
         severity: "info",
+        category: "orphans",
         count: orphans.actions.length,
         title: "\u041E\u0441\u0438\u0440\u043E\u0442\u0435\u0432\u0448\u0438\u0435 actions",
         description: "\u041E\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u044B, \u043D\u043E \u043D\u0435\u0442 \u0432\u0438\u0434\u0436\u0435\u0442\u0430, \u043A\u043E\u0442\u043E\u0440\u044B\u0439 \u0431\u044B \u0438\u0445 \u0432\u044B\u0437\u044B\u0432\u0430\u043B.",
         hint: "\u0412\u043E\u0437\u043C\u043E\u0436\u043D\u043E, \u043D\u0435 \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u044B \u043A\u043D\u043E\u043F\u043A\u0438 \u0432 \u0438\u043D\u0442\u0435\u0440\u0444\u0435\u0439\u0441.",
-        samples: orphans.actions.map((a) => `${a.domainId}/${a.id}`).slice(0, 30)
+        samples: orphans.actions.map((a) => `${a.domainId}/${a.id}`).slice(0, 30),
+        impact: 3,
+        actionKinds: ["schema"]
       });
     }
     if (orphans.dataTypes.length > 0) {
-      issues.push({
+      push({
         severity: "info",
+        category: "orphans",
         count: orphans.dataTypes.length,
         title: "\u041E\u0441\u0438\u0440\u043E\u0442\u0435\u0432\u0448\u0438\u0435 \u0442\u0438\u043F\u044B \u0434\u0430\u043D\u043D\u044B\u0445",
         description: "Enum/Table/Workflow \u043D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u044E\u0442\u0441\u044F \u043D\u0438 \u043E\u0434\u043D\u0438\u043C \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u043C.",
         hint: "\u041C\u0451\u0440\u0442\u0432\u044B\u0439 \u043A\u043E\u0434 \u2014 \u043C\u043E\u0436\u043D\u043E \u0443\u0434\u0430\u043B\u0438\u0442\u044C.",
-        samples: orphans.dataTypes.map((d) => `${d.domainId}/${d.id} (${d.kind})`).slice(0, 30)
+        samples: orphans.dataTypes.map((d) => `${d.domainId}/${d.id} (${d.kind})`).slice(0, 30),
+        impact: 2,
+        actionKinds: ["schema"]
       });
     }
     if (orphans.sequences.length > 0) {
-      issues.push({
+      push({
         severity: "info",
+        category: "orphans",
         count: orphans.sequences.length,
         title: "\u041E\u0441\u0438\u0440\u043E\u0442\u0435\u0432\u0448\u0438\u0435 \u043F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u0438",
         description: "\u041D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u044E\u0442\u0441\u044F \u043D\u0438 \u043E\u0434\u043D\u0438\u043C Identifier-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u043C.",
         hint: "\u041C\u043E\u0436\u043D\u043E \u0443\u0434\u0430\u043B\u0438\u0442\u044C \u0431\u0435\u0437 \u043F\u043E\u0441\u043B\u0435\u0434\u0441\u0442\u0432\u0438\u0439.",
-        samples: orphans.sequences.map((s) => `${s.domainId}/${s.id}`).slice(0, 30)
+        samples: orphans.sequences.map((s) => `${s.domainId}/${s.id}`).slice(0, 30),
+        impact: 2,
+        actionKinds: ["schema"]
       });
     }
     if (orphans.medias.length > 0) {
-      issues.push({
+      push({
         severity: "info",
+        category: "orphans",
         count: orphans.medias.length,
         title: "\u041E\u0441\u0438\u0440\u043E\u0442\u0435\u0432\u0448\u0438\u0435 \u0438\u043A\u043E\u043D\u043A\u0438",
-        description: "\u041D\u0435 \u0443\u043F\u043E\u043C\u044F\u043D\u0443\u0442\u044B \u043D\u0438 \u0432 \u043E\u0434\u043D\u043E\u043C \u0432\u0438\u0434\u0436\u0435\u0442\u0435.",
+        description: "\u041D\u0435 \u0443\u043F\u043E\u043C\u044F\u043D\u0443\u0442\u044B \u043D\u0438 \u0432 \u043E\u0434\u043D\u043E\u043C \u0432\u0438\u0434\u0436\u0435\u0442\u0435 \u0438\u043B\u0438 \u043C\u0435\u043D\u044E.",
         hint: "\u041C\u043E\u0436\u043D\u043E \u0443\u0434\u0430\u043B\u0438\u0442\u044C \u0438\u0437 medias[].",
-        samples: orphans.medias.map((m) => `${m.domainId}/${m.id}`).slice(0, 30)
+        samples: orphans.medias.map((m) => `${m.domainId}/${m.id}`).slice(0, 30),
+        impact: 1,
+        actionKinds: ["schema"]
       });
     }
   }
@@ -18912,28 +21180,242 @@ function summarizeValidation(stats, orphans) {
     warning: issues.filter((i) => i.severity === "warning").reduce((s, i) => s + i.count, 0),
     info: issues.filter((i) => i.severity === "info").reduce((s, i) => s + i.count, 0)
   };
+  const categoryCounts = {
+    references: 0,
+    structure: 0,
+    content: 0,
+    orphans: 0,
+    domains: 0
+  };
+  issues.forEach((i) => {
+    categoryCounts[i.category] += i.count;
+  });
+  const health = computeHealth2(counts);
   return {
     issues,
     counts,
-    totalIssues: counts.error + counts.warning + counts.info
+    totalIssues: counts.error + counts.warning + counts.info,
+    health,
+    grade: computeGrade2(health),
+    categoryCounts
   };
 }
+var FQID_RE, ACTIONS;
 var init_validation = __esm({
   "src/web/lib/model/validation.ts"() {
     "use strict";
+    FQID_RE = /^([a-z0-9][\w.-]*\.[a-z0-9][\w.-]*)\/(.+)$/i;
+    ACTIONS = {
+      lint: { kind: "lint", label: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043B\u0438\u043D\u0442\u0435\u0440", icon: "rule" },
+      catalog: { kind: "catalog", label: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043A\u0430\u0442\u0430\u043B\u043E\u0433", icon: "menu_book" },
+      schema: { kind: "schema", label: "\u0421\u0445\u0435\u043C\u0430 \u0434\u043E\u043C\u0435\u043D\u0430", icon: "menu_book" },
+      health: { kind: "health", label: "Health Dashboard", icon: "dashboard" },
+      pii: { kind: "pii", label: "PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B", icon: "shield_lock" }
+    };
   }
 });
 
 // src/web/components/modals/ModelValidationModal.tsx
-import { useMemo as useMemo34, useState as useState24 } from "react";
-import { Fragment as Fragment15, jsx as jsx65, jsxs as jsxs62 } from "react/jsx-runtime";
+import { useCallback as useCallback18, useMemo as useMemo34, useState as useState24 } from "react";
+import { Fragment as Fragment16, jsx as jsx65, jsxs as jsxs62 } from "react/jsx-runtime";
+function KpiCard({
+  label,
+  value,
+  severity,
+  icon,
+  onClick
+}) {
+  return /* @__PURE__ */ jsxs62(
+    "button",
+    {
+      type: "button",
+      className: "mv-kpi mv-kpi--" + severity + (onClick ? " mv-kpi--clickable" : ""),
+      onClick,
+      disabled: !onClick,
+      children: [
+        /* @__PURE__ */ jsx65(MIcon, { name: icon, size: "sm" }),
+        /* @__PURE__ */ jsx65("div", { className: "mv-kpi__value", children: value }),
+        /* @__PURE__ */ jsx65("div", { className: "mv-kpi__label", children: label })
+      ]
+    }
+  );
+}
+function IssueCard({
+  issue,
+  isExpanded,
+  onToggle,
+  onGoToFqid,
+  onGoToDomain,
+  onAction
+}) {
+  const severityClass = "mv-issue--" + issue.severity;
+  const parsedSamples = useMemo34(
+    () => issue.samples.map((s) => {
+      const isFqid = /^[a-z0-9][\w.-]*\.[a-z0-9][\w.-]*\//i.test(s.trim());
+      const isDomain = /^[a-z0-9][\w.-]*\.[a-z0-9][\w.-]*$/i.test(
+        s.trim()
+      );
+      return { raw: s, isFqid, isDomain };
+    }),
+    [issue.samples]
+  );
+  return /* @__PURE__ */ jsxs62("div", { className: "mv-issue " + severityClass, children: [
+    /* @__PURE__ */ jsxs62(
+      "button",
+      {
+        type: "button",
+        className: "mv-issue__head",
+        onClick: onToggle,
+        children: [
+          /* @__PURE__ */ jsx65(MIcon, { name: isExpanded ? "expand_more" : "chevron_right", size: "sm" }),
+          /* @__PURE__ */ jsx65("span", { className: "mv-issue__title", children: issue.title }),
+          /* @__PURE__ */ jsx65("span", { className: "mv-issue__impact mv-issue__impact--" + Math.min(Math.floor(issue.impact / 3), 3), children: issue.impact >= 7 ? "\u0432\u044B\u0441\u043E\u043A\u0438\u0439" : issue.impact >= 4 ? "\u0441\u0440\u0435\u0434\u043D\u0438\u0439" : "\u043D\u0438\u0437\u043A\u0438\u0439" }),
+          /* @__PURE__ */ jsx65("span", { className: "mv-issue__count", children: issue.count })
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsx65("div", { className: "mv-issue__description", children: issue.description }),
+    isExpanded && /* @__PURE__ */ jsxs62("div", { className: "mv-issue__body", children: [
+      /* @__PURE__ */ jsxs62("div", { className: "mv-issue__hint", children: [
+        /* @__PURE__ */ jsx65(MIcon, { name: "lightbulb", size: "sm" }),
+        /* @__PURE__ */ jsx65("span", { children: issue.hint })
+      ] }),
+      issue.samples.length > 0 && /* @__PURE__ */ jsxs62("div", { className: "mv-issue__samples-block", children: [
+        /* @__PURE__ */ jsxs62("div", { className: "mv-issue__samples-title", children: [
+          "\u041F\u0440\u0438\u043C\u0435\u0440\u044B (",
+          issue.samples.length,
+          issue.count > issue.samples.length && ` \u0438\u0437 ${issue.count}`,
+          ")"
+        ] }),
+        /* @__PURE__ */ jsx65("div", { className: "mv-issue__samples", children: parsedSamples.map((s, i) => {
+          if (s.isFqid) {
+            return /* @__PURE__ */ jsxs62(
+              "button",
+              {
+                type: "button",
+                className: "mv-issue__sample mv-issue__sample--link",
+                onClick: () => onGoToFqid(s.raw),
+                title: `\u041E\u0442\u043A\u0440\u044B\u0442\u044C ${s.raw} \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435`,
+                children: [
+                  /* @__PURE__ */ jsx65(MIcon, { name: "data_object", size: "sm" }),
+                  /* @__PURE__ */ jsx65("span", { children: s.raw })
+                ]
+              },
+              i
+            );
+          }
+          if (s.isDomain) {
+            return /* @__PURE__ */ jsxs62(
+              "button",
+              {
+                type: "button",
+                className: "mv-issue__sample mv-issue__sample--link",
+                onClick: () => onGoToDomain(s.raw),
+                title: `\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0445\u0435\u043C\u0443 ${s.raw}`,
+                children: [
+                  /* @__PURE__ */ jsx65(MIcon, { name: "folder", size: "sm" }),
+                  /* @__PURE__ */ jsx65("span", { children: s.raw })
+                ]
+              },
+              i
+            );
+          }
+          return /* @__PURE__ */ jsx65("div", { className: "mv-issue__sample", children: s.raw }, i);
+        }) })
+      ] }),
+      issue.actions.length > 0 && /* @__PURE__ */ jsx65("div", { className: "mv-issue__actions", children: issue.actions.map((a) => /* @__PURE__ */ jsxs62(
+        "button",
+        {
+          type: "button",
+          className: "btn btn--small",
+          onClick: () => onAction(a),
+          children: [
+            /* @__PURE__ */ jsx65(MIcon, { name: a.icon, size: "sm" }),
+            a.label
+          ]
+        },
+        a.kind
+      )) })
+    ] })
+  ] });
+}
+function LintSummaryBlock({
+  lintReport,
+  onOpenLint
+}) {
+  const [expanded, setExpanded] = useState24(false);
+  const stats = lintReport.stats;
+  const topRules = stats.byRule.slice(0, 10);
+  return /* @__PURE__ */ jsxs62("div", { className: "mv-lint", children: [
+    /* @__PURE__ */ jsxs62(
+      "button",
+      {
+        type: "button",
+        className: "mv-lint__head",
+        onClick: () => setExpanded(!expanded),
+        children: [
+          /* @__PURE__ */ jsx65(MIcon, { name: expanded ? "expand_more" : "chevron_right", size: "sm" }),
+          /* @__PURE__ */ jsx65(MIcon, { name: "science", size: "sm" }),
+          /* @__PURE__ */ jsx65("span", { className: "mv-lint__title", children: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0441\u0445\u0435\u043C (\u043B\u0438\u043D\u0442\u0435\u0440)" }),
+          /* @__PURE__ */ jsx65("span", { className: "mv-lint__total", children: stats.total }),
+          /* @__PURE__ */ jsxs62("span", { className: "mv-lint__counters", children: [
+            stats.bySeverity.error > 0 && /* @__PURE__ */ jsxs62("span", { className: "mv-lint__counter mv-lint__counter--error", children: [
+              stats.bySeverity.error,
+              " err"
+            ] }),
+            stats.bySeverity.warning > 0 && /* @__PURE__ */ jsxs62("span", { className: "mv-lint__counter mv-lint__counter--warning", children: [
+              stats.bySeverity.warning,
+              " warn"
+            ] })
+          ] })
+        ]
+      }
+    ),
+    expanded && /* @__PURE__ */ jsx65("div", { className: "mv-lint__body", children: stats.total === 0 ? /* @__PURE__ */ jsxs62("div", { className: "mv-lint__empty", children: [
+      /* @__PURE__ */ jsx65(MIcon, { name: "check_circle", size: "sm" }),
+      "\u0421\u0445\u0435\u043C\u044B \u0441\u043E\u043E\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0443\u044E\u0442 \u043F\u0440\u0430\u0432\u0438\u043B\u0430\u043C \u043B\u0438\u043D\u0442\u0435\u0440\u0430"
+    ] }) : /* @__PURE__ */ jsxs62(Fragment16, { children: [
+      topRules.length > 0 && /* @__PURE__ */ jsxs62("div", { className: "mv-lint__rules", children: [
+        topRules.map((r) => /* @__PURE__ */ jsxs62(
+          "button",
+          {
+            type: "button",
+            className: "mv-lint__rule mv-lint__rule--" + r.severity,
+            onClick: onOpenLint,
+            title: `${r.ruleId}
+\u041D\u0430\u0436\u043C\u0438\u0442\u0435, \u0447\u0442\u043E\u0431\u044B \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u043B\u0438\u043D\u0442\u0435\u0440`,
+            children: [
+              /* @__PURE__ */ jsx65("span", { className: "mv-lint__rule-dot" }),
+              /* @__PURE__ */ jsx65("span", { className: "mv-lint__rule-name", children: r.rule }),
+              /* @__PURE__ */ jsx65("span", { className: "mv-lint__rule-count", children: r.count })
+            ]
+          },
+          r.ruleId
+        )),
+        stats.byRule.length > topRules.length && /* @__PURE__ */ jsxs62("div", { className: "mv-lint__more", children: [
+          "\u2026\u0438 \u0435\u0449\u0451 ",
+          stats.byRule.length - topRules.length,
+          " \u043F\u0440\u0430\u0432\u0438\u043B"
+        ] })
+      ] }),
+      /* @__PURE__ */ jsx65("div", { className: "mv-lint__actions", children: /* @__PURE__ */ jsx65("button", { className: "btn btn--small", onClick: onOpenLint, children: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043B\u0438\u043D\u0442\u0435\u0440 \u2192" }) })
+    ] }) })
+  ] });
+}
 function ModelValidationModal() {
   const { index, loading, error } = useModelIndex();
   const [showHelp, setShowHelp] = useState24(false);
-  const [expanded, setExpanded] = useState24(/* @__PURE__ */ new Set());
   const open2 = useGraphStore((s) => s.modelValidationOpen);
+  useHelpEscape(open2, showHelp, setShowHelp);
+  const [expanded, setExpanded] = useState24(/* @__PURE__ */ new Set());
+  const [severityFilter, setSeverityFilter] = useState24("all");
+  const [categoryFilter, setCategoryFilter] = useState24(
+    "all"
+  );
+  const [query, setQuery] = useState24("");
+  const [groupMode, setGroupMode] = useState24("category");
   const summary = useMemo34(
-    () => index ? summarizeValidation(index.stats, index.orphans) : null,
+    () => index ? summarizeValidation(index.stats, index.orphans, index) : null,
     [index]
   );
   const toggle = (title) => {
@@ -18946,21 +21428,172 @@ function ModelValidationModal() {
       return s;
     });
   };
-  const openEntity = (fqid) => {
+  const openEntity = useCallback18((fqid) => {
+    const clean = fqid.split(/\s+/)[0].split("#")[0];
     const st = useGraphStore.getState();
     st.setModelValidationOpen(false);
-    st.setEntityCatalogInitialFqid(fqid);
+    st.setEntityCatalogInitialFqid(clean.toLowerCase());
     st.setEntityCatalogOpen(true);
+  }, []);
+  const openDomainSchema = useCallback18((domainId) => {
+    const clean = domainId.split(/\s+/)[0];
+    const st = useGraphStore.getState();
+    st.setModelValidationOpen(false);
+    st.setDomainSchemaDomainId(clean.toLowerCase());
+    st.setDomainSchemaOpen(true);
+  }, []);
+  const openLint = useCallback18(() => {
+    const st = useGraphStore.getState();
+    st.setModelValidationOpen(false);
+    st.setLintOpen(true);
+  }, []);
+  const openCatalog = useCallback18(() => {
+    const st = useGraphStore.getState();
+    st.setModelValidationOpen(false);
+    st.setEntityCatalogInitialFqid(null);
+    st.setEntityCatalogOpen(true);
+  }, []);
+  const openHealth = useCallback18(() => {
+    const st = useGraphStore.getState();
+    st.setModelValidationOpen(false);
+    st.setHealthDashboardOpen(true);
+  }, []);
+  const openPii = useCallback18(() => {
+    const st = useGraphStore.getState();
+    st.setModelValidationOpen(false);
+    st.setPiiOpen(true);
+  }, []);
+  const handleAction = useCallback18(
+    (a) => {
+      switch (a.kind) {
+        case "lint":
+          openLint();
+          break;
+        case "catalog":
+          openCatalog();
+          break;
+        case "health":
+          openHealth();
+          break;
+        case "pii":
+          openPii();
+          break;
+        case "schema":
+          openLint();
+          break;
+      }
+    },
+    [openLint, openCatalog, openHealth, openPii]
+  );
+  const filteredIssues = useMemo34(() => {
+    if (!summary)
+      return [];
+    let issues = summary.issues;
+    if (severityFilter !== "all") {
+      issues = issues.filter((i) => i.severity === severityFilter);
+    }
+    if (categoryFilter !== "all") {
+      issues = issues.filter((i) => i.category === categoryFilter);
+    }
+    const q = query.trim().toLowerCase();
+    if (q) {
+      issues = issues.filter(
+        (i) => i.title.toLowerCase().includes(q) || i.description.toLowerCase().includes(q) || i.hint.toLowerCase().includes(q)
+      );
+    }
+    return issues.slice().sort((a, b) => {
+      if (b.impact !== a.impact)
+        return b.impact - a.impact;
+      return b.count - a.count;
+    });
+  }, [summary, severityFilter, categoryFilter, query]);
+  const grouped = useMemo34(() => {
+    if (groupMode === "severity") {
+      const bySeverity = {
+        error: [],
+        warning: [],
+        info: []
+      };
+      filteredIssues.forEach((i) => bySeverity[i.severity].push(i));
+      return ["error", "warning", "info"].filter((s) => bySeverity[s].length > 0).map((s) => ({
+        key: s,
+        label: SEVERITY_LABELS[s],
+        icon: s === "error" ? "error" : s === "warning" ? "warning" : "info",
+        severity: s,
+        issues: bySeverity[s]
+      }));
+    }
+    const byCat = {
+      references: [],
+      structure: [],
+      content: [],
+      orphans: [],
+      domains: []
+    };
+    filteredIssues.forEach((i) => byCat[i.category].push(i));
+    return CATEGORY_ORDER.filter((c) => byCat[c].length > 0).map((c) => ({
+      key: c,
+      label: CATEGORY_LABELS[c],
+      icon: CATEGORY_ICONS[c],
+      severity: null,
+      issues: byCat[c]
+    }));
+  }, [filteredIssues, groupMode]);
+  const severityCounts = summary?.counts || { error: 0, warning: 0, info: 0 };
+  const handleExportMD = async () => {
+    if (!summary || !index)
+      return;
+    const lines = [];
+    lines.push("# \u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u043C\u043E\u0434\u0435\u043B\u0438");
+    lines.push("");
+    lines.push(`_${(/* @__PURE__ */ new Date()).toLocaleString("ru-RU")}_`);
+    lines.push("");
+    lines.push("## \u0421\u0432\u043E\u0434\u043A\u0430");
+    lines.push("");
+    lines.push("| \u041C\u0435\u0442\u0440\u0438\u043A\u0430 | \u0417\u043D\u0430\u0447\u0435\u043D\u0438\u0435 |");
+    lines.push("| --- | ---: |");
+    lines.push(`| \u0417\u0434\u043E\u0440\u043E\u0432\u044C\u0435 \u043C\u043E\u0434\u0435\u043B\u0438 | ${summary.health} / 100 (${summary.grade}) |`);
+    lines.push(`| \u0412\u0441\u0435\u0433\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C | ${summary.totalIssues} |`);
+    lines.push(`| \u041E\u0448\u0438\u0431\u043A\u0438 | ${severityCounts.error} |`);
+    lines.push(`| \u041F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u044F | ${severityCounts.warning} |`);
+    lines.push(`| \u0418\u043D\u0444\u043E\u0440\u043C\u0430\u0446\u0438\u044F | ${severityCounts.info} |`);
+    lines.push("");
+    const sorted = summary.issues.slice().sort((a, b) => b.impact - a.impact);
+    sorted.forEach((issue) => {
+      const icon = issue.severity === "error" ? "\u{1F534}" : issue.severity === "warning" ? "\u{1F7E1}" : "\u{1F535}";
+      lines.push(`## ${icon} ${issue.title} \u2014 ${issue.count}`);
+      lines.push("");
+      lines.push(
+        `**\u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F:** ${CATEGORY_LABELS[issue.category]} \xB7 **Impact:** ${issue.impact}/10`
+      );
+      lines.push("");
+      lines.push(issue.description);
+      lines.push("");
+      lines.push(`**\u041A\u0430\u043A \u0438\u0441\u043F\u0440\u0430\u0432\u0438\u0442\u044C:** ${issue.hint}`);
+      lines.push("");
+      if (issue.samples.length > 0) {
+        lines.push("**\u041F\u0440\u0438\u043C\u0435\u0440\u044B:**");
+        lines.push("");
+        issue.samples.slice(0, 10).forEach((s) => lines.push(`- \`${s}\``));
+        if (issue.count > 10) {
+          lines.push(`- _\u2026\u0438 \u0435\u0449\u0451 ${issue.count - 10}_`);
+        }
+        lines.push("");
+      }
+    });
+    try {
+      await navigator.clipboard.writeText(lines.join("\n"));
+      useGraphStore.getState().showSnackbar("\u041E\u0442\u0447\u0451\u0442 \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u0438 \u0441\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D \u0432 \u0431\u0443\u0444\u0435\u0440");
+    } catch (e) {
+      await alertDialog("\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0441\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C", { detail: e.message });
+    }
   };
   if (!open2)
     return null;
-  const errors = summary?.issues.filter((i) => i.severity === "error") ?? [];
-  const warnings = summary?.issues.filter((i) => i.severity === "warning") ?? [];
-  const infos = summary?.issues.filter((i) => i.severity === "info") ?? [];
   return /* @__PURE__ */ jsx65(
     "div",
     {
-      className: "help-overlay",
+      className: "help-overlay help-overlay--fullscreen",
       onMouseDown: () => useGraphStore.getState().setModelValidationOpen(false),
       children: /* @__PURE__ */ jsxs62(
         "div",
@@ -18972,9 +21605,26 @@ function ModelValidationModal() {
               /* @__PURE__ */ jsxs62("div", { className: "help-modal__title", children: [
                 /* @__PURE__ */ jsx65(MIcon, { name: "science", size: "sm" }),
                 /* @__PURE__ */ jsx65("span", { className: "icon-label", children: "\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u043C\u043E\u0434\u0435\u043B\u0438" }),
-                summary && summary.totalIssues > 0 && /* @__PURE__ */ jsx65("span", { className: "help-modal__badge", children: summary.totalIssues })
+                summary && summary.totalIssues > 0 && /* @__PURE__ */ jsx65("span", { className: "help-modal__badge", children: summary.totalIssues }),
+                summary && /* @__PURE__ */ jsx65(
+                  "span",
+                  {
+                    className: "help-modal__badge mv-grade-badge mv-grade-badge--" + summary.grade.toLowerCase(),
+                    children: summary.grade
+                  }
+                )
               ] }),
               /* @__PURE__ */ jsxs62("div", { className: "help-modal__actions", children: [
+                /* @__PURE__ */ jsx65(
+                  "button",
+                  {
+                    className: "help-modal__icon-btn",
+                    onClick: handleExportMD,
+                    disabled: !summary || summary.totalIssues === 0,
+                    title: "\u0421\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u043E\u0442\u0447\u0451\u0442 \u0432 Markdown",
+                    children: /* @__PURE__ */ jsx65(MIcon, { name: "content_copy" })
+                  }
+                ),
                 /* @__PURE__ */ jsx65(
                   HelpButton,
                   {
@@ -18993,95 +21643,401 @@ function ModelValidationModal() {
                 )
               ] })
             ] }),
-            /* @__PURE__ */ jsxs62("div", { className: "help-modal__body", children: [
-              loading && /* @__PURE__ */ jsx65("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }),
-              error && /* @__PURE__ */ jsxs62("div", { style: { color: "var(--danger)" }, children: [
-                "\u041E\u0448\u0438\u0431\u043A\u0430: ",
-                error
-              ] }),
-              index && summary && /* @__PURE__ */ jsxs62(Fragment15, { children: [
-                /* @__PURE__ */ jsxs62(ModalHelp, { visible: showHelp, children: [
-                  /* @__PURE__ */ jsx65(HelpSection, { title: "\u0427\u0442\u043E \u044D\u0442\u043E", children: /* @__PURE__ */ jsxs62(HelpText, { children: [
-                    "\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u2014 \u044D\u0442\u043E \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438\u0439 \u043E\u0431\u0445\u043E\u0434 \u0432\u0441\u0435\u0439 \u043C\u043E\u0434\u0435\u043B\u0438 \u0438 \u043F\u043E\u0438\u0441\u043A \u043F\u0440\u043E\u0431\u043B\u0435\u043C: \u0446\u0438\u043A\u043B\u043E\u0432, \u0431\u0438\u0442\u044B\u0445 \u0441\u0441\u044B\u043B\u043E\u043A, \u0434\u0443\u0431\u043B\u0435\u0439, \u0441\u0438\u0440\u043E\u0442, \u043A\u043E\u043D\u0444\u043B\u0438\u043A\u0442\u043E\u0432 \u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432. \u041E\u0442\u043B\u0438\u0447\u0430\u0435\u0442\u0441\u044F \u043E\u0442 \u043B\u0438\u043D\u0442\u0435\u0440\u0430: \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u0438\u0449\u0435\u0442 ",
-                    /* @__PURE__ */ jsx65("em", { children: "\u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u043D\u044B\u0435" }),
-                    " \u043E\u0448\u0438\u0431\u043A\u0438, \u043B\u0438\u043D\u0442\u0435\u0440 \u2014 ",
-                    /* @__PURE__ */ jsx65("em", { children: "\u0441\u0442\u0438\u043B\u0435\u0432\u044B\u0435 \u0438 \u0441\u0435\u043C\u0430\u043D\u0442\u0438\u0447\u0435\u0441\u043A\u0438\u0435" }),
-                    " \u043F\u0440\u0430\u0432\u0438\u043B\u0430."
-                  ] }) }),
-                  /* @__PURE__ */ jsx65(HelpSection, { title: "\u0423\u0440\u043E\u0432\u043D\u0438 \u043F\u0440\u043E\u0431\u043B\u0435\u043C", children: /* @__PURE__ */ jsxs62(HelpList, { children: [
+            loading && /* @__PURE__ */ jsx65("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx65("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430\u2026" }) }),
+            error && /* @__PURE__ */ jsx65("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs62("div", { style: { color: "var(--danger)" }, children: [
+              "\u041E\u0448\u0438\u0431\u043A\u0430: ",
+              error
+            ] }) }),
+            index && summary && /* @__PURE__ */ jsxs62("div", { className: "mv-body", children: [
+              /* @__PURE__ */ jsxs62(ModalHelp, { visible: showHelp, children: [
+                /* @__PURE__ */ jsx65(HelpSection, { title: "\u0427\u0442\u043E \u044D\u0442\u043E", children: /* @__PURE__ */ jsxs62(HelpText, { children: [
+                  "\u0410\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438\u0439 \u043E\u0431\u0445\u043E\u0434 \u0432\u0441\u0435\u0439 \u043C\u043E\u0434\u0435\u043B\u0438: \u043F\u043E\u0438\u0441\u043A \u0446\u0438\u043A\u043B\u043E\u0432, \u0431\u0438\u0442\u044B\u0445 \u0441\u0441\u044B\u043B\u043E\u043A, \u0434\u0443\u0431\u043B\u0435\u0439, \u0441\u0438\u0440\u043E\u0442, \u043A\u043E\u043D\u0444\u043B\u0438\u043A\u0442\u043E\u0432 \u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432. \u041E\u0442\u043B\u0438\u0447\u0430\u0435\u0442\u0441\u044F \u043E\u0442 \u043B\u0438\u043D\u0442\u0435\u0440\u0430: \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u0438\u0449\u0435\u0442 ",
+                  /* @__PURE__ */ jsx65("strong", { children: "\u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u043D\u044B\u0435" }),
+                  " \u043E\u0448\u0438\u0431\u043A\u0438, \u043B\u0438\u043D\u0442\u0435\u0440 \u2014 ",
+                  /* @__PURE__ */ jsx65("strong", { children: "\u0441\u0442\u0438\u043B\u0435\u0432\u044B\u0435 \u0438 \u0441\u0435\u043C\u0430\u043D\u0442\u0438\u0447\u0435\u0441\u043A\u0438\u0435" }),
+                  " \u043F\u0440\u0430\u0432\u0438\u043B\u0430."
+                ] }) }),
+                /* @__PURE__ */ jsxs62(HelpSection, { title: "\u0417\u0434\u043E\u0440\u043E\u0432\u044C\u0435 \u043C\u043E\u0434\u0435\u043B\u0438", children: [
+                  /* @__PURE__ */ jsx65(HelpText, { children: "\u0418\u043D\u0442\u0435\u0433\u0440\u0430\u043B\u044C\u043D\u0430\u044F \u043E\u0446\u0435\u043D\u043A\u0430 0\u2013100 \u043F\u043E \u0444\u043E\u0440\u043C\u0443\u043B\u0435:" }),
+                  /* @__PURE__ */ jsxs62(HelpList, { children: [
+                    /* @__PURE__ */ jsx65("li", { children: /* @__PURE__ */ jsx65("code", { children: "100 \u2212 min(errors \xD7 8, 60) \u2212 min(warnings \xD7 2, 25) \u2212 min(info \xD7 0.3, 10)" }) }),
                     /* @__PURE__ */ jsxs62("li", { children: [
-                      /* @__PURE__ */ jsx65("strong", { children: "\u041E\u0448\u0438\u0431\u043A\u0438" }),
-                      " \u2014 \u043C\u043E\u0434\u0435\u043B\u044C \u0441\u043B\u043E\u043C\u0430\u043D\u0430: \u0446\u0438\u043A\u043B\u044B \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F, \u0441\u0441\u044B\u043B\u043A\u0438 \u043D\u0430 \u043D\u0435\u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438, \u0434\u0443\u0431\u043B\u0438\u043A\u0430\u0442\u044B entityId."
+                      /* @__PURE__ */ jsx65("strong", { children: "A" }),
+                      " \u2014 90+. \u041C\u043E\u0434\u0435\u043B\u044C \u0447\u0438\u0441\u0442\u0430\u044F, \u043A\u043E\u0441\u043C\u0435\u0442\u0438\u0447\u0435\u0441\u043A\u0438\u0435 \u0437\u0430\u043C\u0435\u0447\u0430\u043D\u0438\u044F."
                     ] }),
                     /* @__PURE__ */ jsxs62("li", { children: [
-                      /* @__PURE__ */ jsx65("strong", { children: "\u041F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u044F" }),
-                      " \u2014 \u043C\u043E\u0434\u0435\u043B\u044C \u0440\u0430\u0431\u043E\u0442\u0430\u0435\u0442, \u043D\u043E \u0435\u0441\u0442\u044C \u043F\u043E\u0442\u0435\u043D\u0446\u0438\u0430\u043B\u044C\u043D\u044B\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B: \u0441\u0438\u0440\u043E\u0442\u044B, \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0431\u0435\u0437 views, \u043A\u043E\u043D\u0444\u043B\u0438\u043A\u0442\u044B \u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432."
+                      /* @__PURE__ */ jsx65("strong", { children: "B" }),
+                      " \u2014 75\u201389. \u0425\u043E\u0440\u043E\u0448\u043E, \u0435\u0441\u0442\u044C \u0447\u0442\u043E \u043F\u043E\u0434\u0447\u0438\u0441\u0442\u0438\u0442\u044C."
                     ] }),
                     /* @__PURE__ */ jsxs62("li", { children: [
-                      /* @__PURE__ */ jsx65("strong", { children: "\u0418\u043D\u0444\u043E\u0440\u043C\u0430\u0446\u0438\u044F" }),
-                      " \u2014 \u043D\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0430, \u0430 \u0444\u0430\u043A\u0442: \u043F\u0443\u0441\u0442\u044B\u0435 \u0434\u043E\u043C\u0435\u043D\u044B (\u043D\u043E\u0440\u043C\u0430 \u0434\u043B\u044F \u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432), \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0431\u0435\u0437 \u0441\u043E\u0431\u0441\u0442\u0432\u0435\u043D\u043D\u044B\u0445 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432."
+                      /* @__PURE__ */ jsx65("strong", { children: "C" }),
+                      " \u2014 60\u201374. \u0422\u0440\u0435\u0431\u0443\u0435\u0442 \u0432\u043D\u0438\u043C\u0430\u043D\u0438\u044F."
+                    ] }),
+                    /* @__PURE__ */ jsxs62("li", { children: [
+                      /* @__PURE__ */ jsx65("strong", { children: "D" }),
+                      " \u2014 40\u201359. \u041F\u0440\u043E\u0431\u043B\u0435\u043C \u043C\u043D\u043E\u0433\u043E, \u0447\u0438\u043D\u0438\u0442\u044C \u043D\u0430\u0434\u043E."
+                    ] }),
+                    /* @__PURE__ */ jsxs62("li", { children: [
+                      /* @__PURE__ */ jsx65("strong", { children: "E" }),
+                      " \u2014 < 40. \u041A\u0440\u0438\u0442\u0438\u0447\u043D\u043E."
                     ] })
-                  ] }) }),
-                  /* @__PURE__ */ jsxs62(HelpSection, { title: "\u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u0438 \u043B\u0438\u043D\u0442\u0435\u0440", children: [
-                    /* @__PURE__ */ jsxs62(HelpText, { children: [
-                      "\u042D\u0442\u043E ",
-                      /* @__PURE__ */ jsx65("strong", { children: "\u0434\u0432\u0435 \u043D\u0435\u0437\u0430\u0432\u0438\u0441\u0438\u043C\u044B\u0435 \u0441\u0438\u0441\u0442\u0435\u043C\u044B" }),
-                      ". \u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u043C\u043E\u0434\u0435\u043B\u0438 \u043E\u0442\u0432\u0435\u0447\u0430\u0435\u0442 \u043D\u0430 \u0432\u043E\u043F\u0440\u043E\u0441 \xAB\u0446\u0435\u043B\u0430 \u043B\u0438 \u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0430 \u043C\u043E\u0434\u0435\u043B\u0438 \u043F\u043E\u0441\u043B\u0435 \u0441\u0431\u043E\u0440\u043A\u0438 \u0438\u043D\u0434\u0435\u043A\u0441\u0430\xBB. \u041B\u0438\u043D\u0442\u0435\u0440 \u2014 \xAB\u0441\u043E\u0431\u043B\u044E\u0434\u0435\u043D\u044B \u043B\u0438 \u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u043D\u0430\u043F\u0438\u0441\u0430\u043D\u0438\u044F \u0441\u0445\u0435\u043C\xBB (naming, RQL, UI rules, reference-\u0446\u0435\u043B\u043E\u0441\u0442\u043D\u043E\u0441\u0442\u044C \u0438 \u0442.\u0434.)."
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsx65(HelpSection, { title: "\u0423\u0440\u043E\u0432\u043D\u0438 \u043F\u0440\u043E\u0431\u043B\u0435\u043C", children: /* @__PURE__ */ jsxs62(HelpList, { children: [
+                  /* @__PURE__ */ jsxs62("li", { children: [
+                    /* @__PURE__ */ jsx65("strong", { children: "\u041E\u0448\u0438\u0431\u043A\u0438" }),
+                    " \u2014 \u043C\u043E\u0434\u0435\u043B\u044C \u0441\u043B\u043E\u043C\u0430\u043D\u0430: \u0446\u0438\u043A\u043B\u044B \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F, \u0441\u0441\u044B\u043B\u043A\u0438 \u043D\u0430 \u043D\u0435\u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438, \u0434\u0443\u0431\u043B\u0438\u043A\u0430\u0442\u044B entityId. \u0411\u043B\u043E\u043A\u0438\u0440\u0443\u044E\u0442 \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u044E."
+                  ] }),
+                  /* @__PURE__ */ jsxs62("li", { children: [
+                    /* @__PURE__ */ jsx65("strong", { children: "\u041F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u044F" }),
+                    " \u2014 \u043C\u043E\u0434\u0435\u043B\u044C \u0440\u0430\u0431\u043E\u0442\u0430\u0435\u0442, \u043D\u043E \u0435\u0441\u0442\u044C \u043F\u043E\u0442\u0435\u043D\u0446\u0438\u0430\u043B\u044C\u043D\u044B\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B: \u0441\u0438\u0440\u043E\u0442\u044B, \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0431\u0435\u0437 views, \u043A\u043E\u043D\u0444\u043B\u0438\u043A\u0442\u044B \u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432."
+                  ] }),
+                  /* @__PURE__ */ jsxs62("li", { children: [
+                    /* @__PURE__ */ jsx65("strong", { children: "\u0418\u043D\u0444\u043E\u0440\u043C\u0430\u0446\u0438\u044F" }),
+                    " \u2014 \u043D\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0430, \u0430 \u0444\u0430\u043A\u0442: \u043F\u0443\u0441\u0442\u044B\u0435 \u0434\u043E\u043C\u0435\u043D\u044B (\u043D\u043E\u0440\u043C\u0430 \u0434\u043B\u044F \u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432), \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0431\u0435\u0437 \u0441\u043E\u0431\u0441\u0442\u0432\u0435\u043D\u043D\u044B\u0445 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432, \u043E\u0441\u0438\u0440\u043E\u0442\u0435\u0432\u0448\u0438\u0435 \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u044B."
+                  ] })
+                ] }) }),
+                /* @__PURE__ */ jsx65(HelpSection, { title: "\u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438", children: /* @__PURE__ */ jsxs62(HelpList, { children: [
+                  /* @__PURE__ */ jsxs62("li", { children: [
+                    /* @__PURE__ */ jsx65("strong", { children: "\u0421\u0441\u044B\u043B\u043E\u0447\u043D\u0430\u044F \u0446\u0435\u043B\u043E\u0441\u0442\u043D\u043E\u0441\u0442\u044C" }),
+                    " \u2014 \u0431\u0438\u0442\u044B\u0435 FQID-\u0441\u0441\u044B\u043B\u043A\u0438. \u0421\u0430\u043C\u0430\u044F \u043A\u0440\u0438\u0442\u0438\u0447\u043D\u0430\u044F \u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F: \u043E\u043D\u0438 \u043B\u043E\u043C\u0430\u044E\u0442 \u0440\u0435\u0437\u043E\u043B\u0432 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439."
+                  ] }),
+                  /* @__PURE__ */ jsxs62("li", { children: [
+                    /* @__PURE__ */ jsx65("strong", { children: "\u0421\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0430 \u043C\u043E\u0434\u0435\u043B\u0438" }),
+                    " \u2014 \u0446\u0438\u043A\u043B\u044B \u0432 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0438, \u0434\u0443\u0431\u043B\u0438\u043A\u0430\u0442\u044B id \u043C\u0435\u0436\u0434\u0443 \u0434\u043E\u043C\u0435\u043D\u0430\u043C\u0438. \u041B\u043E\u043C\u0430\u044E\u0442 \u043B\u043E\u0433\u0438\u043A\u0443."
+                  ] }),
+                  /* @__PURE__ */ jsxs62("li", { children: [
+                    /* @__PURE__ */ jsx65("strong", { children: "\u0421\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u0435" }),
+                    " \u2014 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0431\u0435\u0437 views, \u043A\u043E\u043D\u0444\u043B\u0438\u043A\u0442\u044B \u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432, \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0431\u0435\u0437 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432. \u041A\u043E\u0441\u043C\u0435\u0442\u0438\u043A\u0430, \u043D\u043E \u043C\u0435\u0448\u0430\u0435\u0442 \u0447\u0438\u0442\u0430\u0442\u044C \u043C\u043E\u0434\u0435\u043B\u044C."
+                  ] }),
+                  /* @__PURE__ */ jsxs62("li", { children: [
+                    /* @__PURE__ */ jsx65("strong", { children: "\u0421\u0438\u0440\u043E\u0442\u044B" }),
+                    " \u2014 \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u044B, \u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u043D\u0438\u0433\u0434\u0435 \u043D\u0435 \u0432\u044B\u0437\u044B\u0432\u0430\u044E\u0442\u0441\u044F. \u041A\u0430\u043D\u0434\u0438\u0434\u0430\u0442\u044B \u043D\u0430 \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435."
+                  ] }),
+                  /* @__PURE__ */ jsxs62("li", { children: [
+                    /* @__PURE__ */ jsx65("strong", { children: "\u0414\u043E\u043C\u0435\u043D\u044B" }),
+                    " \u2014 \u043F\u0443\u0441\u0442\u044B\u0435 \u0434\u043E\u043C\u0435\u043D\u044B \u0431\u0435\u0437 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439."
+                  ] })
+                ] }) }),
+                /* @__PURE__ */ jsxs62(HelpSection, { title: "\u041F\u0440\u0438\u043E\u0440\u0438\u0442\u0435\u0442 (impact)", children: [
+                  /* @__PURE__ */ jsx65(HelpText, { children: "\u0423 \u043A\u0430\u0436\u0434\u043E\u0439 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B \u2014 \u0447\u0438\u0441\u043B\u043E\u0432\u043E\u0439 \u043F\u0440\u0438\u043E\u0440\u0438\u0442\u0435\u0442 1..10. \u041E\u0442 \u043D\u0435\u0433\u043E \u0437\u0430\u0432\u0438\u0441\u0438\u0442 \u043F\u043E\u0440\u044F\u0434\u043E\u043A \u0432 \u0441\u043F\u0438\u0441\u043A\u0435 (\u0441\u043D\u0430\u0447\u0430\u043B\u0430 \u0432\u044B\u0441\u043E\u043A\u0438\u0439)." }),
+                  /* @__PURE__ */ jsxs62(HelpList, { children: [
+                    /* @__PURE__ */ jsxs62("li", { children: [
+                      /* @__PURE__ */ jsx65("strong", { children: "\u0412\u044B\u0441\u043E\u043A\u0438\u0439 (7\u201310)" }),
+                      " \u2014 \u043E\u0448\u0438\u0431\u043A\u0438: \u0446\u0438\u043A\u043B\u044B, \u0431\u0438\u0442\u044B\u0435 \u0441\u0441\u044B\u043B\u043A\u0438, \u0434\u0443\u0431\u043B\u0438\u043A\u0430\u0442\u044B. \u0427\u0438\u043D\u0438\u0442\u0435 \u043F\u0435\u0440\u0432\u044B\u043C\u0438."
                     ] }),
-                    /* @__PURE__ */ jsx65(HelpText, { children: "\u041F\u0435\u0440\u0435\u0441\u0435\u0447\u0435\u043D\u0438\u0435 \u043D\u0435\u0431\u043E\u043B\u044C\u0448\u043E\u0435: \u043D\u0435\u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0432 Reference/Array-Reference \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u044E\u0442 \u043E\u0431\u0435 \u0441\u0438\u0441\u0442\u0435\u043C\u044B. \u0412\u0441\u0451 \u043E\u0441\u0442\u0430\u043B\u044C\u043D\u043E\u0435 \u2014 \u0443\u043D\u0438\u043A\u0430\u043B\u044C\u043D\u043E \u0434\u043B\u044F \u043A\u0430\u0436\u0434\u043E\u0439." })
+                    /* @__PURE__ */ jsxs62("li", { children: [
+                      /* @__PURE__ */ jsx65("strong", { children: "\u0421\u0440\u0435\u0434\u043D\u0438\u0439 (4\u20136)" }),
+                      " \u2014 \u043F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u044F: \u043C\u0438\u043A\u0441\u0438\u043D\u044B, \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0431\u0435\u0437 views, \u0441\u0438\u0440\u043E\u0442\u044B-\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438."
+                    ] }),
+                    /* @__PURE__ */ jsxs62("li", { children: [
+                      /* @__PURE__ */ jsx65("strong", { children: "\u041D\u0438\u0437\u043A\u0438\u0439 (1\u20133)" }),
+                      " \u2014 \u0438\u043D\u0444\u043E\u0440\u043C\u0430\u0446\u0438\u043E\u043D\u043D\u044B\u0435: \u043E\u0441\u0438\u0440\u043E\u0442\u0435\u0432\u0448\u0438\u0435 \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u044B, \u043F\u0443\u0441\u0442\u044B\u0435 \u0434\u043E\u043C\u0435\u043D\u044B."
+                    ] })
                   ] })
                 ] }),
-                /* @__PURE__ */ jsxs62("div", { className: "model-validation-summary", children: [
-                  /* @__PURE__ */ jsxs62("div", { className: "model-validation-stat model-validation-stat--error", children: [
-                    /* @__PURE__ */ jsx65("div", { className: "model-validation-stat__value", children: summary.counts.error }),
-                    /* @__PURE__ */ jsx65("div", { className: "model-validation-stat__label", children: "\u041E\u0448\u0438\u0431\u043E\u043A \u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u044B" })
+                /* @__PURE__ */ jsx65(HelpSection, { title: "Samples \u2014 \u043A\u043B\u0438\u043A\u0430\u0431\u0435\u043B\u044C\u043D\u044B\u0435", children: /* @__PURE__ */ jsxs62(HelpList, { children: [
+                  /* @__PURE__ */ jsxs62("li", { children: [
+                    /* @__PURE__ */ jsx65("strong", { children: "FQID" }),
+                    " (\u043D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, ",
+                    /* @__PURE__ */ jsx65("code", { children: "domain.tld/Entity" }),
+                    ") \u2014 \u043A\u043B\u0438\u043A \u043E\u0442\u043A\u0440\u044B\u0432\u0430\u0435\u0442 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435 \u0441 impact-\u0430\u043D\u0430\u043B\u0438\u0437\u043E\u043C."
                   ] }),
-                  /* @__PURE__ */ jsxs62("div", { className: "model-validation-stat model-validation-stat--warning", children: [
-                    /* @__PURE__ */ jsx65("div", { className: "model-validation-stat__value", children: summary.counts.warning }),
-                    /* @__PURE__ */ jsx65("div", { className: "model-validation-stat__label", children: "\u041F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u0439" })
+                  /* @__PURE__ */ jsxs62("li", { children: [
+                    /* @__PURE__ */ jsx65("strong", { children: "FQDN \u0434\u043E\u043C\u0435\u043D\u0430" }),
+                    " (\u043D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, ",
+                    /* @__PURE__ */ jsx65("code", { children: "domain.tld" }),
+                    ") \u2014 \u043A\u043B\u0438\u043A \u043E\u0442\u043A\u0440\u044B\u0432\u0430\u0435\u0442 \u0441\u0445\u0435\u043C\u0443 \u0434\u043E\u043C\u0435\u043D\u0430."
                   ] }),
-                  /* @__PURE__ */ jsxs62("div", { className: "model-validation-stat model-validation-stat--info", children: [
-                    /* @__PURE__ */ jsx65("div", { className: "model-validation-stat__value", children: summary.counts.info }),
-                    /* @__PURE__ */ jsx65("div", { className: "model-validation-stat__label", children: "\u0417\u0430\u043C\u0435\u0447\u0430\u043D\u0438\u0439" })
+                  /* @__PURE__ */ jsxs62("li", { children: [
+                    /* @__PURE__ */ jsx65("strong", { children: "\u0422\u0435\u043A\u0441\u0442\u043E\u0432\u044B\u0435" }),
+                    " \u2014 \u043F\u0440\u043E\u0441\u0442\u043E \u0442\u0435\u043A\u0441\u0442, \u0431\u0435\u0437 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F."
+                  ] })
+                ] }) }),
+                /* @__PURE__ */ jsx65(HelpSection, { title: "\u0424\u0438\u043B\u044C\u0442\u0440\u044B \u0438 \u043F\u043E\u0438\u0441\u043A", children: /* @__PURE__ */ jsxs62(HelpList, { children: [
+                  /* @__PURE__ */ jsxs62("li", { children: [
+                    /* @__PURE__ */ jsx65("strong", { children: "Severity" }),
+                    " \u2014 \u041E\u0448\u0438\u0431\u043A\u0438 / \u041F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u044F / \u0418\u043D\u0444\u043E\u0440\u043C\u0430\u0446\u0438\u044F / \u0412\u0441\u0435. \u041F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u044B\u0439 \u0443\u0440\u043E\u0432\u0435\u043D\u044C."
+                  ] }),
+                  /* @__PURE__ */ jsxs62("li", { children: [
+                    /* @__PURE__ */ jsx65("strong", { children: "\u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F" }),
+                    " \u2014 \u0421\u0441\u044B\u043B\u043A\u0438 / \u0421\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0430 / \u0421\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u0435 / \u0421\u0438\u0440\u043E\u0442\u044B / \u0414\u043E\u043C\u0435\u043D\u044B."
+                  ] }),
+                  /* @__PURE__ */ jsxs62("li", { children: [
+                    /* @__PURE__ */ jsx65("strong", { children: "\u041F\u043E\u0438\u0441\u043A" }),
+                    " \u2014 \u043F\u043E \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u044E, \u043E\u043F\u0438\u0441\u0430\u043D\u0438\u044E \u0438 \u0440\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u0438 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B."
+                  ] }),
+                  /* @__PURE__ */ jsxs62("li", { children: [
+                    /* @__PURE__ */ jsx65("strong", { children: "\u0413\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u043A\u0430" }),
+                    " \u2014 \u043F\u043E \u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438 (\u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E) \u0438\u043B\u0438 \u043F\u043E severity."
+                  ] })
+                ] }) }),
+                /* @__PURE__ */ jsx65(HelpSection, { title: "\u0421\u0432\u044F\u0437\u0430\u043D\u043D\u044B\u0435 \u0438\u043D\u0441\u0442\u0440\u0443\u043C\u0435\u043D\u0442\u044B", children: /* @__PURE__ */ jsxs62(HelpList, { children: [
+                  /* @__PURE__ */ jsxs62("li", { children: [
+                    /* @__PURE__ */ jsx65("strong", { children: "\u041B\u0438\u043D\u0442\u0435\u0440 \u0441\u0445\u0435\u043C" }),
+                    " \u2014 \u0441\u0442\u0438\u043B\u0435\u0432\u044B\u0435 \u0438 \u0441\u0435\u043C\u0430\u043D\u0442\u0438\u0447\u0435\u0441\u043A\u0438\u0435 \u043F\u0440\u0430\u0432\u0438\u043B\u0430. \u0412\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F \u0438 \u043B\u0438\u043D\u0442\u0435\u0440 \u2014 ",
+                    /* @__PURE__ */ jsx65("em", { children: "\u0440\u0430\u0437\u043D\u044B\u0435" }),
+                    " \u0441\u0438\u0441\u0442\u0435\u043C\u044B, \u0434\u043E\u043F\u043E\u043B\u043D\u044F\u044E\u0442 \u0434\u0440\u0443\u0433 \u0434\u0440\u0443\u0433\u0430."
+                  ] }),
+                  /* @__PURE__ */ jsxs62("li", { children: [
+                    /* @__PURE__ */ jsx65("strong", { children: "Health Dashboard" }),
+                    " \u2014 \u0441\u0432\u043E\u0434\u043A\u0430 \u043F\u043E \u0434\u043E\u043C\u0435\u043D\u0430\u043C: Sonar, PII, Martin, \u0440\u0430\u0437\u043C\u0435\u0440\u044B. \u0414\u043B\u044F \u0432\u0435\u0440\u0445\u043D\u0435\u0443\u0440\u043E\u0432\u043D\u0435\u0432\u043E\u0439 \u043A\u0430\u0440\u0442\u0438\u043D\u044B."
+                  ] }),
+                  /* @__PURE__ */ jsxs62("li", { children: [
+                    /* @__PURE__ */ jsx65("strong", { children: "PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B" }),
+                    " \u2014 GDPR / 152-\u0424\u0417."
+                  ] }),
+                  /* @__PURE__ */ jsxs62("li", { children: [
+                    /* @__PURE__ */ jsx65("strong", { children: "\u041A\u0430\u0442\u0430\u043B\u043E\u0433 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" }),
+                    " \u2014 \u0432\u0441\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u043C\u043E\u0434\u0435\u043B\u0438, \u043F\u043E\u0438\u0441\u043A \u043F\u043E \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u043C."
+                  ] })
+                ] }) }),
+                /* @__PURE__ */ jsx65(HelpSection, { title: "\u041E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F", children: /* @__PURE__ */ jsxs62(HelpList, { children: [
+                  /* @__PURE__ */ jsx65("li", { children: "\u041F\u0440\u043E\u0432\u0435\u0440\u043A\u0430 \u2014 \u0441\u0442\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0430\u044F. \u041D\u0435\u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B \u0432\u0438\u0434\u043D\u044B \u0442\u043E\u043B\u044C\u043A\u043E \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435 (\u043D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, constraint-\u043A\u043E\u043D\u0444\u043B\u0438\u043A\u0442\u044B \u0441 \u0411\u0414)." }),
+                  /* @__PURE__ */ jsx65("li", { children: "\xAB\u041E\u0441\u0438\u0440\u043E\u0442\u0435\u0432\u0448\u0438\u0435\xBB \u2014 \u044D\u0432\u0440\u0438\u0441\u0442\u0438\u043A\u0430. \u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u043C\u043E\u0436\u0435\u0442 \u0431\u044B\u0442\u044C \u0442\u0435\u0445\u043D\u0438\u0447\u0435\u0441\u043A\u043E\u0439 (\u043D\u0430\u043F\u043E\u043B\u043D\u044F\u0435\u0442\u0441\u044F \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0437\u0430\u0446\u0438\u0435\u0439), \u043D\u043E \u043F\u043E\u043C\u0435\u0447\u0435\u043D\u0430 \u043A\u0430\u043A \u0441\u0438\u0440\u043E\u0442\u0430." }),
+                  /* @__PURE__ */ jsx65("li", { children: "Impact \u0438 health \u2014 \u044D\u0432\u0440\u0438\u0441\u0442\u0438\u0447\u0435\u0441\u043A\u0438\u0435 \u0444\u043E\u0440\u043C\u0443\u043B\u044B. \u041D\u0435 \u0438\u0441\u0442\u0438\u043D\u0430, \u0430 \u0443\u043A\u0430\u0437\u0430\u043D\u0438\u0435 \u043D\u0430 \u043F\u0440\u0438\u043E\u0440\u0438\u0442\u0435\u0442." })
+                ] }) })
+              ] }),
+              !showHelp && /* @__PURE__ */ jsxs62(Fragment16, { children: [
+                /* @__PURE__ */ jsxs62("div", { className: "mv-kpi-grid", children: [
+                  /* @__PURE__ */ jsxs62(
+                    "button",
+                    {
+                      type: "button",
+                      className: "mv-health-card mv-health-card--" + summary.grade.toLowerCase(),
+                      title: "\u0418\u043D\u0442\u0435\u0433\u0440\u0430\u043B\u044C\u043D\u0430\u044F \u043E\u0446\u0435\u043D\u043A\u0430 \u0437\u0434\u043E\u0440\u043E\u0432\u044C\u044F \u043C\u043E\u0434\u0435\u043B\u0438",
+                      children: [
+                        /* @__PURE__ */ jsx65("div", { className: "mv-health-card__value", children: summary.health }),
+                        /* @__PURE__ */ jsx65("div", { className: "mv-health-card__grade", children: summary.grade }),
+                        /* @__PURE__ */ jsx65("div", { className: "mv-health-card__label", children: "\u0417\u0434\u043E\u0440\u043E\u0432\u044C\u0435 \u043C\u043E\u0434\u0435\u043B\u0438" })
+                      ]
+                    }
+                  ),
+                  /* @__PURE__ */ jsx65(
+                    KpiCard,
+                    {
+                      label: "\u041E\u0448\u0438\u0431\u043A\u0438",
+                      value: severityCounts.error,
+                      severity: "err",
+                      icon: "error",
+                      onClick: () => setSeverityFilter(
+                        severityFilter === "error" ? "all" : "error"
+                      )
+                    }
+                  ),
+                  /* @__PURE__ */ jsx65(
+                    KpiCard,
+                    {
+                      label: "\u041F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u044F",
+                      value: severityCounts.warning,
+                      severity: "warn",
+                      icon: "warning",
+                      onClick: () => setSeverityFilter(
+                        severityFilter === "warning" ? "all" : "warning"
+                      )
+                    }
+                  ),
+                  /* @__PURE__ */ jsx65(
+                    KpiCard,
+                    {
+                      label: "\u0418\u043D\u0444\u043E\u0440\u043C\u0430\u0446\u0438\u044F",
+                      value: severityCounts.info,
+                      severity: "info",
+                      icon: "info",
+                      onClick: () => setSeverityFilter(
+                        severityFilter === "info" ? "all" : "info"
+                      )
+                    }
+                  ),
+                  /* @__PURE__ */ jsx65(
+                    KpiCard,
+                    {
+                      label: "\u0412\u0441\u0435\u0433\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C",
+                      value: summary.totalIssues,
+                      severity: "neutral",
+                      icon: "bug_report",
+                      onClick: () => {
+                        setSeverityFilter("all");
+                        setCategoryFilter("all");
+                      }
+                    }
+                  )
+                ] }),
+                /* @__PURE__ */ jsxs62("div", { className: "mv-toolbar", children: [
+                  /* @__PURE__ */ jsxs62("div", { className: "mv-toolbar__quick", children: [
+                    /* @__PURE__ */ jsxs62(
+                      "button",
+                      {
+                        type: "button",
+                        className: "mv-quick-btn" + (severityFilter === "all" && categoryFilter === "all" ? " active" : ""),
+                        onClick: () => {
+                          setSeverityFilter("all");
+                          setCategoryFilter("all");
+                        },
+                        children: [
+                          "\u0412\u0441\u0435 (",
+                          summary.totalIssues,
+                          ")"
+                        ]
+                      }
+                    ),
+                    severityCounts.error > 0 && /* @__PURE__ */ jsxs62(
+                      "button",
+                      {
+                        type: "button",
+                        className: "mv-quick-btn mv-quick-btn--err" + (severityFilter === "error" ? " active" : ""),
+                        onClick: () => setSeverityFilter(
+                          severityFilter === "error" ? "all" : "error"
+                        ),
+                        children: [
+                          /* @__PURE__ */ jsx65(MIcon, { name: "error", size: "sm" }),
+                          "\u041E\u0448\u0438\u0431\u043A\u0438 (",
+                          severityCounts.error,
+                          ")"
+                        ]
+                      }
+                    ),
+                    severityCounts.warning > 0 && /* @__PURE__ */ jsxs62(
+                      "button",
+                      {
+                        type: "button",
+                        className: "mv-quick-btn mv-quick-btn--warn" + (severityFilter === "warning" ? " active" : ""),
+                        onClick: () => setSeverityFilter(
+                          severityFilter === "warning" ? "all" : "warning"
+                        ),
+                        children: [
+                          /* @__PURE__ */ jsx65(MIcon, { name: "warning", size: "sm" }),
+                          "\u041F\u0440\u0435\u0434\u0443\u043F\u0440. (",
+                          severityCounts.warning,
+                          ")"
+                        ]
+                      }
+                    ),
+                    severityCounts.info > 0 && /* @__PURE__ */ jsxs62(
+                      "button",
+                      {
+                        type: "button",
+                        className: "mv-quick-btn mv-quick-btn--info" + (severityFilter === "info" ? " active" : ""),
+                        onClick: () => setSeverityFilter(
+                          severityFilter === "info" ? "all" : "info"
+                        ),
+                        children: [
+                          /* @__PURE__ */ jsx65(MIcon, { name: "info", size: "sm" }),
+                          "\u0418\u043D\u0444\u043E (",
+                          severityCounts.info,
+                          ")"
+                        ]
+                      }
+                    )
+                  ] }),
+                  /* @__PURE__ */ jsxs62("div", { className: "mv-toolbar__right", children: [
+                    /* @__PURE__ */ jsxs62("div", { className: "mv-search", children: [
+                      /* @__PURE__ */ jsx65(MIcon, { name: "search", size: "sm" }),
+                      /* @__PURE__ */ jsx65(
+                        "input",
+                        {
+                          type: "text",
+                          placeholder: "\u041F\u043E\u0438\u0441\u043A \u043F\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0430\u043C\u2026",
+                          value: query,
+                          onChange: (e) => setQuery(e.target.value),
+                          spellCheck: false
+                        }
+                      ),
+                      query && /* @__PURE__ */ jsx65(
+                        "button",
+                        {
+                          className: "mv-search__clear",
+                          onClick: () => setQuery(""),
+                          children: "\u2715"
+                        }
+                      )
+                    ] }),
+                    /* @__PURE__ */ jsxs62(
+                      "select",
+                      {
+                        className: "mv-select",
+                        value: groupMode,
+                        onChange: (e) => setGroupMode(e.target.value),
+                        title: "\u0413\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u043A\u0430",
+                        children: [
+                          /* @__PURE__ */ jsx65("option", { value: "category", children: "\u041F\u043E \u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438" }),
+                          /* @__PURE__ */ jsx65("option", { value: "severity", children: "\u041F\u043E severity" })
+                        ]
+                      }
+                    )
                   ] })
                 ] }),
-                /* @__PURE__ */ jsx65(LintSummaryBlock, { lintReport: index.lint.lintReport }),
-                summary.totalIssues === 0 && /* @__PURE__ */ jsxs62("div", { className: "model-validation-empty", children: [
-                  /* @__PURE__ */ jsx65("div", { className: "model-validation-empty__icon", children: "\u2705" }),
-                  /* @__PURE__ */ jsx65("div", { className: "model-validation-empty__title", children: "\u0421\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0430 \u043C\u043E\u0434\u0435\u043B\u0438 \u0432 \u043F\u043E\u0440\u044F\u0434\u043A\u0435" }),
-                  /* @__PURE__ */ jsx65("div", { className: "model-validation-empty__hint", children: "\u0426\u0438\u043A\u043B\u043E\u0432, \u0431\u0438\u0442\u044B\u0445 \u0441\u0441\u044B\u043B\u043E\u043A, \u0441\u0438\u0440\u043E\u0442 \u0438 \u0434\u0443\u0431\u043B\u0438\u043A\u0430\u0442\u043E\u0432 \u043D\u0435 \u043E\u0431\u043D\u0430\u0440\u0443\u0436\u0435\u043D\u043E. \u041F\u0440\u043E\u0431\u043B\u0435\u043C\u044B \u043F\u0440\u0430\u0432\u0438\u043B \u0441\u043C. \u0432 \u0431\u043B\u043E\u043A\u0435 \xAB\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0441\u0445\u0435\u043C\xBB \u0432\u044B\u0448\u0435." })
-                ] }),
-                errors.length > 0 && /* @__PURE__ */ jsx65(
-                  IssueSection,
+                groupMode === "category" && /* @__PURE__ */ jsx65("div", { className: "mv-categories", children: CATEGORY_ORDER.map((cat) => {
+                  const count = summary.categoryCounts[cat];
+                  if (count === 0)
+                    return null;
+                  const active = categoryFilter === cat;
+                  return /* @__PURE__ */ jsxs62(
+                    "button",
+                    {
+                      type: "button",
+                      className: "mv-category-chip" + (active ? " active" : ""),
+                      onClick: () => setCategoryFilter(active ? "all" : cat),
+                      children: [
+                        /* @__PURE__ */ jsx65(MIcon, { name: CATEGORY_ICONS[cat], size: "sm" }),
+                        CATEGORY_LABELS[cat],
+                        /* @__PURE__ */ jsx65("span", { className: "mv-category-chip__count", children: count })
+                      ]
+                    },
+                    cat
+                  );
+                }) }),
+                /* @__PURE__ */ jsx65("div", { className: "mv-content", children: filteredIssues.length === 0 ? /* @__PURE__ */ jsx65("div", { className: "mv-empty", children: summary.totalIssues === 0 ? /* @__PURE__ */ jsxs62(Fragment16, { children: [
+                  /* @__PURE__ */ jsx65(
+                    MIcon,
+                    {
+                      name: "check_circle",
+                      size: "xl",
+                      style: { color: "var(--success)" }
+                    }
+                  ),
+                  /* @__PURE__ */ jsx65("div", { className: "mv-empty__title", children: "\u041C\u043E\u0434\u0435\u043B\u044C \u0447\u0438\u0441\u0442\u0430\u044F" }),
+                  /* @__PURE__ */ jsx65("div", { className: "mv-empty__hint", children: "\u0421\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u043D\u044B\u0445 \u043F\u0440\u043E\u0431\u043B\u0435\u043C \u043D\u0435 \u043E\u0431\u043D\u0430\u0440\u0443\u0436\u0435\u043D\u043E. \u0421\u0442\u0438\u043B\u0435\u0432\u044B\u0435 \u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u2014 \u0432 \u043B\u0438\u043D\u0442\u0435\u0440\u0435 \u0441\u0445\u0435\u043C." })
+                ] }) : /* @__PURE__ */ jsxs62(Fragment16, { children: [
+                  /* @__PURE__ */ jsx65(MIcon, { name: "filter_alt_off", size: "xl" }),
+                  /* @__PURE__ */ jsx65("div", { className: "mv-empty__title", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u043C" }),
+                  /* @__PURE__ */ jsx65(
+                    "button",
+                    {
+                      className: "btn",
+                      onClick: () => {
+                        setSeverityFilter("all");
+                        setCategoryFilter("all");
+                        setQuery("");
+                      },
+                      style: { marginTop: 8 },
+                      children: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0444\u0438\u043B\u044C\u0442\u0440\u044B"
+                    }
+                  )
+                ] }) }) : grouped.map((group) => /* @__PURE__ */ jsxs62("div", { className: "mv-group", children: [
+                  /* @__PURE__ */ jsxs62("div", { className: "mv-group__head", children: [
+                    /* @__PURE__ */ jsx65(MIcon, { name: group.icon, size: "sm" }),
+                    /* @__PURE__ */ jsx65("span", { className: "mv-group__title", children: group.label }),
+                    /* @__PURE__ */ jsx65("span", { className: "mv-group__count", children: group.issues.reduce((s, i) => s + i.count, 0) })
+                  ] }),
+                  /* @__PURE__ */ jsx65("div", { className: "mv-group__body", children: group.issues.map((issue) => /* @__PURE__ */ jsx65(
+                    IssueCard,
+                    {
+                      issue,
+                      isExpanded: expanded.has(issue.title),
+                      onToggle: () => toggle(issue.title),
+                      onGoToFqid: openEntity,
+                      onGoToDomain: openDomainSchema,
+                      onAction: handleAction
+                    },
+                    issue.title
+                  )) })
+                ] }, group.key)) }),
+                /* @__PURE__ */ jsx65(
+                  LintSummaryBlock,
                   {
-                    severity: "error",
-                    label: "\u041E\u0448\u0438\u0431\u043A\u0438",
-                    issues: errors,
-                    expanded,
-                    onToggle: toggle,
-                    onOpenEntity: openEntity
-                  }
-                ),
-                warnings.length > 0 && /* @__PURE__ */ jsx65(
-                  IssueSection,
-                  {
-                    severity: "warning",
-                    label: "\u041F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u044F",
-                    issues: warnings,
-                    expanded,
-                    onToggle: toggle,
-                    onOpenEntity: openEntity
-                  }
-                ),
-                infos.length > 0 && /* @__PURE__ */ jsx65(
-                  IssueSection,
-                  {
-                    severity: "info",
-                    label: "\u0418\u043D\u0444\u043E\u0440\u043C\u0430\u0446\u0438\u044F",
-                    issues: infos,
-                    expanded,
-                    onToggle: toggle,
-                    onOpenEntity: openEntity
+                    lintReport: index.lint.lintReport,
+                    onOpenLint: openLint
                   }
                 )
               ] })
@@ -19092,123 +22048,7 @@ function ModelValidationModal() {
     }
   );
 }
-function LintSummaryBlock({ lintReport }) {
-  const stats = lintReport.stats;
-  const topRules = stats.byRule.slice(0, 5);
-  const openLint = () => {
-    const st = useGraphStore.getState();
-    st.setModelValidationOpen(false);
-    st.setLintOpen(true);
-  };
-  return /* @__PURE__ */ jsxs62("div", { className: "model-validation-lint", children: [
-    /* @__PURE__ */ jsxs62("div", { className: "model-validation-lint__header", children: [
-      /* @__PURE__ */ jsxs62("div", { className: "model-validation-lint__title", children: [
-        /* @__PURE__ */ jsx65(MIcon, { name: "rule", size: "sm" }),
-        /* @__PURE__ */ jsx65("span", { children: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0441\u0445\u0435\u043C (\u043B\u0438\u043D\u0442\u0435\u0440)" }),
-        /* @__PURE__ */ jsx65("span", { className: "model-validation-lint__total", children: stats.total })
-      ] }),
-      /* @__PURE__ */ jsx65("button", { className: "btn", onClick: openLint, children: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043B\u0438\u043D\u0442\u0435\u0440 \u2192" })
-    ] }),
-    stats.total === 0 ? /* @__PURE__ */ jsxs62("div", { className: "model-validation-lint__empty", children: [
-      /* @__PURE__ */ jsx65(MIcon, { name: "check_circle", size: "sm" }),
-      /* @__PURE__ */ jsx65("span", { children: "\u0421\u0445\u0435\u043C\u044B \u0441\u043E\u043E\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0443\u044E\u0442 \u043F\u0440\u0430\u0432\u0438\u043B\u0430\u043C \u043B\u0438\u043D\u0442\u0435\u0440\u0430" })
-    ] }) : /* @__PURE__ */ jsxs62(Fragment15, { children: [
-      /* @__PURE__ */ jsxs62("div", { className: "model-validation-lint__counters", children: [
-        /* @__PURE__ */ jsxs62("div", { className: "model-validation-lint__counter model-validation-lint__counter--error", children: [
-          /* @__PURE__ */ jsx65("span", { className: "model-validation-lint__counter-value", children: stats.bySeverity.error }),
-          /* @__PURE__ */ jsx65("span", { className: "model-validation-lint__counter-label", children: "\u043E\u0448\u0438\u0431\u043E\u043A \u043F\u0440\u0430\u0432\u0438\u043B" })
-        ] }),
-        /* @__PURE__ */ jsxs62("div", { className: "model-validation-lint__counter model-validation-lint__counter--warning", children: [
-          /* @__PURE__ */ jsx65("span", { className: "model-validation-lint__counter-value", children: stats.bySeverity.warning }),
-          /* @__PURE__ */ jsx65("span", { className: "model-validation-lint__counter-label", children: "\u043F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u0439" })
-        ] }),
-        /* @__PURE__ */ jsxs62("div", { className: "model-validation-lint__counter model-validation-lint__counter--info", children: [
-          /* @__PURE__ */ jsx65("span", { className: "model-validation-lint__counter-value", children: stats.bySeverity.info }),
-          /* @__PURE__ */ jsx65("span", { className: "model-validation-lint__counter-label", children: "\u0440\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u0439" })
-        ] })
-      ] }),
-      topRules.length > 0 && /* @__PURE__ */ jsxs62("div", { className: "model-validation-lint__rules", children: [
-        /* @__PURE__ */ jsx65("div", { className: "model-validation-lint__rules-label", children: "\u0427\u0430\u0441\u0442\u044B\u0435 \u043F\u0440\u0430\u0432\u0438\u043B\u0430" }),
-        /* @__PURE__ */ jsx65("div", { className: "model-validation-lint__rules-list", children: topRules.map((r) => /* @__PURE__ */ jsxs62(
-          "button",
-          {
-            className: "model-validation-lint__rule model-validation-lint__rule--" + r.severity,
-            onClick: openLint,
-            title: `${r.ruleId}
-\u041D\u0430\u0436\u043C\u0438\u0442\u0435, \u0447\u0442\u043E\u0431\u044B \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u043B\u0438\u043D\u0442\u0435\u0440`,
-            children: [
-              /* @__PURE__ */ jsx65("span", { className: "model-validation-lint__rule-dot" }),
-              /* @__PURE__ */ jsx65("span", { className: "model-validation-lint__rule-name", children: r.rule }),
-              /* @__PURE__ */ jsx65("span", { className: "model-validation-lint__rule-count", children: r.count })
-            ]
-          },
-          r.ruleId
-        )) })
-      ] })
-    ] })
-  ] });
-}
-function IssueSection({
-  severity,
-  label,
-  issues,
-  expanded,
-  onToggle,
-  onOpenEntity
-}) {
-  return /* @__PURE__ */ jsxs62("div", { className: "model-validation-group model-validation-group--" + severity, children: [
-    /* @__PURE__ */ jsx65("div", { className: "model-validation-group__title", children: label }),
-    issues.map((issue) => {
-      const isOpen = expanded.has(issue.title);
-      return /* @__PURE__ */ jsxs62("div", { className: "model-validation-issue", children: [
-        /* @__PURE__ */ jsxs62(
-          "button",
-          {
-            className: "model-validation-issue__head",
-            onClick: () => onToggle(issue.title),
-            children: [
-              /* @__PURE__ */ jsx65(
-                MIcon,
-                {
-                  name: isOpen ? "expand_more" : "chevron_right",
-                  size: "sm"
-                }
-              ),
-              /* @__PURE__ */ jsx65("span", { className: "model-validation-issue__title", children: issue.title }),
-              /* @__PURE__ */ jsx65("span", { className: "model-validation-issue__count", children: issue.count })
-            ]
-          }
-        ),
-        /* @__PURE__ */ jsx65("div", { className: "model-validation-issue__desc", children: issue.description }),
-        /* @__PURE__ */ jsxs62("div", { className: "model-validation-issue__hint", children: [
-          /* @__PURE__ */ jsx65(MIcon, { name: "lightbulb", size: "sm" }),
-          /* @__PURE__ */ jsx65("span", { children: issue.hint })
-        ] }),
-        isOpen && issue.samples.length > 0 && /* @__PURE__ */ jsxs62("div", { className: "model-validation-issue__samples", children: [
-          issue.samples.map((s, i) => {
-            const isFqid = /^[a-z0-9.-]+\/[a-z0-9_-]+$/i.test(s);
-            if (isFqid) {
-              return /* @__PURE__ */ jsx65(
-                "button",
-                {
-                  className: "model-validation-sample model-validation-sample--link",
-                  onClick: () => onOpenEntity(s.toLowerCase()),
-                  children: s
-                },
-                i
-              );
-            }
-            return /* @__PURE__ */ jsx65("div", { className: "model-validation-sample", children: s }, i);
-          }),
-          issue.count > issue.samples.length && /* @__PURE__ */ jsxs62("div", { className: "model-validation-sample model-validation-sample--more", children: [
-            "...\u0438 \u0435\u0449\u0451 ",
-            issue.count - issue.samples.length
-          ] })
-        ] })
-      ] }, issue.title);
-    })
-  ] });
-}
+var SEVERITY_LABELS, CATEGORY_LABELS, CATEGORY_ICONS, CATEGORY_ORDER;
 var init_ModelValidationModal = __esm({
   "src/web/components/modals/ModelValidationModal.tsx"() {
     "use strict";
@@ -19217,6 +22057,34 @@ var init_ModelValidationModal = __esm({
     init_MIcon();
     init_validation();
     init_ModalHelp();
+    init_useHelpEscape();
+    init_dialogs();
+    SEVERITY_LABELS = {
+      error: "\u041E\u0448\u0438\u0431\u043A\u0438",
+      warning: "\u041F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u044F",
+      info: "\u0418\u043D\u0444\u043E\u0440\u043C\u0430\u0446\u0438\u044F"
+    };
+    CATEGORY_LABELS = {
+      references: "\u0421\u0441\u044B\u043B\u043E\u0447\u043D\u0430\u044F \u0446\u0435\u043B\u043E\u0441\u0442\u043D\u043E\u0441\u0442\u044C",
+      structure: "\u0421\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0430 \u043C\u043E\u0434\u0435\u043B\u0438",
+      content: "\u0421\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u0435",
+      orphans: "\u0421\u0438\u0440\u043E\u0442\u044B",
+      domains: "\u0414\u043E\u043C\u0435\u043D\u044B"
+    };
+    CATEGORY_ICONS = {
+      references: "link_off",
+      structure: "account_tree",
+      content: "article",
+      orphans: "call_missed_outgoing",
+      domains: "folder_off"
+    };
+    CATEGORY_ORDER = [
+      "references",
+      "structure",
+      "content",
+      "orphans",
+      "domains"
+    ];
   }
 });
 
@@ -19308,7 +22176,7 @@ var init_glossary = __esm({
 
 // src/web/components/modals/GlossaryModal.tsx
 import { useMemo as useMemo35, useState as useState25 } from "react";
-import { Fragment as Fragment16, jsx as jsx66, jsxs as jsxs63 } from "react/jsx-runtime";
+import { Fragment as Fragment17, jsx as jsx66, jsxs as jsxs63 } from "react/jsx-runtime";
 function GlossaryModal() {
   const { index, loading, error } = useModelIndex();
   const [tab, setTab] = useState25("entity");
@@ -19533,7 +22401,7 @@ function GlossaryEntryCard({
     const idx = text.toLowerCase().indexOf(q);
     if (idx === -1)
       return text;
-    return /* @__PURE__ */ jsxs63(Fragment16, { children: [
+    return /* @__PURE__ */ jsxs63(Fragment17, { children: [
       text.slice(0, idx),
       /* @__PURE__ */ jsx66("mark", { className: "search-hl", children: text.slice(idx, idx + q.length) }),
       text.slice(idx + q.length)
@@ -19813,7 +22681,7 @@ var init_entity_graph = __esm({
 });
 
 // src/web/components/common/DomainCombobox.tsx
-import { useEffect as useEffect34, useMemo as useMemo36, useRef as useRef17, useState as useState26 } from "react";
+import { useEffect as useEffect34, useMemo as useMemo36, useRef as useRef19, useState as useState26 } from "react";
 import { jsx as jsx67, jsxs as jsxs64 } from "react/jsx-runtime";
 function DomainCombobox({
   value,
@@ -19826,9 +22694,9 @@ function DomainCombobox({
   const [open2, setOpen] = useState26(false);
   const [query, setQuery] = useState26("");
   const [activeIdx, setActiveIdx] = useState26(0);
-  const wrapRef = useRef17(null);
-  const inputRef = useRef17(null);
-  const listRef = useRef17(null);
+  const wrapRef = useRef19(null);
+  const inputRef = useRef19(null);
+  const listRef = useRef19(null);
   const totalCount = useMemo36(
     () => domains.reduce((s, [, c]) => s + c, 0),
     [domains]
@@ -19967,7 +22835,7 @@ var init_DomainCombobox = __esm({
 });
 
 // src/web/components/modals/EntityGraphModal.tsx
-import { useCallback as useCallback17, useEffect as useEffect35, useMemo as useMemo37, useState as useState27 } from "react";
+import { useCallback as useCallback19, useEffect as useEffect35, useMemo as useMemo37, useState as useState27 } from "react";
 import ReactFlow3, {
   Background as Background3,
   BackgroundVariant as BackgroundVariant3,
@@ -19981,10 +22849,10 @@ import ReactFlow3, {
   useReactFlow as useReactFlow3
 } from "reactflow";
 import dagre3 from "dagre";
-import { Fragment as Fragment17, jsx as jsx68, jsxs as jsxs65 } from "react/jsx-runtime";
+import { Fragment as Fragment18, jsx as jsx68, jsxs as jsxs65 } from "react/jsx-runtime";
 function EntityNode({ data }) {
   const domainHue = data.__domainHue ?? 220;
-  return /* @__PURE__ */ jsxs65(Fragment17, { children: [
+  return /* @__PURE__ */ jsxs65(Fragment18, { children: [
     /* @__PURE__ */ jsx68(
       Handle3,
       {
@@ -20207,7 +23075,7 @@ function EntityGraphModal() {
     () => layoutGraph(rfNodes, rfEdges, rankdir),
     [rfNodes, rfEdges, rankdir]
   );
-  const handleNodeClick = useCallback17(
+  const handleNodeClick = useCallback19(
     (fqid) => {
       const st = useGraphStore.getState();
       st.setEntityCatalogInitialFqid(fqid);
@@ -20215,7 +23083,7 @@ function EntityGraphModal() {
     },
     []
   );
-  const handleExportClassDiagram = useCallback17(() => {
+  const handleExportClassDiagram = useCallback19(() => {
     if (!graph)
       return;
     downloadEntityClassDiagram(
@@ -20450,7 +23318,7 @@ function EntityEdge2({
   });
   const title = data && data.title || "";
   const kind = data && data.kind || "reference";
-  return /* @__PURE__ */ jsxs65(Fragment17, { children: [
+  return /* @__PURE__ */ jsxs65(Fragment18, { children: [
     /* @__PURE__ */ jsx68(
       BaseEdge2,
       {
@@ -20847,8 +23715,8 @@ var init_DomainSchemaHelpers = __esm({
 });
 
 // src/web/components/modals/DomainSchemaSectionItems.tsx
-import React38, { useMemo as useMemo38 } from "react";
-import { Fragment as Fragment18, jsx as jsx69, jsxs as jsxs66 } from "react/jsx-runtime";
+import React39, { useMemo as useMemo38 } from "react";
+import { Fragment as Fragment19, jsx as jsx69, jsxs as jsxs66 } from "react/jsx-runtime";
 function IssueBadge({ issues }) {
   if (issues.length === 0)
     return null;
@@ -20928,7 +23796,7 @@ function InheritanceChain({
   return /* @__PURE__ */ jsxs66("div", { className: "domain-schema-inheritance", children: [
     ancestors.length > 0 && /* @__PURE__ */ jsxs66("div", { className: "domain-schema-inheritance__row", children: [
       /* @__PURE__ */ jsx69("span", { className: "domain-schema-inheritance__label", children: "\u0420\u043E\u0434\u0438\u0442\u0435\u043B\u0438:" }),
-      ancestors.map((a) => /* @__PURE__ */ jsxs66(React38.Fragment, { children: [
+      ancestors.map((a) => /* @__PURE__ */ jsxs66(React39.Fragment, { children: [
         /* @__PURE__ */ jsxs66(
           "button",
           {
@@ -21145,7 +24013,7 @@ function SectionItems({
         return null;
       const entityKey2 = `entity:${e.id}`;
       const isExpanded = expandedItems.has(entityKey2);
-      return /* @__PURE__ */ jsxs66(React38.Fragment, { children: [
+      return /* @__PURE__ */ jsxs66(React39.Fragment, { children: [
         /* @__PURE__ */ jsxs66(
           "div",
           {
@@ -21200,7 +24068,7 @@ function SectionItems({
     return /* @__PURE__ */ jsx69("div", { className: "domain-schema-list", children: items.map((d) => {
       const dtKey = `dataType:${d.id}`;
       const isExpanded = expandedItems.has(dtKey);
-      return /* @__PURE__ */ jsxs66(React38.Fragment, { children: [
+      return /* @__PURE__ */ jsxs66(React39.Fragment, { children: [
         /* @__PURE__ */ jsxs66(
           "div",
           {
@@ -21241,7 +24109,7 @@ function SectionItems({
     return /* @__PURE__ */ jsx69("div", { className: "domain-schema-list", children: items.map((s) => {
       const scenarioKey = `scenario:${s.id}`;
       const isExpanded = expandedItems.has(scenarioKey);
-      return /* @__PURE__ */ jsxs66(React38.Fragment, { children: [
+      return /* @__PURE__ */ jsxs66(React39.Fragment, { children: [
         /* @__PURE__ */ jsxs66(
           "div",
           {
@@ -21324,7 +24192,7 @@ function SectionItems({
     return /* @__PURE__ */ jsx69("div", { className: "domain-schema-list", children: items.map((r) => {
       const ruleKey = `uiRule:${r.id}`;
       const isExpanded = expandedItems.has(ruleKey);
-      return /* @__PURE__ */ jsxs66(React38.Fragment, { children: [
+      return /* @__PURE__ */ jsxs66(React39.Fragment, { children: [
         /* @__PURE__ */ jsxs66(
           "div",
           {
@@ -21506,7 +24374,7 @@ function SectionItems({
       /* @__PURE__ */ jsx69("code", { className: "domain-schema-item__id", children: m.id }),
       /* @__PURE__ */ jsxs66("span", { className: "domain-schema-item__meta", children: [
         m.type,
-        m.iconName && /* @__PURE__ */ jsxs66(Fragment18, { children: [
+        m.iconName && /* @__PURE__ */ jsxs66(Fragment19, { children: [
           " \xB7 ",
           /* @__PURE__ */ jsx69(
             "span",
@@ -21938,8 +24806,8 @@ var init_GenerateSchemaProfiles = __esm({
 });
 
 // src/web/components/modals/DomainSchemaModal.tsx
-import React39, { useEffect as useEffect36, useMemo as useMemo39, useState as useState28 } from "react";
-import { Fragment as Fragment19, jsx as jsx70, jsxs as jsxs67 } from "react/jsx-runtime";
+import React40, { useEffect as useEffect36, useMemo as useMemo39, useState as useState28 } from "react";
+import { Fragment as Fragment20, jsx as jsx70, jsxs as jsxs67 } from "react/jsx-runtime";
 function DomainSchemaModal() {
   const { goto } = useNavigation();
   const { index, loading, error } = useModelIndex();
@@ -22011,7 +24879,7 @@ function DomainSchemaModal() {
       (n) => n.data.domainId === schema2.domainId
     ) || null;
   }, [schema2, nodes]);
-  const [statusToggling, setStatusToggling] = React39.useState(false);
+  const [statusToggling, setStatusToggling] = React40.useState(false);
   const handleDraftClick = () => {
     if (!currentNode?.data.filePath) {
       useGraphStore.getState().showSnackbar("\u0424\u0430\u0439\u043B \u0441\u0445\u0435\u043C\u044B \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D");
@@ -22400,7 +25268,7 @@ function DomainSchemaModal() {
                         ]
                       }
                     ),
-                    enrichMenuOpen && /* @__PURE__ */ jsxs67(Fragment19, { children: [
+                    enrichMenuOpen && /* @__PURE__ */ jsxs67(Fragment20, { children: [
                       /* @__PURE__ */ jsx70(
                         "div",
                         {
@@ -22691,7 +25559,7 @@ var init_DomainSchemaModal = __esm({
 });
 
 // src/web/hooks/useLintBaselines.ts
-import { useCallback as useCallback18, useEffect as useEffect37, useState as useState29 } from "react";
+import { useCallback as useCallback20, useEffect as useEffect37, useState as useState29 } from "react";
 function invalidateLintBaselinesCache() {
   cache3 = null;
 }
@@ -22728,7 +25596,7 @@ function useLintBaselines() {
       cancelled = true;
     };
   }, [modelVersion]);
-  const takeBaseline = useCallback18(async (domainId) => {
+  const takeBaseline = useCallback20(async (domainId) => {
     const res = await fetch(
       `/api/lint-baseline?domainId=${encodeURIComponent(domainId)}`,
       { method: "POST" }
@@ -22745,7 +25613,7 @@ function useLintBaselines() {
     invalidateLintBaselinesCache();
     return data.baseline;
   }, []);
-  const takeBaselinesBatch = useCallback18(async (domainIds) => {
+  const takeBaselinesBatch = useCallback20(async (domainIds) => {
     const updates = {};
     for (const domainId of domainIds) {
       try {
@@ -22769,7 +25637,7 @@ function useLintBaselines() {
     invalidateLintBaselinesCache();
     return updates;
   }, []);
-  const clearBaseline = useCallback18(async (domainId) => {
+  const clearBaseline = useCallback20(async (domainId) => {
     const res = await fetch(
       `/api/lint-baseline?domainId=${encodeURIComponent(domainId)}`,
       { method: "DELETE" }
@@ -22860,8 +25728,8 @@ var init_lint_baseline = __esm({
 });
 
 // src/web/components/modals/LintModal.tsx
-import { useCallback as useCallback19, useEffect as useEffect38, useMemo as useMemo40, useState as useState30 } from "react";
-import { Fragment as Fragment20, jsx as jsx71, jsxs as jsxs68 } from "react/jsx-runtime";
+import { useCallback as useCallback21, useEffect as useEffect38, useMemo as useMemo40, useState as useState30 } from "react";
+import { Fragment as Fragment21, jsx as jsx71, jsxs as jsxs68 } from "react/jsx-runtime";
 function LintModal() {
   const { index, loading, error } = useModelIndex();
   const [filterCategory, setFilterCategory] = useState30("");
@@ -22963,7 +25831,7 @@ function LintModal() {
       });
     }
   };
-  const isIssueNew = useCallback19(
+  const isIssueNew = useCallback21(
     (issue) => {
       const keys = newIssueKeysByDomain.get(issue.domainId);
       if (!keys)
@@ -23210,8 +26078,8 @@ function LintModal() {
                       onChange: (e) => setFilterCategory(e.target.value),
                       children: [
                         /* @__PURE__ */ jsx71("option", { value: "", children: "\u2014 \u0432\u0441\u0435 \u2014" }),
-                        Object.keys(CATEGORY_LABELS).map((k) => /* @__PURE__ */ jsxs68("option", { value: k, children: [
-                          CATEGORY_LABELS[k],
+                        Object.keys(CATEGORY_LABELS2).map((k) => /* @__PURE__ */ jsxs68("option", { value: k, children: [
+                          CATEGORY_LABELS2[k],
                           " (",
                           report?.stats.byCategory[k] ?? 0,
                           ")"
@@ -23259,7 +26127,7 @@ function LintModal() {
                       ]
                     }
                   ),
-                  filterDomain ? /* @__PURE__ */ jsxs68(Fragment20, { children: [
+                  filterDomain ? /* @__PURE__ */ jsxs68(Fragment21, { children: [
                     /* @__PURE__ */ jsxs68(
                       "button",
                       {
@@ -23353,7 +26221,7 @@ function LintModal() {
                           children: [
                             /* @__PURE__ */ jsx71(MIcon, { name: isOpen ? "expand_more" : "chevron_right", size: "sm" }),
                             /* @__PURE__ */ jsx71("span", { className: "lint-rule__title", children: g.rule }),
-                            /* @__PURE__ */ jsx71("span", { className: "lint-rule__category", children: CATEGORY_LABELS[g.category] }),
+                            /* @__PURE__ */ jsx71("span", { className: "lint-rule__category", children: CATEGORY_LABELS2[g.category] }),
                             /* @__PURE__ */ jsx71(
                               "span",
                               {
@@ -23461,7 +26329,7 @@ function LintModal() {
     }
   );
 }
-var CATEGORY_LABELS, CATEGORY_TO_CHEATSHEET;
+var CATEGORY_LABELS2, CATEGORY_TO_CHEATSHEET;
 var init_LintModal = __esm({
   "src/web/components/modals/LintModal.tsx"() {
     "use strict";
@@ -23473,7 +26341,7 @@ var init_LintModal = __esm({
     init_useLintBaselines();
     init_lint_baseline();
     init_dialogs();
-    CATEGORY_LABELS = {
+    CATEGORY_LABELS2 = {
       reference: "\u0421\u0441\u044B\u043B\u043E\u0447\u043D\u0430\u044F \u0446\u0435\u043B\u043E\u0441\u0442\u043D\u043E\u0441\u0442\u044C",
       semantic: "\u0421\u0435\u043C\u0430\u043D\u0442\u0438\u043A\u0430",
       naming: "\u0418\u043C\u0435\u043D\u043E\u0432\u0430\u043D\u0438\u0435",
@@ -23495,51 +26363,105 @@ var init_LintModal = __esm({
 });
 
 // src/web/lib/model/attribute-matrix.ts
+function categoryOf(dataType) {
+  return BASE_CATEGORIES[dataType] || "custom";
+}
+function emptyCollected(key) {
+  return {
+    key,
+    spellings: /* @__PURE__ */ new Map(),
+    typeCounts: /* @__PURE__ */ new Map(),
+    constraintCounts: /* @__PURE__ */ new Map(),
+    readonlyCount: 0,
+    usedInViewsCount: 0,
+    domains: /* @__PURE__ */ new Set(),
+    hasNested: false,
+    cells: /* @__PURE__ */ new Map()
+  };
+}
 function buildAttributeMatrix(index, options = {}) {
   const minOccurrences = options.minOccurrences ?? 2;
   const maxColumns = options.maxColumns ?? 40;
   const maxRows = options.maxRows ?? 100;
   const domainFilter = options.domains;
+  const includeNested = options.includeNested !== false;
   const attrMap = /* @__PURE__ */ new Map();
   const candidates = domainFilter && domainFilter.size > 0 ? index.entities.filter((e) => domainFilter.has(e.domainId.toLowerCase())) : index.entities;
   for (const e of candidates) {
-    for (const a of e.attributes) {
+    const visit = (a, isNested) => {
       const key = (a.name || a.id).toLowerCase();
-      let stat = attrMap.get(key);
-      if (!stat) {
-        stat = {
-          key,
-          spellings: /* @__PURE__ */ new Map(),
-          dataTypes: /* @__PURE__ */ new Set(),
-          entities: /* @__PURE__ */ new Set()
-        };
-        attrMap.set(key, stat);
+      let entry = attrMap.get(key);
+      if (!entry) {
+        entry = emptyCollected(key);
+        attrMap.set(key, entry);
       }
-      const displayName = a.name || a.id;
-      stat.spellings.set(
-        displayName,
-        (stat.spellings.get(displayName) || 0) + 1
+      const spelling = a.name || a.id;
+      entry.spellings.set(spelling, (entry.spellings.get(spelling) || 0) + 1);
+      entry.typeCounts.set(
+        a.dataType,
+        (entry.typeCounts.get(a.dataType) || 0) + 1
       );
-      stat.dataTypes.add(a.dataType);
-      stat.entities.add(e.fqid);
+      for (const c of a.constraints) {
+        entry.constraintCounts.set(c, (entry.constraintCounts.get(c) || 0) + 1);
+      }
+      if (a.readonly)
+        entry.readonlyCount++;
+      if (a.usedInViews > 0)
+        entry.usedInViewsCount++;
+      entry.domains.add(e.domainId);
+      if (isNested)
+        entry.hasNested = true;
+      if (!entry.cells.has(e.fqid)) {
+        entry.cells.set(e.fqid, {
+          attributeId: a.id,
+          dataType: a.dataType,
+          dataTypeKind: a.dataTypeKind,
+          constraints: [...a.constraints],
+          readonly: !!a.readonly,
+          usedInViews: a.usedInViews,
+          isNested
+        });
+      }
+    };
+    for (const a of e.attributes) {
+      visit(a, false);
+      if (includeNested && a.nestedAttributes) {
+        for (const na of a.nestedAttributes)
+          visit(na, true);
+      }
     }
   }
   const filtered = Array.from(attrMap.values()).filter(
-    (s) => s.entities.size >= minOccurrences
+    (e) => e.cells.size >= minOccurrences
   );
-  filtered.sort((a, b) => b.entities.size - a.entities.size);
+  filtered.sort((a, b) => b.cells.size - a.cells.size);
   const selected = filtered.slice(0, maxColumns);
-  const columns = selected.map((s) => {
-    const label = Array.from(s.spellings.entries()).sort(
+  const columns = selected.map((e) => {
+    const typeDistribution = Array.from(e.typeCounts.entries()).map(([dataType, count]) => ({ dataType, count })).sort((a, b) => b.count - a.count);
+    const constraintDistribution = Array.from(e.constraintCounts.entries()).map(([kind, count]) => ({ kind, count })).sort((a, b) => b.count - a.count);
+    const dominantType = typeDistribution[0]?.dataType || null;
+    const label = Array.from(e.spellings.entries()).sort(
       (a, b) => b[1] - a[1]
     )[0][0];
-    const dataTypes2 = Array.from(s.dataTypes).sort();
+    const examples = Array.from(e.cells.entries()).slice(0, 3).map(([fqid, cell]) => ({
+      entityFqid: fqid,
+      attributeId: cell.attributeId,
+      dataType: cell.dataType
+    }));
     return {
-      key: s.key,
+      key: e.key,
       label,
-      count: s.entities.size,
-      dataTypes: dataTypes2,
-      consistentType: dataTypes2.length === 1
+      count: e.cells.size,
+      dataTypes: typeDistribution.map((t) => t.dataType),
+      consistentType: typeDistribution.length === 1,
+      dominantType,
+      typeDistribution,
+      constraintDistribution,
+      readonlyCount: e.readonlyCount,
+      usedInViewsCount: e.usedInViewsCount,
+      domains: Array.from(e.domains).sort(),
+      hasNested: e.hasNested,
+      examples
     };
   });
   const columnKeys = new Set(columns.map((c) => c.key));
@@ -23551,33 +26473,71 @@ function buildAttributeMatrix(index, options = {}) {
   });
   const rows = rowCandidates.slice(0, maxRows).map((e) => {
     const present = /* @__PURE__ */ new Set();
-    for (const a of e.attributes) {
+    const cells = /* @__PURE__ */ new Map();
+    const collect = (a, isNested) => {
       const key = (a.name || a.id).toLowerCase();
-      if (columnKeys.has(key))
-        present.add(key);
+      if (!columnKeys.has(key))
+        return;
+      if (present.has(key))
+        return;
+      present.add(key);
+      cells.set(key, {
+        attributeId: a.id,
+        dataType: a.dataType,
+        dataTypeKind: a.dataTypeKind,
+        constraints: [...a.constraints],
+        readonly: !!a.readonly,
+        usedInViews: a.usedInViews,
+        isNested
+      });
+    };
+    for (const a of e.attributes) {
+      collect(a, false);
+      if (includeNested && a.nestedAttributes) {
+        for (const na of a.nestedAttributes)
+          collect(na, true);
+      }
     }
     return {
       entityFqid: e.fqid,
       entityId: e.entityId,
       domainId: e.domainId,
       present,
-      attributesCount: e.attributes.length
+      attributesCount: e.attributes.length,
+      cells
     };
   });
   const inconsistentTypes = columns.filter((c) => !c.consistentType);
   const singletons = [];
-  attrMap.forEach((s) => {
-    if (s.entities.size === 1) {
-      const label = Array.from(s.spellings.keys())[0];
-      singletons.push({
-        key: s.key,
-        label,
-        count: 1,
-        dataTypes: Array.from(s.dataTypes),
-        consistentType: s.dataTypes.size === 1
-      });
-    }
+  attrMap.forEach((e) => {
+    if (e.cells.size !== 1)
+      return;
+    const typeDistribution = Array.from(e.typeCounts.entries()).map(([dataType, count]) => ({ dataType, count })).sort((a, b) => b.count - a.count);
+    singletons.push({
+      key: e.key,
+      label: Array.from(e.spellings.keys())[0],
+      count: 1,
+      dataTypes: typeDistribution.map((t) => t.dataType),
+      consistentType: typeDistribution.length === 1,
+      dominantType: typeDistribution[0]?.dataType || null,
+      typeDistribution,
+      constraintDistribution: [],
+      readonlyCount: e.readonlyCount,
+      usedInViewsCount: e.usedInViewsCount,
+      domains: Array.from(e.domains),
+      hasNested: e.hasNested,
+      examples: []
+    });
   });
+  const requiredEverywhere = columns.filter((c) => {
+    const req = c.constraintDistribution.find((x) => x.kind === "required");
+    return req && req.count === c.count;
+  }).length;
+  const readonlyEverywhere = columns.filter(
+    (c) => c.readonlyCount === c.count && c.count > 0
+  ).length;
+  const unusedInViews = columns.filter((c) => c.usedInViewsCount === 0).length;
+  const nestedColumns = columns.filter((c) => c.hasNested).length;
   return {
     columns,
     rows,
@@ -23585,26 +26545,93 @@ function buildAttributeMatrix(index, options = {}) {
       totalColumns: columns.length,
       totalRows: rows.length,
       inconsistentTypes,
-      singletons
+      singletons,
+      requiredEverywhere,
+      readonlyEverywhere,
+      unusedInViews,
+      nestedColumns
     }
   };
 }
+function shortLabel2(fqid) {
+  const slash = fqid.indexOf("/");
+  return slash > 0 ? fqid.slice(slash + 1) : fqid;
+}
+var BASE_CATEGORIES;
 var init_attribute_matrix = __esm({
   "src/web/lib/model/attribute-matrix.ts"() {
     "use strict";
+    BASE_CATEGORIES = {
+      String: "string",
+      Text: "string",
+      URL: "string",
+      MAC: "string",
+      IpAddress: "string",
+      CIDR: "string",
+      Attachment: "string",
+      Integer: "numeric",
+      Decimal: "numeric",
+      Float: "numeric",
+      Counter: "numeric",
+      Calculation: "numeric",
+      Bool: "boolean",
+      Date: "date",
+      Time: "date",
+      Timestamp: "date",
+      TimestampRange: "date",
+      Reference: "reference",
+      Array: "array",
+      Table: "array",
+      Uuid: "uuid",
+      Identifier: "uuid",
+      Enum: "custom",
+      Workflow: "custom"
+    };
   }
 });
 
 // src/web/components/modals/AttributeMatrixModal.tsx
-import { useMemo as useMemo41, useState as useState31 } from "react";
-import { jsx as jsx72, jsxs as jsxs69 } from "react/jsx-runtime";
+import { useCallback as useCallback22, useMemo as useMemo41, useState as useState31 } from "react";
+import { Fragment as Fragment22, jsx as jsx72, jsxs as jsxs69 } from "react/jsx-runtime";
+function sortColumns(cols, sortBy) {
+  const arr = [...cols];
+  switch (sortBy) {
+    case "count-desc":
+      return arr.sort((a, b) => b.count - a.count);
+    case "name-asc":
+      return arr.sort((a, b) => a.label.localeCompare(b.label));
+    case "type-asc":
+      return arr.sort((a, b) => {
+        const ta = a.dominantType || "";
+        const tb = b.dominantType || "";
+        if (ta !== tb)
+          return ta.localeCompare(tb);
+        return b.count - a.count;
+      });
+    case "inconsistent-first":
+      return arr.sort((a, b) => {
+        if (a.consistentType === b.consistentType)
+          return b.count - a.count;
+        return a.consistentType ? 1 : -1;
+      });
+  }
+}
 function AttributeMatrixModal() {
   const { index, loading, error } = useModelIndex();
   const open2 = useGraphStore((s) => s.attributeMatrixOpen);
   const [showHelp, setShowHelp] = useState31(false);
+  useHelpEscape(open2, showHelp, setShowHelp);
   const [domainFilter, setDomainFilter] = useState31("");
   const [minOccurrences, setMinOccurrences] = useState31(2);
-  const [onlyInconsistent, setOnlyInconsistent] = useState31(false);
+  const [sortBy, setSortBy] = useState31("count-desc");
+  const [searchQuery, setSearchQuery] = useState31("");
+  const [quickFilters, setQuickFilters] = useState31(
+    /* @__PURE__ */ new Set()
+  );
+  const [filterByColumn, setFilterByColumn] = useState31(null);
+  const [selectedDetail, setSelectedDetail] = useState31(null);
+  const [hoveredRow, setHoveredRow] = useState31(null);
+  const [hoveredCol, setHoveredCol] = useState31(null);
   const allDomains = useMemo41(() => {
     if (!index)
       return [];
@@ -23627,18 +26654,188 @@ function AttributeMatrixModal() {
   const visibleColumns = useMemo41(() => {
     if (!matrix)
       return [];
-    if (!onlyInconsistent)
-      return matrix.columns;
-    return matrix.columns.filter((c) => !c.consistentType);
-  }, [matrix, onlyInconsistent]);
-  const openEntity = (fqid) => {
+    let cols = matrix.columns;
+    if (quickFilters.size > 0) {
+      const tests = Array.from(quickFilters).map(
+        (id) => QUICK_FILTERS2.find((f) => f.id === id).test
+      );
+      cols = cols.filter((c) => tests.every((t) => t(c)));
+    }
+    const q = searchQuery.trim().toLowerCase();
+    if (q) {
+      const columnMatch = cols.filter(
+        (c) => c.label.toLowerCase().includes(q) || c.key.includes(q)
+      );
+      if (columnMatch.length > 0) {
+        cols = columnMatch;
+      }
+    }
+    cols = sortColumns(cols, sortBy);
+    return cols;
+  }, [matrix, quickFilters, searchQuery, sortBy]);
+  const visibleColumnKeys = useMemo41(
+    () => new Set(visibleColumns.map((c) => c.key)),
+    [visibleColumns]
+  );
+  const searchEntityMatch = useMemo41(() => {
+    if (!matrix || !searchQuery.trim())
+      return null;
+    const q = searchQuery.trim().toLowerCase();
+    for (const row of matrix.rows) {
+      if (row.entityId.toLowerCase().includes(q) || row.entityFqid.toLowerCase().includes(q)) {
+        return row.entityFqid;
+      }
+    }
+    return null;
+  }, [matrix, searchQuery]);
+  const visibleRows = useMemo41(() => {
+    if (!matrix)
+      return [];
+    let rows = matrix.rows;
+    if (filterByColumn) {
+      rows = rows.filter((r) => r.present.has(filterByColumn));
+    }
+    if (searchEntityMatch) {
+      rows = rows.filter((r) => r.entityFqid === searchEntityMatch);
+    }
+    return rows;
+  }, [matrix, filterByColumn, searchEntityMatch]);
+  const searchNotInMatrix = useMemo41(() => {
+    if (!searchQuery.trim() || !matrix || !index)
+      return null;
+    if (searchEntityMatch)
+      return null;
+    const q = searchQuery.trim().toLowerCase();
+    for (const e of index.entities) {
+      if (e.entityId.toLowerCase().includes(q) || e.fqid.toLowerCase().includes(q)) {
+        return e.fqid;
+      }
+    }
+    return null;
+  }, [searchQuery, matrix, index, searchEntityMatch]);
+  const openEntity = useCallback22((fqid) => {
     const st = useGraphStore.getState();
     st.setAttributeMatrixOpen(false);
     st.setEntityCatalogInitialFqid(fqid);
     st.setEntityCatalogOpen(true);
+  }, []);
+  const toggleQuickFilter = useCallback22((id) => {
+    setQuickFilters((prev) => {
+      const next = new Set(prev);
+      if (next.has(id))
+        next.delete(id);
+      else
+        next.add(id);
+      return next;
+    });
+  }, []);
+  const handleCellClick = useCallback22(
+    (entityFqid, columnKey) => {
+      setSelectedDetail({ kind: "cell", entityFqid, columnKey });
+    },
+    []
+  );
+  const handleColumnClick = useCallback22((columnKey) => {
+    setSelectedDetail({ kind: "column", columnKey });
+  }, []);
+  const resetAll = useCallback22(() => {
+    setSearchQuery("");
+    setQuickFilters(/* @__PURE__ */ new Set());
+    setFilterByColumn(null);
+    setSelectedDetail(null);
+  }, []);
+  const handleExportCSV = () => {
+    if (!matrix)
+      return;
+    const header = [
+      "entity_fqid",
+      "entity_id",
+      "domain",
+      "attributes_count",
+      ...visibleColumns.map((c) => c.label)
+    ];
+    const lines = [header.join(",")];
+    for (const row of visibleRows) {
+      const cellArr = visibleColumns.map((c) => {
+        const cell = row.cells.get(c.key);
+        if (!cell)
+          return "";
+        const parts = [cell.dataType];
+        if (cell.constraints.length > 0) {
+          parts.push(cell.constraints.join("|"));
+        }
+        if (cell.readonly)
+          parts.push("readonly");
+        return parts.join(";");
+      });
+      lines.push(
+        [
+          row.entityFqid,
+          row.entityId,
+          row.domainId,
+          row.attributesCount,
+          ...cellArr.map((s) => {
+            if (!s)
+              return "";
+            return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+          })
+        ].join(",")
+      );
+    }
+    const blob = new Blob(["\uFEFF" + lines.join("\n")], {
+      type: "text/csv;charset=utf-8"
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `attribute-matrix-${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  const handleCopyMarkdown = async () => {
+    if (!matrix)
+      return;
+    try {
+      const lines = [];
+      lines.push(`# \u041C\u0430\u0442\u0440\u0438\u0446\u0430 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432`);
+      lines.push("");
+      lines.push(
+        `_\u041A\u043E\u043B\u043E\u043D\u043E\u043A: ${visibleColumns.length}, \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439: ${visibleRows.length}_`
+      );
+      lines.push("");
+      const header = ["", ...visibleColumns.map((c) => c.label)];
+      lines.push("| " + header.join(" | ") + " |");
+      lines.push("|" + header.map(() => "---").join("|") + "|");
+      for (const row of visibleRows) {
+        const cells = visibleColumns.map((c) => {
+          const cell = row.cells.get(c.key);
+          return cell ? cell.dataType : "";
+        });
+        lines.push(
+          "| **" + row.entityId + "** | " + cells.join(" | ") + " |"
+        );
+      }
+      await navigator.clipboard.writeText(lines.join("\n"));
+      useGraphStore.getState().showSnackbar("\u041C\u0430\u0442\u0440\u0438\u0446\u0430 \u0441\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D\u0430 \u0432 \u0431\u0443\u0444\u0435\u0440");
+    } catch (e) {
+      await alertDialog("\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0441\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C", { detail: e.message });
+    }
   };
   if (!open2)
     return null;
+  const detailColumn = (() => {
+    if (!selectedDetail || !matrix)
+      return null;
+    return matrix.columns.find((c) => c.key === selectedDetail.columnKey) || null;
+  })();
+  const detailCell = (() => {
+    if (!selectedDetail || selectedDetail.kind !== "cell" || !matrix)
+      return null;
+    const row = matrix.rows.find(
+      (r) => r.entityFqid === selectedDetail.entityFqid
+    );
+    return row?.cells.get(selectedDetail.columnKey) || null;
+  })();
   return /* @__PURE__ */ jsx72(
     "div",
     {
@@ -23647,7 +26844,7 @@ function AttributeMatrixModal() {
       children: /* @__PURE__ */ jsxs69(
         "div",
         {
-          className: "help-modal entity-matrix-modal",
+          className: "help-modal attribute-matrix-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
             /* @__PURE__ */ jsxs69("div", { className: "help-modal__header", children: [
@@ -23655,10 +26852,21 @@ function AttributeMatrixModal() {
                 /* @__PURE__ */ jsx72(MIcon, { name: "grid_view", size: "sm" }),
                 /* @__PURE__ */ jsx72("span", { className: "icon-label", children: "\u041C\u0430\u0442\u0440\u0438\u0446\u0430 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432" }),
                 matrix && /* @__PURE__ */ jsxs69("span", { className: "help-modal__badge", children: [
-                  matrix.rows.length,
+                  visibleRows.length,
                   " \xD7 ",
                   visibleColumns.length
-                ] })
+                ] }),
+                matrix && matrix.stats.inconsistentTypes.length > 0 && /* @__PURE__ */ jsxs69(
+                  "span",
+                  {
+                    className: "help-modal__badge help-modal__badge--warn",
+                    title: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0441 \u0440\u0430\u0437\u043D\u044B\u043C\u0438 dataType \u0443 \u0440\u0430\u0437\u043D\u044B\u0445 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439",
+                    children: [
+                      "\u26A0 ",
+                      matrix.stats.inconsistentTypes.length
+                    ]
+                  }
+                )
               ] }),
               /* @__PURE__ */ jsxs69("div", { className: "help-modal__actions", children: [
                 /* @__PURE__ */ jsx72(
@@ -23679,144 +26887,205 @@ function AttributeMatrixModal() {
                 )
               ] })
             ] }),
-            loading && /* @__PURE__ */ jsx72("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx72("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
+            loading && /* @__PURE__ */ jsx72("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx72("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430\u2026" }) }),
             error && /* @__PURE__ */ jsx72("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs69("div", { style: { color: "var(--danger)" }, children: [
               "\u041E\u0448\u0438\u0431\u043A\u0430: ",
               error
             ] }) }),
             index && matrix && /* @__PURE__ */ jsxs69("div", { className: "attribute-matrix-body", children: [
               /* @__PURE__ */ jsxs69(ModalHelp, { visible: showHelp, children: [
-                /* @__PURE__ */ jsxs69(HelpSection, { title: "\u041A\u0430\u043A \u0447\u0438\u0442\u0430\u0442\u044C \u043C\u0430\u0442\u0440\u0438\u0446\u0443", children: [
+                /* @__PURE__ */ jsxs69(HelpSection, { title: "\u0427\u0442\u043E \u044D\u0442\u043E", children: [
                   /* @__PURE__ */ jsxs69(HelpText, { children: [
-                    "\u0421\u0442\u0440\u043E\u043A\u0438 \u2014 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438, \u0441\u0442\u043E\u043B\u0431\u0446\u044B \u2014 \u0438\u043C\u0435\u043D\u0430 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 (\u043F\u043E",
+                    "\u041C\u0430\u0442\u0440\u0438\u0446\u0430 \xAB\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \xD7 \u0438\u043C\u044F \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430\xBB. \u0421\u0442\u0440\u043E\u043A\u0438 \u2014 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438, \u0441\u0442\u043E\u043B\u0431\u0446\u044B \u2014 \u0443\u043D\u0438\u043A\u0430\u043B\u044C\u043D\u044B\u0435 \u0438\u043C\u0435\u043D\u0430 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 (\u043F\u043E",
                     " ",
                     /* @__PURE__ */ jsx72("code", { children: "name" }),
-                    ", \u0435\u0441\u043B\u0438 \u043E\u043D\u043E \u0437\u0430\u0434\u0430\u043D\u043E, \u0438\u043D\u0430\u0447\u0435 \u043F\u043E ",
+                    ", \u0435\u0441\u043B\u0438 \u0437\u0430\u0434\u0430\u043D\u043E, \u0438\u043D\u0430\u0447\u0435 \u043F\u043E ",
                     /* @__PURE__ */ jsx72("code", { children: "id" }),
-                    "; \u0441\u0440\u0430\u0432\u043D\u0435\u043D\u0438\u0435 \u0440\u0435\u0433\u0438\u0441\u0442\u0440\u043E\u043D\u0435\u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0435). \u0422\u043E\u0447\u043A\u0430 \u0432 \u044F\u0447\u0435\u0439\u043A\u0435 \u043E\u0437\u043D\u0430\u0447\u0430\u0435\u0442, \u0447\u0442\u043E \u0443 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0435\u0441\u0442\u044C \u0430\u0442\u0440\u0438\u0431\u0443\u0442 \u0441 \u0442\u0430\u043A\u0438\u043C \u0438\u043C\u0435\u043D\u0435\u043C."
+                    "; \u0441\u0440\u0430\u0432\u043D\u0435\u043D\u0438\u0435 \u0440\u0435\u0433\u0438\u0441\u0442\u0440\u043E\u043D\u0435\u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0435). \u0422\u043E\u0447\u043A\u0430 \u0432 \u044F\u0447\u0435\u0439\u043A\u0435 \u2014 \u0443 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0435\u0441\u0442\u044C \u0430\u0442\u0440\u0438\u0431\u0443\u0442 \u0441 \u0442\u0430\u043A\u0438\u043C \u0438\u043C\u0435\u043D\u0435\u043C."
                   ] }),
-                  /* @__PURE__ */ jsxs69(HelpList, { children: [
-                    /* @__PURE__ */ jsxs69("li", { children: [
-                      /* @__PURE__ */ jsx72("strong", { children: "\u26A0 \u043D\u0430 \u0437\u0430\u0433\u043E\u043B\u043E\u0432\u043A\u0435 \u0441\u0442\u043E\u043B\u0431\u0446\u0430" }),
-                      " \u2014 \u0430\u0442\u0440\u0438\u0431\u0443\u0442 \u0441 \u0442\u0430\u043A\u0438\u043C \u0438\u043C\u0435\u043D\u0435\u043C \u0432\u0441\u0442\u0440\u0435\u0447\u0430\u0435\u0442\u0441\u044F \u0443 \u0440\u0430\u0437\u043D\u044B\u0445 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0441 ",
-                      /* @__PURE__ */ jsx72("em", { children: "\u0440\u0430\u0437\u043D\u044B\u043C\u0438" }),
-                      " ",
-                      "\u0442\u0438\u043F\u0430\u043C\u0438 \u0434\u0430\u043D\u043D\u044B\u0445. \u042D\u0442\u043E \u0438 \u0435\u0441\u0442\u044C \u0433\u043B\u0430\u0432\u043D\u044B\u0439 \u0441\u0438\u0433\u043D\u0430\u043B \u043C\u0430\u0442\u0440\u0438\u0446\u044B."
-                    ] }),
-                    /* @__PURE__ */ jsx72("li", { children: "\u0421\u0442\u0440\u043E\u043A\u0438 \u043E\u0442\u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u044B \u043F\u043E \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u0443 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 (\u0441\u0432\u0435\u0440\u0445\u0443 \u2014 \xAB\u0431\u043E\u0433\u0430\u0442\u044B\u0435\xBB \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438), \u0447\u0442\u043E\u0431\u044B \u043F\u0435\u0440\u0432\u044B\u043C\u0438 \u0431\u044B\u043B\u0438 \u0442\u0435, \u0443 \u043A\u043E\u0433\u043E \u0432\u0435\u0440\u043E\u044F\u0442\u043D\u0435\u0435 \u0432\u0441\u0435\u0433\u043E \u0435\u0441\u0442\u044C \u043E\u0431\u0449\u0438\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B." })
-                  ] })
-                ] }),
-                /* @__PURE__ */ jsxs69(HelpSection, { title: "\u0424\u0438\u043B\u044C\u0442\u0440 \xAB\u041C\u0438\u043D\u0438\u043C\u0443\u043C \u0443\u043F\u043E\u043C\u0438\u043D\u0430\u043D\u0438\u0439\xBB", children: [
-                  /* @__PURE__ */ jsx72(HelpText, { children: "\u0427\u0438\u0441\u043B\u043E\u0432\u043E\u0435 \u043F\u043E\u043B\u0435 \u043D\u0430\u0434 \u0442\u0430\u0431\u043B\u0438\u0446\u0435\u0439. \u0421\u043A\u0440\u044B\u0432\u0430\u0435\u0442 \u0441\u0442\u043E\u043B\u0431\u0446\u044B, \u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u0432\u0441\u0442\u0440\u0435\u0447\u0430\u044E\u0442\u0441\u044F \u043C\u0435\u043D\u044C\u0448\u0435 \u0447\u0435\u043C \u0443 \u0443\u043A\u0430\u0437\u0430\u043D\u043D\u043E\u0433\u043E \u0447\u0438\u0441\u043B\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439. \u0420\u0430\u0431\u043E\u0442\u0430\u0435\u0442 \u043A\u0430\u043A \u043D\u0438\u0436\u043D\u0438\u0439 \u043F\u043E\u0440\u043E\u0433 \xAB\u043F\u043E\u043F\u0443\u043B\u044F\u0440\u043D\u043E\u0441\u0442\u0438\xBB \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430." }),
-                  /* @__PURE__ */ jsxs69(HelpList, { children: [
-                    /* @__PURE__ */ jsxs69("li", { children: [
-                      /* @__PURE__ */ jsx72("strong", { children: "\u041F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E \u2014 2." }),
-                      " \u0410\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0441 \u0435\u0434\u0438\u043D\u0441\u0442\u0432\u0435\u043D\u043D\u044B\u043C \u0443\u043F\u043E\u043C\u0438\u043D\u0430\u043D\u0438\u0435\u043C (\u0441\u0438\u043D\u0433\u043B\u0442\u043E\u043D\u044B) \u0432 \u043C\u0430\u0442\u0440\u0438\u0446\u0443 \u043D\u0435 \u043F\u043E\u043F\u0430\u0434\u0430\u044E\u0442: \u0438\u043D\u0430\u0447\u0435 \u0442\u0430\u0431\u043B\u0438\u0446\u0430 \u0437\u0430\u0431\u0438\u0432\u0430\u0435\u0442\u0441\u044F \u0441\u043E\u0442\u043D\u044F\u043C\u0438 \u0443\u043D\u0438\u043A\u0430\u043B\u044C\u043D\u044B\u0445 \u043A\u043E\u043B\u043E\u043D\u043E\u043A, \u0438 \u043E\u0431\u0449\u0438\u0435 \u043F\u0430\u0442\u0442\u0435\u0440\u043D\u044B \u0443\u0442\u043E\u043D\u0443\u0442 \u0432 \u0448\u0443\u043C\u0435."
-                    ] }),
-                    /* @__PURE__ */ jsxs69("li", { children: [
-                      /* @__PURE__ */ jsx72("strong", { children: "\u0417\u043D\u0430\u0447\u0435\u043D\u0438\u0435 1" }),
-                      " \u2014 \u043F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0432\u043E\u043E\u0431\u0449\u0435 \u0432\u0441\u0451, \u0432\u043A\u043B\u044E\u0447\u0430\u044F \u0441\u0438\u043D\u0433\u043B\u0442\u043E\u043D\u044B. \u041F\u043E\u043B\u0435\u0437\u043D\u043E \u0434\u043B\u044F \u043F\u043E\u0438\u0441\u043A\u0430 \u043E\u043F\u0435\u0447\u0430\u0442\u043E\u043A: ",
-                      /* @__PURE__ */ jsx72("code", { children: "emial" }),
-                      " ",
-                      "vs ",
-                      /* @__PURE__ */ jsx72("code", { children: "email" }),
-                      " \u2014 \u043E\u0431\u0435 \u043A\u043E\u043B\u043E\u043D\u043A\u0438 \u0431\u0443\u0434\u0443\u0442 \u0432\u0438\u0434\u043D\u044B."
-                    ] }),
-                    /* @__PURE__ */ jsxs69("li", { children: [
-                      /* @__PURE__ */ jsx72("strong", { children: "\u0417\u043D\u0430\u0447\u0435\u043D\u0438\u0435 5\u201310" }),
-                      " \u2014 \u043E\u0441\u0442\u0430\u0432\u0438\u0442\u044C \u0442\u043E\u043B\u044C\u043A\u043E \xAB\u043F\u0430\u0442\u0442\u0435\u0440\u043D\u044B \u043C\u043E\u0434\u0435\u043B\u0438\xBB: \u043E\u0431\u0449\u0438\u0435 \u0438\u043C\u0435\u043D\u0430 \u0432\u0440\u043E\u0434\u0435 ",
-                      /* @__PURE__ */ jsx72("code", { children: "name" }),
-                      ",",
-                      " ",
-                      /* @__PURE__ */ jsx72("code", { children: "description" }),
-                      ", ",
-                      /* @__PURE__ */ jsx72("code", { children: "createdAt" }),
-                      ". \u0423\u0431\u0438\u0440\u0430\u0435\u0442 \u0448\u0443\u043C, \u043E\u0441\u0442\u0430\u0432\u043B\u044F\u0435\u0442 \u0441\u0443\u0442\u044C."
-                    ] }),
-                    /* @__PURE__ */ jsxs69("li", { children: [
-                      "\u041F\u043E\u043B\u0435 \u043F\u0440\u0438\u043D\u0438\u043C\u0430\u0435\u0442 ",
-                      /* @__PURE__ */ jsx72("strong", { children: "\u0446\u0435\u043B\u044B\u0435 \u043E\u0442 1 \u0434\u043E 20" }),
-                      ". \u0412\u044B\u0445\u043E\u0434 \u0437\u0430 \u043F\u0440\u0435\u0434\u0435\u043B\u044B \u043C\u043E\u043B\u0447\u0430 \u043E\u0431\u0440\u0435\u0437\u0430\u0435\u0442\u0441\u044F (\u043D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, 100 \u2192 20, 0 \u2192 1)."
-                    ] }),
-                    /* @__PURE__ */ jsxs69("li", { children: [
-                      "\u0421\u043A\u043E\u043B\u044C\u043A\u043E \u0441\u0438\u043D\u0433\u043B\u0442\u043E\u043D\u043E\u0432 \u0441\u043A\u0440\u044B\u0442\u043E \u2014 \u0432\u0438\u0434\u043D\u043E \u0432 \u043F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0435 \u0441\u043F\u0440\u0430\u0432\u0430 \u043E\u0442 \u043F\u043E\u043B\u044F:",
-                      " ",
-                      /* @__PURE__ */ jsx72("em", { children: "\xAB\u041E\u0434\u0438\u043D\u043E\u0447\u043D\u044B\u0445 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432: N\xBB" }),
-                      ". \u042D\u0442\u043E \u043F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0430 \xAB\u043C\u043E\u0436\u0435\u0442, \u0441\u0442\u043E\u0438\u0442 \u0441\u043D\u0438\u0437\u0438\u0442\u044C \u043F\u043E\u0440\u043E\u0433 \u0434\u043E 1\xBB."
-                    ] })
-                  ] })
-                ] }),
-                /* @__PURE__ */ jsxs69(HelpSection, { title: "\u0413\u0430\u043B\u043E\u0447\u043A\u0430 \xAB\u0422\u043E\u043B\u044C\u043A\u043E \u0441 \u0440\u0430\u0437\u043D\u044B\u043C\u0438 \u0442\u0438\u043F\u0430\u043C\u0438\xBB", children: [
                   /* @__PURE__ */ jsxs69(HelpText, { children: [
-                    "\u041E\u0441\u0442\u0430\u0432\u043B\u044F\u0435\u0442 \u0432 \u0442\u0430\u0431\u043B\u0438\u0446\u0435 \u0442\u043E\u043B\u044C\u043A\u043E \u0442\u0435 \u0441\u0442\u043E\u043B\u0431\u0446\u044B, \u0433\u0434\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442 \u0441 \u043E\u0434\u043D\u0438\u043C \u0438 \u0442\u0435\u043C \u0436\u0435 \u0438\u043C\u0435\u043D\u0435\u043C \u0432\u0441\u0442\u0440\u0435\u0447\u0430\u0435\u0442\u0441\u044F \u0443 \u0440\u0430\u0437\u043D\u044B\u0445 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0441 ",
-                    /* @__PURE__ */ jsx72("strong", { children: "\u0440\u0430\u0437\u043D\u044B\u043C\u0438" }),
+                    "\u0413\u043B\u0430\u0432\u043D\u044B\u0439 \u0441\u0438\u0433\u043D\u0430\u043B \u2014 ",
+                    /* @__PURE__ */ jsx72("strong", { children: "\u043D\u0435\u043A\u043E\u043D\u0441\u0438\u0441\u0442\u0435\u043D\u0442\u043D\u043E\u0441\u0442\u044C" }),
+                    ": \u0430\u0442\u0440\u0438\u0431\u0443\u0442 \u0441 \u043E\u0434\u0438\u043D\u0430\u043A\u043E\u0432\u044B\u043C \u0438\u043C\u0435\u043D\u0435\u043C \u0432\u0441\u0442\u0440\u0435\u0447\u0430\u0435\u0442\u0441\u044F \u0443 \u0440\u0430\u0437\u043D\u044B\u0445 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0441 \u0440\u0430\u0437\u043D\u044B\u043C\u0438 ",
+                    /* @__PURE__ */ jsx72("code", { children: "dataType" }),
+                    ". \u042D\u0442\u043E \u0438 \u0435\u0441\u0442\u044C \u0438\u0441\u0442\u043E\u0447\u043D\u0438\u043A \u0431\u0430\u0433\u043E\u0432 \u0441\u043E\u0432\u043C\u0435\u0441\u0442\u0438\u043C\u043E\u0441\u0442\u0438."
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxs69(HelpSection, { title: "\u0426\u0432\u0435\u0442\u0430 \u044F\u0447\u0435\u0435\u043A", children: [
+                  /* @__PURE__ */ jsx72(HelpList, { children: Object.entries(CATEGORY_COLORS).map(([cat, color]) => /* @__PURE__ */ jsxs69("li", { children: [
+                    /* @__PURE__ */ jsx72(
+                      "span",
+                      {
+                        className: "attribute-matrix-color-dot",
+                        style: { background: color }
+                      }
+                    ),
+                    " ",
+                    /* @__PURE__ */ jsx72("strong", { children: CATEGORY_LABELS3[cat] || cat })
+                  ] }, cat)) }),
+                  /* @__PURE__ */ jsxs69(HelpText, { children: [
+                    "\u0426\u0432\u0435\u0442 \u2014 \u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F ",
+                    /* @__PURE__ */ jsx72("code", { children: "dataType" }),
+                    ". ",
+                    /* @__PURE__ */ jsx72("strong", { children: "\u041E\u0434\u0438\u043D\u0430\u043A\u043E\u0432\u044B\u0439 \u0446\u0432\u0435\u0442" }),
+                    " \u0432 \u0441\u0442\u043E\u043B\u0431\u0446\u0435 = \u043A\u043E\u043D\u0441\u0438\u0441\u0442\u0435\u043D\u0442\u043D\u044B\u0439 \u0442\u0438\u043F.",
+                    " ",
+                    /* @__PURE__ */ jsx72("strong", { children: "\u0420\u0430\u0437\u043D\u044B\u0435 \u0446\u0432\u0435\u0442\u0430" }),
+                    " \u0432 \u043E\u0434\u043D\u043E\u043C \u0441\u0442\u043E\u043B\u0431\u0446\u0435 = \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0430, \u0432\u0438\u0434\u043D\u0430 \u0441\u0440\u0430\u0437\u0443, \u0431\u0435\u0437 \u043D\u0430\u0432\u0435\u0434\u0435\u043D\u0438\u044F."
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsx72(HelpSection, { title: "\u0421\u0442\u043E\u043B\u0431\u0446\u044B", children: /* @__PURE__ */ jsxs69(HelpList, { children: [
+                  /* @__PURE__ */ jsxs69("li", { children: [
+                    /* @__PURE__ */ jsx72("strong", { children: "\u0417\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A" }),
+                    " \u2014 \u0438\u043C\u044F \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430 + \u0434\u043E\u043C\u0438\u043D\u0438\u0440\u0443\u044E\u0449\u0438\u0439 \u0442\u0438\u043F (\u043C\u0430\u043B\u0435\u043D\u044C\u043A\u0438\u043C \u0448\u0440\u0438\u0444\u0442\u043E\u043C) + \u0441\u0447\u0451\u0442\u0447\u0438\u043A",
+                    " ",
+                    /* @__PURE__ */ jsx72("code", { children: "N/M" }),
+                    " (\u0443 \u0441\u043A\u043E\u043B\u044C\u043A\u0438\u0445 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0438\u0437 M \u0435\u0441\u0442\u044C \u0430\u0442\u0440\u0438\u0431\u0443\u0442)."
+                  ] }),
+                  /* @__PURE__ */ jsxs69("li", { children: [
+                    /* @__PURE__ */ jsx72("strong", { children: "\u26A0 \u043D\u0430 \u0437\u0430\u0433\u043E\u043B\u043E\u0432\u043A\u0435" }),
+                    " \u2014 \u0430\u0442\u0440\u0438\u0431\u0443\u0442 \u0432\u0441\u0442\u0440\u0435\u0447\u0430\u0435\u0442\u0441\u044F \u0441 \u0440\u0430\u0437\u043D\u044B\u043C\u0438 ",
+                    /* @__PURE__ */ jsx72("code", { children: "dataType" }),
+                    ". \u0413\u043B\u0430\u0432\u043D\u044B\u0439 \u0441\u0438\u0433\u043D\u0430\u043B \u043C\u0430\u0442\u0440\u0438\u0446\u044B."
+                  ] }),
+                  /* @__PURE__ */ jsxs69("li", { children: [
+                    /* @__PURE__ */ jsx72("strong", { children: "\u041A\u043B\u0438\u043A \u043F\u043E \u0437\u0430\u0433\u043E\u043B\u043E\u0432\u043A\u0443" }),
+                    " \u2014 \u0434\u0435\u0442\u0430\u043B\u0438: \u0440\u0430\u0441\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u0438\u0435 \u0442\u0438\u043F\u043E\u0432, constraints, readonly, \u0434\u043E\u043C\u0435\u043D\u044B, \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u043D\u0438\u0435 \u0432 views. \u041A\u043D\u043E\u043F\u043A\u0430 \xAB\u0422\u043E\u043B\u044C\u043A\u043E \u0441 \u044D\u0442\u0438\u043C \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u043C\xBB \u2014 \u0444\u0438\u043B\u044C\u0442\u0440 \u0441\u0442\u0440\u043E\u043A."
+                  ] })
+                ] }) }),
+                /* @__PURE__ */ jsx72(HelpSection, { title: "\u0421\u0442\u0440\u043E\u043A\u0438", children: /* @__PURE__ */ jsxs69(HelpList, { children: [
+                  /* @__PURE__ */ jsxs69("li", { children: [
+                    /* @__PURE__ */ jsx72("strong", { children: "\u0418\u043C\u044F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438" }),
+                    " + \u0434\u043E\u043C\u0435\u043D + \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432. \u041A\u043B\u0438\u043A \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435."
+                  ] }),
+                  /* @__PURE__ */ jsx72("li", { children: "\u0421\u0442\u0440\u043E\u043A\u0438 \u043E\u0442\u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u044B \u043F\u043E \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u0443 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u2014 \xAB\u0431\u043E\u0433\u0430\u0442\u044B\u0435\xBB \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0441\u0432\u0435\u0440\u0445\u0443, \u0443 \u043D\u0438\u0445 \u0431\u043E\u043B\u044C\u0448\u0435 \u0448\u0430\u043D\u0441\u043E\u0432 \u0438\u043C\u0435\u0442\u044C \u043E\u0431\u0449\u0438\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B." })
+                ] }) }),
+                /* @__PURE__ */ jsx72(HelpSection, { title: "\u042F\u0447\u0435\u0439\u043A\u0438", children: /* @__PURE__ */ jsxs69(HelpList, { children: [
+                  /* @__PURE__ */ jsxs69("li", { children: [
+                    /* @__PURE__ */ jsx72("strong", { children: "\u0426\u0432\u0435\u0442" }),
+                    " \u2014 \u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F ",
+                    /* @__PURE__ */ jsx72("code", { children: "dataType" }),
+                    " ",
+                    "(\u0441\u043C. \u043B\u0435\u0433\u0435\u043D\u0434\u0443 \u0432\u044B\u0448\u0435)."
+                  ] }),
+                  /* @__PURE__ */ jsxs69("li", { children: [
+                    /* @__PURE__ */ jsx72("strong", { children: "\u0422\u043E\u0447\u043A\u0430" }),
+                    " \u2014 \u0430\u0442\u0440\u0438\u0431\u0443\u0442 \u043F\u0440\u0438\u0441\u0443\u0442\u0441\u0442\u0432\u0443\u0435\u0442. \u041D\u0430\u0432\u0435\u0434\u0435\u043D\u0438\u0435 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 \u0442\u043E\u0447\u043D\u044B\u0439 \u0442\u0438\u043F, constraints \u0438 readonly."
+                  ] }),
+                  /* @__PURE__ */ jsxs69("li", { children: [
+                    /* @__PURE__ */ jsx72("strong", { children: "\u041C\u0430\u0440\u043A\u0435\u0440 \u26A0" }),
+                    " \u2014 \u0442\u0438\u043F \u0432 \u044D\u0442\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u043E\u0442\u043B\u0438\u0447\u0430\u0435\u0442\u0441\u044F \u043E\u0442 \u0434\u043E\u043C\u0438\u043D\u0438\u0440\u0443\u044E\u0449\u0435\u0433\u043E \u0432 \u0441\u0442\u043E\u043B\u0431\u0446\u0435."
+                  ] }),
+                  /* @__PURE__ */ jsxs69("li", { children: [
+                    /* @__PURE__ */ jsx72("strong", { children: "\u041A\u043B\u0438\u043A" }),
+                    " \u2014 \u0434\u0435\u0442\u0430\u043B\u0438: \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0439",
                     " ",
                     /* @__PURE__ */ jsx72("code", { children: "dataType" }),
-                    ". \u0412\u0441\u0451, \u0447\u0442\u043E \u043A\u043E\u043D\u0441\u0438\u0441\u0442\u0435\u043D\u0442\u043D\u043E, \u0441\u043A\u0440\u044B\u0432\u0430\u0435\u0442\u0441\u044F."
-                  ] }),
+                    ", constraints, readonly, \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u043B\u0438 \u0432 views, \u0432\u043B\u043E\u0436\u0435\u043D\u043D\u044B\u0439 \u043B\u0438."
+                  ] })
+                ] }) }),
+                /* @__PURE__ */ jsxs69(HelpSection, { title: "Quick filters", children: [
+                  /* @__PURE__ */ jsx72(HelpText, { children: "Chips \u043F\u043E\u0434 \u043F\u043E\u0438\u0441\u043A\u043E\u043C \u0444\u0438\u043B\u044C\u0442\u0440\u0443\u044E\u0442 \u0441\u0442\u043E\u043B\u0431\u0446\u044B. \u0420\u0430\u0431\u043E\u0442\u0430\u044E\u0442 \u043F\u043E AND. \u0421\u043A\u0440\u044B\u0442\u044B, \u0435\u0441\u043B\u0438 \u043D\u0435\u0442 \u0441\u043E\u0432\u043F\u0430\u0434\u0435\u043D\u0438\u0439 \u2014 \u043D\u0435 \u0437\u0430\u0441\u043E\u0440\u044F\u044E\u0442 \u0438\u043D\u0442\u0435\u0440\u0444\u0435\u0439\u0441." }),
                   /* @__PURE__ */ jsxs69(HelpList, { children: [
                     /* @__PURE__ */ jsxs69("li", { children: [
-                      /* @__PURE__ */ jsx72("strong", { children: "\u0426\u0438\u0444\u0440\u0430 \u0432 \u0431\u0435\u0439\u0434\u0436\u0435" }),
-                      " \u0440\u044F\u0434\u043E\u043C \u0441 \u0433\u0430\u043B\u043E\u0447\u043A\u043E\u0439 \u2014 \u043E\u0431\u0449\u0435\u0435 \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E \u0442\u0430\u043A\u0438\u0445 \xAB\u043D\u0435\u043A\u043E\u043D\u0441\u0438\u0441\u0442\u0435\u043D\u0442\u043D\u044B\u0445\xBB \u043A\u043E\u043B\u043E\u043D\u043E\u043A (\u0441\u043E\u0432\u043F\u0430\u0434\u0430\u0435\u0442 \u0441",
+                      /* @__PURE__ */ jsx72("strong", { children: "\u0421 \u0440\u0430\u0437\u043D\u044B\u043C\u0438 \u0442\u0438\u043F\u0430\u043C\u0438" }),
+                      " \u2014 \u0433\u043B\u0430\u0432\u043D\u044B\u0439 \u0444\u0438\u043B\u044C\u0442\u0440 \u043C\u0430\u0442\u0440\u0438\u0446\u044B. \u041F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u0441\u0442\u043E\u043B\u0431\u0446\u044B \u0441 \u043D\u0435\u043A\u043E\u043D\u0441\u0438\u0441\u0442\u0435\u043D\u0442\u043D\u044B\u043C",
                       " ",
-                      /* @__PURE__ */ jsx72("code", { children: "matrix.stats.inconsistentTypes.length" }),
-                      "). \u0411\u0435\u0439\u0434\u0436 \u0432\u0438\u0434\u0435\u043D, \u0434\u0430\u0436\u0435 \u043A\u043E\u0433\u0434\u0430 \u0433\u0430\u043B\u043E\u0447\u043A\u0430 \u043D\u0435 \u043D\u0430\u0436\u0430\u0442\u0430, \u2014 \u0447\u0442\u043E\u0431\u044B \u0432\u044B \u0437\u043D\u0430\u043B\u0438, \xAB\u0435\u0441\u0442\u044C \u043B\u0438 \u0447\u0442\u043E \u0438\u0441\u043A\u0430\u0442\u044C\xBB."
-                    ] }),
-                    /* @__PURE__ */ jsxs69("li", { children: [
-                      /* @__PURE__ */ jsx72("strong", { children: "\u041A\u0430\u043A \u043E\u043F\u0440\u0435\u0434\u0435\u043B\u044F\u0435\u0442\u0441\u044F \u0442\u0438\u043F:" }),
-                      " \u043F\u043E ",
                       /* @__PURE__ */ jsx72("code", { children: "dataType" }),
-                      " ",
-                      "\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430 (",
-                      /* @__PURE__ */ jsx72("code", { children: "String" }),
-                      ", ",
-                      /* @__PURE__ */ jsx72("code", { children: "Reference" }),
-                      ",",
-                      " ",
-                      /* @__PURE__ */ jsx72("code", { children: "enumSeverity" }),
-                      ", ",
-                      /* @__PURE__ */ jsx72("code", { children: "Table" }),
-                      " \u2026). \u0411\u0430\u0437\u043E\u0432\u044B\u0435 \u0438 \u043A\u0430\u0441\u0442\u043E\u043C\u043D\u044B\u0435 \u0442\u0438\u043F\u044B \u0441\u0440\u0430\u0432\u043D\u0438\u0432\u0430\u044E\u0442\u0441\u044F \u0432 \u043E\u0434\u043D\u043E\u043C \u043F\u0440\u043E\u0441\u0442\u0440\u0430\u043D\u0441\u0442\u0432\u0435 \u0438\u043C\u0451\u043D:",
-                      " ",
-                      /* @__PURE__ */ jsx72("code", { children: "String" }),
-                      " vs ",
-                      /* @__PURE__ */ jsx72("code", { children: "enumStatus" }),
-                      " \u2014 \u044D\u0442\u043E \u0440\u0430\u0437\u043D\u044B\u0435 \u0442\u0438\u043F\u044B, \u043A\u043E\u043B\u043E\u043D\u043A\u0430 \u043F\u043E\u043F\u0430\u0434\u0451\u0442 \u0432 \u0444\u0438\u043B\u044C\u0442\u0440."
+                      "."
                     ] }),
                     /* @__PURE__ */ jsxs69("li", { children: [
-                      /* @__PURE__ */ jsx72("strong", { children: "\u0417\u0430\u0447\u0435\u043C:" }),
-                      " \u044D\u0442\u043E \u0441\u0430\u043C\u044B\u0439 \u0431\u044B\u0441\u0442\u0440\u044B\u0439 \u0441\u043F\u043E\u0441\u043E\u0431 \u043D\u0430\u0439\u0442\u0438 \u0431\u0430\u0433\u0438 \u043A\u043E\u043D\u0441\u0438\u0441\u0442\u0435\u043D\u0442\u043D\u043E\u0441\u0442\u0438. \u041F\u0440\u0438\u043C\u0435\u0440: \u0430\u0442\u0440\u0438\u0431\u0443\u0442 ",
-                      /* @__PURE__ */ jsx72("code", { children: "status" }),
-                      " \u0443 15 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u2014 ",
-                      /* @__PURE__ */ jsx72("code", { children: "enumStatus" }),
-                      ", \u0430 \u0443 3 \u2014 ",
-                      /* @__PURE__ */ jsx72("code", { children: "String" }),
-                      ". \u0413\u0430\u043B\u043E\u0447\u043A\u0430 \u043F\u043E\u043A\u0430\u0436\u0435\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u044D\u0442\u0443 \u043A\u043E\u043B\u043E\u043D\u043A\u0443 \u2014 \u043E\u0441\u0442\u0430\u043B\u044C\u043D\u044B\u0435 199 \u0441\u0442\u043E\u043B\u0431\u0446\u043E\u0432 \u0443\u0439\u0434\u0443\u0442. \u0414\u0430\u043B\u044C\u0448\u0435 \u0447\u0438\u043D\u0438\u0442\u0435 3 \xAB\u0432\u044B\u043F\u0430\u0434\u0430\u044E\u0449\u0438\u0445\xBB \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438."
+                      /* @__PURE__ */ jsx72("strong", { children: "\u0420\u0430\u0437\u043D\u044B\u0439 readonly" }),
+                      " \u2014 \u0430\u0442\u0440\u0438\u0431\u0443\u0442 \u0433\u0434\u0435-\u0442\u043E read-only, \u0433\u0434\u0435-\u0442\u043E writable."
                     ] }),
                     /* @__PURE__ */ jsxs69("li", { children: [
-                      /* @__PURE__ */ jsx72("strong", { children: "\u0420\u0430\u0431\u043E\u0442\u0430\u0435\u0442 \u0432\u043C\u0435\u0441\u0442\u0435 \u0441 \xAB\u041C\u0438\u043D\u0438\u043C\u0443\u043C \u0443\u043F\u043E\u043C\u0438\u043D\u0430\u043D\u0438\u0439\xBB:" }),
-                      " ",
-                      "\u0441\u043D\u0430\u0447\u0430\u043B\u0430 \u043E\u0442\u0441\u0435\u043A\u0430\u044E\u0442\u0441\u044F \u0440\u0435\u0434\u043A\u0438\u0435 \u043A\u043E\u043B\u043E\u043D\u043A\u0438 (\u043F\u043E \u043F\u043E\u0440\u043E\u0433\u0443), \u043F\u043E\u0442\u043E\u043C \u2014 \u043A\u043E\u043D\u0441\u0438\u0441\u0442\u0435\u043D\u0442\u043D\u044B\u0435. \u041E\u0431\u0430 \u0444\u0438\u043B\u044C\u0442\u0440\u0430 \u043A\u043E\u043C\u0431\u0438\u043D\u0438\u0440\u0443\u044E\u0442\u0441\u044F \u043F\u043E AND."
+                      /* @__PURE__ */ jsx72("strong", { children: "\u0420\u0430\u0437\u043D\u044B\u0439 required" }),
+                      " \u2014 \u0433\u0434\u0435-\u0442\u043E \u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u044B\u0439, \u0433\u0434\u0435-\u0442\u043E \u043D\u0435\u0442."
                     ] }),
                     /* @__PURE__ */ jsxs69("li", { children: [
-                      /* @__PURE__ */ jsx72("strong", { children: "\u041F\u0443\u0441\u0442\u043E\u0439 \u0440\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442" }),
-                      " \u2014 \u043C\u043E\u0434\u0435\u043B\u044C \u043A\u043E\u043D\u0441\u0438\u0441\u0442\u0435\u043D\u0442\u043D\u0430 \u043F\u043E \u0432\u0441\u0435\u043C \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430\u043C \u0441 \u0442\u0430\u043A\u0438\u043C \u043F\u043E\u0440\u043E\u0433\u043E\u043C. \u0425\u043E\u0440\u043E\u0448\u0438\u0439 \u0437\u043D\u0430\u043A: \u0441\u043D\u0438\u0437\u044C\u0442\u0435 \u043F\u043E\u0440\u043E\u0433 \u0434\u043E 1, \u0447\u0442\u043E\u0431\u044B \u043F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u0441\u0438\u043D\u0433\u043B\u0442\u043E\u043D\u044B (\u0442\u0430\u043C \u0442\u0438\u043F \u043C\u043E\u0436\u0435\u0442 \u043E\u0442\u043B\u0438\u0447\u0430\u0442\u044C\u0441\u044F, \u043F\u043E\u0442\u043E\u043C\u0443 \u0447\u0442\u043E \u0432\u0441\u0435\u0433\u043E 2 \u0443\u043F\u043E\u043C\u0438\u043D\u0430\u043D\u0438\u044F \u0441 \u0440\u0430\u0437\u043D\u044B\u043C\u0438 \u0442\u0438\u043F\u0430\u043C\u0438)."
+                      /* @__PURE__ */ jsx72("strong", { children: "\u041D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u0432 views" }),
+                      " \u2014 \xAB\u043C\u0451\u0440\u0442\u0432\u044B\u0435\xBB \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B: \u043D\u0438 \u0432 \u043E\u0434\u043D\u043E\u043C \u0432\u0438\u0434\u0436\u0435\u0442\u0435 \u043D\u0435 \u043E\u0442\u043E\u0431\u0440\u0430\u0436\u0430\u044E\u0442\u0441\u044F."
+                    ] }),
+                    /* @__PURE__ */ jsxs69("li", { children: [
+                      /* @__PURE__ */ jsx72("strong", { children: "\u0412\u043B\u043E\u0436\u0435\u043D\u043D\u044B\u0435" }),
+                      " \u2014 \u043A\u043E\u043B\u043E\u043D\u043A\u0438 \u0442\u0430\u0431\u043B\u0438\u0446 (Table), \u043E\u043D\u0438 \u043F\u043E\u043C\u0435\u0447\u0435\u043D\u044B \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u043E."
                     ] })
                   ] })
                 ] }),
+                /* @__PURE__ */ jsxs69(HelpSection, { title: "\u041C\u0438\u043D\u0438\u043C\u0443\u043C \u0443\u043F\u043E\u043C\u0438\u043D\u0430\u043D\u0438\u0439", children: [
+                  /* @__PURE__ */ jsx72(HelpText, { children: "\u0427\u0438\u0441\u043B\u043E\u0432\u043E\u0435 \u043F\u043E\u043B\u0435. \u0421\u043A\u0440\u044B\u0432\u0430\u0435\u0442 \u0441\u0442\u043E\u043B\u0431\u0446\u044B, \u0432\u0441\u0442\u0440\u0435\u0447\u0430\u044E\u0449\u0438\u0435\u0441\u044F \u043C\u0435\u043D\u044C\u0448\u0435, \u0447\u0435\u043C \u0443 \u0443\u043A\u0430\u0437\u0430\u043D\u043D\u043E\u0433\u043E \u0447\u0438\u0441\u043B\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439." }),
+                  /* @__PURE__ */ jsxs69(HelpList, { children: [
+                    /* @__PURE__ */ jsxs69("li", { children: [
+                      /* @__PURE__ */ jsx72("strong", { children: "2 (\u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E)" }),
+                      " \u2014 \u0441\u0438\u043D\u0433\u043B\u0442\u043E\u043D\u044B (\u043E\u0434\u0438\u043D\u043E\u0447\u043D\u044B\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B) \u0441\u043A\u0440\u044B\u0442\u044B. \u0418\u043D\u0430\u0447\u0435 \u0442\u0430\u0431\u043B\u0438\u0446\u0430 \u0437\u0430\u0431\u0438\u0432\u0430\u0435\u0442\u0441\u044F \u0441\u043E\u0442\u043D\u044F\u043C\u0438 \u0443\u043D\u0438\u043A\u0430\u043B\u044C\u043D\u044B\u0445 \u043A\u043E\u043B\u043E\u043D\u043E\u043A."
+                    ] }),
+                    /* @__PURE__ */ jsxs69("li", { children: [
+                      /* @__PURE__ */ jsx72("strong", { children: "1" }),
+                      " \u2014 \u043F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0432\u0441\u0451, \u0432\u043A\u043B\u044E\u0447\u0430\u044F \u043E\u043F\u0435\u0447\u0430\u0442\u043A\u0438.",
+                      " ",
+                      /* @__PURE__ */ jsx72("code", { children: "emial" }),
+                      " vs ",
+                      /* @__PURE__ */ jsx72("code", { children: "email" }),
+                      " \u2014 \u043E\u0431\u0435 \u043A\u043E\u043B\u043E\u043D\u043A\u0438 \u0431\u0443\u0434\u0443\u0442 \u0432\u0438\u0434\u043D\u044B, \u043B\u0435\u0433\u043A\u043E \u0437\u0430\u043C\u0435\u0442\u0438\u0442\u044C \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0443."
+                    ] }),
+                    /* @__PURE__ */ jsxs69("li", { children: [
+                      /* @__PURE__ */ jsx72("strong", { children: "5\u201310" }),
+                      " \u2014 \u0442\u043E\u043B\u044C\u043A\u043E \xAB\u043F\u0430\u0442\u0442\u0435\u0440\u043D\u044B \u043C\u043E\u0434\u0435\u043B\u0438\xBB:",
+                      /* @__PURE__ */ jsx72("code", { children: "name" }),
+                      ", ",
+                      /* @__PURE__ */ jsx72("code", { children: "description" }),
+                      ",",
+                      " ",
+                      /* @__PURE__ */ jsx72("code", { children: "createdAt" }),
+                      "."
+                    ] })
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsx72(HelpSection, { title: "\u0421\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430", children: /* @__PURE__ */ jsxs69(HelpList, { children: [
+                  /* @__PURE__ */ jsxs69("li", { children: [
+                    /* @__PURE__ */ jsx72("strong", { children: "\u041F\u043E \u043F\u043E\u043F\u0443\u043B\u044F\u0440\u043D\u043E\u0441\u0442\u0438" }),
+                    " \u2014 \u0441\u0430\u043C\u044B\u0435 \u0447\u0430\u0441\u0442\u044B\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0441\u043B\u0435\u0432\u0430."
+                  ] }),
+                  /* @__PURE__ */ jsxs69("li", { children: [
+                    /* @__PURE__ */ jsx72("strong", { children: "\u0421\u043D\u0430\u0447\u0430\u043B\u0430 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0435" }),
+                    " \u2014 \u043D\u0435\u043A\u043E\u043D\u0441\u0438\u0441\u0442\u0435\u043D\u0442\u043D\u044B\u0435 \u0442\u0438\u043F\u044B \u0432\u043F\u0435\u0440\u0451\u0434."
+                  ] }),
+                  /* @__PURE__ */ jsxs69("li", { children: [
+                    /* @__PURE__ */ jsx72("strong", { children: "\u041F\u043E \u0438\u043C\u0435\u043D\u0438" }),
+                    " \u2014 \u0430\u043B\u0444\u0430\u0432\u0438\u0442\u043D\u044B\u0439 \u043F\u043E\u0440\u044F\u0434\u043E\u043A."
+                  ] }),
+                  /* @__PURE__ */ jsxs69("li", { children: [
+                    /* @__PURE__ */ jsx72("strong", { children: "\u041F\u043E \u0442\u0438\u043F\u0443" }),
+                    " \u2014 \u0441\u0433\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u043F\u043E",
+                    " ",
+                    /* @__PURE__ */ jsx72("code", { children: "dataType" }),
+                    "."
+                  ] })
+                ] }) }),
+                /* @__PURE__ */ jsx72(HelpSection, { title: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442 \u0438 \u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435", children: /* @__PURE__ */ jsxs69(HelpList, { children: [
+                  /* @__PURE__ */ jsxs69("li", { children: [
+                    /* @__PURE__ */ jsx72("strong", { children: "CSV" }),
+                    " \u2014 \u043C\u0430\u0442\u0440\u0438\u0446\u0430 \u0441 \u0442\u0438\u043F\u0430\u043C\u0438, constraints \u0438 readonly. \u0424\u0438\u043B\u044C\u0442\u0440\u044B \u043F\u0440\u0438\u043C\u0435\u043D\u044F\u044E\u0442\u0441\u044F."
+                  ] }),
+                  /* @__PURE__ */ jsxs69("li", { children: [
+                    /* @__PURE__ */ jsx72("strong", { children: "MD" }),
+                    " \u2014 Markdown-\u0442\u0430\u0431\u043B\u0438\u0446\u0430 \u0441 \u0442\u0438\u043F\u0430\u043C\u0438 \u0432 \u044F\u0447\u0435\u0439\u043A\u0430\u0445. \u0414\u043B\u044F \u043E\u0442\u0447\u0451\u0442\u043E\u0432 \u0438 PR-\u043E\u043F\u0438\u0441\u0430\u043D\u0438\u0439."
+                  ] })
+                ] }) }),
                 /* @__PURE__ */ jsx72(HelpSection, { title: "\u041E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F", children: /* @__PURE__ */ jsxs69(HelpList, { children: [
-                  /* @__PURE__ */ jsx72("li", { children: "\u041A\u043E\u043B\u043E\u043D\u043A\u0438 \u043E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u044B 40, \u0441\u0442\u0440\u043E\u043A\u0438 \u2014 100 (\u0442\u043E\u043F \u043F\u043E \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u0443 \u0443\u043F\u043E\u043C\u0438\u043D\u0430\u043D\u0438\u0439). \u0417\u0430\u0449\u0438\u0442\u0430 \u043E\u0442 \u0442\u043E\u0440\u043C\u043E\u0437\u043E\u0432 \u043D\u0430 \u0431\u043E\u043B\u044C\u0448\u0438\u0445 \u0434\u043E\u043C\u0435\u043D\u0430\u0445." }),
+                  /* @__PURE__ */ jsx72("li", { children: "\u041A\u043E\u043B\u043E\u043D\u043A\u0438 \u043E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u044B 40, \u0441\u0442\u0440\u043E\u043A\u0438 \u2014 100. \u0417\u0430\u0449\u0438\u0442\u0430 \u043E\u0442 \u0442\u043E\u0440\u043C\u043E\u0437\u043E\u0432 \u043D\u0430 \u0431\u043E\u043B\u044C\u0448\u0438\u0445 \u0434\u043E\u043C\u0435\u043D\u0430\u0445." }),
                   /* @__PURE__ */ jsxs69("li", { children: [
-                    "\u0412\u043B\u043E\u0436\u0435\u043D\u043D\u044B\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B ",
-                    /* @__PURE__ */ jsx72("code", { children: "Table" }),
-                    " \u043D\u0435 \u0443\u0447\u0430\u0441\u0442\u0432\u0443\u044E\u0442 \u0432 \u043C\u0430\u0442\u0440\u0438\u0446\u0435 \u2014 \u0441\u0440\u0430\u0432\u043D\u0438\u0432\u0430\u044E\u0442\u0441\u044F \u0442\u043E\u043B\u044C\u043A\u043E \u0432\u0435\u0440\u0445\u043D\u0435\u0443\u0440\u043E\u0432\u043D\u0435\u0432\u044B\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439. \u0414\u043B\u044F \u043A\u043E\u043B\u043E\u043D\u043E\u043A \u0442\u0430\u0431\u043B\u0438\u0446 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0439\u0442\u0435 \xAB\u041F\u043E\u0438\u0441\u043A \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432\xBB."
+                    "\u0412\u043B\u043E\u0436\u0435\u043D\u043D\u044B\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B Table \u0432\u043A\u043B\u044E\u0447\u0430\u044E\u0442\u0441\u044F \u0432 \u043C\u0430\u0442\u0440\u0438\u0446\u0443, \u043D\u043E",
+                    " ",
+                    /* @__PURE__ */ jsx72("code", { children: "usedInViews" }),
+                    " \u0434\u043B\u044F \u043D\u0438\u0445 \u043F\u043E\u0447\u0442\u0438 \u0432\u0441\u0435\u0433\u0434\u0430 0 \u2014 \u0432\u0438\u0434\u0436\u0435\u0442\u044B \u043E\u0431\u044B\u0447\u043D\u043E \u0441\u0441\u044B\u043B\u0430\u044E\u0442\u0441\u044F \u043D\u0430 \u0432\u0435\u0440\u0445\u043D\u0435\u0443\u0440\u043E\u0432\u043D\u0435\u0432\u044B\u0439 Table, \u0430 \u043D\u0435 \u043D\u0430 \u043A\u043E\u043B\u043E\u043D\u043A\u0438 \u0432\u043D\u0443\u0442\u0440\u0438."
                   ] }),
                   /* @__PURE__ */ jsxs69("li", { children: [
-                    "\u0424\u0438\u043B\u044C\u0442\u0440 \u043F\u043E \u0434\u043E\u043C\u0435\u043D\u0443 \u0441\u0443\u0436\u0430\u0435\u0442 \u0432\u044B\u0431\u043E\u0440\u043A\u0443. \u0427\u0442\u043E\u0431\u044B \u0441\u0440\u0430\u0432\u043D\u0438\u0442\u044C \u0434\u043E\u043C\u0435\u043D \u0441 \u0434\u0440\u0443\u0433\u0438\u043C\u0438 \u2014 \u043F\u0435\u0440\u0435\u043A\u043B\u044E\u0447\u0438\u0442\u0435 ",
-                    /* @__PURE__ */ jsx72("code", { children: "DomainCombobox" }),
-                    " \u0432 \xAB\u0412\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B\xBB."
-                  ] }),
-                  /* @__PURE__ */ jsx72("li", { children: "\u0421\u0438\u043D\u0433\u043B\u0442\u043E\u043D\u044B (\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0441 \u043E\u0434\u043D\u0438\u043C \u0443\u043F\u043E\u043C\u0438\u043D\u0430\u043D\u0438\u0435\u043C) \u0432 \u043C\u0430\u0442\u0440\u0438\u0446\u0443 \u043D\u0435 \u043F\u043E\u043F\u0430\u0434\u0430\u044E\u0442 \u043D\u0438 \u043F\u0440\u0438 \u043A\u0430\u043A\u0438\u0445 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0430\u0445: \u0432 \u043E\u0434\u043D\u043E\u043C \u0441\u0442\u043E\u043B\u0431\u0446\u0435 \u0432\u0441\u0435\u0433\u0434\u0430 \u0431\u0443\u0434\u0435\u0442 \u043E\u0434\u043D\u0430 \u0442\u043E\u0447\u043A\u0430, \u0447\u0442\u043E \u0431\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u043E. \u0418\u0445 \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E \u0432\u0438\u0434\u043D\u043E \u0432 \u043F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0435 \u043F\u043E\u0434 \u0444\u0438\u043B\u044C\u0442\u0440\u043E\u043C." })
+                    "\u0421\u0440\u0430\u0432\u043D\u0435\u043D\u0438\u0435 \u043F\u043E \u0438\u043C\u0435\u043D\u0438, \u043D\u0435 \u043F\u043E \u0441\u0435\u043C\u0430\u043D\u0442\u0438\u043A\u0435. \u0414\u0432\u0430 \u0440\u0430\u0437\u043D\u044B\u0445",
+                    " ",
+                    /* @__PURE__ */ jsx72("code", { children: "name" }),
+                    " (\u0432 \u0440\u0430\u0437\u043D\u044B\u0445 \u0434\u043E\u043C\u0435\u043D\u0430\u0445) \u043C\u043E\u0433\u0443\u0442 \u043E\u0437\u043D\u0430\u0447\u0430\u0442\u044C \u0441\u043E\u0432\u0435\u0440\u0448\u0435\u043D\u043D\u043E \u0440\u0430\u0437\u043D\u043E\u0435 \u2014 \u044D\u0442\u043E \u043D\u0435 \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442\u0441\u044F."
+                  ] })
                 ] }) })
               ] }),
               /* @__PURE__ */ jsxs69("div", { className: "attribute-matrix-toolbar", children: [
@@ -23831,7 +27100,7 @@ function AttributeMatrixModal() {
                     }
                   ),
                   /* @__PURE__ */ jsxs69("label", { className: "entity-matrix-filter", children: [
-                    /* @__PURE__ */ jsx72("span", { children: "\u041C\u0438\u043D\u0438\u043C\u0443\u043C \u0443\u043F\u043E\u043C\u0438\u043D\u0430\u043D\u0438\u0439:" }),
+                    /* @__PURE__ */ jsx72("span", { children: "\u041C\u0438\u043D\u0438\u043C\u0443\u043C:" }),
                     /* @__PURE__ */ jsx72(
                       "input",
                       {
@@ -23839,72 +27108,563 @@ function AttributeMatrixModal() {
                         min: 1,
                         max: 20,
                         value: minOccurrences,
-                        onChange: (e) => setMinOccurrences(Math.max(1, parseInt(e.target.value, 10) || 1)),
+                        onChange: (e) => setMinOccurrences(
+                          Math.max(1, parseInt(e.target.value, 10) || 1)
+                        ),
                         style: { width: 60 }
                       }
                     )
                   ] }),
-                  /* @__PURE__ */ jsxs69("label", { className: "entity-graph-toggle", children: [
+                  /* @__PURE__ */ jsxs69("label", { className: "entity-matrix-filter", children: [
+                    /* @__PURE__ */ jsx72("span", { children: "\u0421\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430:" }),
+                    /* @__PURE__ */ jsx72(
+                      "select",
+                      {
+                        value: sortBy,
+                        onChange: (e) => setSortBy(e.target.value),
+                        children: SORT_OPTIONS2.map((o) => /* @__PURE__ */ jsx72("option", { value: o.value, children: o.label }, o.value))
+                      }
+                    )
+                  ] }),
+                  /* @__PURE__ */ jsxs69("div", { className: "attribute-matrix-search", children: [
+                    /* @__PURE__ */ jsx72(MIcon, { name: "search", size: "sm" }),
                     /* @__PURE__ */ jsx72(
                       "input",
                       {
-                        type: "checkbox",
-                        checked: onlyInconsistent,
-                        onChange: () => setOnlyInconsistent(!onlyInconsistent)
+                        type: "text",
+                        placeholder: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442 \u0438\u043B\u0438 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C\u2026",
+                        value: searchQuery,
+                        onChange: (e) => setSearchQuery(e.target.value),
+                        spellCheck: false
                       }
                     ),
-                    "\u0422\u043E\u043B\u044C\u043A\u043E \u0441 \u0440\u0430\u0437\u043D\u044B\u043C\u0438 \u0442\u0438\u043F\u0430\u043C\u0438",
-                    matrix.stats.inconsistentTypes.length > 0 && /* @__PURE__ */ jsx72("span", { className: "attribute-matrix-badge", children: matrix.stats.inconsistentTypes.length })
-                  ] })
-                ] }),
-                /* @__PURE__ */ jsx72("div", { className: "attribute-matrix-toolbar__stats", children: matrix.stats.singletons.length > 0 && /* @__PURE__ */ jsxs69("span", { className: "attribute-matrix-hint", children: [
-                  "\u041E\u0434\u0438\u043D\u043E\u0447\u043D\u044B\u0445 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432: ",
-                  matrix.stats.singletons.length
-                ] }) })
-              ] }),
-              visibleColumns.length === 0 ? /* @__PURE__ */ jsx72("div", { className: "entity-matrix-empty", children: "\u041D\u0435\u0442 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432, \u0443\u0434\u043E\u0432\u043B\u0435\u0442\u0432\u043E\u0440\u044F\u044E\u0449\u0438\u0445 \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u043C" }) : /* @__PURE__ */ jsx72("div", { className: "attribute-matrix-scroll", children: /* @__PURE__ */ jsxs69("table", { className: "attribute-matrix-table", children: [
-                /* @__PURE__ */ jsx72("thead", { children: /* @__PURE__ */ jsxs69("tr", { children: [
-                  /* @__PURE__ */ jsx72("th", { className: "attribute-matrix-corner", children: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C" }),
-                  visibleColumns.map((col) => /* @__PURE__ */ jsxs69(
-                    "th",
-                    {
-                      className: "attribute-matrix-col-head" + (!col.consistentType ? " inconsistent" : ""),
-                      title: col.dataTypes.join(", ") + "\n\u0432\u0441\u0442\u0440\u0435\u0447\u0430\u0435\u0442\u0441\u044F \u0443 " + col.count + " \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439",
-                      children: [
-                        /* @__PURE__ */ jsx72("span", { className: "attribute-matrix-col-head__text", children: col.label }),
-                        !col.consistentType && /* @__PURE__ */ jsx72("span", { className: "attribute-matrix-col-head__warn", children: "\u26A0" })
-                      ]
-                    },
-                    col.key
-                  ))
-                ] }) }),
-                /* @__PURE__ */ jsx72("tbody", { children: matrix.rows.map((row) => /* @__PURE__ */ jsxs69("tr", { children: [
+                    searchQuery && /* @__PURE__ */ jsx72(
+                      "button",
+                      {
+                        className: "attribute-matrix-search__clear",
+                        onClick: () => setSearchQuery(""),
+                        children: "\u2715"
+                      }
+                    )
+                  ] }),
                   /* @__PURE__ */ jsxs69(
-                    "th",
+                    "button",
                     {
-                      className: "attribute-matrix-row-head",
-                      title: row.entityFqid,
-                      onClick: () => openEntity(row.entityFqid),
+                      className: "btn",
+                      onClick: handleExportCSV,
+                      disabled: visibleColumns.length === 0,
+                      title: "\u0421\u043A\u0430\u0447\u0430\u0442\u044C \u0432 CSV",
                       children: [
-                        /* @__PURE__ */ jsx72("span", { className: "attribute-matrix-row-head__id", children: row.entityId }),
-                        /* @__PURE__ */ jsx72("span", { className: "attribute-matrix-row-head__domain", children: row.domainId })
+                        /* @__PURE__ */ jsx72(MIcon, { name: "download", size: "sm" }),
+                        "CSV"
                       ]
                     }
                   ),
-                  visibleColumns.map((col) => {
-                    const has = row.present.has(col.key);
-                    return /* @__PURE__ */ jsx72(
-                      "td",
+                  /* @__PURE__ */ jsxs69(
+                    "button",
+                    {
+                      className: "btn",
+                      onClick: handleCopyMarkdown,
+                      disabled: visibleColumns.length === 0,
+                      title: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0432 Markdown",
+                      children: [
+                        /* @__PURE__ */ jsx72(MIcon, { name: "content_copy", size: "sm" }),
+                        "MD"
+                      ]
+                    }
+                  ),
+                  (searchQuery || quickFilters.size > 0 || filterByColumn) && /* @__PURE__ */ jsx72(
+                    "button",
+                    {
+                      className: "btn",
+                      onClick: resetAll,
+                      title: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0432\u0441\u0435 \u0444\u0438\u043B\u044C\u0442\u0440\u044B",
+                      children: /* @__PURE__ */ jsx72(MIcon, { name: "filter_alt_off", size: "sm" })
+                    }
+                  )
+                ] }),
+                /* @__PURE__ */ jsxs69("div", { className: "attribute-matrix-quick-filters", children: [
+                  QUICK_FILTERS2.map((f) => {
+                    const active = quickFilters.has(f.id);
+                    const count = matrix.columns.filter(f.test).length;
+                    if (!active && count === 0)
+                      return null;
+                    return /* @__PURE__ */ jsxs69(
+                      "button",
                       {
-                        className: "attribute-matrix-cell" + (has ? " present" : ""),
-                        title: has ? `\u0435\u0441\u0442\u044C ${col.label}` : "",
-                        children: has && /* @__PURE__ */ jsx72("span", { className: "attribute-matrix-cell__dot" })
+                        type: "button",
+                        className: "health-quick-filter" + (active ? " health-quick-filter--active" : ""),
+                        onClick: () => toggleQuickFilter(f.id),
+                        title: `\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0442\u043E\u043B\u044C\u043A\u043E: ${f.label.toLowerCase()}`,
+                        children: [
+                          /* @__PURE__ */ jsx72(MIcon, { name: f.icon, size: "sm" }),
+                          f.label,
+                          /* @__PURE__ */ jsx72("span", { className: "health-quick-filter__count", children: count })
+                        ]
+                      },
+                      f.id
+                    );
+                  }),
+                  filterByColumn && /* @__PURE__ */ jsxs69(
+                    "button",
+                    {
+                      type: "button",
+                      className: "health-quick-filter health-quick-filter--active",
+                      onClick: () => setFilterByColumn(null),
+                      title: "\u0423\u0431\u0440\u0430\u0442\u044C \u0444\u0438\u043B\u044C\u0442\u0440 \u043F\u043E \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0443",
+                      children: [
+                        /* @__PURE__ */ jsx72(MIcon, { name: "filter_alt", size: "sm" }),
+                        "\u0422\u043E\u043B\u044C\u043A\u043E \u0441 \xAB",
+                        filterByColumn,
+                        "\xBB",
+                        /* @__PURE__ */ jsx72("span", { className: "health-quick-filter__count", children: "\u2715" })
+                      ]
+                    }
+                  )
+                ] })
+              ] }),
+              searchNotInMatrix && /* @__PURE__ */ jsxs69("div", { className: "attribute-matrix-search-hint", children: [
+                /* @__PURE__ */ jsx72(MIcon, { name: "info", size: "sm" }),
+                /* @__PURE__ */ jsxs69("span", { children: [
+                  "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C",
+                  " ",
+                  /* @__PURE__ */ jsx72("code", { children: shortLabel2(searchNotInMatrix) }),
+                  " \u043D\u0435 \u043F\u043E\u043F\u0430\u043B\u0430 \u0432 \u043C\u0430\u0442\u0440\u0438\u0446\u0443 (\u0442\u043E\u043F-100 \u043F\u043E \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u0443 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432).",
+                  " ",
+                  /* @__PURE__ */ jsx72(
+                    "button",
+                    {
+                      className: "attribute-matrix-search-hint__btn",
+                      onClick: () => openEntity(searchNotInMatrix),
+                      children: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435"
+                    }
+                  )
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxs69("div", { className: "attribute-matrix-legend", children: [
+                Object.entries(CATEGORY_COLORS).map(([cat, color]) => {
+                  const count = visibleColumns.filter(
+                    (c) => categoryOf(c.dominantType || "") === cat
+                  ).length;
+                  if (count === 0)
+                    return null;
+                  return /* @__PURE__ */ jsxs69(
+                    "span",
+                    {
+                      className: "attribute-matrix-legend-item",
+                      title: CATEGORY_LABELS3[cat],
+                      children: [
+                        /* @__PURE__ */ jsx72(
+                          "span",
+                          {
+                            className: "attribute-matrix-legend-dot",
+                            style: { background: color }
+                          }
+                        ),
+                        cat,
+                        /* @__PURE__ */ jsx72("span", { className: "attribute-matrix-legend-count", children: count })
+                      ]
+                    },
+                    cat
+                  );
+                }),
+                /* @__PURE__ */ jsx72("span", { className: "attribute-matrix-legend-spacer" }),
+                matrix.stats.requiredEverywhere > 0 && /* @__PURE__ */ jsxs69(
+                  "span",
+                  {
+                    className: "attribute-matrix-legend-item",
+                    title: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u044B, \u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u044B\u0435 \u0432\u043E \u0432\u0441\u0435\u0445 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u0445",
+                    children: [
+                      /* @__PURE__ */ jsx72(MIcon, { name: "star", size: "sm" }),
+                      "Required \u0432\u0435\u0437\u0434\u0435",
+                      /* @__PURE__ */ jsx72("span", { className: "attribute-matrix-legend-count", children: matrix.stats.requiredEverywhere })
+                    ]
+                  }
+                ),
+                matrix.stats.unusedInViews > 0 && /* @__PURE__ */ jsxs69(
+                  "span",
+                  {
+                    className: "attribute-matrix-legend-item attribute-matrix-legend-item--warn",
+                    title: "\u041D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u044E\u0442\u0441\u044F \u043D\u0438 \u0432 \u043E\u0434\u043D\u043E\u043C view",
+                    children: [
+                      /* @__PURE__ */ jsx72(MIcon, { name: "visibility_off", size: "sm" }),
+                      "\u041C\u0451\u0440\u0442\u0432\u044B\u0435",
+                      /* @__PURE__ */ jsx72("span", { className: "attribute-matrix-legend-count", children: matrix.stats.unusedInViews })
+                    ]
+                  }
+                )
+              ] }),
+              visibleColumns.length === 0 ? /* @__PURE__ */ jsxs69("div", { className: "attribute-matrix-empty", children: [
+                matrix.columns.length === 0 ? "\u041D\u0435\u0442 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432, \u0443\u0434\u043E\u0432\u043B\u0435\u0442\u0432\u043E\u0440\u044F\u044E\u0449\u0438\u0445 \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u043C" : "\u041D\u0438 \u043E\u0434\u043D\u0430 \u043A\u043E\u043B\u043E\u043D\u043A\u0430 \u043D\u0435 \u043F\u0440\u043E\u0445\u043E\u0434\u0438\u0442 \u0444\u0438\u043B\u044C\u0442\u0440",
+                matrix.stats.singletons.length > 0 && /* @__PURE__ */ jsxs69("div", { className: "attribute-matrix-empty-hint", children: [
+                  "\u041E\u0434\u0438\u043D\u043E\u0447\u043D\u044B\u0445 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 (\u0432\u0441\u0442\u0440\u0435\u0447\u0430\u044E\u0442\u0441\u044F 1 \u0440\u0430\u0437):",
+                  " ",
+                  /* @__PURE__ */ jsx72("strong", { children: matrix.stats.singletons.length }),
+                  ". \u0421\u043D\u0438\u0437\u044C\u0442\u0435 \xAB\u041C\u0438\u043D\u0438\u043C\u0443\u043C\xBB \u0434\u043E 1, \u0447\u0442\u043E\u0431\u044B \u0443\u0432\u0438\u0434\u0435\u0442\u044C \u0438\u0445."
+                ] })
+              ] }) : visibleRows.length === 0 ? /* @__PURE__ */ jsx72("div", { className: "attribute-matrix-empty", children: searchEntityMatch ? `\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C ${shortLabel2(searchEntityMatch)} \u043D\u0435 \u0438\u043C\u0435\u0435\u0442 \u043D\u0438 \u043E\u0434\u043D\u043E\u0433\u043E \u0438\u0437 \u0432\u0438\u0434\u0438\u043C\u044B\u0445 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432` : "\u041D\u0435\u0442 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439, \u0443\u0434\u043E\u0432\u043B\u0435\u0442\u0432\u043E\u0440\u044F\u044E\u0449\u0438\u0445 \u0444\u0438\u043B\u044C\u0442\u0440\u0443" }) : /* @__PURE__ */ jsx72("div", { className: "attribute-matrix-scroll", children: /* @__PURE__ */ jsxs69("table", { className: "attribute-matrix-table", children: [
+                /* @__PURE__ */ jsx72("thead", { children: /* @__PURE__ */ jsxs69("tr", { children: [
+                  /* @__PURE__ */ jsx72("th", { className: "attribute-matrix-corner", children: /* @__PURE__ */ jsx72("span", { className: "attribute-matrix-corner__arrow", children: "\u2198" }) }),
+                  visibleColumns.map((col, idx) => {
+                    const isHovered = hoveredCol === idx;
+                    const isSelected = selectedDetail?.kind === "column" && selectedDetail.columnKey === col.key;
+                    const cat = categoryOf(col.dominantType || "");
+                    return /* @__PURE__ */ jsxs69(
+                      "th",
+                      {
+                        className: "attribute-matrix-col-head" + (!col.consistentType ? " inconsistent" : "") + (isHovered ? " highlighted" : "") + (isSelected ? " selected" : ""),
+                        onMouseEnter: () => setHoveredCol(idx),
+                        onMouseLeave: () => setHoveredCol(null),
+                        onClick: () => handleColumnClick(col.key),
+                        title: `${col.label} \u2014 \u0443 ${col.count} \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439
+\u0414\u043E\u043C\u0438\u043D\u0438\u0440\u0443\u044E\u0449\u0438\u0439 \u0442\u0438\u043F: ${col.dominantType || "\u2014"}
+` + (col.typeDistribution.length > 1 ? "\u0422\u0438\u043F\u044B: " + col.typeDistribution.map((t) => `${t.dataType} (${t.count})`).join(", ") : ""),
+                        children: [
+                          /* @__PURE__ */ jsx72("span", { className: "attribute-matrix-col-head__text", children: col.label }),
+                          /* @__PURE__ */ jsx72(
+                            "span",
+                            {
+                              className: "attribute-matrix-col-head__type",
+                              style: { color: CATEGORY_COLORS[cat] },
+                              children: col.dominantType || "\u2014"
+                            }
+                          ),
+                          /* @__PURE__ */ jsx72("span", { className: "attribute-matrix-col-head__count", children: col.count }),
+                          !col.consistentType && /* @__PURE__ */ jsx72(
+                            "span",
+                            {
+                              className: "attribute-matrix-col-head__warn",
+                              title: `${col.typeDistribution.length} \u0440\u0430\u0437\u043D\u044B\u0445 \u0442\u0438\u043F\u043E\u0432`,
+                              children: "\u26A0"
+                            }
+                          )
+                        ]
                       },
                       col.key
                     );
                   })
-                ] }, row.entityFqid)) })
-              ] }) })
+                ] }) }),
+                /* @__PURE__ */ jsx72("tbody", { children: visibleRows.map((row, rowIdx) => {
+                  const isRowHovered = hoveredRow === rowIdx;
+                  return /* @__PURE__ */ jsxs69(
+                    "tr",
+                    {
+                      className: isRowHovered ? "highlighted" : "",
+                      children: [
+                        /* @__PURE__ */ jsxs69(
+                          "th",
+                          {
+                            className: "attribute-matrix-row-head",
+                            "data-fqid": row.entityFqid,
+                            onMouseEnter: () => setHoveredRow(rowIdx),
+                            onMouseLeave: () => setHoveredRow(null),
+                            onClick: () => openEntity(row.entityFqid),
+                            title: `${row.entityFqid}
+\u041A\u043B\u0438\u043A \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435`,
+                            children: [
+                              /* @__PURE__ */ jsx72("span", { className: "attribute-matrix-row-head__id", children: row.entityId }),
+                              /* @__PURE__ */ jsx72("span", { className: "attribute-matrix-row-head__domain", children: row.domainId }),
+                              /* @__PURE__ */ jsxs69("span", { className: "attribute-matrix-row-head__count", children: [
+                                row.attributesCount,
+                                " \u0430\u0442\u0440."
+                              ] })
+                            ]
+                          }
+                        ),
+                        visibleColumns.map((col, colIdx) => {
+                          const cell = row.cells.get(col.key);
+                          const isHoveredR = hoveredRow === rowIdx;
+                          const isHoveredC = hoveredCol === colIdx;
+                          const isSelected = selectedDetail?.kind === "cell" && selectedDetail.entityFqid === row.entityFqid && selectedDetail.columnKey === col.key;
+                          if (!cell) {
+                            return /* @__PURE__ */ jsx72(
+                              "td",
+                              {
+                                className: "attribute-matrix-cell" + (isHoveredR || isHoveredC ? " in-row-col" : ""),
+                                onMouseEnter: () => {
+                                  setHoveredRow(rowIdx);
+                                  setHoveredCol(colIdx);
+                                },
+                                onMouseLeave: () => {
+                                  setHoveredRow(null);
+                                  setHoveredCol(null);
+                                }
+                              },
+                              col.key
+                            );
+                          }
+                          const cat = categoryOf(cell.dataType);
+                          const color = CATEGORY_COLORS[cat];
+                          const isDiffFromDominant = cell.dataType !== col.dominantType;
+                          const parts = [cell.dataType];
+                          if (cell.constraints.length > 0) {
+                            parts.push(cell.constraints.join(", "));
+                          }
+                          if (cell.readonly)
+                            parts.push("readonly");
+                          if (cell.isNested)
+                            parts.push("nested (Table)");
+                          if (cell.usedInViews === 0) {
+                            parts.push("\u043D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u0432 views");
+                          }
+                          const tooltip = `${row.entityId}.${cell.attributeId}
+` + parts.join(" \xB7 ") + (isDiffFromDominant ? `
+
+\u26A0 \u0442\u0438\u043F \u043E\u0442\u043B\u0438\u0447\u0430\u0435\u0442\u0441\u044F \u043E\u0442 \u0434\u043E\u043C\u0438\u043D\u0438\u0440\u0443\u044E\u0449\u0435\u0433\u043E (${col.dominantType})` : "");
+                          return /* @__PURE__ */ jsxs69(
+                            "td",
+                            {
+                              className: "attribute-matrix-cell attribute-matrix-cell--present" + (isHoveredR || isHoveredC ? " in-row-col" : "") + (isSelected ? " selected" : "") + (isDiffFromDominant ? " attribute-matrix-cell--mismatch" : ""),
+                              style: {
+                                background: color + "25",
+                                borderColor: color + "40"
+                              },
+                              onMouseEnter: () => {
+                                setHoveredRow(rowIdx);
+                                setHoveredCol(colIdx);
+                              },
+                              onMouseLeave: () => {
+                                setHoveredRow(null);
+                                setHoveredCol(null);
+                              },
+                              onClick: () => handleCellClick(row.entityFqid, col.key),
+                              title: tooltip,
+                              children: [
+                                /* @__PURE__ */ jsx72(
+                                  "span",
+                                  {
+                                    className: "attribute-matrix-cell__dot",
+                                    style: { background: color }
+                                  }
+                                ),
+                                cell.readonly && /* @__PURE__ */ jsx72(
+                                  "span",
+                                  {
+                                    className: "attribute-matrix-cell__badge attribute-matrix-cell__badge--ro",
+                                    title: "readonly",
+                                    children: "\u{1F512}"
+                                  }
+                                ),
+                                cell.constraints.includes("required") && /* @__PURE__ */ jsx72(
+                                  "span",
+                                  {
+                                    className: "attribute-matrix-cell__badge attribute-matrix-cell__badge--req",
+                                    title: "required",
+                                    children: "\u2605"
+                                  }
+                                ),
+                                isDiffFromDominant && /* @__PURE__ */ jsx72(
+                                  "span",
+                                  {
+                                    className: "attribute-matrix-cell__mismatch",
+                                    "aria-hidden": true,
+                                    children: "!"
+                                  }
+                                )
+                              ]
+                            },
+                            col.key
+                          );
+                        })
+                      ]
+                    },
+                    row.entityFqid
+                  );
+                }) })
+              ] }) }),
+              selectedDetail && detailColumn && /* @__PURE__ */ jsxs69("div", { className: "attribute-matrix-detail-panel", children: [
+                /* @__PURE__ */ jsxs69("div", { className: "attribute-matrix-detail-panel__head", children: [
+                  /* @__PURE__ */ jsx72(
+                    MIcon,
+                    {
+                      name: selectedDetail.kind === "column" ? "view_column" : "edit_note",
+                      size: "sm"
+                    }
+                  ),
+                  /* @__PURE__ */ jsx72("code", { className: "attribute-matrix-detail-panel__name", children: detailColumn.label }),
+                  /* @__PURE__ */ jsxs69("span", { className: "attribute-matrix-detail-panel__badge", children: [
+                    detailColumn.count,
+                    " ",
+                    detailColumn.count === 1 ? "\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C" : "\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439"
+                  ] }),
+                  detailColumn.hasNested && /* @__PURE__ */ jsx72("span", { className: "attribute-matrix-detail-panel__badge", children: "\u0432\u043B\u043E\u0436\u0435\u043D\u043D\u044B\u0439" }),
+                  /* @__PURE__ */ jsxs69(
+                    "button",
+                    {
+                      className: "btn",
+                      style: { marginLeft: 8, padding: "2px 8px", fontSize: 11 },
+                      onClick: () => {
+                        setFilterByColumn(detailColumn.key);
+                        setSelectedDetail(null);
+                      },
+                      title: "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0442\u043E\u043B\u044C\u043A\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0441 \u044D\u0442\u0438\u043C \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u043C",
+                      children: [
+                        /* @__PURE__ */ jsx72(MIcon, { name: "filter_alt", size: "sm" }),
+                        "\u0422\u043E\u043B\u044C\u043A\u043E \u0441 \u044D\u0442\u0438\u043C \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u043C"
+                      ]
+                    }
+                  ),
+                  /* @__PURE__ */ jsx72(
+                    "button",
+                    {
+                      className: "attribute-matrix-detail-panel__close",
+                      onClick: () => setSelectedDetail(null),
+                      title: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C",
+                      children: "\u2715"
+                    }
+                  )
+                ] }),
+                /* @__PURE__ */ jsx72("div", { className: "attribute-matrix-detail-panel__body", children: selectedDetail.kind === "cell" && detailCell ? /* @__PURE__ */ jsxs69(Fragment22, { children: [
+                  /* @__PURE__ */ jsxs69("div", { className: "attribute-matrix-detail-panel__section-title", children: [
+                    "\u0412 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438",
+                    " ",
+                    /* @__PURE__ */ jsx72(
+                      "button",
+                      {
+                        className: "attribute-matrix-detail-panel__entity-link",
+                        onClick: () => openEntity(selectedDetail.entityFqid),
+                        children: shortLabel2(selectedDetail.entityFqid)
+                      }
+                    )
+                  ] }),
+                  /* @__PURE__ */ jsxs69("div", { className: "attribute-matrix-detail-grid", children: [
+                    /* @__PURE__ */ jsxs69("div", { className: "attribute-matrix-detail-row", children: [
+                      /* @__PURE__ */ jsx72("span", { className: "attribute-matrix-detail-label", children: "dataType" }),
+                      /* @__PURE__ */ jsx72("code", { children: detailCell.dataType }),
+                      detailCell.dataTypeKind === "custom" && /* @__PURE__ */ jsx72("span", { className: "attribute-matrix-detail-meta", children: "\u043A\u0430\u0441\u0442\u043E\u043C\u043D\u044B\u0439" })
+                    ] }),
+                    /* @__PURE__ */ jsxs69("div", { className: "attribute-matrix-detail-row", children: [
+                      /* @__PURE__ */ jsx72("span", { className: "attribute-matrix-detail-label", children: "constraints" }),
+                      detailCell.constraints.length > 0 ? /* @__PURE__ */ jsx72("code", { children: detailCell.constraints.join(", ") }) : /* @__PURE__ */ jsx72("span", { className: "attribute-matrix-detail-meta", children: "\u043D\u0435\u0442" })
+                    ] }),
+                    /* @__PURE__ */ jsxs69("div", { className: "attribute-matrix-detail-row", children: [
+                      /* @__PURE__ */ jsx72("span", { className: "attribute-matrix-detail-label", children: "readonly" }),
+                      /* @__PURE__ */ jsx72(
+                        "span",
+                        {
+                          className: detailCell.readonly ? "attribute-matrix-detail-badge attribute-matrix-detail-badge--warn" : "attribute-matrix-detail-meta",
+                          children: detailCell.readonly ? "\u0434\u0430" : "\u043D\u0435\u0442"
+                        }
+                      )
+                    ] }),
+                    /* @__PURE__ */ jsxs69("div", { className: "attribute-matrix-detail-row", children: [
+                      /* @__PURE__ */ jsx72("span", { className: "attribute-matrix-detail-label", children: "\u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u0432 views" }),
+                      /* @__PURE__ */ jsx72(
+                        "span",
+                        {
+                          className: detailCell.usedInViews === 0 ? "attribute-matrix-detail-badge attribute-matrix-detail-badge--warn" : "attribute-matrix-detail-meta",
+                          children: detailCell.usedInViews
+                        }
+                      )
+                    ] }),
+                    detailCell.isNested && /* @__PURE__ */ jsxs69("div", { className: "attribute-matrix-detail-row", children: [
+                      /* @__PURE__ */ jsx72("span", { className: "attribute-matrix-detail-label", children: "\u0432\u043B\u043E\u0436\u0435\u043D\u043D\u044B\u0439" }),
+                      /* @__PURE__ */ jsx72("span", { className: "attribute-matrix-detail-badge", children: "\u0432\u043D\u0443\u0442\u0440\u0438 Table" })
+                    ] }),
+                    detailCell.dataType !== detailColumn.dominantType && /* @__PURE__ */ jsxs69("div", { className: "attribute-matrix-detail-row attribute-matrix-detail-row--warn", children: [
+                      /* @__PURE__ */ jsx72("span", { className: "attribute-matrix-detail-label", children: "\u26A0 \u0442\u0438\u043F \u043E\u0442\u043B\u0438\u0447\u0430\u0435\u0442\u0441\u044F" }),
+                      /* @__PURE__ */ jsxs69("span", { className: "attribute-matrix-detail-meta", children: [
+                        "\u0434\u043E\u043C\u0438\u043D\u0438\u0440\u0443\u044E\u0449\u0438\u0439: ",
+                        detailColumn.dominantType
+                      ] })
+                    ] })
+                  ] })
+                ] }) : /* @__PURE__ */ jsxs69(Fragment22, { children: [
+                  /* @__PURE__ */ jsx72("div", { className: "attribute-matrix-detail-panel__section-title", children: "\u0420\u0430\u0441\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u0438\u0435 \u043F\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u043C" }),
+                  /* @__PURE__ */ jsxs69("div", { className: "attribute-matrix-detail-grid", children: [
+                    /* @__PURE__ */ jsxs69("div", { className: "attribute-matrix-detail-row", children: [
+                      /* @__PURE__ */ jsx72("span", { className: "attribute-matrix-detail-label", children: "dataTypes" }),
+                      /* @__PURE__ */ jsx72("span", { children: detailColumn.typeDistribution.map((t) => /* @__PURE__ */ jsxs69(
+                        "code",
+                        {
+                          className: "attribute-matrix-detail-chip",
+                          style: {
+                            borderColor: CATEGORY_COLORS[categoryOf(t.dataType)],
+                            color: CATEGORY_COLORS[categoryOf(t.dataType)]
+                          },
+                          children: [
+                            t.dataType,
+                            " \xD7 ",
+                            t.count
+                          ]
+                        },
+                        t.dataType
+                      )) })
+                    ] }),
+                    detailColumn.constraintDistribution.length > 0 && /* @__PURE__ */ jsxs69("div", { className: "attribute-matrix-detail-row", children: [
+                      /* @__PURE__ */ jsx72("span", { className: "attribute-matrix-detail-label", children: "constraints" }),
+                      /* @__PURE__ */ jsx72("span", { children: detailColumn.constraintDistribution.map((c) => /* @__PURE__ */ jsxs69(
+                        "code",
+                        {
+                          className: "attribute-matrix-detail-chip",
+                          children: [
+                            c.kind,
+                            " \xD7 ",
+                            c.count
+                          ]
+                        },
+                        c.kind
+                      )) })
+                    ] }),
+                    /* @__PURE__ */ jsxs69("div", { className: "attribute-matrix-detail-row", children: [
+                      /* @__PURE__ */ jsx72("span", { className: "attribute-matrix-detail-label", children: "readonly" }),
+                      /* @__PURE__ */ jsxs69("span", { className: "attribute-matrix-detail-meta", children: [
+                        detailColumn.readonlyCount,
+                        " / ",
+                        detailColumn.count
+                      ] })
+                    ] }),
+                    /* @__PURE__ */ jsxs69("div", { className: "attribute-matrix-detail-row", children: [
+                      /* @__PURE__ */ jsx72("span", { className: "attribute-matrix-detail-label", children: "\u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u0432 views" }),
+                      /* @__PURE__ */ jsxs69("span", { className: "attribute-matrix-detail-meta", children: [
+                        detailColumn.usedInViewsCount,
+                        " /",
+                        " ",
+                        detailColumn.count
+                      ] })
+                    ] }),
+                    /* @__PURE__ */ jsxs69("div", { className: "attribute-matrix-detail-row", children: [
+                      /* @__PURE__ */ jsx72("span", { className: "attribute-matrix-detail-label", children: "\u0434\u043E\u043C\u0435\u043D\u044B" }),
+                      /* @__PURE__ */ jsx72("span", { children: detailColumn.domains.map((d) => /* @__PURE__ */ jsx72(
+                        "code",
+                        {
+                          className: "attribute-matrix-detail-chip",
+                          children: d
+                        },
+                        d
+                      )) })
+                    ] })
+                  ] }),
+                  detailColumn.examples.length > 0 && /* @__PURE__ */ jsxs69(Fragment22, { children: [
+                    /* @__PURE__ */ jsx72("div", { className: "attribute-matrix-detail-panel__section-title", children: "\u041F\u0440\u0438\u043C\u0435\u0440\u044B" }),
+                    /* @__PURE__ */ jsx72("div", { className: "attribute-matrix-detail-examples", children: detailColumn.examples.map((ex) => /* @__PURE__ */ jsxs69(
+                      "button",
+                      {
+                        className: "attribute-matrix-detail-example",
+                        onClick: () => openEntity(ex.entityFqid),
+                        title: ex.entityFqid,
+                        children: [
+                          /* @__PURE__ */ jsxs69("code", { children: [
+                            shortLabel2(ex.entityFqid),
+                            ".",
+                            ex.attributeId
+                          ] }),
+                          /* @__PURE__ */ jsx72(
+                            "span",
+                            {
+                              style: {
+                                color: CATEGORY_COLORS[categoryOf(ex.dataType)]
+                              },
+                              children: ex.dataType
+                            }
+                          )
+                        ]
+                      },
+                      ex.entityFqid + ex.attributeId
+                    )) })
+                  ] })
+                ] }) })
+              ] })
             ] })
           ]
         }
@@ -23912,6 +27672,7 @@ function AttributeMatrixModal() {
     }
   );
 }
+var CATEGORY_COLORS, CATEGORY_LABELS3, QUICK_FILTERS2, SORT_OPTIONS2;
 var init_AttributeMatrixModal = __esm({
   "src/web/components/modals/AttributeMatrixModal.tsx"() {
     "use strict";
@@ -23921,25 +27682,549 @@ var init_AttributeMatrixModal = __esm({
     init_DomainCombobox();
     init_common();
     init_ModalHelp();
+    init_useHelpEscape();
+    init_dialogs();
+    CATEGORY_COLORS = {
+      string: "#94a3b8",
+      numeric: "#6366f1",
+      boolean: "#10b981",
+      date: "#f59e0b",
+      reference: "#a78bfa",
+      array: "#eab308",
+      uuid: "#06b6d4",
+      custom: "#ec4899",
+      other: "#64748b"
+    };
+    CATEGORY_LABELS3 = {
+      string: "String / Text / URL / MAC",
+      numeric: "Integer / Decimal / Float / Counter",
+      boolean: "Bool",
+      date: "Date / Time / Timestamp",
+      reference: "Reference",
+      array: "Array / Table",
+      uuid: "Uuid / Identifier",
+      custom: "\u041A\u0430\u0441\u0442\u043E\u043C\u043D\u044B\u0439 \u0442\u0438\u043F (Enum / Workflow / Table)",
+      other: "\u041F\u0440\u043E\u0447\u0435\u0435"
+    };
+    QUICK_FILTERS2 = [
+      {
+        id: "inconsistent",
+        label: "\u0421 \u0440\u0430\u0437\u043D\u044B\u043C\u0438 \u0442\u0438\u043F\u0430\u043C\u0438",
+        icon: "warning",
+        test: (c) => !c.consistentType
+      },
+      {
+        id: "readonly-mixed",
+        label: "\u0420\u0430\u0437\u043D\u044B\u0439 readonly",
+        icon: "lock",
+        test: (c) => c.readonlyCount > 0 && c.readonlyCount < c.count
+      },
+      {
+        id: "required-mixed",
+        label: "\u0420\u0430\u0437\u043D\u044B\u0439 required",
+        icon: "star",
+        test: (c) => {
+          const req = c.constraintDistribution.find((x) => x.kind === "required");
+          return !!req && req.count > 0 && req.count < c.count;
+        }
+      },
+      {
+        id: "unused-in-views",
+        label: "\u041D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u0432 views",
+        icon: "visibility_off",
+        test: (c) => c.usedInViewsCount === 0
+      },
+      {
+        id: "nested",
+        label: "\u0412\u043B\u043E\u0436\u0435\u043D\u043D\u044B\u0435",
+        icon: "account_tree",
+        test: (c) => c.hasNested
+      }
+    ];
+    SORT_OPTIONS2 = [
+      { value: "count-desc", label: "\u041F\u043E \u043F\u043E\u043F\u0443\u043B\u044F\u0440\u043D\u043E\u0441\u0442\u0438" },
+      { value: "inconsistent-first", label: "\u0421\u043D\u0430\u0447\u0430\u043B\u0430 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0435" },
+      { value: "name-asc", label: "\u041F\u043E \u0438\u043C\u0435\u043D\u0438" },
+      { value: "type-asc", label: "\u041F\u043E \u0442\u0438\u043F\u0443" }
+    ];
   }
 });
 
 // src/web/components/modals/MartinMetricsModal.tsx
-import { useMemo as useMemo42, useState as useState32 } from "react";
-import { jsx as jsx73, jsxs as jsxs70 } from "react/jsx-runtime";
+import React43, { useCallback as useCallback23, useMemo as useMemo42, useState as useState32 } from "react";
+import { Fragment as Fragment23, jsx as jsx73, jsxs as jsxs70 } from "react/jsx-runtime";
+function zoneIcon(zone) {
+  if (zone === "pain")
+    return "favorite";
+  if (zone === "uselessness")
+    return "auto_awesome";
+  if (zone === "main-sequence")
+    return "check_circle";
+  return "help";
+}
+function ScatterPlot({
+  metrics,
+  selectedId,
+  onSelect,
+  onFilterZone
+}) {
+  const [hoveredId, setHoveredId] = useState32(null);
+  const [hoveredZone, setHoveredZone] = useState32(null);
+  const zoneCounts = useMemo42(() => {
+    const c = {
+      pain: 0,
+      uselessness: 0,
+      "main-sequence": 0,
+      unclassified: 0
+    };
+    metrics.forEach((m) => {
+      const z = m.zone;
+      if (z in c)
+        c[z]++;
+    });
+    return c;
+  }, [metrics]);
+  const getPoint = (m) => ({
+    x: PAD + m.instability * PLOT,
+    y: SVG - PAD - m.abstractness * PLOT
+  });
+  const renderZone = (zone, x, y, w, h, badgeCorner) => {
+    const count = zoneCounts[zone];
+    if (count === 0)
+      return null;
+    const color = ZONE_COLOR[zone];
+    const isHovered = hoveredZone === zone;
+    const label = `${count} \xB7 ${ZONE_SHORT[zone]}`;
+    const badgeW = label.length * 6 + 16;
+    const badgeH = 18;
+    let bx = x + 6;
+    let by = y + 6;
+    if (badgeCorner === "tr") {
+      bx = x + w - badgeW - 6;
+      by = y + 6;
+    } else if (badgeCorner === "bl") {
+      bx = x + 6;
+      by = y + h - badgeH - 6;
+    } else if (badgeCorner === "br") {
+      bx = x + w - badgeW - 6;
+      by = y + h - badgeH - 6;
+    }
+    return /* @__PURE__ */ jsxs70(
+      "g",
+      {
+        onMouseEnter: () => setHoveredZone(zone),
+        onMouseLeave: () => setHoveredZone(null),
+        onClick: () => onFilterZone(zone),
+        style: { cursor: "pointer" },
+        children: [
+          /* @__PURE__ */ jsx73(
+            "rect",
+            {
+              x,
+              y,
+              width: w,
+              height: h,
+              fill: color,
+              fillOpacity: isHovered ? 0.16 : 0.07,
+              style: { transition: "fill-opacity 0.15s" }
+            }
+          ),
+          /* @__PURE__ */ jsxs70("g", { pointerEvents: "none", children: [
+            /* @__PURE__ */ jsx73(
+              "rect",
+              {
+                x: bx,
+                y: by,
+                width: badgeW,
+                height: badgeH,
+                rx: badgeH / 2,
+                fill: color,
+                fillOpacity: isHovered ? 0.95 : 0.72,
+                style: { transition: "fill-opacity 0.15s" }
+              }
+            ),
+            /* @__PURE__ */ jsx73(
+              "text",
+              {
+                x: bx + badgeW / 2,
+                y: by + badgeH / 2 + 3.5,
+                textAnchor: "middle",
+                fill: "#fff",
+                fontSize: "10",
+                fontWeight: "600",
+                fontFamily: "JetBrains Mono, monospace",
+                children: label
+              }
+            )
+          ] })
+        ]
+      }
+    );
+  };
+  return /* @__PURE__ */ jsxs70("div", { className: "martin-scatter-container", children: [
+    /* @__PURE__ */ jsxs70("div", { className: "martin-scatter__title", children: [
+      /* @__PURE__ */ jsx73(MIcon, { name: "info", size: "sm" }),
+      "\u041D\u0430\u0432\u0435\u0434\u0438\u0442\u0435 \u043D\u0430 \u0442\u043E\u0447\u043A\u0443 \u2014 \u0434\u0435\u0442\u0430\u043B\u0438. \u041A\u043B\u0438\u043A \u043F\u043E \u0437\u043E\u043D\u0435 \u2014 \u0444\u0438\u043B\u044C\u0442\u0440 \u0432 \u0442\u0430\u0431\u043B\u0438\u0446\u0443"
+    ] }),
+    /* @__PURE__ */ jsxs70("svg", { viewBox: `0 0 ${SVG} ${SVG}`, className: "martin-scatter__svg", children: [
+      /* @__PURE__ */ jsx73(
+        "line",
+        {
+          x1: PAD,
+          y1: SVG - PAD,
+          x2: SVG - PAD,
+          y2: SVG - PAD,
+          stroke: "var(--border)"
+        }
+      ),
+      /* @__PURE__ */ jsx73(
+        "line",
+        {
+          x1: PAD,
+          y1: SVG - PAD,
+          x2: PAD,
+          y2: PAD,
+          stroke: "var(--border)"
+        }
+      ),
+      /* @__PURE__ */ jsx73(
+        "line",
+        {
+          x1: PAD,
+          y1: PAD,
+          x2: SVG - PAD,
+          y2: SVG - PAD,
+          stroke: "var(--accent)",
+          strokeWidth: "1.5",
+          strokeDasharray: "5 5",
+          opacity: "0.5"
+        }
+      ),
+      renderZone(
+        "pain",
+        PAD,
+        SVG - PAD - 0.3 * PLOT,
+        0.3 * PLOT,
+        0.3 * PLOT,
+        "tr"
+      ),
+      renderZone(
+        "uselessness",
+        PAD + 0.7 * PLOT,
+        PAD,
+        0.3 * PLOT,
+        0.3 * PLOT,
+        "bl"
+      ),
+      /* @__PURE__ */ jsx73(
+        "text",
+        {
+          x: SVG / 2,
+          y: SVG - 8,
+          textAnchor: "middle",
+          fill: "var(--text-500)",
+          fontSize: "11",
+          children: "Instability \u2192"
+        }
+      ),
+      /* @__PURE__ */ jsx73(
+        "text",
+        {
+          x: 14,
+          y: SVG / 2,
+          textAnchor: "middle",
+          fill: "var(--text-500)",
+          fontSize: "11",
+          transform: `rotate(-90 14 ${SVG / 2})`,
+          children: "Abstractness \u2192"
+        }
+      ),
+      /* @__PURE__ */ jsx73("text", { x: PAD, y: SVG - PAD + 16, textAnchor: "middle", fill: "var(--text-500)", fontSize: "9", children: "0" }),
+      /* @__PURE__ */ jsx73("text", { x: SVG - PAD, y: SVG - PAD + 16, textAnchor: "middle", fill: "var(--text-500)", fontSize: "9", children: "1" }),
+      /* @__PURE__ */ jsx73("text", { x: PAD - 8, y: SVG - PAD, textAnchor: "end", fill: "var(--text-500)", fontSize: "9", children: "0" }),
+      /* @__PURE__ */ jsx73("text", { x: PAD - 8, y: PAD + 4, textAnchor: "end", fill: "var(--text-500)", fontSize: "9", children: "1" }),
+      metrics.map((m) => {
+        const { x, y } = getPoint(m);
+        const zone = m.zone;
+        const color = ZONE_COLOR[zone];
+        const isHovered = hoveredId === m.domainId;
+        const isSelected = selectedId === m.domainId;
+        const isDimmed = hoveredZone !== null && hoveredZone !== zone;
+        const isShowLabel = isHovered || isSelected;
+        const dotR = isSelected ? 6 : isHovered ? 5 : 4;
+        const opacity = isDimmed ? 0.25 : m.distance > 0.5 ? 1 : 0.85;
+        const labelText = m.domainId;
+        const labelW = labelText.length * 6.5 + 12;
+        const labelH = 18;
+        let lx = x + 8;
+        if (lx + labelW > SVG - 4)
+          lx = x - 8 - labelW;
+        const ly = Math.max(4, y - labelH - 4);
+        return /* @__PURE__ */ jsxs70("g", { children: [
+          (isHovered || isSelected) && /* @__PURE__ */ jsx73("circle", { cx: x, cy: y, r: dotR + 4, fill: color, opacity: 0.2 }),
+          /* @__PURE__ */ jsx73(
+            "circle",
+            {
+              cx: x,
+              cy: y,
+              r: dotR,
+              fill: color,
+              stroke: isSelected ? "#fff" : "transparent",
+              strokeWidth: isSelected ? 2 : 0,
+              opacity,
+              style: {
+                cursor: "pointer",
+                transition: "r 0.1s, opacity 0.15s"
+              },
+              onMouseEnter: () => setHoveredId(m.domainId),
+              onMouseLeave: () => setHoveredId(null),
+              onClick: (e) => {
+                e.stopPropagation();
+                onSelect(m.domainId);
+              },
+              children: /* @__PURE__ */ jsxs70("title", { children: [
+                m.domainId,
+                "\n",
+                "I=",
+                m.instability.toFixed(2),
+                " A=",
+                m.abstractness.toFixed(2),
+                " D=",
+                m.distance.toFixed(2),
+                "\n",
+                "Ca=",
+                m.ca,
+                " Ce=",
+                m.ce,
+                "\n",
+                ZONE_LABEL[zone]
+              ] })
+            }
+          ),
+          isShowLabel && /* @__PURE__ */ jsxs70("g", { pointerEvents: "none", style: { userSelect: "none" }, children: [
+            /* @__PURE__ */ jsx73(
+              "rect",
+              {
+                x: lx,
+                y: ly,
+                width: labelW,
+                height: labelH,
+                rx: 4,
+                fill: "var(--bg-900, #0a0e1a)",
+                opacity: 0.95
+              }
+            ),
+            /* @__PURE__ */ jsx73(
+              "text",
+              {
+                x: lx + 6,
+                y: ly + 13,
+                fill: "var(--text-100, #e2e8f0)",
+                fontSize: "10",
+                fontFamily: "JetBrains Mono, monospace",
+                children: labelText
+              }
+            )
+          ] })
+        ] }, m.domainId);
+      })
+    ] }),
+    /* @__PURE__ */ jsx73("div", { className: "martin-scatter__legend", children: ["pain", "uselessness", "main-sequence", "unclassified"].map((z) => /* @__PURE__ */ jsxs70(
+      "button",
+      {
+        type: "button",
+        className: "martin-scatter__legend-item" + (hoveredZone === z ? " martin-scatter__legend-item--active" : ""),
+        onMouseEnter: () => setHoveredZone(z),
+        onMouseLeave: () => setHoveredZone(null),
+        onClick: () => onFilterZone(z),
+        title: `${ZONE_DESCRIPTION[z]}
+
+\u041A\u043B\u0438\u043A \u2014 \u0444\u0438\u043B\u044C\u0442\u0440 \u043F\u043E \u0437\u043E\u043D\u0435`,
+        children: [
+          /* @__PURE__ */ jsx73(
+            "span",
+            {
+              className: "martin-scatter__legend-dot",
+              style: { background: ZONE_COLOR[z] }
+            }
+          ),
+          ZONE_LABEL[z],
+          zoneCounts[z] > 0 && /* @__PURE__ */ jsx73("span", { className: "martin-scatter__legend-count", children: zoneCounts[z] })
+        ]
+      },
+      z
+    )) })
+  ] });
+}
+function MartinDetail({
+  metric: m,
+  onClose,
+  onOpenSchema,
+  onGoToDomain
+}) {
+  const zone = m.zone;
+  const zoneColor = ZONE_COLOR[zone];
+  return /* @__PURE__ */ jsxs70("div", { className: "martin-detail", children: [
+    /* @__PURE__ */ jsxs70("div", { className: "martin-detail__head", children: [
+      /* @__PURE__ */ jsx73(MIcon, { name: zoneIcon(zone), size: "sm", style: { color: zoneColor } }),
+      /* @__PURE__ */ jsx73("code", { className: "martin-detail__id", children: m.domainId }),
+      /* @__PURE__ */ jsx73(
+        "span",
+        {
+          className: "martin-detail__zone-badge",
+          style: { background: zoneColor + "22", color: zoneColor },
+          children: ZONE_LABEL[zone]
+        }
+      ),
+      /* @__PURE__ */ jsx73(
+        "button",
+        {
+          className: "martin-detail__close",
+          onClick: onClose,
+          title: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C",
+          children: "\u2715"
+        }
+      )
+    ] }),
+    m.domainName && m.domainName !== m.domainId && /* @__PURE__ */ jsx73("div", { className: "martin-detail__name", children: m.domainName }),
+    /* @__PURE__ */ jsxs70("div", { className: "martin-detail__metrics", children: [
+      /* @__PURE__ */ jsxs70("div", { className: "martin-detail__metric", children: [
+        /* @__PURE__ */ jsx73("div", { className: "martin-detail__metric-label", children: "Instability" }),
+        /* @__PURE__ */ jsx73("div", { className: "martin-detail__metric-value", children: m.instability.toFixed(2) }),
+        /* @__PURE__ */ jsx73("div", { className: "martin-detail__metric-hint", children: m.ca + m.ce === 0 ? "\u043D\u0435\u0442 \u0441\u0432\u044F\u0437\u0435\u0439" : `${m.ce} / (${m.ca} + ${m.ce})` })
+      ] }),
+      /* @__PURE__ */ jsxs70("div", { className: "martin-detail__metric", children: [
+        /* @__PURE__ */ jsx73("div", { className: "martin-detail__metric-label", children: "Abstractness" }),
+        /* @__PURE__ */ jsx73("div", { className: "martin-detail__metric-value", children: m.abstractness.toFixed(2) }),
+        /* @__PURE__ */ jsxs70("div", { className: "martin-detail__metric-hint", children: [
+          m.entitiesAbstract,
+          " / ",
+          m.entitiesTotal,
+          " \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u044B"
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxs70("div", { className: "martin-detail__metric", children: [
+        /* @__PURE__ */ jsx73("div", { className: "martin-detail__metric-label", children: "Distance" }),
+        /* @__PURE__ */ jsx73(
+          "div",
+          {
+            className: "martin-detail__metric-value",
+            style: { color: zoneColor },
+            children: m.distance.toFixed(2)
+          }
+        ),
+        /* @__PURE__ */ jsx73("div", { className: "martin-detail__metric-hint", children: "|A + I \u2212 1|" })
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxs70("div", { className: "martin-detail__description", children: [
+      /* @__PURE__ */ jsx73("div", { className: "martin-detail__description-title", children: "\u0427\u0442\u043E \u044D\u0442\u043E \u0437\u043D\u0430\u0447\u0438\u0442" }),
+      /* @__PURE__ */ jsx73("div", { children: ZONE_DESCRIPTION[zone] })
+    ] }),
+    /* @__PURE__ */ jsxs70("div", { className: "martin-detail__recommendation", children: [
+      /* @__PURE__ */ jsxs70("div", { className: "martin-detail__recommendation-title", children: [
+        /* @__PURE__ */ jsx73(MIcon, { name: "lightbulb", size: "sm" }),
+        "\u0427\u0442\u043E \u0434\u0435\u043B\u0430\u0442\u044C"
+      ] }),
+      /* @__PURE__ */ jsx73("div", { children: ZONE_RECOMMENDATION[zone] })
+    ] }),
+    m.afferentDomains.length > 0 && /* @__PURE__ */ jsxs70("div", { className: "martin-detail__section", children: [
+      /* @__PURE__ */ jsxs70("div", { className: "martin-detail__section-title", children: [
+        "Afferent (Ca=",
+        m.ca,
+        ") \u2014 \u043A\u0442\u043E \u0437\u0430\u0432\u0438\u0441\u0438\u0442 \u043E\u0442 \u043D\u0435\u0433\u043E"
+      ] }),
+      /* @__PURE__ */ jsx73("div", { className: "martin-detail__chips", children: m.afferentDomains.map((d) => /* @__PURE__ */ jsx73(
+        "button",
+        {
+          className: "martin-detail__chip",
+          onClick: () => onGoToDomain(d),
+          title: `\u041E\u0442\u043A\u0440\u044B\u0442\u044C ${d}`,
+          children: d
+        },
+        d
+      )) })
+    ] }),
+    m.efferentDomains.length > 0 && /* @__PURE__ */ jsxs70("div", { className: "martin-detail__section", children: [
+      /* @__PURE__ */ jsxs70("div", { className: "martin-detail__section-title", children: [
+        "Efferent (Ce=",
+        m.ce,
+        ") \u2014 \u043E\u0442 \u043A\u043E\u0433\u043E \u0437\u0430\u0432\u0438\u0441\u0438\u0442"
+      ] }),
+      /* @__PURE__ */ jsx73("div", { className: "martin-detail__chips", children: m.efferentDomains.map((d) => /* @__PURE__ */ jsx73(
+        "button",
+        {
+          className: "martin-detail__chip martin-detail__chip--efferent",
+          onClick: () => onGoToDomain(d),
+          title: `\u041E\u0442\u043A\u0440\u044B\u0442\u044C ${d}`,
+          children: d
+        },
+        d
+      )) })
+    ] }),
+    /* @__PURE__ */ jsxs70("div", { className: "martin-detail__actions", children: [
+      /* @__PURE__ */ jsxs70(
+        "button",
+        {
+          className: "btn btn--primary",
+          onClick: () => onOpenSchema(m.domainId),
+          children: [
+            /* @__PURE__ */ jsx73(MIcon, { name: "menu_book", size: "sm" }),
+            "\u0421\u0445\u0435\u043C\u0430 \u0434\u043E\u043C\u0435\u043D\u0430"
+          ]
+        }
+      ),
+      /* @__PURE__ */ jsxs70(
+        "button",
+        {
+          className: "btn",
+          onClick: () => onGoToDomain(m.domainId),
+          children: [
+            /* @__PURE__ */ jsx73(MIcon, { name: "my_location", size: "sm" }),
+            "\u041D\u0430 \u0433\u0440\u0430\u0444\u0435"
+          ]
+        }
+      )
+    ] })
+  ] });
+}
 function MartinMetricsModal() {
   const { index, loading, error } = useModelIndex();
-  const [showHelp, setShowHelp] = useState32(false);
   const open2 = useGraphStore((s) => s.martinOpen);
+  const [showHelp, setShowHelp] = useState32(false);
+  useHelpEscape(open2, showHelp, setShowHelp);
   const [sortBy, setSortBy] = useState32("distance");
   const [filterZone, setFilterZone] = useState32("");
+  const [query, setQuery] = useState32("");
+  const [tab, setTab] = useState32("table");
+  const [groupMode, setGroupMode] = useState32("flat");
+  const [selectedId, setSelectedId] = useState32(null);
   const report = index?.martin ?? null;
+  const zoneCounts = useMemo42(() => {
+    const c = {
+      pain: 0,
+      uselessness: 0,
+      "main-sequence": 0,
+      unclassified: 0
+    };
+    report?.metrics.forEach((m) => {
+      const z = m.zone;
+      if (z in c)
+        c[z]++;
+    });
+    return c;
+  }, [report]);
   const sorted = useMemo42(() => {
     if (!report)
       return [];
     let arr = [...report.metrics];
     if (filterZone)
       arr = arr.filter((m) => m.zone === filterZone);
+    const q = query.trim().toLowerCase();
+    if (q) {
+      arr = arr.filter(
+        (m) => m.domainId.toLowerCase().includes(q) || m.domainName.toLowerCase().includes(q)
+      );
+    }
     arr.sort((a, b) => {
       if (sortBy === "distance")
         return b.distance - a.distance;
@@ -23951,10 +28236,123 @@ function MartinMetricsModal() {
         return b.ca - a.ca;
       if (sortBy === "ce")
         return b.ce - a.ce;
+      if (sortBy === "name")
+        return a.domainId.localeCompare(b.domainId);
       return 0;
     });
     return arr;
-  }, [report, sortBy, filterZone]);
+  }, [report, sortBy, filterZone, query]);
+  const groupedByZone = useMemo42(() => {
+    if (groupMode !== "zone")
+      return null;
+    const groups = {
+      pain: [],
+      uselessness: [],
+      "main-sequence": [],
+      unclassified: []
+    };
+    sorted.forEach((m) => {
+      const z = m.zone;
+      if (z in groups)
+        groups[z].push(m);
+    });
+    const order = [
+      "pain",
+      "uselessness",
+      "main-sequence",
+      "unclassified"
+    ];
+    return order.filter((z) => groups[z].length > 0).map((z) => ({
+      zone: z,
+      label: ZONE_LABEL[z],
+      color: ZONE_COLOR[z],
+      metrics: groups[z]
+    }));
+  }, [sorted, groupMode]);
+  const selected = useMemo42(() => {
+    if (!selectedId || !report)
+      return null;
+    return report.metrics.find((m) => m.domainId === selectedId) || null;
+  }, [selectedId, report]);
+  const handleSelectDomain = useCallback23((domainId) => {
+    setSelectedId(domainId);
+  }, []);
+  const openSchema = useCallback23((domainId) => {
+    const st = useGraphStore.getState();
+    st.setMartinOpen(false);
+    st.setDomainSchemaDomainId(domainId);
+    st.setDomainSchemaOpen(true);
+  }, []);
+  const gotoDomain = useCallback23((domainId) => {
+    const st = useGraphStore.getState();
+    st.setMartinOpen(false);
+    st.setViewMode("graph");
+    setTimeout(() => {
+      const nav = st.nodes.find(
+        (n) => (n.data.domainId || "").toLowerCase() === domainId.toLowerCase()
+      );
+      if (nav) {
+        st.setSelectedNodeId(nav.id);
+        st.setFocusNode(nav.id);
+        st.pushNav(domainId);
+      }
+    }, 200);
+  }, []);
+  const exportMarkdown = async () => {
+    if (!report)
+      return;
+    const lines = [];
+    lines.push("# \u0410\u0440\u0445\u0438\u0442\u0435\u043A\u0442\u0443\u0440\u043D\u044B\u0435 \u043C\u0435\u0442\u0440\u0438\u043A\u0438 (Martin)");
+    lines.push("");
+    lines.push(`_${(/* @__PURE__ */ new Date()).toLocaleString("ru-RU")}_`);
+    lines.push("");
+    lines.push("## \u0421\u0432\u043E\u0434\u043A\u0430");
+    lines.push("");
+    lines.push("| \u041C\u0435\u0442\u0440\u0438\u043A\u0430 | \u0417\u043D\u0430\u0447\u0435\u043D\u0438\u0435 |");
+    lines.push("| --- | ---: |");
+    lines.push(`| \u0414\u043E\u043C\u0435\u043D\u043E\u0432 | ${report.stats.totalDomains} |`);
+    lines.push(`| I \u0441\u0440\u0435\u0434\u043D\u044F\u044F | ${report.averages.instability.toFixed(2)} |`);
+    lines.push(`| A \u0441\u0440\u0435\u0434\u043D\u044F\u044F | ${report.averages.abstractness.toFixed(2)} |`);
+    lines.push(`| D \u0441\u0440\u0435\u0434\u043D\u044F\u044F | ${report.averages.distance.toFixed(2)} |`);
+    lines.push(`| \u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438 | ${zoneCounts.pain} |`);
+    lines.push(`| \u0411\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u044B\u0435 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u0438 | ${zoneCounts.uselessness} |`);
+    lines.push(`| \u041D\u0430 \u0433\u043B\u0430\u0432\u043D\u043E\u0439 \u043F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u0438 | ${zoneCounts["main-sequence"]} |`);
+    lines.push(`| \u041D\u0435 \u043A\u043B\u0430\u0441\u0441\u0438\u0444\u0438\u0446\u0438\u0440\u043E\u0432\u0430\u043D\u043E | ${zoneCounts.unclassified} |`);
+    lines.push("");
+    const sortedAll = [...report.metrics].sort(
+      (a, b) => b.distance - a.distance
+    );
+    ["pain", "uselessness", "main-sequence", "unclassified"].forEach(
+      (zone) => {
+        const items = sortedAll.filter((m) => m.zone === zone);
+        if (items.length === 0)
+          return;
+        const icon = zone === "pain" ? "\u{1F534}" : zone === "uselessness" ? "\u{1F7E0}" : "\u2705";
+        lines.push(`## ${icon} ${ZONE_LABEL[zone]} (${items.length})`);
+        lines.push("");
+        if (zone === "pain" || zone === "uselessness") {
+          lines.push(`> ${ZONE_DESCRIPTION[zone]}`);
+          lines.push("");
+          lines.push(`**\u0427\u0442\u043E \u0434\u0435\u043B\u0430\u0442\u044C:** ${ZONE_RECOMMENDATION[zone]}`);
+          lines.push("");
+        }
+        lines.push("| \u0414\u043E\u043C\u0435\u043D | I | A | D | Ca | Ce |");
+        lines.push("| --- | ---: | ---: | ---: | ---: | ---: |");
+        items.forEach((m) => {
+          lines.push(
+            `| \`${m.domainId}\` | ${m.instability.toFixed(2)} | ${m.abstractness.toFixed(2)} | ${m.distance.toFixed(2)} | ${m.ca} | ${m.ce} |`
+          );
+        });
+        lines.push("");
+      }
+    );
+    try {
+      await navigator.clipboard.writeText(lines.join("\n"));
+      useGraphStore.getState().showSnackbar("\u041E\u0442\u0447\u0451\u0442 \u0441\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D \u0432 \u0431\u0443\u0444\u0435\u0440");
+    } catch (e) {
+      await alertDialog("\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0441\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C", { detail: e.message });
+    }
+  };
   if (!open2)
     return null;
   return /* @__PURE__ */ jsx73(
@@ -23965,24 +28363,40 @@ function MartinMetricsModal() {
       children: /* @__PURE__ */ jsxs70(
         "div",
         {
-          className: "help-modal entity-hierarchy-modal",
+          className: "help-modal martin-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
             /* @__PURE__ */ jsxs70("div", { className: "help-modal__header", children: [
               /* @__PURE__ */ jsxs70("div", { className: "help-modal__title", children: [
-                "\u{1F4D0} \u0410\u0440\u0445\u0438\u0442\u0435\u043A\u0442\u0443\u0440\u043D\u044B\u0435 \u043C\u0435\u0442\u0440\u0438\u043A\u0438 (\u041C\u0430\u0440\u0442\u0438\u043D)",
+                /* @__PURE__ */ jsx73(MIcon, { name: "scatter_plot", size: "sm" }),
+                /* @__PURE__ */ jsx73("span", { className: "icon-label", children: "\u0410\u0440\u0445\u0438\u0442\u0435\u043A\u0442\u0443\u0440\u043D\u044B\u0435 \u043C\u0435\u0442\u0440\u0438\u043A\u0438 (\u041C\u0430\u0440\u0442\u0438\u043D)" }),
                 report && /* @__PURE__ */ jsxs70("span", { className: "help-modal__badge", children: [
                   report.stats.totalDomains,
                   " \u0434\u043E\u043C\u0435\u043D\u043E\u0432"
+                ] }),
+                report && zoneCounts.pain > 0 && /* @__PURE__ */ jsxs70("span", { className: "help-modal__badge help-modal__badge--warn", children: [
+                  "\u26A0 ",
+                  zoneCounts.pain,
+                  " \u0432 \u0437\u043E\u043D\u0435 \u0431\u043E\u043B\u0438"
                 ] })
               ] }),
               /* @__PURE__ */ jsxs70("div", { className: "help-modal__actions", children: [
+                /* @__PURE__ */ jsx73(
+                  "button",
+                  {
+                    className: "help-modal__icon-btn",
+                    onClick: exportMarkdown,
+                    disabled: !report,
+                    title: "\u0421\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u043E\u0442\u0447\u0451\u0442 \u0432 Markdown",
+                    children: /* @__PURE__ */ jsx73(MIcon, { name: "content_copy" })
+                  }
+                ),
                 /* @__PURE__ */ jsx73(
                   HelpButton,
                   {
                     open: showHelp,
                     onToggle: () => setShowHelp(!showHelp),
-                    label: "\u041A\u0430\u043A \u044D\u0442\u043E \u0447\u0438\u0442\u0430\u0442\u044C?"
+                    label: "\u041A\u0430\u043A \u0447\u0438\u0442\u0430\u0442\u044C?"
                   }
                 ),
                 /* @__PURE__ */ jsx73(
@@ -23995,22 +28409,22 @@ function MartinMetricsModal() {
                 )
               ] })
             ] }),
-            loading && /* @__PURE__ */ jsx73("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx73("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
+            loading && /* @__PURE__ */ jsx73("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx73("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430\u2026" }) }),
             error && /* @__PURE__ */ jsx73("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs70("div", { style: { color: "var(--danger)" }, children: [
               "\u041E\u0448\u0438\u0431\u043A\u0430: ",
               error
             ] }) }),
-            index && report && /* @__PURE__ */ jsxs70("div", { className: "help-modal__body help-modal__body--flush", children: [
+            index && report && /* @__PURE__ */ jsxs70("div", { className: "martin-body", children: [
               /* @__PURE__ */ jsxs70(ModalHelp, { visible: showHelp, children: [
-                /* @__PURE__ */ jsx73(HelpSection, { title: "\u0427\u0442\u043E \u044D\u0442\u043E \u0442\u0430\u043A\u043E\u0435", children: /* @__PURE__ */ jsxs70(HelpText, { children: [
-                  "\u042D\u0442\u043E \u043C\u0435\u0442\u0440\u0438\u043A\u0438 \u0420\u043E\u0431\u0435\u0440\u0442\u0430 \u041C\u0430\u0440\u0442\u0438\u043D\u0430 \u0438\u0437 \u043A\u043D\u0438\u0433\u0438 \xAB\u0427\u0438\u0441\u0442\u0430\u044F \u0430\u0440\u0445\u0438\u0442\u0435\u043A\u0442\u0443\u0440\u0430\xBB. \u041E\u043D\u0438 \u0438\u0437\u043C\u0435\u0440\u044F\u044E\u0442",
+                /* @__PURE__ */ jsx73(HelpSection, { title: "\u0427\u0442\u043E \u044D\u0442\u043E", children: /* @__PURE__ */ jsxs70(HelpText, { children: [
+                  "\u041C\u0435\u0442\u0440\u0438\u043A\u0438 \u0420\u043E\u0431\u0435\u0440\u0442\u0430 \u041C\u0430\u0440\u0442\u0438\u043D\u0430 \u0438\u0437 \u043A\u043D\u0438\u0433\u0438 \xAB\u0427\u0438\u0441\u0442\u0430\u044F \u0430\u0440\u0445\u0438\u0442\u0435\u043A\u0442\u0443\u0440\u0430\xBB. \u0418\u0437\u043C\u0435\u0440\u044F\u044E\u0442",
                   " ",
                   /* @__PURE__ */ jsx73("strong", { children: "\u0441\u0432\u044F\u0437\u043D\u043E\u0441\u0442\u044C" }),
                   " \u0438 ",
                   /* @__PURE__ */ jsx73("strong", { children: "\u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u044E" }),
-                  " \u0434\u043E\u043C\u0435\u043D\u043E\u0432. \u041F\u0440\u043E\u0441\u0442\u043E\u0439 \u0438\u0434\u0435\u0430\u043B: ",
-                  /* @__PURE__ */ jsx73("em", { children: "\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0435 \u0434\u043E\u043C\u0435\u043D\u044B \u0434\u043E\u043B\u0436\u043D\u044B \u0431\u044B\u0442\u044C \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u044B\u043C\u0438, \u043D\u0435\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0435 \u2014 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u043C\u0438." }),
-                  " \u041C\u0435\u0442\u0440\u0438\u043A\u0438 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u044E\u0442, \u0433\u0434\u0435 \u044D\u0442\u043E\u0442 \u0431\u0430\u043B\u0430\u043D\u0441 \u043D\u0430\u0440\u0443\u0448\u0435\u043D."
+                  " \u0434\u043E\u043C\u0435\u043D\u043E\u0432. \u0418\u0434\u0435\u0430\u043B: ",
+                  /* @__PURE__ */ jsx73("em", { children: "\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0435 \u0434\u043E\u043C\u0435\u043D\u044B \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u044B, \u043D\u0435\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0435 \u2014 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B" }),
+                  ". \u041C\u0435\u0442\u0440\u0438\u043A\u0438 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u044E\u0442, \u0433\u0434\u0435 \u044D\u0442\u043E\u0442 \u0431\u0430\u043B\u0430\u043D\u0441 \u043D\u0430\u0440\u0443\u0448\u0435\u043D."
                 ] }) }),
                 /* @__PURE__ */ jsxs70("div", { className: "modal-help__grid", children: [
                   /* @__PURE__ */ jsxs70(HelpCard, { letter: "Ca", title: "Afferent coupling", formula: "\u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u0437\u0430\u0432\u0438\u0441\u044F\u0442 \u043E\u0442 \u044D\u0442\u043E\u0433\u043E", children: [
@@ -24025,7 +28439,7 @@ function MartinMetricsModal() {
                   ] }),
                   /* @__PURE__ */ jsxs70(HelpCard, { letter: "I", title: "Instability", formula: "I = Ce / (Ca + Ce)", children: [
                     /* @__PURE__ */ jsx73("strong", { children: "0" }),
-                    " \u2014 \u043E\u0447\u0435\u043D\u044C \u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0439, \u043C\u0435\u043D\u044F\u0442\u044C \u043D\u0435\u043B\u044C\u0437\u044F \u0431\u0435\u0437 \u043F\u043E\u0441\u043B\u0435\u0434\u0441\u0442\u0432\u0438\u0439.",
+                    " \u2014 \u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0439, \u043C\u0435\u043D\u044F\u0442\u044C \u043D\u0435\u043B\u044C\u0437\u044F \u0431\u0435\u0437 \u043F\u043E\u0441\u043B\u0435\u0434\u0441\u0442\u0432\u0438\u0439.",
                     " ",
                     /* @__PURE__ */ jsx73("strong", { children: "1" }),
                     " \u2014 \u043D\u0435\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0439, \u043C\u043E\u0436\u043D\u043E \u043C\u0435\u043D\u044F\u0442\u044C \u0441\u0432\u043E\u0431\u043E\u0434\u043D\u043E."
@@ -24059,210 +28473,313 @@ function MartinMetricsModal() {
                   )
                 ] }),
                 /* @__PURE__ */ jsx73(HelpSection, { title: "\u0427\u0442\u043E \u0442\u0430\u043A\u043E\u0435 \u0437\u043E\u043D\u044B", children: /* @__PURE__ */ jsxs70(HelpZones, { children: [
-                  /* @__PURE__ */ jsx73(HelpZone, { color: "green", title: "\u2705 \u0413\u043B\u0430\u0432\u043D\u0430\u044F \u043F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u044C", children: "D < 0.3. \u0414\u043E\u043C\u0435\u043D \u043D\u0430 \u0438\u0434\u0435\u0430\u043B\u044C\u043D\u043E\u0439 \u043B\u0438\u043D\u0438\u0438. \u0421\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0435 \u0434\u043E\u043C\u0435\u043D\u044B \u2014 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u044B\u0435, \u043D\u0435\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0435 \u2014 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0435. \u0412\u0441\u0451 \u043F\u0440\u0430\u0432\u0438\u043B\u044C\u043D\u043E." }),
-                  /* @__PURE__ */ jsxs70(HelpZone, { color: "red", title: "\u{1F534} \u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438", children: [
-                    "A < 0.3 \u0438 I < 0.3. \u0414\u043E\u043C\u0435\u043D ",
-                    /* @__PURE__ */ jsx73("strong", { children: "\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0439 \u0438 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0439" }),
-                    ": \u043E\u0442 \u043D\u0435\u0433\u043E \u0437\u0430\u0432\u0438\u0441\u044F\u0442 \u043C\u043D\u043E\u0433\u0438\u0435, \u043D\u043E \u0443 \u043D\u0435\u0433\u043E \u043D\u0435\u0442 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u0439, \u0447\u0442\u043E\u0431\u044B \u043C\u0435\u043D\u044F\u0442\u044C\u0441\u044F \u0431\u0435\u0437\u043E\u043F\u0430\u0441\u043D\u043E. \u041B\u044E\u0431\u043E\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0435 \u0437\u0430\u0442\u0440\u0430\u0433\u0438\u0432\u0430\u0435\u0442 \u0432\u0441\u0435\u0445 \u043F\u043E\u0442\u0440\u0435\u0431\u0438\u0442\u0435\u043B\u0435\u0439."
-                  ] }),
-                  /* @__PURE__ */ jsxs70(HelpZone, { color: "orange", title: "\u{1F7E0} \u0411\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u044B\u0435 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u0438", children: [
-                    "A > 0.7 \u0438 I > 0.7. \u0414\u043E\u043C\u0435\u043D ",
-                    /* @__PURE__ */ jsx73("strong", { children: "\u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u044B\u0439 \u0438 \u043D\u0435\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0439" }),
-                    ": \u043C\u043D\u043E\u0433\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439-\u0440\u043E\u0434\u0438\u0442\u0435\u043B\u0435\u0439, \u043D\u043E \u043D\u0438\u043A\u0442\u043E \u0438\u0445 \u043D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442. \u0421\u043A\u043E\u0440\u0435\u0435 \u0432\u0441\u0435\u0433\u043E \u2014 \u043C\u0451\u0440\u0442\u0432\u044B\u0439 \u043A\u043E\u0434 \u0438\u043B\u0438 \u043D\u0435\u0434\u043E\u0434\u0435\u043B\u0430\u043D\u043D\u044B\u0439 \u043C\u043E\u0434\u0443\u043B\u044C."
-                  ] })
+                  /* @__PURE__ */ jsx73(HelpZone, { color: "green", title: "\u2705 \u0413\u043B\u0430\u0432\u043D\u0430\u044F \u043F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u044C", children: "D < 0.3. \u0411\u0430\u043B\u0430\u043D\u0441 \u0441\u043E\u0431\u043B\u044E\u0434\u0451\u043D. \u0421\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0435 \u0434\u043E\u043C\u0435\u043D\u044B \u2014 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u044B\u0435, \u043D\u0435\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0435 \u2014 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0435. \u0412\u0441\u0451 \u043F\u0440\u0430\u0432\u0438\u043B\u044C\u043D\u043E." }),
+                  /* @__PURE__ */ jsx73(HelpZone, { color: "red", title: "\u{1F534} \u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438", children: "A < 0.3 \u0438 I < 0.3. \u0421\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0439 \u0438 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0439: \u043E\u0442 \u043D\u0435\u0433\u043E \u0437\u0430\u0432\u0438\u0441\u044F\u0442 \u043C\u043D\u043E\u0433\u0438\u0435, \u043D\u043E \u043D\u0435\u0442 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u0439, \u0447\u0442\u043E\u0431\u044B \u043C\u0435\u043D\u044F\u0442\u044C\u0441\u044F \u0431\u0435\u0437\u043E\u043F\u0430\u0441\u043D\u043E. \u041B\u044E\u0431\u0430\u044F \u043F\u0440\u0430\u0432\u043A\u0430 \u0431\u044C\u0451\u0442 \u043F\u043E \u043F\u043E\u0442\u0440\u0435\u0431\u0438\u0442\u0435\u043B\u044F\u043C." }),
+                  /* @__PURE__ */ jsx73(HelpZone, { color: "orange", title: "\u{1F7E0} \u0411\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u044B\u0435 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u0438", children: "A > 0.7 \u0438 I > 0.7. \u0410\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u044B\u0439 \u0438 \u043D\u0435\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0439: \u043C\u043D\u043E\u0433\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439-\u0440\u043E\u0434\u0438\u0442\u0435\u043B\u0435\u0439, \u043D\u043E \u043D\u0438\u043A\u0442\u043E \u0438\u0445 \u043D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442. \u041C\u0451\u0440\u0442\u0432\u044B\u0439 \u043A\u043E\u0434 \u0438\u043B\u0438 \u043D\u0435\u0434\u043E\u0434\u0435\u043B\u0430\u043D\u043D\u044B\u0439 \u043C\u043E\u0434\u0443\u043B\u044C." }),
+                  /* @__PURE__ */ jsx73(HelpZone, { color: "green", title: "\u26AA \u041D\u0435 \u043A\u043B\u0430\u0441\u0441\u0438\u0444\u0438\u0446\u0438\u0440\u043E\u0432\u0430\u043D\u043E", children: "\u041D\u0435 \u043F\u043E\u043F\u0430\u0434\u0430\u0435\u0442 \u043D\u0438 \u0432 \u043E\u0434\u043D\u0443 \u0438\u0437 \u0442\u0440\u0451\u0445 \u0437\u043E\u043D. \u041E\u0431\u044B\u0447\u043D\u043E \u2014 \u0438\u0437\u043E\u043B\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0439 \u0434\u043E\u043C\u0435\u043D \u0431\u0435\u0437 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0435\u0439 (I=0, A=0, D=1). \u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435: \u044D\u0442\u043E \u0443\u0442\u0438\u043B\u0438\u0442\u0430\u0440\u043D\u044B\u0439 \u0434\u043E\u043C\u0435\u043D \u0438\u043B\u0438 \u0437\u0430\u0431\u044B\u0442\u0430\u044F \u0444\u0438\u0447\u0430?" })
                 ] }) }),
-                /* @__PURE__ */ jsx73(HelpSection, { title: "\u041A\u0430\u043A \u044D\u0442\u0438\u043C \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u044C\u0441\u044F", children: /* @__PURE__ */ jsxs70(HelpList, { children: [
-                  /* @__PURE__ */ jsxs70("li", { children: [
-                    /* @__PURE__ */ jsx73("strong", { children: "\u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438 \u2014 \u0442\u043E\u043F \u043F\u0440\u0438\u043E\u0440\u0438\u0442\u0435\u0442." }),
-                    " \u042D\u0442\u043E \u0434\u043E\u043C\u0435\u043D\u044B, \u0433\u0434\u0435 \u043B\u044E\u0431\u043E\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0435 \u0431\u043E\u043B\u044C\u043D\u043E. \u0415\u0441\u043B\u0438 \u0438\u0445 \u043C\u043D\u043E\u0433\u043E \u2014 \u0430\u0440\u0445\u0438\u0442\u0435\u043A\u0442\u0443\u0440\u0430 \xAB\u0437\u0430\u0441\u0442\u0440\u044F\u043B\u0430\xBB."
+                /* @__PURE__ */ jsxs70(HelpSection, { title: "\u0427\u0442\u043E \u0434\u0435\u043B\u0430\u0442\u044C \u0432 \u043A\u0430\u0436\u0434\u043E\u0439 \u0437\u043E\u043D\u0435", children: [
+                  /* @__PURE__ */ jsxs70(HelpText, { children: [
+                    /* @__PURE__ */ jsx73("strong", { children: "\u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438" }),
+                    " \u2014 \u0442\u043E\u043F-\u043F\u0440\u0438\u043E\u0440\u0438\u0442\u0435\u0442. \u042D\u0442\u043E \u0434\u043E\u043C\u0435\u043D\u044B, \u0433\u0434\u0435 \u043B\u044E\u0431\u043E\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0435 \u0431\u043E\u043B\u044C\u043D\u043E."
                   ] }),
-                  /* @__PURE__ */ jsxs70("li", { children: [
-                    /* @__PURE__ */ jsx73("strong", { children: "\u0411\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u044B\u0435 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u0438 \u2014 \u043D\u0430 \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435." }),
-                    " \u0418\u043B\u0438 \u043F\u043E\u0434\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u043A \u0434\u0435\u043B\u0443, \u0438\u043B\u0438 \u0432\u044B\u043A\u0438\u043D\u0443\u0442\u044C \u2014 \u043E\u043D\u0438 \u0442\u043E\u043B\u044C\u043A\u043E \u043F\u0443\u0442\u0430\u044E\u0442."
+                  /* @__PURE__ */ jsxs70(HelpList, { children: [
+                    /* @__PURE__ */ jsxs70("li", { children: [
+                      /* @__PURE__ */ jsx73("strong", { children: "\u0412\u044B\u043D\u0435\u0441\u0442\u0438 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u0438" }),
+                      " \u2014 \u043E\u0431\u0449\u0438\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0432 \u0440\u043E\u0434\u0438\u0442\u0435\u043B\u044C\u0441\u043A\u0438\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438, \u0447\u0442\u043E\u0431\u044B \u043C\u0435\u043D\u044F\u0442\u044C \u0442\u043E\u043B\u044C\u043A\u043E \xAB\u0432\u0435\u0440\u0445\xBB \u0441\u0442\u0435\u043A\u0430."
+                    ] }),
+                    /* @__PURE__ */ jsxs70("li", { children: [
+                      /* @__PURE__ */ jsx73("strong", { children: "\u0423\u043C\u0435\u043D\u044C\u0448\u0438\u0442\u044C \u0432\u0445\u043E\u0434\u044F\u0449\u0438\u0435" }),
+                      " \u2014 \u0438\u043D\u043A\u0430\u043F\u0441\u0443\u043B\u0438\u0440\u043E\u0432\u0430\u0442\u044C API, \u0443\u0431\u0440\u0430\u0442\u044C \u043B\u0438\u0448\u043D\u0438\u0435 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438."
+                    ] }),
+                    /* @__PURE__ */ jsxs70("li", { children: [
+                      /* @__PURE__ */ jsx73("strong", { children: "\u0420\u0430\u0437\u0434\u0435\u043B\u0438\u0442\u044C \u0434\u043E\u043C\u0435\u043D" }),
+                      " \u2014 \u0435\u0441\u043B\u0438 \u043E\u043D \u0434\u0435\u0440\u0436\u0438\u0442 \u0441\u043B\u0438\u0448\u043A\u043E\u043C \u043C\u043D\u043E\u0433\u043E \u0441\u0446\u0435\u043D\u0430\u0440\u0438\u0435\u0432."
+                    ] })
                   ] }),
-                  /* @__PURE__ */ jsxs70("li", { children: [
-                    /* @__PURE__ */ jsx73("strong", { children: "\u041D\u0435 \u0433\u043E\u043D\u044F\u0439\u0442\u0435\u0441\u044C \u0437\u0430 D = 0 \u0443 \u0432\u0441\u0435\u0445." }),
-                    " \u0418\u0434\u0435\u0430\u043B \u043D\u0435\u0434\u043E\u0441\u0442\u0438\u0436\u0438\u043C, \u0441\u0442\u0440\u0435\u043C\u0438\u0442\u0435\u0441\u044C \u0447\u0442\u043E\u0431\u044B \xAB\u0437\u043E\u043D\u0430 \u0431\u043E\u043B\u0438\xBB \u0431\u044B\u043B\u0430 \u043F\u0443\u0441\u0442\u043E\u0439."
+                  /* @__PURE__ */ jsxs70(HelpText, { children: [
+                    /* @__PURE__ */ jsx73("strong", { children: "\u0411\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u044B\u0435 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u0438" }),
+                    " \u2014 \u043D\u0430 \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435 \u0438\u043B\u0438 \u043F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435 \u043A \u0434\u0435\u043B\u0443."
                   ] }),
-                  /* @__PURE__ */ jsxs70("li", { children: [
-                    /* @__PURE__ */ jsx73("strong", { children: "\u0421\u0440\u0430\u0432\u043D\u0438\u0442\u0435 \u0441 Sonar:" }),
-                    " \u0434\u043E\u043C\u0435\u043D \u043C\u043E\u0436\u0435\u0442 \u0438\u043C\u0435\u0442\u044C \u043E\u0442\u043B\u0438\u0447\u043D\u044B\u0439 Sonar (\u043D\u0430\u043F\u0438\u0441\u0430\u043D \u043F\u043E \u043F\u0440\u0430\u0432\u0438\u043B\u0430\u043C) \u0438 \u043F\u0440\u0438 \u044D\u0442\u043E\u043C \u0431\u044B\u0442\u044C \u0432 \u0437\u043E\u043D\u0435 \u0431\u043E\u043B\u0438 (\u0430\u0440\u0445\u0438\u0442\u0435\u043A\u0442\u0443\u0440\u043D\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0439). \u042D\u0442\u043E \u0440\u0430\u0437\u043D\u044B\u0435 \u0438\u0437\u043C\u0435\u0440\u0435\u043D\u0438\u044F."
-                  ] })
-                ] }) })
-              ] }),
-              /* @__PURE__ */ jsxs70("div", { className: "martin-summary", children: [
-                /* @__PURE__ */ jsxs70("div", { className: "martin-summary__stats", children: [
-                  /* @__PURE__ */ jsxs70("div", { className: "martin-stat", children: [
-                    /* @__PURE__ */ jsx73("span", { className: "martin-stat__value", children: report.averages.instability.toFixed(2) }),
-                    /* @__PURE__ */ jsx73("span", { className: "martin-stat__label", children: "I \u0441\u0440\u0435\u0434\u043D\u044F\u044F" })
-                  ] }),
-                  /* @__PURE__ */ jsxs70("div", { className: "martin-stat", children: [
-                    /* @__PURE__ */ jsx73("span", { className: "martin-stat__value", children: report.averages.abstractness.toFixed(2) }),
-                    /* @__PURE__ */ jsx73("span", { className: "martin-stat__label", children: "A \u0441\u0440\u0435\u0434\u043D\u044F\u044F" })
-                  ] }),
-                  /* @__PURE__ */ jsxs70("div", { className: "martin-stat", children: [
-                    /* @__PURE__ */ jsx73("span", { className: "martin-stat__value", children: report.averages.distance.toFixed(2) }),
-                    /* @__PURE__ */ jsx73("span", { className: "martin-stat__label", children: "D \u0441\u0440\u0435\u0434\u043D\u044F\u044F" })
+                  /* @__PURE__ */ jsxs70(HelpList, { children: [
+                    /* @__PURE__ */ jsxs70("li", { children: [
+                      /* @__PURE__ */ jsx73("strong", { children: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C" }),
+                      " \u043D\u0435\u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u043C\u044B\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438-\u0440\u043E\u0434\u0438\u0442\u0435\u043B\u0438."
+                    ] }),
+                    /* @__PURE__ */ jsxs70("li", { children: [
+                      /* @__PURE__ */ jsx73("strong", { children: "\u041F\u043E\u0434\u043A\u043B\u044E\u0447\u0438\u0442\u044C" }),
+                      " \u0434\u043E\u043C\u0435\u043D \u043A \u0434\u0440\u0443\u0433\u0438\u043C \u2014 \u0441\u0434\u0435\u043B\u0430\u0442\u044C \u0435\u0433\u043E \u043F\u043E\u043B\u0435\u0437\u043D\u044B\u043C."
+                    ] }),
+                    /* @__PURE__ */ jsxs70("li", { children: [
+                      /* @__PURE__ */ jsx73("strong", { children: "\u041E\u0431\u044A\u0435\u0434\u0438\u043D\u0438\u0442\u044C" }),
+                      " \u0441 \u0446\u0435\u043B\u0435\u0432\u044B\u043C \u0434\u043E\u043C\u0435\u043D\u043E\u043C, \u0435\u0441\u043B\u0438 \u044D\u0442\u043E \xAB\u043D\u0435\u0434\u043E\u0434\u0435\u043B\u0430\u043D\u043D\u044B\u0439 \u043C\u043E\u0434\u0443\u043B\u044C\xBB."
+                    ] })
                   ] })
                 ] }),
-                /* @__PURE__ */ jsxs70("div", { className: "martin-zones", children: [
-                  /* @__PURE__ */ jsxs70(
+                /* @__PURE__ */ jsx73(HelpSection, { title: "\u041A\u0430\u043A \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u044C\u0441\u044F", children: /* @__PURE__ */ jsxs70(HelpList, { children: [
+                  /* @__PURE__ */ jsxs70("li", { children: [
+                    /* @__PURE__ */ jsx73("strong", { children: "KPI \u0441\u0432\u0435\u0440\u0445\u0443" }),
+                    " \u2014 \u043E\u0431\u0449\u0430\u044F \u043A\u0430\u0440\u0442\u0438\u043D\u0430: \u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0432 \u043A\u0430\u0436\u0434\u043E\u0439 \u0437\u043E\u043D\u0435. \u041A\u043B\u0438\u043A \u043F\u043E \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0435 \u2014 \u0444\u0438\u043B\u044C\u0442\u0440."
+                  ] }),
+                  /* @__PURE__ */ jsxs70("li", { children: [
+                    /* @__PURE__ */ jsx73("strong", { children: "\u0412\u043A\u043B\u0430\u0434\u043A\u0430 \xAB\u0422\u0430\u0431\u043B\u0438\u0446\u0430\xBB" }),
+                    " \u2014 \u043F\u043B\u043E\u0441\u043A\u0438\u0439 \u0441\u043F\u0438\u0441\u043E\u043A, \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430 \u043F\u043E \u043B\u044E\u0431\u043E\u043C\u0443 \u0441\u0442\u043E\u043B\u0431\u0446\u0443, \u043F\u043E\u0438\u0441\u043A."
+                  ] }),
+                  /* @__PURE__ */ jsxs70("li", { children: [
+                    /* @__PURE__ */ jsx73("strong", { children: "\u0412\u043A\u043B\u0430\u0434\u043A\u0430 \xAB\u0414\u0438\u0430\u0433\u0440\u0430\u043C\u043C\u0430\xBB" }),
+                    " \u2014 scatter plot I\xD7A. \u041F\u043E\u0434\u043F\u0438\u0441\u0438 \u0434\u043B\u044F \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0445 \u0442\u043E\u0447\u0435\u043A. \u041A\u043B\u0438\u043A \u2014 \u0434\u0435\u0442\u0430\u043B\u0438."
+                  ] }),
+                  /* @__PURE__ */ jsxs70("li", { children: [
+                    /* @__PURE__ */ jsx73("strong", { children: "\u041A\u043B\u0438\u043A \u043F\u043E \u0434\u043E\u043C\u0435\u043D\u0443" }),
+                    " \u2014 \u0434\u0435\u0442\u0430\u043B\u0438: Ca/Ce breakdown, \xAB\u0447\u0442\u043E \u0434\u0435\u043B\u0430\u0442\u044C\xBB, \u043A\u043D\u043E\u043F\u043A\u0438 \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u0430."
+                  ] }),
+                  /* @__PURE__ */ jsxs70("li", { children: [
+                    /* @__PURE__ */ jsx73("strong", { children: "\u0413\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u043A\u0430" }),
+                    " \u2014 \u043F\u043B\u043E\u0441\u043A\u043E (\u0442\u043E\u043F \u043F\u043E D) \u0438\u043B\u0438 \u043F\u043E \u0437\u043E\u043D\u0430\u043C (\u0441\u043D\u0430\u0447\u0430\u043B\u0430 \u0431\u043E\u043B\u044C, \u043F\u043E\u0442\u043E\u043C \u0431\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u044B\u0435, \u0438 \u0442.\u0434.)."
+                  ] })
+                ] }) }),
+                /* @__PURE__ */ jsx73(HelpSection, { title: "\u041F\u0440\u0430\u043A\u0442\u0438\u0447\u0435\u0441\u043A\u0438\u0435 \u043F\u0440\u0438\u043C\u0435\u0440\u044B", children: /* @__PURE__ */ jsxs70(HelpList, { children: [
+                  /* @__PURE__ */ jsxs70("li", { children: [
+                    /* @__PURE__ */ jsx73("strong", { children: "\xAB\u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438\xBB = 0." }),
+                    " \u041E\u0442\u043B\u0438\u0447\u043D\u043E. \u0414\u0430\u043B\u044C\u0448\u0435 \u0441\u043B\u0435\u0434\u0438\u0442\u0435, \u0447\u0442\u043E\u0431\u044B \u043D\u0435 \u043F\u043E\u044F\u0432\u043B\u044F\u043B\u0438\u0441\u044C \u043D\u043E\u0432\u044B\u0435."
+                  ] }),
+                  /* @__PURE__ */ jsxs70("li", { children: [
+                    /* @__PURE__ */ jsx73("strong", { children: "\xAB\u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438\xBB = 5+." }),
+                    " \u0410\u0440\u0445\u0438\u0442\u0435\u043A\u0442\u0443\u0440\u0430 \xAB\u0437\u0430\u0441\u0442\u0440\u044F\u043B\u0430\xBB \u2014 \u0441\u043B\u0438\u0448\u043A\u043E\u043C \u043C\u043D\u043E\u0433\u043E \u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0445 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0445 \u043C\u043E\u0434\u0443\u043B\u0435\u0439. \u0421\u043A\u043E\u0440\u0435\u0435 \u0432\u0441\u0435\u0433\u043E, \u043D\u0443\u0436\u0435\u043D \u0440\u0435\u0444\u0430\u043A\u0442\u043E\u0440\u0438\u043D\u0433."
+                  ] }),
+                  /* @__PURE__ */ jsxs70("li", { children: [
+                    /* @__PURE__ */ jsx73("strong", { children: "\xAB\u0411\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u044B\u0435\xBB = \u043C\u043D\u043E\u0433\u043E." }),
+                    " \u0412\u043E\u0437\u043C\u043E\u0436\u043D\u043E, \u0435\u0441\u0442\u044C \u0437\u0430\u0431\u0440\u043E\u0448\u0435\u043D\u043D\u044B\u0435 \u0444\u0438\u0447\u0438. \u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u0447\u0435\u0440\u0435\u0437 Health Dashboard \u2014 \u043C\u043E\u0436\u0435\u0442, \u0438\u0445 \u0432\u043E\u043E\u0431\u0449\u0435 \u043D\u0438\u043A\u0442\u043E \u043D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442."
+                  ] }),
+                  /* @__PURE__ */ jsxs70("li", { children: [
+                    /* @__PURE__ */ jsx73("strong", { children: "\xAB\u041D\u0435 \u043A\u043B\u0430\u0441\u0441\u0438\u0444\u0438\u0446\u0438\u0440\u043E\u0432\u0430\u043D\u043E\xBB = \u043C\u043D\u043E\u0433\u043E." }),
+                    " \u041E\u0431\u044B\u0447\u043D\u043E \u0431\u044B\u0432\u0430\u0435\u0442 \u0432 \u0443\u0442\u0438\u043B\u0438\u0442\u0430\u0440\u043D\u044B\u0445 \u0434\u043E\u043C\u0435\u043D\u0430\u0445 (mixin-\u0431\u0438\u0431\u043B\u0438\u043E\u0442\u0435\u043A\u0438, \u0441\u043B\u043E\u0432\u0430\u0440\u0438). \u041D\u043E\u0440\u043C\u0430, \u0435\u0441\u043B\u0438 \u0434\u043E\u043C\u0435\u043D\u044B \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0442\u0435\u043B\u044C\u043D\u043E \u0438\u0437\u043E\u043B\u0438\u0440\u043E\u0432\u0430\u043D\u044B."
+                  ] })
+                ] }) }),
+                /* @__PURE__ */ jsx73(HelpSection, { title: "\u041E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F", children: /* @__PURE__ */ jsxs70(HelpList, { children: [
+                  /* @__PURE__ */ jsx73("li", { children: "Abstractness \u0441\u0447\u0438\u0442\u0430\u0435\u0442\u0441\u044F \u043F\u0440\u0438\u0431\u043B\u0438\u0436\u0451\u043D\u043D\u043E: \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u0430, \u0435\u0441\u043B\u0438 \u043E\u0442 \u043D\u0435\u0451 \u043A\u0442\u043E-\u0442\u043E \u043D\u0430\u0441\u043B\u0435\u0434\u0443\u0435\u0442. \u041D\u0430\u0441\u0442\u043E\u044F\u0449\u0430\u044F abstractness \u0432 UML \u0441\u0447\u0438\u0442\u0430\u0435\u0442\u0441\u044F \u0438\u043D\u0430\u0447\u0435." }),
+                  /* @__PURE__ */ jsx73("li", { children: "Linkages \u043D\u0435 \u0443\u0447\u0438\u0442\u044B\u0432\u0430\u044E\u0442\u0441\u044F \u0432 Ca/Ce. \u0414\u043B\u044F \u0438\u0435\u0440\u0430\u0440\u0445\u0438\u0438 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0435\u0439 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F inherits + Reference." }),
+                  /* @__PURE__ */ jsx73("li", { children: "\xAB\u0420\u0430\u0441\u0441\u0442\u043E\u044F\u043D\u0438\u0435\xBB \u2014 \u044D\u0432\u0440\u0438\u0441\u0442\u0438\u043A\u0430. D=0 \u043D\u0435\u0434\u043E\u0441\u0442\u0438\u0436\u0438\u043C, \u0441\u0442\u0440\u0435\u043C\u0438\u0442\u0435\u0441\u044C \u043A \u0442\u043E\u043C\u0443, \u0447\u0442\u043E\u0431\u044B \xAB\u0437\u043E\u043D\u0430 \u0431\u043E\u043B\u0438\xBB \u0431\u044B\u043B\u0430 \u043F\u0443\u0441\u0442\u043E\u0439." })
+                ] }) })
+              ] }),
+              !showHelp && /* @__PURE__ */ jsxs70(Fragment23, { children: [
+                /* @__PURE__ */ jsxs70("div", { className: "martin-kpi", children: [
+                  /* @__PURE__ */ jsxs70("div", { className: "martin-kpi-averages", children: [
+                    /* @__PURE__ */ jsxs70("div", { className: "martin-kpi-average", children: [
+                      /* @__PURE__ */ jsx73("div", { className: "martin-kpi-average__label", children: "I \u0441\u0440." }),
+                      /* @__PURE__ */ jsx73("div", { className: "martin-kpi-average__value", children: report.averages.instability.toFixed(2) })
+                    ] }),
+                    /* @__PURE__ */ jsxs70("div", { className: "martin-kpi-average", children: [
+                      /* @__PURE__ */ jsx73("div", { className: "martin-kpi-average__label", children: "A \u0441\u0440." }),
+                      /* @__PURE__ */ jsx73("div", { className: "martin-kpi-average__value", children: report.averages.abstractness.toFixed(2) })
+                    ] }),
+                    /* @__PURE__ */ jsxs70("div", { className: "martin-kpi-average", children: [
+                      /* @__PURE__ */ jsx73("div", { className: "martin-kpi-average__label", children: "D \u0441\u0440." }),
+                      /* @__PURE__ */ jsx73("div", { className: "martin-kpi-average__value", children: report.averages.distance.toFixed(2) })
+                    ] })
+                  ] }),
+                  /* @__PURE__ */ jsx73("div", { className: "martin-kpi-zones", children: [
+                    "pain",
+                    "uselessness",
+                    "main-sequence",
+                    "unclassified"
+                  ].map((z) => {
+                    const isActive = filterZone === z;
+                    const count = zoneCounts[z];
+                    return /* @__PURE__ */ jsxs70(
+                      "button",
+                      {
+                        type: "button",
+                        className: "martin-zone-card martin-zone-card--" + z.replace("-", "") + (isActive ? " active" : ""),
+                        onClick: () => setFilterZone(isActive ? "" : z),
+                        title: ZONE_DESCRIPTION[z],
+                        children: [
+                          /* @__PURE__ */ jsx73("div", { className: "martin-zone-card__icon", children: /* @__PURE__ */ jsx73(MIcon, { name: zoneIcon(z), size: "sm" }) }),
+                          /* @__PURE__ */ jsxs70("div", { className: "martin-zone-card__body", children: [
+                            /* @__PURE__ */ jsx73("div", { className: "martin-zone-card__count", children: count }),
+                            /* @__PURE__ */ jsx73("div", { className: "martin-zone-card__label", children: ZONE_LABEL[z] })
+                          ] })
+                        ]
+                      },
+                      z
+                    );
+                  }) })
+                ] }),
+                /* @__PURE__ */ jsxs70("div", { className: "martin-toolbar", children: [
+                  /* @__PURE__ */ jsxs70("div", { className: "martin-tabs", children: [
+                    /* @__PURE__ */ jsxs70(
+                      "button",
+                      {
+                        className: "martin-tab" + (tab === "table" ? " active" : ""),
+                        onClick: () => setTab("table"),
+                        children: [
+                          /* @__PURE__ */ jsx73(MIcon, { name: "table_rows", size: "sm" }),
+                          "\u0422\u0430\u0431\u043B\u0438\u0446\u0430"
+                        ]
+                      }
+                    ),
+                    /* @__PURE__ */ jsxs70(
+                      "button",
+                      {
+                        className: "martin-tab" + (tab === "scatter" ? " active" : ""),
+                        onClick: () => setTab("scatter"),
+                        children: [
+                          /* @__PURE__ */ jsx73(MIcon, { name: "scatter_plot", size: "sm" }),
+                          "\u0414\u0438\u0430\u0433\u0440\u0430\u043C\u043C\u0430"
+                        ]
+                      }
+                    )
+                  ] }),
+                  tab === "table" && /* @__PURE__ */ jsxs70(Fragment23, { children: [
+                    /* @__PURE__ */ jsxs70("div", { className: "martin-toolbar__group", children: [
+                      /* @__PURE__ */ jsx73("span", { className: "martin-toolbar__label", children: "\u0413\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u043A\u0430:" }),
+                      /* @__PURE__ */ jsxs70(
+                        "select",
+                        {
+                          value: groupMode,
+                          onChange: (e) => setGroupMode(e.target.value),
+                          className: "martin-select",
+                          children: [
+                            /* @__PURE__ */ jsx73("option", { value: "flat", children: "\u041F\u043B\u043E\u0441\u043A\u043E" }),
+                            /* @__PURE__ */ jsx73("option", { value: "zone", children: "\u041F\u043E \u0437\u043E\u043D\u0435" })
+                          ]
+                        }
+                      )
+                    ] }),
+                    /* @__PURE__ */ jsxs70("div", { className: "martin-toolbar__group", children: [
+                      /* @__PURE__ */ jsx73("span", { className: "martin-toolbar__label", children: "\u0421\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430:" }),
+                      /* @__PURE__ */ jsxs70(
+                        "select",
+                        {
+                          value: sortBy,
+                          onChange: (e) => setSortBy(e.target.value),
+                          className: "martin-select",
+                          children: [
+                            /* @__PURE__ */ jsx73("option", { value: "distance", children: "Distance \u2193" }),
+                            /* @__PURE__ */ jsx73("option", { value: "instability", children: "Instability \u2193" }),
+                            /* @__PURE__ */ jsx73("option", { value: "abstractness", children: "Abstractness \u2193" }),
+                            /* @__PURE__ */ jsx73("option", { value: "ca", children: "Ca \u2193" }),
+                            /* @__PURE__ */ jsx73("option", { value: "ce", children: "Ce \u2193" }),
+                            /* @__PURE__ */ jsx73("option", { value: "name", children: "\u041F\u043E \u0438\u043C\u0435\u043D\u0438" })
+                          ]
+                        }
+                      )
+                    ] })
+                  ] }),
+                  /* @__PURE__ */ jsxs70("div", { className: "martin-search", children: [
+                    /* @__PURE__ */ jsx73(MIcon, { name: "search", size: "sm" }),
+                    /* @__PURE__ */ jsx73(
+                      "input",
+                      {
+                        type: "text",
+                        placeholder: "\u041D\u0430\u0439\u0442\u0438 \u0434\u043E\u043C\u0435\u043D\u2026",
+                        value: query,
+                        onChange: (e) => setQuery(e.target.value),
+                        spellCheck: false
+                      }
+                    ),
+                    query && /* @__PURE__ */ jsx73(
+                      "button",
+                      {
+                        className: "martin-search__clear",
+                        onClick: () => setQuery(""),
+                        children: "\u2715"
+                      }
+                    )
+                  ] }),
+                  filterZone && /* @__PURE__ */ jsxs70(
                     "button",
                     {
-                      className: "martin-zone martin-zone--main" + (filterZone === "main-sequence" ? " active" : ""),
-                      onClick: () => setFilterZone(filterZone === "main-sequence" ? "" : "main-sequence"),
+                      type: "button",
+                      className: "martin-filter-active",
+                      onClick: () => setFilterZone(""),
+                      title: "\u0421\u043D\u044F\u0442\u044C \u0444\u0438\u043B\u044C\u0442\u0440 \u043F\u043E \u0437\u043E\u043D\u0435",
                       children: [
-                        /* @__PURE__ */ jsx73("span", { className: "martin-zone__count", children: report.stats.mainSequence.length }),
-                        /* @__PURE__ */ jsx73("span", { className: "martin-zone__label", children: "\u041D\u0430 \u0433\u043B\u0430\u0432\u043D\u043E\u0439 \u043F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u0438" })
-                      ]
-                    }
-                  ),
-                  /* @__PURE__ */ jsxs70(
-                    "button",
-                    {
-                      className: "martin-zone martin-zone--pain" + (filterZone === "pain" ? " active" : ""),
-                      onClick: () => setFilterZone(filterZone === "pain" ? "" : "pain"),
-                      children: [
-                        /* @__PURE__ */ jsx73("span", { className: "martin-zone__count", children: report.stats.painZone.length }),
-                        /* @__PURE__ */ jsx73("span", { className: "martin-zone__label", children: "\u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438 (\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0435 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0435)" })
-                      ]
-                    }
-                  ),
-                  /* @__PURE__ */ jsxs70(
-                    "button",
-                    {
-                      className: "martin-zone martin-zone--useless" + (filterZone === "uselessness" ? " active" : ""),
-                      onClick: () => setFilterZone(filterZone === "uselessness" ? "" : "uselessness"),
-                      children: [
-                        /* @__PURE__ */ jsx73("span", { className: "martin-zone__count", children: report.stats.uselessnessZone.length }),
-                        /* @__PURE__ */ jsx73("span", { className: "martin-zone__label", children: "\u0411\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u044B\u0435 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u0438" })
+                        /* @__PURE__ */ jsx73(MIcon, { name: "filter_alt", size: "sm" }),
+                        ZONE_LABEL[filterZone],
+                        /* @__PURE__ */ jsx73("span", { children: "\u2715" })
                       ]
                     }
                   )
-                ] })
-              ] }),
-              /* @__PURE__ */ jsxs70("div", { className: "martin-scatter", children: [
-                /* @__PURE__ */ jsx73("div", { className: "martin-scatter__title", children: "\u0414\u0438\u0430\u0433\u0440\u0430\u043C\u043C\u0430 \xABI \xD7 A\xBB" }),
-                /* @__PURE__ */ jsxs70("svg", { viewBox: "0 0 400 400", className: "martin-scatter__svg", children: [
-                  /* @__PURE__ */ jsx73("line", { x1: "40", y1: "360", x2: "380", y2: "360", stroke: "var(--border)" }),
-                  /* @__PURE__ */ jsx73("line", { x1: "40", y1: "360", x2: "40", y2: "20", stroke: "var(--border)" }),
-                  /* @__PURE__ */ jsx73("text", { x: "210", y: "392", textAnchor: "middle", fill: "var(--text-500)", fontSize: "11", children: "Instability \u2192" }),
-                  /* @__PURE__ */ jsx73(
-                    "text",
+                ] }),
+                /* @__PURE__ */ jsxs70("div", { className: "martin-content", children: [
+                  tab === "scatter" && /* @__PURE__ */ jsx73(
+                    ScatterPlot,
                     {
-                      x: "12",
-                      y: "190",
-                      textAnchor: "middle",
-                      fill: "var(--text-500)",
-                      fontSize: "11",
-                      transform: "rotate(-90 12 190)",
-                      children: "Abstractness \u2192"
+                      metrics: sorted,
+                      selectedId,
+                      onSelect: handleSelectDomain,
+                      onFilterZone: (zone) => {
+                        setFilterZone(zone);
+                        setTab("table");
+                      }
                     }
                   ),
-                  /* @__PURE__ */ jsx73("text", { x: "40", y: "378", textAnchor: "middle", fill: "var(--text-500)", fontSize: "9", children: "0" }),
-                  /* @__PURE__ */ jsx73("text", { x: "380", y: "378", textAnchor: "middle", fill: "var(--text-500)", fontSize: "9", children: "1" }),
-                  /* @__PURE__ */ jsx73("text", { x: "22", y: "360", textAnchor: "end", fill: "var(--text-500)", fontSize: "9", children: "0" }),
-                  /* @__PURE__ */ jsx73("text", { x: "22", y: "24", textAnchor: "end", fill: "var(--text-500)", fontSize: "9", children: "1" }),
-                  /* @__PURE__ */ jsx73(
-                    "line",
-                    {
-                      x1: "40",
-                      y1: "20",
-                      x2: "380",
-                      y2: "360",
-                      stroke: "var(--accent)",
-                      strokeWidth: "1.5",
-                      strokeDasharray: "5 5",
-                      opacity: "0.5"
-                    }
-                  ),
-                  /* @__PURE__ */ jsx73("rect", { x: "40", y: "240", width: "120", height: "120", fill: "rgba(239,68,68,0.08)" }),
-                  /* @__PURE__ */ jsx73("text", { x: "100", y: "300", textAnchor: "middle", fill: "var(--danger)", fontSize: "10", opacity: "0.6", children: "\u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438" }),
-                  /* @__PURE__ */ jsx73("rect", { x: "260", y: "20", width: "120", height: "120", fill: "rgba(245,158,11,0.08)" }),
-                  /* @__PURE__ */ jsx73("text", { x: "320", y: "80", textAnchor: "middle", fill: "var(--warning)", fontSize: "10", opacity: "0.6", children: "Uselessness" }),
-                  report.metrics.map((m) => {
-                    const x = 40 + m.instability * 340;
-                    const y = 360 - m.abstractness * 340;
-                    const color = m.zone === "pain" ? "#ef4444" : m.zone === "uselessness" ? "#f59e0b" : m.zone === "main-sequence" ? "#10b981" : "#64748b";
-                    return /* @__PURE__ */ jsx73(
-                      "circle",
+                  tab === "table" && /* @__PURE__ */ jsx73("div", { className: "martin-table-wrap", children: groupedByZone ? groupedByZone.map((group) => /* @__PURE__ */ jsxs70("div", { className: "martin-group", children: [
+                    /* @__PURE__ */ jsxs70(
+                      "div",
                       {
-                        cx: x,
-                        cy: y,
-                        r: 5,
-                        fill: color,
-                        stroke: "#fff",
-                        strokeWidth: "1",
-                        opacity: m.distance > 0.5 ? 0.9 : 0.6,
-                        children: /* @__PURE__ */ jsxs70("title", { children: [
-                          m.domainId,
-                          "\n",
-                          "I=",
-                          m.instability.toFixed(2),
-                          " A=",
-                          m.abstractness.toFixed(2),
-                          " D=",
-                          m.distance.toFixed(2),
-                          "\n",
-                          "Ca=",
-                          m.ca,
-                          " Ce=",
-                          m.ce
-                        ] })
+                        className: "martin-group__head",
+                        style: { borderLeftColor: group.color },
+                        children: [
+                          /* @__PURE__ */ jsx73(MIcon, { name: zoneIcon(group.zone), size: "sm" }),
+                          /* @__PURE__ */ jsx73("span", { className: "martin-group__title", children: group.label }),
+                          /* @__PURE__ */ jsx73("span", { className: "martin-group__count", children: group.metrics.length })
+                        ]
+                      }
+                    ),
+                    /* @__PURE__ */ jsxs70("table", { className: "martin-table", children: [
+                      /* @__PURE__ */ jsx73("thead", { children: /* @__PURE__ */ jsxs70("tr", { children: [
+                        /* @__PURE__ */ jsx73("th", { children: "\u0414\u043E\u043C\u0435\u043D" }),
+                        /* @__PURE__ */ jsx73("th", { title: "Ca: \u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u0437\u0430\u0432\u0438\u0441\u044F\u0442", children: "Ca" }),
+                        /* @__PURE__ */ jsx73("th", { title: "Ce: \u043E\u0442 \u0441\u043A\u043E\u043B\u044C\u043A\u0438\u0445 \u0437\u0430\u0432\u0438\u0441\u0438\u0442", children: "Ce" }),
+                        /* @__PURE__ */ jsx73("th", { title: "Instability = Ce/(Ca+Ce)", children: "I" }),
+                        /* @__PURE__ */ jsx73("th", { title: "Abstractness", children: "A" }),
+                        /* @__PURE__ */ jsx73("th", { title: "Distance from main sequence", children: "D" }),
+                        /* @__PURE__ */ jsx73("th", { children: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" })
+                      ] }) }),
+                      /* @__PURE__ */ jsx73("tbody", { children: group.metrics.map((m) => /* @__PURE__ */ jsx73(
+                        MartinTableRow,
+                        {
+                          metric: m,
+                          isSelected: selectedId === m.domainId,
+                          onClick: () => handleSelectDomain(m.domainId)
+                        },
+                        m.domainId
+                      )) })
+                    ] })
+                  ] }, group.zone)) : sorted.length === 0 ? /* @__PURE__ */ jsx73("div", { className: "martin-empty", children: report.metrics.length === 0 ? "\u041D\u0435\u0442 \u043C\u0435\u0442\u0440\u0438\u043A" : "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u043C" }) : /* @__PURE__ */ jsxs70("table", { className: "martin-table", children: [
+                    /* @__PURE__ */ jsx73("thead", { children: /* @__PURE__ */ jsxs70("tr", { children: [
+                      /* @__PURE__ */ jsx73("th", { children: "\u0414\u043E\u043C\u0435\u043D" }),
+                      /* @__PURE__ */ jsx73("th", { title: "Ca: \u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u0437\u0430\u0432\u0438\u0441\u044F\u0442", children: "Ca" }),
+                      /* @__PURE__ */ jsx73("th", { title: "Ce: \u043E\u0442 \u0441\u043A\u043E\u043B\u044C\u043A\u0438\u0445 \u0437\u0430\u0432\u0438\u0441\u0438\u0442", children: "Ce" }),
+                      /* @__PURE__ */ jsx73("th", { title: "Instability = Ce/(Ca+Ce)", children: "I" }),
+                      /* @__PURE__ */ jsx73("th", { title: "Abstractness", children: "A" }),
+                      /* @__PURE__ */ jsx73("th", { title: "Distance from main sequence", children: "D" }),
+                      /* @__PURE__ */ jsx73("th", { children: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" }),
+                      /* @__PURE__ */ jsx73("th", { children: "\u0417\u043E\u043D\u0430" })
+                    ] }) }),
+                    /* @__PURE__ */ jsx73("tbody", { children: sorted.map((m) => /* @__PURE__ */ jsx73(
+                      MartinTableRow,
+                      {
+                        metric: m,
+                        isSelected: selectedId === m.domainId,
+                        onClick: () => handleSelectDomain(m.domainId),
+                        showZone: true
                       },
                       m.domainId
-                    );
-                  })
-                ] })
-              ] }),
-              /* @__PURE__ */ jsxs70("div", { className: "martin-table-wrap", children: [
-                /* @__PURE__ */ jsxs70("div", { className: "martin-sort", children: [
-                  /* @__PURE__ */ jsx73("span", { children: "\u0421\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430:" }),
-                  [
-                    { key: "distance", label: "Distance" },
-                    { key: "instability", label: "Instability" },
-                    { key: "abstractness", label: "Abstractness" },
-                    { key: "ca", label: "Ca" },
-                    { key: "ce", label: "Ce" }
-                  ].map((opt) => /* @__PURE__ */ jsx73(
-                    "button",
-                    {
-                      className: "martin-sort-btn" + (sortBy === opt.key ? " active" : ""),
-                      onClick: () => setSortBy(opt.key),
-                      children: opt.label
-                    },
-                    opt.key
-                  ))
+                    )) })
+                  ] }) })
                 ] }),
-                /* @__PURE__ */ jsxs70("table", { className: "martin-table", children: [
-                  /* @__PURE__ */ jsx73("thead", { children: /* @__PURE__ */ jsxs70("tr", { children: [
-                    /* @__PURE__ */ jsx73("th", { children: "\u0414\u043E\u043C\u0435\u043D" }),
-                    /* @__PURE__ */ jsx73("th", { title: "Afferent coupling \u2014 \u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0437\u0430\u0432\u0438\u0441\u044F\u0442 \u043E\u0442 \u043D\u0435\u0433\u043E", children: "Ca" }),
-                    /* @__PURE__ */ jsx73("th", { title: "Efferent coupling \u2014 \u043E\u0442 \u0441\u043A\u043E\u043B\u044C\u043A\u0438\u0445 \u0437\u0430\u0432\u0438\u0441\u0438\u0442", children: "Ce" }),
-                    /* @__PURE__ */ jsx73("th", { title: "Instability = Ce / (Ca + Ce)", children: "I" }),
-                    /* @__PURE__ */ jsx73("th", { title: "Abstractness \u2014 \u0434\u043E\u043B\u044F \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u044B\u0445 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439", children: "A" }),
-                    /* @__PURE__ */ jsx73("th", { title: "Distance = |A + I - 1|", children: "D" }),
-                    /* @__PURE__ */ jsx73("th", { children: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" }),
-                    /* @__PURE__ */ jsx73("th", { children: "\u0417\u043E\u043D\u0430" })
-                  ] }) }),
-                  /* @__PURE__ */ jsx73("tbody", { children: sorted.slice(0, 100).map((m) => /* @__PURE__ */ jsxs70("tr", { className: "martin-row martin-row--" + m.zone, children: [
-                    /* @__PURE__ */ jsxs70("td", { children: [
-                      /* @__PURE__ */ jsx73("div", { className: "martin-row__domain", children: m.domainId }),
-                      m.domainName !== m.domainId && /* @__PURE__ */ jsx73("div", { className: "martin-row__name", children: m.domainName })
-                    ] }),
-                    /* @__PURE__ */ jsx73("td", { className: "martin-row__num", children: m.ca }),
-                    /* @__PURE__ */ jsx73("td", { className: "martin-row__num", children: m.ce }),
-                    /* @__PURE__ */ jsx73("td", { className: "martin-row__num", children: m.instability.toFixed(2) }),
-                    /* @__PURE__ */ jsx73("td", { className: "martin-row__num", children: m.abstractness.toFixed(2) }),
-                    /* @__PURE__ */ jsx73("td", { className: "martin-row__num martin-row__num--d", children: m.distance.toFixed(2) }),
-                    /* @__PURE__ */ jsxs70("td", { className: "martin-row__num", children: [
-                      m.entitiesAbstract,
-                      "/",
-                      m.entitiesTotal
-                    ] }),
-                    /* @__PURE__ */ jsx73("td", { children: /* @__PURE__ */ jsx73("span", { className: "martin-zone-tag martin-zone-tag--" + m.zone, children: m.zone === "pain" ? "\u0431\u043E\u043B\u044C" : m.zone === "uselessness" ? "\u0431\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u043E\u0441\u0442\u044C" : m.zone === "main-sequence" ? "\u043D\u043E\u0440\u043C\u0430" : "\u2014" }) })
-                  ] }, m.domainId)) })
-                ] })
+                selected && /* @__PURE__ */ jsx73(
+                  MartinDetail,
+                  {
+                    metric: selected,
+                    onClose: () => setSelectedId(null),
+                    onOpenSchema: openSchema,
+                    onGoToDomain: gotoDomain
+                  }
+                )
               ] })
             ] })
           ]
@@ -24271,12 +28788,90 @@ function MartinMetricsModal() {
     }
   );
 }
+var ZONE_LABEL, ZONE_SHORT, ZONE_COLOR, ZONE_DESCRIPTION, ZONE_RECOMMENDATION, SVG, PAD, PLOT, MartinTableRow;
 var init_MartinMetricsModal = __esm({
   "src/web/components/modals/MartinMetricsModal.tsx"() {
     "use strict";
     init_useGraphStore();
     init_useModelIndex();
+    init_MIcon();
     init_ModalHelp();
+    init_useHelpEscape();
+    init_dialogs();
+    ZONE_LABEL = {
+      "main-sequence": "\u041D\u043E\u0440\u043C\u0430",
+      pain: "\u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438",
+      uselessness: "\u0411\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u044B\u0435",
+      unclassified: "\u041D\u0435 \u043A\u043B\u0430\u0441\u0441\u0438\u0444\u0438\u0446\u0438\u0440\u043E\u0432\u0430\u043D\u043E"
+    };
+    ZONE_SHORT = {
+      "main-sequence": "\u043D\u043E\u0440\u043C\u0430",
+      pain: "\u0431\u043E\u043B\u044C",
+      uselessness: "\u0431\u0435\u0441\u043F\u043E\u043B\u0435\u0437.",
+      unclassified: "\u2014"
+    };
+    ZONE_COLOR = {
+      "main-sequence": "#10b981",
+      pain: "#ef4444",
+      uselessness: "#f59e0b",
+      unclassified: "#64748b"
+    };
+    ZONE_DESCRIPTION = {
+      "main-sequence": "\u0411\u0430\u043B\u0430\u043D\u0441 \u0441\u043E\u0431\u043B\u044E\u0434\u0451\u043D: \u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0435 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u044B, \u043D\u0435\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0435 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B. \u0418\u0434\u0435\u0430\u043B\u044C\u043D\u043E\u0435 \u0441\u043E\u0441\u0442\u043E\u044F\u043D\u0438\u0435.",
+      pain: "\u0421\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0439 \u0438 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0439. \u041E\u0442 \u043D\u0435\u0433\u043E \u0437\u0430\u0432\u0438\u0441\u044F\u0442 \u043C\u043D\u043E\u0433\u0438\u0435, \u043D\u043E \u0443 \u043D\u0435\u0433\u043E \u043D\u0435\u0442 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u0439, \u0447\u0442\u043E\u0431\u044B \u043C\u0435\u043D\u044F\u0442\u044C\u0441\u044F \u0431\u0435\u0437\u043E\u043F\u0430\u0441\u043D\u043E. \u041B\u044E\u0431\u0430\u044F \u043F\u0440\u0430\u0432\u043A\u0430 \u0431\u044C\u0451\u0442 \u043F\u043E \u043F\u043E\u0442\u0440\u0435\u0431\u0438\u0442\u0435\u043B\u044F\u043C.",
+      uselessness: "\u0410\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u044B\u0439 \u0438 \u043D\u0435\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0439. \u041C\u043D\u043E\u0433\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439-\u0440\u043E\u0434\u0438\u0442\u0435\u043B\u0435\u0439, \u043D\u043E \u043D\u0438\u043A\u0442\u043E \u043E\u0442 \u043D\u0435\u0433\u043E \u043D\u0435 \u0437\u0430\u0432\u0438\u0441\u0438\u0442. \u041C\u0451\u0440\u0442\u0432\u044B\u0439 \u043A\u043E\u0434 \u0438\u043B\u0438 \u043D\u0435\u0434\u043E\u0434\u0435\u043B\u0430\u043D\u043D\u044B\u0439 \u043C\u043E\u0434\u0443\u043B\u044C.",
+      unclassified: "\u041D\u0435 \u043F\u043E\u043F\u0430\u0434\u0430\u0435\u0442 \u043D\u0438 \u0432 \u043E\u0434\u043D\u0443 \u0438\u0437 \u0442\u0440\u0451\u0445 \u0437\u043E\u043D. \u041E\u0431\u044B\u0447\u043D\u043E \u2014 \u0438\u0437\u043E\u043B\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0439 \u0434\u043E\u043C\u0435\u043D \u0431\u0435\u0437 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0435\u0439 \u0438\u043B\u0438 \u0431\u0435\u0437 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F."
+    };
+    ZONE_RECOMMENDATION = {
+      "main-sequence": "\u041D\u0438\u0447\u0435\u0433\u043E \u0434\u0435\u043B\u0430\u0442\u044C \u043D\u0435 \u043D\u0443\u0436\u043D\u043E \u2014 \u044D\u0442\u043E \u0438\u0434\u0435\u0430\u043B.",
+      pain: "1) \u0412\u044B\u043D\u0435\u0441\u0442\u0438 \u043E\u0431\u0449\u0438\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0432 \u0440\u043E\u0434\u0438\u0442\u0435\u043B\u044C\u0441\u043A\u0438\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 (\u0443\u0432\u0435\u043B\u0438\u0447\u0438\u0442\u044C A). 2) \u0423\u043C\u0435\u043D\u044C\u0448\u0438\u0442\u044C \u0432\u0445\u043E\u0434\u044F\u0449\u0438\u0435 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0438 \u2014 \u0438\u043D\u043A\u0430\u043F\u0441\u0443\u043B\u0438\u0440\u043E\u0432\u0430\u0442\u044C API. 3) \u0420\u0430\u0437\u0434\u0435\u043B\u0438\u0442\u044C \u0434\u043E\u043C\u0435\u043D, \u0435\u0441\u043B\u0438 \u043E\u043D \u0434\u0435\u0440\u0436\u0438\u0442 \u0441\u043B\u0438\u0448\u043A\u043E\u043C \u043C\u043D\u043E\u0433\u043E \u0441\u0446\u0435\u043D\u0430\u0440\u0438\u0435\u0432.",
+      uselessness: "1) \u0423\u0434\u0430\u043B\u0438\u0442\u044C \u043D\u0435\u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u043C\u044B\u0435 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u044B\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438. 2) \u041F\u043E\u0434\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0434\u043E\u043C\u0435\u043D \u043A \u0434\u0440\u0443\u0433\u0438\u043C \u2014 \u0441\u0434\u0435\u043B\u0430\u0442\u044C \u0435\u0433\u043E \u043F\u043E\u043B\u0435\u0437\u043D\u044B\u043C. 3) \u041E\u0431\u044A\u0435\u0434\u0438\u043D\u0438\u0442\u044C \u0441 \u0446\u0435\u043B\u0435\u0432\u044B\u043C \u0434\u043E\u043C\u0435\u043D\u043E\u043C, \u0435\u0441\u043B\u0438 \u043E\u043D \xAB\u043D\u0435\u0434\u043E\u0434\u0435\u043B\u0430\u043D\u043D\u044B\u0439\xBB.",
+      unclassified: "\u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435: \u0434\u043E\u043C\u0435\u043D \u0438\u0437\u043E\u043B\u0438\u0440\u043E\u0432\u0430\u043D? \u041D\u0435\u0442 \u043D\u0430\u0441\u043B\u0435\u0434\u043D\u0438\u043A\u043E\u0432? \u041D\u0435\u0442 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0435\u0439? \u0415\u0441\u043B\u0438 \u0434\u0430 \u2014 \u044D\u0442\u043E \u043D\u043E\u0440\u043C\u0430 \u0434\u043B\u044F \u0443\u0442\u0438\u043B\u0438\u0442\u0430\u0440\u043D\u044B\u0445 \u0434\u043E\u043C\u0435\u043D\u043E\u0432. \u0415\u0441\u043B\u0438 \u043D\u0435\u0442 \u2014 \u043F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u043A\u043E\u0440\u0440\u0435\u043A\u0442\u043D\u043E\u0441\u0442\u044C inherits \u0438 Reference."
+    };
+    SVG = 420;
+    PAD = 40;
+    PLOT = SVG - PAD * 2;
+    MartinTableRow = React43.memo(function MartinTableRow2({
+      metric: m,
+      isSelected,
+      onClick,
+      showZone
+    }) {
+      const zone = m.zone;
+      const color = ZONE_COLOR[zone];
+      return /* @__PURE__ */ jsxs70(
+        "tr",
+        {
+          className: "martin-row martin-row--" + zone + (isSelected ? " selected" : ""),
+          onClick,
+          title: `\u041A\u043B\u0438\u043A \u2014 \u0434\u0435\u0442\u0430\u043B\u0438 ${m.domainId}`,
+          children: [
+            /* @__PURE__ */ jsxs70("td", { children: [
+              /* @__PURE__ */ jsx73("div", { className: "martin-row__domain", children: m.domainId }),
+              m.domainName !== m.domainId && /* @__PURE__ */ jsx73("div", { className: "martin-row__name", children: m.domainName })
+            ] }),
+            /* @__PURE__ */ jsx73("td", { className: "martin-row__num", children: m.ca }),
+            /* @__PURE__ */ jsx73("td", { className: "martin-row__num", children: m.ce }),
+            /* @__PURE__ */ jsx73("td", { className: "martin-row__num", children: m.instability.toFixed(2) }),
+            /* @__PURE__ */ jsx73("td", { className: "martin-row__num", children: m.abstractness.toFixed(2) }),
+            /* @__PURE__ */ jsx73("td", { className: "martin-row__num martin-row__num--d", children: /* @__PURE__ */ jsx73("span", { style: { color }, children: m.distance.toFixed(2) }) }),
+            /* @__PURE__ */ jsxs70("td", { className: "martin-row__num", children: [
+              m.entitiesAbstract,
+              "/",
+              m.entitiesTotal
+            ] }),
+            showZone && /* @__PURE__ */ jsx73("td", { children: /* @__PURE__ */ jsx73(
+              "span",
+              {
+                className: "martin-zone-tag",
+                style: { background: color + "22", color },
+                children: ZONE_SHORT[zone]
+              }
+            ) })
+          ]
+        }
+      );
+    });
   }
 });
 
@@ -24396,7 +28991,7 @@ var init_domain_compare = __esm({
 
 // src/web/components/modals/DomainCompareModal.tsx
 import { useEffect as useEffect39, useMemo as useMemo43, useState as useState33 } from "react";
-import { Fragment as Fragment21, jsx as jsx74, jsxs as jsxs71 } from "react/jsx-runtime";
+import { Fragment as Fragment24, jsx as jsx74, jsxs as jsxs71 } from "react/jsx-runtime";
 function DomainCompareModal() {
   const { index, loading, error } = useModelIndex();
   const { goto } = useNavigation();
@@ -24486,7 +29081,7 @@ function DomainCompareModal() {
                   )
                 ] })
               ] }),
-              !domainA || !domainB ? /* @__PURE__ */ jsx74("div", { className: "compare-empty", children: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u0432\u0430 \u0434\u043E\u043C\u0435\u043D\u0430" }) : domainA === domainB ? /* @__PURE__ */ jsx74("div", { className: "compare-empty", children: "\u0414\u043E\u043C\u0435\u043D\u044B \u0434\u043E\u043B\u0436\u043D\u044B \u0431\u044B\u0442\u044C \u0440\u0430\u0437\u043D\u044B\u043C\u0438" }) : result ? /* @__PURE__ */ jsxs71(Fragment21, { children: [
+              !domainA || !domainB ? /* @__PURE__ */ jsx74("div", { className: "compare-empty", children: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u0432\u0430 \u0434\u043E\u043C\u0435\u043D\u0430" }) : domainA === domainB ? /* @__PURE__ */ jsx74("div", { className: "compare-empty", children: "\u0414\u043E\u043C\u0435\u043D\u044B \u0434\u043E\u043B\u0436\u043D\u044B \u0431\u044B\u0442\u044C \u0440\u0430\u0437\u043D\u044B\u043C\u0438" }) : result ? /* @__PURE__ */ jsxs71(Fragment24, { children: [
                 /* @__PURE__ */ jsxs71("div", { className: "compare-summary", children: [
                   /* @__PURE__ */ jsxs71("div", { className: "compare-side compare-side--a", children: [
                     /* @__PURE__ */ jsx74("div", { className: "compare-side__id", children: result.domainA.domainId }),
@@ -24715,7 +29310,7 @@ function generatePiiMarkdown(report, index, options = {}) {
     const items = hits.filter((h) => h.severity === sev);
     if (items.length === 0)
       return;
-    lines.push(`## ${SEVERITY_LABELS[sev]} (${items.length})`);
+    lines.push(`## ${SEVERITY_LABELS2[sev]} (${items.length})`);
     lines.push("");
     lines.push("| \u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C.\u0410\u0442\u0440\u0438\u0431\u0443\u0442 | \u0422\u0438\u043F | \u0414\u043E\u043C\u0435\u043D | \u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F | \u041E\u0441\u043D\u043E\u0432\u0430\u043D\u0438\u0435 |");
     lines.push("| --- | --- | --- | --- | --- |");
@@ -24723,7 +29318,7 @@ function generatePiiMarkdown(report, index, options = {}) {
       const [domainId, entityAndAttr] = h.entityFqid.split("/");
       const attrRef = `\`${entityAndAttr}.${h.attributeId}\``;
       lines.push(
-        `| ${attrRef} | \`${h.dataType}\` | \`${domainId}\` | ${CATEGORY_LABELS2[h.category]} | ${h.regulation || h.reasons[0]} |`
+        `| ${attrRef} | \`${h.dataType}\` | \`${domainId}\` | ${CATEGORY_LABELS4[h.category]} | ${h.regulation || h.reasons[0]} |`
       );
     });
     lines.push("");
@@ -24764,7 +29359,7 @@ function generatePiiMarkdown(report, index, options = {}) {
     lines.push("| \u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F | \u041A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E |");
     lines.push("| --- | ---: |");
     Array.from(byCategory.entries()).sort((a, b) => b[1].length - a[1].length).forEach(([cat, items]) => {
-      lines.push(`| ${CATEGORY_LABELS2[cat]} | ${items.length} |`);
+      lines.push(`| ${CATEGORY_LABELS4[cat]} | ${items.length} |`);
     });
     lines.push("");
   }
@@ -24780,7 +29375,7 @@ function generatePiiMarkdown(report, index, options = {}) {
     lines.push("");
     lines.push(`- **\u0410\u0442\u0440\u0438\u0431\u0443\u0442:** ${h.attributeName}`);
     lines.push(`- **\u0422\u0438\u043F:** \`${h.dataType}\``);
-    lines.push(`- **\u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F:** ${CATEGORY_LABELS2[h.category]}`);
+    lines.push(`- **\u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F:** ${CATEGORY_LABELS4[h.category]}`);
     lines.push(`- **\u0421\u0435\u0440\u044C\u0451\u0437\u043D\u043E\u0441\u0442\u044C:** ${h.severity}`);
     if (h.regulation)
       lines.push(`- **\u0420\u0435\u0433\u0443\u043B\u044F\u0446\u0438\u044F:** ${h.regulation}`);
@@ -24860,17 +29455,17 @@ function downloadPiiMarkdown(markdown, filename) {
   a.click();
   URL.revokeObjectURL(url);
 }
-var SEVERITY_LABELS, CATEGORY_LABELS2, SEVERITY_ORDER;
+var SEVERITY_LABELS2, CATEGORY_LABELS4, SEVERITY_ORDER;
 var init_pii_markdown = __esm({
   "src/web/lib/markdown/pii-markdown.ts"() {
     "use strict";
-    SEVERITY_LABELS = {
+    SEVERITY_LABELS2 = {
       critical: "\u{1F534} \u0421\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438 (GDPR Art. 9 / 152-\u0424\u0417 \u0441\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F)",
       high: "\u{1F7E0} \u0412\u044B\u0441\u043E\u043A\u0430\u044F \u0447\u0443\u0432\u0441\u0442\u0432\u0438\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u044C",
       medium: "\u{1F7E1} \u0422\u0440\u0435\u0431\u0443\u044E\u0442 \u0432\u043D\u0438\u043C\u0430\u043D\u0438\u044F",
       low: "\u{1F7E2} \u041A\u043E\u0441\u0432\u0435\u043D\u043D\u043E"
     };
-    CATEGORY_LABELS2 = {
+    CATEGORY_LABELS4 = {
       identity: "\u0418\u0434\u0435\u043D\u0442\u0438\u0447\u043D\u043E\u0441\u0442\u044C",
       contact: "\u041A\u043E\u043D\u0442\u0430\u043A\u0442\u044B",
       document: "\u0414\u043E\u043A\u0443\u043C\u0435\u043D\u0442\u044B",
@@ -24886,8 +29481,16 @@ var init_pii_markdown = __esm({
 });
 
 // src/web/components/modals/PiiModal.tsx
-import { useEffect as useEffect40, useMemo as useMemo44, useState as useState34 } from "react";
-import { jsx as jsx75, jsxs as jsxs72 } from "react/jsx-runtime";
+import { useCallback as useCallback24, useEffect as useEffect40, useMemo as useMemo44, useState as useState34 } from "react";
+import { Fragment as Fragment25, jsx as jsx75, jsxs as jsxs72 } from "react/jsx-runtime";
+function computeRisk(bySeverity) {
+  const raw = bySeverity.critical * SEVERITY_RISK.critical + bySeverity.high * SEVERITY_RISK.high + bySeverity.medium * SEVERITY_RISK.medium + bySeverity.low * SEVERITY_RISK.low;
+  if (raw === 0)
+    return { score: 0, grade: "A" };
+  const score = Math.min(98, Math.round(30 * Math.log10(raw + 1)));
+  const grade = score <= 20 ? "A" : score <= 40 ? "B" : score <= 60 ? "C" : score <= 80 ? "D" : "E";
+  return { score, grade };
+}
 function loadIgnored() {
   try {
     const raw = localStorage.getItem(IGNORED_KEY);
@@ -24902,14 +29505,180 @@ function saveIgnored(s) {
   } catch {
   }
 }
+function parseRegulations(hits) {
+  const map2 = /* @__PURE__ */ new Map();
+  for (const h of hits) {
+    if (!h.regulation)
+      continue;
+    const parts = h.regulation.split(/\s*\/\s*/);
+    for (const p of parts) {
+      const t = p.trim();
+      if (!t)
+        continue;
+      map2.set(t, (map2.get(t) || 0) + 1);
+    }
+  }
+  return Array.from(map2.entries()).map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count);
+}
+function HitCard({
+  hit,
+  isExpanded,
+  isIgnored: isIgnored2,
+  siblingHits,
+  onToggle,
+  onIgnore,
+  onUnignore,
+  onOpenEntity,
+  onOpenYaml,
+  onOpenDomainSchema
+}) {
+  const [domainId, entityId] = hit.entityFqid.split("/");
+  const color = SEVERITY_COLOR[hit.severity];
+  return /* @__PURE__ */ jsxs72(
+    "div",
+    {
+      className: "pii-hit pii-hit--" + hit.severity + (isIgnored2 ? " pii-hit--ignored" : ""),
+      children: [
+        /* @__PURE__ */ jsxs72("div", { className: "pii-hit__head", onClick: onToggle, children: [
+          /* @__PURE__ */ jsx75(MIcon, { name: isExpanded ? "expand_more" : "chevron_right", size: "sm" }),
+          /* @__PURE__ */ jsxs72("code", { className: "pii-hit__id", children: [
+            entityId,
+            ".",
+            hit.attributeId
+          ] }),
+          /* @__PURE__ */ jsx75("span", { className: "pii-hit__name", children: hit.attributeName }),
+          /* @__PURE__ */ jsx75("span", { className: "pii-hit__type", children: hit.dataType }),
+          /* @__PURE__ */ jsxs72(
+            "span",
+            {
+              className: "pii-hit__category-chip",
+              style: { background: color + "22", color },
+              children: [
+                /* @__PURE__ */ jsx75(MIcon, { name: CATEGORY_ICONS2[hit.category], size: "sm" }),
+                CATEGORY_LABELS5[hit.category]
+              ]
+            }
+          ),
+          isIgnored2 && /* @__PURE__ */ jsx75("span", { className: "pii-hit__ignored-badge", title: "\u041F\u043E\u043C\u0435\u0447\u0435\u043D \u043A\u0430\u043A \xAB\u043D\u0435 PII\xBB", children: "\u0438\u0433\u043D\u043E\u0440" }),
+          siblingHits.length > 1 && /* @__PURE__ */ jsxs72(
+            "span",
+            {
+              className: "pii-hit__composition-badge",
+              title: `\u0412 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 ${siblingHits.length} PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430 \u2014 \u0440\u0438\u0441\u043A \u043A\u043E\u043C\u043F\u043E\u0437\u0438\u0446\u0438\u0438`,
+              children: [
+                /* @__PURE__ */ jsx75(MIcon, { name: "warning", size: "sm" }),
+                siblingHits.length
+              ]
+            }
+          )
+        ] }),
+        isExpanded && /* @__PURE__ */ jsxs72("div", { className: "pii-hit__details", children: [
+          /* @__PURE__ */ jsxs72("div", { className: "pii-hit__detail-row", children: [
+            /* @__PURE__ */ jsx75("span", { className: "pii-hit__detail-label", children: "\u0414\u043E\u043C\u0435\u043D" }),
+            /* @__PURE__ */ jsxs72(
+              "button",
+              {
+                className: "pii-hit__detail-link",
+                onClick: (e) => {
+                  e.stopPropagation();
+                  onOpenDomainSchema(domainId);
+                },
+                children: [
+                  /* @__PURE__ */ jsx75(MIcon, { name: "folder", size: "sm" }),
+                  domainId
+                ]
+              }
+            )
+          ] }),
+          /* @__PURE__ */ jsxs72("div", { className: "pii-hit__detail-row", children: [
+            /* @__PURE__ */ jsx75("span", { className: "pii-hit__detail-label", children: "\u041F\u043E\u043B\u043D\u044B\u0439 \u043A\u043B\u044E\u0447" }),
+            /* @__PURE__ */ jsx75("code", { className: "pii-hit__detail-code", children: hit.key })
+          ] }),
+          /* @__PURE__ */ jsxs72("div", { className: "pii-hit__detail-row", children: [
+            /* @__PURE__ */ jsx75("span", { className: "pii-hit__detail-label", children: "\u0421\u0440\u0430\u0431\u043E\u0442\u0430\u043B\u043E" }),
+            /* @__PURE__ */ jsx75("span", { className: "pii-hit__detail-value", children: hit.reasons.map((r, i) => /* @__PURE__ */ jsx75("span", { className: "pii-hit__reason-chip", children: r }, i)) })
+          ] }),
+          hit.regulation && /* @__PURE__ */ jsxs72("div", { className: "pii-hit__detail-row", children: [
+            /* @__PURE__ */ jsx75("span", { className: "pii-hit__detail-label", children: "\u0420\u0435\u0433\u0443\u043B\u044F\u0446\u0438\u044F" }),
+            /* @__PURE__ */ jsx75("span", { className: "pii-hit__detail-value", children: /* @__PURE__ */ jsx75("span", { className: "pii-hit__reg-chip", children: hit.regulation }) })
+          ] }),
+          /* @__PURE__ */ jsx75("div", { className: "pii-hit__note", children: hit.note }),
+          siblingHits.length > 1 && /* @__PURE__ */ jsxs72("div", { className: "pii-hit__composition", children: [
+            /* @__PURE__ */ jsxs72("div", { className: "pii-hit__composition-title", children: [
+              /* @__PURE__ */ jsx75(MIcon, { name: "hub", size: "sm" }),
+              "\u041A\u043E\u043C\u043F\u043E\u0437\u0438\u0446\u0438\u044F: ",
+              siblingHits.length,
+              " PII \u0432 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438",
+              /* @__PURE__ */ jsx75("span", { className: "pii-hit__composition-hint", children: "\u041A\u043E\u043C\u0431\u0438\u043D\u0430\u0446\u0438\u044F PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u0434\u0430\u0451\u0442 \u0431\u043E\u043B\u044C\u0448\u0435 \u0440\u0438\u0441\u043A\u0430, \u0447\u0435\u043C \u043A\u0430\u0436\u0434\u044B\u0439 \u043F\u043E \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u0438" })
+            ] }),
+            /* @__PURE__ */ jsxs72("div", { className: "pii-hit__composition-list", children: [
+              siblingHits.filter((h) => h.key !== hit.key).slice(0, 10).map((h) => /* @__PURE__ */ jsx75(
+                "code",
+                {
+                  className: "pii-hit__composition-attr pii-hit__composition-attr--" + h.severity,
+                  title: `${CATEGORY_LABELS5[h.category]} \xB7 ${SEVERITY_LABELS3[h.severity]}`,
+                  children: h.attributeId
+                },
+                h.key
+              )),
+              siblingHits.length > 11 && /* @__PURE__ */ jsxs72("span", { className: "pii-hit__composition-more", children: [
+                "+",
+                siblingHits.length - 11
+              ] })
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxs72("div", { className: "pii-hit__actions", children: [
+            /* @__PURE__ */ jsxs72("button", { className: "btn btn--primary", onClick: onOpenEntity, children: [
+              /* @__PURE__ */ jsx75(MIcon, { name: "menu_book", size: "sm" }),
+              "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C"
+            ] }),
+            /* @__PURE__ */ jsxs72("button", { className: "btn", onClick: onOpenYaml, children: [
+              /* @__PURE__ */ jsx75(MIcon, { name: "description", size: "sm" }),
+              "YAML"
+            ] }),
+            !isIgnored2 ? /* @__PURE__ */ jsxs72(
+              "button",
+              {
+                className: "btn btn--danger",
+                onClick: onIgnore,
+                title: "\u041F\u043E\u043C\u0435\u0442\u0438\u0442\u044C \u043A\u0430\u043A \xAB\u043D\u0435 PII\xBB",
+                children: [
+                  /* @__PURE__ */ jsx75(MIcon, { name: "block", size: "sm" }),
+                  "\u041D\u0435 PII"
+                ]
+              }
+            ) : /* @__PURE__ */ jsxs72(
+              "button",
+              {
+                className: "btn",
+                onClick: onUnignore,
+                title: "\u0412\u0435\u0440\u043D\u0443\u0442\u044C \u0432 \u0441\u043F\u0438\u0441\u043E\u043A",
+                children: [
+                  /* @__PURE__ */ jsx75(MIcon, { name: "undo", size: "sm" }),
+                  "\u0412\u0435\u0440\u043D\u0443\u0442\u044C"
+                ]
+              }
+            )
+          ] })
+        ] })
+      ]
+    }
+  );
+}
 function PiiModal() {
   const { index, loading, error } = useModelIndex();
   const open2 = useGraphStore((s) => s.piiOpen);
-  const [ignored, setIgnored] = useState34(loadIgnored);
-  const [filterSeverity, setFilterSeverity] = useState34("");
-  const [filterCategory, setFilterCategory] = useState34("");
   const [showHelp, setShowHelp] = useState34(false);
+  useHelpEscape(open2, showHelp, setShowHelp);
+  const [ignored, setIgnored] = useState34(loadIgnored);
+  const [filterSeverity, setFilterSeverity] = useState34("all");
+  const [filterCategory, setFilterCategory] = useState34("all");
   const [filterDomain, setFilterDomain] = useState34("");
+  const [query, setQuery] = useState34("");
+  const [groupMode, setGroupMode] = useState34("severity");
+  const [showIgnored, setShowIgnored] = useState34(false);
+  const [expandedHits, setExpandedHits] = useState34(/* @__PURE__ */ new Set());
+  const nodes = useGraphStore((s) => s.nodes);
   const piiInitialDomain = useGraphStore((s) => s.piiInitialDomain);
   const piiInitialSeverity = useGraphStore((s) => s.piiInitialSeverity);
   const setPiiInitialDomain = useGraphStore((s) => s.setPiiInitialDomain);
@@ -24933,106 +29702,430 @@ function PiiModal() {
     setPiiInitialSeverity
   ]);
   const report = index?.pii ?? null;
+  const allHits = useMemo44(() => report?.hits || [], [report]);
+  const activeHits = useMemo44(() => {
+    return allHits.filter((h) => showIgnored || !ignored.has(h.key));
+  }, [allHits, ignored, showIgnored]);
   const visibleHits = useMemo44(() => {
-    if (!report)
-      return [];
-    return report.hits.filter((h) => {
-      if (ignored.has(h.key))
-        return false;
-      if (filterSeverity && h.severity !== filterSeverity)
-        return false;
-      if (filterCategory && h.category !== filterCategory)
-        return false;
-      if (filterDomain) {
-        const hitDomain = h.entityFqid.split("/")[0].toLowerCase();
-        if (hitDomain !== filterDomain)
-          return false;
-      }
-      return true;
-    });
-  }, [report, ignored, filterSeverity, filterCategory, filterDomain]);
-  const grouped = useMemo44(() => {
+    let hits = activeHits;
+    if (filterSeverity !== "all") {
+      hits = hits.filter((h) => h.severity === filterSeverity);
+    }
+    if (filterCategory !== "all") {
+      hits = hits.filter((h) => h.category === filterCategory);
+    }
+    if (filterDomain) {
+      hits = hits.filter(
+        (h) => h.entityFqid.split("/")[0].toLowerCase() === filterDomain
+      );
+    }
+    const q = query.trim().toLowerCase();
+    if (q) {
+      hits = hits.filter(
+        (h) => h.attributeId.toLowerCase().includes(q) || h.attributeName.toLowerCase().includes(q) || h.entityFqid.toLowerCase().includes(q) || h.reasons.some((r) => r.toLowerCase().includes(q)) || h.note && h.note.toLowerCase().includes(q)
+      );
+    }
+    return hits;
+  }, [activeHits, filterSeverity, filterCategory, filterDomain, query]);
+  const stats = useMemo44(() => {
+    const bySeverity = {
+      critical: 0,
+      high: 0,
+      medium: 0,
+      low: 0
+    };
+    const byCategory = {
+      identity: 0,
+      contact: 0,
+      document: 0,
+      financial: 0,
+      biometric: 0,
+      special: 0,
+      location: 0,
+      technical: 0,
+      custom: 0
+    };
+    const domains = /* @__PURE__ */ new Set();
+    const entities2 = /* @__PURE__ */ new Set();
+    for (const h of activeHits) {
+      bySeverity[h.severity]++;
+      byCategory[h.category]++;
+      domains.add(h.entityFqid.split("/")[0]);
+      entities2.add(h.entityFqid);
+    }
+    return {
+      total: activeHits.length,
+      bySeverity,
+      byCategory,
+      domainsCount: domains.size,
+      entitiesCount: entities2.size,
+      risk: computeRisk(bySeverity)
+    };
+  }, [activeHits]);
+  const regulations = useMemo44(() => parseRegulations(activeHits), [activeHits]);
+  const byEntity = useMemo44(() => {
+    const m = /* @__PURE__ */ new Map();
+    for (const h of activeHits) {
+      if (!m.has(h.entityFqid))
+        m.set(h.entityFqid, []);
+      m.get(h.entityFqid).push(h);
+    }
+    return m;
+  }, [activeHits]);
+  const allDomains = useMemo44(() => {
     const map2 = /* @__PURE__ */ new Map();
-    SEVERITY_ORDER2.forEach((s) => map2.set(s, []));
-    visibleHits.forEach((h) => {
-      map2.get(h.severity).push(h);
+    allHits.forEach((h) => {
+      const d = h.entityFqid.split("/")[0];
+      map2.set(d, (map2.get(d) || 0) + 1);
     });
-    return map2;
-  }, [visibleHits]);
-  const toggleIgnored = (key) => {
-    setIgnored((prev) => {
+    return Array.from(map2.entries()).sort((a, b) => b[1] - a[1]);
+  }, [allHits]);
+  const grouped = useMemo44(() => {
+    if (groupMode === "flat") {
+      return [
+        {
+          key: "all",
+          label: `\u0412\u0441\u0435 \u0441\u043E\u0432\u043F\u0430\u0434\u0435\u043D\u0438\u044F (${visibleHits.length})`,
+          icon: "list",
+          color: "var(--text-500)",
+          hits: visibleHits,
+          bulkIgnore: null
+        }
+      ];
+    }
+    if (groupMode === "severity") {
+      return SEVERITY_ORDER2.filter(
+        (s) => visibleHits.some((h) => h.severity === s)
+      ).map((s) => ({
+        key: s,
+        label: SEVERITY_LABELS3[s],
+        icon: s === "critical" ? "dangerous" : s === "high" ? "warning" : s === "medium" ? "info" : "help",
+        color: SEVERITY_COLOR[s],
+        hits: visibleHits.filter((h) => h.severity === s),
+        bulkIgnore: null
+      }));
+    }
+    if (groupMode === "category") {
+      const cats = Array.from(
+        new Set(visibleHits.map((h) => h.category))
+      );
+      return cats.sort((a, b) => stats.byCategory[b] - stats.byCategory[a]).map((c) => ({
+        key: c,
+        label: CATEGORY_LABELS5[c],
+        icon: CATEGORY_ICONS2[c],
+        color: "var(--accent-hover)",
+        hits: visibleHits.filter((h) => h.category === c),
+        bulkIgnore: async () => {
+          const toIgnore = visibleHits.filter(
+            (h) => h.category === c && !ignored.has(h.key)
+          );
+          if (toIgnore.length === 0)
+            return;
+          const ok = await confirmDialog(
+            `\u041F\u043E\u043C\u0435\u0442\u0438\u0442\u044C ${toIgnore.length} \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u043A\u0430\u043A \xAB\u043D\u0435 PII\xBB?`,
+            {
+              detail: `\u0412\u0441\u0435 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438 \xAB${CATEGORY_LABELS5[c]}\xBB \u0432 \u0442\u0435\u043A\u0443\u0449\u0438\u0445 \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u0445 \u0431\u0443\u0434\u0443\u0442 \u0441\u043A\u0440\u044B\u0442\u044B. \u0420\u0435\u0448\u0435\u043D\u0438\u0435 \u0441\u043E\u0445\u0440\u0430\u043D\u044F\u0435\u0442\u0441\u044F \u0432 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0435.`,
+              confirmLabel: "\u041F\u043E\u043C\u0435\u0442\u0438\u0442\u044C"
+            }
+          );
+          if (!ok)
+            return;
+          const next = new Set(ignored);
+          toIgnore.forEach((h) => next.add(h.key));
+          setIgnored(next);
+          saveIgnored(next);
+        }
+      }));
+    }
+    if (groupMode === "domain") {
+      const byDomain = /* @__PURE__ */ new Map();
+      visibleHits.forEach((h) => {
+        const d = h.entityFqid.split("/")[0];
+        if (!byDomain.has(d))
+          byDomain.set(d, []);
+        byDomain.get(d).push(h);
+      });
+      return Array.from(byDomain.entries()).sort((a, b) => b[1].length - a[1].length).map(([d, hits]) => ({
+        key: d,
+        label: d,
+        icon: "folder",
+        color: "var(--accent-hover)",
+        hits,
+        bulkIgnore: async () => {
+          const toIgnore = hits.filter((h) => !ignored.has(h.key));
+          if (toIgnore.length === 0)
+            return;
+          const ok = await confirmDialog(
+            `\u041F\u043E\u043C\u0435\u0442\u0438\u0442\u044C ${toIgnore.length} \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u0432 ${d} \u043A\u0430\u043A \xAB\u043D\u0435 PII\xBB?`,
+            {
+              detail: `\u0412\u0441\u0435 PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0434\u043E\u043C\u0435\u043D\u0430 \u0431\u0443\u0434\u0443\u0442 \u0441\u043A\u0440\u044B\u0442\u044B.`,
+              confirmLabel: "\u041F\u043E\u043C\u0435\u0442\u0438\u0442\u044C"
+            }
+          );
+          if (!ok)
+            return;
+          const next = new Set(ignored);
+          toIgnore.forEach((h) => next.add(h.key));
+          setIgnored(next);
+          saveIgnored(next);
+        }
+      }));
+    }
+    const byEnt = /* @__PURE__ */ new Map();
+    visibleHits.forEach((h) => {
+      if (!byEnt.has(h.entityFqid))
+        byEnt.set(h.entityFqid, []);
+      byEnt.get(h.entityFqid).push(h);
+    });
+    return Array.from(byEnt.entries()).sort((a, b) => {
+      const ca = a[1].filter((h) => h.severity === "critical").length;
+      const cb = b[1].filter((h) => h.severity === "critical").length;
+      if (ca !== cb)
+        return cb - ca;
+      return b[1].length - a[1].length;
+    }).map(([fqid, hits]) => ({
+      key: fqid,
+      label: fqid,
+      icon: "data_object",
+      color: "var(--accent-hover)",
+      hits,
+      bulkIgnore: null
+    }));
+  }, [groupMode, visibleHits, stats.byCategory, ignored]);
+  const toggleHit = useCallback24((key) => {
+    setExpandedHits((prev) => {
       const next = new Set(prev);
       if (next.has(key))
         next.delete(key);
       else
         next.add(key);
+      return next;
+    });
+  }, []);
+  const ignoreHit = useCallback24((key) => {
+    setIgnored((prev) => {
+      const next = new Set(prev);
+      next.add(key);
       saveIgnored(next);
       return next;
     });
-  };
-  const openEntity = (fqid) => {
+  }, []);
+  const unignoreHit = useCallback24((key) => {
+    setIgnored((prev) => {
+      const next = new Set(prev);
+      next.delete(key);
+      saveIgnored(next);
+      return next;
+    });
+  }, []);
+  const openEntity = useCallback24((fqid) => {
     const st = useGraphStore.getState();
     st.setPiiOpen(false);
-    st.setEntityCatalogInitialFqid(fqid);
+    st.setEntityCatalogInitialFqid(fqid.toLowerCase());
     st.setEntityCatalogOpen(true);
-  };
-  useEffect40(() => {
-    if (!open2)
+  }, []);
+  const openDomainSchema = useCallback24((domainId) => {
+    const st = useGraphStore.getState();
+    st.setPiiOpen(false);
+    st.setDomainSchemaDomainId(domainId.toLowerCase());
+    st.setDomainSchemaOpen(true);
+  }, []);
+  const openYaml = useCallback24(
+    async (fqid) => {
+      const domainId = fqid.split("/")[0];
+      const node = nodes.find(
+        (n) => (n.data.domainId || "").toLowerCase() === domainId.toLowerCase()
+      );
+      if (node?.data.filePath) {
+        const ok = await openFileInEditor(node.data.filePath, fqid, domainId);
+        if (ok)
+          useGraphStore.getState().setPiiOpen(false);
+      } else {
+        useGraphStore.getState().showSnackbar("\u0424\u0430\u0439\u043B \u0441\u0445\u0435\u043C\u044B \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D");
+      }
+    },
+    [nodes]
+  );
+  const exportCSV3 = () => {
+    if (!report)
       return;
-    useGraphStore.getState().setTooltip(null);
-    window.__tooltipHovered = false;
-  }, [open2]);
+    const header = [
+      "key",
+      "domain",
+      "entity",
+      "attribute",
+      "attribute_name",
+      "data_type",
+      "category",
+      "severity",
+      "reasons",
+      "regulation",
+      "note",
+      "composition_count"
+    ];
+    const lines = [header.join(",")];
+    for (const h of visibleHits) {
+      const [d, e] = h.entityFqid.split("/");
+      const comp = (byEntity.get(h.entityFqid) || []).length;
+      const cell = (v) => {
+        const s = String(v ?? "");
+        return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      };
+      lines.push(
+        [
+          cell(h.key),
+          cell(d),
+          cell(e),
+          cell(h.attributeId),
+          cell(h.attributeName),
+          cell(h.dataType),
+          cell(h.category),
+          cell(h.severity),
+          cell(h.reasons.join("; ")),
+          cell(h.regulation || ""),
+          cell(h.note),
+          String(comp)
+        ].join(",")
+      );
+    }
+    const blob = new Blob(["\uFEFF" + lines.join("\n")], {
+      type: "text/csv;charset=utf-8"
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `pii-${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  const exportJSON = () => {
+    if (!report)
+      return;
+    const data = {
+      generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      stats: {
+        total: stats.total,
+        bySeverity: stats.bySeverity,
+        byCategory: stats.byCategory,
+        affectedDomains: stats.domainsCount,
+        affectedEntities: stats.entitiesCount,
+        riskScore: stats.risk.score,
+        riskGrade: stats.risk.grade,
+        regulations
+      },
+      hits: visibleHits.map((h) => ({
+        ...h,
+        compositionCount: (byEntity.get(h.entityFqid) || []).length
+      })),
+      ignoredKeys: Array.from(ignored)
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], {
+      type: "application/json"
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `pii-${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  const exportMDReport = () => {
+    if (!report || !index)
+      return;
+    const md = generatePiiMarkdown(report, index, { ignoredKeys: ignored });
+    downloadPiiMarkdown(md);
+  };
+  const clearAllIgnored = async () => {
+    if (ignored.size === 0)
+      return;
+    const ok = await confirmDialog(
+      `\u0412\u0435\u0440\u043D\u0443\u0442\u044C ${ignored.size} \u0438\u0433\u043D\u043E\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0445 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432?`,
+      { confirmLabel: "\u0412\u0435\u0440\u043D\u0443\u0442\u044C" }
+    );
+    if (!ok)
+      return;
+    setIgnored(/* @__PURE__ */ new Set());
+    saveIgnored(/* @__PURE__ */ new Set());
+  };
+  const resetFilters = () => {
+    setFilterSeverity("all");
+    setFilterCategory("all");
+    setFilterDomain("");
+    setQuery("");
+  };
   if (!open2)
     return null;
-  const visibleCount = visibleHits.length;
-  const ignoredCount = ignored.size;
+  const hasFilters = filterSeverity !== "all" || filterCategory !== "all" || !!filterDomain || !!query;
   return /* @__PURE__ */ jsx75(
     "div",
     {
       className: "help-overlay help-overlay--fullscreen",
-      style: { zIndex: 510 },
       onMouseDown: () => useGraphStore.getState().setPiiOpen(false),
       children: /* @__PURE__ */ jsxs72(
         "div",
         {
-          className: "help-modal entity-hierarchy-modal",
+          className: "help-modal pii-modal",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
             /* @__PURE__ */ jsxs72("div", { className: "help-modal__header", children: [
               /* @__PURE__ */ jsxs72("div", { className: "help-modal__title", children: [
-                "\u{1F512} PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B (\u043F\u0435\u0440\u0441\u043E\u043D\u0430\u043B\u044C\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435)",
-                report && /* @__PURE__ */ jsx75("span", { className: "help-modal__badge", children: visibleCount })
-              ] }),
-              /* @__PURE__ */ jsxs72("div", { className: "help-modal__actions", children: [
-                /* @__PURE__ */ jsxs72(
-                  "button",
+                /* @__PURE__ */ jsx75(MIcon, { name: "shield_lock", size: "sm" }),
+                /* @__PURE__ */ jsx75("span", { className: "icon-label", children: "PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B" }),
+                report && /* @__PURE__ */ jsxs72("span", { className: "help-modal__badge", children: [
+                  stats.total,
+                  " \u0438\u0437 ",
+                  allHits.length
+                ] }),
+                stats.risk.grade && /* @__PURE__ */ jsxs72(
+                  "span",
                   {
-                    className: "help-modal__help-btn",
-                    onClick: () => {
-                      if (!report || !index)
-                        return;
-                      const md = generatePiiMarkdown(report, index, {
-                        ignoredKeys: ignored
-                      });
-                      downloadPiiMarkdown(md);
-                    },
-                    title: "\u0421\u043A\u0430\u0447\u0430\u0442\u044C \u043E\u0442\u0447\u0451\u0442 \u0434\u043B\u044F DPO",
-                    disabled: !report || report.hits.length === 0,
+                    className: "help-modal__badge pii-grade pii-grade--" + stats.risk.grade.toLowerCase(),
+                    title: `Risk score ${stats.risk.score}/100`,
                     children: [
-                      /* @__PURE__ */ jsx75(MIcon, { name: "download" }),
-                      /* @__PURE__ */ jsx75("span", { children: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442 \u043E\u0442\u0447\u0451\u0442\u0430" })
+                      stats.risk.grade,
+                      " \xB7 ",
+                      stats.risk.score
                     ]
                   }
-                ),
-                /* @__PURE__ */ jsxs72(
+                )
+              ] }),
+              /* @__PURE__ */ jsxs72("div", { className: "help-modal__actions", children: [
+                /* @__PURE__ */ jsx75(
                   "button",
                   {
-                    className: "help-modal__help-btn" + (showHelp ? " active" : ""),
-                    onClick: () => setShowHelp(!showHelp),
-                    children: [
-                      /* @__PURE__ */ jsx75(MIcon, { name: "help" }),
-                      /* @__PURE__ */ jsx75("span", { children: showHelp ? "\u0421\u043A\u0440\u044B\u0442\u044C" : "\u0427\u0442\u043E \u044D\u0442\u043E?" })
-                    ]
+                    className: "help-modal__icon-btn",
+                    onClick: exportCSV3,
+                    disabled: visibleHits.length === 0,
+                    title: "\u0421\u043A\u0430\u0447\u0430\u0442\u044C CSV",
+                    children: /* @__PURE__ */ jsx75(MIcon, { name: "table_view" })
+                  }
+                ),
+                /* @__PURE__ */ jsx75(
+                  "button",
+                  {
+                    className: "help-modal__icon-btn",
+                    onClick: exportJSON,
+                    disabled: visibleHits.length === 0,
+                    title: "\u0421\u043A\u0430\u0447\u0430\u0442\u044C JSON",
+                    children: /* @__PURE__ */ jsx75(MIcon, { name: "data_object" })
+                  }
+                ),
+                /* @__PURE__ */ jsx75(
+                  "button",
+                  {
+                    className: "help-modal__icon-btn",
+                    onClick: exportMDReport,
+                    disabled: !report || report.hits.length === 0,
+                    title: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442 \u043E\u0442\u0447\u0451\u0442\u0430 \u0434\u043B\u044F DPO (Markdown)",
+                    children: /* @__PURE__ */ jsx75(MIcon, { name: "download" })
+                  }
+                ),
+                /* @__PURE__ */ jsx75(
+                  HelpButton,
+                  {
+                    open: showHelp,
+                    onToggle: () => setShowHelp(!showHelp),
+                    label: "\u0427\u0442\u043E \u044D\u0442\u043E?"
                   }
                 ),
                 /* @__PURE__ */ jsx75(
@@ -25045,214 +30138,439 @@ function PiiModal() {
                 )
               ] })
             ] }),
-            loading && /* @__PURE__ */ jsx75("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx75("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
+            loading && /* @__PURE__ */ jsx75("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx75("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430\u2026" }) }),
             error && /* @__PURE__ */ jsx75("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs72("div", { style: { color: "var(--danger)" }, children: [
               "\u041E\u0448\u0438\u0431\u043A\u0430: ",
               error
             ] }) }),
-            index && report && /* @__PURE__ */ jsxs72("div", { className: "help-modal__body help-modal__body--flush", children: [
-              showHelp && /* @__PURE__ */ jsxs72("div", { className: "pii-help", children: [
-                /* @__PURE__ */ jsxs72("div", { className: "pii-help__section", children: [
-                  /* @__PURE__ */ jsx75("h3", { className: "pii-help__title", children: "\u0427\u0442\u043E \u0442\u0430\u043A\u043E\u0435 PII" }),
-                  /* @__PURE__ */ jsxs72("p", { className: "pii-help__text", children: [
-                    /* @__PURE__ */ jsx75("strong", { children: "PII (Personally Identifiable Information)" }),
-                    " \u2014 \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u043B\u044C\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435: \u043B\u044E\u0431\u044B\u0435 \u0441\u0432\u0435\u0434\u0435\u043D\u0438\u044F, \u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u043F\u0440\u044F\u043C\u043E \u0438\u043B\u0438 \u043A\u043E\u0441\u0432\u0435\u043D\u043D\u043E \u043F\u043E\u0437\u0432\u043E\u043B\u044F\u044E\u0442 \u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u0446\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0447\u0435\u043B\u043E\u0432\u0435\u043A\u0430. \u0412 \u0420\u0424 \u0440\u0435\u0433\u0443\u043B\u0438\u0440\u0443\u0435\u0442\u0441\u044F 152-\u0424\u0417, \u0432 \u0415\u0421 \u2014 GDPR. \u0421\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438 (\u0437\u0434\u043E\u0440\u043E\u0432\u044C\u0435, \u0440\u0435\u043B\u0438\u0433\u0438\u044F, \u0431\u0438\u043E\u043C\u0435\u0442\u0440\u0438\u044F) \u0442\u0440\u0435\u0431\u0443\u044E\u0442 \u043E\u0441\u043E\u0431\u043E\u0439 \u0437\u0430\u0449\u0438\u0442\u044B \u0438 \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u043E\u0433\u043E \u0441\u043E\u0433\u043B\u0430\u0441\u0438\u044F \u0441\u0443\u0431\u044A\u0435\u043A\u0442\u0430."
-                  ] })
-                ] }),
-                /* @__PURE__ */ jsxs72("div", { className: "pii-help__section", children: [
-                  /* @__PURE__ */ jsx75("h3", { className: "pii-help__title", children: "\u041A\u0430\u043A \u0447\u0438\u0442\u0430\u0442\u044C \u0440\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442\u044B" }),
-                  /* @__PURE__ */ jsxs72("ul", { className: "pii-help__list", children: [
+            index && report && /* @__PURE__ */ jsxs72("div", { className: "pii-body", children: [
+              /* @__PURE__ */ jsxs72(ModalHelp, { visible: showHelp, children: [
+                /* @__PURE__ */ jsx75(HelpSection, { title: "\u0427\u0442\u043E \u0442\u0430\u043A\u043E\u0435 PII", children: /* @__PURE__ */ jsxs72(HelpText, { children: [
+                  /* @__PURE__ */ jsx75("strong", { children: "PII (Personally Identifiable Information)" }),
+                  " \u2014 \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u043B\u044C\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435: \u043B\u044E\u0431\u044B\u0435 \u0441\u0432\u0435\u0434\u0435\u043D\u0438\u044F, \u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u043F\u0440\u044F\u043C\u043E \u0438\u043B\u0438 \u043A\u043E\u0441\u0432\u0435\u043D\u043D\u043E \u043F\u043E\u0437\u0432\u043E\u043B\u044F\u044E\u0442 \u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u0446\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0447\u0435\u043B\u043E\u0432\u0435\u043A\u0430. \u0412 \u0420\u0424 \u0440\u0435\u0433\u0443\u043B\u0438\u0440\u0443\u0435\u0442\u0441\u044F 152-\u0424\u0417, \u0432 \u0415\u0421 \u2014 GDPR. \u0421\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438 (\u0437\u0434\u043E\u0440\u043E\u0432\u044C\u0435, \u0440\u0435\u043B\u0438\u0433\u0438\u044F, \u0431\u0438\u043E\u043C\u0435\u0442\u0440\u0438\u044F) \u0442\u0440\u0435\u0431\u0443\u044E\u0442 \u043E\u0441\u043E\u0431\u043E\u0439 \u0437\u0430\u0449\u0438\u0442\u044B \u0438 \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u043E\u0433\u043E \u0441\u043E\u0433\u043B\u0430\u0441\u0438\u044F \u0441\u0443\u0431\u044A\u0435\u043A\u0442\u0430."
+                ] }) }),
+                /* @__PURE__ */ jsxs72(HelpSection, { title: "Risk score \u0438 grade", children: [
+                  /* @__PURE__ */ jsx75(HelpText, { children: "\u0418\u043D\u0442\u0435\u0433\u0440\u0430\u043B\u044C\u043D\u0430\u044F \u043E\u0446\u0435\u043D\u043A\u0430 \u0440\u0438\u0441\u043A\u0430 \u043D\u0430 \u043E\u0441\u043D\u043E\u0432\u0435 severity \u0438 \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u0430 \u0441\u043E\u0432\u043F\u0430\u0434\u0435\u043D\u0438\u0439. \u0428\u0442\u0440\u0430\u0444 \u0441\u0447\u0438\u0442\u0430\u0435\u0442\u0441\u044F \u043A\u0430\u043A:" }),
+                  /* @__PURE__ */ jsxs72(HelpList, { children: [
+                    /* @__PURE__ */ jsx75("li", { children: /* @__PURE__ */ jsx75("code", { children: "risk = 30 \xD7 log10(critical \xD7 4 + high \xD7 2 + medium \xD7 1 + low \xD7 0.5 + 1)" }) }),
                     /* @__PURE__ */ jsxs72("li", { children: [
-                      /* @__PURE__ */ jsx75("strong", { children: "\u0421\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438" }),
-                      " \u2014 \u043A\u0440\u0438\u0442\u0438\u0447\u043D\u043E. GDPR Art. 9 / 152-\u0424\u0417 \u0441\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F."
+                      /* @__PURE__ */ jsx75("strong", { children: "A" }),
+                      " \u2014 0\u201320. \u041C\u0438\u043D\u0438\u043C\u0430\u043B\u044C\u043D\u044B\u0439 \u0440\u0438\u0441\u043A: PII \u043C\u0430\u043B\u043E \u0438\u043B\u0438 \u0442\u043E\u043B\u044C\u043A\u043E \u043A\u043E\u0441\u0432\u0435\u043D\u043D\u044B\u0435."
                     ] }),
                     /* @__PURE__ */ jsxs72("li", { children: [
-                      /* @__PURE__ */ jsx75("strong", { children: "\u0412\u044B\u0441\u043E\u043A\u0430\u044F \u0447\u0443\u0432\u0441\u0442\u0432\u0438\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u044C" }),
-                      " \u2014 \u0424\u0418\u041E, email, \u0442\u0435\u043B\u0435\u0444\u043E\u043D, \u043F\u0430\u0441\u043F\u043E\u0440\u0442. \u0422\u0440\u0435\u0431\u0443\u0435\u0442 \u0437\u0430\u0449\u0438\u0442\u044B \u0438 \u043F\u043E\u043B\u0438\u0442\u0438\u043A\u0438 retention."
+                      /* @__PURE__ */ jsx75("strong", { children: "B" }),
+                      " \u2014 21\u201340. \u0415\u0441\u0442\u044C PII, \u043D\u043E \u0431\u0435\u0437 \u0441\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0439."
                     ] }),
                     /* @__PURE__ */ jsxs72("li", { children: [
-                      /* @__PURE__ */ jsx75("strong", { children: "\u0422\u0440\u0435\u0431\u0443\u044E\u0442 \u0432\u043D\u0438\u043C\u0430\u043D\u0438\u044F" }),
-                      " \u2014 IP, deviceId, cookie. PII \u0432 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u0435 \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u043B\u044C\u043D\u044B\u0445 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439."
+                      /* @__PURE__ */ jsx75("strong", { children: "C" }),
+                      " \u2014 41\u201360. \u0417\u0430\u043C\u0435\u0442\u043D\u043E\u0435 \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E PII."
                     ] }),
                     /* @__PURE__ */ jsxs72("li", { children: [
-                      /* @__PURE__ */ jsx75("strong", { children: "\u041A\u043E\u0441\u0432\u0435\u043D\u043D\u043E" }),
-                      " \u2014 \u0432\u043D\u0443\u0442\u0440\u0435\u043D\u043D\u0438\u0435 id, \u043A\u0432\u0430\u0437\u0438-\u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440\u044B. PII \u0432 \u043A\u043E\u043C\u0431\u0438\u043D\u0430\u0446\u0438\u0438 \u0441 \u0434\u0440\u0443\u0433\u0438\u043C\u0438 \u0434\u0430\u043D\u043D\u044B\u043C\u0438."
+                      /* @__PURE__ */ jsx75("strong", { children: "D" }),
+                      " \u2014 61\u201380. \u041C\u043D\u043E\u0433\u043E PII \u0438\u043B\u0438 \u0435\u0441\u0442\u044C \u0441\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438."
+                    ] }),
+                    /* @__PURE__ */ jsxs72("li", { children: [
+                      /* @__PURE__ */ jsx75("strong", { children: "E" }),
+                      " \u2014 81+. \u041A\u0440\u0438\u0442\u0438\u0447\u043D\u043E, \u0442\u0440\u0435\u0431\u0443\u0435\u0442 \u043D\u0435\u043C\u0435\u0434\u043B\u0435\u043D\u043D\u044B\u0445 \u043C\u0435\u0440."
                     ] })
                   ] })
                 ] }),
-                /* @__PURE__ */ jsxs72("div", { className: "pii-help__section", children: [
-                  /* @__PURE__ */ jsx75("h3", { className: "pii-help__title", children: "\u041B\u043E\u0436\u043D\u044B\u0435 \u0441\u0440\u0430\u0431\u0430\u0442\u044B\u0432\u0430\u043D\u0438\u044F" }),
-                  /* @__PURE__ */ jsxs72("p", { className: "pii-help__text", children: [
-                    "\u042D\u0432\u0440\u0438\u0441\u0442\u0438\u043A\u0430 \u043F\u043E \u0438\u043C\u0435\u043D\u0430\u043C \u2014 \u043D\u0435 \u0438\u0434\u0435\u0430\u043B\u044C\u043D\u0430. \u041D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, ",
+                /* @__PURE__ */ jsx75(HelpSection, { title: "\u0423\u0440\u043E\u0432\u043D\u0438 \u0441\u0435\u0440\u044C\u0451\u0437\u043D\u043E\u0441\u0442\u0438", children: /* @__PURE__ */ jsxs72(HelpList, { children: [
+                  /* @__PURE__ */ jsxs72("li", { children: [
+                    /* @__PURE__ */ jsx75("strong", { children: "\u0421\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438" }),
+                    " \u2014 \u043A\u0440\u0438\u0442\u0438\u0447\u043D\u043E. GDPR Art. 9 / 152-\u0424\u0417 \u0441\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F: \u0437\u0434\u043E\u0440\u043E\u0432\u044C\u0435, \u0440\u0435\u043B\u0438\u0433\u0438\u044F, \u0431\u0438\u043E\u043C\u0435\u0442\u0440\u0438\u044F, \u043F\u043E\u043B\u0438\u0442\u0438\u0447\u0435\u0441\u043A\u0438\u0435 \u0432\u0437\u0433\u043B\u044F\u0434\u044B, \u0441\u0435\u043A\u0441\u0443\u0430\u043B\u044C\u043D\u0430\u044F \u043E\u0440\u0438\u0435\u043D\u0442\u0430\u0446\u0438\u044F, \u044D\u0442\u043D\u0438\u0447\u043D\u043E\u0441\u0442\u044C."
+                  ] }),
+                  /* @__PURE__ */ jsxs72("li", { children: [
+                    /* @__PURE__ */ jsx75("strong", { children: "\u0412\u044B\u0441\u043E\u043A\u0430\u044F \u0447\u0443\u0432\u0441\u0442\u0432\u0438\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u044C" }),
+                    " \u2014 \u0424\u0418\u041E, email, \u0442\u0435\u043B\u0435\u0444\u043E\u043D, \u043F\u0430\u0441\u043F\u043E\u0440\u0442, \u0418\u041D\u041D, \u0421\u041D\u0418\u041B\u0421. \u0422\u0440\u0435\u0431\u0443\u0435\u0442 \u0437\u0430\u0449\u0438\u0442\u044B \u0438 \u043F\u043E\u043B\u0438\u0442\u0438\u043A\u0438 retention."
+                  ] }),
+                  /* @__PURE__ */ jsxs72("li", { children: [
+                    /* @__PURE__ */ jsx75("strong", { children: "\u0422\u0440\u0435\u0431\u0443\u044E\u0442 \u0432\u043D\u0438\u043C\u0430\u043D\u0438\u044F" }),
+                    " \u2014 IP, deviceId, cookie, \u0433\u0435\u043E\u043B\u043E\u043A\u0430\u0446\u0438\u044F. PII \u0432 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u0435 \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u043B\u044C\u043D\u044B\u0445 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439."
+                  ] }),
+                  /* @__PURE__ */ jsxs72("li", { children: [
+                    /* @__PURE__ */ jsx75("strong", { children: "\u041A\u043E\u0441\u0432\u0435\u043D\u043D\u043E" }),
+                    " \u2014 \u0432\u043D\u0443\u0442\u0440\u0435\u043D\u043D\u0438\u0435 id, \u043A\u0432\u0430\u0437\u0438-\u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440\u044B. PII \u0432 \u043A\u043E\u043C\u0431\u0438\u043D\u0430\u0446\u0438\u0438 \u0441 \u0434\u0440\u0443\u0433\u0438\u043C\u0438 \u0434\u0430\u043D\u043D\u044B\u043C\u0438."
+                  ] })
+                ] }) }),
+                /* @__PURE__ */ jsx75(HelpSection, { title: "\u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438", children: /* @__PURE__ */ jsxs72(HelpList, { children: [
+                  /* @__PURE__ */ jsxs72("li", { children: [
+                    /* @__PURE__ */ jsx75("strong", { children: "\u0418\u0434\u0435\u043D\u0442\u0438\u0447\u043D\u043E\u0441\u0442\u044C" }),
+                    " \u2014 \u0424\u0418\u041E, \u0434\u0430\u0442\u0430 \u0440\u043E\u0436\u0434\u0435\u043D\u0438\u044F."
+                  ] }),
+                  /* @__PURE__ */ jsxs72("li", { children: [
+                    /* @__PURE__ */ jsx75("strong", { children: "\u041A\u043E\u043D\u0442\u0430\u043A\u0442\u044B" }),
+                    " \u2014 email, \u0442\u0435\u043B\u0435\u0444\u043E\u043D, \u0430\u0434\u0440\u0435\u0441."
+                  ] }),
+                  /* @__PURE__ */ jsxs72("li", { children: [
+                    /* @__PURE__ */ jsx75("strong", { children: "\u0414\u043E\u043A\u0443\u043C\u0435\u043D\u0442\u044B" }),
+                    " \u2014 \u043F\u0430\u0441\u043F\u043E\u0440\u0442, \u0418\u041D\u041D, \u0421\u041D\u0418\u041B\u0421, SSN, \u0432\u043E\u0434\u0438\u0442\u0435\u043B\u044C\u0441\u043A\u0438\u0435 \u043F\u0440\u0430\u0432\u0430."
+                  ] }),
+                  /* @__PURE__ */ jsxs72("li", { children: [
+                    /* @__PURE__ */ jsx75("strong", { children: "\u0424\u0438\u043D\u0430\u043D\u0441\u043E\u0432\u044B\u0435" }),
+                    " \u2014 \u043A\u0430\u0440\u0442\u044B, \u0441\u0447\u0435\u0442\u0430, IBAN, CVV."
+                  ] }),
+                  /* @__PURE__ */ jsxs72("li", { children: [
+                    /* @__PURE__ */ jsx75("strong", { children: "\u0411\u0438\u043E\u043C\u0435\u0442\u0440\u0438\u044F" }),
+                    " \u2014 \u043E\u0442\u043F\u0435\u0447\u0430\u0442\u043A\u0438, \u043B\u0438\u0446\u043E, \u0433\u043E\u043B\u043E\u0441."
+                  ] }),
+                  /* @__PURE__ */ jsxs72("li", { children: [
+                    /* @__PURE__ */ jsx75("strong", { children: "\u0421\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438" }),
+                    " \u2014 \u0437\u0434\u043E\u0440\u043E\u0432\u044C\u0435, \u0440\u0435\u043B\u0438\u0433\u0438\u044F, \u043F\u043E\u043B\u0438\u0442\u0438\u043A\u0430, \u044D\u0442\u043D\u0438\u0447\u043D\u043E\u0441\u0442\u044C, \u0441\u0435\u043A\u0441\u0443\u0430\u043B\u044C\u043D\u0430\u044F \u043E\u0440\u0438\u0435\u043D\u0442\u0430\u0446\u0438\u044F."
+                  ] }),
+                  /* @__PURE__ */ jsxs72("li", { children: [
+                    /* @__PURE__ */ jsx75("strong", { children: "\u041B\u043E\u043A\u0430\u0446\u0438\u044F" }),
+                    " \u2014 \u0433\u0435\u043E\u043B\u043E\u043A\u0430\u0446\u0438\u044F, \u0433\u043E\u0440\u043E\u0434, \u0440\u0435\u0433\u0438\u043E\u043D."
+                  ] }),
+                  /* @__PURE__ */ jsxs72("li", { children: [
+                    /* @__PURE__ */ jsx75("strong", { children: "\u0422\u0435\u0445\u043D\u0438\u0447\u0435\u0441\u043A\u0438\u0435" }),
+                    " \u2014 IP, deviceId, cookie, \u0432\u043D\u0443\u0442\u0440\u0435\u043D\u043D\u0438\u0435 id."
+                  ] })
+                ] }) }),
+                /* @__PURE__ */ jsxs72(HelpSection, { title: "\u0420\u0435\u0433\u0443\u043B\u044F\u0446\u0438\u0438", children: [
+                  /* @__PURE__ */ jsx75(HelpText, { children: "\u041F\u043E \u043A\u0430\u0436\u0434\u043E\u043C\u0443 \u0441\u043E\u0432\u043F\u0430\u0434\u0435\u043D\u0438\u044E \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442\u0441\u044F \u043D\u043E\u0440\u043C\u0430\u0442\u0438\u0432\u043D\u0430\u044F \u0431\u0430\u0437\u0430 \u2014 \u043F\u043E\u0434 \u043A\u0430\u043A\u043E\u0439 \u0441\u0442\u0430\u0442\u044C\u0451\u0439 GDPR / 152-\u0424\u0417 / PCI DSS \u043E\u043D\u043E \u043F\u043E\u0434\u043F\u0430\u0434\u0430\u0435\u0442. \u0412 \u0432\u0435\u0440\u0445\u043D\u0435\u0439 \u0447\u0430\u0441\u0442\u0438 \u044D\u043A\u0440\u0430\u043D\u0430 \u2014 \u043E\u0431\u0449\u0430\u044F \u0441\u0432\u043E\u0434\u043A\u0430 \u043F\u043E \u0440\u0435\u0433\u0443\u043B\u044F\u0446\u0438\u044F\u043C." }),
+                  /* @__PURE__ */ jsxs72(HelpList, { children: [
+                    /* @__PURE__ */ jsxs72("li", { children: [
+                      /* @__PURE__ */ jsx75("strong", { children: "GDPR Art. 9" }),
+                      " \u2014 \u0441\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438, \u0442\u0440\u0435\u0431\u0443\u044E\u0442 \u044F\u0432\u043D\u043E\u0433\u043E \u0441\u043E\u0433\u043B\u0430\u0441\u0438\u044F."
+                    ] }),
+                    /* @__PURE__ */ jsxs72("li", { children: [
+                      /* @__PURE__ */ jsx75("strong", { children: "GDPR Art. 4" }),
+                      " \u2014 \u043E\u0431\u0449\u0435\u0435 \u043E\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u0438\u0435 \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u043B\u044C\u043D\u044B\u0445 \u0434\u0430\u043D\u043D\u044B\u0445."
+                    ] }),
+                    /* @__PURE__ */ jsxs72("li", { children: [
+                      /* @__PURE__ */ jsx75("strong", { children: "152-\u0424\u0417" }),
+                      " \u2014 \u0440\u043E\u0441\u0441\u0438\u0439\u0441\u043A\u043E\u0435 \u0437\u0430\u043A\u043E\u043D\u043E\u0434\u0430\u0442\u0435\u043B\u044C\u0441\u0442\u0432\u043E \u043E \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u043B\u044C\u043D\u044B\u0445 \u0434\u0430\u043D\u043D\u044B\u0445."
+                    ] }),
+                    /* @__PURE__ */ jsxs72("li", { children: [
+                      /* @__PURE__ */ jsx75("strong", { children: "PCI DSS" }),
+                      " \u2014 \u043A\u0430\u0440\u0442\u043E\u0447\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435 (PAN, CVV). \u0417\u0430\u043F\u0440\u0435\u0449\u0435\u043D\u043E \u0445\u0440\u0430\u043D\u0438\u0442\u044C \u0432 \u043E\u0442\u043A\u0440\u044B\u0442\u043E\u043C \u0432\u0438\u0434\u0435."
+                    ] })
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxs72(HelpSection, { title: "\u041A\u043E\u043C\u043F\u043E\u0437\u0438\u0446\u0438\u044F \u2014 \u0432\u0430\u0436\u043D\u0435\u0435, \u0447\u0435\u043C \u043A\u0430\u0436\u0435\u0442\u0441\u044F", children: [
+                  /* @__PURE__ */ jsx75(HelpText, { children: "\u041A\u043E\u043C\u0431\u0438\u043D\u0430\u0446\u0438\u044F PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u0432 \u043E\u0434\u043D\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u0434\u0430\u0451\u0442 \u0431\u043E\u043B\u044C\u0448\u0435 \u0440\u0438\u0441\u043A\u0430, \u0447\u0435\u043C \u043A\u0430\u0436\u0434\u044B\u0439 \u043F\u043E \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u0438. \u0414\u0430\u0436\u0435 \xAB\u0431\u0435\u0437\u043E\u0431\u0438\u0434\u043D\u044B\u0439\xBB \u043D\u0430\u0431\u043E\u0440 (\u0438\u043C\u044F + \u0434\u0430\u0442\u0430 \u0440\u043E\u0436\u0434\u0435\u043D\u0438\u044F + \u0430\u0434\u0440\u0435\u0441) \u043F\u043E\u0437\u0432\u043E\u043B\u044F\u0435\u0442 \u0434\u0435\u0430\u043D\u043E\u043D\u0438\u043C\u0438\u0437\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0447\u0435\u043B\u043E\u0432\u0435\u043A\u0430. \u041F\u043E\u044D\u0442\u043E\u043C\u0443 \u0432 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442\u0441\u044F badge \u0441 \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E\u043C PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u0443 \u043D\u0435\u0451." }),
+                  /* @__PURE__ */ jsxs72(HelpList, { children: [
+                    /* @__PURE__ */ jsx75("li", { children: "\u041A\u043B\u0438\u043A \u043F\u043E hit \u2192 \u0440\u0430\u0441\u043A\u0440\u044B\u0442\u0438\u0435, \u0432 \u043A\u043E\u0442\u043E\u0440\u043E\u043C \u0432\u0438\u0434\u043D\u044B \u0432\u0441\u0435 PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0442\u043E\u0439 \u0436\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438." }),
+                    /* @__PURE__ */ jsx75("li", { children: "\u0413\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u043A\u0430 \xAB\u041F\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438\xBB \u2014 \u0441\u043E\u0440\u0442\u0438\u0440\u0443\u0435\u0442 \u043F\u043E \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u0443 \u0441\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0439 \u0438 \u043E\u0431\u0449\u0435\u043C\u0443 \u0447\u0438\u0441\u043B\u0443 PII." })
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxs72(HelpSection, { title: "\u0418\u0433\u043D\u043E\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435 (false positive)", children: [
+                  /* @__PURE__ */ jsxs72(HelpText, { children: [
+                    "\u042D\u0432\u0440\u0438\u0441\u0442\u0438\u043A\u0430 \u043F\u043E \u0438\u043C\u0435\u043D\u0430\u043C \u043D\u0435 \u0438\u0434\u0435\u0430\u043B\u044C\u043D\u0430. \u041D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, ",
                     /* @__PURE__ */ jsx75("code", { children: "name" }),
                     " \u0432 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 ",
                     /* @__PURE__ */ jsx75("code", { children: "Product" }),
-                    " \u2014 \u043D\u0435 PII, \u0430 \u0432 ",
+                    " \u2014 \u043D\u0435 PII, \u0430 \u0432",
+                    " ",
                     /* @__PURE__ */ jsx75("code", { children: "Employee" }),
-                    " \u2014 \u0434\u0430. \u041D\u0430\u0436\u043C\u0438\u0442\u0435 \u0438\u043A\u043E\u043D\u043A\u0443 \u2713 \u0440\u044F\u0434\u043E\u043C \u0441 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u043C, \u0447\u0442\u043E\u0431\u044B \u0438\u0441\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0435\u0433\u043E \u0438\u0437 \u0441\u043F\u0438\u0441\u043A\u0430. \u0420\u0435\u0448\u0435\u043D\u0438\u0435 \u0441\u043E\u0445\u0440\u0430\u043D\u044F\u0435\u0442\u0441\u044F \u0432 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0435."
-                  ] })
-                ] })
-              ] }),
-              /* @__PURE__ */ jsxs72("div", { className: "pii-summary", children: [
-                SEVERITY_ORDER2.map((sev) => /* @__PURE__ */ jsxs72(
-                  "button",
-                  {
-                    className: "pii-summary-card pii-summary-card--" + sev + (filterSeverity === sev ? " active" : ""),
-                    onClick: () => setFilterSeverity(filterSeverity === sev ? "" : sev),
-                    children: [
-                      /* @__PURE__ */ jsx75("div", { className: "pii-summary-card__count", children: report.stats.bySeverity[sev] }),
-                      /* @__PURE__ */ jsx75("div", { className: "pii-summary-card__label", children: SEVERITY_LABELS2[sev] })
-                    ]
-                  },
-                  sev
-                )),
-                /* @__PURE__ */ jsxs72("div", { className: "pii-summary-card pii-summary-card--meta", children: [
-                  /* @__PURE__ */ jsx75("div", { className: "pii-summary-card__count", children: report.stats.affectedDomains }),
-                  /* @__PURE__ */ jsx75("div", { className: "pii-summary-card__label", children: "\u0434\u043E\u043C\u0435\u043D\u043E\u0432" })
-                ] }),
-                /* @__PURE__ */ jsxs72("div", { className: "pii-summary-card pii-summary-card--meta", children: [
-                  /* @__PURE__ */ jsx75("div", { className: "pii-summary-card__count", children: report.stats.affectedEntities }),
-                  /* @__PURE__ */ jsx75("div", { className: "pii-summary-card__label", children: "\u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" })
-                ] })
-              ] }),
-              /* @__PURE__ */ jsxs72("div", { className: "pii-filters", children: [
-                /* @__PURE__ */ jsxs72("label", { className: "entity-matrix-filter", children: [
-                  /* @__PURE__ */ jsx75("span", { children: "\u0414\u043E\u043C\u0435\u043D:" }),
-                  /* @__PURE__ */ jsxs72(
-                    "select",
-                    {
-                      value: filterDomain,
-                      onChange: (e) => setFilterDomain(e.target.value),
-                      children: [
-                        /* @__PURE__ */ jsx75("option", { value: "", children: "\u2014 \u0432\u0441\u0435 \u2014" }),
-                        report.byDomain.map((d) => /* @__PURE__ */ jsxs72("option", { value: d.domainId.toLowerCase(), children: [
-                          d.domainId,
-                          " (",
-                          d.hitCount,
-                          d.criticalCount > 0 ? `, ${d.criticalCount} critical` : "",
-                          ")"
-                        ] }, d.domainId))
-                      ]
-                    }
-                  )
-                ] }),
-                /* @__PURE__ */ jsxs72("label", { className: "entity-matrix-filter", children: [
-                  /* @__PURE__ */ jsx75("span", { children: "\u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F:" }),
-                  /* @__PURE__ */ jsxs72(
-                    "select",
-                    {
-                      value: filterCategory,
-                      onChange: (e) => setFilterCategory(e.target.value),
-                      children: [
-                        /* @__PURE__ */ jsx75("option", { value: "", children: "\u2014 \u0432\u0441\u0435 \u2014" }),
-                        Object.keys(CATEGORY_LABELS3).map((k) => {
-                          const count = report.stats.byCategory[k];
-                          if (count === 0)
-                            return null;
-                          return /* @__PURE__ */ jsxs72("option", { value: k, children: [
-                            CATEGORY_LABELS3[k],
-                            " (",
-                            count,
-                            ")"
-                          ] }, k);
-                        })
-                      ]
-                    }
-                  )
-                ] }),
-                (filterSeverity || filterCategory || filterDomain || ignoredCount > 0) && /* @__PURE__ */ jsxs72(
-                  "button",
-                  {
-                    className: "btn",
-                    onClick: () => {
-                      setFilterSeverity("");
-                      setFilterCategory("");
-                      setFilterDomain("");
-                    },
-                    children: [
-                      "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0444\u0438\u043B\u044C\u0442\u0440\u044B",
-                      ignoredCount > 0 && ` \xB7 \u0438\u0433\u043D\u043E\u0440\u0438\u0440\u0443\u0435\u0442\u0441\u044F: ${ignoredCount}`
-                    ]
-                  }
-                )
-              ] }),
-              visibleCount === 0 ? /* @__PURE__ */ jsxs72("div", { className: "lint-empty", children: [
-                /* @__PURE__ */ jsx75("div", { className: "lint-empty__icon", children: "\u{1F6E1}\uFE0F" }),
-                /* @__PURE__ */ jsx75("div", { className: "lint-empty__title", children: report.stats.total === 0 ? "PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u043D\u0435 \u043E\u0431\u043D\u0430\u0440\u0443\u0436\u0435\u043D\u043E" : filterDomain ? `\u0412 \u0434\u043E\u043C\u0435\u043D\u0435 \xAB${filterDomain}\xBB \u043D\u0435\u0442 PII \u043F\u043E \u0442\u0435\u043A\u0443\u0449\u0438\u043C \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u043C` : "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u043C" }),
-                filterDomain && report.stats.total > 0 && /* @__PURE__ */ jsx75(
-                  "button",
-                  {
-                    className: "btn",
-                    style: { marginTop: 12 },
-                    onClick: () => setFilterDomain(""),
-                    children: "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0432\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B"
-                  }
-                )
-              ] }) : /* @__PURE__ */ jsx75("div", { className: "pii-list", children: SEVERITY_ORDER2.map((sev) => {
-                const items = grouped.get(sev) || [];
-                if (items.length === 0)
-                  return null;
-                return /* @__PURE__ */ jsxs72("div", { className: "pii-group pii-group--" + sev, children: [
-                  /* @__PURE__ */ jsxs72("div", { className: "pii-group__title", children: [
-                    SEVERITY_LABELS2[sev],
-                    " (",
-                    items.length,
-                    ")"
+                    " \u2014 \u0434\u0430. \u041D\u0430\u0436\u043C\u0438\u0442\u0435 ",
+                    /* @__PURE__ */ jsx75("strong", { children: "\xAB\u041D\u0435 PII\xBB" }),
+                    " ",
+                    "\u0432 \u0440\u0430\u0441\u043A\u0440\u044B\u0442\u043E\u0439 \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0435, \u0447\u0442\u043E\u0431\u044B \u0438\u0441\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0430\u0442\u0440\u0438\u0431\u0443\u0442 \u0438\u0437 \u0441\u043F\u0438\u0441\u043A\u0430. \u0420\u0435\u0448\u0435\u043D\u0438\u0435 \u0441\u043E\u0445\u0440\u0430\u043D\u044F\u0435\u0442\u0441\u044F \u0432 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0435."
                   ] }),
-                  items.map((h) => /* @__PURE__ */ jsxs72("div", { className: "pii-item", children: [
-                    /* @__PURE__ */ jsxs72("div", { className: "pii-item__head", children: [
-                      /* @__PURE__ */ jsxs72("code", { className: "pii-item__id", children: [
-                        h.entityFqid.split("/")[1],
-                        ".",
-                        h.attributeId
-                      ] }),
-                      /* @__PURE__ */ jsx75("span", { className: "pii-item__name", children: h.attributeName }),
-                      /* @__PURE__ */ jsx75("span", { className: "pii-item__type", children: h.dataType }),
-                      /* @__PURE__ */ jsx75("span", { className: "pii-item__category", children: CATEGORY_LABELS3[h.category] }),
+                  /* @__PURE__ */ jsxs72(HelpList, { children: [
+                    /* @__PURE__ */ jsx75("li", { children: "\xAB\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0438\u0433\u043D\u043E\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0435\xBB \u0432 \u0442\u0443\u043B\u0431\u0430\u0440\u0435 \u2014 \u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0438\u0445 \u0432 \u0441\u043F\u0438\u0441\u043E\u043A (\u0434\u043B\u044F \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0438 \u0438\u043B\u0438 \u0432\u043E\u0437\u0432\u0440\u0430\u0442\u0430)." }),
+                    /* @__PURE__ */ jsx75("li", { children: "\xAB\u0412\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0435 \u0438\u0433\u043D\u043E\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0435\xBB \u0432 \u043F\u043E\u0434\u0432\u0430\u043B\u0435 \u0441\u043F\u0438\u0441\u043A\u0430 \u2014 \u0441\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0432\u0441\u0435 \u0440\u0435\u0448\u0435\u043D\u0438\u044F." }),
+                    /* @__PURE__ */ jsxs72("li", { children: [
+                      "\u0413\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u043A\u0430 \xAB\u041F\u043E \u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438\xBB / \xAB\u041F\u043E \u0434\u043E\u043C\u0435\u043D\u0443\xBB \u0434\u0430\u0451\u0442 \u043A\u043D\u043E\u043F\u043A\u0443 \xAB\u0438\u0433\u043D\u043E\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0432\u0441\u044E \u0433\u0440\u0443\u043F\u043F\u0443\xBB \u2014 \u0443\u0434\u043E\u0431\u043D\u043E, \u043A\u043E\u0433\u0434\u0430 \u0432\u0435\u0441\u044C",
+                      /* @__PURE__ */ jsx75("code", { children: "Product" }),
+                      " \u0434\u043E\u043C\u0435\u043D \u2014 false positive."
+                    ] })
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsx75(HelpSection, { title: "\u0424\u0438\u043B\u044C\u0442\u0440\u044B \u0438 \u0433\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u043A\u0430", children: /* @__PURE__ */ jsxs72(HelpList, { children: [
+                  /* @__PURE__ */ jsxs72("li", { children: [
+                    /* @__PURE__ */ jsx75("strong", { children: "Severity" }),
+                    " \u2014 4 severity-\u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0438 \u0432 KPI, \u043A\u043B\u0438\u043A\u0430\u0431\u0435\u043B\u044C\u043D\u044B\u0435."
+                  ] }),
+                  /* @__PURE__ */ jsxs72("li", { children: [
+                    /* @__PURE__ */ jsx75("strong", { children: "\u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F" }),
+                    " \u2014 chips \u043D\u0430\u0434 \u0441\u043F\u0438\u0441\u043A\u043E\u043C."
+                  ] }),
+                  /* @__PURE__ */ jsxs72("li", { children: [
+                    /* @__PURE__ */ jsx75("strong", { children: "\u0414\u043E\u043C\u0435\u043D" }),
+                    " \u2014 \u0438\u0437 byDomain \u0438\u043B\u0438 \u0432\u044B\u043F\u0430\u0434\u0430\u044E\u0449\u0435\u0433\u043E \u0441\u043F\u0438\u0441\u043A\u0430."
+                  ] }),
+                  /* @__PURE__ */ jsxs72("li", { children: [
+                    /* @__PURE__ */ jsx75("strong", { children: "\u041F\u043E\u0438\u0441\u043A" }),
+                    " \u2014 \u043F\u043E attributeId, \u0438\u043C\u0435\u043D\u0438, \u0434\u043E\u043C\u0435\u043D\u0443, reason, note."
+                  ] }),
+                  /* @__PURE__ */ jsxs72("li", { children: [
+                    /* @__PURE__ */ jsx75("strong", { children: "\u0413\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u043A\u0430" }),
+                    " \u2014 severity / \u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F / \u0434\u043E\u043C\u0435\u043D / \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C / \u043F\u043B\u043E\u0441\u043A\u0438\u0439."
+                  ] })
+                ] }) }),
+                /* @__PURE__ */ jsx75(HelpSection, { title: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442", children: /* @__PURE__ */ jsxs72(HelpList, { children: [
+                  /* @__PURE__ */ jsxs72("li", { children: [
+                    /* @__PURE__ */ jsx75("strong", { children: "CSV" }),
+                    " \u2014 \u0434\u043B\u044F BI / Excel. \u0424\u0438\u043B\u044C\u0442\u0440\u044B \u043F\u0440\u0438\u043C\u0435\u043D\u044F\u044E\u0442\u0441\u044F. \u041A\u043E\u043B\u043E\u043D\u043A\u0430 composition_count."
+                  ] }),
+                  /* @__PURE__ */ jsxs72("li", { children: [
+                    /* @__PURE__ */ jsx75("strong", { children: "JSON" }),
+                    " \u2014 \u043C\u0430\u0448\u0438\u043D\u043D\u043E-\u0447\u0438\u0442\u0430\u0435\u043C\u043E. \u041F\u043E\u043B\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435 hit + stats + regulations."
+                  ] }),
+                  /* @__PURE__ */ jsxs72("li", { children: [
+                    /* @__PURE__ */ jsx75("strong", { children: "MD" }),
+                    " \u2014 \u0444\u043E\u0440\u043C\u0430\u043B\u044C\u043D\u044B\u0439 \u043E\u0442\u0447\u0451\u0442 \u0434\u043B\u044F DPO. \u0413\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u043A\u0430 \u043F\u043E severity, \u0441\u0432\u043E\u0434\u043A\u0430, \u0440\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u0438, \u0440\u0430\u0437\u0431\u0438\u0432\u043A\u0430 \u043F\u043E \u0434\u043E\u043C\u0435\u043D\u0430\u043C \u0438 \u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F\u043C."
+                  ] })
+                ] }) }),
+                /* @__PURE__ */ jsx75(HelpSection, { title: "\u041E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F", children: /* @__PURE__ */ jsxs72(HelpList, { children: [
+                  /* @__PURE__ */ jsxs72("li", { children: [
+                    "\u0414\u0435\u0442\u0435\u043A\u0442\u043E\u0440 \u2014 \u044D\u0432\u0440\u0438\u0441\u0442\u0438\u0447\u0435\u0441\u043A\u0438\u0439. \u0421\u0440\u0430\u0431\u0430\u0442\u044B\u0432\u0430\u0435\u0442 \u043F\u043E \u0438\u043C\u0435\u043D\u0430\u043C \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u0438 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u0443 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438. ",
+                    /* @__PURE__ */ jsx75("strong", { children: "\u041D\u0435 \u044F\u0432\u043B\u044F\u0435\u0442\u0441\u044F \u044E\u0440\u0438\u0434\u0438\u0447\u0435\u0441\u043A\u0438\u043C \u0437\u0430\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435\u043C" }),
+                    " \u2014 \u0442\u0440\u0435\u0431\u0443\u0435\u0442\u0441\u044F \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u044F DPO."
+                  ] }),
+                  /* @__PURE__ */ jsxs72("li", { children: [
+                    "\u041D\u0435 \u0434\u0435\u0442\u0435\u043A\u0442\u0438\u0440\u0443\u0435\u0442 PII \u0432 \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u044F\u0445 (\u0442\u043E\u043B\u044C\u043A\u043E \u0432 \u0438\u043C\u0435\u043D\u0430\u0445 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432). \u041D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, \u0432 ",
+                    /* @__PURE__ */ jsx75("code", { children: "description" }),
+                    " \u043C\u043E\u0436\u0435\u0442 \u0431\u044B\u0442\u044C \u0442\u0435\u043B\u0435\u0444\u043E\u043D, \u043D\u043E \u044D\u0442\u043E \u043D\u0435 \u0431\u0443\u0434\u0435\u0442 \u043D\u0430\u0439\u0434\u0435\u043D\u043E."
+                  ] }),
+                  /* @__PURE__ */ jsx75("li", { children: "\u0418\u0433\u043D\u043E\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435 \u0445\u0440\u0430\u043D\u0438\u0442\u0441\u044F \u0432 localStorage \u2014 \u0441\u0431\u0440\u0430\u0441\u044B\u0432\u0430\u0435\u0442\u0441\u044F \u043F\u0440\u0438 \u043E\u0447\u0438\u0441\u0442\u043A\u0435 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0430. \u041D\u0435 \u0441\u0438\u043D\u0445\u0440\u043E\u043D\u0438\u0437\u0438\u0440\u0443\u0435\u0442\u0441\u044F \u043C\u0435\u0436\u0434\u0443 \u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u0430\u043C\u0438." })
+                ] }) })
+              ] }),
+              !showHelp && /* @__PURE__ */ jsxs72(Fragment25, { children: [
+                /* @__PURE__ */ jsxs72("div", { className: "pii-kpi", children: [
+                  /* @__PURE__ */ jsxs72(
+                    "div",
+                    {
+                      className: "pii-risk-card pii-risk-card--" + stats.risk.grade.toLowerCase(),
+                      title: `Risk score ${stats.risk.score}/100`,
+                      children: [
+                        /* @__PURE__ */ jsx75("div", { className: "pii-risk-card__score", children: stats.risk.score }),
+                        /* @__PURE__ */ jsx75("div", { className: "pii-risk-card__grade", children: stats.risk.grade }),
+                        /* @__PURE__ */ jsx75("div", { className: "pii-risk-card__label", children: "PII Risk" }),
+                        /* @__PURE__ */ jsxs72("div", { className: "pii-risk-card__sub", children: [
+                          stats.entitiesCount,
+                          " \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \xB7 ",
+                          stats.domainsCount,
+                          " \u0434\u043E\u043C\u0435\u043D\u043E\u0432"
+                        ] })
+                      ]
+                    }
+                  ),
+                  SEVERITY_ORDER2.map((s) => {
+                    const isActive = filterSeverity === s;
+                    const count = stats.bySeverity[s];
+                    return /* @__PURE__ */ jsxs72(
+                      "button",
+                      {
+                        type: "button",
+                        className: "pii-kpi-card pii-kpi-card--" + s + (isActive ? " active" : ""),
+                        onClick: () => setFilterSeverity(isActive ? "all" : s),
+                        disabled: count === 0,
+                        children: [
+                          /* @__PURE__ */ jsx75("div", { className: "pii-kpi-card__value", children: count }),
+                          /* @__PURE__ */ jsx75("div", { className: "pii-kpi-card__label", children: SEVERITY_LABELS3[s] })
+                        ]
+                      },
+                      s
+                    );
+                  })
+                ] }),
+                regulations.length > 0 && /* @__PURE__ */ jsxs72("div", { className: "pii-regulations", children: [
+                  /* @__PURE__ */ jsxs72("span", { className: "pii-regulations__title", children: [
+                    /* @__PURE__ */ jsx75(MIcon, { name: "gavel", size: "sm" }),
+                    "\u0420\u0435\u0433\u0443\u043B\u044F\u0446\u0438\u0438"
+                  ] }),
+                  regulations.map((r) => /* @__PURE__ */ jsxs72("span", { className: "pii-regulation-chip", children: [
+                    r.label,
+                    /* @__PURE__ */ jsx75("span", { className: "pii-regulation-chip__count", children: r.count })
+                  ] }, r.label))
+                ] }),
+                /* @__PURE__ */ jsxs72("div", { className: "pii-toolbar", children: [
+                  /* @__PURE__ */ jsx75("div", { className: "pii-toolbar__quick", children: Object.keys(CATEGORY_LABELS5).map((c) => {
+                    const count = stats.byCategory[c];
+                    if (count === 0)
+                      return null;
+                    const active = filterCategory === c;
+                    return /* @__PURE__ */ jsxs72(
+                      "button",
+                      {
+                        type: "button",
+                        className: "pii-category-chip" + (active ? " active" : ""),
+                        onClick: () => setFilterCategory(active ? "all" : c),
+                        children: [
+                          /* @__PURE__ */ jsx75(MIcon, { name: CATEGORY_ICONS2[c], size: "sm" }),
+                          CATEGORY_LABELS5[c],
+                          /* @__PURE__ */ jsx75("span", { className: "pii-category-chip__count", children: count })
+                        ]
+                      },
+                      c
+                    );
+                  }) }),
+                  /* @__PURE__ */ jsxs72("div", { className: "pii-toolbar__right", children: [
+                    /* @__PURE__ */ jsxs72("div", { className: "pii-search", children: [
+                      /* @__PURE__ */ jsx75(MIcon, { name: "search", size: "sm" }),
                       /* @__PURE__ */ jsx75(
+                        "input",
+                        {
+                          type: "text",
+                          placeholder: "\u041F\u043E\u0438\u0441\u043A \u043F\u043E \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0443, \u0434\u043E\u043C\u0435\u043D\u0443, note\u2026",
+                          value: query,
+                          onChange: (e) => setQuery(e.target.value),
+                          spellCheck: false
+                        }
+                      ),
+                      query && /* @__PURE__ */ jsx75(
                         "button",
                         {
-                          className: "pii-item__ignore",
-                          onClick: () => toggleIgnored(h.key),
-                          title: "\u0421\u0447\u0438\u0442\u0430\u0442\u044C, \u0447\u0442\u043E \u044D\u0442\u043E \u043D\u0435 PII",
-                          children: /* @__PURE__ */ jsx75(MIcon, { name: "check_circle", size: "sm" })
+                          className: "pii-search__clear",
+                          onClick: () => setQuery(""),
+                          children: "\u2715"
                         }
                       )
                     ] }),
-                    /* @__PURE__ */ jsxs72("div", { className: "pii-item__meta", children: [
-                      /* @__PURE__ */ jsx75("span", { className: "pii-item__domain", children: h.entityFqid.split("/")[0] }),
-                      /* @__PURE__ */ jsx75("span", { className: "pii-item__reason", children: h.reasons.join(" \xB7 ") }),
-                      h.regulation && /* @__PURE__ */ jsx75("span", { className: "pii-item__reg", children: h.regulation })
-                    ] }),
-                    /* @__PURE__ */ jsx75("div", { className: "pii-item__note", children: h.note }),
-                    /* @__PURE__ */ jsx75("div", { className: "pii-item__actions", children: /* @__PURE__ */ jsx75(
+                    allDomains.length > 1 && /* @__PURE__ */ jsxs72(
+                      "select",
+                      {
+                        className: "pii-select",
+                        value: filterDomain,
+                        onChange: (e) => setFilterDomain(e.target.value),
+                        children: [
+                          /* @__PURE__ */ jsxs72("option", { value: "", children: [
+                            "\u0412\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B (",
+                            allDomains.length,
+                            ")"
+                          ] }),
+                          allDomains.map(([d, c]) => /* @__PURE__ */ jsxs72("option", { value: d.toLowerCase(), children: [
+                            d,
+                            " (",
+                            c,
+                            ")"
+                          ] }, d))
+                        ]
+                      }
+                    ),
+                    /* @__PURE__ */ jsxs72(
+                      "select",
+                      {
+                        className: "pii-select",
+                        value: groupMode,
+                        onChange: (e) => setGroupMode(e.target.value),
+                        children: [
+                          /* @__PURE__ */ jsx75("option", { value: "severity", children: "\u041F\u043E severity" }),
+                          /* @__PURE__ */ jsx75("option", { value: "category", children: "\u041F\u043E \u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438" }),
+                          /* @__PURE__ */ jsx75("option", { value: "domain", children: "\u041F\u043E \u0434\u043E\u043C\u0435\u043D\u0443" }),
+                          /* @__PURE__ */ jsx75("option", { value: "entity", children: "\u041F\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438" }),
+                          /* @__PURE__ */ jsx75("option", { value: "flat", children: "\u041F\u043B\u043E\u0441\u043A\u0438\u0439 \u0441\u043F\u0438\u0441\u043E\u043A" })
+                        ]
+                      }
+                    ),
+                    hasFilters && /* @__PURE__ */ jsx75(
                       "button",
                       {
-                        className: "btn",
-                        onClick: () => openEntity(h.entityFqid),
-                        children: "\u{1F3AF} \u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C"
+                        className: "pii-toolbar__reset",
+                        onClick: resetFilters,
+                        title: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0444\u0438\u043B\u044C\u0442\u0440\u044B",
+                        children: /* @__PURE__ */ jsx75(MIcon, { name: "filter_alt_off", size: "sm" })
                       }
-                    ) })
-                  ] }, h.key))
-                ] }, sev);
-              }) }),
-              ignoredCount > 0 && /* @__PURE__ */ jsxs72("div", { className: "pii-ignored-footer", children: [
-                /* @__PURE__ */ jsxs72("span", { children: [
-                  "\u0421\u043A\u0440\u044B\u0442\u043E \u043A\u0430\u043A \xAB\u043D\u0435 PII\xBB: ",
-                  /* @__PURE__ */ jsx75("strong", { children: ignoredCount }),
-                  /* @__PURE__ */ jsx75("span", { style: { marginLeft: 8, color: "var(--text-500)", fontSize: 11 }, children: "(\u0432 \u043E\u0442\u0447\u0451\u0442 \u043D\u0435 \u043F\u043E\u043F\u0430\u0434\u0443\u0442)" })
+                    )
+                  ] })
                 ] }),
-                /* @__PURE__ */ jsx75(
-                  "button",
-                  {
-                    className: "btn",
-                    onClick: () => {
-                      setIgnored(/* @__PURE__ */ new Set());
-                      saveIgnored(/* @__PURE__ */ new Set());
+                ignored.size > 0 && /* @__PURE__ */ jsxs72("div", { className: "pii-ignored-bar", children: [
+                  /* @__PURE__ */ jsxs72("label", { className: "pii-ignored-toggle", children: [
+                    /* @__PURE__ */ jsx75(
+                      "input",
+                      {
+                        type: "checkbox",
+                        checked: showIgnored,
+                        onChange: () => setShowIgnored(!showIgnored)
+                      }
+                    ),
+                    "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0438\u0433\u043D\u043E\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0435 (",
+                    ignored.size,
+                    ")"
+                  ] }),
+                  /* @__PURE__ */ jsx75(
+                    "button",
+                    {
+                      className: "pii-ignored-clear",
+                      onClick: clearAllIgnored,
+                      children: "\u0412\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0435"
+                    }
+                  )
+                ] }),
+                /* @__PURE__ */ jsx75("div", { className: "pii-content", children: visibleHits.length === 0 ? /* @__PURE__ */ jsx75("div", { className: "pii-empty", children: allHits.length === 0 ? /* @__PURE__ */ jsxs72(Fragment25, { children: [
+                  /* @__PURE__ */ jsx75(
+                    MIcon,
+                    {
+                      name: "verified_user",
+                      size: "xl",
+                      style: { color: "var(--success)" }
+                    }
+                  ),
+                  /* @__PURE__ */ jsx75("div", { className: "pii-empty__title", children: "PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u043D\u0435 \u043E\u0431\u043D\u0430\u0440\u0443\u0436\u0435\u043D\u043E" }),
+                  /* @__PURE__ */ jsx75("div", { className: "pii-empty__hint", children: "\u042D\u0432\u0440\u0438\u0441\u0442\u0438\u043A\u0430 \u043D\u0435 \u043D\u0430\u0448\u043B\u0430 \u043F\u043E\u0434\u043E\u0437\u0440\u0438\u0442\u0435\u043B\u044C\u043D\u044B\u0445 \u0438\u043C\u0451\u043D. \u0415\u0441\u043B\u0438 \u0432\u044B \u0443\u0432\u0435\u0440\u0435\u043D\u044B, \u0447\u0442\u043E PII \u0435\u0441\u0442\u044C \u2014 \u043F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u0432\u0440\u0443\u0447\u043D\u0443\u044E \u0438\u043B\u0438 \u0440\u0430\u0441\u0448\u0438\u0440\u044C\u0442\u0435 \u0441\u043F\u0438\u0441\u043E\u043A \u043F\u0440\u0430\u0432\u0438\u043B." })
+                ] }) : hasFilters ? /* @__PURE__ */ jsxs72(Fragment25, { children: [
+                  /* @__PURE__ */ jsx75(MIcon, { name: "filter_alt_off", size: "xl" }),
+                  /* @__PURE__ */ jsx75("div", { className: "pii-empty__title", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u043C" }),
+                  /* @__PURE__ */ jsx75(
+                    "button",
+                    {
+                      className: "btn",
+                      onClick: resetFilters,
+                      style: { marginTop: 8 },
+                      children: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0444\u0438\u043B\u044C\u0442\u0440\u044B"
+                    }
+                  )
+                ] }) : /* @__PURE__ */ jsxs72(Fragment25, { children: [
+                  /* @__PURE__ */ jsx75(MIcon, { name: "visibility_off", size: "xl" }),
+                  /* @__PURE__ */ jsx75("div", { className: "pii-empty__title", children: "\u0412\u0441\u0435 PII \u043F\u043E\u043C\u0435\u0447\u0435\u043D\u044B \u043A\u0430\u043A \xAB\u043D\u0435 PII\xBB" }),
+                  /* @__PURE__ */ jsx75(
+                    "button",
+                    {
+                      className: "btn",
+                      onClick: clearAllIgnored,
+                      style: { marginTop: 8 },
+                      children: "\u0412\u0435\u0440\u043D\u0443\u0442\u044C \u0438\u0433\u043D\u043E\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0435"
+                    }
+                  )
+                ] }) }) : grouped.map((group) => /* @__PURE__ */ jsxs72("div", { className: "pii-group", children: [
+                  /* @__PURE__ */ jsxs72(
+                    "div",
+                    {
+                      className: "pii-group__head",
+                      style: { borderLeftColor: group.color },
+                      children: [
+                        /* @__PURE__ */ jsx75(MIcon, { name: group.icon, size: "sm" }),
+                        /* @__PURE__ */ jsx75("span", { className: "pii-group__title", children: group.label }),
+                        /* @__PURE__ */ jsx75("span", { className: "pii-group__count", children: group.hits.length }),
+                        group.bulkIgnore && /* @__PURE__ */ jsxs72(
+                          "button",
+                          {
+                            className: "pii-group__bulk",
+                            onClick: (e) => {
+                              e.stopPropagation();
+                              group.bulkIgnore();
+                            },
+                            title: `\u041F\u043E\u043C\u0435\u0442\u0438\u0442\u044C \u0432\u0441\u0435 \u0432 \u0433\u0440\u0443\u043F\u043F\u0435 \u043A\u0430\u043A \xAB\u043D\u0435 PII\xBB`,
+                            children: [
+                              /* @__PURE__ */ jsx75(MIcon, { name: "block", size: "sm" }),
+                              "\u0418\u0433\u043D\u043E\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0433\u0440\u0443\u043F\u043F\u0443"
+                            ]
+                          }
+                        )
+                      ]
+                    }
+                  ),
+                  /* @__PURE__ */ jsx75("div", { className: "pii-group__body", children: group.hits.map((h) => /* @__PURE__ */ jsx75(
+                    HitCard,
+                    {
+                      hit: h,
+                      isExpanded: expandedHits.has(h.key),
+                      isIgnored: ignored.has(h.key),
+                      siblingHits: byEntity.get(h.entityFqid) || [h],
+                      onToggle: () => toggleHit(h.key),
+                      onIgnore: () => ignoreHit(h.key),
+                      onUnignore: () => unignoreHit(h.key),
+                      onOpenEntity: () => openEntity(h.entityFqid),
+                      onOpenYaml: () => openYaml(h.entityFqid),
+                      onOpenDomainSchema: openDomainSchema
                     },
-                    children: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C"
-                  }
-                )
+                    h.key
+                  )) })
+                ] }, group.key)) })
               ] })
             ] })
           ]
@@ -25261,32 +30579,59 @@ function PiiModal() {
     }
   );
 }
-var SEVERITY_LABELS2, CATEGORY_LABELS3, SEVERITY_ORDER2, IGNORED_KEY;
+var SEVERITY_LABELS3, SEVERITY_ORDER2, SEVERITY_COLOR, SEVERITY_RISK, CATEGORY_LABELS5, CATEGORY_ICONS2, IGNORED_KEY;
 var init_PiiModal = __esm({
   "src/web/components/modals/PiiModal.tsx"() {
     "use strict";
     init_useGraphStore();
     init_useModelIndex();
     init_MIcon();
+    init_ModalHelp();
+    init_useHelpEscape();
     init_pii_markdown();
-    SEVERITY_LABELS2 = {
+    init_open_file();
+    init_dialogs();
+    SEVERITY_LABELS3 = {
       critical: "\u0421\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438",
       high: "\u0412\u044B\u0441\u043E\u043A\u0430\u044F \u0447\u0443\u0432\u0441\u0442\u0432\u0438\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u044C",
       medium: "\u0422\u0440\u0435\u0431\u0443\u044E\u0442 \u0432\u043D\u0438\u043C\u0430\u043D\u0438\u044F",
       low: "\u041A\u043E\u0441\u0432\u0435\u043D\u043D\u043E"
     };
-    CATEGORY_LABELS3 = {
-      identity: "\u0418\u0434\u0435\u043D\u0442\u0438\u0447\u043D\u043E\u0441\u0442\u044C (\u0424\u0418\u041E, \u0434\u0430\u0442\u0430 \u0440\u043E\u0436\u0434\u0435\u043D\u0438\u044F)",
-      contact: "\u041A\u043E\u043D\u0442\u0430\u043A\u0442\u044B (email, \u0442\u0435\u043B\u0435\u0444\u043E\u043D, \u0430\u0434\u0440\u0435\u0441)",
-      document: "\u0414\u043E\u043A\u0443\u043C\u0435\u043D\u0442\u044B (\u043F\u0430\u0441\u043F\u043E\u0440\u0442, \u0418\u041D\u041D, \u0421\u041D\u0418\u041B\u0421)",
-      financial: "\u0424\u0438\u043D\u0430\u043D\u0441\u043E\u0432\u044B\u0435 (\u043A\u0430\u0440\u0442\u044B, \u0441\u0447\u0435\u0442\u0430)",
+    SEVERITY_ORDER2 = ["critical", "high", "medium", "low"];
+    SEVERITY_COLOR = {
+      critical: "#ef4444",
+      high: "#f97316",
+      medium: "#f59e0b",
+      low: "#94a3b8"
+    };
+    SEVERITY_RISK = {
+      critical: 4,
+      high: 2,
+      medium: 1,
+      low: 0.5
+    };
+    CATEGORY_LABELS5 = {
+      identity: "\u0418\u0434\u0435\u043D\u0442\u0438\u0447\u043D\u043E\u0441\u0442\u044C",
+      contact: "\u041A\u043E\u043D\u0442\u0430\u043A\u0442\u044B",
+      document: "\u0414\u043E\u043A\u0443\u043C\u0435\u043D\u0442\u044B",
+      financial: "\u0424\u0438\u043D\u0430\u043D\u0441\u043E\u0432\u044B\u0435",
       biometric: "\u0411\u0438\u043E\u043C\u0435\u0442\u0440\u0438\u044F",
-      special: "\u0421\u043F\u0435\u0446\u0438\u0430\u043B\u044C\u043D\u044B\u0435 \u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438 (\u0440\u0435\u043B\u0438\u0433\u0438\u044F, \u0437\u0434\u043E\u0440\u043E\u0432\u044C\u0435)",
+      special: "\u0421\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438",
       location: "\u041B\u043E\u043A\u0430\u0446\u0438\u044F",
-      technical: "\u0422\u0435\u0445\u043D\u0438\u0447\u0435\u0441\u043A\u0438\u0435 (IP, deviceId)",
+      technical: "\u0422\u0435\u0445\u043D\u0438\u0447\u0435\u0441\u043A\u0438\u0435",
       custom: "\u041F\u0440\u043E\u0447\u0438\u0435"
     };
-    SEVERITY_ORDER2 = ["critical", "high", "medium", "low"];
+    CATEGORY_ICONS2 = {
+      identity: "person",
+      contact: "contact_mail",
+      document: "badge",
+      financial: "credit_card",
+      biometric: "fingerprint",
+      special: "psychology",
+      location: "place",
+      technical: "memory",
+      custom: "more_horiz"
+    };
     IGNORED_KEY = "dg-pii-ignored";
   }
 });
@@ -34601,14 +39946,14 @@ function computeSonarScores(index, lint) {
     const breakdown = [];
     let totalScore = 0;
     let totalWeight = 0;
-    Object.keys(CATEGORY_LABELS4).forEach((cat) => {
+    Object.keys(CATEGORY_LABELS6).forEach((cat) => {
       const count = issuesForDomain.get(cat) || 0;
       const ratio = count / weight;
       const catScore = Math.max(0, Math.round(100 - ratio * 100));
       const w = CATEGORY_WEIGHTS[cat];
       breakdown.push({
         category: cat,
-        label: CATEGORY_LABELS4[cat],
+        label: CATEGORY_LABELS6[cat],
         score: catScore,
         weight: w,
         issueCount: count
@@ -35809,7 +41154,7 @@ function checkAttributeDefault(ctx2, e, a) {
     }
   }
 }
-var RE_ENTITY_ID, RE_ATTRIBUTE_ID, MAX_ENTITY_ID_LEN, MAX_ATTRIBUTE_ID_LEN, EMAIL_PATTERN, IP_PATTERN, PHONE_PATTERN, URL_PATTERN, DATE_PATTERN, MAC_PATTERN, SYSTEM_ATTRIBUTE_IDS, UUID_RE, SYSTEM_ATTRIBUTE_TYPES, IDENTIFIER_KNOWN_SEGMENTS, VIEW_TOP_TYPES, VIEW_NESTED_TYPES, VIEW_GROUP_TYPES, VIEW_WIDGET_TYPES, VIEW_CONTROL_TYPES, CATEGORY_LABELS4, CATEGORY_WEIGHTS, COUNTER_TIME_RE, COUNTER_PERCENT_RE, GRAPH_ICON_COLORS, LABEL_SYSTEM_ALLOWED, FORBIDDEN_SORTING_ATTRS;
+var RE_ENTITY_ID, RE_ATTRIBUTE_ID, MAX_ENTITY_ID_LEN, MAX_ATTRIBUTE_ID_LEN, EMAIL_PATTERN, IP_PATTERN, PHONE_PATTERN, URL_PATTERN, DATE_PATTERN, MAC_PATTERN, SYSTEM_ATTRIBUTE_IDS, UUID_RE, SYSTEM_ATTRIBUTE_TYPES, IDENTIFIER_KNOWN_SEGMENTS, VIEW_TOP_TYPES, VIEW_NESTED_TYPES, VIEW_GROUP_TYPES, VIEW_WIDGET_TYPES, VIEW_CONTROL_TYPES, CATEGORY_LABELS6, CATEGORY_WEIGHTS, COUNTER_TIME_RE, COUNTER_PERCENT_RE, GRAPH_ICON_COLORS, LABEL_SYSTEM_ALLOWED, FORBIDDEN_SORTING_ATTRS;
 var init_linter = __esm({
   "src/core/analyzer/linter.ts"() {
     "use strict";
@@ -35939,7 +41284,7 @@ var init_linter = __esm({
       "regular_button",
       "dropdown"
     ]);
-    CATEGORY_LABELS4 = {
+    CATEGORY_LABELS6 = {
       naming: "\u0421\u043E\u0433\u043B\u0430\u0448\u0435\u043D\u0438\u044F \u0438\u043C\u0435\u043D\u043E\u0432\u0430\u043D\u0438\u044F",
       required: "\u041E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u044B\u0435 \u043F\u043E\u043B\u044F",
       recommended: "\u0420\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u043E\u0432\u0430\u043D\u043D\u044B\u0435 \u043F\u043E\u043B\u044F",
@@ -49840,11 +55185,11 @@ var init_yaml_search = __esm({
 // src/web/components/modals/YamlSearchPanel.tsx
 import {
   forwardRef,
-  useCallback as useCallback20,
+  useCallback as useCallback25,
   useEffect as useEffect43,
   useImperativeHandle,
   useMemo as useMemo45,
-  useRef as useRef18,
+  useRef as useRef20,
   useState as useState37
 } from "react";
 import { jsx as jsx77, jsxs as jsxs74 } from "react/jsx-runtime";
@@ -49905,7 +55250,7 @@ var init_YamlSearchPanel = __esm({
           onEscape,
           onJump
         } = props;
-        const inputRef = useRef18(null);
+        const inputRef = useRef20(null);
         const [result, setResult] = useState37(null);
         const [activeMatch, setActiveMatch] = useState37(null);
         const [expanded, setExpanded] = useState37(/* @__PURE__ */ new Set());
@@ -49967,7 +55312,7 @@ var init_YamlSearchPanel = __esm({
               out.push(m);
           return out;
         }, [result]);
-        const selectMatch = useCallback20(
+        const selectMatch = useCallback25(
           (m) => {
             setActiveMatch(m);
             onActiveMatchChange(m);
@@ -49976,7 +55321,7 @@ var init_YamlSearchPanel = __esm({
           },
           [onActiveMatchChange, onJump]
         );
-        const stepMatch = useCallback20(
+        const stepMatch = useCallback25(
           (delta) => {
             if (flatMatches.length === 0)
               return;
@@ -54358,7 +59703,7 @@ var init_local_recheck = __esm({
 });
 
 // src/web/components/modals/SectionQuickNav.tsx
-import { useEffect as useEffect44, useMemo as useMemo46, useRef as useRef19, useState as useState38 } from "react";
+import { useEffect as useEffect44, useMemo as useMemo46, useRef as useRef21, useState as useState38 } from "react";
 import { jsx as jsx78, jsxs as jsxs75 } from "react/jsx-runtime";
 function SectionQuickNav({
   lineMap,
@@ -54368,7 +59713,7 @@ function SectionQuickNav({
   enabled = true
 }) {
   const [expanded, setExpanded] = useState38(false);
-  const closeTimer = useRef19(null);
+  const closeTimer = useRef21(null);
   const activeKey = useMemo46(() => {
     let active = null;
     for (const s of lineMap.sections) {
@@ -59114,9 +64459,9 @@ var init_unused_analysis = __esm({
 });
 
 // src/web/components/common/Hint.tsx
-import { useId, useCallback as useCallback21, useEffect as useEffect45, useLayoutEffect as useLayoutEffect4, useRef as useRef20, useState as useState39 } from "react";
+import { useId, useCallback as useCallback26, useEffect as useEffect45, useLayoutEffect as useLayoutEffect4, useRef as useRef22, useState as useState39 } from "react";
 import { createPortal as createPortal3 } from "react-dom";
-import { Fragment as Fragment22, jsx as jsx79, jsxs as jsxs76 } from "react/jsx-runtime";
+import { Fragment as Fragment26, jsx as jsx79, jsxs as jsxs76 } from "react/jsx-runtime";
 function setActiveHint(id) {
   if (activeHintId !== id) {
     activeHintId = id;
@@ -59137,11 +64482,11 @@ function Hint({ char, info, children, className }) {
   const hintId = useId();
   const activeId = useActiveHint();
   const [isHovered, setIsHovered] = useState39(false);
-  const ref = useRef20(null);
+  const ref = useRef22(null);
   const data = info ?? (char ? HINTS[char] : null);
-  const timeoutRef = useRef20();
+  const timeoutRef = useRef22();
   if (!data) {
-    return /* @__PURE__ */ jsx79(Fragment22, { children: children ?? (char ? /* @__PURE__ */ jsx79("kbd", { children: char }) : null) });
+    return /* @__PURE__ */ jsx79(Fragment26, { children: children ?? (char ? /* @__PURE__ */ jsx79("kbd", { children: char }) : null) });
   }
   const handleEnter = () => {
     if (timeoutRef.current)
@@ -59174,8 +64519,8 @@ function Hint({ char, info, children, className }) {
 }
 function HintTooltip({ info, anchor }) {
   const [coords, setCoords] = useState39(null);
-  const ref = useRef20(null);
-  const calculate = useCallback21(() => {
+  const ref = useRef22(null);
+  const calculate = useCallback26(() => {
     if (!anchor || !ref.current)
       return;
     const el = ref.current;
@@ -59431,9 +64776,9 @@ var init_Hint = __esm({
 });
 
 // src/web/components/modals/YamlQuickJump.tsx
-import { useEffect as useEffect46, useMemo as useMemo47, useRef as useRef21, useState as useState40 } from "react";
+import { useEffect as useEffect46, useMemo as useMemo47, useRef as useRef23, useState as useState40 } from "react";
 import { createPortal as createPortal4 } from "react-dom";
-import { Fragment as Fragment23, jsx as jsx80, jsxs as jsxs77 } from "react/jsx-runtime";
+import { Fragment as Fragment27, jsx as jsx80, jsxs as jsxs77 } from "react/jsx-runtime";
 function loadFavorites() {
   try {
     const raw = localStorage.getItem(FAVORITES_KEY);
@@ -59748,7 +65093,7 @@ function highlightInText(text, term) {
   }
   if (pos < text.length)
     parts.push(text.slice(pos));
-  return /* @__PURE__ */ jsx80(Fragment23, { children: parts });
+  return /* @__PURE__ */ jsx80(Fragment27, { children: parts });
 }
 function MiniMapPreview({
   state,
@@ -59904,9 +65249,9 @@ function YamlQuickJump({
 }) {
   const [query, setQuery] = useState40(initialQuery || "");
   const [activeIdx, setActiveIdx] = useState40(0);
-  const inputRef = useRef21(null);
-  const listRef = useRef21(null);
-  const hoverTimerRef = useRef21(null);
+  const inputRef = useRef23(null);
+  const listRef = useRef23(null);
+  const hoverTimerRef = useRef23(null);
   const [hoverPreview, setHoverPreview] = useState40(
     null
   );
@@ -60825,7 +66170,7 @@ function YamlQuickJump({
   const isSectionPick = (item) => item.key.startsWith("section-pick:");
   const previewSearchTerm = previewTerm(query);
   let itemOffset = 0;
-  return /* @__PURE__ */ jsxs77(Fragment23, { children: [
+  return /* @__PURE__ */ jsxs77(Fragment27, { children: [
     /* @__PURE__ */ jsx80("div", { className: "yaml-quickjump-backdrop", onMouseDown: onClose }),
     /* @__PURE__ */ jsxs77(
       "div",
@@ -60934,7 +66279,7 @@ function YamlQuickJump({
                   group.items.map((item, i) => {
                     const idx = startOffset + i;
                     const severityClass = item.severity ? ` yaml-quickjump-item--severity-${item.severity}` : "";
-                    return /* @__PURE__ */ jsx80(Fragment23, { children: /* @__PURE__ */ jsxs77(
+                    return /* @__PURE__ */ jsx80(Fragment27, { children: /* @__PURE__ */ jsxs77(
                       "button",
                       {
                         type: "button",
@@ -67038,14 +72383,14 @@ var init_version_impact = __esm({
 
 // src/web/components/modals/SchemaHistoryModal.tsx
 import {
-  useCallback as useCallback22,
+  useCallback as useCallback27,
   useEffect as useEffect47,
   useMemo as useMemo48,
-  useRef as useRef22,
+  useRef as useRef24,
   useState as useState41
 } from "react";
 import { createPortal as createPortal5 } from "react-dom";
-import { Fragment as Fragment24, jsx as jsx81, jsxs as jsxs78 } from "react/jsx-runtime";
+import { Fragment as Fragment28, jsx as jsx81, jsxs as jsxs78 } from "react/jsx-runtime";
 function SchemaHistoryModal({
   filePath,
   currentContent,
@@ -67127,7 +72472,7 @@ function SchemaHistoryModal({
       cancelled = true;
     };
   }, [filePath, mode, limit, offset, reloadKey]);
-  const handleLimitChange = useCallback22(
+  const handleLimitChange = useCallback27(
     (newLimit) => {
       if (newLimit === limit)
         return;
@@ -67136,13 +72481,13 @@ function SchemaHistoryModal({
     },
     [limit]
   );
-  const handlePrevPage = useCallback22(() => {
+  const handlePrevPage = useCallback27(() => {
     setOffset((o) => Math.max(0, o - limit));
   }, [limit]);
-  const handleNextPage = useCallback22(() => {
+  const handleNextPage = useCallback27(() => {
     setOffset((o) => o + limit);
   }, [limit]);
-  const handleRetry = useCallback22(() => {
+  const handleRetry = useCallback27(() => {
     setReloadKey((k) => k + 1);
   }, []);
   const selected = useMemo48(
@@ -67166,8 +72511,8 @@ function SchemaHistoryModal({
     }
   }, [selected, currentContent]);
   const { ready: monacoReady } = useMonacoLoader();
-  const diffContainerRef = useRef22(null);
-  const diffEditorRef = useRef22(null);
+  const diffContainerRef = useRef24(null);
+  const diffEditorRef = useRef24(null);
   useEffect47(() => {
     if (diffTab !== "text")
       return;
@@ -67208,7 +72553,7 @@ function SchemaHistoryModal({
       diffEditorRef.current = null;
     };
   }, [monacoReady, selected, currentContent, diffTab]);
-  const handleApply = useCallback22(async () => {
+  const handleApply = useCallback27(async () => {
     if (!selected)
       return;
     if (!selected.sourceCode) {
@@ -67380,7 +72725,7 @@ function SchemaHistoryModal({
                     ] })
                   ] })
                 ] }),
-                /* @__PURE__ */ jsx81("div", { className: "schema-history-content", children: selected && /* @__PURE__ */ jsxs78(Fragment24, { children: [
+                /* @__PURE__ */ jsx81("div", { className: "schema-history-content", children: selected && /* @__PURE__ */ jsxs78(Fragment28, { children: [
                   /* @__PURE__ */ jsxs78("div", { className: "schema-history-toolbar", children: [
                     /* @__PURE__ */ jsxs78("div", { className: "schema-history-toolbar__info", children: [
                       /* @__PURE__ */ jsxs78("strong", { children: [
@@ -67432,7 +72777,7 @@ function SchemaHistoryModal({
                       selected.version,
                       ". \u0420\u0430\u0437\u043B\u0438\u0447\u0438\u044F \u043C\u043E\u0433\u0443\u0442 \u0431\u044B\u0442\u044C \u0442\u043E\u043B\u044C\u043A\u043E \u0432 \u043A\u043E\u043C\u043C\u0435\u043D\u0442\u0430\u0440\u0438\u044F\u0445, \u0444\u043E\u0440\u043C\u0430\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0438 \u0438\u043B\u0438 \u043C\u0435\u0442\u0430\u0434\u0430\u043D\u043D\u044B\u0445."
                     ] })
-                  ] }) : /* @__PURE__ */ jsxs78(Fragment24, { children: [
+                  ] }) : /* @__PURE__ */ jsxs78(Fragment28, { children: [
                     structuralDiff.addedEntities.length > 0 && /* @__PURE__ */ jsxs78("div", { className: "schema-history-group schema-history-group--added", children: [
                       /* @__PURE__ */ jsxs78("div", { className: "schema-history-group__title", children: [
                         "\u{1F7E2} \u041F\u043E\u044F\u0432\u0438\u0442\u0441\u044F \u0432 \u0442\u0435\u043A\u0443\u0449\u0435\u043C \u043F\u043E\u0441\u043B\u0435 \u0437\u0430\u043C\u0435\u043D\u044B \u043D\u0430 v",
@@ -67575,8 +72920,8 @@ var init_SchemaHistoryModal = __esm({
 });
 
 // src/web/components/modals/YamlViewerModal.tsx
-import React49, { useCallback as useCallback23, useDeferredValue, useEffect as useEffect48, useLayoutEffect as useLayoutEffect5, useMemo as useMemo49, useRef as useRef23, useState as useState42 } from "react";
-import { Fragment as Fragment25, jsx as jsx82, jsxs as jsxs79 } from "react/jsx-runtime";
+import React50, { useCallback as useCallback28, useDeferredValue, useEffect as useEffect48, useLayoutEffect as useLayoutEffect5, useMemo as useMemo49, useRef as useRef25, useState as useState42 } from "react";
+import { Fragment as Fragment29, jsx as jsx82, jsxs as jsxs79 } from "react/jsx-runtime";
 async function validateSourceCodeOnServer(sourceCode) {
   try {
     const res = await fetch("/api/validate-single", {
@@ -67684,7 +73029,7 @@ function YamlViewerModal() {
       return true;
     }
   });
-  const toggleChecks = useCallback23(() => {
+  const toggleChecks = useCallback28(() => {
     setChecksEnabled((prev) => {
       const next = !prev;
       try {
@@ -67716,26 +73061,26 @@ function YamlViewerModal() {
   }, [open2, contentSource]);
   const [backupResolved, setBackupResolved] = useState42(false);
   const [backupContent, setBackupContent] = useState42(null);
-  const resolvedKeyRef = useRef23(null);
+  const resolvedKeyRef = useRef25(null);
   const [content, setContent] = useState42("");
   const [yamlSyntaxIssue, setYamlSyntaxIssue] = useState42(null);
   const deferredContent = useDeferredValue(content);
   const [savedContent, setSavedContent] = useState42("");
   const [liveVersion, setLiveVersion] = useState42(0);
-  const liveDebounce = useRef23(null);
-  const skipNextEffect = useRef23(false);
+  const liveDebounce = useRef25(null);
+  const skipNextEffect = useRef25(false);
   const [editorCreated, setEditorCreated] = useState42(false);
   const [ignoredVersion, setIgnoredVersion] = useState42(0);
   const [diffAgainst, setDiffAgainst] = useState42(null);
   const [historyOpen, setHistoryOpen] = useState42(false);
   const [previousContent, setPreviousContent] = useState42(null);
   const [publishedContent, setPublishedContent] = useState42(null);
-  const diffContainerRef = useRef23(null);
-  const diffEditorRef = useRef23(null);
+  const diffContainerRef = useRef25(null);
+  const diffEditorRef = useRef25(null);
   const [cursorLine, setCursorLine] = useState42(1);
   const [leftWidth, setLeftWidth] = useState42(380);
-  const isDraggingLeft = useRef23(false);
-  const decorationsCollection = useRef23(null);
+  const isDraggingLeft = useRef25(false);
+  const decorationsCollection = useRef25(null);
   const appTheme = useGraphStore((s) => s.theme);
   const monacoTheme = appTheme === "light" ? "dg-light" : "dg-dark";
   const [editorTopLine, setEditorTopLine] = useState42(1);
@@ -67745,7 +73090,7 @@ function YamlViewerModal() {
   const yamlHighlightUnused = useGraphStore((s) => s.yamlHighlightUnused);
   const [quickJumpOpen, setQuickJumpOpen] = useState42(false);
   const [quickJumpInitialQuery, setQuickJumpInitialQuery] = useState42(null);
-  const quickJumpOpenRef = useRef23(false);
+  const quickJumpOpenRef = useRef25(false);
   useLayoutEffect5(() => {
     quickJumpOpenRef.current = quickJumpOpen;
   }, [quickJumpOpen]);
@@ -67914,7 +73259,7 @@ function YamlViewerModal() {
       cancelled = true;
     };
   }, [open2, loading, fetchedContent, filePath]);
-  const savedContentRef = useRef23(savedContent);
+  const savedContentRef = useRef25(savedContent);
   useEffect48(() => {
     savedContentRef.current = savedContent;
   }, [savedContent]);
@@ -67982,7 +73327,7 @@ function YamlViewerModal() {
   const [saveFeedback, setSaveFeedback] = useState42(false);
   const [expandedNodes, setExpandedNodes] = useState42(/* @__PURE__ */ new Set());
   const [navQuery, setNavQuery] = useState42("");
-  const navListRef = useRef23(null);
+  const navListRef = useRef25(null);
   const [activeNavIdx, setActiveNavIdx] = useState42(-1);
   const [leftCollapsed, setLeftCollapsed] = useState42(false);
   const [rightCollapsed, setRightCollapsed] = useState42(false);
@@ -67997,26 +73342,26 @@ function YamlViewerModal() {
   const [searchOptions, setSearchOptions] = useState42(DEFAULT_SEARCH_OPTIONS);
   const [searchResult, setSearchResult] = useState42(null);
   const [activeSearchMatch, setActiveSearchMatch] = useState42(null);
-  const searchPanelRef = useRef23(null);
-  const searchDecorationsRef = useRef23(null);
+  const searchPanelRef = useRef25(null);
+  const searchDecorationsRef = useRef25(null);
   const [focusIncludeDeps, setFocusIncludeDeps] = useState42(false);
   const [navContextMenu, setNavContextMenu] = useState42(null);
   const { goto: gotoDomain } = useNavigation();
-  const editorRef = useRef23(null);
-  const previousFetchId = useRef23(0);
-  const containerRef = useRef23(null);
-  const saveRef = useRef23(() => {
+  const editorRef = useRef25(null);
+  const previousFetchId = useRef25(0);
+  const containerRef = useRef25(null);
+  const saveRef = useRef25(() => {
   });
-  const publishRef = useRef23(() => {
+  const publishRef = useRef25(() => {
   });
-  const toggleLockRef = useRef23(() => {
+  const toggleLockRef = useRef25(() => {
   });
-  const isLockedRef = useRef23(isLocked);
-  const isProgrammaticChange = useRef23(false);
+  const isLockedRef = useRef25(isLocked);
+  const isProgrammaticChange = useRef25(false);
   const [focusTarget, setFocusTarget] = useState42(null);
-  const focusDecorationsRef = useRef23(null);
-  const saveAbortRef = useRef23(null);
-  const editorTopLineRef = useRef23(1);
+  const focusDecorationsRef = useRef25(null);
+  const saveAbortRef = useRef25(null);
+  const editorTopLineRef = useRef25(1);
   const tabs = useGraphStore((s) => s.editorTabs);
   const addTab = useGraphStore((s) => s.addEditorTab);
   const removeTab = useGraphStore((s) => s.removeEditorTab);
@@ -68040,7 +73385,7 @@ function YamlViewerModal() {
   useEffect48(() => {
     isLockedRef.current = isLocked;
   }, [isLocked]);
-  const lastAutoScrolledQueryRef = useRef23(null);
+  const lastAutoScrolledQueryRef = useRef25(null);
   useEffect48(() => {
     if (!searchQuery)
       lastAutoScrolledQueryRef.current = null;
@@ -68908,7 +74253,7 @@ function YamlViewerModal() {
       return;
     resetProviderContext();
   }, [open2]);
-  const searchDecorIdsRef = useRef23([]);
+  const searchDecorIdsRef = useRef25([]);
   useEffect48(() => {
     if (!monacoReady || !editorCreated)
       return;
@@ -69341,7 +74686,7 @@ ${label.message}` : ""),
       }
     };
   }, [yamlSyntaxIssue, index, recheckModel, checksEnabled, monacoReady, editorCreated, lineMap, domainIssues, isLocked, severityFilter, savedContent]);
-  const jumpTo = useCallback23(
+  const jumpTo = useCallback28(
     (line, opts) => {
       const editor = editorRef.current;
       if (!editor)
@@ -69375,7 +74720,7 @@ ${label.message}` : ""),
     },
     []
   );
-  const handleQuickJumpSelect = useCallback23(
+  const handleQuickJumpSelect = useCallback28(
     (line, column) => {
       setPendingIssue(null);
       setPendingBlock(null);
@@ -69387,19 +74732,19 @@ ${label.message}` : ""),
   useEffect48(() => {
     setActiveFoldLevel(null);
   }, [filePath, open2]);
-  const getFoldingController = useCallback23((ed) => {
+  const getFoldingController = useCallback28((ed) => {
     const contributions = ed?._contributions;
     const instances = contributions?._instances?._store;
     return instances?.get("editor.contrib.folding") ?? null;
   }, []);
-  const gotoStart = useCallback23(() => {
+  const gotoStart = useCallback28(() => {
     if (!editorRef.current)
       return;
     editorRef.current.setPosition({ lineNumber: 1, column: 1 });
     editorRef.current.revealLine(1);
     editorRef.current.focus();
   }, []);
-  const gotoEnd = useCallback23(() => {
+  const gotoEnd = useCallback28(() => {
     const ed = editorRef.current;
     if (!ed)
       return;
@@ -69408,7 +74753,7 @@ ${label.message}` : ""),
     ed.revealLine(lineCount);
     ed.focus();
   }, []);
-  const foldLines = useCallback23((lines) => {
+  const foldLines = useCallback28((lines) => {
     const ed = editorRef.current;
     const model = ed?.getModel();
     if (!ed || !model || lines.length === 0)
@@ -69425,7 +74770,7 @@ ${label.message}` : ""),
       ed.trigger("dg-fold", "editor.fold", null);
     }
   }, []);
-  const toggleFold = useCallback23((level) => {
+  const toggleFold = useCallback28((level) => {
     const ed = editorRef.current;
     if (!ed)
       return;
@@ -69438,15 +74783,15 @@ ${label.message}` : ""),
     ed.trigger("dg-fold", `editor.foldLevel${level}`, null);
     setActiveFoldLevel(level);
   }, [activeFoldLevel]);
-  const foldAll = useCallback23(() => {
+  const foldAll = useCallback28(() => {
     editorRef.current?.trigger("dg-fold", "editor.foldAll", null);
     setActiveFoldLevel(null);
   }, []);
-  const unfoldAll = useCallback23(() => {
+  const unfoldAll = useCallback28(() => {
     editorRef.current?.trigger("dg-fold", "editor.unfoldAll", null);
     setActiveFoldLevel(null);
   }, []);
-  const hasFoldableRange = useCallback23((model, lineNumber) => {
+  const hasFoldableRange = useCallback28((model, lineNumber) => {
     const line = model.getLineContent(lineNumber);
     const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
     const total = model.getLineCount();
@@ -69459,7 +74804,7 @@ ${label.message}` : ""),
     }
     return false;
   }, []);
-  const foldByLines = useCallback23((lines) => {
+  const foldByLines = useCallback28((lines) => {
     const ed = editorRef.current;
     if (!ed || lines.length === 0)
       return;
@@ -69519,7 +74864,7 @@ ${label.message}` : ""),
       }
     }, 0);
   }, []);
-  const foldSiblings = useCallback23(() => {
+  const foldSiblings = useCallback28(() => {
     const ed = editorRef.current;
     const model = ed?.getModel();
     const pos = ed?.getPosition();
@@ -69566,7 +74911,7 @@ ${label.message}` : ""),
     foldByLines(targets);
     setActiveFoldLevel(null);
   }, [hasFoldableRange, foldByLines]);
-  const foldBlocksByKey = useCallback23((key) => {
+  const foldBlocksByKey = useCallback28((key) => {
     const ed = editorRef.current;
     const model = ed?.getModel();
     if (!ed || !model)
@@ -69633,7 +74978,7 @@ ${label.message}` : ""),
       setActiveFoldLevel(null);
     }, 0);
   }, [hasFoldableRange]);
-  const foldToLevel = useCallback23((targetLevel) => {
+  const foldToLevel = useCallback28((targetLevel) => {
     const ed = editorRef.current;
     if (!ed)
       return;
@@ -69745,7 +75090,7 @@ ${label.message}` : ""),
     }, 50);
     return () => clearTimeout(t);
   }, [open2, editorCreated, loading, lineMap, deferredContent, jumpTo]);
-  const toggleNode = useCallback23((key) => {
+  const toggleNode = useCallback28((key) => {
     setExpandedNodes((prev) => {
       const s = new Set(prev);
       if (s.has(key))
@@ -69755,7 +75100,7 @@ ${label.message}` : ""),
       return s;
     });
   }, []);
-  const expandAll = useCallback23(() => {
+  const expandAll = useCallback28(() => {
     if (!lineMap)
       return;
     const all = /* @__PURE__ */ new Set();
@@ -69772,13 +75117,13 @@ ${label.message}` : ""),
       el.open = true;
     });
   }, [lineMap]);
-  const collapseAll = useCallback23(() => {
+  const collapseAll = useCallback28(() => {
     setExpandedNodes(/* @__PURE__ */ new Set());
     document.querySelectorAll(".yaml-nav-section").forEach((el) => {
       el.open = false;
     });
   }, []);
-  const handleCopy = useCallback23(async () => {
+  const handleCopy = useCallback28(async () => {
     const text = editorRef.current ? editorRef.current.getValue() : content;
     try {
       await navigator.clipboard.writeText(text);
@@ -69791,7 +75136,7 @@ ${label.message}` : ""),
       });
     }
   }, [content]);
-  const handleToggleLock = useCallback23(async () => {
+  const handleToggleLock = useCallback28(async () => {
     if (isLocked) {
       setIsLocked(false);
       setSaveError(null);
@@ -69820,7 +75165,7 @@ ${label.message}` : ""),
       setIsLocked(true);
     }
   }, [isLocked, isDirty, savedContent, filePath]);
-  const handleApplyHistory = useCallback23(
+  const handleApplyHistory = useCallback28(
     (newContent) => {
       if (!editorRef.current)
         return;
@@ -69858,7 +75203,7 @@ ${label.message}` : ""),
     },
     [filePath, savedContent]
   );
-  const handleSave = useCallback23(async () => {
+  const handleSave = useCallback28(async () => {
     if (isLocked || isSaving || !editorRef.current)
       return;
     try {
@@ -70006,7 +75351,7 @@ ${draftInfo.hint}` : "";
       sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
     }
   }, [isLocked, savedContent, filePath, mode, isSaving]);
-  const handleDiffPublished = useCallback23(async () => {
+  const handleDiffPublished = useCallback28(async () => {
     if (!filePath)
       return;
     if (diffAgainst === "published") {
@@ -70041,10 +75386,10 @@ ${draftInfo.hint}` : "";
       setDiffAgainst("published");
     }
   }, [filePath, diffAgainst, publishedContent]);
-  const handleDiffPrevious = useCallback23(() => {
+  const handleDiffPrevious = useCallback28(() => {
     setDiffAgainst(diffAgainst === "previous" ? null : "previous");
   }, [diffAgainst]);
-  const handleServerValidate = useCallback23(async () => {
+  const handleServerValidate = useCallback28(async () => {
     if (!editorRef.current)
       return;
     const sourceCode = editorRef.current.getValue();
@@ -70077,7 +75422,7 @@ ${draftInfo.hint}` : "";
       setServerValidating(false);
     }
   }, []);
-  const handleClose = useCallback23(async () => {
+  const handleClose = useCallback28(async () => {
     if (quickJumpOpenRef.current)
       return;
     if (isSaving) {
@@ -70332,7 +75677,7 @@ ${draftInfo.hint}` : "";
     document.addEventListener("dg:issue-action", handler);
     return () => document.removeEventListener("dg:issue-action", handler);
   }, [domainId]);
-  const refreshPreviousContent = useCallback23(() => {
+  const refreshPreviousContent = useCallback28(() => {
     if (!filePath) {
       setPreviousContent(null);
       return;
@@ -70710,7 +76055,7 @@ ${draftInfo.hint}` : "";
     () => effectiveIssues.filter((i) => i.__isUnknown).length,
     [effectiveIssues]
   );
-  const handleFocus = useCallback23((node, sectionKey) => {
+  const handleFocus = useCallback28((node, sectionKey) => {
     const kind = sectionKey === "entities" ? "entity" : "linkage";
     setFocusTarget((prev) => {
       if (prev && prev.kind === kind && prev.id === node.id)
@@ -70718,7 +76063,7 @@ ${draftInfo.hint}` : "";
       return { kind, id: node.id };
     });
   }, []);
-  const handleFocusWithDeps = useCallback23((node, sectionKey) => {
+  const handleFocusWithDeps = useCallback28((node, sectionKey) => {
     const kind = sectionKey === "entities" ? "entity" : "linkage";
     setFocusTarget({ kind, id: node.id });
     setFocusIncludeDeps(kind === "entity");
@@ -70912,7 +76257,7 @@ ${draftInfo.hint}` : "";
       });
     }
   }, [backupResolved, backupContent, loading, fetchedContent, filePath]);
-  const executePublish = useCallback23(async (valueToSave) => {
+  const executePublish = useCallback28(async (valueToSave) => {
     setIsSaving(true);
     setSaveStage(mode === "remote" ? "publishing" : "writing");
     setSaveError(null);
@@ -71048,7 +76393,7 @@ ${publishInfo.hint}` : "";
       useGraphStore.getState().setPublishPreviewConfirmAction(null);
     }
   }, [filePath, mode, isSaving]);
-  const handlePublish = useCallback23(async () => {
+  const handlePublish = useCallback28(async () => {
     if (isLocked || isSaving || !editorRef.current)
       return;
     let valueToSave = editorRef.current.getValue();
@@ -71288,7 +76633,7 @@ ${publishInfo.hint}` : "";
                       children: mode === "remote" ? "\u25CF \u0437\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0441 \u0441\u0435\u0440\u0432\u0435\u0440\u0430\u2026" : "\u25CF \u0437\u0430\u0433\u0440\u0443\u0437\u043A\u0430\u2026"
                     }
                   ) : saveFeedback ? /* @__PURE__ */ jsx82("span", { className: "help-modal__badge help-modal__badge--ok", children: "\u2713 \u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D" }) : null,
-                  isDirty ? /* @__PURE__ */ jsxs79(Fragment25, { children: [
+                  isDirty ? /* @__PURE__ */ jsxs79(Fragment29, { children: [
                     /* @__PURE__ */ jsx82("span", { className: "help-modal__badge help-modal__badge--dirty", children: "\u25CF \u0438\u0437\u043C\u0435\u043D\u0451\u043D" }),
                     diffCount && /* @__PURE__ */ jsxs79("span", { className: "help-modal__badge", style: { fontFamily: "monospace", background: "var(--bg-750)" }, children: [
                       /* @__PURE__ */ jsxs79("span", { style: { color: "var(--success)" }, children: [
@@ -71880,7 +77225,7 @@ ${publishInfo.hint}` : "";
                     style: { width: leftCollapsed ? 0 : leftWidth },
                     children: [
                       loading && /* @__PURE__ */ jsx82("div", { className: "yaml-viewer-nav__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430..." }),
-                      lineMap && /* @__PURE__ */ jsxs79(Fragment25, { children: [
+                      lineMap && /* @__PURE__ */ jsxs79(Fragment29, { children: [
                         /* @__PURE__ */ jsxs79("div", { className: "yaml-viewer-nav__tabs", children: [
                           /* @__PURE__ */ jsxs79(
                             "button",
@@ -72004,7 +77349,7 @@ ${publishInfo.hint}` : "";
                                   onFocus: handleFocus,
                                   unusedAnalysis
                                 }
-                              ) : /* @__PURE__ */ jsxs79(Fragment25, { children: [
+                              ) : /* @__PURE__ */ jsxs79(Fragment29, { children: [
                                 lineMap && lineMap.sections.length === 0 && /* @__PURE__ */ jsxs79("div", { className: "yaml-viewer-nav__empty", children: [
                                   /* @__PURE__ */ jsx82(MIcon, { name: "warning", size: "sm" }),
                                   /* @__PURE__ */ jsxs79("span", { children: [
@@ -72145,8 +77490,8 @@ ${publishInfo.hint}` : "";
                       /* @__PURE__ */ jsx82("button", { onClick: gotoStart, title: "\u0412 \u043D\u0430\u0447\u0430\u043B\u043E \u0444\u0430\u0439\u043B\u0430 (Ctrl+Home)", children: /* @__PURE__ */ jsx82(MIcon, { name: "vertical_align_top", size: "sm" }) }),
                       /* @__PURE__ */ jsx82("button", { onClick: gotoEnd, title: "\u0412 \u043A\u043E\u043D\u0435\u0446 \u0444\u0430\u0439\u043B\u0430 (Ctrl+End)", children: /* @__PURE__ */ jsx82(MIcon, { name: "vertical_align_bottom", size: "sm" }) })
                     ] }),
-                    /* @__PURE__ */ jsx82("div", { className: "yaml-viewer-breadcrumbs", children: currentContext && currentContext.breadcrumbs.length > 0 ? /* @__PURE__ */ jsxs79(Fragment25, { children: [
-                      currentContext.breadcrumbs.map((item, idx) => /* @__PURE__ */ jsxs79(React49.Fragment, { children: [
+                    /* @__PURE__ */ jsx82("div", { className: "yaml-viewer-breadcrumbs", children: currentContext && currentContext.breadcrumbs.length > 0 ? /* @__PURE__ */ jsxs79(Fragment29, { children: [
+                      currentContext.breadcrumbs.map((item, idx) => /* @__PURE__ */ jsxs79(React50.Fragment, { children: [
                         idx > 0 && /* @__PURE__ */ jsx82("span", { className: "yaml-viewer-breadcrumbs__sep", children: "\u203A" }),
                         /* @__PURE__ */ jsx82(
                           "button",
@@ -72491,7 +77836,7 @@ ${publishInfo.hint}` : "";
                       targetLabel(backlinks.target),
                       " \u043D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u0441\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F"
                     ] }),
-                    backlinks.entity.length > 0 && /* @__PURE__ */ jsxs79(Fragment25, { children: [
+                    backlinks.entity.length > 0 && /* @__PURE__ */ jsxs79(Fragment29, { children: [
                       /* @__PURE__ */ jsx82("div", { className: "yaml-issues__header", style: { fontSize: 10 }, children: backlinks.target?.type === "attribute" ? `\u041D\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C ${backlinks.target.parentId} (${backlinks.entity.length})` : `\u041D\u0430 ${targetLabel(backlinks.target)} ${backlinks.target?.id} (${backlinks.entity.length})` }),
                       /* @__PURE__ */ jsx82("div", { className: "yaml-issues__list", children: backlinks.entity.map((bl, idx) => /* @__PURE__ */ jsxs79("button", { className: "yaml-backlink", onClick: () => jumpTo(bl.line), children: [
                         /* @__PURE__ */ jsx82(MIcon, { name: bl.icon, size: "sm" }),
@@ -72504,7 +77849,7 @@ ${publishInfo.hint}` : "";
                         ] })
                       ] }, `e-${idx}`)) })
                     ] }),
-                    backlinks.attribute.length > 0 && /* @__PURE__ */ jsxs79(Fragment25, { children: [
+                    backlinks.attribute.length > 0 && /* @__PURE__ */ jsxs79(Fragment29, { children: [
                       /* @__PURE__ */ jsxs79("div", { className: "yaml-issues__header", style: { fontSize: 10 }, children: [
                         "\u041D\u0430 \u0430\u0442\u0440\u0438\u0431\u0443\u0442 ",
                         backlinks.target?.id,
@@ -72561,7 +77906,7 @@ ${publishInfo.hint}` : "";
                         }
                       )
                     ] }),
-                    !serverValidating && serverValidation && !serverValidation.isValid && !serverValidation.error && (serverValidation.diagnostics?.length || 0) > 0 && /* @__PURE__ */ jsxs79(Fragment25, { children: [
+                    !serverValidating && serverValidation && !serverValidation.isValid && !serverValidation.error && (serverValidation.diagnostics?.length || 0) > 0 && /* @__PURE__ */ jsxs79(Fragment29, { children: [
                       /* @__PURE__ */ jsxs79("div", { className: "yaml-issues__header", children: [
                         "\u041E\u0448\u0438\u0431\u043A\u0438 \u0441\u0435\u0440\u0432\u0435\u0440\u0430 (",
                         serverValidation.diagnostics.length,
@@ -72686,7 +78031,7 @@ function ExternalRefsPanel({
   const totalRefs = groups.reduce((s, g) => s + g.refs.length, 0);
   const totalScenarios = scenarioRefs.length;
   return /* @__PURE__ */ jsxs79("div", { className: "yaml-issues", children: [
-    totalRefs > 0 && /* @__PURE__ */ jsxs79(Fragment25, { children: [
+    totalRefs > 0 && /* @__PURE__ */ jsxs79(Fragment29, { children: [
       /* @__PURE__ */ jsxs79("div", { className: "yaml-issues__header", children: [
         "\u0412\u043D\u0435\u0448\u043D\u0438\u0435 FQID-\u0441\u0441\u044B\u043B\u043A\u0438 (",
         totalRefs,
@@ -72721,7 +78066,7 @@ ${r.field}: ${r.raw}`,
         ))
       ] }, g.domain)) })
     ] }),
-    totalScenarios > 0 && /* @__PURE__ */ jsxs79(Fragment25, { children: [
+    totalScenarios > 0 && /* @__PURE__ */ jsxs79(Fragment29, { children: [
       /* @__PURE__ */ jsxs79(
         "div",
         {
@@ -73048,8 +78393,8 @@ function SectionNav({
   unusedAnalysis
 }) {
   const [open2, setOpen] = useState42(true);
-  const detailsRef = React49.useRef(null);
-  React49.useEffect(() => {
+  const detailsRef = React50.useRef(null);
+  React50.useEffect(() => {
     if (detailsRef.current && detailsRef.current.dataset.initialized !== "1") {
       detailsRef.current.open = true;
       detailsRef.current.dataset.initialized = "1";
@@ -73385,8 +78730,8 @@ function IssuesGroup({
   lineMap,
   onJump
 }) {
-  const detailsRef = React49.useRef(null);
-  React49.useEffect(() => {
+  const detailsRef = React50.useRef(null);
+  React50.useEffect(() => {
     if (detailsRef.current && detailsRef.current.dataset.initialized !== "1") {
       detailsRef.current.open = true;
       detailsRef.current.dataset.initialized = "1";
@@ -73457,7 +78802,7 @@ function CrossDomainBadge({
   onDomainClick
 }) {
   const [open2, setOpen] = useState42(false);
-  const closeTimer = useRef23(null);
+  const closeTimer = useRef25(null);
   const onEnter = () => {
     if (closeTimer.current)
       clearTimeout(closeTimer.current);
@@ -74314,7 +79659,7 @@ function NavContextMenu({
             ]
           }
         ),
-        focusTarget && !isThisFocused && /* @__PURE__ */ jsxs79(Fragment25, { children: [
+        focusTarget && !isThisFocused && /* @__PURE__ */ jsxs79(Fragment29, { children: [
           /* @__PURE__ */ jsx82("div", { className: "yaml-nav-ctx-menu__divider" }),
           /* @__PURE__ */ jsxs79(
             "button",
@@ -74548,7 +79893,7 @@ var init_scope = __esm({
 });
 
 // src/web/hooks/useGenerateSchema.ts
-import { useCallback as useCallback24, useEffect as useEffect49, useState as useState43 } from "react";
+import { useCallback as useCallback29, useEffect as useEffect49, useState as useState43 } from "react";
 function useGenerateSchema({
   domainId,
   entityId,
@@ -74598,7 +79943,7 @@ function useGenerateSchema({
       cancelled = true;
     };
   }, [enabled, domainId, entityId, profile, optionsKey, modelVersion, tick]);
-  const reload = useCallback24(() => setTick((v) => v + 1), []);
+  const reload = useCallback29(() => setTick((v) => v + 1), []);
   return { ...state, reload };
 }
 var init_useGenerateSchema = __esm({
@@ -74744,7 +80089,7 @@ var init_GenerateSchemaSkipReasons = __esm({
 
 // src/web/components/modals/TreeChainBuilder.tsx
 import { useMemo as useMemo50 } from "react";
-import { Fragment as Fragment26, jsx as jsx83, jsxs as jsxs80 } from "react/jsx-runtime";
+import { Fragment as Fragment30, jsx as jsx83, jsxs as jsxs80 } from "react/jsx-runtime";
 function caseFqid(raw, index, currentDomainId) {
   if (!raw)
     return raw;
@@ -74887,7 +80232,7 @@ function TreeChainBuilder(props) {
         }
       )
     ] }),
-    !useExisting && /* @__PURE__ */ jsxs80(Fragment26, { children: [
+    !useExisting && /* @__PURE__ */ jsxs80(Fragment30, { children: [
       steps.length > 0 && /* @__PURE__ */ jsx83("div", { className: "tree-chain__steps", children: steps.map((s) => {
         const selected = s.selected;
         return /* @__PURE__ */ jsxs80(
@@ -75117,7 +80462,7 @@ var init_block_resolver = __esm({
 });
 
 // src/web/components/modals/GenerateSchemaModal.tsx
-import { useCallback as useCallback25, useEffect as useEffect50, useLayoutEffect as useLayoutEffect6, useMemo as useMemo51, useRef as useRef24, useState as useState44 } from "react";
+import { useCallback as useCallback30, useEffect as useEffect50, useLayoutEffect as useLayoutEffect6, useMemo as useMemo51, useRef as useRef26, useState as useState44 } from "react";
 import { jsx as jsx84, jsxs as jsxs81 } from "react/jsx-runtime";
 function getSkipQuickFix(reason, handlers) {
   switch (reason) {
@@ -75345,7 +80690,7 @@ function GenerateSchemaModal() {
     const nodes = useGraphStore.getState().nodes;
     return nodes.find((n) => n.data.domainId === domainId)?.data.filePath ?? null;
   }, [domainId]);
-  const prefilledFor = useRef24(null);
+  const prefilledFor = useRef26(null);
   const filePath = useMemo51(() => {
     const nodes = useGraphStore.getState().nodes;
     return nodes.find((n) => n.data.domainId === domainId)?.data.filePath ?? null;
@@ -75450,7 +80795,7 @@ function GenerateSchemaModal() {
       scaffoldCreateMedias: false
     });
   }, [open2, domainId, entityId]);
-  const toggleForceReplace = useCallback25((blockId) => {
+  const toggleForceReplace = useCallback30((blockId) => {
     setForceReplaceIds((prev) => {
       const next = new Set(prev);
       if (next.has(blockId)) {
@@ -75637,7 +80982,7 @@ function GenerateSchemaModal() {
       setProfile("crud");
     }
   }, [profile, hasTreeCandidates, isDomainScope]);
-  const toggleBlock = useCallback25(
+  const toggleBlock = useCallback30(
     (blockId) => {
       if (!gen.result)
         return;
@@ -75688,7 +81033,7 @@ function GenerateSchemaModal() {
     }
     return missing;
   }, [selected, gen.result]);
-  const pullDependencies = useCallback25(() => {
+  const pullDependencies = useCallback30(() => {
     if (!gen.result)
       return;
     setSelected((prev) => {
@@ -75780,7 +81125,7 @@ function GenerateSchemaModal() {
     (s) => s.reason === "widget-view-ambiguous" || s.reason === "column-view-ambiguous"
   );
   const finalCanApply = canApply && !hasAmbiguousView;
-  const apply = useCallback25(async () => {
+  const apply = useCallback30(async () => {
     if (!gen.result || !domainId)
       return;
     if (!isDomainScope && !entityId)
@@ -77966,7 +83311,7 @@ var init_useGeneratedManifest = __esm({
 
 // src/web/components/modals/GeneratedManifestModal.tsx
 import { useMemo as useMemo52, useState as useState46 } from "react";
-import { Fragment as Fragment27, jsx as jsx85, jsxs as jsxs82 } from "react/jsx-runtime";
+import { Fragment as Fragment31, jsx as jsx85, jsxs as jsxs82 } from "react/jsx-runtime";
 function GeneratedManifestModal() {
   const open2 = useGraphStore((s) => s.sidecarOpen);
   const domainId = useGraphStore((s) => s.sidecarDomainId);
@@ -78211,7 +83556,7 @@ function GeneratedManifestModal() {
               ] })
             ] }),
             /* @__PURE__ */ jsxs82("div", { className: "validation-footer", children: [
-              /* @__PURE__ */ jsx85("div", { className: "validation-stats", children: data && data.stats.blocks > 0 && /* @__PURE__ */ jsxs82(Fragment27, { children: [
+              /* @__PURE__ */ jsx85("div", { className: "validation-stats", children: data && data.stats.blocks > 0 && /* @__PURE__ */ jsxs82(Fragment31, { children: [
                 /* @__PURE__ */ jsxs82("span", { className: "validation-stat", children: [
                   "\u{1F4E6} ",
                   data.stats.blocks,
@@ -84933,8 +90278,8 @@ var init_cheatsheet = __esm({
 });
 
 // src/web/components/modals/CheatsheetModal.tsx
-import { useCallback as useCallback26, useEffect as useEffect52, useMemo as useMemo53, useRef as useRef25, useState as useState47 } from "react";
-import { Fragment as Fragment28, jsx as jsx86, jsxs as jsxs83 } from "react/jsx-runtime";
+import { useCallback as useCallback31, useEffect as useEffect52, useMemo as useMemo53, useRef as useRef27, useState as useState47 } from "react";
+import { Fragment as Fragment32, jsx as jsx86, jsxs as jsxs83 } from "react/jsx-runtime";
 function slugify2(text) {
   return text.toLowerCase().replace(/[^\w\u0400-\u04FF\s-]/g, "").trim().replace(/\s+/g, "-").replace(/-+/g, "-");
 }
@@ -85020,7 +90365,7 @@ function CheatsheetModal() {
   const [query, setQuery] = useState47("");
   const [highlightQuery, setHighlightQuery] = useState47(null);
   const { parse, ready } = useMarked();
-  const contentRef = useRef25(null);
+  const contentRef = useRef27(null);
   useEffect52(() => {
     if (!open2)
       return;
@@ -85109,7 +90454,7 @@ function CheatsheetModal() {
       applyHighlight(el, highlightQuery);
     }
   }, [html, highlightQuery]);
-  const jumpToAnchor = useCallback26((id) => {
+  const jumpToAnchor = useCallback31((id) => {
     const el = contentRef.current?.querySelector(
       "#" + CSS.escape(id)
     );
@@ -85297,7 +90642,7 @@ function CheatsheetModal() {
                 ] }),
                 filtered.groups.length === 0 && filtered.recipes.length === 0 && /* @__PURE__ */ jsx86("div", { className: "cheatsheet-empty", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" })
               ] }),
-              /* @__PURE__ */ jsx86("div", { className: "cheatsheet-content", children: markdown && html ? /* @__PURE__ */ jsxs83(Fragment28, { children: [
+              /* @__PURE__ */ jsx86("div", { className: "cheatsheet-content", children: markdown && html ? /* @__PURE__ */ jsxs83(Fragment32, { children: [
                 headings.length >= 3 && /* @__PURE__ */ jsxs83("details", { className: "cheatsheet-toc", open: false, children: [
                   /* @__PURE__ */ jsxs83("summary", { className: "cheatsheet-toc__summary", children: [
                     /* @__PURE__ */ jsx86("span", { children: "\u0421\u043E\u0434\u0435\u0440\u0436\u0430\u043D\u0438\u0435" }),
@@ -85387,7 +90732,7 @@ var init_CheatsheetModal = __esm({
 });
 
 // src/web/hooks/useOutdatedDomains.ts
-import { useCallback as useCallback27, useEffect as useEffect53, useRef as useRef26, useState as useState48 } from "react";
+import { useCallback as useCallback32, useEffect as useEffect53, useRef as useRef28, useState as useState48 } from "react";
 function useOutdatedDomains(remoteInfo) {
   const [state, setState] = useState48({
     outdated: /* @__PURE__ */ new Map(),
@@ -85396,8 +90741,8 @@ function useOutdatedDomains(remoteInfo) {
     lastCheckedAt: null,
     available: !!remoteInfo?.server
   });
-  const inflightRef = useRef26(null);
-  const check = useCallback27(
+  const inflightRef = useRef28(null);
+  const check = useCallback32(
     async (force = false) => {
       if (!remoteInfo?.server)
         return;
@@ -85474,8 +90819,19 @@ var init_useOutdatedDomains = __esm({
 });
 
 // src/web/components/modals/HealthDashboardModal.tsx
-import React54, { useMemo as useMemo54, useState as useState49 } from "react";
-import { jsx as jsx87, jsxs as jsxs84 } from "react/jsx-runtime";
+import React55, { useCallback as useCallback33, useMemo as useMemo54, useState as useState49 } from "react";
+import { Fragment as Fragment33, jsx as jsx87, jsxs as jsxs84 } from "react/jsx-runtime";
+function computeGrade3(score) {
+  if (score >= 90)
+    return "A";
+  if (score >= 75)
+    return "B";
+  if (score >= 60)
+    return "C";
+  if (score >= 40)
+    return "D";
+  return "E";
+}
 function getSortValue(r, key) {
   switch (key) {
     case "name":
@@ -85486,10 +90842,16 @@ function getSortValue(r, key) {
       return r.attributeCount;
     case "linkages":
       return r.linkageCount;
+    case "views":
+      return r.viewsCount;
+    case "actions":
+      return r.actionsCount;
     case "dataTypes":
       return r.dataTypeCount;
     case "mixins":
       return r.mixinCount;
+    case "health":
+      return r.healthScore;
     case "lintScore":
       return r.lintScore;
     case "lintIssues":
@@ -85498,6 +90860,8 @@ function getSortValue(r, key) {
       return r.piiHitCount;
     case "piiCritical":
       return r.piiCriticalCount;
+    case "problems":
+      return r.problemCount;
     case "fileSize":
       return r.fileSize;
     case "updatedAt":
@@ -85516,6 +90880,39 @@ function formatBytes(bytes) {
   if (bytes < 1024 * 1024 * 1024)
     return (bytes / (1024 * 1024)).toFixed(1) + " MB";
   return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " GB";
+}
+function computeHealthScore(r) {
+  let score = 100;
+  score -= Math.min(r.lintErrorCount * 5, 30);
+  score -= Math.min(r.lintWarningCount * 1, 20);
+  score -= Math.min(r.piiCriticalCount * 3, 20);
+  score -= Math.min(r.cyclesCount * 15, 20);
+  score -= Math.min(r.brokenRefsCount * 5, 15);
+  if (r.martinZone === "pain")
+    score -= 10;
+  if (r.martinZone === "uselessness")
+    score -= 10;
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+function countProblems(r) {
+  let n = 0;
+  if (r.lintErrorCount > 0)
+    n++;
+  if (r.lintWarningCount > 0)
+    n++;
+  if (r.piiCriticalCount > 0)
+    n++;
+  if (r.cyclesCount > 0)
+    n++;
+  if (r.brokenRefsCount > 0)
+    n++;
+  if (r.martinZone === "pain")
+    n++;
+  if (r.orphanEntitiesCount > 0)
+    n++;
+  if (r.attributesWithoutViewsCount > 5)
+    n++;
+  return n;
 }
 function buildDomainHealthRows(index, nodes) {
   const entitiesByDomain = /* @__PURE__ */ new Map();
@@ -85556,6 +90953,7 @@ function buildDomainHealthRows(index, nodes) {
     );
   }
   const lintIssuesByDomain = /* @__PURE__ */ new Map();
+  const lintIssuesByEntity = /* @__PURE__ */ new Map();
   for (const issue of index.lint.lintReport.issues) {
     let entry = lintIssuesByDomain.get(issue.domainId);
     if (!entry) {
@@ -85567,18 +90965,62 @@ function buildDomainHealthRows(index, nodes) {
       entry.error++;
     else if (issue.severity === "warning")
       entry.warning++;
+    if (issue.entityFqid) {
+      lintIssuesByEntity.set(
+        issue.entityFqid,
+        (lintIssuesByEntity.get(issue.entityFqid) || 0) + 1
+      );
+    }
   }
   const piiByDomain = /* @__PURE__ */ new Map();
   for (const hit of index.pii.hits) {
-    const domainId = hit.entityFqid.split("/")[0];
+    const domainId = hit.entityFqid.split("/")[0].toLowerCase();
     let entry = piiByDomain.get(domainId);
     if (!entry) {
-      entry = { total: 0, critical: 0 };
+      entry = { total: 0, critical: 0, high: 0, medium: 0, low: 0 };
       piiByDomain.set(domainId, entry);
     }
     entry.total++;
-    if (hit.severity === "critical")
-      entry.critical++;
+    entry[hit.severity]++;
+  }
+  const martinByDomain = /* @__PURE__ */ new Map();
+  for (const m of index.martin.metrics) {
+    martinByDomain.set(m.domainId, {
+      zone: m.zone,
+      distance: m.distance,
+      instability: m.instability,
+      abstractness: m.abstractness,
+      ca: m.ca,
+      ce: m.ce
+    });
+  }
+  const cyclesByDomain = /* @__PURE__ */ new Map();
+  for (const fqid of index.stats.circularInheritance) {
+    const d = fqid.split("/")[0];
+    cyclesByDomain.set(d, (cyclesByDomain.get(d) || 0) + 1);
+  }
+  const brokenRefsByDomain = /* @__PURE__ */ new Map();
+  for (const ref of index.stats.unknownReferences) {
+    const d = ref.from.split("/")[0];
+    brokenRefsByDomain.set(d, (brokenRefsByDomain.get(d) || 0) + 1);
+  }
+  const orphansByDomain = /* @__PURE__ */ new Map();
+  for (const fqid of index.stats.orphanEntities) {
+    const d = fqid.split("/")[0];
+    orphansByDomain.set(d, (orphansByDomain.get(d) || 0) + 1);
+  }
+  const attrsNoViewsByDomain = /* @__PURE__ */ new Map();
+  for (const a of index.stats.attributesWithoutViews) {
+    const d = a.entityFqid.split("/")[0];
+    attrsNoViewsByDomain.set(d, (attrsNoViewsByDomain.get(d) || 0) + 1);
+  }
+  const mixinConflictsByDomain = /* @__PURE__ */ new Map();
+  for (const c of index.stats.mixinConflicts) {
+    const d = c.targetFqid.split("/")[0];
+    mixinConflictsByDomain.set(
+      d,
+      (mixinConflictsByDomain.get(d) || 0) + 1
+    );
   }
   const nodeByDomain = /* @__PURE__ */ new Map();
   for (const n of nodes) {
@@ -85595,8 +91037,28 @@ function buildDomainHealthRows(index, nodes) {
       error: 0,
       warning: 0
     };
-    const pii = piiByDomain.get(domainIdLower) || { total: 0, critical: 0 };
-    return {
+    const pii = piiByDomain.get(domainIdLower) || {
+      total: 0,
+      critical: 0,
+      high: 0,
+      medium: 0,
+      low: 0
+    };
+    const martin = martinByDomain.get(d.id) || null;
+    const schema2 = index.schemasByDomain[d.id];
+    const domainPrefix = d.id.toLowerCase() + "/";
+    const topProblemEntities = [];
+    lintIssuesByEntity.forEach((count, fqid) => {
+      if (!fqid.toLowerCase().startsWith(domainPrefix))
+        return;
+      topProblemEntities.push({
+        entityFqid: fqid,
+        entityId: fqid.split("/")[1] || fqid,
+        issueCount: count
+      });
+    });
+    topProblemEntities.sort((a, b) => b.issueCount - a.issueCount);
+    const draft = {
       domainId: d.id,
       name: d.name,
       version: d.version,
@@ -85607,6 +91069,9 @@ function buildDomainHealthRows(index, nodes) {
       linkageCount: linkagesByDomain.get(d.id) || 0,
       dataTypeCount: dataTypesByDomain.get(d.id) || 0,
       mixinCount: mixinsByTargetDomain.get(d.id) || 0,
+      viewsCount: schema2?.sections.views.count ?? 0,
+      actionsCount: schema2?.sections.actions.count ?? 0,
+      dataRulesCount: schema2?.sections.dataRules.count ?? 0,
       lintScore: sonar?.score ?? null,
       lintGrade: sonar?.grade ?? null,
       lintIssueCount: lint.total,
@@ -85614,12 +91079,43 @@ function buildDomainHealthRows(index, nodes) {
       lintWarningCount: lint.warning,
       piiHitCount: pii.total,
       piiCriticalCount: pii.critical,
+      cyclesCount: cyclesByDomain.get(d.id) || 0,
+      brokenRefsCount: brokenRefsByDomain.get(d.id) || 0,
+      orphanEntitiesCount: orphansByDomain.get(d.id) || 0,
+      attributesWithoutViewsCount: attrsNoViewsByDomain.get(d.id) || 0,
+      mixinConflictsCount: mixinConflictsByDomain.get(d.id) || 0,
+      martinZone: martin?.zone ?? null,
+      martinDistance: martin?.distance ?? null,
+      martinInstability: martin?.instability ?? null,
+      martinAbstractness: martin?.abstractness ?? null,
+      martinCa: martin?.ca ?? null,
+      martinCe: martin?.ce ?? null,
       fileSize: typeof node?.data?.fileSize === "number" ? node.data.fileSize : null,
       updatedAt: node?.data?.updatedAt || null,
       updatedAtSource: node?.data?.updatedAtSource || null,
       filePath: node?.data?.filePath || null,
       isOutdated: false,
-      outdatedInfo: null
+      outdatedInfo: null,
+      sonarBreakdown: (sonar?.breakdown || []).map((b) => ({
+        category: b.category,
+        label: b.label,
+        score: b.score,
+        issueCount: b.issueCount
+      })),
+      piiBySeverity: {
+        critical: pii.critical,
+        high: pii.high,
+        medium: pii.medium,
+        low: pii.low
+      },
+      topProblemEntities: topProblemEntities.slice(0, 5)
+    };
+    const healthScore = computeHealthScore(draft);
+    return {
+      ...draft,
+      healthScore,
+      healthGrade: computeGrade3(healthScore),
+      problemCount: countProblems(draft)
     };
   });
 }
@@ -85633,8 +91129,14 @@ function exportCSV2(rows) {
     "entities",
     "attributes",
     "linkages",
+    "views",
+    "actions",
     "dataTypes",
+    "dataRules",
     "mixins",
+    "healthScore",
+    "healthGrade",
+    "problemCount",
     "lintScore",
     "lintGrade",
     "lintIssues",
@@ -85642,6 +91144,12 @@ function exportCSV2(rows) {
     "lintWarnings",
     "pii",
     "piiCritical",
+    "cycles",
+    "brokenRefs",
+    "orphanEntities",
+    "attributesWithoutViews",
+    "martinZone",
+    "martinDistance",
     "fileSize",
     "updatedAt",
     "isOutdated"
@@ -85664,8 +91172,14 @@ function exportCSV2(rows) {
         r.entityCount,
         r.attributeCount,
         r.linkageCount,
+        r.viewsCount,
+        r.actionsCount,
         r.dataTypeCount,
+        r.dataRulesCount,
         r.mixinCount,
+        r.healthScore,
+        r.healthGrade,
+        r.problemCount,
         r.lintScore ?? "",
         r.lintGrade ?? "",
         r.lintIssueCount,
@@ -85673,6 +91187,12 @@ function exportCSV2(rows) {
         r.lintWarningCount,
         r.piiHitCount,
         r.piiCriticalCount,
+        r.cyclesCount,
+        r.brokenRefsCount,
+        r.orphanEntitiesCount,
+        r.attributesWithoutViewsCount,
+        r.martinZone ?? "",
+        r.martinDistance != null ? r.martinDistance.toFixed(2) : "",
         r.fileSize ?? "",
         cell(r.updatedAt),
         r.isOutdated ? "yes" : ""
@@ -85689,11 +91209,28 @@ function exportCSV2(rows) {
   a.click();
   URL.revokeObjectURL(url);
 }
+function KpiCard2({
+  label,
+  value,
+  sub,
+  severity,
+  icon,
+  title
+}) {
+  return /* @__PURE__ */ jsxs84("div", { className: "health-kpi-card health-kpi-card--" + severity, title, children: [
+    icon && /* @__PURE__ */ jsx87(MIcon, { name: icon, size: "sm" }),
+    /* @__PURE__ */ jsx87("div", { className: "health-kpi-card__value", children: value }),
+    /* @__PURE__ */ jsx87("div", { className: "health-kpi-card__label", children: label }),
+    sub && /* @__PURE__ */ jsx87("div", { className: "health-kpi-card__sub", children: sub })
+  ] });
+}
 function HealthDashboardModal() {
   const open2 = useGraphStore((s) => s.healthDashboardOpen);
   const nodes = useGraphStore((s) => s.nodes);
   const { index, loading, error } = useModelIndex();
   const remoteInfo = useMemo54(() => readRemoteInfo(), []);
+  const [showHelp, setShowHelp] = useState49(false);
+  useHelpEscape(open2, showHelp, setShowHelp);
   const {
     outdated,
     checking,
@@ -85702,16 +91239,20 @@ function HealthDashboardModal() {
     available,
     check
   } = useOutdatedDomains(remoteInfo);
-  const [sortBy, setSortBy] = useState49("name");
+  const [sortBy, setSortBy] = useState49("health");
   const [sortDir, setSortDir] = useState49("asc");
   const [onlyOutdated, setOnlyOutdated] = useState49(false);
   const [query, setQuery] = useState49("");
+  const [quickFilters, setQuickFilters] = useState49(
+    /* @__PURE__ */ new Set()
+  );
+  const [expanded, setExpanded] = useState49(/* @__PURE__ */ new Set());
   const handleSort = (key) => {
     if (sortBy === key) {
       setSortDir((d) => d === "asc" ? "desc" : "asc");
     } else {
       setSortBy(key);
-      setSortDir("asc");
+      setSortDir(key === "name" ? "asc" : "desc");
     }
   };
   const cacheAgeDays = useMemo54(() => {
@@ -85730,6 +91271,50 @@ function HealthDashboardModal() {
       return { ...r, isOutdated: !!info, outdatedInfo: info };
     });
   }, [index, nodes, outdated]);
+  const kpi = useMemo54(() => {
+    const total = rows.length;
+    const withProblems = rows.filter((r) => r.problemCount > 0).length;
+    const totalEntities = rows.reduce((s, r) => s + r.entityCount, 0);
+    const totalLintErrors = rows.reduce((s, r) => s + r.lintErrorCount, 0);
+    const totalPiiCritical = rows.reduce(
+      (s, r) => s + r.piiCriticalCount,
+      0
+    );
+    const painZone = rows.filter((r) => r.martinZone === "pain").length;
+    const withCycles = rows.filter((r) => r.cyclesCount > 0).length;
+    const avgHealth = total > 0 ? rows.reduce((s, r) => s + r.healthScore, 0) / total : 0;
+    return {
+      total,
+      withProblems,
+      totalEntities,
+      totalLintErrors,
+      totalPiiCritical,
+      painZone,
+      withCycles,
+      avgHealth: Math.round(avgHealth),
+      avgGrade: computeGrade3(avgHealth)
+    };
+  }, [rows]);
+  const toggleQuickFilter = useCallback33((id) => {
+    setQuickFilters((prev) => {
+      const next = new Set(prev);
+      if (next.has(id))
+        next.delete(id);
+      else
+        next.add(id);
+      return next;
+    });
+  }, []);
+  const toggleExpanded = useCallback33((domainId) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(domainId))
+        next.delete(domainId);
+      else
+        next.add(domainId);
+      return next;
+    });
+  }, []);
   const sortedRows = useMemo54(() => {
     let filtered = rows;
     if (onlyOutdated)
@@ -85739,6 +91324,12 @@ function HealthDashboardModal() {
       filtered = filtered.filter(
         (r) => r.domainId.toLowerCase().includes(q) || r.name.toLowerCase().includes(q) || r.author.toLowerCase().includes(q) || r.tags.some((t) => t.toLowerCase().includes(q))
       );
+    }
+    if (quickFilters.size > 0) {
+      const tests = Array.from(quickFilters).map(
+        (id) => QUICK_FILTERS3.find((f) => f.id === id).test
+      );
+      filtered = filtered.filter((r) => tests.every((t) => t(r)));
     }
     return filtered.slice().sort((a, b) => {
       const av = getSortValue(a, sortBy);
@@ -85755,33 +91346,13 @@ function HealthDashboardModal() {
         return sortDir === "asc" ? 1 : -1;
       return 0;
     });
-  }, [rows, sortBy, sortDir, onlyOutdated, query]);
-  const stats = useMemo54(() => {
-    const total = rows.length;
-    const withEntities = rows.filter((r) => r.entityCount > 0).length;
-    const totalEntities = rows.reduce((s, r) => s + r.entityCount, 0);
-    const totalIssues = rows.reduce((s, r) => s + r.lintIssueCount, 0);
-    const totalPii = rows.reduce((s, r) => s + r.piiHitCount, 0);
-    const criticalPii = rows.reduce((s, r) => s + r.piiCriticalCount, 0);
-    const badGrade = rows.filter(
-      (r) => r.lintGrade === "D" || r.lintGrade === "E"
-    ).length;
-    return {
-      total,
-      withEntities,
-      totalEntities,
-      totalIssues,
-      totalPii,
-      criticalPii,
-      badGrade
-    };
-  }, [rows]);
+  }, [rows, sortBy, sortDir, onlyOutdated, query, quickFilters]);
   const openSchema = (domainId) => {
     const st = useGraphStore.getState();
     st.setDomainSchemaDomainId(domainId);
     st.setDomainSchemaOpen(true);
   };
-  const openInLint = (domainId) => {
+  const openLint = () => {
     useGraphStore.getState().setLintOpen(true);
   };
   if (!open2)
@@ -85802,13 +91373,21 @@ function HealthDashboardModal() {
                 /* @__PURE__ */ jsx87(MIcon, { name: "dashboard", size: "sm" }),
                 /* @__PURE__ */ jsx87("span", { className: "icon-label", children: "Health Dashboard" }),
                 index && /* @__PURE__ */ jsxs84("span", { className: "help-modal__badge", children: [
-                  stats.total,
+                  kpi.total,
                   " \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \xB7 ",
-                  stats.totalEntities,
+                  kpi.totalEntities,
                   " \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439"
                 ] })
               ] }),
               /* @__PURE__ */ jsxs84("div", { className: "help-modal__actions", children: [
+                /* @__PURE__ */ jsx87(
+                  HelpButton,
+                  {
+                    open: showHelp,
+                    onToggle: () => setShowHelp(!showHelp),
+                    label: "\u041A\u0430\u043A \u0447\u0438\u0442\u0430\u0442\u044C?"
+                  }
+                ),
                 available && /* @__PURE__ */ jsxs84(
                   "button",
                   {
@@ -85863,7 +91442,9 @@ function HealthDashboardModal() {
                   /* @__PURE__ */ jsx87("strong", { children: outdated.size }),
                   " ",
                   outdated.size === 1 ? "\u0434\u043E\u043C\u0435\u043D" : "\u0434\u043E\u043C\u0435\u043D\u043E\u0432",
-                  " \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u043E \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435 \u2014 \u0437\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u0435 ",
+                  " ",
+                  "\u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u043E \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435 \u2014 \u0437\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u0435",
+                  " ",
                   /* @__PURE__ */ jsx87("code", { children: "--refresh" }),
                   ", \u0447\u0442\u043E\u0431\u044B \u043F\u043E\u043B\u0443\u0447\u0438\u0442\u044C \u0430\u043A\u0442\u0443\u0430\u043B\u044C\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435."
                 ] }),
@@ -85901,7 +91482,8 @@ function HealthDashboardModal() {
                   children: [
                     /* @__PURE__ */ jsx87(MIcon, { name: "schedule", size: "sm" }),
                     /* @__PURE__ */ jsxs84("span", { children: [
-                      "\u041A\u044D\u0448 \u043F\u043E\u043B\u0443\u0447\u0435\u043D ",
+                      "\u041A\u044D\u0448 \u043F\u043E\u043B\u0443\u0447\u0435\u043D",
+                      " ",
                       cacheAgeDays === 1 ? "\u0434\u0435\u043D\u044C" : `${cacheAgeDays} \u0434\u043D`,
                       " ",
                       "\u043D\u0430\u0437\u0430\u0434",
@@ -85911,6 +91493,382 @@ function HealthDashboardModal() {
                   ]
                 }
               ),
+              /* @__PURE__ */ jsxs84(ModalHelp, { visible: showHelp, children: [
+                /* @__PURE__ */ jsxs84(HelpSection, { title: "\u0427\u0442\u043E \u044D\u0442\u043E", children: [
+                  /* @__PURE__ */ jsx87(HelpText, { children: "\u0421\u0432\u043E\u0434\u043D\u0430\u044F \u0442\u0430\u0431\u043B\u0438\u0446\u0430 \u043F\u043E \u0432\u0441\u0435\u043C \u0434\u043E\u043C\u0435\u043D\u0430\u043C \u043C\u043E\u0434\u0435\u043B\u0438: \u0440\u0430\u0437\u043C\u0435\u0440, \u043A\u0430\u0447\u0435\u0441\u0442\u0432\u043E \u0441\u0445\u0435\u043C\u044B, PII-\u0440\u0438\u0441\u043A\u0438, \u0430\u0440\u0445\u0438\u0442\u0435\u043A\u0442\u0443\u0440\u043D\u044B\u0435 \u043C\u0435\u0442\u0440\u0438\u043A\u0438. \u041F\u043E\u043C\u043E\u0433\u0430\u0435\u0442 \u0431\u044B\u0441\u0442\u0440\u043E \u043D\u0430\u0439\u0442\u0438 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0435 \u0434\u043E\u043C\u0435\u043D\u044B \u0438 \u043F\u0440\u0438\u043E\u0440\u0438\u0442\u0438\u0437\u0438\u0440\u043E\u0432\u0430\u0442\u044C, \u0447\u0442\u043E \u0447\u0438\u043D\u0438\u0442\u044C \u043F\u0435\u0440\u0432\u044B\u043C." }),
+                  /* @__PURE__ */ jsxs84(HelpText, { children: [
+                    "\u041A\u0430\u0436\u0434\u0430\u044F \u043C\u0435\u0442\u0440\u0438\u043A\u0430 \u2014 ",
+                    /* @__PURE__ */ jsx87("strong", { children: "\u0441\u0438\u0433\u043D\u0430\u043B" }),
+                    ", \u0430 \u043D\u0435 \u043F\u0440\u0438\u0433\u043E\u0432\u043E\u0440. \u0420\u0430\u0437\u043D\u044B\u0435 \u043F\u0440\u043E\u0435\u043A\u0442\u044B \u0438\u043C\u0435\u044E\u0442 \u0440\u0430\u0437\u043D\u044B\u0439 baseline: \u0435\u0441\u043B\u0438 \u0443 \u0432\u0430\u0441 200 \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u0438 3 \u0432 \u0437\u043E\u043D\u0435 \u0431\u043E\u043B\u0438 \u2014 \u044D\u0442\u043E \u043D\u043E\u0440\u043C\u0430; \u0435\u0441\u043B\u0438 20 \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u0438 3 \u0432 \u0437\u043E\u043D\u0435 \u0431\u043E\u043B\u0438 \u2014 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0430 \u0441\u0438\u0441\u0442\u0435\u043C\u043D\u0430\u044F."
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxs84(HelpSection, { title: "Health score \u2014 \u043A\u0430\u043A \u0441\u0447\u0438\u0442\u0430\u0435\u0442\u0441\u044F", children: [
+                  /* @__PURE__ */ jsx87(HelpText, { children: "\u0418\u043D\u0442\u0435\u0433\u0440\u0430\u043B\u044C\u043D\u0430\u044F \u043E\u0446\u0435\u043D\u043A\u0430 \u0434\u043E\u043C\u0435\u043D\u0430 \u043E\u0442 0 \u0434\u043E 100. \u0424\u043E\u0440\u043C\u0443\u043B\u0430 \u043F\u0440\u043E\u0441\u0442\u0430\u044F \u0438 \u043E\u0431\u044A\u044F\u0441\u043D\u0438\u043C\u0430\u044F: \u0441\u0442\u0430\u0440\u0442\u0443\u0435\u043C \u0441 100 \u0438 \u0432\u044B\u0447\u0438\u0442\u0430\u0435\u043C \u0448\u0442\u0440\u0430\u0444\u044B \u0437\u0430 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B. \u041A\u0430\u0436\u0434\u044B\u0439 \u0448\u0442\u0440\u0430\u0444 \u0438\u043C\u0435\u0435\u0442 \u043F\u043E\u0442\u043E\u043B\u043E\u043A, \u0447\u0442\u043E\u0431\u044B \u043E\u0434\u043D\u0430 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0430 \u043D\u0435 \xAB\u0441\u044A\u0435\u0434\u0430\u043B\u0430\xBB \u0432\u0441\u044E \u043E\u0446\u0435\u043D\u043A\u0443." }),
+                  /* @__PURE__ */ jsxs84(HelpCard, { title: "\u0424\u043E\u0440\u043C\u0443\u043B\u0430", formula: "score = 100 \u2212 \u03A3 \u0448\u0442\u0440\u0430\u0444\u043E\u0432", wide: true, children: [
+                    /* @__PURE__ */ jsxs84(HelpList, { children: [
+                      /* @__PURE__ */ jsxs84("li", { children: [
+                        /* @__PURE__ */ jsx87("code", { children: "\u2212 min(lintErrors \xD7 5, 30)" }),
+                        " \u2014 \u043E\u0448\u0438\u0431\u043A\u0438 \u043B\u0438\u043D\u0442\u0435\u0440\u0430, \u0434\u043E \u221230"
+                      ] }),
+                      /* @__PURE__ */ jsxs84("li", { children: [
+                        /* @__PURE__ */ jsx87("code", { children: "\u2212 min(lintWarnings \xD7 1, 20)" }),
+                        " \u2014 \u043F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u044F, \u0434\u043E \u221220"
+                      ] }),
+                      /* @__PURE__ */ jsxs84("li", { children: [
+                        /* @__PURE__ */ jsx87("code", { children: "\u2212 min(piiCritical \xD7 3, 20)" }),
+                        " \u2014 PII \u0441\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438, \u0434\u043E \u221220"
+                      ] }),
+                      /* @__PURE__ */ jsxs84("li", { children: [
+                        /* @__PURE__ */ jsx87("code", { children: "\u2212 min(cycles \xD7 15, 20)" }),
+                        " \u2014 \u0446\u0438\u043A\u043B\u044B \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F, \u0434\u043E \u221220"
+                      ] }),
+                      /* @__PURE__ */ jsxs84("li", { children: [
+                        /* @__PURE__ */ jsx87("code", { children: "\u2212 min(brokenRefs \xD7 5, 15)" }),
+                        " \u2014 \u0431\u0438\u0442\u044B\u0435 FQID-\u0441\u0441\u044B\u043B\u043A\u0438, \u0434\u043E \u221215"
+                      ] }),
+                      /* @__PURE__ */ jsxs84("li", { children: [
+                        /* @__PURE__ */ jsx87("code", { children: "\u2212 10" }),
+                        " \u0435\u0441\u043B\u0438 \u0434\u043E\u043C\u0435\u043D \u0432 \u0437\u043E\u043D\u0435 \u0431\u043E\u043B\u0438 (",
+                        /* @__PURE__ */ jsx87("em", { children: "pain" }),
+                        "), ",
+                        /* @__PURE__ */ jsx87("code", { children: "\u2212 10" }),
+                        " \u0435\u0441\u043B\u0438 \u0432 \u0437\u043E\u043D\u0435 \u0431\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u043E\u0441\u0442\u0438 (",
+                        /* @__PURE__ */ jsx87("em", { children: "uselessness" }),
+                        ")"
+                      ] })
+                    ] }),
+                    /* @__PURE__ */ jsxs84(HelpText, { children: [
+                      "\u041E\u0446\u0435\u043D\u043A\u0430 \u043E\u043A\u0440\u0443\u0433\u043B\u044F\u0435\u0442\u0441\u044F \u0434\u043E \u0446\u0435\u043B\u043E\u0433\u043E \u0438 \u0437\u0430\u0436\u0438\u043C\u0430\u0435\u0442\u0441\u044F \u0432",
+                      " ",
+                      /* @__PURE__ */ jsx87("code", { children: "[0, 100]" }),
+                      ". \u041E\u0434\u0438\u043D \u0434\u043E\u043C\u0435\u043D \u0441 6 lint-\u043E\u0448\u0438\u0431\u043A\u0430\u043C\u0438 \u0438 \u0431\u0435\u0437 \u0446\u0438\u043A\u043B\u043E\u0432 \u043F\u043E\u043B\u0443\u0447\u0438\u0442 ",
+                      /* @__PURE__ */ jsx87("code", { children: "100 \u2212 30 = 70" }),
+                      ". \u0414\u043E\u043C\u0435\u043D \u0441 2 \u0446\u0438\u043A\u043B\u0430\u043C\u0438 \u0438 5 PII critical \u043F\u043E\u043B\u0443\u0447\u0438\u0442",
+                      " ",
+                      /* @__PURE__ */ jsx87("code", { children: "100 \u2212 20 \u2212 15 = 65" }),
+                      "."
+                    ] })
+                  ] }),
+                  /* @__PURE__ */ jsxs84(HelpText, { children: [
+                    /* @__PURE__ */ jsx87("strong", { children: "Sonar \u2260 Health." }),
+                    " Sonar \u2014 \u044D\u0442\u043E \u043E\u0446\u0435\u043D\u043A\u0430",
+                    " ",
+                    /* @__PURE__ */ jsx87("em", { children: "\u0442\u043E\u043B\u044C\u043A\u043E \u043F\u043E \u043B\u0438\u043D\u0442\u0435\u0440\u0443" }),
+                    ". Health \u0443\u0447\u0438\u0442\u044B\u0432\u0430\u0435\u0442 \u0435\u0449\u0451 PII, \u0446\u0438\u043A\u043B\u044B, \u0431\u0438\u0442\u044B\u0435 \u0441\u0441\u044B\u043B\u043A\u0438 \u0438 Martin. \u0414\u043E\u043C\u0435\u043D \u0441 \u0438\u0434\u0435\u0430\u043B\u044C\u043D\u044B\u043C Sonar \u043C\u043E\u0436\u0435\u0442 \u0438\u043C\u0435\u0442\u044C \u043D\u0438\u0437\u043A\u0438\u0439 Health \u0438\u0437-\u0437\u0430 PII \u0438\u043B\u0438 \u0446\u0438\u043A\u043B\u043E\u0432."
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsx87(HelpSection, { title: "\u0423\u0440\u043E\u0432\u043D\u0438 A\u2013E", children: /* @__PURE__ */ jsxs84(HelpZones, { children: [
+                  /* @__PURE__ */ jsx87(HelpZone, { color: "green", title: "A \u2014 90+", children: "\u041E\u0442\u043B\u0438\u0447\u043D\u043E. \u041D\u0438 \u043E\u0434\u043D\u043E\u0439 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B \u0438\u043B\u0438 \u0442\u043E\u043B\u044C\u043A\u043E \u043C\u0435\u043B\u043A\u0438\u0435 \u043F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u044F." }),
+                  /* @__PURE__ */ jsx87(HelpZone, { color: "green", title: "B \u2014 75\u201389", children: "\u0425\u043E\u0440\u043E\u0448\u043E. \u0415\u0434\u0438\u043D\u0438\u0447\u043D\u044B\u0435 \u043F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u044F, \u043A\u0440\u0438\u0442\u0438\u0447\u043D\u044B\u0445 \u043F\u0440\u043E\u0431\u043B\u0435\u043C \u043D\u0435\u0442." }),
+                  /* @__PURE__ */ jsx87(HelpZone, { color: "orange", title: "C \u2014 60\u201374", children: "\u0423\u0434\u043E\u0432\u043B\u0435\u0442\u0432\u043E\u0440\u0438\u0442\u0435\u043B\u044C\u043D\u043E. \u0422\u0440\u0435\u0431\u0443\u0435\u0442 \u0432\u043D\u0438\u043C\u0430\u043D\u0438\u044F: \u0435\u0441\u0442\u044C warnings \u0438\u043B\u0438 1\u20132 \u0441\u0435\u0440\u044C\u0451\u0437\u043D\u044B\u0445 \u043F\u0443\u043D\u043A\u0442\u0430." }),
+                  /* @__PURE__ */ jsx87(HelpZone, { color: "red", title: "D \u2014 40\u201359", children: "\u041F\u043B\u043E\u0445\u043E. \u041E\u0448\u0438\u0431\u043A\u0438 \u0438\u043B\u0438 \u043D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u043D\u044B\u0445 \u043F\u0440\u043E\u0431\u043B\u0435\u043C." }),
+                  /* @__PURE__ */ jsx87(HelpZone, { color: "red", title: "E \u2014 0\u201339", children: "\u041A\u0440\u0438\u0442\u0438\u0447\u043D\u043E. \u041C\u043D\u043E\u0433\u043E \u043E\u0448\u0438\u0431\u043E\u043A, PII critical, \u0446\u0438\u043A\u043B\u044B \u0438\u043B\u0438 \u043E\u0434\u043D\u043E\u0432\u0440\u0435\u043C\u0435\u043D\u043D\u043E \u043D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C." })
+                ] }) }),
+                /* @__PURE__ */ jsx87(HelpSection, { title: "\u041A\u0430\u0440\u0442\u043E\u0447\u043A\u0438 KPI \u0441\u0432\u0435\u0440\u0445\u0443", children: /* @__PURE__ */ jsxs84(HelpList, { children: [
+                  /* @__PURE__ */ jsxs84("li", { children: [
+                    /* @__PURE__ */ jsx87("strong", { children: "\u0414\u043E\u043C\u0435\u043D\u043E\u0432" }),
+                    " \u2014 \u0432\u0441\u0435\u0433\u043E \u0432 \u043C\u043E\u0434\u0435\u043B\u0438. \u041F\u043E\u0434\u043F\u0438\u0441\u044C \xABN \u0441 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0430\u043C\u0438\xBB \u2014 \u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0438\u043C\u0435\u044E\u0442 \u0445\u043E\u0442\u044C \u043E\u0434\u043D\u0443 \u0438\u0437 8 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0445 \u043C\u0435\u0442\u0440\u0438\u043A."
+                  ] }),
+                  /* @__PURE__ */ jsxs84("li", { children: [
+                    /* @__PURE__ */ jsx87("strong", { children: "\u0421\u0440\u0435\u0434\u043D\u0438\u0439 Health" }),
+                    " \u2014 \u0430\u0440\u0438\u0444\u043C\u0435\u0442\u0438\u0447\u0435\u0441\u043A\u043E\u0435 \u0441\u0440\u0435\u0434\u043D\u0435\u0435 healthScore \u043F\u043E \u0432\u0441\u0435\u043C \u0434\u043E\u043C\u0435\u043D\u0430\u043C. Grade \u2014 \u0442\u043E\u0442 \u0436\u0435, \u0447\u0442\u043E \u0443 \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430. \u041E\u0431\u0449\u0438\u0439 \xAB\u0437\u0434\u043E\u0440\u043E\u0432\u044B\u0439 \u043B\u0438 \u043F\u0440\u043E\u0435\u043A\u0442\xBB."
+                  ] }),
+                  /* @__PURE__ */ jsxs84("li", { children: [
+                    /* @__PURE__ */ jsx87("strong", { children: "Lint errors" }),
+                    " \u2014 \u0441\u0443\u043C\u043C\u0430 lint-\u043E\u0448\u0438\u0431\u043E\u043A \u043F\u043E \u0432\u0441\u0435\u043C \u0434\u043E\u043C\u0435\u043D\u0430\u043C. \u041D\u043E\u043B\u044C \u2014 \u0438\u0434\u0435\u0430\u043B; \u0431\u043E\u043B\u044C\u0448\u0435 20 \u2014 \u0447\u0442\u043E-\u0442\u043E \u0441\u0438\u0441\u0442\u0435\u043C\u043D\u043E \u043D\u0435 \u0442\u0430\u043A \u0432 \u043C\u043E\u0434\u0435\u043B\u0438 \u0438\u043B\u0438 \u043F\u0440\u0430\u0432\u0438\u043B\u0430\u0445."
+                  ] }),
+                  /* @__PURE__ */ jsxs84("li", { children: [
+                    /* @__PURE__ */ jsx87("strong", { children: "PII critical" }),
+                    " \u2014 \u0441\u0443\u043C\u043C\u0430 PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u0441\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0439 (GDPR Art. 9 / 152-\u0424\u0417 \u0441\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F). \u0420\u0435\u0433\u0443\u043B\u044F\u0442\u043E\u0440\u043D\u044B\u0439 \u0440\u0438\u0441\u043A, \u0434\u0430\u0436\u0435 \u0435\u0441\u043B\u0438 \u0441\u0445\u0435\u043C\u0430 \xAB\u0447\u0438\u0441\u0442\u0430\u044F\xBB."
+                  ] }),
+                  /* @__PURE__ */ jsxs84("li", { children: [
+                    /* @__PURE__ */ jsx87("strong", { children: "\u0412 \u0437\u043E\u043D\u0435 \u0431\u043E\u043B\u0438" }),
+                    " \u2014 \u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u041C\u0430\u0440\u0442\u0438\u043D \u043E\u0442\u043D\u043E\u0441\u0438\u0442 \u043A pain zone. \u041F\u043E\u0434\u043F\u0438\u0441\u044C \xABN \u0441 \u0446\u0438\u043A\u043B\u0430\u043C\u0438\xBB \u2014 \u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u0438\u043C\u0435\u044E\u0442 \u0446\u0438\u043A\u043B\u044B \u0432 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0438."
+                  ] })
+                ] }) }),
+                /* @__PURE__ */ jsx87(HelpSection, { title: "\u041A\u043E\u043B\u043E\u043D\u043A\u0438 \u0442\u0430\u0431\u043B\u0438\u0446\u044B", children: /* @__PURE__ */ jsxs84(HelpList, { children: [
+                  /* @__PURE__ */ jsxs84("li", { children: [
+                    /* @__PURE__ */ jsx87("strong", { children: "Domain" }),
+                    " \u2014 FQDN \u0434\u043E\u043C\u0435\u043D\u0430, \u0438\u043C\u044F, \u0432\u0435\u0440\u0441\u0438\u044F, \u0442\u0435\u0433\u0438. \u041A\u043B\u0438\u043A \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0445\u0435\u043C\u0443. \u0411\u0435\u0439\u0434\u0436 ",
+                    /* @__PURE__ */ jsx87("code", { children: "new" }),
+                    " \u2014 \u0434\u043E\u043C\u0435\u043D \u043E\u0431\u043D\u043E\u0432\u043B\u0451\u043D \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435, \u043A\u044D\u0448 \u0443\u0441\u0442\u0430\u0440\u0435\u043B (\u0441\u043C. \xAB\u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F\xBB)."
+                  ] }),
+                  /* @__PURE__ */ jsxs84("li", { children: [
+                    /* @__PURE__ */ jsx87("strong", { children: "Health" }),
+                    " \u2014 score + grade. \u041E\u0441\u043D\u043E\u0432\u043D\u043E\u0439 \u0441\u0442\u043E\u043B\u0431\u0435\u0446 \u0434\u043B\u044F \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0438 \xAB\u0447\u0442\u043E \u0447\u0438\u043D\u0438\u0442\u044C \u043F\u0435\u0440\u0432\u044B\u043C\xBB."
+                  ] }),
+                  /* @__PURE__ */ jsxs84("li", { children: [
+                    /* @__PURE__ */ jsx87("strong", { children: "Prob" }),
+                    " \u2014 \u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0438\u0437 8 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0445 \u043C\u0435\u0442\u0440\u0438\u043A \u043D\u0435\u043D\u0443\u043B\u0435\u0432\u044B\u0435: lint errors, lint warnings, PII critical, \u0446\u0438\u043A\u043B\u044B, \u0431\u0438\u0442\u044B\u0435 \u0441\u0441\u044B\u043B\u043A\u0438, \u0437\u043E\u043D\u0430 \u0431\u043E\u043B\u0438, \u0441\u0438\u0440\u043E\u0442\u044B, \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0431\u0435\u0437 views. 0 \u2014 \u0438\u0434\u0435\u0430\u043B\u044C\u043D\u043E, 3+ \u2014 \xAB\u0448\u0432\u0435\u0439\u0446\u0430\u0440\u0441\u043A\u0438\u0439 \u0441\u044B\u0440\xBB."
+                  ] }),
+                  /* @__PURE__ */ jsxs84("li", { children: [
+                    /* @__PURE__ */ jsx87("strong", { children: "Ent / Attr / Lnk / Vw / Act / Types / Mix" }),
+                    " \u2014 \u0440\u0430\u0437\u043C\u0435\u0440 \u0434\u043E\u043C\u0435\u043D\u0430. \u0421\u043B\u0438\u0448\u043A\u043E\u043C \u043C\u043D\u043E\u0433\u043E \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u043D\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C (30+) \u2014 \u0441\u0438\u0433\u043D\u0430\u043B \u043A \u0434\u0435\u043A\u043E\u043C\u043F\u043E\u0437\u0438\u0446\u0438\u0438; \u0441\u043B\u0438\u0448\u043A\u043E\u043C \u043C\u0430\u043B\u043E views \u043F\u0440\u0438 \u0431\u043E\u043B\u044C\u0448\u043E\u043C \u0447\u0438\u0441\u043B\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u2014 UI \u043D\u0435 \u0443\u0441\u043F\u0435\u0432\u0430\u0435\u0442 \u0437\u0430 \u043C\u043E\u0434\u0435\u043B\u044C\u044E."
+                  ] }),
+                  /* @__PURE__ */ jsxs84("li", { children: [
+                    /* @__PURE__ */ jsx87("strong", { children: "Lint" }),
+                    " \u2014 Sonar-\u043E\u0446\u0435\u043D\u043A\u0430 \u0438 grade (A\u2013E). \u041D\u0435 \u043F\u0443\u0442\u0430\u0442\u044C \u0441 \u043A\u043E\u043B\u043E\u043D\u043A\u043E\u0439 Health \u2014 \u0437\u0434\u0435\u0441\u044C \u0442\u043E\u043B\u044C\u043A\u043E \u043B\u0438\u043D\u0442\u0435\u0440."
+                  ] }),
+                  /* @__PURE__ */ jsxs84("li", { children: [
+                    /* @__PURE__ */ jsx87("strong", { children: "Iss" }),
+                    " \u2014 \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E lint-\u043F\u0440\u043E\u0431\u043B\u0435\u043C. \u041F\u043E\u0434\u043F\u0438\u0441\u044C",
+                    " ",
+                    /* @__PURE__ */ jsx87("code", { children: "\xB7 Ne" }),
+                    " \u2014 \u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0438\u0437 \u043D\u0438\u0445 errors. \u041A\u043B\u0438\u043A \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u043B\u0438\u043D\u0442\u0435\u0440."
+                  ] }),
+                  /* @__PURE__ */ jsxs84("li", { children: [
+                    /* @__PURE__ */ jsx87("strong", { children: "PII" }),
+                    " \u2014 ",
+                    /* @__PURE__ */ jsx87("code", { children: "critical / \u0432\u0441\u0435\u0433\u043E" }),
+                    ". \u041A\u043B\u0438\u043A \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u043F\u0438\u0441\u043E\u043A PII \u0441 \u0444\u0438\u043B\u044C\u0442\u0440\u043E\u043C \u043F\u043E \u044D\u0442\u043E\u043C\u0443 \u0434\u043E\u043C\u0435\u043D\u0443."
+                  ] }),
+                  /* @__PURE__ */ jsxs84("li", { children: [
+                    /* @__PURE__ */ jsx87("strong", { children: "Martin" }),
+                    " \u2014 \u0437\u043E\u043D\u0430 \u043F\u043E \u043C\u0435\u0442\u0440\u0438\u043A\u0430\u043C \u041C\u0430\u0440\u0442\u0438\u043D\u0430: \xAB\u0431\u043E\u043B\u044C\xBB / \xAB\u0431\u0435\u0441\u043F.\xBB (\u0431\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u044B\u0435 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u0438) / \xAB\u043D\u043E\u0440\u043C\u0430\xBB."
+                  ] }),
+                  /* @__PURE__ */ jsxs84("li", { children: [
+                    /* @__PURE__ */ jsx87("strong", { children: "Size / Updated" }),
+                    " \u2014 \u0440\u0430\u0437\u043C\u0435\u0440 \u0444\u0430\u0439\u043B\u0430 \u0438 \u0432\u0440\u0435\u043C\u044F \u043F\u043E\u0441\u043B\u0435\u0434\u043D\u0435\u0433\u043E \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F. \u041F\u043E\u0434\u043F\u0438\u0441\u044C ",
+                    /* @__PURE__ */ jsx87("code", { children: "fs" }),
+                    " \u2014 \u0432\u0440\u0435\u043C\u044F \u0432\u0437\u044F\u0442\u043E \u0441 \u0444\u0430\u0439\u043B\u043E\u0432\u043E\u0439 \u0441\u0438\u0441\u0442\u0435\u043C\u044B (\u0441\u0435\u0440\u0432\u0435\u0440 \u043D\u0435 \u0441\u043E\u043E\u0431\u0449\u0438\u043B updatedAt)."
+                  ] })
+                ] }) }),
+                /* @__PURE__ */ jsxs84(HelpSection, { title: "\u0420\u0430\u0441\u043A\u0440\u044B\u0442\u0438\u0435 \u0441\u0442\u0440\u043E\u043A\u0438 \u2014 \u0434\u0435\u0442\u0430\u043B\u044C\u043D\u0430\u044F \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0430", children: [
+                  /* @__PURE__ */ jsxs84(HelpText, { children: [
+                    "\u041A\u043B\u0438\u043A \u043F\u043E ",
+                    /* @__PURE__ */ jsx87("code", { children: "\u25B8" }),
+                    " \u0432 \u043F\u0435\u0440\u0432\u043E\u0439 \u043A\u043E\u043B\u043E\u043D\u043A\u0435 \u0440\u0430\u0441\u043A\u0440\u044B\u0432\u0430\u0435\u0442 \u0431\u043B\u043E\u043A \u043F\u043E\u0434 \u0441\u0442\u0440\u043E\u043A\u043E\u0439:"
+                  ] }),
+                  /* @__PURE__ */ jsxs84(HelpList, { children: [
+                    /* @__PURE__ */ jsxs84("li", { children: [
+                      /* @__PURE__ */ jsx87("strong", { children: "\u041A\u043D\u043E\u043F\u043A\u0438 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0439" }),
+                      " \u2014 \u0421\u0445\u0435\u043C\u0430 \u0434\u043E\u043C\u0435\u043D\u0430 / \u041E\u0442\u043A\u0440\u044B\u0442\u044C YAML / \u041B\u0438\u043D\u0442\u0435\u0440 / PII."
+                    ] }),
+                    /* @__PURE__ */ jsxs84("li", { children: [
+                      /* @__PURE__ */ jsx87("strong", { children: "Sonar breakdown" }),
+                      " \u2014 \u043F\u043E \u043A\u0430\u0436\u0434\u043E\u0439 \u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438 \u043B\u0438\u043D\u0442\u0435\u0440\u0430: \u0441\u043A\u043E\u043B\u044C\u043A\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C \u0438 \u043E\u0446\u0435\u043D\u043A\u0430 0\u2013100. \u041F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442, \u0433\u0434\u0435 \u0438\u043C\u0435\u043D\u043D\u043E \xAB\u0431\u043E\u043B\u0438\u0442\xBB (naming / required / reference / semantic / validation)."
+                    ] }),
+                    /* @__PURE__ */ jsxs84("li", { children: [
+                      /* @__PURE__ */ jsx87("strong", { children: "PII \u043F\u043E \u0441\u0435\u0440\u044C\u0451\u0437\u043D\u043E\u0441\u0442\u0438" }),
+                      " \u2014 \u0440\u0430\u0437\u0431\u0438\u0432\u043A\u0430 \u043D\u0430 4 \u0443\u0440\u043E\u0432\u043D\u044F: \u0441\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438 / \u0432\u044B\u0441\u043E\u043A\u0430\u044F / \u0441\u0440\u0435\u0434\u043D\u044F\u044F / \u043A\u043E\u0441\u0432\u0435\u043D\u043D\u0430\u044F. \u0414\u043B\u044F \u043E\u0446\u0435\u043D\u043A\u0438 \u0440\u0435\u0433\u0443\u043B\u044F\u0442\u043E\u0440\u043D\u043E\u0433\u043E \u0440\u0438\u0441\u043A\u0430."
+                    ] }),
+                    /* @__PURE__ */ jsxs84("li", { children: [
+                      /* @__PURE__ */ jsx87("strong", { children: "\u041C\u0435\u0442\u0440\u0438\u043A\u0438 \u041C\u0430\u0440\u0442\u0438\u043D\u0430" }),
+                      " \u2014 Ca (\u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u0437\u0430\u0432\u0438\u0441\u044F\u0442 \u043E\u0442 \u044D\u0442\u043E\u0433\u043E), Ce (\u043E\u0442 \u0441\u043A\u043E\u043B\u044C\u043A\u0438\u0445 \u0437\u0430\u0432\u0438\u0441\u0438\u0442), I (instability), A (abstractness), D (distance \u043E\u0442 \u0438\u0434\u0435\u0430\u043B\u044C\u043D\u043E\u0439 \u043B\u0438\u043D\u0438\u0438)."
+                    ] }),
+                    /* @__PURE__ */ jsxs84("li", { children: [
+                      /* @__PURE__ */ jsx87("strong", { children: "\u0421\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u043D\u044B\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B" }),
+                      " \u2014 \u0446\u0438\u043A\u043B\u044B, \u0431\u0438\u0442\u044B\u0435 \u0441\u0441\u044B\u043B\u043A\u0438, \u0441\u0438\u0440\u043E\u0442\u044B, \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0431\u0435\u0437 views, \u043A\u043E\u043D\u0444\u043B\u0438\u043A\u0442\u044B \u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432. \u0422\u043E, \u0447\u0442\u043E \u043D\u0435 \u0432\u0441\u0435\u0433\u0434\u0430 \u043B\u043E\u0432\u0438\u0442 \u043B\u0438\u043D\u0442\u0435\u0440."
+                    ] }),
+                    /* @__PURE__ */ jsxs84("li", { children: [
+                      /* @__PURE__ */ jsx87("strong", { children: "\u0422\u043E\u043F-5 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0445 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" }),
+                      " \u2014 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0435 entityId \u0441 \u0447\u0438\u0441\u043B\u043E\u043C \u043F\u0440\u043E\u0431\u043B\u0435\u043C. \u041A\u043B\u0438\u043A \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u043A\u0430\u0442\u0430\u043B\u043E\u0433 \u043D\u0430 \u044D\u0442\u043E\u0439 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438."
+                    ] })
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxs84(HelpSection, { title: "Quick filters", children: [
+                  /* @__PURE__ */ jsxs84(HelpText, { children: [
+                    "Chips \u043F\u043E\u0434 \u043F\u043E\u043B\u0435\u043C \u043F\u043E\u0438\u0441\u043A\u0430 \u0444\u0438\u043B\u044C\u0442\u0440\u0443\u044E\u0442 \u0442\u0430\u0431\u043B\u0438\u0446\u0443 \u043F\u043E \u0442\u0438\u043F\u0443 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B. \u0420\u0430\u0431\u043E\u0442\u0430\u044E\u0442 \u043F\u043E ",
+                    /* @__PURE__ */ jsx87("strong", { children: "AND" }),
+                    " \u2014 \u043C\u043E\u0436\u043D\u043E \u043D\u0430\u0436\u0430\u0442\u044C \u043D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u043E, \u0447\u0442\u043E\u0431\u044B \u043D\u0430\u0439\u0442\u0438 \xAB\u0432 \u0437\u043E\u043D\u0435 \u0431\u043E\u043B\u0438 \u0418 \u0441 PII critical\xBB. Chips \u0431\u0435\u0437 \u0441\u043E\u0432\u043F\u0430\u0434\u0435\u043D\u0438\u0439 \u0441\u043A\u0440\u044B\u0442\u044B, \u0447\u0442\u043E\u0431\u044B \u043D\u0435 \u0437\u0430\u0441\u043E\u0440\u044F\u0442\u044C \u0438\u043D\u0442\u0435\u0440\u0444\u0435\u0439\u0441."
+                  ] }),
+                  /* @__PURE__ */ jsxs84(HelpList, { children: [
+                    /* @__PURE__ */ jsxs84("li", { children: [
+                      /* @__PURE__ */ jsx87("strong", { children: "\u0421 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0430\u043C\u0438" }),
+                      " \u2014 Prob > 0."
+                    ] }),
+                    /* @__PURE__ */ jsxs84("li", { children: [
+                      /* @__PURE__ */ jsx87("strong", { children: "Lint errors" }),
+                      " \u2014 \u0435\u0441\u0442\u044C \u0445\u043E\u0442\u044C \u043E\u0434\u043D\u0430 lint-\u043E\u0448\u0438\u0431\u043A\u0430."
+                    ] }),
+                    /* @__PURE__ */ jsxs84("li", { children: [
+                      /* @__PURE__ */ jsx87("strong", { children: "PII critical" }),
+                      " \u2014 \u0435\u0441\u0442\u044C PII \u0441\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0439."
+                    ] }),
+                    /* @__PURE__ */ jsxs84("li", { children: [
+                      /* @__PURE__ */ jsx87("strong", { children: "\u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438" }),
+                      " \u2014 Martin zone = pain."
+                    ] }),
+                    /* @__PURE__ */ jsxs84("li", { children: [
+                      /* @__PURE__ */ jsx87("strong", { children: "\u0426\u0438\u043A\u043B\u044B / \u0411\u0438\u0442\u044B\u0435 \u0441\u0441\u044B\u043B\u043A\u0438" }),
+                      " \u2014 \u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u043D\u044B\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B."
+                    ] })
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxs84(HelpSection, { title: "\u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438 \u0438 \u0431\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u044B\u0435 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u0438", children: [
+                  /* @__PURE__ */ jsxs84(HelpText, { children: [
+                    "\u041C\u0435\u0442\u0440\u0438\u043A\u0438 \u041C\u0430\u0440\u0442\u0438\u043D\u0430 \u0438\u0437\u043C\u0435\u0440\u044F\u044E\u0442 ",
+                    /* @__PURE__ */ jsx87("strong", { children: "\u0441\u0432\u044F\u0437\u043D\u043E\u0441\u0442\u044C" }),
+                    " \u0438",
+                    " ",
+                    /* @__PURE__ */ jsx87("strong", { children: "\u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u044E" }),
+                    " \u0434\u043E\u043C\u0435\u043D\u0430. \u0418\u0434\u0435\u0430\u043B \u2014 \u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0435 \u0434\u043E\u043C\u0435\u043D\u044B \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u044B, \u043D\u0435\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0435 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B. \u041C\u0435\u0442\u0440\u0438\u043A\u0438 \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u044E\u0442, \u0433\u0434\u0435 \u044D\u0442\u043E\u0442 \u0431\u0430\u043B\u0430\u043D\u0441 \u043D\u0430\u0440\u0443\u0448\u0435\u043D."
+                  ] }),
+                  /* @__PURE__ */ jsxs84(HelpZones, { children: [
+                    /* @__PURE__ */ jsx87(HelpZone, { color: "green", title: "\u2705 \u0413\u043B\u0430\u0432\u043D\u0430\u044F \u043F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u044C", children: "D < 0.3. \u0411\u0430\u043B\u0430\u043D\u0441 \u0441\u043E\u0431\u043B\u044E\u0434\u0451\u043D \u2014 \u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u043E\u0435 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u043E, \u043D\u0435\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u043E\u0435 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u043E." }),
+                    /* @__PURE__ */ jsx87(HelpZone, { color: "red", title: "\u{1F534} \u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438", children: "A < 0.3 \u0438 I < 0.3. \u0421\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0439 \u0438 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0439: \u043E\u0442 \u043D\u0435\u0433\u043E \u0437\u0430\u0432\u0438\u0441\u044F\u0442 \u043C\u043D\u043E\u0433\u0438\u0435, \u043D\u043E \u0443 \u043D\u0435\u0433\u043E \u043D\u0435\u0442 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u0439, \u0447\u0442\u043E\u0431\u044B \u043C\u0435\u043D\u044F\u0442\u044C\u0441\u044F \u0431\u0435\u0437\u043E\u043F\u0430\u0441\u043D\u043E. \u041B\u044E\u0431\u0430\u044F \u043F\u0440\u0430\u0432\u043A\u0430 \u0431\u044C\u0451\u0442 \u043F\u043E \u043F\u043E\u0442\u0440\u0435\u0431\u0438\u0442\u0435\u043B\u044F\u043C." }),
+                    /* @__PURE__ */ jsx87(HelpZone, { color: "orange", title: "\u{1F7E0} \u0411\u0435\u0441\u043F\u043E\u043B\u0435\u0437\u043D\u044B\u0435 \u0430\u0431\u0441\u0442\u0440\u0430\u043A\u0446\u0438\u0438", children: "A > 0.7 \u0438 I > 0.7. \u0410\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u044B\u0439 \u0438 \u043D\u0435\u0441\u0442\u0430\u0431\u0438\u043B\u044C\u043D\u044B\u0439: \u043C\u043D\u043E\u0433\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439-\u0440\u043E\u0434\u0438\u0442\u0435\u043B\u0435\u0439, \u043D\u043E \u043D\u0438\u043A\u0442\u043E \u0438\u0445 \u043D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442. \u041C\u0451\u0440\u0442\u0432\u044B\u0439 \u043A\u043E\u0434 \u0438\u043B\u0438 \u043D\u0435\u0434\u043E\u0434\u0435\u043B\u0430\u043D\u043D\u044B\u0439 \u043C\u043E\u0434\u0443\u043B\u044C." })
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxs84(HelpSection, { title: "\u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F \u0438 \u0431\u0435\u0439\u0434\u0436 new", children: [
+                  /* @__PURE__ */ jsxs84(HelpText, { children: [
+                    "\u041A\u043D\u043E\u043F\u043A\u0430 ",
+                    /* @__PURE__ */ jsx87("strong", { children: "\xAB\u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F\xBB" }),
+                    " \u0438\u0434\u0451\u0442 \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440 \u0437\u0430 \u0430\u043A\u0442\u0443\u0430\u043B\u044C\u043D\u044B\u043C\u0438 \u043C\u0435\u0442\u0430\u0434\u0430\u043D\u043D\u044B\u043C\u0438 \u0434\u043E\u043C\u0435\u043D\u043E\u0432 (updatedAt, version) \u0438 \u0441\u0440\u0430\u0432\u043D\u0438\u0432\u0430\u0435\u0442 \u0441 \u0442\u0435\u043C, \u0447\u0442\u043E \u0432 \u043A\u044D\u0448\u0435. \u041D\u0435 \u0442\u044F\u043D\u0435\u0442 sourceCode \u2014 \u0431\u044B\u0441\u0442\u0440\u0430\u044F \u0434\u0430\u0436\u0435 \u043D\u0430 \u0441\u043E\u0442\u043D\u044F\u0445 \u0434\u043E\u043C\u0435\u043D\u043E\u0432."
+                  ] }),
+                  /* @__PURE__ */ jsxs84(HelpList, { children: [
+                    /* @__PURE__ */ jsxs84("li", { children: [
+                      "\u0414\u043E\u043C\u0435\u043D\u044B, \u0443 \u043A\u043E\u0442\u043E\u0440\u044B\u0445 \u0441\u0435\u0440\u0432\u0435\u0440\u043D\u044B\u0439 updatedAt \u043D\u043E\u0432\u0435\u0435 \u043A\u044D\u0448\u0430 \u0438\u043B\u0438 \u043E\u0442\u043B\u0438\u0447\u0430\u0435\u0442\u0441\u044F version, \u043F\u043E\u043B\u0443\u0447\u0430\u044E\u0442 \u0431\u0435\u0439\u0434\u0436 ",
+                      /* @__PURE__ */ jsx87("code", { children: "new" }),
+                      "."
+                    ] }),
+                    /* @__PURE__ */ jsxs84("li", { children: [
+                      "\u041A\u043D\u043E\u043F\u043A\u0430 ",
+                      /* @__PURE__ */ jsx87("strong", { children: "\xAB\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0442\u043E\u043B\u044C\u043A\u043E \u0438\u0445\xBB" }),
+                      " \u0432 \u0431\u0430\u043D\u043D\u0435\u0440\u0435 \u0444\u0438\u043B\u044C\u0442\u0440\u0443\u0435\u0442 \u0442\u0430\u0431\u043B\u0438\u0446\u0443 \u0434\u043E \u0443\u0441\u0442\u0430\u0440\u0435\u0432\u0448\u0438\u0445."
+                    ] }),
+                    /* @__PURE__ */ jsxs84("li", { children: [
+                      "\u0427\u0442\u043E\u0431\u044B \u043E\u0431\u043D\u043E\u0432\u0438\u0442\u044C \u0441\u0430\u043C\u0438 \u0441\u0445\u0435\u043C\u044B \u2014 \u0437\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u0435 ",
+                      /* @__PURE__ */ jsx87("code", { children: "--refresh" }),
+                      " ",
+                      "\u043D\u0430 CLI \u0438\u043B\u0438 \xAB\u041E\u0431\u043D\u043E\u0432\u0438\u0442\u044C \u043A\u0435\u0448\xBB \u0432 \u043F\u0440\u0430\u0432\u043E\u043C \u0432\u0435\u0440\u0445\u043D\u0435\u043C \u0443\u0433\u043B\u0443 \u0433\u043B\u0430\u0432\u043D\u043E\u0433\u043E \u043E\u043A\u043D\u0430."
+                    ] }),
+                    /* @__PURE__ */ jsx87("li", { children: "\u0414\u043E\u043C\u0435\u043D\u044B \u0431\u0435\u0437 \u0431\u0435\u0439\u0434\u0436\u0430 \u2014 \u0441\u043E\u0432\u043F\u0430\u0434\u0430\u044E\u0442 \u0441 \u0441\u0435\u0440\u0432\u0435\u0440\u043E\u043C, \u043D\u0438\u0447\u0435\u0433\u043E \u0434\u0435\u043B\u0430\u0442\u044C \u043D\u0435 \u043D\u0443\u0436\u043D\u043E." })
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxs84(HelpSection, { title: "\u0427\u0442\u043E \u0447\u0438\u043D\u0438\u0442\u044C \u043F\u0435\u0440\u0432\u044B\u043C \u2014 \u0430\u043B\u0433\u043E\u0440\u0438\u0442\u043C", children: [
+                  /* @__PURE__ */ jsx87(HelpText, { children: "\u0415\u0441\u043B\u0438 \u0432\u044B \u043E\u0442\u043A\u0440\u044B\u043B\u0438 dashboard \xAB\u0441 \u0447\u0438\u0441\u0442\u043E\u0433\u043E \u043B\u0438\u0441\u0442\u0430\xBB, \u0432\u043E\u0442 \u043F\u043E\u0440\u044F\u0434\u043E\u043A \u043F\u0440\u0438\u043E\u0440\u0438\u0442\u0438\u0437\u0430\u0446\u0438\u0438:" }),
+                  /* @__PURE__ */ jsxs84(HelpList, { children: [
+                    /* @__PURE__ */ jsxs84("li", { children: [
+                      /* @__PURE__ */ jsx87("strong", { children: "1. Lint errors \u0438 \u0426\u0438\u043A\u043B\u044B" }),
+                      " \u2014 \u0444\u0438\u043B\u044C\u0442\u0440\u044B \xABLint errors\xBB \u0438 \xAB\u0426\u0438\u043A\u043B\u044B\xBB. \u042D\u0442\u043E \u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u043D\u044B\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B: \u0446\u0438\u043A\u043B\u044B \u043B\u043E\u043C\u0430\u044E\u0442 \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u0435, \u043E\u0448\u0438\u0431\u043A\u0438 \u2014 \u043D\u0435 \u0434\u0430\u0434\u0443\u0442 \u043E\u043F\u0443\u0431\u043B\u0438\u043A\u043E\u0432\u0430\u0442\u044C \u0441\u0445\u0435\u043C\u0443."
+                    ] }),
+                    /* @__PURE__ */ jsxs84("li", { children: [
+                      /* @__PURE__ */ jsx87("strong", { children: "2. \u0411\u0438\u0442\u044B\u0435 \u0441\u0441\u044B\u043B\u043A\u0438" }),
+                      " \u2014 \u0444\u0438\u043B\u044C\u0442\u0440 \xAB\u0411\u0438\u0442\u044B\u0435 \u0441\u0441\u044B\u043B\u043A\u0438\xBB. \u0421\u0441\u044B\u043B\u043A\u0438 \u043D\u0430 \u043D\u0435\u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u2192 \u043B\u0438\u043D\u0442\u0435\u0440 \u0440\u0443\u0433\u0430\u0435\u0442\u0441\u044F, \u043D\u043E \u0441\u0445\u0435\u043C\u0430 \u043C\u043E\u0436\u0435\u0442 \u043E\u043F\u0443\u0431\u043B\u0438\u043A\u043E\u0432\u0430\u0442\u044C\u0441\u044F. \u0427\u0438\u043D\u0438\u0442\u044C \u0434\u043E \u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u0438."
+                    ] }),
+                    /* @__PURE__ */ jsxs84("li", { children: [
+                      /* @__PURE__ */ jsx87("strong", { children: "3. PII critical" }),
+                      " \u2014 \u0444\u0438\u043B\u044C\u0442\u0440 \xABPII critical\xBB. \u0420\u0435\u0433\u0443\u043B\u044F\u0442\u043E\u0440\u043D\u044B\u0439 \u0440\u0438\u0441\u043A: GDPR Art. 9 / 152-\u0424\u0417 \u0441\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F \u0442\u0440\u0435\u0431\u0443\u044E\u0442 \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u043E\u0433\u043E \u0441\u043E\u0433\u043B\u0430\u0441\u0438\u044F \u0438 \u0437\u0430\u0449\u0438\u0442\u044B."
+                    ] }),
+                    /* @__PURE__ */ jsxs84("li", { children: [
+                      /* @__PURE__ */ jsx87("strong", { children: "4. \u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438" }),
+                      " \u2014 \u0444\u0438\u043B\u044C\u0442\u0440 \xAB\u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438\xBB. \u0410\u0440\u0445\u0438\u0442\u0435\u043A\u0442\u0443\u0440\u043D\u044B\u0439 \u0434\u043E\u043B\u0433. \u041D\u0435 \u0441\u0440\u043E\u0447\u043D\u043E, \u043D\u043E \u0447\u0435\u043C \u0434\u043E\u043B\u044C\u0448\u0435 \u0442\u044F\u043D\u0435\u0442\u0435 \u2014 \u0442\u0435\u043C \u0434\u043E\u0440\u043E\u0436\u0435 \u043C\u0435\u043D\u044F\u0442\u044C."
+                    ] }),
+                    /* @__PURE__ */ jsxs84("li", { children: [
+                      /* @__PURE__ */ jsx87("strong", { children: "5. Warnings, \u0441\u0438\u0440\u043E\u0442\u044B, \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0431\u0435\u0437 views" }),
+                      " \u2014 \xABProb > 0\xBB. \u0413\u0438\u0433\u0438\u0435\u043D\u0430: \u043D\u0435 \u043A\u0440\u0438\u0442\u0438\u0447\u043D\u043E, \u043D\u043E \u0441\u043E \u0432\u0440\u0435\u043C\u0435\u043D\u0435\u043C \u043D\u0430\u043A\u0430\u043F\u043B\u0438\u0432\u0430\u0435\u0442\u0441\u044F \u0438 \u043C\u0435\u0448\u0430\u0435\u0442 \u0447\u0438\u0442\u0430\u0442\u044C \u0441\u0445\u0435\u043C\u0443."
+                    ] })
+                  ] }),
+                  /* @__PURE__ */ jsxs84(HelpText, { children: [
+                    "\u041F\u0440\u0430\u0432\u0438\u043B\u043E \u0431\u043E\u043B\u044C\u0448\u043E\u0433\u043E \u043F\u0430\u043B\u044C\u0446\u0430: ",
+                    /* @__PURE__ */ jsx87("strong", { children: "\u0441\u043D\u0430\u0447\u0430\u043B\u0430 \u0432\u0441\u0451, \u0447\u0442\u043E \u043A\u0440\u0430\u0441\u043D\u043E\u0435" }),
+                    " ",
+                    "(errors + PII critical), \u043F\u043E\u0442\u043E\u043C \u2014 \u0447\u0442\u043E \u0436\u0451\u043B\u0442\u043E\u0435 (warnings + \u0437\u043E\u043D\u0430 \u0431\u043E\u043B\u0438), \u043F\u043E\u0442\u043E\u043C \u2014 \u0433\u0438\u0433\u0438\u0435\u043D\u0430. \u0414\u043E\u043C\u0435\u043D\u044B \u0441 grade",
+                    " ",
+                    /* @__PURE__ */ jsx87("code", { children: "D" }),
+                    " \u0438 ",
+                    /* @__PURE__ */ jsx87("code", { children: "E" }),
+                    " \u2014 \u0432 \u043F\u0435\u0440\u0432\u0443\u044E \u043E\u0447\u0435\u0440\u0435\u0434\u044C."
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxs84(HelpSection, { title: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442 CSV", children: [
+                  /* @__PURE__ */ jsxs84(HelpText, { children: [
+                    "\u041A\u043D\u043E\u043F\u043A\u0430 ",
+                    /* @__PURE__ */ jsx87("strong", { children: "CSV" }),
+                    " \u0432 \u0448\u0430\u043F\u043A\u0435 \u0432\u044B\u0433\u0440\u0443\u0436\u0430\u0435\u0442 \u0442\u0430\u0431\u043B\u0438\u0446\u0443 \u0441 \u0442\u0435\u043A\u0443\u0449\u0435\u0439 \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u043E\u0439 \u0438 \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u043C\u0438. \u0424\u043E\u0440\u043C\u0430\u0442 \u2014 \u0434\u043B\u044F Excel / Google Sheets / BI."
+                  ] }),
+                  /* @__PURE__ */ jsxs84(HelpList, { children: [
+                    /* @__PURE__ */ jsxs84("li", { children: [
+                      "\u041A\u043E\u043B\u043E\u043D\u043A\u0438 \u043F\u043E\u0432\u0442\u043E\u0440\u044F\u044E\u0442 \u0442\u0430\u0431\u043B\u0438\u0446\u0443 + \u0440\u0430\u0441\u0448\u0438\u0440\u0435\u043D\u043D\u044B\u0435:",
+                      " ",
+                      /* @__PURE__ */ jsx87("code", { children: "dataRules" }),
+                      ", ",
+                      /* @__PURE__ */ jsx87("code", { children: "healthScore" }),
+                      ",",
+                      " ",
+                      /* @__PURE__ */ jsx87("code", { children: "healthGrade" }),
+                      ", ",
+                      /* @__PURE__ */ jsx87("code", { children: "problemCount" }),
+                      ",",
+                      " ",
+                      /* @__PURE__ */ jsx87("code", { children: "cycles" }),
+                      ", ",
+                      /* @__PURE__ */ jsx87("code", { children: "brokenRefs" }),
+                      ",",
+                      " ",
+                      /* @__PURE__ */ jsx87("code", { children: "orphanEntities" }),
+                      ",",
+                      " ",
+                      /* @__PURE__ */ jsx87("code", { children: "attributesWithoutViews" }),
+                      ",",
+                      " ",
+                      /* @__PURE__ */ jsx87("code", { children: "martinZone" }),
+                      ", ",
+                      /* @__PURE__ */ jsx87("code", { children: "martinDistance" }),
+                      "."
+                    ] }),
+                    /* @__PURE__ */ jsx87("li", { children: "\u0424\u0438\u043B\u044C\u0442\u0440\u044B \u0438 \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430 \u043F\u0440\u0438\u043C\u0435\u043D\u044F\u044E\u0442\u0441\u044F \u0434\u043E \u044D\u043A\u0441\u043F\u043E\u0440\u0442\u0430 \u2014 \u0447\u0442\u043E \u0432\u0438\u0434\u0438\u0442\u0435, \u0442\u043E \u0438 \u0441\u043A\u0430\u0447\u0430\u0435\u0442\u0435." }),
+                    /* @__PURE__ */ jsx87("li", { children: "\u041A\u043E\u0434\u0438\u0440\u043E\u0432\u043A\u0430 UTF-8 BOM \u2014 \u043E\u0442\u043A\u0440\u044B\u0432\u0430\u0435\u0442\u0441\u044F \u0432 Excel \u0431\u0435\u0437 \u043F\u043B\u044F\u0448\u0443\u0449\u0438\u0445 \u043A\u0440\u0430\u043A\u043E\u0437\u044F\u0431\u0440." })
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsx87(HelpSection, { title: "\u041E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u044F", children: /* @__PURE__ */ jsxs84(HelpList, { children: [
+                  /* @__PURE__ */ jsx87("li", { children: "Health score \u2014 \u044D\u0432\u0440\u0438\u0441\u0442\u0438\u043A\u0430. \u041E\u043D \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 \u043F\u0430\u0442\u0442\u0435\u0440\u043D\u044B, \u0430 \u043D\u0435 \u0438\u0441\u0442\u0438\u043D\u0443. \u0414\u043E\u043C\u0435\u043D \u0441 \u043D\u0438\u0437\u043A\u0438\u043C score \u043C\u043E\u0436\u0435\u0442 \u0431\u044B\u0442\u044C \u0432 \u043F\u043E\u0440\u044F\u0434\u043A\u0435, \u0435\u0441\u043B\u0438 \u044D\u0442\u043E, \u043D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, \xAB\u043C\u0443\u0441\u043E\u0440\u043D\u044B\u0439\xBB \u0434\u043E\u043C\u0435\u043D \u0438\u043B\u0438 \u044D\u043A\u0441\u043F\u0435\u0440\u0438\u043C\u0435\u043D\u0442\u0430\u043B\u044C\u043D\u044B\u0439." }),
+                  /* @__PURE__ */ jsx87("li", { children: "\u041C\u0435\u0442\u0440\u0438\u043A\u0438 \u041C\u0430\u0440\u0442\u0438\u043D\u0430 \u0441\u0447\u0438\u0442\u0430\u044E\u0442\u0441\u044F \u043F\u0440\u0438\u0431\u043B\u0438\u0436\u0451\u043D\u043D\u043E: \u0441\u043B\u043E\u0436\u043D\u043E\u0441\u0442\u044C \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F = \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0441 \u043D\u0430\u0441\u043B\u0435\u0434\u043D\u0438\u043A\u0430\u043C\u0438. \u041D\u0430\u0441\u0442\u043E\u044F\u0449\u0430\u044F abstractness \u0432 UML \u0441\u0447\u0438\u0442\u0430\u0435\u0442\u0441\u044F \u0438\u043D\u0430\u0447\u0435." }),
+                  /* @__PURE__ */ jsx87("li", { children: "PII \u2014 \u044D\u0432\u0440\u0438\u0441\u0442\u0438\u0447\u0435\u0441\u043A\u0438\u0439 \u0434\u0435\u0442\u0435\u043A\u0442\u043E\u0440 \u043F\u043E \u0438\u043C\u0435\u043D\u0430\u043C \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432. \u041D\u0435 \u044F\u0432\u043B\u044F\u0435\u0442\u0441\u044F \u044E\u0440\u0438\u0434\u0438\u0447\u0435\u0441\u043A\u0438\u043C \u0437\u0430\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435\u043C. \u0422\u0440\u0435\u0431\u0443\u0435\u0442 \u0432\u0430\u043B\u0438\u0434\u0430\u0446\u0438\u0438 DPO." }),
+                  /* @__PURE__ */ jsx87("li", { children: "\xAB\u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F\xBB \u0441\u0440\u0430\u0432\u043D\u0438\u0432\u0430\u0435\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u043C\u0435\u0442\u0430\u0434\u0430\u043D\u043D\u044B\u0435 (updatedAt, version). \u0415\u0441\u043B\u0438 \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435 \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u0438 sourceCode \u0431\u0435\u0437 \u043F\u043E\u0432\u044B\u0448\u0435\u043D\u0438\u044F version \u2014 \u0434\u0435\u0442\u0435\u043A\u0442 \u043D\u0435 \u0441\u0440\u0430\u0431\u043E\u0442\u0430\u0435\u0442." })
+                ] }) })
+              ] }),
+              /* @__PURE__ */ jsxs84("div", { className: "health-kpi", children: [
+                /* @__PURE__ */ jsx87(
+                  KpiCard2,
+                  {
+                    icon: "folder",
+                    label: "\u0414\u043E\u043C\u0435\u043D\u043E\u0432",
+                    value: kpi.total,
+                    sub: kpi.withProblems > 0 ? `${kpi.withProblems} \u0441 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0430\u043C\u0438` : "\u0432\u0441\u0435 \u0432 \u043D\u043E\u0440\u043C\u0435",
+                    severity: kpi.withProblems > 0 ? "warn" : "ok"
+                  }
+                ),
+                /* @__PURE__ */ jsx87(
+                  KpiCard2,
+                  {
+                    icon: "monitor_heart",
+                    label: "\u0421\u0440\u0435\u0434\u043D\u0438\u0439 Health",
+                    value: `${kpi.avgHealth} / ${kpi.avgGrade}`,
+                    severity: kpi.avgGrade === "A" || kpi.avgGrade === "B" ? "ok" : kpi.avgGrade === "E" ? "err" : "warn",
+                    title: "\u0421\u0440\u0435\u0434\u043D\u0435\u0435 \u0430\u0440\u0438\u0444\u043C\u0435\u0442\u0438\u0447\u0435\u0441\u043A\u043E\u0435 Health score \u043F\u043E \u0432\u0441\u0435\u043C \u0434\u043E\u043C\u0435\u043D\u0430\u043C.\n\u0424\u043E\u0440\u043C\u0443\u043B\u0430 Health: 100 \u2212 min(lintErrors\xD75, 30) \u2212 min(lintWarnings\xD71, 20) \u2212 min(piiCritical\xD73, 20) \u2212 min(cycles\xD715, 20) \u2212 min(brokenRefs\xD75, 15)\n\n\u041F\u043E\u0434\u0440\u043E\u0431\u043D\u0435\u0435 \u2014 \u0432 \u0441\u043F\u0440\u0430\u0432\u043A\u0435 \xAB\u041A\u0430\u043A \u0447\u0438\u0442\u0430\u0442\u044C?\xBB."
+                  }
+                ),
+                /* @__PURE__ */ jsx87(
+                  KpiCard2,
+                  {
+                    icon: "error",
+                    label: "Lint errors",
+                    value: kpi.totalLintErrors,
+                    severity: kpi.totalLintErrors > 0 ? "err" : "ok"
+                  }
+                ),
+                /* @__PURE__ */ jsx87(
+                  KpiCard2,
+                  {
+                    icon: "shield_lock",
+                    label: "PII critical",
+                    value: kpi.totalPiiCritical,
+                    severity: kpi.totalPiiCritical > 0 ? "err" : "ok"
+                  }
+                ),
+                /* @__PURE__ */ jsx87(
+                  KpiCard2,
+                  {
+                    icon: "favorite",
+                    label: "\u0412 \u0437\u043E\u043D\u0435 \u0431\u043E\u043B\u0438",
+                    value: kpi.painZone,
+                    sub: kpi.withCycles > 0 ? `${kpi.withCycles} \u0441 \u0446\u0438\u043A\u043B\u0430\u043C\u0438` : void 0,
+                    severity: kpi.painZone > 0 ? "warn" : "ok"
+                  }
+                )
+              ] }),
               /* @__PURE__ */ jsxs84("div", { className: "health-toolbar", children: [
                 /* @__PURE__ */ jsxs84("div", { className: "health-toolbar__search", children: [
                   /* @__PURE__ */ jsx87(MIcon, { name: "search", size: "sm" }),
@@ -85933,70 +91891,39 @@ function HealthDashboardModal() {
                     }
                   )
                 ] }),
-                available && /* @__PURE__ */ jsxs84(
-                  "label",
-                  {
-                    className: "health-toolbar__toggle" + (onlyOutdated ? " active" : ""),
-                    children: [
-                      /* @__PURE__ */ jsx87(
-                        "input",
-                        {
-                          type: "checkbox",
-                          checked: onlyOutdated,
-                          onChange: () => setOnlyOutdated(!onlyOutdated)
-                        }
-                      ),
-                      /* @__PURE__ */ jsx87(MIcon, { name: "update", size: "sm" }),
-                      "\u0422\u043E\u043B\u044C\u043A\u043E \u0443\u0441\u0442\u0430\u0440\u0435\u0432\u0448\u0438\u0435",
-                      outdated.size > 0 && /* @__PURE__ */ jsx87("span", { className: "health-toolbar__badge", children: outdated.size })
-                    ]
-                  }
-                ),
-                /* @__PURE__ */ jsxs84("div", { className: "health-toolbar__stats", children: [
-                  /* @__PURE__ */ jsxs84("span", { children: [
-                    "\u041F\u043E\u043A\u0430\u0437\u0430\u043D\u043E ",
-                    /* @__PURE__ */ jsx87("strong", { children: sortedRows.length }),
-                    " /",
-                    " ",
-                    stats.total
-                  ] }),
-                  stats.totalIssues > 0 && /* @__PURE__ */ jsxs84("span", { className: "health-toolbar__stat", children: [
-                    /* @__PURE__ */ jsx87(MIcon, { name: "warning", size: "sm" }),
-                    stats.totalIssues,
-                    " lint"
-                  ] }),
-                  stats.criticalPii > 0 && /* @__PURE__ */ jsxs84(
+                /* @__PURE__ */ jsx87("div", { className: "health-quick-filters", children: QUICK_FILTERS3.map((f) => {
+                  const active = quickFilters.has(f.id);
+                  const count = rows.filter(f.test).length;
+                  if (!active && count === 0)
+                    return null;
+                  return /* @__PURE__ */ jsxs84(
                     "button",
                     {
                       type: "button",
-                      className: "health-toolbar__stat health-toolbar__stat--err health-toolbar__stat--clickable",
-                      onClick: () => {
-                        const st = useGraphStore.getState();
-                        st.setPiiInitialSeverity("critical");
-                        st.setPiiInitialDomain(null);
-                        st.setPiiOpen(true);
-                      },
-                      title: `\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0432\u0441\u0435 ${stats.criticalPii} \u043A\u0440\u0438\u0442\u0438\u0447\u043D\u044B\u0445 PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u0432\u043E \u0432\u0441\u0435\u0445 \u0434\u043E\u043C\u0435\u043D\u0430\u0445 \u2014 \u0441 \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u043E\u043C \u043A \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u043C`,
+                      className: "health-quick-filter" + (active ? " health-quick-filter--active" : ""),
+                      onClick: () => toggleQuickFilter(f.id),
+                      title: `\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0442\u043E\u043B\u044C\u043A\u043E \u0434\u043E\u043C\u0435\u043D\u044B: ${f.label.toLowerCase()}`,
                       children: [
-                        /* @__PURE__ */ jsx87(MIcon, { name: "shield_lock", size: "sm" }),
-                        stats.criticalPii,
-                        " PII critical",
-                        /* @__PURE__ */ jsx87(
-                          MIcon,
-                          {
-                            name: "arrow_forward",
-                            size: "sm",
-                            className: "health-toolbar__stat-arrow"
-                          }
-                        )
+                        /* @__PURE__ */ jsx87(MIcon, { name: f.icon, size: "sm" }),
+                        f.label,
+                        /* @__PURE__ */ jsx87("span", { className: "health-quick-filter__count", children: count })
                       ]
-                    }
-                  )
-                ] })
+                    },
+                    f.id
+                  );
+                }) }),
+                /* @__PURE__ */ jsx87("div", { className: "health-toolbar__stats", children: /* @__PURE__ */ jsxs84("span", { children: [
+                  "\u041F\u043E\u043A\u0430\u0437\u0430\u043D\u043E ",
+                  /* @__PURE__ */ jsx87("strong", { children: sortedRows.length }),
+                  " /",
+                  " ",
+                  kpi.total
+                ] }) })
               ] }),
               /* @__PURE__ */ jsxs84("div", { className: "health-table-wrap", children: [
                 /* @__PURE__ */ jsxs84("table", { className: "health-table", children: [
                   /* @__PURE__ */ jsx87("thead", { children: /* @__PURE__ */ jsxs84("tr", { children: [
+                    /* @__PURE__ */ jsx87("th", { className: "health-table__expand-col" }),
                     /* @__PURE__ */ jsxs84(
                       "th",
                       {
@@ -86011,11 +91938,34 @@ function HealthDashboardModal() {
                     /* @__PURE__ */ jsxs84(
                       "th",
                       {
+                        onClick: () => handleSort("health"),
+                        className: "health-table__num" + (sortBy === "health" ? " active" : ""),
+                        title: "\u0418\u043D\u0442\u0435\u0433\u0440\u0430\u043B\u044C\u043D\u0430\u044F \u043E\u0446\u0435\u043D\u043A\u0430 \u0434\u043E\u043C\u0435\u043D\u0430",
+                        children: [
+                          "Health",
+                          sortBy === "health" && /* @__PURE__ */ jsx87("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
+                        ]
+                      }
+                    ),
+                    /* @__PURE__ */ jsxs84(
+                      "th",
+                      {
+                        onClick: () => handleSort("problems"),
+                        className: "health-table__num" + (sortBy === "problems" ? " active" : ""),
+                        title: "\u041A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0445 \u043C\u0435\u0442\u0440\u0438\u043A (0\u20138):\n\xB7 lint errors\n\xB7 lint warnings\n\xB7 PII critical\n\xB7 \u0446\u0438\u043A\u043B\u044B \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F\n\xB7 \u0431\u0438\u0442\u044B\u0435 FQID-\u0441\u0441\u044B\u043B\u043A\u0438\n\xB7 \u0437\u043E\u043D\u0430 \u0431\u043E\u043B\u0438 (Martin)\n\xB7 \u0441\u0438\u0440\u043E\u0442\u044B\n\xB7 >5 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u0431\u0435\u0437 views\n\n0 \u2014 \u0438\u0434\u0435\u0430\u043B\u044C\u043D\u043E, 8 \u2014 \u0432\u0441\u0451 \u043F\u043B\u043E\u0445\u043E",
+                        children: [
+                          "Prob",
+                          sortBy === "problems" && /* @__PURE__ */ jsx87("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
+                        ]
+                      }
+                    ),
+                    /* @__PURE__ */ jsxs84(
+                      "th",
+                      {
                         onClick: () => handleSort("entities"),
                         className: "health-table__num" + (sortBy === "entities" ? " active" : ""),
-                        title: "\u041A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439",
                         children: [
-                          "Entities",
+                          "Ent",
                           sortBy === "entities" && /* @__PURE__ */ jsx87("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
                         ]
                       }
@@ -86025,9 +91975,8 @@ function HealthDashboardModal() {
                       {
                         onClick: () => handleSort("attributes"),
                         className: "health-table__num" + (sortBy === "attributes" ? " active" : ""),
-                        title: "\u0421\u0443\u043C\u043C\u0430\u0440\u043D\u043E\u0435 \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432",
                         children: [
-                          "Attrs",
+                          "Attr",
                           sortBy === "attributes" && /* @__PURE__ */ jsx87("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
                         ]
                       }
@@ -86038,8 +91987,32 @@ function HealthDashboardModal() {
                         onClick: () => handleSort("linkages"),
                         className: "health-table__num" + (sortBy === "linkages" ? " active" : ""),
                         children: [
-                          "Links",
+                          "Lnk",
                           sortBy === "linkages" && /* @__PURE__ */ jsx87("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
+                        ]
+                      }
+                    ),
+                    /* @__PURE__ */ jsxs84(
+                      "th",
+                      {
+                        onClick: () => handleSort("views"),
+                        className: "health-table__num" + (sortBy === "views" ? " active" : ""),
+                        title: "\u041A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E views",
+                        children: [
+                          "Vw",
+                          sortBy === "views" && /* @__PURE__ */ jsx87("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
+                        ]
+                      }
+                    ),
+                    /* @__PURE__ */ jsxs84(
+                      "th",
+                      {
+                        onClick: () => handleSort("actions"),
+                        className: "health-table__num" + (sortBy === "actions" ? " active" : ""),
+                        title: "\u041A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E actions",
+                        children: [
+                          "Act",
+                          sortBy === "actions" && /* @__PURE__ */ jsx87("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
                         ]
                       }
                     ),
@@ -86061,7 +92034,7 @@ function HealthDashboardModal() {
                         className: "health-table__num" + (sortBy === "mixins" ? " active" : ""),
                         title: "\u041C\u0438\u043A\u0441\u0438\u043D\u044B, \u0440\u0430\u0441\u0448\u0438\u0440\u044F\u044E\u0449\u0438\u0435 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 \u044D\u0442\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430",
                         children: [
-                          "Mixins",
+                          "Mix",
                           sortBy === "mixins" && /* @__PURE__ */ jsx87("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
                         ]
                       }
@@ -86085,7 +92058,7 @@ function HealthDashboardModal() {
                         className: "health-table__num" + (sortBy === "lintIssues" ? " active" : ""),
                         title: "\u041A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E lint-\u043F\u0440\u043E\u0431\u043B\u0435\u043C",
                         children: [
-                          "Issues",
+                          "Iss",
                           sortBy === "lintIssues" && /* @__PURE__ */ jsx87("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
                         ]
                       }
@@ -86095,11 +92068,19 @@ function HealthDashboardModal() {
                       {
                         onClick: () => handleSort("piiCritical"),
                         className: "health-table__num" + (sortBy === "piiCritical" ? " active" : ""),
-                        title: "PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B: critical / \u0432\u0441\u0435\u0433\u043E",
+                        title: "PII: critical / \u0432\u0441\u0435\u0433\u043E",
                         children: [
                           "PII",
                           sortBy === "piiCritical" && /* @__PURE__ */ jsx87("span", { className: "health-sort", children: sortDir === "asc" ? "\u2191" : "\u2193" })
                         ]
+                      }
+                    ),
+                    /* @__PURE__ */ jsx87(
+                      "th",
+                      {
+                        className: "health-table__num",
+                        title: "Martin zone",
+                        children: "Martin"
                       }
                     ),
                     /* @__PURE__ */ jsxs84(
@@ -86126,9 +92107,19 @@ function HealthDashboardModal() {
                     ),
                     /* @__PURE__ */ jsx87("th", { className: "health-table__actions-col" })
                   ] }) }),
-                  /* @__PURE__ */ jsx87("tbody", { children: sortedRows.map((r) => /* @__PURE__ */ jsx87(HealthRow, { row: r, onOpenSchema: openSchema, onOpenLint: openInLint }, r.domainId)) })
+                  /* @__PURE__ */ jsx87("tbody", { children: sortedRows.map((r) => /* @__PURE__ */ jsx87(
+                    HealthRow,
+                    {
+                      row: r,
+                      isExpanded: expanded.has(r.domainId),
+                      onToggle: toggleExpanded,
+                      onOpenSchema: openSchema,
+                      onOpenLint: openLint
+                    },
+                    r.domainId
+                  )) })
                 ] }),
-                sortedRows.length === 0 && /* @__PURE__ */ jsx87("div", { className: "health-empty", children: onlyOutdated && outdated.size === 0 ? "\u041D\u0435\u0442 \u0443\u0441\u0442\u0430\u0440\u0435\u0432\u0448\u0438\u0445 \u0434\u043E\u043C\u0435\u043D\u043E\u0432" : query ? `\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443 \xAB${query}\xBB` : "\u041D\u0435\u0442 \u0434\u043E\u043C\u0435\u043D\u043E\u0432" })
+                sortedRows.length === 0 && /* @__PURE__ */ jsx87("div", { className: "health-empty", children: onlyOutdated && outdated.size === 0 ? "\u041D\u0435\u0442 \u0443\u0441\u0442\u0430\u0440\u0435\u0432\u0448\u0438\u0445 \u0434\u043E\u043C\u0435\u043D\u043E\u0432" : query ? `\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443 \xAB${query}\xBB` : quickFilters.size > 0 ? "\u041D\u0435\u0442 \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u043F\u043E \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u044B\u043C \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u043C" : "\u041D\u0435\u0442 \u0434\u043E\u043C\u0435\u043D\u043E\u0432" })
               ] })
             ] })
           ]
@@ -86137,7 +92128,217 @@ function HealthDashboardModal() {
     }
   );
 }
-var HealthRow;
+function HealthRowDetails({
+  row,
+  onOpenSchema,
+  onOpenLint
+}) {
+  const hasStructuralIssues = row.cyclesCount > 0 || row.brokenRefsCount > 0 || row.orphanEntitiesCount > 0 || row.attributesWithoutViewsCount > 0 || row.mixinConflictsCount > 0;
+  const hasSonar = row.sonarBreakdown.length > 0;
+  const hasPii = row.piiHitCount > 0;
+  const hasMartin = row.martinZone != null;
+  return /* @__PURE__ */ jsxs84("div", { className: "health-details", children: [
+    /* @__PURE__ */ jsxs84("div", { className: "health-details__actions", children: [
+      /* @__PURE__ */ jsxs84(
+        "button",
+        {
+          className: "btn btn--primary",
+          onClick: () => onOpenSchema(row.domainId),
+          children: [
+            /* @__PURE__ */ jsx87(MIcon, { name: "menu_book", size: "sm" }),
+            "\u0421\u0445\u0435\u043C\u0430 \u0434\u043E\u043C\u0435\u043D\u0430"
+          ]
+        }
+      ),
+      row.filePath && /* @__PURE__ */ jsxs84(
+        "button",
+        {
+          className: "btn",
+          onClick: () => {
+            const st = useGraphStore.getState();
+            st.setHealthDashboardOpen(false);
+            openFileInEditor(row.filePath, null, row.domainId);
+          },
+          title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C YAML-\u0444\u0430\u0439\u043B \u0434\u043E\u043C\u0435\u043D\u0430 \u0432 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0435",
+          children: [
+            /* @__PURE__ */ jsx87(MIcon, { name: "description", size: "sm" }),
+            "\u041E\u0442\u043A\u0440\u044B\u0442\u044C YAML"
+          ]
+        }
+      ),
+      row.lintIssueCount > 0 && /* @__PURE__ */ jsxs84(
+        "button",
+        {
+          className: "btn",
+          onClick: () => {
+            const st = useGraphStore.getState();
+            st.setHealthDashboardOpen(false);
+            onOpenLint();
+          },
+          title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043E\u0431\u0449\u0438\u0439 \u043B\u0438\u043D\u0442\u0435\u0440 \u0441\u0445\u0435\u043C",
+          children: [
+            /* @__PURE__ */ jsx87(MIcon, { name: "rule", size: "sm" }),
+            "\u041B\u0438\u043D\u0442\u0435\u0440"
+          ]
+        }
+      ),
+      row.piiHitCount > 0 && /* @__PURE__ */ jsxs84(
+        "button",
+        {
+          className: "btn",
+          onClick: () => {
+            const st = useGraphStore.getState();
+            st.setHealthDashboardOpen(false);
+            st.setPiiInitialDomain(row.domainId);
+            st.setPiiInitialSeverity(null);
+            st.setPiiOpen(true);
+          },
+          children: [
+            /* @__PURE__ */ jsx87(MIcon, { name: "shield_lock", size: "sm" }),
+            "PII"
+          ]
+        }
+      )
+    ] }),
+    /* @__PURE__ */ jsxs84("div", { className: "health-details__grid", children: [
+      hasSonar && /* @__PURE__ */ jsxs84("div", { className: "health-details__card", children: [
+        /* @__PURE__ */ jsxs84("div", { className: "health-details__card-title", children: [
+          /* @__PURE__ */ jsx87(MIcon, { name: "science", size: "sm" }),
+          "Sonar breakdown"
+        ] }),
+        /* @__PURE__ */ jsx87("div", { className: "health-details__rows", children: row.sonarBreakdown.filter((b) => b.issueCount > 0).sort((a, b) => a.score - b.score).map((b) => /* @__PURE__ */ jsxs84(
+          "div",
+          {
+            className: "health-details__row",
+            children: [
+              /* @__PURE__ */ jsx87("span", { className: "health-details__row-label", children: b.label }),
+              /* @__PURE__ */ jsx87(
+                "span",
+                {
+                  className: "health-details__row-score" + (b.score < 60 ? " bad" : b.score < 80 ? " mid" : " good"),
+                  children: b.score
+                }
+              ),
+              /* @__PURE__ */ jsxs84("span", { className: "health-details__row-count", children: [
+                b.issueCount,
+                " \u043F\u0440\u043E\u0431\u043B\u0435\u043C"
+              ] })
+            ]
+          },
+          b.category
+        )) })
+      ] }),
+      hasPii && /* @__PURE__ */ jsxs84("div", { className: "health-details__card", children: [
+        /* @__PURE__ */ jsxs84("div", { className: "health-details__card-title", children: [
+          /* @__PURE__ */ jsx87(MIcon, { name: "shield_lock", size: "sm" }),
+          "PII \u043F\u043E \u0441\u0435\u0440\u044C\u0451\u0437\u043D\u043E\u0441\u0442\u0438"
+        ] }),
+        /* @__PURE__ */ jsxs84("div", { className: "health-details__rows", children: [
+          /* @__PURE__ */ jsxs84("div", { className: "health-details__row", children: [
+            /* @__PURE__ */ jsx87("span", { className: "health-details__row-label health-details__row-label--err", children: "\u0421\u043F\u0435\u0446\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438" }),
+            /* @__PURE__ */ jsx87("span", { className: "health-details__row-count", children: row.piiBySeverity.critical })
+          ] }),
+          /* @__PURE__ */ jsxs84("div", { className: "health-details__row", children: [
+            /* @__PURE__ */ jsx87("span", { className: "health-details__row-label health-details__row-label--warn", children: "\u0412\u044B\u0441\u043E\u043A\u0430\u044F \u0447\u0443\u0432\u0441\u0442\u0432\u0438\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u044C" }),
+            /* @__PURE__ */ jsx87("span", { className: "health-details__row-count", children: row.piiBySeverity.high })
+          ] }),
+          /* @__PURE__ */ jsxs84("div", { className: "health-details__row", children: [
+            /* @__PURE__ */ jsx87("span", { className: "health-details__row-label health-details__row-label--mid", children: "\u0422\u0440\u0435\u0431\u0443\u044E\u0442 \u0432\u043D\u0438\u043C\u0430\u043D\u0438\u044F" }),
+            /* @__PURE__ */ jsx87("span", { className: "health-details__row-count", children: row.piiBySeverity.medium })
+          ] }),
+          /* @__PURE__ */ jsxs84("div", { className: "health-details__row", children: [
+            /* @__PURE__ */ jsx87("span", { className: "health-details__row-label", children: "\u041A\u043E\u0441\u0432\u0435\u043D\u043D\u044B\u0435" }),
+            /* @__PURE__ */ jsx87("span", { className: "health-details__row-count", children: row.piiBySeverity.low })
+          ] })
+        ] })
+      ] }),
+      hasMartin && /* @__PURE__ */ jsxs84("div", { className: "health-details__card", children: [
+        /* @__PURE__ */ jsxs84("div", { className: "health-details__card-title", children: [
+          /* @__PURE__ */ jsx87(MIcon, { name: "scatter_plot", size: "sm" }),
+          "\u041C\u0435\u0442\u0440\u0438\u043A\u0438 \u041C\u0430\u0440\u0442\u0438\u043D\u0430"
+        ] }),
+        /* @__PURE__ */ jsxs84("div", { className: "health-details__rows", children: [
+          /* @__PURE__ */ jsxs84("div", { className: "health-details__row", children: [
+            /* @__PURE__ */ jsx87("span", { className: "health-details__row-label", children: "Ca (afferent)" }),
+            /* @__PURE__ */ jsx87("span", { className: "health-details__row-count", children: row.martinCa ?? "\u2014" })
+          ] }),
+          /* @__PURE__ */ jsxs84("div", { className: "health-details__row", children: [
+            /* @__PURE__ */ jsx87("span", { className: "health-details__row-label", children: "Ce (efferent)" }),
+            /* @__PURE__ */ jsx87("span", { className: "health-details__row-count", children: row.martinCe ?? "\u2014" })
+          ] }),
+          /* @__PURE__ */ jsxs84("div", { className: "health-details__row", children: [
+            /* @__PURE__ */ jsx87("span", { className: "health-details__row-label", children: "Instability" }),
+            /* @__PURE__ */ jsx87("span", { className: "health-details__row-count", children: row.martinInstability != null ? row.martinInstability.toFixed(2) : "\u2014" })
+          ] }),
+          /* @__PURE__ */ jsxs84("div", { className: "health-details__row", children: [
+            /* @__PURE__ */ jsx87("span", { className: "health-details__row-label", children: "Abstractness" }),
+            /* @__PURE__ */ jsx87("span", { className: "health-details__row-count", children: row.martinAbstractness != null ? row.martinAbstractness.toFixed(2) : "\u2014" })
+          ] }),
+          /* @__PURE__ */ jsxs84("div", { className: "health-details__row", children: [
+            /* @__PURE__ */ jsx87("span", { className: "health-details__row-label", children: "Distance" }),
+            /* @__PURE__ */ jsx87("span", { className: "health-details__row-count", children: row.martinDistance != null ? row.martinDistance.toFixed(2) : "\u2014" })
+          ] })
+        ] })
+      ] }),
+      hasStructuralIssues && /* @__PURE__ */ jsxs84("div", { className: "health-details__card", children: [
+        /* @__PURE__ */ jsxs84("div", { className: "health-details__card-title", children: [
+          /* @__PURE__ */ jsx87(MIcon, { name: "warning", size: "sm" }),
+          "\u0421\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u043D\u044B\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B"
+        ] }),
+        /* @__PURE__ */ jsxs84("div", { className: "health-details__rows", children: [
+          row.cyclesCount > 0 && /* @__PURE__ */ jsxs84("div", { className: "health-details__row", children: [
+            /* @__PURE__ */ jsx87("span", { className: "health-details__row-label health-details__row-label--err", children: "\u0426\u0438\u043A\u043B\u044B \u043D\u0430\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u043D\u0438\u044F" }),
+            /* @__PURE__ */ jsx87("span", { className: "health-details__row-count", children: row.cyclesCount })
+          ] }),
+          row.brokenRefsCount > 0 && /* @__PURE__ */ jsxs84("div", { className: "health-details__row", children: [
+            /* @__PURE__ */ jsx87("span", { className: "health-details__row-label health-details__row-label--err", children: "\u0411\u0438\u0442\u044B\u0435 \u0441\u0441\u044B\u043B\u043A\u0438" }),
+            /* @__PURE__ */ jsx87("span", { className: "health-details__row-count", children: row.brokenRefsCount })
+          ] }),
+          row.orphanEntitiesCount > 0 && /* @__PURE__ */ jsxs84("div", { className: "health-details__row", children: [
+            /* @__PURE__ */ jsx87("span", { className: "health-details__row-label health-details__row-label--warn", children: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438-\u0441\u0438\u0440\u043E\u0442\u044B" }),
+            /* @__PURE__ */ jsx87("span", { className: "health-details__row-count", children: row.orphanEntitiesCount })
+          ] }),
+          row.attributesWithoutViewsCount > 0 && /* @__PURE__ */ jsxs84("div", { className: "health-details__row", children: [
+            /* @__PURE__ */ jsx87("span", { className: "health-details__row-label health-details__row-label--warn", children: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0431\u0435\u0437 views" }),
+            /* @__PURE__ */ jsx87("span", { className: "health-details__row-count", children: row.attributesWithoutViewsCount })
+          ] }),
+          row.mixinConflictsCount > 0 && /* @__PURE__ */ jsxs84("div", { className: "health-details__row", children: [
+            /* @__PURE__ */ jsx87("span", { className: "health-details__row-label health-details__row-label--warn", children: "\u041A\u043E\u043D\u0444\u043B\u0438\u043A\u0442\u044B \u043C\u0438\u043A\u0441\u0438\u043D\u043E\u0432" }),
+            /* @__PURE__ */ jsx87("span", { className: "health-details__row-count", children: row.mixinConflictsCount })
+          ] })
+        ] })
+      ] }),
+      row.topProblemEntities.length > 0 && /* @__PURE__ */ jsxs84("div", { className: "health-details__card health-details__card--wide", children: [
+        /* @__PURE__ */ jsxs84("div", { className: "health-details__card-title", children: [
+          /* @__PURE__ */ jsx87(MIcon, { name: "bug_report", size: "sm" }),
+          "\u0422\u043E\u043F-",
+          row.topProblemEntities.length,
+          " \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u043F\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0430\u043C"
+        ] }),
+        /* @__PURE__ */ jsx87("div", { className: "health-details__entities", children: row.topProblemEntities.map((e) => /* @__PURE__ */ jsxs84(
+          "button",
+          {
+            type: "button",
+            className: "health-details__entity-chip",
+            onClick: () => {
+              const st = useGraphStore.getState();
+              st.setHealthDashboardOpen(false);
+              st.setEntityCatalogInitialFqid(e.entityFqid);
+              st.setEntityCatalogOpen(true);
+            },
+            title: `${e.entityFqid} \u2014 ${e.issueCount} \u043F\u0440\u043E\u0431\u043B\u0435\u043C`,
+            children: [
+              /* @__PURE__ */ jsx87("code", { children: e.entityId }),
+              /* @__PURE__ */ jsx87("span", { className: "health-details__entity-count", children: e.issueCount })
+            ]
+          },
+          e.entityFqid
+        )) })
+      ] })
+    ] })
+  ] });
+}
+var QUICK_FILTERS3, HealthRow;
 var init_HealthDashboardModal = __esm({
   "src/web/components/modals/HealthDashboardModal.tsx"() {
     "use strict";
@@ -86147,8 +92348,51 @@ var init_HealthDashboardModal = __esm({
     init_MIcon();
     init_initial();
     init_format();
-    HealthRow = React54.memo(function HealthRow2({
+    init_open_file();
+    init_ModalHelp();
+    init_useHelpEscape();
+    QUICK_FILTERS3 = [
+      {
+        id: "problems",
+        label: "\u0421 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0430\u043C\u0438",
+        icon: "warning",
+        test: (r) => r.problemCount > 0
+      },
+      {
+        id: "lint-errors",
+        label: "Lint errors",
+        icon: "error",
+        test: (r) => r.lintErrorCount > 0
+      },
+      {
+        id: "pii-critical",
+        label: "PII critical",
+        icon: "shield_lock",
+        test: (r) => r.piiCriticalCount > 0
+      },
+      {
+        id: "pain-zone",
+        label: "\u0417\u043E\u043D\u0430 \u0431\u043E\u043B\u0438",
+        icon: "favorite",
+        test: (r) => r.martinZone === "pain"
+      },
+      {
+        id: "cycles",
+        label: "\u0426\u0438\u043A\u043B\u044B",
+        icon: "cycle",
+        test: (r) => r.cyclesCount > 0
+      },
+      {
+        id: "broken-refs",
+        label: "\u0411\u0438\u0442\u044B\u0435 \u0441\u0441\u044B\u043B\u043A\u0438",
+        icon: "link_off",
+        test: (r) => r.brokenRefsCount > 0
+      }
+    ];
+    HealthRow = React55.memo(function HealthRow2({
       row,
+      isExpanded,
+      onToggle,
       onOpenSchema,
       onOpenLint
     }) {
@@ -86156,110 +92400,153 @@ var init_HealthDashboardModal = __esm({
       const rowClass = [
         "health-row",
         row.isOutdated ? "health-row--outdated" : "",
-        row.lintGrade === "D" || row.lintGrade === "E" ? "health-row--bad" : ""
+        row.healthGrade === "D" || row.healthGrade === "E" ? "health-row--bad" : "",
+        isExpanded ? "health-row--expanded" : ""
       ].filter(Boolean).join(" ");
-      return /* @__PURE__ */ jsxs84("tr", { className: rowClass, children: [
-        /* @__PURE__ */ jsxs84("td", { className: "health-row__domain", children: [
-          /* @__PURE__ */ jsxs84("div", { className: "health-row__domain-head", children: [
-            /* @__PURE__ */ jsx87(
-              "button",
-              {
-                className: "health-row__domain-id",
-                onClick: () => onOpenSchema(row.domainId),
-                title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0445\u0435\u043C\u0443 \u0434\u043E\u043C\u0435\u043D\u0430",
-                children: row.domainId
-              }
-            ),
-            row.isOutdated && /* @__PURE__ */ jsxs84(
-              "span",
-              {
-                className: "health-row__outdated-badge",
-                title: row.outdatedInfo ? `\u0421\u0435\u0440\u0432\u0435\u0440: ${row.outdatedInfo.serverUpdatedAt || "\u2014"}
+      const healthGradeClass = "health-grade--" + row.healthGrade.toLowerCase();
+      return /* @__PURE__ */ jsxs84(Fragment33, { children: [
+        /* @__PURE__ */ jsxs84("tr", { className: rowClass, children: [
+          /* @__PURE__ */ jsx87("td", { className: "health-row__expand-cell", children: /* @__PURE__ */ jsx87(
+            "button",
+            {
+              type: "button",
+              className: "health-row__expand-btn",
+              onClick: () => onToggle(row.domainId),
+              title: isExpanded ? "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C" : "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0434\u0435\u0442\u0430\u043B\u0438",
+              children: /* @__PURE__ */ jsx87(
+                MIcon,
+                {
+                  name: isExpanded ? "expand_more" : "chevron_right",
+                  size: "sm"
+                }
+              )
+            }
+          ) }),
+          /* @__PURE__ */ jsxs84("td", { className: "health-row__domain", children: [
+            /* @__PURE__ */ jsxs84("div", { className: "health-row__domain-head", children: [
+              /* @__PURE__ */ jsx87(
+                "button",
+                {
+                  className: "health-row__domain-id",
+                  onClick: () => onOpenSchema(row.domainId),
+                  title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0445\u0435\u043C\u0443 \u0434\u043E\u043C\u0435\u043D\u0430",
+                  children: row.domainId
+                }
+              ),
+              row.isOutdated && /* @__PURE__ */ jsxs84(
+                "span",
+                {
+                  className: "health-row__outdated-badge",
+                  title: row.outdatedInfo ? `\u0421\u0435\u0440\u0432\u0435\u0440: ${row.outdatedInfo.serverUpdatedAt || "\u2014"}
 \u041A\u044D\u0448: ${row.outdatedInfo.cachedUpdatedAt || "\u2014"}` + (row.outdatedInfo.serverVersion ? `
 v${row.outdatedInfo.cachedVersion || "?"} \u2192 v${row.outdatedInfo.serverVersion}` : "") : "\u041E\u0431\u043D\u043E\u0432\u043B\u0451\u043D \u043D\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435",
-                children: [
-                  /* @__PURE__ */ jsx87(MIcon, { name: "update", size: "sm" }),
-                  "new"
-                ]
-              }
-            )
-          ] }),
-          row.name && row.name !== row.domainId && /* @__PURE__ */ jsx87("div", { className: "health-row__domain-name", children: row.name }),
-          row.version && /* @__PURE__ */ jsxs84("span", { className: "health-row__version", children: [
-            "v",
-            row.version
-          ] }),
-          row.tags.length > 0 && /* @__PURE__ */ jsxs84("div", { className: "health-row__tags", children: [
-            row.tags.slice(0, 3).map((t) => /* @__PURE__ */ jsx87("span", { className: "health-row__tag", children: t }, t)),
-            row.tags.length > 3 && /* @__PURE__ */ jsxs84("span", { className: "health-row__tag", children: [
-              "+",
-              row.tags.length - 3
-            ] })
-          ] })
-        ] }),
-        /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: row.entityCount }),
-        /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: row.attributeCount }),
-        /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: row.linkageCount }),
-        /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: row.dataTypeCount }),
-        /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: row.mixinCount > 0 ? row.mixinCount : "\u2014" }),
-        /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: row.lintScore != null ? /* @__PURE__ */ jsxs84("span", { className: "health-lint-score " + gradeClass, children: [
-          row.lintScore,
-          /* @__PURE__ */ jsx87("span", { className: "health-lint-score__grade", children: row.lintGrade })
-        ] }) : "\u2014" }),
-        /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: row.lintIssueCount > 0 ? /* @__PURE__ */ jsxs84(
-          "button",
-          {
-            className: "health-lint-link",
-            onClick: () => onOpenLint(row.domainId),
-            title: `${row.lintErrorCount} errors / ${row.lintWarningCount} warnings
-\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043B\u0438\u043D\u0442\u0435\u0440 \u0441\u0445\u0435\u043C`,
-            children: [
-              row.lintIssueCount,
-              row.lintErrorCount > 0 && /* @__PURE__ */ jsxs84("span", { className: "health-lint-link__err", children: [
-                "\xB7 ",
-                row.lintErrorCount,
-                "e"
+                  children: [
+                    /* @__PURE__ */ jsx87(MIcon, { name: "update", size: "sm" }),
+                    "new"
+                  ]
+                }
+              )
+            ] }),
+            row.name && row.name !== row.domainId && /* @__PURE__ */ jsx87("div", { className: "health-row__domain-name", children: row.name }),
+            row.version && /* @__PURE__ */ jsxs84("span", { className: "health-row__version", children: [
+              "v",
+              row.version
+            ] }),
+            row.tags.length > 0 && /* @__PURE__ */ jsxs84("div", { className: "health-row__tags", children: [
+              row.tags.slice(0, 3).map((t) => /* @__PURE__ */ jsx87("span", { className: "health-row__tag", children: t }, t)),
+              row.tags.length > 3 && /* @__PURE__ */ jsxs84("span", { className: "health-row__tag", children: [
+                "+",
+                row.tags.length - 3
               ] })
-            ]
-          }
-        ) : /* @__PURE__ */ jsx87("span", { className: "health-lint-ok", children: "\u2713" }) }),
-        /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: row.piiHitCount > 0 ? /* @__PURE__ */ jsxs84(
-          "button",
-          {
-            type: "button",
-            className: "health-pii health-pii--clickable" + (row.piiCriticalCount > 0 ? " health-pii--critical" : ""),
-            onClick: (e) => {
-              e.stopPropagation();
-              useGraphStore.getState().setPiiInitialDomain(row.domainId);
-              useGraphStore.getState().setPiiInitialSeverity(null);
-              useGraphStore.getState().setPiiOpen(true);
-            },
-            title: `PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0432 \u0434\u043E\u043C\u0435\u043D\u0435 ${row.domainId}
+            ] })
+          ] }),
+          /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: /* @__PURE__ */ jsxs84("span", { className: "health-grade-badge " + healthGradeClass, children: [
+            row.healthScore,
+            /* @__PURE__ */ jsx87("span", { className: "health-grade-badge__grade", children: row.healthGrade })
+          ] }) }),
+          /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: row.problemCount > 0 ? /* @__PURE__ */ jsx87("span", { className: "health-problem-count", children: row.problemCount }) : /* @__PURE__ */ jsx87("span", { className: "health-lint-ok", children: "\u2713" }) }),
+          /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: row.entityCount }),
+          /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: row.attributeCount }),
+          /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: row.linkageCount }),
+          /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: row.viewsCount }),
+          /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: row.actionsCount }),
+          /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: row.dataTypeCount }),
+          /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: row.mixinCount > 0 ? row.mixinCount : "\u2014" }),
+          /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: row.lintScore != null ? /* @__PURE__ */ jsxs84("span", { className: "health-lint-score " + gradeClass, children: [
+            row.lintScore,
+            /* @__PURE__ */ jsx87("span", { className: "health-lint-score__grade", children: row.lintGrade })
+          ] }) : "\u2014" }),
+          /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: row.lintIssueCount > 0 ? /* @__PURE__ */ jsxs84(
+            "button",
+            {
+              className: "health-lint-link",
+              onClick: () => onOpenLint(),
+              title: `${row.lintErrorCount} errors / ${row.lintWarningCount} warnings
+\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043B\u0438\u043D\u0442\u0435\u0440 \u0441\u0445\u0435\u043C`,
+              children: [
+                row.lintIssueCount,
+                row.lintErrorCount > 0 && /* @__PURE__ */ jsxs84("span", { className: "health-lint-link__err", children: [
+                  "\xB7 ",
+                  row.lintErrorCount,
+                  "e"
+                ] })
+              ]
+            }
+          ) : /* @__PURE__ */ jsx87("span", { className: "health-lint-ok", children: "\u2713" }) }),
+          /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: row.piiHitCount > 0 ? /* @__PURE__ */ jsxs84(
+            "button",
+            {
+              type: "button",
+              className: "health-pii health-pii--clickable" + (row.piiCriticalCount > 0 ? " health-pii--critical" : ""),
+              onClick: (e) => {
+                e.stopPropagation();
+                useGraphStore.getState().setPiiInitialDomain(row.domainId);
+                useGraphStore.getState().setPiiInitialSeverity(null);
+                useGraphStore.getState().setPiiOpen(true);
+              },
+              title: `PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B \u0432 \u0434\u043E\u043C\u0435\u043D\u0435 ${row.domainId}
 critical: ${row.piiCriticalCount}
 \u0432\u0441\u0435\u0433\u043E: ${row.piiHitCount}
 
 \u041D\u0430\u0436\u043C\u0438\u0442\u0435, \u0447\u0442\u043E\u0431\u044B \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u043F\u0438\u0441\u043E\u043A \u0441 \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u043E\u043C \u043A \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u043C`,
-            children: [
-              row.piiCriticalCount > 0 && /* @__PURE__ */ jsx87("strong", { children: row.piiCriticalCount }),
-              row.piiCriticalCount > 0 && " / ",
-              row.piiHitCount
-            ]
-          }
-        ) : /* @__PURE__ */ jsx87("span", { className: "health-pii", children: "\u2014" }) }),
-        /* @__PURE__ */ jsx87("td", { className: "health-table__num health-row__size", children: formatBytes(row.fileSize) }),
-        /* @__PURE__ */ jsx87("td", { className: "health-row__updated", children: row.updatedAt ? /* @__PURE__ */ jsxs84("span", { title: new Date(row.updatedAt).toLocaleString("ru-RU"), children: [
-          relativeTimeShort(row.updatedAt),
-          row.updatedAtSource === "fs" && /* @__PURE__ */ jsx87("span", { className: "health-row__source", title: "mtime \u0444\u0430\u0439\u043B\u0430 (\u0441\u0435\u0440\u0432\u0435\u0440 \u043D\u0435 \u0441\u043E\u043E\u0431\u0449\u0438\u043B updatedAt)", children: "fs" })
-        ] }) : "\u2014" }),
-        /* @__PURE__ */ jsx87("td", { children: /* @__PURE__ */ jsx87(
-          "button",
-          {
-            className: "health-row__schema-btn",
-            onClick: () => onOpenSchema(row.domainId),
-            title: "\u0421\u0445\u0435\u043C\u0430 \u0434\u043E\u043C\u0435\u043D\u0430",
-            children: /* @__PURE__ */ jsx87(MIcon, { name: "menu_book", size: "sm" })
-          }
-        ) })
+              children: [
+                row.piiCriticalCount > 0 && /* @__PURE__ */ jsx87("strong", { children: row.piiCriticalCount }),
+                row.piiCriticalCount > 0 && " / ",
+                row.piiHitCount
+              ]
+            }
+          ) : /* @__PURE__ */ jsx87("span", { className: "health-pii", children: "\u2014" }) }),
+          /* @__PURE__ */ jsx87("td", { className: "health-table__num", children: row.martinZone ? /* @__PURE__ */ jsx87(
+            "span",
+            {
+              className: "health-martin-zone health-martin-zone--" + row.martinZone,
+              title: row.martinDistance != null ? `Distance: ${row.martinDistance.toFixed(2)}` : void 0,
+              children: row.martinZone === "pain" ? "\u0431\u043E\u043B\u044C" : row.martinZone === "uselessness" ? "\u0431\u0435\u0441\u043F." : row.martinZone === "main-sequence" ? "\u043D\u043E\u0440\u043C\u0430" : "\u2014"
+            }
+          ) : "\u2014" }),
+          /* @__PURE__ */ jsx87("td", { className: "health-table__num health-row__size", children: formatBytes(row.fileSize) }),
+          /* @__PURE__ */ jsx87("td", { className: "health-row__updated", children: row.updatedAt ? /* @__PURE__ */ jsxs84("span", { title: new Date(row.updatedAt).toLocaleString("ru-RU"), children: [
+            relativeTimeShort(row.updatedAt),
+            row.updatedAtSource === "fs" && /* @__PURE__ */ jsx87(
+              "span",
+              {
+                className: "health-row__source",
+                title: "mtime \u0444\u0430\u0439\u043B\u0430 (\u0441\u0435\u0440\u0432\u0435\u0440 \u043D\u0435 \u0441\u043E\u043E\u0431\u0449\u0438\u043B updatedAt)",
+                children: "fs"
+              }
+            )
+          ] }) : "\u2014" }),
+          /* @__PURE__ */ jsx87("td", { children: /* @__PURE__ */ jsx87(
+            "button",
+            {
+              className: "health-row__schema-btn",
+              onClick: () => onOpenSchema(row.domainId),
+              title: "\u0421\u0445\u0435\u043C\u0430 \u0434\u043E\u043C\u0435\u043D\u0430",
+              children: /* @__PURE__ */ jsx87(MIcon, { name: "menu_book", size: "sm" })
+            }
+          ) })
+        ] }),
+        isExpanded && /* @__PURE__ */ jsx87("tr", { className: "health-row-details", children: /* @__PURE__ */ jsx87("td", { colSpan: 17, children: /* @__PURE__ */ jsx87(HealthRowDetails, { row, onOpenSchema, onOpenLint }) }) })
       ] });
     });
   }
@@ -87336,7 +93623,7 @@ import {
   useEffect as useEffect54,
   useLayoutEffect as useLayoutEffect7,
   useMemo as useMemo56,
-  useRef as useRef27,
+  useRef as useRef29,
   useState as useState50
 } from "react";
 import { createPortal as createPortal6 } from "react-dom";
@@ -87397,10 +93684,10 @@ function FolderTreeSelect({
   const [open2, setOpen] = useState50(false);
   const [filter, setFilter] = useState50("");
   const [expanded, setExpanded] = useState50(/* @__PURE__ */ new Set());
-  const triggerRef = useRef27(null);
-  const wrapRef = useRef27(null);
-  const dropdownRef = useRef27(null);
-  const inputRef = useRef27(null);
+  const triggerRef = useRef29(null);
+  const wrapRef = useRef29(null);
+  const dropdownRef = useRef29(null);
+  const inputRef = useRef29(null);
   const [pos, setPos] = useState50(null);
   const tree = useMemo56(() => buildTree(folders), [folders]);
   const flat = useMemo56(
@@ -87661,7 +93948,7 @@ var init_FolderTreeSelect = __esm({
 
 // src/web/components/modals/CreateDomainModal.tsx
 import { useEffect as useEffect55, useMemo as useMemo57, useState as useState51 } from "react";
-import { Fragment as Fragment29, jsx as jsx90, jsxs as jsxs87 } from "react/jsx-runtime";
+import { Fragment as Fragment34, jsx as jsx90, jsxs as jsxs87 } from "react/jsx-runtime";
 function CreateDomainModal() {
   const open2 = useGraphStore((s) => s.createDomainOpen);
   const setOpen = useGraphStore((s) => s.setCreateDomainOpen);
@@ -87811,7 +94098,7 @@ function CreateDomainModal() {
                 /* @__PURE__ */ jsx90(MIcon, { name: "hourglass_top", size: "sm" }),
                 /* @__PURE__ */ jsx90("span", { children: "\u041E\u0442\u043A\u0440\u044B\u0432\u0430\u0435\u043C \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440 \u0438 \u043E\u0431\u043D\u043E\u0432\u043B\u044F\u0435\u043C \u0438\u043D\u0434\u0435\u043A\u0441\u2026" })
               ] })
-            ] }) : /* @__PURE__ */ jsxs87(Fragment29, { children: [
+            ] }) : /* @__PURE__ */ jsxs87(Fragment34, { children: [
               /* @__PURE__ */ jsx90("div", { className: "help-modal__body help-modal__body--flush", children: /* @__PURE__ */ jsxs87("div", { className: "create-domain-form", children: [
                 /* @__PURE__ */ jsxs87("label", { className: "create-domain-field", children: [
                   /* @__PURE__ */ jsx90("span", { className: "create-domain-label", children: "ID (FQDN) *" }),
@@ -88468,7 +94755,7 @@ var init_view_graph = __esm({
 });
 
 // src/web/components/modals/ViewGraphModal.tsx
-import { useCallback as useCallback28, useEffect as useEffect57, useMemo as useMemo59, useState as useState53 } from "react";
+import { useCallback as useCallback34, useEffect as useEffect57, useMemo as useMemo59, useState as useState53 } from "react";
 import ReactFlow4, {
   Background as Background4,
   BackgroundVariant as BackgroundVariant4,
@@ -88480,7 +94767,7 @@ import ReactFlow4, {
   useReactFlow as useReactFlow4
 } from "reactflow";
 import dagre4 from "dagre";
-import { Fragment as Fragment30, jsx as jsx92, jsxs as jsxs89 } from "react/jsx-runtime";
+import { Fragment as Fragment35, jsx as jsx92, jsxs as jsxs89 } from "react/jsx-runtime";
 function ViewFlowNode({ data }) {
   const { node } = data;
   const cls = ["view-graph-node", `view-graph-node--${node.type}`];
@@ -88490,7 +94777,7 @@ function ViewFlowNode({ data }) {
     cls.push("view-graph-node--orphan");
   if (node.unresolved)
     cls.push("view-graph-node--unresolved");
-  return /* @__PURE__ */ jsxs89(Fragment30, { children: [
+  return /* @__PURE__ */ jsxs89(Fragment35, { children: [
     /* @__PURE__ */ jsx92(Handle4, { type: "target", position: Position4.Left, className: "view-graph-handle" }),
     /* @__PURE__ */ jsxs89("div", { className: cls.join(" "), children: [
       /* @__PURE__ */ jsx92("div", { className: "view-graph-node__id", children: node.viewId }),
@@ -88668,7 +94955,7 @@ function ViewGraphModal() {
     });
   }, [graph]);
   const laidNodes = useMemo59(() => layoutGraph2(flowNodes, flowEdges), [flowNodes, flowEdges]);
-  const onNodeClick = useCallback28((n) => {
+  const onNodeClick = useCallback34((n) => {
     setSelectedNode(n?.data?.node || null);
   }, []);
   if (!open2)
@@ -88753,10 +95040,10 @@ function ViewGraphModal() {
       ] }),
       /* @__PURE__ */ jsx92("div", { className: "view-graph-canvas", children: graph.nodes.length === 0 ? /* @__PURE__ */ jsxs89("div", { className: "view-graph-empty", children: [
         /* @__PURE__ */ jsx92(MIcon, { name: !domainFilter ? "link_off" : "info", size: "xl" }),
-        !domainFilter ? /* @__PURE__ */ jsxs89(Fragment30, { children: [
+        !domainFilter ? /* @__PURE__ */ jsxs89(Fragment35, { children: [
           /* @__PURE__ */ jsx92("div", { className: "view-graph-empty__title", children: "\u041D\u0435\u0442 \u043C\u0435\u0436\u0434\u043E\u043C\u0435\u043D\u043D\u044B\u0445 \u0441\u0432\u044F\u0437\u0435\u0439" }),
           /* @__PURE__ */ jsx92("div", { className: "view-graph-empty__hint", children: "\u0412 \u0440\u0435\u0436\u0438\u043C\u0435 \xAB\u0432\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B\xBB \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u044E\u0442\u0441\u044F \u0442\u043E\u043B\u044C\u043A\u043E \u0441\u0432\u044F\u0437\u0438 \u043C\u0435\u0436\u0434\u0443 views \u0438\u0437 \u0440\u0430\u0437\u043D\u044B\u0445 \u0434\u043E\u043C\u0435\u043D\u043E\u0432. \u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0439 \u0434\u043E\u043C\u0435\u043D, \u0447\u0442\u043E\u0431\u044B \u0443\u0432\u0438\u0434\u0435\u0442\u044C \u0435\u0433\u043E \u0432\u043D\u0443\u0442\u0440\u0435\u043D\u043D\u0438\u0435 views." })
-        ] }) : /* @__PURE__ */ jsxs89(Fragment30, { children: [
+        ] }) : /* @__PURE__ */ jsxs89(Fragment35, { children: [
           /* @__PURE__ */ jsx92("div", { className: "view-graph-empty__title", children: "\u0412 \u0434\u043E\u043C\u0435\u043D\u0435 \u043D\u0435\u0442 views" }),
           /* @__PURE__ */ jsx92("div", { className: "view-graph-empty__hint", children: "\u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u0443\u0439\u0442\u0435 views (CRUD / \u0421\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A) \u0438\u043B\u0438 \u0441\u043E\u0437\u0434\u0430\u0439\u0442\u0435 \u0432\u0440\u0443\u0447\u043D\u0443\u044E." })
         ] })
@@ -88828,11 +95115,11 @@ var init_ViewGraphModal = __esm({
 });
 
 // src/web/hooks/useYamlFulltextSearch.ts
-import { useCallback as useCallback29, useEffect as useEffect58, useRef as useRef28, useState as useState54 } from "react";
+import { useCallback as useCallback35, useEffect as useEffect58, useRef as useRef30, useState as useState54 } from "react";
 function useYamlFulltextSearch() {
   const [state, setState] = useState54(EMPTY);
-  const abortRef = useRef28(null);
-  const search = useCallback29(
+  const abortRef = useRef30(null);
+  const search = useCallback35(
     async (query, opts) => {
       if (abortRef.current)
         abortRef.current.abort();
@@ -88911,7 +95198,7 @@ var init_useYamlFulltextSearch = __esm({
 });
 
 // src/web/components/modals/YamlFulltextSearchModal.tsx
-import { useCallback as useCallback30, useEffect as useEffect59, useMemo as useMemo60, useRef as useRef29, useState as useState55 } from "react";
+import { useCallback as useCallback36, useEffect as useEffect59, useMemo as useMemo60, useRef as useRef31, useState as useState55 } from "react";
 import { jsx as jsx93, jsxs as jsxs90 } from "react/jsx-runtime";
 function YamlFulltextSearchModal() {
   const open2 = useGraphStore((s) => s.yamlFulltextSearchOpen);
@@ -88923,7 +95210,7 @@ function YamlFulltextSearchModal() {
   const [includeComments, setIncludeComments] = useState55(true);
   const [domainFilter, setDomainFilter] = useState55("");
   const [expandedGroups, setExpandedGroups] = useState55(/* @__PURE__ */ new Set());
-  const inputRef = useRef29(null);
+  const inputRef = useRef31(null);
   const { hits, loading, error, total, truncated, elapsedMs, search } = useYamlFulltextSearch();
   const { index } = useModelIndex();
   const allDomains = useMemo60(() => {
@@ -88989,7 +95276,7 @@ function YamlFulltextSearchModal() {
       return;
     setExpandedGroups(new Set(grouped.map((g) => g.filePath)));
   }, [hits]);
-  const openHit = useCallback30((h) => {
+  const openHit = useCallback36((h) => {
     const st = useGraphStore.getState();
     st.setYamlViewerPendingGoto({ kind: "line", line: h.line, column: h.column });
     st.setYamlViewerFilePath(h.filePath);
@@ -89395,8 +95682,8 @@ var init_schema_preview = __esm({
 });
 
 // src/web/components/modals/GeneratedPreviewModal.tsx
-import React61, { useMemo as useMemo61 } from "react";
-import { Fragment as Fragment31, jsx as jsx94, jsxs as jsxs91 } from "react/jsx-runtime";
+import React62, { useMemo as useMemo61 } from "react";
+import { Fragment as Fragment36, jsx as jsx94, jsxs as jsxs91 } from "react/jsx-runtime";
 function viewIcon(kind) {
   switch (kind) {
     case "entity":
@@ -89429,8 +95716,8 @@ function GeneratedPreviewModal() {
     () => data ? collectPreviewActions(data.blocks) : /* @__PURE__ */ new Map(),
     [data]
   );
-  const [activeViewId, setActiveViewId] = React61.useState(null);
-  React61.useEffect(() => {
+  const [activeViewId, setActiveViewId] = React62.useState(null);
+  React62.useEffect(() => {
     if (!preview)
       return;
     if (preview.views.length === 0) {
@@ -89507,7 +95794,7 @@ function GeneratedPreviewModal() {
               /* @__PURE__ */ jsxs91("span", { className: "generated-preview-footer__hint", children: [
                 /* @__PURE__ */ jsx94(MIcon, { name: "info", size: "sm" }),
                 "\u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u0441\u043E\u0441\u0442\u0430\u0432 \u043F\u043E\u043B\u0435\u0439, \u0433\u0440\u0443\u043F\u043F \u0438 \u043A\u043D\u043E\u043F\u043E\u043A. \u0415\u0441\u043B\u0438 \u0447\u0442\u043E-\u0442\u043E \u043D\u0435 \u0442\u0430\u043A \u2014 \u0432\u0435\u0440\u043D\u0438\u0442\u0435\u0441\u044C \u043A \u043F\u0430\u0440\u0430\u043C\u0435\u0442\u0440\u0430\u043C \u043F\u0440\u043E\u0444\u0438\u043B\u044F \u0438 \u043F\u043E\u043F\u0440\u0430\u0432\u044C\u0442\u0435.",
-                preview.skippedBlocks > 0 && /* @__PURE__ */ jsxs91(Fragment31, { children: [
+                preview.skippedBlocks > 0 && /* @__PURE__ */ jsxs91(Fragment36, { children: [
                   " ",
                   "\xB7 \u041F\u0440\u043E\u043F\u0443\u0449\u0435\u043D\u043E \u0431\u043B\u043E\u043A\u043E\u0432: ",
                   preview.skippedBlocks,
@@ -90011,7 +96298,7 @@ var init_ChangelogModal = __esm({
 
 // src/web/components/modals/DomainOnboardingWizard.tsx
 import { useMemo as useMemo63 } from "react";
-import { Fragment as Fragment32, jsx as jsx96, jsxs as jsxs93 } from "react/jsx-runtime";
+import { Fragment as Fragment37, jsx as jsx96, jsxs as jsxs93 } from "react/jsx-runtime";
 var init_DomainOnboardingWizard = __esm({
   "src/web/components/modals/DomainOnboardingWizard.tsx"() {
     "use strict";
@@ -90066,7 +96353,7 @@ var init_modals = __esm({
 });
 
 // src/web/hooks/useGenerateSchemaBatch.ts
-import { useCallback as useCallback31, useEffect as useEffect60, useRef as useRef30, useState as useState56 } from "react";
+import { useCallback as useCallback37, useEffect as useEffect60, useRef as useRef32, useState as useState56 } from "react";
 function useGenerateSchemaBatch({
   domainId,
   profile,
@@ -90082,10 +96369,10 @@ function useGenerateSchemaBatch({
     progress: null
   });
   const [tick, setTick] = useState56(0);
-  const abortRef = useRef30(null);
+  const abortRef = useRef32(null);
   const optionsKey = JSON.stringify(options);
   const entityIdsKey = JSON.stringify(entityIds ?? []);
-  const cancel = useCallback31(() => {
+  const cancel = useCallback37(() => {
     if (abortRef.current) {
       try {
         abortRef.current.abort();
@@ -90213,8 +96500,8 @@ var init_useGenerateSchemaBatch = __esm({
 });
 
 // src/web/components/modals/GenerateBatchModal.tsx
-import { useCallback as useCallback32, useEffect as useEffect61, useMemo as useMemo64, useState as useState57 } from "react";
-import { Fragment as Fragment33, jsx as jsx97, jsxs as jsxs94 } from "react/jsx-runtime";
+import { useCallback as useCallback38, useEffect as useEffect61, useMemo as useMemo64, useState as useState57 } from "react";
+import { Fragment as Fragment38, jsx as jsx97, jsxs as jsxs94 } from "react/jsx-runtime";
 function GenerateBatchModal() {
   const { index } = useModelIndex();
   const open2 = useGraphStore((store) => store.generateBatchOpen);
@@ -90266,7 +96553,7 @@ function GenerateBatchModal() {
     // enabled только после initialised — fetch не идёт до init
     enabled: open2 && initialised && selectedEntities.size > 0
   });
-  const toggleEntity = useCallback32((id) => {
+  const toggleEntity = useCallback38((id) => {
     setSelectedEntities((prev) => {
       const next = new Set(prev);
       if (next.has(id))
@@ -90276,12 +96563,12 @@ function GenerateBatchModal() {
       return next;
     });
   }, []);
-  const toggleAll = useCallback32(() => {
+  const toggleAll = useCallback38(() => {
     setSelectedEntities(
       (prev) => prev.size === allEntities.length ? /* @__PURE__ */ new Set() : new Set(allEntities.map((e) => e.id))
     );
   }, [allEntities]);
-  const apply = useCallback32(async () => {
+  const apply = useCallback38(async () => {
     if (!gen.result || !domainId)
       return;
     const combined = gen.result.combined;
@@ -90503,11 +96790,11 @@ function GenerateBatchModal() {
                       }
                     ) }),
                     gen.progress?.entityId && /* @__PURE__ */ jsxs94("div", { className: "generate-batch-progress__entity", children: [
-                      gen.progress.phase === "entity-start" && /* @__PURE__ */ jsxs94(Fragment33, { children: [
+                      gen.progress.phase === "entity-start" && /* @__PURE__ */ jsxs94(Fragment38, { children: [
                         /* @__PURE__ */ jsx97(MIcon, { name: "hourglass_top", size: "sm" }),
                         /* @__PURE__ */ jsx97("span", { children: gen.progress.entityId })
                       ] }),
-                      gen.progress.phase === "entity-done" && /* @__PURE__ */ jsxs94(Fragment33, { children: [
+                      gen.progress.phase === "entity-done" && /* @__PURE__ */ jsxs94(Fragment38, { children: [
                         /* @__PURE__ */ jsx97(MIcon, { name: "check_circle", size: "sm" }),
                         /* @__PURE__ */ jsx97("span", { children: gen.progress.entityId }),
                         /* @__PURE__ */ jsxs94("span", { className: "generate-batch-progress__meta", children: [
@@ -90516,12 +96803,12 @@ function GenerateBatchModal() {
                           " \u0431\u043B\u043E\u043A\u043E\u0432"
                         ] })
                       ] }),
-                      gen.progress.phase === "entity-error" && /* @__PURE__ */ jsxs94(Fragment33, { children: [
+                      gen.progress.phase === "entity-error" && /* @__PURE__ */ jsxs94(Fragment38, { children: [
                         /* @__PURE__ */ jsx97(MIcon, { name: "error", size: "sm" }),
                         /* @__PURE__ */ jsx97("span", { children: gen.progress.entityId }),
                         /* @__PURE__ */ jsx97("span", { className: "generate-batch-progress__meta generate-batch-progress__meta--err", children: gen.progress.error })
                       ] }),
-                      gen.progress.phase === "preflight" && /* @__PURE__ */ jsxs94(Fragment33, { children: [
+                      gen.progress.phase === "preflight" && /* @__PURE__ */ jsxs94(Fragment38, { children: [
                         /* @__PURE__ */ jsx97(MIcon, { name: "science", size: "sm" }),
                         /* @__PURE__ */ jsx97("span", { children: "Preflight\u2026" })
                       ] })
@@ -90634,7 +96921,7 @@ var init_GenerateBatchModal = __esm({
 });
 
 // src/web/components/modals/WorkflowGraphModal.tsx
-import { useCallback as useCallback33, useEffect as useEffect62, useMemo as useMemo65, useState as useState58 } from "react";
+import { useCallback as useCallback39, useEffect as useEffect62, useMemo as useMemo65, useState as useState58 } from "react";
 import ReactFlow5, {
   Background as Background5,
   BackgroundVariant as BackgroundVariant5,
@@ -90646,7 +96933,7 @@ import ReactFlow5, {
   useReactFlow as useReactFlow5
 } from "reactflow";
 import dagre5 from "dagre";
-import { Fragment as Fragment34, jsx as jsx98, jsxs as jsxs95 } from "react/jsx-runtime";
+import { Fragment as Fragment39, jsx as jsx98, jsxs as jsxs95 } from "react/jsx-runtime";
 function WorkflowStatusNode({ data }) {
   const cls = ["workflow-node"];
   if (data.isInitial)
@@ -90660,7 +96947,7 @@ function WorkflowStatusNode({ data }) {
   const style = {};
   if (data.color)
     style.borderLeftColor = data.color;
-  return /* @__PURE__ */ jsxs95(Fragment34, { children: [
+  return /* @__PURE__ */ jsxs95(Fragment39, { children: [
     /* @__PURE__ */ jsx98(Handle5, { type: "target", position: Position5.Left, className: "workflow-handle" }),
     /* @__PURE__ */ jsxs95("div", { className: cls.join(" "), style, children: [
       /* @__PURE__ */ jsxs95("div", { className: "workflow-node__id", children: [
@@ -90854,7 +97141,7 @@ function WorkflowGraphModal() {
     if (open2)
       setRankdir("LR");
   }, [target?.domainId, target?.dataTypeId]);
-  const close = useCallback33(
+  const close = useCallback39(
     () => useGraphStore.getState().setWorkflowGraphTarget(null),
     []
   );
@@ -90923,7 +97210,7 @@ function WorkflowGraphModal() {
               dt.kind,
               ")"
             ] }) }),
-            dt && dt.kind === "Workflow" && graph && /* @__PURE__ */ jsxs95(Fragment34, { children: [
+            dt && dt.kind === "Workflow" && graph && /* @__PURE__ */ jsxs95(Fragment39, { children: [
               /* @__PURE__ */ jsxs95("div", { className: "workflow-graph-toolbar", children: [
                 /* @__PURE__ */ jsxs95("div", { className: "workflow-graph-toolbar__left", children: [
                   /* @__PURE__ */ jsxs95("span", { className: "workflow-graph-stat", children: [
@@ -91133,13 +97420,13 @@ var init_PublishPreviewModal = __esm({
 });
 
 // src/web/components/layout/AppModals.tsx
-import { Fragment as Fragment35, jsx as jsx100, jsxs as jsxs97 } from "react/jsx-runtime";
+import { Fragment as Fragment40, jsx as jsx100, jsxs as jsxs97 } from "react/jsx-runtime";
 function AppModals(props) {
   const helpOpen = useGraphStore((s) => s.helpOpen);
   const hotkeysOpen = useGraphStore((s) => s.hotkeysOpen);
   const contextMenu = useGraphStore((s) => s.contextMenu);
   const snackbar = useGraphStore((s) => s.snackbar);
-  return /* @__PURE__ */ jsxs97(Fragment35, { children: [
+  return /* @__PURE__ */ jsxs97(Fragment40, { children: [
     /* @__PURE__ */ jsx100(HoverTooltip, {}),
     /* @__PURE__ */ jsx100(
       CommandPalette,
@@ -91278,14 +97565,14 @@ var init_AppModals = __esm({
 });
 
 // src/web/App.tsx
-import React66, { useCallback as useCallback34, useEffect as useEffect63, useMemo as useMemo66, useRef as useRef31 } from "react";
+import React67, { useCallback as useCallback40, useEffect as useEffect63, useMemo as useMemo66, useRef as useRef33 } from "react";
 import { jsx as jsx101, jsxs as jsxs98 } from "react/jsx-runtime";
 function App() {
   const nodes = useGraphStore((s) => s.nodes);
   const edges = useGraphStore((s) => s.edges);
   const rules = useGraphStore((s) => s.rules);
   const viewMode = useGraphStore((s) => s.viewMode);
-  const didInit = useRef31(false);
+  const didInit = useRef33(false);
   useEffect63(() => {
     if (didInit.current)
       return;
@@ -91296,7 +97583,7 @@ function App() {
     document.documentElement.setAttribute("data-theme", st.theme);
   }, []);
   const CACHE_TOAST_KEY = REMOTE_INFO?.server ? `dg-cache-toast-hidden:${REMOTE_INFO.server.replace(/\/+$/, "")}` : null;
-  const [toastVisible, setToastVisible] = React66.useState(() => {
+  const [toastVisible, setToastVisible] = React67.useState(() => {
     if (!REMOTE_INFO?.fromCache)
       return false;
     if (!CACHE_TOAST_KEY)
@@ -91307,8 +97594,8 @@ function App() {
       return true;
     }
   });
-  const [dontShowCacheToast, setDontShowCacheToast] = React66.useState(false);
-  const handleDontShowCacheToast = React66.useCallback(
+  const [dontShowCacheToast, setDontShowCacheToast] = React67.useState(false);
+  const handleDontShowCacheToast = React67.useCallback(
     (checked) => {
       setDontShowCacheToast(checked);
       if (!CACHE_TOAST_KEY)
@@ -91412,7 +97699,7 @@ function App() {
   const interactions = useNodeInteractions({ filteredEdges });
   useGraphEvents({ displayNodes, displayEdges });
   useGlobalClickDelegation(goto, tooltip.hide);
-  const handleResetAll = useCallback34(() => {
+  const handleResetAll = useCallback40(() => {
     useGraphStore.getState().resetAll();
     invalidateLayout();
     setTimeout(() => {
@@ -91425,7 +97712,7 @@ function App() {
       }
     }, 200);
   }, [invalidateLayout]);
-  const startTour = useCallback34((path) => {
+  const startTour = useCallback40((path) => {
     const st = useGraphStore.getState();
     st.setTour({
       stages: path.stages,
@@ -91591,7 +97878,7 @@ function App() {
         remoteInfo: REMOTE_INFO,
         refreshCommand: REFRESH_COMMAND,
         toastVisible,
-        onToastClose: useCallback34(() => setToastVisible(false), []),
+        onToastClose: useCallback40(() => setToastVisible(false), []),
         showDontShowAgain: !!CACHE_TOAST_KEY,
         dontShowCacheToast,
         onDontShowCacheToastChange: handleDontShowCacheToast

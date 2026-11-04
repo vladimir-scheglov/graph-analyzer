@@ -838,7 +838,14 @@ export const useGraphStore = create<GraphState>((set, get) => ({
 
   // Вид
   layoutType: "LR",
-  setLayoutType: (t) => set({ layoutType: t }),
+  setLayoutType: (t) =>
+    set((s) => ({
+      layoutType: t,
+      // «По семействам» / «По каталогам» без рамок визуально не отличимы
+      // от «LR» — пользователь ждёт кластеры и не видит их.
+      // Авто-включаем рамки при выборе этих layout'ов.
+      showGroups: t === "cluster" || t === "folder" ? true : s.showGroups,
+    })),
   compact: false,
   setCompact: (v) => set((s) => ({ compact: applyUpdater(s.compact, v) })),
   showGroups: false,

@@ -56,16 +56,23 @@ export function AnalysisMenu(props: AnalysisMenuProps) {
             )}
 
             {viewMode === "graph" && (
-                <button
-                    className={'menu__item' + (nsMode ? ' menu__item--active' : '')}
-                    onClick={() => {
-                        useGraphStore.getState().setNsMode((v) => !v);
-                        props.close();
-                    }}
-                >
-                    <span className="menu__icon">🗂</span>
-                    <span className="menu__text">Агрегация по семействам</span>
-                </button>
+                <>
+                    <button
+                        className={"menu__item" + (nsMode ? " menu__item--active" : "")}
+                        onClick={() => {
+                            useGraphStore.getState().setNsMode((v) => !v);
+                            props.close();
+                        }}
+                    >
+                        <span className="menu__icon">🗂</span>
+                        <span className="menu__text">Схлопнуть в семейства</span>
+                    </button>
+                    <div className="menu__hint" style={{ paddingLeft: 12, paddingRight: 12 }}>
+                        Домены заменяются на узлы-семейства. Если нужны{" "}
+                        <b>рамки вокруг доменов</b> — выключите эту опцию и выберите{" "}
+                        <b>Вид → Раскладка → По семействам</b>.
+                    </div>
+                </>
             )}
 
             <div className="menu__divider" />

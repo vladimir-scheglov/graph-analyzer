@@ -243,7 +243,7 @@ export function buildCommands(ctx: BuildCommandsContext): Command[] {
     {
       section: "Анализ",
       icon: "🗂",
-      label: ctx.nsMode ? "Выключить агрегацию" : "Агрегация по семействам",
+      label: ctx.nsMode ? "Выключить агрегацию" : "Схлопнуть в семейства",
       hotkey: "S",
       keywords: "namespace aggregate",
       run: () => ctx.setNsMode((v) => !v),
@@ -339,13 +339,15 @@ export function buildCommands(ctx: BuildCommandsContext): Command[] {
       keywords: "export png",
       run: ctx.handleExportPNG,
     },
-    ctx.validationAvailable ? {
-      section: "Данные",
-      icon: "🔍",
-      label: "Массовая валидация доменов",
-      keywords: "validate check",
-      run: () => ctx.setValidationOpen(true),
-    } : null,
+    ctx.validationAvailable
+      ? {
+          section: "Данные",
+          icon: "🔍",
+          label: "Массовая валидация доменов",
+          keywords: "validate check",
+          run: () => ctx.setValidationOpen(true),
+        }
+      : null,
 
     // Справка
     {

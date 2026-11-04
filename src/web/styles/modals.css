@@ -4891,3 +4891,387 @@ select.create-domain-input {
     border-radius: 4px;
     white-space: nowrap;
 }
+/* ============ KPI cards ============ */
+.health-kpi {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 12px;
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+}
+
+.health-kpi-card {
+    padding: 12px 14px;
+    border-radius: 8px;
+    background: var(--bg-800);
+    border: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    position: relative;
+}
+
+.health-kpi-card--ok {
+    border-left: 3px solid var(--success);
+}
+
+.health-kpi-card--warn {
+    border-left: 3px solid var(--warning);
+}
+
+.health-kpi-card--err {
+    border-left: 3px solid var(--danger);
+}
+
+.health-kpi-card > .material-symbols-outlined {
+    color: var(--text-500);
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    font-size: 16px !important;
+}
+
+.health-kpi-card__value {
+    font-size: 22px;
+    font-weight: 700;
+    font-family: "JetBrains Mono", monospace;
+    color: var(--text-100);
+    line-height: 1.1;
+}
+
+.health-kpi-card__label {
+    font-size: 11px;
+    color: var(--text-400);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.health-kpi-card__sub {
+    font-size: 10px;
+    color: var(--text-500);
+    margin-top: 2px;
+}
+
+/* ============ Quick filters ============ */
+.health-quick-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}
+
+.health-quick-filter {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    background: var(--bg-800);
+    color: var(--text-300);
+    cursor: pointer;
+    font-size: 11px;
+    font-family: inherit;
+    transition: background 0.12s, border-color 0.12s;
+}
+
+.health-quick-filter:hover {
+    background: var(--bg-750);
+}
+
+.health-quick-filter--active {
+    background: rgba(99, 102, 241, 0.15);
+    border-color: var(--accent-hover);
+    color: var(--accent-hover);
+}
+
+.health-quick-filter__count {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    background: var(--bg-750);
+    padding: 0 5px;
+    border-radius: 8px;
+    color: var(--text-400);
+}
+
+.health-quick-filter--active .health-quick-filter__count {
+    background: rgba(99, 102, 241, 0.25);
+    color: var(--accent-hover);
+}
+
+/* ============ Health grade badge ============ */
+.health-grade-badge {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 3px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.health-grade-badge__grade {
+    font-size: 9px;
+    opacity: 0.85;
+}
+
+.health-grade--a {
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--success);
+}
+
+.health-grade--b {
+    background: rgba(16, 185, 129, 0.1);
+    color: #34d399;
+}
+
+.health-grade--c {
+    background: rgba(245, 158, 11, 0.12);
+    color: var(--warning);
+}
+
+.health-grade--d {
+    background: rgba(245, 158, 11, 0.2);
+    color: #fb923c;
+}
+
+.health-grade--e {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--danger);
+}
+
+/* ============ Problem count ============ */
+.health-problem-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    padding: 1px 7px;
+    border-radius: 10px;
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--warning);
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+/* ============ Martin zone ============ */
+.health-martin-zone {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.health-martin-zone--pain {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--danger);
+}
+
+.health-martin-zone--uselessness {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--warning);
+}
+
+.health-martin-zone--main-sequence {
+    background: rgba(16, 185, 129, 0.12);
+    color: var(--success);
+}
+
+.health-martin-zone--unclassified {
+    background: var(--bg-750);
+    color: var(--text-500);
+}
+
+/* ============ Expandable row ============ */
+.health-table__expand-col {
+    width: 28px;
+    padding: 0 !important;
+}
+
+.health-row__expand-cell {
+    padding: 0 !important;
+    text-align: center;
+}
+
+.health-row__expand-btn {
+    padding: 4px;
+    background: transparent;
+    border: none;
+    color: var(--text-500);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.1s;
+}
+
+.health-row__expand-btn:hover {
+    color: var(--accent-hover);
+}
+
+.health-row--expanded {
+    background: var(--bg-800);
+}
+
+.health-row-details {
+    background: var(--bg-850);
+}
+
+.health-row-details > td {
+    padding: 0 !important;
+}
+
+/* ============ Details panel ============ */
+.health-details {
+    padding: 14px 20px 16px;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+}
+
+.health-details__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.health-details__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 12px;
+}
+
+.health-details__card {
+    background: var(--bg-800);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+}
+
+.health-details__card--wide {
+    grid-column: 1 / -1;
+}
+
+.health-details__card-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-200);
+    margin-bottom: 8px;
+}
+
+.health-details__rows {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.health-details__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 12px;
+    padding: 3px 0;
+}
+
+.health-details__row-label {
+    color: var(--text-400);
+    flex: 1;
+    min-width: 0;
+}
+
+.health-details__row-label--err {
+    color: var(--danger);
+}
+
+.health-details__row-label--warn {
+    color: var(--warning);
+}
+
+.health-details__row-label--mid {
+    color: #fbbf24;
+}
+
+.health-details__row-score {
+    font-family: "JetBrains Mono", monospace;
+    font-weight: 600;
+    font-size: 12px;
+    min-width: 32px;
+    text-align: right;
+}
+
+.health-details__row-score.good {
+    color: var(--success);
+}
+
+.health-details__row-score.mid {
+    color: var(--warning);
+}
+
+.health-details__row-score.bad {
+    color: var(--danger);
+}
+
+.health-details__row-count {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    color: var(--text-300);
+    min-width: 32px;
+    text-align: right;
+}
+
+.health-details__entities {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.health-details__entity-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    background: var(--bg-750);
+    color: var(--text-200);
+    cursor: pointer;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    transition: border-color 0.1s, background 0.1s;
+}
+
+.health-details__entity-chip:hover {
+    background: var(--bg-700);
+    border-color: var(--accent-hover);
+}
+
+.health-details__entity-count {
+    padding: 0 6px;
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--danger);
+    border-radius: 8px;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+/* ============ Table wrapper: horizontal scroll ============ */
+.health-table-wrap {
+    overflow-x: auto;
+}
+/* ============ Help overlay: чуть плотнее внутри health dashboard ============ */
+/* ModalHelp использует абсолютное позиционирование внутри body —
+   для dashboard ширина 1280px, справка читаемая. Дополнительные
+   стили не нужны, но стоит убедиться, что заголовок «Как это
+   читать?» не уезжает при длинном title. */
+.help-modal__actions .help-modal__help-btn {
+    white-space: nowrap;
+}

@@ -87,27 +87,58 @@ interface FlowNodeData {
     isCycle: boolean;
     isForeign: boolean;
     rootDomainId: string;
+    role: string; // "root" | "ancestor" | "descendant" | "sibling" | "linked" | "external"
 }
 
 function EntityFlowNode({ data }: { data: FlowNodeData }) {
-    const cls = ['entity-flow-node'];
-    if (data.isRoot) cls.push('entity-flow-node--root');
-    if (data.isCycle) cls.push('entity-flow-node--cycle');
-    if (data.missing) cls.push('entity-flow-node--missing');
-    if (data.isForeign) cls.push('entity-flow-node--foreign');
+    const cls = ["entity-flow-node"];
+    if (data.isRoot) cls.push("entity-flow-node--root");
+    if (data.isCycle) cls.push("entity-flow-node--cycle");
+    if (data.missing) cls.push("entity-flow-node--missing");
+    if (data.isForeign) cls.push("entity-flow-node--foreign");
+    if (data.role) cls.push("entity-flow-node--role-" + data.role);
+
+    const nodeWidth = data.isRoot ? ROOT_WIDTH : NODE_WIDTH;
+    const nodeHeight = data.isRoot ? ROOT_HEIGHT : NODE_HEIGHT;
 
     return (
         <>
             <Handle type="target" position={Position.Top} className="entity-flow-handle" />
-            <div className={cls.join(' ')}>
-                <div className="entity-flow-node__id">
-                    {data.missing && '⚠️ '}
+            <div
+                className={cls.join(" ")}
+                style={{
+                    width: nodeWidth,
+                    height: nodeHeight,
+                    boxSizing: "border-box",
+                    overflow: "hidden",
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "center",
+                    minWidth: 0,
+                    maxWidth: nodeWidth,
+                }}
+            >
+                <div
+                    className="entity-flow-node__id"
+                    title={(data.missing ? "⚠️ " : "") + data.entityId}
+                >
+                    {data.missing && "⚠️ "}
                     {data.entityId}
                 </div>
                 {data.name && data.name !== data.entityId && (
-                    <div className="entity-flow-node__name">{data.name}</div>
+                    <div
+                        className="entity-flow-node__name"
+                        title={data.name}
+                    >
+                        {data.name}
+                    </div>
                 )}
-                <div className="entity-flow-node__domain">{data.domainId}</div>
+                <div
+                    className="entity-flow-node__domain"
+                    title={data.domainId}
+                >
+                    {data.domainId}
+                </div>
             </div>
             <Handle type="source" position={Position.Bottom} className="entity-flow-handle" />
         </>
@@ -169,9 +200,10 @@ function EntityHierarchyFlowInner({ tree, onSelect }: InnerProps) {
         // Готовим узлы
         const initialNodes = tree.nodes.map((n) => {
             const isRoot = n.key === tree.rootKey;
+            const role = tree.nodeRoles.get(n.key) || "linked";
             return {
                 id: n.key,
-                type: 'entityNode',
+                type: "entityNode",
                 position: { x: 0, y: 0 },
                 data: {
                     key: n.key,
@@ -182,10 +214,11 @@ function EntityHierarchyFlowInner({ tree, onSelect }: InnerProps) {
                     isRoot,
                     isCycle: tree.cycleNodes.has(n.key),
                     isForeign: !isRoot && n.domainId.toLowerCase() !== rootDomainId,
-                    rootDomainId
+                    rootDomainId,
+                    role,
                 } as FlowNodeData,
                 width: isRoot ? ROOT_WIDTH : NODE_WIDTH,
-                height: isRoot ? ROOT_HEIGHT : NODE_HEIGHT
+                height: isRoot ? ROOT_HEIGHT : NODE_HEIGHT,
             };
         });
 
@@ -278,10 +311,14 @@ function EntityHierarchyFlowInner({ tree, onSelect }: InnerProps) {
             <MiniMap
                 position="bottom-right"
                 nodeColor={(n: any) => {
-                    if (n.data?.isRoot) return '#6366f1';
-                    if (n.data?.isCycle) return '#ef4444';
-                    if (n.data?.missing) return '#f59e0b';
-                    return '#10b981';
+                    const role = n.data?.role;
+                    if (role === "root") return "#6366f1";
+                    if (n.data?.isCycle) return "#ef4444";
+                    if (n.data?.missing) return "#f59e0b";
+                    if (role === "ancestor") return "#a78bfa";
+                    if (role === "descendant") return "#10b981";
+                    if (role === "sibling") return "#94a3b8";
+                    return "#64748b";
                 }}
                 maskColor="rgba(10,14,26,0.7)"
                 style={{ width: 160, height: 120 }}

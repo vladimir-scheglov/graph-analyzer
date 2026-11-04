@@ -1,0 +1,605 @@
+/* ============ Modal: flex-column на всю высоту ============ */
+.topo-modal {
+    display: flex;
+    flex-direction: column;
+    width: 92vw;
+    max-width: 1200px;
+    height: 88vh;
+    max-height: 88vh;
+    padding: 0;
+    overflow: hidden;
+}
+
+.topo-modal .help-modal__header {
+    flex-shrink: 0;
+}
+
+.topo-body {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.topo-filters,
+.topo-kpi,
+.topo-toolbar,
+.topo-distribution,
+.topo-detail,
+.topo-footer {
+    flex-shrink: 0;
+}
+
+.topo-content {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 12px 20px;
+}
+
+.topo-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: var(--text-500);
+    padding: 60px 20px;
+    text-align: center;
+}
+
+.topo-empty__icon {
+    color: var(--text-500);
+    opacity: 0.5;
+}
+
+.topo-empty__title {
+    font-size: 14px;
+    color: var(--text-300);
+}
+
+.topo-empty__hint {
+    font-size: 12px;
+    color: var(--text-500);
+}
+
+/* ============ Filters collapsible ============ */
+.topo-filters {
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-850);
+}
+
+.topo-filters__toggle {
+    width: 100%;
+    padding: 8px 20px;
+    background: transparent;
+    border: none;
+    color: var(--text-300);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-family: inherit;
+    text-align: left;
+    transition: background 0.1s;
+}
+
+.topo-filters__toggle:hover {
+    background: var(--bg-800);
+}
+
+.topo-filters__summary {
+    color: var(--text-500);
+    font-size: 11px;
+    margin-left: auto;
+    font-family: "JetBrains Mono", monospace;
+}
+
+.topo-filters__body {
+    padding: 8px 20px 14px;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+    align-items: start;
+}
+
+@media (max-width: 800px) {
+    .topo-filters__body {
+        grid-template-columns: 1fr;
+    }
+}
+
+.topo-filters__checks {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.topo-filters__checks .validation-scope__label {
+    margin-bottom: 4px;
+}
+
+.topo-filters__mask .validation-scope__label {
+    margin-bottom: 4px;
+}
+
+.topo-filters__mask .menu__input {
+    width: 100%;
+}
+
+/* ============ KPI ============ */
+.topo-kpi {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 8px;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+}
+
+.topo-kpi-card {
+    padding: 8px 12px;
+    background: var(--bg-800);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    border-left-width: 3px;
+}
+
+.topo-kpi-card--neutral {
+    border-left-color: var(--text-500);
+}
+
+.topo-kpi-card--ok {
+    border-left-color: var(--success);
+}
+
+.topo-kpi-card--warn {
+    border-left-color: var(--warning);
+}
+
+.topo-kpi-card--err {
+    border-left-color: var(--danger);
+}
+
+.topo-kpi-card__value {
+    font-size: 20px;
+    font-weight: 700;
+    font-family: "JetBrains Mono", monospace;
+    color: var(--text-100);
+    line-height: 1.1;
+}
+
+.topo-kpi-card__label {
+    font-size: 10px;
+    color: var(--text-400);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-top: 2px;
+}
+
+.topo-kpi-card__sub {
+    font-size: 10px;
+    color: var(--text-500);
+    margin-top: 2px;
+}
+
+/* ============ Toolbar: quick + search ============ */
+.topo-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 20px;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+}
+
+.topo-quick-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+}
+
+.health-quick-filter--err {
+    border-color: rgba(239, 68, 68, 0.4);
+}
+
+.health-quick-filter--warn {
+    border-color: rgba(245, 158, 11, 0.4);
+}
+
+.topo-search {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    background: var(--bg-800);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 12px;
+    min-width: 200px;
+}
+
+.topo-search input {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-200);
+    font-size: 12px;
+    font-family: inherit;
+}
+
+.topo-search input::placeholder {
+    color: var(--text-500);
+}
+
+.topo-search__clear {
+    background: transparent;
+    border: none;
+    color: var(--text-500);
+    cursor: pointer;
+    padding: 0 4px;
+    font-family: inherit;
+}
+
+/* ============ Distribution bar ============ */
+.topo-distribution {
+    padding: 8px 20px 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.topo-distribution__title {
+    font-size: 10px;
+    color: var(--text-500);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 6px;
+}
+
+.topo-distribution__bars {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.topo-distribution__bar-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 4px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    border-radius: 3px;
+    font-family: inherit;
+    color: var(--text-300);
+    transition: background 0.1s;
+}
+
+.topo-distribution__bar-row:hover {
+    background: var(--bg-800);
+}
+
+.topo-distribution__level-badge {
+    font-size: 10px;
+    font-family: "JetBrains Mono", monospace;
+    color: var(--text-500);
+    min-width: 24px;
+    text-align: right;
+}
+
+.topo-distribution__track {
+    flex: 1;
+    height: 10px;
+    background: var(--bg-750);
+    border-radius: 2px;
+    overflow: hidden;
+    min-width: 60px;
+}
+
+.topo-distribution__fill {
+    display: block;
+    height: 100%;
+    background: var(--accent-hover);
+    border-radius: 2px;
+    transition: width 0.3s ease;
+}
+
+.topo-distribution__count {
+    font-size: 10px;
+    font-family: "JetBrains Mono", monospace;
+    color: var(--text-400);
+    min-width: 24px;
+    text-align: right;
+}
+
+/* ============ Уровни и домены (переиспользуют существующие классы) ============ */
+.topo-domain--selected {
+    background: var(--bg-800);
+    border-left: 2px solid var(--accent-hover);
+    padding-left: 4px;
+}
+
+.topo-domain__open-btn {
+    margin-left: auto;
+    padding: 2px 4px;
+    background: transparent;
+    border: none;
+    color: var(--text-500);
+    cursor: pointer;
+    border-radius: 3px;
+}
+
+.topo-domain__open-btn:hover {
+    background: var(--bg-700);
+    color: var(--accent-hover);
+}
+
+.topo-domain-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 8px;
+    font-size: 9px;
+    font-weight: 600;
+    font-family: "JetBrains Mono", monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin-left: 4px;
+}
+
+.topo-domain-badge--root {
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--success);
+}
+
+.topo-domain-badge--leaf {
+    background: rgba(99, 102, 241, 0.15);
+    color: var(--accent-hover);
+}
+
+.topo-domain-badge--deps {
+    background: var(--bg-750);
+    color: var(--text-500);
+}
+
+/* ============ Циклы: группы ============ */
+.topo-cyclic__subtitle {
+    font-size: 11px;
+    color: var(--text-500);
+    margin-left: auto;
+    font-style: italic;
+}
+
+.topo-cycle-group {
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.topo-cycle-group:last-child {
+    border-bottom: none;
+}
+
+.topo-cycle-group__title {
+    font-size: 11px;
+    color: var(--text-500);
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.topo-cycle-group__chain {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.topo-cycle-link {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+}
+
+.topo-cycle-arrow {
+    color: var(--text-500);
+    font-size: 11px;
+}
+
+/* ============ Detail drawer ============ */
+.topo-detail {
+    border-top: 1px solid var(--border);
+    background: var(--bg-850);
+    max-height: 320px;
+    display: flex;
+    flex-direction: column;
+}
+
+.topo-detail__head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-800);
+    flex-wrap: wrap;
+}
+
+.topo-detail__id {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 13px;
+    color: var(--text-100);
+    font-weight: 600;
+}
+
+.topo-detail__badge {
+    display: inline-block;
+    padding: 1px 8px;
+    background: var(--bg-750);
+    color: var(--text-400);
+    border-radius: 10px;
+    font-size: 10px;
+    font-family: "JetBrains Mono", monospace;
+}
+
+.topo-detail__badge--err {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--danger);
+}
+
+.topo-detail__badge--warn {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--warning);
+}
+
+.topo-detail__close {
+    background: transparent;
+    border: none;
+    color: var(--text-500);
+    cursor: pointer;
+    padding: 2px 6px;
+    font-size: 14px;
+    margin-left: 4px;
+}
+
+.topo-detail__body {
+    padding: 12px 16px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.topo-detail__section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.topo-detail__section--warn {
+    background: rgba(245, 158, 11, 0.06);
+    padding: 8px;
+    border-radius: 4px;
+    border-left: 2px solid var(--warning);
+}
+
+.topo-detail__section--err {
+    background: rgba(239, 68, 68, 0.06);
+    padding: 8px;
+    border-radius: 4px;
+    border-left: 2px solid var(--danger);
+}
+
+.topo-detail__section-title {
+    font-size: 11px;
+    color: var(--text-500);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    font-weight: 600;
+}
+
+.topo-detail__empty {
+    font-size: 12px;
+    color: var(--text-500);
+    font-style: italic;
+}
+
+.topo-detail__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.topo-detail__chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    background: var(--bg-800);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    color: var(--text-200);
+    cursor: pointer;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    transition: border-color 0.1s, background 0.1s;
+}
+
+.topo-detail__chip:hover {
+    background: var(--bg-750);
+    border-color: var(--accent-hover);
+}
+
+.topo-detail__chip--transitive {
+    border-style: dashed;
+}
+
+.topo-detail__chip--dependent {
+    background: rgba(99, 102, 241, 0.08);
+}
+
+.topo-detail__chip--broken {
+    background: rgba(245, 158, 11, 0.08);
+    border-color: rgba(245, 158, 11, 0.4);
+    color: var(--warning);
+    cursor: default;
+}
+
+.topo-detail__chip-level {
+    padding: 0 4px;
+    background: var(--bg-750);
+    border-radius: 6px;
+    font-size: 9px;
+    color: var(--text-500);
+}
+
+.topo-detail__more {
+    font-size: 11px;
+    color: var(--text-500);
+    align-self: center;
+    padding: 3px 8px;
+}
+
+.topo-detail__hint {
+    font-size: 11px;
+    color: var(--text-500);
+    margin-top: 4px;
+    font-style: italic;
+}
+
+/* ============ Footer ============ */
+.topo-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 10px 20px;
+    border-top: 1px solid var(--border);
+    background: var(--bg-850);
+}
+
+.topo-footer__stats {
+    font-size: 11px;
+    color: var(--text-400);
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.topo-footer__sep {
+    color: var(--text-600);
+}
+
+.topo-footer__actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+button.validation-log__domain.topo-cycle-link {
+    background: none;
+    border: none;
+}

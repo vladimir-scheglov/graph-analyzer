@@ -1,0 +1,377 @@
+/* ============ Направление и сортировка ============ */
+.entity-matrix-direction {
+    display: inline-flex;
+    background: var(--bg-800);
+    border-radius: 6px;
+    padding: 2px;
+}
+
+.entity-matrix-dir-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border: none;
+    background: transparent;
+    color: var(--text-400);
+    cursor: pointer;
+    font-size: 11px;
+    border-radius: 4px;
+    font-family: inherit;
+    transition: background 0.1s, color 0.1s;
+}
+
+.entity-matrix-dir-btn:hover {
+    color: var(--text-200);
+}
+
+.entity-matrix-dir-btn.active {
+    background: var(--bg-700);
+    color: var(--accent-hover);
+}
+
+/* ============ Поиск ============ */
+.entity-matrix-search {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    background: var(--bg-800);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 12px;
+    min-width: 180px;
+}
+
+.entity-matrix-search input {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-200);
+    font-size: 12px;
+    font-family: inherit;
+}
+
+.entity-matrix-search input::placeholder {
+    color: var(--text-500);
+}
+
+.entity-matrix-search__clear,
+.entity-matrix-search__jump {
+    background: transparent;
+    border: none;
+    color: var(--text-500);
+    cursor: pointer;
+    padding: 0 4px;
+    font-family: inherit;
+}
+
+.entity-matrix-search__jump {
+    color: var(--accent-hover);
+    font-weight: 700;
+}
+
+.entity-matrix-search__clear:hover {
+    color: var(--text-200);
+}
+
+.entity-matrix-search-hint {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: rgba(99, 102, 241, 0.08);
+    color: var(--text-300);
+    font-size: 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.entity-matrix-search-hint code {
+    font-family: "JetBrains Mono", monospace;
+    color: var(--accent-hover);
+}
+
+.entity-matrix-search-hint__btn {
+    background: transparent;
+    border: none;
+    color: var(--accent-hover);
+    cursor: pointer;
+    text-decoration: underline;
+    padding: 0;
+    font: inherit;
+}
+
+/* ============ Легенда ============ */
+.entity-matrix-toolbar__legend {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 0 16px 10px;
+    flex-wrap: wrap;
+}
+
+/* ============ Sticky headers ============ */
+.entity-matrix-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background-color: var(--bg-850);
+    background-clip: padding-box;
+    box-shadow: 0 1px 0 var(--border);
+}
+
+.entity-matrix-table thead th.entity-matrix-corner {
+    z-index: 4;
+    left: 0;
+}
+
+.entity-matrix-row-head {
+    position: sticky;
+    left: 0;
+    background-color: var(--bg-850);
+    background-clip: padding-box;
+    box-shadow: 1px 0 0 var(--border);
+    z-index: 3;
+}
+
+/* ============ Search match ============ */
+.entity-matrix-row-head.search-match,
+.entity-matrix-col-head.search-match {
+    background-color: var(--bg-750) !important;
+    background-image: linear-gradient(
+        rgba(99, 102, 241, 0.35),
+        rgba(99, 102, 241, 0.35)
+    ) !important;
+    color: var(--accent-hover);
+    outline: 1px solid var(--accent-hover);
+    outline-offset: -1px;
+}
+
+.entity-matrix-cell--self {
+    background:
+        linear-gradient(135deg,
+            transparent 47%,
+            var(--border) 47%,
+            var(--border) 53%,
+            transparent 53%);
+}
+
+/* ============ Клик по ячейке ============ */
+.entity-matrix-cell:not(.entity-matrix-cell--empty) {
+    cursor: pointer;
+    transition: filter 0.1s;
+}
+
+.entity-matrix-cell:not(.entity-matrix-cell--empty) {
+    cursor: pointer;
+    transition: box-shadow 0.1s;
+}
+
+.entity-matrix-cell:not(.entity-matrix-cell--empty):hover {
+    box-shadow: inset 0 0 0 2px var(--accent-hover);
+}
+
+/* ============ Mixed cell ============ */
+.entity-matrix-cell--mixed {
+    position: relative;
+    background-image:
+        repeating-linear-gradient(
+            45deg,
+            rgba(255, 255, 255, 0.08) 0 4px,
+            transparent 4px 8px
+        );
+}
+
+/* ============ Totals column ============ */
+.entity-matrix-totals-head {
+    position: sticky;
+    top: 0;
+    background-color: var(--bg-850);
+    background-clip: padding-box;
+    box-shadow: 0 1px 0 var(--border);
+    z-index: 2;
+    font-size: 10px;
+    color: var(--text-500);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 4px 6px;
+    border-left: 1px solid var(--border);
+    min-width: 48px;
+}
+
+.entity-matrix-total-cell {
+    padding: 4px 6px;
+    text-align: center;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    color: var(--text-300);
+    border-left: 1px solid var(--border);
+    background: var(--bg-800);
+    min-width: 48px;
+}
+
+.entity-matrix-total-cell.highlighted {
+    background: var(--bg-750);
+    color: var(--text-100);
+}
+
+.entity-matrix-total-cell--sum {
+    font-weight: 600;
+    color: var(--accent-hover);
+}
+
+/* ============ Detail panel ============ */
+.entity-matrix-detail-panel {
+    border-top: 1px solid var(--border);
+    background: var(--bg-850);
+    max-height: 280px;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+}
+
+.entity-matrix-detail-panel__head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-800);
+}
+
+.entity-matrix-detail-panel__entity {
+    background: transparent;
+    border: none;
+    color: var(--accent-hover);
+    cursor: pointer;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 0;
+    font: inherit;
+    font-family: "JetBrains Mono", monospace;
+}
+
+.entity-matrix-detail-panel__entity:hover {
+    text-decoration: underline;
+}
+
+.entity-matrix-detail-panel__count {
+    color: var(--text-500);
+    font-size: 11px;
+    margin-left: 4px;
+}
+
+.entity-matrix-detail-panel__close {
+    margin-left: auto;
+    background: transparent;
+    border: none;
+    color: var(--text-500);
+    cursor: pointer;
+    padding: 2px 6px;
+    font-size: 14px;
+}
+
+.entity-matrix-detail-panel__body {
+    padding: 8px 16px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.entity-matrix-detail-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    padding: 3px 0;
+}
+
+.entity-matrix-detail-kind {
+    display: inline-block;
+    min-width: 70px;
+    padding: 1px 8px;
+    border-radius: 3px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    font-weight: 600;
+}
+
+.entity-matrix-detail-kind--reference {
+    background: rgba(99, 102, 241, 0.15);
+    color: #6366f1;
+}
+
+.entity-matrix-detail-kind--inheritance {
+    background: rgba(167, 139, 250, 0.15);
+    color: #a78bfa;
+}
+
+.entity-matrix-detail-kind--linkage {
+    background: rgba(16, 185, 129, 0.15);
+    color: #10b981;
+}
+
+.entity-matrix-detail-row code {
+    font-family: "JetBrains Mono", monospace;
+    color: var(--text-100);
+    font-size: 12px;
+}
+
+.entity-matrix-detail-meta {
+    color: var(--text-500);
+    font-size: 11px;
+    font-family: "JetBrains Mono", monospace;
+}
+
+/* ============ Scroll wrapper: оба скролла ============ */
+.entity-matrix-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+}
+.entity-matrix-modal {
+    display: flex;
+    flex-direction: column;
+    width: 92vw;
+    max-width: 1400px;
+    height: 88vh;
+    max-height: 88vh;
+    padding: 0;
+    overflow: hidden;
+}
+
+.entity-matrix-modal .help-modal__header {
+    flex-shrink: 0;
+}
+.entity-matrix-body {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+.entity-matrix-toolbar,
+.entity-matrix-toolbar__legend,
+.entity-matrix-search-hint,
+.entity-matrix-detail-panel {
+    flex-shrink: 0;
+}
+.entity-matrix-empty {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.entity-matrix-table {
+    border-collapse: separate;
+    border-spacing: 0;
+}

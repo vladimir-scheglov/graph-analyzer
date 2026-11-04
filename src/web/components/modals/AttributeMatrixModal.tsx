@@ -1,26 +1,162 @@
-import React, { useMemo, useState } from 'react';
-import { useGraphStore } from '../../state/useGraphStore';
-import { useModelIndex } from '../../hooks/useModelIndex';
-import { buildAttributeMatrix, AttributeMatrixColumn } from '../../lib/model/attribute-matrix';
-import { DomainCombobox } from '../common/DomainCombobox';
-import { MIcon } from '../common';
+import React, { useCallback, useMemo, useState } from "react";
+import { useGraphStore } from "../../state/useGraphStore";
+import { useModelIndex } from "../../hooks/useModelIndex";
+import {
+    buildAttributeMatrix,
+    AttributeMatrixColumn,
+    AttributeMatrixCell,
+    categoryOf,
+    shortLabel,
+} from "../../lib/model/attribute-matrix";
+import { DomainCombobox } from "../common/DomainCombobox";
+import { MIcon } from "../common";
 import {
     ModalHelp,
     HelpSection,
     HelpText,
     HelpList,
     HelpButton,
-} from '../common/ModalHelp';
+} from "../common/ModalHelp";
+import { useHelpEscape } from "../../hooks/useHelpEscape";
+import { alertDialog } from "../../lib/dialogs";
+
+// ============ Константы ============
+
+const CATEGORY_COLORS: Record<string, string> = {
+    string: "#94a3b8",
+    numeric: "#6366f1",
+    boolean: "#10b981",
+    date: "#f59e0b",
+    reference: "#a78bfa",
+    array: "#eab308",
+    uuid: "#06b6d4",
+    custom: "#ec4899",
+    other: "#64748b",
+};
+
+const CATEGORY_LABELS: Record<string, string> = {
+    string: "String / Text / URL / MAC",
+    numeric: "Integer / Decimal / Float / Counter",
+    boolean: "Bool",
+    date: "Date / Time / Timestamp",
+    reference: "Reference",
+    array: "Array / Table",
+    uuid: "Uuid / Identifier",
+    custom: "Кастомный тип (Enum / Workflow / Table)",
+    other: "Прочее",
+};
+
+type QuickFilter =
+    | "inconsistent"
+    | "readonly-mixed"
+    | "required-mixed"
+    | "unused-in-views"
+    | "nested";
+
+const QUICK_FILTERS: Array<{
+    id: QuickFilter;
+    label: string;
+    icon: string;
+    test: (c: AttributeMatrixColumn) => boolean;
+}> = [
+        {
+            id: "inconsistent",
+            label: "С разными типами",
+            icon: "warning",
+            test: (c) => !c.consistentType,
+        },
+        {
+            id: "readonly-mixed",
+            label: "Разный readonly",
+            icon: "lock",
+            test: (c) => c.readonlyCount > 0 && c.readonlyCount < c.count,
+        },
+        {
+            id: "required-mixed",
+            label: "Разный required",
+            icon: "star",
+            test: (c) => {
+                const req = c.constraintDistribution.find((x) => x.kind === "required");
+                return !!req && req.count > 0 && req.count < c.count;
+            },
+        },
+        {
+            id: "unused-in-views",
+            label: "Не используется в views",
+            icon: "visibility_off",
+            test: (c) => c.usedInViewsCount === 0,
+        },
+        {
+            id: "nested",
+            label: "Вложенные",
+            icon: "account_tree",
+            test: (c) => c.hasNested,
+        },
+    ];
+
+type SortBy =
+    | "count-desc"
+    | "name-asc"
+    | "type-asc"
+    | "inconsistent-first";
+
+const SORT_OPTIONS: Array<{ value: SortBy; label: string }> = [
+    { value: "count-desc", label: "По популярности" },
+    { value: "inconsistent-first", label: "Сначала проблемные" },
+    { value: "name-asc", label: "По имени" },
+    { value: "type-asc", label: "По типу" },
+];
+
+function sortColumns(
+    cols: AttributeMatrixColumn[],
+    sortBy: SortBy,
+): AttributeMatrixColumn[] {
+    const arr = [...cols];
+    switch (sortBy) {
+        case "count-desc":
+            return arr.sort((a, b) => b.count - a.count);
+        case "name-asc":
+            return arr.sort((a, b) => a.label.localeCompare(b.label));
+        case "type-asc":
+            return arr.sort((a, b) => {
+                const ta = a.dominantType || "";
+                const tb = b.dominantType || "";
+                if (ta !== tb) return ta.localeCompare(tb);
+                return b.count - a.count;
+            });
+        case "inconsistent-first":
+            return arr.sort((a, b) => {
+                if (a.consistentType === b.consistentType) return b.count - a.count;
+                return a.consistentType ? 1 : -1;
+            });
+    }
+}
+
+type SelectedDetail =
+    | { kind: "column"; columnKey: string }
+    | { kind: "cell"; entityFqid: string; columnKey: string }
+    | null;
+
+// ============ Компонент ============
 
 export function AttributeMatrixModal() {
     const { index, loading, error } = useModelIndex();
-
     const open = useGraphStore((s) => s.attributeMatrixOpen);
-    const [showHelp, setShowHelp] = useState(false);
 
-    const [domainFilter, setDomainFilter] = useState('');
+    const [showHelp, setShowHelp] = useState(false);
+    useHelpEscape(open, showHelp, setShowHelp);
+
+    const [domainFilter, setDomainFilter] = useState("");
     const [minOccurrences, setMinOccurrences] = useState(2);
-    const [onlyInconsistent, setOnlyInconsistent] = useState(false);
+    const [sortBy, setSortBy] = useState<SortBy>("count-desc");
+    const [searchQuery, setSearchQuery] = useState("");
+    const [quickFilters, setQuickFilters] = useState<Set<QuickFilter>>(
+        new Set(),
+    );
+    const [filterByColumn, setFilterByColumn] = useState<string | null>(null);
+    const [selectedDetail, setSelectedDetail] = useState<SelectedDetail>(null);
+    const [hoveredRow, setHoveredRow] = useState<number | null>(null);
+    const [hoveredCol, setHoveredCol] = useState<number | null>(null);
 
     const allDomains = useMemo(() => {
         if (!index) return [] as Array<[string, number]>;
@@ -37,32 +173,221 @@ export function AttributeMatrixModal() {
             domains: domainFilter ? new Set([domainFilter.toLowerCase()]) : undefined,
             minOccurrences,
             maxColumns: 40,
-            maxRows: 100
+            maxRows: 100,
         });
     }, [index, domainFilter, minOccurrences]);
 
+    // ── Фильтры ──
     const visibleColumns = useMemo(() => {
-        if (!matrix) return [];
-        if (!onlyInconsistent) return matrix.columns;
-        return matrix.columns.filter((c) => !c.consistentType);
-    }, [matrix, onlyInconsistent]);
+        if (!matrix) return [] as AttributeMatrixColumn[];
+        let cols = matrix.columns;
+        if (quickFilters.size > 0) {
+            const tests = Array.from(quickFilters).map(
+                (id) => QUICK_FILTERS.find((f) => f.id === id)!.test,
+            );
+            cols = cols.filter((c) => tests.every((t) => t(c)));
+        }
+        const q = searchQuery.trim().toLowerCase();
+        if (q) {
+            const columnMatch = cols.filter(
+                (c) =>
+                    c.label.toLowerCase().includes(q) || c.key.includes(q),
+            );
+            if (columnMatch.length > 0) {
+                cols = columnMatch;
+            }
+            // Если ни одна колонка не совпала — не сужаем (поиск идёт по строкам)
+        }
+        cols = sortColumns(cols, sortBy);
+        return cols;
+    }, [matrix, quickFilters, searchQuery, sortBy]);
 
-    const openEntity = (fqid: string) => {
+    const visibleColumnKeys = useMemo(
+        () => new Set(visibleColumns.map((c) => c.key)),
+        [visibleColumns],
+    );
+
+    // ── Поиск: сущность ──
+    const searchEntityMatch = useMemo(() => {
+        if (!matrix || !searchQuery.trim()) return null;
+        const q = searchQuery.trim().toLowerCase();
+        for (const row of matrix.rows) {
+            if (
+                row.entityId.toLowerCase().includes(q) ||
+                row.entityFqid.toLowerCase().includes(q)
+            ) {
+                return row.entityFqid;
+            }
+        }
+        return null;
+    }, [matrix, searchQuery]);
+
+    const visibleRows = useMemo(() => {
+        if (!matrix) return [];
+        let rows = matrix.rows;
+
+        if (filterByColumn) {
+            rows = rows.filter((r) => r.present.has(filterByColumn));
+        }
+
+        // Если поиск точно совпал с entity — оставляем только её
+        if (searchEntityMatch) {
+            rows = rows.filter((r) => r.entityFqid === searchEntityMatch);
+        }
+
+        return rows;
+    }, [matrix, filterByColumn, searchEntityMatch]);
+
+    // ── Поиск: сущность не в матрице ──
+    const searchNotInMatrix = useMemo(() => {
+        if (!searchQuery.trim() || !matrix || !index) return null;
+        if (searchEntityMatch) return null;
+        const q = searchQuery.trim().toLowerCase();
+        for (const e of index.entities) {
+            if (
+                e.entityId.toLowerCase().includes(q) ||
+                e.fqid.toLowerCase().includes(q)
+            ) {
+                return e.fqid;
+            }
+        }
+        return null;
+    }, [searchQuery, matrix, index, searchEntityMatch]);
+
+    const openEntity = useCallback((fqid: string) => {
         const st = useGraphStore.getState();
         st.setAttributeMatrixOpen(false);
         st.setEntityCatalogInitialFqid(fqid);
         st.setEntityCatalogOpen(true);
+    }, []);
+
+    const toggleQuickFilter = useCallback((id: QuickFilter) => {
+        setQuickFilters((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    }, []);
+
+    const handleCellClick = useCallback(
+        (entityFqid: string, columnKey: string) => {
+            setSelectedDetail({ kind: "cell", entityFqid, columnKey });
+        },
+        [],
+    );
+
+    const handleColumnClick = useCallback((columnKey: string) => {
+        setSelectedDetail({ kind: "column", columnKey });
+    }, []);
+
+    const resetAll = useCallback(() => {
+        setSearchQuery("");
+        setQuickFilters(new Set());
+        setFilterByColumn(null);
+        setSelectedDetail(null);
+    }, []);
+
+    // ── Экспорт ──
+    const handleExportCSV = () => {
+        if (!matrix) return;
+        const header = [
+            "entity_fqid",
+            "entity_id",
+            "domain",
+            "attributes_count",
+            ...visibleColumns.map((c) => c.label),
+        ];
+        const lines = [header.join(",")];
+        for (const row of visibleRows) {
+            const cellArr = visibleColumns.map((c) => {
+                const cell = row.cells.get(c.key);
+                if (!cell) return "";
+                const parts = [cell.dataType];
+                if (cell.constraints.length > 0) {
+                    parts.push(cell.constraints.join("|"));
+                }
+                if (cell.readonly) parts.push("readonly");
+                return parts.join(";");
+            });
+            lines.push(
+                [
+                    row.entityFqid,
+                    row.entityId,
+                    row.domainId,
+                    row.attributesCount,
+                    ...cellArr.map((s) => {
+                        if (!s) return "";
+                        return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+                    }),
+                ].join(","),
+            );
+        }
+        const blob = new Blob(["\uFEFF" + lines.join("\n")], {
+            type: "text/csv;charset=utf-8",
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `attribute-matrix-${new Date().toISOString().slice(0, 10)}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
+    const handleCopyMarkdown = async () => {
+        if (!matrix) return;
+        try {
+            const lines: string[] = [];
+            lines.push(`# Матрица атрибутов`);
+            lines.push("");
+            lines.push(
+                `_Колонок: ${visibleColumns.length}, сущностей: ${visibleRows.length}_`,
+            );
+            lines.push("");
+            const header = ["", ...visibleColumns.map((c) => c.label)];
+            lines.push("| " + header.join(" | ") + " |");
+            lines.push("|" + header.map(() => "---").join("|") + "|");
+            for (const row of visibleRows) {
+                const cells = visibleColumns.map((c) => {
+                    const cell = row.cells.get(c.key);
+                    return cell ? cell.dataType : "";
+                });
+                lines.push(
+                    "| **" + row.entityId + "** | " + cells.join(" | ") + " |",
+                );
+            }
+            await navigator.clipboard.writeText(lines.join("\n"));
+            useGraphStore.getState().showSnackbar("Матрица скопирована в буфер");
+        } catch (e: any) {
+            await alertDialog("Не удалось скопировать", { detail: e.message });
+        }
     };
 
     if (!open) return null;
 
+    // ── Данные для detail panel ──
+    const detailColumn: AttributeMatrixColumn | null = (() => {
+        if (!selectedDetail || !matrix) return null;
+        return matrix.columns.find((c) => c.key === selectedDetail.columnKey) || null;
+    })();
+
+    const detailCell: AttributeMatrixCell | null = (() => {
+        if (!selectedDetail || selectedDetail.kind !== "cell" || !matrix) return null;
+        const row = matrix.rows.find(
+            (r) => r.entityFqid === selectedDetail.entityFqid,
+        );
+        return row?.cells.get(selectedDetail.columnKey) || null;
+    })();
+
     return (
         <div
             className="help-overlay help-overlay--fullscreen"
-            onMouseDown={() => useGraphStore.getState().setAttributeMatrixOpen(false)}
+            onMouseDown={() =>
+                useGraphStore.getState().setAttributeMatrixOpen(false)
+            }
         >
             <div
-                className="help-modal entity-matrix-modal"
+                className="help-modal attribute-matrix-modal"
                 onMouseDown={(e) => e.stopPropagation()}
             >
                 <div className="help-modal__header">
@@ -71,7 +396,15 @@ export function AttributeMatrixModal() {
                         <span className="icon-label">Матрица атрибутов</span>
                         {matrix && (
                             <span className="help-modal__badge">
-                                {matrix.rows.length} × {visibleColumns.length}
+                                {visibleRows.length} × {visibleColumns.length}
+                            </span>
+                        )}
+                        {matrix && matrix.stats.inconsistentTypes.length > 0 && (
+                            <span
+                                className="help-modal__badge help-modal__badge--warn"
+                                title="Атрибуты с разными dataType у разных сущностей"
+                            >
+                                ⚠ {matrix.stats.inconsistentTypes.length}
                             </span>
                         )}
                     </div>
@@ -83,7 +416,9 @@ export function AttributeMatrixModal() {
                         />
                         <button
                             className="help-modal__close"
-                            onClick={() => useGraphStore.getState().setAttributeMatrixOpen(false)}
+                            onClick={() =>
+                                useGraphStore.getState().setAttributeMatrixOpen(false)
+                            }
                         >
                             ✕
                         </button>
@@ -92,114 +427,191 @@ export function AttributeMatrixModal() {
 
                 {loading && (
                     <div className="help-modal__body">
-                        <div className="help-modal__loading">Загрузка индекса...</div>
+                        <div className="help-modal__loading">Загрузка индекса…</div>
                     </div>
                 )}
                 {error && (
                     <div className="help-modal__body">
-                        <div style={{ color: 'var(--danger)' }}>Ошибка: {error}</div>
+                        <div style={{ color: "var(--danger)" }}>Ошибка: {error}</div>
                     </div>
                 )}
 
                 {index && matrix && (
                     <div className="attribute-matrix-body">
                         <ModalHelp visible={showHelp}>
-                            <HelpSection title="Как читать матрицу">
+                            <HelpSection title="Что это">
                                 <HelpText>
-                                    Строки — сущности, столбцы — имена атрибутов (по{" "}
-                                    <code>name</code>, если оно задано, иначе по <code>id</code>;
-                                    сравнение регистронезависимое). Точка в ячейке означает, что у
+                                    Матрица «сущность × имя атрибута». Строки — сущности,
+                                    столбцы — уникальные имена атрибутов (по{" "}
+                                    <code>name</code>, если задано, иначе по <code>id</code>;
+                                    сравнение регистронезависимое). Точка в ячейке — у
                                     сущности есть атрибут с таким именем.
                                 </HelpText>
+                                <HelpText>
+                                    Главный сигнал — <strong>неконсистентность</strong>: атрибут
+                                    с одинаковым именем встречается у разных сущностей с
+                                    разными <code>dataType</code>. Это и есть источник багов
+                                    совместимости.
+                                </HelpText>
+                            </HelpSection>
+
+                            <HelpSection title="Цвета ячеек">
+                                <HelpList>
+                                    {Object.entries(CATEGORY_COLORS).map(([cat, color]) => (
+                                        <li key={cat}>
+                                            <span
+                                                className="attribute-matrix-color-dot"
+                                                style={{ background: color }}
+                                            />{" "}
+                                            <strong>{CATEGORY_LABELS[cat] || cat}</strong>
+                                        </li>
+                                    ))}
+                                </HelpList>
+                                <HelpText>
+                                    Цвет — категория <code>dataType</code>. <strong>Одинаковый
+                                        цвет</strong> в столбце = консистентный тип.{" "}
+                                    <strong>Разные цвета</strong> в одном столбце = проблема,
+                                    видна сразу, без наведения.
+                                </HelpText>
+                            </HelpSection>
+
+                            <HelpSection title="Столбцы">
                                 <HelpList>
                                     <li>
-                                        <strong>⚠ на заголовке столбца</strong> — атрибут с таким
-                                        именем встречается у разных сущностей с <em>разными</em>{" "}
-                                        типами данных. Это и есть главный сигнал матрицы.
+                                        <strong>Заголовок</strong> — имя атрибута + доминирующий
+                                        тип (маленьким шрифтом) + счётчик{" "}
+                                        <code>N/M</code> (у скольких сущностей из M есть атрибут).
                                     </li>
                                     <li>
-                                        Строки отсортированы по количеству атрибутов (сверху —
-                                        «богатые» сущности), чтобы первыми были те, у кого вероятнее
-                                        всего есть общие атрибуты.
+                                        <strong>⚠ на заголовке</strong> — атрибут встречается с
+                                        разными <code>dataType</code>. Главный сигнал матрицы.
+                                    </li>
+                                    <li>
+                                        <strong>Клик по заголовку</strong> — детали: распределение
+                                        типов, constraints, readonly, домены, использование в
+                                        views. Кнопка «Только с этим атрибутом» — фильтр строк.
                                     </li>
                                 </HelpList>
                             </HelpSection>
 
-                            <HelpSection title="Фильтр «Минимум упоминаний»">
-                                <HelpText>
-                                    Числовое поле над таблицей. Скрывает столбцы, которые встречаются
-                                    меньше чем у указанного числа сущностей. Работает как нижний
-                                    порог «популярности» атрибута.
-                                </HelpText>
+                            <HelpSection title="Строки">
                                 <HelpList>
                                     <li>
-                                        <strong>По умолчанию — 2.</strong> Атрибуты с единственным
-                                        упоминанием (синглтоны) в матрицу не попадают: иначе таблица
-                                        забивается сотнями уникальных колонок, и общие паттерны
-                                        утонут в шуме.
+                                        <strong>Имя сущности</strong> + домен + количество
+                                        атрибутов. Клик — открыть в каталоге.
                                     </li>
                                     <li>
-                                        <strong>Значение 1</strong> — показать вообще всё, включая
-                                        синглтоны. Полезно для поиска опечаток: <code>emial</code>{" "}
-                                        vs <code>email</code> — обе колонки будут видны.
-                                    </li>
-                                    <li>
-                                        <strong>Значение 5–10</strong> — оставить только «паттерны
-                                        модели»: общие имена вроде <code>name</code>,{" "}
-                                        <code>description</code>, <code>createdAt</code>. Убирает шум,
-                                        оставляет суть.
-                                    </li>
-                                    <li>
-                                        Поле принимает <strong>целые от 1 до 20</strong>. Выход за
-                                        пределы молча обрезается (например, 100 → 20, 0 → 1).
-                                    </li>
-                                    <li>
-                                        Сколько синглтонов скрыто — видно в подсказке справа от поля:{" "}
-                                        <em>«Одиночных атрибутов: N»</em>. Это подсказка «может,
-                                        стоит снизить порог до 1».
+                                        Строки отсортированы по количеству атрибутов — «богатые»
+                                        сущности сверху, у них больше шансов иметь общие атрибуты.
                                     </li>
                                 </HelpList>
                             </HelpSection>
 
-                            <HelpSection title="Галочка «Только с разными типами»">
+                            <HelpSection title="Ячейки">
+                                <HelpList>
+                                    <li>
+                                        <strong>Цвет</strong> — категория <code>dataType</code>{" "}
+                                        (см. легенду выше).
+                                    </li>
+                                    <li>
+                                        <strong>Точка</strong> — атрибут присутствует. Наведение
+                                        показывает точный тип, constraints и readonly.
+                                    </li>
+                                    <li>
+                                        <strong>Маркер ⚠</strong> — тип в этой сущности отличается
+                                        от доминирующего в столбце.
+                                    </li>
+                                    <li>
+                                        <strong>Клик</strong> — детали: конкретный{" "}
+                                        <code>dataType</code>, constraints, readonly, используется
+                                        ли в views, вложенный ли.
+                                    </li>
+                                </HelpList>
+                            </HelpSection>
+
+                            <HelpSection title="Quick filters">
                                 <HelpText>
-                                    Оставляет в таблице только те столбцы, где атрибут с одним и тем
-                                    же именем встречается у разных сущностей с <strong>разными</strong>{" "}
-                                    <code>dataType</code>. Всё, что консистентно, скрывается.
+                                    Chips под поиском фильтруют столбцы. Работают по AND.
+                                    Скрыты, если нет совпадений — не засоряют интерфейс.
                                 </HelpText>
                                 <HelpList>
                                     <li>
-                                        <strong>Цифра в бейдже</strong> рядом с галочкой — общее
-                                        количество таких «неконсистентных» колонок (совпадает с{" "}
-                                        <code>matrix.stats.inconsistentTypes.length</code>). Бейдж
-                                        виден, даже когда галочка не нажата, — чтобы вы знали,
-                                        «есть ли что искать».
+                                        <strong>С разными типами</strong> — главный фильтр
+                                        матрицы. Показывает только столбцы с неконсистентным{" "}
+                                        <code>dataType</code>.
                                     </li>
                                     <li>
-                                        <strong>Как определяется тип:</strong> по <code>dataType</code>{" "}
-                                        атрибута (<code>String</code>, <code>Reference</code>,{" "}
-                                        <code>enumSeverity</code>, <code>Table</code> …). Базовые и
-                                        кастомные типы сравниваются в одном пространстве имён:{" "}
-                                        <code>String</code> vs <code>enumStatus</code> — это разные
-                                        типы, колонка попадёт в фильтр.
+                                        <strong>Разный readonly</strong> — атрибут где-то
+                                        read-only, где-то writable.
                                     </li>
                                     <li>
-                                        <strong>Зачем:</strong> это самый быстрый способ найти баги
-                                        консистентности. Пример: атрибут <code>status</code> у 15
-                                        сущностей — <code>enumStatus</code>, а у 3 — <code>String</code>.
-                                        Галочка покажет только эту колонку — остальные 199 столбцов
-                                        уйдут. Дальше чините 3 «выпадающих» сущности.
+                                        <strong>Разный required</strong> — где-то обязательный,
+                                        где-то нет.
                                     </li>
                                     <li>
-                                        <strong>Работает вместе с «Минимум упоминаний»:</strong>{" "}
-                                        сначала отсекаются редкие колонки (по порогу), потом — консистентные.
-                                        Оба фильтра комбинируются по AND.
+                                        <strong>Не используется в views</strong> — «мёртвые»
+                                        атрибуты: ни в одном виджете не отображаются.
                                     </li>
                                     <li>
-                                        <strong>Пустой результат</strong> — модель консистентна по
-                                        всем атрибутам с таким порогом. Хороший знак: снизьте порог
-                                        до 1, чтобы проверить синглтоны (там тип может отличаться,
-                                        потому что всего 2 упоминания с разными типами).
+                                        <strong>Вложенные</strong> — колонки таблиц (Table), они
+                                        помечены отдельно.
+                                    </li>
+                                </HelpList>
+                            </HelpSection>
+
+                            <HelpSection title="Минимум упоминаний">
+                                <HelpText>
+                                    Числовое поле. Скрывает столбцы, встречающиеся меньше, чем
+                                    у указанного числа сущностей.
+                                </HelpText>
+                                <HelpList>
+                                    <li>
+                                        <strong>2 (по умолчанию)</strong> — синглтоны (одиночные
+                                        атрибуты) скрыты. Иначе таблица забивается сотнями
+                                        уникальных колонок.
+                                    </li>
+                                    <li>
+                                        <strong>1</strong> — показать всё, включая опечатки.{" "}
+                                        <code>emial</code> vs <code>email</code> — обе колонки
+                                        будут видны, легко заметить проблему.
+                                    </li>
+                                    <li>
+                                        <strong>5–10</strong> — только «паттерны модели»:
+                                        <code>name</code>, <code>description</code>,{" "}
+                                        <code>createdAt</code>.
+                                    </li>
+                                </HelpList>
+                            </HelpSection>
+
+                            <HelpSection title="Сортировка">
+                                <HelpList>
+                                    <li>
+                                        <strong>По популярности</strong> — самые частые атрибуты
+                                        слева.
+                                    </li>
+                                    <li>
+                                        <strong>Сначала проблемные</strong> — неконсистентные
+                                        типы вперёд.
+                                    </li>
+                                    <li>
+                                        <strong>По имени</strong> — алфавитный порядок.
+                                    </li>
+                                    <li>
+                                        <strong>По типу</strong> — сгруппировать по{" "}
+                                        <code>dataType</code>.
+                                    </li>
+                                </HelpList>
+                            </HelpSection>
+
+                            <HelpSection title="Экспорт и копирование">
+                                <HelpList>
+                                    <li>
+                                        <strong>CSV</strong> — матрица с типами, constraints и
+                                        readonly. Фильтры применяются.
+                                    </li>
+                                    <li>
+                                        <strong>MD</strong> — Markdown-таблица с типами в ячейках.
+                                        Для отчётов и PR-описаний.
                                     </li>
                                 </HelpList>
                             </HelpSection>
@@ -207,29 +619,25 @@ export function AttributeMatrixModal() {
                             <HelpSection title="Ограничения">
                                 <HelpList>
                                     <li>
-                                        Колонки ограничены 40, строки — 100 (топ по количеству
-                                        упоминаний). Защита от тормозов на больших доменах.
+                                        Колонки ограничены 40, строки — 100. Защита от тормозов
+                                        на больших доменах.
                                     </li>
                                     <li>
-                                        Вложенные атрибуты <code>Table</code> не участвуют в матрице —
-                                        сравниваются только верхнеуровневые атрибуты сущностей. Для
-                                        колонок таблиц используйте «Поиск атрибутов».
+                                        Вложенные атрибуты Table включаются в матрицу, но{" "}
+                                        <code>usedInViews</code> для них почти всегда 0 —
+                                        виджеты обычно ссылаются на верхнеуровневый Table, а не
+                                        на колонки внутри.
                                     </li>
                                     <li>
-                                        Фильтр по домену сужает выборку. Чтобы сравнить домен с
-                                        другими — переключите <code>DomainCombobox</code> в «Все
-                                        домены».
-                                    </li>
-                                    <li>
-                                        Синглтоны (атрибуты с одним упоминанием) в матрицу не попадают
-                                        ни при каких настройках: в одном столбце всегда будет одна
-                                        точка, что бесполезно. Их количество видно в подсказке под
-                                        фильтром.
+                                        Сравнение по имени, не по семантике. Два разных{" "}
+                                        <code>name</code> (в разных доменах) могут означать
+                                        совершенно разное — это не проверяется.
                                     </li>
                                 </HelpList>
                             </HelpSection>
                         </ModalHelp>
 
+                        {/* ============ Toolbar ============ */}
                         <div className="attribute-matrix-toolbar">
                             <div className="attribute-matrix-toolbar__filters">
                                 <DomainCombobox
@@ -240,109 +648,666 @@ export function AttributeMatrixModal() {
                                 />
 
                                 <label className="entity-matrix-filter">
-                                    <span>Минимум упоминаний:</span>
+                                    <span>Минимум:</span>
                                     <input
                                         type="number"
                                         min={1}
                                         max={20}
                                         value={minOccurrences}
                                         onChange={(e) =>
-                                            setMinOccurrences(Math.max(1, parseInt(e.target.value, 10) || 1))
+                                            setMinOccurrences(
+                                                Math.max(1, parseInt(e.target.value, 10) || 1),
+                                            )
                                         }
                                         style={{ width: 60 }}
                                     />
                                 </label>
 
-                                <label className="entity-graph-toggle">
-                                    <input
-                                        type="checkbox"
-                                        checked={onlyInconsistent}
-                                        onChange={() => setOnlyInconsistent(!onlyInconsistent)}
-                                    />
-                                    Только с разными типами
-                                    {matrix.stats.inconsistentTypes.length > 0 && (
-                                        <span className="attribute-matrix-badge">
-                                            {matrix.stats.inconsistentTypes.length}
-                                        </span>
-                                    )}
+                                <label className="entity-matrix-filter">
+                                    <span>Сортировка:</span>
+                                    <select
+                                        value={sortBy}
+                                        onChange={(e) => setSortBy(e.target.value as SortBy)}
+                                    >
+                                        {SORT_OPTIONS.map((o) => (
+                                            <option key={o.value} value={o.value}>
+                                                {o.label}
+                                            </option>
+                                        ))}
+                                    </select>
                                 </label>
+
+                                <div className="attribute-matrix-search">
+                                    <MIcon name="search" size="sm" />
+                                    <input
+                                        type="text"
+                                        placeholder="Атрибут или сущность…"
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        spellCheck={false}
+                                    />
+                                    {searchQuery && (
+                                        <button
+                                            className="attribute-matrix-search__clear"
+                                            onClick={() => setSearchQuery("")}
+                                        >
+                                            ✕
+                                        </button>
+                                    )}
+                                </div>
+
+                                <button
+                                    className="btn"
+                                    onClick={handleExportCSV}
+                                    disabled={visibleColumns.length === 0}
+                                    title="Скачать в CSV"
+                                >
+                                    <MIcon name="download" size="sm" />
+                                    CSV
+                                </button>
+                                <button
+                                    className="btn"
+                                    onClick={handleCopyMarkdown}
+                                    disabled={visibleColumns.length === 0}
+                                    title="Копировать в Markdown"
+                                >
+                                    <MIcon name="content_copy" size="sm" />
+                                    MD
+                                </button>
+                                {(searchQuery ||
+                                    quickFilters.size > 0 ||
+                                    filterByColumn) && (
+                                        <button
+                                            className="btn"
+                                            onClick={resetAll}
+                                            title="Сбросить все фильтры"
+                                        >
+                                            <MIcon name="filter_alt_off" size="sm" />
+                                        </button>
+                                    )}
                             </div>
 
-                            <div className="attribute-matrix-toolbar__stats">
-                                {matrix.stats.singletons.length > 0 && (
-                                    <span className="attribute-matrix-hint">
-                                        Одиночных атрибутов: {matrix.stats.singletons.length}
-                                    </span>
+                            <div className="attribute-matrix-quick-filters">
+                                {QUICK_FILTERS.map((f) => {
+                                    const active = quickFilters.has(f.id);
+                                    const count = matrix.columns.filter(f.test).length;
+                                    if (!active && count === 0) return null;
+                                    return (
+                                        <button
+                                            key={f.id}
+                                            type="button"
+                                            className={
+                                                "health-quick-filter" +
+                                                (active ? " health-quick-filter--active" : "")
+                                            }
+                                            onClick={() => toggleQuickFilter(f.id)}
+                                            title={`Показать только: ${f.label.toLowerCase()}`}
+                                        >
+                                            <MIcon name={f.icon} size="sm" />
+                                            {f.label}
+                                            <span className="health-quick-filter__count">
+                                                {count}
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                                {filterByColumn && (
+                                    <button
+                                        type="button"
+                                        className="health-quick-filter health-quick-filter--active"
+                                        onClick={() => setFilterByColumn(null)}
+                                        title="Убрать фильтр по атрибуту"
+                                    >
+                                        <MIcon name="filter_alt" size="sm" />
+                                        Только с «{filterByColumn}»
+                                        <span className="health-quick-filter__count">✕</span>
+                                    </button>
                                 )}
                             </div>
                         </div>
 
+                        {/* ============ Search hints ============ */}
+                        {searchNotInMatrix && (
+                            <div className="attribute-matrix-search-hint">
+                                <MIcon name="info" size="sm" />
+                                <span>
+                                    Сущность{" "}
+                                    <code>{shortLabel(searchNotInMatrix)}</code> не попала
+                                    в матрицу (топ-100 по количеству атрибутов).{" "}
+                                    <button
+                                        className="attribute-matrix-search-hint__btn"
+                                        onClick={() => openEntity(searchNotInMatrix)}
+                                    >
+                                        Открыть в каталоге
+                                    </button>
+                                </span>
+                            </div>
+                        )}
+
+                        {/* ============ Legend ============ */}
+                        <div className="attribute-matrix-legend">
+                            {Object.entries(CATEGORY_COLORS).map(([cat, color]) => {
+                                const count = visibleColumns.filter(
+                                    (c) => categoryOf(c.dominantType || "") === cat,
+                                ).length;
+                                if (count === 0) return null;
+                                return (
+                                    <span
+                                        key={cat}
+                                        className="attribute-matrix-legend-item"
+                                        title={CATEGORY_LABELS[cat]}
+                                    >
+                                        <span
+                                            className="attribute-matrix-legend-dot"
+                                            style={{ background: color }}
+                                        />
+                                        {cat}
+                                        <span className="attribute-matrix-legend-count">
+                                            {count}
+                                        </span>
+                                    </span>
+                                );
+                            })}
+                            <span className="attribute-matrix-legend-spacer" />
+                            {matrix.stats.requiredEverywhere > 0 && (
+                                <span
+                                    className="attribute-matrix-legend-item"
+                                    title="Атрибуты, обязательные во всех сущностях"
+                                >
+                                    <MIcon name="star" size="sm" />
+                                    Required везде
+                                    <span className="attribute-matrix-legend-count">
+                                        {matrix.stats.requiredEverywhere}
+                                    </span>
+                                </span>
+                            )}
+                            {matrix.stats.unusedInViews > 0 && (
+                                <span
+                                    className="attribute-matrix-legend-item attribute-matrix-legend-item--warn"
+                                    title="Не используются ни в одном view"
+                                >
+                                    <MIcon name="visibility_off" size="sm" />
+                                    Мёртвые
+                                    <span className="attribute-matrix-legend-count">
+                                        {matrix.stats.unusedInViews}
+                                    </span>
+                                </span>
+                            )}
+                        </div>
+
+                        {/* ============ Матрица ============ */}
                         {visibleColumns.length === 0 ? (
-                            <div className="entity-matrix-empty">
-                                Нет атрибутов, удовлетворяющих фильтрам
+                            <div className="attribute-matrix-empty">
+                                {matrix.columns.length === 0
+                                    ? "Нет атрибутов, удовлетворяющих фильтрам"
+                                    : "Ни одна колонка не проходит фильтр"}
+                                {matrix.stats.singletons.length > 0 && (
+                                    <div className="attribute-matrix-empty-hint">
+                                        Одиночных атрибутов (встречаются 1 раз):{" "}
+                                        <strong>{matrix.stats.singletons.length}</strong>. Снизьте
+                                        «Минимум» до 1, чтобы увидеть их.
+                                    </div>
+                                )}
+                            </div>
+                        ) : visibleRows.length === 0 ? (
+                            <div className="attribute-matrix-empty">
+                                {searchEntityMatch
+                                    ? `Сущность ${shortLabel(searchEntityMatch)} не имеет ни одного из видимых атрибутов`
+                                    : "Нет сущностей, удовлетворяющих фильтру"}
                             </div>
                         ) : (
                             <div className="attribute-matrix-scroll">
                                 <table className="attribute-matrix-table">
                                     <thead>
                                         <tr>
-                                            <th className="attribute-matrix-corner">Сущность</th>
-                                            {visibleColumns.map((col) => (
-                                                <th
-                                                    key={col.key}
-                                                    className={
-                                                        'attribute-matrix-col-head' +
-                                                        (!col.consistentType ? ' inconsistent' : '')
-                                                    }
-                                                    title={
-                                                        col.dataTypes.join(', ') +
-                                                        '\nвстречается у ' + col.count + ' сущностей'
-                                                    }
-                                                >
-                                                    <span className="attribute-matrix-col-head__text">
-                                                        {col.label}
-                                                    </span>
-                                                    {!col.consistentType && (
-                                                        <span className="attribute-matrix-col-head__warn">⚠</span>
-                                                    )}
-                                                </th>
-                                            ))}
+                                            <th className="attribute-matrix-corner">
+                                                <span className="attribute-matrix-corner__arrow">↘</span>
+                                            </th>
+                                            {visibleColumns.map((col, idx) => {
+                                                const isHovered = hoveredCol === idx;
+                                                const isSelected =
+                                                    selectedDetail?.kind === "column" &&
+                                                    selectedDetail.columnKey === col.key;
+                                                const cat = categoryOf(col.dominantType || "");
+                                                return (
+                                                    <th
+                                                        key={col.key}
+                                                        className={
+                                                            "attribute-matrix-col-head" +
+                                                            (!col.consistentType ? " inconsistent" : "") +
+                                                            (isHovered ? " highlighted" : "") +
+                                                            (isSelected ? " selected" : "")
+                                                        }
+                                                        onMouseEnter={() => setHoveredCol(idx)}
+                                                        onMouseLeave={() => setHoveredCol(null)}
+                                                        onClick={() => handleColumnClick(col.key)}
+                                                        title={
+                                                            `${col.label} — у ${col.count} сущностей\n` +
+                                                            `Доминирующий тип: ${col.dominantType || "—"}\n` +
+                                                            (col.typeDistribution.length > 1
+                                                                ? "Типы: " +
+                                                                col.typeDistribution
+                                                                    .map((t) => `${t.dataType} (${t.count})`)
+                                                                    .join(", ")
+                                                                : "")
+                                                        }
+                                                    >
+                                                        <span className="attribute-matrix-col-head__text">
+                                                            {col.label}
+                                                        </span>
+                                                        <span
+                                                            className="attribute-matrix-col-head__type"
+                                                            style={{ color: CATEGORY_COLORS[cat] }}
+                                                        >
+                                                            {col.dominantType || "—"}
+                                                        </span>
+                                                        <span className="attribute-matrix-col-head__count">
+                                                            {col.count}
+                                                        </span>
+                                                        {!col.consistentType && (
+                                                            <span
+                                                                className="attribute-matrix-col-head__warn"
+                                                                title={`${col.typeDistribution.length} разных типов`}
+                                                            >
+                                                                ⚠
+                                                            </span>
+                                                        )}
+                                                    </th>
+                                                );
+                                            })}
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {matrix.rows.map((row) => (
-                                            <tr key={row.entityFqid}>
-                                                <th
-                                                    className="attribute-matrix-row-head"
-                                                    title={row.entityFqid}
-                                                    onClick={() => openEntity(row.entityFqid)}
+                                        {visibleRows.map((row, rowIdx) => {
+                                            const isRowHovered = hoveredRow === rowIdx;
+                                            return (
+                                                <tr
+                                                    key={row.entityFqid}
+                                                    className={isRowHovered ? "highlighted" : ""}
                                                 >
-                                                    <span className="attribute-matrix-row-head__id">
-                                                        {row.entityId}
-                                                    </span>
-                                                    <span className="attribute-matrix-row-head__domain">
-                                                        {row.domainId}
-                                                    </span>
-                                                </th>
-                                                {visibleColumns.map((col) => {
-                                                    const has = row.present.has(col.key);
-                                                    return (
-                                                        <td
-                                                            key={col.key}
-                                                            className={
-                                                                'attribute-matrix-cell' +
-                                                                (has ? ' present' : '')
-                                                            }
-                                                            title={has ? `есть ${col.label}` : ''}
-                                                        >
-                                                            {has && <span className="attribute-matrix-cell__dot" />}
-                                                        </td>
-                                                    );
-                                                })}
-                                            </tr>
-                                        ))}
+                                                    <th
+                                                        className="attribute-matrix-row-head"
+                                                        data-fqid={row.entityFqid}
+                                                        onMouseEnter={() => setHoveredRow(rowIdx)}
+                                                        onMouseLeave={() => setHoveredRow(null)}
+                                                        onClick={() => openEntity(row.entityFqid)}
+                                                        title={`${row.entityFqid}\nКлик — открыть в каталоге`}
+                                                    >
+                                                        <span className="attribute-matrix-row-head__id">
+                                                            {row.entityId}
+                                                        </span>
+                                                        <span className="attribute-matrix-row-head__domain">
+                                                            {row.domainId}
+                                                        </span>
+                                                        <span className="attribute-matrix-row-head__count">
+                                                            {row.attributesCount} атр.
+                                                        </span>
+                                                    </th>
+                                                    {visibleColumns.map((col, colIdx) => {
+                                                        const cell = row.cells.get(col.key);
+                                                        const isHoveredR = hoveredRow === rowIdx;
+                                                        const isHoveredC = hoveredCol === colIdx;
+                                                        const isSelected =
+                                                            selectedDetail?.kind === "cell" &&
+                                                            selectedDetail.entityFqid === row.entityFqid &&
+                                                            selectedDetail.columnKey === col.key;
+
+                                                        if (!cell) {
+                                                            return (
+                                                                <td
+                                                                    key={col.key}
+                                                                    className={
+                                                                        "attribute-matrix-cell" +
+                                                                        (isHoveredR || isHoveredC
+                                                                            ? " in-row-col"
+                                                                            : "")
+                                                                    }
+                                                                    onMouseEnter={() => {
+                                                                        setHoveredRow(rowIdx);
+                                                                        setHoveredCol(colIdx);
+                                                                    }}
+                                                                    onMouseLeave={() => {
+                                                                        setHoveredRow(null);
+                                                                        setHoveredCol(null);
+                                                                    }}
+                                                                />
+                                                            );
+                                                        }
+
+                                                        const cat = categoryOf(cell.dataType);
+                                                        const color = CATEGORY_COLORS[cat];
+                                                        const isDiffFromDominant =
+                                                            cell.dataType !== col.dominantType;
+
+                                                        const parts: string[] = [cell.dataType];
+                                                        if (cell.constraints.length > 0) {
+                                                            parts.push(cell.constraints.join(", "));
+                                                        }
+                                                        if (cell.readonly) parts.push("readonly");
+                                                        if (cell.isNested) parts.push("nested (Table)");
+                                                        if (cell.usedInViews === 0) {
+                                                            parts.push("не используется в views");
+                                                        }
+                                                        const tooltip =
+                                                            `${row.entityId}.${cell.attributeId}\n` +
+                                                            parts.join(" · ") +
+                                                            (isDiffFromDominant
+                                                                ? `\n\n⚠ тип отличается от доминирующего (${col.dominantType})`
+                                                                : "");
+
+                                                        return (
+                                                            <td
+                                                                key={col.key}
+                                                                className={
+                                                                    "attribute-matrix-cell attribute-matrix-cell--present" +
+                                                                    (isHoveredR || isHoveredC
+                                                                        ? " in-row-col"
+                                                                        : "") +
+                                                                    (isSelected ? " selected" : "") +
+                                                                    (isDiffFromDominant
+                                                                        ? " attribute-matrix-cell--mismatch"
+                                                                        : "")
+                                                                }
+                                                                style={{
+                                                                    background: color + "25",
+                                                                    borderColor: color + "40",
+                                                                }}
+                                                                onMouseEnter={() => {
+                                                                    setHoveredRow(rowIdx);
+                                                                    setHoveredCol(colIdx);
+                                                                }}
+                                                                onMouseLeave={() => {
+                                                                    setHoveredRow(null);
+                                                                    setHoveredCol(null);
+                                                                }}
+                                                                onClick={() =>
+                                                                    handleCellClick(row.entityFqid, col.key)
+                                                                }
+                                                                title={tooltip}
+                                                            >
+                                                                <span
+                                                                    className="attribute-matrix-cell__dot"
+                                                                    style={{ background: color }}
+                                                                />
+                                                                {cell.readonly && (
+                                                                    <span
+                                                                        className="attribute-matrix-cell__badge attribute-matrix-cell__badge--ro"
+                                                                        title="readonly"
+                                                                    >
+                                                                        🔒
+                                                                    </span>
+                                                                )}
+                                                                {cell.constraints.includes("required") && (
+                                                                    <span
+                                                                        className="attribute-matrix-cell__badge attribute-matrix-cell__badge--req"
+                                                                        title="required"
+                                                                    >
+                                                                        ★
+                                                                    </span>
+                                                                )}
+                                                                {isDiffFromDominant && (
+                                                                    <span
+                                                                        className="attribute-matrix-cell__mismatch"
+                                                                        aria-hidden
+                                                                    >
+                                                                        !
+                                                                    </span>
+                                                                )}
+                                                            </td>
+                                                        );
+                                                    })}
+                                                </tr>
+                                            );
+                                        })}
                                     </tbody>
                                 </table>
+                            </div>
+                        )}
+
+                        {/* ============ Detail panel ============ */}
+                        {selectedDetail && detailColumn && (
+                            <div className="attribute-matrix-detail-panel">
+                                <div className="attribute-matrix-detail-panel__head">
+                                    <MIcon
+                                        name={
+                                            selectedDetail.kind === "column"
+                                                ? "view_column"
+                                                : "edit_note"
+                                        }
+                                        size="sm"
+                                    />
+                                    <code className="attribute-matrix-detail-panel__name">
+                                        {detailColumn.label}
+                                    </code>
+                                    <span className="attribute-matrix-detail-panel__badge">
+                                        {detailColumn.count}{" "}
+                                        {detailColumn.count === 1 ? "сущность" : "сущностей"}
+                                    </span>
+                                    {detailColumn.hasNested && (
+                                        <span className="attribute-matrix-detail-panel__badge">
+                                            вложенный
+                                        </span>
+                                    )}
+                                    <button
+                                        className="btn"
+                                        style={{ marginLeft: 8, padding: "2px 8px", fontSize: 11 }}
+                                        onClick={() => {
+                                            setFilterByColumn(detailColumn.key);
+                                            setSelectedDetail(null);
+                                        }}
+                                        title="Показать только сущности с этим атрибутом"
+                                    >
+                                        <MIcon name="filter_alt" size="sm" />
+                                        Только с этим атрибутом
+                                    </button>
+                                    <button
+                                        className="attribute-matrix-detail-panel__close"
+                                        onClick={() => setSelectedDetail(null)}
+                                        title="Закрыть"
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
+                                <div className="attribute-matrix-detail-panel__body">
+                                    {selectedDetail.kind === "cell" && detailCell ? (
+                                        <>
+                                            <div className="attribute-matrix-detail-panel__section-title">
+                                                В сущности{" "}
+                                                <button
+                                                    className="attribute-matrix-detail-panel__entity-link"
+                                                    onClick={() =>
+                                                        openEntity(selectedDetail.entityFqid)
+                                                    }
+                                                >
+                                                    {shortLabel(selectedDetail.entityFqid)}
+                                                </button>
+                                            </div>
+                                            <div className="attribute-matrix-detail-grid">
+                                                <div className="attribute-matrix-detail-row">
+                                                    <span className="attribute-matrix-detail-label">
+                                                        dataType
+                                                    </span>
+                                                    <code>{detailCell.dataType}</code>
+                                                    {detailCell.dataTypeKind === "custom" && (
+                                                        <span className="attribute-matrix-detail-meta">
+                                                            кастомный
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className="attribute-matrix-detail-row">
+                                                    <span className="attribute-matrix-detail-label">
+                                                        constraints
+                                                    </span>
+                                                    {detailCell.constraints.length > 0 ? (
+                                                        <code>{detailCell.constraints.join(", ")}</code>
+                                                    ) : (
+                                                        <span className="attribute-matrix-detail-meta">
+                                                            нет
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className="attribute-matrix-detail-row">
+                                                    <span className="attribute-matrix-detail-label">
+                                                        readonly
+                                                    </span>
+                                                    <span
+                                                        className={
+                                                            detailCell.readonly
+                                                                ? "attribute-matrix-detail-badge attribute-matrix-detail-badge--warn"
+                                                                : "attribute-matrix-detail-meta"
+                                                        }
+                                                    >
+                                                        {detailCell.readonly ? "да" : "нет"}
+                                                    </span>
+                                                </div>
+                                                <div className="attribute-matrix-detail-row">
+                                                    <span className="attribute-matrix-detail-label">
+                                                        используется в views
+                                                    </span>
+                                                    <span
+                                                        className={
+                                                            detailCell.usedInViews === 0
+                                                                ? "attribute-matrix-detail-badge attribute-matrix-detail-badge--warn"
+                                                                : "attribute-matrix-detail-meta"
+                                                        }
+                                                    >
+                                                        {detailCell.usedInViews}
+                                                    </span>
+                                                </div>
+                                                {detailCell.isNested && (
+                                                    <div className="attribute-matrix-detail-row">
+                                                        <span className="attribute-matrix-detail-label">
+                                                            вложенный
+                                                        </span>
+                                                        <span className="attribute-matrix-detail-badge">
+                                                            внутри Table
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                {detailCell.dataType !== detailColumn.dominantType && (
+                                                    <div className="attribute-matrix-detail-row attribute-matrix-detail-row--warn">
+                                                        <span className="attribute-matrix-detail-label">
+                                                            ⚠ тип отличается
+                                                        </span>
+                                                        <span className="attribute-matrix-detail-meta">
+                                                            доминирующий: {detailColumn.dominantType}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <div className="attribute-matrix-detail-panel__section-title">
+                                                Распределение по сущностям
+                                            </div>
+                                            <div className="attribute-matrix-detail-grid">
+                                                <div className="attribute-matrix-detail-row">
+                                                    <span className="attribute-matrix-detail-label">
+                                                        dataTypes
+                                                    </span>
+                                                    <span>
+                                                        {detailColumn.typeDistribution.map((t) => (
+                                                            <code
+                                                                key={t.dataType}
+                                                                className="attribute-matrix-detail-chip"
+                                                                style={{
+                                                                    borderColor:
+                                                                        CATEGORY_COLORS[categoryOf(t.dataType)],
+                                                                    color:
+                                                                        CATEGORY_COLORS[categoryOf(t.dataType)],
+                                                                }}
+                                                            >
+                                                                {t.dataType} × {t.count}
+                                                            </code>
+                                                        ))}
+                                                    </span>
+                                                </div>
+                                                {detailColumn.constraintDistribution.length > 0 && (
+                                                    <div className="attribute-matrix-detail-row">
+                                                        <span className="attribute-matrix-detail-label">
+                                                            constraints
+                                                        </span>
+                                                        <span>
+                                                            {detailColumn.constraintDistribution.map((c) => (
+                                                                <code
+                                                                    key={c.kind}
+                                                                    className="attribute-matrix-detail-chip"
+                                                                >
+                                                                    {c.kind} × {c.count}
+                                                                </code>
+                                                            ))}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                <div className="attribute-matrix-detail-row">
+                                                    <span className="attribute-matrix-detail-label">
+                                                        readonly
+                                                    </span>
+                                                    <span className="attribute-matrix-detail-meta">
+                                                        {detailColumn.readonlyCount} / {detailColumn.count}
+                                                    </span>
+                                                </div>
+                                                <div className="attribute-matrix-detail-row">
+                                                    <span className="attribute-matrix-detail-label">
+                                                        используется в views
+                                                    </span>
+                                                    <span className="attribute-matrix-detail-meta">
+                                                        {detailColumn.usedInViewsCount} /{" "}
+                                                        {detailColumn.count}
+                                                    </span>
+                                                </div>
+                                                <div className="attribute-matrix-detail-row">
+                                                    <span className="attribute-matrix-detail-label">
+                                                        домены
+                                                    </span>
+                                                    <span>
+                                                        {detailColumn.domains.map((d) => (
+                                                            <code
+                                                                key={d}
+                                                                className="attribute-matrix-detail-chip"
+                                                            >
+                                                                {d}
+                                                            </code>
+                                                        ))}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            {detailColumn.examples.length > 0 && (
+                                                <>
+                                                    <div className="attribute-matrix-detail-panel__section-title">
+                                                        Примеры
+                                                    </div>
+                                                    <div className="attribute-matrix-detail-examples">
+                                                        {detailColumn.examples.map((ex) => (
+                                                            <button
+                                                                key={ex.entityFqid + ex.attributeId}
+                                                                className="attribute-matrix-detail-example"
+                                                                onClick={() => openEntity(ex.entityFqid)}
+                                                                title={ex.entityFqid}
+                                                            >
+                                                                <code>
+                                                                    {shortLabel(ex.entityFqid)}.
+                                                                    {ex.attributeId}
+                                                                </code>
+                                                                <span
+                                                                    style={{
+                                                                        color:
+                                                                            CATEGORY_COLORS[
+                                                                            categoryOf(ex.dataType)
+                                                                            ],
+                                                                    }}
+                                                                >
+                                                                    {ex.dataType}
+                                                                </span>
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </>
+                                            )}
+                                        </>
+                                    )}
+                                </div>
                             </div>
                         )}
                     </div>

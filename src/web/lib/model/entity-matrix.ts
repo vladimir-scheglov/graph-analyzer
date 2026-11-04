@@ -1,37 +1,66 @@
-import type { EntityRecord, ModelIndex } from "../../../shared/model-types";
+import type {
+  EntityRecord,
+  EntityLinkage,
+  ModelIndex,
+} from "../../../shared/model-types";
 
 export type MatrixCellKind = "reference" | "inheritance" | "linkage";
 
-export interface MatrixCell {
+export interface MatrixCellDetail {
   kind: MatrixCellKind;
-  /** Сколько связей этого типа. */
+  /** 'attr:id' | 'inherits' | 'linkage:id'. */
+  via: string;
+  /** Отображаемое имя: имя атрибута, имя linkage, 'inherits'. */
+  label: string;
+  /** Для linkage — тип связи. */
+  linkageType?: string;
+  /** Для linkage — ненаправленная. */
+  undirected?: boolean;
+}
+
+export interface MatrixCell {
+  /** Преобладающий тип — для цвета ячейки. */
+  kind: MatrixCellKind;
+  /** Общее число связей в ячейке. */
   count: number;
-  /** Детали: атрибуты/связи, через которые соединены. */
-  details: Array<{
-    /** 'attr:xxx' для reference, 'inherits' для наследования, 'linkage:xxx' для linkage. */
-    via: string;
-    /** Обратная ссылка — для двухсторонних связей. */
-    reverse?: boolean;
-  }>;
+  /** Полный список — для tooltip и клика. */
+  details: MatrixCellDetail[];
 }
 
 export interface MatrixRow {
   entity: EntityRecord;
-  /** Ключи — FQID целевых сущностей. */
-  cells: Map<string, MatrixCell>;
-  /** Сумма всех связей в строке — для сортировки. */
-  totalOutgoing: number;
+  /** Исходящие связи: row → col. */
+  cellsOut: Map<string, MatrixCell>;
+  /** Входящие связи: col → row (транспонировано). */
+  cellsIn: Map<string, MatrixCell>;
+  /** Всего исходящих связей (включая ведущие вне матрицы). */
+  totalOutgoingAll: number;
+  /** Всего входящих связей (включая ведущие извне). */
+  totalIncomingAll: number;
+  /** Сколько исходящих попало в матрицу. */
+  totalOutgoingInMatrix: number;
+  /** Сколько входящих попало в матрицу. */
+  totalIncomingInMatrix: number;
 }
 
 export interface EntityMatrix {
   rows: MatrixRow[];
-  /** FQID сущностей, вошедших в матрицу (столбцы те же). */
+  /** FQID сущностей в порядке строк и столбцов. */
   entityFqids: string[];
-  /** Для быстрого поиска: fqid → индекс столбца. */
+  /** fqid → индекс столбца. */
   columnIndex: Map<string, number>;
   stats: {
+    /** Сущностей в матрице. */
     totalEntities: number;
-    totalLinks: number;
+    /** Сущностей доступно до отсечения по limit. */
+    totalAvailableEntities: number;
+    /** Сколько не влезло. */
+    truncated: number;
+    /** Связей внутри матрицы (сумма всех ячеек). */
+    totalLinksInMatrix: number;
+    /** Исходящих связей, ведущих вне матрицы. */
+    totalLinksOutOfScope: number;
+    /** Разбивка связей внутри матрицы по типам. */
     byKind: Record<MatrixCellKind, number>;
   };
 }
@@ -43,13 +72,29 @@ export interface MatrixOptions {
   limit?: number;
 }
 
+const PRIORITY: Record<MatrixCellKind, number> = {
+  reference: 3,
+  inheritance: 2,
+  linkage: 1,
+};
+
+function pickDominantKind(
+  current: MatrixCellKind,
+  incoming: MatrixCellKind,
+): MatrixCellKind {
+  return PRIORITY[incoming] > PRIORITY[current] ? incoming : current;
+}
+
 /**
  * Строит матрицу связей.
  *
- * Логика:
- *   1) Отбираем сущности (по фильтру).
- *   2) Сортируем по количеству исходящих связей, берём топ-N.
- *   3) Для каждой пары (source, target) собираем ячейку.
+ * Ключевые отличия от «наивной» реализации:
+ *   1. Учитываются linkage (не только Reference + inherits).
+ *   2. Исходящие/входящие счётчики считаются по ВСЕЙ модели, а не только
+ *      внутри выбранного топ-N — сортировка «что показать» корректна.
+ *   3. Обе матрицы (исходящая и входящая) строятся сразу; UI переключает.
+ *   4. Никаких reverse-ячеек: входящая связь A→B — это ячейка [B][A]
+ *      во входящей матрице, а не «reverse» в исходящей.
  */
 export function buildEntityMatrix(
   index: ModelIndex,
@@ -58,7 +103,7 @@ export function buildEntityMatrix(
   const limit = options.limit ?? 60;
   const domainFilter = options.domains;
 
-  // 1. Отбор сущностей
+  // ── 1. Отбор кандидатов ──
   let candidates = index.entities;
   if (domainFilter && domainFilter.size > 0) {
     candidates = candidates.filter((e) =>
@@ -66,133 +111,183 @@ export function buildEntityMatrix(
     );
   }
 
-  // 2. Считаем исходящие ссылки на сущность (для сортировки)
-  const outgoingCount = new Map<string, number>();
-  candidates.forEach((e) => outgoingCount.set(e.fqid, 0));
+  const candidateByFqid = new Map(candidates.map((e) => [e.fqid, e]));
 
-  const addOutgoing = (fromFqid: string, toFqid: string): void => {
-    if (!outgoingCount.has(fromFqid)) return;
-    if (!outgoingCount.has(toFqid)) return;
-    outgoingCount.set(fromFqid, (outgoingCount.get(fromFqid) || 0) + 1);
-  };
-
+  // ── 2. Счётчики по всей модели ──
+  // Для каждой сущности — сколько исходящих и входящих связей вообще
+  // (не только между кандидатами). Это влияет на сортировку.
+  const outgoingAll = new Map<string, number>();
+  const incomingAll = new Map<string, number>();
   candidates.forEach((e) => {
-    // Reference-атрибуты
-    for (const a of e.attributes) {
-      const target = a.referenceEntity || a.itemReferenceEntity;
-      if (target) addOutgoing(e.fqid, target);
-    }
-    // Inheritance
-    if (e.inherits) addOutgoing(e.fqid, e.inherits);
+    outgoingAll.set(e.fqid, 0);
+    incomingAll.set(e.fqid, 0);
   });
 
-  // Linkages — через linkedViaLinkages в обе стороны
-  // (linkedViaLinkages пока не содержит peer — используем rawData)
-  // Для простоты: пока не учитываем linkage в сортировке.
+  const bumpOut = (fqid: string) => {
+    if (outgoingAll.has(fqid))
+      outgoingAll.set(fqid, outgoingAll.get(fqid)! + 1);
+  };
+  const bumpIn = (fqid: string) => {
+    if (incomingAll.has(fqid))
+      incomingAll.set(fqid, incomingAll.get(fqid)! + 1);
+  };
 
-  // 3. Топ-N
+  // Reference-атрибуты
+  for (const e of candidates) {
+    for (const a of e.attributes) {
+      const target = a.referenceEntity || a.itemReferenceEntity;
+      if (!target) continue;
+      bumpOut(e.fqid);
+      bumpIn(target);
+    }
+    // Inheritance
+    if (e.inherits) {
+      bumpOut(e.fqid);
+      bumpIn(e.inherits);
+    }
+  }
+
+  // Linkages — по всем linkages модели (могут быть кросс-доменные)
+  for (const l of index.entityLinkages) {
+    const side1 = l.side1Fqid;
+    const side2 = l.side2Fqid;
+    if (side1 === side2) continue; // self-loop пропускаем
+
+    if (l.undirected === true) {
+      // Ненаправленная: обе стороны получают и исходящую, и входящую
+      bumpOut(side1);
+      bumpIn(side1);
+      bumpOut(side2);
+      bumpIn(side2);
+    } else {
+      bumpOut(side1);
+      bumpIn(side2);
+    }
+  }
+
+  // ── 3. Топ-N по сумме входящих + исходящих ──
   const sorted = candidates.slice().sort((a, b) => {
-    const ca = outgoingCount.get(a.fqid) || 0;
-    const cb = outgoingCount.get(b.fqid) || 0;
-    if (ca !== cb) return cb - ca;
+    const ta = (outgoingAll.get(a.fqid) || 0) + (incomingAll.get(a.fqid) || 0);
+    const tb = (outgoingAll.get(b.fqid) || 0) + (incomingAll.get(b.fqid) || 0);
+    if (ta !== tb) return tb - ta;
     return a.fqid.localeCompare(b.fqid);
   });
 
   const selected = sorted.slice(0, limit);
   const selectedSet = new Set(selected.map((e) => e.fqid));
 
-  // 4. Строим rows
-  const rowsMap = new Map<string, MatrixRow>();
+  // ── 4. Построение ячеек ──
+  const rowByFqid = new Map<string, MatrixRow>();
   selected.forEach((e) => {
-    rowsMap.set(e.fqid, {
+    rowByFqid.set(e.fqid, {
       entity: e,
-      cells: new Map(),
-      totalOutgoing: 0,
+      cellsOut: new Map(),
+      cellsIn: new Map(),
+      totalOutgoingAll: outgoingAll.get(e.fqid) || 0,
+      totalIncomingAll: incomingAll.get(e.fqid) || 0,
+      totalOutgoingInMatrix: 0,
+      totalIncomingInMatrix: 0,
     });
   });
 
   function addCell(
-    sourceFqid: string,
-    targetFqid: string,
-    kind: MatrixCellKind,
-    via: string,
+    direction: "out" | "in",
+    rowFqid: string,
+    colFqid: string,
+    detail: MatrixCellDetail,
   ): void {
-    if (!selectedSet.has(sourceFqid) || !selectedSet.has(targetFqid)) return;
-    if (sourceFqid === targetFqid) return;
+    if (!selectedSet.has(rowFqid) || !selectedSet.has(colFqid)) return;
+    if (rowFqid === colFqid) return;
 
-    const row = rowsMap.get(sourceFqid)!;
-    let cell = row.cells.get(targetFqid);
+    const row = rowByFqid.get(rowFqid)!;
+    const cells = direction === "out" ? row.cellsOut : row.cellsIn;
+    let cell = cells.get(colFqid);
     if (!cell) {
-      cell = { kind, count: 0, details: [] };
-      row.cells.set(targetFqid, cell);
+      cell = { kind: detail.kind, count: 0, details: [] };
+      cells.set(colFqid, cell);
     }
-    // Если в ячейке уже другой тип — оставляем первый (приоритет reference > inherits > linkage)
-    // но count увеличиваем и детали добавляем.
-    if (cell.kind !== kind && priority(kind) > priority(cell.kind)) {
-      cell.kind = kind;
-    }
+    cell.kind = pickDominantKind(cell.kind, detail.kind);
     cell.count++;
-    cell.details.push({ via });
-    row.totalOutgoing++;
+    cell.details.push(detail);
+
+    if (direction === "out") row.totalOutgoingInMatrix++;
+    else row.totalIncomingInMatrix++;
   }
 
-  function priority(k: MatrixCellKind): number {
-    if (k === "reference") return 3;
-    if (k === "inheritance") return 2;
-    return 1;
-  }
-
-  // Заполняем ячейки
-  selected.forEach((e) => {
-    // Reference
+  // ── 4a. Reference + inheritance внутри выбранных ──
+  for (const e of selected) {
     for (const a of e.attributes) {
       const target = a.referenceEntity || a.itemReferenceEntity;
-      if (target) {
-        addCell(e.fqid, target, "reference", `attr:${a.id}`);
-      }
+      if (!target) continue;
+      const detail: MatrixCellDetail = {
+        kind: "reference",
+        via: `attr:${a.id}`,
+        label: a.name || a.id,
+      };
+      addCell("out", e.fqid, target, detail);
+      addCell("in", target, e.fqid, detail);
     }
-    // Inheritance
-    if (e.inherits) {
-      addCell(e.fqid, e.inherits, "inheritance", "inherits");
-      // Обратная ячейка — тоже подсветим как наследование
-      // (родитель ← потомок). Показываем как reverse-ячейку.
-      if (selectedSet.has(e.inherits)) {
-        const parentRow = rowsMap.get(e.inherits);
-        if (parentRow) {
-          let cell = parentRow.cells.get(e.fqid);
-          if (!cell) {
-            cell = { kind: "inheritance", count: 0, details: [] };
-            parentRow.cells.set(e.fqid, cell);
-          }
-          cell.count++;
-          cell.details.push({ via: e.fqid, reverse: true });
-          parentRow.totalOutgoing++;
-        }
-      }
+    if (e.inherits && selectedSet.has(e.inherits)) {
+      const detail: MatrixCellDetail = {
+        kind: "inheritance",
+        via: "inherits",
+        label: "inherits",
+      };
+      addCell("out", e.fqid, e.inherits, detail);
+      addCell("in", e.inherits, e.fqid, detail);
     }
-    // Linkages — не реализованы (нужен peer, см. комментарий в impact-analysis)
-  });
+  }
 
-  // 5. Формируем результат
-  const rows: MatrixRow[] = selected.map((e) => rowsMap.get(e.fqid)!);
+  // ── 4b. Linkages ──
+  for (const l of index.entityLinkages) {
+    const side1 = l.side1Fqid;
+    const side2 = l.side2Fqid;
+    if (side1 === side2) continue;
+
+    const detail: MatrixCellDetail = {
+      kind: "linkage",
+      via: `linkage:${l.id}`,
+      label: l.name || l.id,
+      linkageType: l.type,
+      undirected: l.undirected === true,
+    };
+
+    if (l.undirected === true) {
+      // Ненаправленная: каждая сторона видит другую как «out» и «in»
+      addCell("out", side1, side2, detail);
+      addCell("out", side2, side1, detail);
+      addCell("in", side1, side2, detail);
+      addCell("in", side2, side1, detail);
+    } else {
+      // Направленная: side1 → side2
+      addCell("out", side1, side2, detail);
+      addCell("in", side2, side1, detail);
+    }
+  }
+
+  // ── 5. Порядок строк и столбцов ──
+  const rows: MatrixRow[] = selected.map((e) => rowByFqid.get(e.fqid)!);
   const entityFqids = selected.map((e) => e.fqid);
 
   const columnIndex = new Map<string, number>();
   entityFqids.forEach((fqid, idx) => columnIndex.set(fqid, idx));
 
-  // Статистика
-  let totalLinks = 0;
+  // ── 6. Статистика ──
   const byKind: Record<MatrixCellKind, number> = {
     reference: 0,
     inheritance: 0,
     linkage: 0,
   };
-  rows.forEach((r) => {
-    r.cells.forEach((cell) => {
-      totalLinks += cell.count;
+  let totalLinksInMatrix = 0;
+  let totalLinksOutOfScope = 0;
+
+  for (const row of rows) {
+    totalLinksInMatrix += row.totalOutgoingInMatrix;
+    totalLinksOutOfScope += row.totalOutgoingAll - row.totalOutgoingInMatrix;
+    row.cellsOut.forEach((cell) => {
       byKind[cell.kind] += cell.count;
     });
-  });
+  }
 
   return {
     rows,
@@ -200,7 +295,10 @@ export function buildEntityMatrix(
     columnIndex,
     stats: {
       totalEntities: selected.length,
-      totalLinks,
+      totalAvailableEntities: candidates.length,
+      truncated: Math.max(0, candidates.length - selected.length),
+      totalLinksInMatrix,
+      totalLinksOutOfScope,
       byKind,
     },
   };

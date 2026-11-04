@@ -131,7 +131,25 @@ export interface EntityTree {
   parentKeys: Set<string>;
   childKeys: Set<string>;
   cycleNodes: Set<string>;
+
+  /** Siblings, показанные в графе (активны при showSiblings). */
+  siblingKeys: Set<string>;
+  /** Все возможные siblings (всегда — для UI-бейджа и KPI). */
+  siblingCandidates: Set<string>;
+  ancestorsOrdered: string[];
+  cycles: string[][];
+  nodeRoles: Map<string, EntityNodeRole>;
 }
+
+export type EntityNodeRole =
+    | "root"       // выбранная сущность
+    | "ancestor"   // предок root
+    | "descendant" // потомок root
+    | "sibling"    // другой ребёнок родителя root
+    | "referenced" // Reference-target (только в mode: all)
+    | "referencing" // кто ссылается через Reference (mode: all)
+    | "linked"     // linkage-сосед (mode: all)
+    | "external";  // FQID на другой домен / missing
 
 export interface CycleInfo {
   sccs: string[][];

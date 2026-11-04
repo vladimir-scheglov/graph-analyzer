@@ -48,6 +48,7 @@ export function useGraphLayout({
   const appliedRef = useRef<string | null>(null);
   const nodesRef = useRef<RFNode[]>([]);
   const edgesRef = useRef<RFEdge[]>([]);
+  const nsMode = useGraphStore((s) => s.nsMode);
 
   // Актуальные ссылки для useCallback без deps
   nodesRef.current = useGraphStore.getState().nodes;
@@ -55,10 +56,10 @@ export function useGraphLayout({
 
   const applyLayout = useCallback(
     (type: LayoutType, depth: number) => {
-      const visibleIds = new Set(filteredNodes.map((n) => n.id));
-      const layoutInput = nodesRef.current
-        .filter((n) => visibleIds.has(n.id))
-        .map((n) => ({ ...n, data: { ...n.data, __compact: compact } }));
+      const layoutInput = filteredNodes.map((n) => ({
+        ...n,
+        data: { ...n.data, __compact: compact },
+      }));
 
       if (layoutInput.length === 0) return;
 
@@ -70,6 +71,8 @@ export function useGraphLayout({
         type === "cluster" || type === "folder" ? result.boxes : [],
       );
       setClusterGroupCount(result.boxes.length);
+
+      const visibleIds = new Set(filteredNodes.map((n) => n.id));
 
       setNodes((prev) =>
         prev.map((n) => {
@@ -103,13 +106,24 @@ export function useGraphLayout({
   // Автоматический layout на изменение условий
   useEffect(() => {
     if (!filteredIdsHash) return;
+
+    // При nsMode раскладку делает useGraphFilters: ns-узлы в store.nodes
+    // отсутствуют, и applyLayout/setNodes их не увидят.
+    // Заодно снимаем рамки — при агрегации они не имеют смысла
+    // (ns-узел = уже схлопнутая группа).
+    if (nsMode) {
+      setClusterBoxes([]);
+      setClusterGroupCount(0);
+      appliedRef.current = null;
+      return;
+    }
+
     const key = `${layoutType}:${clusterDepth}:${compact}:${filteredIdsHash}`;
     if (appliedRef.current === key) return;
     appliedRef.current = key;
 
     applyLayout(layoutType, clusterDepth);
 
-    // Auto-fit после layout
     setTimeout(() => {
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
@@ -128,6 +142,9 @@ export function useGraphLayout({
     compact,
     applyLayout,
     rfInstance,
+    nsMode,
+    setClusterBoxes,
+    setClusterGroupCount,
   ]);
 
   useEffect(() => {
@@ -143,6 +160,14 @@ export function useGraphLayout({
 
   const relayout = useCallback(() => {
     appliedRef.current = null;
+
+    if (nsMode) {
+      // ns-узлы не в store.nodes — пересчитываем layout в useGraphFilters
+      // через новый массив (useMemo по ссылке nodes).
+      setNodes((prev) => [...prev]);
+      return;
+    }
+
     applyLayout(layoutType, clusterDepth);
     setTimeout(() => {
       if (rfInstance) {
@@ -151,7 +176,7 @@ export function useGraphLayout({
         } catch {}
       }
     }, 100);
-  }, [applyLayout, layoutType, clusterDepth, rfInstance]);
+  }, [applyLayout, layoutType, clusterDepth, rfInstance, nsMode, setNodes]);
 
   const invalidate = useCallback(() => {
     appliedRef.current = null;

@@ -3,7 +3,7 @@ import { useGraphStore } from "../state/useGraphStore";
 import { matchesNamespace } from "../lib/namespace-filter";
 import { mergeBidirectional } from "../lib/graph-transforms";
 import { aggregateByNamespace } from "../lib/graph-transforms";
-import { dagreLayout } from "../lib/layout";
+import { dagreLayout, LayoutType, runLayout } from "../lib/layout";
 import type { RFNode, RFEdge } from "../lib/types";
 import { evaluateRules } from "../lib/rules";
 
@@ -45,12 +45,34 @@ export function useGraphFilters(): UseGraphFiltersResult {
   const bidirectional = useGraphStore((s) => s.bidirectional);
   const showViolationsOnly = useGraphStore((s) => s.showViolationsOnly);
 
+  const layoutType = useGraphStore((s) => s.layoutType);
+  const compact = useGraphStore((s) => s.compact);
+
   // Агрегация по неймспейсам — при включённом nsMode
   const display = useMemo(() => {
     if (!nsMode) return { nodes, edges };
+
     const agg = aggregateByNamespace(nodes, edges);
-    return { nodes: dagreLayout(agg.nodes, agg.edges, "LR"), edges: agg.edges };
-  }, [nodes, edges, nsMode]);
+    const aggWithCompact = agg.nodes.map((n) => ({
+      ...n,
+      data: { ...n.data, __compact: compact },
+    }));
+
+    // Для ns-узлов cluster/folder дают второй уровень агрегации
+    // (рамки вокруг семейств семейств) — это не то, что ждёт пользователь.
+    // Приводим их к LR; остальные раскладки применяются как есть.
+    const effectiveLayout: LayoutType =
+      layoutType === "TB"
+        ? "TB"
+        : layoutType === "force"
+          ? "force"
+          : layoutType === "circular"
+            ? "circular"
+            : "LR";
+
+    const result = runLayout(aggWithCompact, agg.edges, effectiveLayout);
+    return { nodes: result.nodes, edges: agg.edges };
+  }, [nodes, edges, nsMode, layoutType, compact]);
 
   const displayNodes = display.nodes;
   const displayEdges = display.edges;

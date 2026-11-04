@@ -160,3 +160,132 @@ export function findDeps(
   });
   return Array.from(set).sort();
 }
+
+// ============ SCC: разбивка циклических доменов на группы ============
+
+/**
+ * Tarjan SCC по графу зависимостей (deps: A → {B, C} = «A зависит от B, C»).
+ * Возвращает только циклы (SCC размера > 1) + self-loops.
+ *
+ * Используется для группировки cyclic[] в понятные «циклы»,
+ * а не плоский список.
+ */
+export function detectDependencyCycles(
+  deps: Map<string, Set<string>>,
+  onlyFrom?: Set<string>,
+): string[][] {
+  const nodes = new Set<string>();
+  deps.forEach((set, src) => {
+    if (onlyFrom && !onlyFrom.has(src)) {
+      // Узел не в области — но его deps ещё могут участвовать
+    }
+    nodes.add(src);
+    set.forEach((d) => nodes.add(d));
+  });
+  if (onlyFrom) {
+    for (const n of Array.from(nodes)) {
+      if (!onlyFrom.has(n)) nodes.delete(n);
+    }
+  }
+
+  let index = 0;
+  const stack: string[] = [];
+  const onStack = new Set<string>();
+  const indices = new Map<string, number>();
+  const lowlinks = new Map<string, number>();
+  const sccs: string[][] = [];
+
+  function strongconnect(v: string): void {
+    indices.set(v, index);
+    lowlinks.set(v, index);
+    index++;
+    stack.push(v);
+    onStack.add(v);
+
+    const neighbors = Array.from(deps.get(v) || []).filter((n) =>
+      nodes.has(n),
+    );
+    for (const w of neighbors) {
+      if (!indices.has(w)) {
+        strongconnect(w);
+        lowlinks.set(v, Math.min(lowlinks.get(v)!, lowlinks.get(w)!));
+      } else if (onStack.has(w)) {
+        lowlinks.set(v, Math.min(lowlinks.get(v)!, indices.get(w)!));
+      }
+    }
+
+    if (lowlinks.get(v) === indices.get(v)) {
+      const scc: string[] = [];
+      let w: string;
+      do {
+        w = stack.pop()!;
+        onStack.delete(w);
+        scc.push(w);
+      } while (w !== v);
+      if (scc.length > 1) {
+        sccs.push(scc);
+      } else {
+        // self-loop: A зависит от A
+        const only = scc[0];
+        if (deps.get(only)?.has(only)) sccs.push([only]);
+      }
+    }
+  }
+
+  for (const n of nodes) {
+    if (!indices.has(n)) strongconnect(n);
+  }
+
+  // Сортировка: сначала крупные циклы, потом по имени
+  sccs.sort((a, b) => {
+    if (b.length !== a.length) return b.length - a.length;
+    return a[0].localeCompare(b[0]);
+  });
+
+  return sccs;
+}
+
+/**
+ * Все транзитивные зависимости домена до заданной глубины.
+ * BFS по deps. Возвращает Map<fqid, distance>.
+ */
+export function transitiveDeps(
+  start: string,
+  deps: Map<string, Set<string>>,
+  maxDepth = 5,
+): Map<string, number> {
+  const result = new Map<string, number>();
+  const queue: Array<{ id: string; d: number }> = [{ id: start, d: 0 }];
+  const visited = new Set<string>([start]);
+
+  while (queue.length > 0) {
+    const { id, d } = queue.shift()!;
+    if (d >= maxDepth) continue;
+    const next = deps.get(id);
+    if (!next) continue;
+    for (const dep of next) {
+      if (visited.has(dep)) continue;
+      visited.add(dep);
+      result.set(dep, d + 1);
+      queue.push({ id: dep, d: d + 1 });
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Обратный индекс: кто зависит от X.
+ */
+export function reverseDeps(
+  deps: Map<string, Set<string>>,
+): Map<string, Set<string>> {
+  const rev = new Map<string, Set<string>>();
+  deps.forEach((set, src) => {
+    set.forEach((dst) => {
+      if (!rev.has(dst)) rev.set(dst, new Set());
+      rev.get(dst)!.add(src);
+    });
+  });
+  return rev;
+}
