@@ -35,9 +35,9 @@ export function FilterMenu({ counts }: FilterMenuProps) {
     };
 
     const nodeRows = [
-        { key: 'domain' as const, label: 'Domain', color: 'var(--success)' },
-        { key: 'missing' as const, label: 'Missing', color: 'var(--warning)' },
-        { key: 'broken' as const, label: 'Broken', color: 'var(--danger)' }
+        { key: 'domain' as const, label: 'Домен', color: 'var(--success)' },
+        { key: 'missing' as const, label: 'Отсутствующий', color: 'var(--warning)' },
+        { key: 'broken' as const, label: 'Битый', color: 'var(--danger)' }
     ];
     const edgeRows = [
         { key: 'linkage' as const, label: 'Linkage', color: LINKAGE_COLOR },

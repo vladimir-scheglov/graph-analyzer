@@ -241,6 +241,100 @@ export async function apiFetchExpertisePublished(
   return { source: raw.sourceCode, meta: raw.meta };
 }
 
+// ============ История версий экспертизы ============
+
+const EXPERTISE_VERSIONS_QUERY = `query expertiseVersions($filter: ExpertiseVersionsFilter!, $pagination: PaginationInput, $organizationIds: [String!]!) {
+  expertiseVersions(filter: $filter, pagination: $pagination, organizationIds: $organizationIds) {
+    versions {
+      expertiseId
+      id
+      version
+      sourceCode
+      updatedAt
+      updater { id displayName __typename }
+      __typename
+    }
+    pageInfo {
+      pagination { limit offset __typename }
+      totalCount
+      __typename
+    }
+    __typename
+  }
+}`;
+
+export interface ExpertiseVersionMeta {
+  /** id версии (UUID). */
+  id: string;
+  /** id экспертизы (тот же для всех версий). */
+  expertiseId: string;
+  /** SemVer-версия (например, "1.1.0-0"). */
+  version: string;
+  /**
+   * Полный YAML. Может быть пустым — если сервер не отдаёт sourceCode
+   * в list-запросе или у пользователя нет прав на исторические версии.
+   */
+  sourceCode: string;
+  updatedAt: string | null;
+  updatedBy: string | null;
+}
+
+export interface ExpertiseVersionsResult {
+  versions: ExpertiseVersionMeta[];
+  totalCount: number;
+}
+
+export async function apiFetchExpertiseVersions(
+  apiUrl: string,
+  token: string,
+  tenantId: string,
+  expertiseId: string,
+  rejectUnauthorized: boolean,
+  pagination: { limit: number; offset: number } = { limit: 50, offset: 0 },
+): Promise<ExpertiseVersionsResult> {
+  const res = await httpPost(
+    apiUrl,
+    {
+      operationName: "expertiseVersions",
+      variables: {
+        filter: { expertiseId },
+        organizationIds: [],
+        pagination,
+      },
+      query: EXPERTISE_VERSIONS_QUERY,
+    },
+    { Authorization: "Bearer " + token, "x-tenant-id": tenantId },
+    rejectUnauthorized,
+  );
+  if (res.status !== 200) throw new HttpError(res.status);
+  if (Array.isArray(res.json?.errors) && res.json.errors.length > 0) {
+    throwGraphQLError(res.json);
+  }
+  const data = res.json?.data?.expertiseVersions;
+  if (!data) throw new Error("Некорректный ответ expertiseVersions");
+
+  const versions: ExpertiseVersionMeta[] = (
+    Array.isArray(data.versions) ? data.versions : []
+  )
+    .map((v: any) => ({
+      id: String(v.id || ""),
+      expertiseId: String(v.expertiseId || ""),
+      version: String(v.version || ""),
+      sourceCode: typeof v.sourceCode === "string" ? v.sourceCode : "",
+      updatedAt: typeof v.updatedAt === "string" ? v.updatedAt : null,
+      updatedBy: v.updater?.displayName || null,
+    }))
+    .filter((v) => !!v.id);
+
+  return {
+    versions,
+    totalCount:
+      typeof data.pageInfo?.totalCount === "number"
+        ? data.pageInfo.totalCount
+        : versions.length,
+  };
+}
+
 export async function apiCheckRobject(
   apiUrl: string,
   token: string,

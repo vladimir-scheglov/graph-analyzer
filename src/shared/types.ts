@@ -137,6 +137,7 @@ export interface PublishResult {
   hint?: string;
   /** Идентификатор и имя опубликованной экспертизы (если ok === true). */
   domain?: { id: string; name: string };
+  diagnostics?: ValidationDiagnostic[];
 }
 
 /** Результат сохранения черновика (saveDraft). */

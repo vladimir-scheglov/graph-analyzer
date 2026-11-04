@@ -151,7 +151,7 @@ export function DomainListRow({
                                 "domain-list-row__badge domain-list-row__badge--" + d.nodeType
                             }
                         >
-                            {d.nodeType === "missing" ? "missing" : "broken"}
+                            {d.nodeType === "missing" ? "Отсутствует" : "Битый"}
                         </span>
                     )}
                 </div>
@@ -189,7 +189,7 @@ export function DomainListRow({
                                     name={isDisabled ? "pause_circle" : "play_circle"}
                                     size="sm"
                                 />
-                                <span>{status}</span>
+                                <span>{isDisabled ? "Выключен" : "Включен"}</span>
                             </button>
                         )}
                     </div>

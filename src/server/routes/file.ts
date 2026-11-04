@@ -12,6 +12,8 @@ import {
   apiSaveExpertiseDraft,
   type ExpertiseSourceResult,
   type ExpertisePublishedResult,
+  apiCheckRobject,
+  apiFetchExpertiseVersions,
 } from "../../core/remote/schemas-loader";
 import type {
   DraftResult,
@@ -19,6 +21,7 @@ import type {
   SaveResponse,
   RemoteCredentials,
   DomainPublishInfo,
+  ValidationDiagnostic,
 } from "../../shared/types";
 
 // ============ GET /file?path=... ============
@@ -213,6 +216,69 @@ async function tryPublish(
   }
 }
 
+/**
+ * Обязательная серверная валидация перед публикацией.
+ *
+ * Возвращает:
+ *  - { ok: true }                                — схема валидна;
+ *  - { ok: false, error, diagnostics? }           — схема невалидна или
+ *    проверку выполнить не удалось (сеть, 401, 5xx).
+ *
+ * Любой исход кроме `ok: true` блокирует публикацию.
+ */
+async function tryValidateForPublish(
+  content: string,
+  credentials: RemoteCredentials,
+): Promise<{
+  ok: boolean;
+  diagnostics?: ValidationDiagnostic[];
+  error?: string;
+}> {
+  try {
+    const response = await withTokenRefresh(credentials, (t) =>
+      apiCheckRobject(
+        credentials.apiUrl,
+        t,
+        credentials.tenantId,
+        content,
+        credentials.secure,
+      ),
+    );
+
+    if (response.status !== 200) {
+      return {
+        ok: false,
+        error: `HTTP ${response.status} от сервера валидации`,
+      };
+    }
+
+    const checkResult = response.json?.data?.checkRobject;
+    if (!checkResult) {
+      return {
+        ok: false,
+        error: "Некорректный ответ от сервера валидации",
+      };
+    }
+
+    if (checkResult.isValid === true) {
+      return { ok: true };
+    }
+
+    return {
+      ok: false,
+      error: "Схема не прошла серверную валидацию",
+      diagnostics: Array.isArray(checkResult.diagnostics)
+        ? (checkResult.diagnostics as ValidationDiagnostic[])
+        : [],
+    };
+  } catch (e: any) {
+    return {
+      ok: false,
+      error: "Валидация не выполнена: " + (e?.message || String(e)),
+    };
+  }
+}
+
 // ============ POST /file (сохранение) ============
 
 export async function handleFileSave(
@@ -295,7 +361,21 @@ export async function handleFileSave(
     if (action === "save") {
       draft = await trySaveDraft(content, credentials, domainIndex);
     } else {
-      publish = await tryPublish(content, credentials, domainIndex);
+      // ── Обязательная серверная валидация перед публикацией ──
+      // Файл уже записан на диск (см. шаг 1 выше) — это осознанно:
+      // при ошибке валидации пользователь не теряет свои правки,
+      // но публикация на сервер не выполняется.
+      const validation = await tryValidateForPublish(content, credentials);
+      if (!validation.ok) {
+        publish = {
+          ok: false,
+          error: validation.error || "Схема не прошла серверную валидацию",
+          code: "VALIDATION_FAILED",
+          diagnostics: validation.diagnostics,
+        };
+      } else {
+        publish = await tryPublish(content, credentials, domainIndex);
+      }
     }
   } else if (mode === "hybrid" && action === "publish") {
     publish = {
@@ -602,4 +682,95 @@ export async function handleFilePublished(
   }
   res.writeHead(200, headers);
   res.end(fetched.source);
+}
+
+// ============ GET /api/expertise-versions?path=... ============
+
+export async function handleExpertiseVersions(
+  req: IncomingMessage,
+  res: ServerResponse,
+  rootDir: string,
+  mode: "local" | "hybrid" | "remote",
+  credentials: RemoteCredentials | null,
+  domainIndex: Map<string, DomainPublishInfo> | null,
+): Promise<void> {
+  const url = new URL(req.url!, "http://localhost");
+  const filePath = url.searchParams.get("path");
+  if (!filePath) {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "path обязателен" }));
+    return;
+  }
+
+  if (mode !== "remote" || !credentials || !domainIndex) {
+    res.writeHead(403, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        error:
+          "История версий доступна только в удалённом режиме (--server, без локального каталога)",
+      }),
+    );
+    return;
+  }
+
+  // filePath → sourceId (basename без .ro) → expertiseId из _index.json
+  const baseName = path.basename(filePath).replace(/\.ro$/i, "");
+  const info = domainIndex.get(baseName);
+  if (!info) {
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        error: `Домен «${baseName}» не найден в _index.json кэша`,
+        hint: "Запустите --refresh, чтобы обновить индекс",
+      }),
+    );
+    return;
+  }
+
+  const DEFAULT_LIMIT = 10;
+  const MAX_LIMIT = 200;
+
+  const limitRaw = parseInt(
+    url.searchParams.get("limit") || String(DEFAULT_LIMIT),
+    10,
+  );
+  const limit = Math.min(
+    MAX_LIMIT,
+    Math.max(1, Number.isFinite(limitRaw) ? limitRaw : DEFAULT_LIMIT),
+  );
+  const offset = Math.max(
+    0,
+    parseInt(url.searchParams.get("offset") || "0", 10) || 0,
+  );
+
+  try {
+    const result = await withTokenRefresh(credentials, (t) =>
+      apiFetchExpertiseVersions(
+        credentials.apiUrl,
+        t,
+        credentials.tenantId,
+        info.id,
+        credentials.secure,
+        { limit, offset },
+      ),
+    );
+
+    res.writeHead(200, {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-cache",
+    });
+    res.end(
+      JSON.stringify({
+        domainId: baseName,
+        expertiseId: info.id,
+        versions: result.versions,
+        totalCount: result.totalCount,
+        limit,
+        offset,
+      }),
+    );
+  } catch (e: any) {
+    res.writeHead(502, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: e.message || String(e) }));
+  }
 }

@@ -58,10 +58,73 @@ import { hashPayload } from '../../../core/analyzer/schema-generator/util-hash';
 import { computePublishDiff } from '../../lib/model/publish-diff';
 import { suggestVersionBump } from '../../lib/version-impact';
 import { alertDialog, confirmDialog } from '../../lib/dialogs';
+import { SchemaHistoryModal } from './SchemaHistoryModal';
 
 type RightTab = 'issues' | 'refs' | 'backlinks' | 'server';
 type NavTab = "navigation" | "search" | "bookmarks";
 type DiffAgainst = "previous" | "published" | null;
+
+/**
+ * Запускает серверную валидацию текущего контента.
+ * Используется как предвалидация перед публикацией — чтобы не показывать
+ * preview-модалку, если схема заведомо не пройдёт проверку.
+ */
+async function validateSourceCodeOnServer(sourceCode: string): Promise<{
+    isValid: boolean;
+    diagnostics?: any[];
+    error?: string;
+}> {
+    try {
+        const res = await fetch("/api/validate-single", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sourceCode }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            return {
+                isValid: false,
+                error: data?.error || `HTTP ${res.status}`,
+            };
+        }
+        return {
+            isValid: !!data.isValid,
+            diagnostics: Array.isArray(data.diagnostics) ? data.diagnostics : [],
+            error: data.error,
+        };
+    } catch (e: any) {
+        return { isValid: false, error: e?.message || String(e) };
+    }
+}
+
+/**
+ * Превращает результат валидации в человекочитаемый текст для диалога.
+ * Ограничивает вывод 30 диагностиками — дальше пользователь сам откроет
+ * вкладку «Сервер» в правой панели.
+ */
+function formatValidationDiagnostics(v: {
+    diagnostics?: any[];
+    error?: string;
+}): string {
+    if (v.error) return v.error;
+    const diags = v.diagnostics || [];
+    if (diags.length === 0) {
+        return "Сервер вернул «не валидна», но без диагностик. Откройте вкладку «Сервер» для деталей.";
+    }
+    const lines = diags.slice(0, 30).map((d: any) => {
+        const sev = d.severity || "ERROR";
+        const labels = (d.labels || [])
+            .map((l: any) => l.message)
+            .filter(Boolean);
+        const labelText =
+            labels.length > 0 ? "\n    " + labels.join("\n    ") : "";
+        return `[${sev}] ${d.message}${labelText}`;
+    });
+    if (diags.length > 30) {
+        lines.push(`…и ещё ${diags.length - 30} диагностик(и).`);
+    }
+    return lines.join("\n\n");
+}
 
 /**
  * Извлекает значение `version:` с indent 0 (top-level metadata).
@@ -202,6 +265,7 @@ export function YamlViewerModal() {
     const [editorCreated, setEditorCreated] = useState(false);
     const [ignoredVersion, setIgnoredVersion] = useState(0);
     const [diffAgainst, setDiffAgainst] = useState<DiffAgainst>(null);
+    const [historyOpen, setHistoryOpen] = useState(false);
     const [previousContent, setPreviousContent] = useState<string | null>(null);
     const [publishedContent, setPublishedContent] = useState<string | null>(null);
     const diffContainerRef = useRef<HTMLDivElement>(null);
@@ -226,7 +290,10 @@ export function YamlViewerModal() {
     }, [quickJumpOpen]);
 
     useEffect(() => {
-        if (!open) setQuickJumpOpen(false);
+        if (!open) {
+            setQuickJumpOpen(false);
+            setHistoryOpen(false);
+        }
     }, [open]);
 
     // Поделиться: если в URL есть #q=..., открыть поповер с этим query.
@@ -483,7 +550,9 @@ export function YamlViewerModal() {
     const isDirty = normalizeEol(content) !== normalizeEol(savedContent);
     const [isSaving, setIsSaving] = useState(false);
     const [saveError, setSaveError] = useState<string | null>(null);
-    const [saveStage, setSaveStage] = useState<"idle" | "writing" | "publishing">("idle");
+    const [saveStage, setSaveStage] = useState<
+        "idle" | "writing" | "publishing" | "validating"
+    >("idle");
     const [copyFeedback, setCopyFeedback] = useState(false);
     const [saveFeedback, setSaveFeedback] = useState(false);
 
@@ -599,6 +668,13 @@ export function YamlViewerModal() {
         if (!index || !effectiveDomainId) return null;
         return index.schemasByDomain[effectiveDomainId] || null;
     }, [index, effectiveDomainId]);
+
+    const schemaMeta = schema?.metadata;
+    const displayDomainName =
+        schemaMeta?.name && schemaMeta.name !== schemaMeta.id
+            ? schemaMeta.name
+            : null;
+    const publishedVersion = yamlMeta?.publishedVersion || null;
 
     // src/web/components/modals/YamlViewerModal.tsx
     const lineMap = useMemo(() => {
@@ -2545,6 +2621,56 @@ export function YamlViewerModal() {
         }
     }, [isLocked, isDirty, savedContent, filePath]);
 
+    /**
+ * Заменяет содержимое редактора содержимым выбранной версии.
+ *
+ * - Использует executeEdits-совместимый setValue, обёрнутый в
+ *   isProgrammaticChange, чтобы не триггерить onChange-обработчик
+ *   (иначе он сбросит backup и второй раз поставит content).
+ * - pushUndoStop до и после — пользователь может откатить замену через Ctrl+Z.
+ * - savedContent НЕ трогаем: isDirty станет true, что правильно.
+ * - Backup пишем вручную — иначе он обновится только при следующем keystroke.
+ */
+    const handleApplyHistory = useCallback(
+        (newContent: string) => {
+            if (!editorRef.current) return;
+            const ed = editorRef.current;
+            try { ed.pushUndoStop(); } catch { /* ignore */ }
+
+            isProgrammaticChange.current = true;
+            try {
+                ed.setValue(newContent);
+            } finally {
+                isProgrammaticChange.current = false;
+            }
+
+            try { ed.pushUndoStop(); } catch { /* ignore */ }
+
+            setContent(newContent);
+            setLiveVersion((v) => v + 1);
+
+            if (filePath) {
+                try {
+                    sessionStorage.setItem(
+                        `dg-yaml-backup:${filePath}`,
+                        JSON.stringify({
+                            content: newContent,
+                            savedContentHash: hashPayload(normalizeEol(savedContent)),
+                            savedAt: Date.now(),
+                        }),
+                    );
+                } catch {
+                    /* ignore */
+                }
+            }
+
+            useGraphStore
+                .getState()
+                .showSnackbar("Содержимое заменено версией из истории");
+        },
+        [filePath, savedContent],
+    );
+
     // ============ Save ============
     const handleSave = useCallback(async () => {
         if (isLocked || isSaving || !editorRef.current) return;
@@ -3807,15 +3933,30 @@ export function YamlViewerModal() {
                 );
             } else if (publishInfo && publishInfo.ok === false) {
                 hadError = true;
-                const hint = publishInfo.hint
-                    ? `\n${publishInfo.hint}`
-                    : "";
-                setSaveError(
-                    `Локально сохранено. Публикация не прошла: ${publishInfo.error}${hint}`,
-                );
-                useGraphStore.getState().showSnackbar(
-                    `⚠️ Локально сохранено, публикация не удалась: ${publishInfo.error}`,
-                );
+
+                if (publishInfo.code === "VALIDATION_FAILED") {
+                    // Сработала обязательная серверная валидация (defense in depth).
+                    // Клиентская предвалидация уже должна была отсечь этот случай,
+                    // но если состояние изменилось между вызовами — показываем детали.
+                    const diagText = formatValidationDiagnostics({
+                        diagnostics: publishInfo.diagnostics,
+                        error: publishInfo.error,
+                    });
+                    setSaveError(
+                        `Публикация отклонена: схема не прошла валидацию.\n${diagText}`,
+                    );
+                    useGraphStore.getState().showSnackbar(
+                        "❌ Публикация отклонена: схема не прошла валидацию",
+                    );
+                } else {
+                    const hint = publishInfo.hint ? `\n${publishInfo.hint}` : "";
+                    setSaveError(
+                        `Локально сохранено. Публикация не прошла: ${publishInfo.error}${hint}`,
+                    );
+                    useGraphStore.getState().showSnackbar(
+                        `⚠️ Локально сохранено, публикация не удалась: ${publishInfo.error}`,
+                    );
+                }
             }
             // publishInfo === null → local-режим: файл записан, публикации нет.
             // Ничего дополнительного не делаем; setSaveFeedback ниже покажет ✓.
@@ -3844,6 +3985,65 @@ export function YamlViewerModal() {
         if (isLocked || isSaving || !editorRef.current) return;
 
         let valueToSave = editorRef.current.getValue();
+
+        // ── 0. Обязательная серверная валидация (только remote) ──
+        if (mode === "remote") {
+            setIsSaving(true);
+            setSaveStage("validating");
+            setSaveError(null);
+
+            // ── УДАЛЯЕМ СТАРЫЕ МАРКЕРЫ ПЕРЕД НОВОЙ ВАЛИДАЦИЕЙ ──
+            // Тот же приём, что и в handleServerValidate: сброс serverValidation
+            // в null заставляет существующий effect очистить source: "server-validate".
+            setServerValidation(null);
+
+            try {
+                const validation = await validateSourceCodeOnServer(valueToSave);
+
+                if (!validation.isValid) {
+                    // ── УСТАНАВЛИВАЕМ МАРКЕРЫ ──
+                    // Effect подхватит это состояние и отрисует маркеры в редакторе
+                    // через model.setModelMarkers(model, "server-validate", [...]).
+                    setServerValidation({
+                        isValid: false,
+                        diagnostics: validation.diagnostics || [],
+                        error: validation.error,
+                        validatedAt: new Date().toISOString(),
+                    });
+
+                    // Открываем вкладку «Сервер» — там список с кликабельными строками
+                    setRightTab("server");
+
+                    // Показываем диалог с деталями
+                    const detail = formatValidationDiagnostics(validation);
+                    await alertDialog("Схема не прошла серверную валидацию", {
+                        variant: "danger",
+                        detail,
+                        title: "Публикация отменена",
+                        confirmLabel: "Исправить",
+                    });
+                    return;
+                }
+
+                // ── УСПЕХ: очищаем маркеры ──
+                // isValid: true в существующем effect снимает все маркеры
+                // source: "server-validate".
+                setServerValidation({
+                    isValid: true,
+                    diagnostics: [],
+                    validatedAt: new Date().toISOString(),
+                });
+            } catch (e: any) {
+                await alertDialog("Ошибка серверной валидации", {
+                    variant: "danger",
+                    detail: e.message || String(e),
+                });
+                return;
+            } finally {
+                setIsSaving(false);
+                setSaveStage("idle");
+            }
+        }
 
         // 1. Проверяем версию (умный авто-bump по impact)
         if (mode === "remote" || mode === "local") {
@@ -4053,9 +4253,7 @@ export function YamlViewerModal() {
                 <div className="help-modal__header">
                     <div className="help-modal__title" style={{ flexWrap: "wrap", rowGap: 4 }}>
                         <MIcon name="description" size="sm" />
-                        <span className="yaml-viewer-title__filename">
-                            {filePath?.split('/').pop() || 'Файл схемы'}
-                        </span>
+                        
                         {domainId && <span className="help-modal__badge">{domainId}</span>}
 
                         {/* Статусы: черновик, diff, сохранение/изменён */}
@@ -4108,12 +4306,18 @@ export function YamlViewerModal() {
                             <span
                                 className="help-modal__badge help-modal__badge--saving"
                                 title={
-                                    saveStage === "publishing"
-                                        ? "Идёт публикация на сервере"
-                                        : "Идёт запись файла на диск"
+                                    saveStage === "validating"
+                                        ? "Идёт серверная валидация схемы"
+                                        : saveStage === "publishing"
+                                            ? "Идёт публикация на сервере"
+                                            : "Идёт запись файла на диск"
                                 }
                             >
-                                {saveStage === "publishing" ? "● публикация…" : "● сохранение…"}
+                                {saveStage === "validating"
+                                    ? "● валидация…"
+                                    : saveStage === "publishing"
+                                        ? "● публикация…"
+                                        : "● сохранение…"}
                             </span>
                         ) : loading ? (
                             <span
@@ -4157,7 +4361,7 @@ export function YamlViewerModal() {
                         )}
 
                         {/* Meta-строка: версия (draft), время, автор */}
-                        {yamlMeta && (yamlMeta.publishedVersion || yamlMeta.updatedAt || yamlMeta.updatedBy) && (
+                        {yamlMeta && (yamlMeta.updatedAt || yamlMeta.updatedBy) && (
                             <span
                                 style={{
                                     marginLeft: 12,
@@ -4171,11 +4375,6 @@ export function YamlViewerModal() {
                                     color: "var(--text-500)",
                                 }}
                             >
-                                {yamlContentSource === "draft" && yamlMeta.publishedVersion && (
-                                    <span title="Версия опубликованной схемы (черновик не публикуется с новой version)">
-                                        опубликовано v{yamlMeta.publishedVersion}
-                                    </span>
-                                )}
                                 {yamlMeta.updatedAt && (
                                     <span title={new Date(yamlMeta.updatedAt).toLocaleString("ru-RU")}>
                                         сохранён {relativeTime(yamlMeta.updatedAt)}
@@ -4183,10 +4382,33 @@ export function YamlViewerModal() {
                                 )}
                                 {yamlMeta.updatedBy && (
                                     <span title="Автор последних изменений">
-                                        · {yamlMeta.updatedBy}
+                                        {yamlMeta.updatedAt ? "· " : ""}
+                                        {yamlMeta.updatedBy}
                                     </span>
                                 )}
                             </span>
+                        )}
+
+                        {(displayDomainName || publishedVersion) && (
+                            <div className="yaml-viewer-title__subtitle">
+                                {displayDomainName && (
+                                    <span className="yaml-viewer-title__domain">
+                                        {displayDomainName}
+                                    </span>
+                                )}
+                                {publishedVersion && (
+                                    <span
+                                        className="yaml-viewer-title__published"
+                                        title="Версия, опубликованная на сервере"
+                                    >
+                                        <MIcon
+                                            name="cloud_done"
+                                            size="sm"
+                                        />
+                                        <span>опубликовано v{publishedVersion}</span>
+                                    </span>
+                                )}
+                            </div>
                         )}
                     </div>
 
@@ -4340,6 +4562,26 @@ export function YamlViewerModal() {
                                 }
                             >
                                 <MIcon name="cloud_download" />
+                            </button>
+                        )}
+
+                        {mode === "remote" && (
+                            <button
+                                className={
+                                    "help-modal__icon-btn" + (historyOpen ? " active" : "")
+                                }
+                                onClick={() => setHistoryOpen((v) => !v)}
+                                disabled={isSaving || loading}
+                                style={dimStyle(isSaving || loading)}
+                                title={
+                                    isSaving
+                                        ? "Дождитесь окончания сохранения"
+                                        : loading
+                                            ? "Загрузка схемы…"
+                                            : "История версий схемы"
+                                }
+                            >
+                                <MIcon name="history" />
                             </button>
                         )}
 
@@ -4700,7 +4942,7 @@ export function YamlViewerModal() {
                                 className={`yaml-viewer-tab-item ${tab === filePath ? 'active' : ''}`}
                                 onClick={async () => {
                                     if (tab !== filePath) {
-                                        await openFileInEditor(tab); 
+                                        await openFileInEditor(tab);
                                     }
                                 }}
                             >
@@ -5722,6 +5964,16 @@ export function YamlViewerModal() {
 
             {/* Help modal */}
             {showHelp && <YamlViewerHelp onClose={() => setShowHelp(false)} />}
+
+            {historyOpen && (
+                <SchemaHistoryModal
+                    filePath={filePath}
+                    currentContent={content}
+                    mode={mode}
+                    onClose={() => setHistoryOpen(false)}
+                    onApply={handleApplyHistory}
+                />
+            )}
         </div>
     );
 }
