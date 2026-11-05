@@ -107,7 +107,7 @@ export function Toolbar(props: ToolbarProps) {
                     <kbd className="btn-kbd">⇧ Tab</kbd>
                 </button>
 
-                <Popover width={280} trigger={(open) => (
+                <Popover width={640} trigger={(open) => (
                     <button className={"btn" + (open ? " btn--active" : "")}>
                         <MIcon name="psychology" /> Модель
                     </button>

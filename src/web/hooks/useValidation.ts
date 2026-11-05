@@ -66,9 +66,12 @@ export function useValidation(): UseValidationResult {
     if (abortRef.current) {
       try {
         abortRef.current.abort();
-      } catch {}
+      } catch {
+        
+      }
     }
     setRunning(false);
+    setCancelled(true);
   }, []);
 
   const reset = useCallback(() => {
@@ -162,7 +165,11 @@ export function useValidation(): UseValidationResult {
           return read();
         })
         .catch((err) => {
-          if (err.name === "AbortError") return;
+          if (err.name === "AbortError") {
+            setRunning(false);
+            setCancelled(true);
+            return;
+          }
           setRunning(false);
           void alertDialog("Ошибка валидации", {
             detail: err.message,

@@ -1,191 +1,528 @@
-import React from 'react';
-import { useGraphStore } from '../../state/useGraphStore';
-import { useNavigation } from '../../hooks/useNavigation';
-import { MIcon } from '../common/MIcon';
-import { CollapsibleSection } from './CollapsibleSection';
-import { formatDate, sourceIcon, sourceLabel, sourceColor } from '../../lib/format';
-import { readRemoteInfo } from '../../state/initial';
-import { DomainMixinsPanel } from './DomainMixinsPanel';
-import { openFileInEditor } from '../../lib/open-file';
-import { DomainSonarPanel } from './DomainSonarPanel';
-
+import React, { useMemo, useState } from "react";
+import { useGraphStore } from "../../state/useGraphStore";
+import { useNavigation } from "../../hooks/useNavigation";
+import { useModelIndex } from "../../hooks/useModelIndex";
+import { MIcon } from "../common/MIcon";
+import { CollapsibleSection } from "./CollapsibleSection";
+import { formatDate, sourceIcon, sourceLabel, sourceColor } from "../../lib/format";
+import { readRemoteInfo } from "../../state/initial";
+import { DomainMixinsPanel } from "./DomainMixinsPanel";
+import { openFileInEditor } from "../../lib/open-file";
+import { DomainSonarPanel } from "./DomainSonarPanel";
+import type { RFNode, RFEdge, FQIDRef } from "../../lib/types";
 
 export interface DetailsTabProps {
-    node: any;
-    allNodes: any[];
-    allEdges: any[];
+    node: RFNode | null;
+    allNodes: RFNode[];
+    allEdges: RFEdge[];
     ruleViolations: any[];
 }
 
-export function DetailsTab({ node, allNodes, allEdges, ruleViolations }: DetailsTabProps) {
+// ============ Health helper ============
+
+function healthClass(score: number): "good" | "mid" | "bad" {
+    if (score >= 80) return "good";
+    if (score >= 50) return "mid";
+    return "bad";
+}
+
+// ============ Metric tile ============
+
+function MetricTile({
+    icon,
+    label,
+    value,
+    onClick,
+}: {
+    icon: string;
+    label: string;
+    value: number;
+    onClick?: () => void;
+}) {
+    return (
+        <button
+            type="button"
+            className={
+                "details-metric" + (onClick ? " details-metric--clickable" : "")
+            }
+            onClick={onClick}
+            disabled={!onClick}
+        >
+            <MIcon name={icon} size="sm" />
+            <div className="details-metric__value">{value}</div>
+            <div className="details-metric__label">{label}</div>
+        </button>
+    );
+}
+
+// ============ Ref group ============
+
+function KindGroupTitle({
+    kind,
+    count,
+}: {
+    kind: string;
+    count: number;
+}) {
+    const meta =
+        kind === "linkage"
+            ? { icon: "link", label: "Linkage", color: "#10b981" }
+            : kind === "fqid"
+                ? { icon: "call_made", label: "FQID", color: "#4b7c6c" }
+                : { icon: "arrow_forward", label: kind, color: "var(--text-500)" };
+    return (
+        <div className="details-ref-group__head">
+            <MIcon name={meta.icon} size="sm" style={{ color: meta.color }} />
+            <span className="details-ref-group__title" style={{ color: meta.color }}>
+                {meta.label}
+            </span>
+            <span className="details-ref-group__count">{count}</span>
+        </div>
+    );
+}
+
+// ============ Main ============
+
+export function DetailsTab({
+    node,
+    allNodes,
+    allEdges,
+    ruleViolations,
+}: DetailsTabProps) {
+    const { goto } = useNavigation();
+    const { index } = useModelIndex();
     const setDomainSchemaDomainId = useGraphStore((s) => s.setDomainSchemaDomainId);
     const setDomainSchemaOpen = useGraphStore((s) => s.setDomainSchemaOpen);
-    const { goto } = useNavigation();
+    const setEntityCatalogInitialFqid = useGraphStore(
+        (s) => s.setEntityCatalogInitialFqid,
+    );
+    const setEntityCatalogOpen = useGraphStore((s) => s.setEntityCatalogOpen);
+    const setLintOpen = useGraphStore((s) => s.setLintOpen);
+    const setPiiOpen = useGraphStore((s) => s.setPiiOpen);
+    const setHealthDashboardOpen = useGraphStore(
+        (s) => s.setHealthDashboardOpen,
+    );
+    const setDeletionSimulationFqid = useGraphStore(
+        (s) => s.setDeletionSimulationFqid,
+    );
+    const setDeletionSimulationOpen = useGraphStore(
+        (s) => s.setDeletionSimulationOpen,
+    );
+
+    const remoteInfo = useMemo(() => readRemoteInfo(), []);
+    const [fqidQuery, setFqidQuery] = useState("");
 
     if (!node) {
         return (
             <div className="details">
-                <div style={{ color: 'var(--text-500)', textAlign: 'center', padding: 40 }}>
-                    Узел не выбран
+                <div className="details__empty">
+                    <MIcon name="touch_app" size="xl" />
+                    <div>Выберите узел на графе или в списке</div>
                 </div>
             </div>
         );
     }
 
-    const incoming = allEdges.filter((e) => e.target === node.id);
-    const outgoing = allEdges.filter((e) => e.source === node.id);
-    const refs = node.data.fqidRefs || [];
-    const health = node.data.health;
-    const hc =
-        health != null ? (health >= 80 ? 'health-good' : health >= 50 ? 'health-mid' : 'health-bad') : null;
+    const d = node.data;
+    const isDomain = d.nodeType === "domain";
+    const domainId = d.domainId;
+    const domainLower = domainId.toLowerCase();
 
-    const remoteInfo = readRemoteInfo();
+    // ============ Data ============
+    const incoming = useMemo(
+        () => allEdges.filter((e) => e.target === node.id),
+        [allEdges, node.id],
+    );
+    const outgoing = useMemo(
+        () => allEdges.filter((e) => e.source === node.id),
+        [allEdges, node.id],
+    );
+    const refs: FQIDRef[] = d.fqidRefs || [];
+
+    // ============ Domain metrics from model index ============
+    const metrics = useMemo(() => {
+        if (!index || !isDomain) return null;
+        const domainEntities = index.entities.filter(
+            (e) => e.domainId === domainId,
+        );
+        const attributeCount = domainEntities.reduce((s, e) => {
+            let c = e.attributes.length;
+            for (const a of e.attributes) {
+                if (a.nestedAttributes) c += a.nestedAttributes.length;
+            }
+            return s + c;
+        }, 0);
+        const linkageCount = index.entityLinkages.filter(
+            (l) => l.domainId === domainId,
+        ).length;
+        const schema = index.schemasByDomain[domainId];
+        return {
+            entities: domainEntities.length,
+            attributes: attributeCount,
+            linkages: linkageCount,
+            views: schema?.sections.views.count ?? 0,
+            actions: schema?.sections.actions.count ?? 0,
+            dataTypes: index.dataTypes.filter(
+                (dt) => dt.domainId === domainId,
+            ).length,
+        };
+    }, [index, domainId, isDomain]);
+
+    // ============ Health ============
+    const health = d.health as number | null | undefined;
+    const healthBreakdown = (d.healthBreakdown || []) as Array<{
+        reason: string;
+        delta: number;
+    }>;
+    const hc = health != null ? healthClass(health) : null;
+
+    // ============ Validation / lint ============
+    const validationResults = useGraphStore((s) => s.validationResults);
+    const validation =
+        validationResults && isDomain
+            ? validationResults.get(domainId)
+            : null;
+    const validationDiagnostics = validation?.diagnostics ?? [];
+
+    const domainLintIssues = useMemo(() => {
+        if (!index || !isDomain) return [];
+        return index.lint.lintReport.issues.filter(
+            (i) => i.domainId === domainId,
+        );
+    }, [index, domainId, isDomain]);
+
+    const domainPii = useMemo(() => {
+        if (!index || !isDomain) return [];
+        return index.pii.hits.filter((h) =>
+            h.entityFqid.toLowerCase().startsWith(domainLower + "/"),
+        );
+    }, [index, domainLower, isDomain]);
+
+    // ============ Refs / edges ============
+    const filteredRefs = useMemo(() => {
+        const q = fqidQuery.trim().toLowerCase();
+        if (!q) return refs;
+        return refs.filter(
+            (r) =>
+                r.fullFQID.toLowerCase().includes(q) ||
+                (r.targetDomainId || "").toLowerCase().includes(q) ||
+                r.propertyPath.toLowerCase().includes(q),
+        );
+    }, [refs, fqidQuery]);
+
+    const incomingByKind = useMemo(() => {
+        const m = new Map<string, RFEdge[]>();
+        for (const e of incoming) {
+            const k = e.data?.kind || "fqid";
+            if (!m.has(k)) m.set(k, []);
+            m.get(k)!.push(e);
+        }
+        return Array.from(m.entries()).sort(
+            (a, b) => b[1].length - a[1].length,
+        );
+    }, [incoming]);
+
+    const outgoingByKind = useMemo(() => {
+        const m = new Map<string, RFEdge[]>();
+        for (const e of outgoing) {
+            const k = e.data?.kind || "fqid";
+            if (!m.has(k)) m.set(k, []);
+            m.get(k)!.push(e);
+        }
+        return Array.from(m.entries()).sort(
+            (a, b) => b[1].length - a[1].length,
+        );
+    }, [outgoing]);
+
+    // ============ Problem count for a highlight card ============
+    const totalProblems =
+        domainLintIssues.length +
+        validationDiagnostics.length +
+        ruleViolations.length;
+    const problemSeverity: "error" | "warning" | "info" | null =
+        domainLintIssues.some((i) => i.severity === "error") ||
+            validationDiagnostics.some((x) => x.severity === "ERROR")
+            ? "error"
+            : totalProblems > 0
+                ? "warning"
+                : null;
+
+    // ============ Actions ============
+    const openSchema = () => {
+        setDomainSchemaDomainId(domainId);
+        setDomainSchemaOpen(true);
+    };
+    const openFile = () => {
+        if (d.filePath) {
+            openFileInEditor(d.filePath, null, domainId);
+        }
+    };
+    const openCatalog = () => {
+        setEntityCatalogInitialFqid(null);
+        setEntityCatalogOpen(true);
+    };
+    const openDeletionSim = () => {
+        setDeletionSimulationFqid(null);
+        setDeletionSimulationOpen(true);
+    };
 
     return (
-        <div className="details">
-            <div className="details__title">{node.data.label || node.data.domainId}</div>
+        <div className="details details--v2">
+            {/* ── Metrics ── */}
+            {metrics && (
+                <div className="details-metrics-grid">
+                    <MetricTile
+                        icon="data_object"
+                        label="сущ."
+                        value={metrics.entities}
+                        onClick={openCatalog}
+                    />
+                    <MetricTile
+                        icon="edit_note"
+                        label="атр."
+                        value={metrics.attributes}
+                        onClick={openSchema}
+                    />
+                    <MetricTile
+                        icon="link"
+                        label="связи"
+                        value={metrics.linkages}
+                        onClick={openSchema}
+                    />
+                    <MetricTile
+                        icon="view_quilt"
+                        label="views"
+                        value={metrics.views}
+                        onClick={openSchema}
+                    />
+                    <MetricTile
+                        icon="bolt"
+                        label="actions"
+                        value={metrics.actions}
+                        onClick={openSchema}
+                    />
+                    <MetricTile
+                        icon="category"
+                        label="типы"
+                        value={metrics.dataTypes}
+                        onClick={openSchema}
+                    />
+                </div>
+            )}
 
-            <div className="details__id">
-                <span className="details__id-text">{node.data.domainId}</span>
-                <button
-                    className="details__copy"
-                    onClick={() => navigator.clipboard.writeText(node.data.domainId)}
-                    title="Копировать"
-                >
-                    <MIcon name="content_copy" size="sm" /> 
-                </button>
-            </div>
-
-            <div className="details__badges">
-                <span className={'details__badge details__badge--' + node.data.nodeType}>
-                    {node.data.nodeType}
-                </span>
-                {health != null && (
-                    <span className={'details__badge details__badge--' + hc}>
-                        Health: {health}/100
-                    </span>
-                )}
-                {node.data.version && (
-                    <span className="details__badge">v{node.data.version}</span>
-                )}
-            </div>
-
-            {node.data.nodeType === 'domain' && (
-                <div className="details__actions details__actions--top">
+            {/* ── Quick actions ── */}
+            {isDomain && (
+                <div className="details-actions-strip">
                     <button
-                        className="btn btn--primary"
-                        onClick={() => {
-                            setDomainSchemaDomainId(node.data.domainId);
-                            setDomainSchemaOpen(true);
-                        }}
+                        className="btn btn--primary btn--small"
+                        onClick={openSchema}
+                        title="Открыть схему домена"
                     >
                         <MIcon name="menu_book" size="sm" />
-                        Схема домена
+                        Схема
                     </button>
-                    {node.data.filePath && (
+                    {d.filePath && (
                         <button
-                            className="btn"
-                            onClick={() => openFileInEditor(node.data.filePath, null, node.data.domainId)}
+                            className="btn btn--small"
+                            onClick={openFile}
+                            title="Открыть YAML"
                         >
                             <MIcon name="description" size="sm" />
-                            Открыть файл
+                            YAML
                         </button>
                     )}
                     <button
-                        className="btn"
-                        onClick={() => {
-                            const st = useGraphStore.getState();
-                            st.setViewMode("graph");
-                            setTimeout(() => goto(node.data.domainId), 350);
-                        }}
-                        title="Центрировать на графе"
+                        className="btn btn--small"
+                        onClick={openCatalog}
+                        title="Каталог сущностей"
                     >
-                        <MIcon name="my_location" size="sm" />
-                        На графе
+                        <MIcon name="category" size="sm" />
+                        Каталог
+                    </button>
+                    <button
+                        className="btn btn--small"
+                        onClick={() => setHealthDashboardOpen(true)}
+                        title="Health Dashboard"
+                    >
+                        <MIcon name="dashboard" size="sm" />
                     </button>
                 </div>
             )}
 
-            {node.data.updatedAt && (
-                <div className="details__field">
-                    <div className="details__field-label">Обновлён</div>
-                    <div
-                        className="details__field-value"
-                        style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+            {/* ── Status badges ── */}
+            <div className="details-status-row">
+                <span className={"details__badge details__badge--" + d.nodeType}>
+                    {d.nodeType}
+                </span>
+                {d.version && (
+                    <span className="details__badge">v{d.version}</span>
+                )}
+                {d.hasDraft === true && (
+                    <span className="details__badge details__badge--draft">
+                        <MIcon name="edit_note" size="sm" />
+                        черновик
+                    </span>
+                )}
+                {d.status && (
+                    <span
+                        className={
+                            "details__badge details__badge--" +
+                            (d.status === "DISABLED" ? "disabled" : "enabled")
+                        }
                     >
+                        {d.status === "DISABLED" ? "выключен" : "включён"}
+                    </span>
+                )}
+                {hc && health != null && (
+                    <span
+                        className={
+                            "details__badge details__badge--health-" + hc
+                        }
+                        title={healthBreakdown
+                            .map((b) => `${b.reason}: ${b.delta}`)
+                            .join("\n")}
+                    >
+                        <MIcon name="favorite" size="sm" />
+                        Health {health}
+                    </span>
+                )}
+            </div>
+
+            {/* ── Problems card ── */}
+            {isDomain && totalProblems > 0 && (
+                <div
+                    className={
+                        "details-problems-card details-problems-card--" +
+                        (problemSeverity || "warning")
+                    }
+                >
+                    <div className="details-problems-card__head">
                         <MIcon
-                            name={sourceIcon(node.data.updatedAtSource)}
+                            name={
+                                problemSeverity === "error" ? "error" : "warning"
+                            }
                             size="sm"
-                            title={sourceLabel(node.data.updatedAtSource)}
                         />
-                        <span>{formatDate(node.data.updatedAt)}</span>
-                        <span
-                            style={{
-                                fontSize: 10,
-                                color: sourceColor(node.data.updatedAtSource),
-                                fontFamily: 'JetBrains Mono, monospace',
-                                padding: '1px 6px',
-                                borderRadius: 4,
-                                background: 'var(--bg-750)',
-                                marginLeft: 'auto'
-                            }}
-                        >
-                            {node.data.updatedAtSource === 'graphql'
-                                ? 'server'
-                                : node.data.updatedAtSource === 'fs'
-                                    ? 'local'
-                                    : '—'}
+                        <span className="details-problems-card__title">
+                            Проблемы: {totalProblems}
                         </span>
+                    </div>
+                    <div className="details-problems-card__stats">
+                        {domainLintIssues.length > 0 && (
+                            <button
+                                className="details-problems-card__stat"
+                                onClick={() => setLintOpen(true)}
+                            >
+                                <MIcon name="rule" size="sm" />
+                                <span>Линтер: {domainLintIssues.length}</span>
+                            </button>
+                        )}
+                        {validationDiagnostics.length > 0 && (
+                            <button
+                                className="details-problems-card__stat"
+                                onClick={() => useGraphStore.getState().setValidationOpen(true)}
+                            >
+                                <MIcon name="cloud_upload" size="sm" />
+                                <span>Сервер: {validationDiagnostics.length}</span>
+                            </button>
+                        )}
+                        {ruleViolations.length > 0 && (
+                            <button
+                                className="details-problems-card__stat"
+                                onClick={() => useGraphStore.getState().setRulesOpen(true)}
+                            >
+                                <MIcon name="block" size="sm" />
+                                <span>Правила: {ruleViolations.length}</span>
+                            </button>
+                        )}
                     </div>
                 </div>
             )}
 
-            {node.data.createdAt && (
-                <div className="details__field">
-                    <div className="details__field-label">Создан</div>
-                    <div
-                        className="details__field-value"
-                        style={{ display: 'flex', alignItems: 'center', gap: 8 }}
-                    >
-                        <MIcon
-                            name={sourceIcon(node.data.createdAtSource)}
-                            size="sm"
-                            title={sourceLabel(node.data.createdAtSource)}
-                        />
-                        <span>{formatDate(node.data.createdAt)}</span>
-                        <span
-                            style={{
-                                fontSize: 10,
-                                color: sourceColor(node.data.createdAtSource),
-                                fontFamily: 'JetBrains Mono, monospace',
-                                padding: '1px 6px',
-                                borderRadius: 4,
-                                background: 'var(--bg-750)',
-                                marginLeft: 'auto'
-                            }}
-                        >
-                            {node.data.createdAtSource === 'graphql'
-                                ? 'server'
-                                : node.data.createdAtSource === 'fs'
-                                    ? 'local'
-                                    : '—'}
+            {/* ── PII card ── */}
+            {isDomain && domainPii.length > 0 && (
+                <button
+                    className="details-pii-card"
+                    onClick={() => {
+                        setPiiOpen(true);
+                    }}
+                >
+                    <MIcon name="shield_lock" size="sm" />
+                    <span className="details-pii-card__label">
+                        PII-атрибутов в домене
+                    </span>
+                    <span className="details-pii-card__value">
+                        {domainPii.length}
+                    </span>
+                    {domainPii.some((h) => h.severity === "critical") && (
+                        <span className="details-pii-card__badge">
+                            {domainPii.filter((h) => h.severity === "critical").length}{" "}
+                            critical
                         </span>
+                    )}
+                </button>
+            )}
+
+            {/* ── Health breakdown ── */}
+            {hc && healthBreakdown.length > 0 && (
+                <div className="details-health-card">
+                    <div className="details-health-card__head">
+                        <span
+                            className={
+                                "details-health-card__score details-health-card__score--" +
+                                hc
+                            }
+                        >
+                            {health}
+                        </span>
+                        <span className="details-health-card__label">
+                            Health score
+                        </span>
+                    </div>
+                    <div className="details-health-card__bar">
+                        <div
+                            className={
+                                "details-health-card__fill details-health-card__fill--" +
+                                hc
+                            }
+                            style={{ width: (health ?? 0) + "%" }}
+                        />
+                    </div>
+                    <div className="details-health-card__rows">
+                        {healthBreakdown.map((b, i) => (
+                            <div key={i} className="details-health-card__row">
+                                <span className="details-health-card__reason">
+                                    {b.reason}
+                                </span>
+                                <span
+                                    className={
+                                        "details-health-card__delta " +
+                                        (b.delta < 0
+                                            ? "details-health-card__delta--neg"
+                                            : "details-health-card__delta--pos")
+                                    }
+                                >
+                                    {b.delta > 0 ? "+" + b.delta : b.delta}
+                                </span>
+                            </div>
+                        ))}
                     </div>
                 </div>
             )}
 
-            {node.data.description && (
+            {/* ── Overview ── */}
+            {d.description && (
                 <div className="details__field">
                     <div className="details__field-label">Описание</div>
-                    <div className="details__field-value">{node.data.description}</div>
+                    <div className="details__field-value">{d.description}</div>
                 </div>
             )}
 
-            {node.data.tags && node.data.tags.length > 0 && (
+            {d.tags && d.tags.length > 0 && (
                 <div className="details__field">
                     <div className="details__field-label">Теги</div>
                     <div className="details__tags">
-                        {node.data.tags.map((t: string, i: number) => (
+                        {d.tags.map((t: string, i: number) => (
                             <span key={i} className="tag">
                                 {t}
                             </span>
@@ -194,238 +531,338 @@ export function DetailsTab({ node, allNodes, allEdges, ruleViolations }: Details
                 </div>
             )}
 
-            {remoteInfo?.server && (
-                <div className="details__field">
-                    <div className="details__field-label">Каталог</div>
-                    <div
-                        className="details__field-value"
-                        style={{
-                            fontFamily: 'monospace',
-                            fontSize: 12,
-                            lineHeight: 1.7,
-                            wordBreak: 'break-word'
-                        }}
-                    >
-                        {node.data.folderPath && node.data.folderPath.length > 0
-                            ? node.data.folderPath.join(' / ')
-                            : '(корень)'}
-                    </div>
+            {/* ── Timeline ── */}
+            {(d.updatedAt || d.createdAt) && (
+                <div className="details-timeline">
+                    {d.updatedAt && (
+                        <div className="details-timeline__row">
+                            <MIcon
+                                name={sourceIcon(d.updatedAtSource)}
+                                size="sm"
+                                title={sourceLabel(d.updatedAtSource)}
+                            />
+                            <span className="details-timeline__label">
+                                Обновлён
+                            </span>
+                            <span className="details-timeline__value">
+                                {formatDate(d.updatedAt)}
+                            </span>
+                            <span
+                                className="details-timeline__source"
+                                style={{ color: sourceColor(d.updatedAtSource) }}
+                            >
+                                {d.updatedAtSource === "graphql"
+                                    ? "server"
+                                    : d.updatedAtSource === "fs"
+                                        ? "local"
+                                        : "—"}
+                            </span>
+                        </div>
+                    )}
+                    {d.createdAt && (
+                        <div className="details-timeline__row">
+                            <MIcon
+                                name={sourceIcon(d.createdAtSource)}
+                                size="sm"
+                            />
+                            <span className="details-timeline__label">
+                                Создан
+                            </span>
+                            <span className="details-timeline__value">
+                                {formatDate(d.createdAt)}
+                            </span>
+                            <span
+                                className="details-timeline__source"
+                                style={{ color: sourceColor(d.createdAtSource) }}
+                            >
+                                {d.createdAtSource === "graphql"
+                                    ? "server"
+                                    : d.createdAtSource === "fs"
+                                        ? "local"
+                                        : "—"}
+                            </span>
+                        </div>
+                    )}
                 </div>
             )}
 
-            {!remoteInfo?.server && node.data.filePath && (
-                <div className="details__field">
-                    <div className="details__field-label">Файл</div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                        <div
-                            className="details__field-value"
-                            style={{ fontFamily: 'monospace', fontSize: 11, flex: 1, wordBreak: 'break-all' }}
-                        >
-                            {node.data.filePath}
+            {/* ── FQID refs ── */}
+            {refs.length > 0 && (
+                <CollapsibleSection
+                    id="fqid-out"
+                    title="Исходящие FQID"
+                    icon="call_made"
+                    count={refs.length}
+                    right={
+                        refs.length > 5 && (
+                            <input
+                                type="text"
+                                className="details__field-inline-input"
+                                placeholder="Поиск…"
+                                value={fqidQuery}
+                                onChange={(e) => setFqidQuery(e.target.value)}
+                                onClick={(e) => e.stopPropagation()}
+                            />
+                        )
+                    }
+                >
+                    {filteredRefs.length === 0 ? (
+                        <div className="details__field-value details__field-value--muted">
+                            Ничего не найдено
                         </div>
-                        <button
-                            className="details__copy"
-                            onClick={() => {
-                                const path = node.data.filePath;
-                                const url = 'vscode://file' + (path.startsWith('/') ? path : '/' + path);
-                                window.location.href = url;
-                            }}
-                            title="Открыть в VS Code"
-                        >
-                            <MIcon name="code" />
-                        </button>
-                    </div>
-                </div>
-            )}
-
-            {node.data.health != null &&
-                node.data.healthBreakdown &&
-                node.data.healthBreakdown.length > 0 && (
-                    <div className="details__field">
-                        <div className="details__field-label">Health breakdown</div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                            {node.data.healthBreakdown.map((b: any, i: number) => (
-                                <div
-                                    key={i}
-                                    style={{
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        fontSize: 12,
-                                        color: 'var(--text-400)'
-                                    }}
-                                >
-                                    <span>{b.reason}</span>
-                                    <span
-                                        style={{
-                                            color: b.delta < 0 ? 'var(--danger)' : 'var(--success)',
-                                            fontWeight: 600,
-                                            fontFamily: 'monospace'
-                                        }}
-                                    >
-                                        {b.delta > 0 ? '+' + b.delta : b.delta}
-                                    </span>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-
-            <CollapsibleSection id="fqid-out" title="Исходящие FQID-ссылки" count={refs.length}>
-                {refs.length === 0 ? (
-                    <div className="details__field-value" style={{ color: 'var(--text-500)' }}>
-                        —
-                    </div>
-                ) : (
-                    <div className="details__refs">
-                        {refs.slice(0, 50).map((r: any, i: number) => {
-                            const targetExists = allNodes.some(
-                                (n) =>
-                                    (n.data.domainId || '').toLowerCase() ===
-                                    (r.targetDomainId || '').toLowerCase()
-                            );
-                            return (
-                                <div
-                                    key={i}
-                                    className={'details__ref' + (targetExists ? '' : ' details__ref--missing')}
-                                    onClick={() => targetExists && goto(r.targetDomainId)}
-                                >
-                                    <div>{r.fullFQID}</div>
-                                    <div className="details__ref-path">
-                                        {r.propertyPath + (!targetExists ? ' · ⚠️ missing' : '')}
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                )}
-            </CollapsibleSection>
-
-            <CollapsibleSection id="incoming" title="Входящие связи" count={incoming.length}>
-                {incoming.length === 0 ? (
-                    <div className="details__field-value" style={{ color: 'var(--text-500)' }}>—</div>
-                ) : (
-                    <div className="details__refs">
-                        {incoming.slice(0, 30).map((e: any, i: number) => {
-                            const src = allNodes.find((n) => n.id === e.source);
-                            return (
-                                <div
-                                    key={i}
-                                    className="details__ref"
-                                    onClick={() => src && goto(src.data.domainId)}
-                                >
-                                    <div>{src ? src.data.domainId : e.source}</div>
-                                    <div className="details__ref-path">{(e.data && e.data.kind) || ''}</div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                )}
-            </CollapsibleSection>
-
-            <CollapsibleSection id="outgoing" title="Исходящие связи" count={outgoing.length}>
-                {outgoing.length === 0 ? (
-                    <div className="details__field-value" style={{ color: 'var(--text-500)' }}>—</div>
-                ) : (
-                    <div className="details__refs">
-                        {outgoing.slice(0, 30).map((e: any, i: number) => {
-                            const tgt = allNodes.find((n) => n.id === e.target);
-                            return (
-                                <div
-                                    key={i}
-                                    className="details__ref"
-                                    onClick={() => tgt && goto(tgt.data.domainId)}
-                                >
-                                    <div>{tgt ? tgt.data.domainId : e.target}</div>
-                                    <div className="details__ref-path">{(e.data && e.data.kind) || ''}</div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                )}
-            </CollapsibleSection>
-
-            {node.data.nodeType === 'domain' && (
-                <CollapsibleSection id="mixins" title="Миксины">
-                    <DomainMixinsPanel domainId={node.data.domainId} />
-                </CollapsibleSection>
-            )}
-
-            {node.data.nodeType === 'domain' && (
-                <CollapsibleSection id="sonar" title="Sonar-оценка">
-                    <DomainSonarPanel domainId={node.data.domainId} />
-                </CollapsibleSection>
-            )}
-
-            {node.data.__validationStatus === 'invalid' &&
-                node.data.__validationDiagnostics &&
-                node.data.__validationDiagnostics.length > 0 && (
-                    <CollapsibleSection
-                        id="validation"
-                        title="Ошибки валидации"
-                        count={node.data.__validationDiagnostics.length}
-                    >
-                        <div style={{ maxHeight: 320, overflowY: 'auto' }}>
-                            {node.data.__validationDiagnostics.map((d: any, i: number) => (
-                                <div
-                                    key={i}
-                                    style={{
-                                        padding: '8px 10px',
-                                        background: 'var(--bg-750)',
-                                        borderRadius: 6,
-                                        marginBottom: 6,
-                                        fontSize: 12,
-                                        borderLeft:
-                                            '2px solid ' +
-                                            (d.severity === 'ERROR' ? 'var(--danger)' : 'var(--warning)')
-                                    }}
-                                >
+                    ) : (
+                        <div className="details__refs">
+                            {filteredRefs.slice(0, 100).map((r, i) => {
+                                const targetExists = allNodes.some(
+                                    (n) =>
+                                        (n.data.domainId || "").toLowerCase() ===
+                                        (r.targetDomainId || "").toLowerCase(),
+                                );
+                                return (
                                     <div
-                                        style={{
-                                            fontWeight: 700,
-                                            fontSize: 10,
-                                            textTransform: 'uppercase',
-                                            color: d.severity === 'ERROR' ? 'var(--danger)' : 'var(--warning)',
-                                            marginBottom: 4
-                                        }}
+                                        key={i}
+                                        className={
+                                            "details__ref" +
+                                            (targetExists
+                                                ? ""
+                                                : " details__ref--missing")
+                                        }
+                                        onClick={() =>
+                                            targetExists && goto(r.targetDomainId)
+                                        }
+                                        title={
+                                            !targetExists
+                                                ? "Целевой домен не найден в кэше"
+                                                : `Перейти к ${r.targetDomainId}`
+                                        }
                                     >
-                                        {d.severity}
+                                        <div className="details__ref-main">
+                                            <MIcon
+                                                name={
+                                                    targetExists
+                                                        ? "arrow_outward"
+                                                        : "link_off"
+                                                }
+                                                size="sm"
+                                            />
+                                            <span>{r.fullFQID}</span>
+                                        </div>
+                                        <div className="details__ref-path">
+                                            {r.propertyPath}
+                                        </div>
                                     </div>
-                                    <div style={{ color: 'var(--text-200)' }}>{d.message}</div>
-                                    {d.labels &&
-                                        d.labels.length > 0 &&
-                                        d.labels.map((lb: any, li: number) => (
-                                            <div
-                                                key={li}
-                                                style={{
-                                                    fontSize: 11,
-                                                    color: 'var(--text-500)',
-                                                    fontFamily: 'monospace',
-                                                    marginTop: 4
-                                                }}
-                                            >
-                                                {lb.message}
-                                                {lb.span && ' [' + lb.span.start + '–' + lb.span.end + ']'}
-                                            </div>
-                                        ))}
+                                );
+                            })}
+                            {filteredRefs.length > 100 && (
+                                <div className="details__ref-more">
+                                    …и ещё {filteredRefs.length - 100}
                                 </div>
-                            ))}
+                            )}
                         </div>
-                    </CollapsibleSection>
-                )}
+                    )}
+                </CollapsibleSection>
+            )}
 
-            <CollapsibleSection id="violations" title="Нарушения правил" count={ruleViolations.length}>
+            {/* ── Incoming edges ── */}
+            <CollapsibleSection
+                id="incoming"
+                title="Входящие связи"
+                icon="call_received"
+                count={incoming.length}
+            >
+                {incoming.length === 0 ? (
+                    <div className="details__field-value details__field-value--muted">
+                        Нет входящих связей
+                    </div>
+                ) : (
+                    <div className="details-ref-groups">
+                        {incomingByKind.map(([kind, edges]) => (
+                            <div key={kind} className="details-ref-group">
+                                <KindGroupTitle kind={kind} count={edges.length} />
+                                {edges.slice(0, 30).map((e, i) => {
+                                    const src = allNodes.find(
+                                        (n) => n.id === e.source,
+                                    );
+                                    return (
+                                        <div
+                                            key={i}
+                                            className="details-ref-group__item"
+                                            onClick={() =>
+                                                src && goto(src.data.domainId)
+                                            }
+                                        >
+                                            <span className="details-ref-group__dot" />
+                                            <span className="details-ref-group__label">
+                                                {src
+                                                    ? src.data.domainId
+                                                    : e.source}
+                                            </span>
+                                            {e.data?.fullLabel && (
+                                                <span
+                                                    className="details-ref-group__sublabel"
+                                                    title={e.data.fullLabel}
+                                                >
+                                                    {e.data.fullLabel}
+                                                </span>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                                {edges.length > 30 && (
+                                    <div className="details__ref-more">
+                                        …и ещё {edges.length - 30}
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </CollapsibleSection>
+
+            {/* ── Outgoing edges ── */}
+            <CollapsibleSection
+                id="outgoing"
+                title="Исходящие связи"
+                icon="call_made"
+                count={outgoing.length}
+            >
+                {outgoing.length === 0 ? (
+                    <div className="details__field-value details__field-value--muted">
+                        Нет исходящих связей
+                    </div>
+                ) : (
+                    <div className="details-ref-groups">
+                        {outgoingByKind.map(([kind, edges]) => (
+                            <div key={kind} className="details-ref-group">
+                                <KindGroupTitle kind={kind} count={edges.length} />
+                                {edges.slice(0, 30).map((e, i) => {
+                                    const tgt = allNodes.find(
+                                        (n) => n.id === e.target,
+                                    );
+                                    return (
+                                        <div
+                                            key={i}
+                                            className="details-ref-group__item"
+                                            onClick={() =>
+                                                tgt && goto(tgt.data.domainId)
+                                            }
+                                        >
+                                            <span className="details-ref-group__dot" />
+                                            <span className="details-ref-group__label">
+                                                {tgt
+                                                    ? tgt.data.domainId
+                                                    : e.target}
+                                            </span>
+                                            {e.data?.fullLabel && (
+                                                <span
+                                                    className="details-ref-group__sublabel"
+                                                    title={e.data.fullLabel}
+                                                >
+                                                    {e.data.fullLabel}
+                                                </span>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                                {edges.length > 30 && (
+                                    <div className="details__ref-more">
+                                        …и ещё {edges.length - 30}
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </CollapsibleSection>
+
+            {/* ── Mixins ── */}
+            {isDomain && (
+                <CollapsibleSection id="mixins" title="Миксины" icon="merge">
+                    <DomainMixinsPanel domainId={domainId} />
+                </CollapsibleSection>
+            )}
+
+            {/* ── Sonar ── */}
+            {isDomain && (
+                <CollapsibleSection
+                    id="sonar"
+                    title="Sonar-оценка"
+                    icon="science"
+                >
+                    <DomainSonarPanel domainId={domainId} />
+                </CollapsibleSection>
+            )}
+
+            {/* ── Validation diagnostics ── */}
+            {isDomain && validationDiagnostics.length > 0 && (
+                <CollapsibleSection
+                    id="validation"
+                    title="Серверная валидация"
+                    icon="cloud_upload"
+                    count={validationDiagnostics.length}
+                    badgeVariant="danger"
+                >
+                    <div className="details-validation">
+                        {validationDiagnostics.slice(0, 20).map((x: any, i: number) => (
+                            <div
+                                key={i}
+                                className={
+                                    "details-validation__row details-validation__row--" +
+                                    (x.severity === "ERROR"
+                                        ? "error"
+                                        : x.severity === "WARNING"
+                                            ? "warning"
+                                            : "info")
+                                }
+                            >
+                                <span className="details-validation__severity">
+                                    {x.severity}
+                                </span>
+                                <span className="details-validation__message">
+                                    {x.message}
+                                </span>
+                            </div>
+                        ))}
+                        {validationDiagnostics.length > 20 && (
+                            <div className="details__ref-more">
+                                …и ещё {validationDiagnostics.length - 20}
+                            </div>
+                        )}
+                    </div>
+                </CollapsibleSection>
+            )}
+
+            {/* ── Rule violations ── */}
+            <CollapsibleSection
+                id="violations"
+                title="Нарушения правил"
+                icon="block"
+                count={ruleViolations.length}
+                badgeVariant="danger"
+            >
                 {ruleViolations.length === 0 ? (
-                    <div className="details__field-value" style={{ color: 'var(--text-500)' }}>—</div>
+                    <div className="details__field-value details__field-value--muted">
+                        Нет нарушений
+                    </div>
                 ) : (
                     <div className="details__refs">
                         {ruleViolations.slice(0, 10).map((v: any, i: number) => (
                             <div
                                 key={i}
                                 className="rank-item"
-                                style={{ cursor: 'pointer' }}
+                                style={{ cursor: "pointer" }}
                                 onClick={() => goto(v.fromId)}
                             >
-                                <span className="rank-item__num">{v.severity === 'forbid' ? <MIcon name="block" size="sm" /> : <MIcon name="warning" size="sm" />}</span>
+                                <span className="rank-item__num">
+                                    <MIcon
+                                        name={
+                                            v.severity === "forbid"
+                                                ? "block"
+                                                : "warning"
+                                        }
+                                        size="sm"
+                                    />
+                                </span>
                                 <span className="rank-item__label">
                                     {v.fromId} → {v.toId}
                                 </span>
@@ -434,6 +871,55 @@ export function DetailsTab({ node, allNodes, allEdges, ruleViolations }: Details
                     </div>
                 )}
             </CollapsibleSection>
+
+            {/* ── File info ── */}
+            {!remoteInfo?.server && d.filePath && (
+                <div className="details__field">
+                    <div className="details__field-label">Файл</div>
+                    <div className="details-file">
+                        <code className="details-file__path">{d.filePath}</code>
+                        <button
+                            className="details__copy"
+                            onClick={openFile}
+                            title="Открыть в редакторе"
+                        >
+                            <MIcon name="open_in_new" size="sm" />
+                        </button>
+                    </div>
+                    {d.fileSize != null && (
+                        <div className="details-file__size">
+                            {(d.fileSize / 1024).toFixed(1)} KB
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {remoteInfo?.server && d.folderPath && d.folderPath.length > 0 && (
+                <div className="details__field">
+                    <div className="details__field-label">Каталог</div>
+                    <div className="details__field-value">
+                        {d.folderPath.join(" / ")}
+                    </div>
+                </div>
+            )}
+
+            {/* ── Destructive actions ── */}
+            {isDomain && (
+                <div className="details-danger-zone">
+                    <button
+                        className="btn btn--danger btn--small"
+                        onClick={() => {
+                            useGraphStore
+                                .getState()
+                                .setDeleteDomainTarget({ domainId });
+                        }}
+                        title="Удалить домен"
+                    >
+                        <MIcon name="delete_forever" size="sm" />
+                        Удалить домен
+                    </button>
+                </div>
+            )}
         </div>
     );
 }

@@ -6,309 +6,269 @@ export interface ModelMenuProps {
     close: () => void;
 }
 
+interface MenuItemDef {
+    icon: string;
+    label: string;
+    hotkey?: string;
+    onClick: () => void;
+}
+
+interface MenuSectionDef {
+    id: string;
+    label: string;
+    items: MenuItemDef[];
+}
+
 export function ModelMenu({ close }: ModelMenuProps) {
     const setEntityCatalogOpen = useGraphStore((s) => s.setEntityCatalogOpen);
     const setAttributeFinderOpen = useGraphStore((s) => s.setAttributeFinderOpen);
     const setEntityMatrixOpen = useGraphStore((s) => s.setEntityMatrixOpen);
+    const validationAvailable = useGraphStore((s) => s.validationAvailable);
 
-    const openCatalog = () => {
-        useGraphStore.getState().setEntityCatalogInitialFqid(null);
-        setEntityCatalogOpen(true);
+    const run = (fn: () => void) => () => {
+        fn();
         close();
     };
 
+    // ═══════════════════════════════════════════════════════════════
+    // Левая колонка: обзор модели + графы
+    // ═══════════════════════════════════════════════════════════════
+    const leftColumn: MenuSectionDef[] = [
+        {
+            id: 'overview',
+            label: 'Обзор модели',
+            items: [
+                {
+                    icon: 'dashboard',
+                    label: 'Health Dashboard',
+                    hotkey: '⇧⌘H',
+                    onClick: run(() =>
+                        useGraphStore.getState().setHealthDashboardOpen(true),
+                    ),
+                },
+                {
+                    icon: 'menu_book',
+                    label: 'Каталог сущностей',
+                    hotkey: '⇧⌘E',
+                    onClick: run(() => {
+                        useGraphStore
+                            .getState()
+                            .setEntityCatalogInitialFqid(null);
+                        setEntityCatalogOpen(true);
+                    }),
+                },
+                {
+                    icon: 'search',
+                    label: 'Поиск атрибутов',
+                    hotkey: '⇧⌘A',
+                    onClick: run(() => setAttributeFinderOpen(true)),
+                },
+                {
+                    icon: 'grid_on',
+                    label: 'Матрица связей',
+                    hotkey: '⇧⌘M',
+                    onClick: run(() => setEntityMatrixOpen(true)),
+                },
+                {
+                    icon: 'grid_view',
+                    label: 'Матрица атрибутов',
+                    hotkey: '⇧⌘B',
+                    onClick: run(() =>
+                        useGraphStore
+                            .getState()
+                            .setAttributeMatrixOpen(true),
+                    ),
+                },
+                {
+                    icon: 'account_tree',
+                    label: 'Граф сущностей',
+                    hotkey: '⇧⌘K',
+                    onClick: run(() =>
+                        useGraphStore.getState().setEntityGraphOpen(true),
+                    ),
+                },
+            ],
+        },
+        {
+            id: 'graphs-search',
+            label: 'Графы и поиск',
+            items: [
+                {
+                    icon: 'schema',
+                    label: 'Граф зависимостей views',
+                    hotkey: '⇧⌘R',
+                    onClick: run(() =>
+                        useGraphStore.getState().setViewGraphOpen(true),
+                    ),
+                },
+                {
+                    icon: 'search',
+                    label: 'Полнотекстовый поиск',
+                    hotkey: '⇧⌘U',
+                    onClick: run(() =>
+                        useGraphStore
+                            .getState()
+                            .setYamlFulltextSearchOpen(true),
+                    ),
+                },
+                {
+                    icon: 'history_edu',
+                    label: 'CHANGELOG и версии',
+                    hotkey: '⇧⌘O',
+                    onClick: run(() =>
+                        useGraphStore.getState().setChangelogOpen(true),
+                    ),
+                },
+            ],
+        },
+    ];
+
+    // ═══════════════════════════════════════════════════════════════
+    // Правая колонка: анализ + качество + инструменты
+    // ═══════════════════════════════════════════════════════════════
+    const qualityItems: MenuItemDef[] = [
+        {
+            icon: 'rule',
+            label: 'Линтер схем',
+            hotkey: '⇧⌘L',
+            onClick: run(() =>
+                useGraphStore.getState().setLintOpen(true),
+            ),
+        },
+        {
+            icon: 'verified',
+            label: 'Валидация модели',
+            hotkey: '⇧⌘V',
+            onClick: run(() =>
+                useGraphStore.getState().setModelValidationOpen(true),
+            ),
+        },
+        ...(validationAvailable
+            ? [
+                {
+                    icon: 'cloud_upload',
+                    label: 'Массовая валидация',
+                    onClick: run(() =>
+                        useGraphStore
+                            .getState()
+                            .setValidationOpen(true),
+                    ),
+                } as MenuItemDef,
+            ]
+            : []),
+        {
+            icon: 'shield_lock',
+            label: 'PII-атрибуты',
+            hotkey: '⇧⌘P',
+            onClick: run(() =>
+                useGraphStore.getState().setPiiOpen(true),
+            ),
+        },
+        {
+            icon: 'scatter_plot',
+            label: 'Архитектурные метрики',
+            hotkey: '⇧⌘Y',
+            onClick: run(() =>
+                useGraphStore.getState().setMartinOpen(true),
+            ),
+        },
+    ];
+
+    const rightColumn: MenuSectionDef[] = [
+        {
+            id: 'analysis',
+            label: 'Анализ',
+            items: [
+                {
+                    icon: 'inventory_2',
+                    label: 'Порядок установки',
+                    onClick: run(() =>
+                        useGraphStore.getState().setTopoOpen(true),
+                    ),
+                },
+                {
+                    icon: 'menu_book',
+                    label: 'Путь изучения',
+                    onClick: run(() =>
+                        useGraphStore.getState().setLearningPathOpen(true),
+                    ),
+                },
+                {
+                    icon: 'account_tree',
+                    label: 'Иерархия сущностей',
+                    onClick: run(() => {
+                        const st = useGraphStore.getState();
+                        st.setEntityHierarchyInitialKey(null);
+                        st.setEntityHierarchyOpen(true);
+                    }),
+                },
+            ],
+        },
+        {
+            id: 'quality',
+            label: 'Качество',
+            items: qualityItems,
+        },
+        {
+            id: 'tools',
+            label: 'Инструменты',
+            items: [
+                {
+                    icon: 'compare_arrows',
+                    label: 'Сравнить домены',
+                    onClick: run(() =>
+                        useGraphStore.getState().setDomainCompareOpen(true),
+                    ),
+                },
+                {
+                    icon: 'menu_book',
+                    label: 'Шпаргалка по схеме',
+                    onClick: run(() =>
+                        useGraphStore.getState().setCheatsheetOpen(true),
+                    ),
+                },
+                {
+                    icon: 'menu_book',
+                    label: 'Глоссарий',
+                    hotkey: '⇧⌘G',
+                    onClick: run(() =>
+                        useGraphStore.getState().setGlossaryOpen(true),
+                    ),
+                },
+            ],
+        },
+    ];
+
+    const renderColumn = (sections: MenuSectionDef[]) =>
+        sections.map((section) => (
+            <div key={section.id} className="menu__section">
+                <div className="menu__label">{section.label}</div>
+                {section.items.map((item) => (
+                    <button
+                        key={item.label}
+                        className="menu__item"
+                        onClick={item.onClick}
+                        title={item.label}
+                    >
+                        <span className="menu__icon">
+                            <MIcon name={item.icon} size="sm" />
+                        </span>
+                        <span className="menu__text">{item.label}</span>
+                        {item.hotkey && (
+                            <kbd className="menu__hotkey">{item.hotkey}</kbd>
+                        )}
+                    </button>
+                ))}
+            </div>
+        ));
+
     return (
-        <div className="menu">
-            <div className="menu__label" style={{ paddingLeft: 12, paddingTop: 6 }}>
-                Обзор модели
-            </div>
-
-            <button
-                className="menu__item"
-                onClick={() => {
-                    useGraphStore.getState().setHealthDashboardOpen(true);
-                    close();
-                }}
-            >
-                <span className="menu__icon">
-                    <MIcon name="dashboard" size="sm" />
-                </span>
-                <span className="menu__text">Health Dashboard</span>
-                <kbd className="menu__hotkey">⇧⌘H</kbd>
-            </button>
-
-            <button className="menu__item" onClick={openCatalog}>
-                <span className="menu__icon">
-                    <MIcon name="menu_book" size="sm" />
-                </span>
-                <span className="menu__text">Каталог сущностей</span>
-                <kbd className="menu__hotkey">⇧⌘E</kbd>
-            </button>
-
-            <button
-                className="menu__item"
-                onClick={() => {
-                    setAttributeFinderOpen(true);
-                    close();
-                }}
-            >
-                <span className="menu__icon">
-                    <MIcon name="search" size="sm" />
-                </span>
-                <span className="menu__text">Поиск атрибутов</span>
-                <kbd className="menu__hotkey">⇧⌘A</kbd>
-            </button>
-
-            <button
-                className="menu__item"
-                onClick={() => {
-                    setEntityMatrixOpen(true);
-                    close();
-                }}
-            >
-                <span className="menu__icon">
-                    <MIcon name="grid_on" size="sm" />
-                </span>
-                <span className="menu__text">Матрица связей</span>
-                <kbd className="menu__hotkey">⇧⌘M</kbd>
-            </button>
-
-            <button
-                className="menu__item"
-                onClick={() => {
-                    useGraphStore.getState().setAttributeMatrixOpen(true);
-                    close();
-                }}
-            >
-                <span className="menu__icon">
-                    <MIcon name="grid_view" size="sm" />
-                </span>
-                <span className="menu__text">Матрица атрибутов</span>
-                <kbd className="menu__hotkey">⇧⌘B</kbd>
-            </button>
-
-            <button
-                className="menu__item"
-                onClick={() => {
-                    useGraphStore.getState().setEntityGraphOpen(true);
-                    close();
-                }}
-            >
-                <span className="menu__icon">
-                    <MIcon name="account_tree" size="sm" />
-                </span>
-                <span className="menu__text">Граф сущностей</span>
-                <kbd className="menu__hotkey">⇧⌘K</kbd>
-            </button>
-
-            <div className="menu__divider" />
-
-            <div className="menu__label" style={{ paddingLeft: 12, paddingTop: 6 }}>
-                Анализ
-            </div>
-
-            <button
-                className="menu__item"
-                onClick={() => {
-                    useGraphStore.getState().setTopoOpen(true);
-                    close();
-                }}
-            >
-                <span className="menu__icon">
-                    <MIcon name="inventory_2" size="sm" />
-                </span>
-                <span className="menu__text">Порядок установки</span>
-            </button>
-
-            <button
-                className="menu__item"
-                onClick={() => {
-                    useGraphStore.getState().setLearningPathOpen(true);
-                    close();
-                }}
-            >
-                <span className="menu__icon">
-                    <MIcon name="menu_book" size="sm" />
-                </span>
-                <span className="menu__text">Путь изучения</span>
-            </button>
-
-            <button
-                className="menu__item"
-                onClick={() => {
-                    const st = useGraphStore.getState();
-                    st.setEntityHierarchyInitialKey(null);
-                    st.setEntityHierarchyOpen(true);
-                    close();
-                }}
-            >
-                <span className="menu__icon">
-                    <MIcon name="account_tree" size="sm" />
-                </span>
-                <span className="menu__text">Иерархия сущностей</span>
-            </button>
-
-            {useGraphStore.getState().validationAvailable && (
-                <button
-                    className="menu__item"
-                    onClick={() => {
-                        useGraphStore.getState().setValidationOpen(true);
-                        close();
-                    }}
-                >
-                    <span className="menu__icon">
-                        <MIcon name="cloud_upload" size="sm" />
-                    </span>
-                    <span className="menu__text">Массовая валидация</span>
-                </button>
-            )}
-
-            <div className="menu__divider" />
-
-            <button
-                className="menu__item"
-                onClick={() => {
-                    useGraphStore.getState().setModelValidationOpen(true);
-                    close();
-                }}
-            >
-                <span className="menu__icon">
-                    <MIcon name="verified" size="sm" />
-                </span>
-                <span className="menu__text">Валидация модели</span>
-                <kbd className="menu__hotkey">⇧⌘V</kbd>
-            </button>
-
-            <button
-                className="menu__item"
-                onClick={() => {
-                    useGraphStore.getState().setPiiOpen(true);
-                    close();
-                }}
-            >
-                <span className="menu__icon">
-                    <MIcon name="shield_lock" size="sm" />
-                </span>
-                <span className="menu__text">PII-атрибуты</span>
-                <kbd className="menu__hotkey">⇧⌘P</kbd>
-            </button>
-
-            <button
-                className="menu__item"
-                onClick={() => {
-                    useGraphStore.getState().setLintOpen(true);
-                    close();
-                }}
-            >
-                <span className="menu__icon">
-                    <MIcon name="rule" size="sm" />
-                </span>
-                <span className="menu__text">Линтер схем</span>
-                <kbd className="menu__hotkey">⇧⌘L</kbd>
-            </button>
-
-            <button
-                className="menu__item"
-                onClick={() => {
-                    useGraphStore.getState().setMartinOpen(true);
-                    close();
-                }}
-            >
-                <span className="menu__icon">
-                    <MIcon name="scatter_plot" size="sm" />
-                </span>
-                <span className="menu__text">Архитектурные метрики</span>
-                <kbd className="menu__hotkey">⇧⌘Y</kbd>
-            </button>
-
-            <div className="menu__divider" />
-
-            <div className="menu__label" style={{ paddingLeft: 12, paddingTop: 6 }}>
-                Графы
-            </div>
-
-            <button
-                className="menu__item"
-                onClick={() => {
-                    useGraphStore.getState().setViewGraphOpen(true);
-                    close();
-                }}
-            >
-                <span className="menu__icon"><MIcon name="schema" size="sm" /></span>
-                <span className="menu__text">Граф зависимостей views</span>
-                <kbd className="menu__hotkey">⇧⌘R</kbd>
-            </button>
-
-            <button
-                className="menu__item"
-                onClick={() => {
-                    useGraphStore.getState().setYamlFulltextSearchOpen(true);
-                    close();
-                }}
-            >
-                <span className="menu__icon"><MIcon name="search" size="sm" /></span>
-                <span className="menu__text">Полнотекстовый поиск</span>
-                <kbd className="menu__hotkey">⇧⌘U</kbd>
-            </button>
-
-            <button
-                className="menu__item"
-                onClick={() => {
-                    useGraphStore.getState().setChangelogOpen(true);
-                    close();
-                }}
-            >
-                <span className="menu__icon"><MIcon name="history_edu" size="sm" /></span>
-                <span className="menu__text">CHANGELOG и версии</span>
-                <kbd className="menu__hotkey">⇧⌘O</kbd>
-            </button>
-
-            <div className="menu__divider" />
-
-            <button
-                className="menu__item"
-                onClick={() => {
-                    useGraphStore.getState().setDomainCompareOpen(true);
-                    close();
-                }}
-            >
-                <span className="menu__icon">
-                    <MIcon name="compare_arrows" size="sm" />
-                </span>
-                <span className="menu__text">Сравнить домены</span>
-            </button>
-
-            <button
-                className="menu__item"
-                onClick={() => {
-                    useGraphStore.getState().setCheatsheetOpen(true);
-                    close();
-                }}
-            >
-                <span className="menu__icon">
-                    <MIcon name="menu_book" size="sm" />
-                </span>
-                <span className="menu__text">Шпаргалка по схеме</span>
-            </button>
-
-            <button
-                className="menu__item"
-                onClick={() => {
-                    useGraphStore.getState().setGlossaryOpen(true);
-                    close();
-                }}
-            >
-                <span className="menu__icon">
-                    <MIcon name="menu_book" size="sm" />
-                </span>
-                <span className="menu__text">Глоссарий</span>
-                <kbd className="menu__hotkey">⇧⌘G</kbd>
-            </button>
-
-            <div className="menu__divider" />
-
-            <div className="menu__hint" style={{ paddingLeft: 12, paddingRight: 12 }}>
-                Все сущности, атрибуты и связи всех доменов — как единая модель данных.
+        <div className="menu menu--two-col">
+            <div className="menu__col">{renderColumn(leftColumn)}</div>
+            <div className="menu__col">{renderColumn(rightColumn)}</div>
+            <div className="menu__hint menu__hint--footer">
+                Все сущности, атрибуты и связи всех доменов — как единая
+                модель данных.
             </div>
         </div>
     );

@@ -294,3 +294,81 @@
   background: var(--bg-700);
   color: var(--text-300);
 }
+/* ============ Меню «Модель» — двухколоночное ============ */
+
+.menu--two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    padding: 6px 0;
+}
+
+.menu--two-col .menu__col {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    padding: 0 8px;
+}
+
+.menu--two-col .menu__col:nth-child(2) {
+    border-left: 1px solid var(--border);
+}
+
+.menu--two-col .menu__section {
+    padding: 4px 0;
+}
+
+.menu--two-col .menu__section:first-child {
+    padding-top: 0;
+}
+
+.menu--two-col .menu__label {
+    padding: 6px 6px 4px;
+}
+
+.menu--two-col .menu__item {
+    padding: 8px 10px;
+}
+
+.menu--two-col .menu__hint--footer {
+    grid-column: 1 / -1;
+    padding: 10px 16px 6px;
+    border-top: 1px solid var(--border);
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--text-500);
+    line-height: 1.5;
+    text-align: center;
+}
+/* Popover */
+.popover-wrap {
+    position: relative;
+    display: inline-block;
+}
+.popover-trigger {
+    display: inline-block;
+}
+
+/*
+ * .popover теперь всегда рендерится через portal (fixed).
+ * Позиция left/top/maxHeight задаются inline из Popover.tsx —
+ * здесь только визуал.
+ *
+ * Старые правила `position: absolute; top: calc(100% + 8px)`
+ * и `.popover--left { left: 0 } / .popover--right { right: 0 }`
+ * удалены — они больше не нужны и не применимы к fixed-элементу
+ * на document.body.
+ */
+.popover {
+    background: var(--bg-800);
+    border: 1px solid var(--border-hover);
+    border-radius: 12px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+    animation: popoverIn 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    z-index: 1000;
+}
+
+.popover--portal {
+    position: fixed;
+}

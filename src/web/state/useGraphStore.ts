@@ -549,6 +549,17 @@ export interface GraphState {
   setOnboardingWizardDomainId: (id: string | null) => void;
   viewGraphPrefillDomain: string | null;
   setViewGraphPrefillDomain: (v: string | null) => void;
+
+  // Найти блок про sidebarCollapsed / sidebarCompact и добавить рядом:
+
+  sidebarWidth: number;
+  setSidebarWidth: (w: number) => void;
+
+  hiddenSidebarSections: Set<string>;
+  toggleHiddenSidebarSection: (id: string) => void;
+
+  /** Сразу установить набор свёрнутых секций (для «Свернуть всё»). */
+  setCollapsedSections: (ids: Set<string>) => void;
 }
 
 // ============ Хелперы для чтения localStorage ============
@@ -898,37 +909,60 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   setSidebarCollapsed: (v) => set({ sidebarCollapsed: v }),
   sidebarCompact: false,
   setSidebarCompact: (v) => set({ sidebarCompact: v }),
-  collapsedSections: new Set<string>([
-    "fqid-out",
-    "incoming",
-    "outgoing",
-    "violations",
-    "validation",
-    "sonar",
+  collapsedSections: (() => {
+    const DEFAULT = [
+      "fqid-out",
+      "incoming",
+      "outgoing",
+      "violations",
+      "validation",
+      "sonar",
+      "problems",
+      "news",
+      "ratings",
+      "clouds",
+      "favorites",
+      "legend",
+    ];
+    try {
+      const raw = localStorage.getItem("dg-collapsed-sections");
+      if (raw !== null) {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) return new Set<string>(arr);
+      }
+    } catch {
+      /* ignore */
+    }
+    return new Set<string>(DEFAULT);
+  })(),
 
-    // === Левый Sidebar ===
-    // overview и project-health — раскрыты (ключевые сводки),
-    // остальные секции по умолчанию свёрнуты.
-    "project-health",
-    "problems",
-    "news",
-    "top",
-    "worst",
-    "missing-refs",
-    "namespaces",
-    "tags",
-    "recent-entities",
-    "entity-favorites",
-    "bookmarks",
-    "legend",
-  ]),
   toggleCollapsedSection: (id, isCollapsed) =>
     set((s) => {
       const next = new Set(s.collapsedSections);
       if (isCollapsed) next.delete(id);
       else next.add(id);
+      try {
+        localStorage.setItem(
+          "dg-collapsed-sections",
+          JSON.stringify(Array.from(next)),
+        );
+      } catch {
+        /* ignore */
+      }
       return { collapsedSections: next };
     }),
+
+  setCollapsedSections: (ids) => {
+    try {
+      localStorage.setItem(
+        "dg-collapsed-sections",
+        JSON.stringify(Array.from(ids)),
+      );
+    } catch {
+      /* ignore */
+    }
+    set({ collapsedSections: ids });
+  },
   panelOpen: false,
   setPanelOpen: (v) => set({ panelOpen: v }),
   panelTab: "details",
@@ -1276,6 +1310,34 @@ export const useGraphStore = create<GraphState>((set, get) => ({
 
   viewGraphPrefillDomain: null,
   setViewGraphPrefillDomain: (v) => set({ viewGraphPrefillDomain: v }),
+
+  sidebarWidth: readNumber("dg-sidebar-width", 320),
+  setSidebarWidth: (w) => {
+    const clamped = Math.max(280, Math.min(520, w));
+    try {
+      localStorage.setItem("dg-sidebar-width", String(clamped));
+    } catch {
+      /* ignore */
+    }
+    set({ sidebarWidth: clamped });
+  },
+
+  hiddenSidebarSections: readSet("dg-sidebar-hidden"),
+  toggleHiddenSidebarSection: (id) =>
+    set((s) => {
+      const next = new Set(s.hiddenSidebarSections);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      try {
+        localStorage.setItem(
+          "dg-sidebar-hidden",
+          JSON.stringify(Array.from(next)),
+        );
+      } catch {
+        /* ignore */
+      }
+      return { hiddenSidebarSections: next };
+    }),
 
   // Сброс всего
   resetAll: () =>
