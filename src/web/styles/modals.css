@@ -5275,3 +5275,10 @@ select.create-domain-input {
 .help-modal__actions .help-modal__help-btn {
     white-space: nowrap;
 }
+.help-modal__badge--loading {
+    animation: dg-pulse 1.4s ease-in-out infinite;
+}
+@keyframes dg-pulse {
+    0%, 100% { opacity: 0.7; }
+    50%      { opacity: 1; }
+}

@@ -38,6 +38,8 @@ export function httpPost<T = any>(
       path: urlObj.pathname + urlObj.search,
       method: "POST",
       headers,
+      timeout: 30_000,
+      agent: false,
     };
     if (isHttps) opts.rejectUnauthorized = rejectUnauthorized;
 

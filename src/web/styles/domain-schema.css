@@ -1,0 +1,381 @@
+.domain-schema-modal-v2 { width: 1300px; max-width: 96vw; }
+.domain-schema-body--v2 { display: flex; flex: 1; min-height: 0; }
+
+.domain-schema-header-v2 {
+  flex-direction: column; gap: 8px; padding-bottom: 12px;
+  border-bottom: 1px solid var(--border); position: sticky; top: 0;
+  background: var(--bg-850); z-index: 20;
+}
+.domain-schema-header-v2__title-row { display: flex; align-items: center; gap: 12px; width: 100%; }
+.domain-schema-header-v2__actions { display: flex; gap: 4px; margin-left: auto; }
+.domain-schema-header-v2__desc { font-size: 12px; color: var(--text-400); }
+.domain-schema-header-v2__meta { display: flex; gap: 12px; font-size: 11px; color: var(--text-500); }
+.domain-schema-header-v2__metrics { display: flex; flex-wrap: wrap; gap: 6px; }
+.domain-schema-metric {
+  display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px;
+  border-radius: 6px; font-size: 11px; background: var(--bg-750);
+  border: 1px solid var(--border); color: var(--text-300);
+  cursor: default;
+}
+button.domain-schema-metric { cursor: pointer; }
+.domain-schema-metric--info strong { color: var(--text-100); }
+.domain-schema-metric--error { background: rgba(239,68,68,0.12); color: #ef4444; border-color: rgba(239,68,68,0.3); }
+.domain-schema-metric--warning { background: rgba(245,158,11,0.12); color: #f59e0b; border-color: rgba(245,158,11,0.3); }
+.domain-schema-metric--a, .domain-schema-metric--b { background: rgba(16,185,129,0.12); color: #10b981; }
+.domain-schema-metric--c { background: rgba(245,158,11,0.12); color: #f59e0b; }
+.domain-schema-metric--d, .domain-schema-metric--e { background: rgba(239,68,68,0.12); color: #ef4444; }
+
+.domain-schema-toc {
+  width: 240px; flex-shrink: 0; border-right: 1px solid var(--border);
+  overflow-y: auto; padding: 8px 4px; background: var(--bg-850);
+}
+.domain-schema-toc__head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 8px; font-size: 10px; text-transform: uppercase;
+  color: var(--text-500); font-weight: 600;
+}
+.domain-schema-toc__item {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  padding: 6px 8px; border: none; background: transparent;
+  color: var(--text-300); font-size: 12px; cursor: pointer;
+  border-radius: 4px; text-align: left; margin-bottom: 1px;
+}
+.domain-schema-toc__item:hover { background: var(--bg-750); }
+.domain-schema-toc__item--active {
+  background: rgba(99,102,241,0.15); color: var(--accent-hover);
+}
+.domain-schema-toc__label { flex: 1; }
+.domain-schema-toc__count {
+  font-size: 10px; font-family: monospace; color: var(--text-500);
+}
+.domain-schema-toc__issues {
+  display: inline-flex; align-items: center; gap: 2px; font-size: 10px;
+  color: var(--warning);
+}
+
+.domain-schema-main { flex: 1; overflow-y: auto; padding: 12px 16px; }
+
+.domain-schema-toolbar-v2 {
+  display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;
+  position: sticky; top: 0; z-index: 15; background: var(--bg-800);
+  padding: 8px 0; border-bottom: 1px solid var(--border);
+}
+.domain-schema-search-v2 {
+  display: flex; align-items: center; gap: 6px; padding: 6px 10px;
+  background: var(--bg-750); border: 1px solid var(--border); border-radius: 6px;
+}
+.domain-schema-search-v2 input {
+  flex: 1; background: transparent; border: none; outline: none;
+  color: var(--text-200); font-size: 13px;
+}
+.domain-schema-toolbar-v2__row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.domain-schema-toolbar-v2__field { display: flex; align-items: center; gap: 4px; font-size: 11px; }
+.domain-schema-toolbar-v2__field select { background: var(--bg-750); color: var(--text-200); border: 1px solid var(--border); padding: 2px 6px; border-radius: 4px; font-size: 11px; }
+.domain-schema-toolbar-v2__btn-group { display: inline-flex; gap: 4px; }
+.domain-schema-toolbar-v2__count { font-size: 11px; color: var(--text-400); margin-left: auto; }
+
+.domain-schema-actions-v2 { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.btn--small { padding: 4px 10px; font-size: 11px; }
+
+.domain-schema-section__extra { font-size: 10px; color: var(--text-500); margin-left: 4px; font-family: monospace; }
+.domain-schema-section__filter-toggle input { accent-color: var(--accent); }
+
+.domain-schema-item__quick-actions {
+  display: none; gap: 2px; margin-left: 6px;
+}
+.domain-schema-item:hover .domain-schema-item__quick-actions { display: flex; }
+.domain-schema-item__quick-actions button {
+  padding: 2px 4px; background: transparent; border: none;
+  color: var(--text-500); cursor: pointer; border-radius: 3px;
+}
+.domain-schema-item__quick-actions button:hover {
+  background: var(--bg-750); color: var(--accent-hover);
+}
+
+.domain-schema-item--linkage .domain-schema-item__meta--linkage code {
+  color: var(--accent-hover); font-family: monospace;
+}
+.domain-schema-item__badge--color { border: 1px solid currentColor; }
+
+.domain-schema-refs-grid { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.domain-schema-ref-chip {
+  padding: 2px 8px; background: var(--bg-750); border: 1px solid var(--border);
+  border-radius: 4px; font-size: 11px; color: var(--text-300); cursor: pointer;
+}
+.domain-schema-ref-chip:hover { border-color: var(--accent-hover); color: var(--accent-hover); }
+/* ============================================================
+   Domain Schema Modal v2 — фиксы
+   ============================================================ */
+
+/* ---- 1. Шапка: сбросить базовые space-between / center ---- */
+
+.help-modal__header.domain-schema-header-v2 {
+    flex-direction: column;
+    align-items: stretch;          /* ← растягиваем строки на 100% */
+    justify-content: flex-start;   /* ← убираем вертикальные разрывы */
+    gap: 8px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    /* sticky не нужен: шапка — sibling body, а не внутри скролла */
+    position: static;
+    z-index: auto;
+}
+
+.domain-schema-header-v2__title-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 32px;
+}
+
+.domain-schema-header-v2__title-row .help-modal__title {
+    flex: 1;
+    min-width: 0;
+}
+
+.domain-schema-header-v2__actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    margin-left: auto;
+}
+
+.domain-schema-header-v2__desc {
+    width: 100%;
+    font-size: 12px;
+    color: var(--text-400);
+    line-height: 1.4;
+}
+
+.domain-schema-header-v2__metrics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    width: 100%;
+    align-items: center;
+}
+
+.domain-schema-header-v2__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    width: 100%;
+    align-items: center;
+    font-size: 11px;
+    color: var(--text-500);
+}
+
+/* ---- 2. Метрики-плашки: компактнее и без лишних отступов ---- */
+
+.domain-schema-metric {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    line-height: 1;
+    background: var(--bg-750);
+    border: 1px solid var(--border);
+    color: var(--text-300);
+    cursor: default;
+    white-space: nowrap;
+    height: 26px;
+    box-sizing: border-box;
+}
+button.domain-schema-metric {
+    cursor: pointer;
+    font-family: inherit;
+    transition: background 0.15s, border-color 0.15s;
+}
+button.domain-schema-metric:hover {
+    border-color: var(--border-hover);
+    background: var(--bg-700);
+}
+.domain-schema-metric--error {
+    background: rgba(239, 68, 68, 0.12);
+    color: #ef4444;
+    border-color: rgba(239, 68, 68, 0.3);
+}
+.domain-schema-metric--warning {
+    background: rgba(245, 158, 11, 0.12);
+    color: #f59e0b;
+    border-color: rgba(245, 158, 11, 0.3);
+}
+.domain-schema-metric--a,
+.domain-schema-metric--b {
+    background: rgba(16, 185, 129, 0.12);
+    color: #10b981;
+    border-color: rgba(16, 185, 129, 0.3);
+}
+.domain-schema-metric--c {
+    background: rgba(245, 158, 11, 0.12);
+    color: #f59e0b;
+    border-color: rgba(245, 158, 11, 0.3);
+}
+.domain-schema-metric--d,
+.domain-schema-metric--e {
+    background: rgba(239, 68, 68, 0.12);
+    color: #ef4444;
+    border-color: rgba(239, 68, 68, 0.3);
+}
+
+/* ---- 3. TOC: фикс. ширина, стилизованная «свернуть» ---- */
+
+.domain-schema-body--v2 {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;   /* ← важно: чтобы дети скроллились, а не body */
+}
+
+.domain-schema-toc {
+    width: 240px;
+    flex-shrink: 0;
+    overflow-y: auto;
+    padding: 8px 4px;
+    background: var(--bg-850);
+    border-right: 1px solid var(--border);
+    box-sizing: border-box;
+}
+
+.domain-schema-toc__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 8px;
+    font-size: 10px;
+    text-transform: uppercase;
+    color: var(--text-500);
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+.domain-schema-toc__collapse {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--text-500);
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.15s, color 0.15s;
+}
+.domain-schema-toc__collapse:hover {
+    background: var(--bg-750);
+    color: var(--accent-hover);
+}
+
+/* Кнопка-«развернуть» вместо полноценной панели */
+.domain-schema-toc-expand {
+    width: 40px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 0;
+    border: none;
+    border-right: 1px solid var(--border);
+    background: var(--bg-850);
+    color: var(--text-400);
+    cursor: pointer;
+    transition: color 0.15s, background 0.15s;
+    font-family: inherit;
+}
+.domain-schema-toc-expand:hover {
+    color: var(--accent-hover);
+    background: var(--bg-750);
+}
+.domain-schema-toc-expand span {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 500;
+}
+
+/* ---- 4. Правая часть: без изменения, но чистим «соседей» ---- */
+
+.domain-schema-main {
+    flex: 1;
+    min-width: 0;           /* ← важно, чтобы flex child не раздувался */
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 12px 16px 24px;
+    box-sizing: border-box;
+}
+
+/* ============================================================
+   ГЛАВНОЕ: убрать прыжки при ховере
+   ============================================================ */
+
+.domain-schema-item__quick-actions {
+    display: flex;
+    gap: 2px;
+    margin-left: 6px;
+    flex-shrink: 0;
+    visibility: hidden;       /* ← сохраняет место в layout */
+    opacity: 0;
+    transition: opacity 0.1s ease;
+}
+.domain-schema-item:hover .domain-schema-item__quick-actions {
+    visibility: visible;
+    opacity: 1;
+}
+
+/* Кнопки внутри quick-actions */
+.domain-schema-item__quick-actions button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 3px;
+    color: var(--text-500);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.1s, color 0.1s;
+}
+.domain-schema-item__quick-actions button:hover:not(:disabled) {
+    background: var(--bg-750);
+    color: var(--accent-hover);
+}
+.domain-schema-item__quick-actions button:disabled {
+    opacity: 0.25;
+    cursor: not-allowed;
+}
+
+/* ---- 5. Стабильные размеры строки при hover ---- */
+
+.domain-schema-item {
+    /* на всякий случай: если что-то ещё прыгает */
+    box-sizing: border-box;
+}
+
+/* Внутренние текстовые блоки — не раздувают строку */
+.domain-schema-item__name,
+.domain-schema-item__meta {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ---- 6. Убираем sticky у старого CSS, если было ---- */
+
+.domain-schema-header-v2 {
+    position: static !important;
+}

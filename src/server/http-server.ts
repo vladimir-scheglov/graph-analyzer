@@ -26,7 +26,10 @@ import {
   handleValidateSingle,
 } from "./routes/validation";
 import { ServerState, state } from "./state";
-import { buildModelIndex, RawDomainEntry } from "../core/analyzer/model-builder";
+import {
+  buildModelIndex,
+  RawDomainEntry,
+} from "../core/analyzer/model-builder";
 import {
   setModelIndex,
   setModelDiff,
@@ -36,23 +39,36 @@ import {
   getModelIndexCached,
   setModelIndexStale,
 } from "./routes/model";
-import {
-  updateModelSnapshot,
-} from "../core/analyzer/model-snapshot";
+import { updateModelSnapshot } from "../core/analyzer/model-snapshot";
 import { computeSemanticDiff } from "../core/analyzer/semantic-diff";
 import { prepareRemoteCache } from "../core/remote/cache-manager";
-import { handleGenerateBatchStream, handleGenerateRequest } from "./routes/generate";
+import {
+  handleGenerateBatchStream,
+  handleGenerateRequest,
+} from "./routes/generate";
 import { handleGenerateBatchRequest } from "./routes/generate";
 import {
   handleGeneratedManifest,
   handleClearGeneratedManifest,
 } from "./routes/generate";
 import { createSnapshotFromModelIndex } from "../core/analyzer/model-snapshot-pure";
-import { handleClearLintBaseline, handleGetLintBaseline, handleListLintBaselines, handleTakeLintBaseline } from "./routes/lint-baseline";
+import {
+  handleClearLintBaseline,
+  handleGetLintBaseline,
+  handleListLintBaselines,
+  handleTakeLintBaseline,
+} from "./routes/lint-baseline";
 import { loadAllLintBaselines } from "../core/analyzer/lint-baseline-storage";
 import { summarizeBaselines } from "../core/analyzer/lint-baseline";
-import { handleCheckOutdated, invalidateOutdatedCache } from "../core/remote/outdated";
-import { handleCreateDomain, handleDeleteDomain, handleToggleDomainStatus } from "./routes/domain";
+import {
+  handleCheckOutdated,
+  invalidateOutdatedCache,
+} from "../core/remote/outdated";
+import {
+  handleCreateDomain,
+  handleDeleteDomain,
+  handleToggleDomainStatus,
+} from "./routes/domain";
 import { handleYamlSearch } from "./routes/yaml-search";
 
 export interface StartServerOptions {
@@ -288,8 +304,14 @@ async function handleRefreshCache(
   }
 }
 
-// Глобально: 
-let domainBuildCache: Map<string, ReturnType<typeof buildModelIndex>["domains"][number] & { entities: any[]; linkages: any[] }> | null = null;
+// Глобально:
+let domainBuildCache: Map<
+  string,
+  ReturnType<typeof buildModelIndex>["domains"][number] & {
+    entities: any[];
+    linkages: any[];
+  }
+> | null = null;
 
 function incrementalRebuild(
   rootDir: string,
@@ -298,7 +320,7 @@ function incrementalRebuild(
   changedDomainId: string,
 ): ReturnType<typeof buildModelIndex> {
   const rawDomains = analyzer.getRawDomainsForModelIndex();
-  
+
   if (!previousIndex) {
     return buildModelIndex(rawDomains);
   }
@@ -314,7 +336,7 @@ function incrementalRebuild(
   const domainChanged =
     previousCount !== currentCount ||
     rawDomains.some((d) => !previousIndex.domains.find((pd) => pd.id === d.id));
-  
+
   if (domainChanged) {
     // Домены добавлялись/удалялись — полный rebuild
     return buildModelIndex(rawDomains);
@@ -797,10 +819,11 @@ export function startServer(opts: StartServerOptions): http.Server {
       res.end(JSON.stringify({ domains, mode: state.mode }));
     } else if (url === "/api/toggle-domain-status" && req.method === "POST") {
       try {
-        await handleToggleDomainStatus(req, res, state);
-        if (res.statusCode === 200) {
-          scheduleRebuild(analyzer, rootDir);
-        }
+        await handleToggleDomainStatus(req, res, state, () => {
+          // Синхронный force-rebuild __graphData, чтобы следующий GET /api/graph
+          // от клиента уже видел свежий status.
+          scheduleRebuild(analyzer, rootDir, { force: true });
+        });
       } catch (err: any) {
         if (!res.headersSent)
           res.writeHead(500, { "Content-Type": "application/json" });

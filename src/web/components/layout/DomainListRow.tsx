@@ -96,19 +96,47 @@ export function DomainListRow({
             if (!res.ok) {
                 useGraphStore
                     .getState()
-                    .showSnackbar("Ошибка смены статуса: " + (data.error || `HTTP ${res.status}`));
+                    .showSnackbar(
+                        "Ошибка смены статуса: " + (data.error || `HTTP ${res.status}`),
+                    );
                 return;
             }
+
             const st = useGraphStore.getState();
-            st.bumpModelVersion();
-            await st.refreshGraphFromServer(true);
+            const newStatus: string | null =
+                typeof data.status === "string" ? data.status : null;
+
+            // Оптимистично
+            if (newStatus) {
+                st.setNodes((prev) =>
+                    prev.map((n) =>
+                        n.data.domainId === d.domainId
+                            ? { ...n, data: { ...n.data, status: newStatus } }
+                            : n,
+                    ),
+                );
+            }
+
+            await st.refreshGraphFromServer(true).catch(() => { });
+
+            // Пере-применяем на случай, если __graphData ещё старый
+            if (newStatus) {
+                useGraphStore.getState().setNodes((prev) =>
+                    prev.map((n) =>
+                        n.data.domainId === d.domainId
+                            ? { ...n, data: { ...n.data, status: newStatus } }
+                            : n,
+                    ),
+                );
+            }
+
             st.showSnackbar(
-                `Статус домена ${d.domainId}: ${data.status || "?"}`,
+                `Статус домена ${d.domainId}: ${newStatus || data.status || "?"}`,
             );
         } catch (err: any) {
             useGraphStore
                 .getState()
-                .showSnackbar("Ошибка смены статуса: " + (err.message || String(err)));
+                .showSnackbar("Ошибка: " + (err.message || String(err)));
         } finally {
             setToggling(false);
         }

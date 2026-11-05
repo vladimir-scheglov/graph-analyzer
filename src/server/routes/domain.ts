@@ -40,6 +40,7 @@ export async function handleToggleDomainStatus(
   req: IncomingMessage,
   res: ServerResponse,
   state: ServerState,
+  onBeforeResponse?: () => void,
 ): Promise<void> {
   let body: ToggleStatusBody;
   try {
@@ -140,6 +141,17 @@ export async function handleToggleDomainStatus(
     fs.renameSync(tmp, idxPath);
   } catch (e: any) {
     console.warn("[toggle-status] _index.json:", e.message);
+  }
+
+  // ============ NEW: синхронный rebuild ДО ответа ============
+  // Иначе клиент через refreshGraphFromServer получит __graphData
+  // со старым status (rebuild в http-server выполняется отложенно).
+  if (onBeforeResponse) {
+    try {
+      onBeforeResponse();
+    } catch (e: any) {
+      console.warn("[toggle-status] onBeforeResponse failed:", e?.message);
+    }
   }
 
   res.writeHead(200, { "Content-Type": "application/json" });

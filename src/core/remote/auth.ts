@@ -74,7 +74,18 @@ export async function withTokenRefresh<T>(
   try {
     return await fn(creds.token);
   } catch (e: any) {
-    if (e?.status === 401) {
+    // 401 — HTTP-слой
+    // 403 — токен валиден, но прав нет (часто после ротации)
+    // 502 — прокси nginx/ingress отдал bad gateway вместо 401
+    // .code === UNAUTHENTICATED — GraphQL-слой (покрытие случая из fetchExpertiseRaw)
+    const shouldRetry =
+      e?.status === 401 ||
+      e?.status === 403 ||
+      e?.status === 502 ||
+      e?.code === "UNAUTHENTICATED" ||
+      e?.code === "UNAUTHORIZED";
+
+    if (shouldRetry) {
       creds.token = await apiLogin(
         creds.loginUrl,
         creds.username,

@@ -252,7 +252,6 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 20px 32px 32px;
 }
 
 .domain-schema-header {
@@ -915,6 +914,11 @@
     font-family: 'JetBrains Mono', monospace;
     font-size: 10px;
     font-weight: 700;
+    border: 1px solid var(--danger);
+
+    .material-symbols-outlined {
+        color: var(--danger);
+    }
 }
 .domain-schema-section__issues .material-symbols-outlined {
     font-size: 11px;

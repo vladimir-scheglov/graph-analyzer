@@ -175,8 +175,14 @@ async function fetchExpertiseRaw(
     rejectUnauthorized,
   );
   if (res.status !== 200) throw new HttpError(res.status);
+
+  // ← GraphQL отдаёт 200 при auth-ошибках — надо проверять errors
+  if (Array.isArray(res.json?.errors) && res.json.errors.length > 0) {
+    throwGraphQLError(res.json); // функция уже есть ниже в файле
+  }
+
   const e = res.json?.data?.expertise;
-  if (!e) throw new Error("Некорректный ответ");
+  if (!e) throw new Error("Некорректный ответ: пустой data.expertise");
   return {
     sourceCode: typeof e.sourceCode === "string" ? e.sourceCode : "",
     draft: typeof e.draft === "string" && e.draft.length > 0 ? e.draft : null,
@@ -364,7 +370,8 @@ function throwGraphQLError(json: any): never {
   const err = json?.errors?.[0];
   if (!err) throw new Error("Некорректный ответ сервера");
 
-  const code = String(err?.extensions?.code || "");
+  const code = String(err?.extensions?.code || "").toUpperCase();
+  const rawMessage = String(err.message || "");
   const zodDetails = err?.extensions?.details?.details;
 
   let message: string;
@@ -382,6 +389,22 @@ function throwGraphQLError(json: any): never {
 
   const e: any = new Error(message);
   e.code = code;
+
+  // ← ключевая строка: смапить auth-ошибки на HTTP-статус,
+  // чтобы withTokenRefresh мог на них среагировать
+  if (
+    code === "UNAUTHENTICATED" ||
+    code === "UNAUTHORIZED" ||
+    code === "AUTH.UNAUTHENTICATED" ||
+    code === "INVALID_TOKEN" ||
+    code === "TOKEN_EXPIRED" ||
+    /unauthori[sz]ed|unauthenticated|token.*expired|invalid.*token/i.test(
+      rawMessage,
+    )
+  ) {
+    e.status = 401;
+  }
+
   throw e;
 }
 

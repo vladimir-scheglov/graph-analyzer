@@ -582,8 +582,20 @@ export async function handleFileFresh(
       ),
     );
   } catch (e: any) {
-    res.writeHead(502, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: e.message }));
+    const status =
+      typeof e?.status === "number" && e.status >= 400 && e.status < 600
+        ? e.status
+        : 502;
+    console.error(
+      `[file/fresh] ${baseName}: status=${e?.status ?? "?"} code=${e?.code ?? "?"} msg=${e?.message}`,
+    );
+    res.writeHead(status, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        error: e?.message || String(e),
+        code: e?.code ?? null,
+      }),
+    );
     return;
   }
 
@@ -661,8 +673,20 @@ export async function handleFilePublished(
       ),
     );
   } catch (e: any) {
-    res.writeHead(502, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: e.message }));
+    const status =
+      typeof e?.status === "number" && e.status >= 400 && e.status < 600
+        ? e.status
+        : 502;
+    console.error(
+      `[file/publish] ${baseName}: status=${e?.status ?? "?"} code=${e?.code ?? "?"} msg=${e?.message}`,
+    );
+    res.writeHead(status, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        error: e?.message || String(e),
+        code: e?.code ?? null,
+      }),
+    );
     return;
   }
 
@@ -770,7 +794,19 @@ export async function handleExpertiseVersions(
       }),
     );
   } catch (e: any) {
-    res.writeHead(502, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: e.message || String(e) }));
+    const status =
+      typeof e?.status === "number" && e.status >= 400 && e.status < 600
+        ? e.status
+        : 502;
+    console.error(
+      `[expertise versions] ${baseName}: status=${e?.status ?? "?"} code=${e?.code ?? "?"} msg=${e?.message}`,
+    );
+    res.writeHead(status, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        error: e?.message || String(e),
+        code: e?.code ?? null,
+      }),
+    );
   }
 }

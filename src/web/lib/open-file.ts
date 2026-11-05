@@ -9,7 +9,7 @@ import { confirmDialog } from "./dialogs";
 export async function openFileInEditor(
   filePath: string,
   fqid?: string | null,
-  domainId?: string,
+  domainId?: string | null,
 ): Promise<boolean> {
   if (!filePath) return false;
 
@@ -55,4 +55,42 @@ export async function openFileInEditor(
   st.setYamlViewerDomainId(effectiveDomainId);
   st.setYamlViewerOpen(true);
   return true;
+}
+
+/**
+ * Открывает файл в редакторе и закрывает указанную модалку.
+ * Если пользователь отменил переключение (dirty-файл) — модалка
+ * восстанавливается.
+ */
+export async function openFileAndCloseModal(
+  modalKey: "domainSchema" | "entityCatalog" | "pii" | "lint" | "yamlFulltext" | "yamlViewer",
+  filePath: string,
+  fqid: string | null,
+  domainId?: string,
+): Promise<boolean> {
+  const st = useGraphStore.getState();
+  const close = () => {
+    switch (modalKey) {
+      case "domainSchema": st.setDomainSchemaOpen(false); break;
+      case "entityCatalog": st.setEntityCatalogOpen(false); break;
+      case "pii": st.setPiiOpen(false); break;
+      case "lint": st.setLintOpen(false); break;
+      case "yamlFulltext": st.setYamlFulltextSearchOpen(false); break;
+      case "yamlViewer": st.setYamlViewerOpen(false); break;
+    }
+  };
+  const reopen = () => {
+    switch (modalKey) {
+      case "domainSchema": st.setDomainSchemaOpen(true); break;
+      case "entityCatalog": st.setEntityCatalogOpen(true); break;
+      case "pii": st.setPiiOpen(true); break;
+      case "lint": st.setLintOpen(true); break;
+      case "yamlFulltext": st.setYamlFulltextSearchOpen(true); break;
+      case "yamlViewer": st.setYamlViewerOpen(true); break;
+    }
+  };
+  close();
+  const ok = await openFileInEditor(filePath, fqid, domainId);
+  if (!ok) reopen();
+  return ok;
 }

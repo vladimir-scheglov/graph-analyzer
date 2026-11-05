@@ -5813,6 +5813,58 @@ async function openFileInEditor(filePath, fqid, domainId) {
   st.setYamlViewerOpen(true);
   return true;
 }
+async function openFileAndCloseModal(modalKey, filePath, fqid, domainId) {
+  const st = useGraphStore.getState();
+  const close = () => {
+    switch (modalKey) {
+      case "domainSchema":
+        st.setDomainSchemaOpen(false);
+        break;
+      case "entityCatalog":
+        st.setEntityCatalogOpen(false);
+        break;
+      case "pii":
+        st.setPiiOpen(false);
+        break;
+      case "lint":
+        st.setLintOpen(false);
+        break;
+      case "yamlFulltext":
+        st.setYamlFulltextSearchOpen(false);
+        break;
+      case "yamlViewer":
+        st.setYamlViewerOpen(false);
+        break;
+    }
+  };
+  const reopen = () => {
+    switch (modalKey) {
+      case "domainSchema":
+        st.setDomainSchemaOpen(true);
+        break;
+      case "entityCatalog":
+        st.setEntityCatalogOpen(true);
+        break;
+      case "pii":
+        st.setPiiOpen(true);
+        break;
+      case "lint":
+        st.setLintOpen(true);
+        break;
+      case "yamlFulltext":
+        st.setYamlFulltextSearchOpen(true);
+        break;
+      case "yamlViewer":
+        st.setYamlViewerOpen(true);
+        break;
+    }
+  };
+  close();
+  const ok = await openFileInEditor(filePath, fqid, domainId);
+  if (!ok)
+    reopen();
+  return ok;
+}
 var init_open_file = __esm({
   "src/web/lib/open-file.ts"() {
     "use strict";
@@ -11555,17 +11607,34 @@ function DomainListRow({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        useGraphStore.getState().showSnackbar("\u041E\u0448\u0438\u0431\u043A\u0430 \u0441\u043C\u0435\u043D\u044B \u0441\u0442\u0430\u0442\u0443\u0441\u0430: " + (data.error || `HTTP ${res.status}`));
+        useGraphStore.getState().showSnackbar(
+          "\u041E\u0448\u0438\u0431\u043A\u0430 \u0441\u043C\u0435\u043D\u044B \u0441\u0442\u0430\u0442\u0443\u0441\u0430: " + (data.error || `HTTP ${res.status}`)
+        );
         return;
       }
       const st = useGraphStore.getState();
-      st.bumpModelVersion();
-      await st.refreshGraphFromServer(true);
+      const newStatus = typeof data.status === "string" ? data.status : null;
+      if (newStatus) {
+        st.setNodes(
+          (prev) => prev.map(
+            (n) => n.data.domainId === d.domainId ? { ...n, data: { ...n.data, status: newStatus } } : n
+          )
+        );
+      }
+      await st.refreshGraphFromServer(true).catch(() => {
+      });
+      if (newStatus) {
+        useGraphStore.getState().setNodes(
+          (prev) => prev.map(
+            (n) => n.data.domainId === d.domainId ? { ...n, data: { ...n.data, status: newStatus } } : n
+          )
+        );
+      }
       st.showSnackbar(
-        `\u0421\u0442\u0430\u0442\u0443\u0441 \u0434\u043E\u043C\u0435\u043D\u0430 ${d.domainId}: ${data.status || "?"}`
+        `\u0421\u0442\u0430\u0442\u0443\u0441 \u0434\u043E\u043C\u0435\u043D\u0430 ${d.domainId}: ${newStatus || data.status || "?"}`
       );
     } catch (err) {
-      useGraphStore.getState().showSnackbar("\u041E\u0448\u0438\u0431\u043A\u0430 \u0441\u043C\u0435\u043D\u044B \u0441\u0442\u0430\u0442\u0443\u0441\u0430: " + (err.message || String(err)));
+      useGraphStore.getState().showSnackbar("\u041E\u0448\u0438\u0431\u043A\u0430: " + (err.message || String(err)));
     } finally {
       setToggling(false);
     }
@@ -17936,10 +18005,63 @@ function countRefs(e, index) {
   const mixins2 = (index.mixinsByEntityFqid[e.fqid] || []).length;
   return children + linkages2 + mixins2;
 }
-function filterEntities(index, filters) {
+function countMixins(e, index) {
+  return (index.mixinsByEntityFqid[e.fqid] || []).length;
+}
+function collectAttributeTypes(e, index) {
+  const out = /* @__PURE__ */ new Set();
+  for (const a of e.attributes) {
+    out.add(a.dataType);
+    if (a.itemDataType)
+      out.add(a.itemDataType);
+    if (a.dataTypeKind === "custom") {
+      const dt = index.dataTypes.find(
+        (d) => d.domainId === e.domainId && d.id === a.dataType
+      );
+      if (dt)
+        out.add(dt.kind);
+    }
+  }
+  return out;
+}
+function entityHasPii(fqid, piiByFqid, mode) {
+  if (mode === "any")
+    return true;
+  const hits = piiByFqid.get(fqid.toLowerCase());
+  if (mode === "clean")
+    return !hits || hits.length === 0;
+  if (!hits || hits.length === 0)
+    return false;
+  if (mode === "critical") {
+    return hits.some((h) => h.severity === "critical");
+  }
+  if (mode === "high") {
+    return hits.some((h) => h.severity === "critical" || h.severity === "high");
+  }
+  return false;
+}
+function entityHasIssues(fqid, issuesByFqid, mode) {
+  if (mode === "any")
+    return true;
+  const issues = issuesByFqid.get(fqid.toLowerCase());
+  if (mode === "clean")
+    return !issues || issues.length === 0;
+  if (!issues || issues.length === 0)
+    return false;
+  if (mode === "errors") {
+    return issues.some((i) => i.severity === "error");
+  }
+  if (mode === "warnings") {
+    return issues.some(
+      (i) => i.severity === "error" || i.severity === "warning"
+    );
+  }
+  return false;
+}
+function filterAndSortEntities(index, filters, sortBy, sortDir, piiByFqid, issuesByFqid) {
   const q = filters.query.trim().toLowerCase();
   const orphanSet = new Set(index.stats.orphanEntities);
-  const result = index.entities.filter((e) => {
+  const filtered = index.entities.filter((e) => {
     if (filters.domains.size > 0 && !filters.domains.has(e.domainId.toLowerCase()))
       return false;
     if (filters.tags.size > 0) {
@@ -17949,9 +18071,14 @@ function filterEntities(index, filters) {
       if (!hasTag)
         return false;
     }
+    if (filters.kinds.size > 0) {
+      const kind = e.kind || "regular";
+      if (!filters.kinds.has(kind))
+        return false;
+    }
     if (filters.hasInherits && !e.inherits)
       return false;
-    if (filters.hasMixins && e.mixinSources.length === 0)
+    if (filters.hasMixins && countMixins(e, index) === 0)
       return false;
     if (filters.onlyOrphans && !orphanSet.has(e.fqid))
       return false;
@@ -17960,20 +18087,64 @@ function filterEntities(index, filters) {
       if (refs < filters.minRefs)
         return false;
     }
+    if (!entityHasPii(e.fqid, piiByFqid, filters.piiFilter))
+      return false;
+    if (!entityHasIssues(e.fqid, issuesByFqid, filters.issuesFilter))
+      return false;
+    if (filters.attributeTypes.size > 0) {
+      const types2 = collectAttributeTypes(e, index);
+      let hasAny = false;
+      for (const t of filters.attributeTypes) {
+        if (types2.has(t)) {
+          hasAny = true;
+          break;
+        }
+      }
+      if (!hasAny)
+        return false;
+    }
     if (q) {
-      const hay = e.fqid + " " + e.name + " " + e.description + " " + e.attributes.map((a) => a.name).join(" ");
-      if (hay.toLowerCase().indexOf(q) === -1)
+      const hay = [
+        e.fqid,
+        e.name,
+        e.description,
+        ...e.attributes.map((a) => `${a.id} ${a.name}`)
+      ].join(" ").toLowerCase();
+      if (hay.indexOf(q) === -1)
         return false;
     }
     return true;
   });
-  return result.sort((a, b) => {
-    const ra = countRefs(a, index);
-    const rb = countRefs(b, index);
-    if (ra !== rb)
-      return rb - ra;
+  const dir = sortDir === "asc" ? 1 : -1;
+  const getValue = (e) => {
+    switch (sortBy) {
+      case "name":
+        return (e.name || e.entityId).toLowerCase();
+      case "domain":
+        return e.domainId.toLowerCase();
+      case "attributes":
+        return e.attributes.length;
+      case "mixins":
+        return countMixins(e, index);
+      case "issues":
+        return issuesByFqid.get(e.fqid.toLowerCase())?.length ?? 0;
+      case "pii":
+        return piiByFqid.get(e.fqid.toLowerCase())?.length ?? 0;
+      case "refs":
+      default:
+        return countRefs(e, index);
+    }
+  };
+  filtered.sort((a, b) => {
+    const va = getValue(a);
+    const vb = getValue(b);
+    if (va < vb)
+      return -1 * dir;
+    if (va > vb)
+      return 1 * dir;
     return a.fqid.localeCompare(b.fqid);
   });
+  return filtered;
 }
 var EMPTY_FILTERS;
 var init_entity_filters = __esm({
@@ -17983,11 +18154,147 @@ var init_entity_filters = __esm({
       query: "",
       domains: /* @__PURE__ */ new Set(),
       tags: /* @__PURE__ */ new Set(),
+      kinds: /* @__PURE__ */ new Set(),
       hasInherits: false,
       hasMixins: false,
       onlyOrphans: false,
-      minRefs: 0
+      minRefs: 0,
+      piiFilter: "any",
+      issuesFilter: "any",
+      attributeTypes: /* @__PURE__ */ new Set()
     };
+  }
+});
+
+// src/web/lib/model/entity-export.ts
+function downloadBlob(content, filename, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+function stamp2() {
+  return (/* @__PURE__ */ new Date()).toISOString().slice(0, 19).replace(/[:.]/g, "-");
+}
+function escapeCsv(v) {
+  const s = String(v ?? "");
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+function rowFor(e, ctx2) {
+  const pii = ctx2.piiByFqid.get(e.fqid.toLowerCase()) || [];
+  const piiCritical = pii.filter((h) => h.severity === "critical").length;
+  const issues = ctx2.issuesByFqid.get(e.fqid.toLowerCase()) || [];
+  const issueErrors = issues.filter((i) => i.severity === "error").length;
+  return [
+    e.fqid,
+    e.entityId,
+    e.name,
+    e.domainId,
+    e.kind || "regular",
+    e.inherits || "",
+    String(e.attributes.length),
+    String(countRefs(e, ctx2.index)),
+    String(countMixins(e, ctx2.index)),
+    String(pii.length),
+    String(piiCritical),
+    String(issues.length),
+    String(issueErrors),
+    e.domainTags.join("; ")
+  ];
+}
+function exportEntitiesCSV(entities2, ctx2) {
+  const header = [
+    "fqid",
+    "entityId",
+    "name",
+    "domainId",
+    "kind",
+    "inherits",
+    "attributesCount",
+    "refsCount",
+    "mixinsCount",
+    "piiCount",
+    "piiCritical",
+    "issuesCount",
+    "issuesErrors",
+    "tags"
+  ];
+  const lines = [header.join(",")];
+  for (const e of entities2) {
+    lines.push(rowFor(e, ctx2).map(escapeCsv).join(","));
+  }
+  downloadBlob(
+    "\uFEFF" + lines.join("\n"),
+    `entities-${stamp2()}.csv`,
+    "text/csv;charset=utf-8"
+  );
+}
+function exportEntitiesJSON(entities2, ctx2) {
+  const payload = entities2.map((e) => {
+    const pii = ctx2.piiByFqid.get(e.fqid.toLowerCase()) || [];
+    const issues = ctx2.issuesByFqid.get(e.fqid.toLowerCase()) || [];
+    return {
+      fqid: e.fqid,
+      entityId: e.entityId,
+      name: e.name,
+      description: e.description,
+      domainId: e.domainId,
+      kind: e.kind || "regular",
+      inherits: e.inherits,
+      tags: e.domainTags,
+      attributes: e.attributes.map((a) => ({
+        id: a.id,
+        name: a.name,
+        dataType: a.dataType,
+        dataTypeKind: a.dataTypeKind,
+        referenceEntity: a.referenceEntity || null,
+        constraints: a.constraints,
+        readonly: !!a.readonly
+      })),
+      counts: {
+        attributes: e.attributes.length,
+        refs: countRefs(e, ctx2.index),
+        mixins: countMixins(e, ctx2.index),
+        pii: pii.length,
+        issues: issues.length
+      },
+      pii: pii.map((h) => ({
+        attributeId: h.attributeId,
+        category: h.category,
+        severity: h.severity,
+        regulation: h.regulation
+      })),
+      issues: issues.map((i) => ({
+        ruleId: i.ruleId,
+        rule: i.rule,
+        severity: i.severity,
+        category: i.category,
+        message: i.message,
+        hint: i.hint || null
+      }))
+    };
+  });
+  downloadBlob(
+    JSON.stringify(
+      {
+        generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        total: entities2.length,
+        entities: payload
+      },
+      null,
+      2
+    ),
+    `entities-${stamp2()}.json`,
+    "application/json"
+  );
+}
+var init_entity_export = __esm({
+  "src/web/lib/model/entity-export.ts"() {
+    "use strict";
+    init_entity_filters();
   }
 });
 
@@ -18394,17 +18701,173 @@ var init_ImpactAnalysisPanel = __esm({
 });
 
 // src/web/components/modals/EntitiesCatalogModal.tsx
-import React32, { useCallback as useCallback15, useEffect as useEffect32, useMemo as useMemo30, useState as useState19 } from "react";
-import { jsx as jsx61, jsxs as jsxs58 } from "react/jsx-runtime";
+import React32, {
+  useCallback as useCallback15,
+  useEffect as useEffect32,
+  useMemo as useMemo30,
+  useRef as useRef18,
+  useState as useState19
+} from "react";
+import { Fragment as Fragment13, jsx as jsx61, jsxs as jsxs58 } from "react/jsx-runtime";
+function loadCollapsedFilterGroups() {
+  try {
+    const raw = localStorage.getItem(FILTER_GROUPS_STORAGE_KEY);
+    if (raw === null)
+      return new Set(DEFAULT_COLLAPSED_GROUPS);
+    const arr = JSON.parse(raw);
+    return new Set(Array.isArray(arr) ? arr : []);
+  } catch {
+    return new Set(DEFAULT_COLLAPSED_GROUPS);
+  }
+}
+function saveCollapsedFilterGroups(s) {
+  try {
+    localStorage.setItem(
+      FILTER_GROUPS_STORAGE_KEY,
+      JSON.stringify(Array.from(s))
+    );
+  } catch {
+  }
+}
+function loadFilters() {
+  try {
+    const raw = localStorage.getItem(FILTERS_STORAGE_KEY);
+    if (!raw)
+      return EMPTY_FILTERS;
+    const p = JSON.parse(raw);
+    return {
+      query: typeof p.query === "string" ? p.query : "",
+      domains: new Set(Array.isArray(p.domains) ? p.domains : []),
+      tags: new Set(Array.isArray(p.tags) ? p.tags : []),
+      kinds: new Set(Array.isArray(p.kinds) ? p.kinds : []),
+      hasInherits: !!p.hasInherits,
+      hasMixins: !!p.hasMixins,
+      onlyOrphans: !!p.onlyOrphans,
+      minRefs: typeof p.minRefs === "number" ? p.minRefs : 0,
+      piiFilter: p.piiFilter || "any",
+      issuesFilter: p.issuesFilter || "any",
+      attributeTypes: new Set(
+        Array.isArray(p.attributeTypes) ? p.attributeTypes : []
+      )
+    };
+  } catch {
+    return EMPTY_FILTERS;
+  }
+}
+function saveFilters(f) {
+  try {
+    const p = {
+      query: f.query,
+      domains: Array.from(f.domains),
+      tags: Array.from(f.tags),
+      kinds: Array.from(f.kinds),
+      hasInherits: f.hasInherits,
+      hasMixins: f.hasMixins,
+      onlyOrphans: f.onlyOrphans,
+      minRefs: f.minRefs,
+      piiFilter: f.piiFilter,
+      issuesFilter: f.issuesFilter,
+      attributeTypes: Array.from(f.attributeTypes)
+    };
+    localStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(p));
+  } catch {
+  }
+}
+function loadSort() {
+  try {
+    const raw = localStorage.getItem(SORT_STORAGE_KEY);
+    if (!raw)
+      return { sortBy: "refs", sortDir: "desc" };
+    const p = JSON.parse(raw);
+    return {
+      sortBy: p.sortBy || "refs",
+      sortDir: p.sortDir === "asc" ? "asc" : "desc"
+    };
+  } catch {
+    return { sortBy: "refs", sortDir: "desc" };
+  }
+}
+function saveSort(sortBy, sortDir) {
+  try {
+    localStorage.setItem(
+      SORT_STORAGE_KEY,
+      JSON.stringify({ sortBy, sortDir })
+    );
+  } catch {
+  }
+}
+function loadDense() {
+  try {
+    return localStorage.getItem(DENSE_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+function loadGroup() {
+  try {
+    return localStorage.getItem(GROUP_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+function hasActiveFilters(f) {
+  return !!f.query.trim() || f.domains.size > 0 || f.tags.size > 0 || f.kinds.size > 0 || f.hasInherits || f.hasMixins || f.onlyOrphans || f.minRefs > 0 || f.piiFilter !== "any" || f.issuesFilter !== "any" || f.attributeTypes.size > 0;
+}
 function EntitiesCatalogModal() {
   const { goto } = useNavigation();
   const { index, loading, error } = useModelIndex();
-  const [filters, setFilters] = useState19(EMPTY_FILTERS);
+  const [filters, setFilters] = useState19(loadFilters);
+  const [sortBy, setSortBy] = useState19(loadSort().sortBy);
+  const [sortDir, setSortDir] = useState19(loadSort().sortDir);
+  const [dense, setDense] = useState19(loadDense);
+  const [groupByDomain, setGroupByDomain] = useState19(loadGroup);
   const [selectedFqid, setSelectedFqid] = useState19(null);
   const [limit, setLimit] = useState19(PAGE_SIZE);
+  const [activeRowIdx, setActiveRowIdx] = useState19(-1);
   const open2 = useGraphStore((s) => s.entityCatalogOpen);
   const entityFavorites = useGraphStore((s) => s.entityFavorites);
   const initialFqid = useGraphStore((s) => s.entityCatalogInitialFqid);
+  const tableRef = useRef18(null);
+  const [collapsedFilterGroups, setCollapsedFilterGroups] = useState19(loadCollapsedFilterGroups);
+  useEffect32(() => {
+    saveCollapsedFilterGroups(collapsedFilterGroups);
+  }, [collapsedFilterGroups]);
+  const toggleFilterGroup = useCallback15((id) => {
+    setCollapsedFilterGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(id))
+        next.delete(id);
+      else
+        next.add(id);
+      return next;
+    });
+  }, []);
+  const expandAllFilterGroups = useCallback15(() => {
+    setCollapsedFilterGroups(/* @__PURE__ */ new Set());
+  }, []);
+  const collapseAllFilterGroups = useCallback15(() => {
+    setCollapsedFilterGroups(
+      /* @__PURE__ */ new Set(["domains", "tags", "kinds", "attributes", "pii", "issues", "properties", "refs"])
+    );
+  }, []);
+  useEffect32(() => {
+    saveFilters(filters);
+  }, [filters]);
+  useEffect32(() => {
+    saveSort(sortBy, sortDir);
+  }, [sortBy, sortDir]);
+  useEffect32(() => {
+    try {
+      localStorage.setItem(DENSE_STORAGE_KEY, dense ? "1" : "0");
+    } catch {
+    }
+  }, [dense]);
+  useEffect32(() => {
+    try {
+      localStorage.setItem(GROUP_STORAGE_KEY, groupByDomain ? "1" : "0");
+    } catch {
+    }
+  }, [groupByDomain]);
   useEffect32(() => {
     if (!open2)
       return;
@@ -18424,20 +18887,92 @@ function EntitiesCatalogModal() {
   }, [selectedFqid]);
   useEffect32(() => {
     setLimit(PAGE_SIZE);
-  }, [filters]);
+    setActiveRowIdx(-1);
+  }, [filters, sortBy, sortDir, groupByDomain]);
+  const piiByFqid = useMemo30(() => {
+    const m = /* @__PURE__ */ new Map();
+    if (!index)
+      return m;
+    for (const h of index.pii.hits) {
+      const k = h.entityFqid.toLowerCase();
+      if (!m.has(k))
+        m.set(k, []);
+      m.get(k).push(h);
+    }
+    return m;
+  }, [index]);
+  const issuesByFqid = useMemo30(() => {
+    const m = /* @__PURE__ */ new Map();
+    if (!index)
+      return m;
+    for (const i of index.lint.lintReport.issues) {
+      if (!i.entityFqid)
+        continue;
+      const k = i.entityFqid.toLowerCase();
+      if (!m.has(k))
+        m.set(k, []);
+      m.get(k).push(i);
+    }
+    return m;
+  }, [index]);
   const orphanSet = useMemo30(() => {
     if (!index)
       return /* @__PURE__ */ new Set();
     return new Set(index.stats.orphanEntities);
   }, [index]);
-  const filtered = useMemo30(
-    () => index ? filterEntities(index, filters) : [],
-    [index, filters]
-  );
+  const filtered = useMemo30(() => {
+    if (!index)
+      return [];
+    return filterAndSortEntities(
+      index,
+      filters,
+      sortBy,
+      sortDir,
+      piiByFqid,
+      issuesByFqid
+    );
+  }, [index, filters, sortBy, sortDir, piiByFqid, issuesByFqid]);
   const visibleRows = useMemo30(
     () => filtered.slice(0, limit),
     [filtered, limit]
   );
+  const grouped = useMemo30(() => {
+    if (!groupByDomain)
+      return null;
+    const m = /* @__PURE__ */ new Map();
+    for (const e of visibleRows) {
+      const k = e.domainId;
+      if (!m.has(k))
+        m.set(k, []);
+      m.get(k).push(e);
+    }
+    return Array.from(m.entries()).sort(([a], [b]) => a.localeCompare(b));
+  }, [visibleRows, groupByDomain]);
+  const stats = useMemo30(() => {
+    let withPii = 0;
+    let withCriticalPii = 0;
+    let withIssues = 0;
+    let withErrors = 0;
+    for (const e of filtered) {
+      const pii = piiByFqid.get(e.fqid.toLowerCase()) || [];
+      if (pii.length > 0)
+        withPii++;
+      if (pii.some((h) => h.severity === "critical"))
+        withCriticalPii++;
+      const iss = issuesByFqid.get(e.fqid.toLowerCase()) || [];
+      if (iss.length > 0)
+        withIssues++;
+      if (iss.some((i) => i.severity === "error"))
+        withErrors++;
+    }
+    return {
+      total: filtered.length,
+      withPii,
+      withCriticalPii,
+      withIssues,
+      withErrors
+    };
+  }, [filtered, piiByFqid, issuesByFqid]);
   const allDomains = useMemo30(() => {
     if (!index)
       return [];
@@ -18459,6 +18994,16 @@ function EntitiesCatalogModal() {
     });
     return Array.from(map2.entries()).sort((a, b) => b[1] - a[1]);
   }, [index]);
+  const handleSort = useCallback15((field) => {
+    setSortBy((prev) => {
+      if (prev === field) {
+        setSortDir((d) => d === "asc" ? "desc" : "asc");
+        return prev;
+      }
+      setSortDir(field === "name" || field === "domain" ? "asc" : "desc");
+      return field;
+    });
+  }, []);
   const handleSelectRow = useCallback15((fqid) => {
     setSelectedFqid(fqid);
   }, []);
@@ -18468,14 +19013,11 @@ function EntitiesCatalogModal() {
   const handleBack = useCallback15(() => {
     setSelectedFqid(null);
   }, []);
-  const handleGotoDomain = useCallback15(
-    (domainId) => {
-      useGraphStore.getState().setEntityCatalogOpen(false);
-      useGraphStore.getState().setDomainSchemaDomainId(domainId);
-      useGraphStore.getState().setDomainSchemaOpen(true);
-    },
-    []
-  );
+  const handleGotoDomain = useCallback15((domainId) => {
+    useGraphStore.getState().setEntityCatalogOpen(false);
+    useGraphStore.getState().setDomainSchemaDomainId(domainId);
+    useGraphStore.getState().setDomainSchemaOpen(true);
+  }, []);
   const handleSelectFromImpact = useCallback15((fqid) => {
     setSelectedFqid(fqid);
   }, []);
@@ -18500,8 +19042,116 @@ function EntitiesCatalogModal() {
       return { ...prev, tags: next };
     });
   }, []);
+  const toggleKind = useCallback15((k) => {
+    setFilters((prev) => {
+      const next = new Set(prev.kinds);
+      if (next.has(k))
+        next.delete(k);
+      else
+        next.add(k);
+      return { ...prev, kinds: next };
+    });
+  }, []);
+  const toggleAttributeType = useCallback15((t) => {
+    setFilters((prev) => {
+      const next = new Set(prev.attributeTypes);
+      if (next.has(t))
+        next.delete(t);
+      else
+        next.add(t);
+      return { ...prev, attributeTypes: next };
+    });
+  }, []);
+  const resetAllFilters = useCallback15(() => {
+    setFilters(EMPTY_FILTERS);
+  }, []);
+  const handleExportCSV = useCallback15(() => {
+    if (!index)
+      return;
+    exportEntitiesCSV(filtered, { index, piiByFqid, issuesByFqid });
+    useGraphStore.getState().showSnackbar(`CSV: ${filtered.length} \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439`);
+  }, [filtered, index, piiByFqid, issuesByFqid]);
+  const handleExportJSON = useCallback15(() => {
+    if (!index)
+      return;
+    exportEntitiesJSON(filtered, { index, piiByFqid, issuesByFqid });
+    useGraphStore.getState().showSnackbar(`JSON: ${filtered.length} \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439`);
+  }, [filtered, index, piiByFqid, issuesByFqid]);
+  const handleOpenPii = useCallback15((domainId) => {
+    const st = useGraphStore.getState();
+    st.setEntityCatalogOpen(false);
+    st.setPiiInitialDomain(domainId);
+    st.setPiiInitialSeverity(null);
+    st.setPiiOpen(true);
+  }, []);
+  const handleOpenLint = useCallback15(() => {
+    const st = useGraphStore.getState();
+    st.setEntityCatalogOpen(false);
+    st.setLintOpen(true);
+  }, []);
+  const flatRowFqids = useMemo30(() => {
+    if (grouped) {
+      const out = [];
+      for (const [, list] of grouped)
+        for (const e of list)
+          out.push(e.fqid);
+      return out;
+    }
+    return visibleRows.map((e) => e.fqid);
+  }, [grouped, visibleRows]);
+  useEffect32(() => {
+    if (!open2)
+      return;
+    if (selectedFqid)
+      return;
+    const onKey = (e) => {
+      const target = e.target;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable))
+        return;
+      if (e.ctrlKey || e.metaKey || e.altKey)
+        return;
+      const total = flatRowFqids.length;
+      if (total === 0)
+        return;
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setActiveRowIdx((i) => Math.min(i + 1, total - 1));
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setActiveRowIdx((i) => Math.max(i - 1, 0));
+      } else if (e.key === "Enter" && activeRowIdx >= 0) {
+        e.preventDefault();
+        const fqid = flatRowFqids[activeRowIdx];
+        if (fqid)
+          setSelectedFqid(fqid);
+      } else if (e.key === " " && activeRowIdx >= 0) {
+        e.preventDefault();
+        const fqid = flatRowFqids[activeRowIdx];
+        if (fqid)
+          useGraphStore.getState().toggleEntityFavorite(fqid);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        useGraphStore.getState().setEntityCatalogOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open2, selectedFqid, flatRowFqids, activeRowIdx]);
+  useEffect32(() => {
+    if (activeRowIdx < 0 || !tableRef.current)
+      return;
+    const fqid = flatRowFqids[activeRowIdx];
+    if (!fqid)
+      return;
+    const el = tableRef.current.querySelector(
+      `.entity-catalog-row[data-fqid="${CSS.escape(fqid)}"]`
+    );
+    el?.scrollIntoView({ block: "nearest" });
+  }, [activeRowIdx, flatRowFqids]);
   if (!open2)
     return null;
+  const hasFilters = hasActiveFilters(filters);
+  const noResults = filtered.length === 0;
   return /* @__PURE__ */ jsx61(
     "div",
     {
@@ -18510,26 +19160,132 @@ function EntitiesCatalogModal() {
       children: /* @__PURE__ */ jsxs58(
         "div",
         {
-          className: "help-modal entity-hierarchy-modal",
+          className: "help-modal entity-hierarchy-modal entity-catalog-v2",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
             /* @__PURE__ */ jsxs58("div", { className: "help-modal__header", children: [
               /* @__PURE__ */ jsxs58("div", { className: "help-modal__title", children: [
-                "\u{1F4D6} \u041A\u0430\u0442\u0430\u043B\u043E\u0433 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439",
+                /* @__PURE__ */ jsx61(MIcon, { name: "menu_book", size: "sm" }),
+                /* @__PURE__ */ jsx61("span", { className: "icon-label", children: "\u041A\u0430\u0442\u0430\u043B\u043E\u0433 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" }),
                 index && /* @__PURE__ */ jsxs58("span", { className: "help-modal__badge", children: [
                   filtered.length,
-                  " / ",
-                  index.entities.length
-                ] })
+                  hasFilters && ` / ${index.entities.length}`
+                ] }),
+                stats.withCriticalPii > 0 && /* @__PURE__ */ jsxs58(
+                  "button",
+                  {
+                    type: "button",
+                    className: "help-modal__badge entity-catalog-v2__stat-badge entity-catalog-v2__stat-badge--pii",
+                    onClick: () => {
+                      setFilters((f) => ({ ...f, piiFilter: "critical" }));
+                    },
+                    title: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0441 PII critical",
+                    children: [
+                      /* @__PURE__ */ jsx61(MIcon, { name: "shield_lock", size: "sm" }),
+                      stats.withCriticalPii,
+                      " PII"
+                    ]
+                  }
+                ),
+                stats.withErrors > 0 && /* @__PURE__ */ jsxs58(
+                  "button",
+                  {
+                    type: "button",
+                    className: "help-modal__badge entity-catalog-v2__stat-badge entity-catalog-v2__stat-badge--err",
+                    onClick: () => {
+                      setFilters((f) => ({ ...f, issuesFilter: "errors" }));
+                    },
+                    title: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0441 \u043E\u0448\u0438\u0431\u043A\u0430\u043C\u0438 \u043B\u0438\u043D\u0442\u0435\u0440\u0430",
+                    children: [
+                      /* @__PURE__ */ jsx61(MIcon, { name: "error", size: "sm" }),
+                      stats.withErrors
+                    ]
+                  }
+                )
               ] }),
-              /* @__PURE__ */ jsx61(
-                "button",
-                {
-                  className: "help-modal__close",
-                  onClick: () => useGraphStore.getState().setEntityCatalogOpen(false),
-                  children: "\u2715"
-                }
-              )
+              /* @__PURE__ */ jsxs58("div", { className: "help-modal__actions", children: [
+                /* @__PURE__ */ jsx61(
+                  "button",
+                  {
+                    className: "help-modal__icon-btn",
+                    onClick: () => setDense(!dense),
+                    title: dense ? "\u041E\u0431\u044B\u0447\u043D\u044B\u0439 \u0432\u0438\u0434" : "\u041F\u043B\u043E\u0442\u043D\u044B\u0439 \u0432\u0438\u0434",
+                    children: /* @__PURE__ */ jsx61(MIcon, { name: dense ? "view_agenda" : "view_stream" })
+                  }
+                ),
+                /* @__PURE__ */ jsx61(
+                  "button",
+                  {
+                    className: "help-modal__icon-btn" + (groupByDomain ? " active" : ""),
+                    onClick: () => setGroupByDomain(!groupByDomain),
+                    title: groupByDomain ? "\u041F\u043B\u043E\u0441\u043A\u0438\u0439 \u0441\u043F\u0438\u0441\u043E\u043A" : "\u0413\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u043F\u043E \u0434\u043E\u043C\u0435\u043D\u0443",
+                    children: /* @__PURE__ */ jsx61(MIcon, { name: "folder" })
+                  }
+                ),
+                /* @__PURE__ */ jsx61(
+                  Popover,
+                  {
+                    width: 240,
+                    align: "right",
+                    trigger: (isOpen) => /* @__PURE__ */ jsx61(
+                      "button",
+                      {
+                        className: "help-modal__icon-btn" + (isOpen ? " active" : ""),
+                        title: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442 \u043E\u0442\u0444\u0438\u043B\u044C\u0442\u0440\u043E\u0432\u0430\u043D\u043D\u043E\u0433\u043E \u0441\u043F\u0438\u0441\u043A\u0430",
+                        children: /* @__PURE__ */ jsx61(MIcon, { name: "download" })
+                      }
+                    ),
+                    children: (close) => /* @__PURE__ */ jsxs58("div", { className: "menu", children: [
+                      /* @__PURE__ */ jsxs58(
+                        "button",
+                        {
+                          className: "menu__item",
+                          onClick: () => {
+                            handleExportCSV();
+                            close();
+                          },
+                          disabled: filtered.length === 0,
+                          children: [
+                            /* @__PURE__ */ jsx61("span", { className: "menu__icon", children: /* @__PURE__ */ jsx61(MIcon, { name: "table_view", size: "sm" }) }),
+                            /* @__PURE__ */ jsxs58("span", { className: "menu__text", children: [
+                              "CSV (",
+                              filtered.length,
+                              ")"
+                            ] })
+                          ]
+                        }
+                      ),
+                      /* @__PURE__ */ jsxs58(
+                        "button",
+                        {
+                          className: "menu__item",
+                          onClick: () => {
+                            handleExportJSON();
+                            close();
+                          },
+                          disabled: filtered.length === 0,
+                          children: [
+                            /* @__PURE__ */ jsx61("span", { className: "menu__icon", children: /* @__PURE__ */ jsx61(MIcon, { name: "data_object", size: "sm" }) }),
+                            /* @__PURE__ */ jsxs58("span", { className: "menu__text", children: [
+                              "JSON (",
+                              filtered.length,
+                              ")"
+                            ] })
+                          ]
+                        }
+                      )
+                    ] })
+                  }
+                ),
+                /* @__PURE__ */ jsx61(
+                  "button",
+                  {
+                    className: "help-modal__close",
+                    onClick: () => useGraphStore.getState().setEntityCatalogOpen(false),
+                    children: "\u2715"
+                  }
+                )
+              ] })
             ] }),
             loading && /* @__PURE__ */ jsx61("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx61("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
             error && /* @__PURE__ */ jsx61("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs58("div", { style: { color: "var(--danger)" }, children: [
@@ -18545,110 +19301,263 @@ function EntitiesCatalogModal() {
                     {
                       className: "entity-search-input",
                       type: "text",
-                      placeholder: "\u041F\u043E\u0438\u0441\u043A: id, \u0438\u043C\u044F, \u043E\u043F\u0438\u0441\u0430\u043D\u0438\u0435, \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B...",
+                      placeholder: "\u041F\u043E\u0438\u0441\u043A: id, \u0438\u043C\u044F, \u043E\u043F\u0438\u0441\u0430\u043D\u0438\u0435, \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B, FQID...",
                       value: filters.query,
                       onChange: (e) => setFilters({ ...filters, query: e.target.value })
+                    }
+                  ),
+                  filters.query && /* @__PURE__ */ jsx61(
+                    "button",
+                    {
+                      className: "entity-search-clear",
+                      onClick: () => setFilters({ ...filters, query: "" }),
+                      title: "\u041E\u0447\u0438\u0441\u0442\u0438\u0442\u044C",
+                      children: "\u2715"
                     }
                   )
                 ] }),
                 /* @__PURE__ */ jsxs58("div", { className: "entity-catalog-filter-body", children: [
-                  /* @__PURE__ */ jsxs58("div", { className: "entity-catalog-group", children: [
-                    /* @__PURE__ */ jsx61("div", { className: "entity-catalog-group__title", children: "\u0414\u043E\u043C\u0435\u043D\u044B" }),
-                    /* @__PURE__ */ jsx61("div", { className: "entity-catalog-chips", children: allDomains.slice(0, 30).map(([domainId, count]) => {
-                      const active = filters.domains.has(domainId.toLowerCase());
-                      return /* @__PURE__ */ jsxs58(
-                        "button",
-                        {
-                          className: "entity-catalog-chip" + (active ? " active" : ""),
-                          onClick: () => toggleDomainFilter(domainId),
-                          children: [
-                            domainId,
-                            /* @__PURE__ */ jsx61("span", { className: "entity-catalog-chip__count", children: count })
-                          ]
-                        },
-                        domainId
-                      );
-                    }) })
-                  ] }),
-                  allTags.length > 0 && /* @__PURE__ */ jsxs58("div", { className: "entity-catalog-group", children: [
-                    /* @__PURE__ */ jsx61("div", { className: "entity-catalog-group__title", children: "\u0422\u0435\u0433\u0438" }),
-                    /* @__PURE__ */ jsx61("div", { className: "entity-catalog-chips", children: allTags.slice(0, 20).map(([tag, count]) => {
-                      const active = filters.tags.has(tag);
-                      return /* @__PURE__ */ jsxs58(
-                        "button",
-                        {
-                          className: "entity-catalog-chip" + (active ? " active" : ""),
-                          onClick: () => toggleTagFilter(tag),
-                          children: [
-                            tag,
-                            /* @__PURE__ */ jsx61("span", { className: "entity-catalog-chip__count", children: count })
-                          ]
-                        },
-                        tag
-                      );
-                    }) })
-                  ] }),
-                  /* @__PURE__ */ jsxs58("div", { className: "entity-catalog-group", children: [
-                    /* @__PURE__ */ jsx61("div", { className: "entity-catalog-group__title", children: "\u0421\u0432\u043E\u0439\u0441\u0442\u0432\u0430" }),
-                    /* @__PURE__ */ jsxs58("label", { className: "entity-catalog-toggle", children: [
-                      /* @__PURE__ */ jsx61(
-                        "input",
-                        {
-                          type: "checkbox",
-                          checked: filters.hasInherits,
-                          onChange: () => setFilters({ ...filters, hasInherits: !filters.hasInherits })
-                        }
-                      ),
-                      "\u0422\u043E\u043B\u044C\u043A\u043E \u0441 \u0440\u043E\u0434\u0438\u0442\u0435\u043B\u0435\u043C"
-                    ] }),
-                    /* @__PURE__ */ jsxs58("label", { className: "entity-catalog-toggle", children: [
-                      /* @__PURE__ */ jsx61(
-                        "input",
-                        {
-                          type: "checkbox",
-                          checked: filters.hasMixins,
-                          onChange: () => setFilters({ ...filters, hasMixins: !filters.hasMixins })
-                        }
-                      ),
-                      "\u0422\u043E\u043B\u044C\u043A\u043E \u0441 \u043C\u0438\u043A\u0441\u0438\u043D\u0430\u043C\u0438"
-                    ] }),
-                    /* @__PURE__ */ jsxs58("label", { className: "entity-catalog-toggle", children: [
-                      /* @__PURE__ */ jsx61(
-                        "input",
-                        {
-                          type: "checkbox",
-                          checked: filters.onlyOrphans,
-                          onChange: () => setFilters({ ...filters, onlyOrphans: !filters.onlyOrphans })
-                        }
-                      ),
-                      "\u0422\u043E\u043B\u044C\u043A\u043E \u0441\u0438\u0440\u043E\u0442\u044B (",
-                      index.stats.orphanEntities.length,
-                      ")"
-                    ] })
-                  ] }),
-                  /* @__PURE__ */ jsxs58("div", { className: "entity-catalog-group", children: [
-                    /* @__PURE__ */ jsxs58("div", { className: "entity-catalog-group__title", children: [
-                      "\u041C\u0438\u043D\u0438\u043C\u0443\u043C \u0441\u0441\u044B\u043B\u043E\u043A: ",
-                      filters.minRefs
-                    ] }),
+                  /* @__PURE__ */ jsxs58("div", { className: "entity-catalog-filter-actions", children: [
                     /* @__PURE__ */ jsx61(
-                      "input",
+                      "button",
                       {
-                        type: "range",
-                        min: 0,
-                        max: 20,
-                        value: filters.minRefs,
-                        onChange: (e) => setFilters({ ...filters, minRefs: parseInt(e.target.value, 10) }),
-                        style: { width: "100%" }
+                        type: "button",
+                        onClick: expandAllFilterGroups,
+                        title: "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0435 \u0444\u0438\u043B\u044C\u0442\u0440\u044B",
+                        children: /* @__PURE__ */ jsx61(MIcon, { name: "unfold_more", size: "sm" })
+                      }
+                    ),
+                    /* @__PURE__ */ jsx61(
+                      "button",
+                      {
+                        type: "button",
+                        onClick: collapseAllFilterGroups,
+                        title: "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0435 \u0444\u0438\u043B\u044C\u0442\u0440\u044B",
+                        children: /* @__PURE__ */ jsx61(MIcon, { name: "unfold_less", size: "sm" })
                       }
                     )
                   ] }),
                   /* @__PURE__ */ jsx61(
+                    FilterGroup,
+                    {
+                      id: "domains",
+                      title: "\u0414\u043E\u043C\u0435\u043D\u044B",
+                      icon: "folder",
+                      totalCount: allDomains.length,
+                      activeCount: filters.domains.size,
+                      collapsedGroups: collapsedFilterGroups,
+                      onToggleGroup: toggleFilterGroup,
+                      children: /* @__PURE__ */ jsx61(
+                        ChipsRow,
+                        {
+                          scrollable: true,
+                          items: allDomains.map(([d, c]) => ({
+                            key: d,
+                            label: d,
+                            count: c,
+                            active: filters.domains.has(d.toLowerCase()),
+                            onClick: () => toggleDomainFilter(d)
+                          }))
+                        }
+                      )
+                    }
+                  ),
+                  allTags.length > 0 && /* @__PURE__ */ jsx61(
+                    FilterGroup,
+                    {
+                      id: "tags",
+                      title: "\u0422\u0435\u0433\u0438",
+                      icon: "label",
+                      totalCount: allTags.length,
+                      activeCount: filters.tags.size,
+                      collapsedGroups: collapsedFilterGroups,
+                      onToggleGroup: toggleFilterGroup,
+                      children: /* @__PURE__ */ jsx61(
+                        ChipsRow,
+                        {
+                          scrollable: true,
+                          items: allTags.map(([tag, count]) => ({
+                            key: tag,
+                            label: tag,
+                            count,
+                            active: filters.tags.has(tag),
+                            onClick: () => toggleTagFilter(tag)
+                          }))
+                        }
+                      )
+                    }
+                  ),
+                  /* @__PURE__ */ jsx61(
+                    FilterGroup,
+                    {
+                      id: "kinds",
+                      title: "\u0422\u0438\u043F \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438",
+                      icon: "category",
+                      activeCount: filters.kinds.size,
+                      collapsedGroups: collapsedFilterGroups,
+                      onToggleGroup: toggleFilterGroup,
+                      children: /* @__PURE__ */ jsx61(
+                        ChipsRow,
+                        {
+                          items: KIND_OPTIONS.map((k) => ({
+                            key: k.value,
+                            label: k.label,
+                            count: null,
+                            active: filters.kinds.has(k.value),
+                            onClick: () => toggleKind(k.value)
+                          }))
+                        }
+                      )
+                    }
+                  ),
+                  /* @__PURE__ */ jsx61(
+                    FilterGroup,
+                    {
+                      id: "attributes",
+                      title: "\u0421\u043E\u0434\u0435\u0440\u0436\u0438\u0442 \u0430\u0442\u0440\u0438\u0431\u0443\u0442 \u0442\u0438\u043F\u0430",
+                      icon: "data_object",
+                      activeCount: filters.attributeTypes.size,
+                      collapsedGroups: collapsedFilterGroups,
+                      onToggleGroup: toggleFilterGroup,
+                      children: /* @__PURE__ */ jsx61(
+                        ChipsRow,
+                        {
+                          items: ATTRIBUTE_TYPE_OPTIONS.map((opt) => ({
+                            key: opt.value,
+                            label: opt.label,
+                            count: null,
+                            active: filters.attributeTypes.has(opt.value),
+                            onClick: () => toggleAttributeType(opt.value)
+                          }))
+                        }
+                      )
+                    }
+                  ),
+                  /* @__PURE__ */ jsx61(
+                    FilterGroup,
+                    {
+                      id: "pii",
+                      title: "PII",
+                      icon: "shield_lock",
+                      activeCount: filters.piiFilter !== "any" ? 1 : 0,
+                      collapsedGroups: collapsedFilterGroups,
+                      onToggleGroup: toggleFilterGroup,
+                      children: /* @__PURE__ */ jsx61(
+                        ChipsRow,
+                        {
+                          items: PII_OPTIONS.map((opt) => ({
+                            key: opt.value,
+                            label: opt.label,
+                            count: null,
+                            active: filters.piiFilter === opt.value,
+                            onClick: () => setFilters({ ...filters, piiFilter: opt.value })
+                          }))
+                        }
+                      )
+                    }
+                  ),
+                  /* @__PURE__ */ jsx61(
+                    FilterGroup,
+                    {
+                      id: "issues",
+                      title: "\u041F\u0440\u043E\u0431\u043B\u0435\u043C\u044B \u043B\u0438\u043D\u0442\u0435\u0440\u0430",
+                      icon: "bug_report",
+                      activeCount: filters.issuesFilter !== "any" ? 1 : 0,
+                      collapsedGroups: collapsedFilterGroups,
+                      onToggleGroup: toggleFilterGroup,
+                      children: /* @__PURE__ */ jsx61(
+                        ChipsRow,
+                        {
+                          items: ISSUES_OPTIONS.map((opt) => ({
+                            key: opt.value,
+                            label: opt.label,
+                            count: null,
+                            active: filters.issuesFilter === opt.value,
+                            onClick: () => setFilters({ ...filters, issuesFilter: opt.value })
+                          }))
+                        }
+                      )
+                    }
+                  ),
+                  /* @__PURE__ */ jsxs58(
+                    FilterGroup,
+                    {
+                      id: "properties",
+                      title: "\u0421\u0432\u043E\u0439\u0441\u0442\u0432\u0430",
+                      icon: "tune",
+                      activeCount: [filters.hasInherits, filters.hasMixins, filters.onlyOrphans].filter(
+                        Boolean
+                      ).length,
+                      collapsedGroups: collapsedFilterGroups,
+                      onToggleGroup: toggleFilterGroup,
+                      children: [
+                        /* @__PURE__ */ jsxs58("label", { className: "entity-catalog-toggle", children: [
+                          /* @__PURE__ */ jsx61(
+                            "input",
+                            {
+                              type: "checkbox",
+                              checked: filters.hasInherits,
+                              onChange: () => setFilters({ ...filters, hasInherits: !filters.hasInherits })
+                            }
+                          ),
+                          "\u0422\u043E\u043B\u044C\u043A\u043E \u0441 \u0440\u043E\u0434\u0438\u0442\u0435\u043B\u0435\u043C"
+                        ] }),
+                        /* @__PURE__ */ jsxs58("label", { className: "entity-catalog-toggle", children: [
+                          /* @__PURE__ */ jsx61(
+                            "input",
+                            {
+                              type: "checkbox",
+                              checked: filters.hasMixins,
+                              onChange: () => setFilters({ ...filters, hasMixins: !filters.hasMixins })
+                            }
+                          ),
+                          "\u0422\u043E\u043B\u044C\u043A\u043E \u0441 \u043C\u0438\u043A\u0441\u0438\u043D\u0430\u043C\u0438"
+                        ] }),
+                        /* @__PURE__ */ jsxs58("label", { className: "entity-catalog-toggle", children: [
+                          /* @__PURE__ */ jsx61(
+                            "input",
+                            {
+                              type: "checkbox",
+                              checked: filters.onlyOrphans,
+                              onChange: () => setFilters({ ...filters, onlyOrphans: !filters.onlyOrphans })
+                            }
+                          ),
+                          "\u0422\u043E\u043B\u044C\u043A\u043E \u0441\u0438\u0440\u043E\u0442\u044B (",
+                          index.stats.orphanEntities.length,
+                          ")"
+                        ] })
+                      ]
+                    }
+                  ),
+                  /* @__PURE__ */ jsx61(
+                    FilterGroup,
+                    {
+                      id: "refs",
+                      title: `\u041C\u0438\u043D\u0438\u043C\u0443\u043C \u0441\u0441\u044B\u043B\u043E\u043A: ${filters.minRefs}`,
+                      icon: "link",
+                      activeCount: filters.minRefs > 0 ? 1 : 0,
+                      collapsedGroups: collapsedFilterGroups,
+                      onToggleGroup: toggleFilterGroup,
+                      children: /* @__PURE__ */ jsx61(
+                        "input",
+                        {
+                          type: "range",
+                          min: 0,
+                          max: 20,
+                          value: filters.minRefs,
+                          onChange: (e) => setFilters({ ...filters, minRefs: parseInt(e.target.value, 10) }),
+                          style: { width: "100%" }
+                        }
+                      )
+                    }
+                  ),
+                  /* @__PURE__ */ jsx61(
                     "button",
                     {
                       className: "btn",
-                      style: { width: "100%", justifyContent: "center", marginTop: 12 },
-                      onClick: () => setFilters(EMPTY_FILTERS),
+                      style: { width: "100%", justifyContent: "center", marginTop: 8 },
+                      onClick: resetAllFilters,
+                      disabled: !hasFilters,
                       children: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0444\u0438\u043B\u044C\u0442\u0440\u044B"
                     }
                   ),
@@ -18662,54 +19571,187 @@ function EntitiesCatalogModal() {
                   ] })
                 ] })
               ] }),
-              /* @__PURE__ */ jsx61("div", { className: "entity-catalog-panel", children: !selectedFqid ? /* @__PURE__ */ jsxs58("div", { className: "entity-catalog-table-wrap", children: [
-                /* @__PURE__ */ jsxs58("table", { className: "entity-catalog-table", children: [
-                  /* @__PURE__ */ jsx61("thead", { children: /* @__PURE__ */ jsxs58("tr", { children: [
-                    /* @__PURE__ */ jsx61("th", { style: { width: 32 } }),
-                    /* @__PURE__ */ jsx61("th", { children: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C" }),
-                    /* @__PURE__ */ jsx61("th", { children: "\u0414\u043E\u043C\u0435\u043D" }),
-                    /* @__PURE__ */ jsx61("th", { children: "\u041D\u0430\u0441\u043B\u0435\u0434\u0443\u0435\u0442" }),
-                    /* @__PURE__ */ jsx61("th", { children: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432" }),
-                    /* @__PURE__ */ jsx61("th", { children: "\u0421\u0441\u044B\u043B\u043E\u043A" }),
-                    /* @__PURE__ */ jsx61("th", { children: "\u041C\u0438\u043A\u0441\u0438\u043D\u044B" }),
-                    /* @__PURE__ */ jsx61("th", { children: "\u0422\u0435\u0433\u0438" })
-                  ] }) }),
-                  /* @__PURE__ */ jsx61("tbody", { children: visibleRows.map((e) => /* @__PURE__ */ jsx61(
-                    EntityRow,
-                    {
-                      entity: e,
-                      index,
-                      isOrphan: orphanSet.has(e.fqid),
-                      onSelect: handleSelectRow,
-                      isFav: entityFavorites.has(e.fqid),
-                      onToggleFav: handleToggleFav
-                    },
-                    e.fqid
-                  )) })
-                ] }),
-                filtered.length === 0 && /* @__PURE__ */ jsx61("div", { className: "entity-catalog-empty", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" }),
-                filtered.length > visibleRows.length && /* @__PURE__ */ jsxs58("div", { className: "entity-catalog-more", children: [
-                  "\u041F\u043E\u043A\u0430\u0437\u0430\u043D\u043E ",
-                  visibleRows.length,
-                  " \u0438\u0437 ",
-                  filtered.length,
-                  /* @__PURE__ */ jsxs58(
-                    "button",
-                    {
-                      className: "btn",
-                      style: { marginLeft: 12 },
-                      onClick: () => setLimit((n) => n + PAGE_SIZE),
-                      children: [
-                        "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0435\u0449\u0451 ",
-                        PAGE_SIZE,
-                        " (\u043E\u0441\u0442\u0430\u043B\u043E\u0441\u044C",
-                        " ",
-                        filtered.length - visibleRows.length,
-                        ")"
-                      ]
-                    }
-                  )
-                ] })
+              /* @__PURE__ */ jsx61("div", { className: "entity-catalog-panel", children: !selectedFqid ? /* @__PURE__ */ jsxs58(Fragment13, { children: [
+                hasFilters && /* @__PURE__ */ jsx61(
+                  ActiveFiltersBar,
+                  {
+                    filters,
+                    onRemoveDomain: (d) => toggleDomainFilter(d),
+                    onRemoveTag: (t) => toggleTagFilter(t),
+                    onRemoveKind: (k) => toggleKind(k),
+                    onRemoveAttributeType: (t) => toggleAttributeType(t),
+                    onUpdate: setFilters,
+                    onResetAll: resetAllFilters
+                  }
+                ),
+                /* @__PURE__ */ jsxs58(
+                  "div",
+                  {
+                    className: "entity-catalog-table-wrap",
+                    ref: tableRef,
+                    children: [
+                      /* @__PURE__ */ jsxs58(
+                        "table",
+                        {
+                          className: "entity-catalog-table" + (dense ? " entity-catalog-table--dense" : ""),
+                          children: [
+                            /* @__PURE__ */ jsx61("thead", { children: /* @__PURE__ */ jsxs58("tr", { children: [
+                              /* @__PURE__ */ jsx61("th", { style: { width: 32 } }),
+                              /* @__PURE__ */ jsx61(
+                                SortableTh,
+                                {
+                                  field: "name",
+                                  label: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u044C",
+                                  sortBy,
+                                  sortDir,
+                                  onSort: handleSort
+                                }
+                              ),
+                              /* @__PURE__ */ jsx61(
+                                SortableTh,
+                                {
+                                  field: "domain",
+                                  label: "\u0414\u043E\u043C\u0435\u043D",
+                                  sortBy,
+                                  sortDir,
+                                  onSort: handleSort
+                                }
+                              ),
+                              /* @__PURE__ */ jsx61("th", { children: "\u041D\u0430\u0441\u043B\u0435\u0434\u0443\u0435\u0442" }),
+                              /* @__PURE__ */ jsx61(
+                                SortableTh,
+                                {
+                                  field: "attributes",
+                                  label: "\u0410\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432",
+                                  sortBy,
+                                  sortDir,
+                                  onSort: handleSort,
+                                  align: "right"
+                                }
+                              ),
+                              /* @__PURE__ */ jsx61(
+                                SortableTh,
+                                {
+                                  field: "refs",
+                                  label: "\u0421\u0441\u044B\u043B\u043E\u043A",
+                                  sortBy,
+                                  sortDir,
+                                  onSort: handleSort,
+                                  align: "right"
+                                }
+                              ),
+                              /* @__PURE__ */ jsx61(
+                                SortableTh,
+                                {
+                                  field: "mixins",
+                                  label: "\u041C\u0438\u043A\u0441\u0438\u043D\u044B",
+                                  sortBy,
+                                  sortDir,
+                                  onSort: handleSort,
+                                  align: "right"
+                                }
+                              ),
+                              /* @__PURE__ */ jsx61(
+                                SortableTh,
+                                {
+                                  field: "pii",
+                                  label: "PII",
+                                  sortBy,
+                                  sortDir,
+                                  onSort: handleSort,
+                                  align: "right"
+                                }
+                              ),
+                              /* @__PURE__ */ jsx61(
+                                SortableTh,
+                                {
+                                  field: "issues",
+                                  label: "Issues",
+                                  sortBy,
+                                  sortDir,
+                                  onSort: handleSort,
+                                  align: "right"
+                                }
+                              ),
+                              !dense && /* @__PURE__ */ jsx61("th", { children: "\u0422\u0435\u0433\u0438" })
+                            ] }) }),
+                            /* @__PURE__ */ jsx61("tbody", { children: groupByDomain && grouped ? grouped.map(([domain, list]) => /* @__PURE__ */ jsxs58(React32.Fragment, { children: [
+                              /* @__PURE__ */ jsx61("tr", { className: "entity-catalog-group-row", children: /* @__PURE__ */ jsx61("td", { colSpan: dense ? 10 : 12, children: /* @__PURE__ */ jsxs58("div", { className: "entity-catalog-group-row__inner", children: [
+                                /* @__PURE__ */ jsx61(MIcon, { name: "folder", size: "sm" }),
+                                /* @__PURE__ */ jsx61("strong", { children: domain }),
+                                /* @__PURE__ */ jsx61("span", { className: "entity-catalog-group-row__count", children: list.length })
+                              ] }) }) }),
+                              list.map((e) => /* @__PURE__ */ jsx61(
+                                EntityRow,
+                                {
+                                  entity: e,
+                                  index,
+                                  dense,
+                                  isOrphan: orphanSet.has(e.fqid),
+                                  isFav: entityFavorites.has(e.fqid),
+                                  isActive: flatRowFqids[activeRowIdx] === e.fqid,
+                                  pii: piiByFqid.get(
+                                    e.fqid.toLowerCase()
+                                  ),
+                                  issues: issuesByFqid.get(
+                                    e.fqid.toLowerCase()
+                                  ),
+                                  onSelect: handleSelectRow,
+                                  onToggleFav: handleToggleFav,
+                                  onOpenPii: handleOpenPii,
+                                  onOpenLint: handleOpenLint
+                                },
+                                e.fqid
+                              ))
+                            ] }, domain)) : visibleRows.map((e) => /* @__PURE__ */ jsx61(
+                              EntityRow,
+                              {
+                                entity: e,
+                                index,
+                                dense,
+                                isOrphan: orphanSet.has(e.fqid),
+                                isFav: entityFavorites.has(e.fqid),
+                                isActive: flatRowFqids[activeRowIdx] === e.fqid,
+                                pii: piiByFqid.get(e.fqid.toLowerCase()),
+                                issues: issuesByFqid.get(
+                                  e.fqid.toLowerCase()
+                                ),
+                                onSelect: handleSelectRow,
+                                onToggleFav: handleToggleFav,
+                                onOpenPii: handleOpenPii,
+                                onOpenLint: handleOpenLint
+                              },
+                              e.fqid
+                            )) })
+                          ]
+                        }
+                      ),
+                      noResults && /* @__PURE__ */ jsx61("div", { className: "entity-catalog-empty", children: hasFilters ? "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0442\u0435\u043A\u0443\u0449\u0438\u043C \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u043C" : "\u041D\u0435\u0442 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439" }),
+                      filtered.length > visibleRows.length && /* @__PURE__ */ jsxs58("div", { className: "entity-catalog-more", children: [
+                        "\u041F\u043E\u043A\u0430\u0437\u0430\u043D\u043E ",
+                        visibleRows.length,
+                        " \u0438\u0437 ",
+                        filtered.length,
+                        /* @__PURE__ */ jsxs58(
+                          "button",
+                          {
+                            className: "btn",
+                            style: { marginLeft: 12 },
+                            onClick: () => setLimit((n) => n + PAGE_SIZE),
+                            children: [
+                              "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0435\u0449\u0451 ",
+                              PAGE_SIZE,
+                              " (\u043E\u0441\u0442\u0430\u043B\u043E\u0441\u044C",
+                              " ",
+                              filtered.length - visibleRows.length,
+                              ")"
+                            ]
+                          }
+                        )
+                      ] })
+                    ]
+                  }
+                )
               ] }) : /* @__PURE__ */ jsx61(
                 ImpactAnalysisPanel,
                 {
@@ -18727,7 +19769,208 @@ function EntitiesCatalogModal() {
     }
   );
 }
-var PAGE_SIZE, EntityRow;
+function SortableTh({
+  field,
+  label,
+  sortBy,
+  sortDir,
+  onSort,
+  align
+}) {
+  const active = sortBy === field;
+  return /* @__PURE__ */ jsxs58(
+    "th",
+    {
+      onClick: () => onSort(field),
+      style: {
+        cursor: "pointer",
+        userSelect: "none",
+        textAlign: align || void 0
+      },
+      className: "entity-catalog-th-sortable" + (active ? " active" : ""),
+      title: `\u0421\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u043F\u043E \xAB${label}\xBB`,
+      children: [
+        label,
+        active && /* @__PURE__ */ jsx61("span", { className: "entity-catalog-th-sortable__arrow", children: sortDir === "asc" ? "\u2191" : "\u2193" })
+      ]
+    }
+  );
+}
+function ChipsRow({
+  items,
+  scrollable = false
+}) {
+  return /* @__PURE__ */ jsx61(
+    "div",
+    {
+      className: "entity-catalog-chips" + (scrollable ? " entity-catalog-chips--scrollable" : ""),
+      children: items.map((item) => /* @__PURE__ */ jsxs58(
+        "button",
+        {
+          type: "button",
+          className: "entity-catalog-chip" + (item.active ? " active" : ""),
+          onClick: item.onClick,
+          children: [
+            item.label,
+            item.count != null && /* @__PURE__ */ jsx61("span", { className: "entity-catalog-chip__count", children: item.count })
+          ]
+        },
+        item.key
+      ))
+    }
+  );
+}
+function FilterGroup({
+  id,
+  title,
+  icon,
+  totalCount,
+  activeCount,
+  collapsedGroups,
+  onToggleGroup,
+  children
+}) {
+  const collapsed = collapsedGroups.has(id);
+  return /* @__PURE__ */ jsxs58("div", { className: "entity-catalog-group entity-catalog-group--collapsible", children: [
+    /* @__PURE__ */ jsxs58(
+      "button",
+      {
+        type: "button",
+        className: "entity-catalog-group__header",
+        onClick: () => onToggleGroup(id),
+        "aria-expanded": !collapsed,
+        children: [
+          /* @__PURE__ */ jsx61("span", { className: "material-symbols-outlined mi-sm entity-catalog-group__chevron", children: "chevron_right" }),
+          /* @__PURE__ */ jsx61("span", { className: "material-symbols-outlined mi-sm", children: icon }),
+          /* @__PURE__ */ jsx61("span", { className: "entity-catalog-group__title-text", children: title }),
+          activeCount > 0 ? /* @__PURE__ */ jsx61(
+            "span",
+            {
+              className: "entity-catalog-group__active-badge",
+              title: `${activeCount} \u0430\u043A\u0442\u0438\u0432\u043D\u044B\u0445 \u0444\u0438\u043B\u044C\u0442\u0440\u043E\u0432`,
+              children: activeCount
+            }
+          ) : totalCount != null && totalCount > 0 ? /* @__PURE__ */ jsx61("span", { className: "entity-catalog-group__count-badge", children: totalCount }) : null
+        ]
+      }
+    ),
+    !collapsed && /* @__PURE__ */ jsx61("div", { className: "entity-catalog-group__body", children })
+  ] });
+}
+function ActiveFiltersBar({
+  filters,
+  onRemoveDomain,
+  onRemoveTag,
+  onRemoveKind,
+  onRemoveAttributeType,
+  onUpdate,
+  onResetAll
+}) {
+  const chips = [];
+  if (filters.query.trim()) {
+    chips.push({
+      key: "q",
+      label: `\xAB${filters.query.trim()}\xBB`,
+      onRemove: () => onUpdate({ ...filters, query: "" })
+    });
+  }
+  filters.domains.forEach((d) => {
+    chips.push({
+      key: `d:${d}`,
+      label: d,
+      onRemove: () => onRemoveDomain(d)
+    });
+  });
+  filters.tags.forEach((t) => {
+    chips.push({
+      key: `t:${t}`,
+      label: `#${t}`,
+      onRemove: () => onRemoveTag(t)
+    });
+  });
+  filters.kinds.forEach((k) => {
+    chips.push({
+      key: `k:${k}`,
+      label: k,
+      onRemove: () => onRemoveKind(k)
+    });
+  });
+  filters.attributeTypes.forEach((t) => {
+    chips.push({
+      key: `at:${t}`,
+      label: `\u2192 ${t}`,
+      onRemove: () => onRemoveAttributeType(t)
+    });
+  });
+  if (filters.piiFilter !== "any") {
+    chips.push({
+      key: "pii",
+      label: `PII: ${filters.piiFilter}`,
+      onRemove: () => onUpdate({ ...filters, piiFilter: "any" })
+    });
+  }
+  if (filters.issuesFilter !== "any") {
+    chips.push({
+      key: "issues",
+      label: `Issues: ${filters.issuesFilter}`,
+      onRemove: () => onUpdate({ ...filters, issuesFilter: "any" })
+    });
+  }
+  if (filters.hasInherits) {
+    chips.push({
+      key: "hi",
+      label: "\u0421 \u0440\u043E\u0434\u0438\u0442\u0435\u043B\u0435\u043C",
+      onRemove: () => onUpdate({ ...filters, hasInherits: false })
+    });
+  }
+  if (filters.hasMixins) {
+    chips.push({
+      key: "hm",
+      label: "\u0421 \u043C\u0438\u043A\u0441\u0438\u043D\u0430\u043C\u0438",
+      onRemove: () => onUpdate({ ...filters, hasMixins: false })
+    });
+  }
+  if (filters.onlyOrphans) {
+    chips.push({
+      key: "o",
+      label: "\u0421\u0438\u0440\u043E\u0442\u044B",
+      onRemove: () => onUpdate({ ...filters, onlyOrphans: false })
+    });
+  }
+  if (filters.minRefs > 0) {
+    chips.push({
+      key: "mr",
+      label: `refs \u2265 ${filters.minRefs}`,
+      onRemove: () => onUpdate({ ...filters, minRefs: 0 })
+    });
+  }
+  if (chips.length === 0)
+    return null;
+  return /* @__PURE__ */ jsxs58("div", { className: "entity-catalog-active-filters", children: [
+    /* @__PURE__ */ jsx61("span", { className: "entity-catalog-active-filters__label", children: "\u0424\u0438\u043B\u044C\u0442\u0440\u044B:" }),
+    chips.map((c) => /* @__PURE__ */ jsxs58("span", { className: "entity-catalog-active-filter", children: [
+      /* @__PURE__ */ jsx61("span", { children: c.label }),
+      /* @__PURE__ */ jsx61(
+        "button",
+        {
+          className: "entity-catalog-active-filter__remove",
+          onClick: c.onRemove,
+          title: "\u0421\u043D\u044F\u0442\u044C",
+          children: "\u2715"
+        }
+      )
+    ] }, c.key)),
+    /* @__PURE__ */ jsx61(
+      "button",
+      {
+        className: "entity-catalog-active-filters__reset",
+        onClick: onResetAll,
+        children: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0432\u0441\u0451"
+      }
+    )
+  ] });
+}
+var PAGE_SIZE, FILTERS_STORAGE_KEY, SORT_STORAGE_KEY, DENSE_STORAGE_KEY, GROUP_STORAGE_KEY, ATTRIBUTE_TYPE_OPTIONS, KIND_OPTIONS, PII_OPTIONS, ISSUES_OPTIONS, FILTER_GROUPS_STORAGE_KEY, DEFAULT_COLLAPSED_GROUPS, EntityRow;
 var init_EntitiesCatalogModal = __esm({
   "src/web/components/modals/EntitiesCatalogModal.tsx"() {
     "use strict";
@@ -18735,23 +19978,75 @@ var init_EntitiesCatalogModal = __esm({
     init_useNavigation();
     init_useModelIndex();
     init_MIcon();
+    init_Popover();
     init_entity_filters();
+    init_entity_export();
     init_ImpactAnalysisPanel();
     PAGE_SIZE = 300;
+    FILTERS_STORAGE_KEY = "dg-entity-catalog-filters";
+    SORT_STORAGE_KEY = "dg-entity-catalog-sort";
+    DENSE_STORAGE_KEY = "dg-entity-catalog-dense";
+    GROUP_STORAGE_KEY = "dg-entity-catalog-group";
+    ATTRIBUTE_TYPE_OPTIONS = [
+      { value: "Reference", label: "Reference" },
+      { value: "Array", label: "Array" },
+      { value: "Table", label: "Table" },
+      { value: "Enum", label: "Enum" },
+      { value: "Workflow", label: "Workflow" },
+      { value: "String", label: "String" },
+      { value: "Text", label: "Text" },
+      { value: "Date", label: "Date" },
+      { value: "Identifier", label: "Identifier" },
+      { value: "Counter", label: "Counter" },
+      { value: "Attachment", label: "Attachment" },
+      { value: "Calculation", label: "Calculation" }
+    ];
+    KIND_OPTIONS = [
+      { value: "regular", label: "\u041E\u0431\u044B\u0447\u043D\u044B\u0435" },
+      { value: "abstract", label: "\u0410\u0431\u0441\u0442\u0440\u0430\u043A\u0442\u043D\u044B\u0435" },
+      { value: "static", label: "\u0421\u0442\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438\u0435" }
+    ];
+    PII_OPTIONS = [
+      { value: "any", label: "\u0412\u0441\u0435" },
+      { value: "critical", label: "\u0421 critical" },
+      { value: "high", label: "\u0421 high" },
+      { value: "clean", label: "\u0411\u0435\u0437 PII" }
+    ];
+    ISSUES_OPTIONS = [
+      { value: "any", label: "\u0412\u0441\u0435" },
+      { value: "errors", label: "\u0421 \u043E\u0448\u0438\u0431\u043A\u0430\u043C\u0438" },
+      { value: "warnings", label: "\u0421 \u043F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u044F\u043C\u0438" },
+      { value: "clean", label: "\u0427\u0438\u0441\u0442\u044B\u0435" }
+    ];
+    FILTER_GROUPS_STORAGE_KEY = "dg-entity-catalog-collapsed-groups";
+    DEFAULT_COLLAPSED_GROUPS = ["domains", "tags"];
     EntityRow = React32.memo(function EntityRow2({
       entity,
       index,
+      dense,
       isOrphan,
       isFav,
+      isActive,
+      pii,
+      issues,
       onSelect,
-      onToggleFav
+      onToggleFav,
+      onOpenPii,
+      onOpenLint
     }) {
       const refs = countRefs(entity, index);
+      const mixins2 = countMixins(entity, index);
+      const piiCount = pii?.length ?? 0;
+      const piiCritical = pii?.filter((h) => h.severity === "critical").length ?? 0;
+      const issuesCount = issues?.length ?? 0;
+      const issuesErrors = issues?.filter((i) => i.severity === "error").length ?? 0;
       return /* @__PURE__ */ jsxs58(
         "tr",
         {
-          className: "entity-catalog-row" + (isOrphan ? " orphan" : ""),
+          className: "entity-catalog-row" + (isOrphan ? " orphan" : "") + (isActive ? " entity-catalog-row--active" : ""),
+          "data-fqid": entity.fqid,
           onClick: () => onSelect(entity.fqid),
+          title: entity.fqid,
           children: [
             /* @__PURE__ */ jsx61("td", { className: "entity-catalog-cell-fav", children: /* @__PURE__ */ jsx61(
               "button",
@@ -18767,14 +20062,54 @@ var init_EntitiesCatalogModal = __esm({
             ) }),
             /* @__PURE__ */ jsxs58("td", { children: [
               /* @__PURE__ */ jsx61("div", { className: "entity-catalog-cell-id", children: entity.entityId }),
-              entity.name !== entity.entityId && /* @__PURE__ */ jsx61("div", { className: "entity-catalog-cell-name", children: entity.name })
+              !dense && entity.name && entity.name !== entity.entityId && /* @__PURE__ */ jsx61("div", { className: "entity-catalog-cell-name", children: entity.name })
             ] }),
             /* @__PURE__ */ jsx61("td", { className: "entity-catalog-cell-mono", children: entity.domainId }),
             /* @__PURE__ */ jsx61("td", { className: "entity-catalog-cell-mono", children: entity.inherits ? entity.inherits.split("/")[1] : "\u2014" }),
             /* @__PURE__ */ jsx61("td", { className: "entity-catalog-cell-num", children: entity.attributes.length }),
             /* @__PURE__ */ jsx61("td", { className: "entity-catalog-cell-num", children: /* @__PURE__ */ jsx61("span", { className: refs > 0 ? "ref-badge" : "ref-badge ref-badge--zero", children: refs }) }),
-            /* @__PURE__ */ jsx61("td", { className: "entity-catalog-cell-num", children: entity.mixinSources.length > 0 ? /* @__PURE__ */ jsx61("span", { className: "mixin-badge", children: entity.mixinSources.length }) : "\u2014" }),
-            /* @__PURE__ */ jsx61("td", { children: entity.domainTags.slice(0, 2).map((t) => /* @__PURE__ */ jsx61("span", { className: "entity-catalog-tag", children: t }, t)) })
+            /* @__PURE__ */ jsx61("td", { className: "entity-catalog-cell-num", children: mixins2 > 0 ? /* @__PURE__ */ jsx61("span", { className: "mixin-badge", children: mixins2 }) : "\u2014" }),
+            /* @__PURE__ */ jsx61("td", { className: "entity-catalog-cell-num", children: piiCount > 0 ? /* @__PURE__ */ jsxs58(
+              "button",
+              {
+                className: "entity-catalog-pii-badge" + (piiCritical > 0 ? " entity-catalog-pii-badge--critical" : ""),
+                onClick: (e) => {
+                  e.stopPropagation();
+                  onOpenPii(entity.domainId);
+                },
+                title: `PII: ${piiCount} \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432` + (piiCritical > 0 ? `, critical: ${piiCritical}` : ""),
+                children: [
+                  piiCritical > 0 && /* @__PURE__ */ jsx61(MIcon, { name: "lock", size: "sm" }),
+                  piiCount
+                ]
+              }
+            ) : /* @__PURE__ */ jsx61("span", { className: "entity-catalog-dash", children: "\u2014" }) }),
+            /* @__PURE__ */ jsx61("td", { className: "entity-catalog-cell-num", children: issuesCount > 0 ? /* @__PURE__ */ jsx61(
+              "button",
+              {
+                className: "entity-catalog-issues-badge" + (issuesErrors > 0 ? " entity-catalog-issues-badge--error" : ""),
+                onClick: (e) => {
+                  e.stopPropagation();
+                  onOpenLint();
+                },
+                title: `${issuesCount} \u043F\u0440\u043E\u0431\u043B\u0435\u043C, \u043E\u0448\u0438\u0431\u043E\u043A: ${issuesErrors}`,
+                children: issuesCount
+              }
+            ) : /* @__PURE__ */ jsx61("span", { className: "entity-catalog-dash", children: "\u2014" }) }),
+            !dense && /* @__PURE__ */ jsxs58("td", { children: [
+              entity.domainTags.slice(0, 2).map((t) => /* @__PURE__ */ jsx61("span", { className: "entity-catalog-tag", children: t }, t)),
+              entity.domainTags.length > 2 && /* @__PURE__ */ jsxs58(
+                "span",
+                {
+                  className: "entity-catalog-tag",
+                  title: entity.domainTags.join(", "),
+                  children: [
+                    "+",
+                    entity.domainTags.length - 2
+                  ]
+                }
+              )
+            ] })
           ]
         }
       );
@@ -18893,7 +20228,7 @@ var init_attribute_search = __esm({
 
 // src/web/components/modals/AttributeFinderModal.tsx
 import React33, { useCallback as useCallback16, useMemo as useMemo31, useState as useState20 } from "react";
-import { Fragment as Fragment13, jsx as jsx62, jsxs as jsxs59 } from "react/jsx-runtime";
+import { Fragment as Fragment14, jsx as jsx62, jsxs as jsxs59 } from "react/jsx-runtime";
 function AttributeFinderModal() {
   const { goto } = useNavigation();
   const { index, loading, error } = useModelIndex();
@@ -19215,7 +20550,7 @@ var init_AttributeFinderModal = __esm({
         const idx = text.toLowerCase().indexOf(q);
         if (idx === -1)
           return text;
-        return /* @__PURE__ */ jsxs59(Fragment13, { children: [
+        return /* @__PURE__ */ jsxs59(Fragment14, { children: [
           text.slice(0, idx),
           /* @__PURE__ */ jsx62("mark", { className: "search-hl", children: text.slice(idx, idx + q.length) }),
           text.slice(idx + q.length)
@@ -19511,7 +20846,7 @@ var init_entity_matrix = __esm({
 
 // src/web/components/modals/EntityMatrixModal.tsx
 import { useCallback as useCallback17, useMemo as useMemo32, useState as useState21 } from "react";
-import { Fragment as Fragment14, jsx as jsx63, jsxs as jsxs60 } from "react/jsx-runtime";
+import { Fragment as Fragment15, jsx as jsx63, jsxs as jsxs60 } from "react/jsx-runtime";
 function EntityMatrixModal() {
   const { index, loading, error } = useModelIndex();
   const [showHelp, setShowHelp] = useState21(false);
@@ -20004,7 +21339,7 @@ function EntityMatrixModal() {
                 /* @__PURE__ */ jsxs60("span", { className: "entity-matrix-toolbar__total", children: [
                   matrix.stats.totalLinksInMatrix,
                   " \u0441\u0432\u044F\u0437\u0435\u0439 \u0432 \u043C\u0430\u0442\u0440\u0438\u0446\u0435",
-                  matrix.stats.totalLinksOutOfScope > 0 && /* @__PURE__ */ jsxs60(Fragment14, { children: [
+                  matrix.stats.totalLinksOutOfScope > 0 && /* @__PURE__ */ jsxs60(Fragment15, { children: [
                     " \xB7 ",
                     /* @__PURE__ */ jsxs60(
                       "span",
@@ -20283,7 +21618,7 @@ var init_useModelDiff = __esm({
 
 // src/web/components/modals/ModelDiffModal.tsx
 import { useMemo as useMemo33, useState as useState23 } from "react";
-import { Fragment as Fragment15, jsx as jsx64, jsxs as jsxs61 } from "react/jsx-runtime";
+import { Fragment as Fragment16, jsx as jsx64, jsxs as jsxs61 } from "react/jsx-runtime";
 function genericSectionLabel(key) {
   return GENERIC_SECTION_LABELS[key] || key;
 }
@@ -20405,7 +21740,7 @@ function ModelDiffModal() {
                 /* @__PURE__ */ jsx64("div", { className: "model-diff-empty__title", children: "\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439 \u043D\u0435\u0442" }),
                 /* @__PURE__ */ jsx64("div", { className: "model-diff-empty__hint", children: "\u0421\u043D\u0430\u043F\u0448\u043E\u0442 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u0435\u0442, \u043D\u043E \u0441 \u043C\u043E\u043C\u0435\u043D\u0442\u0430 \u043F\u043E\u0441\u043B\u0435\u0434\u043D\u0435\u0433\u043E \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u043C\u043E\u0434\u0435\u043B\u0438 \u043D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043F\u0440\u043E\u0438\u0441\u0445\u043E\u0434\u0438\u043B\u043E." })
               ] }),
-              !loading && !error && hasSnapshot && diff && /* @__PURE__ */ jsxs61(Fragment15, { children: [
+              !loading && !error && hasSnapshot && diff && /* @__PURE__ */ jsxs61(Fragment16, { children: [
                 /* @__PURE__ */ jsxs61("div", { className: "model-diff-versions", children: [
                   /* @__PURE__ */ jsxs61("div", { className: "model-diff-version", children: [
                     /* @__PURE__ */ jsx64("div", { className: "model-diff-version__label", children: "\u0411\u044B\u043B\u043E" }),
@@ -20500,7 +21835,7 @@ function ModelDiffModal() {
                       ] }, d.domainId))
                     }
                   ),
-                  diff.genericSections && Object.keys(diff.genericSections).length > 0 && /* @__PURE__ */ jsx64(Fragment15, { children: Object.entries(diff.genericSections).map(([key, sectionDiff]) => {
+                  diff.genericSections && Object.keys(diff.genericSections).length > 0 && /* @__PURE__ */ jsx64(Fragment16, { children: Object.entries(diff.genericSections).map(([key, sectionDiff]) => {
                     const count = sectionDiff.added.length + sectionDiff.removed.length + sectionDiff.changed.length;
                     if (count === 0)
                       return null;
@@ -21217,7 +22552,7 @@ var init_validation = __esm({
 
 // src/web/components/modals/ModelValidationModal.tsx
 import { useCallback as useCallback18, useMemo as useMemo34, useState as useState24 } from "react";
-import { Fragment as Fragment16, jsx as jsx65, jsxs as jsxs62 } from "react/jsx-runtime";
+import { Fragment as Fragment17, jsx as jsx65, jsxs as jsxs62 } from "react/jsx-runtime";
 function KpiCard({
   label,
   value,
@@ -21374,7 +22709,7 @@ function LintSummaryBlock({
     expanded && /* @__PURE__ */ jsx65("div", { className: "mv-lint__body", children: stats.total === 0 ? /* @__PURE__ */ jsxs62("div", { className: "mv-lint__empty", children: [
       /* @__PURE__ */ jsx65(MIcon, { name: "check_circle", size: "sm" }),
       "\u0421\u0445\u0435\u043C\u044B \u0441\u043E\u043E\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0443\u044E\u0442 \u043F\u0440\u0430\u0432\u0438\u043B\u0430\u043C \u043B\u0438\u043D\u0442\u0435\u0440\u0430"
-    ] }) : /* @__PURE__ */ jsxs62(Fragment16, { children: [
+    ] }) : /* @__PURE__ */ jsxs62(Fragment17, { children: [
       topRules.length > 0 && /* @__PURE__ */ jsxs62("div", { className: "mv-lint__rules", children: [
         topRules.map((r) => /* @__PURE__ */ jsxs62(
           "button",
@@ -21798,7 +23133,7 @@ function ModelValidationModal() {
                   /* @__PURE__ */ jsx65("li", { children: "Impact \u0438 health \u2014 \u044D\u0432\u0440\u0438\u0441\u0442\u0438\u0447\u0435\u0441\u043A\u0438\u0435 \u0444\u043E\u0440\u043C\u0443\u043B\u044B. \u041D\u0435 \u0438\u0441\u0442\u0438\u043D\u0430, \u0430 \u0443\u043A\u0430\u0437\u0430\u043D\u0438\u0435 \u043D\u0430 \u043F\u0440\u0438\u043E\u0440\u0438\u0442\u0435\u0442." })
                 ] }) })
               ] }),
-              !showHelp && /* @__PURE__ */ jsxs62(Fragment16, { children: [
+              !showHelp && /* @__PURE__ */ jsxs62(Fragment17, { children: [
                 /* @__PURE__ */ jsxs62("div", { className: "mv-kpi-grid", children: [
                   /* @__PURE__ */ jsxs62(
                     "button",
@@ -21987,7 +23322,7 @@ function ModelValidationModal() {
                     cat
                   );
                 }) }),
-                /* @__PURE__ */ jsx65("div", { className: "mv-content", children: filteredIssues.length === 0 ? /* @__PURE__ */ jsx65("div", { className: "mv-empty", children: summary.totalIssues === 0 ? /* @__PURE__ */ jsxs62(Fragment16, { children: [
+                /* @__PURE__ */ jsx65("div", { className: "mv-content", children: filteredIssues.length === 0 ? /* @__PURE__ */ jsx65("div", { className: "mv-empty", children: summary.totalIssues === 0 ? /* @__PURE__ */ jsxs62(Fragment17, { children: [
                   /* @__PURE__ */ jsx65(
                     MIcon,
                     {
@@ -21998,7 +23333,7 @@ function ModelValidationModal() {
                   ),
                   /* @__PURE__ */ jsx65("div", { className: "mv-empty__title", children: "\u041C\u043E\u0434\u0435\u043B\u044C \u0447\u0438\u0441\u0442\u0430\u044F" }),
                   /* @__PURE__ */ jsx65("div", { className: "mv-empty__hint", children: "\u0421\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u043D\u044B\u0445 \u043F\u0440\u043E\u0431\u043B\u0435\u043C \u043D\u0435 \u043E\u0431\u043D\u0430\u0440\u0443\u0436\u0435\u043D\u043E. \u0421\u0442\u0438\u043B\u0435\u0432\u044B\u0435 \u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u2014 \u0432 \u043B\u0438\u043D\u0442\u0435\u0440\u0435 \u0441\u0445\u0435\u043C." })
-                ] }) : /* @__PURE__ */ jsxs62(Fragment16, { children: [
+                ] }) : /* @__PURE__ */ jsxs62(Fragment17, { children: [
                   /* @__PURE__ */ jsx65(MIcon, { name: "filter_alt_off", size: "xl" }),
                   /* @__PURE__ */ jsx65("div", { className: "mv-empty__title", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u043C" }),
                   /* @__PURE__ */ jsx65(
@@ -22176,7 +23511,7 @@ var init_glossary = __esm({
 
 // src/web/components/modals/GlossaryModal.tsx
 import { useMemo as useMemo35, useState as useState25 } from "react";
-import { Fragment as Fragment17, jsx as jsx66, jsxs as jsxs63 } from "react/jsx-runtime";
+import { Fragment as Fragment18, jsx as jsx66, jsxs as jsxs63 } from "react/jsx-runtime";
 function GlossaryModal() {
   const { index, loading, error } = useModelIndex();
   const [tab, setTab] = useState25("entity");
@@ -22401,7 +23736,7 @@ function GlossaryEntryCard({
     const idx = text.toLowerCase().indexOf(q);
     if (idx === -1)
       return text;
-    return /* @__PURE__ */ jsxs63(Fragment17, { children: [
+    return /* @__PURE__ */ jsxs63(Fragment18, { children: [
       text.slice(0, idx),
       /* @__PURE__ */ jsx66("mark", { className: "search-hl", children: text.slice(idx, idx + q.length) }),
       text.slice(idx + q.length)
@@ -22681,7 +24016,7 @@ var init_entity_graph = __esm({
 });
 
 // src/web/components/common/DomainCombobox.tsx
-import { useEffect as useEffect34, useMemo as useMemo36, useRef as useRef19, useState as useState26 } from "react";
+import { useEffect as useEffect34, useMemo as useMemo36, useRef as useRef20, useState as useState26 } from "react";
 import { jsx as jsx67, jsxs as jsxs64 } from "react/jsx-runtime";
 function DomainCombobox({
   value,
@@ -22694,9 +24029,9 @@ function DomainCombobox({
   const [open2, setOpen] = useState26(false);
   const [query, setQuery] = useState26("");
   const [activeIdx, setActiveIdx] = useState26(0);
-  const wrapRef = useRef19(null);
-  const inputRef = useRef19(null);
-  const listRef = useRef19(null);
+  const wrapRef = useRef20(null);
+  const inputRef = useRef20(null);
+  const listRef = useRef20(null);
   const totalCount = useMemo36(
     () => domains.reduce((s, [, c]) => s + c, 0),
     [domains]
@@ -22849,10 +24184,10 @@ import ReactFlow3, {
   useReactFlow as useReactFlow3
 } from "reactflow";
 import dagre3 from "dagre";
-import { Fragment as Fragment18, jsx as jsx68, jsxs as jsxs65 } from "react/jsx-runtime";
+import { Fragment as Fragment19, jsx as jsx68, jsxs as jsxs65 } from "react/jsx-runtime";
 function EntityNode({ data }) {
   const domainHue = data.__domainHue ?? 220;
-  return /* @__PURE__ */ jsxs65(Fragment18, { children: [
+  return /* @__PURE__ */ jsxs65(Fragment19, { children: [
     /* @__PURE__ */ jsx68(
       Handle3,
       {
@@ -23318,7 +24653,7 @@ function EntityEdge2({
   });
   const title = data && data.title || "";
   const kind = data && data.kind || "reference";
-  return /* @__PURE__ */ jsxs65(Fragment18, { children: [
+  return /* @__PURE__ */ jsxs65(Fragment19, { children: [
     /* @__PURE__ */ jsx68(
       BaseEdge2,
       {
@@ -23599,6 +24934,180 @@ var init_domain_markdown = __esm({
   }
 });
 
+// src/web/lib/domains/schema-export.ts
+function downloadBlob2(content, filename, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+function safeDomainId(id) {
+  return id.replace(/[^a-z0-9.-]/gi, "_");
+}
+function stamp3() {
+  return (/* @__PURE__ */ new Date()).toISOString().slice(0, 19).replace(/[:.]/g, "-");
+}
+function exportDomainSchemaJSON(schema2, index) {
+  const domainId = schema2.domainId;
+  const payload = {
+    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    metadata: schema2.metadata,
+    sections: schema2.sections,
+    flags: schema2.flags,
+    allViews: schema2.allViews || [],
+    // Доп. инфа, которой нет в summary:
+    lint: index.lint.lintReport.issues.filter((i) => i.domainId === domainId),
+    sonar: index.lint.sonar.byDomain[domainId] || null,
+    pii: index.pii.hits.filter(
+      (h) => h.entityFqid.toLowerCase().startsWith(domainId.toLowerCase() + "/")
+    )
+  };
+  downloadBlob2(
+    JSON.stringify(payload, null, 2),
+    `${safeDomainId(domainId)}-schema-${stamp3()}.json`,
+    "application/json"
+  );
+}
+function escapeCsv2(v) {
+  const s = String(v ?? "");
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+function exportDomainSchemaCSV(schema2, sectionKey) {
+  const sections = sectionKey === "all" ? CSV_SECTIONS : CSV_SECTIONS.filter((s) => s.key === sectionKey);
+  const lines = [];
+  for (const s of sections) {
+    const section = schema2.sections[s.key];
+    if (!section || !Array.isArray(section.items) || section.items.length === 0) {
+      continue;
+    }
+    lines.push(`# ${s.key}`);
+    lines.push(s.header.join(","));
+    for (const item of section.items) {
+      lines.push(s.row(item).map(escapeCsv2).join(","));
+    }
+    lines.push("");
+  }
+  const suffix = sectionKey === "all" ? "all" : sectionKey;
+  downloadBlob2(
+    "\uFEFF" + lines.join("\n"),
+    `${safeDomainId(schema2.domainId)}-${suffix}-${stamp3()}.csv`,
+    "text/csv;charset=utf-8"
+  );
+}
+var CSV_SECTIONS;
+var init_schema_export = __esm({
+  "src/web/lib/domains/schema-export.ts"() {
+    "use strict";
+    CSV_SECTIONS = [
+      {
+        key: "entities",
+        header: ["id", "name", "inherits", "attributesCount"],
+        row: (e) => [
+          e.id,
+          e.name || "",
+          e.inherits || "",
+          String(e.attributesCount ?? "")
+        ]
+      },
+      {
+        key: "linkages",
+        header: ["id", "name", "type", "side1", "side2", "undirected"],
+        row: (l) => [
+          l.id,
+          l.name || "",
+          l.type || "",
+          l.side1 || "",
+          l.side2 || "",
+          l.undirected ? "true" : "false"
+        ]
+      },
+      {
+        key: "dataTypes",
+        header: ["id", "name", "kind", "values", "statuses", "attributes"],
+        row: (d) => [
+          d.id,
+          d.name || "",
+          d.kind || "",
+          String(d.valuesCount ?? ""),
+          String(d.statusesCount ?? ""),
+          String(d.attributesCount ?? "")
+        ]
+      },
+      {
+        key: "actions",
+        header: ["id", "name", "type"],
+        row: (a) => [a.id, a.name || "", a.type || ""]
+      },
+      {
+        key: "views",
+        header: ["id", "type", "entity", "label", "isMixin"],
+        row: (v) => [
+          v.id,
+          v.type || "",
+          v.entity || "",
+          v.label || "",
+          v.isMixin ? "true" : "false"
+        ]
+      },
+      {
+        key: "menus",
+        header: ["id", "route", "label", "type", "view"],
+        row: (m) => [
+          m.id,
+          m.route || "",
+          m.label || "",
+          m.type || "",
+          m.view || ""
+        ]
+      },
+      {
+        key: "dataRules",
+        header: ["id", "name", "entity", "effect"],
+        row: (r) => [r.id, r.name || "", r.entity || "", r.effect || ""]
+      },
+      {
+        key: "sequences",
+        header: ["id", "startFrom"],
+        row: (s) => [s.id, String(s.startFrom ?? "")]
+      }
+    ];
+  }
+});
+
+// src/web/lib/consts.ts
+var SECTION_LABELS;
+var init_consts = __esm({
+  "src/web/lib/consts.ts"() {
+    "use strict";
+    SECTION_LABELS = {
+      entities: { label: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438", icon: "category" },
+      linkages: { label: "\u0421\u0432\u044F\u0437\u0438", icon: "link" },
+      dataTypes: { label: "\u0422\u0438\u043F\u044B \u0434\u0430\u043D\u043D\u044B\u0445", icon: "data_object" },
+      sequences: { label: "\u041F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u0438", icon: "linear_scale" },
+      actions: { label: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F", icon: "bolt" },
+      views: { label: "\u041F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F", icon: "visibility" },
+      menus: { label: "\u041C\u0435\u043D\u044E", icon: "menu" },
+      mixins: { label: "\u041C\u0438\u043A\u0441\u0438\u043D\u044B", icon: "merge" },
+      dataRules: { label: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0434\u0430\u043D\u043D\u044B\u0445", icon: "rule" },
+      medias: { label: "\u0418\u043A\u043E\u043D\u043A\u0438", icon: "image" },
+      trees: { label: "\u0414\u0435\u0440\u0435\u0432\u044C\u044F", icon: "account_tree" },
+      transitiveLinkages: { label: "\u0422\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0438", icon: "link" },
+      uiRules: { label: "UI Rules", icon: "rule_folder" },
+      uiPresets: { label: "UI Presets", icon: "palette" },
+      counterColorPattern: { label: "\u0426\u0432\u0435\u0442\u043E\u0432\u044B\u0435 \u0441\u0445\u0435\u043C\u044B", icon: "timelapse" },
+      scenarios: { label: "\u0421\u0446\u0435\u043D\u0430\u0440\u0438\u0438", icon: "movie" },
+      permissions: { label: "\u0420\u0430\u0437\u0440\u0435\u0448\u0435\u043D\u0438\u044F", icon: "key" },
+      accessRules: { label: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0434\u043E\u0441\u0442\u0443\u043F\u0430", icon: "lock" },
+      localizations: { label: "\u041B\u043E\u043A\u0430\u043B\u0438\u0437\u0430\u0446\u0438\u0438", icon: "translate" },
+      widgets: { label: "\u0414\u043E\u043C\u0435\u043D\u043D\u044B\u0435 \u0432\u0438\u0434\u0436\u0435\u0442\u044B", icon: "widgets" },
+      exchangeSettings: { label: "\u041E\u0431\u043C\u0435\u043D \u0434\u0430\u043D\u043D\u044B\u043C\u0438", icon: "swap_horiz" }
+    };
+  }
+});
+
 // src/web/components/modals/DomainSchemaHelpers.ts
 function maxSeverity(issues) {
   if (issues.length === 0)
@@ -23702,10 +25211,194 @@ function matchesQuery(haystack, query) {
     return true;
   return haystack.some((s) => s.toLowerCase().includes(q));
 }
+function groupIssuesBySection(domainId, index) {
+  const result = /* @__PURE__ */ new Map();
+  for (const issue of index.lint.lintReport.issues) {
+    if (issue.domainId !== domainId)
+      continue;
+    if (!issue.propertyPath)
+      continue;
+    const m = issue.propertyPath.match(/^([a-zA-Z]+)\[/);
+    if (!m)
+      continue;
+    const key = m[1];
+    if (!(key in SECTION_LABELS))
+      continue;
+    if (!result.has(key))
+      result.set(key, []);
+    result.get(key).push(issue);
+  }
+  return result;
+}
+function buildItemIssuesMap(sectionKey, domainId, index) {
+  const m = /* @__PURE__ */ new Map();
+  const add = (id, issue) => {
+    if (!m.has(id))
+      m.set(id, []);
+    m.get(id).push(issue);
+  };
+  for (const issue of index.lint.lintReport.issues) {
+    if (issue.domainId !== domainId)
+      continue;
+    if (sectionKey === "entities" && issue.entityFqid) {
+      const eid = issue.entityFqid.split("/")[1];
+      if (eid)
+        add(eid, issue);
+      continue;
+    }
+    if (!issue.propertyPath)
+      continue;
+    const re = new RegExp(`^${sectionKey}\\[([^\\]]+)\\]`);
+    const match = issue.propertyPath.match(re);
+    if (!match)
+      continue;
+    const id = match[1];
+    if (id === ".." || id === "*")
+      continue;
+    add(id, issue);
+  }
+  return m;
+}
+function getSectionExtraInfo(sectionKey, domainId, index) {
+  switch (sectionKey) {
+    case "entities": {
+      const list = index.entities.filter((e) => e.domainId === domainId);
+      if (list.length === 0)
+        return null;
+      const withInherits = list.filter((e) => e.inherits).length;
+      const withParents = list.filter(
+        (e) => (index.entityChildrenByFqid[e.fqid] || []).length > 0
+      ).length;
+      const parts = [];
+      if (withInherits > 0)
+        parts.push(`${withInherits} \u043D\u0430\u0441\u043B\u0435\u0434\u0443\u044E\u0442`);
+      if (withParents > 0)
+        parts.push(`${withParents} \u0440\u043E\u0434\u0438\u0442\u0435\u043B\u0438`);
+      return parts.join(" \xB7 ") || null;
+    }
+    case "linkages": {
+      const list = index.entityLinkages.filter((l) => l.domainId === domainId);
+      if (list.length === 0)
+        return null;
+      const byType = /* @__PURE__ */ new Map();
+      list.forEach((l) => byType.set(l.type, (byType.get(l.type) || 0) + 1));
+      return Array.from(byType.entries()).sort((a, b) => b[1] - a[1]).map(([t, c]) => `${t}: ${c}`).join(" \xB7 ");
+    }
+    case "dataTypes": {
+      const list = index.dataTypes.filter((d) => d.domainId === domainId);
+      if (list.length === 0)
+        return null;
+      const byKind = /* @__PURE__ */ new Map();
+      list.forEach((d) => byKind.set(d.kind, (byKind.get(d.kind) || 0) + 1));
+      return Array.from(byKind.entries()).map(([k, c]) => `${k}: ${c}`).join(" \xB7 ");
+    }
+    case "actions": {
+      const list = index.actions.filter((a) => a.domainId === domainId);
+      if (list.length === 0)
+        return null;
+      const byType = /* @__PURE__ */ new Map();
+      list.forEach((a) => byType.set(a.type, (byType.get(a.type) || 0) + 1));
+      return Array.from(byType.entries()).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([t, c]) => `${t}: ${c}`).join(" \xB7 ");
+    }
+    case "views": {
+      const schema2 = index.schemasByDomain[domainId];
+      const items = schema2?.sections.views.items || [];
+      if (items.length === 0)
+        return null;
+      const byType = /* @__PURE__ */ new Map();
+      items.forEach(
+        (v) => byType.set(v.type, (byType.get(v.type) || 0) + 1)
+      );
+      return Array.from(byType.entries()).sort((a, b) => b[1] - a[1]).map(([t, c]) => `${t}: ${c}`).join(" \xB7 ");
+    }
+    case "menus": {
+      const list = index.menus.filter((m) => m.domainId === domainId);
+      if (list.length === 0)
+        return null;
+      const roots = list.filter((m) => m.type === "root_group").length;
+      const items = list.reduce((s, m) => s + (m.items?.length || 0), 0);
+      return `${roots} root \xB7 ${items} items`;
+    }
+    case "dataRules": {
+      const list = index.dataRules.filter((r) => r.domainId === domainId);
+      if (list.length === 0)
+        return null;
+      const byEffect = /* @__PURE__ */ new Map();
+      list.forEach(
+        (r) => byEffect.set(r.effect, (byEffect.get(r.effect) || 0) + 1)
+      );
+      return Array.from(byEffect.entries()).map(([e, c]) => `${e}: ${c}`).join(" \xB7 ");
+    }
+    case "mixins": {
+      const list = index.mixins.filter((m) => m.domainId === domainId);
+      if (list.length === 0)
+        return null;
+      const byType = /* @__PURE__ */ new Map();
+      list.forEach((m) => byType.set(m.type, (byType.get(m.type) || 0) + 1));
+      return Array.from(byType.entries()).map(([t, c]) => `${t}: ${c}`).join(" \xB7 ");
+    }
+    default:
+      return null;
+  }
+}
+function computeDomainHeaderMetrics(domainId, index) {
+  const domainLower = domainId.toLowerCase();
+  const sonar = index.lint.sonar.byDomain[domainId] || null;
+  const pii = index.pii.hits.filter(
+    (h) => h.entityFqid.toLowerCase().startsWith(domainLower + "/")
+  );
+  const piiCritical = pii.filter((h) => h.severity === "critical").length;
+  const issues = index.lint.lintReport.issues.filter(
+    (i) => i.domainId === domainId
+  );
+  const errorCount = issues.filter((i) => i.severity === "error").length;
+  const warningCount = issues.filter((i) => i.severity === "warning").length;
+  const infoCount = issues.filter((i) => i.severity === "info").length;
+  const orphans = {
+    entities: index.stats.orphanEntities.filter(
+      (fqid) => fqid.toLowerCase().startsWith(domainLower + "/")
+    ).length,
+    views: index.orphans.views.filter((v) => v.domainId === domainId).length,
+    actions: index.orphans.actions.filter((a) => a.domainId === domainId).length,
+    dataTypes: index.orphans.dataTypes.filter((d) => d.domainId === domainId).length,
+    medias: index.orphans.medias.filter((m) => m.domainId === domainId).length
+  };
+  const entities2 = index.entities.filter((e) => e.domainId === domainId);
+  const entityCount = entities2.length;
+  const attributeCount = entities2.reduce((s, e) => {
+    let c = e.attributes.length;
+    e.attributes.forEach((a) => {
+      if (a.nestedAttributes)
+        c += a.nestedAttributes.length;
+    });
+    return s + c;
+  }, 0);
+  const schema2 = index.schemasByDomain[domainId];
+  const viewCount = schema2?.sections.views.count || 0;
+  const linkageCount = index.entityLinkages.filter(
+    (l) => l.domainId === domainId
+  ).length;
+  return {
+    sonar: sonar ? { score: sonar.score, grade: sonar.grade } : null,
+    pii: { total: pii.length, critical: piiCritical },
+    issues: {
+      total: issues.length,
+      error: errorCount,
+      warning: warningCount,
+      info: infoCount
+    },
+    orphans,
+    entityCount,
+    attributeCount,
+    linkageCount,
+    viewCount
+  };
+}
 var SEVERITY_RANK;
 var init_DomainSchemaHelpers = __esm({
   "src/web/components/modals/DomainSchemaHelpers.ts"() {
     "use strict";
+    init_consts();
     SEVERITY_RANK = {
       info: 1,
       warning: 2,
@@ -23716,7 +25409,7 @@ var init_DomainSchemaHelpers = __esm({
 
 // src/web/components/modals/DomainSchemaSectionItems.tsx
 import React39, { useMemo as useMemo38 } from "react";
-import { Fragment as Fragment19, jsx as jsx69, jsxs as jsxs66 } from "react/jsx-runtime";
+import { Fragment as Fragment20, jsx as jsx69, jsxs as jsxs66 } from "react/jsx-runtime";
 function IssueBadge({ issues }) {
   if (issues.length === 0)
     return null;
@@ -23733,7 +25426,9 @@ function IssueBadge({ issues }) {
 ${preview}${more}`,
       onClick: (e) => {
         e.stopPropagation();
-        useGraphStore.getState().setLintOpen(true);
+        const st = useGraphStore.getState();
+        st.setDomainSchemaOpen(false);
+        st.setLintOpen(true);
       },
       children: [
         /* @__PURE__ */ jsx69(MIcon, { name: icon, size: "sm" }),
@@ -23928,7 +25623,8 @@ function EntityDetailCard({
 function DataTypeDetailCard({
   dataTypeId,
   domainId,
-  index
+  index,
+  refAttrs = []
 }) {
   const dt = index.dataTypes.find(
     (d) => d.id === dataTypeId && d.domainId === domainId
@@ -23942,10 +25638,14 @@ function DataTypeDetailCard({
       "button",
       {
         className: "btn btn--primary",
-        onClick: () => setWorkflowGraphTarget({
-          domainId,
-          dataTypeId: dt.id
-        }),
+        onClick: () => {
+          const st = useGraphStore.getState();
+          st.setDomainSchemaOpen(false);
+          st.setWorkflowGraphTarget({
+            domainId,
+            dataTypeId: dt.id
+          });
+        },
         title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0433\u0440\u0430\u0444 \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u043E\u0432 \u043C\u0435\u0436\u0434\u0443 \u0441\u0442\u0430\u0442\u0443\u0441\u0430\u043C\u0438",
         children: [
           /* @__PURE__ */ jsx69(MIcon, { name: "conversion_path", size: "sm" }),
@@ -23990,6 +25690,34 @@ function DataTypeDetailCard({
         },
         c
       )) })
+    ] }),
+    refAttrs.length > 0 && /* @__PURE__ */ jsxs66("div", { className: "domain-schema-detail-card__refs", children: [
+      /* @__PURE__ */ jsxs66("div", { className: "domain-schema-attrs__title", children: [
+        "\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u0432 \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430\u0445 (",
+        refAttrs.length,
+        ")"
+      ] }),
+      /* @__PURE__ */ jsx69("div", { className: "domain-schema-refs-grid", children: refAttrs.map((r) => /* @__PURE__ */ jsx69(
+        "button",
+        {
+          className: "domain-schema-ref-chip",
+          onClick: () => {
+            const st = useGraphStore.getState();
+            st.setDomainSchemaOpen(false);
+            st.setEntityCatalogInitialFqid(
+              `${domainId}/${r.entity}`.toLowerCase()
+            );
+            st.setEntityCatalogOpen(true);
+          },
+          title: `${r.entity}.${r.attribute}`,
+          children: /* @__PURE__ */ jsxs66("code", { children: [
+            r.entity,
+            ".",
+            r.attribute
+          ] })
+        },
+        `${r.entity}#${r.attribute}`
+      )) })
     ] })
   ] });
 }
@@ -24002,8 +25730,10 @@ function SectionItems({
   onToggleItem,
   issuesByEntity,
   issuesByAttribute,
+  itemIssues,
   onOpenEntity,
-  onlyProblematic
+  onlyProblematic,
+  filePath
 }) {
   if (sectionKey === "entities") {
     return /* @__PURE__ */ jsx69("div", { className: "domain-schema-list", children: items.map((e) => {
@@ -24017,7 +25747,7 @@ function SectionItems({
         /* @__PURE__ */ jsxs66(
           "div",
           {
-            className: "domain-schema-item domain-schema-item--expandable" + (isExpanded ? " expanded" : ""),
+            className: "domain-schema-item domain-schema-item--expandable" + (isExpanded ? " expanded" : "") + (issues.length > 0 ? " domain-schema-item--has-issues" : ""),
             onClick: () => onToggleItem(entityKey2),
             children: [
               /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__caret", children: /* @__PURE__ */ jsx69(
@@ -24036,6 +25766,14 @@ function SectionItems({
                 e.inherits && ` \xB7 \u21B3 ${e.inherits.split("/").pop()}`
               ] }),
               /* @__PURE__ */ jsx69(IssueBadge, { issues }),
+              /* @__PURE__ */ jsx69(
+                ItemQuickActions,
+                {
+                  itemId: e.id,
+                  domainId,
+                  filePath
+                }
+              ),
               /* @__PURE__ */ jsx69(
                 "button",
                 {
@@ -24066,14 +25804,23 @@ function SectionItems({
   }
   if (sectionKey === "dataTypes") {
     return /* @__PURE__ */ jsx69("div", { className: "domain-schema-list", children: items.map((d) => {
+      const issues = itemIssues.get(d.id) || [];
+      if (onlyProblematic && issues.length === 0)
+        return null;
+      const refAttrs = index.entities.filter((e) => e.domainId === domainId).flatMap(
+        (e) => e.attributes.filter((a) => a.dataType === d.id).map((a) => ({
+          entity: e.entityId,
+          attribute: a.id
+        }))
+      );
       const dtKey = `dataType:${d.id}`;
       const isExpanded = expandedItems.has(dtKey);
       return /* @__PURE__ */ jsxs66(React39.Fragment, { children: [
         /* @__PURE__ */ jsxs66(
           "div",
           {
-            id: `ds-item-dataType:${d.id}`,
-            className: "domain-schema-item domain-schema-item--expandable" + (isExpanded ? " expanded" : ""),
+            id: `ds-item-${dtKey}`,
+            className: "domain-schema-item domain-schema-item--expandable" + (isExpanded ? " expanded" : "") + (issues.length > 0 ? " domain-schema-item--has-issues" : ""),
             onClick: () => onToggleItem(dtKey),
             children: [
               /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__caret", children: /* @__PURE__ */ jsx69(
@@ -24085,12 +25832,40 @@ function SectionItems({
               ) }),
               /* @__PURE__ */ jsx69("code", { className: "domain-schema-item__id", children: d.id }),
               /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__name", children: d.name }),
+              /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__badge", children: d.kind }),
               /* @__PURE__ */ jsxs66("span", { className: "domain-schema-item__meta", children: [
-                /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__badge", children: d.kind }),
-                d.valuesCount != null && ` \xB7 ${d.valuesCount} \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0439`,
-                d.statusesCount != null && ` \xB7 ${d.statusesCount} \u0441\u0442\u0430\u0442\u0443\u0441\u043E\u0432`,
-                d.attributesCount != null && ` \xB7 ${d.attributesCount} \u043A\u043E\u043B\u043E\u043D\u043E\u043A`
-              ] })
+                d.valuesCount != null && `${d.valuesCount} \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u0439`,
+                d.statusesCount != null && `${d.statusesCount} \u0441\u0442\u0430\u0442\u0443\u0441\u043E\u0432`,
+                d.attributesCount != null && `${d.attributesCount} \u043A\u043E\u043B\u043E\u043D\u043E\u043A`,
+                refAttrs.length > 0 && /* @__PURE__ */ jsxs66(Fragment20, { children: [
+                  " \xB7 ",
+                  /* @__PURE__ */ jsxs66(
+                    "span",
+                    {
+                      style: {
+                        color: "var(--accent-hover)"
+                      },
+                      title: `\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u0432 ${refAttrs.length} \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430\u0445`,
+                      children: [
+                        refAttrs.length,
+                        " ",
+                        refAttrs.length === 1 ? "\u0430\u0442\u0440\u0438\u0431\u0443\u0442" : "\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432",
+                        " ",
+                        "\u2192"
+                      ]
+                    }
+                  )
+                ] })
+              ] }),
+              /* @__PURE__ */ jsx69(IssueBadge, { issues }),
+              /* @__PURE__ */ jsx69(
+                ItemQuickActions,
+                {
+                  itemId: d.id,
+                  domainId,
+                  filePath
+                }
+              )
             ]
           }
         ),
@@ -24099,7 +25874,8 @@ function SectionItems({
           {
             dataTypeId: d.id,
             domainId,
-            index
+            index,
+            refAttrs
           }
         )
       ] }, d.id);
@@ -24107,13 +25883,16 @@ function SectionItems({
   }
   if (sectionKey === "scenarios") {
     return /* @__PURE__ */ jsx69("div", { className: "domain-schema-list", children: items.map((s) => {
+      const issues = itemIssues.get(s.id) || [];
+      if (onlyProblematic && issues.length === 0)
+        return null;
       const scenarioKey = `scenario:${s.id}`;
       const isExpanded = expandedItems.has(scenarioKey);
       return /* @__PURE__ */ jsxs66(React39.Fragment, { children: [
         /* @__PURE__ */ jsxs66(
           "div",
           {
-            className: "domain-schema-item domain-schema-item--expandable" + (isExpanded ? " expanded" : ""),
+            className: "domain-schema-item domain-schema-item--expandable" + (isExpanded ? " expanded" : "") + (issues.length > 0 ? " domain-schema-item--has-issues" : ""),
             onClick: () => onToggleItem(scenarioKey),
             children: [
               /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__caret", children: /* @__PURE__ */ jsx69(
@@ -24155,7 +25934,16 @@ function SectionItems({
                     }
                   );
                 })()
-              ] })
+              ] }),
+              /* @__PURE__ */ jsx69(IssueBadge, { issues }),
+              /* @__PURE__ */ jsx69(
+                ItemQuickActions,
+                {
+                  itemId: s.id,
+                  domainId,
+                  filePath
+                }
+              )
             ]
           }
         ),
@@ -24190,13 +25978,16 @@ function SectionItems({
   }
   if (sectionKey === "uiRules") {
     return /* @__PURE__ */ jsx69("div", { className: "domain-schema-list", children: items.map((r) => {
+      const issues = itemIssues.get(r.id) || [];
+      if (onlyProblematic && issues.length === 0)
+        return null;
       const ruleKey = `uiRule:${r.id}`;
       const isExpanded = expandedItems.has(ruleKey);
       return /* @__PURE__ */ jsxs66(React39.Fragment, { children: [
         /* @__PURE__ */ jsxs66(
           "div",
           {
-            className: "domain-schema-item domain-schema-item--expandable" + (isExpanded ? " expanded" : ""),
+            className: "domain-schema-item domain-schema-item--expandable" + (isExpanded ? " expanded" : "") + (issues.length > 0 ? " domain-schema-item--has-issues" : ""),
             onClick: () => onToggleItem(ruleKey),
             children: [
               /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__caret", children: /* @__PURE__ */ jsx69(
@@ -24215,7 +26006,16 @@ function SectionItems({
                   "\u2192 ",
                   r.view
                 ] })
-              ] })
+              ] }),
+              /* @__PURE__ */ jsx69(IssueBadge, { issues }),
+              /* @__PURE__ */ jsx69(
+                ItemQuickActions,
+                {
+                  itemId: r.id,
+                  domainId,
+                  filePath
+                }
+              )
             ]
           }
         ),
@@ -24232,18 +26032,25 @@ function SectionItems({
               r.widgets.length,
               ")"
             ] }),
-            r.widgets.map((w, i) => /* @__PURE__ */ jsxs66("div", { className: "domain-schema-attr-row", children: [
-              /* @__PURE__ */ jsx69(MIcon, { name: "widgets", size: "sm" }),
-              /* @__PURE__ */ jsx69("code", { className: "domain-schema-attr-row__id", children: w.widget }),
-              w.nested && /* @__PURE__ */ jsxs66("span", { className: "domain-schema-attr-row__type", children: [
-                "nested: ",
-                w.nested.type
-              ] }),
-              w.presets && w.presets.length > 0 && /* @__PURE__ */ jsxs66("span", { className: "domain-schema-attr-row__type", children: [
-                "presets: ",
-                w.presets.join(", ")
-              ] })
-            ] }, i))
+            r.widgets.map((w, i) => /* @__PURE__ */ jsxs66(
+              "div",
+              {
+                className: "domain-schema-attr-row",
+                children: [
+                  /* @__PURE__ */ jsx69(MIcon, { name: "widgets", size: "sm" }),
+                  /* @__PURE__ */ jsx69("code", { className: "domain-schema-attr-row__id", children: w.widget }),
+                  w.nested && /* @__PURE__ */ jsxs66("span", { className: "domain-schema-attr-row__type", children: [
+                    "nested: ",
+                    w.nested.type
+                  ] }),
+                  w.presets && w.presets.length > 0 && /* @__PURE__ */ jsxs66("span", { className: "domain-schema-attr-row__type", children: [
+                    "presets: ",
+                    w.presets.join(", ")
+                  ] })
+                ]
+              },
+              i
+            ))
           ] }),
           r.groups && r.groups.length > 0 && /* @__PURE__ */ jsxs66("div", { className: "domain-schema-attrs", children: [
             /* @__PURE__ */ jsxs66("div", { className: "domain-schema-attrs__title", children: [
@@ -24251,14 +26058,21 @@ function SectionItems({
               r.groups.length,
               ")"
             ] }),
-            r.groups.map((g, i) => /* @__PURE__ */ jsxs66("div", { className: "domain-schema-attr-row", children: [
-              /* @__PURE__ */ jsx69(MIcon, { name: "view_module", size: "sm" }),
-              /* @__PURE__ */ jsx69("code", { className: "domain-schema-attr-row__id", children: g.group }),
-              g.presets && g.presets.length > 0 && /* @__PURE__ */ jsxs66("span", { className: "domain-schema-attr-row__type", children: [
-                "presets: ",
-                g.presets.join(", ")
-              ] })
-            ] }, i))
+            r.groups.map((g, i) => /* @__PURE__ */ jsxs66(
+              "div",
+              {
+                className: "domain-schema-attr-row",
+                children: [
+                  /* @__PURE__ */ jsx69(MIcon, { name: "view_module", size: "sm" }),
+                  /* @__PURE__ */ jsx69("code", { className: "domain-schema-attr-row__id", children: g.group }),
+                  g.presets && g.presets.length > 0 && /* @__PURE__ */ jsxs66("span", { className: "domain-schema-attr-row__type", children: [
+                    "presets: ",
+                    g.presets.join(", ")
+                  ] })
+                ]
+              },
+              i
+            ))
           ] }),
           r.columns && r.columns.length > 0 && /* @__PURE__ */ jsxs66("div", { className: "domain-schema-attrs", children: [
             /* @__PURE__ */ jsxs66("div", { className: "domain-schema-attrs__title", children: [
@@ -24266,14 +26080,21 @@ function SectionItems({
               r.columns.length,
               ")"
             ] }),
-            r.columns.map((c, i) => /* @__PURE__ */ jsxs66("div", { className: "domain-schema-attr-row", children: [
-              /* @__PURE__ */ jsx69(MIcon, { name: "view_column", size: "sm" }),
-              /* @__PURE__ */ jsx69("code", { className: "domain-schema-attr-row__id", children: c.column }),
-              c.presets && c.presets.length > 0 && /* @__PURE__ */ jsxs66("span", { className: "domain-schema-attr-row__type", children: [
-                "presets: ",
-                c.presets.join(", ")
-              ] })
-            ] }, i))
+            r.columns.map((c, i) => /* @__PURE__ */ jsxs66(
+              "div",
+              {
+                className: "domain-schema-attr-row",
+                children: [
+                  /* @__PURE__ */ jsx69(MIcon, { name: "view_column", size: "sm" }),
+                  /* @__PURE__ */ jsx69("code", { className: "domain-schema-attr-row__id", children: c.column }),
+                  c.presets && c.presets.length > 0 && /* @__PURE__ */ jsxs66("span", { className: "domain-schema-attr-row__type", children: [
+                    "presets: ",
+                    c.presets.join(", ")
+                  ] })
+                ]
+              },
+              i
+            ))
           ] }),
           r.presets && r.presets.length > 0 && /* @__PURE__ */ jsxs66("div", { className: "domain-schema-detail-card__meta", children: [
             /* @__PURE__ */ jsx69("strong", { children: "\u041F\u0440\u0435\u0441\u0435\u0442\u044B \u043F\u0440\u0430\u0432\u0438\u043B\u0430:" }),
@@ -24295,141 +26116,492 @@ function SectionItems({
     }) });
   }
   if (sectionKey === "linkages") {
-    return /* @__PURE__ */ jsx69("div", { className: "domain-schema-list", children: items.map((l) => /* @__PURE__ */ jsxs66("div", { className: "domain-schema-item", children: [
-      /* @__PURE__ */ jsx69("code", { className: "domain-schema-item__id", children: l.id }),
-      /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__name", children: l.name }),
-      /* @__PURE__ */ jsxs66("span", { className: "domain-schema-item__meta", children: [
-        l.side1.split("/").pop(),
-        " ",
-        l.undirected ? "\u2194" : "\u2192",
-        " ",
-        l.side2.split("/").pop(),
-        " \xB7 ",
-        /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__badge", children: l.type })
-      ] })
-    ] }, l.id)) });
+    return /* @__PURE__ */ jsx69("div", { className: "domain-schema-list", children: items.map((l) => {
+      const issues = itemIssues.get(l.id) || [];
+      if (onlyProblematic && issues.length === 0)
+        return null;
+      return /* @__PURE__ */ jsxs66(
+        "div",
+        {
+          className: "domain-schema-item domain-schema-item--linkage" + (issues.length > 0 ? " domain-schema-item--has-issues" : ""),
+          children: [
+            /* @__PURE__ */ jsx69("code", { className: "domain-schema-item__id", children: l.id }),
+            /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__name", children: l.name }),
+            /* @__PURE__ */ jsxs66("span", { className: "domain-schema-item__meta domain-schema-item__meta--linkage", children: [
+              /* @__PURE__ */ jsx69("code", { children: l.side1.split("/").pop() }),
+              /* @__PURE__ */ jsx69(
+                "span",
+                {
+                  style: {
+                    margin: "0 4px",
+                    color: "var(--text-500)"
+                  },
+                  children: l.undirected ? "\u2194" : "\u2192"
+                }
+              ),
+              /* @__PURE__ */ jsx69("code", { children: l.side2.split("/").pop() }),
+              /* @__PURE__ */ jsx69(
+                "span",
+                {
+                  className: "domain-schema-item__badge",
+                  style: { marginLeft: 6 },
+                  children: l.type
+                }
+              )
+            ] }),
+            /* @__PURE__ */ jsx69(IssueBadge, { issues }),
+            /* @__PURE__ */ jsx69(
+              ItemQuickActions,
+              {
+                itemId: l.id,
+                domainId,
+                filePath
+              }
+            )
+          ]
+        },
+        l.id
+      );
+    }) });
   }
   if (sectionKey === "sequences") {
-    return /* @__PURE__ */ jsx69("div", { className: "domain-schema-list", children: items.map((s) => /* @__PURE__ */ jsxs66("div", { className: "domain-schema-item", children: [
-      /* @__PURE__ */ jsx69("code", { className: "domain-schema-item__id", children: s.id }),
-      /* @__PURE__ */ jsxs66("span", { className: "domain-schema-item__meta", children: [
-        "\u043D\u0430\u0447\u0438\u043D\u0430\u0435\u0442\u0441\u044F \u0441 ",
-        s.startFrom
-      ] })
-    ] }, s.id)) });
+    return /* @__PURE__ */ jsx69("div", { className: "domain-schema-list", children: items.map((s) => {
+      const issues = itemIssues.get(s.id) || [];
+      if (onlyProblematic && issues.length === 0)
+        return null;
+      return /* @__PURE__ */ jsxs66(
+        "div",
+        {
+          className: "domain-schema-item" + (issues.length > 0 ? " domain-schema-item--has-issues" : ""),
+          children: [
+            /* @__PURE__ */ jsx69("code", { className: "domain-schema-item__id", children: s.id }),
+            /* @__PURE__ */ jsxs66("span", { className: "domain-schema-item__meta", children: [
+              "\u043D\u0430\u0447\u0438\u043D\u0430\u0435\u0442\u0441\u044F \u0441 ",
+              s.startFrom
+            ] }),
+            /* @__PURE__ */ jsx69(IssueBadge, { issues }),
+            /* @__PURE__ */ jsx69(
+              ItemQuickActions,
+              {
+                itemId: s.id,
+                domainId,
+                filePath
+              }
+            )
+          ]
+        },
+        s.id
+      );
+    }) });
   }
   if (sectionKey === "actions") {
-    return /* @__PURE__ */ jsx69("div", { className: "domain-schema-list", children: items.map((a) => /* @__PURE__ */ jsxs66("div", { className: "domain-schema-item", children: [
-      /* @__PURE__ */ jsx69("code", { className: "domain-schema-item__id", children: a.id }),
-      /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__name", children: a.name }),
-      /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__meta", children: /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__badge", children: a.type }) })
-    ] }, a.id)) });
+    return /* @__PURE__ */ jsx69("div", { className: "domain-schema-list", children: items.map((a) => {
+      const issues = itemIssues.get(a.id) || [];
+      if (onlyProblematic && issues.length === 0)
+        return null;
+      return /* @__PURE__ */ jsxs66(
+        "div",
+        {
+          className: "domain-schema-item" + (issues.length > 0 ? " domain-schema-item--has-issues" : ""),
+          children: [
+            /* @__PURE__ */ jsx69("code", { className: "domain-schema-item__id", children: a.id }),
+            /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__name", children: a.name }),
+            /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__meta", children: /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__badge", children: a.type }) }),
+            /* @__PURE__ */ jsx69(IssueBadge, { issues }),
+            /* @__PURE__ */ jsx69(
+              ItemQuickActions,
+              {
+                itemId: a.id,
+                domainId,
+                filePath
+              }
+            )
+          ]
+        },
+        a.id
+      );
+    }) });
   }
   if (sectionKey === "views") {
-    return /* @__PURE__ */ jsx69("div", { className: "domain-schema-list", children: items.map((v) => /* @__PURE__ */ jsxs66("div", { className: "domain-schema-item", children: [
-      /* @__PURE__ */ jsx69("code", { className: "domain-schema-item__id", children: v.id }),
-      /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__name", children: v.label || "" }),
-      /* @__PURE__ */ jsxs66("span", { className: "domain-schema-item__meta", children: [
-        /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__badge", children: v.type }),
-        v.entity && ` \xB7 ${v.entity.split("/").pop()}`,
-        v.isMixin && " \xB7 mixin"
-      ] })
-    ] }, v.id)) });
+    const TYPE_COLORS = {
+      entity: "#6366f1",
+      list: "#10b981",
+      tree: "#8b5cf6",
+      tabs_list: "#06b6d4",
+      panel: "#a78bfa",
+      modal: "#f59e0b",
+      page: "#ec4899",
+      dashboard: "#f97316",
+      dashboard_tree: "#eab308"
+    };
+    return /* @__PURE__ */ jsx69("div", { className: "domain-schema-list", children: items.map((v) => {
+      const issues = itemIssues.get(v.id) || [];
+      if (onlyProblematic && issues.length === 0)
+        return null;
+      const color = TYPE_COLORS[v.type] || "var(--text-500)";
+      return /* @__PURE__ */ jsxs66(
+        "div",
+        {
+          className: "domain-schema-item" + (issues.length > 0 ? " domain-schema-item--has-issues" : ""),
+          children: [
+            /* @__PURE__ */ jsx69("code", { className: "domain-schema-item__id", children: v.id }),
+            /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__name", children: v.label || "" }),
+            /* @__PURE__ */ jsx69(
+              "span",
+              {
+                className: "domain-schema-item__badge domain-schema-item__badge--color",
+                style: {
+                  background: color + "22",
+                  color,
+                  borderColor: color + "55"
+                },
+                children: v.type
+              }
+            ),
+            v.entity && /* @__PURE__ */ jsxs66("span", { className: "domain-schema-item__meta", children: [
+              "\xB7 ",
+              v.entity.split("/").pop()
+            ] }),
+            v.isMixin && /* @__PURE__ */ jsx69(
+              "span",
+              {
+                className: "domain-schema-item__badge",
+                style: {
+                  background: "rgba(236,72,153,0.15)",
+                  color: "#ec4899"
+                },
+                children: "mixin"
+              }
+            ),
+            /* @__PURE__ */ jsx69(IssueBadge, { issues }),
+            /* @__PURE__ */ jsx69(
+              ItemQuickActions,
+              {
+                itemId: v.id,
+                domainId,
+                filePath
+              }
+            )
+          ]
+        },
+        v.id
+      );
+    }) });
   }
   if (sectionKey === "menus") {
-    return /* @__PURE__ */ jsx69("div", { className: "domain-schema-list", children: items.map((m) => /* @__PURE__ */ jsxs66("div", { className: "domain-schema-item", children: [
-      /* @__PURE__ */ jsx69("code", { className: "domain-schema-item__id", children: m.route }),
-      /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__name", children: m.label }),
-      /* @__PURE__ */ jsxs66("span", { className: "domain-schema-item__meta", children: [
-        /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__badge", children: m.type }),
-        m.view && ` \u2192 ${m.view}`
-      ] })
-    ] }, m.id)) });
+    return /* @__PURE__ */ jsx69("div", { className: "domain-schema-list", children: items.map((m) => {
+      const issues = itemIssues.get(m.id) || [];
+      if (onlyProblematic && issues.length === 0)
+        return null;
+      return /* @__PURE__ */ jsxs66(
+        "div",
+        {
+          className: "domain-schema-item" + (issues.length > 0 ? " domain-schema-item--has-issues" : ""),
+          children: [
+            /* @__PURE__ */ jsx69("code", { className: "domain-schema-item__id", children: m.route }),
+            /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__name", children: m.label }),
+            /* @__PURE__ */ jsxs66("span", { className: "domain-schema-item__meta", children: [
+              /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__badge", children: m.type }),
+              m.view && ` \u2192 ${m.view}`
+            ] }),
+            /* @__PURE__ */ jsx69(IssueBadge, { issues }),
+            /* @__PURE__ */ jsx69(
+              ItemQuickActions,
+              {
+                itemId: m.id,
+                domainId,
+                filePath
+              }
+            )
+          ]
+        },
+        m.id
+      );
+    }) });
   }
   if (sectionKey === "mixins") {
-    return /* @__PURE__ */ jsx69("div", { className: "domain-schema-list", children: items.map((m) => /* @__PURE__ */ jsxs66("div", { className: "domain-schema-item", children: [
-      /* @__PURE__ */ jsx69("code", { className: "domain-schema-item__id", children: m.id }),
-      /* @__PURE__ */ jsxs66("span", { className: "domain-schema-item__meta", children: [
-        /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__badge", children: m.type }),
-        " \u2192 ",
-        m.entity,
-        " \xB7 ",
-        m.viewsCount,
-        " view"
-      ] })
-    ] }, m.id)) });
+    return /* @__PURE__ */ jsx69("div", { className: "domain-schema-list", children: items.map((m) => {
+      const issues = itemIssues.get(m.id) || [];
+      if (onlyProblematic && issues.length === 0)
+        return null;
+      return /* @__PURE__ */ jsxs66(
+        "div",
+        {
+          className: "domain-schema-item" + (issues.length > 0 ? " domain-schema-item--has-issues" : ""),
+          children: [
+            /* @__PURE__ */ jsx69("code", { className: "domain-schema-item__id", children: m.id }),
+            /* @__PURE__ */ jsxs66("span", { className: "domain-schema-item__meta", children: [
+              /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__badge", children: m.type }),
+              " \u2192 ",
+              m.entity,
+              " \xB7 ",
+              m.viewsCount,
+              " view"
+            ] }),
+            /* @__PURE__ */ jsx69(IssueBadge, { issues }),
+            /* @__PURE__ */ jsx69(
+              ItemQuickActions,
+              {
+                itemId: m.id,
+                domainId,
+                filePath
+              }
+            )
+          ]
+        },
+        m.id
+      );
+    }) });
   }
   if (sectionKey === "dataRules") {
-    return /* @__PURE__ */ jsx69("div", { className: "domain-schema-list", children: items.map((r) => /* @__PURE__ */ jsxs66("div", { className: "domain-schema-item", children: [
-      /* @__PURE__ */ jsx69("code", { className: "domain-schema-item__id", children: r.id }),
-      /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__name", children: r.name }),
-      /* @__PURE__ */ jsxs66("span", { className: "domain-schema-item__meta", children: [
-        r.effect && /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__badge", children: r.effect }),
-        r.entity && ` \xB7 ${r.entity.split("/").pop()}`
-      ] })
-    ] }, r.id)) });
+    return /* @__PURE__ */ jsx69("div", { className: "domain-schema-list", children: items.map((r) => {
+      const issues = itemIssues.get(r.id) || [];
+      if (onlyProblematic && issues.length === 0)
+        return null;
+      return /* @__PURE__ */ jsxs66(
+        "div",
+        {
+          className: "domain-schema-item" + (issues.length > 0 ? " domain-schema-item--has-issues" : ""),
+          children: [
+            /* @__PURE__ */ jsx69("code", { className: "domain-schema-item__id", children: r.id }),
+            /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__name", children: r.name }),
+            /* @__PURE__ */ jsxs66("span", { className: "domain-schema-item__meta", children: [
+              r.effect && /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__badge", children: r.effect }),
+              r.entity && ` \xB7 ${r.entity.split("/").pop()}`
+            ] }),
+            /* @__PURE__ */ jsx69(IssueBadge, { issues }),
+            /* @__PURE__ */ jsx69(
+              ItemQuickActions,
+              {
+                itemId: r.id,
+                domainId,
+                filePath
+              }
+            )
+          ]
+        },
+        r.id
+      );
+    }) });
   }
   if (sectionKey === "medias") {
-    return /* @__PURE__ */ jsx69("div", { className: "domain-schema-list", children: items.map((m) => /* @__PURE__ */ jsxs66("div", { className: "domain-schema-item", children: [
-      /* @__PURE__ */ jsx69("code", { className: "domain-schema-item__id", children: m.id }),
-      /* @__PURE__ */ jsxs66("span", { className: "domain-schema-item__meta", children: [
-        m.type,
-        m.iconName && /* @__PURE__ */ jsxs66(Fragment19, { children: [
-          " \xB7 ",
-          /* @__PURE__ */ jsx69(
-            "span",
-            {
-              className: "domain-schema-icon-preview",
-              title: `IconName: ${m.iconName}`,
-              children: /* @__PURE__ */ jsx69(MIcon, { name: "image", size: "sm" })
-            }
-          ),
-          /* @__PURE__ */ jsx69("code", { style: { fontSize: 11, color: "var(--text-400)" }, children: m.iconName })
-        ] })
-      ] })
-    ] }, m.id)) });
+    return /* @__PURE__ */ jsx69("div", { className: "domain-schema-list", children: items.map((m) => {
+      const issues = itemIssues.get(m.id) || [];
+      if (onlyProblematic && issues.length === 0)
+        return null;
+      return /* @__PURE__ */ jsxs66(
+        "div",
+        {
+          className: "domain-schema-item" + (issues.length > 0 ? " domain-schema-item--has-issues" : ""),
+          children: [
+            /* @__PURE__ */ jsx69("code", { className: "domain-schema-item__id", children: m.id }),
+            /* @__PURE__ */ jsxs66("span", { className: "domain-schema-item__meta", children: [
+              m.type,
+              m.iconName && /* @__PURE__ */ jsxs66(Fragment20, { children: [
+                " \xB7 ",
+                /* @__PURE__ */ jsx69(
+                  "span",
+                  {
+                    className: "domain-schema-icon-preview",
+                    title: `IconName: ${m.iconName}`,
+                    children: /* @__PURE__ */ jsx69(MIcon, { name: "image", size: "sm" })
+                  }
+                ),
+                /* @__PURE__ */ jsx69(
+                  "code",
+                  {
+                    style: {
+                      fontSize: 11,
+                      color: "var(--text-400)"
+                    },
+                    children: m.iconName
+                  }
+                )
+              ] })
+            ] }),
+            /* @__PURE__ */ jsx69(IssueBadge, { issues }),
+            /* @__PURE__ */ jsx69(
+              ItemQuickActions,
+              {
+                itemId: m.id,
+                domainId,
+                filePath
+              }
+            )
+          ]
+        },
+        m.id
+      );
+    }) });
   }
   if (sectionKey === "permissions") {
-    return /* @__PURE__ */ jsx69("div", { className: "domain-schema-list", children: items.map((p) => /* @__PURE__ */ jsxs66("div", { className: "domain-schema-item", children: [
-      /* @__PURE__ */ jsx69("code", { className: "domain-schema-item__id", children: p.id }),
-      p.name && p.name !== p.id && /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__name", children: p.name }),
-      p.description && /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__meta", children: p.description })
-    ] }, p.id)) });
+    return /* @__PURE__ */ jsx69("div", { className: "domain-schema-list", children: items.map((p) => {
+      const issues = itemIssues.get(p.id) || [];
+      if (onlyProblematic && issues.length === 0)
+        return null;
+      return /* @__PURE__ */ jsxs66(
+        "div",
+        {
+          className: "domain-schema-item" + (issues.length > 0 ? " domain-schema-item--has-issues" : ""),
+          children: [
+            /* @__PURE__ */ jsx69("code", { className: "domain-schema-item__id", children: p.id }),
+            p.name && p.name !== p.id && /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__name", children: p.name }),
+            p.description && /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__meta", children: p.description }),
+            /* @__PURE__ */ jsx69(IssueBadge, { issues }),
+            /* @__PURE__ */ jsx69(
+              ItemQuickActions,
+              {
+                itemId: p.id,
+                domainId,
+                filePath
+              }
+            )
+          ]
+        },
+        p.id
+      );
+    }) });
   }
   if (sectionKey === "accessRules") {
-    return /* @__PURE__ */ jsx69("div", { className: "domain-schema-list", children: items.map((r) => /* @__PURE__ */ jsxs66("div", { className: "domain-schema-item", children: [
-      /* @__PURE__ */ jsx69("code", { className: "domain-schema-item__id", children: r.id }),
-      /* @__PURE__ */ jsxs66("span", { className: "domain-schema-item__meta", children: [
-        /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__badge", children: r.target }),
-        r.entity && ` \xB7 ${String(r.entity).split("/").pop()}`,
-        r.linkage && ` \xB7 ${String(r.linkage).split("/").pop()}`,
-        r.actionId && ` \xB7 ${r.actionId}`
-      ] })
-    ] }, r.id)) });
+    return /* @__PURE__ */ jsx69("div", { className: "domain-schema-list", children: items.map((r) => {
+      const issues = itemIssues.get(r.id) || [];
+      if (onlyProblematic && issues.length === 0)
+        return null;
+      return /* @__PURE__ */ jsxs66(
+        "div",
+        {
+          className: "domain-schema-item" + (issues.length > 0 ? " domain-schema-item--has-issues" : ""),
+          children: [
+            /* @__PURE__ */ jsx69("code", { className: "domain-schema-item__id", children: r.id }),
+            /* @__PURE__ */ jsxs66("span", { className: "domain-schema-item__meta", children: [
+              /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__badge", children: r.target }),
+              r.entity && ` \xB7 ${String(r.entity).split("/").pop()}`,
+              r.linkage && ` \xB7 ${String(r.linkage).split("/").pop()}`,
+              r.actionId && ` \xB7 ${r.actionId}`
+            ] }),
+            /* @__PURE__ */ jsx69(IssueBadge, { issues }),
+            /* @__PURE__ */ jsx69(
+              ItemQuickActions,
+              {
+                itemId: r.id,
+                domainId,
+                filePath
+              }
+            )
+          ]
+        },
+        r.id
+      );
+    }) });
   }
   if (sectionKey === "localizations") {
-    return /* @__PURE__ */ jsx69("div", { className: "domain-schema-list", children: items.map((loc) => /* @__PURE__ */ jsxs66("div", { className: "domain-schema-item", children: [
-      /* @__PURE__ */ jsx69("code", { className: "domain-schema-item__id", children: loc.id }),
-      /* @__PURE__ */ jsxs66("span", { className: "domain-schema-item__meta", children: [
-        loc.keysCount,
-        " ",
-        loc.keysCount === 1 ? "\u043A\u043B\u044E\u0447" : loc.keysCount < 5 ? "\u043A\u043B\u044E\u0447\u0430" : "\u043A\u043B\u044E\u0447\u0435\u0439"
-      ] })
-    ] }, loc.id)) });
+    return /* @__PURE__ */ jsx69("div", { className: "domain-schema-list", children: items.map((loc) => {
+      const issues = itemIssues.get(loc.id) || [];
+      if (onlyProblematic && issues.length === 0)
+        return null;
+      return /* @__PURE__ */ jsxs66(
+        "div",
+        {
+          className: "domain-schema-item" + (issues.length > 0 ? " domain-schema-item--has-issues" : ""),
+          children: [
+            /* @__PURE__ */ jsx69("code", { className: "domain-schema-item__id", children: loc.id }),
+            /* @__PURE__ */ jsxs66("span", { className: "domain-schema-item__meta", children: [
+              loc.keysCount,
+              " ",
+              loc.keysCount === 1 ? "\u043A\u043B\u044E\u0447" : loc.keysCount < 5 ? "\u043A\u043B\u044E\u0447\u0430" : "\u043A\u043B\u044E\u0447\u0435\u0439"
+            ] }),
+            /* @__PURE__ */ jsx69(IssueBadge, { issues }),
+            /* @__PURE__ */ jsx69(
+              ItemQuickActions,
+              {
+                itemId: loc.id,
+                domainId,
+                filePath
+              }
+            )
+          ]
+        },
+        loc.id
+      );
+    }) });
   }
-  return /* @__PURE__ */ jsx69("div", { className: "domain-schema-list", children: items.map((item) => /* @__PURE__ */ jsxs66("div", { className: "domain-schema-item", children: [
-    /* @__PURE__ */ jsx69("code", { className: "domain-schema-item__id", children: item.id }),
-    item.name && item.name !== item.id && /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__name", children: item.name }),
-    /* @__PURE__ */ jsxs66("span", { className: "domain-schema-item__meta", children: [
-      item.type && /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__badge", children: item.type }),
-      item.target && /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__badge", children: item.target }),
-      item.effect && /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__badge", children: item.effect }),
-      item.rootEntity && ` \xB7 \u043A\u043E\u0440\u0435\u043D\u044C: ${item.rootEntity}`,
-      item.joinsCount != null && ` \xB7 ${item.joinsCount} \u0441\u0432\u044F\u0437\u0435\u0439`,
-      item.red && ` \xB7 red: ${item.red}`,
-      item.yellow && ` \xB7 yellow: ${item.yellow}`
-    ] })
-  ] }, item.id)) });
+  return /* @__PURE__ */ jsx69("div", { className: "domain-schema-list", children: items.map((item) => {
+    const issues = itemIssues.get(item.id) || [];
+    if (onlyProblematic && issues.length === 0)
+      return null;
+    return /* @__PURE__ */ jsxs66(
+      "div",
+      {
+        className: "domain-schema-item" + (issues.length > 0 ? " domain-schema-item--has-issues" : ""),
+        children: [
+          /* @__PURE__ */ jsx69("code", { className: "domain-schema-item__id", children: item.id }),
+          item.name && item.name !== item.id && /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__name", children: item.name }),
+          /* @__PURE__ */ jsxs66("span", { className: "domain-schema-item__meta", children: [
+            item.type && /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__badge", children: item.type }),
+            item.target && /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__badge", children: item.target }),
+            item.effect && /* @__PURE__ */ jsx69("span", { className: "domain-schema-item__badge", children: item.effect }),
+            item.rootEntity && ` \xB7 \u043A\u043E\u0440\u0435\u043D\u044C: ${item.rootEntity}`,
+            item.joinsCount != null && ` \xB7 ${item.joinsCount} \u0441\u0432\u044F\u0437\u0435\u0439`,
+            item.red && ` \xB7 red: ${item.red}`,
+            item.yellow && ` \xB7 yellow: ${item.yellow}`
+          ] }),
+          /* @__PURE__ */ jsx69(IssueBadge, { issues }),
+          /* @__PURE__ */ jsx69(
+            ItemQuickActions,
+            {
+              itemId: item.id,
+              domainId,
+              filePath
+            }
+          )
+        ]
+      },
+      item.id
+    );
+  }) });
+}
+function ItemQuickActions({
+  itemId,
+  domainId,
+  filePath
+}) {
+  return /* @__PURE__ */ jsxs66(
+    "div",
+    {
+      className: "domain-schema-item__quick-actions",
+      onClick: (e) => e.stopPropagation(),
+      children: [
+        /* @__PURE__ */ jsx69(
+          "button",
+          {
+            type: "button",
+            title: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C id",
+            onClick: () => {
+              navigator.clipboard.writeText(itemId).then(
+                () => useGraphStore.getState().showSnackbar(`\u0421\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D\u043E: ${itemId}`)
+              ).catch(() => {
+              });
+            },
+            children: /* @__PURE__ */ jsx69(MIcon, { name: "content_copy", size: "sm" })
+          }
+        ),
+        /* @__PURE__ */ jsx69(
+          "button",
+          {
+            type: "button",
+            title: filePath ? "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0444\u0430\u0439\u043B \u0432 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0435" : "\u0424\u0430\u0439\u043B \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u0435\u043D",
+            disabled: !filePath,
+            onClick: async () => {
+              if (!filePath)
+                return;
+              await openFileAndCloseModal("domainSchema", filePath, null, domainId);
+            },
+            children: /* @__PURE__ */ jsx69(MIcon, { name: "open_in_new", size: "sm" })
+          }
+        )
+      ]
+    }
+  );
 }
 var init_DomainSchemaSectionItems = __esm({
   "src/web/components/modals/DomainSchemaSectionItems.tsx"() {
@@ -24437,37 +26609,7 @@ var init_DomainSchemaSectionItems = __esm({
     init_MIcon();
     init_useGraphStore();
     init_DomainSchemaHelpers();
-  }
-});
-
-// src/web/lib/consts.ts
-var SECTION_LABELS;
-var init_consts = __esm({
-  "src/web/lib/consts.ts"() {
-    "use strict";
-    SECTION_LABELS = {
-      entities: { label: "\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438", icon: "category" },
-      linkages: { label: "\u0421\u0432\u044F\u0437\u0438", icon: "link" },
-      dataTypes: { label: "\u0422\u0438\u043F\u044B \u0434\u0430\u043D\u043D\u044B\u0445", icon: "data_object" },
-      sequences: { label: "\u041F\u043E\u0441\u043B\u0435\u0434\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u043D\u043E\u0441\u0442\u0438", icon: "linear_scale" },
-      actions: { label: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F", icon: "bolt" },
-      views: { label: "\u041F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F", icon: "visibility" },
-      menus: { label: "\u041C\u0435\u043D\u044E", icon: "menu" },
-      mixins: { label: "\u041C\u0438\u043A\u0441\u0438\u043D\u044B", icon: "merge" },
-      dataRules: { label: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0434\u0430\u043D\u043D\u044B\u0445", icon: "rule" },
-      medias: { label: "\u0418\u043A\u043E\u043D\u043A\u0438", icon: "image" },
-      trees: { label: "\u0414\u0435\u0440\u0435\u0432\u044C\u044F", icon: "account_tree" },
-      transitiveLinkages: { label: "\u0422\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0438", icon: "link" },
-      uiRules: { label: "UI Rules", icon: "rule_folder" },
-      uiPresets: { label: "UI Presets", icon: "palette" },
-      counterColorPattern: { label: "\u0426\u0432\u0435\u0442\u043E\u0432\u044B\u0435 \u0441\u0445\u0435\u043C\u044B", icon: "timelapse" },
-      scenarios: { label: "\u0421\u0446\u0435\u043D\u0430\u0440\u0438\u0438", icon: "movie" },
-      permissions: { label: "\u0420\u0430\u0437\u0440\u0435\u0448\u0435\u043D\u0438\u044F", icon: "key" },
-      accessRules: { label: "\u041F\u0440\u0430\u0432\u0438\u043B\u0430 \u0434\u043E\u0441\u0442\u0443\u043F\u0430", icon: "lock" },
-      localizations: { label: "\u041B\u043E\u043A\u0430\u043B\u0438\u0437\u0430\u0446\u0438\u0438", icon: "translate" },
-      widgets: { label: "\u0414\u043E\u043C\u0435\u043D\u043D\u044B\u0435 \u0432\u0438\u0434\u0436\u0435\u0442\u044B", icon: "widgets" },
-      exchangeSettings: { label: "\u041E\u0431\u043C\u0435\u043D \u0434\u0430\u043D\u043D\u044B\u043C\u0438", icon: "swap_horiz" }
-    };
+    init_open_file();
   }
 });
 
@@ -24806,21 +26948,33 @@ var init_GenerateSchemaProfiles = __esm({
 });
 
 // src/web/components/modals/DomainSchemaModal.tsx
-import React40, { useEffect as useEffect36, useMemo as useMemo39, useState as useState28 } from "react";
-import { Fragment as Fragment20, jsx as jsx70, jsxs as jsxs67 } from "react/jsx-runtime";
+import {
+  useCallback as useCallback20,
+  useEffect as useEffect36,
+  useMemo as useMemo39,
+  useRef as useRef21,
+  useState as useState28
+} from "react";
+import { Fragment as Fragment21, jsx as jsx70, jsxs as jsxs67 } from "react/jsx-runtime";
 function DomainSchemaModal() {
   const { goto } = useNavigation();
   const { index, loading, error } = useModelIndex();
   const open2 = useGraphStore((s) => s.domainSchemaOpen);
   const domainId = useGraphStore((s) => s.domainSchemaDomainId);
   const nodes = useGraphStore((s) => s.nodes);
-  const bookmarks = useGraphStore((s) => s.bookmarks);
   const [expanded, setExpanded] = useState28(
     /* @__PURE__ */ new Set(["entities", "linkages"])
   );
   const [expandedItems, setExpandedItems] = useState28(/* @__PURE__ */ new Set());
   const [query, setQuery] = useState28("");
+  const [sectionFilter, setSectionFilter] = useState28(
+    /* @__PURE__ */ new Set()
+  );
   const [onlyProblematic, setOnlyProblematic] = useState28(false);
+  const [sortBy, setSortBy] = useState28("default");
+  const [enrichMenuOpen, setEnrichMenuOpen] = useState28(false);
+  const [tocCollapsed, setTocCollapsed] = useState28(false);
+  const searchInputRef = useRef21(null);
   const prefillQuery = useGraphStore((s) => s.domainSchemaPrefillQuery);
   const prefillOnlyProblematic = useGraphStore(
     (s) => s.domainSchemaPrefillOnlyProblematic
@@ -24829,9 +26983,12 @@ function DomainSchemaModal() {
   const setPrefillOnlyProblematic = useGraphStore(
     (s) => s.setDomainSchemaPrefillOnlyProblematic
   );
-  const [enrichMenuOpen, setEnrichMenuOpen] = useState28(false);
-  const prefillExpandItem = useGraphStore((s) => s.domainSchemaPrefillExpandItem);
-  const setPrefillExpandItem = useGraphStore((s) => s.setDomainSchemaPrefillExpandItem);
+  const prefillExpandItem = useGraphStore(
+    (s) => s.domainSchemaPrefillExpandItem
+  );
+  const setPrefillExpandItem = useGraphStore(
+    (s) => s.setDomainSchemaPrefillExpandItem
+  );
   useEffect36(() => {
     if (!open2)
       return;
@@ -24875,52 +27032,18 @@ function DomainSchemaModal() {
   const currentNode = useMemo39(() => {
     if (!schema2)
       return null;
-    return nodes.find(
-      (n) => n.data.domainId === schema2.domainId
-    ) || null;
+    return nodes.find((n) => n.data.domainId === schema2.domainId) || null;
   }, [schema2, nodes]);
-  const [statusToggling, setStatusToggling] = React40.useState(false);
-  const handleDraftClick = () => {
-    if (!currentNode?.data.filePath) {
-      useGraphStore.getState().showSnackbar("\u0424\u0430\u0439\u043B \u0441\u0445\u0435\u043C\u044B \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D");
-      return;
-    }
-    openFileInEditor(
-      currentNode.data.filePath,
-      null,
-      currentNode.data.domainId
-    );
-    useGraphStore.getState().setDomainSchemaOpen(false);
-  };
-  const handleToggleStatus = async () => {
-    if (!schema2 || statusToggling)
-      return;
-    setStatusToggling(true);
-    try {
-      const res = await fetch("/api/toggle-domain-status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ domainId: schema2.domainId })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        useGraphStore.getState().showSnackbar(
-          "\u041E\u0448\u0438\u0431\u043A\u0430 \u0441\u043C\u0435\u043D\u044B \u0441\u0442\u0430\u0442\u0443\u0441\u0430: " + (data.error || `HTTP ${res.status}`)
-        );
-        return;
-      }
-      const st = useGraphStore.getState();
-      st.bumpModelVersion();
-      await st.refreshGraphFromServer(true);
-      st.showSnackbar(
-        `\u0421\u0442\u0430\u0442\u0443\u0441 \u0434\u043E\u043C\u0435\u043D\u0430 ${schema2.domainId}: ${data.status || "?"}`
-      );
-    } catch (err) {
-      useGraphStore.getState().showSnackbar("\u041E\u0448\u0438\u0431\u043A\u0430 \u0441\u043C\u0435\u043D\u044B \u0441\u0442\u0430\u0442\u0443\u0441\u0430: " + (err.message || String(err)));
-    } finally {
-      setStatusToggling(false);
-    }
-  };
+  const headerMetrics = useMemo39(() => {
+    if (!index || !domainId)
+      return null;
+    return computeDomainHeaderMetrics(domainId, index);
+  }, [index, domainId]);
+  const issuesBySection = useMemo39(() => {
+    if (!index || !domainId)
+      return /* @__PURE__ */ new Map();
+    return groupIssuesBySection(domainId, index);
+  }, [index, domainId]);
   const issuesByEntity = useMemo39(() => {
     const m = /* @__PURE__ */ new Map();
     if (!index || !domainId)
@@ -24960,21 +27083,117 @@ function DomainSchemaModal() {
   const counters = useMemo39(() => {
     if (!schema2)
       return null;
-    const totalAttrs = schema2.sections.entities.items.reduce(
-      (s, x) => s + (x.attributesCount || 0),
-      0
-    );
     return {
       entities: schema2.sections.entities.count,
-      attributes: totalAttrs,
+      attributes: headerMetrics?.attributeCount ?? 0,
       linkages: schema2.sections.linkages.count,
       views: schema2.sections.views.count,
       dataRules: schema2.sections.dataRules.count,
       scenarios: schema2.sections.scenarios.count,
       issues: domainIssues.length
     };
-  }, [schema2, domainIssues]);
-  const toggle = (key) => {
+  }, [schema2, domainIssues, headerMetrics]);
+  const sectionItemIssues = useMemo39(() => {
+    const m = /* @__PURE__ */ new Map();
+    if (!index || !domainId)
+      return m;
+    for (const key of SECTION_ORDER) {
+      m.set(key, buildItemIssuesMap(key, domainId, index));
+    }
+    return m;
+  }, [index, domainId]);
+  const filteredSections = useMemo39(() => {
+    if (!schema2)
+      return null;
+    if (!query.trim() && !onlyProblematic && sectionFilter.size === 0)
+      return null;
+    const result = {};
+    SECTION_ORDER.forEach((key) => {
+      const section = schema2.sections[key];
+      const items = section?.items ?? [];
+      if (sectionFilter.size > 0 && !sectionFilter.has(key)) {
+        result[key] = [];
+        return;
+      }
+      const itemIssues = sectionItemIssues.get(key);
+      const filtered = items.filter((item) => {
+        if (onlyProblematic) {
+          const itemId = String(item?.id ?? "").toLowerCase();
+          const issues = key === "entities" ? issuesByEntity.get(
+            `${domainId}/${item.id}`.toLowerCase()
+          ) || [] : itemIssues?.get(item.id) || [];
+          if (issues.length === 0)
+            return false;
+        }
+        if (query.trim()) {
+          let hay = [];
+          if (key === "entities") {
+            hay = searchableStringsForEntity(item, index, domainId);
+          } else if (key === "dataTypes") {
+            hay = searchableStringsForDataType(item, index, domainId);
+          } else {
+            hay = searchableStringsForGeneric(item);
+          }
+          if (!matchesQuery(hay, query))
+            return false;
+        }
+        return true;
+      });
+      if (sortBy === "name") {
+        filtered.sort(
+          (a, b) => String(a.name || a.id || "").localeCompare(
+            String(b.name || b.id || "")
+          )
+        );
+      } else if (sortBy === "issues") {
+        const getIssues = (item) => {
+          const eid = `${domainId}/${item.id}`.toLowerCase();
+          const attrIssues = key === "entities" ? issuesByEntity.get(eid) || [] : [];
+          const secIssues = itemIssues?.get(item.id) || [];
+          return attrIssues.length + secIssues.length;
+        };
+        filtered.sort((a, b) => getIssues(b) - getIssues(a));
+      } else if (sortBy === "count") {
+        const getCount = (item) => {
+          if (item.attributesCount != null)
+            return item.attributesCount;
+          if (item.valuesCount != null)
+            return item.valuesCount;
+          if (item.statusesCount != null)
+            return item.statusesCount;
+          if (item.viewsCount != null)
+            return item.viewsCount;
+          if (item.actionsCount != null)
+            return item.actionsCount;
+          return 0;
+        };
+        filtered.sort((a, b) => getCount(b) - getCount(a));
+      }
+      result[key] = filtered;
+    });
+    return result;
+  }, [
+    schema2,
+    query,
+    onlyProblematic,
+    sectionFilter,
+    sortBy,
+    index,
+    domainId,
+    issuesByEntity,
+    sectionItemIssues
+  ]);
+  const hasFilter = query.trim().length > 0 || onlyProblematic || sectionFilter.size > 0;
+  const totalFiltered = useMemo39(() => {
+    if (!filteredSections)
+      return 0;
+    let sum = 0;
+    Object.values(filteredSections).forEach((arr) => {
+      sum += arr?.length || 0;
+    });
+    return sum;
+  }, [filteredSections]);
+  const toggleSection = (key) => {
     setExpanded((prev) => {
       const s = new Set(prev);
       if (s.has(key))
@@ -24994,6 +27213,37 @@ function DomainSchemaModal() {
       return s;
     });
   };
+  const expandAll = useCallback20(() => {
+    setExpanded(new Set(SECTION_ORDER));
+  }, []);
+  const collapseAll = useCallback20(() => {
+    setExpanded(/* @__PURE__ */ new Set());
+  }, []);
+  const resetFilters = useCallback20(() => {
+    setQuery("");
+    setSectionFilter(/* @__PURE__ */ new Set());
+    setOnlyProblematic(false);
+  }, []);
+  const toggleSectionFilter = (key) => {
+    setSectionFilter((prev) => {
+      const s = new Set(prev);
+      if (s.has(key))
+        s.delete(key);
+      else
+        s.add(key);
+      return s;
+    });
+  };
+  const scrollToSection = (key) => {
+    setExpanded((prev) => {
+      const s = new Set(prev);
+      s.add(key);
+      return s;
+    });
+    const el = document.getElementById(`ds-section-${key}`);
+    if (el)
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
   const openEntity = (entityId) => {
     if (!domainId)
       return;
@@ -25003,63 +27253,115 @@ function DomainSchemaModal() {
     st.setEntityCatalogInitialFqid(fqid);
     st.setEntityCatalogOpen(true);
   };
-  const filteredSections = useMemo39(() => {
-    if (!schema2)
-      return null;
-    if (!query.trim() && !onlyProblematic)
-      return null;
-    const result = {};
-    Object.keys(schema2.sections).forEach((key) => {
-      if (onlyProblematic && key !== "entities") {
-        result[key] = [];
+  const openYamlForDomain = async () => {
+    const node = nodes.find((n) => n.data.domainId === domainId);
+    if (!node?.data.filePath) {
+      useGraphStore.getState().showSnackbar("\u0424\u0430\u0439\u043B \u0441\u0445\u0435\u043C\u044B \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D");
+      return;
+    }
+    const st = useGraphStore.getState();
+    st.setDomainSchemaOpen(false);
+    const ok = await openFileInEditor(node.data.filePath, null, domainId);
+    if (!ok) {
+      useGraphStore.getState().setDomainSchemaOpen(true);
+    }
+  };
+  const handleDraftClick = async () => {
+    if (!currentNode?.data.filePath) {
+      useGraphStore.getState().showSnackbar("\u0424\u0430\u0439\u043B \u0441\u0445\u0435\u043C\u044B \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D");
+      return;
+    }
+    const st = useGraphStore.getState();
+    st.setDomainSchemaOpen(false);
+    const ok = await openFileInEditor(
+      currentNode.data.filePath,
+      null,
+      currentNode.data.domainId
+    );
+    if (!ok) {
+      useGraphStore.getState().setDomainSchemaOpen(true);
+    }
+  };
+  useEffect36(() => {
+    if (!open2)
+      return;
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.code === "KeyF") {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
         return;
       }
-      const items = schema2.sections[key].items;
-      const filtered = items.filter((item) => {
-        if (query.trim()) {
-          let hay = [];
-          if (key === "entities") {
-            hay = searchableStringsForEntity(item, index, domainId);
-          } else if (key === "dataTypes") {
-            hay = searchableStringsForDataType(item, index, domainId);
-          } else {
-            hay = searchableStringsForGeneric(item);
-          }
-          if (!matchesQuery(hay, query))
-            return false;
-        }
-        if (onlyProblematic && key === "entities") {
-          const fqid = `${domainId}/${item.id}`.toLowerCase();
-          const issues = issuesByEntity.get(fqid) || [];
-          if (issues.length === 0)
-            return false;
-        }
-        return true;
-      });
-      result[key] = filtered;
-    });
-    return result;
-  }, [schema2, query, onlyProblematic, index, domainId, issuesByEntity]);
-  useEffect36(() => {
-    if (!onlyProblematic)
-      return;
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      next.add("entities");
-      return next;
-    });
-  }, [onlyProblematic]);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [open2]);
   useEffect36(() => {
     if (!open2)
       return;
     useGraphStore.getState().setTooltip(null);
     window.__tooltipHovered = false;
   }, [open2]);
+  const [statusToggling, setStatusToggling] = useState28(false);
+  const handleToggleStatus = async () => {
+    if (!schema2 || statusToggling)
+      return;
+    setStatusToggling(true);
+    try {
+      const res = await fetch("/api/toggle-domain-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domainId: schema2.domainId })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        useGraphStore.getState().showSnackbar(
+          "\u041E\u0448\u0438\u0431\u043A\u0430 \u0441\u043C\u0435\u043D\u044B \u0441\u0442\u0430\u0442\u0443\u0441\u0430: " + (data.error || `HTTP ${res.status}`)
+        );
+        return;
+      }
+      const st = useGraphStore.getState();
+      const newStatus = typeof data.status === "string" ? data.status : null;
+      if (newStatus) {
+        st.setNodes(
+          (prev) => prev.map(
+            (n) => n.data.domainId === schema2.domainId ? { ...n, data: { ...n.data, status: newStatus } } : n
+          )
+        );
+      }
+      await st.refreshGraphFromServer(true).catch((e) => {
+        console.warn("[toggle-status] refresh failed:", e);
+      });
+      if (newStatus) {
+        useGraphStore.getState().setNodes(
+          (prev) => prev.map(
+            (n) => n.data.domainId === schema2.domainId ? { ...n, data: { ...n.data, status: newStatus } } : n
+          )
+        );
+      }
+      setTimeout(() => {
+        const cur = useGraphStore.getState();
+        const fresh = cur.nodes.find(
+          (n) => n.data.domainId === schema2.domainId
+        );
+        if (fresh && newStatus && fresh.data.status !== newStatus) {
+          cur.refreshGraphFromServer(true).catch(() => {
+          });
+        }
+      }, 250);
+      st.showSnackbar(
+        `\u0421\u0442\u0430\u0442\u0443\u0441 \u0434\u043E\u043C\u0435\u043D\u0430 ${schema2.domainId}: ${newStatus || data.status || "?"}`
+      );
+    } catch (err) {
+      useGraphStore.getState().showSnackbar("\u041E\u0448\u0438\u0431\u043A\u0430: " + (err.message || String(err)));
+    } finally {
+      setStatusToggling(false);
+    }
+  };
   if (!open2)
     return null;
   const showFiltered = filteredSections !== null;
-  const hasFilter = query.trim().length > 0 || onlyProblematic;
-  const noResults = showFiltered && filteredSections && Object.values(filteredSections).every((arr) => !arr || arr.length === 0);
+  const noResults = showFiltered && totalFiltered === 0;
   return /* @__PURE__ */ jsx70(
     "div",
     {
@@ -25068,43 +27370,25 @@ function DomainSchemaModal() {
       children: /* @__PURE__ */ jsxs67(
         "div",
         {
-          className: "help-modal entity-hierarchy-modal",
+          className: "help-modal entity-hierarchy-modal domain-schema-modal-v2",
           onMouseDown: (e) => e.stopPropagation(),
           children: [
-            /* @__PURE__ */ jsxs67("div", { className: "help-modal__header", children: [
-              /* @__PURE__ */ jsxs67("div", { className: "help-modal__title", children: [
-                /* @__PURE__ */ jsx70(MIcon, { name: "menu_book", size: "sm" }),
-                /* @__PURE__ */ jsx70("span", { className: "icon-label", children: "\u0421\u0445\u0435\u043C\u0430 \u0434\u043E\u043C\u0435\u043D\u0430" }),
-                schema2 && /* @__PURE__ */ jsx70("span", { className: "help-modal__badge", children: schema2.metadata.id })
-              ] }),
-              domainId && /* @__PURE__ */ jsx70(
-                "button",
-                {
-                  className: "help-modal__icon-btn" + (bookmarks.has(`domain_${domainId}`) ? " active" : ""),
-                  onClick: () => {
-                    useGraphStore.getState().toggleBookmark(`domain_${domainId}`);
-                  },
-                  title: bookmarks.has(`domain_${domainId}`) ? "\u0423\u0431\u0440\u0430\u0442\u044C \u0438\u0437 \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u043E\u0433\u043E" : "\u0412 \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u043E\u0435",
-                  style: { marginLeft: "auto" },
-                  children: /* @__PURE__ */ jsx70(
-                    MIcon,
-                    {
-                      name: bookmarks.has(`domain_${domainId}`) ? "star" : "star_border",
-                      fill: bookmarks.has(`domain_${domainId}`)
-                    }
-                  )
-                }
-              ),
-              /* @__PURE__ */ jsx70(
-                "button",
-                {
-                  className: "help-modal__close",
-                  onClick: () => useGraphStore.getState().setDomainSchemaOpen(false),
-                  children: "\u2715"
-                }
-              )
-            ] }),
-            loading && /* @__PURE__ */ jsx70("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx70("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
+            /* @__PURE__ */ jsx70(
+              DomainSchemaHeader,
+              {
+                schema: schema2,
+                currentNode,
+                metrics: headerMetrics,
+                isRefreshing: loading && !!schema2,
+                statusToggling,
+                onToggleStatus: handleToggleStatus,
+                onDraftClick: handleDraftClick,
+                onOpenYaml: openYamlForDomain,
+                onOpenSchema: null,
+                onClose: () => useGraphStore.getState().setDomainSchemaOpen(false)
+              }
+            ),
+            loading && !schema2 && /* @__PURE__ */ jsx70("div", { className: "help-modal__body", children: /* @__PURE__ */ jsx70("div", { className: "help-modal__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0438\u043D\u0434\u0435\u043A\u0441\u0430..." }) }),
             error && /* @__PURE__ */ jsx70("div", { className: "help-modal__body", children: /* @__PURE__ */ jsxs67("div", { style: { color: "var(--danger)" }, children: [
               "\u041E\u0448\u0438\u0431\u043A\u0430: ",
               error
@@ -25120,311 +27404,72 @@ function DomainSchemaModal() {
                 children: "\u0421\u0445\u0435\u043C\u0430 \u0434\u043B\u044F \u044D\u0442\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430 \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430 \u0432 \u0438\u043D\u0434\u0435\u043A\u0441\u0435"
               }
             ) }),
-            schema2 && counters && /* @__PURE__ */ jsxs67("div", { className: "domain-schema-body", children: [
-              /* @__PURE__ */ jsxs67("div", { className: "domain-schema-header", children: [
-                /* @__PURE__ */ jsxs67("div", { className: "domain-schema-header__title", children: [
-                  schema2.metadata.name,
-                  schema2.metadata.version && /* @__PURE__ */ jsxs67("span", { className: "domain-schema-header__version", children: [
-                    "v",
-                    schema2.metadata.version
-                  ] })
-                ] }),
-                /* @__PURE__ */ jsxs67("div", { className: "domain-schema-header__badges", children: [
-                  currentNode?.data.hasDraft && /* @__PURE__ */ jsxs67(
+            schema2 && counters && headerMetrics && /* @__PURE__ */ jsxs67("div", { className: "domain-schema-body domain-schema-body--v2", children: [
+              !tocCollapsed && /* @__PURE__ */ jsxs67("div", { className: "domain-schema-toc", children: [
+                /* @__PURE__ */ jsxs67("div", { className: "domain-schema-toc__head", children: [
+                  /* @__PURE__ */ jsx70("span", { children: "\u0421\u0435\u043A\u0446\u0438\u0438" }),
+                  /* @__PURE__ */ jsx70(
                     "button",
                     {
-                      type: "button",
-                      className: "domain-schema-badge domain-schema-badge--draft",
-                      onClick: handleDraftClick,
-                      title: "\u0415\u0441\u0442\u044C \u043D\u0435\u043E\u043F\u0443\u0431\u043B\u0438\u043A\u043E\u0432\u0430\u043D\u043D\u044B\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F. \u041A\u043B\u0438\u043A \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440",
-                      children: [
-                        /* @__PURE__ */ jsx70(MIcon, { name: "edit_note", size: "sm" }),
-                        /* @__PURE__ */ jsx70("span", { children: "\u0427\u0435\u0440\u043D\u043E\u0432\u0438\u043A" })
-                      ]
-                    }
-                  ),
-                  currentNode?.data.status && /* @__PURE__ */ jsxs67(
-                    "button",
-                    {
-                      type: "button",
-                      className: "domain-schema-badge " + (currentNode.data.status === "DISABLED" ? "domain-schema-badge--disabled" : "domain-schema-badge--enabled"),
-                      onClick: handleToggleStatus,
-                      disabled: statusToggling,
-                      title: currentNode.data.status === "DISABLED" ? "\u041A\u043B\u0438\u043A \u2014 \u0432\u043A\u043B\u044E\u0447\u0438\u0442\u044C (enableExpertise)" : "\u041A\u043B\u0438\u043A \u2014 \u0432\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C (disableExpertise)",
-                      children: [
-                        /* @__PURE__ */ jsx70(
-                          MIcon,
-                          {
-                            name: currentNode.data.status === "DISABLED" ? "pause_circle" : "play_circle",
-                            size: "sm"
-                          }
-                        ),
-                        /* @__PURE__ */ jsx70("span", { children: currentNode.data.status })
-                      ]
+                      className: "domain-schema-toc__collapse",
+                      onClick: () => setTocCollapsed(true),
+                      title: "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u043E\u0433\u043B\u0430\u0432\u043B\u0435\u043D\u0438\u0435",
+                      children: /* @__PURE__ */ jsx70(MIcon, { name: "chevron_left", size: "sm" })
                     }
                   )
                 ] }),
-                schema2.metadata.description && /* @__PURE__ */ jsx70("div", { className: "domain-schema-header__desc", children: schema2.metadata.description }),
-                /* @__PURE__ */ jsxs67("div", { className: "domain-schema-header__meta", children: [
-                  schema2.metadata.author && /* @__PURE__ */ jsxs67("span", { children: [
-                    /* @__PURE__ */ jsx70(MIcon, { name: "person", size: "sm" }),
-                    schema2.metadata.author
-                  ] }),
-                  schema2.metadata.status && /* @__PURE__ */ jsxs67("span", { children: [
-                    /* @__PURE__ */ jsx70(MIcon, { name: "flag", size: "sm" }),
-                    schema2.metadata.status
-                  ] }),
-                  schema2.metadata.date && /* @__PURE__ */ jsxs67("span", { children: [
-                    /* @__PURE__ */ jsx70(MIcon, { name: "calendar_today", size: "sm" }),
-                    schema2.metadata.date
-                  ] }),
-                  schema2.metadata.tags.length > 0 && /* @__PURE__ */ jsx70("span", { className: "domain-schema-header__tags", children: schema2.metadata.tags.map((t) => /* @__PURE__ */ jsx70("span", { className: "tag", children: t }, t)) })
-                ] }),
-                /* @__PURE__ */ jsxs67("div", { className: "domain-schema-counters", children: [
-                  /* @__PURE__ */ jsxs67("span", { className: "domain-schema-counter", children: [
-                    /* @__PURE__ */ jsx70("strong", { children: counters.entities }),
-                    " \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439"
-                  ] }),
-                  /* @__PURE__ */ jsxs67("span", { className: "domain-schema-counter", children: [
-                    /* @__PURE__ */ jsx70("strong", { children: counters.attributes }),
-                    " \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432"
-                  ] }),
-                  /* @__PURE__ */ jsxs67("span", { className: "domain-schema-counter", children: [
-                    /* @__PURE__ */ jsx70("strong", { children: counters.linkages }),
-                    " \u0441\u0432\u044F\u0437\u0435\u0439"
-                  ] }),
-                  /* @__PURE__ */ jsxs67("span", { className: "domain-schema-counter", children: [
-                    /* @__PURE__ */ jsx70("strong", { children: counters.views }),
-                    " views"
-                  ] }),
-                  /* @__PURE__ */ jsxs67("span", { className: "domain-schema-counter", children: [
-                    /* @__PURE__ */ jsx70("strong", { children: counters.dataRules }),
-                    " \u043F\u0440\u0430\u0432\u0438\u043B"
-                  ] }),
-                  /* @__PURE__ */ jsxs67("span", { className: "domain-schema-counter", children: [
-                    /* @__PURE__ */ jsx70("strong", { children: counters.scenarios }),
-                    " \u0441\u0446\u0435\u043D\u0430\u0440\u0438\u0435\u0432"
-                  ] }),
-                  counters.issues > 0 && /* @__PURE__ */ jsxs67(
+                /* @__PURE__ */ jsx70("div", { className: "domain-schema-toc__list", children: SECTION_ORDER.map((key) => {
+                  const section = schema2.sections[key];
+                  const meta = SECTION_LABELS[key];
+                  if (!section || section.count === 0)
+                    return null;
+                  const issueCount = issuesBySection.get(key)?.length || 0;
+                  const isActive = sectionFilter.has(key);
+                  return /* @__PURE__ */ jsxs67(
                     "button",
                     {
-                      className: "domain-schema-counter domain-schema-counter--issues",
-                      onClick: () => useGraphStore.getState().setLintOpen(true),
-                      title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043B\u0438\u043D\u0442\u0435\u0440 \u0441\u0445\u0435\u043C",
-                      children: [
-                        /* @__PURE__ */ jsx70(MIcon, { name: "warning", size: "sm" }),
-                        /* @__PURE__ */ jsx70("strong", { children: counters.issues }),
-                        " \u043F\u0440\u043E\u0431\u043B\u0435\u043C"
-                      ]
-                    }
-                  )
-                ] }),
-                /* @__PURE__ */ jsxs67("div", { className: "domain-schema-header__actions", children: [
-                  /* @__PURE__ */ jsxs67(
-                    "button",
-                    {
-                      className: "btn",
+                      className: "domain-schema-toc__item" + (isActive ? " domain-schema-toc__item--active" : ""),
                       onClick: () => {
-                        const st = useGraphStore.getState();
-                        st.setGenerateBatchDomainId(schema2.domainId);
-                        st.setGenerateBatchOpen(true);
-                        st.setDomainSchemaOpen(false);
+                        toggleSectionFilter(key);
+                        scrollToSection(key);
                       },
-                      title: "\u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0442\u0438\u043F\u043E\u0432\u044B\u0435 \u0431\u043B\u043E\u043A\u0438 \u0434\u043B\u044F \u043D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u0438\u0445 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0440\u0430\u0437\u043E\u043C",
+                      title: `\u041F\u0435\u0440\u0435\u0439\u0442\u0438 \u043A \u0440\u0430\u0437\u0434\u0435\u043B\u0443 \xAB${meta.label}\xBB`,
                       children: [
-                        /* @__PURE__ */ jsx70(MIcon, { name: "auto_awesome", size: "sm" }),
-                        "\u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0434\u043B\u044F \u0434\u043E\u043C\u0435\u043D\u0430"
+                        /* @__PURE__ */ jsx70(MIcon, { name: meta.icon, size: "sm" }),
+                        /* @__PURE__ */ jsx70("span", { className: "domain-schema-toc__label", children: meta.label }),
+                        /* @__PURE__ */ jsx70("span", { className: "domain-schema-toc__count", children: section.count }),
+                        issueCount > 0 && /* @__PURE__ */ jsxs67("span", { className: "domain-schema-toc__issues", children: [
+                          /* @__PURE__ */ jsx70(MIcon, { name: "warning", size: "sm" }),
+                          issueCount
+                        ] })
                       ]
-                    }
-                  ),
-                  /* @__PURE__ */ jsxs67("div", { style: { position: "relative" }, children: [
-                    /* @__PURE__ */ jsxs67(
-                      "button",
-                      {
-                        className: "btn",
-                        onClick: () => setEnrichMenuOpen((v) => !v),
-                        title: "\u041E\u0431\u043E\u0433\u0430\u0442\u0438\u0442\u044C \u0434\u043E\u043C\u0435\u043D: \u043C\u0435\u043D\u044E, Enum, \u0446\u0432\u0435\u0442\u0430, \u043E\u0431\u043C\u0435\u043D, \u0441\u0447\u0451\u0442\u0447\u0438\u043A\u0438",
-                        children: [
-                          /* @__PURE__ */ jsx70(MIcon, { name: "auto_fix_high", size: "sm" }),
-                          "\u041E\u0431\u043E\u0433\u0430\u0442\u0438\u0442\u044C \u0434\u043E\u043C\u0435\u043D",
-                          /* @__PURE__ */ jsx70(MIcon, { name: "expand_more", size: "sm" })
-                        ]
-                      }
-                    ),
-                    /* @__PURE__ */ jsxs67(
-                      "button",
-                      {
-                        className: "btn",
-                        onClick: () => {
-                          const st = useGraphStore.getState();
-                          st.setViewGraphPrefillDomain(schema2.domainId);
-                          st.setViewGraphOpen(true);
-                          st.setDomainSchemaOpen(false);
-                        },
-                        title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0433\u0440\u0430\u0444 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0435\u0439 views \u044D\u0442\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430",
-                        children: [
-                          /* @__PURE__ */ jsx70(MIcon, { name: "schema", size: "sm" }),
-                          "\u0413\u0440\u0430\u0444 views"
-                        ]
-                      }
-                    ),
-                    enrichMenuOpen && /* @__PURE__ */ jsxs67(Fragment20, { children: [
-                      /* @__PURE__ */ jsx70(
-                        "div",
-                        {
-                          onClick: () => setEnrichMenuOpen(false),
-                          style: {
-                            position: "fixed",
-                            inset: 0,
-                            zIndex: 10
-                          }
-                        }
-                      ),
-                      /* @__PURE__ */ jsx70(
-                        "div",
-                        {
-                          className: "menu",
-                          style: {
-                            position: "absolute",
-                            top: "calc(100% + 4px)",
-                            left: 0,
-                            zIndex: 11,
-                            minWidth: 260,
-                            background: "var(--bg-800)",
-                            border: "1px solid var(--border-hover)",
-                            borderRadius: 8,
-                            boxShadow: "0 12px 32px rgba(0,0,0,0.4)",
-                            padding: 4
-                          },
-                          children: DOMAIN_PROFILES.map((p) => /* @__PURE__ */ jsxs67(
-                            "button",
-                            {
-                              className: "menu__item",
-                              onClick: () => {
-                                const st = useGraphStore.getState();
-                                st.setGenerateSchemaDomainId(schema2.domainId);
-                                st.setGenerateSchemaEntityId(null);
-                                st.setGenerateSchemaOpen(true);
-                                st.setDomainSchemaOpen(false);
-                                setEnrichMenuOpen(false);
-                                st.setGenerateSchemaPrefillProfile?.(p.id);
-                              },
-                              title: p.when,
-                              children: [
-                                /* @__PURE__ */ jsx70("span", { className: "menu__icon", children: /* @__PURE__ */ jsx70(MIcon, { name: "auto_awesome", size: "sm" }) }),
-                                /* @__PURE__ */ jsx70("span", { className: "menu__text", children: p.label })
-                              ]
-                            },
-                            p.id
-                          ))
-                        }
-                      )
-                    ] })
-                  ] }),
-                  /* @__PURE__ */ jsxs67(
-                    "button",
-                    {
-                      className: "btn",
-                      onClick: () => goto(schema2.domainId),
-                      children: [
-                        /* @__PURE__ */ jsx70(MIcon, { name: "my_location", size: "sm" }),
-                        " \u041A \u0434\u043E\u043C\u0435\u043D\u0443 \u043D\u0430 \u0433\u0440\u0430\u0444\u0435"
-                      ]
-                    }
-                  ),
-                  /* @__PURE__ */ jsxs67(
-                    "button",
-                    {
-                      className: "btn",
-                      onClick: () => {
-                        const node = nodes.find(
-                          (n) => n.data.domainId === schema2.domainId
-                        );
-                        if (node?.data.filePath) {
-                          openFileInEditor(node.data.filePath, null, node.data.domainId);
-                          useGraphStore.getState().setDomainSchemaOpen(false);
-                        }
-                      },
-                      children: [
-                        /* @__PURE__ */ jsx70(MIcon, { name: "description", size: "sm" }),
-                        " \u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0444\u0430\u0439\u043B"
-                      ]
-                    }
-                  ),
-                  /* @__PURE__ */ jsxs67(
-                    "button",
-                    {
-                      className: "btn btn--primary",
-                      onClick: () => {
-                        const md = generateDomainMarkdown(schema2, index);
-                        downloadDomainMarkdown(schema2.domainId, md);
-                      },
-                      children: [
-                        /* @__PURE__ */ jsx70(MIcon, { name: "description", size: "sm" }),
-                        " \u042D\u043A\u0441\u043F\u043E\u0440\u0442 \u0432 Markdown"
-                      ]
-                    }
-                  ),
-                  /* @__PURE__ */ jsxs67(
-                    "button",
-                    {
-                      className: "btn",
-                      onClick: () => {
-                        const st = useGraphStore.getState();
-                        st.setSidecarDomainId(schema2.domainId);
-                        st.setSidecarOpen(true);
-                        st.setDomainSchemaOpen(false);
-                      },
-                      title: "\u041F\u043E\u0441\u043C\u043E\u0442\u0440\u0435\u0442\u044C, \u0447\u0442\u043E \u0431\u044B\u043B\u043E \u0441\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043E \u0434\u043B\u044F \u044D\u0442\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430",
-                      children: [
-                        /* @__PURE__ */ jsx70(MIcon, { name: "database", size: "sm" }),
-                        "\u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0435 \u0431\u043B\u043E\u043A\u0438"
-                      ]
-                    }
-                  ),
-                  /* @__PURE__ */ jsxs67(
-                    "button",
-                    {
-                      className: "btn",
-                      onClick: () => {
-                        const st = useGraphStore.getState();
-                        st.setCheatsheetInitialSection("field-reference");
-                        st.setCheatsheetOpen(true);
-                        st.setDomainSchemaOpen(false);
-                      },
-                      title: "\u0421\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A \u0432\u0441\u0435\u0445 \u043F\u043E\u043B\u0435\u0439 YAML",
-                      children: [
-                        /* @__PURE__ */ jsx70(MIcon, { name: "menu_book", size: "sm" }),
-                        "\u0428\u043F\u0430\u0440\u0433\u0430\u043B\u043A\u0430"
-                      ]
-                    }
-                  ),
-                  /* @__PURE__ */ jsxs67(
-                    "button",
-                    {
-                      className: "btn btn--danger",
-                      onClick: () => {
-                        const st = useGraphStore.getState();
-                        st.setDeleteDomainTarget({ domainId: schema2.domainId });
-                        st.setDomainSchemaOpen(false);
-                      },
-                      title: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0434\u043E\u043C\u0435\u043D",
-                      children: [
-                        /* @__PURE__ */ jsx70(MIcon, { name: "delete", size: "sm" }),
-                        "\u0423\u0434\u0430\u043B\u0438\u0442\u044C"
-                      ]
-                    }
-                  )
-                ] }),
-                /* @__PURE__ */ jsxs67("div", { className: "domain-schema-search", children: [
-                  /* @__PURE__ */ jsxs67("div", { className: "domain-schema-search__input-wrap", children: [
+                    },
+                    key
+                  );
+                }) })
+              ] }),
+              tocCollapsed && /* @__PURE__ */ jsxs67(
+                "button",
+                {
+                  className: "domain-schema-toc-expand",
+                  onClick: () => setTocCollapsed(false),
+                  title: "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u043E\u0433\u043B\u0430\u0432\u043B\u0435\u043D\u0438\u0435",
+                  children: [
+                    /* @__PURE__ */ jsx70(MIcon, { name: "chevron_right", size: "sm" }),
+                    /* @__PURE__ */ jsx70("span", { children: "\u0421\u0435\u043A\u0446\u0438\u0438" })
+                  ]
+                }
+              ),
+              /* @__PURE__ */ jsxs67("div", { className: "domain-schema-main", children: [
+                /* @__PURE__ */ jsxs67("div", { className: "domain-schema-toolbar-v2", children: [
+                  /* @__PURE__ */ jsxs67("div", { className: "domain-schema-search-v2", children: [
                     /* @__PURE__ */ jsx70(MIcon, { name: "search", size: "sm" }),
                     /* @__PURE__ */ jsx70(
                       "input",
                       {
+                        ref: searchInputRef,
                         type: "text",
-                        className: "domain-schema-search__input",
-                        placeholder: "\u041F\u043E\u0438\u0441\u043A \u043F\u043E id, name, \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u044F\u043C Enum, \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430\u043C...",
+                        placeholder: "\u041F\u043E\u0438\u0441\u043A \u043F\u043E id, name, \u0437\u043D\u0430\u0447\u0435\u043D\u0438\u044F\u043C Enum, \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0430\u043C... (Ctrl+F)",
                         value: query,
                         onChange: (e) => setQuery(e.target.value),
                         spellCheck: false
@@ -25433,104 +27478,218 @@ function DomainSchemaModal() {
                     query && /* @__PURE__ */ jsx70(
                       "button",
                       {
-                        className: "domain-schema-search__clear",
+                        className: "domain-schema-search-v2__clear",
                         onClick: () => setQuery(""),
                         title: "\u041E\u0447\u0438\u0441\u0442\u0438\u0442\u044C",
                         children: "\u2715"
                       }
                     )
                   ] }),
-                  /* @__PURE__ */ jsxs67("label", { className: "domain-schema-search__toggle", children: [
-                    /* @__PURE__ */ jsx70(
-                      "input",
-                      {
-                        type: "checkbox",
-                        checked: onlyProblematic,
-                        onChange: (e) => setOnlyProblematic(e.target.checked)
-                      }
-                    ),
-                    /* @__PURE__ */ jsx70("span", { children: "\u0422\u043E\u043B\u044C\u043A\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0435" })
-                  ] })
-                ] })
-              ] }),
-              noResults && /* @__PURE__ */ jsx70("div", { className: "domain-schema-no-results", children: onlyProblematic && !query.trim() ? "\u0412 \u044D\u0442\u043E\u043C \u0434\u043E\u043C\u0435\u043D\u0435 \u043D\u0435\u0442 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0445 \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u043E\u0432" : "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0442\u0435\u043A\u0443\u0449\u0435\u043C\u0443 \u0444\u0438\u043B\u044C\u0442\u0440\u0443" }),
-              /* @__PURE__ */ jsx70("div", { className: "domain-schema-sections", children: Object.keys(SECTION_LABELS).map((key) => {
-                const section = schema2.sections[key];
-                const meta = SECTION_LABELS[key];
-                const filteredItems = showFiltered ? filteredSections[key] || [] : section.items;
-                const displayCount = showFiltered ? filteredItems.length : section.count;
-                const isOpen = hasFilter ? displayCount > 0 : expanded.has(key);
-                const sectionIssues = key === "entities" ? domainIssues.filter((i) => i.entityFqid).length : 0;
-                return /* @__PURE__ */ jsxs67(
-                  "div",
-                  {
-                    className: "domain-schema-section" + (isOpen ? " open" : ""),
-                    children: [
+                  /* @__PURE__ */ jsxs67("div", { className: "domain-schema-toolbar-v2__row", children: [
+                    /* @__PURE__ */ jsxs67("label", { className: "domain-schema-search__toggle", children: [
+                      /* @__PURE__ */ jsx70(
+                        "input",
+                        {
+                          type: "checkbox",
+                          checked: onlyProblematic,
+                          onChange: (e) => setOnlyProblematic(e.target.checked)
+                        }
+                      ),
+                      /* @__PURE__ */ jsx70("span", { children: "\u0422\u043E\u043B\u044C\u043A\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0435" })
+                    ] }),
+                    /* @__PURE__ */ jsxs67("label", { className: "domain-schema-toolbar-v2__field", children: [
+                      /* @__PURE__ */ jsx70("span", { children: "\u0421\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430:" }),
+                      /* @__PURE__ */ jsxs67(
+                        "select",
+                        {
+                          value: sortBy,
+                          onChange: (e) => setSortBy(e.target.value),
+                          children: [
+                            /* @__PURE__ */ jsx70("option", { value: "default", children: "\u041F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E" }),
+                            /* @__PURE__ */ jsx70("option", { value: "name", children: "\u041F\u043E \u0438\u043C\u0435\u043D\u0438" }),
+                            /* @__PURE__ */ jsx70("option", { value: "issues", children: "\u0421\u043D\u0430\u0447\u0430\u043B\u0430 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0435" }),
+                            /* @__PURE__ */ jsx70("option", { value: "count", children: "\u041F\u043E \u0440\u0430\u0437\u043C\u0435\u0440\u0443" })
+                          ]
+                        }
+                      )
+                    ] }),
+                    /* @__PURE__ */ jsxs67("div", { className: "domain-schema-toolbar-v2__btn-group", children: [
                       /* @__PURE__ */ jsxs67(
                         "button",
                         {
-                          className: "domain-schema-section__head",
-                          onClick: () => toggle(key),
-                          disabled: hasFilter && displayCount === 0,
+                          className: "btn btn--small",
+                          onClick: expandAll,
+                          title: "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0435 \u0441\u0435\u043A\u0446\u0438\u0438",
                           children: [
-                            /* @__PURE__ */ jsx70(
-                              MIcon,
-                              {
-                                name: isOpen ? "expand_more" : "chevron_right",
-                                size: "sm"
-                              }
-                            ),
-                            /* @__PURE__ */ jsx70(MIcon, { name: meta.icon, size: "sm" }),
-                            /* @__PURE__ */ jsx70("span", { className: "domain-schema-section__title", children: meta.label }),
-                            /* @__PURE__ */ jsxs67(
-                              "span",
-                              {
-                                className: "domain-schema-section__count" + (displayCount === 0 ? " zero" : ""),
-                                children: [
-                                  displayCount,
-                                  showFiltered && displayCount !== section.count && /* @__PURE__ */ jsxs67("span", { className: "domain-schema-section__count-total", children: [
-                                    "/",
-                                    section.count
-                                  ] })
-                                ]
-                              }
-                            ),
-                            sectionIssues > 0 && key === "entities" && /* @__PURE__ */ jsxs67("span", { className: "domain-schema-section__issues", children: [
-                              /* @__PURE__ */ jsx70(MIcon, { name: "warning", size: "sm" }),
-                              sectionIssues
-                            ] })
+                            /* @__PURE__ */ jsx70(MIcon, { name: "unfold_more", size: "sm" }),
+                            "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C"
                           ]
                         }
                       ),
-                      isOpen && filteredItems.length > 0 && /* @__PURE__ */ jsx70("div", { className: "domain-schema-section__body", children: /* @__PURE__ */ jsx70(
-                        SectionItems,
+                      /* @__PURE__ */ jsxs67(
+                        "button",
                         {
-                          sectionKey: key,
-                          items: filteredItems,
-                          index,
-                          domainId,
-                          expandedItems,
-                          onToggleItem: toggleItem,
-                          issuesByEntity,
-                          issuesByAttribute,
-                          onOpenEntity: openEntity,
-                          onlyProblematic
+                          className: "btn btn--small",
+                          onClick: collapseAll,
+                          title: "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0435 \u0441\u0435\u043A\u0446\u0438\u0438",
+                          children: [
+                            /* @__PURE__ */ jsx70(MIcon, { name: "unfold_less", size: "sm" }),
+                            "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C"
+                          ]
                         }
-                      ) }),
-                      isOpen && filteredItems.length === 0 && /* @__PURE__ */ jsx70("div", { className: "domain-schema-section__body domain-schema-section__body--empty", children: hasFilter ? "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0444\u0438\u043B\u044C\u0442\u0440\u0443" : "\u041F\u0443\u0441\u0442\u043E" })
-                    ]
-                  },
-                  key
-                );
-              }) }),
-              (schema2.flags.hasExchangeSettings || schema2.flags.hasCounterColorPattern) && /* @__PURE__ */ jsxs67("div", { className: "domain-schema-flags", children: [
-                schema2.flags.hasExchangeSettings && /* @__PURE__ */ jsxs67("span", { className: "domain-schema-flag", children: [
-                  /* @__PURE__ */ jsx70(MIcon, { name: "swap_horiz", size: "sm" }),
-                  " \u041D\u0430\u0441\u0442\u0440\u043E\u0435\u043D \u043E\u0431\u043C\u0435\u043D \u0434\u0430\u043D\u043D\u044B\u043C\u0438"
+                      )
+                    ] }),
+                    hasFilter && /* @__PURE__ */ jsxs67(
+                      "button",
+                      {
+                        className: "btn btn--small",
+                        onClick: resetFilters,
+                        title: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0444\u0438\u043B\u044C\u0442\u0440\u044B",
+                        children: [
+                          /* @__PURE__ */ jsx70(MIcon, { name: "filter_alt_off", size: "sm" }),
+                          "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C"
+                        ]
+                      }
+                    ),
+                    sectionFilter.size > 0 && /* @__PURE__ */ jsxs67("span", { className: "domain-schema-toolbar-v2__section-hint", children: [
+                      "\u0421\u0435\u043A\u0446\u0438\u0439: ",
+                      sectionFilter.size
+                    ] }),
+                    showFiltered && /* @__PURE__ */ jsxs67("span", { className: "domain-schema-toolbar-v2__count", children: [
+                      "\u041D\u0430\u0439\u0434\u0435\u043D\u043E: ",
+                      /* @__PURE__ */ jsx70("strong", { children: totalFiltered })
+                    ] })
+                  ] })
                 ] }),
-                schema2.flags.hasCounterColorPattern && /* @__PURE__ */ jsxs67("span", { className: "domain-schema-flag", children: [
-                  /* @__PURE__ */ jsx70(MIcon, { name: "palette", size: "sm" }),
-                  " \u0415\u0441\u0442\u044C \u0446\u0432\u0435\u0442\u043E\u0432\u044B\u0435 \u0441\u0445\u0435\u043C\u044B \u0441\u0447\u0451\u0442\u0447\u0438\u043A\u043E\u0432"
+                /* @__PURE__ */ jsx70(
+                  DomainSchemaActions,
+                  {
+                    schema: schema2,
+                    index,
+                    nodes,
+                    enrichMenuOpen,
+                    setEnrichMenuOpen,
+                    onOpenYaml: openYamlForDomain,
+                    onCloseModal: () => useGraphStore.getState().setDomainSchemaOpen(false)
+                  }
+                ),
+                noResults && /* @__PURE__ */ jsx70("div", { className: "domain-schema-no-results", children: onlyProblematic && !query.trim() && sectionFilter.size === 0 ? "\u0412 \u044D\u0442\u043E\u043C \u0434\u043E\u043C\u0435\u043D\u0435 \u043D\u0435\u0442 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u043D\u044B\u0445 \u044D\u043B\u0435\u043C\u0435\u043D\u0442\u043E\u0432" : "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0442\u0435\u043A\u0443\u0449\u0435\u043C\u0443 \u0444\u0438\u043B\u044C\u0442\u0440\u0443" }),
+                /* @__PURE__ */ jsx70("div", { className: "domain-schema-sections", children: SECTION_ORDER.map((key) => {
+                  const section = schema2.sections[key];
+                  const meta = SECTION_LABELS[key];
+                  if (!section)
+                    return null;
+                  const filteredItems = showFiltered ? filteredSections[key] || [] : section.items;
+                  const displayCount = showFiltered ? filteredItems.length : section.count;
+                  if (hasFilter && displayCount === 0)
+                    return null;
+                  if (!hasFilter && section.count === 0)
+                    return null;
+                  const isOpen = hasFilter ? displayCount > 0 : expanded.has(key);
+                  const sectionIssuesList = issuesBySection.get(key) || [];
+                  const sectionIssuesCount = sectionIssuesList.length;
+                  const extra = getSectionExtraInfo(
+                    key,
+                    domainId,
+                    index
+                  );
+                  return /* @__PURE__ */ jsxs67(
+                    "div",
+                    {
+                      id: `ds-section-${key}`,
+                      className: "domain-schema-section" + (isOpen ? " open" : ""),
+                      children: [
+                        /* @__PURE__ */ jsxs67(
+                          "button",
+                          {
+                            className: "domain-schema-section__head",
+                            onClick: () => toggleSection(key),
+                            disabled: hasFilter && displayCount === 0,
+                            children: [
+                              /* @__PURE__ */ jsx70(
+                                MIcon,
+                                {
+                                  name: isOpen ? "expand_more" : "chevron_right",
+                                  size: "sm"
+                                }
+                              ),
+                              /* @__PURE__ */ jsx70(MIcon, { name: meta.icon, size: "sm" }),
+                              /* @__PURE__ */ jsx70("span", { className: "domain-schema-section__title", children: meta.label }),
+                              /* @__PURE__ */ jsxs67(
+                                "span",
+                                {
+                                  className: "domain-schema-section__count" + (displayCount === 0 ? " zero" : ""),
+                                  children: [
+                                    displayCount,
+                                    showFiltered && displayCount !== section.count && /* @__PURE__ */ jsxs67("span", { className: "domain-schema-section__count-total", children: [
+                                      "/",
+                                      section.count
+                                    ] })
+                                  ]
+                                }
+                              ),
+                              extra && /* @__PURE__ */ jsx70("span", { className: "domain-schema-section__extra", children: extra }),
+                              sectionIssuesCount > 0 && /* @__PURE__ */ jsxs67(
+                                "button",
+                                {
+                                  type: "button",
+                                  className: "domain-schema-section__issues",
+                                  onClick: (e) => {
+                                    e.stopPropagation();
+                                    useGraphStore.getState().setLintOpen(true);
+                                  },
+                                  title: `${sectionIssuesCount} \u043F\u0440\u043E\u0431\u043B\u0435\u043C \u0432 \u044D\u0442\u043E\u0439 \u0441\u0435\u043A\u0446\u0438\u0438 \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u043B\u0438\u043D\u0442\u0435\u0440`,
+                                  children: [
+                                    /* @__PURE__ */ jsx70(MIcon, { name: "warning", size: "sm" }),
+                                    sectionIssuesCount
+                                  ]
+                                }
+                              ),
+                              /* @__PURE__ */ jsx70("span", { className: "domain-schema-section__filter-toggle", children: /* @__PURE__ */ jsx70(
+                                "input",
+                                {
+                                  type: "checkbox",
+                                  checked: sectionFilter.has(key),
+                                  onClick: (e) => e.stopPropagation(),
+                                  onChange: () => toggleSectionFilter(key),
+                                  title: "\u0424\u0438\u043B\u044C\u0442\u0440\u043E\u0432\u0430\u0442\u044C \u043F\u043E \u044D\u0442\u043E\u0439 \u0441\u0435\u043A\u0446\u0438\u0438"
+                                }
+                              ) })
+                            ]
+                          }
+                        ),
+                        isOpen && filteredItems.length > 0 && /* @__PURE__ */ jsx70("div", { className: "domain-schema-section__body", children: /* @__PURE__ */ jsx70(
+                          SectionItems,
+                          {
+                            sectionKey: key,
+                            items: filteredItems,
+                            index,
+                            domainId,
+                            expandedItems,
+                            onToggleItem: toggleItem,
+                            issuesByEntity,
+                            issuesByAttribute,
+                            itemIssues: sectionItemIssues.get(key) || /* @__PURE__ */ new Map(),
+                            onOpenEntity: openEntity,
+                            onlyProblematic,
+                            filePath: currentNode?.data.filePath || null
+                          }
+                        ) }),
+                        isOpen && filteredItems.length === 0 && /* @__PURE__ */ jsx70("div", { className: "domain-schema-section__body domain-schema-section__body--empty", children: hasFilter ? "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0444\u0438\u043B\u044C\u0442\u0440\u0443" : "\u041F\u0443\u0441\u0442\u043E" })
+                      ]
+                    },
+                    key
+                  );
+                }) }),
+                (schema2.flags.hasExchangeSettings || schema2.flags.hasCounterColorPattern) && /* @__PURE__ */ jsxs67("div", { className: "domain-schema-flags", children: [
+                  schema2.flags.hasExchangeSettings && /* @__PURE__ */ jsxs67("span", { className: "domain-schema-flag", children: [
+                    /* @__PURE__ */ jsx70(MIcon, { name: "swap_horiz", size: "sm" }),
+                    " \u041D\u0430\u0441\u0442\u0440\u043E\u0435\u043D \u043E\u0431\u043C\u0435\u043D \u0434\u0430\u043D\u043D\u044B\u043C\u0438"
+                  ] }),
+                  schema2.flags.hasCounterColorPattern && /* @__PURE__ */ jsxs67("span", { className: "domain-schema-flag", children: [
+                    /* @__PURE__ */ jsx70(MIcon, { name: "palette", size: "sm" }),
+                    " \u0415\u0441\u0442\u044C \u0446\u0432\u0435\u0442\u043E\u0432\u044B\u0435 \u0441\u0445\u0435\u043C\u044B \u0441\u0447\u0451\u0442\u0447\u0438\u043A\u043E\u0432"
+                  ] })
                 ] })
               ] })
             ] })
@@ -25540,7 +27699,467 @@ function DomainSchemaModal() {
     }
   );
 }
-var DOMAIN_PROFILES;
+function DomainSchemaHeader({
+  schema: schema2,
+  currentNode,
+  metrics,
+  isRefreshing,
+  statusToggling,
+  onToggleStatus,
+  onDraftClick,
+  onOpenYaml,
+  onClose
+}) {
+  const bookmarks = useGraphStore((s) => s.bookmarks);
+  return /* @__PURE__ */ jsxs67("div", { className: "help-modal__header domain-schema-header-v2", children: [
+    /* @__PURE__ */ jsxs67("div", { className: "domain-schema-header-v2__title-row", children: [
+      /* @__PURE__ */ jsxs67("div", { className: "help-modal__title", children: [
+        /* @__PURE__ */ jsx70(MIcon, { name: "menu_book", size: "sm" }),
+        /* @__PURE__ */ jsx70("span", { className: "icon-label", children: "\u0421\u0445\u0435\u043C\u0430 \u0434\u043E\u043C\u0435\u043D\u0430" }),
+        schema2 && /* @__PURE__ */ jsx70("span", { className: "help-modal__badge", children: schema2.metadata.id }),
+        schema2?.metadata.version && /* @__PURE__ */ jsxs67("span", { className: "help-modal__badge", children: [
+          "v",
+          schema2.metadata.version
+        ] }),
+        isRefreshing && /* @__PURE__ */ jsxs67(
+          "span",
+          {
+            className: "help-modal__badge help-modal__badge--loading",
+            title: "\u041E\u0431\u043D\u043E\u0432\u043B\u044F\u0435\u043C \u0438\u043D\u0434\u0435\u043A\u0441\u2026",
+            style: { display: "inline-flex", alignItems: "center", gap: 4 },
+            children: [
+              /* @__PURE__ */ jsx70(MIcon, { name: "hourglass_top", size: "sm" }),
+              /* @__PURE__ */ jsx70("span", { children: "\u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u0435\u2026" })
+            ]
+          }
+        ),
+        currentNode?.data.hasDraft && /* @__PURE__ */ jsxs67(
+          "button",
+          {
+            type: "button",
+            className: "domain-schema-badge domain-schema-badge--draft",
+            onClick: onDraftClick,
+            title: "\u0415\u0441\u0442\u044C \u043D\u0435\u043E\u043F\u0443\u0431\u043B\u0438\u043A\u043E\u0432\u0430\u043D\u043D\u044B\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F. \u041A\u043B\u0438\u043A \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440",
+            children: [
+              /* @__PURE__ */ jsx70(MIcon, { name: "edit_note", size: "sm" }),
+              /* @__PURE__ */ jsx70("span", { children: "\u0427\u0435\u0440\u043D\u043E\u0432\u0438\u043A" })
+            ]
+          }
+        ),
+        currentNode?.data.status && /* @__PURE__ */ jsxs67(Fragment21, { children: [
+          /* @__PURE__ */ jsx70("span", { style: { width: "8px" } }),
+          /* @__PURE__ */ jsxs67(
+            "button",
+            {
+              type: "button",
+              className: "domain-schema-badge " + (currentNode.data.status === "DISABLED" ? "domain-schema-badge--disabled" : "domain-schema-badge--enabled"),
+              onClick: onToggleStatus,
+              disabled: statusToggling,
+              title: currentNode.data.status === "DISABLED" ? "\u041A\u043B\u0438\u043A \u2014 \u0432\u043A\u043B\u044E\u0447\u0438\u0442\u044C" : "\u041A\u043B\u0438\u043A \u2014 \u0432\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C",
+              children: [
+                /* @__PURE__ */ jsx70(
+                  MIcon,
+                  {
+                    name: currentNode.data.status === "DISABLED" ? "pause_circle" : "play_circle",
+                    size: "sm"
+                  }
+                ),
+                /* @__PURE__ */ jsx70("span", { children: currentNode.data.status === "DISABLED" ? "\u0412\u042B\u041A\u041B\u042E\u0427\u0415\u041D\u041E" : "\u0412\u041A\u041B\u042E\u0427\u0415\u041D\u041E" })
+              ]
+            }
+          )
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxs67("div", { className: "elp-modal__actions domain-schema-header-v2__actions", children: [
+        schema2 && /* @__PURE__ */ jsx70(
+          "button",
+          {
+            className: "help-modal__icon-btn" + (bookmarks.has(`domain_${schema2.domainId}`) ? " active" : ""),
+            onClick: () => {
+              useGraphStore.getState().toggleBookmark(`domain_${schema2.domainId}`);
+            },
+            title: bookmarks.has(`domain_${schema2.domainId}`) ? "\u0423\u0431\u0440\u0430\u0442\u044C \u0438\u0437 \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u043E\u0433\u043E" : "\u0412 \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u043E\u0435",
+            children: /* @__PURE__ */ jsx70(
+              MIcon,
+              {
+                name: bookmarks.has(`domain_${schema2.domainId}`) ? "star" : "star_border",
+                fill: bookmarks.has(`domain_${schema2.domainId}`)
+              }
+            )
+          }
+        ),
+        /* @__PURE__ */ jsx70(
+          "button",
+          {
+            className: "help-modal__icon-btn",
+            onClick: onOpenYaml,
+            title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0444\u0430\u0439\u043B \u0432 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0435",
+            children: /* @__PURE__ */ jsx70(MIcon, { name: "description" })
+          }
+        ),
+        /* @__PURE__ */ jsx70("button", { className: "help-modal__close", onClick: onClose, children: "\u2715" })
+      ] })
+    ] }),
+    schema2?.metadata.description && /* @__PURE__ */ jsx70("div", { className: "domain-schema-header-v2__desc", children: schema2.metadata.description }),
+    metrics && /* @__PURE__ */ jsxs67("div", { className: "domain-schema-header-v2__metrics", children: [
+      /* @__PURE__ */ jsxs67("span", { className: "domain-schema-metric domain-schema-metric--info", children: [
+        /* @__PURE__ */ jsx70("strong", { children: metrics.entityCount }),
+        " \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439"
+      ] }),
+      /* @__PURE__ */ jsxs67("span", { className: "domain-schema-metric domain-schema-metric--info", children: [
+        /* @__PURE__ */ jsx70("strong", { children: metrics.attributeCount }),
+        " \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432"
+      ] }),
+      /* @__PURE__ */ jsxs67("span", { className: "domain-schema-metric domain-schema-metric--info", children: [
+        /* @__PURE__ */ jsx70("strong", { children: metrics.linkageCount }),
+        " \u0441\u0432\u044F\u0437\u0435\u0439"
+      ] }),
+      /* @__PURE__ */ jsxs67("span", { className: "domain-schema-metric domain-schema-metric--info", children: [
+        /* @__PURE__ */ jsx70("strong", { children: metrics.viewCount }),
+        " views"
+      ] }),
+      metrics.sonar && /* @__PURE__ */ jsxs67(
+        "button",
+        {
+          type: "button",
+          className: "domain-schema-metric domain-schema-metric--sonar domain-schema-metric--" + metrics.sonar.grade.toLowerCase(),
+          onClick: () => {
+            const st = useGraphStore.getState();
+            st.setDomainSchemaOpen(false);
+            st.setLintOpen(true);
+          },
+          title: `Sonar-\u043E\u0446\u0435\u043D\u043A\u0430: ${metrics.sonar.score}/100 \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u043B\u0438\u043D\u0442\u0435\u0440`,
+          children: [
+            /* @__PURE__ */ jsx70(MIcon, { name: "science", size: "sm" }),
+            /* @__PURE__ */ jsx70("strong", { children: metrics.sonar.score }),
+            /* @__PURE__ */ jsx70("span", { style: { fontSize: 10 }, children: metrics.sonar.grade })
+          ]
+        }
+      ),
+      metrics.issues.total > 0 && /* @__PURE__ */ jsxs67(
+        "button",
+        {
+          type: "button",
+          className: "domain-schema-metric domain-schema-metric--" + (metrics.issues.error > 0 ? "error" : "warning"),
+          onClick: () => {
+            const st = useGraphStore.getState();
+            st.setDomainSchemaOpen(false);
+            st.setLintOpen(true);
+          },
+          title: `${metrics.issues.total} \u043F\u0440\u043E\u0431\u043B\u0435\u043C \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u043B\u0438\u043D\u0442\u0435\u0440`,
+          children: [
+            /* @__PURE__ */ jsx70(MIcon, { name: "warning", size: "sm" }),
+            /* @__PURE__ */ jsx70("strong", { children: metrics.issues.total }),
+            /* @__PURE__ */ jsxs67("span", { style: { fontSize: 10 }, children: [
+              metrics.issues.error > 0 && `${metrics.issues.error}e `,
+              metrics.issues.warning > 0 && `${metrics.issues.warning}w`
+            ] })
+          ]
+        }
+      ),
+      metrics.pii.total > 0 && /* @__PURE__ */ jsxs67(
+        "button",
+        {
+          type: "button",
+          className: "domain-schema-metric domain-schema-metric--" + (metrics.pii.critical > 0 ? "error" : "warning"),
+          onClick: () => {
+            const st = useGraphStore.getState();
+            st.setDomainSchemaOpen(false);
+            st.setPiiInitialDomain(schema2.domainId);
+            st.setPiiInitialSeverity(null);
+            st.setPiiOpen(true);
+          },
+          title: `PII: ${metrics.pii.total} (critical: ${metrics.pii.critical}) \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u044B`,
+          children: [
+            /* @__PURE__ */ jsx70(MIcon, { name: "shield_lock", size: "sm" }),
+            /* @__PURE__ */ jsx70("strong", { children: metrics.pii.total }),
+            metrics.pii.critical > 0 && /* @__PURE__ */ jsxs67("span", { style: { fontSize: 10 }, children: [
+              metrics.pii.critical,
+              "c"
+            ] })
+          ]
+        }
+      ),
+      metrics.orphans.entities > 0 && /* @__PURE__ */ jsxs67(
+        "span",
+        {
+          className: "domain-schema-metric domain-schema-metric--warning",
+          title: `\u0421\u0443\u0449\u043D\u043E\u0441\u0442\u0438-\u0441\u0438\u0440\u043E\u0442\u044B: ${metrics.orphans.entities}`,
+          children: [
+            /* @__PURE__ */ jsx70(MIcon, { name: "link_off", size: "sm" }),
+            /* @__PURE__ */ jsx70("strong", { children: metrics.orphans.entities })
+          ]
+        }
+      )
+    ] }),
+    schema2 && (schema2.metadata.author || schema2.metadata.tags.length > 0) && /* @__PURE__ */ jsxs67("div", { className: "domain-schema-header-v2__meta", children: [
+      schema2.metadata.author && /* @__PURE__ */ jsxs67("span", { children: [
+        /* @__PURE__ */ jsx70(MIcon, { name: "person", size: "sm" }),
+        schema2.metadata.author
+      ] }),
+      schema2.metadata.tags.length > 0 && /* @__PURE__ */ jsx70("span", { className: "domain-schema-header__tags", children: schema2.metadata.tags.map((t) => /* @__PURE__ */ jsx70("span", { className: "tag", children: t }, t)) })
+    ] })
+  ] });
+}
+function DomainSchemaActions({
+  schema: schema2,
+  index,
+  nodes,
+  enrichMenuOpen,
+  setEnrichMenuOpen,
+  onOpenYaml,
+  onCloseModal
+}) {
+  const { goto } = useNavigation();
+  return /* @__PURE__ */ jsxs67("div", { className: "domain-schema-actions-v2", children: [
+    /* @__PURE__ */ jsxs67(
+      "button",
+      {
+        className: "btn btn--small",
+        onClick: () => {
+          const st = useGraphStore.getState();
+          st.setGenerateBatchDomainId(schema2.domainId);
+          st.setGenerateBatchOpen(true);
+          st.setDomainSchemaOpen(false);
+        },
+        title: "\u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0442\u0438\u043F\u043E\u0432\u044B\u0435 \u0431\u043B\u043E\u043A\u0438 \u0434\u043B\u044F \u043D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u0438\u0445 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0435\u0439 \u0440\u0430\u0437\u043E\u043C",
+        children: [
+          /* @__PURE__ */ jsx70(MIcon, { name: "auto_awesome", size: "sm" }),
+          "\u0413\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u044F"
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsxs67("div", { style: { position: "relative" }, children: [
+      /* @__PURE__ */ jsxs67(
+        "button",
+        {
+          className: "btn btn--small",
+          onClick: () => setEnrichMenuOpen(!enrichMenuOpen),
+          title: "\u041E\u0431\u043E\u0433\u0430\u0442\u0438\u0442\u044C \u0434\u043E\u043C\u0435\u043D: \u043C\u0435\u043D\u044E, Enum, \u0446\u0432\u0435\u0442\u0430, \u043E\u0431\u043C\u0435\u043D, \u0441\u0447\u0451\u0442\u0447\u0438\u043A\u0438",
+          children: [
+            /* @__PURE__ */ jsx70(MIcon, { name: "auto_fix_high", size: "sm" }),
+            "\u041E\u0431\u043E\u0433\u0430\u0442\u0438\u0442\u044C",
+            /* @__PURE__ */ jsx70(MIcon, { name: "expand_more", size: "sm" })
+          ]
+        }
+      ),
+      enrichMenuOpen && /* @__PURE__ */ jsxs67(Fragment21, { children: [
+        /* @__PURE__ */ jsx70(
+          "div",
+          {
+            onClick: () => setEnrichMenuOpen(false),
+            style: { position: "fixed", inset: 0, zIndex: 10 }
+          }
+        ),
+        /* @__PURE__ */ jsx70(
+          "div",
+          {
+            className: "menu",
+            style: {
+              position: "absolute",
+              top: "calc(100% + 4px)",
+              left: 0,
+              zIndex: 11,
+              minWidth: 260,
+              background: "var(--bg-800)",
+              border: "1px solid var(--border-hover)",
+              borderRadius: 8,
+              boxShadow: "0 12px 32px rgba(0,0,0,0.4)",
+              padding: 4
+            },
+            children: DOMAIN_PROFILES.map((p) => /* @__PURE__ */ jsxs67(
+              "button",
+              {
+                className: "menu__item",
+                onClick: () => {
+                  const st = useGraphStore.getState();
+                  st.setGenerateSchemaDomainId(schema2.domainId);
+                  st.setGenerateSchemaEntityId(null);
+                  st.setGenerateSchemaOpen(true);
+                  st.setDomainSchemaOpen(false);
+                  setEnrichMenuOpen(false);
+                  st.setGenerateSchemaPrefillProfile?.(p.id);
+                },
+                title: p.when,
+                children: [
+                  /* @__PURE__ */ jsx70("span", { className: "menu__icon", children: /* @__PURE__ */ jsx70(MIcon, { name: "auto_awesome", size: "sm" }) }),
+                  /* @__PURE__ */ jsx70("span", { className: "menu__text", children: p.label })
+                ]
+              },
+              p.id
+            ))
+          }
+        )
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxs67(
+      "button",
+      {
+        className: "btn btn--small",
+        onClick: () => {
+          const st = useGraphStore.getState();
+          st.setViewGraphPrefillDomain(schema2.domainId);
+          st.setViewGraphOpen(true);
+          st.setDomainSchemaOpen(false);
+        },
+        title: "\u0413\u0440\u0430\u0444 \u0437\u0430\u0432\u0438\u0441\u0438\u043C\u043E\u0441\u0442\u0435\u0439 views \u044D\u0442\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430",
+        children: [
+          /* @__PURE__ */ jsx70(MIcon, { name: "schema", size: "sm" }),
+          "\u0413\u0440\u0430\u0444 views"
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsxs67(
+      "button",
+      {
+        className: "btn btn--small",
+        onClick: () => {
+          const st = useGraphStore.getState();
+          st.setDomainSchemaOpen(false);
+          if (st.viewMode !== "graph") {
+            st.setViewMode("graph");
+          }
+          const tryGoto = (attempt) => {
+            if (attempt > 20) {
+              goto(schema2.domainId);
+              return;
+            }
+            const cur = useGraphStore.getState();
+            if (cur.rfInstance) {
+              goto(schema2.domainId);
+              return;
+            }
+            setTimeout(() => tryGoto(attempt + 1), 50);
+          };
+          tryGoto(0);
+        },
+        title: "\u041A \u0434\u043E\u043C\u0435\u043D\u0443 \u043D\u0430 \u0433\u0440\u0430\u0444\u0435",
+        children: [
+          /* @__PURE__ */ jsx70(MIcon, { name: "my_location", size: "sm" }),
+          "\u041A \u0433\u0440\u0430\u0444\u0443"
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsxs67("button", { className: "btn btn--small", onClick: onOpenYaml, children: [
+      /* @__PURE__ */ jsx70(MIcon, { name: "description", size: "sm" }),
+      "YAML"
+    ] }),
+    /* @__PURE__ */ jsx70(
+      Popover,
+      {
+        width: 240,
+        align: "left",
+        trigger: (isPopOpen) => /* @__PURE__ */ jsxs67(
+          "button",
+          {
+            className: "btn btn--small" + (isPopOpen ? " btn--active" : ""),
+            children: [
+              /* @__PURE__ */ jsx70(MIcon, { name: "download", size: "sm" }),
+              "\u042D\u043A\u0441\u043F\u043E\u0440\u0442"
+            ]
+          }
+        ),
+        children: (close) => /* @__PURE__ */ jsxs67("div", { className: "menu", children: [
+          /* @__PURE__ */ jsxs67(
+            "button",
+            {
+              className: "menu__item",
+              onClick: () => {
+                const md = generateDomainMarkdown(schema2, index);
+                downloadDomainMarkdown(schema2.domainId, md);
+                close();
+              },
+              children: [
+                /* @__PURE__ */ jsx70("span", { className: "menu__icon", children: /* @__PURE__ */ jsx70(MIcon, { name: "description", size: "sm" }) }),
+                /* @__PURE__ */ jsx70("span", { className: "menu__text", children: "Markdown (.md)" })
+              ]
+            }
+          ),
+          /* @__PURE__ */ jsxs67(
+            "button",
+            {
+              className: "menu__item",
+              onClick: () => {
+                exportDomainSchemaJSON(schema2, index);
+                close();
+              },
+              children: [
+                /* @__PURE__ */ jsx70("span", { className: "menu__icon", children: /* @__PURE__ */ jsx70(MIcon, { name: "data_object", size: "sm" }) }),
+                /* @__PURE__ */ jsx70("span", { className: "menu__text", children: "JSON (.json)" })
+              ]
+            }
+          ),
+          /* @__PURE__ */ jsxs67(
+            "button",
+            {
+              className: "menu__item",
+              onClick: () => {
+                exportDomainSchemaCSV(schema2, "all");
+                close();
+              },
+              children: [
+                /* @__PURE__ */ jsx70("span", { className: "menu__icon", children: /* @__PURE__ */ jsx70(MIcon, { name: "table_view", size: "sm" }) }),
+                /* @__PURE__ */ jsx70("span", { className: "menu__text", children: "CSV (.csv)" })
+              ]
+            }
+          )
+        ] })
+      }
+    ),
+    /* @__PURE__ */ jsxs67(
+      "button",
+      {
+        className: "btn btn--small",
+        onClick: () => {
+          const st = useGraphStore.getState();
+          st.setSidecarDomainId(schema2.domainId);
+          st.setSidecarOpen(true);
+          st.setDomainSchemaOpen(false);
+        },
+        title: "\u041F\u043E\u0441\u043C\u043E\u0442\u0440\u0435\u0442\u044C, \u0447\u0442\u043E \u0431\u044B\u043B\u043E \u0441\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043E \u0434\u043B\u044F \u044D\u0442\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430",
+        children: [
+          /* @__PURE__ */ jsx70(MIcon, { name: "database", size: "sm" }),
+          "\u041C\u0430\u043D\u0438\u0444\u0435\u0441\u0442"
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsxs67(
+      "button",
+      {
+        className: "btn btn--small",
+        onClick: () => {
+          const st = useGraphStore.getState();
+          st.setCheatsheetInitialSection("field-reference");
+          st.setCheatsheetOpen(true);
+          st.setDomainSchemaOpen(false);
+        },
+        title: "\u0421\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A \u0432\u0441\u0435\u0445 \u043F\u043E\u043B\u0435\u0439 YAML",
+        children: [
+          /* @__PURE__ */ jsx70(MIcon, { name: "menu_book", size: "sm" }),
+          "\u0428\u043F\u0430\u0440\u0433\u0430\u043B\u043A\u0430"
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsx70("div", { style: { flex: 1 } }),
+    /* @__PURE__ */ jsxs67(
+      "button",
+      {
+        className: "btn btn--small btn--danger",
+        onClick: () => {
+          const st = useGraphStore.getState();
+          st.setDeleteDomainTarget({ domainId: schema2.domainId });
+          st.setDomainSchemaOpen(false);
+        },
+        title: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0434\u043E\u043C\u0435\u043D",
+        children: [
+          /* @__PURE__ */ jsx70(MIcon, { name: "delete", size: "sm" }),
+          "\u0423\u0434\u0430\u043B\u0438\u0442\u044C"
+        ]
+      }
+    )
+  ] });
+}
+var DOMAIN_PROFILES, SECTION_ORDER;
 var init_DomainSchemaModal = __esm({
   "src/web/components/modals/DomainSchemaModal.tsx"() {
     "use strict";
@@ -25548,18 +28167,23 @@ var init_DomainSchemaModal = __esm({
     init_useModelIndex();
     init_useNavigation();
     init_MIcon();
+    init_Popover();
     init_open_file();
     init_domain_markdown();
+    init_schema_export();
     init_DomainSchemaSectionItems();
     init_DomainSchemaHelpers();
     init_consts();
     init_GenerateSchemaProfiles();
     DOMAIN_PROFILES = PROFILE_INFO.filter((p) => p.scope === "domain");
+    SECTION_ORDER = Object.keys(
+      SECTION_LABELS
+    );
   }
 });
 
 // src/web/hooks/useLintBaselines.ts
-import { useCallback as useCallback20, useEffect as useEffect37, useState as useState29 } from "react";
+import { useCallback as useCallback21, useEffect as useEffect37, useState as useState29 } from "react";
 function invalidateLintBaselinesCache() {
   cache3 = null;
 }
@@ -25596,7 +28220,7 @@ function useLintBaselines() {
       cancelled = true;
     };
   }, [modelVersion]);
-  const takeBaseline = useCallback20(async (domainId) => {
+  const takeBaseline = useCallback21(async (domainId) => {
     const res = await fetch(
       `/api/lint-baseline?domainId=${encodeURIComponent(domainId)}`,
       { method: "POST" }
@@ -25613,7 +28237,7 @@ function useLintBaselines() {
     invalidateLintBaselinesCache();
     return data.baseline;
   }, []);
-  const takeBaselinesBatch = useCallback20(async (domainIds) => {
+  const takeBaselinesBatch = useCallback21(async (domainIds) => {
     const updates = {};
     for (const domainId of domainIds) {
       try {
@@ -25637,7 +28261,7 @@ function useLintBaselines() {
     invalidateLintBaselinesCache();
     return updates;
   }, []);
-  const clearBaseline = useCallback20(async (domainId) => {
+  const clearBaseline = useCallback21(async (domainId) => {
     const res = await fetch(
       `/api/lint-baseline?domainId=${encodeURIComponent(domainId)}`,
       { method: "DELETE" }
@@ -25728,15 +28352,22 @@ var init_lint_baseline = __esm({
 });
 
 // src/web/components/modals/LintModal.tsx
-import { useCallback as useCallback21, useEffect as useEffect38, useMemo as useMemo40, useState as useState30 } from "react";
-import { Fragment as Fragment21, jsx as jsx71, jsxs as jsxs68 } from "react/jsx-runtime";
+import { useCallback as useCallback22, useEffect as useEffect38, useMemo as useMemo40, useState as useState30 } from "react";
+import { Fragment as Fragment22, jsx as jsx71, jsxs as jsxs68 } from "react/jsx-runtime";
 function LintModal() {
   const { index, loading, error } = useModelIndex();
   const [filterCategory, setFilterCategory] = useState30("");
   const [filterDomain, setFilterDomain] = useState30("");
-  const [expandedRules, setExpandedRules] = useState30(/* @__PURE__ */ new Set());
+  const [filterSeverity, setFilterSeverity] = useState30(
+    new Set(SEVERITY_ORDER)
+  );
+  const [query, setQuery] = useState30("");
+  const [sortBy, setSortBy] = useState30("severity");
+  const [groupBy, setGroupBy] = useState30("rule");
+  const [expandedGroups, setExpandedGroups] = useState30(/* @__PURE__ */ new Set());
   const [showHelp, setShowHelp] = useState30(false);
   const [onlyNew, setOnlyNew] = useState30(false);
+  const [groupLimit, setGroupLimit] = useState30(ISSUES_PER_GROUP_LIMIT);
   const {
     baselines,
     takeBaseline,
@@ -25758,12 +28389,272 @@ function LintModal() {
     if (!report)
       return result;
     for (const [domainId, baseline] of Object.entries(baselines)) {
-      const domainIssues = report.issues.filter((i) => i.domainId === domainId);
+      const domainIssues = report.issues.filter(
+        (i) => i.domainId === domainId
+      );
       const cmp = compareWithBaseline(domainIssues, baseline);
       result.set(domainId, new Set(cmp.newIssues.map(baselineKey)));
     }
     return result;
   }, [baselines, report]);
+  const domainBaselineInfo = useMemo40(() => {
+    const map2 = /* @__PURE__ */ new Map();
+    if (!report)
+      return map2;
+    for (const domainId of allDomains) {
+      const domainIssues = report.issues.filter(
+        (i) => i.domainId === domainId
+      );
+      const baseline = baselines[domainId];
+      if (!baseline) {
+        map2.set(domainId, {
+          total: domainIssues.length,
+          baselineTotal: 0,
+          newCount: 0,
+          fixedCount: 0
+        });
+      } else {
+        const cmp = compareWithBaseline(domainIssues, baseline);
+        map2.set(domainId, {
+          total: domainIssues.length,
+          baselineTotal: cmp.totalBaseline,
+          newCount: cmp.newIssues.length,
+          fixedCount: cmp.fixedIssues.length
+        });
+      }
+    }
+    return map2;
+  }, [report, allDomains, baselines]);
+  const isIssueNew = useCallback22(
+    (issue) => {
+      const keys = newIssueKeysByDomain.get(issue.domainId);
+      if (!keys)
+        return null;
+      return keys.has(baselineKey(issue));
+    },
+    [newIssueKeysByDomain]
+  );
+  const filteredIssues = useMemo40(() => {
+    if (!report)
+      return [];
+    const q = query.trim().toLowerCase();
+    return report.issues.filter((i) => {
+      if (filterCategory && i.category !== filterCategory)
+        return false;
+      if (filterDomain && i.domainId !== filterDomain)
+        return false;
+      if (!filterSeverity.has(i.severity))
+        return false;
+      if (onlyNew && isIssueNew(i) !== true)
+        return false;
+      if (q) {
+        const hay = [
+          i.ruleId,
+          i.rule,
+          i.message,
+          i.hint || "",
+          i.entityFqid || "",
+          i.attributeId || "",
+          i.domainId,
+          i.line != null ? String(i.line) : ""
+        ].join(" ").toLowerCase();
+        if (hay.indexOf(q) === -1)
+          return false;
+      }
+      return true;
+    });
+  }, [
+    report,
+    filterCategory,
+    filterDomain,
+    filterSeverity,
+    onlyNew,
+    query,
+    isIssueNew
+  ]);
+  const grouped = useMemo40(() => {
+    if (!filteredIssues.length)
+      return [];
+    const map2 = /* @__PURE__ */ new Map();
+    for (const i of filteredIssues) {
+      let key;
+      let title;
+      let subtitle;
+      if (groupBy === "rule") {
+        key = `rule:${i.ruleId}`;
+        title = i.rule;
+      } else if (groupBy === "entity") {
+        const entityId = i.entityFqid ? i.entityFqid.split("/")[1] : null;
+        key = `entity:${i.entityFqid || i.domainId}`;
+        title = entityId || `(\u0434\u043E\u043C\u0435\u043D) ${i.domainId}`;
+        subtitle = i.entityFqid ? i.entityFqid.split("/")[0] : i.domainId;
+      } else {
+        key = `cat:${i.category}`;
+        title = CATEGORY_LABELS2[i.category];
+      }
+      let g = map2.get(key);
+      if (!g) {
+        g = {
+          key,
+          title,
+          subtitle,
+          severity: i.severity,
+          category: i.category,
+          issues: []
+        };
+        map2.set(key, g);
+      }
+      if (i.severity === "error")
+        g.severity = "error";
+      else if (i.severity === "warning" && g.severity !== "error") {
+        g.severity = "warning";
+      }
+      g.issues.push(i);
+    }
+    for (const g of map2.values()) {
+      g.issues.sort(
+        (a, b) => SEVERITY_RANK2[a.severity] - SEVERITY_RANK2[b.severity]
+      );
+      if (groupBy === "entity") {
+        const ruleSet = new Set(g.issues.map((i) => i.ruleId));
+        const m10 = ruleSet.size % 10;
+        const m100 = ruleSet.size % 100;
+        const word = m10 === 1 && m100 !== 11 ? "\u043F\u0440\u0430\u0432\u0438\u043B\u043E" : m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20) ? "\u043F\u0440\u0430\u0432\u0438\u043B\u0430" : "\u043F\u0440\u0430\u0432\u0438\u043B";
+        const base = `${ruleSet.size} ${word}`;
+        g.subtitle = g.subtitle ? `${g.subtitle} \xB7 ${base}` : base;
+      }
+    }
+    const arr = Array.from(map2.values());
+    if (sortBy === "severity") {
+      arr.sort((a, b) => {
+        const s = SEVERITY_RANK2[a.severity] - SEVERITY_RANK2[b.severity];
+        if (s !== 0)
+          return s;
+        return b.issues.length - a.issues.length;
+      });
+    } else if (sortBy === "count") {
+      arr.sort((a, b) => b.issues.length - a.issues.length);
+    } else {
+      arr.sort((a, b) => a.title.localeCompare(b.title));
+    }
+    return arr;
+  }, [filteredIssues, groupBy, sortBy]);
+  const sevCounts = report?.stats.bySeverity || {
+    error: 0,
+    warning: 0,
+    info: 0
+  };
+  const filteredSevCounts = useMemo40(() => {
+    const c = {
+      error: 0,
+      warning: 0,
+      info: 0
+    };
+    filteredIssues.forEach((i) => {
+      c[i.severity]++;
+    });
+    return c;
+  }, [filteredIssues]);
+  const hasFilter = !!filterCategory || !!filterDomain || !!query.trim() || onlyNew || filterSeverity.size < SEVERITY_ORDER.length;
+  useEffect38(() => {
+    if (!grouped.length) {
+      setExpandedGroups(/* @__PURE__ */ new Set());
+      return;
+    }
+    if (query.trim()) {
+      if (filteredIssues.length <= 300) {
+        setExpandedGroups(new Set(grouped.map((g) => g.key)));
+      } else {
+        setExpandedGroups(
+          new Set(grouped.slice(0, 5).map((g) => g.key))
+        );
+      }
+      return;
+    }
+    if (grouped.length <= 15 && filteredIssues.length <= 300) {
+      setExpandedGroups(new Set(grouped.map((g) => g.key)));
+    } else {
+      setExpandedGroups(new Set(grouped.slice(0, 3).map((g) => g.key)));
+    }
+  }, [groupBy, !!report, query.trim()]);
+  useEffect38(() => {
+    if (!open2)
+      return;
+    useGraphStore.getState().setTooltip(null);
+    window.__tooltipHovered = false;
+  }, [open2]);
+  const toggleSeverity = useCallback22((sev) => {
+    setFilterSeverity((prev) => {
+      const next = new Set(prev);
+      if (next.has(sev))
+        next.delete(sev);
+      else
+        next.add(sev);
+      return next;
+    });
+  }, []);
+  const toggleGroup = useCallback22((key) => {
+    setExpandedGroups((prev) => {
+      const s = new Set(prev);
+      if (s.has(key))
+        s.delete(key);
+      else
+        s.add(key);
+      return s;
+    });
+  }, []);
+  const expandAll = useCallback22(() => {
+    setExpandedGroups(new Set(grouped.map((g) => g.key)));
+  }, [grouped]);
+  const collapseAll = useCallback22(() => {
+    setExpandedGroups(/* @__PURE__ */ new Set());
+  }, []);
+  const resetFilters = useCallback22(() => {
+    setFilterCategory("");
+    setFilterDomain("");
+    setFilterSeverity(new Set(SEVERITY_ORDER));
+    setQuery("");
+    setOnlyNew(false);
+  }, []);
+  const openEntity = useCallback22((fqid) => {
+    useGraphStore.getState().setLintOpen(false);
+    useGraphStore.getState().setEntityCatalogInitialFqid(fqid);
+    useGraphStore.getState().setEntityCatalogOpen(true);
+  }, []);
+  const openCheatsheet = useCallback22((sectionId) => {
+    useGraphStore.getState().setLintOpen(false);
+    useGraphStore.getState().setCheatsheetInitialSection(sectionId);
+    useGraphStore.getState().setCheatsheetOpen(true);
+  }, []);
+  const openIssueInEditor = useCallback22(
+    (issue) => {
+      const domainId = issue.domainId;
+      const node = nodes.find(
+        (n) => (n.data.domainId || "").toLowerCase() === domainId.toLowerCase()
+      );
+      const filePath = node?.data.filePath;
+      if (!filePath) {
+        if (issue.entityFqid) {
+          openEntity(issue.entityFqid);
+        } else {
+          useGraphStore.getState().showSnackbar(
+            "\u0424\u0430\u0439\u043B \u0441\u0445\u0435\u043C\u044B \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u0435\u043D \u2014 \u043E\u0442\u043A\u0440\u043E\u0439\u0442\u0435 \u0434\u043E\u043C\u0435\u043D \u0432\u0440\u0443\u0447\u043D\u0443\u044E"
+          );
+        }
+        return;
+      }
+      const ok = openFileInEditor(
+        filePath,
+        issue.entityFqid ?? null,
+        domainId
+      );
+      if (!ok)
+        return;
+      useGraphStore.getState().setLintOpen(false);
+      useGraphStore.getState().setYamlViewerPendingIssue(issue);
+    },
+    [nodes, openEntity]
+  );
   const handleTakeBaseline = async (domainId) => {
     const domainIssues = report?.issues.filter((i) => i.domainId === domainId) || [];
     const existing = baselines[domainId];
@@ -25796,14 +28687,17 @@ function LintModal() {
     );
     if (domainsWithIssues.length === 0)
       return;
-    if (!await confirmDialog(
-      `\u041F\u0440\u0438\u043D\u044F\u0442\u044C \u0442\u0435\u043A\u0443\u0449\u0435\u0435 \u0441\u043E\u0441\u0442\u043E\u044F\u043D\u0438\u0435 ${domainsWithIssues.length} \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u043A\u0430\u043A baseline?
+    const ok = await confirmDialog(
+      `\u041F\u0440\u0438\u043D\u044F\u0442\u044C \u0442\u0435\u043A\u0443\u0449\u0435\u0435 \u0441\u043E\u0441\u0442\u043E\u044F\u043D\u0438\u0435 ${domainsWithIssues.length} \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u043A\u0430\u043A baseline?`,
+      {
+        detail: `\u0412\u0441\u0435\u0433\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C: ${report.issues.length}
+\u0411\u0443\u0434\u0435\u0442 \u0441\u043E\u0437\u0434\u0430\u043D/\u043E\u0431\u043D\u043E\u0432\u043B\u0451\u043D baseline \u0434\u043B\u044F \u043A\u0430\u0436\u0434\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430.
 
-\u0412\u0441\u0435\u0433\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C: ${report.issues.length}
-\u0411\u0443\u0434\u0435\u0442 \u0441\u043E\u0437\u0434\u0430\u043D/\u043E\u0431\u043D\u043E\u0432\u043B\u0451\u043D baseline \u0434\u043B\u044F \u043A\u0430\u0436\u0434\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430 \u0438\u0437 \u0441\u043F\u0438\u0441\u043A\u0430.
-
-\u041F\u043E\u0441\u043B\u0435 \u044D\u0442\u043E\u0433\u043E \xAB\u043D\u043E\u0432\u044B\u043C\u0438\xBB \u0431\u0443\u0434\u0443\u0442 \u0441\u0447\u0438\u0442\u0430\u0442\u044C\u0441\u044F \u0442\u043E\u043B\u044C\u043A\u043E \u0442\u0435, \u0447\u0442\u043E \u043F\u043E\u044F\u0432\u044F\u0442\u0441\u044F \u0432 \u0431\u0443\u0434\u0443\u0449\u0435\u043C.`
-    ))
+\u041F\u043E\u0441\u043B\u0435 \u044D\u0442\u043E\u0433\u043E \xAB\u043D\u043E\u0432\u044B\u043C\u0438\xBB \u0431\u0443\u0434\u0443\u0442 \u0441\u0447\u0438\u0442\u0430\u0442\u044C\u0441\u044F \u0442\u043E\u043B\u044C\u043A\u043E \u0442\u0435, \u0447\u0442\u043E \u043F\u043E\u044F\u0432\u044F\u0442\u0441\u044F \u0432 \u0431\u0443\u0434\u0443\u0449\u0435\u043C.`,
+        confirmLabel: "\u041F\u0440\u0438\u043D\u044F\u0442\u044C"
+      }
+    );
+    if (!ok)
       return;
     try {
       await takeBaselinesBatch(domainsWithIssues);
@@ -25812,14 +28706,11 @@ function LintModal() {
     }
   };
   const handleClearBaseline = async (domainId) => {
-    const ok = await confirmDialog(
-      `\u0423\u0434\u0430\u043B\u0438\u0442\u044C baseline \u0434\u043B\u044F ${domainId}?`,
-      {
-        detail: "\u041F\u043E\u0441\u043B\u0435 \u044D\u0442\u043E\u0433\u043E \u0432\u0441\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B \u044D\u0442\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430 \u0431\u0443\u0434\u0443\u0442 \u0441\u0447\u0438\u0442\u0430\u0442\u044C\u0441\u044F \xAB\u043D\u043E\u0432\u044B\u043C\u0438\xBB.",
-        danger: true,
-        confirmLabel: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C"
-      }
-    );
+    const ok = await confirmDialog(`\u0423\u0434\u0430\u043B\u0438\u0442\u044C baseline \u0434\u043B\u044F ${domainId}?`, {
+      detail: "\u041F\u043E\u0441\u043B\u0435 \u044D\u0442\u043E\u0433\u043E \u0432\u0441\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B \u044D\u0442\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430 \u0431\u0443\u0434\u0443\u0442 \u0441\u0447\u0438\u0442\u0430\u0442\u044C\u0441\u044F \xAB\u043D\u043E\u0432\u044B\u043C\u0438\xBB.",
+      danger: true,
+      confirmLabel: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C"
+    });
     if (!ok)
       return;
     try {
@@ -25831,128 +28722,169 @@ function LintModal() {
       });
     }
   };
-  const isIssueNew = useCallback21(
-    (issue) => {
-      const keys = newIssueKeysByDomain.get(issue.domainId);
-      if (!keys)
-        return null;
-      return keys.has(baselineKey(issue));
-    },
-    [newIssueKeysByDomain]
-  );
-  useEffect38(() => {
-    if (!open2)
-      return;
-    useGraphStore.getState().setTooltip(null);
-    window.__tooltipHovered = false;
-  }, [open2]);
-  const filteredIssues = useMemo40(() => {
+  const buildJSON = useCallback22(() => {
     if (!report)
-      return [];
-    return report.issues.filter((i) => {
-      if (filterCategory && i.category !== filterCategory)
-        return false;
-      if (filterDomain && i.domainId !== filterDomain)
-        return false;
-      if (onlyNew) {
-        const isNew = isIssueNew(i);
-        if (isNew !== true)
-          return false;
-      }
-      return true;
-    });
-  }, [report, filterCategory, filterDomain, onlyNew, isIssueNew]);
-  const newIssueCount = useMemo40(() => {
-    if (!report)
-      return 0;
-    let count = 0;
-    for (const issue of report.issues) {
-      if (filterCategory && issue.category !== filterCategory)
-        continue;
-      if (filterDomain && issue.domainId !== filterDomain)
-        continue;
-      if (isIssueNew(issue) === true)
-        count++;
-    }
-    return count;
-  }, [report, filterCategory, filterDomain, isIssueNew]);
-  const unbaselinedDomainCount = useMemo40(() => {
-    if (!report)
-      return 0;
-    const domains = new Set(report.issues.map((i) => i.domainId));
-    let count = 0;
-    for (const d of domains)
-      if (!baselines[d])
-        count++;
-    return count;
-  }, [report, baselines]);
-  const grouped = useMemo40(() => {
-    const map2 = /* @__PURE__ */ new Map();
-    filteredIssues.forEach((i) => {
-      if (!map2.has(i.ruleId)) {
-        map2.set(i.ruleId, {
+      return "";
+    return JSON.stringify(
+      {
+        generatedAt: report.generatedAt,
+        filter: {
+          category: filterCategory || null,
+          domain: filterDomain || null,
+          severity: Array.from(filterSeverity),
+          query: query.trim() || null,
+          onlyNew
+        },
+        stats: {
+          total: report.stats.total,
+          filtered: filteredIssues.length,
+          bySeverity: filteredSevCounts
+        },
+        issues: filteredIssues.map((i) => ({
           ruleId: i.ruleId,
           rule: i.rule,
           severity: i.severity,
           category: i.category,
-          issues: []
+          domainId: i.domainId,
+          entityFqid: i.entityFqid || null,
+          attributeId: i.attributeId || null,
+          propertyPath: i.propertyPath || null,
+          message: i.message,
+          hint: i.hint || null
+        }))
+      },
+      null,
+      2
+    );
+  }, [
+    report,
+    filteredIssues,
+    filteredSevCounts,
+    filterCategory,
+    filterDomain,
+    filterSeverity,
+    query,
+    onlyNew
+  ]);
+  const buildCSV = useCallback22(() => {
+    const header = [
+      "ruleId",
+      "severity",
+      "category",
+      "domainId",
+      "entityFqid",
+      "attributeId",
+      "message",
+      "hint"
+    ];
+    const lines = [header.join(",")];
+    const esc = (v) => {
+      const s = String(v ?? "");
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    for (const i of filteredIssues) {
+      lines.push(
+        [
+          esc(i.ruleId),
+          esc(i.severity),
+          esc(i.category),
+          esc(i.domainId),
+          esc(i.entityFqid || ""),
+          esc(i.attributeId || ""),
+          esc(i.message),
+          esc(i.hint || "")
+        ].join(",")
+      );
+    }
+    return "\uFEFF" + lines.join("\n");
+  }, [filteredIssues]);
+  const buildMD = useCallback22(() => {
+    if (!report)
+      return "";
+    const lines = [];
+    lines.push("# \u041E\u0442\u0447\u0451\u0442 \u043B\u0438\u043D\u0442\u0435\u0440\u0430 \u0441\u0445\u0435\u043C");
+    lines.push("");
+    lines.push(`_${(/* @__PURE__ */ new Date()).toLocaleString("ru-RU")}_`);
+    lines.push("");
+    const fp = [];
+    if (filterCategory)
+      fp.push(`\u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F: ${CATEGORY_LABELS2[filterCategory]}`);
+    if (filterDomain)
+      fp.push(`\u0434\u043E\u043C\u0435\u043D: \`${filterDomain}\``);
+    if (filterSeverity.size < 3) {
+      fp.push(`severity: ${Array.from(filterSeverity).join(", ")}`);
+    }
+    if (query.trim())
+      fp.push(`\u043F\u043E\u0438\u0441\u043A: \xAB${query.trim()}\xBB`);
+    if (onlyNew)
+      fp.push("\u0442\u043E\u043B\u044C\u043A\u043E \u043D\u043E\u0432\u044B\u0435");
+    if (fp.length) {
+      lines.push(`**\u0424\u0438\u043B\u044C\u0442\u0440:** ${fp.join(" \xB7 ")}`);
+      lines.push("");
+    }
+    lines.push(
+      `\u0412\u0441\u0435\u0433\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C: **${filteredIssues.length}** \u0438\u0437 ${report.stats.total}`
+    );
+    lines.push("");
+    lines.push("## \u0421\u0432\u043E\u0434\u043A\u0430");
+    lines.push("");
+    lines.push("| Severity | \u041A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E |");
+    lines.push("| --- | ---: |");
+    lines.push(`| \u{1F534} \u041E\u0448\u0438\u0431\u043A\u0438 | ${filteredSevCounts.error} |`);
+    lines.push(`| \u{1F7E0} \u041F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u044F | ${filteredSevCounts.warning} |`);
+    lines.push(`| \u{1F535} \u0420\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u0438 | ${filteredSevCounts.info} |`);
+    lines.push("");
+    for (const g of grouped) {
+      lines.push(`## ${g.title} (${g.issues.length})`);
+      lines.push("");
+      for (const i of g.issues) {
+        const icon = i.severity === "error" ? "\u{1F534}" : i.severity === "warning" ? "\u{1F7E0}" : "\u{1F535}";
+        const ref = i.entityFqid ? `\`${i.entityFqid}${i.attributeId ? "." + i.attributeId : ""}\`` : `\`${i.domainId}\``;
+        lines.push(`- ${icon} ${ref} \u2014 ${i.message}`);
+        if (i.hint)
+          lines.push(`  - \u{1F4A1} ${i.hint}`);
+      }
+      lines.push("");
+    }
+    return lines.join("\n");
+  }, [
+    report,
+    filteredIssues,
+    filteredSevCounts,
+    grouped,
+    filterCategory,
+    filterDomain,
+    filterSeverity,
+    query,
+    onlyNew
+  ]);
+  const downloadFile4 = useCallback22(
+    (content, mime, ext) => {
+      const blob = new Blob([content], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const stamp4 = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+      a.download = `lint-report-${stamp4}.${ext}`;
+      a.click();
+      URL.revokeObjectURL(url);
+      useGraphStore.getState().showSnackbar(`\u041E\u0442\u0447\u0451\u0442 \u0441\u043A\u0430\u0447\u0430\u043D (.${ext})`);
+    },
+    []
+  );
+  const copyToClipboard = useCallback22(
+    async (text, label) => {
+      try {
+        await navigator.clipboard.writeText(text);
+        useGraphStore.getState().showSnackbar(`${label} \u0441\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D`);
+      } catch {
+        await alertDialog("\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0441\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C", {
+          variant: "warning"
         });
       }
-      map2.get(i.ruleId).issues.push(i);
-    });
-    return Array.from(map2.values()).sort((a, b) => {
-      const sOrder = { error: 0, warning: 1, info: 2 };
-      if (sOrder[a.severity] !== sOrder[b.severity])
-        return sOrder[a.severity] - sOrder[b.severity];
-      return b.issues.length - a.issues.length;
-    });
-  }, [filteredIssues]);
-  const toggleRule = (ruleId) => {
-    setExpandedRules((prev) => {
-      const s = new Set(prev);
-      if (s.has(ruleId))
-        s.delete(ruleId);
-      else
-        s.add(ruleId);
-      return s;
-    });
-  };
-  const openEntity = (fqid) => {
-    useGraphStore.getState().setLintOpen(false);
-    useGraphStore.getState().setEntityCatalogInitialFqid(fqid);
-    useGraphStore.getState().setEntityCatalogOpen(true);
-  };
-  const openIssueInEditor = (issue) => {
-    const domainId = issue.domainId;
-    const node = nodes.find(
-      (n) => (n.data.domainId || "").toLowerCase() === domainId.toLowerCase()
-    );
-    const filePath = node?.data.filePath;
-    if (!filePath) {
-      if (issue.entityFqid) {
-        openEntity(issue.entityFqid);
-      } else {
-        useGraphStore.getState().showSnackbar(
-          "\u0424\u0430\u0439\u043B \u0441\u0445\u0435\u043C\u044B \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u0435\u043D \u2014 \u043E\u0442\u043A\u0440\u043E\u0439\u0442\u0435 \u0434\u043E\u043C\u0435\u043D \u0432\u0440\u0443\u0447\u043D\u0443\u044E"
-        );
-      }
-      return;
-    }
-    const ok = openFileInEditor(
-      filePath,
-      issue.entityFqid ?? null,
-      domainId
-    );
-    if (!ok)
-      return;
-    useGraphStore.getState().setLintOpen(false);
-    useGraphStore.getState().setYamlViewerPendingIssue(issue);
-  };
-  const openCheatsheet = (sectionId) => {
-    useGraphStore.getState().setLintOpen(false);
-    useGraphStore.getState().setCheatsheetInitialSection(sectionId);
-    useGraphStore.getState().setCheatsheetOpen(true);
-  };
+    },
+    []
+  );
   if (!open2)
     return null;
   return /* @__PURE__ */ jsx71(
@@ -25971,7 +28903,10 @@ function LintModal() {
               /* @__PURE__ */ jsxs68("div", { className: "help-modal__title", children: [
                 /* @__PURE__ */ jsx71(MIcon, { name: "science", size: "sm" }),
                 /* @__PURE__ */ jsx71("span", { className: "icon-label", children: "\u041B\u0438\u043D\u0442\u0435\u0440 \u0441\u0445\u0435\u043C" }),
-                report && /* @__PURE__ */ jsx71("span", { className: "help-modal__badge", children: filteredIssues.length })
+                report && /* @__PURE__ */ jsxs68("span", { className: "help-modal__badge", children: [
+                  filteredIssues.length,
+                  hasFilter && ` / ${report.stats.total}`
+                ] })
               ] }),
               /* @__PURE__ */ jsxs68("div", { className: "help-modal__actions", children: [
                 /* @__PURE__ */ jsxs68(
@@ -25986,7 +28921,14 @@ function LintModal() {
                     ]
                   }
                 ),
-                /* @__PURE__ */ jsx71(HelpButton, { open: showHelp, onToggle: () => setShowHelp(!showHelp), label: "\u0427\u0442\u043E \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442\u0441\u044F?" }),
+                /* @__PURE__ */ jsx71(
+                  HelpButton,
+                  {
+                    open: showHelp,
+                    onToggle: () => setShowHelp(!showHelp),
+                    label: "\u0427\u0442\u043E \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0435\u0442\u0441\u044F?"
+                  }
+                ),
                 /* @__PURE__ */ jsx71(
                   "button",
                   {
@@ -26030,36 +28972,113 @@ function LintModal() {
                   ] }),
                   /* @__PURE__ */ jsxs68("li", { children: [
                     /* @__PURE__ */ jsx71("strong", { children: "\u0420\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u0438" }),
-                    " \u2014 \u0435\u0441\u0442\u044C \u043B\u0438 ",
+                    " \u2014 \u0435\u0441\u0442\u044C \u043B\u0438",
+                    " ",
                     /* @__PURE__ */ jsx71("code", { children: "description" }),
-                    ", ",
+                    ",",
+                    " ",
                     /* @__PURE__ */ jsx71("code", { children: "label" }),
-                    " \u2014 \u043D\u0435 \u0431\u043B\u043E\u043A\u0438\u0440\u0443\u044E\u0442, \u043D\u043E \u0443\u043B\u0443\u0447\u0448\u0430\u044E\u0442 \u0447\u0438\u0442\u0430\u0435\u043C\u043E\u0441\u0442\u044C."
+                    "."
                   ] })
                 ] }) }),
                 /* @__PURE__ */ jsx71(HelpSection, { title: "\u0423\u0440\u043E\u0432\u043D\u0438", children: /* @__PURE__ */ jsxs68(HelpText, { children: [
                   /* @__PURE__ */ jsx71("strong", { children: "\u041E\u0448\u0438\u0431\u043A\u0438" }),
                   " \u2014 \u0442\u043E\u0447\u043D\u043E \u043D\u0430\u0434\u043E \u043F\u0440\u0430\u0432\u0438\u0442\u044C. ",
                   /* @__PURE__ */ jsx71("strong", { children: "\u041F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u044F" }),
-                  " \u2014 \u0442\u0430\u043A \u043F\u0438\u0441\u0430\u0442\u044C \u043D\u0435 \u0440\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0443\u0435\u0442\u0441\u044F. ",
+                  " \u2014 \u0442\u0430\u043A \u043F\u0438\u0441\u0430\u0442\u044C \u043D\u0435 \u0440\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0443\u0435\u0442\u0441\u044F.",
+                  " ",
                   /* @__PURE__ */ jsx71("strong", { children: "\u0420\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u0438" }),
                   " \u2014 \u043C\u043E\u0436\u043D\u043E \u0443\u043B\u0443\u0447\u0448\u0438\u0442\u044C, \u043D\u043E \u043D\u0435 \u043A\u0440\u0438\u0442\u0438\u0447\u043D\u043E."
                 ] }) }),
-                /* @__PURE__ */ jsx71(HelpSection, { title: "Sonar-\u043E\u0446\u0435\u043D\u043A\u0430", children: /* @__PURE__ */ jsx71(HelpText, { children: "\u042D\u0442\u043E \u0432\u0437\u0432\u0435\u0448\u0435\u043D\u043D\u0430\u044F \u0441\u0432\u043E\u0434\u043A\u0430: 100 \u2014 \u0438\u0434\u0435\u0430\u043B, 0 \u2014 \u043E\u0447\u0435\u043D\u044C \u043C\u043D\u043E\u0433\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C. \u0412\u0435\u0441 \u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438 \u043E\u0442\u0440\u0430\u0436\u0430\u0435\u0442 \u0432\u0430\u0436\u043D\u043E\u0441\u0442\u044C: \u0441\u0441\u044B\u043B\u043E\u0447\u043D\u0430\u044F \u0446\u0435\u043B\u043E\u0441\u0442\u043D\u043E\u0441\u0442\u044C \u0432\u043B\u0438\u044F\u0435\u0442 \u043D\u0430 \u043E\u0446\u0435\u043D\u043A\u0443 \u0432 5 \u0440\u0430\u0437 \u0441\u0438\u043B\u044C\u043D\u0435\u0435, \u0447\u0435\u043C \u0440\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u0438." }) })
+                /* @__PURE__ */ jsx71(HelpSection, { title: "Sonar-\u043E\u0446\u0435\u043D\u043A\u0430", children: /* @__PURE__ */ jsx71(HelpText, { children: "\u042D\u0442\u043E \u0432\u0437\u0432\u0435\u0448\u0435\u043D\u043D\u0430\u044F \u0441\u0432\u043E\u0434\u043A\u0430: 100 \u2014 \u0438\u0434\u0435\u0430\u043B, 0 \u2014 \u043E\u0447\u0435\u043D\u044C \u043C\u043D\u043E\u0433\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C. \u0412\u0435\u0441 \u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438 \u043E\u0442\u0440\u0430\u0436\u0430\u0435\u0442 \u0432\u0430\u0436\u043D\u043E\u0441\u0442\u044C: \u0441\u0441\u044B\u043B\u043E\u0447\u043D\u0430\u044F \u0446\u0435\u043B\u043E\u0441\u0442\u043D\u043E\u0441\u0442\u044C \u0432\u043B\u0438\u044F\u0435\u0442 \u043D\u0430 \u043E\u0446\u0435\u043D\u043A\u0443 \u0432 5 \u0440\u0430\u0437 \u0441\u0438\u043B\u044C\u043D\u0435\u0435, \u0447\u0435\u043C \u0440\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u0438." }) }),
+                /* @__PURE__ */ jsx71(HelpSection, { title: "\u041F\u043E\u0438\u0441\u043A, \u0444\u0438\u043B\u044C\u0442\u0440\u044B, \u0433\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u043A\u0430", children: /* @__PURE__ */ jsxs68(HelpList, { children: [
+                  /* @__PURE__ */ jsxs68("li", { children: [
+                    /* @__PURE__ */ jsx71("strong", { children: "\u041F\u043E\u0438\u0441\u043A" }),
+                    " \u2014 \u043F\u043E \u043F\u0440\u0430\u0432\u0438\u043B\u0443, \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044E, \u043F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0435, \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438, \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0443, \u0434\u043E\u043C\u0435\u043D\u0443."
+                  ] }),
+                  /* @__PURE__ */ jsxs68("li", { children: [
+                    /* @__PURE__ */ jsx71("strong", { children: "Severity" }),
+                    " \u2014 \u043A\u043B\u0438\u043A \u043F\u043E \u043A\u0430\u0440\u0442\u043E\u0447\u043A\u0435 \xAB\u041E\u0448\u0438\u0431\u043A\u0438 / \u041F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u044F / \u0420\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u0438\xBB \u0441\u043A\u0440\u044B\u0432\u0430\u0435\u0442/\u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 \u044D\u0442\u043E\u0442 \u0443\u0440\u043E\u0432\u0435\u043D\u044C."
+                  ] }),
+                  /* @__PURE__ */ jsxs68("li", { children: [
+                    /* @__PURE__ */ jsx71("strong", { children: "\u0421\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430" }),
+                    " \u2014 \u043F\u043E severity, \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u0443 \u0438\u043B\u0438 \u0430\u043B\u0444\u0430\u0432\u0438\u0442\u0443."
+                  ] }),
+                  /* @__PURE__ */ jsxs68("li", { children: [
+                    /* @__PURE__ */ jsx71("strong", { children: "\u0413\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u043A\u0430" }),
+                    " \u2014 \u043F\u043E \u043F\u0440\u0430\u0432\u0438\u043B\u0443 (\u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E), \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438 (\u043F\u043E\u043B\u0435\u0437\u043D\u043E \u0434\u043B\u044F \xAB\u0447\u0442\u043E \u043D\u0435 \u0442\u0430\u043A \u0441 Entity X\xBB) \u0438\u043B\u0438 \u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438."
+                  ] }),
+                  /* @__PURE__ */ jsxs68("li", { children: [
+                    /* @__PURE__ */ jsx71("strong", { children: "\u0422\u043E\u043B\u044C\u043A\u043E \u043D\u043E\u0432\u044B\u0435" }),
+                    " \u2014 \u0444\u0438\u043B\u044C\u0442\u0440 \u043F\u043E baseline. \u0421\u043D\u0430\u0447\u0430\u043B\u0430 \u043F\u0440\u0438\u043C\u0438\u0442\u0435 baseline."
+                  ] })
+                ] }) }),
+                /* @__PURE__ */ jsxs68(HelpSection, { title: "Baseline", children: [
+                  /* @__PURE__ */ jsx71(HelpText, { children: "Baseline \u2014 \xAB\u0441\u043D\u0438\u043C\u043E\u043A\xBB \u0442\u0435\u043A\u0443\u0449\u0438\u0445 \u043F\u0440\u043E\u0431\u043B\u0435\u043C. \u041F\u043E\u0441\u043B\u0435 \u0435\u0433\u043E \u043F\u0440\u0438\u043D\u044F\u0442\u0438\u044F \xAB\u043D\u043E\u0432\u044B\u043C\u0438\xBB \u0441\u0447\u0438\u0442\u0430\u044E\u0442\u0441\u044F \u0442\u043E\u043B\u044C\u043A\u043E \u0442\u0435, \u0447\u0442\u043E \u043F\u043E\u044F\u0432\u0438\u043B\u0438\u0441\u044C \u043F\u043E\u0437\u0436\u0435. \u0423\u0434\u043E\u0431\u043D\u043E \u0434\u043B\u044F \u043F\u0440\u0438\u0451\u043C\u0430 \u0440\u0430\u0431\u043E\u0442: \u0432\u0438\u0434\u043D\u043E, \u0447\u0442\u043E \u0431\u044B\u043B\u043E \u0438\u0441\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u043E (\u2713) \u0438 \u0447\u0442\u043E \u0434\u043E\u0431\u0430\u0432\u0438\u043B\u043E\u0441\u044C (\u{1F525})." }),
+                  /* @__PURE__ */ jsxs68(HelpList, { children: [
+                    /* @__PURE__ */ jsxs68("li", { children: [
+                      /* @__PURE__ */ jsx71("strong", { children: "\u041F\u0440\u0438\u043D\u044F\u0442\u044C baseline" }),
+                      " \u2014 \u0434\u043B\u044F \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430 \u0438\u043B\u0438 \u0434\u043B\u044F \u0432\u0441\u0435\u0445 \u0441\u0440\u0430\u0437\u0443."
+                    ] }),
+                    /* @__PURE__ */ jsxs68("li", { children: [
+                      /* @__PURE__ */ jsx71("strong", { children: "\u041E\u0431\u043D\u043E\u0432\u0438\u0442\u044C baseline" }),
+                      " \u2014 \u043F\u0435\u0440\u0435\u0437\u0430\u043F\u0438\u0441\u0430\u0442\u044C \u0442\u0435\u043A\u0443\u0449\u0438\u043C \u0441\u043E\u0441\u0442\u043E\u044F\u043D\u0438\u0435\u043C."
+                    ] }),
+                    /* @__PURE__ */ jsxs68("li", { children: [
+                      /* @__PURE__ */ jsx71("strong", { children: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C baseline" }),
+                      " \u2014 \u0432\u0441\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B \u0441\u0442\u0430\u043D\u0443\u0442 \xAB\u043D\u043E\u0432\u044B\u043C\u0438\xBB."
+                    ] })
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsx71(HelpSection, { title: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442", children: /* @__PURE__ */ jsxs68(HelpList, { children: [
+                  /* @__PURE__ */ jsxs68("li", { children: [
+                    /* @__PURE__ */ jsx71("strong", { children: "JSON" }),
+                    " \u2014 \u0434\u043B\u044F CI, \u0441\u043A\u0440\u0438\u043F\u0442\u043E\u0432, \u0438\u043C\u043F\u043E\u0440\u0442\u0430 \u0432 \u0442\u0440\u0435\u043A\u0435\u0440."
+                  ] }),
+                  /* @__PURE__ */ jsxs68("li", { children: [
+                    /* @__PURE__ */ jsx71("strong", { children: "CSV" }),
+                    " \u2014 \u0434\u043B\u044F Excel / Google Sheets."
+                  ] }),
+                  /* @__PURE__ */ jsxs68("li", { children: [
+                    /* @__PURE__ */ jsx71("strong", { children: "Markdown" }),
+                    " \u2014 \u0434\u043B\u044F \u043E\u0442\u0447\u0451\u0442\u0430 \u0432 PR / \u0437\u0430\u0434\u0430\u0447\u0438."
+                  ] }),
+                  /* @__PURE__ */ jsx71("li", { children: "\u042D\u043A\u0441\u043F\u043E\u0440\u0442\u0438\u0440\u0443\u044E\u0442\u0441\u044F \u0442\u043E\u043B\u044C\u043A\u043E \u043E\u0442\u0444\u0438\u043B\u044C\u0442\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B \u2014 \u0447\u0442\u043E \u0432\u0438\u0434\u0438\u0442\u0435, \u0442\u043E \u0438 \u043F\u043E\u043B\u0443\u0447\u0438\u0442\u0435." })
+                ] }) })
               ] }),
               /* @__PURE__ */ jsxs68("div", { className: "lint-summary", children: [
-                /* @__PURE__ */ jsxs68("div", { className: "lint-summary__stat lint-summary__stat--error", children: [
-                  /* @__PURE__ */ jsx71("div", { className: "lint-summary__value", children: report.stats.bySeverity.error }),
-                  /* @__PURE__ */ jsx71("div", { className: "lint-summary__label", children: "\u041E\u0448\u0438\u0431\u043E\u043A" })
-                ] }),
-                /* @__PURE__ */ jsxs68("div", { className: "lint-summary__stat lint-summary__stat--warning", children: [
-                  /* @__PURE__ */ jsx71("div", { className: "lint-summary__value", children: report.stats.bySeverity.warning }),
-                  /* @__PURE__ */ jsx71("div", { className: "lint-summary__label", children: "\u041F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u0439" })
-                ] }),
-                /* @__PURE__ */ jsxs68("div", { className: "lint-summary__stat lint-summary__stat--info", children: [
-                  /* @__PURE__ */ jsx71("div", { className: "lint-summary__value", children: report.stats.bySeverity.info }),
-                  /* @__PURE__ */ jsx71("div", { className: "lint-summary__label", children: "\u0420\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u0439" })
-                ] }),
+                SEVERITY_ORDER.map((sev) => {
+                  const active = filterSeverity.has(sev);
+                  const color = SEVERITY_COLOR[sev];
+                  return /* @__PURE__ */ jsxs68(
+                    "div",
+                    {
+                      className: "lint-summary__stat lint-summary__stat--" + sev,
+                      role: "button",
+                      tabIndex: 0,
+                      onClick: () => toggleSeverity(sev),
+                      onKeyDown: (e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          toggleSeverity(sev);
+                        }
+                      },
+                      style: {
+                        cursor: "pointer",
+                        opacity: active ? 1 : 0.4,
+                        transition: "opacity 0.15s",
+                        userSelect: "none",
+                        borderLeft: active ? `3px solid ${color}` : "3px solid transparent"
+                      },
+                      title: active ? `\u0421\u043A\u0440\u044B\u0442\u044C ${sev}` : `\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C ${sev}`,
+                      children: [
+                        /* @__PURE__ */ jsx71("div", { className: "lint-summary__value", children: sevCounts[sev] }),
+                        /* @__PURE__ */ jsx71("div", { className: "lint-summary__label", children: sev === "error" ? "\u041E\u0448\u0438\u0431\u043E\u043A" : sev === "warning" ? "\u041F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u0439" : "\u0420\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u0439" })
+                      ]
+                    },
+                    sev
+                  );
+                }),
                 /* @__PURE__ */ jsxs68("div", { className: "lint-summary__stat lint-summary__stat--score", children: [
                   /* @__PURE__ */ jsx71("div", { className: "lint-summary__value", children: index.lint.sonar.overall.score }),
                   /* @__PURE__ */ jsxs68("div", { className: "lint-summary__label", children: [
@@ -26068,146 +29087,559 @@ function LintModal() {
                   ] })
                 ] })
               ] }),
-              /* @__PURE__ */ jsxs68("div", { className: "lint-filters", style: { flexWrap: "wrap", rowGap: 8 }, children: [
-                /* @__PURE__ */ jsxs68("label", { className: "entity-matrix-filter", children: [
-                  /* @__PURE__ */ jsx71("span", { children: "\u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F:" }),
-                  /* @__PURE__ */ jsxs68(
-                    "select",
-                    {
-                      value: filterCategory,
-                      onChange: (e) => setFilterCategory(e.target.value),
-                      children: [
-                        /* @__PURE__ */ jsx71("option", { value: "", children: "\u2014 \u0432\u0441\u0435 \u2014" }),
-                        Object.keys(CATEGORY_LABELS2).map((k) => /* @__PURE__ */ jsxs68("option", { value: k, children: [
-                          CATEGORY_LABELS2[k],
-                          " (",
-                          report?.stats.byCategory[k] ?? 0,
-                          ")"
-                        ] }, k))
-                      ]
-                    }
-                  )
-                ] }),
-                /* @__PURE__ */ jsxs68("label", { className: "entity-matrix-filter", children: [
-                  /* @__PURE__ */ jsx71("span", { children: "\u0414\u043E\u043C\u0435\u043D:" }),
-                  /* @__PURE__ */ jsxs68(
-                    "select",
-                    {
-                      value: filterDomain,
-                      onChange: (e) => setFilterDomain(e.target.value),
-                      children: [
-                        /* @__PURE__ */ jsx71("option", { value: "", children: "\u2014 \u0432\u0441\u0435 \u2014" }),
-                        allDomains.map((d) => /* @__PURE__ */ jsxs68("option", { value: d, children: [
-                          d,
-                          baselines[d] ? " \u{1F4CC}" : ""
-                        ] }, d))
-                      ]
-                    }
-                  )
-                ] }),
-                /* @__PURE__ */ jsxs68("div", { className: "lint-baseline-controls", children: [
-                  /* @__PURE__ */ jsxs68(
-                    "label",
-                    {
-                      className: "entity-graph-toggle lint-baseline-toggle" + (onlyNew ? " active" : ""),
-                      title: Object.keys(baselines).length === 0 ? "\u0421\u043D\u0430\u0447\u0430\u043B\u0430 \u043F\u0440\u0438\u043C\u0438\u0442\u0435 baseline \u0445\u043E\u0442\u044F \u0431\u044B \u0434\u043B\u044F \u043E\u0434\u043D\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430" : "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0442\u043E\u043B\u044C\u043A\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B, \u043F\u043E\u044F\u0432\u0438\u0432\u0448\u0438\u0435\u0441\u044F \u043F\u043E\u0441\u043B\u0435 baseline",
-                      children: [
-                        /* @__PURE__ */ jsx71(
-                          "input",
-                          {
-                            type: "checkbox",
-                            checked: onlyNew,
-                            onChange: () => setOnlyNew(!onlyNew),
-                            disabled: Object.keys(baselines).length === 0
-                          }
-                        ),
-                        /* @__PURE__ */ jsx71(MIcon, { name: "new_releases", size: "sm" }),
-                        "\u0422\u043E\u043B\u044C\u043A\u043E \u043D\u043E\u0432\u044B\u0435",
-                        newIssueCount > 0 && /* @__PURE__ */ jsx71("span", { className: "lint-baseline-toggle__count", children: newIssueCount })
-                      ]
-                    }
-                  ),
-                  filterDomain ? /* @__PURE__ */ jsxs68(Fragment21, { children: [
+              /* @__PURE__ */ jsxs68(
+                "div",
+                {
+                  className: "lint-filters",
+                  style: { flexWrap: "wrap", rowGap: 8 },
+                  children: [
                     /* @__PURE__ */ jsxs68(
-                      "button",
+                      "div",
                       {
-                        className: "btn",
-                        onClick: () => handleTakeBaseline(filterDomain),
-                        title: baselines[filterDomain] ? `\u041E\u0431\u043D\u043E\u0432\u0438\u0442\u044C baseline \u0434\u043B\u044F ${filterDomain}` : `\u041F\u0440\u0438\u043D\u044F\u0442\u044C \u0442\u0435\u043A\u0443\u0449\u0435\u0435 \u0441\u043E\u0441\u0442\u043E\u044F\u043D\u0438\u0435 ${filterDomain} \u043A\u0430\u043A baseline`,
+                        style: {
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          padding: "4px 8px",
+                          background: "var(--bg-750)",
+                          border: "1px solid var(--border)",
+                          borderRadius: 6,
+                          minWidth: 260
+                        },
                         children: [
-                          /* @__PURE__ */ jsx71(MIcon, { name: "push_pin", size: "sm" }),
-                          baselines[filterDomain] ? "\u041E\u0431\u043D\u043E\u0432\u0438\u0442\u044C baseline" : "\u041F\u0440\u0438\u043D\u044F\u0442\u044C baseline"
+                          /* @__PURE__ */ jsx71(
+                            MIcon,
+                            {
+                              name: "search",
+                              size: "sm",
+                              style: { color: "var(--text-500)" }
+                            }
+                          ),
+                          /* @__PURE__ */ jsx71(
+                            "input",
+                            {
+                              type: "text",
+                              value: query,
+                              onChange: (e) => setQuery(e.target.value),
+                              placeholder: "\u041F\u043E\u0438\u0441\u043A \u043F\u043E \u043F\u0440\u0430\u0432\u0438\u043B\u0443, \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044E, \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438, \u0430\u0442\u0440\u0438\u0431\u0443\u0442\u0443...",
+                              spellCheck: false,
+                              style: {
+                                flex: 1,
+                                background: "transparent",
+                                border: "none",
+                                outline: "none",
+                                color: "var(--text-200)",
+                                fontSize: 12
+                              }
+                            }
+                          ),
+                          query && /* @__PURE__ */ jsx71(
+                            "button",
+                            {
+                              type: "button",
+                              onClick: () => setQuery(""),
+                              style: {
+                                background: "transparent",
+                                border: "none",
+                                color: "var(--text-500)",
+                                cursor: "pointer",
+                                padding: 0,
+                                fontSize: 12
+                              },
+                              title: "\u041E\u0447\u0438\u0441\u0442\u0438\u0442\u044C",
+                              children: "\u2715"
+                            }
+                          )
                         ]
                       }
                     ),
-                    baselines[filterDomain] && /* @__PURE__ */ jsx71(
-                      "button",
-                      {
-                        className: "btn btn--danger",
-                        onClick: () => handleClearBaseline(filterDomain),
-                        title: `\u0423\u0434\u0430\u043B\u0438\u0442\u044C baseline \u0434\u043B\u044F ${filterDomain}`,
-                        children: /* @__PURE__ */ jsx71(MIcon, { name: "close", size: "sm" })
-                      }
-                    )
-                  ] }) : unbaselinedDomainCount > 0 && /* @__PURE__ */ jsxs68(
-                    "button",
-                    {
-                      className: "btn",
-                      onClick: handleTakeBaselineAll,
-                      title: "\u041F\u0440\u0438\u043D\u044F\u0442\u044C \u0442\u0435\u043A\u0443\u0449\u0435\u0435 \u0441\u043E\u0441\u0442\u043E\u044F\u043D\u0438\u0435 \u0432\u0441\u0435\u0445 \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u0441 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0430\u043C\u0438 \u043A\u0430\u043A baseline",
-                      children: [
-                        /* @__PURE__ */ jsx71(MIcon, { name: "push_pin", size: "sm" }),
-                        "\u041F\u0440\u0438\u043D\u044F\u0442\u044C \u0434\u043B\u044F \u0432\u0441\u0435\u0445 (",
-                        unbaselinedDomainCount,
-                        ")"
-                      ]
-                    }
-                  )
-                ] })
-              ] }),
-              filterDomain && baselines[filterDomain] && report && (() => {
-                const domainIssues = report.issues.filter((i) => i.domainId === filterDomain);
-                const cmp = compareWithBaseline(domainIssues, baselines[filterDomain]);
+                    /* @__PURE__ */ jsxs68("label", { className: "entity-matrix-filter", children: [
+                      /* @__PURE__ */ jsx71("span", { children: "\u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F:" }),
+                      /* @__PURE__ */ jsxs68(
+                        "select",
+                        {
+                          value: filterCategory,
+                          onChange: (e) => setFilterCategory(
+                            e.target.value
+                          ),
+                          children: [
+                            /* @__PURE__ */ jsx71("option", { value: "", children: "\u2014 \u0432\u0441\u0435 \u2014" }),
+                            Object.keys(
+                              CATEGORY_LABELS2
+                            ).map((k) => /* @__PURE__ */ jsxs68("option", { value: k, children: [
+                              CATEGORY_LABELS2[k],
+                              " (",
+                              report?.stats.byCategory[k] ?? 0,
+                              ")"
+                            ] }, k))
+                          ]
+                        }
+                      )
+                    ] }),
+                    /* @__PURE__ */ jsxs68("label", { className: "entity-matrix-filter", children: [
+                      /* @__PURE__ */ jsx71("span", { children: "\u0414\u043E\u043C\u0435\u043D:" }),
+                      /* @__PURE__ */ jsxs68(
+                        "select",
+                        {
+                          value: filterDomain,
+                          onChange: (e) => setFilterDomain(e.target.value),
+                          style: { maxWidth: 280 },
+                          children: [
+                            /* @__PURE__ */ jsxs68("option", { value: "", children: [
+                              "\u2014 \u0432\u0441\u0435 (",
+                              allDomains.length,
+                              ") \u2014"
+                            ] }),
+                            allDomains.map((d) => {
+                              const info = domainBaselineInfo.get(d);
+                              const parts = [
+                                `${info?.total ?? 0} \u043F\u0440\u043E\u0431\u043B.`
+                              ];
+                              if (info && info.newCount > 0)
+                                parts.push(`${info.newCount} \u043D\u043E\u0432.`);
+                              if (info && info.fixedCount > 0)
+                                parts.push(
+                                  `${info.fixedCount} \u0438\u0441\u043F\u0440.`
+                                );
+                              const marks = baselines[d] ? " \u{1F4CC}" : "";
+                              return /* @__PURE__ */ jsxs68("option", { value: d, children: [
+                                d,
+                                marks,
+                                " (",
+                                parts.join(", "),
+                                ")"
+                              ] }, d);
+                            })
+                          ]
+                        }
+                      )
+                    ] }),
+                    /* @__PURE__ */ jsxs68("label", { className: "entity-matrix-filter", children: [
+                      /* @__PURE__ */ jsx71("span", { children: "\u0421\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0430:" }),
+                      /* @__PURE__ */ jsxs68(
+                        "select",
+                        {
+                          value: sortBy,
+                          onChange: (e) => setSortBy(e.target.value),
+                          children: [
+                            /* @__PURE__ */ jsx71("option", { value: "severity", children: "\u041F\u043E severity" }),
+                            /* @__PURE__ */ jsx71("option", { value: "count", children: "\u041F\u043E \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u0443" }),
+                            /* @__PURE__ */ jsx71("option", { value: "name", children: "\u041F\u043E \u0438\u043C\u0435\u043D\u0438" })
+                          ]
+                        }
+                      )
+                    ] }),
+                    /* @__PURE__ */ jsxs68("label", { className: "entity-matrix-filter", children: [
+                      /* @__PURE__ */ jsx71("span", { children: "\u0413\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u043A\u0430:" }),
+                      /* @__PURE__ */ jsxs68(
+                        "select",
+                        {
+                          value: groupBy,
+                          onChange: (e) => setGroupBy(e.target.value),
+                          children: [
+                            /* @__PURE__ */ jsx71("option", { value: "rule", children: "\u041F\u043E \u043F\u0440\u0430\u0432\u0438\u043B\u0443" }),
+                            /* @__PURE__ */ jsx71("option", { value: "entity", children: "\u041F\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438" }),
+                            /* @__PURE__ */ jsx71("option", { value: "category", children: "\u041F\u043E \u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438" })
+                          ]
+                        }
+                      )
+                    ] }),
+                    /* @__PURE__ */ jsxs68("div", { className: "lint-baseline-controls", children: [
+                      /* @__PURE__ */ jsxs68(
+                        "label",
+                        {
+                          className: "entity-graph-toggle lint-baseline-toggle" + (onlyNew ? " active" : ""),
+                          title: Object.keys(baselines).length === 0 ? "\u0421\u043D\u0430\u0447\u0430\u043B\u0430 \u043F\u0440\u0438\u043C\u0438\u0442\u0435 baseline \u0445\u043E\u0442\u044F \u0431\u044B \u0434\u043B\u044F \u043E\u0434\u043D\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430" : "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0442\u043E\u043B\u044C\u043A\u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B, \u043F\u043E\u044F\u0432\u0438\u0432\u0448\u0438\u0435\u0441\u044F \u043F\u043E\u0441\u043B\u0435 baseline",
+                          children: [
+                            /* @__PURE__ */ jsx71(
+                              "input",
+                              {
+                                type: "checkbox",
+                                checked: onlyNew,
+                                onChange: () => setOnlyNew(!onlyNew),
+                                disabled: Object.keys(baselines).length === 0
+                              }
+                            ),
+                            /* @__PURE__ */ jsx71(MIcon, { name: "new_releases", size: "sm" }),
+                            "\u0422\u043E\u043B\u044C\u043A\u043E \u043D\u043E\u0432\u044B\u0435"
+                          ]
+                        }
+                      ),
+                      filterDomain ? /* @__PURE__ */ jsxs68(Fragment22, { children: [
+                        /* @__PURE__ */ jsxs68(
+                          "button",
+                          {
+                            className: "btn",
+                            onClick: () => handleTakeBaseline(filterDomain),
+                            title: baselines[filterDomain] ? `\u041E\u0431\u043D\u043E\u0432\u0438\u0442\u044C baseline \u0434\u043B\u044F ${filterDomain}` : `\u041F\u0440\u0438\u043D\u044F\u0442\u044C \u0442\u0435\u043A\u0443\u0449\u0435\u0435 \u0441\u043E\u0441\u0442\u043E\u044F\u043D\u0438\u0435 ${filterDomain} \u043A\u0430\u043A baseline`,
+                            children: [
+                              /* @__PURE__ */ jsx71(
+                                MIcon,
+                                {
+                                  name: "push_pin",
+                                  size: "sm"
+                                }
+                              ),
+                              baselines[filterDomain] ? "\u041E\u0431\u043D\u043E\u0432\u0438\u0442\u044C baseline" : "\u041F\u0440\u0438\u043D\u044F\u0442\u044C baseline"
+                            ]
+                          }
+                        ),
+                        baselines[filterDomain] && /* @__PURE__ */ jsx71(
+                          "button",
+                          {
+                            className: "btn btn--danger",
+                            onClick: () => handleClearBaseline(
+                              filterDomain
+                            ),
+                            title: `\u0423\u0434\u0430\u043B\u0438\u0442\u044C baseline \u0434\u043B\u044F ${filterDomain}`,
+                            children: /* @__PURE__ */ jsx71(MIcon, { name: "close", size: "sm" })
+                          }
+                        )
+                      ] }) : Object.keys(baselines).length === 0 && report.stats.total > 0 && /* @__PURE__ */ jsxs68(
+                        "button",
+                        {
+                          className: "btn",
+                          onClick: handleTakeBaselineAll,
+                          title: "\u041F\u0440\u0438\u043D\u044F\u0442\u044C \u0442\u0435\u043A\u0443\u0449\u0435\u0435 \u0441\u043E\u0441\u0442\u043E\u044F\u043D\u0438\u0435 \u0432\u0441\u0435\u0445 \u0434\u043E\u043C\u0435\u043D\u043E\u0432 \u0441 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0430\u043C\u0438 \u043A\u0430\u043A baseline",
+                          children: [
+                            /* @__PURE__ */ jsx71(
+                              MIcon,
+                              {
+                                name: "push_pin",
+                                size: "sm"
+                              }
+                            ),
+                            "\u041F\u0440\u0438\u043D\u044F\u0442\u044C \u0434\u043B\u044F \u0432\u0441\u0435\u0445"
+                          ]
+                        }
+                      )
+                    ] })
+                  ]
+                }
+              ),
+              filterDomain && baselines[filterDomain] && (() => {
+                const info = domainBaselineInfo.get(filterDomain);
+                if (!info)
+                  return null;
                 return /* @__PURE__ */ jsxs68("div", { className: "lint-baseline-info", children: [
                   /* @__PURE__ */ jsx71(MIcon, { name: "push_pin", size: "sm" }),
                   /* @__PURE__ */ jsxs68("span", { children: [
-                    "Baseline \u0434\u043B\u044F ",
+                    "Baseline \u0434\u043B\u044F",
+                    " ",
                     /* @__PURE__ */ jsx71("code", { children: filterDomain }),
                     " \u043F\u0440\u0438\u043D\u044F\u0442",
                     " ",
-                    new Date(baselines[filterDomain].takenAt).toLocaleString("ru-RU")
+                    new Date(
+                      baselines[filterDomain].takenAt
+                    ).toLocaleString("ru-RU")
                   ] }),
                   /* @__PURE__ */ jsxs68("span", { className: "lint-baseline-info__stats", children: [
                     "\u0431\u044B\u043B\u043E ",
-                    cmp.totalBaseline,
-                    " \xB7 \u0441\u0435\u0439\u0447\u0430\u0441 ",
-                    cmp.totalCurrent,
-                    cmp.newIssues.length > 0 && /* @__PURE__ */ jsxs68("span", { className: "lint-baseline-info__new", children: [
+                    info.baselineTotal,
+                    " \xB7 \u0441\u0435\u0439\u0447\u0430\u0441",
+                    " ",
+                    info.total,
+                    info.newCount > 0 && /* @__PURE__ */ jsxs68("span", { className: "lint-baseline-info__new", children: [
                       " ",
                       "\xB7 \u{1F525} ",
-                      cmp.newIssues.length,
+                      info.newCount,
                       " \u043D\u043E\u0432\u044B\u0445"
                     ] }),
-                    cmp.fixedIssues.length > 0 && /* @__PURE__ */ jsxs68("span", { className: "lint-baseline-info__fixed", children: [
+                    info.fixedCount > 0 && /* @__PURE__ */ jsxs68("span", { className: "lint-baseline-info__fixed", children: [
                       " ",
                       "\xB7 \u2713 ",
-                      cmp.fixedIssues.length,
-                      " \u0438\u0441\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u043E"
+                      info.fixedCount,
+                      " ",
+                      "\u0438\u0441\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u043E"
                     ] })
                   ] })
                 ] });
               })(),
-              /* @__PURE__ */ jsx71("div", { className: "lint-rules", children: grouped.length === 0 ? /* @__PURE__ */ jsxs68("div", { className: "lint-empty", children: [
-                /* @__PURE__ */ jsx71("div", { className: "lint-empty__icon", children: onlyNew && Object.keys(baselines).length > 0 ? "\u2705" : "\u2705" }),
-                /* @__PURE__ */ jsx71("div", { className: "lint-empty__title", children: onlyNew ? Object.keys(baselines).length === 0 ? "\u0421\u043D\u0430\u0447\u0430\u043B\u0430 \u043F\u0440\u0438\u043C\u0438\u0442\u0435 baseline \u0445\u043E\u0442\u044F \u0431\u044B \u0434\u043B\u044F \u043E\u0434\u043D\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430" : "\u041D\u043E\u0432\u044B\u0445 \u043F\u0440\u043E\u0431\u043B\u0435\u043C \u043D\u0435\u0442 \u2014 \u0442\u043E\u043B\u044C\u043A\u043E baseline" : "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u043C" }),
-                onlyNew && unbaselinedDomainCount > 0 && /* @__PURE__ */ jsxs68("div", { className: "lint-empty__hint", children: [
-                  unbaselinedDomainCount,
-                  " ",
-                  unbaselinedDomainCount === 1 ? "\u0434\u043E\u043C\u0435\u043D" : "\u0434\u043E\u043C\u0435\u043D\u043E\u0432",
-                  " \u0431\u0435\u0437 baseline \u2014 \u0438\u0445 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B \u0441\u043A\u0440\u044B\u0442\u044B. \u041D\u0430\u0436\u043C\u0438\u0442\u0435 \xAB\u041F\u0440\u0438\u043D\u044F\u0442\u044C \u0434\u043B\u044F \u0432\u0441\u0435\u0445\xBB \u0438\u043B\u0438 \u0432\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u043E\u043C\u0435\u043D \u0438 \u043D\u0430\u0436\u043C\u0438\u0442\u0435 \xAB\u041F\u0440\u0438\u043D\u044F\u0442\u044C baseline\xBB."
-                ] })
-              ] }) : grouped.map((g) => {
-                const isOpen = expandedRules.has(g.ruleId);
+              /* @__PURE__ */ jsxs68(
+                "div",
+                {
+                  style: {
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "8px 16px",
+                    borderTop: "1px solid var(--border)",
+                    borderBottom: "1px solid var(--border)",
+                    background: "var(--bg-800)",
+                    flexWrap: "wrap"
+                  },
+                  children: [
+                    /* @__PURE__ */ jsxs68(
+                      "button",
+                      {
+                        className: "btn",
+                        onClick: expandAll,
+                        disabled: grouped.length === 0,
+                        title: "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0435 \u0433\u0440\u0443\u043F\u043F\u044B",
+                        children: [
+                          /* @__PURE__ */ jsx71(MIcon, { name: "unfold_more", size: "sm" }),
+                          "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C"
+                        ]
+                      }
+                    ),
+                    /* @__PURE__ */ jsxs68(
+                      "button",
+                      {
+                        className: "btn",
+                        onClick: collapseAll,
+                        disabled: expandedGroups.size === 0,
+                        title: "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0435 \u0433\u0440\u0443\u043F\u043F\u044B",
+                        children: [
+                          /* @__PURE__ */ jsx71(MIcon, { name: "unfold_less", size: "sm" }),
+                          "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C"
+                        ]
+                      }
+                    ),
+                    /* @__PURE__ */ jsxs68(
+                      "span",
+                      {
+                        style: {
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 6,
+                          marginLeft: 8,
+                          fontSize: 12,
+                          color: "var(--text-400)"
+                        },
+                        children: [
+                          "\u041F\u043E\u043A\u0430\u0437\u0430\u043D\u043E:",
+                          " ",
+                          /* @__PURE__ */ jsx71("strong", { style: { color: "var(--text-200)" }, children: filteredIssues.length }),
+                          hasFilter && /* @__PURE__ */ jsxs68(Fragment22, { children: [
+                            "\u0438\u0437 ",
+                            report.stats.total
+                          ] }),
+                          hasFilter && /* @__PURE__ */ jsx71(
+                            "button",
+                            {
+                              onClick: resetFilters,
+                              style: {
+                                background: "transparent",
+                                border: "none",
+                                color: "var(--accent-hover)",
+                                cursor: "pointer",
+                                textDecoration: "underline",
+                                fontSize: 12,
+                                padding: 0,
+                                marginLeft: 4
+                              },
+                              children: "\u0441\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0444\u0438\u043B\u044C\u0442\u0440\u044B"
+                            }
+                          )
+                        ]
+                      }
+                    ),
+                    /* @__PURE__ */ jsx71("div", { style: { flex: 1 } }),
+                    /* @__PURE__ */ jsx71(
+                      Popover,
+                      {
+                        width: 240,
+                        align: "right",
+                        trigger: (isPopOpen) => /* @__PURE__ */ jsxs68(
+                          "button",
+                          {
+                            className: "btn" + (isPopOpen ? " btn--active" : ""),
+                            children: [
+                              /* @__PURE__ */ jsx71(MIcon, { name: "download", size: "sm" }),
+                              "\u042D\u043A\u0441\u043F\u043E\u0440\u0442"
+                            ]
+                          }
+                        ),
+                        children: (close) => /* @__PURE__ */ jsxs68("div", { className: "menu", children: [
+                          /* @__PURE__ */ jsxs68(
+                            "button",
+                            {
+                              className: "menu__item",
+                              onClick: () => {
+                                downloadFile4(
+                                  buildJSON(),
+                                  "application/json",
+                                  "json"
+                                );
+                                close();
+                              },
+                              children: [
+                                /* @__PURE__ */ jsx71("span", { className: "menu__icon", children: /* @__PURE__ */ jsx71(
+                                  MIcon,
+                                  {
+                                    name: "data_object",
+                                    size: "sm"
+                                  }
+                                ) }),
+                                /* @__PURE__ */ jsxs68("span", { className: "menu__text", children: [
+                                  "JSON (",
+                                  filteredIssues.length,
+                                  ")"
+                                ] })
+                              ]
+                            }
+                          ),
+                          /* @__PURE__ */ jsxs68(
+                            "button",
+                            {
+                              className: "menu__item",
+                              onClick: () => {
+                                downloadFile4(
+                                  buildCSV(),
+                                  "text/csv;charset=utf-8",
+                                  "csv"
+                                );
+                                close();
+                              },
+                              children: [
+                                /* @__PURE__ */ jsx71("span", { className: "menu__icon", children: /* @__PURE__ */ jsx71(
+                                  MIcon,
+                                  {
+                                    name: "table_view",
+                                    size: "sm"
+                                  }
+                                ) }),
+                                /* @__PURE__ */ jsxs68("span", { className: "menu__text", children: [
+                                  "CSV (",
+                                  filteredIssues.length,
+                                  ")"
+                                ] })
+                              ]
+                            }
+                          ),
+                          /* @__PURE__ */ jsxs68(
+                            "button",
+                            {
+                              className: "menu__item",
+                              onClick: () => {
+                                downloadFile4(
+                                  buildMD(),
+                                  "text/markdown;charset=utf-8",
+                                  "md"
+                                );
+                                close();
+                              },
+                              children: [
+                                /* @__PURE__ */ jsx71("span", { className: "menu__icon", children: /* @__PURE__ */ jsx71(
+                                  MIcon,
+                                  {
+                                    name: "description",
+                                    size: "sm"
+                                  }
+                                ) }),
+                                /* @__PURE__ */ jsxs68("span", { className: "menu__text", children: [
+                                  "Markdown (",
+                                  filteredIssues.length,
+                                  ")"
+                                ] })
+                              ]
+                            }
+                          ),
+                          /* @__PURE__ */ jsx71("div", { className: "menu__divider" }),
+                          /* @__PURE__ */ jsxs68(
+                            "button",
+                            {
+                              className: "menu__item",
+                              onClick: () => {
+                                copyToClipboard(
+                                  buildMD(),
+                                  "Markdown-\u043E\u0442\u0447\u0451\u0442"
+                                );
+                                close();
+                              },
+                              children: [
+                                /* @__PURE__ */ jsx71("span", { className: "menu__icon", children: /* @__PURE__ */ jsx71(
+                                  MIcon,
+                                  {
+                                    name: "content_copy",
+                                    size: "sm"
+                                  }
+                                ) }),
+                                /* @__PURE__ */ jsx71("span", { className: "menu__text", children: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C Markdown" })
+                              ]
+                            }
+                          ),
+                          /* @__PURE__ */ jsxs68(
+                            "button",
+                            {
+                              className: "menu__item",
+                              onClick: () => {
+                                copyToClipboard(
+                                  buildJSON(),
+                                  "JSON-\u043E\u0442\u0447\u0451\u0442"
+                                );
+                                close();
+                              },
+                              children: [
+                                /* @__PURE__ */ jsx71("span", { className: "menu__icon", children: /* @__PURE__ */ jsx71(
+                                  MIcon,
+                                  {
+                                    name: "content_copy",
+                                    size: "sm"
+                                  }
+                                ) }),
+                                /* @__PURE__ */ jsx71("span", { className: "menu__text", children: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C JSON" })
+                              ]
+                            }
+                          )
+                        ] })
+                      }
+                    )
+                  ]
+                }
+              ),
+              /* @__PURE__ */ jsx71("div", { className: "lint-rules", children: grouped.length === 0 ? /* @__PURE__ */ jsx71("div", { className: "lint-empty", children: report.stats.total === 0 ? /* @__PURE__ */ jsxs68(Fragment22, { children: [
+                /* @__PURE__ */ jsx71("div", { className: "lint-empty__icon", children: "\u2705" }),
+                /* @__PURE__ */ jsx71("div", { className: "lint-empty__title", children: "\u041F\u0440\u043E\u0431\u043B\u0435\u043C \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" }),
+                /* @__PURE__ */ jsx71("div", { className: "lint-empty__hint", children: "\u0421\u0445\u0435\u043C\u044B \u0441\u043E\u043E\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0443\u044E\u0442 \u0432\u0441\u0435\u043C \u043F\u0440\u0430\u0432\u0438\u043B\u0430\u043C \u043B\u0438\u043D\u0442\u0435\u0440\u0430" })
+              ] }) : onlyNew && Object.keys(baselines).length === 0 ? /* @__PURE__ */ jsxs68(Fragment22, { children: [
+                /* @__PURE__ */ jsx71("div", { className: "lint-empty__icon", children: "\u{1F4CC}" }),
+                /* @__PURE__ */ jsx71("div", { className: "lint-empty__title", children: "Baseline \u043D\u0435 \u0437\u0430\u0434\u0430\u043D" }),
+                /* @__PURE__ */ jsx71("div", { className: "lint-empty__hint", children: "\u041F\u0440\u0438\u043C\u0438\u0442\u0435 baseline \u0445\u043E\u0442\u044F \u0431\u044B \u0434\u043B\u044F \u043E\u0434\u043D\u043E\u0433\u043E \u0434\u043E\u043C\u0435\u043D\u0430, \u0447\u0442\u043E\u0431\u044B \xAB\u043D\u043E\u0432\u044B\u0435\xBB \u043D\u0430\u0447\u0430\u043B\u0438 \u0441\u0447\u0438\u0442\u0430\u0442\u044C\u0441\u044F. \u041A\u043D\u043E\u043F\u043A\u0430 \xAB\u041F\u0440\u0438\u043D\u044F\u0442\u044C \u0434\u043B\u044F \u0432\u0441\u0435\u0445\xBB \u0432 \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u0445 \u0432\u044B\u0448\u0435." }),
+                /* @__PURE__ */ jsx71(
+                  "button",
+                  {
+                    className: "btn",
+                    onClick: handleTakeBaselineAll,
+                    style: { marginTop: 12 },
+                    children: "\u041F\u0440\u0438\u043D\u044F\u0442\u044C \u0434\u043B\u044F \u0432\u0441\u0435\u0445"
+                  }
+                )
+              ] }) : onlyNew ? /* @__PURE__ */ jsxs68(Fragment22, { children: [
+                /* @__PURE__ */ jsx71("div", { className: "lint-empty__icon", children: "\u2713" }),
+                /* @__PURE__ */ jsx71("div", { className: "lint-empty__title", children: "\u041D\u043E\u0432\u044B\u0445 \u043F\u0440\u043E\u0431\u043B\u0435\u043C \u043D\u0435\u0442" }),
+                /* @__PURE__ */ jsx71("div", { className: "lint-empty__hint", children: "\u0412\u0441\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B \u0443\u0436\u0435 \u0432 baseline. \u0421 \u043C\u043E\u043C\u0435\u043D\u0442\u0430 \u043F\u0440\u0438\u043D\u044F\u0442\u0438\u044F baseline \u043D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043F\u043E\u044F\u0432\u0438\u043B\u043E\u0441\u044C." }),
+                /* @__PURE__ */ jsx71(
+                  "button",
+                  {
+                    className: "btn",
+                    onClick: () => setOnlyNew(false),
+                    style: { marginTop: 12 },
+                    children: "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0432\u0441\u0435 \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B"
+                  }
+                )
+              ] }) : /* @__PURE__ */ jsxs68(Fragment22, { children: [
+                /* @__PURE__ */ jsx71("div", { className: "lint-empty__icon", children: "\u{1F50D}" }),
+                /* @__PURE__ */ jsx71("div", { className: "lint-empty__title", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0442\u0435\u043A\u0443\u0449\u0438\u043C \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u043C" }),
+                /* @__PURE__ */ jsx71(
+                  "button",
+                  {
+                    className: "btn",
+                    onClick: resetFilters,
+                    style: { marginTop: 12 },
+                    children: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0444\u0438\u043B\u044C\u0442\u0440\u044B"
+                  }
+                )
+              ] }) }) : grouped.map((g) => {
+                const isOpen = expandedGroups.has(g.key);
+                const displayed = g.issues.slice(
+                  0,
+                  groupLimit
+                );
+                const hasMore = g.issues.length > groupLimit;
+                const visibleSevCount = g.issues.filter(
+                  (i) => i.severity === g.severity
+                ).length;
                 return /* @__PURE__ */ jsxs68(
                   "div",
                   {
@@ -26217,12 +29649,44 @@ function LintModal() {
                         "button",
                         {
                           className: "lint-rule__head",
-                          onClick: () => toggleRule(g.ruleId),
+                          onClick: () => toggleGroup(g.key),
                           children: [
-                            /* @__PURE__ */ jsx71(MIcon, { name: isOpen ? "expand_more" : "chevron_right", size: "sm" }),
-                            /* @__PURE__ */ jsx71("span", { className: "lint-rule__title", children: g.rule }),
-                            /* @__PURE__ */ jsx71("span", { className: "lint-rule__category", children: CATEGORY_LABELS2[g.category] }),
                             /* @__PURE__ */ jsx71(
+                              MIcon,
+                              {
+                                name: isOpen ? "expand_more" : "chevron_right",
+                                size: "sm"
+                              }
+                            ),
+                            /* @__PURE__ */ jsx71(
+                              "span",
+                              {
+                                style: {
+                                  display: "inline-block",
+                                  width: 8,
+                                  height: 8,
+                                  borderRadius: "50%",
+                                  background: SEVERITY_COLOR[g.severity],
+                                  flexShrink: 0
+                                },
+                                title: g.severity === "error" ? "\u041E\u0448\u0438\u0431\u043A\u0430" : g.severity === "warning" ? "\u041F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u0435" : "\u0420\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u044F"
+                              }
+                            ),
+                            /* @__PURE__ */ jsx71("span", { className: "lint-rule__title", children: g.title }),
+                            g.subtitle && /* @__PURE__ */ jsx71(
+                              "span",
+                              {
+                                className: "lint-rule__subtitle",
+                                style: {
+                                  fontSize: 11,
+                                  color: "var(--text-500)",
+                                  marginLeft: 4
+                                },
+                                children: g.subtitle
+                              }
+                            ),
+                            groupBy === "rule" && /* @__PURE__ */ jsx71("span", { className: "lint-rule__category", children: CATEGORY_LABELS2[g.category] }),
+                            groupBy === "rule" && /* @__PURE__ */ jsx71(
                               "span",
                               {
                                 role: "button",
@@ -26252,7 +29716,25 @@ function LintModal() {
                                   cursor: "pointer",
                                   color: "var(--text-500)"
                                 },
-                                children: /* @__PURE__ */ jsx71(MIcon, { name: "menu_book", size: "sm" })
+                                children: /* @__PURE__ */ jsx71(
+                                  MIcon,
+                                  {
+                                    name: "menu_book",
+                                    size: "sm"
+                                  }
+                                )
+                              }
+                            ),
+                            visibleSevCount < g.issues.length && visibleSevCount > 0 && /* @__PURE__ */ jsxs68(
+                              "span",
+                              {
+                                className: "lint-rule__category",
+                                title: `\u0418\u0437 ${g.issues.length} \u043F\u0440\u043E\u0431\u043B\u0435\u043C ${visibleSevCount} \u2014 ${g.severity}`,
+                                children: [
+                                  visibleSevCount,
+                                  "/",
+                                  g.issues.length
+                                ]
                               }
                             ),
                             /* @__PURE__ */ jsx71("span", { className: "lint-rule__count", children: g.issues.length })
@@ -26260,66 +29742,56 @@ function LintModal() {
                         }
                       ),
                       isOpen && /* @__PURE__ */ jsxs68("div", { className: "lint-rule__body", children: [
-                        g.issues.slice(0, 100).map((issue, i) => /* @__PURE__ */ jsxs68(
+                        displayed.map(
+                          (issue, i) => /* @__PURE__ */ jsx71(
+                            IssueRow,
+                            {
+                              issue,
+                              isNew: isIssueNew(
+                                issue
+                              ) === true,
+                              onClick: () => openIssueInEditor(
+                                issue
+                              ),
+                              onEntityClick: issue.entityFqid ? () => openEntity(
+                                issue.entityFqid
+                              ) : void 0
+                            },
+                            i
+                          )
+                        ),
+                        hasMore && /* @__PURE__ */ jsx71(
                           "div",
                           {
-                            className: "lint-issue lint-issue--clickable" + (isIssueNew(issue) === true ? " lint-issue--new" : ""),
-                            onClick: () => openIssueInEditor(issue),
-                            role: "button",
-                            tabIndex: 0,
-                            onKeyDown: (e) => {
-                              if (e.key === "Enter" || e.key === " ") {
-                                e.preventDefault();
-                                openIssueInEditor(issue);
-                              }
+                            style: {
+                              padding: "8px 16px",
+                              textAlign: "center"
                             },
-                            title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0432 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0435 \u043D\u0430 \u044D\u0442\u043E\u0439 \u0441\u0442\u0440\u043E\u043A\u0435",
-                            children: [
-                              (() => {
-                                const isNew = isIssueNew(issue);
-                                if (isNew !== true)
-                                  return null;
-                                return /* @__PURE__ */ jsx71("span", { className: "lint-issue__new-badge", title: "\u041F\u0440\u043E\u0431\u043B\u0435\u043C\u0430 \u043F\u043E\u044F\u0432\u0438\u043B\u0430\u0441\u044C \u043F\u043E\u0441\u043B\u0435 baseline", children: "\u{1F525} new" });
-                              })(),
-                              /* @__PURE__ */ jsx71("div", { className: "lint-issue__message", children: issue.message }),
-                              issue.hint && /* @__PURE__ */ jsxs68("div", { className: "lint-issue__hint", children: [
-                                /* @__PURE__ */ jsx71(MIcon, { name: "lightbulb", size: "sm" }),
-                                issue.hint
-                              ] }),
-                              /* @__PURE__ */ jsxs68("div", { className: "lint-issue__context", children: [
-                                issue.entityFqid && /* @__PURE__ */ jsxs68(
-                                  "button",
-                                  {
-                                    className: "lint-issue__link",
-                                    onClick: (e) => {
-                                      e.stopPropagation();
-                                      openEntity(issue.entityFqid);
-                                    },
-                                    title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435",
-                                    children: [
-                                      issue.entityFqid,
-                                      issue.attributeId && `.${issue.attributeId}`
-                                    ]
-                                  }
+                            children: /* @__PURE__ */ jsxs68(
+                              "button",
+                              {
+                                className: "btn",
+                                onClick: () => setGroupLimit(
+                                  (n) => n + ISSUES_PER_GROUP_LIMIT
                                 ),
-                                !issue.entityFqid && issue.domainId && /* @__PURE__ */ jsx71("code", { className: "lint-issue__link-static", children: issue.domainId }),
-                                /* @__PURE__ */ jsxs68("span", { className: "lint-issue__editor-hint", children: [
-                                  /* @__PURE__ */ jsx71(MIcon, { name: "open_in_new", size: "sm" }),
-                                  "\u0412 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0435"
-                                ] })
-                              ] })
-                            ]
-                          },
-                          i
-                        )),
-                        g.issues.length > 100 && /* @__PURE__ */ jsxs68("div", { className: "lint-issue__more", children: [
-                          "...\u0438 \u0435\u0449\u0451 ",
-                          g.issues.length - 100
-                        ] })
+                                children: [
+                                  "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0435\u0449\u0451",
+                                  " ",
+                                  ISSUES_PER_GROUP_LIMIT,
+                                  " ",
+                                  "(\u043E\u0441\u0442\u0430\u043B\u043E\u0441\u044C",
+                                  " ",
+                                  g.issues.length - groupLimit,
+                                  ")"
+                                ]
+                              }
+                            )
+                          }
+                        )
                       ] })
                     ]
                   },
-                  g.ruleId
+                  g.key
                 );
               }) })
             ] })
@@ -26329,7 +29801,94 @@ function LintModal() {
     }
   );
 }
-var CATEGORY_LABELS2, CATEGORY_TO_CHEATSHEET;
+function IssueRow({ issue, isNew, onClick, onEntityClick }) {
+  const entityId = issue.entityFqid ? issue.entityFqid.split("/")[1] : null;
+  const line = typeof issue.line === "number" ? issue.line : null;
+  return /* @__PURE__ */ jsxs68(
+    "div",
+    {
+      className: "lint-issue lint-issue--clickable" + (isNew ? " lint-issue--new" : ""),
+      onClick,
+      role: "button",
+      tabIndex: 0,
+      onKeyDown: (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      },
+      title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0432 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0435 \u043D\u0430 \u044D\u0442\u043E\u0439 \u0441\u0442\u0440\u043E\u043A\u0435",
+      children: [
+        isNew && /* @__PURE__ */ jsx71(
+          "span",
+          {
+            className: "lint-issue__new-badge",
+            title: "\u041F\u043E\u044F\u0432\u0438\u043B\u0430\u0441\u044C \u043F\u043E\u0441\u043B\u0435 \u043F\u0440\u0438\u043D\u044F\u0442\u0438\u044F baseline",
+            children: "\u{1F525} new"
+          }
+        ),
+        /* @__PURE__ */ jsx71("div", { className: "lint-issue__message", children: issue.message }),
+        issue.hint && /* @__PURE__ */ jsxs68("div", { className: "lint-issue__hint", children: [
+          /* @__PURE__ */ jsx71(MIcon, { name: "lightbulb", size: "sm" }),
+          issue.hint
+        ] }),
+        /* @__PURE__ */ jsxs68("div", { className: "lint-issue__context", children: [
+          issue.entityFqid && /* @__PURE__ */ jsxs68(
+            "button",
+            {
+              className: "lint-issue__link",
+              onClick: (e) => {
+                e.stopPropagation();
+                onEntityClick?.();
+              },
+              title: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C \u0432 \u043A\u0430\u0442\u0430\u043B\u043E\u0433\u0435",
+              children: [
+                /* @__PURE__ */ jsx71(MIcon, { name: "data_object", size: "sm" }),
+                entityId,
+                issue.attributeId && `.${issue.attributeId}`
+              ]
+            }
+          ),
+          !issue.entityFqid && issue.domainId && /* @__PURE__ */ jsx71("code", { className: "lint-issue__link-static", children: issue.domainId }),
+          issue.propertyPath && /* @__PURE__ */ jsx71(
+            "span",
+            {
+              className: "lint-issue__path",
+              title: "\u041F\u0443\u0442\u044C \u0432 YAML",
+              style: {
+                fontFamily: "JetBrains Mono, monospace",
+                fontSize: 10,
+                color: "var(--text-500)"
+              },
+              children: issue.propertyPath
+            }
+          ),
+          line != null && /* @__PURE__ */ jsxs68(
+            "span",
+            {
+              className: "lint-issue__line",
+              title: "\u0421\u0442\u0440\u043E\u043A\u0430 \u0432 \u0444\u0430\u0439\u043B\u0435",
+              style: {
+                fontFamily: "JetBrains Mono, monospace",
+                fontSize: 10,
+                color: "var(--text-500)"
+              },
+              children: [
+                ":",
+                line
+              ]
+            }
+          ),
+          /* @__PURE__ */ jsxs68("span", { className: "lint-issue__editor-hint", children: [
+            /* @__PURE__ */ jsx71(MIcon, { name: "open_in_new", size: "sm" }),
+            "\u0412 \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440\u0435"
+          ] })
+        ] })
+      ]
+    }
+  );
+}
+var CATEGORY_LABELS2, SEVERITY_ORDER, SEVERITY_COLOR, SEVERITY_RANK2, CATEGORY_TO_CHEATSHEET, ISSUES_PER_GROUP_LIMIT;
 var init_LintModal = __esm({
   "src/web/components/modals/LintModal.tsx"() {
     "use strict";
@@ -26341,6 +29900,7 @@ var init_LintModal = __esm({
     init_useLintBaselines();
     init_lint_baseline();
     init_dialogs();
+    init_Popover();
     CATEGORY_LABELS2 = {
       reference: "\u0421\u0441\u044B\u043B\u043E\u0447\u043D\u0430\u044F \u0446\u0435\u043B\u043E\u0441\u0442\u043D\u043E\u0441\u0442\u044C",
       semantic: "\u0421\u0435\u043C\u0430\u043D\u0442\u0438\u043A\u0430",
@@ -26349,6 +29909,17 @@ var init_LintModal = __esm({
       required: "\u041E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u044B\u0435 \u043F\u043E\u043B\u044F",
       recommended: "\u0420\u0435\u043A\u043E\u043C\u0435\u043D\u0434\u0430\u0446\u0438\u0438",
       uirules: "UI Rules"
+    };
+    SEVERITY_ORDER = ["error", "warning", "info"];
+    SEVERITY_COLOR = {
+      error: "#ef4444",
+      warning: "#f59e0b",
+      info: "#3b82f6"
+    };
+    SEVERITY_RANK2 = {
+      error: 0,
+      warning: 1,
+      info: 2
     };
     CATEGORY_TO_CHEATSHEET = {
       reference: "linkages",
@@ -26359,6 +29930,7 @@ var init_LintModal = __esm({
       recommended: "validation-errors",
       uirules: "uiRules"
     };
+    ISSUES_PER_GROUP_LIMIT = 100;
   }
 });
 
@@ -26591,8 +30163,8 @@ var init_attribute_matrix = __esm({
 });
 
 // src/web/components/modals/AttributeMatrixModal.tsx
-import { useCallback as useCallback22, useMemo as useMemo41, useState as useState31 } from "react";
-import { Fragment as Fragment22, jsx as jsx72, jsxs as jsxs69 } from "react/jsx-runtime";
+import { useCallback as useCallback23, useMemo as useMemo41, useState as useState31 } from "react";
+import { Fragment as Fragment23, jsx as jsx72, jsxs as jsxs69 } from "react/jsx-runtime";
 function sortColumns(cols, sortBy) {
   const arr = [...cols];
   switch (sortBy) {
@@ -26713,13 +30285,13 @@ function AttributeMatrixModal() {
     }
     return null;
   }, [searchQuery, matrix, index, searchEntityMatch]);
-  const openEntity = useCallback22((fqid) => {
+  const openEntity = useCallback23((fqid) => {
     const st = useGraphStore.getState();
     st.setAttributeMatrixOpen(false);
     st.setEntityCatalogInitialFqid(fqid);
     st.setEntityCatalogOpen(true);
   }, []);
-  const toggleQuickFilter = useCallback22((id) => {
+  const toggleQuickFilter = useCallback23((id) => {
     setQuickFilters((prev) => {
       const next = new Set(prev);
       if (next.has(id))
@@ -26729,16 +30301,16 @@ function AttributeMatrixModal() {
       return next;
     });
   }, []);
-  const handleCellClick = useCallback22(
+  const handleCellClick = useCallback23(
     (entityFqid, columnKey) => {
       setSelectedDetail({ kind: "cell", entityFqid, columnKey });
     },
     []
   );
-  const handleColumnClick = useCallback22((columnKey) => {
+  const handleColumnClick = useCallback23((columnKey) => {
     setSelectedDetail({ kind: "column", columnKey });
   }, []);
-  const resetAll = useCallback22(() => {
+  const resetAll = useCallback23(() => {
     setSearchQuery("");
     setQuickFilters(/* @__PURE__ */ new Set());
     setFilterByColumn(null);
@@ -27514,7 +31086,7 @@ function AttributeMatrixModal() {
                     }
                   )
                 ] }),
-                /* @__PURE__ */ jsx72("div", { className: "attribute-matrix-detail-panel__body", children: selectedDetail.kind === "cell" && detailCell ? /* @__PURE__ */ jsxs69(Fragment22, { children: [
+                /* @__PURE__ */ jsx72("div", { className: "attribute-matrix-detail-panel__body", children: selectedDetail.kind === "cell" && detailCell ? /* @__PURE__ */ jsxs69(Fragment23, { children: [
                   /* @__PURE__ */ jsxs69("div", { className: "attribute-matrix-detail-panel__section-title", children: [
                     "\u0412 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u0438",
                     " ",
@@ -27569,7 +31141,7 @@ function AttributeMatrixModal() {
                       ] })
                     ] })
                   ] })
-                ] }) : /* @__PURE__ */ jsxs69(Fragment22, { children: [
+                ] }) : /* @__PURE__ */ jsxs69(Fragment23, { children: [
                   /* @__PURE__ */ jsx72("div", { className: "attribute-matrix-detail-panel__section-title", children: "\u0420\u0430\u0441\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u0438\u0435 \u043F\u043E \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044F\u043C" }),
                   /* @__PURE__ */ jsxs69("div", { className: "attribute-matrix-detail-grid", children: [
                     /* @__PURE__ */ jsxs69("div", { className: "attribute-matrix-detail-row", children: [
@@ -27635,7 +31207,7 @@ function AttributeMatrixModal() {
                       )) })
                     ] })
                   ] }),
-                  detailColumn.examples.length > 0 && /* @__PURE__ */ jsxs69(Fragment22, { children: [
+                  detailColumn.examples.length > 0 && /* @__PURE__ */ jsxs69(Fragment23, { children: [
                     /* @__PURE__ */ jsx72("div", { className: "attribute-matrix-detail-panel__section-title", children: "\u041F\u0440\u0438\u043C\u0435\u0440\u044B" }),
                     /* @__PURE__ */ jsx72("div", { className: "attribute-matrix-detail-examples", children: detailColumn.examples.map((ex) => /* @__PURE__ */ jsxs69(
                       "button",
@@ -27751,8 +31323,8 @@ var init_AttributeMatrixModal = __esm({
 });
 
 // src/web/components/modals/MartinMetricsModal.tsx
-import React43, { useCallback as useCallback23, useMemo as useMemo42, useState as useState32 } from "react";
-import { Fragment as Fragment23, jsx as jsx73, jsxs as jsxs70 } from "react/jsx-runtime";
+import React43, { useCallback as useCallback24, useMemo as useMemo42, useState as useState32 } from "react";
+import { Fragment as Fragment24, jsx as jsx73, jsxs as jsxs70 } from "react/jsx-runtime";
 function zoneIcon(zone) {
   if (zone === "pain")
     return "favorite";
@@ -28274,16 +31846,16 @@ function MartinMetricsModal() {
       return null;
     return report.metrics.find((m) => m.domainId === selectedId) || null;
   }, [selectedId, report]);
-  const handleSelectDomain = useCallback23((domainId) => {
+  const handleSelectDomain = useCallback24((domainId) => {
     setSelectedId(domainId);
   }, []);
-  const openSchema = useCallback23((domainId) => {
+  const openSchema = useCallback24((domainId) => {
     const st = useGraphStore.getState();
     st.setMartinOpen(false);
     st.setDomainSchemaDomainId(domainId);
     st.setDomainSchemaOpen(true);
   }, []);
-  const gotoDomain = useCallback23((domainId) => {
+  const gotoDomain = useCallback24((domainId) => {
     const st = useGraphStore.getState();
     st.setMartinOpen(false);
     st.setViewMode("graph");
@@ -28562,7 +32134,7 @@ function MartinMetricsModal() {
                   /* @__PURE__ */ jsx73("li", { children: "\xAB\u0420\u0430\u0441\u0441\u0442\u043E\u044F\u043D\u0438\u0435\xBB \u2014 \u044D\u0432\u0440\u0438\u0441\u0442\u0438\u043A\u0430. D=0 \u043D\u0435\u0434\u043E\u0441\u0442\u0438\u0436\u0438\u043C, \u0441\u0442\u0440\u0435\u043C\u0438\u0442\u0435\u0441\u044C \u043A \u0442\u043E\u043C\u0443, \u0447\u0442\u043E\u0431\u044B \xAB\u0437\u043E\u043D\u0430 \u0431\u043E\u043B\u0438\xBB \u0431\u044B\u043B\u0430 \u043F\u0443\u0441\u0442\u043E\u0439." })
                 ] }) })
               ] }),
-              !showHelp && /* @__PURE__ */ jsxs70(Fragment23, { children: [
+              !showHelp && /* @__PURE__ */ jsxs70(Fragment24, { children: [
                 /* @__PURE__ */ jsxs70("div", { className: "martin-kpi", children: [
                   /* @__PURE__ */ jsxs70("div", { className: "martin-kpi-averages", children: [
                     /* @__PURE__ */ jsxs70("div", { className: "martin-kpi-average", children: [
@@ -28630,7 +32202,7 @@ function MartinMetricsModal() {
                       }
                     )
                   ] }),
-                  tab === "table" && /* @__PURE__ */ jsxs70(Fragment23, { children: [
+                  tab === "table" && /* @__PURE__ */ jsxs70(Fragment24, { children: [
                     /* @__PURE__ */ jsxs70("div", { className: "martin-toolbar__group", children: [
                       /* @__PURE__ */ jsx73("span", { className: "martin-toolbar__label", children: "\u0413\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u043A\u0430:" }),
                       /* @__PURE__ */ jsxs70(
@@ -28991,7 +32563,7 @@ var init_domain_compare = __esm({
 
 // src/web/components/modals/DomainCompareModal.tsx
 import { useEffect as useEffect39, useMemo as useMemo43, useState as useState33 } from "react";
-import { Fragment as Fragment24, jsx as jsx74, jsxs as jsxs71 } from "react/jsx-runtime";
+import { Fragment as Fragment25, jsx as jsx74, jsxs as jsxs71 } from "react/jsx-runtime";
 function DomainCompareModal() {
   const { index, loading, error } = useModelIndex();
   const { goto } = useNavigation();
@@ -29081,7 +32653,7 @@ function DomainCompareModal() {
                   )
                 ] })
               ] }),
-              !domainA || !domainB ? /* @__PURE__ */ jsx74("div", { className: "compare-empty", children: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u0432\u0430 \u0434\u043E\u043C\u0435\u043D\u0430" }) : domainA === domainB ? /* @__PURE__ */ jsx74("div", { className: "compare-empty", children: "\u0414\u043E\u043C\u0435\u043D\u044B \u0434\u043E\u043B\u0436\u043D\u044B \u0431\u044B\u0442\u044C \u0440\u0430\u0437\u043D\u044B\u043C\u0438" }) : result ? /* @__PURE__ */ jsxs71(Fragment24, { children: [
+              !domainA || !domainB ? /* @__PURE__ */ jsx74("div", { className: "compare-empty", children: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u0432\u0430 \u0434\u043E\u043C\u0435\u043D\u0430" }) : domainA === domainB ? /* @__PURE__ */ jsx74("div", { className: "compare-empty", children: "\u0414\u043E\u043C\u0435\u043D\u044B \u0434\u043E\u043B\u0436\u043D\u044B \u0431\u044B\u0442\u044C \u0440\u0430\u0437\u043D\u044B\u043C\u0438" }) : result ? /* @__PURE__ */ jsxs71(Fragment25, { children: [
                 /* @__PURE__ */ jsxs71("div", { className: "compare-summary", children: [
                   /* @__PURE__ */ jsxs71("div", { className: "compare-side compare-side--a", children: [
                     /* @__PURE__ */ jsx74("div", { className: "compare-side__id", children: result.domainA.domainId }),
@@ -29306,7 +32878,7 @@ function generatePiiMarkdown(report, index, options = {}) {
     "| **PCI DSS** | \u041A\u0430\u0440\u0442\u043E\u0447\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435: PAN, CVV, expiry, \u0431\u0430\u043D\u043A\u043E\u0432\u0441\u043A\u0438\u0435 \u0441\u0447\u0435\u0442\u0430. |"
   );
   lines.push("");
-  SEVERITY_ORDER.forEach((sev) => {
+  SEVERITY_ORDER2.forEach((sev) => {
     const items = hits.filter((h) => h.severity === sev);
     if (items.length === 0)
       return;
@@ -29366,7 +32938,7 @@ function generatePiiMarkdown(report, index, options = {}) {
   lines.push("## \u041F\u043E\u043B\u043D\u044B\u0439 \u0441\u043F\u0438\u0441\u043E\u043A");
   lines.push("");
   hits.slice().sort((a, b) => {
-    const sevDiff = SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity);
+    const sevDiff = SEVERITY_ORDER2.indexOf(a.severity) - SEVERITY_ORDER2.indexOf(b.severity);
     if (sevDiff !== 0)
       return sevDiff;
     return a.entityFqid.localeCompare(b.entityFqid);
@@ -29455,7 +33027,7 @@ function downloadPiiMarkdown(markdown, filename) {
   a.click();
   URL.revokeObjectURL(url);
 }
-var SEVERITY_LABELS2, CATEGORY_LABELS4, SEVERITY_ORDER;
+var SEVERITY_LABELS2, CATEGORY_LABELS4, SEVERITY_ORDER2;
 var init_pii_markdown = __esm({
   "src/web/lib/markdown/pii-markdown.ts"() {
     "use strict";
@@ -29476,13 +33048,13 @@ var init_pii_markdown = __esm({
       technical: "\u0422\u0435\u0445\u043D\u0438\u0447\u0435\u0441\u043A\u0438\u0435",
       custom: "\u041F\u0440\u043E\u0447\u0438\u0435"
     };
-    SEVERITY_ORDER = ["critical", "high", "medium", "low"];
+    SEVERITY_ORDER2 = ["critical", "high", "medium", "low"];
   }
 });
 
 // src/web/components/modals/PiiModal.tsx
-import { useCallback as useCallback24, useEffect as useEffect40, useMemo as useMemo44, useState as useState34 } from "react";
-import { Fragment as Fragment25, jsx as jsx75, jsxs as jsxs72 } from "react/jsx-runtime";
+import { useCallback as useCallback25, useEffect as useEffect40, useMemo as useMemo44, useState as useState34 } from "react";
+import { Fragment as Fragment26, jsx as jsx75, jsxs as jsxs72 } from "react/jsx-runtime";
 function computeRisk(bySeverity) {
   const raw = bySeverity.critical * SEVERITY_RISK.critical + bySeverity.high * SEVERITY_RISK.high + bySeverity.medium * SEVERITY_RISK.medium + bySeverity.low * SEVERITY_RISK.low;
   if (raw === 0)
@@ -29533,7 +33105,7 @@ function HitCard({
   onOpenDomainSchema
 }) {
   const [domainId, entityId] = hit.entityFqid.split("/");
-  const color = SEVERITY_COLOR[hit.severity];
+  const color = SEVERITY_COLOR2[hit.severity];
   return /* @__PURE__ */ jsxs72(
     "div",
     {
@@ -29794,13 +33366,13 @@ function PiiModal() {
       ];
     }
     if (groupMode === "severity") {
-      return SEVERITY_ORDER2.filter(
+      return SEVERITY_ORDER3.filter(
         (s) => visibleHits.some((h) => h.severity === s)
       ).map((s) => ({
         key: s,
         label: SEVERITY_LABELS3[s],
         icon: s === "critical" ? "dangerous" : s === "high" ? "warning" : s === "medium" ? "info" : "help",
-        color: SEVERITY_COLOR[s],
+        color: SEVERITY_COLOR2[s],
         hits: visibleHits.filter((h) => h.severity === s),
         bulkIgnore: null
       }));
@@ -29892,7 +33464,7 @@ function PiiModal() {
       bulkIgnore: null
     }));
   }, [groupMode, visibleHits, stats.byCategory, ignored]);
-  const toggleHit = useCallback24((key) => {
+  const toggleHit = useCallback25((key) => {
     setExpandedHits((prev) => {
       const next = new Set(prev);
       if (next.has(key))
@@ -29902,7 +33474,7 @@ function PiiModal() {
       return next;
     });
   }, []);
-  const ignoreHit = useCallback24((key) => {
+  const ignoreHit = useCallback25((key) => {
     setIgnored((prev) => {
       const next = new Set(prev);
       next.add(key);
@@ -29910,7 +33482,7 @@ function PiiModal() {
       return next;
     });
   }, []);
-  const unignoreHit = useCallback24((key) => {
+  const unignoreHit = useCallback25((key) => {
     setIgnored((prev) => {
       const next = new Set(prev);
       next.delete(key);
@@ -29918,19 +33490,19 @@ function PiiModal() {
       return next;
     });
   }, []);
-  const openEntity = useCallback24((fqid) => {
+  const openEntity = useCallback25((fqid) => {
     const st = useGraphStore.getState();
     st.setPiiOpen(false);
     st.setEntityCatalogInitialFqid(fqid.toLowerCase());
     st.setEntityCatalogOpen(true);
   }, []);
-  const openDomainSchema = useCallback24((domainId) => {
+  const openDomainSchema = useCallback25((domainId) => {
     const st = useGraphStore.getState();
     st.setPiiOpen(false);
     st.setDomainSchemaDomainId(domainId.toLowerCase());
     st.setDomainSchemaOpen(true);
   }, []);
-  const openYaml = useCallback24(
+  const openYaml = useCallback25(
     async (fqid) => {
       const domainId = fqid.split("/")[0];
       const node = nodes.find(
@@ -30329,7 +33901,7 @@ function PiiModal() {
                   /* @__PURE__ */ jsx75("li", { children: "\u0418\u0433\u043D\u043E\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435 \u0445\u0440\u0430\u043D\u0438\u0442\u0441\u044F \u0432 localStorage \u2014 \u0441\u0431\u0440\u0430\u0441\u044B\u0432\u0430\u0435\u0442\u0441\u044F \u043F\u0440\u0438 \u043E\u0447\u0438\u0441\u0442\u043A\u0435 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0430. \u041D\u0435 \u0441\u0438\u043D\u0445\u0440\u043E\u043D\u0438\u0437\u0438\u0440\u0443\u0435\u0442\u0441\u044F \u043C\u0435\u0436\u0434\u0443 \u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u0430\u043C\u0438." })
                 ] }) })
               ] }),
-              !showHelp && /* @__PURE__ */ jsxs72(Fragment25, { children: [
+              !showHelp && /* @__PURE__ */ jsxs72(Fragment26, { children: [
                 /* @__PURE__ */ jsxs72("div", { className: "pii-kpi", children: [
                   /* @__PURE__ */ jsxs72(
                     "div",
@@ -30349,7 +33921,7 @@ function PiiModal() {
                       ]
                     }
                   ),
-                  SEVERITY_ORDER2.map((s) => {
+                  SEVERITY_ORDER3.map((s) => {
                     const isActive = filterSeverity === s;
                     const count = stats.bySeverity[s];
                     return /* @__PURE__ */ jsxs72(
@@ -30491,7 +34063,7 @@ function PiiModal() {
                     }
                   )
                 ] }),
-                /* @__PURE__ */ jsx75("div", { className: "pii-content", children: visibleHits.length === 0 ? /* @__PURE__ */ jsx75("div", { className: "pii-empty", children: allHits.length === 0 ? /* @__PURE__ */ jsxs72(Fragment25, { children: [
+                /* @__PURE__ */ jsx75("div", { className: "pii-content", children: visibleHits.length === 0 ? /* @__PURE__ */ jsx75("div", { className: "pii-empty", children: allHits.length === 0 ? /* @__PURE__ */ jsxs72(Fragment26, { children: [
                   /* @__PURE__ */ jsx75(
                     MIcon,
                     {
@@ -30502,7 +34074,7 @@ function PiiModal() {
                   ),
                   /* @__PURE__ */ jsx75("div", { className: "pii-empty__title", children: "PII-\u0430\u0442\u0440\u0438\u0431\u0443\u0442\u043E\u0432 \u043D\u0435 \u043E\u0431\u043D\u0430\u0440\u0443\u0436\u0435\u043D\u043E" }),
                   /* @__PURE__ */ jsx75("div", { className: "pii-empty__hint", children: "\u042D\u0432\u0440\u0438\u0441\u0442\u0438\u043A\u0430 \u043D\u0435 \u043D\u0430\u0448\u043B\u0430 \u043F\u043E\u0434\u043E\u0437\u0440\u0438\u0442\u0435\u043B\u044C\u043D\u044B\u0445 \u0438\u043C\u0451\u043D. \u0415\u0441\u043B\u0438 \u0432\u044B \u0443\u0432\u0435\u0440\u0435\u043D\u044B, \u0447\u0442\u043E PII \u0435\u0441\u0442\u044C \u2014 \u043F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u0432\u0440\u0443\u0447\u043D\u0443\u044E \u0438\u043B\u0438 \u0440\u0430\u0441\u0448\u0438\u0440\u044C\u0442\u0435 \u0441\u043F\u0438\u0441\u043E\u043A \u043F\u0440\u0430\u0432\u0438\u043B." })
-                ] }) : hasFilters ? /* @__PURE__ */ jsxs72(Fragment25, { children: [
+                ] }) : hasFilters ? /* @__PURE__ */ jsxs72(Fragment26, { children: [
                   /* @__PURE__ */ jsx75(MIcon, { name: "filter_alt_off", size: "xl" }),
                   /* @__PURE__ */ jsx75("div", { className: "pii-empty__title", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u043F\u043E \u0444\u0438\u043B\u044C\u0442\u0440\u0430\u043C" }),
                   /* @__PURE__ */ jsx75(
@@ -30514,7 +34086,7 @@ function PiiModal() {
                       children: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0444\u0438\u043B\u044C\u0442\u0440\u044B"
                     }
                   )
-                ] }) : /* @__PURE__ */ jsxs72(Fragment25, { children: [
+                ] }) : /* @__PURE__ */ jsxs72(Fragment26, { children: [
                   /* @__PURE__ */ jsx75(MIcon, { name: "visibility_off", size: "xl" }),
                   /* @__PURE__ */ jsx75("div", { className: "pii-empty__title", children: "\u0412\u0441\u0435 PII \u043F\u043E\u043C\u0435\u0447\u0435\u043D\u044B \u043A\u0430\u043A \xAB\u043D\u0435 PII\xBB" }),
                   /* @__PURE__ */ jsx75(
@@ -30579,7 +34151,7 @@ function PiiModal() {
     }
   );
 }
-var SEVERITY_LABELS3, SEVERITY_ORDER2, SEVERITY_COLOR, SEVERITY_RISK, CATEGORY_LABELS5, CATEGORY_ICONS2, IGNORED_KEY;
+var SEVERITY_LABELS3, SEVERITY_ORDER3, SEVERITY_COLOR2, SEVERITY_RISK, CATEGORY_LABELS5, CATEGORY_ICONS2, IGNORED_KEY;
 var init_PiiModal = __esm({
   "src/web/components/modals/PiiModal.tsx"() {
     "use strict";
@@ -30597,8 +34169,8 @@ var init_PiiModal = __esm({
       medium: "\u0422\u0440\u0435\u0431\u0443\u044E\u0442 \u0432\u043D\u0438\u043C\u0430\u043D\u0438\u044F",
       low: "\u041A\u043E\u0441\u0432\u0435\u043D\u043D\u043E"
     };
-    SEVERITY_ORDER2 = ["critical", "high", "medium", "low"];
-    SEVERITY_COLOR = {
+    SEVERITY_ORDER3 = ["critical", "high", "medium", "low"];
+    SEVERITY_COLOR2 = {
       critical: "#ef4444",
       high: "#f97316",
       medium: "#f59e0b",
@@ -55185,11 +58757,11 @@ var init_yaml_search = __esm({
 // src/web/components/modals/YamlSearchPanel.tsx
 import {
   forwardRef,
-  useCallback as useCallback25,
+  useCallback as useCallback26,
   useEffect as useEffect43,
   useImperativeHandle,
   useMemo as useMemo45,
-  useRef as useRef20,
+  useRef as useRef22,
   useState as useState37
 } from "react";
 import { jsx as jsx77, jsxs as jsxs74 } from "react/jsx-runtime";
@@ -55250,7 +58822,7 @@ var init_YamlSearchPanel = __esm({
           onEscape,
           onJump
         } = props;
-        const inputRef = useRef20(null);
+        const inputRef = useRef22(null);
         const [result, setResult] = useState37(null);
         const [activeMatch, setActiveMatch] = useState37(null);
         const [expanded, setExpanded] = useState37(/* @__PURE__ */ new Set());
@@ -55312,7 +58884,7 @@ var init_YamlSearchPanel = __esm({
               out.push(m);
           return out;
         }, [result]);
-        const selectMatch = useCallback25(
+        const selectMatch = useCallback26(
           (m) => {
             setActiveMatch(m);
             onActiveMatchChange(m);
@@ -55321,7 +58893,7 @@ var init_YamlSearchPanel = __esm({
           },
           [onActiveMatchChange, onJump]
         );
-        const stepMatch = useCallback25(
+        const stepMatch = useCallback26(
           (delta) => {
             if (flatMatches.length === 0)
               return;
@@ -59703,7 +63275,7 @@ var init_local_recheck = __esm({
 });
 
 // src/web/components/modals/SectionQuickNav.tsx
-import { useEffect as useEffect44, useMemo as useMemo46, useRef as useRef21, useState as useState38 } from "react";
+import { useEffect as useEffect44, useMemo as useMemo46, useRef as useRef23, useState as useState38 } from "react";
 import { jsx as jsx78, jsxs as jsxs75 } from "react/jsx-runtime";
 function SectionQuickNav({
   lineMap,
@@ -59713,7 +63285,7 @@ function SectionQuickNav({
   enabled = true
 }) {
   const [expanded, setExpanded] = useState38(false);
-  const closeTimer = useRef21(null);
+  const closeTimer = useRef23(null);
   const activeKey = useMemo46(() => {
     let active = null;
     for (const s of lineMap.sections) {
@@ -64459,9 +68031,9 @@ var init_unused_analysis = __esm({
 });
 
 // src/web/components/common/Hint.tsx
-import { useId, useCallback as useCallback26, useEffect as useEffect45, useLayoutEffect as useLayoutEffect4, useRef as useRef22, useState as useState39 } from "react";
+import { useId, useCallback as useCallback27, useEffect as useEffect45, useLayoutEffect as useLayoutEffect4, useRef as useRef24, useState as useState39 } from "react";
 import { createPortal as createPortal3 } from "react-dom";
-import { Fragment as Fragment26, jsx as jsx79, jsxs as jsxs76 } from "react/jsx-runtime";
+import { Fragment as Fragment27, jsx as jsx79, jsxs as jsxs76 } from "react/jsx-runtime";
 function setActiveHint(id) {
   if (activeHintId !== id) {
     activeHintId = id;
@@ -64482,11 +68054,11 @@ function Hint({ char, info, children, className }) {
   const hintId = useId();
   const activeId = useActiveHint();
   const [isHovered, setIsHovered] = useState39(false);
-  const ref = useRef22(null);
+  const ref = useRef24(null);
   const data = info ?? (char ? HINTS[char] : null);
-  const timeoutRef = useRef22();
+  const timeoutRef = useRef24();
   if (!data) {
-    return /* @__PURE__ */ jsx79(Fragment26, { children: children ?? (char ? /* @__PURE__ */ jsx79("kbd", { children: char }) : null) });
+    return /* @__PURE__ */ jsx79(Fragment27, { children: children ?? (char ? /* @__PURE__ */ jsx79("kbd", { children: char }) : null) });
   }
   const handleEnter = () => {
     if (timeoutRef.current)
@@ -64519,8 +68091,8 @@ function Hint({ char, info, children, className }) {
 }
 function HintTooltip({ info, anchor }) {
   const [coords, setCoords] = useState39(null);
-  const ref = useRef22(null);
-  const calculate = useCallback26(() => {
+  const ref = useRef24(null);
+  const calculate = useCallback27(() => {
     if (!anchor || !ref.current)
       return;
     const el = ref.current;
@@ -64776,9 +68348,9 @@ var init_Hint = __esm({
 });
 
 // src/web/components/modals/YamlQuickJump.tsx
-import { useEffect as useEffect46, useMemo as useMemo47, useRef as useRef23, useState as useState40 } from "react";
+import { useEffect as useEffect46, useMemo as useMemo47, useRef as useRef25, useState as useState40 } from "react";
 import { createPortal as createPortal4 } from "react-dom";
-import { Fragment as Fragment27, jsx as jsx80, jsxs as jsxs77 } from "react/jsx-runtime";
+import { Fragment as Fragment28, jsx as jsx80, jsxs as jsxs77 } from "react/jsx-runtime";
 function loadFavorites() {
   try {
     const raw = localStorage.getItem(FAVORITES_KEY);
@@ -65093,7 +68665,7 @@ function highlightInText(text, term) {
   }
   if (pos < text.length)
     parts.push(text.slice(pos));
-  return /* @__PURE__ */ jsx80(Fragment27, { children: parts });
+  return /* @__PURE__ */ jsx80(Fragment28, { children: parts });
 }
 function MiniMapPreview({
   state,
@@ -65249,9 +68821,9 @@ function YamlQuickJump({
 }) {
   const [query, setQuery] = useState40(initialQuery || "");
   const [activeIdx, setActiveIdx] = useState40(0);
-  const inputRef = useRef23(null);
-  const listRef = useRef23(null);
-  const hoverTimerRef = useRef23(null);
+  const inputRef = useRef25(null);
+  const listRef = useRef25(null);
+  const hoverTimerRef = useRef25(null);
   const [hoverPreview, setHoverPreview] = useState40(
     null
   );
@@ -66170,7 +69742,7 @@ function YamlQuickJump({
   const isSectionPick = (item) => item.key.startsWith("section-pick:");
   const previewSearchTerm = previewTerm(query);
   let itemOffset = 0;
-  return /* @__PURE__ */ jsxs77(Fragment27, { children: [
+  return /* @__PURE__ */ jsxs77(Fragment28, { children: [
     /* @__PURE__ */ jsx80("div", { className: "yaml-quickjump-backdrop", onMouseDown: onClose }),
     /* @__PURE__ */ jsxs77(
       "div",
@@ -66279,7 +69851,7 @@ function YamlQuickJump({
                   group.items.map((item, i) => {
                     const idx = startOffset + i;
                     const severityClass = item.severity ? ` yaml-quickjump-item--severity-${item.severity}` : "";
-                    return /* @__PURE__ */ jsx80(Fragment27, { children: /* @__PURE__ */ jsxs77(
+                    return /* @__PURE__ */ jsx80(Fragment28, { children: /* @__PURE__ */ jsxs77(
                       "button",
                       {
                         type: "button",
@@ -67853,7 +71425,7 @@ function detectPii(index) {
       const matched = matchRules(a);
       if (matched.length === 0)
         continue;
-      matched.sort((x, y) => SEVERITY_ORDER3[y.severity] - SEVERITY_ORDER3[x.severity]);
+      matched.sort((x, y) => SEVERITY_ORDER4[y.severity] - SEVERITY_ORDER4[x.severity]);
       const top = matched[0];
       let severity = top.severity;
       if (!isPerson && top.category !== "special" && top.category !== "biometric" && top.category !== "financial" && top.category !== "document") {
@@ -67939,7 +71511,7 @@ function detectPii(index) {
     byDomain
   };
 }
-var RULES, PERSON_ENTITY_PATTERN, SEVERITY_ORDER3;
+var RULES, PERSON_ENTITY_PATTERN, SEVERITY_ORDER4;
 var init_pii_detector = __esm({
   "src/core/analyzer/pii-detector.ts"() {
     "use strict";
@@ -68159,7 +71731,7 @@ var init_pii_detector = __esm({
       }
     ];
     PERSON_ENTITY_PATTERN = /\b(user|person|people|employee|candidate|client|customer|contact|patient|student|account|profile|member|staff|operator|admin|manager|citizen|individual|субъект|сотрудник|клиент|пользователь|физическ)\b/i;
-    SEVERITY_ORDER3 = {
+    SEVERITY_ORDER4 = {
       critical: 4,
       high: 3,
       medium: 2,
@@ -72383,14 +75955,14 @@ var init_version_impact = __esm({
 
 // src/web/components/modals/SchemaHistoryModal.tsx
 import {
-  useCallback as useCallback27,
+  useCallback as useCallback28,
   useEffect as useEffect47,
   useMemo as useMemo48,
-  useRef as useRef24,
+  useRef as useRef26,
   useState as useState41
 } from "react";
 import { createPortal as createPortal5 } from "react-dom";
-import { Fragment as Fragment28, jsx as jsx81, jsxs as jsxs78 } from "react/jsx-runtime";
+import { Fragment as Fragment29, jsx as jsx81, jsxs as jsxs78 } from "react/jsx-runtime";
 function SchemaHistoryModal({
   filePath,
   currentContent,
@@ -72472,7 +76044,7 @@ function SchemaHistoryModal({
       cancelled = true;
     };
   }, [filePath, mode, limit, offset, reloadKey]);
-  const handleLimitChange = useCallback27(
+  const handleLimitChange = useCallback28(
     (newLimit) => {
       if (newLimit === limit)
         return;
@@ -72481,13 +76053,13 @@ function SchemaHistoryModal({
     },
     [limit]
   );
-  const handlePrevPage = useCallback27(() => {
+  const handlePrevPage = useCallback28(() => {
     setOffset((o) => Math.max(0, o - limit));
   }, [limit]);
-  const handleNextPage = useCallback27(() => {
+  const handleNextPage = useCallback28(() => {
     setOffset((o) => o + limit);
   }, [limit]);
-  const handleRetry = useCallback27(() => {
+  const handleRetry = useCallback28(() => {
     setReloadKey((k) => k + 1);
   }, []);
   const selected = useMemo48(
@@ -72511,8 +76083,8 @@ function SchemaHistoryModal({
     }
   }, [selected, currentContent]);
   const { ready: monacoReady } = useMonacoLoader();
-  const diffContainerRef = useRef24(null);
-  const diffEditorRef = useRef24(null);
+  const diffContainerRef = useRef26(null);
+  const diffEditorRef = useRef26(null);
   useEffect47(() => {
     if (diffTab !== "text")
       return;
@@ -72553,7 +76125,7 @@ function SchemaHistoryModal({
       diffEditorRef.current = null;
     };
   }, [monacoReady, selected, currentContent, diffTab]);
-  const handleApply = useCallback27(async () => {
+  const handleApply = useCallback28(async () => {
     if (!selected)
       return;
     if (!selected.sourceCode) {
@@ -72725,7 +76297,7 @@ function SchemaHistoryModal({
                     ] })
                   ] })
                 ] }),
-                /* @__PURE__ */ jsx81("div", { className: "schema-history-content", children: selected && /* @__PURE__ */ jsxs78(Fragment28, { children: [
+                /* @__PURE__ */ jsx81("div", { className: "schema-history-content", children: selected && /* @__PURE__ */ jsxs78(Fragment29, { children: [
                   /* @__PURE__ */ jsxs78("div", { className: "schema-history-toolbar", children: [
                     /* @__PURE__ */ jsxs78("div", { className: "schema-history-toolbar__info", children: [
                       /* @__PURE__ */ jsxs78("strong", { children: [
@@ -72777,7 +76349,7 @@ function SchemaHistoryModal({
                       selected.version,
                       ". \u0420\u0430\u0437\u043B\u0438\u0447\u0438\u044F \u043C\u043E\u0433\u0443\u0442 \u0431\u044B\u0442\u044C \u0442\u043E\u043B\u044C\u043A\u043E \u0432 \u043A\u043E\u043C\u043C\u0435\u043D\u0442\u0430\u0440\u0438\u044F\u0445, \u0444\u043E\u0440\u043C\u0430\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0438 \u0438\u043B\u0438 \u043C\u0435\u0442\u0430\u0434\u0430\u043D\u043D\u044B\u0445."
                     ] })
-                  ] }) : /* @__PURE__ */ jsxs78(Fragment28, { children: [
+                  ] }) : /* @__PURE__ */ jsxs78(Fragment29, { children: [
                     structuralDiff.addedEntities.length > 0 && /* @__PURE__ */ jsxs78("div", { className: "schema-history-group schema-history-group--added", children: [
                       /* @__PURE__ */ jsxs78("div", { className: "schema-history-group__title", children: [
                         "\u{1F7E2} \u041F\u043E\u044F\u0432\u0438\u0442\u0441\u044F \u0432 \u0442\u0435\u043A\u0443\u0449\u0435\u043C \u043F\u043E\u0441\u043B\u0435 \u0437\u0430\u043C\u0435\u043D\u044B \u043D\u0430 v",
@@ -72920,8 +76492,8 @@ var init_SchemaHistoryModal = __esm({
 });
 
 // src/web/components/modals/YamlViewerModal.tsx
-import React50, { useCallback as useCallback28, useDeferredValue, useEffect as useEffect48, useLayoutEffect as useLayoutEffect5, useMemo as useMemo49, useRef as useRef25, useState as useState42 } from "react";
-import { Fragment as Fragment29, jsx as jsx82, jsxs as jsxs79 } from "react/jsx-runtime";
+import React50, { useCallback as useCallback29, useDeferredValue, useEffect as useEffect48, useLayoutEffect as useLayoutEffect5, useMemo as useMemo49, useRef as useRef27, useState as useState42 } from "react";
+import { Fragment as Fragment30, jsx as jsx82, jsxs as jsxs79 } from "react/jsx-runtime";
 async function validateSourceCodeOnServer(sourceCode) {
   try {
     const res = await fetch("/api/validate-single", {
@@ -73029,7 +76601,7 @@ function YamlViewerModal() {
       return true;
     }
   });
-  const toggleChecks = useCallback28(() => {
+  const toggleChecks = useCallback29(() => {
     setChecksEnabled((prev) => {
       const next = !prev;
       try {
@@ -73061,26 +76633,26 @@ function YamlViewerModal() {
   }, [open2, contentSource]);
   const [backupResolved, setBackupResolved] = useState42(false);
   const [backupContent, setBackupContent] = useState42(null);
-  const resolvedKeyRef = useRef25(null);
+  const resolvedKeyRef = useRef27(null);
   const [content, setContent] = useState42("");
   const [yamlSyntaxIssue, setYamlSyntaxIssue] = useState42(null);
   const deferredContent = useDeferredValue(content);
   const [savedContent, setSavedContent] = useState42("");
   const [liveVersion, setLiveVersion] = useState42(0);
-  const liveDebounce = useRef25(null);
-  const skipNextEffect = useRef25(false);
+  const liveDebounce = useRef27(null);
+  const skipNextEffect = useRef27(false);
   const [editorCreated, setEditorCreated] = useState42(false);
   const [ignoredVersion, setIgnoredVersion] = useState42(0);
   const [diffAgainst, setDiffAgainst] = useState42(null);
   const [historyOpen, setHistoryOpen] = useState42(false);
   const [previousContent, setPreviousContent] = useState42(null);
   const [publishedContent, setPublishedContent] = useState42(null);
-  const diffContainerRef = useRef25(null);
-  const diffEditorRef = useRef25(null);
+  const diffContainerRef = useRef27(null);
+  const diffEditorRef = useRef27(null);
   const [cursorLine, setCursorLine] = useState42(1);
   const [leftWidth, setLeftWidth] = useState42(380);
-  const isDraggingLeft = useRef25(false);
-  const decorationsCollection = useRef25(null);
+  const isDraggingLeft = useRef27(false);
+  const decorationsCollection = useRef27(null);
   const appTheme = useGraphStore((s) => s.theme);
   const monacoTheme = appTheme === "light" ? "dg-light" : "dg-dark";
   const [editorTopLine, setEditorTopLine] = useState42(1);
@@ -73090,7 +76662,7 @@ function YamlViewerModal() {
   const yamlHighlightUnused = useGraphStore((s) => s.yamlHighlightUnused);
   const [quickJumpOpen, setQuickJumpOpen] = useState42(false);
   const [quickJumpInitialQuery, setQuickJumpInitialQuery] = useState42(null);
-  const quickJumpOpenRef = useRef25(false);
+  const quickJumpOpenRef = useRef27(false);
   useLayoutEffect5(() => {
     quickJumpOpenRef.current = quickJumpOpen;
   }, [quickJumpOpen]);
@@ -73259,7 +76831,7 @@ function YamlViewerModal() {
       cancelled = true;
     };
   }, [open2, loading, fetchedContent, filePath]);
-  const savedContentRef = useRef25(savedContent);
+  const savedContentRef = useRef27(savedContent);
   useEffect48(() => {
     savedContentRef.current = savedContent;
   }, [savedContent]);
@@ -73327,7 +76899,7 @@ function YamlViewerModal() {
   const [saveFeedback, setSaveFeedback] = useState42(false);
   const [expandedNodes, setExpandedNodes] = useState42(/* @__PURE__ */ new Set());
   const [navQuery, setNavQuery] = useState42("");
-  const navListRef = useRef25(null);
+  const navListRef = useRef27(null);
   const [activeNavIdx, setActiveNavIdx] = useState42(-1);
   const [leftCollapsed, setLeftCollapsed] = useState42(false);
   const [rightCollapsed, setRightCollapsed] = useState42(false);
@@ -73342,26 +76914,26 @@ function YamlViewerModal() {
   const [searchOptions, setSearchOptions] = useState42(DEFAULT_SEARCH_OPTIONS);
   const [searchResult, setSearchResult] = useState42(null);
   const [activeSearchMatch, setActiveSearchMatch] = useState42(null);
-  const searchPanelRef = useRef25(null);
-  const searchDecorationsRef = useRef25(null);
+  const searchPanelRef = useRef27(null);
+  const searchDecorationsRef = useRef27(null);
   const [focusIncludeDeps, setFocusIncludeDeps] = useState42(false);
   const [navContextMenu, setNavContextMenu] = useState42(null);
   const { goto: gotoDomain } = useNavigation();
-  const editorRef = useRef25(null);
-  const previousFetchId = useRef25(0);
-  const containerRef = useRef25(null);
-  const saveRef = useRef25(() => {
+  const editorRef = useRef27(null);
+  const previousFetchId = useRef27(0);
+  const containerRef = useRef27(null);
+  const saveRef = useRef27(() => {
   });
-  const publishRef = useRef25(() => {
+  const publishRef = useRef27(() => {
   });
-  const toggleLockRef = useRef25(() => {
+  const toggleLockRef = useRef27(() => {
   });
-  const isLockedRef = useRef25(isLocked);
-  const isProgrammaticChange = useRef25(false);
+  const isLockedRef = useRef27(isLocked);
+  const isProgrammaticChange = useRef27(false);
   const [focusTarget, setFocusTarget] = useState42(null);
-  const focusDecorationsRef = useRef25(null);
-  const saveAbortRef = useRef25(null);
-  const editorTopLineRef = useRef25(1);
+  const focusDecorationsRef = useRef27(null);
+  const saveAbortRef = useRef27(null);
+  const editorTopLineRef = useRef27(1);
   const tabs = useGraphStore((s) => s.editorTabs);
   const addTab = useGraphStore((s) => s.addEditorTab);
   const removeTab = useGraphStore((s) => s.removeEditorTab);
@@ -73385,7 +76957,7 @@ function YamlViewerModal() {
   useEffect48(() => {
     isLockedRef.current = isLocked;
   }, [isLocked]);
-  const lastAutoScrolledQueryRef = useRef25(null);
+  const lastAutoScrolledQueryRef = useRef27(null);
   useEffect48(() => {
     if (!searchQuery)
       lastAutoScrolledQueryRef.current = null;
@@ -74253,7 +77825,7 @@ function YamlViewerModal() {
       return;
     resetProviderContext();
   }, [open2]);
-  const searchDecorIdsRef = useRef25([]);
+  const searchDecorIdsRef = useRef27([]);
   useEffect48(() => {
     if (!monacoReady || !editorCreated)
       return;
@@ -74686,7 +78258,7 @@ ${label.message}` : ""),
       }
     };
   }, [yamlSyntaxIssue, index, recheckModel, checksEnabled, monacoReady, editorCreated, lineMap, domainIssues, isLocked, severityFilter, savedContent]);
-  const jumpTo = useCallback28(
+  const jumpTo = useCallback29(
     (line, opts) => {
       const editor = editorRef.current;
       if (!editor)
@@ -74720,7 +78292,7 @@ ${label.message}` : ""),
     },
     []
   );
-  const handleQuickJumpSelect = useCallback28(
+  const handleQuickJumpSelect = useCallback29(
     (line, column) => {
       setPendingIssue(null);
       setPendingBlock(null);
@@ -74732,19 +78304,19 @@ ${label.message}` : ""),
   useEffect48(() => {
     setActiveFoldLevel(null);
   }, [filePath, open2]);
-  const getFoldingController = useCallback28((ed) => {
+  const getFoldingController = useCallback29((ed) => {
     const contributions = ed?._contributions;
     const instances = contributions?._instances?._store;
     return instances?.get("editor.contrib.folding") ?? null;
   }, []);
-  const gotoStart = useCallback28(() => {
+  const gotoStart = useCallback29(() => {
     if (!editorRef.current)
       return;
     editorRef.current.setPosition({ lineNumber: 1, column: 1 });
     editorRef.current.revealLine(1);
     editorRef.current.focus();
   }, []);
-  const gotoEnd = useCallback28(() => {
+  const gotoEnd = useCallback29(() => {
     const ed = editorRef.current;
     if (!ed)
       return;
@@ -74753,7 +78325,7 @@ ${label.message}` : ""),
     ed.revealLine(lineCount);
     ed.focus();
   }, []);
-  const foldLines = useCallback28((lines) => {
+  const foldLines = useCallback29((lines) => {
     const ed = editorRef.current;
     const model = ed?.getModel();
     if (!ed || !model || lines.length === 0)
@@ -74770,7 +78342,7 @@ ${label.message}` : ""),
       ed.trigger("dg-fold", "editor.fold", null);
     }
   }, []);
-  const toggleFold = useCallback28((level) => {
+  const toggleFold = useCallback29((level) => {
     const ed = editorRef.current;
     if (!ed)
       return;
@@ -74783,15 +78355,15 @@ ${label.message}` : ""),
     ed.trigger("dg-fold", `editor.foldLevel${level}`, null);
     setActiveFoldLevel(level);
   }, [activeFoldLevel]);
-  const foldAll = useCallback28(() => {
+  const foldAll = useCallback29(() => {
     editorRef.current?.trigger("dg-fold", "editor.foldAll", null);
     setActiveFoldLevel(null);
   }, []);
-  const unfoldAll = useCallback28(() => {
+  const unfoldAll = useCallback29(() => {
     editorRef.current?.trigger("dg-fold", "editor.unfoldAll", null);
     setActiveFoldLevel(null);
   }, []);
-  const hasFoldableRange = useCallback28((model, lineNumber) => {
+  const hasFoldableRange = useCallback29((model, lineNumber) => {
     const line = model.getLineContent(lineNumber);
     const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
     const total = model.getLineCount();
@@ -74804,7 +78376,7 @@ ${label.message}` : ""),
     }
     return false;
   }, []);
-  const foldByLines = useCallback28((lines) => {
+  const foldByLines = useCallback29((lines) => {
     const ed = editorRef.current;
     if (!ed || lines.length === 0)
       return;
@@ -74864,7 +78436,7 @@ ${label.message}` : ""),
       }
     }, 0);
   }, []);
-  const foldSiblings = useCallback28(() => {
+  const foldSiblings = useCallback29(() => {
     const ed = editorRef.current;
     const model = ed?.getModel();
     const pos = ed?.getPosition();
@@ -74911,7 +78483,7 @@ ${label.message}` : ""),
     foldByLines(targets);
     setActiveFoldLevel(null);
   }, [hasFoldableRange, foldByLines]);
-  const foldBlocksByKey = useCallback28((key) => {
+  const foldBlocksByKey = useCallback29((key) => {
     const ed = editorRef.current;
     const model = ed?.getModel();
     if (!ed || !model)
@@ -74978,7 +78550,7 @@ ${label.message}` : ""),
       setActiveFoldLevel(null);
     }, 0);
   }, [hasFoldableRange]);
-  const foldToLevel = useCallback28((targetLevel) => {
+  const foldToLevel = useCallback29((targetLevel) => {
     const ed = editorRef.current;
     if (!ed)
       return;
@@ -75090,7 +78662,7 @@ ${label.message}` : ""),
     }, 50);
     return () => clearTimeout(t);
   }, [open2, editorCreated, loading, lineMap, deferredContent, jumpTo]);
-  const toggleNode = useCallback28((key) => {
+  const toggleNode = useCallback29((key) => {
     setExpandedNodes((prev) => {
       const s = new Set(prev);
       if (s.has(key))
@@ -75100,7 +78672,7 @@ ${label.message}` : ""),
       return s;
     });
   }, []);
-  const expandAll = useCallback28(() => {
+  const expandAll = useCallback29(() => {
     if (!lineMap)
       return;
     const all = /* @__PURE__ */ new Set();
@@ -75117,13 +78689,13 @@ ${label.message}` : ""),
       el.open = true;
     });
   }, [lineMap]);
-  const collapseAll = useCallback28(() => {
+  const collapseAll = useCallback29(() => {
     setExpandedNodes(/* @__PURE__ */ new Set());
     document.querySelectorAll(".yaml-nav-section").forEach((el) => {
       el.open = false;
     });
   }, []);
-  const handleCopy = useCallback28(async () => {
+  const handleCopy = useCallback29(async () => {
     const text = editorRef.current ? editorRef.current.getValue() : content;
     try {
       await navigator.clipboard.writeText(text);
@@ -75136,7 +78708,7 @@ ${label.message}` : ""),
       });
     }
   }, [content]);
-  const handleToggleLock = useCallback28(async () => {
+  const handleToggleLock = useCallback29(async () => {
     if (isLocked) {
       setIsLocked(false);
       setSaveError(null);
@@ -75165,7 +78737,7 @@ ${label.message}` : ""),
       setIsLocked(true);
     }
   }, [isLocked, isDirty, savedContent, filePath]);
-  const handleApplyHistory = useCallback28(
+  const handleApplyHistory = useCallback29(
     (newContent) => {
       if (!editorRef.current)
         return;
@@ -75203,7 +78775,7 @@ ${label.message}` : ""),
     },
     [filePath, savedContent]
   );
-  const handleSave = useCallback28(async () => {
+  const handleSave = useCallback29(async () => {
     if (isLocked || isSaving || !editorRef.current)
       return;
     try {
@@ -75351,7 +78923,7 @@ ${draftInfo.hint}` : "";
       sessionStorage.removeItem(`dg-yaml-backup:${filePath}`);
     }
   }, [isLocked, savedContent, filePath, mode, isSaving]);
-  const handleDiffPublished = useCallback28(async () => {
+  const handleDiffPublished = useCallback29(async () => {
     if (!filePath)
       return;
     if (diffAgainst === "published") {
@@ -75386,10 +78958,10 @@ ${draftInfo.hint}` : "";
       setDiffAgainst("published");
     }
   }, [filePath, diffAgainst, publishedContent]);
-  const handleDiffPrevious = useCallback28(() => {
+  const handleDiffPrevious = useCallback29(() => {
     setDiffAgainst(diffAgainst === "previous" ? null : "previous");
   }, [diffAgainst]);
-  const handleServerValidate = useCallback28(async () => {
+  const handleServerValidate = useCallback29(async () => {
     if (!editorRef.current)
       return;
     const sourceCode = editorRef.current.getValue();
@@ -75422,7 +78994,7 @@ ${draftInfo.hint}` : "";
       setServerValidating(false);
     }
   }, []);
-  const handleClose = useCallback28(async () => {
+  const handleClose = useCallback29(async () => {
     if (quickJumpOpenRef.current)
       return;
     if (isSaving) {
@@ -75677,7 +79249,7 @@ ${draftInfo.hint}` : "";
     document.addEventListener("dg:issue-action", handler);
     return () => document.removeEventListener("dg:issue-action", handler);
   }, [domainId]);
-  const refreshPreviousContent = useCallback28(() => {
+  const refreshPreviousContent = useCallback29(() => {
     if (!filePath) {
       setPreviousContent(null);
       return;
@@ -76055,7 +79627,7 @@ ${draftInfo.hint}` : "";
     () => effectiveIssues.filter((i) => i.__isUnknown).length,
     [effectiveIssues]
   );
-  const handleFocus = useCallback28((node, sectionKey) => {
+  const handleFocus = useCallback29((node, sectionKey) => {
     const kind = sectionKey === "entities" ? "entity" : "linkage";
     setFocusTarget((prev) => {
       if (prev && prev.kind === kind && prev.id === node.id)
@@ -76063,7 +79635,7 @@ ${draftInfo.hint}` : "";
       return { kind, id: node.id };
     });
   }, []);
-  const handleFocusWithDeps = useCallback28((node, sectionKey) => {
+  const handleFocusWithDeps = useCallback29((node, sectionKey) => {
     const kind = sectionKey === "entities" ? "entity" : "linkage";
     setFocusTarget({ kind, id: node.id });
     setFocusIncludeDeps(kind === "entity");
@@ -76257,7 +79829,7 @@ ${draftInfo.hint}` : "";
       });
     }
   }, [backupResolved, backupContent, loading, fetchedContent, filePath]);
-  const executePublish = useCallback28(async (valueToSave) => {
+  const executePublish = useCallback29(async (valueToSave) => {
     setIsSaving(true);
     setSaveStage(mode === "remote" ? "publishing" : "writing");
     setSaveError(null);
@@ -76393,7 +79965,7 @@ ${publishInfo.hint}` : "";
       useGraphStore.getState().setPublishPreviewConfirmAction(null);
     }
   }, [filePath, mode, isSaving]);
-  const handlePublish = useCallback28(async () => {
+  const handlePublish = useCallback29(async () => {
     if (isLocked || isSaving || !editorRef.current)
       return;
     let valueToSave = editorRef.current.getValue();
@@ -76633,7 +80205,7 @@ ${publishInfo.hint}` : "";
                       children: mode === "remote" ? "\u25CF \u0437\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0441 \u0441\u0435\u0440\u0432\u0435\u0440\u0430\u2026" : "\u25CF \u0437\u0430\u0433\u0440\u0443\u0437\u043A\u0430\u2026"
                     }
                   ) : saveFeedback ? /* @__PURE__ */ jsx82("span", { className: "help-modal__badge help-modal__badge--ok", children: "\u2713 \u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D" }) : null,
-                  isDirty ? /* @__PURE__ */ jsxs79(Fragment29, { children: [
+                  isDirty ? /* @__PURE__ */ jsxs79(Fragment30, { children: [
                     /* @__PURE__ */ jsx82("span", { className: "help-modal__badge help-modal__badge--dirty", children: "\u25CF \u0438\u0437\u043C\u0435\u043D\u0451\u043D" }),
                     diffCount && /* @__PURE__ */ jsxs79("span", { className: "help-modal__badge", style: { fontFamily: "monospace", background: "var(--bg-750)" }, children: [
                       /* @__PURE__ */ jsxs79("span", { style: { color: "var(--success)" }, children: [
@@ -77225,7 +80797,7 @@ ${publishInfo.hint}` : "";
                     style: { width: leftCollapsed ? 0 : leftWidth },
                     children: [
                       loading && /* @__PURE__ */ jsx82("div", { className: "yaml-viewer-nav__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430..." }),
-                      lineMap && /* @__PURE__ */ jsxs79(Fragment29, { children: [
+                      lineMap && /* @__PURE__ */ jsxs79(Fragment30, { children: [
                         /* @__PURE__ */ jsxs79("div", { className: "yaml-viewer-nav__tabs", children: [
                           /* @__PURE__ */ jsxs79(
                             "button",
@@ -77349,7 +80921,7 @@ ${publishInfo.hint}` : "";
                                   onFocus: handleFocus,
                                   unusedAnalysis
                                 }
-                              ) : /* @__PURE__ */ jsxs79(Fragment29, { children: [
+                              ) : /* @__PURE__ */ jsxs79(Fragment30, { children: [
                                 lineMap && lineMap.sections.length === 0 && /* @__PURE__ */ jsxs79("div", { className: "yaml-viewer-nav__empty", children: [
                                   /* @__PURE__ */ jsx82(MIcon, { name: "warning", size: "sm" }),
                                   /* @__PURE__ */ jsxs79("span", { children: [
@@ -77490,7 +81062,7 @@ ${publishInfo.hint}` : "";
                       /* @__PURE__ */ jsx82("button", { onClick: gotoStart, title: "\u0412 \u043D\u0430\u0447\u0430\u043B\u043E \u0444\u0430\u0439\u043B\u0430 (Ctrl+Home)", children: /* @__PURE__ */ jsx82(MIcon, { name: "vertical_align_top", size: "sm" }) }),
                       /* @__PURE__ */ jsx82("button", { onClick: gotoEnd, title: "\u0412 \u043A\u043E\u043D\u0435\u0446 \u0444\u0430\u0439\u043B\u0430 (Ctrl+End)", children: /* @__PURE__ */ jsx82(MIcon, { name: "vertical_align_bottom", size: "sm" }) })
                     ] }),
-                    /* @__PURE__ */ jsx82("div", { className: "yaml-viewer-breadcrumbs", children: currentContext && currentContext.breadcrumbs.length > 0 ? /* @__PURE__ */ jsxs79(Fragment29, { children: [
+                    /* @__PURE__ */ jsx82("div", { className: "yaml-viewer-breadcrumbs", children: currentContext && currentContext.breadcrumbs.length > 0 ? /* @__PURE__ */ jsxs79(Fragment30, { children: [
                       currentContext.breadcrumbs.map((item, idx) => /* @__PURE__ */ jsxs79(React50.Fragment, { children: [
                         idx > 0 && /* @__PURE__ */ jsx82("span", { className: "yaml-viewer-breadcrumbs__sep", children: "\u203A" }),
                         /* @__PURE__ */ jsx82(
@@ -77836,7 +81408,7 @@ ${publishInfo.hint}` : "";
                       targetLabel(backlinks.target),
                       " \u043D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u0441\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F"
                     ] }),
-                    backlinks.entity.length > 0 && /* @__PURE__ */ jsxs79(Fragment29, { children: [
+                    backlinks.entity.length > 0 && /* @__PURE__ */ jsxs79(Fragment30, { children: [
                       /* @__PURE__ */ jsx82("div", { className: "yaml-issues__header", style: { fontSize: 10 }, children: backlinks.target?.type === "attribute" ? `\u041D\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C ${backlinks.target.parentId} (${backlinks.entity.length})` : `\u041D\u0430 ${targetLabel(backlinks.target)} ${backlinks.target?.id} (${backlinks.entity.length})` }),
                       /* @__PURE__ */ jsx82("div", { className: "yaml-issues__list", children: backlinks.entity.map((bl, idx) => /* @__PURE__ */ jsxs79("button", { className: "yaml-backlink", onClick: () => jumpTo(bl.line), children: [
                         /* @__PURE__ */ jsx82(MIcon, { name: bl.icon, size: "sm" }),
@@ -77849,7 +81421,7 @@ ${publishInfo.hint}` : "";
                         ] })
                       ] }, `e-${idx}`)) })
                     ] }),
-                    backlinks.attribute.length > 0 && /* @__PURE__ */ jsxs79(Fragment29, { children: [
+                    backlinks.attribute.length > 0 && /* @__PURE__ */ jsxs79(Fragment30, { children: [
                       /* @__PURE__ */ jsxs79("div", { className: "yaml-issues__header", style: { fontSize: 10 }, children: [
                         "\u041D\u0430 \u0430\u0442\u0440\u0438\u0431\u0443\u0442 ",
                         backlinks.target?.id,
@@ -77906,7 +81478,7 @@ ${publishInfo.hint}` : "";
                         }
                       )
                     ] }),
-                    !serverValidating && serverValidation && !serverValidation.isValid && !serverValidation.error && (serverValidation.diagnostics?.length || 0) > 0 && /* @__PURE__ */ jsxs79(Fragment29, { children: [
+                    !serverValidating && serverValidation && !serverValidation.isValid && !serverValidation.error && (serverValidation.diagnostics?.length || 0) > 0 && /* @__PURE__ */ jsxs79(Fragment30, { children: [
                       /* @__PURE__ */ jsxs79("div", { className: "yaml-issues__header", children: [
                         "\u041E\u0448\u0438\u0431\u043A\u0438 \u0441\u0435\u0440\u0432\u0435\u0440\u0430 (",
                         serverValidation.diagnostics.length,
@@ -78031,7 +81603,7 @@ function ExternalRefsPanel({
   const totalRefs = groups.reduce((s, g) => s + g.refs.length, 0);
   const totalScenarios = scenarioRefs.length;
   return /* @__PURE__ */ jsxs79("div", { className: "yaml-issues", children: [
-    totalRefs > 0 && /* @__PURE__ */ jsxs79(Fragment29, { children: [
+    totalRefs > 0 && /* @__PURE__ */ jsxs79(Fragment30, { children: [
       /* @__PURE__ */ jsxs79("div", { className: "yaml-issues__header", children: [
         "\u0412\u043D\u0435\u0448\u043D\u0438\u0435 FQID-\u0441\u0441\u044B\u043B\u043A\u0438 (",
         totalRefs,
@@ -78066,7 +81638,7 @@ ${r.field}: ${r.raw}`,
         ))
       ] }, g.domain)) })
     ] }),
-    totalScenarios > 0 && /* @__PURE__ */ jsxs79(Fragment29, { children: [
+    totalScenarios > 0 && /* @__PURE__ */ jsxs79(Fragment30, { children: [
       /* @__PURE__ */ jsxs79(
         "div",
         {
@@ -78802,7 +82374,7 @@ function CrossDomainBadge({
   onDomainClick
 }) {
   const [open2, setOpen] = useState42(false);
-  const closeTimer = useRef25(null);
+  const closeTimer = useRef27(null);
   const onEnter = () => {
     if (closeTimer.current)
       clearTimeout(closeTimer.current);
@@ -79659,7 +83231,7 @@ function NavContextMenu({
             ]
           }
         ),
-        focusTarget && !isThisFocused && /* @__PURE__ */ jsxs79(Fragment29, { children: [
+        focusTarget && !isThisFocused && /* @__PURE__ */ jsxs79(Fragment30, { children: [
           /* @__PURE__ */ jsx82("div", { className: "yaml-nav-ctx-menu__divider" }),
           /* @__PURE__ */ jsxs79(
             "button",
@@ -79893,7 +83465,7 @@ var init_scope = __esm({
 });
 
 // src/web/hooks/useGenerateSchema.ts
-import { useCallback as useCallback29, useEffect as useEffect49, useState as useState43 } from "react";
+import { useCallback as useCallback30, useEffect as useEffect49, useState as useState43 } from "react";
 function useGenerateSchema({
   domainId,
   entityId,
@@ -79943,7 +83515,7 @@ function useGenerateSchema({
       cancelled = true;
     };
   }, [enabled, domainId, entityId, profile, optionsKey, modelVersion, tick]);
-  const reload = useCallback29(() => setTick((v) => v + 1), []);
+  const reload = useCallback30(() => setTick((v) => v + 1), []);
   return { ...state, reload };
 }
 var init_useGenerateSchema = __esm({
@@ -79975,8 +83547,8 @@ function groupYamlBySection(blocks, selected, yamlByBlock) {
   }
   const result = Array.from(grouped.values());
   result.sort((a, b) => {
-    const ai = SECTION_ORDER.indexOf(a.key);
-    const bi = SECTION_ORDER.indexOf(b.key);
+    const ai = SECTION_ORDER2.indexOf(a.key);
+    const bi = SECTION_ORDER2.indexOf(b.key);
     return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
   });
   for (const s of result) {
@@ -79984,7 +83556,7 @@ function groupYamlBySection(blocks, selected, yamlByBlock) {
   }
   return result;
 }
-var SECTION_LABELS3, SECTION_ORDER;
+var SECTION_LABELS3, SECTION_ORDER2;
 var init_GenerateSchemaYaml = __esm({
   "src/web/components/modals/GenerateSchemaYaml.ts"() {
     "use strict";
@@ -80002,7 +83574,7 @@ var init_GenerateSchemaYaml = __esm({
       transitiveLinkages: "\u0422\u0440\u0430\u043D\u0437\u0438\u0442\u0438\u0432\u043D\u044B\u0435 \u0441\u0432\u044F\u0437\u0438",
       columns: "\u041A\u043E\u043B\u043E\u043D\u043A\u0438 (\u0432 view)"
     };
-    SECTION_ORDER = [
+    SECTION_ORDER2 = [
       "actions",
       "views",
       "trees",
@@ -80089,7 +83661,7 @@ var init_GenerateSchemaSkipReasons = __esm({
 
 // src/web/components/modals/TreeChainBuilder.tsx
 import { useMemo as useMemo50 } from "react";
-import { Fragment as Fragment30, jsx as jsx83, jsxs as jsxs80 } from "react/jsx-runtime";
+import { Fragment as Fragment31, jsx as jsx83, jsxs as jsxs80 } from "react/jsx-runtime";
 function caseFqid(raw, index, currentDomainId) {
   if (!raw)
     return raw;
@@ -80232,7 +83804,7 @@ function TreeChainBuilder(props) {
         }
       )
     ] }),
-    !useExisting && /* @__PURE__ */ jsxs80(Fragment30, { children: [
+    !useExisting && /* @__PURE__ */ jsxs80(Fragment31, { children: [
       steps.length > 0 && /* @__PURE__ */ jsx83("div", { className: "tree-chain__steps", children: steps.map((s) => {
         const selected = s.selected;
         return /* @__PURE__ */ jsxs80(
@@ -80462,7 +84034,7 @@ var init_block_resolver = __esm({
 });
 
 // src/web/components/modals/GenerateSchemaModal.tsx
-import { useCallback as useCallback30, useEffect as useEffect50, useLayoutEffect as useLayoutEffect6, useMemo as useMemo51, useRef as useRef26, useState as useState44 } from "react";
+import { useCallback as useCallback31, useEffect as useEffect50, useLayoutEffect as useLayoutEffect6, useMemo as useMemo51, useRef as useRef28, useState as useState44 } from "react";
 import { jsx as jsx84, jsxs as jsxs81 } from "react/jsx-runtime";
 function getSkipQuickFix(reason, handlers) {
   switch (reason) {
@@ -80690,7 +84262,7 @@ function GenerateSchemaModal() {
     const nodes = useGraphStore.getState().nodes;
     return nodes.find((n) => n.data.domainId === domainId)?.data.filePath ?? null;
   }, [domainId]);
-  const prefilledFor = useRef26(null);
+  const prefilledFor = useRef28(null);
   const filePath = useMemo51(() => {
     const nodes = useGraphStore.getState().nodes;
     return nodes.find((n) => n.data.domainId === domainId)?.data.filePath ?? null;
@@ -80795,7 +84367,7 @@ function GenerateSchemaModal() {
       scaffoldCreateMedias: false
     });
   }, [open2, domainId, entityId]);
-  const toggleForceReplace = useCallback30((blockId) => {
+  const toggleForceReplace = useCallback31((blockId) => {
     setForceReplaceIds((prev) => {
       const next = new Set(prev);
       if (next.has(blockId)) {
@@ -80982,7 +84554,7 @@ function GenerateSchemaModal() {
       setProfile("crud");
     }
   }, [profile, hasTreeCandidates, isDomainScope]);
-  const toggleBlock = useCallback30(
+  const toggleBlock = useCallback31(
     (blockId) => {
       if (!gen.result)
         return;
@@ -81033,7 +84605,7 @@ function GenerateSchemaModal() {
     }
     return missing;
   }, [selected, gen.result]);
-  const pullDependencies = useCallback30(() => {
+  const pullDependencies = useCallback31(() => {
     if (!gen.result)
       return;
     setSelected((prev) => {
@@ -81110,8 +84682,8 @@ function GenerateSchemaModal() {
       map2.get(issue.ruleId).push(issue);
     }
     return Array.from(map2.entries()).sort((a, b) => {
-      const sa = SEVERITY_ORDER4[a[1][0].severity] ?? 99;
-      const sb = SEVERITY_ORDER4[b[1][0].severity] ?? 99;
+      const sa = SEVERITY_ORDER5[a[1][0].severity] ?? 99;
+      const sb = SEVERITY_ORDER5[b[1][0].severity] ?? 99;
       if (sa !== sb)
         return sa - sb;
       return b[1].length - a[1].length;
@@ -81125,7 +84697,7 @@ function GenerateSchemaModal() {
     (s) => s.reason === "widget-view-ambiguous" || s.reason === "column-view-ambiguous"
   );
   const finalCanApply = canApply && !hasAmbiguousView;
-  const apply = useCallback30(async () => {
+  const apply = useCallback31(async () => {
     if (!gen.result || !domainId)
       return;
     if (!isDomainScope && !entityId)
@@ -83243,7 +86815,7 @@ function dumpYaml(payload) {
     return "/* \u043E\u0448\u0438\u0431\u043A\u0430 \u0441\u0435\u0440\u0438\u0430\u043B\u0438\u0437\u0430\u0446\u0438\u0438 */";
   }
 }
-var PROFILE_ORDER, SEVERITY_ORDER4, ENTITY_PROFILES, DOMAIN_PROFILES2;
+var PROFILE_ORDER, SEVERITY_ORDER5, ENTITY_PROFILES, DOMAIN_PROFILES2;
 var init_GenerateSchemaModal = __esm({
   "src/web/components/modals/GenerateSchemaModal.tsx"() {
     "use strict";
@@ -83264,7 +86836,7 @@ var init_GenerateSchemaModal = __esm({
     init_block_resolver();
     init_useYamlContent();
     PROFILE_ORDER = PROFILE_INFO.map((p) => p.id);
-    SEVERITY_ORDER4 = { error: 0, warning: 1, info: 2 };
+    SEVERITY_ORDER5 = { error: 0, warning: 1, info: 2 };
     ENTITY_PROFILES = PROFILE_INFO.filter((p) => p.scope === "entity");
     DOMAIN_PROFILES2 = PROFILE_INFO.filter((p) => p.scope === "domain");
   }
@@ -83311,7 +86883,7 @@ var init_useGeneratedManifest = __esm({
 
 // src/web/components/modals/GeneratedManifestModal.tsx
 import { useMemo as useMemo52, useState as useState46 } from "react";
-import { Fragment as Fragment31, jsx as jsx85, jsxs as jsxs82 } from "react/jsx-runtime";
+import { Fragment as Fragment32, jsx as jsx85, jsxs as jsxs82 } from "react/jsx-runtime";
 function GeneratedManifestModal() {
   const open2 = useGraphStore((s) => s.sidecarOpen);
   const domainId = useGraphStore((s) => s.sidecarDomainId);
@@ -83556,7 +87128,7 @@ function GeneratedManifestModal() {
               ] })
             ] }),
             /* @__PURE__ */ jsxs82("div", { className: "validation-footer", children: [
-              /* @__PURE__ */ jsx85("div", { className: "validation-stats", children: data && data.stats.blocks > 0 && /* @__PURE__ */ jsxs82(Fragment31, { children: [
+              /* @__PURE__ */ jsx85("div", { className: "validation-stats", children: data && data.stats.blocks > 0 && /* @__PURE__ */ jsxs82(Fragment32, { children: [
                 /* @__PURE__ */ jsxs82("span", { className: "validation-stat", children: [
                   "\u{1F4E6} ",
                   data.stats.blocks,
@@ -90278,8 +93850,8 @@ var init_cheatsheet = __esm({
 });
 
 // src/web/components/modals/CheatsheetModal.tsx
-import { useCallback as useCallback31, useEffect as useEffect52, useMemo as useMemo53, useRef as useRef27, useState as useState47 } from "react";
-import { Fragment as Fragment32, jsx as jsx86, jsxs as jsxs83 } from "react/jsx-runtime";
+import { useCallback as useCallback32, useEffect as useEffect52, useMemo as useMemo53, useRef as useRef29, useState as useState47 } from "react";
+import { Fragment as Fragment33, jsx as jsx86, jsxs as jsxs83 } from "react/jsx-runtime";
 function slugify2(text) {
   return text.toLowerCase().replace(/[^\w\u0400-\u04FF\s-]/g, "").trim().replace(/\s+/g, "-").replace(/-+/g, "-");
 }
@@ -90365,7 +93937,7 @@ function CheatsheetModal() {
   const [query, setQuery] = useState47("");
   const [highlightQuery, setHighlightQuery] = useState47(null);
   const { parse, ready } = useMarked();
-  const contentRef = useRef27(null);
+  const contentRef = useRef29(null);
   useEffect52(() => {
     if (!open2)
       return;
@@ -90454,7 +94026,7 @@ function CheatsheetModal() {
       applyHighlight(el, highlightQuery);
     }
   }, [html, highlightQuery]);
-  const jumpToAnchor = useCallback31((id) => {
+  const jumpToAnchor = useCallback32((id) => {
     const el = contentRef.current?.querySelector(
       "#" + CSS.escape(id)
     );
@@ -90642,7 +94214,7 @@ function CheatsheetModal() {
                 ] }),
                 filtered.groups.length === 0 && filtered.recipes.length === 0 && /* @__PURE__ */ jsx86("div", { className: "cheatsheet-empty", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" })
               ] }),
-              /* @__PURE__ */ jsx86("div", { className: "cheatsheet-content", children: markdown && html ? /* @__PURE__ */ jsxs83(Fragment32, { children: [
+              /* @__PURE__ */ jsx86("div", { className: "cheatsheet-content", children: markdown && html ? /* @__PURE__ */ jsxs83(Fragment33, { children: [
                 headings.length >= 3 && /* @__PURE__ */ jsxs83("details", { className: "cheatsheet-toc", open: false, children: [
                   /* @__PURE__ */ jsxs83("summary", { className: "cheatsheet-toc__summary", children: [
                     /* @__PURE__ */ jsx86("span", { children: "\u0421\u043E\u0434\u0435\u0440\u0436\u0430\u043D\u0438\u0435" }),
@@ -90732,7 +94304,7 @@ var init_CheatsheetModal = __esm({
 });
 
 // src/web/hooks/useOutdatedDomains.ts
-import { useCallback as useCallback32, useEffect as useEffect53, useRef as useRef28, useState as useState48 } from "react";
+import { useCallback as useCallback33, useEffect as useEffect53, useRef as useRef30, useState as useState48 } from "react";
 function useOutdatedDomains(remoteInfo) {
   const [state, setState] = useState48({
     outdated: /* @__PURE__ */ new Map(),
@@ -90741,8 +94313,8 @@ function useOutdatedDomains(remoteInfo) {
     lastCheckedAt: null,
     available: !!remoteInfo?.server
   });
-  const inflightRef = useRef28(null);
-  const check = useCallback32(
+  const inflightRef = useRef30(null);
+  const check = useCallback33(
     async (force = false) => {
       if (!remoteInfo?.server)
         return;
@@ -90819,8 +94391,8 @@ var init_useOutdatedDomains = __esm({
 });
 
 // src/web/components/modals/HealthDashboardModal.tsx
-import React55, { useCallback as useCallback33, useMemo as useMemo54, useState as useState49 } from "react";
-import { Fragment as Fragment33, jsx as jsx87, jsxs as jsxs84 } from "react/jsx-runtime";
+import React55, { useCallback as useCallback34, useMemo as useMemo54, useState as useState49 } from "react";
+import { Fragment as Fragment34, jsx as jsx87, jsxs as jsxs84 } from "react/jsx-runtime";
 function computeGrade3(score) {
   if (score >= 90)
     return "A";
@@ -91295,7 +94867,7 @@ function HealthDashboardModal() {
       avgGrade: computeGrade3(avgHealth)
     };
   }, [rows]);
-  const toggleQuickFilter = useCallback33((id) => {
+  const toggleQuickFilter = useCallback34((id) => {
     setQuickFilters((prev) => {
       const next = new Set(prev);
       if (next.has(id))
@@ -91305,7 +94877,7 @@ function HealthDashboardModal() {
       return next;
     });
   }, []);
-  const toggleExpanded = useCallback33((domainId) => {
+  const toggleExpanded = useCallback34((domainId) => {
     setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(domainId))
@@ -92404,7 +95976,7 @@ var init_HealthDashboardModal = __esm({
         isExpanded ? "health-row--expanded" : ""
       ].filter(Boolean).join(" ");
       const healthGradeClass = "health-grade--" + row.healthGrade.toLowerCase();
-      return /* @__PURE__ */ jsxs84(Fragment33, { children: [
+      return /* @__PURE__ */ jsxs84(Fragment34, { children: [
         /* @__PURE__ */ jsxs84("tr", { className: rowClass, children: [
           /* @__PURE__ */ jsx87("td", { className: "health-row__expand-cell", children: /* @__PURE__ */ jsx87(
             "button",
@@ -93623,7 +97195,7 @@ import {
   useEffect as useEffect54,
   useLayoutEffect as useLayoutEffect7,
   useMemo as useMemo56,
-  useRef as useRef29,
+  useRef as useRef31,
   useState as useState50
 } from "react";
 import { createPortal as createPortal6 } from "react-dom";
@@ -93684,10 +97256,10 @@ function FolderTreeSelect({
   const [open2, setOpen] = useState50(false);
   const [filter, setFilter] = useState50("");
   const [expanded, setExpanded] = useState50(/* @__PURE__ */ new Set());
-  const triggerRef = useRef29(null);
-  const wrapRef = useRef29(null);
-  const dropdownRef = useRef29(null);
-  const inputRef = useRef29(null);
+  const triggerRef = useRef31(null);
+  const wrapRef = useRef31(null);
+  const dropdownRef = useRef31(null);
+  const inputRef = useRef31(null);
   const [pos, setPos] = useState50(null);
   const tree = useMemo56(() => buildTree(folders), [folders]);
   const flat = useMemo56(
@@ -93948,7 +97520,7 @@ var init_FolderTreeSelect = __esm({
 
 // src/web/components/modals/CreateDomainModal.tsx
 import { useEffect as useEffect55, useMemo as useMemo57, useState as useState51 } from "react";
-import { Fragment as Fragment34, jsx as jsx90, jsxs as jsxs87 } from "react/jsx-runtime";
+import { Fragment as Fragment35, jsx as jsx90, jsxs as jsxs87 } from "react/jsx-runtime";
 function CreateDomainModal() {
   const open2 = useGraphStore((s) => s.createDomainOpen);
   const setOpen = useGraphStore((s) => s.setCreateDomainOpen);
@@ -94098,7 +97670,7 @@ function CreateDomainModal() {
                 /* @__PURE__ */ jsx90(MIcon, { name: "hourglass_top", size: "sm" }),
                 /* @__PURE__ */ jsx90("span", { children: "\u041E\u0442\u043A\u0440\u044B\u0432\u0430\u0435\u043C \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440 \u0438 \u043E\u0431\u043D\u043E\u0432\u043B\u044F\u0435\u043C \u0438\u043D\u0434\u0435\u043A\u0441\u2026" })
               ] })
-            ] }) : /* @__PURE__ */ jsxs87(Fragment34, { children: [
+            ] }) : /* @__PURE__ */ jsxs87(Fragment35, { children: [
               /* @__PURE__ */ jsx90("div", { className: "help-modal__body help-modal__body--flush", children: /* @__PURE__ */ jsxs87("div", { className: "create-domain-form", children: [
                 /* @__PURE__ */ jsxs87("label", { className: "create-domain-field", children: [
                   /* @__PURE__ */ jsx90("span", { className: "create-domain-label", children: "ID (FQDN) *" }),
@@ -94755,7 +98327,7 @@ var init_view_graph = __esm({
 });
 
 // src/web/components/modals/ViewGraphModal.tsx
-import { useCallback as useCallback34, useEffect as useEffect57, useMemo as useMemo59, useState as useState53 } from "react";
+import { useCallback as useCallback35, useEffect as useEffect57, useMemo as useMemo59, useState as useState53 } from "react";
 import ReactFlow4, {
   Background as Background4,
   BackgroundVariant as BackgroundVariant4,
@@ -94767,7 +98339,7 @@ import ReactFlow4, {
   useReactFlow as useReactFlow4
 } from "reactflow";
 import dagre4 from "dagre";
-import { Fragment as Fragment35, jsx as jsx92, jsxs as jsxs89 } from "react/jsx-runtime";
+import { Fragment as Fragment36, jsx as jsx92, jsxs as jsxs89 } from "react/jsx-runtime";
 function ViewFlowNode({ data }) {
   const { node } = data;
   const cls = ["view-graph-node", `view-graph-node--${node.type}`];
@@ -94777,7 +98349,7 @@ function ViewFlowNode({ data }) {
     cls.push("view-graph-node--orphan");
   if (node.unresolved)
     cls.push("view-graph-node--unresolved");
-  return /* @__PURE__ */ jsxs89(Fragment35, { children: [
+  return /* @__PURE__ */ jsxs89(Fragment36, { children: [
     /* @__PURE__ */ jsx92(Handle4, { type: "target", position: Position4.Left, className: "view-graph-handle" }),
     /* @__PURE__ */ jsxs89("div", { className: cls.join(" "), children: [
       /* @__PURE__ */ jsx92("div", { className: "view-graph-node__id", children: node.viewId }),
@@ -94955,7 +98527,7 @@ function ViewGraphModal() {
     });
   }, [graph]);
   const laidNodes = useMemo59(() => layoutGraph2(flowNodes, flowEdges), [flowNodes, flowEdges]);
-  const onNodeClick = useCallback34((n) => {
+  const onNodeClick = useCallback35((n) => {
     setSelectedNode(n?.data?.node || null);
   }, []);
   if (!open2)
@@ -95040,10 +98612,10 @@ function ViewGraphModal() {
       ] }),
       /* @__PURE__ */ jsx92("div", { className: "view-graph-canvas", children: graph.nodes.length === 0 ? /* @__PURE__ */ jsxs89("div", { className: "view-graph-empty", children: [
         /* @__PURE__ */ jsx92(MIcon, { name: !domainFilter ? "link_off" : "info", size: "xl" }),
-        !domainFilter ? /* @__PURE__ */ jsxs89(Fragment35, { children: [
+        !domainFilter ? /* @__PURE__ */ jsxs89(Fragment36, { children: [
           /* @__PURE__ */ jsx92("div", { className: "view-graph-empty__title", children: "\u041D\u0435\u0442 \u043C\u0435\u0436\u0434\u043E\u043C\u0435\u043D\u043D\u044B\u0445 \u0441\u0432\u044F\u0437\u0435\u0439" }),
           /* @__PURE__ */ jsx92("div", { className: "view-graph-empty__hint", children: "\u0412 \u0440\u0435\u0436\u0438\u043C\u0435 \xAB\u0432\u0441\u0435 \u0434\u043E\u043C\u0435\u043D\u044B\xBB \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u044E\u0442\u0441\u044F \u0442\u043E\u043B\u044C\u043A\u043E \u0441\u0432\u044F\u0437\u0438 \u043C\u0435\u0436\u0434\u0443 views \u0438\u0437 \u0440\u0430\u0437\u043D\u044B\u0445 \u0434\u043E\u043C\u0435\u043D\u043E\u0432. \u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0439 \u0434\u043E\u043C\u0435\u043D, \u0447\u0442\u043E\u0431\u044B \u0443\u0432\u0438\u0434\u0435\u0442\u044C \u0435\u0433\u043E \u0432\u043D\u0443\u0442\u0440\u0435\u043D\u043D\u0438\u0435 views." })
-        ] }) : /* @__PURE__ */ jsxs89(Fragment35, { children: [
+        ] }) : /* @__PURE__ */ jsxs89(Fragment36, { children: [
           /* @__PURE__ */ jsx92("div", { className: "view-graph-empty__title", children: "\u0412 \u0434\u043E\u043C\u0435\u043D\u0435 \u043D\u0435\u0442 views" }),
           /* @__PURE__ */ jsx92("div", { className: "view-graph-empty__hint", children: "\u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u0443\u0439\u0442\u0435 views (CRUD / \u0421\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A) \u0438\u043B\u0438 \u0441\u043E\u0437\u0434\u0430\u0439\u0442\u0435 \u0432\u0440\u0443\u0447\u043D\u0443\u044E." })
         ] })
@@ -95115,11 +98687,11 @@ var init_ViewGraphModal = __esm({
 });
 
 // src/web/hooks/useYamlFulltextSearch.ts
-import { useCallback as useCallback35, useEffect as useEffect58, useRef as useRef30, useState as useState54 } from "react";
+import { useCallback as useCallback36, useEffect as useEffect58, useRef as useRef32, useState as useState54 } from "react";
 function useYamlFulltextSearch() {
   const [state, setState] = useState54(EMPTY);
-  const abortRef = useRef30(null);
-  const search = useCallback35(
+  const abortRef = useRef32(null);
+  const search = useCallback36(
     async (query, opts) => {
       if (abortRef.current)
         abortRef.current.abort();
@@ -95198,7 +98770,7 @@ var init_useYamlFulltextSearch = __esm({
 });
 
 // src/web/components/modals/YamlFulltextSearchModal.tsx
-import { useCallback as useCallback36, useEffect as useEffect59, useMemo as useMemo60, useRef as useRef31, useState as useState55 } from "react";
+import { useCallback as useCallback37, useEffect as useEffect59, useMemo as useMemo60, useRef as useRef33, useState as useState55 } from "react";
 import { jsx as jsx93, jsxs as jsxs90 } from "react/jsx-runtime";
 function YamlFulltextSearchModal() {
   const open2 = useGraphStore((s) => s.yamlFulltextSearchOpen);
@@ -95210,7 +98782,7 @@ function YamlFulltextSearchModal() {
   const [includeComments, setIncludeComments] = useState55(true);
   const [domainFilter, setDomainFilter] = useState55("");
   const [expandedGroups, setExpandedGroups] = useState55(/* @__PURE__ */ new Set());
-  const inputRef = useRef31(null);
+  const inputRef = useRef33(null);
   const { hits, loading, error, total, truncated, elapsedMs, search } = useYamlFulltextSearch();
   const { index } = useModelIndex();
   const allDomains = useMemo60(() => {
@@ -95276,7 +98848,7 @@ function YamlFulltextSearchModal() {
       return;
     setExpandedGroups(new Set(grouped.map((g) => g.filePath)));
   }, [hits]);
-  const openHit = useCallback36((h) => {
+  const openHit = useCallback37((h) => {
     const st = useGraphStore.getState();
     st.setYamlViewerPendingGoto({ kind: "line", line: h.line, column: h.column });
     st.setYamlViewerFilePath(h.filePath);
@@ -95683,7 +99255,7 @@ var init_schema_preview = __esm({
 
 // src/web/components/modals/GeneratedPreviewModal.tsx
 import React62, { useMemo as useMemo61 } from "react";
-import { Fragment as Fragment36, jsx as jsx94, jsxs as jsxs91 } from "react/jsx-runtime";
+import { Fragment as Fragment37, jsx as jsx94, jsxs as jsxs91 } from "react/jsx-runtime";
 function viewIcon(kind) {
   switch (kind) {
     case "entity":
@@ -95794,7 +99366,7 @@ function GeneratedPreviewModal() {
               /* @__PURE__ */ jsxs91("span", { className: "generated-preview-footer__hint", children: [
                 /* @__PURE__ */ jsx94(MIcon, { name: "info", size: "sm" }),
                 "\u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u0441\u043E\u0441\u0442\u0430\u0432 \u043F\u043E\u043B\u0435\u0439, \u0433\u0440\u0443\u043F\u043F \u0438 \u043A\u043D\u043E\u043F\u043E\u043A. \u0415\u0441\u043B\u0438 \u0447\u0442\u043E-\u0442\u043E \u043D\u0435 \u0442\u0430\u043A \u2014 \u0432\u0435\u0440\u043D\u0438\u0442\u0435\u0441\u044C \u043A \u043F\u0430\u0440\u0430\u043C\u0435\u0442\u0440\u0430\u043C \u043F\u0440\u043E\u0444\u0438\u043B\u044F \u0438 \u043F\u043E\u043F\u0440\u0430\u0432\u044C\u0442\u0435.",
-                preview.skippedBlocks > 0 && /* @__PURE__ */ jsxs91(Fragment36, { children: [
+                preview.skippedBlocks > 0 && /* @__PURE__ */ jsxs91(Fragment37, { children: [
                   " ",
                   "\xB7 \u041F\u0440\u043E\u043F\u0443\u0449\u0435\u043D\u043E \u0431\u043B\u043E\u043A\u043E\u0432: ",
                   preview.skippedBlocks,
@@ -96298,7 +99870,7 @@ var init_ChangelogModal = __esm({
 
 // src/web/components/modals/DomainOnboardingWizard.tsx
 import { useMemo as useMemo63 } from "react";
-import { Fragment as Fragment37, jsx as jsx96, jsxs as jsxs93 } from "react/jsx-runtime";
+import { Fragment as Fragment38, jsx as jsx96, jsxs as jsxs93 } from "react/jsx-runtime";
 var init_DomainOnboardingWizard = __esm({
   "src/web/components/modals/DomainOnboardingWizard.tsx"() {
     "use strict";
@@ -96353,7 +99925,7 @@ var init_modals = __esm({
 });
 
 // src/web/hooks/useGenerateSchemaBatch.ts
-import { useCallback as useCallback37, useEffect as useEffect60, useRef as useRef32, useState as useState56 } from "react";
+import { useCallback as useCallback38, useEffect as useEffect60, useRef as useRef34, useState as useState56 } from "react";
 function useGenerateSchemaBatch({
   domainId,
   profile,
@@ -96369,10 +99941,10 @@ function useGenerateSchemaBatch({
     progress: null
   });
   const [tick, setTick] = useState56(0);
-  const abortRef = useRef32(null);
+  const abortRef = useRef34(null);
   const optionsKey = JSON.stringify(options);
   const entityIdsKey = JSON.stringify(entityIds ?? []);
-  const cancel = useCallback37(() => {
+  const cancel = useCallback38(() => {
     if (abortRef.current) {
       try {
         abortRef.current.abort();
@@ -96500,8 +100072,8 @@ var init_useGenerateSchemaBatch = __esm({
 });
 
 // src/web/components/modals/GenerateBatchModal.tsx
-import { useCallback as useCallback38, useEffect as useEffect61, useMemo as useMemo64, useState as useState57 } from "react";
-import { Fragment as Fragment38, jsx as jsx97, jsxs as jsxs94 } from "react/jsx-runtime";
+import { useCallback as useCallback39, useEffect as useEffect61, useMemo as useMemo64, useState as useState57 } from "react";
+import { Fragment as Fragment39, jsx as jsx97, jsxs as jsxs94 } from "react/jsx-runtime";
 function GenerateBatchModal() {
   const { index } = useModelIndex();
   const open2 = useGraphStore((store) => store.generateBatchOpen);
@@ -96553,7 +100125,7 @@ function GenerateBatchModal() {
     // enabled только после initialised — fetch не идёт до init
     enabled: open2 && initialised && selectedEntities.size > 0
   });
-  const toggleEntity = useCallback38((id) => {
+  const toggleEntity = useCallback39((id) => {
     setSelectedEntities((prev) => {
       const next = new Set(prev);
       if (next.has(id))
@@ -96563,12 +100135,12 @@ function GenerateBatchModal() {
       return next;
     });
   }, []);
-  const toggleAll = useCallback38(() => {
+  const toggleAll = useCallback39(() => {
     setSelectedEntities(
       (prev) => prev.size === allEntities.length ? /* @__PURE__ */ new Set() : new Set(allEntities.map((e) => e.id))
     );
   }, [allEntities]);
-  const apply = useCallback38(async () => {
+  const apply = useCallback39(async () => {
     if (!gen.result || !domainId)
       return;
     const combined = gen.result.combined;
@@ -96790,11 +100362,11 @@ function GenerateBatchModal() {
                       }
                     ) }),
                     gen.progress?.entityId && /* @__PURE__ */ jsxs94("div", { className: "generate-batch-progress__entity", children: [
-                      gen.progress.phase === "entity-start" && /* @__PURE__ */ jsxs94(Fragment38, { children: [
+                      gen.progress.phase === "entity-start" && /* @__PURE__ */ jsxs94(Fragment39, { children: [
                         /* @__PURE__ */ jsx97(MIcon, { name: "hourglass_top", size: "sm" }),
                         /* @__PURE__ */ jsx97("span", { children: gen.progress.entityId })
                       ] }),
-                      gen.progress.phase === "entity-done" && /* @__PURE__ */ jsxs94(Fragment38, { children: [
+                      gen.progress.phase === "entity-done" && /* @__PURE__ */ jsxs94(Fragment39, { children: [
                         /* @__PURE__ */ jsx97(MIcon, { name: "check_circle", size: "sm" }),
                         /* @__PURE__ */ jsx97("span", { children: gen.progress.entityId }),
                         /* @__PURE__ */ jsxs94("span", { className: "generate-batch-progress__meta", children: [
@@ -96803,12 +100375,12 @@ function GenerateBatchModal() {
                           " \u0431\u043B\u043E\u043A\u043E\u0432"
                         ] })
                       ] }),
-                      gen.progress.phase === "entity-error" && /* @__PURE__ */ jsxs94(Fragment38, { children: [
+                      gen.progress.phase === "entity-error" && /* @__PURE__ */ jsxs94(Fragment39, { children: [
                         /* @__PURE__ */ jsx97(MIcon, { name: "error", size: "sm" }),
                         /* @__PURE__ */ jsx97("span", { children: gen.progress.entityId }),
                         /* @__PURE__ */ jsx97("span", { className: "generate-batch-progress__meta generate-batch-progress__meta--err", children: gen.progress.error })
                       ] }),
-                      gen.progress.phase === "preflight" && /* @__PURE__ */ jsxs94(Fragment38, { children: [
+                      gen.progress.phase === "preflight" && /* @__PURE__ */ jsxs94(Fragment39, { children: [
                         /* @__PURE__ */ jsx97(MIcon, { name: "science", size: "sm" }),
                         /* @__PURE__ */ jsx97("span", { children: "Preflight\u2026" })
                       ] })
@@ -96921,7 +100493,7 @@ var init_GenerateBatchModal = __esm({
 });
 
 // src/web/components/modals/WorkflowGraphModal.tsx
-import { useCallback as useCallback39, useEffect as useEffect62, useMemo as useMemo65, useState as useState58 } from "react";
+import { useCallback as useCallback40, useEffect as useEffect62, useMemo as useMemo65, useState as useState58 } from "react";
 import ReactFlow5, {
   Background as Background5,
   BackgroundVariant as BackgroundVariant5,
@@ -96933,7 +100505,7 @@ import ReactFlow5, {
   useReactFlow as useReactFlow5
 } from "reactflow";
 import dagre5 from "dagre";
-import { Fragment as Fragment39, jsx as jsx98, jsxs as jsxs95 } from "react/jsx-runtime";
+import { Fragment as Fragment40, jsx as jsx98, jsxs as jsxs95 } from "react/jsx-runtime";
 function WorkflowStatusNode({ data }) {
   const cls = ["workflow-node"];
   if (data.isInitial)
@@ -96947,7 +100519,7 @@ function WorkflowStatusNode({ data }) {
   const style = {};
   if (data.color)
     style.borderLeftColor = data.color;
-  return /* @__PURE__ */ jsxs95(Fragment39, { children: [
+  return /* @__PURE__ */ jsxs95(Fragment40, { children: [
     /* @__PURE__ */ jsx98(Handle5, { type: "target", position: Position5.Left, className: "workflow-handle" }),
     /* @__PURE__ */ jsxs95("div", { className: cls.join(" "), style, children: [
       /* @__PURE__ */ jsxs95("div", { className: "workflow-node__id", children: [
@@ -97141,7 +100713,7 @@ function WorkflowGraphModal() {
     if (open2)
       setRankdir("LR");
   }, [target?.domainId, target?.dataTypeId]);
-  const close = useCallback39(
+  const close = useCallback40(
     () => useGraphStore.getState().setWorkflowGraphTarget(null),
     []
   );
@@ -97210,7 +100782,7 @@ function WorkflowGraphModal() {
               dt.kind,
               ")"
             ] }) }),
-            dt && dt.kind === "Workflow" && graph && /* @__PURE__ */ jsxs95(Fragment39, { children: [
+            dt && dt.kind === "Workflow" && graph && /* @__PURE__ */ jsxs95(Fragment40, { children: [
               /* @__PURE__ */ jsxs95("div", { className: "workflow-graph-toolbar", children: [
                 /* @__PURE__ */ jsxs95("div", { className: "workflow-graph-toolbar__left", children: [
                   /* @__PURE__ */ jsxs95("span", { className: "workflow-graph-stat", children: [
@@ -97420,13 +100992,13 @@ var init_PublishPreviewModal = __esm({
 });
 
 // src/web/components/layout/AppModals.tsx
-import { Fragment as Fragment40, jsx as jsx100, jsxs as jsxs97 } from "react/jsx-runtime";
+import { Fragment as Fragment41, jsx as jsx100, jsxs as jsxs97 } from "react/jsx-runtime";
 function AppModals(props) {
   const helpOpen = useGraphStore((s) => s.helpOpen);
   const hotkeysOpen = useGraphStore((s) => s.hotkeysOpen);
   const contextMenu = useGraphStore((s) => s.contextMenu);
   const snackbar = useGraphStore((s) => s.snackbar);
-  return /* @__PURE__ */ jsxs97(Fragment40, { children: [
+  return /* @__PURE__ */ jsxs97(Fragment41, { children: [
     /* @__PURE__ */ jsx100(HoverTooltip, {}),
     /* @__PURE__ */ jsx100(
       CommandPalette,
@@ -97565,14 +101137,14 @@ var init_AppModals = __esm({
 });
 
 // src/web/App.tsx
-import React67, { useCallback as useCallback40, useEffect as useEffect63, useMemo as useMemo66, useRef as useRef33 } from "react";
+import React67, { useCallback as useCallback41, useEffect as useEffect63, useMemo as useMemo66, useRef as useRef35 } from "react";
 import { jsx as jsx101, jsxs as jsxs98 } from "react/jsx-runtime";
 function App() {
   const nodes = useGraphStore((s) => s.nodes);
   const edges = useGraphStore((s) => s.edges);
   const rules = useGraphStore((s) => s.rules);
   const viewMode = useGraphStore((s) => s.viewMode);
-  const didInit = useRef33(false);
+  const didInit = useRef35(false);
   useEffect63(() => {
     if (didInit.current)
       return;
@@ -97699,7 +101271,7 @@ function App() {
   const interactions = useNodeInteractions({ filteredEdges });
   useGraphEvents({ displayNodes, displayEdges });
   useGlobalClickDelegation(goto, tooltip.hide);
-  const handleResetAll = useCallback40(() => {
+  const handleResetAll = useCallback41(() => {
     useGraphStore.getState().resetAll();
     invalidateLayout();
     setTimeout(() => {
@@ -97712,7 +101284,7 @@ function App() {
       }
     }, 200);
   }, [invalidateLayout]);
-  const startTour = useCallback40((path) => {
+  const startTour = useCallback41((path) => {
     const st = useGraphStore.getState();
     st.setTour({
       stages: path.stages,
@@ -97878,7 +101450,7 @@ function App() {
         remoteInfo: REMOTE_INFO,
         refreshCommand: REFRESH_COMMAND,
         toastVisible,
-        onToastClose: useCallback40(() => setToastVisible(false), []),
+        onToastClose: useCallback41(() => setToastVisible(false), []),
         showDontShowAgain: !!CACHE_TOAST_KEY,
         dontShowCacheToast,
         onDontShowCacheToastChange: handleDontShowCacheToast
