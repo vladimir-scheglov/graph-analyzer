@@ -1,28 +1,47 @@
 import type {
   ModelIndex,
   DomainSchemaAllViewItem,
-  ActionRecord,
-  EntityLinkage,
 } from "../../../shared/model-types";
 
+// ============ Types ============
+
 export type ViewEdgeKind =
-  | "action" // action.modal / panel / pageView / view
-  | "tabs" // tabs_list.tabs[].view
-  | "nested" // parentViewId (panel/modal/page внутри entity)
-  | "menu" // menuItem → view
-  | "dashboard" // dashboard.widgets / dashboard_tree.tree
-  | "mixin"; // mixin.targetEntityFqid → entity view
+  | "action"
+  | "tabs"
+  | "nested"
+  | "menu"
+  | "dashboard"
+  | "mixin";
+
+export type ViewNodeKind =
+  | "entity"
+  | "list"
+  | "panel"
+  | "modal"
+  | "page"
+  | "tabs_list"
+  | "dashboard"
+  | "dashboard_tree"
+  | "menu"
+  | "menuItem"
+  | "unknown";
 
 export interface ViewGraphNode {
-  id: string; // qualifiedId: `${domainId}/${viewId}`
+  id: string;
   viewId: string;
   domainId: string;
-  type: string; // entity | list | panel | modal | page | tabs_list | dashboard | dashboard_tree
-  entity?: string | null;
-  label?: string | null;
-  isMixin?: boolean;
-  isOrphan?: boolean; // нет входящих рёбер
-  unresolved?: boolean; // FQID на чужой домен, которого нет в кэше
+  kind: ViewNodeKind;
+  entity: string | null;
+  label: string | null;
+  isMixin: boolean;
+  isOrphan: boolean;
+  unresolved: boolean;
+  /** degree в итоговом графе. */
+  degree: number;
+  inDegree: number;
+  outDegree: number;
+  /** Входит в топ-5 по degree и degree >= 2. */
+  isHub: boolean;
 }
 
 export interface ViewGraphEdge {
@@ -31,8 +50,9 @@ export interface ViewGraphEdge {
   target: string;
   kind: ViewEdgeKind;
   label?: string;
-  /** Доп. данные для тултипа. */
+  /** Для тултипа — доп. инфа. */
   detail?: string;
+  isCrossDomain: boolean;
 }
 
 export interface ViewGraphResult {
@@ -41,25 +61,73 @@ export interface ViewGraphResult {
   stats: {
     totalNodes: number;
     totalEdges: number;
-    byKind: Record<ViewEdgeKind, number>;
+    byEdgeKind: Record<ViewEdgeKind, number>;
+    byNodeKind: Record<ViewNodeKind, number>;
     orphans: number;
     unresolved: number;
+    hubs: number;
+    crossDomainEdges: number;
+    focusedId: string | null;
+    truncated: number;
   };
 }
 
 export interface ViewGraphOptions {
-  domainFilter?: Set<string>;
+  domains?: Set<string>;
   includeNested?: boolean;
   includeMixins?: boolean;
   includeDashboards?: boolean;
-  /**
-   * Показывать только междоменные связи + узлы, участвующие в них.
-   * Внутридоменные связи и orphaned-узлы отбрасываются.
-   * Используется в режиме «все домены» — иначе граф превращается в кашу.
-   */
+  includeMenus?: boolean;
+  showEdgeKinds?: Set<ViewEdgeKind>;
+  showNodeKinds?: Set<ViewNodeKind>;
+  focusId?: string;
+  focusDepth?: number;
+  hideOrphans?: boolean;
   crossDomainOnly?: boolean;
   limit?: number;
 }
+
+// ============ Path finder ============
+
+export interface ViewGraphPath {
+  nodes: string[];
+  edges: string[];
+}
+
+export function findViewPath(
+  graph: ViewGraphResult,
+  fromId: string,
+  toId: string,
+): ViewGraphPath | null {
+  if (!fromId || !toId || fromId === toId) return null;
+  const adj = new Map<string, Array<{ node: string; edge: string }>>();
+  for (const e of graph.edges) {
+    if (!adj.has(e.source)) adj.set(e.source, []);
+    adj.get(e.source)!.push({ node: e.target, edge: e.id });
+    if (!adj.has(e.target)) adj.set(e.target, []);
+    adj.get(e.target)!.push({ node: e.source, edge: e.id });
+  }
+  const visited = new Set<string>([fromId]);
+  const queue: Array<{ id: string; path: string[]; edges: string[] }> = [
+    { id: fromId, path: [fromId], edges: [] },
+  ];
+  while (queue.length > 0) {
+    const cur = queue.shift()!;
+    if (cur.id === toId) return { nodes: cur.path, edges: cur.edges };
+    for (const n of adj.get(cur.id) || []) {
+      if (visited.has(n.node)) continue;
+      visited.add(n.node);
+      queue.push({
+        id: n.node,
+        path: cur.path.concat([n.node]),
+        edges: cur.edges.concat([n.edge]),
+      });
+    }
+  }
+  return null;
+}
+
+// ============ Helpers ============
 
 function shortEntity(fqid: string | null | undefined): string {
   if (!fqid) return "";
@@ -83,6 +151,21 @@ function qid(domainId: string, viewId: string): string {
   return `${domainId.toLowerCase()}/${viewId}`;
 }
 
+function isViewKind(k: string): k is ViewNodeKind {
+  return (
+    k === "entity" ||
+    k === "list" ||
+    k === "panel" ||
+    k === "modal" ||
+    k === "page" ||
+    k === "tabs_list" ||
+    k === "dashboard" ||
+    k === "dashboard_tree"
+  );
+}
+
+// ============ Build ============
+
 export function buildViewGraph(
   index: ModelIndex,
   options: ViewGraphOptions = {},
@@ -90,24 +173,19 @@ export function buildViewGraph(
   const includeNested = options.includeNested !== false;
   const includeMixins = options.includeMixins !== false;
   const includeDashboards = options.includeDashboards !== false;
+  const includeMenus = options.includeMenus !== false;
+  const hideOrphans = options.hideOrphans === true;
+  const crossDomainOnly = options.crossDomainOnly === true;
+  const focusId = options.focusId?.toLowerCase() || null;
+  const focusDepth = options.focusDepth ?? 2;
   const limit = options.limit ?? 500;
-  const domainFilter = options.domainFilter;
+  const domainFilter = options.domains;
 
-  // ── 1. Собираем все views всех доменов ──
-  const nodes = new Map<string, ViewGraphNode>();
-  const edges: ViewGraphEdge[] = [];
-  const edgeIds = new Set<string>();
-
-  const addEdge = (e: ViewGraphEdge) => {
-    if (e.source === e.target) return; // self-loop
-    if (edgeIds.has(e.id)) return;
-    edgeIds.add(e.id);
-    edges.push(e);
-  };
-
+  // ---- 1. Собираем все views ----
   interface ViewMeta {
     domainId: string;
     view: DomainSchemaAllViewItem;
+    isMixin: boolean;
   }
   const allViews: ViewMeta[] = [];
 
@@ -125,35 +203,116 @@ export function buildViewGraph(
     for (const v of schema.sections.views.items) {
       if (!v.id || seen.has(v.id)) continue;
       seen.add(v.id);
-      allViews.push({ domainId, view: v as DomainSchemaAllViewItem });
+      allViews.push({
+        domainId,
+        view: v as DomainSchemaAllViewItem,
+        isMixin: !!(v as any).isMixin,
+      });
     }
     for (const v of schema.allViews || []) {
       if (!v.id || seen.has(v.id)) continue;
       seen.add(v.id);
-      allViews.push({ domainId, view: v });
+      allViews.push({ domainId, view: v, isMixin: false });
     }
   }
 
-  // ── 2. Создаём узлы ──
-  for (const { domainId, view } of allViews) {
+  // ---- 2. Узлы views ----
+  const nodes = new Map<string, ViewGraphNode>();
+
+  for (const { domainId, view, isMixin } of allViews) {
     const id = qid(domainId, view.id);
-    const isUnresolved =
-      view.entity != null &&
-      !index.entitiesByFqid[normalizeEntity(view.entity, domainId) || ""];
+    const kind: ViewNodeKind = isViewKind(view.type)
+      ? (view.type as ViewNodeKind)
+      : "unknown";
+    const entity = normalizeEntity(view.entity, domainId);
+    const unresolved = !!entity && !index.entitiesByFqid[entity];
     nodes.set(id, {
       id,
       viewId: view.id,
       domainId,
-      type: view.type || "unknown",
-      entity: view.entity ?? null,
-      label: view.label ?? null,
-      isMixin: (view as any).isMixin === true,
+      kind,
+      entity,
+      label: view.label || null,
+      isMixin,
       isOrphan: false,
-      unresolved: isUnresolved,
+      unresolved,
+      degree: 0,
+      inDegree: 0,
+      outDegree: 0,
+      isHub: false,
     });
   }
 
-  // ── 3. Actions → views ──
+  // ---- 3. Узлы menu / menuItem ----
+  const menuNodesById = new Map<string, ViewGraphNode>();
+  if (includeMenus) {
+    for (const menu of index.menus || []) {
+      if (
+        domainFilter &&
+        domainFilter.size > 0 &&
+        !domainFilter.has(menu.domainId.toLowerCase())
+      ) {
+        continue;
+      }
+      const id = qid(menu.domainId, `menu:${menu.id}`);
+      const node: ViewGraphNode = {
+        id,
+        viewId: `menu:${menu.id}`,
+        domainId: menu.domainId,
+        kind: "menu",
+        entity: null,
+        label: menu.label || menu.id,
+        isMixin: false,
+        isOrphan: false,
+        unresolved: false,
+        degree: 0,
+        inDegree: 0,
+        outDegree: 0,
+        isHub: false,
+      };
+      menuNodesById.set(id, node);
+      nodes.set(id, node);
+
+      for (const it of menu.items || []) {
+        const itemId = qid(menu.domainId, `menuItem:${it.id}`);
+        const itemNode: ViewGraphNode = {
+          id: itemId,
+          viewId: `menuItem:${it.id}`,
+          domainId: menu.domainId,
+          kind: "menuItem",
+          entity: null,
+          label: it.label || it.id,
+          isMixin: false,
+          isOrphan: false,
+          unresolved: false,
+          degree: 0,
+          inDegree: 0,
+          outDegree: 0,
+          isHub: false,
+        };
+        menuNodesById.set(itemId, itemNode);
+        nodes.set(itemId, itemNode);
+      }
+    }
+  }
+
+  // ---- 4. Рёбра ----
+  const edges: ViewGraphEdge[] = [];
+  const edgeIds = new Set<string>();
+
+  const addEdge = (e: Omit<ViewGraphEdge, "isCrossDomain">) => {
+    if (e.source === e.target) return;
+    if (edgeIds.has(e.id)) return;
+    if (!nodes.has(e.source) || !nodes.has(e.target)) return;
+    const srcDomain = nodes.get(e.source)!.domainId.toLowerCase();
+    const tgtDomain = nodes.get(e.target)!.domainId.toLowerCase();
+    const isCrossDomain = srcDomain !== tgtDomain;
+    if (crossDomainOnly && !isCrossDomain) return;
+    edgeIds.add(e.id);
+    edges.push({ ...e, isCrossDomain });
+  };
+
+  // ---- 4a. Actions → views ----
   for (const a of index.actions || []) {
     if (
       domainFilter &&
@@ -167,6 +326,7 @@ export function buildViewGraph(
       { field: "view", value: a.view },
       { field: "pageView", value: a.pageView },
     ];
+    const ownerViews = findActionOwnerViews(a.id, a.domainId, index);
     for (const r of refs) {
       if (!r.value) continue;
       const targetDomain = r.value.includes("/")
@@ -175,9 +335,6 @@ export function buildViewGraph(
       const targetId = r.value.includes("/") ? r.value.split("/")[1] : r.value;
       const target = qid(targetDomain, targetId);
       if (!nodes.has(target)) continue;
-      // Источник — единственный view, куда "прицепится" action. В YAML это view из actionPanel.
-      // Ставим от action-владельца: view, где находится виджет этого action.
-      const ownerViews = findActionOwnerViews(a.id, a.domainId, index);
       for (const owner of ownerViews) {
         if (!nodes.has(owner)) continue;
         addEdge({
@@ -186,13 +343,13 @@ export function buildViewGraph(
           target,
           kind: "action",
           label: a.id,
-          detail: `type: ${a.type}`,
+          detail: `type: ${a.type}${r.field !== "modal" ? ` (${r.field})` : ""}`,
         });
       }
     }
   }
 
-  // ── 4. tabs_list ──
+  // ---- 4b. tabs_list ----
   for (const { domainId, view } of allViews) {
     if (view.type !== "tabs_list" || !view.tabs) continue;
     const src = qid(domainId, view.id);
@@ -200,7 +357,6 @@ export function buildViewGraph(
       const tDomain = t.includes("/") ? t.split("/")[0] : domainId;
       const tId = t.includes("/") ? t.split("/")[1] : t;
       const target = qid(tDomain, tId);
-      if (!nodes.has(target)) continue;
       addEdge({
         id: `tabs:${src}:${target}`,
         source: src,
@@ -210,13 +366,12 @@ export function buildViewGraph(
     }
   }
 
-  // ── 5. nested views (parentViewId) ──
+  // ---- 4c. nested views ----
   if (includeNested) {
     for (const { domainId, view } of allViews) {
       if (!view.parentViewId) continue;
       const parent = qid(domainId, view.parentViewId);
       const child = qid(domainId, view.id);
-      if (!nodes.has(parent) || !nodes.has(child)) continue;
       addEdge({
         id: `nested:${parent}:${child}`,
         source: parent,
@@ -227,39 +382,62 @@ export function buildViewGraph(
     }
   }
 
-  // ── 6. menus → views ──
-  for (const menu of index.menus || []) {
-    if (
-      domainFilter &&
-      domainFilter.size > 0 &&
-      !domainFilter.has(menu.domainId.toLowerCase())
-    )
-      continue;
-    const src = qid(menu.domainId, `menu:${menu.id}`);
-    // Меню не является view-узлом — пропускаем, если не добавили.
-    // Здесь только если target view есть.
-    const check = (viewRef: string | undefined) => {
-      if (!viewRef) return;
-      const tDom = viewRef.includes("/")
-        ? viewRef.split("/")[0]
-        : menu.domainId;
-      const tId = viewRef.includes("/") ? viewRef.split("/")[1] : viewRef;
-      const target = qid(tDom, tId);
-      // Источник — сама menu, добавляем как псевдо-узел? Нет. Ставим ребро от "menu:<id>" → view.
-      // Так как menu нет в nodes, узел не отобразится. Значит, пропускаем.
-      // Альтернатива — добавить virtual nodes для menu. Оставляем как есть — меню в view-графе информативно только как "кто вызывает".
-      // Для простоты не добавляем.
-      void target;
-    };
-    check(menu.view);
-    for (const it of menu.items || []) check(it.view);
+  // ---- 4d. menus → views ----
+  if (includeMenus) {
+    for (const menu of index.menus || []) {
+      if (
+        domainFilter &&
+        domainFilter.size > 0 &&
+        !domainFilter.has(menu.domainId.toLowerCase())
+      )
+        continue;
+      const menuId = qid(menu.domainId, `menu:${menu.id}`);
+
+      // root_menu.view (для type: root_menu)
+      if (menu.type === "root_menu" && menu.view) {
+        const tDom = menu.view.includes("/")
+          ? menu.view.split("/")[0]
+          : menu.domainId;
+        const tId = menu.view.includes("/")
+          ? menu.view.split("/")[1]
+          : menu.view;
+        addEdge({
+          id: `menu:${menuId}:${qid(tDom, tId)}`,
+          source: menuId,
+          target: qid(tDom, tId),
+          kind: "menu",
+          label: menu.label,
+        });
+      }
+
+      // items[] → view + menu → menuItem
+      for (const it of menu.items || []) {
+        const itemId = qid(menu.domainId, `menuItem:${it.id}`);
+        addEdge({
+          id: `menu-parent:${menuId}:${itemId}`,
+          source: menuId,
+          target: itemId,
+          kind: "menu",
+          detail: "menu → item",
+        });
+        if (it.view) {
+          const tDom = it.view.includes("/")
+            ? it.view.split("/")[0]
+            : menu.domainId;
+          const tId = it.view.includes("/") ? it.view.split("/")[1] : it.view;
+          addEdge({
+            id: `menuItem:${itemId}:${qid(tDom, tId)}`,
+            source: itemId,
+            target: qid(tDom, tId),
+            kind: "menu",
+            label: it.label || it.id,
+          });
+        }
+      }
+    }
   }
 
-  // ── 7. dashboard_tree ──
-  // У `DomainSchemaAllViewItem` нет dashboardTreeViews — итерируем sections.views.items
-  // (тип `DomainSchemaViewItem`), где это поле объявлено.
-  // `dashboardWidgets` — это id виджетов, а не views, поэтому для графа
-  // зависимостей между views они не нужны (пропускаем).
+  // ---- 4e. dashboard_tree ----
   if (includeDashboards) {
     for (const [domainId, schema] of Object.entries(
       index.schemasByDomain || {},
@@ -268,9 +446,8 @@ export function buildViewGraph(
         domainFilter &&
         domainFilter.size > 0 &&
         !domainFilter.has(domainId.toLowerCase())
-      ) {
+      )
         continue;
-      }
       const items = schema.sections.views.items || [];
       for (const v of items) {
         if (v.type !== "dashboard_tree") continue;
@@ -280,7 +457,6 @@ export function buildViewGraph(
         if (!nodes.has(src)) continue;
         for (const vId of treeViews) {
           const target = qid(domainId, vId);
-          if (!nodes.has(target)) continue;
           addEdge({
             id: `dash:${src}:${target}`,
             source: src,
@@ -292,7 +468,7 @@ export function buildViewGraph(
     }
   }
 
-  // ── 8. mixins → entity view ──
+  // ---- 4f. mixins ----
   if (includeMixins) {
     for (const m of index.mixins || []) {
       if (
@@ -301,80 +477,136 @@ export function buildViewGraph(
         !domainFilter.has(m.domainId.toLowerCase())
       )
         continue;
-      // Найти entity-view для targetEntityFqid
       const targetFqid = m.targetEntityFqid.toLowerCase();
+      const targetEntityViews: string[] = [];
       for (const { domainId, view } of allViews) {
         if (view.type !== "entity") continue;
-        const ev = normalizeEntity(view.entity, domainId);
-        if (ev !== targetFqid) continue;
-        const target = qid(domainId, view.id);
-        if (!nodes.has(target)) continue;
-        // Источник — любой view в домене mixin-источника (по m.domainId)
-        for (const { domainId: d2, view: v2 } of allViews) {
-          if (d2.toLowerCase() !== m.domainId.toLowerCase()) continue;
-          if (v2.type !== "entity") continue;
-          const src = qid(d2, v2.id);
-          if (!nodes.has(src)) continue;
+        if (normalizeEntity(view.entity, domainId) !== targetFqid) continue;
+        targetEntityViews.push(qid(domainId, view.id));
+      }
+      const sourceEntityViews: string[] = [];
+      for (const { domainId, view } of allViews) {
+        if (view.type !== "entity") continue;
+        if (domainId.toLowerCase() !== m.domainId.toLowerCase()) continue;
+        sourceEntityViews.push(qid(domainId, view.id));
+      }
+      for (const src of sourceEntityViews) {
+        for (const tgt of targetEntityViews) {
           addEdge({
-            id: `mixin:${src}:${target}:${m.id}`,
+            id: `mixin:${src}:${tgt}:${m.id}`,
             source: src,
-            target,
+            target: tgt,
             kind: "mixin",
             label: m.id,
+            detail: `mixin ${m.type}`,
           });
         }
       }
     }
   }
 
-  // ── 9. Фильтр cross-domain (для «все домены») ──
-  let workingNodes = Array.from(nodes.values());
+  // ---- 5. Фильтр по edge kinds ----
   let workingEdges = edges;
+  if (options.showEdgeKinds && options.showEdgeKinds.size > 0) {
+    workingEdges = edges.filter((e) => options.showEdgeKinds!.has(e.kind));
+  }
 
-  if (options.crossDomainOnly) {
-    workingEdges = edges.filter((e) => {
-      const srcDom = e.source.split("/")[0];
-      const tgtDom = e.target.split("/")[0];
-      return srcDom !== tgtDom;
-    });
-    const involved = new Set<string>();
+  // ---- 6. Фильтр по node kinds ----
+  let workingNodes = Array.from(nodes.values());
+  if (options.showNodeKinds && options.showNodeKinds.size > 0) {
+    const allowed = options.showNodeKinds;
+    // menu/menuItem всегда оставляем, если includeMenus — они нужны для связей
+    workingNodes = workingNodes.filter(
+      (n) =>
+        allowed.has(n.kind) ||
+        (includeMenus && (n.kind === "menu" || n.kind === "menuItem")),
+    );
+  }
+
+  // ---- 7. Hide orphans ----
+  let keptIds = new Set(workingNodes.map((n) => n.id));
+  if (hideOrphans) {
+    const connected = new Set<string>();
     for (const e of workingEdges) {
-      involved.add(e.source);
-      involved.add(e.target);
+      connected.add(e.source);
+      connected.add(e.target);
     }
-    workingNodes = workingNodes.filter((n) => involved.has(n.id));
+    keptIds = new Set(Array.from(keptIds).filter((id) => connected.has(id)));
   }
 
-  // ── 10. Подсчёт входящих ──
-  const incomingCount = new Map<string, number>();
-  for (const e of workingEdges) {
-    incomingCount.set(e.target, (incomingCount.get(e.target) || 0) + 1);
+  // ---- 8. Focus BFS ----
+  let effectiveFocus: string | null = null;
+  if (focusId && keptIds.has(focusId)) {
+    effectiveFocus = focusId;
+    const adj = new Map<string, Set<string>>();
+    keptIds.forEach((id) => adj.set(id, new Set()));
+    for (const e of workingEdges) {
+      if (keptIds.has(e.source) && keptIds.has(e.target)) {
+        adj.get(e.source)!.add(e.target);
+        adj.get(e.target)!.add(e.source);
+      }
+    }
+    const reachable = new Set<string>([focusId]);
+    const queue: Array<{ id: string; d: number }> = [{ id: focusId, d: 0 }];
+    while (queue.length > 0) {
+      const { id, d } = queue.shift()!;
+      if (d >= focusDepth) continue;
+      for (const n of adj.get(id) || []) {
+        if (!reachable.has(n)) {
+          reachable.add(n);
+          queue.push({ id: n, d: d + 1 });
+        }
+      }
+    }
+    keptIds = reachable;
   }
 
-  // ── 11. Сортировка по входящим ──
-  workingNodes.sort((a, b) => {
-    const ia = incomingCount.get(a.id) || 0;
-    const ib = incomingCount.get(b.id) || 0;
-    if (ia !== ib) return ib - ia;
-    return a.id.localeCompare(b.id);
+  // ---- 9. Финальные edges/nodes + degrees ----
+  const finalEdges = workingEdges.filter(
+    (e) => keptIds.has(e.source) && keptIds.has(e.target),
+  );
+  const finalNodes = workingNodes.filter((n) => keptIds.has(n.id));
+
+  const inDeg = new Map<string, number>();
+  const outDeg = new Map<string, number>();
+  finalNodes.forEach((n) => {
+    inDeg.set(n.id, 0);
+    outDeg.set(n.id, 0);
+  });
+  for (const e of finalEdges) {
+    outDeg.set(e.source, (outDeg.get(e.source) || 0) + 1);
+    inDeg.set(e.target, (inDeg.get(e.target) || 0) + 1);
+  }
+
+  // ---- 10. Hub threshold ----
+  const degrees = finalNodes.map(
+    (n) => (inDeg.get(n.id) || 0) + (outDeg.get(n.id) || 0),
+  );
+  degrees.sort((a, b) => b - a);
+  const hubThreshold = Math.max(2, degrees[4] || 0);
+
+  finalNodes.forEach((n) => {
+    n.inDegree = inDeg.get(n.id) || 0;
+    n.outDegree = outDeg.get(n.id) || 0;
+    n.degree = n.inDegree + n.outDegree;
+    n.isOrphan = n.degree === 0;
+    n.isHub = n.degree >= hubThreshold && n.degree > 0;
   });
 
-  // ── 12. Trim до limit ──
-  const limited = workingNodes.slice(0, limit);
-  const limitedIds = new Set(limited.map((n) => n.id));
-
-  // ── 13. Помечаем orphans (нет ни входящих, ни исходящих) ──
-  for (const n of limited) {
-    const hasIn = (incomingCount.get(n.id) || 0) > 0;
-    const hasOut = workingEdges.some((e) => e.source === n.id);
-    if (!hasIn && !hasOut) n.isOrphan = true;
-  }
-
-  const filteredEdges = workingEdges.filter(
+  // ---- 11. Обрезка по limit (по degree) ----
+  let limitedNodes = finalNodes.slice().sort((a, b) => {
+    if (b.degree !== a.degree) return b.degree - a.degree;
+    return a.id.localeCompare(b.id);
+  });
+  const truncated = Math.max(0, limitedNodes.length - limit);
+  limitedNodes = limitedNodes.slice(0, limit);
+  const limitedIds = new Set(limitedNodes.map((n) => n.id));
+  const limitedEdges = finalEdges.filter(
     (e) => limitedIds.has(e.source) && limitedIds.has(e.target),
   );
 
-  const byKind: Record<ViewEdgeKind, number> = {
+  // ---- 12. Stats ----
+  const byEdgeKind: Record<ViewEdgeKind, number> = {
     action: 0,
     tabs: 0,
     nested: 0,
@@ -382,22 +614,45 @@ export function buildViewGraph(
     dashboard: 0,
     mixin: 0,
   };
-  for (const e of filteredEdges) byKind[e.kind]++;
+  limitedEdges.forEach((e) => byEdgeKind[e.kind]++);
+
+  const byNodeKind: Record<ViewNodeKind, number> = {
+    entity: 0,
+    list: 0,
+    panel: 0,
+    modal: 0,
+    page: 0,
+    tabs_list: 0,
+    dashboard: 0,
+    dashboard_tree: 0,
+    menu: 0,
+    menuItem: 0,
+    unknown: 0,
+  };
+  limitedNodes.forEach((n) => byNodeKind[n.kind]++);
+
+  const crossDomainEdges = limitedEdges.filter((e) => e.isCrossDomain).length;
 
   return {
-    nodes: limited,
-    edges: filteredEdges,
+    nodes: limitedNodes,
+    edges: limitedEdges,
     stats: {
-      totalNodes: limited.length,
-      totalEdges: filteredEdges.length,
-      byKind,
-      orphans: limited.filter((n) => n.isOrphan).length,
-      unresolved: limited.filter((n) => n.unresolved).length,
+      totalNodes: limitedNodes.length,
+      totalEdges: limitedEdges.length,
+      byEdgeKind,
+      byNodeKind,
+      orphans: limitedNodes.filter((n) => n.isOrphan).length,
+      unresolved: limitedNodes.filter((n) => n.unresolved).length,
+      hubs: limitedNodes.filter((n) => n.isHub).length,
+      crossDomainEdges,
+      focusedId: effectiveFocus,
+      truncated,
     },
   };
 }
 
-/** Какие view «владеют» action-виджетом этого action. */
+// ============ Internal helpers ============
+
 function findActionOwnerViews(
   actionId: string,
   domainId: string,
@@ -416,7 +671,7 @@ function findActionOwnerViews(
   return out;
 }
 
-/** Список сущностей-«получателей» по FQID, для которых нет entity-view. */
+/** Сущности без entity-view. */
 export function findEntitiesWithoutView(index: ModelIndex): Array<{
   fqid: string;
   domainId: string;
@@ -441,3 +696,6 @@ export function findEntitiesWithoutView(index: ModelIndex): Array<{
   }
   return out;
 }
+
+// re-export shortEntity for convenience
+export { shortEntity };

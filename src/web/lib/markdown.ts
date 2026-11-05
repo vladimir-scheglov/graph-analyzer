@@ -190,83 +190,107 @@ export function generateMarkdownReport(
 }
 
 export function generateLearningPathMarkdown(
-  path: LearningPath,
-  options?: { scope?: string },
+  path: any, // EnrichedLearningPath
+  options?: { scope?: string; studied?: Record<string, number> },
 ): string {
   const lines: string[] = [];
+  const scope = options?.scope || "all";
+  const studied = options?.studied || {};
+
   lines.push("# Путь изучения архитектуры");
   lines.push("");
-  lines.push("_Сгенерировано: " + new Date().toLocaleString("ru-RU") + "_");
+  lines.push(`_Сгенерировано: ${new Date().toLocaleString("ru-RU")}_`);
   lines.push("");
-  if (options && options.scope) {
-    lines.push("Область: **" + options.scope + "**");
+  if (scope) {
+    lines.push(`**Область:** ${scope}`);
     lines.push("");
   }
-  lines.push(
-    "Порядок чтения построен от «фундамента» (домены без входящих зависимостей) к верхним слоям.",
-  );
-  lines.push("");
+
+  // KPI
+  const totalMinutes: number = path.totalMinutes || 0;
+  const studiedCount = Object.keys(studied).length;
   lines.push("## Сводка");
   lines.push("");
   lines.push("| Метрика | Значение |");
   lines.push("| --- | ---: |");
-  lines.push("| Всего доменов | " + path.totalDomains + " |");
-  lines.push("| Этапов | " + path.totalStages + " |");
-  lines.push("| Точек входа | " + path.entryPoints.length + " |");
-  if (path.unresolved.length > 0) {
-    lines.push("| Не разрешено (цикл) | " + path.unresolved.length + " |");
+  lines.push(`| Всего доменов | ${path.totalDomains} |`);
+  lines.push(`| Этапов | ${path.totalStages} |`);
+  lines.push(`| Критический путь | ${path.criticalPath} |`);
+  lines.push(`| Foundations (точек входа) | ${path.foundationsCount} |`);
+  lines.push(`| ≈ Время чтения | ${Math.round(totalMinutes)} мин |`);
+  if (studiedCount > 0) {
+    const pct =
+      path.totalDomains > 0
+        ? Math.round((studiedCount / path.totalDomains) * 100)
+        : 0;
+    lines.push(
+      `| Изучено | ${studiedCount} / ${path.totalDomains} (${pct}%) |`,
+    );
+  }
+  if (path.unresolved?.length > 0) {
+    lines.push(`| Не разрешено (цикл) | ${path.unresolved.length} |`);
   }
   lines.push("");
 
-  if (path.entryPoints.length > 0) {
-    lines.push("## Точки входа");
+  // Recommendations
+  if (path.recommendations && path.recommendations.length > 0) {
+    lines.push("## Рекомендации");
     lines.push("");
-    lines.push(
-      "Эти домены — «клиенты» системы: они используют других, но никто не использует их. Хорошие примеры для изучения, потому что показывают функциональность верхнего уровня.",
-    );
-    lines.push("");
-    path.entryPoints.slice(0, 20).forEach((d) => {
-      lines.push(
-        "- `" +
-          d.domainId +
-          "`" +
-          (d.label && d.label !== d.domainId ? " — " + d.label : ""),
-      );
-    });
+    for (const r of path.recommendations) {
+      lines.push(`- ${r.message}`);
+    }
     lines.push("");
   }
 
-  path.stages.forEach((stage) => {
+  // Entry points
+  if (path.entryPoints && path.entryPoints.length > 0) {
+    lines.push("## Точки входа");
+    lines.push("");
+    for (const d of path.entryPoints.slice(0, 20)) {
+      const isStudied = !!studied[d.domainId];
+      const mark = isStudied ? "☑" : "☐";
+      lines.push(
+        `- ${mark} \`${d.domainId}\`${d.label && d.label !== d.domainId ? " — " + d.label : ""}` +
+          ` · ${d.metrics?.entityCount || 0} сущ. · ~${d.metrics?.estimatedMinutes || 0} мин`,
+      );
+    }
+    lines.push("");
+  }
+
+  // Stages
+  path.stages.forEach((stage: any) => {
+    const stageMinutes = stage.totalMinutes || 0;
     lines.push(
-      "## Этап " +
-        (stage.index + 1) +
-        " — " +
-        stage.domains.length +
-        " " +
-        plural(stage.domains.length, "домен", "доменов"),
+      `## Этап ${stage.index + 1} — ${stage.domains.length} доменов · ~${Math.round(stageMinutes)} мин`,
     );
     lines.push("");
-    stage.domains.forEach((d) => {
-      lines.push("### `" + d.domainId + "`");
-      if (d.label && d.label !== d.domainId) lines.push("_ " + d.label + "_");
+    stage.domains.forEach((d: any) => {
+      const isStudied = !!studied[d.domainId];
+      const mark = isStudied ? "☑" : "☐";
+      lines.push(`### ${mark} \`${d.domainId}\``);
+      if (d.label && d.label !== d.domainId) lines.push(`_${d.label}_`);
       lines.push("");
       if (d.description) lines.push(d.description);
       lines.push("");
       const stats: string[] = [];
-      if (d.fanIn > 0) stats.push("используется в " + d.fanIn + " местах");
-      if (d.fanOut > 0) stats.push("зависит от " + d.fanOut);
-      if (d.entitiesCount) stats.push(d.entitiesCount + " entities");
-      if (d.tags && d.tags.length > 0) stats.push("теги: " + d.tags.join(", "));
-      if (stats.length > 0) lines.push("*" + stats.join(" · ") + "*");
+      const m = d.metrics || {};
+      if (m.entityCount) stats.push(`${m.entityCount} сущ.`);
+      if (m.attributeCount) stats.push(`${m.attributeCount} атр.`);
+      if (m.estimatedMinutes) stats.push(`~${m.estimatedMinutes} мин`);
+      if (d.fanIn) stats.push(`↑${d.fanIn} входящих`);
+      if (d.fanOut) stats.push(`↓${d.fanOut} исходящих`);
+      if (m.lintIssueCount) stats.push(`⚠ ${m.lintIssueCount} lint`);
+      if (m.piiCriticalCount) stats.push(`🔒 ${m.piiCriticalCount} PII`);
+      if (stats.length > 0) lines.push(`*${stats.join(" · ")}*`);
       lines.push("");
     });
   });
 
-  if (path.unresolved.length > 0) {
+  if (path.unresolved && path.unresolved.length > 0) {
     lines.push("## Требуют ручного разбора (в цикле)");
     lines.push("");
-    path.unresolved.forEach((d) => {
-      lines.push("- `" + d.domainId + "`");
+    path.unresolved.forEach((d: any) => {
+      lines.push(`- \`${d.domainId}\``);
     });
     lines.push("");
   }

@@ -32,3 +32,6 @@
 @import './pii.css';
 @import './domain-schema.css';
 @import './entities-catalog.css';
+@import './attribute-finder.css';
+@import './entity-graph.css';
+@import './view-graph.css';

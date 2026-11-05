@@ -1,0 +1,329 @@
+/* ============ Attribute Finder — improvements ============ */
+
+.attribute-finder-modal {
+    display: flex;
+    flex-direction: column;
+    width: 94vw;
+    max-width: 1500px;
+    height: 92vh;
+    max-height: 92vh;
+    padding: 0;
+    overflow: hidden;
+}
+
+.attribute-finder-modal .help-modal__header {
+    flex-shrink: 0;
+}
+
+.attribute-finder-prefs {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-800);
+    font-size: 11.5px;
+    flex-shrink: 0;
+}
+
+.attribute-finder-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-400);
+    cursor: pointer;
+    user-select: none;
+}
+
+.attribute-finder-toggle input {
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+.attribute-finder-reset {
+    width: 100%;
+    justify-content: center;
+    margin-bottom: 10px;
+}
+
+.attribute-finder-empty-facet {
+    padding: 8px 0;
+    color: var(--text-500);
+    font-size: 11px;
+    font-style: italic;
+    text-align: center;
+}
+
+.attribute-finder-flag-count {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 0 5px;
+    border-radius: 8px;
+    background: var(--bg-700);
+    color: var(--text-500);
+    margin-left: 4px;
+}
+.attribute-finder-flag-count--warn {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--warning);
+}
+.attribute-finder-flag-count--err {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--danger);
+}
+
+/* ============ Toolbar ============ */
+
+.attribute-finder-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-850);
+    flex-shrink: 0;
+    flex-wrap: wrap;
+}
+
+.attribute-finder-select {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text-500);
+}
+
+.attribute-finder-select select {
+    background: var(--bg-800);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-100);
+    font-family: inherit;
+    font-size: 11.5px;
+    padding: 4px 24px 4px 8px;
+    cursor: pointer;
+    outline: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 6px center;
+}
+
+.attribute-finder-select select:focus {
+    border-color: var(--accent);
+}
+
+.attribute-finder-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 4px;
+}
+
+/* ============ Hint ============ */
+
+.attribute-finder-hint {
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    background: var(--accent-soft);
+    border-radius: 6px;
+    color: var(--text-400);
+    font-size: 11.5px;
+    line-height: 1.5;
+}
+
+/* ============ Groups ============ */
+
+.attribute-finder-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.attribute-finder-group {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-800);
+    overflow: hidden;
+}
+
+.attribute-finder-group__title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 12px;
+    background: var(--bg-750);
+    border-bottom: 1px solid var(--border);
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-300);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.attribute-finder-group__title > span:first-child {
+    font-family: "JetBrains Mono", monospace;
+    color: var(--accent-hover);
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.attribute-finder-group__count {
+    padding: 1px 8px;
+    background: var(--bg-700);
+    border-radius: 10px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    color: var(--text-500);
+}
+
+.attribute-finder-group .attribute-hit {
+    border-radius: 0;
+    border-bottom: 1px solid var(--bg-750);
+    padding: 8px 12px;
+}
+.attribute-finder-group .attribute-hit:last-child {
+    border-bottom: none;
+}
+
+/* ============ Empty / "show more" ============ */
+
+.attribute-finder-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 20px;
+    color: var(--text-500);
+    text-align: center;
+    gap: 8px;
+}
+.attribute-finder-empty__title {
+    font-size: 14px;
+    color: var(--text-300);
+    font-weight: 600;
+}
+.attribute-finder-empty__hint {
+    font-size: 12px;
+    max-width: 400px;
+    line-height: 1.5;
+}
+
+.attribute-finder-more {
+    padding: 16px;
+    text-align: center;
+}
+
+/* ============ Row ============ */
+
+.attribute-hit--active {
+    background: rgba(99, 102, 241, 0.08);
+    outline: 1px solid rgba(99, 102, 241, 0.2);
+    outline-offset: -1px;
+}
+
+.attribute-hit--unused .attribute-hit__id {
+    color: var(--text-500);
+}
+
+.attribute-hit__badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 7px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-family: "JetBrains Mono", monospace;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: lowercase;
+    flex-shrink: 0;
+}
+
+.attribute-hit__badge--nested {
+    background: rgba(139, 92, 246, 0.15);
+    color: #a78bfa;
+}
+.attribute-hit__badge--required {
+    background: rgba(16, 185, 129, 0.12);
+    color: var(--success);
+}
+.attribute-hit__badge--readonly {
+    background: var(--bg-700);
+    color: var(--text-400);
+}
+.attribute-hit__badge--pii {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--warning);
+}
+.attribute-hit__badge--pii-critical {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--danger);
+}
+.attribute-hit__badge--unused {
+    background: rgba(148, 163, 184, 0.12);
+    color: var(--text-400);
+}
+.attribute-hit__badge--cross {
+    background: rgba(99, 102, 241, 0.12);
+    color: var(--accent-hover);
+}
+
+.attribute-hit__usage {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10.5px;
+    color: var(--text-500);
+    padding: 2px 8px;
+    background: var(--bg-750);
+    border-radius: 8px;
+}
+.attribute-hit__usage .material-symbols-outlined {
+    font-size: 12px;
+    color: var(--text-500);
+    margin-right: 1px;
+}
+
+.attribute-hit__detail-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border);
+}
+
+.attribute-hit__tag {
+    display: inline-block;
+    padding: 0 6px;
+    margin-left: 6px;
+    background: rgba(236, 72, 153, 0.15);
+    color: #ec4899;
+    border-radius: 8px;
+    font-size: 9.5px;
+    font-weight: 600;
+    font-family: "JetBrains Mono", monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.attribute-hit__constraint {
+    display: inline-block;
+    padding: 1px 6px;
+    margin-right: 4px;
+    margin-bottom: 2px;
+    background: var(--bg-750);
+    border-radius: 4px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10.5px;
+    color: var(--text-300);
+}
+
+/* Reuse existing .entity-catalog-chips--scrollable, .entity-catalog-group* etc.
+   from entities-catalog.css — они уже определены. */

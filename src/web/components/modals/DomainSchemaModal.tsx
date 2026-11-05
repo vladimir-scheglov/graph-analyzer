@@ -992,7 +992,7 @@ function DomainSchemaHeader({
                                     }
                                     size="sm"
                                 />
-                                <span>{currentNode.data.status === "DISABLED" ? "ВЫКЛЮЧЕНО" : "ВКЛЮЧЕНО"}</span>
+                                <span>{currentNode.data.status === "DISABLED" ? "ВЫКЛЮЧЕН" : "ВКЛЮЧЕН"}</span>
                             </button>
                         </>
                     )}
