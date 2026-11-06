@@ -377,6 +377,7 @@ export default function App() {
                         st.setEntityHierarchyOpen(true);
                     }}
                     onResetAll={handleResetAll}
+                    healthMap={healthMap}
                 />
             </main>
 

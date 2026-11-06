@@ -7,7 +7,7 @@ import type { RFNode, RFEdge } from '../../lib/types';
 import type { EntityIndex } from '../../lib/types';
 import type { HeatmapValues } from '../../hooks/useHeatmapValues';
 import type { UseNodeInteractionsResult } from '../../hooks/useNodeInteractions';
-import { DomainList } from "./DomainList";
+import { DomainList } from "./domain-list/DomainList";
 
 export interface GraphAreaProps {
     visibleNodes: RFNode[];
@@ -21,6 +21,7 @@ export interface GraphAreaProps {
     ruleViolations: any[];
     onOpenEntityHierarchy: (key: string) => void;
     onResetAll: () => void;
+    healthMap: Map<string, any>;
 }
 
 export function GraphArea(props: GraphAreaProps) {
@@ -43,7 +44,7 @@ export function GraphArea(props: GraphAreaProps) {
             }
         >
             {viewMode === 'list' ? (
-                <DomainList />
+                <DomainList healthMap={props.healthMap} />
             ) : (
                 <GraphView
                     nodes={props.visibleNodes}

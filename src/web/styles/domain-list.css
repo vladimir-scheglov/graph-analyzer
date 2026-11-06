@@ -723,3 +723,762 @@
 .domain-list-row--disabled:hover {
   opacity: 1;
 }
+/* ============================================================
+   DomainList v2
+   ============================================================ */
+
+/* ── Toolbar icons ── */
+.domain-list__toolbar-btn {
+    position: relative;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-800);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-400);
+    cursor: pointer;
+    transition: all 0.15s;
+    flex-shrink: 0;
+}
+.domain-list__toolbar-btn:hover {
+    background: var(--bg-750);
+    color: var(--text-200);
+}
+.domain-list__toolbar-btn.active {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--accent-hover);
+}
+.domain-list__toolbar-btn--filters.active {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+}
+.domain-list__toolbar-badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #fff;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 16px;
+    text-align: center;
+    box-shadow: 0 0 0 2px var(--bg-850);
+}
+
+/* ── View toggle ── */
+.domain-list__view-toggle {
+    display: inline-flex;
+    gap: 1px;
+    padding: 2px;
+    background: var(--bg-800);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+.domain-list__view-btn {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: var(--text-500);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+}
+.domain-list__view-btn:hover {
+    color: var(--text-200);
+}
+.domain-list__view-btn.active {
+    background: var(--bg-700);
+    color: var(--accent-hover);
+}
+
+/* ── Filters panel ── */
+.domain-filters-panel {
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-850);
+    flex-shrink: 0;
+    max-height: 45vh;
+    overflow-y: auto;
+}
+.domain-filters-panel__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-800);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+.domain-filters-panel__title {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-300);
+}
+.domain-filters-panel__reset {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-500);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 11px;
+    transition: all 0.15s;
+}
+.domain-filters-panel__reset:hover {
+    border-color: var(--danger);
+    color: var(--danger);
+}
+.domain-filters-panel__body {
+    padding: 8px 12px 12px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 8px;
+}
+
+/* ── Stats bar ── */
+.domain-list__stats-bar {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-850);
+    flex-shrink: 0;
+}
+.domain-list__stat {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    background: var(--bg-800);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    color: var(--text-300);
+    font-size: 11.5px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+.domain-list__stat strong {
+    font-family: "JetBrains Mono", monospace;
+    color: var(--text-100);
+}
+.domain-list__stat:disabled {
+    cursor: default;
+    opacity: 1;
+}
+.domain-list__stat--err {
+    color: var(--danger);
+}
+.domain-list__stat--err strong {
+    color: var(--danger);
+}
+.domain-list__stat--warn {
+    color: var(--warning);
+}
+.domain-list__stat--warn strong {
+    color: var(--warning);
+}
+.domain-list__stat--err:hover:not(:disabled),
+.domain-list__stat--warn:hover:not(:disabled),
+.domain-list__stat--neutral:hover:not(:disabled) {
+    border-color: var(--accent-hover);
+}
+.domain-list__stat--err.active {
+    background: rgba(239, 68, 68, 0.12);
+    border-color: var(--danger);
+}
+.domain-list__stat--warn.active {
+    background: rgba(245, 158, 11, 0.12);
+    border-color: var(--warning);
+}
+.domain-list__stat--neutral {
+    color: var(--text-400);
+}
+
+/* ── Chips ── */
+.domain-list__chip-reset {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    background: transparent;
+    border: 1px dashed var(--border);
+    border-radius: 10px;
+    color: var(--text-500);
+    font-family: inherit;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.domain-list__chip-reset:hover {
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+/* ── Card row enhancements ── */
+.domain-list-row__name-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+.domain-list-row__kind-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 8px;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    line-height: 1.5;
+}
+.domain-list-row__kind-badge--missing {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--warning);
+}
+.domain-list-row__kind-badge--broken {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--danger);
+}
+.domain-list-row__kind-badge--enabled {
+    background: rgba(16, 185, 129, 0.12);
+    color: var(--success);
+}
+.domain-list-row__kind-badge--disabled {
+    background: rgba(148, 163, 184, 0.15);
+    color: var(--text-500);
+}
+.domain-list-row__health {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 8px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    font-weight: 700;
+    flex-shrink: 0;
+    line-height: 1.6;
+}
+.domain-list-row__health--good {
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--success);
+}
+.domain-list-row__health--mid {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--warning);
+}
+.domain-list-row__health--bad {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--danger);
+}
+.domain-list-row__health--unknown {
+    background: var(--bg-700);
+    color: var(--text-500);
+}
+.domain-list-row__flag {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 1px 5px;
+    border-radius: 6px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    font-weight: 700;
+    flex-shrink: 0;
+    line-height: 1.6;
+}
+.domain-list-row__flag--err {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--danger);
+}
+.domain-list-row__flag--warn {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--warning);
+}
+.domain-list-row__flag .material-symbols-outlined {
+    font-size: 11px;
+}
+
+/* Compact density */
+.domain-list--compact .domain-list-row {
+    min-height: 40px;
+    padding: 4px 10px;
+}
+.domain-list--compact .domain-list-row__description {
+    display: none;
+}
+.domain-list--compact .domain-list-row__meta {
+    gap: 6px;
+}
+.domain-list--compact .domain-list-row__author,
+.domain-list--compact .domain-list-row__tags {
+    display: none;
+}
+
+/* ── Table ── */
+.domain-table-wrap {
+    padding: 4px 12px 12px;
+}
+.domain-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 12px;
+}
+.domain-table thead th {
+    position: sticky;
+    top: 0;
+    background: var(--bg-850);
+    border-bottom: 1px solid var(--border);
+    padding: 6px 8px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-500);
+    font-weight: 700;
+    text-align: left;
+    z-index: 2;
+    white-space: nowrap;
+}
+.domain-table__num-head {
+    text-align: right !important;
+}
+.domain-table-row {
+    cursor: pointer;
+    transition: background-color 0.1s;
+    border-bottom: 1px solid var(--bg-800);
+}
+.domain-table-row:hover {
+    background: var(--bg-800);
+}
+.domain-table-row--active {
+    background: var(--accent-soft) !important;
+    border-left: 2px solid var(--accent);
+}
+.domain-table-row--focused {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
+.domain-table-row--disabled {
+    opacity: 0.6;
+}
+.domain-table-row td {
+    padding: 6px 8px;
+    vertical-align: middle;
+}
+.domain-table-row__check-cell,
+.domain-table-row__star-cell {
+    width: 28px;
+    padding: 4px !important;
+    text-align: center;
+}
+.domain-table-row__star {
+    background: transparent;
+    border: none;
+    color: var(--text-500);
+    cursor: pointer;
+    padding: 2px;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    transition: all 0.15s;
+}
+.domain-table-row__star:hover {
+    color: #fbbf24;
+    background: rgba(251, 191, 36, 0.1);
+}
+.domain-table-row__star.active {
+    color: #fbbf24;
+}
+.domain-table-row__name-cell {
+    min-width: 220px;
+    max-width: 320px;
+}
+.domain-table-row__name-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+.domain-table-row__name {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-100);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.domain-table-row__id {
+    display: block;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10.5px;
+    color: var(--text-500);
+    margin-top: 1px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.domain-table-row__num-cell {
+    text-align: right;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    white-space: nowrap;
+}
+.domain-table-row__version {
+    padding: 1px 6px;
+    background: var(--bg-750);
+    border-radius: 8px;
+    font-size: 10px;
+    color: var(--text-400);
+}
+.domain-table-row__entities {
+    font-weight: 700;
+    color: var(--text-200);
+}
+.domain-table-row__entities--zero {
+    color: var(--text-500);
+}
+.domain-table-row__dash {
+    color: var(--text-600);
+}
+.domain-table-row__health-cell {
+    text-align: center;
+}
+.domain-table-row__health {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 8px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10.5px;
+    font-weight: 700;
+    line-height: 1.6;
+}
+.domain-table-row__health--good {
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--success);
+}
+.domain-table-row__health--mid {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--warning);
+}
+.domain-table-row__health--bad {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--danger);
+}
+/* ============================================================
+   DomainList v2 — TABLE ROW: полная стилизация ячеек
+   ============================================================ */
+
+/* --- Health badge: последний вариант --- */
+.domain-table-row__health--unknown {
+    background: var(--bg-700);
+    color: var(--text-500);
+}
+
+/* --- Badges cell (флаги PII / lint / invalid) --- */
+.domain-table-row__badges-cell {
+    min-width: 80px;
+}
+.domain-table-row__badges {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    flex-wrap: wrap;
+}
+.domain-table-row__badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.6;
+    white-space: nowrap;
+}
+.domain-table-row__badge .material-symbols-outlined {
+    font-size: 11px;
+}
+.domain-table-row__badge--err {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--danger);
+}
+.domain-table-row__badge--warn {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--warning);
+}
+.domain-table-row__badge--draft {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--warning);
+    font-family: inherit;
+    font-weight: 500;
+    text-transform: lowercase;
+    font-size: 9.5px;
+}
+
+/* --- Tags cell --- */
+.domain-table-row__tags-cell {
+    min-width: 100px;
+    max-width: 180px;
+}
+.domain-table-row__tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+}
+.domain-table-row__tag {
+    display: inline-block;
+    padding: 1px 6px;
+    background: var(--bg-750);
+    border-radius: 8px;
+    font-size: 10px;
+    color: var(--text-400);
+    white-space: nowrap;
+    max-width: 100px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* --- Author cell --- */
+.domain-table-row__author-cell {
+    min-width: 100px;
+    max-width: 160px;
+}
+.domain-table-row__author {
+    display: inline-block;
+    font-size: 11px;
+    color: var(--text-400);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+}
+
+/* --- Updated cell --- */
+.domain-table-row__updated-cell {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10.5px;
+    color: var(--text-500);
+    white-space: nowrap;
+}
+
+/* --- Status cell (toggle ON/OFF) --- */
+.domain-table-row__status-cell {
+    text-align: center;
+    width: 40px;
+}
+.domain-table-row__status {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.domain-table-row__status--enabled {
+    color: var(--success);
+}
+.domain-table-row__status--enabled:hover {
+    background: rgba(16, 185, 129, 0.12);
+    border-color: var(--success);
+}
+.domain-table-row__status--disabled {
+    color: var(--text-500);
+}
+.domain-table-row__status--disabled:hover {
+    background: rgba(148, 163, 184, 0.12);
+    border-color: var(--text-500);
+}
+.domain-table-row__status .material-symbols-outlined {
+    font-size: 15px;
+}
+
+/* --- Actions cell --- */
+.domain-table-row__actions-cell {
+    text-align: right;
+    white-space: nowrap;
+    min-width: 60px;
+}
+.domain-table-row__action {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    margin-left: 2px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    color: var(--text-500);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.domain-table-row__action:hover {
+    background: var(--bg-700);
+    border-color: var(--border);
+    color: var(--accent-hover);
+}
+.domain-table-row__action .material-symbols-outlined {
+    font-size: 14px;
+}
+
+/* --- Checkbox в таблице --- */
+.domain-table-row__check-cell input[type="checkbox"],
+.domain-table thead th input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    accent-color: var(--accent);
+    cursor: pointer;
+    vertical-align: middle;
+}
+
+/* --- Плотная плотность в таблице (если добавите) --- */
+.domain-list--compact .domain-table-row td {
+    padding: 3px 6px;
+    font-size: 11px;
+}
+.domain-list--compact .domain-table-row__name {
+    font-size: 11.5px;
+}
+
+/* ============================================================
+   BULK ACTIONS BAR
+   ============================================================ */
+
+.domain-bulk-bar {
+    position: sticky;
+    bottom: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: var(--bg-800);
+    border-top: 1px solid var(--accent);
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.25);
+    animation: domainBulkIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+    flex-wrap: wrap;
+}
+
+@keyframes domainBulkIn {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.domain-bulk-bar__count {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--text-300);
+    padding: 2px 10px;
+    background: var(--accent-soft);
+    border-radius: 10px;
+    margin-right: auto;
+}
+.domain-bulk-bar__count strong {
+    color: var(--accent-hover);
+    font-family: "JetBrains Mono", monospace;
+    font-weight: 700;
+}
+
+.domain-bulk-bar .btn {
+    padding: 5px 10px;
+    font-size: 11.5px;
+}
+
+/* ============================================================
+   Filter btn variant — оставшаяся часть прошлого блока
+   ============================================================ */
+
+.domain-list__toolbar-btn--filters {
+    /* базовый вид совпадает с .domain-list__toolbar-btn,
+       variant подчёркивает, что это toggle-панель */
+    transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+
+/* ============================================================
+   Table: тема light
+   ============================================================ */
+
+[data-theme="light"] .domain-table thead th {
+    background: #f8fafc;
+}
+[data-theme="light"] .domain-table-row {
+    border-bottom-color: #f1f5f9;
+}
+[data-theme="light"] .domain-table-row:hover {
+    background: #f8fafc;
+}
+[data-theme="light"] .domain-table-row--active {
+    background: rgba(79, 70, 229, 0.08) !important;
+}
+[data-theme="light"] .domain-table-row__tag {
+    background: #f1f5f9;
+}
+[data-theme="light"] .domain-table-row__version {
+    background: #f1f5f9;
+}
+[data-theme="light"] .domain-bulk-bar {
+    background: #ffffff;
+    box-shadow: 0 -8px 24px rgba(15, 23, 42, 0.12);
+}
+
+.domain-table {
+    table-layout: fixed;
+}
+
+/* Фиксируем узкие колонки; широкие (Домен, Теги, Автор) — забирают остаток */
+.domain-table thead th:nth-child(1) { width: 28px; }   /* checkbox */
+.domain-table thead th:nth-child(2) { width: 30px; }   /* star */
+.domain-table thead th:nth-child(4) { width: 70px; }   /* version */
+.domain-table thead th:nth-child(5) { width: 50px; }   /* Ent */
+.domain-table thead th:nth-child(6) { width: 60px; }   /* Attr */
+.domain-table thead th:nth-child(7) { width: 60px; }   /* Views */
+.domain-table thead th:nth-child(8) { width: 60px; }   /* Health */
+.domain-table thead th:nth-child(9) { width: 90px; }   /* Flags */
+.domain-table thead th:nth-child(12) { width: 80px; }  /* Updated */
+.domain-table thead th:nth-child(13) { width: 30px; }  /* status */
+.domain-table thead th:nth-child(14) { width: 60px; }  /* actions */
