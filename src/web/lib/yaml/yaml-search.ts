@@ -27,6 +27,7 @@ export interface SearchMatch {
   truncatedBefore: boolean;
   truncatedAfter: boolean;
   matchLineCount: number;
+  inComment?: boolean;
 }
 
 export interface SearchSectionGroup {
@@ -34,6 +35,7 @@ export interface SearchSectionGroup {
   sectionLabel: string;
   sectionLine: number;
   matches: SearchMatch[];
+  totalInSection?: number;
 }
 
 export interface SearchResult {
@@ -165,6 +167,7 @@ export function searchSingleLine(
   let totalMatches = 0;
   let emitted = 0;
   let truncated = false;
+  const sectionTotal = new Map<string, number>();
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -184,11 +187,6 @@ export function searchSingleLine(
       }
 
       totalMatches++;
-      if (emitted >= maxMatches) {
-        truncated = true;
-        if (regex.lastIndex >= line.length) break;
-        continue;
-      }
 
       // Секция
       let sectionKey = "__header__";
@@ -212,6 +210,14 @@ export function searchSingleLine(
         }
       }
 
+      sectionTotal.set(sectionKey, (sectionTotal.get(sectionKey) || 0) + 1);
+
+      if (emitted >= maxMatches) {
+        truncated = true;
+        if (regex.lastIndex >= line.length) break;
+        continue;
+      }
+
       const beforeRaw = line.slice(0, m.index);
       const afterRaw = line.slice(m.index + matched.length);
 
@@ -231,6 +237,7 @@ export function searchSingleLine(
         matchLineCount: 1,
         endLine: lineNum,
         endColumn: m.index + 1,
+        inComment: line.trimStart().startsWith("#"),
       };
 
       let group = groupsByKey.get(sectionKey);
@@ -249,6 +256,11 @@ export function searchSingleLine(
     if (a.sectionKey === "__header__") return -1;
     if (b.sectionKey === "__header__") return 1;
     return a.sectionLine - b.sectionLine;
+  });
+
+  // Проставляем totalInSection — сколько матчей всего в секции.
+  groups.forEach((g) => {
+    g.totalInSection = sectionTotal.get(g.sectionKey) || g.matches.length;
   });
 
   return {
@@ -352,6 +364,7 @@ function searchMultiline(
   let emitted = 0;
   let truncated = false;
   let cursor = 0;
+  const sectionTotal = new Map<string, number>();
 
   // Обход всех вхождений
   while (cursor <= content.length) {
@@ -391,29 +404,31 @@ function searchMultiline(
 
     totalMatches++;
 
-    if (emitted < maxMatches) {
-      // ============ Секция ============
-      let sectionKey = "__header__";
-      let sectionLabel = "Шапка файла";
-      let sectionLine = 0;
-      if (intervals.length > 0) {
-        const iv = findSectionAtLine(intervals, startPos.line);
-        if (iv) {
-          sectionKey = iv.key;
-          sectionLabel = iv.label;
-          sectionLine = iv.line;
-        } else if (startPos.line >= intervals[0].startLine) {
-          let prev = intervals[0];
-          for (const cur of intervals) {
-            if (cur.startLine <= startPos.line) prev = cur;
-            else break;
-          }
-          sectionKey = prev.key;
-          sectionLabel = prev.label;
-          sectionLine = prev.line;
+    // ============ Секция ============
+    let sectionKey = "__header__";
+    let sectionLabel = "Шапка файла";
+    let sectionLine = 0;
+    if (intervals.length > 0) {
+      const iv = findSectionAtLine(intervals, startPos.line);
+      if (iv) {
+        sectionKey = iv.key;
+        sectionLabel = iv.label;
+        sectionLine = iv.line;
+      } else if (startPos.line >= intervals[0].startLine) {
+        let prev = intervals[0];
+        for (const cur of intervals) {
+          if (cur.startLine <= startPos.line) prev = cur;
+          else break;
         }
+        sectionKey = prev.key;
+        sectionLabel = prev.label;
+        sectionLine = prev.line;
       }
+    }
 
+    sectionTotal.set(sectionKey, (sectionTotal.get(sectionKey) || 0) + 1);
+
+    if (emitted < maxMatches) {
       // ============ Контекст ============
       const fullLine = lineTextAt(content, starts, startPos.line);
       const startColIdx = startPos.col - 1;
@@ -476,6 +491,10 @@ function searchMultiline(
     if (a.sectionKey === "__header__") return -1;
     if (b.sectionKey === "__header__") return 1;
     return a.sectionLine - b.sectionLine;
+  });
+
+  groups.forEach((g) => {
+    g.totalInSection = sectionTotal.get(g.sectionKey) || g.matches.length;
   });
 
   return {

@@ -75,6 +75,7 @@ import {
 type RightTab = 'issues' | 'refs' | 'backlinks' | 'server';
 type NavTab = "navigation" | "search" | "bookmarks";
 type DiffAgainst = "previous" | "published" | null;
+const EMPTY_BOOKMARKS: number[] = [];
 
 /**
  * Запускает серверную валидацию текущего контента.
@@ -310,6 +311,7 @@ export function YamlViewerModal() {
 
     const [idleContent, setIdleContent] = useState(content);
     const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const bookmarksDecorationsRef = useRef<any>(null);
 
     useEffect(() => {
         // Не обновляем idleContent, если текст не менялся (первый mount)
@@ -1187,31 +1189,40 @@ export function YamlViewerModal() {
         return lineMap.sections.map((s) => ({ key: s.key, label: s.label }));
     }, [lineMap]);
 
-    // Получаем закладки для текущего файла
     const fileBookmarks = useGraphStore(
-        (s) => (s.editorBookmarks || {})[filePath!] || [],
+        (s) => (s.editorBookmarks || {})[filePath!] ?? EMPTY_BOOKMARKS,
     );
+    const [bookmarksQuery, setBookmarksQuery] = useState("");
     const setEditorBookmarks = useGraphStore((s) => s.setEditorBookmarks);
 
     // Формируем список с текстом
     const bookmarkDetails = useMemo(() => {
         if (!fileBookmarks || fileBookmarks.length === 0) return [];
-
-        // Берем актуальный текст строк из Monaco
         const model = editorRef.current?.getModel();
-        const lines = content.split("\n");
-
+        // idleContent вместо content — пересчёт раз в 3.5с, а не на каждый keystroke
+        const lines = (idleContent || "").split("\n");
         return fileBookmarks.map((lineNum) => {
             const raw = model ? model.getLineContent(lineNum) : (lines[lineNum - 1] || "");
             const trimmed = raw.trim();
             return {
                 line: lineNum,
-                text: trimmed.slice(0, 80) + (trimmed.length > 80 ? "…" : ""),
+                text: trimmed.slice(0, 100) + (trimmed.length > 100 ? "…" : ""),
                 indent: raw.length - raw.trimStart().length,
-                raw: raw // на случай если понадобится полный текст
+                raw: raw,
             };
         });
-    }, [fileBookmarks, content, editorCreated]);
+    }, [fileBookmarks, idleContent, editorCreated]);
+
+    const filteredBookmarks = useMemo(() => {
+        const q = bookmarksQuery.trim().toLowerCase();
+        if (!q) return bookmarkDetails;
+        return bookmarkDetails.filter(
+            (b) =>
+                b.text.toLowerCase().includes(q) ||
+                String(b.line) === q ||
+                b.raw.toLowerCase().includes(q),
+        );
+    }, [bookmarkDetails, bookmarksQuery]);
 
     const parsedQuery = useMemo(() => parseNavQuery(navQuery), [navQuery]);
 
@@ -1273,6 +1284,48 @@ export function YamlViewerModal() {
                 : null,
         [activeNavIdx, flatNavKeys],
     );
+
+    // ============ Декорации закладок ============
+    useEffect(() => {
+        if (!editorCreated || !editorRef.current) {
+            bookmarksDecorationsRef.current = null;
+            return;
+        }
+        const monaco = (window as any).monaco;
+        if (!monaco) return;
+
+        // Коллекция создаётся один раз на жизнь редактора
+        if (!bookmarksDecorationsRef.current) {
+            bookmarksDecorationsRef.current =
+                editorRef.current.createDecorationsCollection([]);
+        }
+
+        const decos = (fileBookmarks || []).map((line) => ({
+            range: new monaco.Range(line, 1, line, 1),
+            options: {
+                isWholeLine: true,
+                linesDecorationsClassName: "yaml-bookmark-line",
+                glyphMarginClassName: "yaml-bookmark-glyph",
+                glyphMarginHoverMessage: { value: `🔖 Закладка · строка ${line}` },
+                overviewRuler: {
+                    color: "#f59e0b",
+                    position: monaco.editor.OverviewRulerLane.Left,
+                },
+            },
+        }));
+
+        try {
+            bookmarksDecorationsRef.current.set(decos);
+        } catch {
+            /* ignore */
+        }
+    }, [editorCreated, fileBookmarks]);
+
+    useEffect(() => {
+        if (!open) {
+            setBookmarksQuery("");
+        }
+    }, [open, filePath]);
 
     // ============ Monaco: create ============
     useEffect(() => {
@@ -3864,37 +3917,69 @@ export function YamlViewerModal() {
         if (!editorCreated || !editorRef.current || !filePath) return;
         const ed = editorRef.current;
         const monaco = (window as any).monaco;
+        if (!monaco) return;
 
-        const action = ed.addAction({
-            id: 'toggle-bookmark',
-            label: 'Переключить закладку',
+        const actions: any[] = [];
+
+        // ── F2: toggle закладки на текущей строке ──
+        actions.push(ed.addAction({
+            id: "dg-toggle-bookmark",
+            label: "Переключить закладку",
             keybindings: [monaco.KeyCode.F2],
-            // ⚠️ ВАЖНО: отключает проверку "редактор доступен для записи"
             precondition: undefined,
-            run: (editor) => {
+            run: (editor: any) => {
                 const pos = editor.getPosition();
                 if (!pos) return;
                 const line = pos.lineNumber;
+                const cur = useGraphStore.getState().editorBookmarks[filePath] ?? [];
+                const next = cur.includes(line)
+                    ? cur.filter((l: number) => l !== line)
+                    : [...cur, line].sort((a: number, b: number) => a - b);
+                useGraphStore.getState().setEditorBookmarks(filePath, next);
+            },
+        }));
 
-                // Используем editorBookmarks из стора
-                const curBookmarks = useGraphStore.getState().editorBookmarks[filePath] || [];
+        // ── Shift+F2: следующая закладка (циклически) ──
+        actions.push(ed.addAction({
+            id: "dg-next-bookmark",
+            label: "Следующая закладка",
+            keybindings: [monaco.KeyMod.Shift | monaco.KeyCode.F2],
+            precondition: undefined,
+            run: (editor: any) => {
+                const pos = editor.getPosition();
+                if (!pos) return;
+                const cur = useGraphStore.getState().editorBookmarks[filePath] ?? [];
+                if (cur.length === 0) return;
+                const next =
+                    cur.find((l: number) => l > pos.lineNumber) ?? cur[0];
+                editor.revealLineInCenter(next);
+                editor.setPosition({ lineNumber: next, column: 1 });
+            },
+        }));
 
-                let nextBookmarks;
-                if (curBookmarks.includes(line)) {
-                    nextBookmarks = curBookmarks.filter(l => l !== line);
-                } else {
-                    nextBookmarks = [...curBookmarks, line].sort((a, b) => a - b);
-                }
-                useGraphStore.getState().setEditorBookmarks(filePath, nextBookmarks);
+        // ── Ctrl+Shift+F2: предыдущая закладка ──
+        actions.push(ed.addAction({
+            id: "dg-prev-bookmark",
+            label: "Предыдущая закладка",
+            keybindings: [
+                monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.F2,
+            ],
+            precondition: undefined,
+            run: (editor: any) => {
+                const pos = editor.getPosition();
+                if (!pos) return;
+                const cur = useGraphStore.getState().editorBookmarks[filePath] ?? [];
+                if (cur.length === 0) return;
+                const reversed = [...cur].reverse();
+                const prev =
+                    reversed.find((l: number) => l < pos.lineNumber) ??
+                    cur[cur.length - 1];
+                editor.revealLineInCenter(prev);
+                editor.setPosition({ lineNumber: prev, column: 1 });
+            },
+        }));
 
-                // Если нажали F2 без выделения, прыгаем к следующей закладке
-                if (editor.getSelection()?.isEmpty()) {
-                    const nextLine = nextBookmarks.find(l => l > line) || nextBookmarks[0];
-                    if (nextLine) editor.revealLineInCenter(nextLine);
-                }
-            }
-        });
-        return () => action.dispose();
+        return () => actions.forEach((a) => a.dispose());
     }, [editorCreated, filePath]);
 
     useEffect(() => {
@@ -5511,11 +5596,64 @@ export function YamlViewerModal() {
                                             <div className="yaml-viewer-nav__actions">
                                                 <button
                                                     className="yaml-viewer-nav__action"
+                                                    onClick={() => {
+                                                        if (!editorRef.current) return;
+                                                        const pos = editorRef.current.getPosition();
+                                                        if (!pos) return;
+                                                        const next =
+                                                            fileBookmarks.find((l) => l > pos.lineNumber) ??
+                                                            fileBookmarks[0];
+                                                        jumpTo(next, { focus: true });
+                                                    }}
+                                                    title="Следующая закладка (Shift+F2)"
+                                                >
+                                                    <MIcon name="expand_less" size="sm" />
+                                                </button>
+                                                <button
+                                                    className="yaml-viewer-nav__action"
+                                                    onClick={() => {
+                                                        if (!editorRef.current) return;
+                                                        const pos = editorRef.current.getPosition();
+                                                        if (!pos) return;
+                                                        const reversed = [...fileBookmarks].reverse();
+                                                        const prev =
+                                                            reversed.find((l) => l < pos.lineNumber) ??
+                                                            fileBookmarks[fileBookmarks.length - 1];
+                                                        jumpTo(prev, { focus: true });
+                                                    }}
+                                                    title="Предыдущая закладка (Ctrl+Shift+F2)"
+                                                >
+                                                    <MIcon name="expand_more" size="sm" />
+                                                </button>
+                                                <button
+                                                    className="yaml-viewer-nav__action"
+                                                    onClick={async () => {
+                                                        const text = fileBookmarks
+                                                            .map((l) => `${filePath}:${l}`)
+                                                            .join("\n");
+                                                        try {
+                                                            await navigator.clipboard.writeText(text);
+                                                            useGraphStore
+                                                                .getState()
+                                                                .showSnackbar(
+                                                                    `Скопировано: ${fileBookmarks.length}`,
+                                                                );
+                                                        } catch {
+                                                            /* ignore */
+                                                        }
+                                                    }}
+                                                    title="Копировать все закладки"
+                                                >
+                                                    <MIcon name="content_copy" size="sm" />
+                                                </button>
+                                                <button
+                                                    className="yaml-viewer-nav__action"
                                                     onClick={async () => {
                                                         const ok = await confirmDialog(
                                                             "Удалить все закладки?",
                                                             {
-                                                                detail: "Все закладки в этом файле будут удалены.",
+                                                                detail:
+                                                                    "Все закладки в этом файле будут удалены.",
                                                                 danger: true,
                                                                 confirmLabel: "Удалить",
                                                             },
@@ -5530,6 +5668,30 @@ export function YamlViewerModal() {
                                         )}
                                     </div>
 
+                                    {/* Поиск по закладкам — только если их много */}
+                                    {fileBookmarks.length > 3 && (
+                                        <div className="yaml-viewer-bookmarks-search">
+                                            <MIcon name="search" size="sm" />
+                                            <input
+                                                type="text"
+                                                value={bookmarksQuery}
+                                                onChange={(e) => setBookmarksQuery(e.target.value)}
+                                                placeholder="Фильтр по тексту или номеру строки…"
+                                                spellCheck={false}
+                                            />
+                                            {bookmarksQuery && (
+                                                <button
+                                                    type="button"
+                                                    className="yaml-viewer-bookmarks-search__clear"
+                                                    onClick={() => setBookmarksQuery("")}
+                                                    title="Очистить"
+                                                >
+                                                    ✕
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
+
                                     <div className="yaml-viewer-nav__list">
                                         {bookmarkDetails.length === 0 ? (
                                             <div className="yaml-viewer-bookmarks-empty">
@@ -5538,40 +5700,105 @@ export function YamlViewerModal() {
                                                     Нет закладок
                                                 </div>
                                                 <div className="yaml-viewer-bookmarks-empty__hint">
-                                                    Поставьте курсор на нужную строку и нажмите <kbd>F2</kbd>, чтобы закрепить место.
+                                                    Поставьте курсор на нужную строку и нажмите <kbd>F2</kbd>,
+                                                    чтобы закрепить место.
                                                 </div>
+                                            </div>
+                                        ) : filteredBookmarks.length === 0 ? (
+                                            <div className="yaml-viewer-bookmarks-empty">
+                                                <MIcon name="search_off" size="lg" />
+                                                <div className="yaml-viewer-bookmarks-empty__title">
+                                                    Ничего не найдено
+                                                </div>
+                                                <div className="yaml-viewer-bookmarks-empty__hint">
+                                                    Попробуйте изменить запрос «{bookmarksQuery}»
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    className="btn btn--small"
+                                                    onClick={() => setBookmarksQuery("")}
+                                                    style={{ marginTop: 8 }}
+                                                >
+                                                    Сбросить фильтр
+                                                </button>
                                             </div>
                                         ) : (
                                             <div className="yaml-viewer-bookmarks-list">
-                                                {bookmarkDetails.map((b) => (
+                                                {filteredBookmarks.map((b) => (
                                                     <div
                                                         key={b.line}
                                                         className="yaml-viewer-bookmark"
-                                                        onClick={() => {
-                                                            jumpTo(b.line, { focus: false });
-                                                            // Если хотим оставлять навигацию на закладках — не меняем navTab
-                                                        }}
+                                                        onClick={() => jumpTo(b.line, { focus: true })}
                                                         title={`Строка ${b.line}: ${b.raw.trim() || "(пустая строка)"}`}
                                                     >
                                                         <span className="yaml-viewer-bookmark__line">
                                                             {b.line}
                                                         </span>
                                                         <span className="yaml-viewer-bookmark__text">
-                                                            {b.text || <span className="yaml-viewer-bookmark__empty">пустая строка</span>}
+                                                            {b.text || (
+                                                                <span className="yaml-viewer-bookmark__empty">
+                                                                    пустая строка
+                                                                </span>
+                                                            )}
                                                         </span>
-                                                        <button
-                                                            className="yaml-viewer-bookmark__delete"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                const next = fileBookmarks.filter(
-                                                                    (l) => l !== b.line,
-                                                                );
-                                                                setEditorBookmarks(filePath!, next);
-                                                            }}
-                                                            title="Удалить закладку"
-                                                        >
-                                                            <MIcon name="close" size="sm" />
-                                                        </button>
+                                                        <div className="yaml-viewer-bookmark__actions">
+                                                            <button
+                                                                type="button"
+                                                                className="yaml-viewer-bookmark__action"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    navigator.clipboard
+                                                                        .writeText(b.raw)
+                                                                        .then(() =>
+                                                                            useGraphStore
+                                                                                .getState()
+                                                                                .showSnackbar("Строка скопирована"),
+                                                                        )
+                                                                        .catch(() => {
+                                                                            /* ignore */
+                                                                        });
+                                                                }}
+                                                                title="Копировать строку"
+                                                            >
+                                                                <MIcon name="content_copy" size="sm" />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                className="yaml-viewer-bookmark__action"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    navigator.clipboard
+                                                                        .writeText(`${filePath}:${b.line}`)
+                                                                        .then(() =>
+                                                                            useGraphStore
+                                                                                .getState()
+                                                                                .showSnackbar(
+                                                                                    "Путь к строке скопирован",
+                                                                                ),
+                                                                        )
+                                                                        .catch(() => {
+                                                                            /* ignore */
+                                                                        });
+                                                                }}
+                                                                title="Копировать путь к строке"
+                                                            >
+                                                                <MIcon name="link" size="sm" />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                className="yaml-viewer-bookmark__action yaml-viewer-bookmark__action--danger"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    const next = fileBookmarks.filter(
+                                                                        (l) => l !== b.line,
+                                                                    );
+                                                                    setEditorBookmarks(filePath!, next);
+                                                                }}
+                                                                title="Удалить закладку"
+                                                            >
+                                                                <MIcon name="close" size="sm" />
+                                                            </button>
+                                                        </div>
                                                     </div>
                                                 ))}
                                             </div>

@@ -65850,6 +65850,7 @@ function searchSingleLine(content, query, options, lineMap, maxMatches = 500) {
   let totalMatches = 0;
   let emitted = 0;
   let truncated = false;
+  const sectionTotal = /* @__PURE__ */ new Map();
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const lineNum = i + 1;
@@ -65866,12 +65867,6 @@ function searchSingleLine(content, query, options, lineMap, maxMatches = 500) {
         continue;
       }
       totalMatches++;
-      if (emitted >= maxMatches) {
-        truncated = true;
-        if (regex.lastIndex >= line.length)
-          break;
-        continue;
-      }
       let sectionKey = "__header__";
       let sectionLabel = "\u0428\u0430\u043F\u043A\u0430 \u0444\u0430\u0439\u043B\u0430";
       let sectionLine = 0;
@@ -65894,6 +65889,13 @@ function searchSingleLine(content, query, options, lineMap, maxMatches = 500) {
           sectionLine = prev.line;
         }
       }
+      sectionTotal.set(sectionKey, (sectionTotal.get(sectionKey) || 0) + 1);
+      if (emitted >= maxMatches) {
+        truncated = true;
+        if (regex.lastIndex >= line.length)
+          break;
+        continue;
+      }
       const beforeRaw = line.slice(0, m.index);
       const afterRaw = line.slice(m.index + matched.length);
       const match = {
@@ -65913,7 +65915,8 @@ function searchSingleLine(content, query, options, lineMap, maxMatches = 500) {
         truncatedAfter: afterRaw.length > CONTEXT_AFTER,
         matchLineCount: 1,
         endLine: lineNum,
-        endColumn: m.index + 1
+        endColumn: m.index + 1,
+        inComment: line.trimStart().startsWith("#")
       };
       let group = groupsByKey.get(sectionKey);
       if (!group) {
@@ -65932,6 +65935,9 @@ function searchSingleLine(content, query, options, lineMap, maxMatches = 500) {
     if (b.sectionKey === "__header__")
       return 1;
     return a.sectionLine - b.sectionLine;
+  });
+  groups.forEach((g) => {
+    g.totalInSection = sectionTotal.get(g.sectionKey) || g.matches.length;
   });
   return {
     query,
@@ -66017,6 +66023,7 @@ function searchMultiline(content, query, opts, lineMap, maxMatches) {
   let emitted = 0;
   let truncated = false;
   let cursor = 0;
+  const sectionTotal = /* @__PURE__ */ new Map();
   while (cursor <= content.length) {
     const hit = findNext(cursor);
     if (!hit)
@@ -66049,29 +66056,30 @@ function searchMultiline(content, query, opts, lineMap, maxMatches) {
       }
     }
     totalMatches++;
-    if (emitted < maxMatches) {
-      let sectionKey = "__header__";
-      let sectionLabel = "\u0428\u0430\u043F\u043A\u0430 \u0444\u0430\u0439\u043B\u0430";
-      let sectionLine = 0;
-      if (intervals.length > 0) {
-        const iv = findSectionAtLine(intervals, startPos.line);
-        if (iv) {
-          sectionKey = iv.key;
-          sectionLabel = iv.label;
-          sectionLine = iv.line;
-        } else if (startPos.line >= intervals[0].startLine) {
-          let prev = intervals[0];
-          for (const cur of intervals) {
-            if (cur.startLine <= startPos.line)
-              prev = cur;
-            else
-              break;
-          }
-          sectionKey = prev.key;
-          sectionLabel = prev.label;
-          sectionLine = prev.line;
+    let sectionKey = "__header__";
+    let sectionLabel = "\u0428\u0430\u043F\u043A\u0430 \u0444\u0430\u0439\u043B\u0430";
+    let sectionLine = 0;
+    if (intervals.length > 0) {
+      const iv = findSectionAtLine(intervals, startPos.line);
+      if (iv) {
+        sectionKey = iv.key;
+        sectionLabel = iv.label;
+        sectionLine = iv.line;
+      } else if (startPos.line >= intervals[0].startLine) {
+        let prev = intervals[0];
+        for (const cur of intervals) {
+          if (cur.startLine <= startPos.line)
+            prev = cur;
+          else
+            break;
         }
+        sectionKey = prev.key;
+        sectionLabel = prev.label;
+        sectionLine = prev.line;
       }
+    }
+    sectionTotal.set(sectionKey, (sectionTotal.get(sectionKey) || 0) + 1);
+    if (emitted < maxMatches) {
       const fullLine = lineTextAt(content, starts, startPos.line);
       const startColIdx = startPos.col - 1;
       const firstLineEnd = fullLine.length;
@@ -66117,6 +66125,9 @@ function searchMultiline(content, query, opts, lineMap, maxMatches) {
       return 1;
     return a.sectionLine - b.sectionLine;
   });
+  groups.forEach((g) => {
+    g.totalInSection = sectionTotal.get(g.sectionKey) || g.matches.length;
+  });
   return {
     query,
     options: opts,
@@ -66152,32 +66163,70 @@ import {
   useRef as useRef29,
   useState as useState47
 } from "react";
-import { jsx as jsx76, jsxs as jsxs73 } from "react/jsx-runtime";
+import { Fragment as Fragment27, jsx as jsx76, jsxs as jsxs73 } from "react/jsx-runtime";
+function loadHistory() {
+  try {
+    const raw = sessionStorage.getItem(HISTORY_KEY);
+    if (!raw)
+      return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.filter((x) => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
 function SearchGroup({ group, activeMatch, expanded, onToggle, onSelect }) {
+  const totalInSection = group.totalInSection ?? group.matches.length;
+  const showTotal = totalInSection > group.matches.length;
   return /* @__PURE__ */ jsxs73("div", { className: "yaml-search-group" + (expanded ? " open" : ""), children: [
     /* @__PURE__ */ jsxs73("button", { type: "button", className: "yaml-search-group-head", onClick: onToggle, children: [
       /* @__PURE__ */ jsx76("span", { className: "yaml-search-group-chevron", children: expanded ? "\u25BE" : "\u25B8" }),
       /* @__PURE__ */ jsx76("span", { className: "yaml-search-group-title", children: group.sectionLabel }),
-      /* @__PURE__ */ jsx76("span", { className: "yaml-search-group-count", children: group.matches.length })
+      /* @__PURE__ */ jsxs73("span", { className: "yaml-search-group-count", children: [
+        group.matches.length,
+        showTotal && /* @__PURE__ */ jsxs73("span", { style: { opacity: 0.5 }, children: [
+          "/",
+          totalInSection
+        ] })
+      ] })
     ] }),
     expanded && /* @__PURE__ */ jsx76("div", { className: "yaml-search-group-body", children: group.matches.map((m, i) => {
       const isActive = activeMatch !== null && activeMatch.line === m.line && activeMatch.column === m.column && activeMatch.length === m.length;
+      const isMultiline = m.matchLineCount > 1;
       return /* @__PURE__ */ jsxs73(
         "button",
         {
           type: "button",
           className: "yaml-search-item" + (isActive ? " active" : ""),
           onClick: () => onSelect(m),
-          title: `${m.line}:${m.column}`,
+          title: `${m.line}:${m.column}${isMultiline ? ` \xB7 ${m.matchLineCount} \u0441\u0442\u0440.` : ""}`,
           children: [
             /* @__PURE__ */ jsxs73("span", { className: "yaml-search-item-line", children: [
               ":",
-              m.line
+              m.line,
+              isMultiline && /* @__PURE__ */ jsxs73(
+                "span",
+                {
+                  className: "yaml-search-item-multiline",
+                  title: `${m.matchLineCount} \u0441\u0442\u0440\u043E\u043A`,
+                  children: [
+                    "\u23CE",
+                    m.matchLineCount
+                  ]
+                }
+              )
             ] }),
             /* @__PURE__ */ jsxs73("span", { className: "yaml-search-item-context", children: [
               m.truncatedBefore && /* @__PURE__ */ jsx76("span", { className: "yaml-search-item-ellipsis", children: "\u2026" }),
               /* @__PURE__ */ jsx76("span", { className: "yaml-search-item-plain", children: m.before }),
-              /* @__PURE__ */ jsx76("span", { className: "yaml-search-item-match", title: `${m.line}:${m.column}` + (m.matchLineCount > 1 ? ` \u2014 ${m.matchLineCount} \u0441\u0442\u0440.` : ""), children: m.matchLineCount > 1 && m.match.length > 40 ? m.match.slice(0, 40) + "\u2026" : m.match }),
+              /* @__PURE__ */ jsx76(
+                "span",
+                {
+                  className: "yaml-search-item-match" + (m.inComment ? " in-comment" : ""),
+                  title: `${m.line}:${m.column}` + (m.matchLineCount > 1 ? ` \u2014 ${m.matchLineCount} \u0441\u0442\u0440.` : ""),
+                  children: m.matchLineCount > 1 && m.match.length > 40 ? m.match.slice(0, 40) + "\u2026" : m.match
+                }
+              ),
               /* @__PURE__ */ jsx76("span", { className: "yaml-search-item-plain", children: m.after }),
               m.truncatedAfter && /* @__PURE__ */ jsx76("span", { className: "yaml-search-item-ellipsis", children: "\u2026" })
             ] })
@@ -66188,292 +66237,488 @@ function SearchGroup({ group, activeMatch, expanded, onToggle, onSelect }) {
     }) })
   ] });
 }
-var DEBOUNCE_MS, MAX_MATCHES, YamlSearchPanel;
+var DEBOUNCE_MS, MAX_MATCHES, HISTORY_KEY, YamlSearchPanel;
 var init_YamlSearchPanel = __esm({
   "src/web/components/modals/editor/YamlSearchPanel.tsx"() {
     "use strict";
     init_MIcon();
     init_yaml_search();
+    init_useGraphStore();
     DEBOUNCE_MS = 250;
     MAX_MATCHES = 500;
-    YamlSearchPanel = forwardRef(
-      function YamlSearchPanel2(props, ref) {
-        const {
-          content,
-          lineMap,
-          query,
-          options,
-          onQueryChange,
-          onOptionsChange,
-          onResultChange,
-          onActiveMatchChange,
-          onEscape,
-          onJump
-        } = props;
-        const inputRef = useRef29(null);
-        const [result, setResult] = useState47(null);
-        const [activeMatch, setActiveMatch] = useState47(null);
-        const [expanded, setExpanded] = useState47(/* @__PURE__ */ new Set());
-        useImperativeHandle(ref, () => ({
-          focusInput: () => {
-            inputRef.current?.focus();
-            inputRef.current?.select();
-          }
-        }), []);
-        useEffect48(() => {
-          if (!query) {
-            setResult(null);
-            onResultChange(null);
-            setActiveMatch(null);
-            onActiveMatchChange(null);
-            return;
-          }
-          const t = setTimeout(() => {
-            const r = searchYaml(content, query, options, lineMap, MAX_MATCHES);
-            setResult(r);
-            onResultChange(r);
-          }, DEBOUNCE_MS);
-          return () => clearTimeout(t);
-        }, [
-          content,
-          query,
-          lineMap,
-          options.useRegex,
-          options.caseSensitive,
-          options.wholeWord,
-          options.includeComments
-        ]);
-        useEffect48(() => {
-          if (!activeMatch || !result)
-            return;
-          const still = result.groups.some(
-            (g) => g.matches.some(
-              (m) => m.line === activeMatch.line && m.column === activeMatch.column && m.length === activeMatch.length
-            )
-          );
-          if (!still) {
-            setActiveMatch(null);
-            onActiveMatchChange(null);
-          }
-        }, [result]);
-        useEffect48(() => {
-          if (!result) {
-            setExpanded(/* @__PURE__ */ new Set());
-            return;
-          }
+    HISTORY_KEY = "dg-yaml-search-history";
+    YamlSearchPanel = forwardRef(function YamlSearchPanel2(props, ref) {
+      const {
+        content,
+        lineMap,
+        query,
+        options,
+        onQueryChange,
+        onOptionsChange,
+        onResultChange,
+        onActiveMatchChange,
+        onEscape,
+        onJump
+      } = props;
+      const inputRef = useRef29(null);
+      const [result, setResult] = useState47(null);
+      const [activeMatch, setActiveMatch] = useState47(null);
+      const [expanded, setExpanded] = useState47(/* @__PURE__ */ new Set());
+      const [sectionFilter, setSectionFilter] = useState47(null);
+      const [history, setHistory] = useState47(loadHistory);
+      useImperativeHandle(ref, () => ({
+        focusInput: () => {
+          inputRef.current?.focus();
+          inputRef.current?.select();
+        }
+      }), []);
+      useEffect48(() => {
+        if (!query) {
+          setResult(null);
+          onResultChange(null);
+          setActiveMatch(null);
+          onActiveMatchChange(null);
+          return;
+        }
+        const t = setTimeout(() => {
+          const r = searchYaml(content, query, options, lineMap, MAX_MATCHES);
+          setResult(r);
+          onResultChange(r);
+        }, DEBOUNCE_MS);
+        return () => clearTimeout(t);
+      }, [
+        content,
+        query,
+        lineMap,
+        options.useRegex,
+        options.caseSensitive,
+        options.wholeWord,
+        options.includeComments
+      ]);
+      useEffect48(() => {
+        if (!activeMatch || !result)
+          return;
+        const still = result.groups.some(
+          (g) => g.matches.some(
+            (m) => m.line === activeMatch.line && m.column === activeMatch.column && m.length === activeMatch.length
+          )
+        );
+        if (!still) {
+          setActiveMatch(null);
+          onActiveMatchChange(null);
+        }
+      }, [result]);
+      useEffect48(() => {
+        if (!result) {
+          setExpanded(/* @__PURE__ */ new Set());
+          return;
+        }
+        if (result.groups.length <= 15 && result.totalMatches <= 300) {
           setExpanded(new Set(result.groups.map((g) => g.sectionKey)));
-        }, [result]);
-        const flatMatches = useMemo49(() => {
-          if (!result)
-            return [];
-          const out = [];
-          for (const g of result.groups)
-            for (const m of g.matches)
-              out.push(m);
-          return out;
-        }, [result]);
-        const selectMatch = useCallback33(
-          (m) => {
-            setActiveMatch(m);
-            onActiveMatchChange(m);
-            onJump(m.line);
-            inputRef.current?.focus();
-          },
-          [onActiveMatchChange, onJump]
+        } else {
+          setExpanded(
+            new Set(result.groups.slice(0, 3).map((g) => g.sectionKey))
+          );
+        }
+      }, [result]);
+      useEffect48(() => {
+        if (!sectionFilter || !result)
+          return;
+        const exists = result.groups.some((g) => g.sectionKey === sectionFilter);
+        if (!exists)
+          setSectionFilter(null);
+      }, [result, sectionFilter]);
+      const visibleGroups = useMemo49(() => {
+        if (!result)
+          return [];
+        if (!sectionFilter)
+          return result.groups;
+        return result.groups.filter((g) => g.sectionKey === sectionFilter);
+      }, [result, sectionFilter]);
+      const flatMatches = useMemo49(() => {
+        const out = [];
+        for (const g of visibleGroups)
+          for (const m of g.matches)
+            out.push(m);
+        return out;
+      }, [visibleGroups]);
+      const activeIdx = useMemo49(() => {
+        if (!activeMatch)
+          return -1;
+        return flatMatches.findIndex(
+          (m) => m.line === activeMatch.line && m.column === activeMatch.column && m.length === activeMatch.length
         );
-        const stepMatch = useCallback33(
-          (delta) => {
-            if (flatMatches.length === 0)
-              return;
-            let idx = -1;
-            if (activeMatch) {
-              idx = flatMatches.findIndex(
-                (m) => m.line === activeMatch.line && m.column === activeMatch.column && m.length === activeMatch.length
-              );
-            }
-            if (idx < 0)
-              idx = delta > 0 ? -1 : 0;
-            const next = (idx + delta + flatMatches.length) % flatMatches.length;
-            selectMatch(flatMatches[next]);
-          },
-          [flatMatches, activeMatch, selectMatch]
-        );
-        const onKeyDown = (e) => {
-          if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-            e.preventDefault();
-            stepMatch(e.shiftKey ? -1 : 1);
+      }, [flatMatches, activeMatch]);
+      const selectMatch = useCallback33(
+        (m) => {
+          setActiveMatch(m);
+          onActiveMatchChange(m);
+          onJump(m.line);
+          inputRef.current?.focus();
+        },
+        [onActiveMatchChange, onJump]
+      );
+      const stepMatch = useCallback33(
+        (delta) => {
+          if (flatMatches.length === 0)
             return;
-          }
-          if (e.key === "Enter") {
-            return;
-          }
-          if (e.key === "Escape") {
-            e.preventDefault();
-            if (query)
-              onQueryChange("");
-            else
-              onEscape();
-            return;
-          }
-          if (e.key === "ArrowDown" && flatMatches.length > 0) {
-            if (!query.includes("\n")) {
-              e.preventDefault();
-              stepMatch(1);
-            }
-          } else if (e.key === "ArrowUp" && flatMatches.length > 0) {
-            if (!query.includes("\n")) {
-              e.preventDefault();
-              stepMatch(-1);
-            }
-          }
-        };
-        const toggleSection = (key) => {
-          setExpanded((prev) => {
-            const next = new Set(prev);
-            if (next.has(key))
-              next.delete(key);
-            else
-              next.add(key);
-            return next;
-          });
-        };
-        useEffect48(() => {
-          const el = inputRef.current;
-          if (!el)
-            return;
-          el.style.height = "auto";
-          el.style.height = Math.min(el.scrollHeight, 120) + "px";
-        }, [query]);
-        return /* @__PURE__ */ jsxs73("div", { className: "yaml-search-panel", children: [
-          /* @__PURE__ */ jsxs73("div", { className: "yaml-search-input-wrap", children: [
-            /* @__PURE__ */ jsx76(MIcon, { name: "search", size: "sm" }),
-            /* @__PURE__ */ jsx76(
-              "textarea",
-              {
-                ref: inputRef,
-                rows: 1,
-                className: "yaml-search-input" + (query.includes("\n") ? " yaml-search-input--multiline" : ""),
-                value: query,
-                onChange: (e) => onQueryChange(e.target.value),
-                onKeyDown,
-                placeholder: "\u041F\u043E\u0438\u0441\u043A \u043F\u043E \u0444\u0430\u0439\u043B\u0443 (Ctrl+Enter \u2014 \u0434\u0430\u043B\u0435\u0435)",
-                spellCheck: false,
-                autoComplete: "off"
-              }
-            ),
-            query && /* @__PURE__ */ jsx76(
-              "button",
-              {
-                type: "button",
-                className: "yaml-search-clear",
-                onClick: () => {
-                  onQueryChange("");
-                  inputRef.current?.focus();
-                },
-                title: "\u041E\u0447\u0438\u0441\u0442\u0438\u0442\u044C (Esc)",
-                children: "\u2715"
-              }
-            )
-          ] }),
-          /* @__PURE__ */ jsxs73("div", { className: "yaml-search-toggles", children: [
-            /* @__PURE__ */ jsx76(
-              "button",
-              {
-                type: "button",
-                className: "yaml-search-toggle" + (options.caseSensitive ? " active" : ""),
-                onClick: () => onOptionsChange({ ...options, caseSensitive: !options.caseSensitive }),
-                title: "\u0423\u0447\u0438\u0442\u044B\u0432\u0430\u0442\u044C \u0440\u0435\u0433\u0438\u0441\u0442\u0440",
-                children: "Aa"
-              }
-            ),
-            /* @__PURE__ */ jsx76(
-              "button",
-              {
-                type: "button",
-                className: "yaml-search-toggle" + (options.useRegex ? " active" : ""),
-                onClick: () => onOptionsChange({ ...options, useRegex: !options.useRegex }),
-                title: "\u0420\u0435\u0433\u0443\u043B\u044F\u0440\u043D\u043E\u0435 \u0432\u044B\u0440\u0430\u0436\u0435\u043D\u0438\u0435",
-                children: ".*"
-              }
-            ),
-            /* @__PURE__ */ jsx76(
-              "button",
-              {
-                type: "button",
-                className: "yaml-search-toggle" + (options.wholeWord ? " active" : ""),
-                onClick: () => onOptionsChange({ ...options, wholeWord: !options.wholeWord }),
-                disabled: options.useRegex,
-                title: "\u0422\u043E\u043B\u044C\u043A\u043E \u0446\u0435\u043B\u044B\u0435 \u0441\u043B\u043E\u0432\u0430 (\u0432 regex \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0439\u0442\u0435 \\\\b \u0432 \u0441\u0430\u043C\u043E\u043C \u0432\u044B\u0440\u0430\u0436\u0435\u043D\u0438\u0438)",
-                children: "\\b"
-              }
-            ),
-            /* @__PURE__ */ jsx76(
-              "button",
-              {
-                type: "button",
-                className: "yaml-search-toggle" + (options.includeComments ? " active" : ""),
-                onClick: () => onOptionsChange({ ...options, includeComments: !options.includeComments }),
-                title: "\u0418\u0441\u043A\u0430\u0442\u044C \u0432 \u043A\u043E\u043C\u043C\u0435\u043D\u0442\u0430\u0440\u0438\u044F\u0445",
-                children: "#"
-              }
-            )
-          ] }),
-          result?.error && /* @__PURE__ */ jsxs73("div", { className: "yaml-search-error", children: [
-            /* @__PURE__ */ jsx76(MIcon, { name: "warning", size: "sm" }),
-            /* @__PURE__ */ jsx76("span", { children: result.error })
-          ] }),
-          !result?.error && result?.truncated && /* @__PURE__ */ jsxs73("div", { className: "yaml-search-limit-banner", children: [
-            "\u041F\u043E\u043A\u0430\u0437\u0430\u043D\u044B \u043F\u0435\u0440\u0432\u044B\u0435 ",
-            MAX_MATCHES,
-            " \u0438\u0437 ",
-            result.totalMatches,
-            ". \u0423\u0442\u043E\u0447\u043D\u0438\u0442\u0435 \u0437\u0430\u043F\u0440\u043E\u0441."
-          ] }),
-          !result?.error && result && result.groups.length > 0 && /* @__PURE__ */ jsx76("div", { className: "yaml-search-groups", children: result.groups.map((g) => /* @__PURE__ */ jsx76(
-            SearchGroup,
+          let idx = activeIdx;
+          if (idx < 0)
+            idx = delta > 0 ? -1 : 0;
+          const next = (idx + delta + flatMatches.length) % flatMatches.length;
+          selectMatch(flatMatches[next]);
+        },
+        [flatMatches, activeIdx, selectMatch]
+      );
+      const onKeyDown = (e) => {
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+          e.preventDefault();
+          stepMatch(e.shiftKey ? -1 : 1);
+          return;
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          if (query)
+            onQueryChange("");
+          else
+            onEscape();
+          return;
+        }
+        if (e.key === "ArrowDown" && flatMatches.length > 0 && !query.includes("\n")) {
+          e.preventDefault();
+          stepMatch(1);
+        } else if (e.key === "ArrowUp" && flatMatches.length > 0 && !query.includes("\n")) {
+          e.preventDefault();
+          stepMatch(-1);
+        }
+      };
+      const toggleSection = (key) => {
+        setExpanded((prev) => {
+          const next = new Set(prev);
+          if (next.has(key))
+            next.delete(key);
+          else
+            next.add(key);
+          return next;
+        });
+      };
+      const expandAll = () => {
+        if (!result)
+          return;
+        setExpanded(new Set(result.groups.map((g) => g.sectionKey)));
+      };
+      const collapseAll = () => {
+        setExpanded(/* @__PURE__ */ new Set());
+      };
+      const copyAllMatches = async () => {
+        if (flatMatches.length === 0)
+          return;
+        const text = flatMatches.map((m) => `${m.line}:${m.column}	${m.match}`).join("\n");
+        try {
+          await navigator.clipboard.writeText(text);
+          useGraphStore.getState().showSnackbar(
+            `\u0421\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D\u043E: ${flatMatches.length} \u0441\u043E\u0432\u043F\u0430\u0434\u0435\u043D\u0438\u0439`
+          );
+        } catch {
+          useGraphStore.getState().showSnackbar("\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0441\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C");
+        }
+      };
+      const applyHistory = (q) => {
+        onQueryChange(q);
+        setHistory(loadHistory());
+        inputRef.current?.focus();
+      };
+      const clearHistory = () => {
+        try {
+          sessionStorage.removeItem(HISTORY_KEY);
+        } catch {
+        }
+        setHistory([]);
+      };
+      useEffect48(() => {
+        const el = inputRef.current;
+        if (!el)
+          return;
+        el.style.height = "auto";
+        el.style.height = Math.min(el.scrollHeight, 120) + "px";
+      }, [query]);
+      const sectionChips = useMemo49(() => {
+        if (!result)
+          return [];
+        return result.groups.map((g) => ({
+          key: g.sectionKey,
+          label: g.sectionLabel,
+          count: g.matches.length,
+          total: g.totalInSection ?? g.matches.length
+        }));
+      }, [result]);
+      const activePosition = activeIdx >= 0 ? `${activeIdx + 1} / ${flatMatches.length}` : flatMatches.length > 0 ? `\u2014 / ${flatMatches.length}` : "0";
+      return /* @__PURE__ */ jsxs73("div", { className: "yaml-search-panel", children: [
+        /* @__PURE__ */ jsxs73("div", { className: "yaml-search-input-wrap", children: [
+          /* @__PURE__ */ jsx76(MIcon, { name: "search", size: "sm" }),
+          /* @__PURE__ */ jsx76(
+            "textarea",
             {
-              group: g,
-              activeMatch,
-              expanded: expanded.has(g.sectionKey),
-              onToggle: () => toggleSection(g.sectionKey),
-              onSelect: selectMatch
-            },
-            g.sectionKey
-          )) }),
-          !result?.error && result && result.groups.length === 0 && query && /* @__PURE__ */ jsx76("div", { className: "yaml-search-empty", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" }),
-          !query && /* @__PURE__ */ jsxs73("div", { className: "yaml-search-hint", children: [
-            /* @__PURE__ */ jsxs73("div", { className: "yaml-search-hint-row", children: [
-              /* @__PURE__ */ jsx76("kbd", { children: "Ctrl" }),
-              "+",
-              /* @__PURE__ */ jsx76("kbd", { children: "Enter" }),
-              " / ",
-              /* @__PURE__ */ jsx76("kbd", { children: "Ctrl" }),
-              "+",
-              /* @__PURE__ */ jsx76("kbd", { children: "Shift" }),
-              "+",
-              /* @__PURE__ */ jsx76("kbd", { children: "Enter" }),
-              " \u2014 \u0441\u043B\u0435\u0434\u0443\u044E\u0449\u0438\u0439/\u043F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0438\u0439"
-            ] }),
-            /* @__PURE__ */ jsxs73("div", { className: "yaml-search-hint-row", children: [
-              /* @__PURE__ */ jsx76("kbd", { children: "\u2191" }),
-              " / ",
-              /* @__PURE__ */ jsx76("kbd", { children: "\u2193" }),
-              " \u2014 \u0442\u043E \u0436\u0435"
-            ] }),
-            /* @__PURE__ */ jsxs73("div", { className: "yaml-search-hint-row", children: [
-              /* @__PURE__ */ jsx76("kbd", { children: "Esc" }),
-              " \u2014 \u043E\u0447\u0438\u0441\u0442\u0438\u0442\u044C \u0438\u043B\u0438 \u0432\u0435\u0440\u043D\u0443\u0442\u044C \xAB\u041D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044E\xBB"
-            ] }),
-            /* @__PURE__ */ jsxs73("div", { className: "yaml-search-hint-row", children: [
-              /* @__PURE__ */ jsx76("kbd", { children: "Ctrl" }),
-              "+",
-              /* @__PURE__ */ jsx76("kbd", { children: "F" }),
-              " \u2014 \u0441\u0442\u0430\u043D\u0434\u0430\u0440\u0442\u043D\u044B\u0439 \u043F\u043E\u0438\u0441\u043A Monaco"
+              ref: inputRef,
+              rows: 1,
+              className: "yaml-search-input" + (query.includes("\n") ? " yaml-search-input--multiline" : ""),
+              value: query,
+              onChange: (e) => onQueryChange(e.target.value),
+              onKeyDown,
+              placeholder: "\u041F\u043E\u0438\u0441\u043A \u043F\u043E \u0444\u0430\u0439\u043B\u0443 (Ctrl+Enter \u2014 \u0434\u0430\u043B\u0435\u0435)",
+              spellCheck: false,
+              autoComplete: "off"
+            }
+          ),
+          query && /* @__PURE__ */ jsx76(
+            "button",
+            {
+              type: "button",
+              className: "yaml-search-clear",
+              onClick: () => {
+                onQueryChange("");
+                inputRef.current?.focus();
+              },
+              title: "\u041E\u0447\u0438\u0441\u0442\u0438\u0442\u044C (Esc)",
+              children: "\u2715"
+            }
+          )
+        ] }),
+        /* @__PURE__ */ jsxs73("div", { className: "yaml-search-toggles", children: [
+          /* @__PURE__ */ jsx76(
+            "button",
+            {
+              type: "button",
+              className: "yaml-search-toggle" + (options.caseSensitive ? " active" : ""),
+              onClick: () => onOptionsChange({ ...options, caseSensitive: !options.caseSensitive }),
+              title: "\u0423\u0447\u0438\u0442\u044B\u0432\u0430\u0442\u044C \u0440\u0435\u0433\u0438\u0441\u0442\u0440",
+              children: "Aa"
+            }
+          ),
+          /* @__PURE__ */ jsx76(
+            "button",
+            {
+              type: "button",
+              className: "yaml-search-toggle" + (options.useRegex ? " active" : ""),
+              onClick: () => onOptionsChange({ ...options, useRegex: !options.useRegex }),
+              title: "\u0420\u0435\u0433\u0443\u043B\u044F\u0440\u043D\u043E\u0435 \u0432\u044B\u0440\u0430\u0436\u0435\u043D\u0438\u0435",
+              children: ".*"
+            }
+          ),
+          /* @__PURE__ */ jsx76(
+            "button",
+            {
+              type: "button",
+              className: "yaml-search-toggle" + (options.wholeWord ? " active" : ""),
+              onClick: () => onOptionsChange({ ...options, wholeWord: !options.wholeWord }),
+              disabled: options.useRegex,
+              title: "\u0422\u043E\u043B\u044C\u043A\u043E \u0446\u0435\u043B\u044B\u0435 \u0441\u043B\u043E\u0432\u0430 (\u0432 regex \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0439\u0442\u0435 \\\\b \u0432 \u0441\u0430\u043C\u043E\u043C \u0432\u044B\u0440\u0430\u0436\u0435\u043D\u0438\u0438)",
+              children: "\\b"
+            }
+          ),
+          /* @__PURE__ */ jsx76(
+            "button",
+            {
+              type: "button",
+              className: "yaml-search-toggle" + (options.includeComments ? " active" : ""),
+              onClick: () => onOptionsChange({ ...options, includeComments: !options.includeComments }),
+              title: "\u0418\u0441\u043A\u0430\u0442\u044C \u0432 \u043A\u043E\u043C\u043C\u0435\u043D\u0442\u0430\u0440\u0438\u044F\u0445",
+              children: "#"
+            }
+          )
+        ] }),
+        result?.error && /* @__PURE__ */ jsxs73("div", { className: "yaml-search-error", children: [
+          /* @__PURE__ */ jsx76(MIcon, { name: "warning", size: "sm" }),
+          /* @__PURE__ */ jsx76("span", { children: result.error })
+        ] }),
+        !result?.error && result && result.totalMatches > 0 && /* @__PURE__ */ jsxs73("div", { className: "yaml-search-navbar", children: [
+          /* @__PURE__ */ jsx76(
+            "button",
+            {
+              type: "button",
+              className: "yaml-search-nav-btn",
+              onClick: () => stepMatch(-1),
+              disabled: flatMatches.length === 0,
+              title: "\u041F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0435\u0435 (Ctrl+Shift+Enter)",
+              children: /* @__PURE__ */ jsx76(MIcon, { name: "expand_less", size: "sm" })
+            }
+          ),
+          /* @__PURE__ */ jsx76("span", { className: "yaml-search-nav-counter", children: activePosition }),
+          /* @__PURE__ */ jsx76(
+            "button",
+            {
+              type: "button",
+              className: "yaml-search-nav-btn",
+              onClick: () => stepMatch(1),
+              disabled: flatMatches.length === 0,
+              title: "\u0421\u043B\u0435\u0434\u0443\u044E\u0449\u0435\u0435 (Ctrl+Enter)",
+              children: /* @__PURE__ */ jsx76(MIcon, { name: "expand_more", size: "sm" })
+            }
+          ),
+          /* @__PURE__ */ jsxs73("span", { className: "yaml-search-navbar__stat", children: [
+            result.truncated ? `${result.totalMatches}+` : result.totalMatches,
+            " \xB7 ",
+            result.groups.length,
+            " ",
+            result.groups.length === 1 ? "\u0441\u0435\u043A\u0446\u0438\u044F" : "\u0441\u0435\u043A\u0446\u0438\u0439",
+            result.elapsedMs > 0 && /* @__PURE__ */ jsxs73(Fragment27, { children: [
+              " \xB7 ",
+              /* @__PURE__ */ jsxs73("span", { style: { opacity: 0.6 }, children: [
+                result.elapsedMs,
+                " \u043C\u0441"
+              ] })
             ] })
+          ] }),
+          /* @__PURE__ */ jsxs73("div", { className: "yaml-search-navbar__actions", children: [
+            /* @__PURE__ */ jsx76(
+              "button",
+              {
+                type: "button",
+                className: "yaml-search-nav-btn",
+                onClick: expandAll,
+                title: "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0451",
+                children: /* @__PURE__ */ jsx76(MIcon, { name: "unfold_more", size: "sm" })
+              }
+            ),
+            /* @__PURE__ */ jsx76(
+              "button",
+              {
+                type: "button",
+                className: "yaml-search-nav-btn",
+                onClick: collapseAll,
+                title: "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0451",
+                children: /* @__PURE__ */ jsx76(MIcon, { name: "unfold_less", size: "sm" })
+              }
+            ),
+            /* @__PURE__ */ jsx76(
+              "button",
+              {
+                type: "button",
+                className: "yaml-search-nav-btn",
+                onClick: copyAllMatches,
+                title: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0432\u0441\u0435 \u0440\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442\u044B",
+                children: /* @__PURE__ */ jsx76(MIcon, { name: "content_copy", size: "sm" })
+              }
+            )
           ] })
-        ] });
-      }
-    );
+        ] }),
+        !result?.error && result && sectionChips.length > 1 && /* @__PURE__ */ jsxs73("div", { className: "yaml-search-sections", children: [
+          /* @__PURE__ */ jsxs73(
+            "button",
+            {
+              type: "button",
+              className: "yaml-search-section-chip" + (sectionFilter === null ? " active" : ""),
+              onClick: () => setSectionFilter(null),
+              children: [
+                "\u0412\u0441\u0435",
+                /* @__PURE__ */ jsx76("span", { className: "yaml-search-section-chip__count", children: result.totalMatches })
+              ]
+            }
+          ),
+          sectionChips.map((c) => /* @__PURE__ */ jsxs73(
+            "button",
+            {
+              type: "button",
+              className: "yaml-search-section-chip" + (sectionFilter === c.key ? " active" : ""),
+              onClick: () => setSectionFilter(
+                sectionFilter === c.key ? null : c.key
+              ),
+              title: c.total > c.count ? `${c.label}: ${c.count} \u043F\u043E\u043A\u0430\u0437\u0430\u043D\u043E \u0438\u0437 ${c.total}` : `${c.label}: ${c.count}`,
+              children: [
+                c.label,
+                /* @__PURE__ */ jsxs73("span", { className: "yaml-search-section-chip__count", children: [
+                  c.count,
+                  c.total > c.count && /* @__PURE__ */ jsxs73("span", { style: { opacity: 0.5 }, children: [
+                    "/",
+                    c.total
+                  ] })
+                ] })
+              ]
+            },
+            c.key
+          ))
+        ] }),
+        !result?.error && result?.truncated && /* @__PURE__ */ jsxs73("div", { className: "yaml-search-limit-banner", children: [
+          "\u041F\u043E\u043A\u0430\u0437\u0430\u043D\u044B \u043F\u0435\u0440\u0432\u044B\u0435 ",
+          MAX_MATCHES,
+          " \u0438\u0437 ",
+          result.totalMatches,
+          ". \u0423\u0442\u043E\u0447\u043D\u0438\u0442\u0435 \u0437\u0430\u043F\u0440\u043E\u0441."
+        ] }),
+        !result?.error && result && visibleGroups.length > 0 && /* @__PURE__ */ jsx76("div", { className: "yaml-search-groups", children: visibleGroups.map((g) => /* @__PURE__ */ jsx76(
+          SearchGroup,
+          {
+            group: g,
+            activeMatch,
+            expanded: expanded.has(g.sectionKey),
+            onToggle: () => toggleSection(g.sectionKey),
+            onSelect: selectMatch
+          },
+          g.sectionKey
+        )) }),
+        !result?.error && result && result.groups.length === 0 && query && /* @__PURE__ */ jsx76("div", { className: "yaml-search-empty", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" }),
+        !query && /* @__PURE__ */ jsxs73("div", { className: "yaml-search-hint", children: [
+          history.length > 0 && /* @__PURE__ */ jsxs73(Fragment27, { children: [
+            /* @__PURE__ */ jsxs73("div", { className: "yaml-search-history", children: [
+              /* @__PURE__ */ jsx76("span", { className: "yaml-search-history__label", children: "\u041D\u0435\u0434\u0430\u0432\u043D\u0438\u0435:" }),
+              history.map((h) => /* @__PURE__ */ jsxs73(
+                "button",
+                {
+                  type: "button",
+                  className: "yaml-search-history__item",
+                  onClick: () => applyHistory(h),
+                  title: `\u0417\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u044C: ${h}`,
+                  children: [
+                    /* @__PURE__ */ jsx76(MIcon, { name: "history", size: "sm" }),
+                    /* @__PURE__ */ jsx76("span", { children: h })
+                  ]
+                },
+                h
+              )),
+              /* @__PURE__ */ jsx76(
+                "button",
+                {
+                  type: "button",
+                  className: "yaml-search-history__clear",
+                  onClick: clearHistory,
+                  title: "\u041E\u0447\u0438\u0441\u0442\u0438\u0442\u044C \u0438\u0441\u0442\u043E\u0440\u0438\u044E",
+                  children: "\u2715"
+                }
+              )
+            ] }),
+            /* @__PURE__ */ jsx76("div", { className: "yaml-search-hint-divider" })
+          ] }),
+          /* @__PURE__ */ jsxs73("div", { className: "yaml-search-hint-row", children: [
+            /* @__PURE__ */ jsx76("kbd", { children: "Ctrl" }),
+            "+",
+            /* @__PURE__ */ jsx76("kbd", { children: "Enter" }),
+            " / ",
+            /* @__PURE__ */ jsx76("kbd", { children: "Ctrl" }),
+            "+",
+            /* @__PURE__ */ jsx76("kbd", { children: "Shift" }),
+            "+",
+            /* @__PURE__ */ jsx76("kbd", { children: "Enter" }),
+            " \u2014 \u0441\u043B\u0435\u0434\u0443\u044E\u0449\u0438\u0439/\u043F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0438\u0439"
+          ] }),
+          /* @__PURE__ */ jsxs73("div", { className: "yaml-search-hint-row", children: [
+            /* @__PURE__ */ jsx76("kbd", { children: "\u2191" }),
+            " / ",
+            /* @__PURE__ */ jsx76("kbd", { children: "\u2193" }),
+            " \u2014 \u0442\u043E \u0436\u0435"
+          ] }),
+          /* @__PURE__ */ jsxs73("div", { className: "yaml-search-hint-row", children: [
+            /* @__PURE__ */ jsx76("kbd", { children: "Esc" }),
+            " \u2014 \u043E\u0447\u0438\u0441\u0442\u0438\u0442\u044C \u0438\u043B\u0438 \u0432\u0435\u0440\u043D\u0443\u0442\u044C \xAB\u041D\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044E\xBB"
+          ] }),
+          /* @__PURE__ */ jsxs73("div", { className: "yaml-search-hint-row", children: [
+            /* @__PURE__ */ jsx76("kbd", { children: "Ctrl" }),
+            "+",
+            /* @__PURE__ */ jsx76("kbd", { children: "F" }),
+            " \u2014 \u0441\u0442\u0430\u043D\u0434\u0430\u0440\u0442\u043D\u044B\u0439 \u043F\u043E\u0438\u0441\u043A Monaco"
+          ] })
+        ] })
+      ] });
+    });
   }
 });
 
@@ -75424,7 +75669,7 @@ var init_unused_analysis = __esm({
 // src/web/components/common/Hint.tsx
 import { useId, useCallback as useCallback34, useEffect as useEffect50, useLayoutEffect as useLayoutEffect5, useRef as useRef31, useState as useState49 } from "react";
 import { createPortal as createPortal4 } from "react-dom";
-import { Fragment as Fragment27, jsx as jsx78, jsxs as jsxs75 } from "react/jsx-runtime";
+import { Fragment as Fragment28, jsx as jsx78, jsxs as jsxs75 } from "react/jsx-runtime";
 function setActiveHint(id) {
   if (activeHintId !== id) {
     activeHintId = id;
@@ -75449,7 +75694,7 @@ function Hint({ char, info, children, className }) {
   const data = info ?? (char ? HINTS[char] : null);
   const timeoutRef = useRef31();
   if (!data) {
-    return /* @__PURE__ */ jsx78(Fragment27, { children: children ?? (char ? /* @__PURE__ */ jsx78("kbd", { children: char }) : null) });
+    return /* @__PURE__ */ jsx78(Fragment28, { children: children ?? (char ? /* @__PURE__ */ jsx78("kbd", { children: char }) : null) });
   }
   const handleEnter = () => {
     if (timeoutRef.current)
@@ -75741,7 +75986,7 @@ var init_Hint = __esm({
 // src/web/components/modals/editor/YamlQuickJump.tsx
 import { useEffect as useEffect51, useMemo as useMemo51, useRef as useRef32, useState as useState50 } from "react";
 import { createPortal as createPortal5 } from "react-dom";
-import { Fragment as Fragment28, jsx as jsx79, jsxs as jsxs76 } from "react/jsx-runtime";
+import { Fragment as Fragment29, jsx as jsx79, jsxs as jsxs76 } from "react/jsx-runtime";
 function loadFavorites() {
   try {
     const raw = localStorage.getItem(FAVORITES_KEY);
@@ -76056,7 +76301,7 @@ function highlightInText(text, term) {
   }
   if (pos < text.length)
     parts.push(text.slice(pos));
-  return /* @__PURE__ */ jsx79(Fragment28, { children: parts });
+  return /* @__PURE__ */ jsx79(Fragment29, { children: parts });
 }
 function MiniMapPreview({
   state,
@@ -77133,7 +77378,7 @@ function YamlQuickJump({
   const isSectionPick = (item) => item.key.startsWith("section-pick:");
   const previewSearchTerm = previewTerm(query);
   let itemOffset = 0;
-  return /* @__PURE__ */ jsxs76(Fragment28, { children: [
+  return /* @__PURE__ */ jsxs76(Fragment29, { children: [
     /* @__PURE__ */ jsx79("div", { className: "yaml-quickjump-backdrop", onMouseDown: onClose }),
     /* @__PURE__ */ jsxs76(
       "div",
@@ -77242,7 +77487,7 @@ function YamlQuickJump({
                   group.items.map((item, i) => {
                     const idx = startOffset + i;
                     const severityClass = item.severity ? ` yaml-quickjump-item--severity-${item.severity}` : "";
-                    return /* @__PURE__ */ jsx79(Fragment28, { children: /* @__PURE__ */ jsxs76(
+                    return /* @__PURE__ */ jsx79(Fragment29, { children: /* @__PURE__ */ jsxs76(
                       "button",
                       {
                         type: "button",
@@ -83375,7 +83620,7 @@ import {
   useState as useState51
 } from "react";
 import { createPortal as createPortal6 } from "react-dom";
-import { Fragment as Fragment29, jsx as jsx80, jsxs as jsxs77 } from "react/jsx-runtime";
+import { Fragment as Fragment30, jsx as jsx80, jsxs as jsxs77 } from "react/jsx-runtime";
 function SchemaHistoryModal({
   filePath,
   currentContent,
@@ -83710,7 +83955,7 @@ function SchemaHistoryModal({
                     ] })
                   ] })
                 ] }),
-                /* @__PURE__ */ jsx80("div", { className: "schema-history-content", children: selected && /* @__PURE__ */ jsxs77(Fragment29, { children: [
+                /* @__PURE__ */ jsx80("div", { className: "schema-history-content", children: selected && /* @__PURE__ */ jsxs77(Fragment30, { children: [
                   /* @__PURE__ */ jsxs77("div", { className: "schema-history-toolbar", children: [
                     /* @__PURE__ */ jsxs77("div", { className: "schema-history-toolbar__info", children: [
                       /* @__PURE__ */ jsxs77("strong", { children: [
@@ -83762,7 +84007,7 @@ function SchemaHistoryModal({
                       selected.version,
                       ". \u0420\u0430\u0437\u043B\u0438\u0447\u0438\u044F \u043C\u043E\u0433\u0443\u0442 \u0431\u044B\u0442\u044C \u0442\u043E\u043B\u044C\u043A\u043E \u0432 \u043A\u043E\u043C\u043C\u0435\u043D\u0442\u0430\u0440\u0438\u044F\u0445, \u0444\u043E\u0440\u043C\u0430\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0438 \u0438\u043B\u0438 \u043C\u0435\u0442\u0430\u0434\u0430\u043D\u043D\u044B\u0445."
                     ] })
-                  ] }) : /* @__PURE__ */ jsxs77(Fragment29, { children: [
+                  ] }) : /* @__PURE__ */ jsxs77(Fragment30, { children: [
                     structuralDiff.addedEntities.length > 0 && /* @__PURE__ */ jsxs77("div", { className: "schema-history-group schema-history-group--added", children: [
                       /* @__PURE__ */ jsxs77("div", { className: "schema-history-group__title", children: [
                         "\u{1F7E2} \u041F\u043E\u044F\u0432\u0438\u0442\u0441\u044F \u0432 \u0442\u0435\u043A\u0443\u0449\u0435\u043C \u043F\u043E\u0441\u043B\u0435 \u0437\u0430\u043C\u0435\u043D\u044B \u043D\u0430 v",
@@ -84552,7 +84797,7 @@ var init_YamlViewerNavPanel = __esm({
 
 // src/web/components/modals/editor/YamlViewerModal.tsx
 import React60, { startTransition, useCallback as useCallback36, useDeferredValue as useDeferredValue5, useEffect as useEffect53, useLayoutEffect as useLayoutEffect6, useMemo as useMemo54, useRef as useRef34, useState as useState53 } from "react";
-import { Fragment as Fragment30, jsx as jsx82, jsxs as jsxs79 } from "react/jsx-runtime";
+import { Fragment as Fragment31, jsx as jsx82, jsxs as jsxs79 } from "react/jsx-runtime";
 async function validateSourceCodeOnServer(sourceCode) {
   try {
     const res = await fetch("/api/validate-single", {
@@ -84733,6 +84978,7 @@ function YamlViewerModal() {
   }, [open2]);
   const [idleContent, setIdleContent] = useState53(content);
   const idleTimerRef = useRef34(null);
+  const bookmarksDecorationsRef = useRef34(null);
   useEffect53(() => {
     if (idleContent === content && idleTimerRef.current === null)
       return;
@@ -85452,26 +85698,34 @@ function YamlViewerModal() {
     return lineMap.sections.map((s) => ({ key: s.key, label: s.label }));
   }, [lineMap]);
   const fileBookmarks = useGraphStore(
-    (s) => (s.editorBookmarks || {})[filePath] || []
+    (s) => (s.editorBookmarks || {})[filePath] ?? EMPTY_BOOKMARKS
   );
+  const [bookmarksQuery, setBookmarksQuery] = useState53("");
   const setEditorBookmarks = useGraphStore((s) => s.setEditorBookmarks);
   const bookmarkDetails = useMemo54(() => {
     if (!fileBookmarks || fileBookmarks.length === 0)
       return [];
     const model = editorRef.current?.getModel();
-    const lines = content.split("\n");
+    const lines = (idleContent || "").split("\n");
     return fileBookmarks.map((lineNum) => {
       const raw = model ? model.getLineContent(lineNum) : lines[lineNum - 1] || "";
       const trimmed = raw.trim();
       return {
         line: lineNum,
-        text: trimmed.slice(0, 80) + (trimmed.length > 80 ? "\u2026" : ""),
+        text: trimmed.slice(0, 100) + (trimmed.length > 100 ? "\u2026" : ""),
         indent: raw.length - raw.trimStart().length,
         raw
-        // на случай если понадобится полный текст
       };
     });
-  }, [fileBookmarks, content, editorCreated]);
+  }, [fileBookmarks, idleContent, editorCreated]);
+  const filteredBookmarks = useMemo54(() => {
+    const q = bookmarksQuery.trim().toLowerCase();
+    if (!q)
+      return bookmarkDetails;
+    return bookmarkDetails.filter(
+      (b) => b.text.toLowerCase().includes(q) || String(b.line) === q || b.raw.toLowerCase().includes(q)
+    );
+  }, [bookmarkDetails, bookmarksQuery]);
   const parsedQuery = useMemo54(() => parseNavQuery(navQuery), [navQuery]);
   const filteredNavNodes = useMemo54(() => {
     let result = flatNavNodes;
@@ -85514,6 +85768,40 @@ function YamlViewerModal() {
     () => activeNavIdx >= 0 && activeNavIdx < flatNavKeys.length ? flatNavKeys[activeNavIdx] : null,
     [activeNavIdx, flatNavKeys]
   );
+  useEffect53(() => {
+    if (!editorCreated || !editorRef.current) {
+      bookmarksDecorationsRef.current = null;
+      return;
+    }
+    const monaco = window.monaco;
+    if (!monaco)
+      return;
+    if (!bookmarksDecorationsRef.current) {
+      bookmarksDecorationsRef.current = editorRef.current.createDecorationsCollection([]);
+    }
+    const decos = (fileBookmarks || []).map((line) => ({
+      range: new monaco.Range(line, 1, line, 1),
+      options: {
+        isWholeLine: true,
+        linesDecorationsClassName: "yaml-bookmark-line",
+        glyphMarginClassName: "yaml-bookmark-glyph",
+        glyphMarginHoverMessage: { value: `\u{1F516} \u0417\u0430\u043A\u043B\u0430\u0434\u043A\u0430 \xB7 \u0441\u0442\u0440\u043E\u043A\u0430 ${line}` },
+        overviewRuler: {
+          color: "#f59e0b",
+          position: monaco.editor.OverviewRulerLane.Left
+        }
+      }
+    }));
+    try {
+      bookmarksDecorationsRef.current.set(decos);
+    } catch {
+    }
+  }, [editorCreated, fileBookmarks]);
+  useEffect53(() => {
+    if (!open2) {
+      setBookmarksQuery("");
+    }
+  }, [open2, filePath]);
   useEffect53(() => {
     if (!open2)
       return;
@@ -87903,33 +88191,62 @@ ${draftInfo.hint}` : "";
       return;
     const ed = editorRef.current;
     const monaco = window.monaco;
-    const action = ed.addAction({
-      id: "toggle-bookmark",
+    if (!monaco)
+      return;
+    const actions2 = [];
+    actions2.push(ed.addAction({
+      id: "dg-toggle-bookmark",
       label: "\u041F\u0435\u0440\u0435\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0437\u0430\u043A\u043B\u0430\u0434\u043A\u0443",
       keybindings: [monaco.KeyCode.F2],
-      // ⚠️ ВАЖНО: отключает проверку "редактор доступен для записи"
       precondition: void 0,
       run: (editor) => {
         const pos = editor.getPosition();
         if (!pos)
           return;
         const line = pos.lineNumber;
-        const curBookmarks = useGraphStore.getState().editorBookmarks[filePath] || [];
-        let nextBookmarks;
-        if (curBookmarks.includes(line)) {
-          nextBookmarks = curBookmarks.filter((l) => l !== line);
-        } else {
-          nextBookmarks = [...curBookmarks, line].sort((a, b) => a - b);
-        }
-        useGraphStore.getState().setEditorBookmarks(filePath, nextBookmarks);
-        if (editor.getSelection()?.isEmpty()) {
-          const nextLine = nextBookmarks.find((l) => l > line) || nextBookmarks[0];
-          if (nextLine)
-            editor.revealLineInCenter(nextLine);
-        }
+        const cur = useGraphStore.getState().editorBookmarks[filePath] ?? [];
+        const next = cur.includes(line) ? cur.filter((l) => l !== line) : [...cur, line].sort((a, b) => a - b);
+        useGraphStore.getState().setEditorBookmarks(filePath, next);
       }
-    });
-    return () => action.dispose();
+    }));
+    actions2.push(ed.addAction({
+      id: "dg-next-bookmark",
+      label: "\u0421\u043B\u0435\u0434\u0443\u044E\u0449\u0430\u044F \u0437\u0430\u043A\u043B\u0430\u0434\u043A\u0430",
+      keybindings: [monaco.KeyMod.Shift | monaco.KeyCode.F2],
+      precondition: void 0,
+      run: (editor) => {
+        const pos = editor.getPosition();
+        if (!pos)
+          return;
+        const cur = useGraphStore.getState().editorBookmarks[filePath] ?? [];
+        if (cur.length === 0)
+          return;
+        const next = cur.find((l) => l > pos.lineNumber) ?? cur[0];
+        editor.revealLineInCenter(next);
+        editor.setPosition({ lineNumber: next, column: 1 });
+      }
+    }));
+    actions2.push(ed.addAction({
+      id: "dg-prev-bookmark",
+      label: "\u041F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0430\u044F \u0437\u0430\u043A\u043B\u0430\u0434\u043A\u0430",
+      keybindings: [
+        monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.F2
+      ],
+      precondition: void 0,
+      run: (editor) => {
+        const pos = editor.getPosition();
+        if (!pos)
+          return;
+        const cur = useGraphStore.getState().editorBookmarks[filePath] ?? [];
+        if (cur.length === 0)
+          return;
+        const reversed = [...cur].reverse();
+        const prev = reversed.find((l) => l < pos.lineNumber) ?? cur[cur.length - 1];
+        editor.revealLineInCenter(prev);
+        editor.setPosition({ lineNumber: prev, column: 1 });
+      }
+    }));
+    return () => actions2.forEach((a) => a.dispose());
   }, [editorCreated, filePath]);
   useEffect53(() => {
     if (!editorCreated || !editorRef.current)
@@ -88372,7 +88689,7 @@ ${publishInfo.hint}` : "";
                       children: mode === "remote" ? "\u25CF \u0437\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0441 \u0441\u0435\u0440\u0432\u0435\u0440\u0430\u2026" : "\u25CF \u0437\u0430\u0433\u0440\u0443\u0437\u043A\u0430\u2026"
                     }
                   ) : saveFeedback ? /* @__PURE__ */ jsx82("span", { className: "help-modal__badge help-modal__badge--ok", children: "\u2713 \u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D" }) : null,
-                  isDirty ? /* @__PURE__ */ jsxs79(Fragment30, { children: [
+                  isDirty ? /* @__PURE__ */ jsxs79(Fragment31, { children: [
                     /* @__PURE__ */ jsx82("span", { className: "help-modal__badge help-modal__badge--dirty", children: "\u25CF \u0438\u0437\u043C\u0435\u043D\u0451\u043D" }),
                     diffCount && /* @__PURE__ */ jsxs79("span", { className: "help-modal__badge", style: { fontFamily: "monospace", background: "var(--bg-750)" }, children: [
                       /* @__PURE__ */ jsxs79("span", { style: { color: "var(--success)" }, children: [
@@ -88964,7 +89281,7 @@ ${publishInfo.hint}` : "";
                     style: { width: leftCollapsed ? 0 : leftWidth },
                     children: [
                       loading && /* @__PURE__ */ jsx82("div", { className: "yaml-viewer-nav__loading", children: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430..." }),
-                      lineMap && /* @__PURE__ */ jsxs79(Fragment30, { children: [
+                      lineMap && /* @__PURE__ */ jsxs79(Fragment31, { children: [
                         /* @__PURE__ */ jsxs79("div", { className: "yaml-viewer-nav__tabs", children: [
                           /* @__PURE__ */ jsxs79(
                             "button",
@@ -89169,7 +89486,7 @@ ${publishInfo.hint}` : "";
                                   onContextMenu: (node, sectionKey, x, y) => setNavContextMenu({ node, sectionKey, x, y }),
                                   onOpenIssues: () => setRightTab("issues")
                                 }
-                              ) : /* @__PURE__ */ jsxs79(Fragment30, { children: [
+                              ) : /* @__PURE__ */ jsxs79(Fragment31, { children: [
                                 lineMap && lineMap.sections.length === 0 && /* @__PURE__ */ jsxs79("div", { className: "yaml-viewer-nav__empty", children: [
                                   /* @__PURE__ */ jsx82(MIcon, { name: "warning", size: "sm" }),
                                   /* @__PURE__ */ jsxs79("span", { children: [
@@ -89239,26 +89556,104 @@ ${publishInfo.hint}` : "";
                               /* @__PURE__ */ jsxs79("div", { className: "yaml-viewer-nav__header", children: [
                                 /* @__PURE__ */ jsx82("span", { children: "\u0417\u0430\u043A\u043B\u0430\u0434\u043A\u0438" }),
                                 /* @__PURE__ */ jsx82("span", { className: "yaml-viewer-nav__count", children: fileBookmarks.length }),
-                                fileBookmarks.length > 0 && /* @__PURE__ */ jsx82("div", { className: "yaml-viewer-nav__actions", children: /* @__PURE__ */ jsx82(
+                                fileBookmarks.length > 0 && /* @__PURE__ */ jsxs79("div", { className: "yaml-viewer-nav__actions", children: [
+                                  /* @__PURE__ */ jsx82(
+                                    "button",
+                                    {
+                                      className: "yaml-viewer-nav__action",
+                                      onClick: () => {
+                                        if (!editorRef.current)
+                                          return;
+                                        const pos = editorRef.current.getPosition();
+                                        if (!pos)
+                                          return;
+                                        const next = fileBookmarks.find((l) => l > pos.lineNumber) ?? fileBookmarks[0];
+                                        jumpTo(next, { focus: true });
+                                      },
+                                      title: "\u0421\u043B\u0435\u0434\u0443\u044E\u0449\u0430\u044F \u0437\u0430\u043A\u043B\u0430\u0434\u043A\u0430 (Shift+F2)",
+                                      children: /* @__PURE__ */ jsx82(MIcon, { name: "expand_less", size: "sm" })
+                                    }
+                                  ),
+                                  /* @__PURE__ */ jsx82(
+                                    "button",
+                                    {
+                                      className: "yaml-viewer-nav__action",
+                                      onClick: () => {
+                                        if (!editorRef.current)
+                                          return;
+                                        const pos = editorRef.current.getPosition();
+                                        if (!pos)
+                                          return;
+                                        const reversed = [...fileBookmarks].reverse();
+                                        const prev = reversed.find((l) => l < pos.lineNumber) ?? fileBookmarks[fileBookmarks.length - 1];
+                                        jumpTo(prev, { focus: true });
+                                      },
+                                      title: "\u041F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0430\u044F \u0437\u0430\u043A\u043B\u0430\u0434\u043A\u0430 (Ctrl+Shift+F2)",
+                                      children: /* @__PURE__ */ jsx82(MIcon, { name: "expand_more", size: "sm" })
+                                    }
+                                  ),
+                                  /* @__PURE__ */ jsx82(
+                                    "button",
+                                    {
+                                      className: "yaml-viewer-nav__action",
+                                      onClick: async () => {
+                                        const text = fileBookmarks.map((l) => `${filePath}:${l}`).join("\n");
+                                        try {
+                                          await navigator.clipboard.writeText(text);
+                                          useGraphStore.getState().showSnackbar(
+                                            `\u0421\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D\u043E: ${fileBookmarks.length}`
+                                          );
+                                        } catch {
+                                        }
+                                      },
+                                      title: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0432\u0441\u0435 \u0437\u0430\u043A\u043B\u0430\u0434\u043A\u0438",
+                                      children: /* @__PURE__ */ jsx82(MIcon, { name: "content_copy", size: "sm" })
+                                    }
+                                  ),
+                                  /* @__PURE__ */ jsx82(
+                                    "button",
+                                    {
+                                      className: "yaml-viewer-nav__action",
+                                      onClick: async () => {
+                                        const ok = await confirmDialog(
+                                          "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0432\u0441\u0435 \u0437\u0430\u043A\u043B\u0430\u0434\u043A\u0438?",
+                                          {
+                                            detail: "\u0412\u0441\u0435 \u0437\u0430\u043A\u043B\u0430\u0434\u043A\u0438 \u0432 \u044D\u0442\u043E\u043C \u0444\u0430\u0439\u043B\u0435 \u0431\u0443\u0434\u0443\u0442 \u0443\u0434\u0430\u043B\u0435\u043D\u044B.",
+                                            danger: true,
+                                            confirmLabel: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C"
+                                          }
+                                        );
+                                        if (ok)
+                                          setEditorBookmarks(filePath, []);
+                                      },
+                                      title: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0432\u0441\u0435 \u0437\u0430\u043A\u043B\u0430\u0434\u043A\u0438",
+                                      children: /* @__PURE__ */ jsx82(MIcon, { name: "delete_sweep", size: "sm" })
+                                    }
+                                  )
+                                ] })
+                              ] }),
+                              fileBookmarks.length > 3 && /* @__PURE__ */ jsxs79("div", { className: "yaml-viewer-bookmarks-search", children: [
+                                /* @__PURE__ */ jsx82(MIcon, { name: "search", size: "sm" }),
+                                /* @__PURE__ */ jsx82(
+                                  "input",
+                                  {
+                                    type: "text",
+                                    value: bookmarksQuery,
+                                    onChange: (e) => setBookmarksQuery(e.target.value),
+                                    placeholder: "\u0424\u0438\u043B\u044C\u0442\u0440 \u043F\u043E \u0442\u0435\u043A\u0441\u0442\u0443 \u0438\u043B\u0438 \u043D\u043E\u043C\u0435\u0440\u0443 \u0441\u0442\u0440\u043E\u043A\u0438\u2026",
+                                    spellCheck: false
+                                  }
+                                ),
+                                bookmarksQuery && /* @__PURE__ */ jsx82(
                                   "button",
                                   {
-                                    className: "yaml-viewer-nav__action",
-                                    onClick: async () => {
-                                      const ok = await confirmDialog(
-                                        "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0432\u0441\u0435 \u0437\u0430\u043A\u043B\u0430\u0434\u043A\u0438?",
-                                        {
-                                          detail: "\u0412\u0441\u0435 \u0437\u0430\u043A\u043B\u0430\u0434\u043A\u0438 \u0432 \u044D\u0442\u043E\u043C \u0444\u0430\u0439\u043B\u0435 \u0431\u0443\u0434\u0443\u0442 \u0443\u0434\u0430\u043B\u0435\u043D\u044B.",
-                                          danger: true,
-                                          confirmLabel: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C"
-                                        }
-                                      );
-                                      if (ok)
-                                        setEditorBookmarks(filePath, []);
-                                    },
-                                    title: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0432\u0441\u0435 \u0437\u0430\u043A\u043B\u0430\u0434\u043A\u0438",
-                                    children: /* @__PURE__ */ jsx82(MIcon, { name: "delete_sweep", size: "sm" })
+                                    type: "button",
+                                    className: "yaml-viewer-bookmarks-search__clear",
+                                    onClick: () => setBookmarksQuery(""),
+                                    title: "\u041E\u0447\u0438\u0441\u0442\u0438\u0442\u044C",
+                                    children: "\u2715"
                                   }
-                                ) })
+                                )
                               ] }),
                               /* @__PURE__ */ jsx82("div", { className: "yaml-viewer-nav__list", children: bookmarkDetails.length === 0 ? /* @__PURE__ */ jsxs79("div", { className: "yaml-viewer-bookmarks-empty", children: [
                                 /* @__PURE__ */ jsx82(MIcon, { name: "star_border", size: "lg" }),
@@ -89268,32 +89663,85 @@ ${publishInfo.hint}` : "";
                                   /* @__PURE__ */ jsx82("kbd", { children: "F2" }),
                                   ", \u0447\u0442\u043E\u0431\u044B \u0437\u0430\u043A\u0440\u0435\u043F\u0438\u0442\u044C \u043C\u0435\u0441\u0442\u043E."
                                 ] })
-                              ] }) : /* @__PURE__ */ jsx82("div", { className: "yaml-viewer-bookmarks-list", children: bookmarkDetails.map((b) => /* @__PURE__ */ jsxs79(
+                              ] }) : filteredBookmarks.length === 0 ? /* @__PURE__ */ jsxs79("div", { className: "yaml-viewer-bookmarks-empty", children: [
+                                /* @__PURE__ */ jsx82(MIcon, { name: "search_off", size: "lg" }),
+                                /* @__PURE__ */ jsx82("div", { className: "yaml-viewer-bookmarks-empty__title", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" }),
+                                /* @__PURE__ */ jsxs79("div", { className: "yaml-viewer-bookmarks-empty__hint", children: [
+                                  "\u041F\u043E\u043F\u0440\u043E\u0431\u0443\u0439\u0442\u0435 \u0438\u0437\u043C\u0435\u043D\u0438\u0442\u044C \u0437\u0430\u043F\u0440\u043E\u0441 \xAB",
+                                  bookmarksQuery,
+                                  "\xBB"
+                                ] }),
+                                /* @__PURE__ */ jsx82(
+                                  "button",
+                                  {
+                                    type: "button",
+                                    className: "btn btn--small",
+                                    onClick: () => setBookmarksQuery(""),
+                                    style: { marginTop: 8 },
+                                    children: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0444\u0438\u043B\u044C\u0442\u0440"
+                                  }
+                                )
+                              ] }) : /* @__PURE__ */ jsx82("div", { className: "yaml-viewer-bookmarks-list", children: filteredBookmarks.map((b) => /* @__PURE__ */ jsxs79(
                                 "div",
                                 {
                                   className: "yaml-viewer-bookmark",
-                                  onClick: () => {
-                                    jumpTo(b.line, { focus: false });
-                                  },
+                                  onClick: () => jumpTo(b.line, { focus: true }),
                                   title: `\u0421\u0442\u0440\u043E\u043A\u0430 ${b.line}: ${b.raw.trim() || "(\u043F\u0443\u0441\u0442\u0430\u044F \u0441\u0442\u0440\u043E\u043A\u0430)"}`,
                                   children: [
                                     /* @__PURE__ */ jsx82("span", { className: "yaml-viewer-bookmark__line", children: b.line }),
                                     /* @__PURE__ */ jsx82("span", { className: "yaml-viewer-bookmark__text", children: b.text || /* @__PURE__ */ jsx82("span", { className: "yaml-viewer-bookmark__empty", children: "\u043F\u0443\u0441\u0442\u0430\u044F \u0441\u0442\u0440\u043E\u043A\u0430" }) }),
-                                    /* @__PURE__ */ jsx82(
-                                      "button",
-                                      {
-                                        className: "yaml-viewer-bookmark__delete",
-                                        onClick: (e) => {
-                                          e.stopPropagation();
-                                          const next = fileBookmarks.filter(
-                                            (l) => l !== b.line
-                                          );
-                                          setEditorBookmarks(filePath, next);
-                                        },
-                                        title: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0437\u0430\u043A\u043B\u0430\u0434\u043A\u0443",
-                                        children: /* @__PURE__ */ jsx82(MIcon, { name: "close", size: "sm" })
-                                      }
-                                    )
+                                    /* @__PURE__ */ jsxs79("div", { className: "yaml-viewer-bookmark__actions", children: [
+                                      /* @__PURE__ */ jsx82(
+                                        "button",
+                                        {
+                                          type: "button",
+                                          className: "yaml-viewer-bookmark__action",
+                                          onClick: (e) => {
+                                            e.stopPropagation();
+                                            navigator.clipboard.writeText(b.raw).then(
+                                              () => useGraphStore.getState().showSnackbar("\u0421\u0442\u0440\u043E\u043A\u0430 \u0441\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D\u0430")
+                                            ).catch(() => {
+                                            });
+                                          },
+                                          title: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0441\u0442\u0440\u043E\u043A\u0443",
+                                          children: /* @__PURE__ */ jsx82(MIcon, { name: "content_copy", size: "sm" })
+                                        }
+                                      ),
+                                      /* @__PURE__ */ jsx82(
+                                        "button",
+                                        {
+                                          type: "button",
+                                          className: "yaml-viewer-bookmark__action",
+                                          onClick: (e) => {
+                                            e.stopPropagation();
+                                            navigator.clipboard.writeText(`${filePath}:${b.line}`).then(
+                                              () => useGraphStore.getState().showSnackbar(
+                                                "\u041F\u0443\u0442\u044C \u043A \u0441\u0442\u0440\u043E\u043A\u0435 \u0441\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D"
+                                              )
+                                            ).catch(() => {
+                                            });
+                                          },
+                                          title: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u043F\u0443\u0442\u044C \u043A \u0441\u0442\u0440\u043E\u043A\u0435",
+                                          children: /* @__PURE__ */ jsx82(MIcon, { name: "link", size: "sm" })
+                                        }
+                                      ),
+                                      /* @__PURE__ */ jsx82(
+                                        "button",
+                                        {
+                                          type: "button",
+                                          className: "yaml-viewer-bookmark__action yaml-viewer-bookmark__action--danger",
+                                          onClick: (e) => {
+                                            e.stopPropagation();
+                                            const next = fileBookmarks.filter(
+                                              (l) => l !== b.line
+                                            );
+                                            setEditorBookmarks(filePath, next);
+                                          },
+                                          title: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0437\u0430\u043A\u043B\u0430\u0434\u043A\u0443",
+                                          children: /* @__PURE__ */ jsx82(MIcon, { name: "close", size: "sm" })
+                                        }
+                                      )
+                                    ] })
                                   ]
                                 },
                                 b.line
@@ -89312,7 +89760,7 @@ ${publishInfo.hint}` : "";
                       /* @__PURE__ */ jsx82("button", { onClick: gotoStart, title: "\u0412 \u043D\u0430\u0447\u0430\u043B\u043E \u0444\u0430\u0439\u043B\u0430 (Ctrl+Home)", children: /* @__PURE__ */ jsx82(MIcon, { name: "vertical_align_top", size: "sm" }) }),
                       /* @__PURE__ */ jsx82("button", { onClick: gotoEnd, title: "\u0412 \u043A\u043E\u043D\u0435\u0446 \u0444\u0430\u0439\u043B\u0430 (Ctrl+End)", children: /* @__PURE__ */ jsx82(MIcon, { name: "vertical_align_bottom", size: "sm" }) })
                     ] }),
-                    /* @__PURE__ */ jsx82("div", { className: "yaml-viewer-breadcrumbs", children: currentContext && currentContext.breadcrumbs.length > 0 ? /* @__PURE__ */ jsxs79(Fragment30, { children: [
+                    /* @__PURE__ */ jsx82("div", { className: "yaml-viewer-breadcrumbs", children: currentContext && currentContext.breadcrumbs.length > 0 ? /* @__PURE__ */ jsxs79(Fragment31, { children: [
                       currentContext.breadcrumbs.map((item, idx) => /* @__PURE__ */ jsxs79(React60.Fragment, { children: [
                         idx > 0 && /* @__PURE__ */ jsx82("span", { className: "yaml-viewer-breadcrumbs__sep", children: "\u203A" }),
                         /* @__PURE__ */ jsx82(
@@ -89658,7 +90106,7 @@ ${publishInfo.hint}` : "";
                       targetLabel(backlinks.target),
                       " \u043D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u0441\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F"
                     ] }),
-                    backlinks.entity.length > 0 && /* @__PURE__ */ jsxs79(Fragment30, { children: [
+                    backlinks.entity.length > 0 && /* @__PURE__ */ jsxs79(Fragment31, { children: [
                       /* @__PURE__ */ jsx82("div", { className: "yaml-issues__header", style: { fontSize: 10 }, children: backlinks.target?.type === "attribute" ? `\u041D\u0430 \u0441\u0443\u0449\u043D\u043E\u0441\u0442\u044C ${backlinks.target.parentId} (${backlinks.entity.length})` : `\u041D\u0430 ${targetLabel(backlinks.target)} ${backlinks.target?.id} (${backlinks.entity.length})` }),
                       /* @__PURE__ */ jsx82("div", { className: "yaml-issues__list", children: backlinks.entity.map((bl, idx) => /* @__PURE__ */ jsxs79("button", { className: "yaml-backlink", onClick: () => jumpTo(bl.line), children: [
                         /* @__PURE__ */ jsx82(MIcon, { name: bl.icon, size: "sm" }),
@@ -89671,7 +90119,7 @@ ${publishInfo.hint}` : "";
                         ] })
                       ] }, `e-${idx}`)) })
                     ] }),
-                    backlinks.attribute.length > 0 && /* @__PURE__ */ jsxs79(Fragment30, { children: [
+                    backlinks.attribute.length > 0 && /* @__PURE__ */ jsxs79(Fragment31, { children: [
                       /* @__PURE__ */ jsxs79("div", { className: "yaml-issues__header", style: { fontSize: 10 }, children: [
                         "\u041D\u0430 \u0430\u0442\u0440\u0438\u0431\u0443\u0442 ",
                         backlinks.target?.id,
@@ -89728,7 +90176,7 @@ ${publishInfo.hint}` : "";
                         }
                       )
                     ] }),
-                    !serverValidating && serverValidation && !serverValidation.isValid && !serverValidation.error && (serverValidation.diagnostics?.length || 0) > 0 && /* @__PURE__ */ jsxs79(Fragment30, { children: [
+                    !serverValidating && serverValidation && !serverValidation.isValid && !serverValidation.error && (serverValidation.diagnostics?.length || 0) > 0 && /* @__PURE__ */ jsxs79(Fragment31, { children: [
                       /* @__PURE__ */ jsxs79("div", { className: "yaml-issues__header", children: [
                         "\u041E\u0448\u0438\u0431\u043A\u0438 \u0441\u0435\u0440\u0432\u0435\u0440\u0430 (",
                         serverValidation.diagnostics.length,
@@ -89853,7 +90301,7 @@ function ExternalRefsPanel({
   const totalRefs = groups.reduce((s, g) => s + g.refs.length, 0);
   const totalScenarios = scenarioRefs.length;
   return /* @__PURE__ */ jsxs79("div", { className: "yaml-issues", children: [
-    totalRefs > 0 && /* @__PURE__ */ jsxs79(Fragment30, { children: [
+    totalRefs > 0 && /* @__PURE__ */ jsxs79(Fragment31, { children: [
       /* @__PURE__ */ jsxs79("div", { className: "yaml-issues__header", children: [
         "\u0412\u043D\u0435\u0448\u043D\u0438\u0435 FQID-\u0441\u0441\u044B\u043B\u043A\u0438 (",
         totalRefs,
@@ -89888,7 +90336,7 @@ ${r.field}: ${r.raw}`,
         ))
       ] }, g.domain)) })
     ] }),
-    totalScenarios > 0 && /* @__PURE__ */ jsxs79(Fragment30, { children: [
+    totalScenarios > 0 && /* @__PURE__ */ jsxs79(Fragment31, { children: [
       /* @__PURE__ */ jsxs79(
         "div",
         {
@@ -91034,7 +91482,7 @@ function NavContextMenu({
             ]
           }
         ),
-        focusTarget && !isThisFocused && /* @__PURE__ */ jsxs79(Fragment30, { children: [
+        focusTarget && !isThisFocused && /* @__PURE__ */ jsxs79(Fragment31, { children: [
           /* @__PURE__ */ jsx82("div", { className: "yaml-nav-ctx-menu__divider" }),
           /* @__PURE__ */ jsxs79(
             "button",
@@ -91097,7 +91545,7 @@ function targetLabel(target) {
   };
   return labels[target.type || ""] || "\u044D\u043B\u0435\u043C\u0435\u043D\u0442";
 }
-var normalizeEol, IssuesPanel, BACKLINK_KIND_LABELS;
+var EMPTY_BOOKMARKS, normalizeEol, IssuesPanel, BACKLINK_KIND_LABELS;
 var init_YamlViewerModal = __esm({
   "src/web/components/modals/editor/YamlViewerModal.tsx"() {
     "use strict";
@@ -91134,6 +91582,7 @@ var init_YamlViewerModal = __esm({
     init_dialogs();
     init_SchemaHistoryModal();
     init_YamlViewerNavPanel();
+    EMPTY_BOOKMARKS = [];
     normalizeEol = (s) => s.replace(/\r\n/g, "\n");
     IssuesPanel = React60.memo(
       function IssuesPanel2({
@@ -91460,7 +91909,7 @@ var init_GenerateSchemaSkipReasons = __esm({
 
 // src/web/components/modals/TreeChainBuilder.tsx
 import { useMemo as useMemo55 } from "react";
-import { Fragment as Fragment31, jsx as jsx83, jsxs as jsxs80 } from "react/jsx-runtime";
+import { Fragment as Fragment32, jsx as jsx83, jsxs as jsxs80 } from "react/jsx-runtime";
 function caseFqid(raw, index, currentDomainId) {
   if (!raw)
     return raw;
@@ -91603,7 +92052,7 @@ function TreeChainBuilder(props) {
         }
       )
     ] }),
-    !useExisting && /* @__PURE__ */ jsxs80(Fragment31, { children: [
+    !useExisting && /* @__PURE__ */ jsxs80(Fragment32, { children: [
       steps.length > 0 && /* @__PURE__ */ jsx83("div", { className: "tree-chain__steps", children: steps.map((s) => {
         const selected = s.selected;
         return /* @__PURE__ */ jsxs80(
@@ -94682,7 +95131,7 @@ var init_useGeneratedManifest = __esm({
 
 // src/web/components/modals/GeneratedManifestModal.tsx
 import { useMemo as useMemo57, useState as useState57 } from "react";
-import { Fragment as Fragment32, jsx as jsx85, jsxs as jsxs82 } from "react/jsx-runtime";
+import { Fragment as Fragment33, jsx as jsx85, jsxs as jsxs82 } from "react/jsx-runtime";
 function GeneratedManifestModal() {
   const open2 = useGraphStore((s) => s.sidecarOpen);
   const domainId = useGraphStore((s) => s.sidecarDomainId);
@@ -94927,7 +95376,7 @@ function GeneratedManifestModal() {
               ] })
             ] }),
             /* @__PURE__ */ jsxs82("div", { className: "validation-footer", children: [
-              /* @__PURE__ */ jsx85("div", { className: "validation-stats", children: data && data.stats.blocks > 0 && /* @__PURE__ */ jsxs82(Fragment32, { children: [
+              /* @__PURE__ */ jsx85("div", { className: "validation-stats", children: data && data.stats.blocks > 0 && /* @__PURE__ */ jsxs82(Fragment33, { children: [
                 /* @__PURE__ */ jsxs82("span", { className: "validation-stat", children: [
                   "\u{1F4E6} ",
                   data.stats.blocks,
@@ -101650,7 +102099,7 @@ var init_cheatsheet = __esm({
 
 // src/web/components/modals/CheatsheetModal.tsx
 import { useCallback as useCallback39, useEffect as useEffect57, useMemo as useMemo58, useRef as useRef36, useState as useState58 } from "react";
-import { Fragment as Fragment33, jsx as jsx86, jsxs as jsxs83 } from "react/jsx-runtime";
+import { Fragment as Fragment34, jsx as jsx86, jsxs as jsxs83 } from "react/jsx-runtime";
 function slugify2(text) {
   return text.toLowerCase().replace(/[^\w\u0400-\u04FF\s-]/g, "").trim().replace(/\s+/g, "-").replace(/-+/g, "-");
 }
@@ -102013,7 +102462,7 @@ function CheatsheetModal() {
                 ] }),
                 filtered.groups.length === 0 && filtered.recipes.length === 0 && /* @__PURE__ */ jsx86("div", { className: "cheatsheet-empty", children: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E" })
               ] }),
-              /* @__PURE__ */ jsx86("div", { className: "cheatsheet-content", children: markdown && html ? /* @__PURE__ */ jsxs83(Fragment33, { children: [
+              /* @__PURE__ */ jsx86("div", { className: "cheatsheet-content", children: markdown && html ? /* @__PURE__ */ jsxs83(Fragment34, { children: [
                 headings.length >= 3 && /* @__PURE__ */ jsxs83("details", { className: "cheatsheet-toc", open: false, children: [
                   /* @__PURE__ */ jsxs83("summary", { className: "cheatsheet-toc__summary", children: [
                     /* @__PURE__ */ jsx86("span", { children: "\u0421\u043E\u0434\u0435\u0440\u0436\u0430\u043D\u0438\u0435" }),
@@ -102191,7 +102640,7 @@ var init_useOutdatedDomains = __esm({
 
 // src/web/components/modals/HealthDashboardModal.tsx
 import React65, { useCallback as useCallback41, useMemo as useMemo59, useState as useState60 } from "react";
-import { Fragment as Fragment34, jsx as jsx87, jsxs as jsxs84 } from "react/jsx-runtime";
+import { Fragment as Fragment35, jsx as jsx87, jsxs as jsxs84 } from "react/jsx-runtime";
 function computeGrade3(score) {
   if (score >= 90)
     return "A";
@@ -103775,7 +104224,7 @@ var init_HealthDashboardModal = __esm({
         isExpanded ? "health-row--expanded" : ""
       ].filter(Boolean).join(" ");
       const healthGradeClass = "health-grade--" + row.healthGrade.toLowerCase();
-      return /* @__PURE__ */ jsxs84(Fragment34, { children: [
+      return /* @__PURE__ */ jsxs84(Fragment35, { children: [
         /* @__PURE__ */ jsxs84("tr", { className: rowClass, children: [
           /* @__PURE__ */ jsx87("td", { className: "health-row__expand-cell", children: /* @__PURE__ */ jsx87(
             "button",
@@ -105611,7 +106060,7 @@ views:
 
 // src/web/components/modals/CreateDomainModal.tsx
 import React68, { useEffect as useEffect60, useMemo as useMemo62, useState as useState62 } from "react";
-import { Fragment as Fragment35, jsx as jsx90, jsxs as jsxs87 } from "react/jsx-runtime";
+import { Fragment as Fragment36, jsx as jsx90, jsxs as jsxs87 } from "react/jsx-runtime";
 function CreateDomainModal() {
   const open2 = useGraphStore((s) => s.createDomainOpen);
   const setOpen = useGraphStore((s) => s.setCreateDomainOpen);
@@ -105766,7 +106215,7 @@ function CreateDomainModal() {
                 /* @__PURE__ */ jsx90(MIcon, { name: "hourglass_top", size: "sm" }),
                 /* @__PURE__ */ jsx90("span", { children: "\u041E\u0442\u043A\u0440\u044B\u0432\u0430\u0435\u043C \u0440\u0435\u0434\u0430\u043A\u0442\u043E\u0440 \u0438 \u043E\u0431\u043D\u043E\u0432\u043B\u044F\u0435\u043C \u0438\u043D\u0434\u0435\u043A\u0441\u2026" })
               ] })
-            ] }) : /* @__PURE__ */ jsxs87(Fragment35, { children: [
+            ] }) : /* @__PURE__ */ jsxs87(Fragment36, { children: [
               /* @__PURE__ */ jsx90("div", { className: "help-modal__body help-modal__body--flush", children: /* @__PURE__ */ jsxs87("div", { className: "create-domain-form", children: [
                 /* @__PURE__ */ jsxs87("label", { className: "create-domain-field", children: [
                   /* @__PURE__ */ jsx90("span", { className: "create-domain-label", children: "ID (FQDN) *" }),
@@ -106002,7 +106451,7 @@ var init_CreateDomainModal = __esm({
 
 // src/web/components/modals/DeleteDomainModal.tsx
 import { useEffect as useEffect61, useMemo as useMemo63, useState as useState63 } from "react";
-import { Fragment as Fragment36, jsx as jsx91, jsxs as jsxs88 } from "react/jsx-runtime";
+import { Fragment as Fragment37, jsx as jsx91, jsxs as jsxs88 } from "react/jsx-runtime";
 function downloadMarkdown(domainId, refs, metrics) {
   const now = (/* @__PURE__ */ new Date()).toLocaleString("ru-RU");
   const breaking = refs.filter((r) => r.severity === "breaking");
@@ -106351,7 +106800,7 @@ function DeleteDomainModal() {
                 /* @__PURE__ */ jsx91(MIcon, { name: "hourglass_top", size: "sm" }),
                 /* @__PURE__ */ jsx91("span", { children: stage.label })
               ] }),
-              !deleting && /* @__PURE__ */ jsxs88(Fragment36, { children: [
+              !deleting && /* @__PURE__ */ jsxs88(Fragment37, { children: [
                 /* @__PURE__ */ jsxs88("div", { className: `delete-domain-banner delete-domain-banner--${severityClass}`, children: [
                   /* @__PURE__ */ jsx91(
                     MIcon,
@@ -106361,7 +106810,7 @@ function DeleteDomainModal() {
                     }
                   ),
                   /* @__PURE__ */ jsxs88("div", { className: "delete-domain-banner__text", children: [
-                    severityClass === "err" && /* @__PURE__ */ jsxs88(Fragment36, { children: [
+                    severityClass === "err" && /* @__PURE__ */ jsxs88(Fragment37, { children: [
                       /* @__PURE__ */ jsx91("strong", { children: summary.breakingCount }),
                       " ",
                       summary.breakingCount === 1 ? "\u043A\u0440\u0438\u0442\u0438\u0447\u043D\u0430\u044F \u0441\u0441\u044B\u043B\u043A\u0430" : "\u043A\u0440\u0438\u0442\u0438\u0447\u043D\u044B\u0445 \u0441\u0441\u044B\u043B\u043E\u043A",
@@ -106369,7 +106818,7 @@ function DeleteDomainModal() {
                       /* @__PURE__ */ jsx91("strong", { children: "\u0441\u043B\u043E\u043C\u0430\u044E\u0442\u0441\u044F" }),
                       ". \u0421\u043D\u0430\u0447\u0430\u043B\u0430 \u0443\u0441\u0442\u0440\u0430\u043D\u0438\u0442\u0435 \u0438\u0445."
                     ] }),
-                    severityClass === "warn" && /* @__PURE__ */ jsxs88(Fragment36, { children: [
+                    severityClass === "warn" && /* @__PURE__ */ jsxs88(Fragment37, { children: [
                       "\u0421\u0445\u0435\u043C\u0430 \u043D\u0435 \u0441\u043B\u043E\u043C\u0430\u0435\u0442\u0441\u044F, \u043D\u043E \u043E\u0441\u0442\u0430\u043D\u0435\u0442\u0441\u044F",
                       " ",
                       /* @__PURE__ */ jsx91("strong", { children: summary.warningCount }),
@@ -106377,7 +106826,7 @@ function DeleteDomainModal() {
                       summary.warningCount === 1 ? "\u0432\u0438\u0441\u044F\u0447\u0430\u044F \u0441\u0441\u044B\u043B\u043A\u0430" : "\u0432\u0438\u0441\u044F\u0447\u0438\u0445 \u0441\u0441\u044B\u043B\u043E\u043A",
                       " \u2014 \u043D\u0443\u0436\u043D\u043E \u0431\u0443\u0434\u0435\u0442 \u043F\u043E\u0447\u0438\u0441\u0442\u0438\u0442\u044C."
                     ] }),
-                    severityClass === "ok" && /* @__PURE__ */ jsx91(Fragment36, { children: "\u041D\u0438\u043A\u0442\u043E \u043D\u0435 \u0441\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F \u043D\u0430 \u044D\u0442\u043E\u0442 \u0434\u043E\u043C\u0435\u043D. \u0423\u0434\u0430\u043B\u0435\u043D\u0438\u0435 \u0431\u0435\u0437\u043E\u043F\u0430\u0441\u043D\u043E." })
+                    severityClass === "ok" && /* @__PURE__ */ jsx91(Fragment37, { children: "\u041D\u0438\u043A\u0442\u043E \u043D\u0435 \u0441\u0441\u044B\u043B\u0430\u0435\u0442\u0441\u044F \u043D\u0430 \u044D\u0442\u043E\u0442 \u0434\u043E\u043C\u0435\u043D. \u0423\u0434\u0430\u043B\u0435\u043D\u0438\u0435 \u0431\u0435\u0437\u043E\u043F\u0430\u0441\u043D\u043E." })
                   ] })
                 ] }),
                 /* @__PURE__ */ jsxs88("div", { className: "delete-domain-metrics", children: [
@@ -107247,7 +107696,7 @@ import ReactFlow4, {
   useReactFlow as useReactFlow4
 } from "reactflow";
 import dagre4 from "dagre";
-import { Fragment as Fragment37, jsx as jsx92, jsxs as jsxs89 } from "react/jsx-runtime";
+import { Fragment as Fragment38, jsx as jsx92, jsxs as jsxs89 } from "react/jsx-runtime";
 function layoutDagre2(nodes, edges, rankdir) {
   if (nodes.length === 0)
     return nodes;
@@ -107344,7 +107793,7 @@ function ViewNodeComponent({ data }) {
 ${n.kind}${n.entity ? " \xB7 " + shortEntity(n.entity) : ""}
 ${n.domainId}
 \u2193${n.inDegree} \u2191${n.outDegree}`;
-  return /* @__PURE__ */ jsxs89(Fragment37, { children: [
+  return /* @__PURE__ */ jsxs89(Fragment38, { children: [
     /* @__PURE__ */ jsx92(Handle4, { type: "target", position: Position4.Left, className: "view-graph-handle" }),
     /* @__PURE__ */ jsxs89(
       "div",
@@ -107392,7 +107841,7 @@ function ViewEdgeComponent({
     borderRadius: 8
   });
   const title = data && data.title || "";
-  return /* @__PURE__ */ jsxs89(Fragment37, { children: [
+  return /* @__PURE__ */ jsxs89(Fragment38, { children: [
     /* @__PURE__ */ jsx92(BaseEdge3, { id, path, style, markerEnd }),
     /* @__PURE__ */ jsx92("path", { d: path, fill: "none", stroke: "transparent", strokeWidth: 18, style: { cursor: "pointer" }, children: /* @__PURE__ */ jsx92("title", { children: title }) })
   ] });
@@ -108182,7 +108631,7 @@ function ViewGraphModal() {
           ] })
         ] }) })
       ] }),
-      !showHelp && /* @__PURE__ */ jsxs89(Fragment37, { children: [
+      !showHelp && /* @__PURE__ */ jsxs89(Fragment38, { children: [
         /* @__PURE__ */ jsxs89("div", { className: "view-graph-stats", children: [
           /* @__PURE__ */ jsxs89("div", { className: "view-graph-stats__item", children: [
             /* @__PURE__ */ jsx92(MIcon, { name: "data_object", size: "sm" }),
@@ -108608,7 +109057,7 @@ import {
   useRef as useRef41,
   useState as useState66
 } from "react";
-import { Fragment as Fragment38, jsx as jsx93, jsxs as jsxs90 } from "react/jsx-runtime";
+import { Fragment as Fragment39, jsx as jsx93, jsxs as jsxs90 } from "react/jsx-runtime";
 function escapeCsv6(v) {
   const s = String(v ?? "");
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -108657,9 +109106,9 @@ function hitMatchesField(hit, field) {
   }
   return detected === field;
 }
-function loadHistory() {
+function loadHistory2() {
   try {
-    const raw = sessionStorage.getItem(HISTORY_KEY);
+    const raw = sessionStorage.getItem(HISTORY_KEY2);
     if (!raw)
       return [];
     const arr = JSON.parse(raw);
@@ -108670,7 +109119,7 @@ function loadHistory() {
 }
 function saveHistory(items) {
   try {
-    sessionStorage.setItem(HISTORY_KEY, JSON.stringify(items.slice(0, HISTORY_MAX)));
+    sessionStorage.setItem(HISTORY_KEY2, JSON.stringify(items.slice(0, HISTORY_MAX)));
   } catch {
   }
 }
@@ -108688,7 +109137,7 @@ function YamlFulltextSearchModal() {
   const [groupMode, setGroupMode] = useState66("file");
   const [collapsedGroups, setCollapsedGroups] = useState66(/* @__PURE__ */ new Set());
   const [activeIdx, setActiveIdx] = useState66(-1);
-  const [history, setHistory] = useState66(loadHistory);
+  const [history, setHistory] = useState66(loadHistory2);
   const [pendingSearch, setPendingSearch] = useState66(false);
   const deferredSearchInResults = useDeferredValue7(searchInResults);
   const inputRef = useRef41(null);
@@ -108720,7 +109169,7 @@ function YamlFulltextSearchModal() {
     return () => clearTimeout(t);
   }, [open2]);
   useEffect64(() => {
-    setHistory(loadHistory());
+    setHistory(loadHistory2());
   }, [open2]);
   useEffect64(() => {
     if (!open2)
@@ -109197,7 +109646,7 @@ function YamlFulltextSearchModal() {
                 )
               ] }),
               /* @__PURE__ */ jsxs90("div", { className: "help-modal__actions", children: [
-                filteredHits.length > 0 && /* @__PURE__ */ jsxs90(Fragment38, { children: [
+                filteredHits.length > 0 && /* @__PURE__ */ jsxs90(Fragment39, { children: [
                   /* @__PURE__ */ jsx93(
                     "button",
                     {
@@ -109401,7 +109850,7 @@ function YamlFulltextSearchModal() {
                   /* @__PURE__ */ jsx93("span", { className: "yaml-fulltext-search__spinner yaml-fulltext-search__spinner--inline" }),
                   "\u041F\u043E\u0438\u0441\u043A\u2026"
                 ] }),
-                hits.length > 0 && /* @__PURE__ */ jsxs90(Fragment38, { children: [
+                hits.length > 0 && /* @__PURE__ */ jsxs90(Fragment39, { children: [
                   /* @__PURE__ */ jsxs90("span", { className: "yaml-fulltext-stats__item", children: [
                     /* @__PURE__ */ jsx93("strong", { children: filteredHits.length }),
                     fieldFilter !== "any" || deferredSearchInResults.trim() ? ` / ${total}` : "",
@@ -109634,7 +110083,7 @@ function YamlFulltextSearchModal() {
                 /* @__PURE__ */ jsx93("kbd", { children: "Esc" }),
                 " \u043E\u0447\u0438\u0441\u0442\u0438\u0442\u044C / \u0437\u0430\u043A\u0440\u044B\u0442\u044C"
               ] }),
-              /* @__PURE__ */ jsx93("span", { className: "yaml-fulltext-footer__active", children: activeIdx >= 0 && navHits[activeIdx] ? /* @__PURE__ */ jsxs90(Fragment38, { children: [
+              /* @__PURE__ */ jsx93("span", { className: "yaml-fulltext-footer__active", children: activeIdx >= 0 && navHits[activeIdx] ? /* @__PURE__ */ jsxs90(Fragment39, { children: [
                 /* @__PURE__ */ jsx93(MIcon, { name: "my_location", size: "sm" }),
                 /* @__PURE__ */ jsxs90("code", { children: [
                   basename(navHits[activeIdx].hit.filePath),
@@ -109740,7 +110189,7 @@ function HitRow({
     }
   );
 }
-var DEBOUNCE_MS2, MIN_QUERY, HISTORY_KEY, HISTORY_MAX, FIELD_LABELS;
+var DEBOUNCE_MS2, MIN_QUERY, HISTORY_KEY2, HISTORY_MAX, FIELD_LABELS;
 var init_YamlFulltextSearchModal = __esm({
   "src/web/components/modals/YamlFulltextSearchModal.tsx"() {
     "use strict";
@@ -109752,7 +110201,7 @@ var init_YamlFulltextSearchModal = __esm({
     init_dialogs();
     DEBOUNCE_MS2 = 350;
     MIN_QUERY = 2;
-    HISTORY_KEY = "dg-yaml-fulltext-history";
+    HISTORY_KEY2 = "dg-yaml-fulltext-history";
     HISTORY_MAX = 12;
     FIELD_LABELS = [
       { id: "any", label: "\u0412\u0435\u0437\u0434\u0435", icon: "search" },
@@ -109998,7 +110447,7 @@ var init_schema_preview = __esm({
 
 // src/web/components/modals/GeneratedPreviewModal.tsx
 import React72, { useMemo as useMemo66 } from "react";
-import { Fragment as Fragment39, jsx as jsx94, jsxs as jsxs91 } from "react/jsx-runtime";
+import { Fragment as Fragment40, jsx as jsx94, jsxs as jsxs91 } from "react/jsx-runtime";
 function viewIcon(kind) {
   switch (kind) {
     case "entity":
@@ -110109,7 +110558,7 @@ function GeneratedPreviewModal() {
               /* @__PURE__ */ jsxs91("span", { className: "generated-preview-footer__hint", children: [
                 /* @__PURE__ */ jsx94(MIcon, { name: "info", size: "sm" }),
                 "\u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u0441\u043E\u0441\u0442\u0430\u0432 \u043F\u043E\u043B\u0435\u0439, \u0433\u0440\u0443\u043F\u043F \u0438 \u043A\u043D\u043E\u043F\u043E\u043A. \u0415\u0441\u043B\u0438 \u0447\u0442\u043E-\u0442\u043E \u043D\u0435 \u0442\u0430\u043A \u2014 \u0432\u0435\u0440\u043D\u0438\u0442\u0435\u0441\u044C \u043A \u043F\u0430\u0440\u0430\u043C\u0435\u0442\u0440\u0430\u043C \u043F\u0440\u043E\u0444\u0438\u043B\u044F \u0438 \u043F\u043E\u043F\u0440\u0430\u0432\u044C\u0442\u0435.",
-                preview.skippedBlocks > 0 && /* @__PURE__ */ jsxs91(Fragment39, { children: [
+                preview.skippedBlocks > 0 && /* @__PURE__ */ jsxs91(Fragment40, { children: [
                   " ",
                   "\xB7 \u041F\u0440\u043E\u043F\u0443\u0449\u0435\u043D\u043E \u0431\u043B\u043E\u043A\u043E\u0432: ",
                   preview.skippedBlocks,
@@ -110613,7 +111062,7 @@ var init_ChangelogModal = __esm({
 
 // src/web/components/modals/DomainOnboardingWizard.tsx
 import { useMemo as useMemo68 } from "react";
-import { Fragment as Fragment40, jsx as jsx96, jsxs as jsxs93 } from "react/jsx-runtime";
+import { Fragment as Fragment41, jsx as jsx96, jsxs as jsxs93 } from "react/jsx-runtime";
 var init_DomainOnboardingWizard = __esm({
   "src/web/components/modals/DomainOnboardingWizard.tsx"() {
     "use strict";
@@ -110816,7 +111265,7 @@ var init_useGenerateSchemaBatch = __esm({
 
 // src/web/components/modals/GenerateBatchModal.tsx
 import { useCallback as useCallback46, useEffect as useEffect66, useMemo as useMemo69, useState as useState68 } from "react";
-import { Fragment as Fragment41, jsx as jsx97, jsxs as jsxs94 } from "react/jsx-runtime";
+import { Fragment as Fragment42, jsx as jsx97, jsxs as jsxs94 } from "react/jsx-runtime";
 function GenerateBatchModal() {
   const { index } = useModelIndex();
   const open2 = useGraphStore((store) => store.generateBatchOpen);
@@ -111105,11 +111554,11 @@ function GenerateBatchModal() {
                       }
                     ) }),
                     gen.progress?.entityId && /* @__PURE__ */ jsxs94("div", { className: "generate-batch-progress__entity", children: [
-                      gen.progress.phase === "entity-start" && /* @__PURE__ */ jsxs94(Fragment41, { children: [
+                      gen.progress.phase === "entity-start" && /* @__PURE__ */ jsxs94(Fragment42, { children: [
                         /* @__PURE__ */ jsx97(MIcon, { name: "hourglass_top", size: "sm" }),
                         /* @__PURE__ */ jsx97("span", { children: gen.progress.entityId })
                       ] }),
-                      gen.progress.phase === "entity-done" && /* @__PURE__ */ jsxs94(Fragment41, { children: [
+                      gen.progress.phase === "entity-done" && /* @__PURE__ */ jsxs94(Fragment42, { children: [
                         /* @__PURE__ */ jsx97(MIcon, { name: "check_circle", size: "sm" }),
                         /* @__PURE__ */ jsx97("span", { children: gen.progress.entityId }),
                         /* @__PURE__ */ jsxs94("span", { className: "generate-batch-progress__meta", children: [
@@ -111118,12 +111567,12 @@ function GenerateBatchModal() {
                           " \u0431\u043B\u043E\u043A\u043E\u0432"
                         ] })
                       ] }),
-                      gen.progress.phase === "entity-error" && /* @__PURE__ */ jsxs94(Fragment41, { children: [
+                      gen.progress.phase === "entity-error" && /* @__PURE__ */ jsxs94(Fragment42, { children: [
                         /* @__PURE__ */ jsx97(MIcon, { name: "error", size: "sm" }),
                         /* @__PURE__ */ jsx97("span", { children: gen.progress.entityId }),
                         /* @__PURE__ */ jsx97("span", { className: "generate-batch-progress__meta generate-batch-progress__meta--err", children: gen.progress.error })
                       ] }),
-                      gen.progress.phase === "preflight" && /* @__PURE__ */ jsxs94(Fragment41, { children: [
+                      gen.progress.phase === "preflight" && /* @__PURE__ */ jsxs94(Fragment42, { children: [
                         /* @__PURE__ */ jsx97(MIcon, { name: "science", size: "sm" }),
                         /* @__PURE__ */ jsx97("span", { children: "Preflight\u2026" })
                       ] })
@@ -111248,7 +111697,7 @@ import ReactFlow5, {
   useReactFlow as useReactFlow5
 } from "reactflow";
 import dagre5 from "dagre";
-import { Fragment as Fragment42, jsx as jsx98, jsxs as jsxs95 } from "react/jsx-runtime";
+import { Fragment as Fragment43, jsx as jsx98, jsxs as jsxs95 } from "react/jsx-runtime";
 function WorkflowStatusNode({ data }) {
   const cls = ["workflow-node"];
   if (data.isInitial)
@@ -111262,7 +111711,7 @@ function WorkflowStatusNode({ data }) {
   const style = {};
   if (data.color)
     style.borderLeftColor = data.color;
-  return /* @__PURE__ */ jsxs95(Fragment42, { children: [
+  return /* @__PURE__ */ jsxs95(Fragment43, { children: [
     /* @__PURE__ */ jsx98(Handle5, { type: "target", position: Position5.Left, className: "workflow-handle" }),
     /* @__PURE__ */ jsxs95("div", { className: cls.join(" "), style, children: [
       /* @__PURE__ */ jsxs95("div", { className: "workflow-node__id", children: [
@@ -111525,7 +111974,7 @@ function WorkflowGraphModal() {
               dt.kind,
               ")"
             ] }) }),
-            dt && dt.kind === "Workflow" && graph && /* @__PURE__ */ jsxs95(Fragment42, { children: [
+            dt && dt.kind === "Workflow" && graph && /* @__PURE__ */ jsxs95(Fragment43, { children: [
               /* @__PURE__ */ jsxs95("div", { className: "workflow-graph-toolbar", children: [
                 /* @__PURE__ */ jsxs95("div", { className: "workflow-graph-toolbar__left", children: [
                   /* @__PURE__ */ jsxs95("span", { className: "workflow-graph-stat", children: [
@@ -111735,13 +112184,13 @@ var init_PublishPreviewModal = __esm({
 });
 
 // src/web/components/layout/AppModals.tsx
-import { Fragment as Fragment43, jsx as jsx100, jsxs as jsxs97 } from "react/jsx-runtime";
+import { Fragment as Fragment44, jsx as jsx100, jsxs as jsxs97 } from "react/jsx-runtime";
 function AppModals(props) {
   const helpOpen = useGraphStore((s) => s.helpOpen);
   const hotkeysOpen = useGraphStore((s) => s.hotkeysOpen);
   const contextMenu = useGraphStore((s) => s.contextMenu);
   const snackbar = useGraphStore((s) => s.snackbar);
-  return /* @__PURE__ */ jsxs97(Fragment43, { children: [
+  return /* @__PURE__ */ jsxs97(Fragment44, { children: [
     /* @__PURE__ */ jsx100(HoverTooltip, {}),
     /* @__PURE__ */ jsx100(
       CommandPalette,
