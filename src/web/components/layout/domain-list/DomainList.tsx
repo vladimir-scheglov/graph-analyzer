@@ -71,6 +71,7 @@ export function DomainList({ healthMap }: DomainListProps) {
     const nodes = useGraphStore((s) => s.nodes);
     const bookmarks = useGraphStore((s) => s.bookmarks);
     const validationResults = useGraphStore((s) => s.validationResults);
+    const panelNodeId = useGraphStore((s) => s.panelNodeId);
     const { index } = useModelIndex();
     const { goto } = useNavigation();
 
@@ -1119,7 +1120,7 @@ export function DomainList({ healthMap }: DomainListProps) {
                                         key={d.node.id}
                                         domain={d}
                                         isActive={
-                                            useGraphStore.getState().panelNodeId === d.node.id
+                                            panelNodeId === d.node.id
                                         }
                                         isFocused={i === focusedIdx}
                                         isChecked={selectedForBulk.has(d.node.id)}
@@ -1155,7 +1156,7 @@ export function DomainList({ healthMap }: DomainListProps) {
                                             key={d.node.id}
                                             domain={d}
                                             isActive={
-                                                useGraphStore.getState().panelNodeId === d.node.id
+                                                panelNodeId === d.node.id
                                             }
                                             isFocused={
                                                 focusedIdx >= 0 &&
@@ -1185,7 +1186,7 @@ export function DomainList({ healthMap }: DomainListProps) {
                                         key={d.node.id}
                                         domain={d}
                                         isActive={
-                                            useGraphStore.getState().panelNodeId === d.node.id
+                                            panelNodeId === d.node.id
                                         }
                                         isFocused={
                                             focusedIdx >= 0 &&

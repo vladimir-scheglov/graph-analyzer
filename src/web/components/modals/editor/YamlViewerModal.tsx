@@ -47,7 +47,7 @@ import { SectionQuickNav } from "../SectionQuickNav";
 import { planEdits } from "../../../lib/yaml/apply-generation";
 import { findBlockRange } from "../../../lib/yaml/view-insert";
 import { Popover } from "../../common/Popover";
-import { relativeTime } from '../../../lib/format';
+import { relativeTime, pluralFew } from '../../../lib/format';
 import type { YamlExpertiseMeta } from '../../../hooks/useYamlContent';
 import { computeUnusedInYaml, UnusedAnalysis } from '../../../lib/yaml/unused-analysis';
 import { YamlQuickJump } from "./YamlQuickJump";
@@ -312,6 +312,20 @@ export function YamlViewerModal() {
     const [idleContent, setIdleContent] = useState(content);
     const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const bookmarksDecorationsRef = useRef<any>(null);
+
+    // ============ Скрытие затенённых строк при фокусе ============
+    const [hideDimmed, setHideDimmed] = useState(false);
+    const hideDimmedRef = useRef(false);
+    useEffect(() => {
+        hideDimmedRef.current = hideDimmed;
+    }, [hideDimmed]);
+
+    // Диапазоны, которые пользователь явно раскрыл через «Показать».
+    // Ключ — стартовая строка диапазона.
+    const [revealedRanges, setRevealedRanges] = useState<Set<number>>(
+        () => new Set(),
+    );
+    const hiddenZonesRef = useRef<number[]>([]);
 
     useEffect(() => {
         // Не обновляем idleContent, если текст не менялся (первый mount)
@@ -756,6 +770,21 @@ export function YamlViewerModal() {
             return null;
         }
     }, [focusTarget, focusIncludeDeps, lineMap, index, domainId, deferredContent]);
+
+    const dimmedCount = useMemo(() => {
+        if (!focusResult) return 0;
+        return Math.max(0, focusResult.totalLines - focusResult.lineLevel.size);
+    }, [focusResult]);
+
+    // Смена фокуса или toggle — забываем ручные раскрытия
+    useEffect(() => {
+        setRevealedRanges(new Set());
+    }, [focusTarget, hideDimmed]);
+
+    // Сняли фокус — выключаем режим
+    useEffect(() => {
+        if (!focusTarget && hideDimmed) setHideDimmed(false);
+    }, [focusTarget, hideDimmed]);
 
     // ============ Issues ============
     // Полный набор серверных issues — для панели «Проблемы», навигации,
@@ -1327,6 +1356,206 @@ export function YamlViewerModal() {
         }
     }, [open, filePath]);
 
+    // ============ Скрытие затенённых строк при фокусе ============
+    // Идея: focusResult.lineLevel содержит ТОЛЬКО связанные строки
+    // (primary/secondary/tertiary). Всё остальное — «затенено».
+    // Скрываем эти строки через setHiddenAreas + добавляем между
+    // диапазонами кликабельные плашки «⋯ N стр. скрыто».
+    //
+    // Линии с маркерами (warnings/errors линтера, YAML-синтаксис) НЕ
+    // скрываем — иначе пользователь потеряет контекст проблем.
+    useEffect(() => {
+        if (!editorCreated) return;
+        const editor = editorRef.current;
+        const model = editor?.getModel();
+        const monaco = (window as any).monaco;
+        if (!editor || !model || !monaco) return;
+
+        // ── 1. Собираем защищённые линии (маркеры линтера / YAML) ──
+        const linesWithMarkers = new Set<number>();
+        try {
+            const markers = monaco.editor.getModelMarkers({ resource: model.uri });
+            for (const mrk of markers) {
+                if (mrk.severity < 4) continue; // warning / error only
+                for (let l = mrk.startLineNumber; l <= mrk.endLineNumber; l++) {
+                    linesWithMarkers.add(l);
+                }
+            }
+        } catch {
+            /* ignore */
+        }
+        for (const issue of effectiveIssues) {
+            if (issue.severity === "info") continue;
+            if (typeof issue.line === "number" && issue.line > 0) {
+                linesWithMarkers.add(issue.line);
+            }
+        }
+        if (yamlSyntaxIssue && typeof yamlSyntaxIssue.line === "number") {
+            linesWithMarkers.add(yamlSyntaxIssue.line);
+        }
+
+        // ── 2. Выключено / нет фокуса — очищаем всё ──
+        if (!hideDimmed || !focusResult || !focusTarget) {
+            try {
+                editor.setHiddenAreas([]);
+            } catch {
+                /* ignore */
+            }
+            try {
+                editor.changeViewZones((acc) => {
+                    for (const id of hiddenZonesRef.current) {
+                        try {
+                            acc.removeZone(id);
+                        } catch {
+                            /* ignore */
+                        }
+                    }
+                });
+            } catch {
+                /* ignore */
+            }
+            hiddenZonesRef.current = [];
+            return;
+        }
+
+        // ── 3. Кандидаты на скрытие: unrelated (без уровня) + не маркер ──
+        const totalLines = model.getLineCount();
+        const candidates: number[] = [];
+        for (let l = 1; l <= totalLines; l++) {
+            if (focusResult.lineLevel.has(l)) continue;
+            if (linesWithMarkers.has(l)) continue;
+            candidates.push(l);
+        }
+
+        // ── 4. Склеиваем в contiguous ranges ──
+        const ranges: Array<{ start: number; end: number }> = [];
+        let start = -1;
+        let prev = -1;
+        for (const l of candidates) {
+            if (start < 0) {
+                start = l;
+                prev = l;
+                continue;
+            }
+            if (l === prev + 1) {
+                prev = l;
+                continue;
+            }
+            ranges.push({ start, end: prev });
+            start = l;
+            prev = l;
+        }
+        if (start > 0) ranges.push({ start, end: prev });
+
+        // ── 5. Убираем те, что пользователь раскрыл вручную ──
+        const effectiveRanges = ranges.filter(
+            (r) => !revealedRanges.has(r.start),
+        );
+
+        // ── 6. setHiddenAreas ──
+        try {
+            if (effectiveRanges.length === 0) {
+                editor.setHiddenAreas([]);
+            } else {
+                editor.setHiddenAreas(
+                    effectiveRanges.map(
+                        (r) => new monaco.Range(r.start, 1, r.end, 1),
+                    ),
+                );
+            }
+        } catch (e) {
+            console.warn("[hide-dimmed] setHiddenAreas failed:", e);
+            return;
+        }
+
+        // ── 7. View zones: плашки «⋯ N стр. скрыто» между диапазонами ──
+        try {
+            editor.changeViewZones((acc) => {
+                for (const id of hiddenZonesRef.current) {
+                    try {
+                        acc.removeZone(id);
+                    } catch {
+                        /* ignore */
+                    }
+                }
+                hiddenZonesRef.current = [];
+
+                for (const r of effectiveRanges) {
+                    const count = r.end - r.start + 1;
+                    const dom = document.createElement("div");
+                    dom.className = "yaml-focus-hidden-zone";
+
+                    const label = document.createElement("span");
+                    label.className = "yaml-focus-hidden-zone__label";
+                    label.textContent = `⋯ ${count} ${pluralFew(count, "строка", "строки", "строк")} скрыто (${r.start}–${r.end})`;
+
+                    const btn = document.createElement("button");
+                    btn.type = "button";
+                    btn.className = "yaml-focus-hidden-zone__reveal";
+                    btn.textContent = "Показать";
+                    btn.title = `Показать строки ${r.start}–${r.end}`;
+                    btn.addEventListener("click", (ev) => {
+                        ev.stopPropagation();
+                        setRevealedRanges((prevSet) => {
+                            const next = new Set(prevSet);
+                            next.add(r.start);
+                            return next;
+                        });
+                    });
+
+                    dom.appendChild(label);
+                    dom.appendChild(btn);
+
+                    // afterLineNumber: 1-based; 0 = перед первой строкой
+                    const afterLineNumber = Math.max(0, r.start - 1);
+                    const id = acc.addZone({
+                        afterLineNumber,
+                        heightInLines: 1,
+                        domNode: dom,
+                    });
+                    hiddenZonesRef.current.push(id);
+                }
+            });
+        } catch (e) {
+            console.warn("[hide-dimmed] addZone failed:", e);
+        }
+    }, [
+        editorCreated,
+        hideDimmed,
+        focusResult,
+        focusTarget,
+        revealedRanges,
+        effectiveIssues,
+        yamlSyntaxIssue,
+    ]);
+
+    // Cleanup при dispose редактора
+    useEffect(() => {
+        return () => {
+            const editor = editorRef.current;
+            if (!editor) return;
+            try {
+                editor.setHiddenAreas([]);
+            } catch {
+                /* ignore */
+            }
+            try {
+                editor.changeViewZones((acc) => {
+                    for (const id of hiddenZonesRef.current) {
+                        try {
+                            acc.removeZone(id);
+                        } catch {
+                            /* ignore */
+                        }
+                    }
+                });
+            } catch {
+                /* ignore */
+            }
+            hiddenZonesRef.current = [];
+        };
+    }, [editorCreated]);
+
     // ============ Monaco: create ============
     useEffect(() => {
         if (!open) return;
@@ -1616,6 +1845,15 @@ export function YamlViewerModal() {
             editor.onDidChangeModelContent((e: any) => {
                 if (isLockedRef.current) return;
                 if (isProgrammaticChange.current) return;
+
+                // Правки ломают диапазоны setHiddenAreas — выключаем режим
+                if (hideDimmedRef.current) {
+                    setHideDimmed(false);
+                    useGraphStore
+                        .getState()
+                        .showSnackbar("Режим скрытия отключён для редактирования");
+                }
+
                 if (isSuggestOpen()) return;
 
                 const change = (e.changes || [])[0];
@@ -5852,6 +6090,31 @@ export function YamlViewerModal() {
 
                             {/* Right: quickjumps + fold controls */}
                             <div className="yaml-viewer-toolbar-right">
+                                {/* Скрытие затенённых строк при фокусе */}
+                                {focusTarget && focusResult && dimmedCount > 0 && (
+                                    <button
+                                        type="button"
+                                        className={
+                                            "yaml-viewer-fold-btn yaml-viewer-focus-hide-btn" +
+                                            (hideDimmed ? " yaml-viewer-fold-btn--active" : "")
+                                        }
+                                        onClick={() => setHideDimmed((v) => !v)}
+                                        title={
+                                            hideDimmed
+                                                ? "Показать все строки"
+                                                : `Скрыть ${dimmedCount} ${pluralFew(dimmedCount, "строку", "строки", "строк")} вне фокуса`
+                                        }
+                                    >
+                                        <MIcon
+                                            name={hideDimmed ? "unfold_more" : "visibility_off"}
+                                            size="sm"
+                                        />
+                                        <span className="yaml-viewer-focus-hide-btn__count">
+                                            {dimmedCount}
+                                        </span>
+                                    </button>
+                                )}
+
                                 <Hint info={HINTS.quickjump} className="yaml-viewer-quickjump-anchor">
                                     <button
                                         type="button"
@@ -6179,11 +6442,12 @@ export function YamlViewerModal() {
                         {rightTab === 'issues' && (
                             <IssuesPanel
                                 issues={filteredIssues}
-                                allIssuesCount={effectiveIssues.length}
+                                allIssues={effectiveIssues}
                                 onJump={jumpTo}
                                 lineMap={lineMap}
                                 severityFilter={severityFilter}
                                 setSeverityFilter={setSeverityFilter}
+                                domainId={domainId}
                             />
                         )}
                         {rightTab === 'refs' && (
@@ -6195,73 +6459,11 @@ export function YamlViewerModal() {
                             />
                         )}
                         {rightTab === "backlinks" && (
-                            <div className="yaml-issues">
-                                <div className="yaml-issues__header">
-                                    Используется{" "}
-                                    {backlinks.target?.id && (
-                                        <span style={{ color: "var(--accent-hover)", fontFamily: "'JetBrains Mono', monospace", marginLeft: 6 }}>
-                                            {backlinks.target.type === "attribute" && backlinks.target.parentId
-                                                ? `${backlinks.target.parentId}.${backlinks.target.id}`
-                                                : backlinks.target.id}
-                                        </span>
-                                    )}
-                                </div>
-
-                                {!backlinks.target && (
-                                    <div className="yaml-issues-empty">
-                                        <div style={{ fontSize: 32, marginBottom: 8 }}>🎯</div>
-                                        Поставьте курсор на элемент (сущность, атрибут, linkage, action, view, dataType, …),
-                                        чтобы увидеть входящие ссылки
-                                    </div>
-                                )}
-
-                                {backlinks.target && backlinks.entity.length === 0 && backlinks.attribute.length === 0 && (
-                                    <div className="yaml-issues-empty">
-                                        <div style={{ fontSize: 32, marginBottom: 8 }}>🔍</div>
-                                        На {targetLabel(backlinks.target)} ничего не ссылается
-                                    </div>
-                                )}
-
-                                {backlinks.entity.length > 0 && (
-                                    <>
-                                        <div className="yaml-issues__header" style={{ fontSize: 10 }}>
-                                            {backlinks.target?.type === "attribute"
-                                                ? `На сущность ${backlinks.target.parentId} (${backlinks.entity.length})`
-                                                : `На ${targetLabel(backlinks.target)} ${backlinks.target?.id} (${backlinks.entity.length})`}
-                                        </div>
-                                        <div className="yaml-issues__list">
-                                            {backlinks.entity.map((bl, idx) => (
-                                                <button key={`e-${idx}`} className="yaml-backlink" onClick={() => jumpTo(bl.line)}>
-                                                    <MIcon name={bl.icon} size="sm" />
-                                                    <span className="yaml-backlink__kind">{BACKLINK_KIND_LABELS[bl.kind]}</span>
-                                                    <code className="yaml-backlink__id">{bl.label}</code>
-                                                    {bl.detail && <span className="yaml-backlink__detail">{bl.detail}</span>}
-                                                    <span className="yaml-backlink__line">:{bl.line}</span>
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </>
-                                )}
-
-                                {backlinks.attribute.length > 0 && (
-                                    <>
-                                        <div className="yaml-issues__header" style={{ fontSize: 10 }}>
-                                            На атрибут {backlinks.target?.id} ({backlinks.attribute.length})
-                                        </div>
-                                        <div className="yaml-issues__list">
-                                            {backlinks.attribute.map((bl, idx) => (
-                                                <button key={`a-${idx}`} className="yaml-backlink" onClick={() => jumpTo(bl.line)}>
-                                                    <MIcon name={bl.icon} size="sm" />
-                                                    <span className="yaml-backlink__kind">{BACKLINK_KIND_LABELS[bl.kind]}</span>
-                                                    <code className="yaml-backlink__id">{bl.label}</code>
-                                                    {bl.detail && <span className="yaml-backlink__detail">{bl.detail}</span>}
-                                                    <span className="yaml-backlink__line">:{bl.line}</span>
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </>
-                                )}
-                            </div>
+                            <BacklinksPanel
+                                backlinks={backlinks}
+                                onJump={jumpTo}
+                                currentDomain={domainId}
+                            />
                         )}
                         {rightTab === "server" && (
                             <div className="yaml-issues">
@@ -6457,6 +6659,108 @@ export function YamlViewerModal() {
 
 // ============ ExternalRefsPanel ============
 
+type ExtKind =
+    | "entity"
+    | "view"
+    | "action"
+    | "linkage"
+    | "dataType"
+    | "sequence"
+    | "scenario"
+    | "other";
+
+interface ExtKindMeta {
+    id: ExtKind;
+    label: string;
+    color: string;
+    icon: string;
+}
+
+const EXT_KIND_META: Record<ExtKind, ExtKindMeta> = {
+    entity: { id: "entity", label: "entity", color: "#6366f1", icon: "data_object" },
+    view: { id: "view", label: "view", color: "#10b981", icon: "view_quilt" },
+    action: { id: "action", label: "action", color: "#f59e0b", icon: "bolt" },
+    linkage: { id: "linkage", label: "linkage", color: "#a78bfa", icon: "link" },
+    dataType: { id: "dataType", label: "dataType", color: "#ec4899", icon: "category" },
+    sequence: { id: "sequence", label: "sequence", color: "#06b6d4", icon: "linear_scale" },
+    scenario: { id: "scenario", label: "scenario", color: "#8b5cf6", icon: "movie" },
+    other: { id: "other", label: "other", color: "#64748b", icon: "help" },
+};
+
+function classifyExtField(field: string): ExtKind {
+    switch (field) {
+        case "entity":
+        case "inherits":
+        case "side1":
+        case "side2":
+        case "attribute":
+            return "entity";
+        case "view":
+        case "modal":
+        case "panel":
+        case "form":
+        case "tab":
+        case "list":
+        case "page":
+        case "addLinksView":
+        case "fromView":
+        case "viewId":
+            return "view";
+        case "action":
+        case "widget":
+            return "action";
+        case "linkage":
+        case "join":
+            return "linkage";
+        case "dataType":
+            return "dataType";
+        case "sequence":
+            return "sequence";
+        default:
+            return "other";
+    }
+}
+
+interface FlatExtItem {
+    type: "ref" | "scenario";
+    key: string;
+    line: number;
+    kind: ExtKindMeta;
+
+    // ref
+    domain?: string;
+    target?: string;
+    field?: string;
+    raw?: string;
+    lineText?: string;
+    targetCount?: number;
+
+    // scenario
+    scenarioId?: string;
+    actionId?: string;
+    actionName?: string;
+    workerTag?: string;
+}
+
+interface ExtGroup {
+    key: string;
+    label: string;
+    labelIcon?: string;
+    labelColor?: string;
+    sublabel?: string;
+    domain?: string;
+    kind?: ExtKind;
+    items: FlatExtItem[];
+}
+
+function extRefKey(r: any): string {
+    return `ref:${r.line}:${r.field}:${r.domain}:${r.target}`;
+}
+
+function extScenarioKey(s: any, a: any): string {
+    return `sc:${s.scenarioId}:${a.actionId}:${a.line}`;
+}
+
 function ExternalRefsPanel({
     groups,
     scenarioRefs,
@@ -6477,110 +6781,944 @@ function ExternalRefsPanel({
     onJump: (line: number) => void;
     currentDomain: string;
 }) {
-    if (groups.length === 0 && scenarioRefs.length === 0) {
+    const { goto } = useNavigation();
+    const nodes = useGraphStore((s) => s.nodes);
+
+    const [query, setQuery] = useState("");
+    const [groupMode, setGroupMode] = useState<"domain" | "kind" | "flat">(
+        "domain",
+    );
+    const [kindFilter, setKindFilter] = useState<Set<ExtKind>>(new Set());
+    const [expanded, setExpanded] = useState<Set<string>>(new Set());
+    const [activeKey, setActiveKey] = useState<string | null>(null);
+    const listRef = useRef<HTMLDivElement>(null);
+
+    // ── Плоский список refs ──
+    const allRefs = useMemo<FlatExtItem[]>(() => {
+        const counts = new Map<string, number>();
+        for (const g of groups) {
+            for (const r of g.refs) {
+                const k = `${g.domain}|${r.target}`;
+                counts.set(k, (counts.get(k) || 0) + 1);
+            }
+        }
+        const out: FlatExtItem[] = [];
+        for (const g of groups) {
+            for (const r of g.refs) {
+                const kind = classifyExtField(r.field);
+                out.push({
+                    type: "ref",
+                    key: extRefKey(r),
+                    line: r.line,
+                    kind: EXT_KIND_META[kind],
+                    domain: g.domain,
+                    target: r.target,
+                    field: r.field,
+                    raw: r.raw,
+                    lineText: r.lineText,
+                    targetCount: counts.get(`${g.domain}|${r.target}`) || 1,
+                });
+            }
+        }
+        return out;
+    }, [groups]);
+
+    // ── Плоский список scenario ──
+    const allScenarios = useMemo<FlatExtItem[]>(() => {
+        const out: FlatExtItem[] = [];
+        for (const s of scenarioRefs) {
+            for (const a of s.actions) {
+                out.push({
+                    type: "scenario",
+                    key: extScenarioKey(s, a),
+                    line: a.line,
+                    kind: EXT_KIND_META.scenario,
+                    scenarioId: s.scenarioId,
+                    actionId: a.actionId,
+                    actionName: a.actionName,
+                    workerTag: a.workerTag,
+                });
+            }
+        }
+        return out;
+    }, [scenarioRefs]);
+
+    const allItems = useMemo(
+        () => [...allRefs, ...allScenarios],
+        [allRefs, allScenarios],
+    );
+
+    // ── Фильтрация ──
+    const filtered = useMemo(() => {
+        const q = query.trim().toLowerCase();
+        return allItems.filter((it) => {
+            if (kindFilter.size > 0 && !kindFilter.has(it.kind.id)) return false;
+            if (!q) return true;
+            const hay = [
+                it.domain,
+                it.target,
+                it.field,
+                it.raw,
+                it.lineText,
+                it.scenarioId,
+                it.actionId,
+                it.actionName,
+                it.workerTag,
+            ]
+                .filter(Boolean)
+                .join(" ")
+                .toLowerCase();
+            return hay.includes(q);
+        });
+    }, [allItems, query, kindFilter]);
+
+    // ── Счётчики по типам ──
+    const kindCounts = useMemo(() => {
+        const c = new Map<ExtKind, number>();
+        for (const it of allItems) {
+            c.set(it.kind.id, (c.get(it.kind.id) || 0) + 1);
+        }
+        return c;
+    }, [allItems]);
+
+    // ── Группировка ──
+    const grouped = useMemo<ExtGroup[]>(() => {
+        if (filtered.length === 0) return [];
+
+        if (groupMode === "flat") {
+            const sorted = [...filtered].sort((a, b) => a.line - b.line);
+            return [
+                {
+                    key: "__flat__",
+                    label: "Все ссылки",
+                    sublabel: `${sorted.length}`,
+                    items: sorted,
+                },
+            ];
+        }
+
+        if (groupMode === "kind") {
+            const map = new Map<ExtKind, FlatExtItem[]>();
+            for (const it of filtered) {
+                if (!map.has(it.kind.id)) map.set(it.kind.id, []);
+                map.get(it.kind.id)!.push(it);
+            }
+            return Array.from(map.entries())
+                .sort((a, b) => b[1].length - a[1].length)
+                .map(([k, items]) => ({
+                    key: `kind:${k}`,
+                    label: EXT_KIND_META[k].label,
+                    labelIcon: EXT_KIND_META[k].icon,
+                    labelColor: EXT_KIND_META[k].color,
+                    sublabel: `${items.length}`,
+                    items: items.slice().sort((a, b) => a.line - b.line),
+                }));
+        }
+
+        // domain
+        const map = new Map<string, FlatExtItem[]>();
+        for (const it of filtered) {
+            const d = it.type === "ref" ? it.domain! : "__scenario__";
+            if (!map.has(d)) map.set(d, []);
+            map.get(d)!.push(it);
+        }
+        return Array.from(map.entries())
+            .sort((a, b) => b[1].length - a[1].length)
+            .map(([domain, items]) => {
+                if (domain === "__scenario__") {
+                    return {
+                        key: "domain:__scenario__",
+                        label: "Playbooks / сценарии",
+                        labelIcon: "movie",
+                        labelColor: EXT_KIND_META.scenario.color,
+                        sublabel: `${items.length}`,
+                        items: items.slice().sort((a, b) => a.line - b.line),
+                    };
+                }
+                const uniqueTargets = new Set(
+                    items.filter((i) => i.type === "ref").map((i) => i.target!),
+                ).size;
+                return {
+                    key: `domain:${domain}`,
+                    label: domain,
+                    labelIcon: "folder",
+                    labelColor: "#64748b",
+                    domain,
+                    sublabel: `${items.length} · ${uniqueTargets} уник.`,
+                    items: items.slice().sort((a, b) => a.line - b.line),
+                };
+            });
+    }, [filtered, groupMode]);
+
+    // ── Плоский список для навигации (только развёрнутые) ──
+    const navList = useMemo(() => {
+        const out: FlatExtItem[] = [];
+        for (const g of grouped) {
+            if (!expanded.has(g.key)) continue;
+            for (const it of g.items) out.push(it);
+        }
+        return out;
+    }, [grouped, expanded]);
+
+    const activeIdx = useMemo(
+        () => navList.findIndex((x) => x.key === activeKey),
+        [navList, activeKey],
+    );
+
+    // ── Авто-раскрытие групп при первом показе ──
+    useEffect(() => {
+        if (grouped.length === 0) {
+            setExpanded(new Set());
+            return;
+        }
+        if (grouped.length <= 12) {
+            setExpanded(new Set(grouped.map((g) => g.key)));
+        } else {
+            setExpanded(new Set(grouped.slice(0, 3).map((g) => g.key)));
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [groupMode, allItems.length]);
+
+    // ── Автоскролл активного ──
+    useEffect(() => {
+        if (!activeKey || !listRef.current) return;
+        const el = listRef.current.querySelector(
+            `[data-ext-key="${CSS.escape(activeKey)}"]`,
+        ) as HTMLElement | null;
+        el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }, [activeKey]);
+
+    // ── Handlers ──
+    const selectItem = useCallback(
+        (item: FlatExtItem) => {
+            setActiveKey(item.key);
+            onJump(item.line);
+        },
+        [onJump],
+    );
+
+    const stepItem = useCallback(
+        (delta: 1 | -1) => {
+            if (navList.length === 0) return;
+            let idx = activeIdx;
+            if (idx < 0) idx = delta > 0 ? -1 : 0;
+            const next = (idx + delta + navList.length) % navList.length;
+            selectItem(navList[next]);
+        },
+        [navList, activeIdx, selectItem],
+    );
+
+    const toggleKind = (k: ExtKind) => {
+        setKindFilter((prev) => {
+            const next = new Set(prev);
+            if (next.has(k)) next.delete(k);
+            else next.add(k);
+            return next;
+        });
+    };
+
+    const toggleGroup = (key: string) => {
+        setExpanded((prev) => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
+        });
+    };
+
+    const expandAll = () =>
+        setExpanded(new Set(grouped.map((g) => g.key)));
+    const collapseAll = () => setExpanded(new Set());
+
+    const copyAll = async () => {
+        if (filtered.length === 0) return;
+        const lines = filtered.map((it) => formatExtItem(it));
+        try {
+            await navigator.clipboard.writeText(lines.join("\n\n"));
+            useGraphStore
+                .getState()
+                .showSnackbar(`Скопировано: ${filtered.length}`);
+        } catch {
+            /* ignore */
+        }
+    };
+
+    const copyOne = async (item: FlatExtItem) => {
+        try {
+            await navigator.clipboard.writeText(formatExtItem(item));
+            useGraphStore.getState().showSnackbar("Ссылка скопирована");
+        } catch {
+            /* ignore */
+        }
+    };
+
+    const copyGroup = async (g: ExtGroup) => {
+        const text = g.items.map((it) => formatExtItem(it)).join("\n\n");
+        try {
+            await navigator.clipboard.writeText(text);
+            useGraphStore
+                .getState()
+                .showSnackbar(`Скопировано: ${g.items.length}`);
+        } catch {
+            /* ignore */
+        }
+    };
+
+    const exportMd = () => {
+        if (filtered.length === 0) return;
+        const lines: string[] = [];
+        lines.push("# Внешние ссылки");
+        lines.push("");
+        lines.push(`_${new Date().toLocaleString("ru-RU")}_`);
+        if (currentDomain) lines.push(`**Из домена:** \`${currentDomain}\``);
+        lines.push("");
+        lines.push(
+            `**Всего:** ${filtered.length} · **Доменов:** ${new Set(filtered.filter((i) => i.type === "ref").map((i) => i.domain)).size}`,
+        );
+        if (query) lines.push(`**Поиск:** «${query}»`);
+        lines.push("");
+
+        for (const g of grouped) {
+            lines.push(`## ${g.label}${g.sublabel ? ` (${g.sublabel})` : ""}`);
+            lines.push("");
+            for (const it of g.items) {
+                if (it.type === "ref") {
+                    lines.push(
+                        `- \`:${it.line}\` **[${it.field}]** → \`${it.domain}/${it.target}\`${it.targetCount! > 1 ? ` ×${it.targetCount}` : ""}`,
+                    );
+                } else {
+                    lines.push(
+                        `- \`:${it.line}\` **[scenario]** \`${it.actionId}\` → \`${it.scenarioId}\`${it.workerTag ? ` · worker: ${it.workerTag}` : ""}`,
+                    );
+                }
+            }
+            lines.push("");
+        }
+
+        const blob = new Blob([lines.join("\n")], {
+            type: "text/markdown;charset=utf-8",
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `external-refs-${Date.now()}.md`;
+        a.click();
+        URL.revokeObjectURL(url);
+        useGraphStore.getState().showSnackbar("Отчёт сохранён");
+    };
+
+    const openInGraph = (domain: string) => {
+        const node = nodes.find(
+            (n) =>
+                (n.data.domainId || "").toLowerCase() === domain.toLowerCase(),
+        );
+        if (node) {
+            goto(domain);
+        } else {
+            useGraphStore.getState().showSnackbar(
+                `Домен ${domain} не найден в графе`,
+            );
+        }
+    };
+
+    const openInCatalog = (domain: string, target: string) => {
+        const entityId = target.split(".")[0];
+        const fqid = `${domain}/${entityId}`.toLowerCase();
+        const st = useGraphStore.getState();
+        st.setEntityCatalogInitialFqid(fqid);
+        st.setEntityCatalogOpen(true);
+    };
+
+    const openScenario = (scenarioId: string) => {
+        // Сценарий — глобальная сущность; откроем в отдельной модалке (Cheatsheet)
+        // или просто покажем snackbar с id для копирования.
+        // TODO: открыть каталог сценариев (сейчас такой нет)
+        useGraphStore
+            .getState()
+            .showSnackbar(`Сценарий: ${scenarioId}`);
+    };
+
+    // ── Keyboard ──
+    const onKeyDown = (e: React.KeyboardEvent) => {
+        const t = e.target as HTMLElement | null;
+        if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+        if (e.key === "ArrowDown" || e.key === "j") {
+            e.preventDefault();
+            stepItem(1);
+        } else if (e.key === "ArrowUp" || e.key === "k") {
+            e.preventDefault();
+            stepItem(-1);
+        } else if (e.key === "Home") {
+            e.preventDefault();
+            if (navList.length > 0) selectItem(navList[0]);
+        } else if (e.key === "End") {
+            e.preventDefault();
+            if (navList.length > 0) selectItem(navList[navList.length - 1]);
+        } else if (e.key === "Escape") {
+            setActiveKey(null);
+        }
+    };
+
+    // ── Empty state ──
+    if (allItems.length === 0) {
         return (
             <div className="yaml-issues-empty">
                 <div style={{ fontSize: 32, marginBottom: 8 }}>🔗</div>
                 <div style={{ color: "var(--text-400)", fontSize: 12 }}>
                     Нет ссылок на другие домены
                 </div>
-                <div style={{ marginTop: 4, fontSize: 11, color: "var(--text-500)" }}>
+                <div
+                    style={{
+                        marginTop: 4,
+                        fontSize: 11,
+                        color: "var(--text-500)",
+                    }}
+                >
                     Домен изолирован в графе зависимостей
                 </div>
             </div>
         );
     }
 
-    const totalRefs = groups.reduce((s, g) => s + g.refs.length, 0);
-    const totalScenarios = scenarioRefs.length;
+    // ── Сводка ──
+    const totalDomains = new Set(
+        allRefs.map((r) => r.domain).filter(Boolean),
+    ).size;
+    const totalUnique = new Set(
+        allRefs.map((r) => `${r.domain}|${r.target}`),
+    ).size;
+
+    let itemOffset = 0;
 
     return (
-        <div className="yaml-issues">
-            {totalRefs > 0 && (
-                <>
-                    <div className="yaml-issues__header">
-                        Внешние FQID-ссылки ({totalRefs} → {groups.length} доменов)
-                    </div>
-                    <div className="yaml-issues__list">
-                        {groups.map((g) => (
-                            <details key={g.domain} className="yaml-ext-refs-group" open>
-                                <summary className="yaml-ext-refs-group__summary">
-                                    <span className="yaml-ext-refs-group__chevron" aria-hidden="true" />
-                                    <code className="yaml-ext-refs-group__domain">{g.domain}</code>
-                                    <span className="yaml-ext-refs-group__count">{g.refs.length}</span>
-                                </summary>
-                                {g.refs.map((r, i) => (
-                                    <button
-                                        key={i}
-                                        className="yaml-ext-ref"
-                                        onClick={() => onJump(r.line)}
-                                        title={`${r.lineText.trim()}\n\n${r.field}: ${r.raw}`}
-                                    >
-                                        <span className="yaml-ext-ref__line">:{r.line}</span>
-                                        <span className="yaml-ext-ref__field">{r.field}</span>
-                                        <code className="yaml-ext-ref__target">{r.target}</code>
-                                    </button>
-                                ))}
-                            </details>
-                        ))}
-                    </div>
-                </>
+        <div
+            className="yaml-issues yaml-ext-refs"
+            onKeyDown={onKeyDown}
+            tabIndex={-1}
+        >
+            {/* ── Поиск + группировка ── */}
+            <div className="yaml-issues__toolbar">
+                <div className="yaml-issues__search">
+                    <MIcon name="search" size="sm" />
+                    <input
+                        type="text"
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        placeholder="Поиск: FQID, домен, target, поле…"
+                        spellCheck={false}
+                    />
+                    {query && (
+                        <button
+                            type="button"
+                            className="yaml-issues__search-clear"
+                            onClick={() => setQuery("")}
+                            title="Очистить"
+                        >
+                            ✕
+                        </button>
+                    )}
+                </div>
+                <select
+                    className="yaml-issues__group-select"
+                    value={groupMode}
+                    onChange={(e) =>
+                        setGroupMode(e.target.value as typeof groupMode)
+                    }
+                    title="Группировка"
+                >
+                    <option value="domain">По домену</option>
+                    <option value="kind">По типу</option>
+                    <option value="flat">Плоский</option>
+                </select>
+            </div>
+
+            {/* ── Фильтры по типу ── */}
+            {kindCounts.size > 1 && (
+                <div className="yaml-ext-refs__kinds">
+                    <button
+                        type="button"
+                        className={
+                            "yaml-ext-refs__kind-chip" +
+                            (kindFilter.size === 0
+                                ? " yaml-ext-refs__kind-chip--active"
+                                : "")
+                        }
+                        onClick={() => setKindFilter(new Set())}
+                    >
+                        Все
+                        <span className="yaml-ext-refs__kind-count">
+                            {allItems.length}
+                        </span>
+                    </button>
+                    {Array.from(kindCounts.entries())
+                        .sort((a, b) => b[1] - a[1])
+                        .map(([k, count]) => {
+                            const meta = EXT_KIND_META[k];
+                            const active = kindFilter.has(k);
+                            return (
+                                <button
+                                    key={k}
+                                    type="button"
+                                    className={
+                                        "yaml-ext-refs__kind-chip" +
+                                        (active
+                                            ? " yaml-ext-refs__kind-chip--active"
+                                            : "")
+                                    }
+                                    onClick={() => toggleKind(k)}
+                                    style={{
+                                        borderColor: active
+                                            ? meta.color
+                                            : undefined,
+                                        color: active
+                                            ? meta.color
+                                            : undefined,
+                                        background: active
+                                            ? `${meta.color}18`
+                                            : undefined,
+                                    }}
+                                >
+                                    <span
+                                        className="yaml-ext-refs__kind-dot"
+                                        style={{ background: meta.color }}
+                                    />
+                                    {meta.label}
+                                    <span className="yaml-ext-refs__kind-count">
+                                        {count}
+                                    </span>
+                                </button>
+                            );
+                        })}
+                </div>
             )}
 
-            {totalScenarios > 0 && (
-                <>
-                    <div
-                        className="yaml-issues__header"
-                        style={{
-                            borderTop: totalRefs > 0 ? "1px solid var(--border)" : undefined,
-                            marginTop: totalRefs > 0 ? 8 : 0,
-                        }}
+            {/* ── Навигация ── */}
+            <div className="yaml-issues__navbar">
+                <button
+                    type="button"
+                    className="yaml-issues__nav-btn"
+                    onClick={() => stepItem(-1)}
+                    disabled={navList.length === 0}
+                    title="Предыдущая (↑ / k)"
+                >
+                    <MIcon name="expand_less" size="sm" />
+                </button>
+                <button
+                    type="button"
+                    className="yaml-issues__nav-btn"
+                    onClick={() => stepItem(1)}
+                    disabled={navList.length === 0}
+                    title="Следующая (↓ / j)"
+                >
+                    <MIcon name="expand_more" size="sm" />
+                </button>
+                <span className="yaml-issues__nav-counter">
+                    {activeIdx >= 0
+                        ? `${activeIdx + 1} / ${navList.length}`
+                        : `— / ${navList.length}`}
+                </span>
+                <div className="yaml-issues__nav-actions">
+                    <button
+                        type="button"
+                        className="yaml-issues__nav-btn"
+                        onClick={expandAll}
+                        title="Развернуть всё"
+                        disabled={grouped.length === 0}
                     >
-                        <MIcon name="movie" size="sm" />
-                        {" "}Playbooks / скрипты ({totalScenarios})
+                        <MIcon name="unfold_more" size="sm" />
+                    </button>
+                    <button
+                        type="button"
+                        className="yaml-issues__nav-btn"
+                        onClick={collapseAll}
+                        title="Свернуть всё"
+                        disabled={expanded.size === 0}
+                    >
+                        <MIcon name="unfold_less" size="sm" />
+                    </button>
+                    <button
+                        type="button"
+                        className="yaml-issues__nav-btn"
+                        onClick={copyAll}
+                        title="Копировать все ссылки"
+                        disabled={filtered.length === 0}
+                    >
+                        <MIcon name="content_copy" size="sm" />
+                    </button>
+                    <button
+                        type="button"
+                        className="yaml-issues__nav-btn"
+                        onClick={exportMd}
+                        title="Экспорт в Markdown"
+                        disabled={filtered.length === 0}
+                    >
+                        <MIcon name="description" size="sm" />
+                    </button>
+                </div>
+            </div>
+
+            {/* ── Заголовок-сводка ── */}
+            <div className="yaml-issues__header">
+                Ссылки (
+                {filtered.length}
+                {filtered.length !== allItems.length
+                    ? ` / ${allItems.length}`
+                    : ""}
+                ) · <strong>{totalDomains}</strong> дом.
+                {" · "}
+                <strong>{totalUnique}</strong> уник.
+                {kindFilter.size > 0 && (
+                    <>
+                        {" · "}
+                        <span style={{ color: "var(--accent-hover)" }}>
+                            фильтр: {kindFilter.size}
+                        </span>
+                    </>
+                )}
+            </div>
+
+            {/* ── Список ── */}
+            {filtered.length === 0 ? (
+                <div className="yaml-issues-empty">
+                    <div style={{ fontSize: 32, marginBottom: 8 }}>🔍</div>
+                    <div>
+                        {query
+                            ? `Ничего не найдено по «${query}»`
+                            : "Нет ссылок с выбранным типом"}
                     </div>
-                    <div className="yaml-issues__list">
-                        {scenarioRefs.map((s) => (
-                            <details
-                                key={s.scenarioId}
-                                className="yaml-ext-refs-group"
-                                open
+                    {(query || kindFilter.size > 0) && (
+                        <button
+                            type="button"
+                            className="btn btn--small"
+                            onClick={() => {
+                                setQuery("");
+                                setKindFilter(new Set());
+                            }}
+                            style={{ marginTop: 8 }}
+                        >
+                            Сбросить фильтры
+                        </button>
+                    )}
+                </div>
+            ) : (
+                <div className="yaml-issues__list" ref={listRef}>
+                    {grouped.map((g) => {
+                        const isExpanded = expanded.has(g.key);
+                        const startOffset = itemOffset;
+                        if (isExpanded) itemOffset += g.items.length;
+                        const isDomain = g.domain != null;
+                        const isScenario = g.key === "domain:__scenario__";
+                        return (
+                            <div
+                                key={g.key}
+                                className={
+                                    "yaml-issues__group" +
+                                    (isExpanded ? " open" : "")
+                                }
                             >
-                                <summary className="yaml-ext-refs-group__summary">
-                                    <span className="yaml-ext-refs-group__chevron" aria-hidden="true" />
-                                    <code className="yaml-ext-refs-group__domain">
-                                        {s.scenarioId}
-                                    </code>
-                                    <span className="yaml-ext-refs-group__count">
-                                        {s.actions.length}
-                                    </span>
-                                </summary>
-                                {s.actions.map((a, i) => (
+                                <div className="yaml-issues__group-title">
                                     <button
-                                        key={i}
-                                        className="yaml-ext-ref"
-                                        onClick={() => onJump(a.line)}
-                                        title={`${a.actionId}: ${a.actionName}${a.workerTag ? "\nWorker: " + a.workerTag : ""}`}
+                                        type="button"
+                                        className="yaml-issues__group-toggle"
+                                        onClick={() => toggleGroup(g.key)}
+                                        title={
+                                            isExpanded
+                                                ? "Свернуть"
+                                                : "Развернуть"
+                                        }
                                     >
-                                        <span className="yaml-ext-ref__line">:{a.line}</span>
-                                        <span className="yaml-ext-ref__field">
-                                            {a.actionName}
+                                        <span className="yaml-issues__group-chevron">
+                                            {isExpanded ? "▾" : "▸"}
                                         </span>
-                                        <code
-                                            className="yaml-ext-ref__target"
-                                            style={{ fontSize: 10, opacity: 0.7 }}
+                                        {g.labelIcon && (
+                                            <MIcon
+                                                name={g.labelIcon}
+                                                size="sm"
+                                                style={{
+                                                    color: g.labelColor,
+                                                }}
+                                            />
+                                        )}
+                                        <span
+                                            className={
+                                                "yaml-issues__group-label" +
+                                                (isDomain
+                                                    ? " yaml-ext-refs__group-domain"
+                                                    : "")
+                                            }
+                                            onClick={(e) => {
+                                                if (!isDomain) return;
+                                                e.stopPropagation();
+                                                openInGraph(g.domain!);
+                                            }}
+                                            title={
+                                                isDomain
+                                                    ? `Открыть ${g.domain} на графе`
+                                                    : undefined
+                                            }
                                         >
-                                            {a.actionId}
-                                        </code>
+                                            {g.label}
+                                        </span>
+                                        <span className="yaml-issues__group-count">
+                                            {g.sublabel || g.items.length}
+                                        </span>
                                     </button>
-                                ))}
-                            </details>
-                        ))}
-                    </div>
-                </>
+                                    <div className="yaml-issues__group-actions">
+                                        <button
+                                            type="button"
+                                            className="yaml-issues__group-action"
+                                            onClick={() => copyGroup(g)}
+                                            title="Копировать группу"
+                                        >
+                                            <MIcon
+                                                name="content_copy"
+                                                size="sm"
+                                            />
+                                        </button>
+                                        {isDomain && (
+                                            <button
+                                                type="button"
+                                                className="yaml-issues__group-action"
+                                                onClick={() =>
+                                                    openInGraph(g.domain!)
+                                                }
+                                                title="Открыть домен на графе"
+                                            >
+                                                <MIcon
+                                                    name="my_location"
+                                                    size="sm"
+                                                />
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                                {isExpanded && (
+                                    <div className="yaml-issues__group-body">
+                                        {g.items.map((it, i) => {
+                                            const idx = startOffset + i;
+                                            const isActive =
+                                                it.key === activeKey;
+                                            return (
+                                                <ExtRefItem
+                                                    key={it.key}
+                                                    item={it}
+                                                    isActive={isActive}
+                                                    onClick={() =>
+                                                        selectItem(it)
+                                                    }
+                                                    onCopy={() => copyOne(it)}
+                                                    onOpenDomain={
+                                                        it.domain
+                                                            ? () =>
+                                                                openInGraph(
+                                                                    it.domain!,
+                                                                )
+                                                            : undefined
+                                                    }
+                                                    onOpenCatalog={
+                                                        it.type === "ref" &&
+                                                            it.kind.id === "entity"
+                                                            ? () =>
+                                                                openInCatalog(
+                                                                    it.domain!,
+                                                                    it.target!,
+                                                                )
+                                                            : undefined
+                                                    }
+                                                    onOpenScenario={
+                                                        it.type ===
+                                                            "scenario"
+                                                            ? () =>
+                                                                openScenario(
+                                                                    it.scenarioId!,
+                                                                )
+                                                            : undefined
+                                                    }
+                                                />
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
             )}
         </div>
     );
+}
+
+// ── Один item ──
+interface ExtRefItemProps {
+    item: FlatExtItem;
+    isActive: boolean;
+    onClick: () => void;
+    onCopy: () => void;
+    onOpenDomain?: () => void;
+    onOpenCatalog?: () => void;
+    onOpenScenario?: () => void;
+}
+
+function ExtRefItem({
+    item,
+    isActive,
+    onClick,
+    onCopy,
+    onOpenDomain,
+    onOpenCatalog,
+    onOpenScenario,
+}: ExtRefItemProps) {
+    if (item.type === "scenario") {
+        return (
+            <div
+                data-ext-key={item.key}
+                className={
+                    "yaml-ext-ref yaml-ext-ref--scenario" +
+                    (isActive ? " yaml-ext-ref--active" : "")
+                }
+                onClick={onClick}
+                title={`${item.actionId}: ${item.actionName}\n${item.scenarioId}`}
+            >
+                <span className="yaml-ext-ref__line">:{item.line}</span>
+                <span
+                    className="yaml-ext-ref__kind"
+                    style={{
+                        color: item.kind.color,
+                        background: item.kind.color + "18",
+                    }}
+                >
+                    <MIcon name={item.kind.icon} size="sm" />
+                    scenario
+                </span>
+                <code className="yaml-ext-ref__action">
+                    {item.actionId}
+                </code>
+                <span className="yaml-ext-ref__arrow">→</span>
+                <button
+                    type="button"
+                    className="yaml-ext-ref__target-link"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenScenario?.();
+                    }}
+                    title="Открыть сценарий"
+                >
+                    {item.scenarioId}
+                </button>
+                {item.workerTag && (
+                    <span className="yaml-ext-ref__worker">
+                        worker: {item.workerTag}
+                    </span>
+                )}
+                <div className="yaml-ext-ref__actions">
+                    <button
+                        type="button"
+                        className="yaml-ext-ref__action"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onCopy();
+                        }}
+                        title="Копировать"
+                    >
+                        <MIcon name="content_copy" size="sm" />
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div
+            data-ext-key={item.key}
+            className={
+                "yaml-ext-ref" + (isActive ? " yaml-ext-ref--active" : "")
+            }
+            onClick={onClick}
+            title={`${item.lineText?.trim()}\n\n${item.field}: ${item.raw}`}
+        >
+            <span className="yaml-ext-ref__line">:{item.line}</span>
+            <span
+                className="yaml-ext-ref__kind"
+                style={{
+                    color: item.kind.color,
+                    background: item.kind.color + "18",
+                }}
+            >
+                <MIcon name={item.kind.icon} size="sm" />
+                {item.field}
+            </span>
+            <span className="yaml-ext-ref__arrow">→</span>
+            <code
+                className="yaml-ext-ref__target"
+                title={`${item.domain}/${item.target}`}
+            >
+                {item.target}
+            </code>
+            {item.targetCount! > 1 && (
+                <span
+                    className="yaml-ext-ref__count"
+                    title={`Встречается ${item.targetCount} раз в домене`}
+                >
+                    ×{item.targetCount}
+                </span>
+            )}
+            <div className="yaml-ext-ref__actions">
+                {onOpenCatalog && (
+                    <button
+                        type="button"
+                        className="yaml-ext-ref__action"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenCatalog();
+                        }}
+                        title="Открыть сущность в каталоге"
+                    >
+                        <MIcon name="data_object" size="sm" />
+                    </button>
+                )}
+                {onOpenDomain && (
+                    <button
+                        type="button"
+                        className="yaml-ext-ref__action"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenDomain();
+                        }}
+                        title="Открыть домен на графе"
+                    >
+                        <MIcon name="my_location" size="sm" />
+                    </button>
+                )}
+                <button
+                    type="button"
+                    className="yaml-ext-ref__action"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onCopy();
+                    }}
+                    title="Копировать"
+                >
+                    <MIcon name="content_copy" size="sm" />
+                </button>
+            </div>
+        </div>
+    );
+}
+
+function formatExtItem(it: FlatExtItem): string {
+    if (it.type === "scenario") {
+        const parts: string[] = [];
+        parts.push(`[scenario] строка :${it.line}`);
+        parts.push(`  action: ${it.actionId} (${it.actionName})`);
+        parts.push(`  scenario: ${it.scenarioId}`);
+        if (it.workerTag) parts.push(`  worker: ${it.workerTag}`);
+        return parts.join("\n");
+    }
+    return [
+        `[${it.field}] строка :${it.line}`,
+        `  → ${it.domain}/${it.target}`,
+        `  ${it.raw}`,
+    ].join("\n");
 }
 
 function isIgnored(issue: any, ignoredSet: Set<string>): boolean {
@@ -6891,36 +8029,173 @@ function findIssueLine(issue: any, lineMap: LineMap | null): number | null {
 
 // ============ Issues ============
 
-const IssuesPanel = React.memo(
-    function IssuesPanel({
-        issues,
-        allIssuesCount,
-        onJump,
-        lineMap,
-        severityFilter,
-        setSeverityFilter,
-    }: {
-        issues: any[];
-        allIssuesCount: number;
-        onJump: (line: number) => void;
-        lineMap: LineMap | null;
-        severityFilter: Set<"error" | "warning" | "info">;
-        setSeverityFilter: (s: Set<"error" | "warning" | "info">) => void;
-    }) {
-        const [issueGroupMode, setIssueGroupMode] = useState<"rule" | "entity">("rule");
+// ============ Issues panel helpers ============
 
+function getIssueSource(issue: any): {
+    id: "yaml" | "rql" | "lint";
+    label: string;
+    color: string;
+} {
+    const ruleId = String(issue.ruleId || "");
+    if (ruleId === "yaml-syntax")
+        return { id: "yaml", label: "YAML", color: "#f59e0b" };
+    if (ruleId === "rql-check" || ruleId.startsWith("rql-"))
+        return { id: "rql", label: "RQL", color: "#8b5cf6" };
+    return { id: "lint", label: "LINT", color: "#3b82f6" };
+}
+
+function issueKey(issue: any, line: number | null): string {
+    return [
+        issue.ruleId || "",
+        line || 0,
+        issue.entityFqid || "",
+        issue.attributeId || "",
+        (issue.message || "").slice(0, 80),
+    ].join("|");
+}
+
+function issueMatchesQuery(issue: any, q: string): boolean {
+    if (!q) return true;
+    const ql = q.toLowerCase();
+    return (
+        (issue.ruleId || "").toLowerCase().includes(ql) ||
+        (issue.rule || "").toLowerCase().includes(ql) ||
+        (issue.message || "").toLowerCase().includes(ql) ||
+        (issue.hint || "").toLowerCase().includes(ql) ||
+        (issue.entityFqid || "").toLowerCase().includes(ql) ||
+        (issue.attributeId || "").toLowerCase().includes(ql) ||
+        (issue.domainId || "").toLowerCase().includes(ql) ||
+        (issue.propertyPath || "").toLowerCase().includes(ql)
+    );
+}
+
+function formatIssueText(issue: any, line: number | null): string {
+    const sev = (issue.severity || "info").toUpperCase();
+    const out: string[] = [];
+    out.push(
+        `[${sev}] ${issue.ruleId || issue.rule || "?"}: ${issue.message || ""}`,
+    );
+    if (line) out.push(`  Строка: ${line}`);
+    if (issue.entityFqid) out.push(`  Сущность: ${issue.entityFqid}`);
+    if (issue.attributeId) out.push(`  Атрибут: ${issue.attributeId}`);
+    if (issue.propertyPath) out.push(`  Путь: ${issue.propertyPath}`);
+    if (issue.hint) out.push(`  Подсказка: ${issue.hint}`);
+    return out.join("\n");
+}
+
+interface IssuesPanelProps {
+    issues: any[];
+    allIssues: any[];
+    onJump: (line: number, opts?: { focus?: boolean; column?: number }) => void;
+    lineMap: LineMap | null;
+    severityFilter: Set<"error" | "warning" | "info">;
+    setSeverityFilter: (s: Set<"error" | "warning" | "info">) => void;
+    domainId: string | null;
+}
+
+// ============ Issues panel ============
+
+const IssuesPanel = React.memo(
+    function IssuesPanel(props: IssuesPanelProps) {
+        const {
+            issues,
+            allIssues,
+            onJump,
+            lineMap,
+            severityFilter,
+            setSeverityFilter,
+            domainId,
+        } = props;
+
+        const [query, setQuery] = useState("");
+        const [issueGroupMode, setIssueGroupMode] = useState<
+            "rule" | "entity" | "source"
+        >("rule");
+        const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
+            new Set(),
+        );
+        const [activeKey, setActiveKey] = useState<string | null>(null);
+        const listRef = useRef<HTMLDivElement>(null);
+
+        // ── Поиск ──
+        const filtered = useMemo(
+            () => issues.filter((i) => issueMatchesQuery(i, query)),
+            [issues, query],
+        );
+
+        // ── Счётчики по severity (по всем) ──
+        const sevCounts = useMemo(() => {
+            const c = { error: 0, warning: 0, info: 0 };
+            for (const i of allIssues) {
+                if (i.severity in c) c[i.severity as keyof typeof c]++;
+            }
+            return c;
+        }, [allIssues]);
+
+        // ── Счётчики по источнику (по отфильтрованным) ──
+        const srcCounts = useMemo(() => {
+            const c = { yaml: 0, rql: 0, lint: 0 };
+            for (const i of filtered) {
+                const src = getIssueSource(i);
+                c[src.id]++;
+            }
+            return c;
+        }, [filtered]);
+
+        // ── Группировка ──
         const grouped = useMemo(() => {
             const map = new Map<string, any[]>();
-            issues.forEach((i) => {
-                // Группируем либо по правилу, либо по сущности
-                const key = issueGroupMode === "rule"
-                    ? i.ruleId
-                    : (i.entityFqid ? i.entityFqid.split("/")[1] : "Без сущности");
-                if (!map.has(key)) map.set(key, []);
-                map.get(key)!.push(i);
-            });
-            return Array.from(map.entries()).sort((a, b) => b[1].length - a[1].length);
-        }, [issues, issueGroupMode]);
+            const getKey = (i: any) => {
+                if (issueGroupMode === "rule") return i.ruleId || "(без правила)";
+                if (issueGroupMode === "entity")
+                    return i.entityFqid
+                        ? i.entityFqid.split("/")[1] +
+                        (i.attributeId ? "." + i.attributeId : "")
+                        : "(без сущности)";
+                return getIssueSource(i).label;
+            };
+            for (const i of filtered) {
+                const k = getKey(i);
+                if (!map.has(k)) map.set(k, []);
+                map.get(k)!.push(i);
+            }
+            return Array.from(map.entries()).sort(
+                (a, b) => b[1].length - a[1].length,
+            );
+        }, [filtered, issueGroupMode]);
+
+        // ── Плоский список ──
+        const flatIssues = useMemo(() => {
+            const out: Array<{
+                issue: any;
+                line: number | null;
+                key: string;
+            }> = [];
+            for (const [, items] of grouped) {
+                for (const i of items) {
+                    const line = findIssueLine(i, lineMap);
+                    out.push({ issue: i, line, key: issueKey(i, line) });
+                }
+            }
+            return out;
+        }, [grouped, lineMap]);
+
+        const activeIdx = useMemo(
+            () => flatIssues.findIndex((x) => x.key === activeKey),
+            [flatIssues, activeKey],
+        );
+
+        // ── Автораскрытие групп ──
+        useEffect(() => {
+            if (filtered.length <= 200 && grouped.length <= 20) {
+                setExpandedGroups(new Set(grouped.map(([k]) => k)));
+            } else {
+                setExpandedGroups(
+                    new Set(grouped.slice(0, 3).map(([k]) => k)),
+                );
+            }
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [issueGroupMode, allIssues.length]);
 
         const toggleSeverity = (sev: "error" | "warning" | "info") => {
             const next = new Set(severityFilter);
@@ -6929,64 +8204,406 @@ const IssuesPanel = React.memo(
             setSeverityFilter(next);
         };
 
+        const toggleGroup = (k: string) => {
+            setExpandedGroups((prev) => {
+                const next = new Set(prev);
+                if (next.has(k)) next.delete(k);
+                else next.add(k);
+                return next;
+            });
+        };
+
+        const expandAll = () =>
+            setExpandedGroups(new Set(grouped.map(([k]) => k)));
+        const collapseAll = () => setExpandedGroups(new Set());
+
+        const jumpToIssue = useCallback(
+            (idx: number) => {
+                const item = flatIssues[idx];
+                if (!item || item.line == null) return;
+                setActiveKey(item.key);
+                onJump(item.line, { focus: true });
+            },
+            [flatIssues, onJump],
+        );
+
+        const stepIssue = useCallback(
+            (delta: 1 | -1) => {
+                if (flatIssues.length === 0) return;
+                let idx = activeIdx;
+                if (idx < 0) idx = delta > 0 ? -1 : 0;
+                const next =
+                    (idx + delta + flatIssues.length) % flatIssues.length;
+                jumpToIssue(next);
+            },
+            [flatIssues.length, activeIdx, jumpToIssue],
+        );
+
+        const copyIssue = useCallback(
+            async (item: { issue: any; line: number | null }) => {
+                try {
+                    await navigator.clipboard.writeText(
+                        formatIssueText(item.issue, item.line),
+                    );
+                    useGraphStore
+                        .getState()
+                        .showSnackbar("Проблема скопирована");
+                } catch {
+                    /* ignore */
+                }
+            },
+            [],
+        );
+
+        const copyAll = useCallback(async () => {
+            if (flatIssues.length === 0) return;
+            const text = flatIssues
+                .map((x) => formatIssueText(x.issue, x.line))
+                .join("\n\n");
+            try {
+                await navigator.clipboard.writeText(text);
+                useGraphStore
+                    .getState()
+                    .showSnackbar(
+                        `Скопировано: ${flatIssues.length} ${pluralFew(flatIssues.length, "проблема", "проблемы", "проблем")}`,
+                    );
+            } catch {
+                /* ignore */
+            }
+        }, [flatIssues]);
+
+        const copyGroup = useCallback(
+            async (items: any[]) => {
+                const text = items
+                    .map((i) => {
+                        const line = findIssueLine(i, lineMap);
+                        return formatIssueText(i, line);
+                    })
+                    .join("\n\n");
+                try {
+                    await navigator.clipboard.writeText(text);
+                    useGraphStore
+                        .getState()
+                        .showSnackbar(`Скопировано: ${items.length}`);
+                } catch {
+                    /* ignore */
+                }
+            },
+            [lineMap],
+        );
+
+        const exportMd = useCallback(() => {
+            if (flatIssues.length === 0) return;
+            const lines: string[] = [];
+            lines.push("# Проблемы в файле");
+            lines.push("");
+            lines.push(`_${new Date().toLocaleString("ru-RU")}_`);
+            if (domainId) lines.push(`**Домен:** \`${domainId}\``);
+            lines.push("");
+            lines.push(
+                `**Всего:** ${flatIssues.length} (${sevCounts.error} error · ${sevCounts.warning} warning · ${sevCounts.info} info)`,
+            );
+            if (query) lines.push(`**Поиск:** «${query}»`);
+            lines.push("");
+            for (const [groupKey, items] of grouped) {
+                lines.push(`## ${groupKey} (${items.length})`);
+                lines.push("");
+                for (const i of items) {
+                    const line = findIssueLine(i, lineMap);
+                    const sev = (i.severity || "info").toUpperCase();
+                    const src = getIssueSource(i);
+                    let row = `- **[${sev}]** ${i.message || ""}`;
+                    if (line) row += ` — строка \`:${line}\``;
+                    row += ` _(${src.label})_`;
+                    lines.push(row);
+                    if (i.entityFqid)
+                        lines.push(`  - Сущность: \`${i.entityFqid}\``);
+                    if (i.attributeId)
+                        lines.push(`  - Атрибут: \`${i.attributeId}\``);
+                    if (i.hint) lines.push(`  - 💡 ${i.hint}`);
+                }
+                lines.push("");
+            }
+            const md = lines.join("\n");
+            const blob = new Blob([md], {
+                type: "text/markdown;charset=utf-8",
+            });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `file-issues-${Date.now()}.md`;
+            a.click();
+            URL.revokeObjectURL(url);
+            useGraphStore.getState().showSnackbar("Отчёт сохранён");
+        }, [flatIssues, grouped, lineMap, sevCounts, query, domainId]);
+
+        const openInCatalog = useCallback((fqid: string) => {
+            const st = useGraphStore.getState();
+            st.setEntityCatalogInitialFqid(fqid);
+            st.setEntityCatalogOpen(true);
+        }, []);
+
+        const openInLinter = useCallback(() => {
+            useGraphStore.getState().setLintOpen(true);
+        }, []);
+
+        const onKeyDown = (e: React.KeyboardEvent) => {
+            const t = e.target as HTMLElement | null;
+            if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA"))
+                return;
+            if (e.key === "ArrowDown" || e.key === "j") {
+                e.preventDefault();
+                stepIssue(1);
+            } else if (e.key === "ArrowUp" || e.key === "k") {
+                e.preventDefault();
+                stepIssue(-1);
+            } else if (e.key === "Home") {
+                e.preventDefault();
+                jumpToIssue(0);
+            } else if (e.key === "End") {
+                e.preventDefault();
+                jumpToIssue(flatIssues.length - 1);
+            } else if (e.key === "Escape") {
+                setActiveKey(null);
+            }
+        };
+
+        useEffect(() => {
+            if (!activeKey || !listRef.current) return;
+            const el = listRef.current.querySelector(
+                `[data-issue-key="${CSS.escape(activeKey)}"]`,
+            ) as HTMLElement | null;
+            el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        }, [activeKey]);
+
         return (
-            <div className="yaml-issues">
+            <div
+                className="yaml-issues"
+                onKeyDown={onKeyDown}
+                tabIndex={-1}
+            >
+                {/* ── Severity-чипы ── */}
                 <div className="yaml-issues__severity">
-                    {(["error", "warning", "info"] as const).map((sev) => (
-                        <button
-                            key={sev}
-                            className={
-                                "yaml-issues__severity-btn yaml-issues__severity-btn--" +
-                                sev +
-                                (severityFilter.has(sev) ? " active" : "")
-                            }
-                            onClick={() => toggleSeverity(sev)}
-                            title={`Показать/скрыть ${sev}`}
-                        >
-                            <span className="yaml-issues__severity-dot" />
-                            {sev === "error" ? "Ошибки" : sev === "warning" ? "Предупр." : "Инфо"}
-                        </button>
-                    ))}
+                    {(["error", "warning", "info"] as const).map((sev) => {
+                        const count = sevCounts[sev];
+                        const active = severityFilter.has(sev);
+                        return (
+                            <button
+                                key={sev}
+                                className={
+                                    "yaml-issues__severity-btn yaml-issues__severity-btn--" +
+                                    sev +
+                                    (active ? " active" : "")
+                                }
+                                onClick={() => toggleSeverity(sev)}
+                                title={
+                                    active
+                                        ? `Скрыть ${sev}`
+                                        : `Показать ${sev}`
+                                }
+                                disabled={count === 0 && !active}
+                            >
+                                <span className="yaml-issues__severity-dot" />
+                                <span>
+                                    {sev === "error"
+                                        ? "Ошибки"
+                                        : sev === "warning"
+                                            ? "Предупр."
+                                            : "Инфо"}
+                                </span>
+                                <span className="yaml-issues__severity-count">
+                                    {count}
+                                </span>
+                            </button>
+                        );
+                    })}
                 </div>
 
+                {/* ── Поиск + группировка ── */}
                 <div className="yaml-issues__toolbar">
-                    <span style={{ fontSize: 11, color: "var(--text-500)" }}>Группировка:</span>
-                    <button
-                        className={"yaml-issues__group-btn" + (issueGroupMode === "rule" ? " active" : "")}
-                        onClick={() => setIssueGroupMode("rule")}
+                    <div className="yaml-issues__search">
+                        <MIcon name="search" size="sm" />
+                        <input
+                            type="text"
+                            value={query}
+                            onChange={(e) => setQuery(e.target.value)}
+                            placeholder="Поиск: правило, сообщение, сущность, атрибут…"
+                            spellCheck={false}
+                        />
+                        {query && (
+                            <button
+                                type="button"
+                                className="yaml-issues__search-clear"
+                                onClick={() => setQuery("")}
+                                title="Очистить"
+                            >
+                                ✕
+                            </button>
+                        )}
+                    </div>
+                    <select
+                        className="yaml-issues__group-select"
+                        value={issueGroupMode}
+                        onChange={(e) =>
+                            setIssueGroupMode(e.target.value as any)
+                        }
+                        title="Группировка"
                     >
-                        По правилу
-                    </button>
-                    <button
-                        className={"yaml-issues__group-btn" + (issueGroupMode === "entity" ? " active" : "")}
-                        onClick={() => setIssueGroupMode("entity")}
-                    >
-                        По сущности
-                    </button>
+                        <option value="rule">По правилу</option>
+                        <option value="entity">По сущности</option>
+                        <option value="source">По источнику</option>
+                    </select>
                 </div>
 
+                {/* ── Навигация и действия ── */}
+                <div className="yaml-issues__navbar">
+                    <button
+                        type="button"
+                        className="yaml-issues__nav-btn"
+                        onClick={() => stepIssue(-1)}
+                        disabled={flatIssues.length === 0}
+                        title="Предыдущая (↑ / k)"
+                    >
+                        <MIcon name="expand_less" size="sm" />
+                    </button>
+                    <button
+                        type="button"
+                        className="yaml-issues__nav-btn"
+                        onClick={() => stepIssue(1)}
+                        disabled={flatIssues.length === 0}
+                        title="Следующая (↓ / j)"
+                    >
+                        <MIcon name="expand_more" size="sm" />
+                    </button>
+                    <span className="yaml-issues__nav-counter">
+                        {activeIdx >= 0
+                            ? `${activeIdx + 1} / ${flatIssues.length}`
+                            : `— / ${flatIssues.length}`}
+                    </span>
+                    <div className="yaml-issues__nav-actions">
+                        <button
+                            type="button"
+                            className="yaml-issues__nav-btn"
+                            onClick={expandAll}
+                            title="Развернуть всё"
+                            disabled={grouped.length === 0}
+                        >
+                            <MIcon name="unfold_more" size="sm" />
+                        </button>
+                        <button
+                            type="button"
+                            className="yaml-issues__nav-btn"
+                            onClick={collapseAll}
+                            title="Свернуть всё"
+                            disabled={expandedGroups.size === 0}
+                        >
+                            <MIcon name="unfold_less" size="sm" />
+                        </button>
+                        <button
+                            type="button"
+                            className="yaml-issues__nav-btn"
+                            onClick={copyAll}
+                            title="Копировать все проблемы"
+                            disabled={flatIssues.length === 0}
+                        >
+                            <MIcon name="content_copy" size="sm" />
+                        </button>
+                        <button
+                            type="button"
+                            className="yaml-issues__nav-btn"
+                            onClick={exportMd}
+                            title="Экспорт в Markdown"
+                            disabled={flatIssues.length === 0}
+                        >
+                            <MIcon name="description" size="sm" />
+                        </button>
+                    </div>
+                </div>
+
+                {/* ── Header ── */}
                 <div className="yaml-issues__header">
-                    Проблемы ({issues.length}
-                    {issues.length !== allIssuesCount ? ` / ${allIssuesCount}` : ""})
+                    Проблемы ({filtered.length}
+                    {filtered.length !== allIssues.length
+                        ? ` / ${allIssues.length}`
+                        : ""}
+                    )
+                    {srcCounts.lint > 0 && (
+                        <span className="yaml-issues__src-stat">
+                            <span
+                                className="yaml-issues__src-dot"
+                                style={{ background: "#3b82f6" }}
+                            />
+                            LINT {srcCounts.lint}
+                        </span>
+                    )}
+                    {srcCounts.rql > 0 && (
+                        <span className="yaml-issues__src-stat">
+                            <span
+                                className="yaml-issues__src-dot"
+                                style={{ background: "#8b5cf6" }}
+                            />
+                            RQL {srcCounts.rql}
+                        </span>
+                    )}
+                    {srcCounts.yaml > 0 && (
+                        <span className="yaml-issues__src-stat">
+                            <span
+                                className="yaml-issues__src-dot"
+                                style={{ background: "#f59e0b" }}
+                            />
+                            YAML {srcCounts.yaml}
+                        </span>
+                    )}
                 </div>
 
-                {issues.length === 0 ? (
+                {/* ── Список ── */}
+                {filtered.length === 0 ? (
                     <div className="yaml-issues-empty">
-                        <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
-                        {allIssuesCount > 0
-                            ? "Нет проблем с выбранной severity"
-                            : "Проблем не найдено"}
+                        <div style={{ fontSize: 32, marginBottom: 8 }}>
+                            {allIssues.length > 0 ? "🔍" : "✅"}
+                        </div>
+                        {allIssues.length === 0
+                            ? "Проблем не найдено"
+                            : query
+                                ? `Ничего не найдено по «${query}»`
+                                : "Нет проблем с выбранной severity"}
+                        {query && (
+                            <button
+                                type="button"
+                                className="btn btn--small"
+                                onClick={() => setQuery("")}
+                                style={{ marginTop: 8 }}
+                            >
+                                Сбросить поиск
+                            </button>
+                        )}
                     </div>
                 ) : (
-                    <div className="yaml-issues__list">
-                        {grouped.map(([ruleId, items]) => (
+                    <div className="yaml-issues__list" ref={listRef}>
+                        {grouped.map(([groupKey, items]) => (
                             <IssuesGroup
-                                key={ruleId}
-                                title={issueGroupMode === "rule" ? items[0].rule : ruleId}
-                                ruleId={ruleId}
+                                key={groupKey}
+                                title={
+                                    issueGroupMode === "rule"
+                                        ? items[0].rule || groupKey
+                                        : groupKey
+                                }
+                                ruleId={
+                                    issueGroupMode === "rule"
+                                        ? groupKey
+                                        : undefined
+                                }
                                 items={items}
                                 lineMap={lineMap}
                                 onJump={onJump}
+                                expanded={expandedGroups.has(groupKey)}
+                                onToggle={() => toggleGroup(groupKey)}
+                                activeKey={activeKey}
+                                onActivate={setActiveKey}
+                                onCopyGroup={() => copyGroup(items)}
+                                onCopyIssue={copyIssue}
+                                onOpenCatalog={openInCatalog}
+                                onOpenLinter={openInLinter}
                             />
                         ))}
                     </div>
@@ -6995,78 +8612,195 @@ const IssuesPanel = React.memo(
         );
     },
     (prev, next) => {
-        // Re-render только если реально изменились данные
         return (
             prev.issues === next.issues &&
-            prev.allIssuesCount === next.allIssuesCount &&
+            prev.allIssues === next.allIssues &&
             prev.lineMap === next.lineMap &&
             prev.severityFilter === next.severityFilter &&
             prev.onJump === next.onJump &&
-            prev.setSeverityFilter === next.setSeverityFilter
+            prev.setSeverityFilter === next.setSeverityFilter &&
+            prev.domainId === next.domainId
         );
     },
 );
 
-function IssuesGroup({
-    ruleId,
-    title,
-    items,
-    lineMap,
-    onJump
-}: {
-    ruleId: string;
+interface IssuesGroupProps {
     title: string;
+    ruleId?: string;
     items: any[];
     lineMap: LineMap | null;
-    onJump: (line: number) => void;
-}) {
-    const detailsRef = React.useRef<HTMLDetailsElement>(null);
+    onJump: (line: number, opts?: { focus?: boolean; column?: number }) => void;
+    expanded: boolean;
+    onToggle: () => void;
+    activeKey: string | null;
+    onActivate: (k: string) => void;
+    onCopyGroup: () => void;
+    onCopyIssue: (item: { issue: any; line: number | null }) => void;
+    onOpenCatalog: (fqid: string) => void;
+    onOpenLinter: () => void;
+}
 
-    React.useEffect(() => {
-        if (detailsRef.current && detailsRef.current.dataset.initialized !== '1') {
-            detailsRef.current.open = true;
-            detailsRef.current.dataset.initialized = '1';
-        }
-    }, []);
-
+function IssuesGroup({
+    title,
+    ruleId,
+    items,
+    lineMap,
+    onJump,
+    expanded,
+    onToggle,
+    activeKey,
+    onActivate,
+    onCopyGroup,
+    onCopyIssue,
+    onOpenCatalog,
+    onOpenLinter,
+}: IssuesGroupProps) {
     return (
-        <details ref={detailsRef} className="yaml-issues__group">
-            <summary className="yaml-issues__group-title">
-                <span className="yaml-issues__group-chevron" aria-hidden="true" />
-                <span className="yaml-issues__group-label">{title}</span>
-                <span className="yaml-issues__group-count">{items.length}</span>
-            </summary>
-            {items.map((issue, i) => {
-                const line = findIssueLine(issue, lineMap);
-                return (
+        <div className={"yaml-issues__group" + (expanded ? " open" : "")}>
+            <div className="yaml-issues__group-title">
+                <button
+                    type="button"
+                    className="yaml-issues__group-toggle"
+                    onClick={onToggle}
+                    title={expanded ? "Свернуть" : "Развернуть"}
+                >
+                    <span className="yaml-issues__group-chevron">
+                        {expanded ? "▾" : "▸"}
+                    </span>
+                    <span className="yaml-issues__group-label">{title}</span>
+                    <span className="yaml-issues__group-count">
+                        {items.length}
+                    </span>
+                </button>
+                <div className="yaml-issues__group-actions">
                     <button
-                        key={i}
                         type="button"
-                        className={'yaml-issue yaml-issue--' + issue.severity}
-                        onClick={() => line != null && onJump(line)}
-                        disabled={line == null}
+                        className="yaml-issues__group-action"
+                        onClick={onCopyGroup}
+                        title="Копировать группу"
                     >
-                        <span className={'yaml-issue__dot yaml-issue__dot--' + issue.severity} />
-                        <span
-                            className={
-                                "yaml-issue__text" + (issue.__isUnknown ? " yaml-issue__text--stale" : "")
-                            }
-                        >
-                            {issue.__isUnknown && (
-                                <span
-                                    className="yaml-issue__stale-badge"
-                                    title="Требуется сохранение — серверный линтер перепроверит"
-                                >
-                                    ⏱{" "}
-                                </span>
-                            )}
-                            {issue.message}
-                        </span>
-                        {line != null && <span className="yaml-issue__line">:{line}</span>}
+                        <MIcon name="content_copy" size="sm" />
                     </button>
-                );
-            })}
-        </details>
+                    {ruleId && (
+                        <button
+                            type="button"
+                            className="yaml-issues__group-action"
+                            onClick={onOpenLinter}
+                            title="Открыть в линтере"
+                        >
+                            <MIcon name="open_in_new" size="sm" />
+                        </button>
+                    )}
+                </div>
+            </div>
+            {expanded &&
+                items.map((issue, i) => {
+                    const line = findIssueLine(issue, lineMap);
+                    const src = getIssueSource(issue);
+                    const key = issueKey(issue, line);
+                    const isActive = key === activeKey;
+                    const disabled = line == null;
+                    return (
+                        <div
+                            key={i}
+                            data-issue-key={key}
+                            className={
+                                "yaml-issue yaml-issue--" +
+                                issue.severity +
+                                (disabled ? " yaml-issue--disabled" : "") +
+                                (isActive ? " yaml-issue--active" : "")
+                            }
+                            onClick={() => {
+                                if (line == null) return;
+                                onActivate(key);
+                                onJump(line, { focus: true });
+                            }}
+                        >
+                            <span
+                                className={
+                                    "yaml-issue__dot yaml-issue__dot--" +
+                                    issue.severity
+                                }
+                            />
+                            <div className="yaml-issue__body">
+                                <div className="yaml-issue__text-row">
+                                    <span
+                                        className={
+                                            "yaml-issue__source yaml-issue__source--" +
+                                            src.id
+                                        }
+                                        title={`Источник: ${src.label}`}
+                                    >
+                                        {src.label}
+                                    </span>
+                                    <span
+                                        className={
+                                            "yaml-issue__text" +
+                                            (issue.__isUnknown
+                                                ? " yaml-issue__text--stale"
+                                                : "")
+                                        }
+                                    >
+                                        {issue.__isUnknown && (
+                                            <span
+                                                className="yaml-issue__stale-badge"
+                                                title="Требуется сохранение — серверный линтер перепроверит"
+                                            >
+                                                ⏱{" "}
+                                            </span>
+                                        )}
+                                        {issue.message}
+                                    </span>
+                                    {line != null && (
+                                        <span className="yaml-issue__line">
+                                            :{line}
+                                        </span>
+                                    )}
+                                </div>
+                                {issue.entityFqid && (
+                                    <div className="yaml-issue__meta">
+                                        <button
+                                            type="button"
+                                            className="yaml-issue__meta-link"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                onOpenCatalog(
+                                                    issue.entityFqid!,
+                                                );
+                                            }}
+                                            title="Открыть сущность в каталоге"
+                                        >
+                                            <MIcon
+                                                name="data_object"
+                                                size="sm"
+                                            />
+                                            {issue.entityFqid.split("/")[1]}
+                                            {issue.attributeId &&
+                                                `.${issue.attributeId}`}
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="yaml-issue__actions">
+                                <button
+                                    type="button"
+                                    className="yaml-issue__action"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onCopyIssue({ issue, line });
+                                    }}
+                                    title="Копировать проблему"
+                                >
+                                    <MIcon
+                                        name="content_copy"
+                                        size="sm"
+                                    />
+                                </button>
+                            </div>
+                        </div>
+                    );
+                })}
+        </div>
     );
 }
 
@@ -7161,6 +8895,7 @@ interface CursorTarget {
     id: string | null;
     parentId?: string;
     section?: string;
+    line: number;
 }
 
 interface Backlink {
@@ -7262,33 +8997,34 @@ function detectCursorTarget(lines: string[], cursorLine: number): CursorTarget |
                     id: inner.id,
                     parentId: root.id,
                     section,
+                    line: i,
                 };
             }
         }
     }
 
-    if (section === "entities") return { type: "entity", id: root.id, section };
-    if (section === "linkages") return { type: "linkage", id: root.id, section };
-    if (section === "actions") return { type: "action", id: root.id, section };
-    if (section === "views") return { type: "view", id: root.id, section };
-    if (section === "dataRules") return { type: "dataRule", id: root.id, section };
-    if (section === "mixins") return { type: "mixin", id: root.id, section };
-    if (section === "dataTypes") return { type: "dataType", id: root.id, section };
-    if (section === "sequences") return { type: "sequence", id: root.id, section };
-    if (section === "medias") return { type: "media", id: root.id, section };
-    if (section === "trees") return { type: "tree", id: root.id, section };
+    if (section === "entities") return { type: "entity", id: root.id, section, line: root.line + 1 };
+    if (section === "linkages") return { type: "linkage", id: root.id, section, line: root.line + 1 };
+    if (section === "actions") return { type: "action", id: root.id, section, line: root.line + 1 };
+    if (section === "views") return { type: "view", id: root.id, section, line: root.line + 1 };
+    if (section === "dataRules") return { type: "dataRule", id: root.id, section, line: root.line + 1 };
+    if (section === "mixins") return { type: "mixin", id: root.id, section, line: root.line + 1 };
+    if (section === "dataTypes") return { type: "dataType", id: root.id, section, line: root.line + 1 };
+    if (section === "sequences") return { type: "sequence", id: root.id, section, line: root.line + 1 };
+    if (section === "medias") return { type: "media", id: root.id, section, line: root.line + 1 };
+    if (section === "trees") return { type: "tree", id: root.id, section, line: root.line + 1 };
     if (section === "counterColorPattern" || section === "counterColorPatterns") {
-        return { type: "counterColorPattern", id: root.id, section };
+        return { type: "counterColorPattern", id: root.id, section, line: root.line + 1 };
     }
-    if (section === "uiPresets") return { type: "uiPreset", id: root.id, section };
-    if (section === "permissions") return { type: "permission", id: root.id, section };
+    if (section === "uiPresets") return { type: "uiPreset", id: root.id, section, line: root.line + 1 };
+    if (section === "permissions") return { type: "permission", id: root.id, section, line: root.line + 1 };
     if (section === "menus") {
         // menuItem — если между root_group и текущим - id: встретили items:
         if (chain.length >= 2 && inner.line > root.line) {
             const itemsRegex = /^\s*items\s*:\s*$/;
             for (let i = root.line + 1; i < inner.line; i++) {
                 if (itemsRegex.test(lines[i])) {
-                    return { type: "menuItem", id: inner.id, section };
+                    return { type: "menuItem", id: inner.id, section, line: i };
                 }
             }
         }
@@ -8209,3 +9945,1018 @@ function targetLabel(target: CursorTarget | null): string {
     };
     return labels[target.type || ''] || 'элемент';
 }
+
+// ============ Backlinks panel ============
+
+const BACKLINK_KIND_COLORS: Record<Backlink["kind"], string> = {
+    inheritance: "#a78bfa",
+    reference: "#6366f1",
+    linkage: "#10b981",
+    view: "#06b6d4",
+    dataRule: "#f59e0b",
+    mixin: "#ec4899",
+    action: "#f97316",
+    widget: "#0ea5e9",
+    dataType: "#8b5cf6",
+    sequence: "#0891b2",
+    media: "#f472b6",
+    tree: "#84cc16",
+    counterColorPattern: "#fbbf24",
+    uiPreset: "#a3e635",
+    permission: "#ef4444",
+    menuItem: "#fb923c",
+    filter: "#94a3b8",
+    join: "#14b8a6",
+};
+
+type BacklinkGroup = "entity" | "attribute";
+
+interface FlatBacklink {
+    group: BacklinkGroup;
+    key: string;
+    backlink: Backlink;
+}
+
+function backlinkKey(group: BacklinkGroup, bl: Backlink, idx: number): string {
+    return `${group}:${bl.kind}:${bl.line}:${bl.label}:${idx}`;
+}
+
+function formatBacklinkText(bl: Backlink): string {
+    const out: string[] = [];
+    out.push(
+        `[${BACKLINK_KIND_LABELS[bl.kind] || bl.kind}] строка :${bl.line}`,
+    );
+    out.push(`  id: ${bl.label}`);
+    if (bl.detail) out.push(`  ${bl.detail}`);
+    return out.join("\n");
+}
+
+function targetLabelForType(t: CursorTarget | null): string {
+    if (!t) return "элемент";
+    switch (t.type) {
+        case "entity":
+            return "сущность";
+        case "attribute":
+            return "атрибут";
+        case "linkage":
+            return "связь";
+        case "action":
+            return "действие";
+        case "view":
+            return "представление";
+        case "dataRule":
+            return "правило";
+        case "mixin":
+            return "примесь";
+        case "dataType":
+            return "тип данных";
+        case "sequence":
+            return "последовательность";
+        case "media":
+            return "иконка";
+        case "tree":
+            return "дерево";
+        case "counterColorPattern":
+            return "цветовая схема";
+        case "uiPreset":
+            return "пресет";
+        case "permission":
+            return "разрешение";
+        case "menuItem":
+            return "пункт меню";
+        default:
+            return "элемент";
+    }
+}
+
+interface BacklinksPanelProps {
+    backlinks: {
+        entity: Backlink[];
+        attribute: Backlink[];
+        target: CursorTarget | null;
+    };
+    onJump: (line: number) => void;
+    currentDomain: string | null;
+}
+
+const BacklinksPanel = React.memo(function BacklinksPanel({
+    backlinks,
+    onJump,
+    currentDomain,
+}: BacklinksPanelProps) {
+    const [query, setQuery] = useState("");
+    const [groupFilter, setGroupFilter] = useState<"all" | BacklinkGroup>(
+        "all",
+    );
+    const [kindFilter, setKindFilter] = useState<Set<Backlink["kind"]>>(
+        new Set(),
+    );
+    const [groupMode, setGroupMode] = useState<"kind" | "group" | "flat">(
+        "kind",
+    );
+    const [expanded, setExpanded] = useState<Set<string>>(new Set());
+    const [activeKey, setActiveKey] = useState<string | null>(null);
+    const listRef = useRef<HTMLDivElement>(null);
+
+    // ── Плоский список ──
+    const allItems = useMemo<FlatBacklink[]>(() => {
+        const out: FlatBacklink[] = [];
+        backlinks.entity.forEach((bl, i) =>
+            out.push({ group: "entity", key: backlinkKey("entity", bl, i), backlink: bl }),
+        );
+        backlinks.attribute.forEach((bl, i) =>
+            out.push({ group: "attribute", key: backlinkKey("attribute", bl, i), backlink: bl }),
+        );
+        return out;
+    }, [backlinks]);
+
+    // ── Счётчики по kind (по всем) ──
+    const kindCounts = useMemo(() => {
+        const c = new Map<Backlink["kind"], number>();
+        for (const it of allItems) {
+            c.set(it.backlink.kind, (c.get(it.backlink.kind) || 0) + 1);
+        }
+        return c;
+    }, [allItems]);
+
+    // ── Фильтрация ──
+    const filtered = useMemo(() => {
+        const q = query.trim().toLowerCase();
+        return allItems.filter((it) => {
+            if (groupFilter !== "all" && it.group !== groupFilter) return false;
+            if (kindFilter.size > 0 && !kindFilter.has(it.backlink.kind))
+                return false;
+            if (!q) return true;
+            const hay = [
+                it.backlink.label,
+                it.backlink.detail,
+                BACKLINK_KIND_LABELS[it.backlink.kind],
+                it.backlink.kind,
+                String(it.backlink.line),
+                it.group === "entity" ? "сущность" : "атрибут",
+            ]
+                .filter(Boolean)
+                .join(" ")
+                .toLowerCase();
+            return hay.includes(q);
+        });
+    }, [allItems, groupFilter, kindFilter, query]);
+
+    // ── Группировка ──
+    const grouped = useMemo<Array<{
+        key: string;
+        label: string;
+        color?: string;
+        sublabel?: string;
+        items: FlatBacklink[];
+    }>>(() => {
+        if (filtered.length === 0) return [];
+
+        if (groupMode === "flat") {
+            return [
+                {
+                    key: "__flat__",
+                    label: "Все ссылки",
+                    sublabel: `${filtered.length}`,
+                    items: filtered
+                        .slice()
+                        .sort((a, b) => a.backlink.line - b.backlink.line),
+                },
+            ];
+        }
+
+        if (groupMode === "group") {
+            const map = new Map<BacklinkGroup, FlatBacklink[]>();
+            for (const it of filtered) {
+                if (!map.has(it.group)) map.set(it.group, []);
+                map.get(it.group)!.push(it);
+            }
+            return Array.from(map.entries()).map(([g, items]) => ({
+                key: `group:${g}`,
+                label:
+                    g === "entity"
+                        ? "На сущность"
+                        : `На атрибут${backlinks.target?.id ? ` ${backlinks.target.id}` : ""}`,
+                color: g === "entity" ? "#6366f1" : "#10b981",
+                sublabel: `${items.length}`,
+                items: items
+                    .slice()
+                    .sort((a, b) => a.backlink.line - b.backlink.line),
+            }));
+        }
+
+        // kind
+        const map = new Map<Backlink["kind"], FlatBacklink[]>();
+        for (const it of filtered) {
+            if (!map.has(it.backlink.kind)) map.set(it.backlink.kind, []);
+            map.get(it.backlink.kind)!.push(it);
+        }
+        return Array.from(map.entries())
+            .sort((a, b) => b[1].length - a[1].length)
+            .map(([k, items]) => ({
+                key: `kind:${k}`,
+                label: BACKLINK_KIND_LABELS[k] || k,
+                color: BACKLINK_KIND_COLORS[k],
+                sublabel: `${items.length}`,
+                items: items
+                    .slice()
+                    .sort((a, b) => a.backlink.line - b.backlink.line),
+            }));
+    }, [filtered, groupMode, backlinks.target]);
+
+    // ── Плоский список для навигации ──
+    const navList = useMemo(() => {
+        const out: FlatBacklink[] = [];
+        for (const g of grouped) {
+            if (!expanded.has(g.key)) continue;
+            for (const it of g.items) out.push(it);
+        }
+        return out;
+    }, [grouped, expanded]);
+
+    const activeIdx = useMemo(
+        () => navList.findIndex((x) => x.key === activeKey),
+        [navList, activeKey],
+    );
+
+    // ── Автораскрытие ──
+    useEffect(() => {
+        if (grouped.length === 0) {
+            setExpanded(new Set());
+            return;
+        }
+        if (grouped.length <= 12) {
+            setExpanded(new Set(grouped.map((g) => g.key)));
+        } else {
+            setExpanded(new Set(grouped.slice(0, 3).map((g) => g.key)));
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [groupMode, allItems.length]);
+
+    // ── Автоскролл активного ──
+    useEffect(() => {
+        if (!activeKey || !listRef.current) return;
+        const el = listRef.current.querySelector(
+            `[data-backlink-key="${CSS.escape(activeKey)}"]`,
+        ) as HTMLElement | null;
+        el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }, [activeKey]);
+
+    // ── Handlers ──
+    const selectItem = useCallback(
+        (item: FlatBacklink) => {
+            setActiveKey(item.key);
+            onJump(item.backlink.line);
+        },
+        [onJump],
+    );
+
+    const stepItem = useCallback(
+        (delta: 1 | -1) => {
+            if (navList.length === 0) return;
+            let idx = activeIdx;
+            if (idx < 0) idx = delta > 0 ? -1 : 0;
+            const next = (idx + delta + navList.length) % navList.length;
+            selectItem(navList[next]);
+        },
+        [navList, activeIdx, selectItem],
+    );
+
+    const toggleKind = (k: Backlink["kind"]) => {
+        setKindFilter((prev) => {
+            const next = new Set(prev);
+            if (next.has(k)) next.delete(k);
+            else next.add(k);
+            return next;
+        });
+    };
+
+    const toggleGroup = (key: string) => {
+        setExpanded((prev) => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
+        });
+    };
+
+    const expandAll = () => setExpanded(new Set(grouped.map((g) => g.key)));
+    const collapseAll = () => setExpanded(new Set());
+
+    const copyAll = async () => {
+        if (filtered.length === 0) return;
+        const text = filtered
+            .map((it) => formatBacklinkText(it.backlink))
+            .join("\n\n");
+        try {
+            await navigator.clipboard.writeText(text);
+            useGraphStore
+                .getState()
+                .showSnackbar(`Скопировано: ${filtered.length}`);
+        } catch {
+            /* ignore */
+        }
+    };
+
+    const copyOne = async (bl: Backlink) => {
+        try {
+            await navigator.clipboard.writeText(formatBacklinkText(bl));
+            useGraphStore.getState().showSnackbar("Ссылка скопирована");
+        } catch {
+            /* ignore */
+        }
+    };
+
+    const copyGroup = async (items: FlatBacklink[]) => {
+        const text = items
+            .map((it) => formatBacklinkText(it.backlink))
+            .join("\n\n");
+        try {
+            await navigator.clipboard.writeText(text);
+            useGraphStore
+                .getState()
+                .showSnackbar(`Скопировано: ${items.length}`);
+        } catch {
+            /* ignore */
+        }
+    };
+
+    const copyPath = async (bl: Backlink) => {
+        const path = currentDomain
+            ? `${currentDomain}:${bl.line}`
+            : `:${bl.line}`;
+        try {
+            await navigator.clipboard.writeText(path);
+            useGraphStore.getState().showSnackbar(`Скопировано: ${path}`);
+        } catch {
+            /* ignore */
+        }
+    };
+
+    const exportMd = () => {
+        if (filtered.length === 0) return;
+        const lines: string[] = [];
+        lines.push("# Обратные ссылки");
+        lines.push("");
+        lines.push(`_${new Date().toLocaleString("ru-RU")}_`);
+        if (currentDomain) lines.push(`**Домен:** \`${currentDomain}\``);
+        if (backlinks.target?.id) {
+            lines.push(
+                `**Элемент:** \`${backlinks.target.type === "attribute" && backlinks.target.parentId ? `${backlinks.target.parentId}.${backlinks.target.id}` : backlinks.target.id}\``,
+            );
+        }
+        lines.push("");
+        lines.push(
+            `**Всего:** ${filtered.length} из ${allItems.length}`,
+        );
+        if (query) lines.push(`**Поиск:** «${query}»`);
+        lines.push("");
+        for (const g of grouped) {
+            lines.push(`## ${g.label} (${g.items.length})`);
+            lines.push("");
+            for (const it of g.items) {
+                const bl = it.backlink;
+                let row = `- \`:${bl.line}\` **[${BACKLINK_KIND_LABELS[bl.kind]}]** \`${bl.label}\``;
+                if (bl.detail) row += ` — ${bl.detail}`;
+                lines.push(row);
+            }
+            lines.push("");
+        }
+        const blob = new Blob([lines.join("\n")], {
+            type: "text/markdown;charset=utf-8",
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `backlinks-${Date.now()}.md`;
+        a.click();
+        URL.revokeObjectURL(url);
+        useGraphStore.getState().showSnackbar("Отчёт сохранён");
+    };
+
+    // ── Копировать FQID target (если target — сущность/атрибут) ──
+    const copyTarget = async () => {
+        const t = target;
+        if (!t || !t.id) return;
+        const text =
+            t.type === "attribute" && t.parentId
+                ? `${currentDomain ? currentDomain + "/" : ""}${t.parentId}.${t.id}`
+                : `${currentDomain ? currentDomain + "/" : ""}${t.id}`;
+        try {
+            await navigator.clipboard.writeText(text);
+            useGraphStore.getState().showSnackbar(`Скопировано: ${text}`);
+        } catch {
+            /* ignore */
+        }
+    };
+
+    // ── Keyboard ──
+    const onKeyDown = (e: React.KeyboardEvent) => {
+        const t = e.target as HTMLElement | null;
+        if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+        if (e.key === "ArrowDown" || e.key === "j") {
+            e.preventDefault();
+            stepItem(1);
+        } else if (e.key === "ArrowUp" || e.key === "k") {
+            e.preventDefault();
+            stepItem(-1);
+        } else if (e.key === "Home") {
+            e.preventDefault();
+            if (navList.length > 0) selectItem(navList[0]);
+        } else if (e.key === "End") {
+            e.preventDefault();
+            if (navList.length > 0) selectItem(navList[navList.length - 1]);
+        } else if (e.key === "Escape") {
+            setActiveKey(null);
+        }
+    };
+
+    const target = backlinks.target;
+
+    // ── Пустые состояния ──
+    if (!target) {
+        return (
+            <div className="yaml-issues yaml-backlinks" onKeyDown={onKeyDown}>
+                <div className="yaml-issues-empty" style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center"
+                }}>
+                    <div style={{ fontSize: 32, marginBottom: 8 }}>🎯</div>
+                    <div style={{ color: "var(--text-300)", fontSize: 13 }}>
+                        Поставьте курсор на элемент
+                    </div>
+                    <div
+                        style={{
+                            color: "var(--text-500)",
+                            fontSize: 11,
+                            marginTop: 6,
+                            maxWidth: 280,
+                            textAlign: "center",
+                        }}
+                    >
+                        Сущность, атрибут, linkage, action, view, dataType,
+                        sequence, tree, media, uiPreset, permission, menuItem…
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    if (allItems.length === 0) {
+        return (
+            <div className="yaml-issues yaml-backlinks" onKeyDown={onKeyDown}>
+                <div className="yaml-issues-empty">
+                    <div style={{ fontSize: 32, marginBottom: 8 }}>🔍</div>
+                    <div style={{ color: "var(--text-300)", fontSize: 13 }}>
+                        На {targetLabelForType(target)} ничего не
+                        ссылается
+                    </div>
+                    <div
+                        style={{
+                            color: "var(--text-500)",
+                            fontSize: 11,
+                            marginTop: 6,
+                            maxWidth: 280,
+                            textAlign: "center",
+                        }}
+                    >
+                        Это нормально — элемент самодостаточный. Проверьте его
+                        использование в других инструментах: lint, schema,
+                        каталог.
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    const totalKinds = kindCounts.size;
+    const totalGroups = (backlinks.entity.length > 0 ? 1 : 0) + (backlinks.attribute.length > 0 ? 1 : 0);
+
+    const targetTitle = (() => {
+        if (target.type === "attribute" && target.parentId)
+            return `${target.parentId}.${target.id}`;
+        return target.id || "?";
+    })();
+
+    let itemOffset = 0;
+
+    return (
+        <div
+            className="yaml-issues yaml-backlinks"
+            onKeyDown={onKeyDown}
+            tabIndex={-1}
+        >
+            {/* ── Заголовок с target ── */}
+            <div className="yaml-backlinks__target">
+                <div className="yaml-backlinks__target-info">
+                    <div className="yaml-backlinks__target-type">
+                        {targetLabelForType(backlinks.target)}
+                    </div>
+                    <code className="yaml-backlinks__target-id">
+                        {targetTitle}
+                    </code>
+                </div>
+                <div className="yaml-backlinks__target-actions">
+                    <button
+                        type="button"
+                        className="yaml-issues__nav-btn"
+                        onClick={() => {
+                            if (
+                                typeof target.line === "number"
+                            ) {
+                                onJump(target.line);
+                            }
+                        }}
+                        title="Перейти к объявлению в YAML"
+                    >
+                        <MIcon name="my_location" size="sm" />
+                    </button>
+                    <button
+                        type="button"
+                        className="yaml-issues__nav-btn"
+                        onClick={copyTarget}
+                        title="Копировать FQID элемента"
+                    >
+                        <MIcon name="content_copy" size="sm" />
+                    </button>
+                </div>
+            </div>
+
+            {/* ── Поиск + группировка ── */}
+            <div className="yaml-issues__toolbar">
+                <div className="yaml-issues__search">
+                    <MIcon name="search" size="sm" />
+                    <input
+                        type="text"
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        placeholder="Поиск: id, вид, строка…"
+                        spellCheck={false}
+                    />
+                    {query && (
+                        <button
+                            type="button"
+                            className="yaml-issues__search-clear"
+                            onClick={() => setQuery("")}
+                            title="Очистить"
+                        >
+                            ✕
+                        </button>
+                    )}
+                </div>
+                <select
+                    className="yaml-issues__group-select"
+                    value={groupMode}
+                    onChange={(e) =>
+                        setGroupMode(e.target.value as typeof groupMode)
+                    }
+                    title="Группировка"
+                >
+                    <option value="kind">По виду ссылки</option>
+                    <option value="group">По группе</option>
+                    <option value="flat">Плоский</option>
+                </select>
+            </div>
+
+            {/* ── Групповой фильтр ── */}
+            {totalGroups > 1 && (
+                <div className="yaml-ext-refs__kinds">
+                    <button
+                        type="button"
+                        className={
+                            "yaml-ext-refs__kind-chip" +
+                            (groupFilter === "all"
+                                ? " yaml-ext-refs__kind-chip--active"
+                                : "")
+                        }
+                        onClick={() => setGroupFilter("all")}
+                    >
+                        Все
+                        <span className="yaml-ext-refs__kind-count">
+                            {allItems.length}
+                        </span>
+                    </button>
+                    {backlinks.entity.length > 0 && (
+                        <button
+                            type="button"
+                            className={
+                                "yaml-ext-refs__kind-chip" +
+                                (groupFilter === "entity"
+                                    ? " yaml-ext-refs__kind-chip--active"
+                                    : "")
+                            }
+                            onClick={() =>
+                                setGroupFilter(
+                                    groupFilter === "entity" ? "all" : "entity",
+                                )
+                            }
+                            style={{
+                                borderColor:
+                                    groupFilter === "entity"
+                                        ? "#6366f1"
+                                        : undefined,
+                                color:
+                                    groupFilter === "entity"
+                                        ? "#6366f1"
+                                        : undefined,
+                                background:
+                                    groupFilter === "entity"
+                                        ? "#6366f118"
+                                        : undefined,
+                            }}
+                        >
+                            <span
+                                className="yaml-ext-refs__kind-dot"
+                                style={{ background: "#6366f1" }}
+                            />
+                            На сущность
+                            <span className="yaml-ext-refs__kind-count">
+                                {backlinks.entity.length}
+                            </span>
+                        </button>
+                    )}
+                    {backlinks.attribute.length > 0 && (
+                        <button
+                            type="button"
+                            className={
+                                "yaml-ext-refs__kind-chip" +
+                                (groupFilter === "attribute"
+                                    ? " yaml-ext-refs__kind-chip--active"
+                                    : "")
+                            }
+                            onClick={() =>
+                                setGroupFilter(
+                                    groupFilter === "attribute"
+                                        ? "all"
+                                        : "attribute",
+                                )
+                            }
+                            style={{
+                                borderColor:
+                                    groupFilter === "attribute"
+                                        ? "#10b981"
+                                        : undefined,
+                                color:
+                                    groupFilter === "attribute"
+                                        ? "#10b981"
+                                        : undefined,
+                                background:
+                                    groupFilter === "attribute"
+                                        ? "#10b98118"
+                                        : undefined,
+                            }}
+                        >
+                            <span
+                                className="yaml-ext-refs__kind-dot"
+                                style={{ background: "#10b981" }}
+                            />
+                            На атрибут
+                            <span className="yaml-ext-refs__kind-count">
+                                {backlinks.attribute.length}
+                            </span>
+                        </button>
+                    )}
+                </div>
+            )}
+
+            {/* ── Фильтр по виду ── */}
+            {totalKinds > 1 && (
+                <div className="yaml-ext-refs__kinds">
+                    <button
+                        type="button"
+                        className={
+                            "yaml-ext-refs__kind-chip" +
+                            (kindFilter.size === 0
+                                ? " yaml-ext-refs__kind-chip--active"
+                                : "")
+                        }
+                        onClick={() => setKindFilter(new Set())}
+                    >
+                        Все виды
+                    </button>
+                    {Array.from(kindCounts.entries())
+                        .sort((a, b) => b[1] - a[1])
+                        .map(([k, count]) => {
+                            const color = BACKLINK_KIND_COLORS[k];
+                            const active = kindFilter.has(k);
+                            return (
+                                <button
+                                    key={k}
+                                    type="button"
+                                    className={
+                                        "yaml-ext-refs__kind-chip" +
+                                        (active
+                                            ? " yaml-ext-refs__kind-chip--active"
+                                            : "")
+                                    }
+                                    onClick={() => toggleKind(k)}
+                                    style={{
+                                        borderColor: active
+                                            ? color
+                                            : undefined,
+                                        color: active ? color : undefined,
+                                        background: active
+                                            ? `${color}18`
+                                            : undefined,
+                                    }}
+                                >
+                                    <span
+                                        className="yaml-ext-refs__kind-dot"
+                                        style={{ background: color }}
+                                    />
+                                    {BACKLINK_KIND_LABELS[k] || k}
+                                    <span className="yaml-ext-refs__kind-count">
+                                        {count}
+                                    </span>
+                                </button>
+                            );
+                        })}
+                </div>
+            )}
+
+            {/* ── Навигация ── */}
+            <div className="yaml-issues__navbar">
+                <button
+                    type="button"
+                    className="yaml-issues__nav-btn"
+                    onClick={() => stepItem(-1)}
+                    disabled={navList.length === 0}
+                    title="Предыдущая (↑ / k)"
+                >
+                    <MIcon name="expand_less" size="sm" />
+                </button>
+                <button
+                    type="button"
+                    className="yaml-issues__nav-btn"
+                    onClick={() => stepItem(1)}
+                    disabled={navList.length === 0}
+                    title="Следующая (↓ / j)"
+                >
+                    <MIcon name="expand_more" size="sm" />
+                </button>
+                <span className="yaml-issues__nav-counter">
+                    {activeIdx >= 0
+                        ? `${activeIdx + 1} / ${navList.length}`
+                        : `— / ${navList.length}`}
+                </span>
+                <div className="yaml-issues__nav-actions">
+                    <button
+                        type="button"
+                        className="yaml-issues__nav-btn"
+                        onClick={expandAll}
+                        title="Развернуть всё"
+                    >
+                        <MIcon name="unfold_more" size="sm" />
+                    </button>
+                    <button
+                        type="button"
+                        className="yaml-issues__nav-btn"
+                        onClick={collapseAll}
+                        title="Свернуть всё"
+                        disabled={expanded.size === 0}
+                    >
+                        <MIcon name="unfold_less" size="sm" />
+                    </button>
+                    <button
+                        type="button"
+                        className="yaml-issues__nav-btn"
+                        onClick={copyAll}
+                        title="Копировать все"
+                        disabled={filtered.length === 0}
+                    >
+                        <MIcon name="content_copy" size="sm" />
+                    </button>
+                    <button
+                        type="button"
+                        className="yaml-issues__nav-btn"
+                        onClick={exportMd}
+                        title="Экспорт в Markdown"
+                        disabled={filtered.length === 0}
+                    >
+                        <MIcon name="description" size="sm" />
+                    </button>
+                </div>
+            </div>
+
+            {/* ── Сводка ── */}
+            <div className="yaml-issues__header">
+                Ссылки ({filtered.length}
+                {filtered.length !== allItems.length
+                    ? ` / ${allItems.length}`
+                    : ""}
+                ) · <strong>{totalKinds}</strong> вид.
+                {totalGroups > 1 && (
+                    <>
+                        {" · "}
+                        <strong>{totalGroups}</strong> групп
+                    </>
+                )}
+                {(kindFilter.size > 0 || groupFilter !== "all") && (
+                    <>
+                        {" · "}
+                        <button
+                            type="button"
+                            className="yaml-backlinks__reset"
+                            onClick={() => {
+                                setQuery("");
+                                setKindFilter(new Set());
+                                setGroupFilter("all");
+                            }}
+                        >
+                            сбросить фильтры
+                        </button>
+                    </>
+                )}
+            </div>
+
+            {/* ── Список ── */}
+            {filtered.length === 0 ? (
+                <div className="yaml-issues-empty">
+                    <div style={{ fontSize: 32, marginBottom: 8 }}>🔍</div>
+                    <div>Ничего не найдено по фильтрам</div>
+                    <button
+                        type="button"
+                        className="btn btn--small"
+                        onClick={() => {
+                            setQuery("");
+                            setKindFilter(new Set());
+                            setGroupFilter("all");
+                        }}
+                        style={{ marginTop: 8 }}
+                    >
+                        Сбросить фильтры
+                    </button>
+                </div>
+            ) : (
+                <div className="yaml-issues__list" ref={listRef}>
+                    {grouped.map((g) => {
+                        const isExpanded = expanded.has(g.key);
+                        const startOffset = itemOffset;
+                        if (isExpanded) itemOffset += g.items.length;
+                        return (
+                            <div
+                                key={g.key}
+                                className={
+                                    "yaml-issues__group" +
+                                    (isExpanded ? " open" : "")
+                                }
+                            >
+                                <div className="yaml-issues__group-title">
+                                    <button
+                                        type="button"
+                                        className="yaml-issues__group-toggle"
+                                        onClick={() => toggleGroup(g.key)}
+                                    >
+                                        <span className="yaml-issues__group-chevron">
+                                            {isExpanded ? "▾" : "▸"}
+                                        </span>
+                                        {g.color && (
+                                            <span
+                                                className="yaml-backlinks__group-dot"
+                                                style={{ background: g.color }}
+                                            />
+                                        )}
+                                        <span className="yaml-issues__group-label">
+                                            {g.label}
+                                        </span>
+                                        <span className="yaml-issues__group-count">
+                                            {g.sublabel || g.items.length}
+                                        </span>
+                                    </button>
+                                    <div className="yaml-issues__group-actions">
+                                        <button
+                                            type="button"
+                                            className="yaml-issues__group-action"
+                                            onClick={() => copyGroup(g.items)}
+                                            title="Копировать группу"
+                                        >
+                                            <MIcon
+                                                name="content_copy"
+                                                size="sm"
+                                            />
+                                        </button>
+                                    </div>
+                                </div>
+                                {isExpanded && (
+                                    <div className="yaml-issues__group-body">
+                                        {g.items.map((it, i) => {
+                                            const bl = it.backlink;
+                                            const isActive =
+                                                it.key === activeKey;
+                                            const color =
+                                                BACKLINK_KIND_COLORS[bl.kind] ||
+                                                "#64748b";
+                                            return (
+                                                <div
+                                                    key={it.key}
+                                                    data-backlink-key={it.key}
+                                                    className={
+                                                        "yaml-backlink" +
+                                                        (isActive
+                                                            ? " yaml-backlink--active"
+                                                            : "")
+                                                    }
+                                                    onClick={() =>
+                                                        selectItem(it)
+                                                    }
+                                                    title={
+                                                        bl.detail ||
+                                                        `${bl.label} · :${bl.line}`
+                                                    }
+                                                >
+                                                    <span className="yaml-backlink__line">
+                                                        :{bl.line}
+                                                    </span>
+                                                    <span
+                                                        className="yaml-backlink__kind-chip"
+                                                        style={{
+                                                            color,
+                                                            background: `${color}18`,
+                                                            borderColor: `${color}40`,
+                                                        }}
+                                                    >
+                                                        <MIcon
+                                                            name={bl.icon}
+                                                            size="sm"
+                                                        />
+                                                        {BACKLINK_KIND_LABELS[
+                                                            bl.kind
+                                                        ] || bl.kind}
+                                                    </span>
+                                                    <code className="yaml-backlink__id">
+                                                        {bl.label}
+                                                    </code>
+                                                    {bl.detail && (
+                                                        <span className="yaml-backlink__detail">
+                                                            {bl.detail}
+                                                        </span>
+                                                    )}
+                                                    {it.group ===
+                                                        "attribute" && (
+                                                            <span
+                                                                className="yaml-backlink__group-badge"
+                                                                title="На атрибут"
+                                                            >
+                                                                attr
+                                                            </span>
+                                                        )}
+                                                    <div className="yaml-backlink__actions">
+                                                        <button
+                                                            type="button"
+                                                            className="yaml-backlink__action"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                onJump(
+                                                                    bl.line,
+                                                                );
+                                                            }}
+                                                            title="Перейти к строке"
+                                                        >
+                                                            <MIcon
+                                                                name="my_location"
+                                                                size="sm"
+                                                            />
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            className="yaml-backlink__action"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                copyPath(bl);
+                                                            }}
+                                                            title="Копировать путь (домен:строка)"
+                                                        >
+                                                            <MIcon
+                                                                name="link"
+                                                                size="sm"
+                                                            />
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            className="yaml-backlink__action"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                copyOne(bl);
+                                                            }}
+                                                            title="Копировать"
+                                                        >
+                                                            <MIcon
+                                                                name="content_copy"
+                                                                size="sm"
+                                                            />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
+});

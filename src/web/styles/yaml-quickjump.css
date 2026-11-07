@@ -774,3 +774,102 @@
     font-size: 10.5px;
     color: var(--text-200);
 }
+/* ============ Фильтры-чипы ============ */
+.yaml-quickjump__filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-850);
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
+
+.yaml-quickjump-filter {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    font-size: 10.5px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: transparent;
+    color: var(--text-400);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.yaml-quickjump-filter:hover {
+    background: var(--bg-700);
+}
+
+.yaml-quickjump-filter--active {
+    background: var(--accent-soft, rgba(99, 102, 241, 0.15));
+    border-color: var(--accent-hover);
+    color: var(--accent-hover);
+}
+
+.yaml-quickjump-filter__count {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    padding: 0 4px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.yaml-quickjump-filter--active .yaml-quickjump-filter__count {
+    background: rgba(99, 102, 241, 0.25);
+}
+
+/* ============ Кликабельный заголовок группы ============ */
+.yaml-quickjump__group-title--clickable {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    border: none;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+    padding: 4px 10px;
+    border-radius: 4px;
+    transition: background 0.1s;
+}
+
+.yaml-quickjump__group-title--clickable:hover {
+    background: var(--bg-700);
+}
+
+.yaml-quickjump__group-chevron {
+    font-size: 10px;
+    color: var(--text-500);
+    width: 10px;
+    display: inline-block;
+}
+
+/* ============ Перебор ============ */
+.yaml-quickjump__truncated {
+    padding: 8px 12px;
+    font-size: 10.5px;
+    color: var(--text-500);
+    font-style: italic;
+    text-align: center;
+    border-top: 1px dashed var(--border);
+}
+
+/* ============ Footer: счётчик ============ */
+.yaml-quickjump__footer-count {
+    font-family: "JetBrains Mono", monospace;
+    color: var(--text-300);
+}
+
+.yaml-quickjump__footer-count strong {
+    color: var(--text-100);
+}
+
+/* В footer у нас теперь 4 kbd в одной группе — надо чуть-чуть сжать */
+.yaml-quickjump__footer kbd + kbd {
+    margin-left: 2px;
+}

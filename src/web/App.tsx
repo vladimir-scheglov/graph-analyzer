@@ -277,6 +277,7 @@ export default function App() {
     const bookmarksOnly = useGraphStore((s) => s.bookmarksOnly);
     const onlyInvalid = useGraphStore((s) => s.onlyInvalid);
     const hiddenNodeIds = useGraphStore((s) => s.hiddenNodeIds);
+    const cycleHighlight = useGraphStore((s) => s.cycleHighlight);
 
     const activeFiltersCount = useMemo(() => {
         let c = 0;
@@ -329,7 +330,7 @@ export default function App() {
                     totalEdgesCount={edges.length}
                     activeFiltersCount={activeFiltersCount}
                     remoteInfo={REMOTE_INFO}
-                    cycleHighlight={useGraphStore.getState().cycleHighlight}
+                    cycleHighlight={cycleHighlight}
                     ruleViolationsCount={ruleViolations.length}
                     onFindCycles={() => document.dispatchEvent(new CustomEvent(EVT_FIND_CYCLES))}
                     onStartPathFinder={() => {

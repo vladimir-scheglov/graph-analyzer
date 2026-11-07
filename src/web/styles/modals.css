@@ -5703,3 +5703,819 @@ select.create-domain-input {
 .yaml-viewer-bookmark__delete {
     display: none;
 }
+/* ============ Кнопка «Скрыть затенённые» ============ */
+.yaml-viewer-focus-hide-btn {
+    position: relative;
+}
+
+.yaml-viewer-focus-hide-btn__count {
+    margin-left: 3px;
+    padding: 0 4px;
+    font-size: 9.5px;
+    font-family: "JetBrains Mono", monospace;
+    border-radius: 6px;
+    background: rgba(245, 158, 11, 0.18);
+    color: #f59e0b;
+    line-height: 1;
+    height: 14px;
+    display: inline-flex;
+    align-items: center;
+}
+
+.yaml-viewer-focus-hide-btn.yaml-viewer-fold-btn--active
+    .yaml-viewer-focus-hide-btn__count {
+    background: rgba(245, 158, 11, 0.35);
+    color: #fbbf24;
+}
+
+/* ============ View zone «⋯ N строк скрыто» ============ */
+.yaml-focus-hidden-zone {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    height: 100%;
+    padding: 0 16px;
+    background: linear-gradient(
+        90deg,
+        rgba(148, 163, 184, 0.08) 0%,
+        rgba(148, 163, 184, 0.04) 100%
+    );
+    border-top: 1px dashed var(--border);
+    border-bottom: 1px dashed var(--border);
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    color: var(--text-500);
+    user-select: none;
+}
+
+.yaml-focus-hidden-zone__label {
+    font-style: italic;
+    letter-spacing: 0.02em;
+}
+
+.yaml-focus-hidden-zone__reveal {
+    padding: 2px 10px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-300);
+    font-size: 10.5px;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.yaml-focus-hidden-zone__reveal:hover {
+    background: var(--bg-700);
+    border-color: var(--border-hover);
+    color: var(--text-100);
+}
+/* ============ Severity: счётчики ============ */
+.yaml-issues__severity-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.yaml-issues__severity-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.yaml-issues__severity-count {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 9.5px;
+    padding: 0 4px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-500);
+    margin-left: auto;
+}
+
+.yaml-issues__severity-btn.active .yaml-issues__severity-count {
+    background: rgba(255, 255, 255, 0.15);
+    color: var(--text-200);
+}
+
+/* ============ Toolbar ============ */
+.yaml-issues__toolbar {
+    display: flex;
+    gap: 6px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-850);
+}
+
+.yaml-issues__search {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    background: var(--bg-800);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    min-width: 0;
+}
+
+.yaml-issues__search input {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-200);
+    font-size: 11.5px;
+    padding: 2px 0;
+}
+
+.yaml-issues__search-clear {
+    background: transparent;
+    border: none;
+    color: var(--text-500);
+    cursor: pointer;
+    padding: 0 4px;
+    font-size: 11px;
+}
+
+.yaml-issues__search-clear:hover {
+    color: var(--text-300);
+}
+
+.yaml-issues__group-select {
+    padding: 4px 8px;
+    background: var(--bg-800);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-300);
+    font-size: 11px;
+    cursor: pointer;
+}
+
+/* ============ Navbar ============ */
+.yaml-issues__navbar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-800);
+    font-size: 11px;
+    color: var(--text-500);
+}
+
+.yaml-issues__nav-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-300);
+    cursor: pointer;
+}
+
+.yaml-issues__nav-btn:hover:not(:disabled) {
+    background: var(--bg-700);
+    border-color: var(--border);
+}
+
+.yaml-issues__nav-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.yaml-issues__nav-counter {
+    min-width: 56px;
+    text-align: center;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    color: var(--text-200);
+}
+
+.yaml-issues__nav-actions {
+    display: flex;
+    gap: 2px;
+    margin-left: auto;
+}
+
+/* ============ Header: сводка по источникам ============ */
+.yaml-issues__header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px;
+    font-size: 11px;
+    color: var(--text-400);
+    flex-wrap: wrap;
+}
+
+.yaml-issues__src-stat {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 10px;
+    color: var(--text-500);
+}
+
+.yaml-issues__src-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+}
+
+/* ============ Group head: actions на hover ============ */
+.yaml-issues__group-title {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    transition: background 0.1s;
+}
+
+.yaml-issues__group-title:hover {
+    background: var(--bg-700);
+}
+
+.yaml-issues__group-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    padding: 4px 0;
+    background: transparent;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    color: inherit;
+    min-width: 0;
+}
+
+.yaml-issues__group-chevron {
+    font-size: 10px;
+    color: var(--text-500);
+    width: 10px;
+    flex-shrink: 0;
+}
+
+.yaml-issues__group-label {
+    font-weight: 600;
+    color: var(--text-300);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.yaml-issues__group-count {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    padding: 0 5px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-400);
+    flex-shrink: 0;
+}
+
+.yaml-issues__group-actions {
+    display: flex;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity 0.12s;
+}
+
+.yaml-issues__group-title:hover .yaml-issues__group-actions,
+.yaml-issues__group-title:focus-within .yaml-issues__group-actions {
+    opacity: 1;
+}
+
+.yaml-issues__group-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-500);
+    cursor: pointer;
+    padding: 0;
+}
+
+.yaml-issues__group-action:hover {
+    background: var(--bg-600);
+    border-color: var(--border);
+    color: var(--text-200);
+}
+
+/* ============ Issue rows ============ */
+.yaml-issue {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 6px 10px;
+    cursor: pointer;
+    border-left: 2px solid transparent;
+    transition: background 0.1s;
+}
+
+.yaml-issue:hover {
+    background: var(--bg-800);
+}
+
+.yaml-issue--active {
+    background: var(--bg-700);
+    border-left-color: var(--accent-hover);
+}
+
+.yaml-issue--disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.yaml-issue__body {
+    flex: 1;
+    min-width: 0;
+}
+
+.yaml-issue__text-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.yaml-issue__source {
+    padding: 0 4px;
+    font-size: 9px;
+    font-family: "JetBrains Mono", monospace;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-500);
+    line-height: 14px;
+    flex-shrink: 0;
+}
+
+.yaml-issue__source--lint {
+    background: rgba(59, 130, 246, 0.15);
+    color: #3b82f6;
+}
+
+.yaml-issue__source--rql {
+    background: rgba(139, 92, 246, 0.15);
+    color: #8b5cf6;
+}
+
+.yaml-issue__source--yaml {
+    background: rgba(245, 158, 11, 0.15);
+    color: #f59e0b;
+}
+
+.yaml-issue__meta {
+    margin-top: 3px;
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.yaml-issue__meta-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    background: transparent;
+    border: none;
+    padding: 0;
+    font-size: 10.5px;
+    color: var(--text-400);
+    cursor: pointer;
+    font-family: "JetBrains Mono", monospace;
+}
+
+.yaml-issue__meta-link:hover {
+    color: var(--accent-hover);
+}
+
+.yaml-issue__actions {
+    opacity: 0;
+    transition: opacity 0.12s;
+    display: flex;
+    gap: 2px;
+    flex-shrink: 0;
+}
+
+.yaml-issue:hover .yaml-issue__actions,
+.yaml-issue--active .yaml-issue__actions {
+    opacity: 1;
+}
+
+.yaml-issue__action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-500);
+    cursor: pointer;
+    padding: 0;
+}
+
+.yaml-issue__action:hover {
+    background: var(--bg-600);
+    border-color: var(--border);
+    color: var(--text-200);
+}
+
+/* ============ Фокус на панели ============ */
+.yaml-issues:focus-visible {
+    outline: 1px solid var(--accent-hover);
+    outline-offset: -1px;
+}
+/* ============ External Refs: чипы по типу ============ */
+.yaml-ext-refs__kinds {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-850);
+}
+
+.yaml-ext-refs__kind-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    font-size: 10.5px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: transparent;
+    color: var(--text-400);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.yaml-ext-refs__kind-chip:hover {
+    background: var(--bg-700);
+}
+
+.yaml-ext-refs__kind-chip--active {
+    background: var(--accent-soft, rgba(99, 102, 241, 0.15));
+    border-color: var(--accent-hover);
+    color: var(--accent-hover);
+}
+
+.yaml-ext-refs__kind-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.yaml-ext-refs__kind-count {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    padding: 0 4px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    color: inherit;
+}
+
+/* ============ Header: домен кликабельный ============ */
+.yaml-ext-refs__group-domain {
+    color: var(--accent-hover);
+    cursor: pointer;
+    text-decoration: underline dotted;
+    text-underline-offset: 2px;
+}
+
+.yaml-ext-refs__group-domain:hover {
+    color: var(--text-100);
+}
+
+/* ============ Карточка одной ссылки ============ */
+.yaml-ext-ref {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    cursor: pointer;
+    border-left: 2px solid transparent;
+    font-size: 11.5px;
+    transition: background 0.1s;
+    flex-wrap: wrap;
+}
+
+.yaml-ext-ref:hover {
+    background: var(--bg-800);
+}
+
+.yaml-ext-ref--active {
+    background: var(--bg-700);
+    border-left-color: var(--accent-hover);
+}
+
+.yaml-ext-ref__line {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10.5px;
+    color: var(--text-500);
+    min-width: 36px;
+}
+
+.yaml-ext-ref__kind {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 9.5px;
+    font-family: "JetBrains Mono", monospace;
+    font-weight: 500;
+    flex-shrink: 0;
+}
+
+.yaml-ext-ref__kind .material-symbols-outlined {
+    font-size: 11px;
+}
+
+.yaml-ext-ref__arrow {
+    color: var(--text-500);
+    font-size: 11px;
+}
+
+.yaml-ext-ref__target {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    color: var(--text-200);
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.yaml-ext-ref__target-link {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    background: transparent;
+    border: none;
+    color: var(--accent-hover);
+    cursor: pointer;
+    padding: 0;
+    text-decoration: underline dotted;
+    text-underline-offset: 2px;
+}
+
+.yaml-ext-ref__target-link:hover {
+    color: var(--text-100);
+}
+
+.yaml-ext-ref__count {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 9.5px;
+    padding: 0 4px;
+    border-radius: 6px;
+    background: rgba(245, 158, 11, 0.15);
+    color: #f59e0b;
+    line-height: 14px;
+}
+
+.yaml-ext-ref__worker {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 9.5px;
+    padding: 0 5px;
+    border-radius: 6px;
+    background: rgba(139, 92, 246, 0.15);
+    color: #a78bfa;
+    line-height: 14px;
+}
+
+.yaml-ext-ref__action {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    color: var(--text-200);
+}
+
+.yaml-ext-ref__actions {
+    display: flex;
+    gap: 2px;
+    opacity: 0;
+    margin-left: auto;
+    transition: opacity 0.12s;
+    flex-shrink: 0;
+}
+
+.yaml-ext-ref:hover .yaml-ext-ref__actions,
+.yaml-ext-ref--active .yaml-ext-ref__actions {
+    opacity: 1;
+}
+
+.yaml-ext-ref__action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 20px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-500);
+    cursor: pointer;
+    padding: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.yaml-ext-ref__action:hover {
+    background: var(--bg-600);
+    border-color: var(--border);
+    color: var(--text-200);
+}
+
+/* ============ Скрываем старые стили (.yaml-ext-refs-group) ============ */
+.yaml-ext-refs-group,
+.yaml-ext-ref__field,
+.yaml-ext-ref__line:not([class*="yaml-ext-ref__line"]) {
+    /* оставляем для обратной совместимости, но новый код их не использует */
+}
+.yaml-ext-ref--scenario {
+    margin: 8px 0;
+}
+/* ============ Backlinks: заголовок target ============ */
+.yaml-backlinks__target {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-800);
+}
+
+.yaml-backlinks__target-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+}
+
+.yaml-backlinks__target-type {
+    font-size: 9.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-500);
+}
+
+.yaml-backlinks__target-id {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12.5px;
+    color: var(--accent-hover);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.yaml-backlinks__target-actions {
+    display: flex;
+    gap: 2px;
+    flex-shrink: 0;
+}
+
+/* ============ Точка в заголовке группы ============ */
+.yaml-backlinks__group-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+/* ============ Кнопка сброса ============ */
+.yaml-backlinks__reset {
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: var(--accent-hover);
+    font-size: 11px;
+    cursor: pointer;
+    text-decoration: underline dotted;
+    text-underline-offset: 2px;
+}
+
+.yaml-backlinks__reset:hover {
+    color: var(--text-100);
+}
+
+/* ============ Строка backlink ============ */
+.yaml-backlink {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    cursor: pointer;
+    border-left: 2px solid transparent;
+    font-size: 11.5px;
+    transition: background 0.1s;
+    flex-wrap: wrap;
+}
+
+.yaml-backlink:hover {
+    background: var(--bg-800);
+}
+
+.yaml-backlink--active {
+    background: var(--bg-700);
+    border-left-color: var(--accent-hover);
+}
+
+.yaml-backlink__line {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10.5px;
+    color: var(--text-500);
+    min-width: 34px;
+}
+
+.yaml-backlink__kind-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    font-size: 9.5px;
+    font-family: "JetBrains Mono", monospace;
+    font-weight: 500;
+    flex-shrink: 0;
+}
+
+.yaml-backlink__kind-chip .material-symbols-outlined {
+    font-size: 11px;
+}
+
+.yaml-backlink__id {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    color: var(--text-200);
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.yaml-backlink__detail {
+    font-size: 10px;
+    color: var(--text-500);
+    font-style: italic;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+}
+
+.yaml-backlink__group-badge {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 9px;
+    padding: 0 4px;
+    border-radius: 3px;
+    background: rgba(16, 185, 129, 0.15);
+    color: #10b981;
+    flex-shrink: 0;
+    line-height: 14px;
+}
+
+.yaml-backlink__actions {
+    display: flex;
+    gap: 2px;
+    opacity: 0;
+    margin-left: auto;
+    transition: opacity 0.12s;
+    flex-shrink: 0;
+}
+
+.yaml-backlink:hover .yaml-backlink__actions,
+.yaml-backlink--active .yaml-backlink__actions {
+    opacity: 1;
+}
+
+.yaml-backlink__action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-500);
+    cursor: pointer;
+    padding: 0;
+}
+
+.yaml-backlink__action:hover {
+    background: var(--bg-600);
+    border-color: var(--border);
+    color: var(--text-200);
+}

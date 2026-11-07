@@ -6,6 +6,7 @@ import type { ModelIndex } from "../../../../shared/model-types";
 import { useGraphStore } from "../../../state/useGraphStore";
 import { createPortal } from "react-dom";
 import { Hint } from "../../common/Hint";
+import { pluralFew } from "../../../lib/format";
 
 export type JumpKind =
     | "file-start"
@@ -39,6 +40,46 @@ export interface JumpItem {
 interface SuggestionGroup {
     label: string;
     items: JumpItem[];
+}
+
+type QuickJumpFilter =
+    | "all"
+    | "section"
+    | "element"
+    | "problem"
+    | "hit"
+    | "line"
+    | "favorite";
+
+const FILTER_LABELS: Record<QuickJumpFilter, string> = {
+    all: "Все",
+    section: "Секции",
+    element: "Элементы",
+    problem: "Проблемы",
+    hit: "Совпадения",
+    line: "Строки",
+    favorite: "Избранные",
+};
+
+function classifyJumpItem(
+    item: JumpItem,
+    favorites: Set<string>,
+): Set<QuickJumpFilter> {
+    const out = new Set<QuickJumpFilter>();
+    out.add("all");
+    if (item.kind === "section-start" || item.kind === "section-end")
+        out.add("section");
+    if (item.kind === "element") {
+        out.add("element");
+        const fk = favKey(item);
+        if (fk && favorites.has(fk)) out.add("favorite");
+    }
+    if (item.kind === "search-hit") {
+        if (item.severity) out.add("problem");
+        else out.add("hit");
+    }
+    if (item.kind === "line") out.add("line");
+    return out;
 }
 
 export interface YamlQuickJumpProps {
@@ -790,6 +831,12 @@ export function YamlQuickJump({
 
     const [helpOpen, setHelpOpen] = useState(false);
 
+    // ── Фильтры и коллапс групп ──
+    const [filterMode, setFilterMode] = useState<QuickJumpFilter>("all");
+    const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(
+        new Set(),
+    );
+
     // при закрытии попапа — сбрасываем
     useEffect(() => {
         if (!open) setHelpOpen(false);
@@ -897,7 +944,9 @@ export function YamlQuickJump({
         // ═══════ ~ — соседние элементы ═══════
         // ═══════ ~ — соседи (опционально с фильтром) ═══════
         if (query.startsWith("~")) {
-            const term = query.slice(1).trim().toLowerCase();
+            const m = query.match(/^~(\d+)?\s*(.*)$/);
+            const limit = m && m[1] ? Math.max(1, parseInt(m[1], 10)) : 5;
+            const term = ((m && m[2]) || "").trim().toLowerCase();
             const cur = cursorLine || 1;
             const allNodes = indexItems
                 .filter((i) => i.kind === "element")
@@ -913,19 +962,25 @@ export function YamlQuickJump({
                 }
                 if (n.line < cur) {
                     before.push({ ...n, score: 100 });
-                    if (before.length > 5) before.shift();
+                    if (before.length > limit) before.shift();
                 } else if (n.line > cur) {
                     after.push({ ...n, score: 100 });
-                    if (after.length >= 5) break;
+                    if (after.length >= limit) break;
                 }
             }
 
             const result: SuggestionGroup[] = [];
             if (before.length > 0) {
-                result.push({ label: "Выше курсора", items: before.slice().reverse() });
+                result.push({
+                    label: `Выше курсора (${before.length})`,
+                    items: before.slice().reverse(),
+                });
             }
             if (after.length > 0) {
-                result.push({ label: "Ниже курсора", items: after });
+                result.push({
+                    label: `Ниже курсора (${after.length})`,
+                    items: after,
+                });
             }
             if (result.length === 0) {
                 result.push({
@@ -995,7 +1050,18 @@ export function YamlQuickJump({
                 const line = resolveIssueLine(issue, lineMap);
                 if (line == null) continue;
                 const hay = `${issue.rule || ""} ${issue.message || ""} ${issue.entityFqid || ""} ${issue.attributeId || ""} ${issue.severity || ""} ${issue.category || ""} ${issue.propertyPath || ""}`.toLowerCase();
-                if (term && !hay.includes(term)) continue;
+                if (term) {
+                    if (hay.includes(term)) {
+                        // exact substring
+                    } else {
+                        // subsequence fallback: !erorr → error
+                        let pos = 0;
+                        for (let i = 0; i < hay.length && pos < term.length; i++) {
+                            if (hay[i] === term[pos]) pos++;
+                        }
+                        if (pos !== term.length) continue;
+                    }
+                }
                 const severity: JumpSeverity =
                     issue.severity === "error"
                         ? "error"
@@ -1055,8 +1121,69 @@ export function YamlQuickJump({
 
         // ═══════ @ — кросс-сущностный поиск атрибута ═══════
         if (isAttrMode) {
-            const term = query.slice(1).trim().toLowerCase();
+            const raw = query.slice(1).trim();
+            let attrQuery = raw.toLowerCase();
+            let typeFilter: string | null = null;
+
+            const colonIdx = raw.indexOf(":");
+            if (colonIdx >= 0) {
+                attrQuery = raw.slice(0, colonIdx).toLowerCase();
+                typeFilter = raw.slice(colonIdx + 1).toLowerCase() || null;
+            }
+
             if (!index || !domainId) return [];
+
+            if (!attrQuery && !typeFilter) {
+                return [
+                    {
+                        label: "Поиск атрибутов",
+                        items: [
+                            {
+                                key: "attr-hint-1",
+                                kind: "help",
+                                label: "@score",
+                                sublabel: "атрибуты с id/name, содержащим «score»",
+                                line: 1,
+                                icon: "help",
+                                score: 100,
+                                helpExample: "@score",
+                            },
+                            {
+                                key: "attr-hint-2",
+                                kind: "help",
+                                label: "@:Reference",
+                                sublabel: "все атрибуты типа Reference",
+                                line: 1,
+                                icon: "help",
+                                score: 90,
+                                helpExample: "@:Reference",
+                            },
+                            {
+                                key: "attr-hint-3",
+                                kind: "help",
+                                label: "@score:Integer",
+                                sublabel: "атрибуты «score» с типом Integer",
+                                line: 1,
+                                icon: "help",
+                                score: 80,
+                                helpExample: "@score:Integer",
+                            },
+                            {
+                                key: "attr-hint-4",
+                                kind: "help",
+                                label: "@:custom",
+                                sublabel:
+                                    "все атрибуты с кастомным типом (Enum / Workflow / Table)",
+                                line: 1,
+                                icon: "help",
+                                score: 70,
+                                helpExample: "@:custom",
+                            },
+                        ],
+                    },
+                ];
+            }
+
             const cur = domainId.toLowerCase();
             const entitiesSection = lineMap.sections.find(
                 (s) => s.key === "entities",
@@ -1073,10 +1200,27 @@ export function YamlQuickJump({
                 );
                 if (!entityNode) continue;
 
-                const pushAttr = (attrId: string, attrName: string, dataType: string, description: string) => {
-                    const hay = `${attrId} ${attrName || ""}`.toLowerCase();
-                    if (term && !hay.includes(term)) return;
-                    const dedupKey = `${entity.fqid}#${attrId}`;
+                const entityId = entity.entityId;
+                const attrEntityFqid = entity.fqid;
+
+                const pushAttr = (
+                    attrId: string,
+                    attrName: string,
+                    dataType: string,
+                    dataTypeKind: "base" | "custom" | "unknown",
+                    description: string,
+                ) => {
+                    const idHay = `${attrId} ${attrName || ""}`.toLowerCase();
+                    if (attrQuery && !idHay.includes(attrQuery)) return;
+                    if (typeFilter) {
+                        const dtLower = (dataType || "").toLowerCase();
+                        if (typeFilter === "custom") {
+                            if (dataTypeKind !== "custom") return;
+                        } else if (!dtLower.includes(typeFilter)) {
+                            return;
+                        }
+                    }
+                    const dedupKey = `${attrEntityFqid}#${attrId}`;
                     if (seen.has(dedupKey)) return;
                     seen.add(dedupKey);
 
@@ -1089,7 +1233,7 @@ export function YamlQuickJump({
                         key: `attr:${dedupKey}`,
                         kind: "element",
                         rawId: attrId,
-                        label: `${entity.entityId}.${attrId}`,
+                        label: `${entityId}.${attrId}`,
                         sublabel: [dataType, attrName, description]
                             .filter(Boolean)
                             .join(" · "),
@@ -1105,15 +1249,16 @@ export function YamlQuickJump({
                         attr.id,
                         attr.name || "",
                         attr.dataType || "",
+                        attr.dataTypeKind || "unknown",
                         attr.description || "",
                     );
                     if (items.length >= MAX_RESULTS) break;
-                    // вложенные (Table) — тоже полезны
                     for (const na of attr.nestedAttributes || []) {
                         pushAttr(
                             na.id,
                             na.name || "",
                             na.dataType || "",
+                            na.dataTypeKind || "unknown",
                             na.description || "",
                         );
                         if (items.length >= MAX_RESULTS) break;
@@ -1123,6 +1268,11 @@ export function YamlQuickJump({
             }
 
             if (items.length === 0) {
+                const queryLabel = typeFilter
+                    ? attrQuery
+                        ? `${attrQuery}:${typeFilter}`
+                        : `:${typeFilter}`
+                    : attrQuery;
                 return [
                     {
                         label: "Атрибуты",
@@ -1130,9 +1280,7 @@ export function YamlQuickJump({
                             {
                                 key: "attr-empty",
                                 kind: "help",
-                                label: term
-                                    ? `Атрибуты с «${term}» не найдены`
-                                    : "Атрибутов в домене не найдено",
+                                label: `Атрибуты «${queryLabel}» не найдены`,
                                 line: 1,
                                 icon: "search_off",
                                 score: 100,
@@ -1141,9 +1289,11 @@ export function YamlQuickJump({
                     },
                 ];
             }
+            const typeSuffix = typeFilter ? `:${typeFilter}` : "";
+            const attrSuffix = attrQuery || "";
             return [
                 {
-                    label: `Атрибуты${term ? ` «${term}»` : ""} (${items.length})`,
+                    label: `Атрибуты ${attrSuffix}${typeSuffix} (${items.length})`,
                     items,
                 },
             ];
@@ -1590,14 +1740,70 @@ export function YamlQuickJump({
         favorites,
     ]);
 
-    const flatSuggestions: JumpItem[] = useMemo(
+    const flatSuggestionsRaw: JumpItem[] = useMemo(
         () => groupedSuggestions.flatMap((g) => g.items),
         [groupedSuggestions],
     );
 
+    // ── Категории для фильтра ──
+    const availableFilters = useMemo(() => {
+        const counts: Record<QuickJumpFilter, number> = {
+            all: flatSuggestionsRaw.length,
+            section: 0,
+            element: 0,
+            problem: 0,
+            hit: 0,
+            line: 0,
+            favorite: 0,
+        };
+        for (const item of flatSuggestionsRaw) {
+            const classes = classifyJumpItem(item, favorites);
+            classes.forEach((c) => {
+                if (c !== "all") counts[c]++;
+            });
+        }
+        return counts;
+    }, [flatSuggestionsRaw, favorites]);
+
+    const showFilterChips = useMemo(() => {
+        if (availableFilters.all < 5) return false;
+        const nonAllCategories = (
+            ["section", "element", "problem", "hit", "line", "favorite"] as const
+        ).filter((c) => availableFilters[c] > 0);
+        return nonAllCategories.length >= 2;
+    }, [availableFilters]);
+
+    // ── Применяем фильтр к группам ──
+    const filteredGroups = useMemo(() => {
+        if (filterMode === "all") return groupedSuggestions;
+        return groupedSuggestions
+            .map((g) => ({
+                ...g,
+                items: g.items.filter((item) =>
+                    classifyJumpItem(item, favorites).has(filterMode),
+                ),
+            }))
+            .filter((g) => g.items.length > 0);
+    }, [groupedSuggestions, filterMode, favorites]);
+
+    // ── Видимые suggestions (без свёрнутых групп) ──
+    const visibleSuggestions = useMemo(() => {
+        const out: JumpItem[] = [];
+        for (const g of filteredGroups) {
+            if (collapsedGroups.has(g.label)) continue;
+            for (const item of g.items) out.push(item);
+        }
+        return out;
+    }, [filteredGroups, collapsedGroups]);
+
+    // Обратная совместимость: ниже используется flatSuggestions
+    const flatSuggestions = visibleSuggestions;
+
     useEffect(() => {
         setActiveIdx(0);
         setHoverPreview(null);
+        setFilterMode("all");
+        setCollapsedGroups(new Set());
     }, [query]);
 
     useEffect(() => {
@@ -1614,6 +1820,15 @@ export function YamlQuickJump({
         ) as HTMLElement | null;
         el?.scrollIntoView({ block: "nearest" });
     }, [activeIdx]);
+
+    // При изменении кол-ва видимых — clamp activeIdx
+    useEffect(() => {
+        setActiveIdx((i) => {
+            const max = visibleSuggestions.length - 1;
+            if (max < 0) return 0;
+            return Math.max(0, Math.min(i, max));
+        });
+    }, [visibleSuggestions.length]);
 
     useEffect(() => {
         return () => {
@@ -1724,6 +1939,18 @@ export function YamlQuickJump({
         } else if (e.key === "ArrowUp") {
             e.preventDefault();
             setActiveIdx((i) => Math.max(i - 1, 0));
+        } else if (e.key === "Home") {
+            e.preventDefault();
+            setActiveIdx(0);
+        } else if (e.key === "End") {
+            e.preventDefault();
+            setActiveIdx(Math.max(0, flatSuggestions.length - 1));
+        } else if (e.key === "PageDown") {
+            e.preventDefault();
+            setActiveIdx((i) => Math.min(i + 10, flatSuggestions.length - 1));
+        } else if (e.key === "PageUp") {
+            e.preventDefault();
+            setActiveIdx((i) => Math.max(i - 10, 0));
         } else if (e.key === "Enter") {
             if (e.ctrlKey || e.metaKey) {
                 e.preventDefault();
@@ -1804,6 +2031,9 @@ export function YamlQuickJump({
         item.key.startsWith("section-pick:");
 
     const previewSearchTerm = previewTerm(query);
+    // Для HighlightedText используем очищенный query,
+    // чтобы не подсвечивать `!` / `#` / `@` / `>` в результатах.
+    const highlightQuery = previewSearchTerm || query.trim();
 
     let itemOffset = 0;
 
@@ -1886,11 +2116,56 @@ export function YamlQuickJump({
                     </button>
                 </div>
 
+                {/* ── Фильтры-чипы ── */}
+                {!helpOpen && showFilterChips && (
+                    <div className="yaml-quickjump__filters">
+                        {(
+                            ["all", "section", "element", "problem", "hit", "line", "favorite"] as const
+                        ).map((f) => {
+                            if (f !== "all" && availableFilters[f] === 0) return null;
+                            const active = filterMode === f;
+                            return (
+                                <button
+                                    key={f}
+                                    type="button"
+                                    className={
+                                        "yaml-quickjump-filter" +
+                                        (active ? " yaml-quickjump-filter--active" : "")
+                                    }
+                                    onClick={() => {
+                                        setFilterMode(f);
+                                        setActiveIdx(0);
+                                    }}
+                                >
+                                    {FILTER_LABELS[f]}
+                                    <span className="yaml-quickjump-filter__count">
+                                        {availableFilters[f]}
+                                    </span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
+
                 {helpOpen ? (
                     <QuickJumpHelp onClose={() => setHelpOpen(false)} />
-                ) : groupedSuggestions.length === 0 ? (
+                ) : filteredGroups.length === 0 ? (
                     <div className="yaml-quickjump__empty">
-                        <div>Ничего не найдено</div>
+                        <div>
+                            {query
+                                ? "Ничего не найдено"
+                                : "Начните вводить запрос"}
+                        </div>
+                        {filterMode !== "all" && (
+                            <button
+                                type="button"
+                                className="btn btn--small"
+                                onClick={() => setFilterMode("all")}
+                                style={{ marginTop: 8 }}
+                            >
+                                Сбросить фильтр
+                            </button>
+                        )}
                         {sectionQuery !== null && sectionQuery !== "" && (
                             <div className="yaml-quickjump__empty-hint">
                                 Секция «{sectionQuery}» не найдена. Попробуйте:{" "}
@@ -1912,26 +2187,41 @@ export function YamlQuickJump({
                         ref={listRef}
                         onMouseLeave={clearHover}
                     >
-                        {groupedSuggestions.map((group) => {
+                        {filteredGroups.map((group) => {
+                            const isCollapsed = collapsedGroups.has(group.label);
                             const startOffset = itemOffset;
-                            itemOffset += group.items.length;
+                            if (!isCollapsed) itemOffset += group.items.length;
                             return (
                                 <div key={group.label} className="yaml-quickjump__group">
-                                    <div className="yaml-quickjump__group-title">
+                                    <button
+                                        type="button"
+                                        className="yaml-quickjump__group-title yaml-quickjump__group-title--clickable"
+                                        onClick={() => {
+                                            setCollapsedGroups((prev) => {
+                                                const next = new Set(prev);
+                                                if (next.has(group.label))
+                                                    next.delete(group.label);
+                                                else next.add(group.label);
+                                                return next;
+                                            });
+                                        }}
+                                        title={isCollapsed ? "Развернуть" : "Свернуть"}
+                                    >
+                                        <span className="yaml-quickjump__group-chevron">
+                                            {isCollapsed ? "▸" : "▾"}
+                                        </span>
                                         <span>{group.label}</span>
-                                        {group.items.length > 0 && (
-                                            <span className="yaml-quickjump__group-count">
-                                                {group.items.length}
-                                            </span>
-                                        )}
-                                    </div>
-                                    {group.items.map((item, i) => {
-                                        const idx = startOffset + i;
-                                        const severityClass = item.severity
-                                            ? ` yaml-quickjump-item--severity-${item.severity}`
-                                            : "";
-                                        return (
-                                            <>
+                                        <span className="yaml-quickjump__group-count">
+                                            {group.items.length}
+                                        </span>
+                                    </button>
+                                    {!isCollapsed &&
+                                        group.items.map((item, i) => {
+                                            const idx = startOffset + i;
+                                            const severityClass = item.severity
+                                                ? ` yaml-quickjump-item--severity-${item.severity}`
+                                                : "";
+                                            return (
                                                 <button
                                                     key={item.key}
                                                     type="button"
@@ -1972,13 +2262,13 @@ export function YamlQuickJump({
                                                     />
                                                     <div className="yaml-quickjump-item__main">
                                                         <div className="yaml-quickjump-item__label">
-                                                            <HighlightedText text={item.label} query={query} />
+                                                            <HighlightedText text={item.label} query={highlightQuery} />
                                                         </div>
                                                         {item.sublabel && (
                                                             <div className="yaml-quickjump-item__sublabel">
                                                                 <HighlightedText
                                                                     text={item.sublabel}
-                                                                    query={query}
+                                                                    query={highlightQuery}
                                                                 />
                                                             </div>
                                                         )}
@@ -2033,16 +2323,38 @@ export function YamlQuickJump({
                                                         </div>
                                                     )}
                                                 </button>
-                                            </>
-                                        );
-                                    })}
+                                            );
+                                        })}
                                 </div>
                             );
                         })}
+
+                        {/* Индикатор перебора */}
+                        {flatSuggestionsRaw.length >= MAX_RESULTS && (
+                            <div className="yaml-quickjump__truncated">
+                                Показаны первые {MAX_RESULTS}. Уточните запрос или
+                                примените фильтр.
+                            </div>
+                        )}
                     </div>
                 )}
 
                 <div className="yaml-quickjump__footer">
+                    <span className="yaml-quickjump__footer-count">
+                        <strong>{visibleSuggestions.length}</strong>
+                        {visibleSuggestions.length !== flatSuggestionsRaw.length && (
+                            <span style={{ opacity: 0.6 }}>
+                                {" "}из {flatSuggestionsRaw.length}
+                            </span>
+                        )}{" "}
+                        {pluralFew(visibleSuggestions.length, "результат", "результата", "результатов")}
+                    </span>
+                    <span>
+                        <kbd>↑</kbd>
+                        <kbd>↓</kbd>
+                        <kbd>Home</kbd>
+                        <kbd>End</kbd> навигация
+                    </span>
                     <span>
                         <kbd>↑</kbd>
                         <kbd>↓</kbd> навигация
@@ -2151,6 +2463,15 @@ function QuickJumpHelp({ onClose }: { onClose: () => void }) {
                                 колонки Table). Прыжок к строке атрибута.</td>
                         </tr>
                         <tr>
+                            <td>Атрибуты по типу</td>
+                            <td><code>@:Reference</code>, <code>@score:Integer</code></td>
+                            <td>
+                                <code>@:type</code> — все атрибуты с dataType <code>type</code>.
+                                <code>@:custom</code> — все кастомные (Enum / Workflow / Table).
+                                <code>@attr:type</code> — оба условия.
+                            </td>
+                        </tr>
+                        <tr>
                             <td>Проблемы линтера</td>
                             <td><code>!</code>, <code>!error</code>, <code>!auditScore</code></td>
                             <td>Переход к проблеме. Совместим с severity
@@ -2159,9 +2480,15 @@ function QuickJumpHelp({ onClose }: { onClose: () => void }) {
                         </tr>
                         <tr>
                             <td>Соседи курсора</td>
-                            <td><code>~</code>, <code>~audit</code></td>
-                            <td>5 элементов выше и 5 ниже курсора. С фильтром —
-                                только совпадающие по id/name/описанию.</td>
+                            <td>
+                                <code>~</code>, <code>~3</code>, <code>~audit</code>,{" "}
+                                <code>~3 audit</code>
+                            </td>
+                            <td>
+                                5 элементов выше/ниже курсора по умолчанию;{" "}
+                                <code>~N</code> — по N с каждой стороны. С фильтром —
+                                только совпадающие.
+                            </td>
                         </tr>
                         <tr>
                             <td>Встроенная справка</td>

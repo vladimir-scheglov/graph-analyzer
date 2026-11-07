@@ -5031,48 +5031,6 @@ tr.highlighted .entity-matrix-row-head {
   color: var(--text-500);
 }
 
-.yaml-ext-ref {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  width: 100%;
-  padding: 5px 8px 5px 24px;
-  background: transparent;
-  border: none;
-  border-radius: 4px;
-  text-align: left;
-  font-family: inherit;
-  cursor: pointer;
-  color: inherit;
-  transition: background-color 0.1s;
-}
-.yaml-ext-ref:hover {
-  background: var(--bg-800);
-}
-.yaml-ext-ref__line {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  color: var(--text-500);
-  flex-shrink: 0;
-  min-width: 36px;
-}
-.yaml-ext-ref__field {
-  font-size: 11px;
-  color: var(--text-400);
-  flex-shrink: 0;
-}
-.yaml-ext-ref__target {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  color: var(--text-200);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-}
-.yaml-ext-ref:hover .yaml-ext-ref__target {
-  color: var(--accent-hover);
-}
 .impact-link--self {
   font-style: italic;
   opacity: 0.75;
